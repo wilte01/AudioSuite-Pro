@@ -40,7 +40,20 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install "bandit[toml]"
-      - run: bandit -r audio_suite_shared/ -c pyproject.toml || bandit -r audio_suite_shared/
+      - name: Bandit (full tree)
+        env:
+          PYTHONUTF8: "1"
+        run: bandit -r . -x ./.venv -c pyproject.toml
+
+  compile:
+    name: Compile / Pre-flight gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -X utf8 -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'
 
   test:
     name: Test (Python ${{ matrix.python-version }}, ${{ matrix.os }})
