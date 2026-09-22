@@ -1,0 +1,197 @@
+"""
+cli_args.py — CLI argument parser for Silence Trimmer.
+
+Master Driver handshake layout:
+    argv[1]  - folder path
+    argv[3]  - '--live' | '--dry'
+    argv[4]  - '--start' | '--no-start'
+    argv[5]  - '--end' | '--no-end'
+    argv[6]  - silence threshold (int dB, e.g. -50)
+    argv[7]  - '--fade' | '--no-fade'
+    argv[8+] - named pairs: --fade-in <ms>  --fade-out <ms>
+
+Display-only (master driver handshake, not used by tool):
+    '--clear-logs' | '--no-clear-logs'
+    '--parallel-run' | '--no-parallel-run'
+
+BaseCLIArgs provides: folder_path, live_mode, auto_start, auto_end.
+"""
+
+import os
+import sys
+from dataclasses import dataclass
+
+from audio_suite_shared.cli_dataclasses import BaseCLIArgs
+
+
+def was_launched_from_driver(argv: list[str] | None = None) -> bool:
+    """Return True when the tool was launched by the Master Driver.
+
+    Args:
+        argv: Argument list to inspect; defaults to sys.argv if None.
+
+    Returns:
+        True if argv has more than one element (i.e. a folder path was passed).
+    """
+    if argv is None:
+        argv = sys.argv
+    return len(argv) > 1
+
+
+@dataclass
+class SilenceTrimmerArgs(BaseCLIArgs):
+    """CLI arguments for Silence Trimmer.
+
+    Attributes:
+        threshold: Silence detection threshold in dBFS.
+        apply_fade: Whether to apply fade-in/fade-out after trimming.
+        fade_in_ms: Fade-in duration in milliseconds, or None to use default.
+        fade_out_ms: Fade-out duration in milliseconds, or None to use default.
+        clear_logs: Display-only flag for master driver handshake.
+        parallel_run: Display-only flag for master driver handshake.
+    """
+
+    threshold: int = -50
+    apply_fade: bool = False
+    fade_in_ms: int | None = None
+    fade_out_ms: int | None = None
+    parallel_mode: bool = False
+    max_workers: int = 4
+    clear_logs: bool = False
+    parallel_run: bool = False
+
+
+def validate_args(args: SilenceTrimmerArgs) -> list[str]:
+    """Validate CLI arguments and return a list of error messages.
+
+    Args:
+        args: Parsed SilenceTrimmerArgs instance to validate.
+
+    Returns:
+        List of human-readable error strings; empty if all arguments are valid.
+    """
+    errors: list[str] = []
+    if args.folder_path:
+        if not os.path.exists(args.folder_path):
+            errors.append(f"Folder path does not exist: {args.folder_path}")
+        elif not os.path.isdir(args.folder_path):
+            errors.append(f"Path is not a directory: {args.folder_path}")
+    if args.threshold < -80 or args.threshold > -20:
+        errors.append(f"Silence threshold must be -80 to -20 dB, got: {args.threshold}")
+    if args.fade_in_ms is not None and (
+        args.fade_in_ms < 100 or args.fade_in_ms > 3000
+    ):
+        errors.append(f"Fade-in must be 100-3000ms, got: {args.fade_in_ms}")
+    if args.fade_out_ms is not None and (
+        args.fade_out_ms < 100 or args.fade_out_ms > 5000
+    ):
+        errors.append(f"Fade-out must be 100-5000ms, got: {args.fade_out_ms}")
+    return errors
+
+
+def parse(argv: list[str] | None = None) -> SilenceTrimmerArgs:
+    """Parse command-line arguments into a SilenceTrimmerArgs instance.
+
+    Args:
+        argv: Argument list to parse; defaults to sys.argv if None.
+
+    Returns:
+        Populated SilenceTrimmerArgs dataclass.
+
+    Raises:
+        SystemExit: If validation errors are detected.
+    """
+    if argv is None:
+        argv = sys.argv
+    args = SilenceTrimmerArgs()
+    if len(argv) < 2:
+        return args
+    args.folder_path = argv[1]
+    i = 2
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--live":
+            args.live_mode = True
+            i += 1
+        elif arg == "--dry":
+            args.live_mode = False
+            i += 1
+        elif arg == "--start":
+            args.auto_start = True
+            i += 1
+        elif arg == "--no-start":
+            args.auto_start = False
+            i += 1
+        elif arg == "--end":
+            args.auto_end = True
+            i += 1
+        elif arg == "--no-end":
+            args.auto_end = False
+            i += 1
+        elif arg == "--fade":
+            args.apply_fade = True
+            i += 1
+        elif arg == "--no-fade":
+            args.apply_fade = False
+            i += 1
+        elif arg == "--fade-in" and i + 1 < len(argv):
+            try:
+                args.fade_in_ms = int(argv[i + 1])
+            except ValueError:
+                pass
+            i += 2
+        elif arg == "--fade-out" and i + 1 < len(argv):
+            try:
+                args.fade_out_ms = int(argv[i + 1])
+            except ValueError:
+                pass
+            i += 2
+        elif arg == "--workers" and i + 1 < len(argv):
+            try:
+                args.max_workers = int(argv[i + 1])
+            except ValueError:
+                pass
+            i += 2
+        elif arg == "--parallel":
+            args.parallel_mode = True
+            i += 1
+        elif arg == "--no-parallel":
+            args.parallel_mode = False
+            i += 1
+        elif arg == "--clear-logs":
+            args.clear_logs = True
+            i += 1
+        elif arg == "--no-clear-logs":
+            args.clear_logs = False
+            i += 1
+        elif arg == "--parallel-run":
+            args.parallel_run = True
+            i += 1
+        elif arg == "--no-parallel-run":
+            args.parallel_run = False
+            i += 1
+        elif arg.startswith("-") and arg not in {
+            "--fade",
+            "--fade-in",
+            "--fade-out",
+            "--workers",
+            "--parallel",
+            "--no-parallel",
+            "--clear-logs",
+            "--no-clear-logs",
+            "--parallel-run",
+            "--no-parallel-run",
+        }:
+            try:
+                args.threshold = int(arg)
+            except ValueError:
+                pass
+            i += 1
+        else:
+            i += 1
+    errors = validate_args(args)
+    if errors:
+        for error in errors:
+            print(f"Silence Trimmer: {error}", file=sys.stderr)
+        raise SystemExit(1)
+    return args

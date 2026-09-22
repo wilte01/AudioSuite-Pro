@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+*.egg
+dist/
+build/
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Cache
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+*.pyc
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Project-specific
+audio_suite_config.json
+audio_suite_config.key
+# album_art_sync API-key files (live Fanart.tv keys — never commit; template lives on disk)
+album_art_config.json
+album_art_config.key
+*.spec
+.coverage
+.coverage.*
+htmlcov/
+logs/
+*.log
+*.dll
+*.lnk
+.env
+.env.*
+!.env.example
+.junie/

@@ -1,0 +1,485 @@
+# PLAN — Audit Priority Actions (Post-Audit Remediation)
+
+**Status:** Draft — proposed, nothing implemented yet
+**Source:** "Honest Audit Report" (product capability + code-quality audit, 2026)
+**Scope:** The 7 priority actions named in the audit's closing section. Each action is broken into fully addressable steps with acceptance criteria, lockstep tests, and verification commands.
+**Anti-creep rule:** Implement ONLY the steps below. No adjacent refactors, no styling changes outside the touched files, no speculative features. Any defect discovered *while* implementing one of these steps must be fixed in the same change with a regression test (AGENTS.md §7), and noted in the Decision Log.
+
+---
+
+## Definition of Done (applies to every item below)
+
+Every item ships through the mandatory project verification pipeline, run from the repo root (Windows / pwsh):
+
+```powershell
+# 0. Compile / import gate
+python -X utf8 -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'
+
+# 1. Lint & format
+ruff check --fix .
+ruff format .
+
+# 2. Type check (per item P4 the config is tightened; then this is mypy --strict-equivalent)
+mypy .
+
+# 3. Security (canonical invocation; 0 High / 0 Medium)
+$env:PYTHONUTF8='1'; python -X utf8 -m bandit -r . -x ./.venv -c pyproject.toml
+
+# 4. Tests (bare full-suite run so pyproject testpaths apply)
+python -X utf8 -m pytest                    # --cov-fail-under=75 enforced
+```
+
+Also mandated: full-suite green, no new `# type: ignore` without a specific code, no new silent `except`, no `TODO`/`FIXME`.
+
+Ordering note: **P1 (git) should land first** so every subsequent change is a reviewable commit. P2–P5 are independent and can be parallelised. P6 depends on nothing. P7 items are independent follow-up initiatives (feature-backlog; deferral acceptable per AGENTS.md §7, but must be fully specified here).
+
+---
+
+## P1 — Initialise git repository and first commit
+
+**Problem:** The working copy has no VCS. For a ~133k-LOC suite with a committed engineering discipline, the absence of commits/diffs/rollback is the single biggest engineering-process gap, and it blocks normal review practice and CI-on-push (CI already triggers on `main`, which does not exist).
+
+### Steps
+
+1. **Pre-flight inventory (before `git init`).**
+   1. Confirm the tree state: `Get-ChildItem -Force` at repo root. Note what currently exists that should not be committed.
+   2. Decide two open questions (see Decisions) and record them in the Decision Log:
+      - Q1: commit `uv.lock`? (currently ignored at `.gitignore:39`, yet CI runs `uv sync`; committing it pins the resolved dependency graph).
+      - Q2: commit `fpcalc.exe` (repo root, runtime-required by the Fingerprinter)? `*.dll` is already ignored; `fpcalc.exe` is *not* ignored and would be added.
+2. **Harden `.gitignore` before the first commit.** Add / adjust the following entries (file: `.gitignore`):
+   ```gitignore
+   # Project-specific (extend existing block at lines 32-39)
+   audio_suite_config.key     # sibling of audio_suite_config.json (currently NOT ignored)
+   .coverage.*
+   htmlcov/
+   *.lnk
+   .env
+   .env.*
+   !.env.example
+   ```
+   If Decision Q1 = commit `uv.lock`: delete the `uv.lock` ignore line (`.gitignore:39`). If Q2 = keep fpcalc binary out: add `fpcalc.exe`; if Q2 = commit it: leave it tracked and add a note in `README`.
+3. **Secret scan gate (mandatory before staging anything).** From repo root:
+   ```powershell
+   # Any hit in a file about to be committed = blocker for that file.
+   rg -n -i "(api[_-]?key|secret|passwd|password|token)\s*[=:]\s*[\"'][A-Za-z0-9_\-]{8,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----" --glob '!.venv/**' --glob '!*.pyc' --glob '!*.docx' --glob '!*.pptx' .
+   ```
+   Also eyeball `audio_suite_config.json` / `audio_suite_config.key` are present-but-ignored (do **not** `git add -f` them).
+4. **`git init` and configure.** Use the user's existing global identity; verify with `git config --get user.name` / `user.email`; if unset, ask before setting a local identity.
+   ```powershell
+   git init -b main
+   git status        # confirm ignored files do not appear
+   ```
+5. **Initial commit.**
+   ```powershell
+   git add -A
+   git diff --cached --stat          # eyeball the file set (~700 .py + docs + user_guides .docx)
+   git commit -m "Initial commit of AudioSuite-Pro 1.0.0"
+   ```
+6. **Post-commit checks.** `git status` clean; `git log --oneline -1`; confirm CI would trigger (repo is pushed to a `main` remote when the user chooses).
+
+### Tests in lockstep
+- No pytest tests apply. Add a lightweight `AGENTS.md`/README note that VCS is now present (audit docs only — update wording that previously implied "not a git repo" if any doc states it).
+- Confirm `.gitignore` behaves: `git check-ignore audio_suite_config.json audio_suite_config.key logs/ .venv/` returns all four.
+
+### Acceptance criteria
+- `git log` shows `main` with one clean initial commit; `git status` clean.
+- No secrets, `.key`, config json, `.venv`, caches, or `logs/` in the commit.
+- CI workflow remains destined to run on push to `main`.
+
+### Decisions / risks
+- Q1 `uv.lock`: **recommend commit** (reproducible CI). Changing the ignore is a 1-line edit.
+- Q2 `fpcalc.exe`: **recommend commit** (native 3rd-party binary, small; needed for fingerprinting out-of-the-box) — unless size is a concern, in which case ignore + document download. Record the choice.
+- Risk: first commit carries the runtime `audio_suite_config.*` files if `git add -A` races with a running tool — the ignore rules above prevent it; verify with `git status --short` after add.
+
+---
+
+## P2 — Harden CI: full-tree Bandit, no `||` fallback, compile gate
+
+**Problem:** `.github/workflows/ci.yml:43` runs `bandit -r audio_suite_shared/ -c pyproject.toml || bandit -r audio_suite_shared/` — the `||` fallback re-runs *without* `-c` (the exact anti-pattern AGENTS.md §Verification warns about) and the scan covers only 1 of 26 packages. No compile/import gate exists in CI despite AGENTS.md mandating it as verification step 0.
+
+### Steps
+
+1. **Replace the security job scan command** (`.github/workflows/ci.yml:43`) with the canonical full-tree invocation:
+   ```yaml
+       - name: Bandit (full tree)
+         env:
+           PYTHONUTF8: "1"
+         run: bandit -r . -x ./.venv -c pyproject.toml
+   ```
+   Rationale:
+   - `-c pyproject.toml` keeps `skips`/`exclude_dirs` (B404/B101 skipped by policy; `tests` excluded).
+   - `-x ./.venv` matches the documented invocation and is a no-op in a fresh checkout (the security job has no `uv sync`, so no `.venv` is created — keep the flag for parity).
+   - `PYTHONUTF8` avoids the `charmap` report crash on any path containing `→`/non-ASCII docstring chars.
+   - Remove the `||` fallback entirely — a scan failure must fail the job.
+2. **Verify the widened scan passes before enabling.** Run the exact command locally (see Definition of Done step 3). Expected result: 0 High / 0 Medium; remaining findings are the documented B603/B606/B607 first-party subprocess call sites routed through `run_secure_subprocess()` and the shared test–sonly sites excluded by config. If any genuine Medium surfaces outside `audio_suite_shared/`, fix it *in the same change* (AGENTS.md §7) before updating CI.
+3. **Add a compile/import gate job.** Append a new job (or a step in the existing `test` job — recommend a dedicated job so it runs on both semantics independently):
+   ```yaml
+     compile:
+       name: Compile / Pre-flight gate
+       runs-on: ubuntu-latest
+       steps:
+         - uses: actions/checkout@v4
+         - uses: actions/setup-python@v5
+           with:
+             python-version: "3.12"
+         - run: python -X utf8 -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'
+   ```
+   This byte-compiles every first-party module and catches `SyntaxError`/`IndentationError`/broken-top-level-import crashes at launch time — mirroring `audio_suite_shared.preflight.guard_or_exit()` (which cannot run in CI because it needs a Tk `root`).
+4. **Optional hardening (do NOT scope-creep):** leave `mypy .`, ruff, pytest matrix as-is; they already run. No other CI changes.
+
+### Tests in lockstep
+- No code tests; the CI YAML itself is the artifact. If any package needed a security fix in step 2, add its regression test in that package's suite and re-run the full suite.
+
+### Acceptance criteria
+- `ci.yml` security job runs `bandit -r . -x ./.venv -c pyproject.toml` with `PYTHONUTF8=1` and no `||` fallback.
+- New `compile` job byte-compiles the tree.
+- Full local gate (Definition of Done) green after the change.
+
+### Decisions / risks
+- Medium findings discovered in the widened scan are release-blocking defects (AGENTS.md §7) — expected count is zero; if any appear, they are fixed here, not skipped.
+- GitHub Actions doesn't `uv sync` in the security job, so `-x ./.venv` is defensive only. Keep it for local parity.
+
+---
+
+## P3 — Fix `library_stats/library_cache.py` SQLite concurrency
+
+**Problem:** `library_stats/library_cache.py:96-98` connects with `sqlite3.connect(str(self._path), check_same_thread=False)` and **no `timeout=`**, guarded by a **per-instance** `self._lock` (`:88`). This is exactly the pattern AGENTS.md forbids ("concurrent writers from multiple instances/threads raise OperationalError: database is locked"). The correct reference pattern is `audio_suite_shared/batch_undo.py:53,173` (module-level lock, `timeout=30`, WAL, `ORDER BY rowid`). Currently latent (single-instance use), it is the one module that contradicts the documented rule.
+
+### Steps
+
+1. **Add a module-level lock** at `library_cache.py` (top, next to `logger`):
+   ```python
+   _DB_LOCK = threading.Lock()
+   ```
+   Remove the per-instance `self._lock = threading.Lock()` (`:88`).
+2. **Serialise every connection acquisition under the module lock.** Change `_connect()` so the guard uses `_DB_LOCK` (not `self._lock`), and add `timeout=30` to the connect call:
+   ```python
+   def _connect(self) -> sqlite3.Connection:
+       if self._conn is None:
+           with _DB_LOCK:
+               if self._conn is None:
+                   self._conn = sqlite3.connect(
+                       str(self._path), check_same_thread=False, timeout=30
+                   )
+                   self._conn.execute("PRAGMA journal_mode=WAL")
+                   self._conn.executescript(_SCHEMA_SQL)
+       return self._conn
+   ```
+   Keep `check_same_thread=False` (the dashboard queries from worker threads; the module lock serialises *cross-instance* writers per the documented rule).
+3. **Add an explicit `busy_timeout`** on the new connection so concurrent writers wait rather than race:
+   ```python
+   self._conn.execute("PRAGMA busy_timeout=30000")
+   ```
+4. **Audit write ordering.** Confirm aggregate/query paths order by stable columns, not `datetime('now')`. The cache's `scanned_at` column is informational only and no "newest-first"/prune query depends on it — if step 2 exposes any query ordering by `scanned_at`, convert to `rowid` ordering with a comment (AGENTS.md rule).
+5. **Surface the lock in the docstring** at `library_cache.py:2-26` with a one-line "Concurrency" note referencing the module-level lock + `timeout=30` pattern (why, not what).
+
+### Tests in lockstep (file: `library_stats/tests/test_library_cache.py`)
+Add a regression test class:
+- **Two instances, same file, concurrent writers:** create `LibraryCache(path)` instance A and `LibraryCache(path)` instance B (same `cache_path`), have them interleave `upsert_file` calls (e.g. via two threads and a `barrier`), then assert no `OperationalError` and that `row_count()` equals the expected total after both complete. This fails pre-fix (per-instance locks do not serialise separate connections) and passes post-fix.
+- **Module lock is shared:** assert both instances use the same underlying lock object (or equivalently that the concurrent-writer test above is deterministic when run repeatedly — run it in a `pytest.mark.parametrize("n", (1, 5))` loop).
+- **Locked-database wait:** open a raw second connection to the same file, `BEGIN EXCLUSIVE`, and verify `upsert_file` blocks and eventually succeeds within the 30 s timeout (timeout-conscious; keep the exclusive txn short).
+- Keep all existing `test_library_cache.py` tests green unchanged.
+
+### Acceptance criteria
+- `_connect()` carries `timeout=30` + `PRAGMA busy_timeout=30000`; guarding lock is module-level.
+- New concurrency tests pass; full suite green; coverage on `library_cache.py` maintained (existing suite + new tests).
+
+### Decisions / risks
+- `check_same_thread=False` is retained deliberately (worker-thread reads). The module lock serialises only the *creation* of the connection and, via `busy_timeout`, writers wait — matching `batch_undo.py`.
+- No schema change; existing cached DBs remain compatible.
+
+---
+
+## P4 — Align type-check configuration with the documented `--strict` claim
+
+**Problem:** AGENTS.md ⌈Verification Tooling⌉ item 2 claims `mypy . --strict`, but `pyproject.toml [tool.mypy]` (lines 61-95) does not set the full strict set (`disallow_any_generics`, `disallow_subclassing_any`, `disallow_untyped_calls` global, `disallow_untyped_defs`, `disallow_untyped_decorators`, `warn_unused_ignores`, `strict_equality`, `extra_checks`), and CI runs bare `mypy .`. The codebase is already ~99% annotated, so enabling the missing flags is expected to be a small, mechanical tail — but the config and the docs must agree.
+
+### Decision (record in Decision Log)
+**Option A (recommended): set `strict = true` in `[tool.mypy]` and add the missing flags**, making `mypy .` genuinely `--strict`-equivalent, then reword AGENTS.md to describe reality ("`strict = true` via `pyproject.toml`; run `mypy .`").
+Option B (fallback only if the error tail proves unreasonable — see step 2): amend the AGENTS.md claim to remove `--strict` and document the actual subset.
+
+### Steps
+1. **Get a clean baseline:** run `mypy .` (current config) and confirm 0 errors (429 files) before changing anything.
+2. **Enable strict equivalence** in `pyproject.toml [tool.mypy]`:
+   ```toml
+   strict = true
+   ```
+   Keep the existing overrides (they already set `disallow_untyped_calls = false` for third-party `py.typed` packages and `untyped_calls_exclude` for typeshed-gap callers — both remain coherent with `strict = true`). Run `mypy .` and capture the *full* error list.
+3. **Fix the error tail categorically** (expected categories, in order of likelihood):
+   1. `no-untyped-def` / `no-untyped-decorator` on any residual untyped functions/decorators in non-excluded source → add explicit `-> None`/parameter types (codeless, mechanical).
+   2. `misc` / `type-arg` from `disallow_any_generics` on bare `list`/`dict`/`tuple` literals → parameterise with the existing types.
+   3. `comparison-overlap`/`strict-equality` mismatches → fix the comparison or the literal type at the site.
+   4. `unused-ignore` on any now-redundant `# type: ignore` → remove it (never rewrite as a bare ignore to satisfy the check). The 31 non-test coded ignores currently present are expected to remain valid.
+   5. `any`-related (`no-any-return`, `warn_return_any`) violations surfaced by stricter flow — sample guidance in AGENTS.md (bind to explicitly-typed locals: the numpy `Any`-return trap) applies.
+   For every fixed site: run `python -X utf8 -m compileall -q -f .` again (import-chain modules) and re-run `mypy .`.
+4. **Update AGENTS.md** (global + project) type-check line: replace the `mypy . --strict` text with the accurate invocation (`mypy .`, with `strict = true` configured in `pyproject.toml`), so the doc matches the config. Add a one-line note that `untyped_calls_exclude` + overrides are the sanctioned carve-outs for third-party gaps.
+5. **CI remains `mypy .`** (`.github/workflows/ci.yml:32` needs no change once pyproject sets `strict = true`).
+6. **Update README/plugin-dev docs** if they restate the type-check command (grep `mypy` across `*.md`, `user_guides/**/*.py`, update generator scripts in lockstep and regenerate any generated doc that mentions it).
+
+### Tests in lockstep
+- No runtime tests. Verify: `mypy .` = 0 errors on 429 files with the *new* config; full suite still green under the tightened config (a type fix must not alter runtime behaviour — full pytest is the guard).
+
+### Acceptance criteria
+- `pyproject.toml` has `strict = true`; `mypy .` clean.
+- AGENTS.md (both files) no longer claims a flag the config doesn't set.
+- No new `# type: ignore` introduced.
+
+### Decisions / risks
+- If the tail exceeds an arbitrary but sane threshold (say >40 distinct sites not explained by categories above), STOP after the first error-quantifying run and report the count/list to the user before fixing (Two-Try Rule / scope approval), rather than grinding through an unbounded tail. Do not ship Option B path before that conversation.
+
+---
+
+## P5 — Promote `was_launched_from_driver` and the shared hidden-Tk conftest into `audio_suite_shared`
+
+**Problem:** `was_launched_from_driver(argv)` is duplicated byte-identically in ~19 tool packages (e.g. `tempo_analyzer/utils/cli_args.py:34`, `album_genre_tagger/utils/cli_args.py:34`, plus the four P6 tools) with a shortened variant in `silence_trimmer/utils/cli_args.py:27`. On the test side, ~23 per-tool `tests/conftest.py` files (e.g. `tempo_analyzer/tests/conftest.py`, 37 lines) differ only in a docstring and re-implement the same hidden-Tk bootstrap that `audio_suite_shared/tests/conftest.py:167-176` already standardises.
+
+### 5a. Canonicalise `was_launched_from_driver`
+1. **Inventory semantics before writing anything.** Grep each `utils/cli_args.py` + its `tests/test_cli_args.py` and record every asserted input → output pair (e.g. `["prog"]→False`, `["prog","folder"]→True`, `["prog","--no-clear-logs"]→True`, `[]→False`, plus the `argv=None`→`sys.argv` variants). There WILL be subtle differences (some tools additionally treat the second entry as numeric "0" placeholder). Build the union matrix.
+2. **Add the canonical function** to `audio_suite_shared/cli_helpers.py` (alongside the existing handler classes):
+   ```python
+   _DRIVER_ONLY_FLAGS: frozenset[str] = frozenset(
+       {"--clear-logs", "--no-clear-logs", "--parallel-run", "--no-parallel-run"}
+   )
+
+   def was_launched_from_driver(argv: list[str] | None = None) -> bool:
+       """True when *argv* indicates a launch from the Master Driver.
+
+       The driver always passes at least one positional argument (a path or
+       the numeric placeholder used by enrich tools) or a driver-only display
+       flag (``--clear-logs``/``--parallel-run`` and their negatives).
+       """
+       if argv is None:
+           argv = sys.argv[1:]
+       if not argv:
+           return False
+       first = argv[0]
+       return first in _DRIVER_ONLY_FLAGS or not first.startswith("-")
+   ```
+   Verify this canonical implementation reproduces *every* row of the union matrix from step 1. If a specific tool's legacy behaviour is unreproducible by the canonical form, record that tool + its divergence in the Decision Log and adjust the canonical form; do not special-case per tool.
+3. **Re-export from each tool** so existing call sites (`app.py` → `cli_args.was_launched_from_driver()`) remain untouched. In each of the ~19 `utils/cli_args.py` files replace the local body with:
+   ```python
+   from audio_suite_shared.cli_helpers import was_launched_from_driver  # noqa: F401
+   ```
+   Delete the local implementation (including the shortened `silence_trimmer` variant — confirm its tests pass against the canonical form). Keep each file's `parse()`/`validate_args()` local (out of scope).
+4. **Move the test matrix** into `audio_suite_shared/tests/test_cli_helpers.py` as a parameterised class (`TestWasLaunchedFromDriver`) containing every union-matrix row with its originating tool in the parametrisation id. Then reduce each tool's `tests/test_cli_args.py` to keep its own `parse()`/`validate_args()` rows, dropping the now-duplicated `was_launched_from_driver` rows (delete, do not xfail).
+
+### 5b. Single shared hidden-Tk conftest
+1. **Add a repo-root `conftest.py`** providing the canonical session-scoped hidden root, with graceful skip when no display is available (mirrors `tempo_analyzer/tests/conftest.py`, but never destroys the root — see the Python 3.14 Tcl-corruption note in `audio_suite_shared/tests/conftest.py:169-171`):
+   ```python
+   """Repo-root pytest fixtures: one hidden Tk root for the whole session."""
+
+   import pytest
+
+   _root = None
+
+
+   def pytest_configure(config: pytest.Config) -> None:
+       global _root
+       import tkinter as tk
+
+       try:
+           _root = tk.Tk()
+           _root.withdraw()
+       except tk.TclError:
+           pytest.skip("No display available — tkinter tests require a GUI environment",
+                       allow_module_level=False)
+
+
+   @pytest.fixture(scope="session")
+   def root():
+       """The shared hidden Tk root (kept alive for the whole session)."""
+       assert _root is not None
+       return _root
+
+
+   @pytest.fixture(scope="session")
+   def tk_root():
+       """Alias for the shared hidden root, for tests that use this name."""
+       return root()
+   ```
+   Notes: the existing `audio_suite_shared/tests/conftest.py` defines `tk_root` at lines 167-176 — **remove that duplicate definition** from the shared-suite conftest and rely on the root one (the package conftest still owns its non-Tk fixtures: `temp_directory`, `sample_audio_files`, `mock_processor`, etc.).
+2. **Inventory the per-tool conftests.** List every `tests/conftest.py` whose *only* content is the Tk bootstrap. Replace each with a zero-body file (`"""Placeholder — shared root comes from the repo-root conftest."""`). Do not delete files outright (pytest `testpaths` discovery is unaffected either way, but keeping the file avoids churn in package layouts that import fixtures from `conftest`).
+3. **Keep every package conftest that carries private fixtures** untouched.
+4. **Validate.** Run `pytest --collect-only` then the full suite. Confirm tests that previously required the per-package `root` fixture still resolve (repo-root conftest applies to all `testpaths` directories). Confirm headless CI behaviour: the matrix already runs on `ubuntu-latest` where `tkinter` is present but headless — the skip-on-`TclError` must fire there as it does today.
+
+### Tests in lockstep
+- `audio_suite_shared/tests/test_cli_helpers.py::TestWasLaunchedFromDriver` → full union matrix.
+- Full suite must remain green; no per-tool conftest may silently lose its `root` fixture.
+
+### Acceptance criteria
+- `grep -c "def was_launched_from_driver" audio_suite_shared/cli_helpers.py` = 1; zero local definitions remain in tool packages.
+- Root `conftest.py` exists; ≤1 definition of `tk_root` across the tree (the shared-suite one removed).
+- Full suite green, coverage ≥75%.
+
+### Decisions / risks
+- P5a deliberately does **not** fold the per-tool `parse()`/`validate_args()` loops into the shared layer (the audit listed that as a *further* duplication cluster, not part of this action). If P5 exposes that consolidation is trivial, raise it with the user rather than doing it silently.
+- Risk: the per-tool divergence matrix (5a step 1) may contain conflicting expectations; reconcile by recording and adjusting the canonical function, never by a per-tool `if`.
+
+---
+
+## P6 — Register the four orphan tools in the manifest registry
+
+**Problem:** `Audio_Enhancer`, `Audio_Normalizer`, `Pop_Click_Remover`, `Silence_Trimmer` are fully built (standalone GUI `.pyw` launchers, `cli.py` commands, user guides, tests) but have **no `ToolManifest`** (`audio_suite_shared/tool_plugin.py:153-420`) and therefore **no Master Driver card** — an inconsistent product surface ("No card UI for tool '<id>'" warnings).
+
+### Pre-checked against AGENTS.md "Registering a New Tool" checklist (already satisfied — do not redo)
+- **CLI command + import** in `audio_suite_shared/cli_app.py`: present (`enhance` :36, `normalise` :38, `declick` :53, `silence-trim` :55).
+- **`.pyw` launchers**: `Audio_Enhancer.pyw`, `Audio_Normalizer.pyw`, `Pop_Click_Remover.pyw`, `Silence_Trimmer.pyw` exist.
+- **User guide generator + `guide_to_program` registration**: `user_guides/individual_programs/{tool}/generate_guide.py` exist for all four; `platform_utils.py guide_to_program` already lists them (lines 103/105/120/122).
+- **Test paths**: all four are already in `pyproject.toml testpaths` and coverage `source`.
+
+### Steps
+
+1. **Add four `ToolManifest` entries** to `_build_default_registry()` in `audio_suite_shared/tool_plugin.py` (Utility category, `standalone=True` to match `noise_reduction`'s semantics — launched non-blocking, skipped from parallel batch scheduling), with the exact CLI names and launcher filenames:
+
+   | id | name | category | pyw_filename | cli_command | standalone | order |
+   |---|---|---|---|---|---|---|
+   | `audio_enhancer` | Audio Enhancer | utility | `Audio_Enhancer.pyw` | `enhance` | True | 43 |
+   | `audio_normalizer` | Audio Normalizer | utility | `Audio_Normalizer.pyw` | `normalise` | True | 44 |
+   | `pop_click_remover` | Pop/Click Remover | utility | `Pop_Click_Remover.pyw` | `declick` | True | 45 |
+   | `silence_trimmer` | Silence Trimmer | utility | `Silence_Trimmer.pyw` | `silence-trim` | True | 46 |
+
+   Order values slot around existing utility tool `noise_reduction` (order=42). Set `default_on=False` so existing driver state is not flipped on.
+
+2. **Add per-module option vars to `master_driver/state/app_state.py`** (the `__init__` option block after `:71`), matching each tool's own `utils/cli_args.py` + `cli.py` grammar:
+   - `audio_enhancer`: `enhancer_output_dir` (StringVar ""), `enhancer_preset` (StringVar "Moderate") — CLI: `--output-dir` (required), `--preset`.
+   - `audio_normalizer`: `normalizer_target_lufs` (StringVar "-14.0"), `normalizer_tolerance` (StringVar "0.5"), `normalizer_mode` (StringVar "normalise") — CLI: `--target-lufs`, `--tolerance`, `--mode normalise|lossless`.
+   - `pop_click_remover`: `declick_sensitivity` (StringVar "0.25"), `declick_max_width` (StringVar "5") — CLI: `--sensitivity`, `--max-width`.
+   - `silence_trimmer`: `trimmer_threshold` (StringVar "-50"), `trimmer_apply_fade` (BooleanVar False), `trimmer_fade_in_ms` (StringVar "25"), `trimmer_fade_out_ms` (StringVar "25") — CLI: `--threshold`, `--fade/--no-fade`, `--fade-in`, `--fade-out`.
+3. **Create the four cards** as `master_driver/ui/cards/{tool_id}_card.py` — file names MUST equal the manifest ids exactly (card-naming AGENTS.md rule):
+   - `audio_enhancer_card.py`, `audio_normalizer_card.py`, `pop_click_remover_card.py`, `silence_trimmer_card.py`, each exposing `build(parent: tk.Frame, state: "AppState") -> None`.
+   - Copy the collapsible-panel structure of `master_driver/ui/cards/noise_reduction_card.py` (header Checkbutton bound to `state.module_toggles[tool_id]`, settings body toggled by the ▶/▼ button). Widgets bind to the new app_state vars from step 2.
+   - `audio_enhancer_card` additionally needs an output-dir **browse** affordance (its CLI requires `--output-dir`); keep it minimal — an Entry + Browse button that writes `state.enhancer_output_dir`. If `enhancer_output_dir` is empty at run time, `arg_builder` must omit the tool from the batch (see step 5) rather than launch with a broken command.
+   - No `_CARD_MODULE_OVERRIDES` entries in `utilities_window.py:26-28` required — names follow the convention.
+4. **Extend `master_driver/runner/arg_builder.py` `_build_utility_tool_args`** (builders dict at `:208-282`) with four builders mirroring each tool's CLI grammar and the driver handshake (path, `mode_flag`, `start_flag`, `end_flag`, tool flags, then `_driver_display_flags`):
+   ```python
+   "audio_enhancer": lambda: _build_audio_enhancer_args(path, mode_flag, start_flag, end_flag, state),
+   "audio_normalizer": lambda: _build_audio_normalizer_args(path, mode_flag, start_flag, end_flag, state),
+   "pop_click_remover": lambda: _build_pop_click_remover_args(path, mode_flag, start_flag, end_flag, state),
+   "silence_trimmer": lambda: _build_silence_trimmer_args(path, mode_flag, start_flag, end_flag, state),
+   ```
+   - `_build_audio_enhancer_args`: `[path, "--output-dir", out, "--preset", preset] + display flags`. If `out` empty → return `[]` (tool silently skipped; add a `_log` in `module_runner`... **no** — keep return `[]` and rely on the card's required-field label; record behaviour in the card docstring).
+   - `_build_audio_normalizer_args`: `[path, target_lufs, mode_flag, start_flag, end_flag, "--tolerance", tol, "--mode", mode] + display flags` (mirrors the existing `replaygain` enrich pattern: positional target-lufs).
+   - `_build_pop_click_remover_args`: `[path, mode_flag, start_flag, end_flag, "--sensitivity", sens, "--max-width", width] + display flags`.
+   - `_build_silence_trimmer_args`: `[path, mode_flag, start_flag, end_flag, "--threshold", thr] + (["--fade", "--fade-in", fin, "--fade-out", fout] if apply_fade) + display flags` (add `--parallel/--workers` only if the tool's runner sync is desired — it is not part of driver orchestration; omit).
+5. **Add the four ids to `master_driver/batch_orchestrator.py` `DEPENDENCY_GRAPH`** (after `:141`) with `[]` deps, so the graph mirrors the full registry (the integrity test at `test_batch_orchestrator.py:433-445` is currently advisory `assert tid in graph or True`, but the graph is the source of truth for batch ordering — keep it complete).
+6. **Update lockstep tests:**
+   - `audio_suite_shared/tests/test_tool_plugin.py`: expected-tool-set assertions (add the four ids; adjust `by_category("utility")` expectations if asserted).
+   - `master_driver/tests/test_app_state.py`: expected-keys test — add the 8 option vars from step 2.
+   - `master_driver/tests/test_runner.py`: `_make_state` (lines 75-160) — add the four `module_toggles` keys + the 8 option-var mocks; add `TestBuildUtilityArgs` rows asserting the four new arg lists (structure + flag names + a `dry`/`live` toggle case each). Extend `TestBuildEnrichArgs` **only if** any of the four were placed in enrich (they are not — utility).
+   - `master_driver/ui/tests` if any asserts card-count/membership for the utility tab (verify; update the list).
+7. **GUI smoke test manually** (not pytest): `Master_Driver.pyw` → UTIL tab shows the four new cards, each toggles on/off, Launch passes the expected argv (dry-run mode).
+
+### Acceptance criteria
+- Registry holds 26 manifests; Utilities tab renders four new cards with working controls.
+- `ensure build_utility_args` emits `[path, mode, start, end, ...]` for the new tools (`test_runner.py` asserts it) and never emits a broken `--output-dir` for the enhancer with an empty output dir.
+- Full suite + compile gate green; coverage unchanged or improved in the touched modules.
+
+### Decisions / risks
+- Placing the four under utility (not enrich) is deliberate: they are DSP-write tools, matching `noise_reduction`'s home. Enrich is reserved for tag/metadata tools.
+- The `audio_enhancer` requires an output directory by design (it never writes in place); the enhancement output-dir is a *behaviour difference* vs. the other three and must be communicated in the card (label "Output folder (required)").
+- Card naming rule is the known silent-failure trap — verify `importlib.import_module(f"master_driver.ui.cards.{tool_id}_card")` resolves by running the Utilities tab, not by file listing.
+
+---
+
+## P7 — Product-roadmap initiatives (feature backlog; fully specified)
+
+These close the three largest market gaps named in the audit. They are independent, larger initiatives. Do NOT bundle them into P1–P6; deliver each as its own PLAN with its own gate. Specified here to the point where a future session can execute without re-research.
+
+### 7a. Ripping verification: "Rip Twice" local verify + AccurateRip-DB cross-check
+
+**Gap:** `cd_ripper` (`core/track_processor.py`) does repeated-read/C2 diagnostics but has no community-database cross-check (AccurateRip is the industry trust standard). Note: this is a *rebuild/backlog* item — the existing ripper is not broken.
+
+**Design:**
+1. New module `cd_ripper/core/accuraterip.py`:
+   - Compute the AccurateRip Disc ID from the TOC start LSNs (first-track start + each track offset + lead-out), using the published ID formula exercised by the open-source CUERipper/CUETools (reference implementations only — clean-room client, no copied code).
+   - Compute per-track CRC-32 over 16-sample-aligned frames for the "standard" and "with gap" variants, as the AccurateRip protocol expects.
+   - HTTP client (via the project's `requests` dependency + the shared secure-subprocess/HTTP standards; note bandit B310 guidance — HTTP here is `requests`, not `urllib`), querying the AccurateRip DB endpoint; handle 200 with embedded CRC payload, 404/no-entry, and timeouts as three distinct results.
+2. New verification stage in `track_processor`: after the raw read, re-read the track once more and compare frame CRCs (this is the always-available "rip twice" fallback — no network dependency), then optionally cross-check the resulting CRC against the AccurateRip DB.
+3. CLI flag `--verify` with `Choice(["off", "twice", "accuraterip"])` (default `twice`); GUI control in `cd_ripper` setup UI; results surfaced per-track in `results_tab` (VERIFIED / MISMATCH / NO_ENTRY / OFFLINE) and aggregated in the summary.
+4. **Config/settings:** none beyond the CLI flag; **undo/atomicity:** ripping writes to the output dir only after a verified read — a MISMATCH must not write the track (configurable `--force-on-mismatch` in follow-up only).
+
+**Tests (decode-and-measure discipline):**
+- Pure tests: Disc-ID from a known public TOC vector (hard-code two published release vectors with their expected IDs); CRC-32 over synthetic frames vs reference values; with/without-gap frame alignment; HTTP client mocked for 200/404/timeout/HTTP-error (`resolve_*` returning typed results).
+- Integration (marker `integration`, only when a CD is mounted — keep optional): rip a track with the drive, assert VERIFIED when DRIVE is the source; run the "rip twice" path and assert CRCs equal across the two reads.
+- No mocks of the CRC math; assert the actual computed value.
+
+**Acceptance:** `cd-rip --verify twice` runs fully offline; `--verify accuraterip` degrades to VERIFIED-with-local-check when the disc is absent from the DB; a corrupted/second-read mismatch is reported and blocks the write unless overridden. Full gate green.
+
+**Risks / notes:** AccurateRip is a proprietary-but-public community service; protocol learned from open-source implementations (CUERipper/CUETools published code). Do not wrap it in a closed abstraction that hides the network dependency; keep OFFLINE/NO_ENTRY as first-class results. Scope creep guard: no offset database UI, no per-drive offset management in this item.
+
+### 7b. Album-level AcoustID clustering (Fingerprinter)
+
+**Gap:** `audio_fingerprinter` resolves per-file best matches. Picard's signature power is *album-level* clustering (match a whole release at once). The existing client (`core/acoustid_client.py`) already has the tag-aware near-tie break (`resolve_best_match`, `_AMBIGUITY_SCORE_GAP` ~0.10) — build on it.
+
+**Design:**
+1. Client extension: `lookup_many(fingerprints: list[Fingerprint]) -> list[AcoustIdResponse]` — batched, rate-limited (reuse the existing sliding limiter; do NOT hammer the API — batch per request is bounded to ~5).
+2. New module `audio_fingerprinter/core/album_cluster.py`:
+   - Group candidate recordings by MusicBrainz **release-group** (`release-group-id`), require a minimum vote (`CLUSTER_MIN_FILES`, e.g. 3 files in the same release-group with matching per-file score ≥ `_AMBIGUITY_SCORE_GAP-adjacent` threshold).
+   - Score each cluster by (files voting) × (average per-file confidence); a cluster is "decided" when it wins by a margin over the runner-up; otherwise the ambiguity is surfaced (reuse the existing runner-up-in-message convention).
+   - Only write tags after a decided cluster; per-file fallback to today's `resolve_best_match` when no cluster forms.
+3. CLI: `fingerprint --album-mode` (adds cluster-level tagging + a `--album-min` count, default 3); GUI: an "Album Match" mode checkbox exposing the same option. Dry-run report lists proposed cluster per album.
+4. Undo: cluster tag-writes go through the existing `active_batch` snapshot path (no new undo machinery).
+
+**Tests:** unit-test `album_cluster` with synthetic responses (decided cluster / tie → ambiguous / below-min → fallback); client `lookup_many` with mocked HTTP + limiter spacing; integration with recorded responses (no live API in tests). Assert actual tag sets written for the decided-cluster path (outcome verification), not internal state.
+
+**Acceptance:** `--album-mode` produces consistent album tags for a multi-file album, defers to per-file when uncertain, rate-limits correctly, and leaves ambiguous files untagged with the runner-up surfaced. Full gate green.
+
+**Risks / notes:** cluster quality depends on AcoustID result quality — the existing tag-aware tie-break remains the per-file safety net. Do not reduce per-file safeguards; clustering only *adds* cross-file evidence.
+
+### 7c. Freeform batch Tag Editor (new tool — largest initiative)
+
+**Gap:** the suite has powerful *transformational* taggers (field updater, scrubber, genre rules) but no interactive editable grid — Mp3tag's daily-driver surface. This is a new tool per the full "Registering a New Tool" checklist.
+
+**Design (phased; each phase has its own gate):**
+- **Phase A — read-only grid + single-field edit:** new package `tag_editor/` (utility category, id `tag_editor`, CLI `tag-edit`, `.pyw` launcher `Tag_Editor.pyw`, `generate_guide.py` + `guide_to_program` registration, testpaths/coverage entries, manifest + card + arg_builder + `DEPENDENCY_GRAPH` + app-state vars per the P6 recipe). ttk.Treeview listing files (library scan via `audio_suite_shared.audio_formats` supported extensions) × editable columns (title/artist/album/album_artist/track/year/genre/comment); edits write through first-party `tag_helper` handlers (reuse the format handler factory — do not re-implement mutagen per format). Writes run through `batch_undo` (`active_batch`).
+- **Phase B — bulk ops:** multi-select rows; set-blank, clear-field, swap-two-fields, case-convert, apply-TXXX-rule reusing `tag_field_updater`'s mapping engine concepts (new code, cross-referenced, not monkey-patched).
+- **Phase C — import/export:** CSV import (column→field map) and CSV export (mirrors `library_stats` CSV exporter); optional click `--csv FILE --dry`.
+- **Out of scope (explicit):** tag *inference* (Picard matching) — that's 7b; scriptable regex actions beyond basic case/swap — that's an Mp3tag action-groups feature and is a *further* backlog item, not this one.
+
+**Tests:** every phase carries decode-and-measure round-trip tests (real MP3/FLAC/OGG files via pydub export): edit → read via `mutagen` directly → assert field value; undo → assert original restored (reuse the `FLAC` mutate-in-place regression pattern from AGENTS.md — never rebind `.tags`). CSV import/export round-trip tests. GUI tests via the `object.__new__` pattern.
+
+**Acceptance:** a user can load a folder, edit album/title/genre across selected rows, and undo the whole batch from `Undo_Tag_Edits.pyw`. Full gate green at each phase.
+
+**Risks / notes:** the largest item — do NOT fold into P1–P6; split Phase A from the rest and gate each. Watch the freeform-editor input-validation path (use `security/input_validator.py`). Tag-editor writes must be integrity-safe for audio payloads (only tag frames change — no audio rewrite; reuse the lossless tag-write paths, never re-encode).
+
+---
+
+## Decision Log
+
+| # | Item | Decision | Rationale |
+|---|---|---|---|
+| D1 | P1/Q1 `uv.lock` | Commit it (remove ignore line) | Reproducible CI dependency graph; `uv sync` already consumes it |
+| D2 | P1/Q2 `fpcalc.exe` | Commit it (small native runtime binary) | Out-of-the-box fingerprinting; verify size first; if >5 MB, ignore + document download instead |
+| D3 | P2 std Medium findings | Fix-in-change per AGENTS.md §7 | Widened scan must land at 0 H / 0 M |
+| D4 | P4 mypy strict | Option A: `strict = true` | Aligns config with documented claim; tail is expected small (~99% annotated); escalate if >~40 sites |
+| D5 | P5 is-launched-from-driver | Canonical in `cli_helpers`, per-tool re-export | Zero churn at call sites; single source of truth |
+| D6 | P6 category/standalone | utility + `standalone=True` | Matches `noise_reduction` semantics; enrich stays tag/metadata-only |
+| D7 | P6 enhancer output-dir | Required; missing → card omits tool from batch | Enhancer never writes in place by design |
+| D8 | P7 order | 7a → 7b → 7c; each its own gate | Increasing complexity; 7c is the largest |
+| D9 | Defects discovered during implementation | Fixed in the change that found them + regression test | Global AGENTS.md §7; applies to every P1–P6 step |
+
+---
+
+## Execution order & sequencing
+
+1. **P1** (foundation: VCS for reviewable commits) → commit with message `P1: initialise git repository`.
+2. **P2** + **P3** + **P4** in parallel (independent; P4 rewrites no runtime code, P2/P3 are localised) → commits `P2: harden CI security+compile gate`, `P3: library_cache concurrency`, `P4: strict mypy config`.
+3. **P5** (largest touching change) → commit `P5: deduplicate driver-launch + Tk test root`.
+4. **P6** (self-contained product-surface fix) → commit `P6: register orphan DSP tools`.
+5. **P7** items: separate plans, separate gates, backlog order 7a → 7b → 7c.
+6. After every commit: run the Definition of Done gate; after P4 also `mypy .` and after P6 run the Master Driver manually.
+
+Each commit above may be split into several commits at the implementer's discretion (atomic units preferred), but the gate runs must correspond to the *state after each item*, not after P1..P6 cumulatively.
+
+---
+
+## Session retrospective (fill in after each item lands)
+
+| Item | Lesson learned / gotcha | Feed into AGENTS.md? |
+|---|---|---|
+| P1 | (reserved) | |
+| P2 | (reserved) | |
+| P3 | (reserved) | |
+| P4 | (reserved) | |
+| P5 | (reserved) | |
+| P6 | (reserved) | |

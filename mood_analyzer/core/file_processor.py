@@ -1,0 +1,378 @@
+"""
+file_processor.py
+Per-file processing worker and ThreadPoolExecutor orchestration
+for Mood Analyzer.
+
+All UI interaction via injected callbacks — no tkinter imports.
+
+Per the V1 decision, every supported audio file is analysed in full;
+only undecodable / near-silent files are skipped.
+
+Supports: MP3, FLAC, OGG, M4A, Opus
+"""
+
+import logging
+import os
+import threading
+import time
+from collections.abc import Callable
+from queue import Queue
+from typing import Any
+
+from audio_suite_shared.analysis_loader import load_analysis_audio
+from audio_suite_shared.batch_undo import get_active_batch_id, use_batch
+from audio_suite_shared.error_recovery import RecoveryAction, get_recovery_action
+from audio_suite_shared.exceptions import (
+    AudioAnalysisError,
+    AudioCodecError,
+    AudioFormatError,
+    handle_audio_errors,
+    map_to_audio_error,
+    user_message_for,
+)
+from audio_suite_shared.file_processor_base import BaseFileProcessor
+from audio_suite_shared.resource_manager import (
+    cleanup_expired_resources,
+    get_resource_manager,
+    track_thread,
+)
+from audio_suite_shared.tag_helper import (
+    SUPPORTED_EXTENSIONS,
+    write_energy,
+    write_mood,
+    write_mood_confidence,
+)
+
+from .signal_mood_engine import MoodAnalysis, analyze_mood
+
+logger = logging.getLogger(__name__)
+
+# ── Type aliases ──────────────────────────────────────────────────────────────
+
+# Signature of the internal progress callback accepted by process_single_file.
+# Called under lock; all parameters are keyword-only.
+_ProgressCallback = Callable[..., None]
+
+# Signature of the public on_progress callback accepted by run_analysis.
+# Called with: processed, total, skipped, errors, display_text.
+_PublicProgressCallback = Callable[[int, int, int, int, str], None]
+
+# Signature of the on_complete callback accepted by run_analysis.
+_CompleteCallback = Callable[..., None]
+
+# Signature of the on_error callback accepted by run_analysis.
+_ErrorCallback = Callable[[str], None]
+
+# Analysis failures that indicate a file simply cannot be analysed with
+# signal analysis — these are counted as SKIPs, not errors.
+_SKIPPABLE_ANALYSIS_ERRORS = (
+    AudioCodecError,
+    AudioFormatError,
+    AudioAnalysisError,
+)
+
+
+class MoodAnalyzerProcessor(BaseFileProcessor):
+    """Mood analysis file processor using BaseFileProcessor infrastructure."""
+
+    def __init__(self, max_workers: int = 4, parallel_mode: bool = False) -> None:
+        super().__init__(
+            operation_type="mood_analysis",
+            max_workers=max_workers,
+            parallel_mode=parallel_mode,
+        )
+
+
+def _analyse_file(file_path: str, analysis_duration: int) -> MoodAnalysis:
+    """Load and analyse a single audio file, returning its mood.
+
+    Raises:
+        AudioCodecError: if the file cannot be decoded.
+        AudioAnalysisError: if the audio is too short or near-silent.
+    """
+    y, sr = load_analysis_audio(file_path, max_duration=analysis_duration)
+    return analyze_mood(y, int(sr))
+
+
+def process_single_file(
+    processor: MoodAnalyzerProcessor,
+    name: str,
+    dir_path: str,
+    is_dry_run: bool,
+    analysis_duration: int,
+    slot_vars: list[Any],
+    slot_idx: int,
+    lock: threading.Lock,
+    on_progress: _ProgressCallback,
+) -> None:
+    """Process a single audio file: detect mood, optionally write tags.
+
+    Args:
+        processor:         MoodAnalyzerProcessor instance for retry utilities.
+        name:              Filename (not full path).
+        dir_path:          Directory containing the file.
+        is_dry_run:        When True, analyse but do not write tags.
+        analysis_duration: Maximum seconds of audio to load for analysis.
+        slot_vars:         Shared list of UI status StringVars (one per worker).
+        slot_idx:          Assigned worker slot index.
+        lock:              Mutex guarding *on_progress* calls.
+        on_progress:       Callback invoked (under lock) after each file outcome.
+    """
+    file_path = os.path.join(dir_path, name)
+    safe_name = name.replace(" ", "_").replace("-", "_")
+
+    def _process_file() -> None:
+        slot_vars[slot_idx].set(f"Analyzing: {name[:25]}...")
+        analysis = _analyse_file(file_path, analysis_duration)
+
+        status = "DETECTED"
+        if not is_dry_run:
+            slot_vars[slot_idx].set(f"Tagging: {name[:25]}...")
+            write_mood(file_path, analysis.to_tag_string())
+            write_mood_confidence(file_path, f"{analysis.confidence:.2f}")
+            write_energy(file_path, str(analysis.energy))
+            status = "TAGGED"
+
+        display = (
+            f"[{status}] {name} \u2192 {analysis.to_tag_string()} "
+            f"(conf {analysis.confidence:.2f})"
+        )
+        log = (
+            f"[{status}] {name} | Mood: {analysis.to_tag_string()} "
+            f"| Confidence: {analysis.confidence:.2f} | Energy: {analysis.energy}\n"
+        )
+
+        with lock:
+            on_progress(n_skipped=0, n_errors=0, display_text=display, log_text=log)
+
+    try:
+        processor.run_with_retry(_process_file, label=f"mood_{safe_name}")
+
+    except Exception as exc:
+        mapped = map_to_audio_error(exc)
+        logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
+        action = get_recovery_action(exc, "mood_analysis")
+
+        if action == RecoveryAction.SKIP or isinstance(
+            mapped, _SKIPPABLE_ANALYSIS_ERRORS
+        ):
+            display = f"[SKIP] {safe_name}: {exc}"
+            with lock:
+                on_progress(
+                    n_skipped=1,
+                    display_text=display,
+                    log_text=f"[SKIP] {safe_name}: {exc}\n",
+                )
+        else:
+            display = f"[ERROR] {safe_name}: {exc}"
+            with lock:
+                on_progress(
+                    n_errors=1,
+                    display_text=display,
+                    log_text=f"[ERROR] {safe_name}: {exc}\n",
+                )
+
+
+def _analyze_mood_cpu(
+    file_path: str,
+    analysis_duration: int,
+    **kwargs: object,
+) -> dict[str, object]:
+    """Top-level CPU worker for mood analysis (picklable for ProcessPoolExecutor).
+
+    Runs librosa.load + analyze_mood in a separate process.  No callback, lock,
+    or UI references.
+
+    Returns:
+        ``{"status": "ok", "mood": <str>, "confidence": <float>,
+        "energy": <int>}`` on success, or
+        ``{"status": "error", "error": <str>}`` on failure.
+    """
+    try:
+        analysis = _analyse_file(file_path, analysis_duration)
+        return {
+            "status": "ok",
+            "mood": analysis.to_tag_string(),
+            "confidence": float(analysis.confidence),
+            "energy": int(analysis.energy),
+        }
+    except Exception as exc:
+        logger.error(
+            "[Unexpected] _analyze_mood_cpu failed for '%s': %s",
+            file_path,
+            exc,
+            exc_info=True,
+        )
+        return {"status": "error", "error": str(exc)}
+
+
+def _handle_mood_result(
+    filename: str,
+    dir_path: str,
+    result: dict[str, object],
+    slot_idx: int,
+    lock: threading.Lock,
+    on_progress: Callable[..., None],
+    **kwargs: Any,
+) -> None:
+    """Main-thread handler for mood CPU results.  Reads/writes tags and
+    reports progress."""
+    is_dry_run = kwargs.get("is_dry_run", False)
+    slot_vars: list[Any] = kwargs.get("slot_vars", [])
+    file_path = os.path.join(dir_path, filename)
+
+    if result.get("status") == "error":
+        display = f"[ERROR] {filename}: {result.get('error', 'unknown error')}"
+        log = f"[ERROR] {filename}: mood analysis failed — {result.get('error')}\n"
+        with lock:
+            on_progress(n_skipped=0, n_errors=1, display_text=display, log_text=log)
+        return
+
+    mood: str = result["mood"]  # type: ignore[assignment]
+    confidence: float = result["confidence"]  # type: ignore[assignment]
+    raw_energy = result.get("energy", 0)
+    energy: int = int(raw_energy) if isinstance(raw_energy, (int, str)) else 0
+
+    status = "DETECTED"
+    if not is_dry_run:
+        slot_vars[slot_idx].set(f"Tagging: {filename[:25]}...")
+        write_mood(file_path, mood)
+        write_mood_confidence(file_path, f"{confidence:.2f}")
+        write_energy(file_path, str(energy))
+        status = "TAGGED"
+
+    display = f"[{status}] {filename} → {mood} (conf {confidence:.2f})"
+    log = (
+        f"[{status}] {filename} | Mood: {mood} | Confidence: {confidence:.2f} "
+        f"| Energy: {energy}\n"
+    )
+
+    with lock:
+        on_progress(n_skipped=0, n_errors=0, display_text=display, log_text=log)
+
+
+@handle_audio_errors(reraise=False, context="mood_analyzer_run_analysis")
+def run_analysis(
+    dir_path: str,
+    is_dry_run: bool,
+    analysis_duration: int,
+    slot_vars: list[Any],
+    slot_queue: Queue[Any],
+    on_progress: _PublicProgressCallback,
+    on_complete: _CompleteCallback,
+    on_error: _ErrorCallback,
+    parallel_mode: bool = False,
+    max_workers: int | None = None,
+) -> None:
+    """Scan directory, analyse all supported audio files with a worker thread
+    pool, then call *on_complete* with the summary.
+
+    When *parallel_mode* is True, uses ``ProcessPoolExecutor`` via
+    ``run_cpu_bound_processing`` for true multi-process CPU parallelism
+    (bypasses the GIL for librosa FFT / CQT).
+
+    Args:
+        dir_path:          Path to the directory containing audio files.
+        is_dry_run:        When True, analyse only — do not write tags.
+        analysis_duration: Maximum seconds of audio to load per file.
+        slot_vars:         List of UI status StringVars (one per worker slot).
+        slot_queue:        Queue pre-loaded with worker slot indices 0-3.
+        on_progress:       Called after each file with
+                           (processed, total, skipped, errors, display_text).
+        on_complete:       Called once with summary keyword arguments.
+        on_error:          Called with a human-readable message on fatal errors.
+        parallel_mode:     When True, use ProcessPoolExecutor for CPU-bound
+            analysis; when False (default), use ThreadPoolExecutor.
+        max_workers:       Number of parallel workers.  Defaults to 4.
+    """
+    get_resource_manager()
+
+    processor = MoodAnalyzerProcessor(
+        max_workers=max_workers or 4,
+        parallel_mode=parallel_mode,
+    )
+
+    if parallel_mode:
+        cpu_kwargs = {"analysis_duration": analysis_duration}
+        handler_kwargs = {"is_dry_run": is_dry_run, "slot_vars": slot_vars}
+        combined_kwargs: dict[str, object] = {**cpu_kwargs, **handler_kwargs}
+
+        processor.run_cpu_bound_processing(
+            dir_path=dir_path,
+            cpu_worker=_analyze_mood_cpu,
+            result_handler=_handle_mood_result,
+            on_progress=on_progress,
+            on_complete=on_complete,
+            on_error=on_error,
+            extensions=SUPPORTED_EXTENSIONS,
+            max_workers=max_workers,
+            **combined_kwargs,
+        )
+        return
+
+    try:
+        files = processor.discover_audio_files(
+            dir_path, extensions=SUPPORTED_EXTENSIONS
+        )
+    except Exception as exc:
+        mapped = map_to_audio_error(exc)
+        logger.error("Directory scan failed: %s", mapped, exc_info=True)
+        on_error(user_message_for(mapped))
+        return
+
+    if not files:
+        on_error("No supported audio files found in the selected directory.")
+        return
+
+    processed, skipped, errors, log_entries, _on_progress = (
+        processor.create_progress_tracker(
+            lambda processed, total, skipped, errors, display_text: on_progress(
+                processed, total, skipped, errors, display_text
+            ),
+            len(files),
+        )
+    )
+
+    lock = threading.Lock()
+    start = time.time()
+
+    undo_batch: str | None = get_active_batch_id()
+
+    main_thread = threading.current_thread()
+    track_thread(main_thread, "mood_analyzer_main")
+
+    def _worker(name: str) -> None:
+        slot_idx = slot_queue.get()
+        try:
+            with use_batch(undo_batch):
+                process_single_file(
+                    processor=processor,
+                    name=name,
+                    dir_path=dir_path,
+                    is_dry_run=is_dry_run,
+                    analysis_duration=analysis_duration,
+                    slot_vars=slot_vars,
+                    slot_idx=slot_idx,
+                    lock=lock,
+                    on_progress=_on_progress,
+                )
+        finally:
+            slot_vars[slot_idx].set("IDLE")
+            slot_queue.put(slot_idx)
+
+    processor.process_batch(
+        files,
+        _worker,
+        max_workers=processor.max_workers,
+    )
+
+    on_complete(
+        total=len(files),
+        processed=processed[0],
+        skipped=skipped[0],
+        errors=errors[0],
+        duration_secs=time.time() - start,
+        log_entries=log_entries,
+    )
+
+    cleanup_expired_resources(max_age_hours=1)

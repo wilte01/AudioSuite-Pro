@@ -1,0 +1,251 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "audiosuite-pro"
+version = "1.0.0"
+requires-python = ">=3.10"
+dependencies = [
+    "certifi>=2021.5.30",
+    "click>=8.0.0",
+    "cryptography>=3.4.8",
+    "librosa>=0.10.0",
+    "mutagen>=1.46.0",
+    "numpy>=1.21.0",
+    "pedalboard>=0.9.23",
+    "Pillow>=9.0.0",
+    "pydub>=0.25.0",
+    "scipy>=1.7.0",
+    "sounddevice>=0.4.0",
+    "requests>=2.28.0",
+    "urllib3>=1.26.0",
+    "winaccent>=1.0.0; sys_platform == 'win32'",
+    "audioop-lts>=0.2.0 ; python_full_version >= '3.13'",
+]
+
+[project.scripts]
+audiosuite = "audio_suite_shared.cli_app:cli"
+
+[project.optional-dependencies]
+cd-ripping = [
+    "discid>=1.2.0",
+    "musicbrainzngs>=0.7.1",
+]
+analysis = [
+    "librosa>=0.10.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "coverage>=7.0.0",
+    "ruff>=0.5.0",
+    "mypy>=1.0.0",
+    "bandit[toml]>=1.7.0",
+    "python-docx>=1.1.0",
+    "types-requests>=2.28.0",
+]
+
+[tool.bandit]
+# B404 (import subprocess) is skipped by policy: the import itself carries no
+# execution risk.  Actual subprocess invocation is still audited via B603
+# (subprocess_without_shell_equals_true), B607 (start_process_with_partial_path)
+# and B608 (hardcoded_sql_expressions), and all first-party invocations go
+# through run_secure_subprocess() in audio_suite_shared/secure_subprocess.py.
+# B101 (assert_used) is skipped: the suite's asserts are test/build-time
+# invariants, not runtime authorization checks.  Production code paths that
+# must raise do so via explicit exception raising, not asserts.
+skips = ["B404", "B101"]
+exclude_dirs = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_configs = true
+warn_return_any = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+# Third-party packages that ship py.typed but contain untyped defs:
+# calling into them must not trip --strict's disallow_untyped_calls.
+untyped_calls_exclude = [
+    "mutagen",
+    "numpy",
+    "scipy",
+    "PIL",
+    "pedalboard",
+    "librosa",
+    "pydub",
+    "sounddevice",
+    "discid",
+    "musicbrainzngs",
+    "cryptography",
+    "winaccent",
+    "matplotlib",
+    "matplotlib.backends.backend_tkagg",
+    # typeshed gap: ttk.Notebook.tab/select stubs are themselves untyped
+    "tkinter",
+]
+exclude = [
+    "^tests/",
+    "^utilities/",
+    "^user_guides/",
+    "/tests/",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "pedalboard.*",
+    "pydub.*",
+    "sounddevice.*",
+    "librosa.*",
+    "scipy.*",
+    "mutagen",
+    "mutagen.*",
+    "mutagen.id3",
+    "mutagen.id3.*",
+    "mutagen.mp3",
+    "mutagen.mp3.*",
+    "mutagen.mp4",
+    "mutagen.mp4.*",
+    "mutagen.flac",
+    "mutagen.oggvorbis.*",
+    "discid.*",
+    "musicbrainzngs.*",
+    "PIL.*",
+    "PIL.Image.*",
+    "winaccent.*",
+    "cryptography.*",
+    "numpy.*",
+    "numpy.typing.*",
+]
+ignore_missing_imports = true
+disallow_untyped_calls = false
+implicit_reexport = true
+
+# pedalboard ships py.typed but re-exports Pedalboard & friends from its
+# __init__ without an explicit __all__; allow its implicit re-exports so
+# `from pedalboard import Pedalboard` type-checks under --strict.
+[[tool.mypy.overrides]]
+module = "pedalboard"
+implicit_reexport = true
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I"]
+ignore = []
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+    "album_art_normalizer/tests",
+    "album_art_sync/tests",
+    "album_genre_tagger/tests",
+    "asx_extractor/tests",
+    "audio_enhancer/tests",
+    "audio_fingerprinter/tests",
+    "audio_normalizer/tests",
+    "audio_refinery/tests",
+    "audio_suite_shared/tests",
+    "bpm_analyzer/tests",
+    "cd_ripper/tests",
+    "file_reorganizer/tests",
+    "genre_sync/tests",
+    "key_detector/tests",
+    "library_stats/tests",
+    "lyrics_manager/tests",
+    "master_driver/tests",
+    "metadata_scrubber/tests",
+    "mood_analyzer/tests",
+    "mood_analysis_batch_tagger/tests",
+    "music_format_converter/tests",
+    "pop_click_remover/tests",
+    "replaygain_analyzer/tests",
+    "silence_trimmer/tests",
+    "tag_field_updater/tests",
+    "tempo_analyzer/tests",
+    "utilities/tests",
+]
+markers = [
+    "integration: marks tests that require ffmpeg and real audio files",
+    "hardware: marks tests that require physical CD drive hardware",
+]
+addopts = "--strict-markers -ra --cov --cov-report=term-missing"
+filterwarnings = [
+    # pydub 0.25.1 (latest on PyPI) ships lazy invalid-escape regexes in
+    # utils.py that emit SyntaxWarning on Python 3.14 — otherwise masked
+    # only by __pycache__. Scoped to pydub so first-party warnings stay
+    # visible; remove once upstream fixes the regexes.
+    "ignore::SyntaxWarning:pydub.*",
+]
+
+[tool.coverage.run]
+source = [
+    "audio_suite_shared",
+    "album_art_normalizer",
+    "album_art_sync",
+    "album_genre_tagger",
+    "asx_extractor",
+    "audio_enhancer",
+    "audio_fingerprinter",
+    "audio_normalizer",
+    "audio_refinery",
+    "bpm_analyzer",
+    "cd_ripper",
+    "file_reorganizer",
+    "genre_sync",
+    "key_detector",
+    "library_stats",
+    "lyrics_manager",
+    "master_driver",
+    "metadata_scrubber",
+    "mood_analyzer",
+    "mood_analysis_batch_tagger",
+    "music_format_converter",
+    "pop_click_remover",
+    "replaygain_analyzer",
+    "silence_trimmer",
+    "tag_field_updater",
+    "tempo_analyzer",
+]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "utilities/*",
+]
+
+[tool.coverage.report]
+fail_under = 75
+show_missing = true
+exclude_lines = [
+    # Standard pragmas
+    "pragma: no cover",
+    # Type-checking-only code never runs at runtime
+    "if TYPE_CHECKING:",
+    # Abstract / protocol stubs are exercised via concrete implementations
+    "@abstractmethod",
+    "raise NotImplementedError",
+    # Protocol/ABC placeholder bodies
+    "^\\s*\\.\\.\\.\\s*$",
+    # Script entry points covered by CLI tests instead
+    'if __name__ == "__main__":',
+    # Defensive re-export guards and optional-dependency fallbacks
+    "except ImportError",
+    "raise AudioMissingDependencyError",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = [
+    "*.tests",
+    "*.tests.*",
+    "tests",
+    "tests.*",
+]

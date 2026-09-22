@@ -1,0 +1,280 @@
+"""
+core/ripper.py  –  CD audio extraction for Windows via SCSI Pass-Through.
+
+Uses IOCTL_SCSI_PASS_THROUGH_DIRECT with the MMC "READ CD" command (0xBE)
+to read raw CDDA sectors. This is the method used by modern rippers on
+Windows 10/11 where IOCTL_CDROM_RAW_READ is restricted.
+
+This module re-exports all public names from its sub-modules for backward
+compatibility.  See the individual sub-modules for implementation details:
+
+    drive_handler      –  Low-level device control (TOC, SCSI, spin-down)
+    track_processor    –  Read verification, C2 diagnostics, extraction
+    metadata_resolver  –  Format definitions, FFmpeg probing, metadata
+    encoding_pipeline  –  Per-track RipTask orchestration
+"""
+
+import logging as _logging
+import os
+import threading
+from collections.abc import Callable
+from typing import Any, cast
+
+from audio_suite_shared.cue_generator import (
+    CueFileSpec,
+    TrackSpec,
+    build_cue,
+    write_cue,
+)
+
+# ── Re-exports from drive_handler ─────────────────────────────────────────
+from cd_ripper.core.drive_handler import (  # noqa: F401
+    _CDROM_TOC,
+    C2_FLAG_BYTES_PER_SECTOR,
+    INVALID_HANDLE_VALUE,
+    SCSI_PASS_THROUGH_DIRECT,
+    SECTOR_SIZE,
+    _bytes_per_sector,
+    _msf_to_lba,
+    _open_device,
+    _read_cd_scsi,
+    read_toc,
+    spin_down_drive,
+)
+
+# ── Re-exports from encoding_pipeline ─────────────────────────────────────
+from cd_ripper.core.encoding_pipeline import RipTask  # noqa: F401
+
+# ── Re-exports from metadata_resolver ─────────────────────────────────────
+from cd_ripper.core.metadata_resolver import (  # noqa: F401
+    FLAC_QUALITY_ARGS,
+    FORMAT_OPTIONS,
+    M4A_QUALITY_ARGS,
+    MP3_QUALITY_ARGS,
+    OGG_QUALITY_ARGS,
+    OPUS_QUALITY_ARGS,
+    _build_metadata_args,
+    _run_ffmpeg_streaming,
+    _safe_filename,
+    get_quality_options,
+    probe_ffmpeg,
+)
+
+# ── Re-exports from track_processor ───────────────────────────────────────
+from cd_ripper.core.track_processor import (  # noqa: F401
+    RipVerificationConfig,
+    UnresolvedSectorError,
+    _read_verified_chunk,
+    _resolve_by_majority,
+    diagnose_c2_reliability,
+    extract_track_scsi,
+)
+
+__all__ = [
+    "C2_FLAG_BYTES_PER_SECTOR",
+    "FLAC_QUALITY_ARGS",
+    "FORMAT_OPTIONS",
+    "INVALID_HANDLE_VALUE",
+    "M4A_QUALITY_ARGS",
+    "MP3_QUALITY_ARGS",
+    "OGG_QUALITY_ARGS",
+    "OPUS_QUALITY_ARGS",
+    "RipSession",
+    "RipTask",
+    "RipVerificationConfig",
+    "SCSI_PASS_THROUGH_DIRECT",
+    "SECTOR_SIZE",
+    "UnresolvedSectorError",
+    "_CDROM_TOC",
+    "_build_metadata_args",
+    "_bytes_per_sector",
+    "_msf_to_lba",
+    "_open_device",
+    "_read_cd_scsi",
+    "_read_verified_chunk",
+    "_resolve_by_majority",
+    "_safe_filename",
+    "diagnose_c2_reliability",
+    "extract_track_scsi",
+    "get_quality_options",
+    "probe_ffmpeg",
+    "read_toc",
+    "spin_down_drive",
+]
+
+# ── RipSession (orchestration) ─────────────────────────────────────────────
+
+
+class RipSession:
+    """CD ripping session for multiple tracks."""
+
+    def __init__(
+        self,
+        drive: str,
+        tracks: list[dict[str, Any]],
+        out_dir: str,
+        fmt: str,
+        quality_args: list[str] | None,
+        progress_cb: Callable[[int, int, str], None],
+        track_done_cb: Callable[[int, bool, str, str], None],
+        session_done_cb: Callable[[], None],
+        ffmpeg_path: str = "ffmpeg",
+        log_cb: Callable[[str], None] | None = None,
+        write_cue: bool = False,
+        verification_config: RipVerificationConfig | None = None,
+    ) -> None:
+        self.drive = drive
+        self.tracks = tracks
+        self.out_dir = out_dir
+        # FORMAT_OPTIONS is keyed by display name ('WAV', 'Opus') while the
+        # CLI passes lowercase values ('wav', 'opus'). Resolve to the
+        # canonical key so the codec_args default and the RipTask extension
+        # lookup never KeyError on a valid format.
+        self.fmt = next(
+            (key for key in FORMAT_OPTIONS if key.lower() == fmt.lower()), fmt
+        )
+        # FORMAT_OPTIONS values are always list[str]; cast keeps the union honest.
+        self.codec_args = (
+            quality_args
+            if quality_args
+            else cast(list[str], FORMAT_OPTIONS[self.fmt]["codec_args"])
+        )
+        self.progress_cb = progress_cb
+        self.track_done_cb = track_done_cb
+        self.session_done_cb = session_done_cb
+        self.ffmpeg = ffmpeg_path
+        self.log_cb = log_cb or (lambda msg: None)
+        self.write_cue = write_cue
+        self.verification_config = verification_config or RipVerificationConfig()
+        self._cancelled = False
+        self._current_task: RipTask | None = None
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def cancel(self) -> None:
+        self._cancelled = True
+        if self._current_task:
+            self._current_task.cancel()
+
+    def _run(self) -> None:
+        os.makedirs(self.out_dir, exist_ok=True)
+        info = probe_ffmpeg(self.ffmpeg)
+        self.log_cb(f"FFmpeg version : {info['version']}")
+        self.log_cb("Extraction     : Win32 SCSI Pass-Through (READ CD 0xBE)")
+        self.log_cb("\u2500" * 60)
+
+        drive_letter = self.drive.rstrip("/\\").rstrip(":")
+        try:
+            toc = read_toc(drive_letter, self.log_cb)
+        except (OSError, RuntimeError) as e:
+            _logging.getLogger(__name__).error(
+                "TOC read failed for drive %s: %s", self.drive, e, exc_info=True
+            )
+            self.log_cb(f"TOC read failed: {e}")
+            toc = []
+
+        toc_map = {e["number"]: e for e in toc}
+
+        done_paths: list[tuple[int, str]] = []
+
+        def _track_done_wrap(num: int, ok: bool, path: str, msg: str) -> None:
+            if ok and path:
+                done_paths.append((num, path))
+            self.track_done_cb(num, ok, path, msg)
+
+        for track in self.tracks:
+            if self._cancelled:
+                break
+            toc_entry = toc_map.get(track["number"])
+            if not toc_entry:
+                self.log_cb(f"[WARN] No TOC entry for track {track['number']}")
+                self.track_done_cb(track["number"], False, "", "No TOC entry found")
+                continue
+            task = RipTask(
+                drive=self.drive,
+                track=track,
+                toc_entry=toc_entry,
+                out_dir=self.out_dir,
+                fmt=self.fmt,
+                codec_args=self.codec_args,
+                progress_cb=self.progress_cb,
+                done_cb=_track_done_wrap,
+                ffmpeg_path=self.ffmpeg,
+                log_cb=self.log_cb,
+                verification_config=self.verification_config,
+            )
+            self._current_task = task
+            task.run()
+        # Spin down the drive now ripping is complete.
+        # Best-effort: a spin-down failure must not abort the session, but it
+        # must never be silently swallowed -- we log it at WARNING level.
+        try:
+            spin_down_drive(self.drive.rstrip("/\\").rstrip(":"), self.log_cb)
+        except (OSError, RuntimeError) as _sd_exc:
+            _logging.getLogger(__name__).warning(
+                "Drive spin-down failed after rip (non-fatal): %s",
+                _sd_exc,
+                exc_info=True,
+            )
+        if self.write_cue and done_paths:
+            self._write_rip_cue(done_paths)
+        self.session_done_cb()
+
+    def _write_rip_cue(self, done_paths: list[tuple[int, str]]) -> None:
+        """Write one .cue sheet per album folder once all tracks succeeded.
+
+        Every successfully-encoded track path contributes one ``TRACK`` whose
+        title/artist are taken from the session's track metadata, so the
+        generated sheet always matches the audio on disk.
+
+        Args:
+            done_paths: ``(track_number, output_path)`` pairs for tracks whose
+                encode finished successfully and produced a file.
+        """
+        track_by_number = {str(t.get("number")): t for t in self.tracks}
+        grouped: dict[str, list[tuple[int, str]]] = {}
+        for num, path in done_paths:
+            grouped.setdefault(os.path.dirname(path), []).append((num, path))
+
+        for album_dir, entries in grouped.items():
+            entries.sort(key=lambda item: item[0])
+            first = track_by_number.get(str(entries[0][0]), {})
+            album_title = first.get("album", "") or ""
+            album_artist = (
+                first.get("album_artist", "") or first.get("artist", "") or ""
+            )
+            try:
+                cue_name = os.path.join(
+                    album_dir,
+                    f"{_safe_filename(album_title) or 'album'}.cue",
+                )
+                os.makedirs(album_dir, exist_ok=True)
+                specs: list[TrackSpec] = []
+                for num, _path in entries:
+                    track = track_by_number.get(str(num), {})
+                    title = track.get("title", "") or f"Track {num:02d}"
+                    artist = track.get("artist", "") or ""
+                    specs.append(TrackSpec(number=num, title=title, performer=artist))
+                cue_text = build_cue(
+                    title=album_title,
+                    performer=album_artist,
+                    files=(
+                        CueFileSpec(
+                            filename=os.path.basename(_path),
+                            tracks=tuple(specs),
+                        ),
+                    ),
+                )
+                write_cue(cue_name, cue_text)
+                self.log_cb(f"CUE sheet written: {cue_name}")
+            except Exception as _cue_exc:  # never abort the session for a CUE write
+                _logging.getLogger(__name__).error(
+                    "Failed to write CUE sheet for %s: %s",
+                    album_dir,
+                    _cue_exc,
+                    exc_info=True,
+                )
+                self.log_cb(f"[WARN] CUE sheet not written: {_cue_exc}")

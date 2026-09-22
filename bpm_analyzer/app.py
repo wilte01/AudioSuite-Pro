@@ -1,0 +1,673 @@
+"""
+app.py
+BPMAnalyzerApp — thin orchestrator that wires UI, core logic, and utilities together.
+Contains no business logic itself; it only coordinates.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import threading
+import tkinter as tk
+from queue import Queue
+from tkinter import messagebox, ttk
+from typing import Any, cast
+
+from audio_suite_shared import platform_utils, styles
+from audio_suite_shared import suite_config as _suite_config
+from audio_suite_shared.app_bootstrap import bootstrap_tool_app
+from audio_suite_shared.audio_formats import is_supported_format
+from audio_suite_shared.batch_undo import active_batch
+from audio_suite_shared.cli_helpers import UniversalCLIHandler
+from audio_suite_shared.exceptions import (
+    handle_audio_errors,
+    map_to_audio_error,
+    user_message_for,
+)
+from audio_suite_shared.ui_helpers import UIHelperMixin
+
+from .core import file_processor
+from .ui import processing_tab, results_tab, setup_tab
+from .utils import cli_args
+
+
+class _ThreadSafeSlotVar:
+    """Wrap a tk.StringVar so that .set() is always scheduled on the main thread."""
+
+    def __init__(self, root: tk.Tk, var: tk.StringVar) -> None:
+        self._root = root
+        self._var = var
+
+    def set(self, value: str) -> None:
+        """Schedule var.set(value) on the main tkinter thread."""
+        self._root.after(0, self._var.set, value)
+
+    def get(self) -> str:
+        return self._var.get()
+
+
+logger = logging.getLogger(__name__)
+
+TOOL_ID = "bpm_analyzer"
+
+
+class BPMAnalyzerApp(UIHelperMixin):
+    """BPM Analyzer application GUI."""
+
+    # Name of the user-guide document expected alongside this script.
+    HELP_GUIDE: str = "BPM_Analyzer_User_Guide.docx"
+
+    def __init__(self, root: tk.Tk) -> None:
+        self.root = root
+        self.error_logger, self.style = bootstrap_tool_app(
+            self.root,
+            "BPM Analyzer & Tagger",
+            "bpm_analyzer_window",
+            "bpm_analyzer",
+        )
+
+        # ── Tk variables ──────────────────────────────────────────────────────
+        self.folder_path: tk.StringVar = tk.StringVar()
+        self.run_mode: tk.StringVar = tk.StringVar(value="Dry Run")
+        self.bpm_range_min: tk.IntVar = tk.IntVar(value=75)
+        self.bpm_range_max: tk.IntVar = tk.IntVar(value=175)
+        self.analysis_duration: tk.IntVar = tk.IntVar(value=90)
+        saved_parallel: bool = cast(
+            bool, _suite_config.load_value("bpm_parallel_mode", False)
+        )
+        saved_workers: int = int(
+            cast(str, _suite_config.load_value("bpm_max_workers", 4))
+        )
+        self.parallel_mode: tk.BooleanVar = tk.BooleanVar(value=saved_parallel)
+        self.max_workers: tk.IntVar = tk.IntVar(value=saved_workers)
+
+        # CLI attribute aliases for UniversalCLIHandler.
+        self.bpm_min: tk.IntVar = self.bpm_range_min
+        self.bpm_max: tk.IntVar = self.bpm_range_max
+        self.duration: tk.IntVar = self.analysis_duration
+
+        # Run Controls panel variables (driver handshake display state).
+        self.auto_start_var: tk.BooleanVar = tk.BooleanVar(value=False)
+        self.auto_end_var: tk.BooleanVar = tk.BooleanVar(value=False)
+        self.clear_logs_var: tk.BooleanVar = tk.BooleanVar(value=False)
+        self.parallel_var: tk.BooleanVar = tk.BooleanVar(value=False)
+
+        # Master Driver handshake: any CLI argument means driver-launched,
+        # in which case the Run Controls panel is locked to inherited values.
+        self._launched_from_driver = cli_args.was_launched_from_driver()
+
+        # ── Processing state ─────────────────────────────────────────────────
+        self._log_entries: list[str] = []
+        self._log_path: str = ""
+        self._dir_path: str = ""
+        self.auto_end: bool = False
+
+        # ── Worker slot pool (4 concurrent workers) ──────────────────────────
+        self.slot_vars: list[tk.StringVar] = [
+            tk.StringVar(value="IDLE") for _ in range(4)
+        ]
+        self._safe_slot_vars: list[_ThreadSafeSlotVar] = [
+            _ThreadSafeSlotVar(self.root, v) for v in self.slot_vars
+        ]
+        self.slot_queue: Queue[int] = Queue()
+        for i in range(4):
+            self.slot_queue.put(i)
+
+        # ── Preset support ────────────────────────────────────────────────────
+        self._preset_combo: ttk.Combobox | None = None
+        self._refresh_preset_list: Any = None
+
+        # ── Build UI ──────────────────────────────────────────────────────────
+        self._build_ui()
+        assert self._refresh_preset_list is not None
+        self._refresh_preset_list()
+
+        # ── Apply CLI arguments ───────────────────────────────────────────────
+        self._apply_cli_args()
+
+        # Force UI refresh so Entry widgets display current variable values.
+        self.root.update_idletasks()
+
+        # ── Restore last-used directory (if not set by CLI) ───────────────────
+        if not self.folder_path.get():
+            last: str = _suite_config.load_last_directory()
+            if last:
+                self.folder_path.set(last)
+
+    # ── UI construction ───────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        """Construct the full application UI."""
+        # Help button above the notebook.
+        help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
+        help_frame.pack(fill="x", padx=10, pady=(10, 0))
+        tk.Button(
+            help_frame,
+            text="Help",
+            bg=styles.get_main(),
+            fg="white",
+            font=styles.FONT_BODY,
+            padx=15,
+            pady=3,
+            command=self._open_help,
+        ).pack(side=tk.RIGHT)
+
+        # Notebook with three tabs.
+        self.notebook: ttk.Notebook = ttk.Notebook(self.root)
+        self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
+
+        tab_setup = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
+        tab_processing = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
+        tab_results = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
+
+        self.notebook.add(tab_setup, text=" 1. Setup ")
+        self.notebook.add(tab_processing, text=" 2. Processing ")
+        self.notebook.add(tab_results, text=" 3. Results ")
+
+        setup_widgets: dict[str, Any] = setup_tab.build(
+            tab_setup,
+            folder_path=self.folder_path,
+            run_mode=self.run_mode,
+            bpm_range_min=self.bpm_range_min,
+            bpm_range_max=self.bpm_range_max,
+            analysis_duration=self.analysis_duration,
+            auto_start_var=self.auto_start_var,
+            auto_end_var=self.auto_end_var,
+            clear_logs_var=self.clear_logs_var,
+            parallel_var=self.parallel_var,
+            on_browse=self._browse_folder,
+            on_start=self.start_processing,
+            driver_locked=self._launched_from_driver,
+            parallel_mode=self.parallel_mode,
+            max_workers=self.max_workers,
+            on_preset_selected=self._on_preset_selected,
+            on_save_preset=self._save_current_as_preset,
+            on_delete_preset=self._delete_preset,
+        )
+        self.start_btn = setup_widgets["start_btn"]
+        self._preset_combo = setup_widgets["preset_combo"]
+        self._refresh_preset_list = setup_widgets["refresh_preset_list"]
+
+        proc_widgets: dict[str, Any] = processing_tab.build(
+            tab_processing, self.slot_vars
+        )
+        self.overall_status: tk.StringVar = proc_widgets["overall_status"]
+        self.progress: ttk.Progressbar = proc_widgets["progress"]
+        self.stats_label: tk.Label = proc_widgets["stats_label"]
+        self.file_listbox: tk.Listbox = proc_widgets["file_listbox"]
+
+        res_widgets: dict[str, Any] = results_tab.build(
+            tab_results,
+            on_open_log=self._open_log,
+            on_open_folder=self._open_folder,
+        )
+        self.completion_label: tk.Label = res_widgets["completion_label"]
+        self.time_label: tk.Label = res_widgets["time_label"]
+        self.summary_label: tk.Label = res_widgets["summary_label"]
+
+        # Keep tab references for programmatic switching.
+        self._tab_processing = tab_processing
+        self._tab_results = tab_results
+
+    # ── CLI handling ──────────────────────────────────────────────────────────
+
+    def _apply_cli_args(self) -> None:
+        """Parse and apply any command-line arguments supplied by the Master Driver."""
+        parsed = cli_args.parse()
+
+        # Mirror the inherited driver arguments onto the Run Controls
+        # panel before any early return so the display always reflects
+        # exactly what the Master Driver passed.
+        self.run_mode.set("Live Update" if parsed.live_mode else "Dry Run")
+        self.auto_start_var.set(parsed.auto_start)
+        self.auto_end_var.set(parsed.auto_end)
+        self.clear_logs_var.set(parsed.clear_logs)
+        self.parallel_var.set(parsed.parallel_run)
+
+        if not parsed.folder_path:
+            return
+
+        cli_handler = UniversalCLIHandler(self)
+        should_auto_start: bool = cli_handler.apply_cli_args(
+            cast(Any, parsed),
+            folder_var=self.folder_path,
+            auto_start_func=self.start_processing,
+        )
+
+        if should_auto_start:
+            self.root.after(1500, self.start_processing)
+
+    # ── User actions ──────────────────────────────────────────────────────────
+
+    def _browse_folder(self) -> None:
+        """Browse for a music directory with standard error handling."""
+        self._browse_folder_standard(
+            title="Select Music Directory",
+            path_variable=self.folder_path,
+            save_last_dir=True,
+        )
+
+    def _open_help(self) -> None:
+        """Open the tool user guide."""
+        self._open_help_standard(self.HELP_GUIDE)
+
+    def _open_log(self) -> None:
+        """Open the most recent analysis log file."""
+        self._open_log_standard()
+
+    def _open_folder(self) -> None:
+        """Open the source folder in the system file manager."""
+        folder_path: str = self.folder_path.get()
+        if folder_path and os.path.exists(folder_path):
+            platform_utils.open_path(folder_path)
+        else:
+            messagebox.showinfo("Folder", "Source folder not available.")
+
+    def start_processing(self) -> None:
+        """Validate inputs then launch the background analysis thread."""
+        try:
+            folder: str = self.folder_path.get().strip()
+
+            if not folder:
+                messagebox.showerror(
+                    "No Directory Selected",
+                    "Please select a music directory containing audio files.",
+                )
+                return
+
+            if not os.path.exists(folder):
+                messagebox.showerror(
+                    "Directory Not Found",
+                    f"The selected directory does not exist:\n{folder}",
+                )
+                return
+
+            if not os.path.isdir(folder):
+                messagebox.showerror(
+                    "Invalid Directory",
+                    f"The selected path is not a valid directory:\n{folder}",
+                )
+                return
+
+            try:
+                has_audio: bool = any(
+                    is_supported_format(f) for f in os.listdir(folder)
+                )
+                if not has_audio:
+                    messagebox.showerror(
+                        "No Audio Files",
+                        f"No supported audio files found in:\n{folder}\n\n"
+                        "Supported formats: MP3, FLAC, OGG, M4A, Opus, WAV, AIFF",
+                    )
+                    return
+            except PermissionError as exc:
+                messagebox.showerror(
+                    "Access Denied",
+                    f"Cannot access directory:\n{folder}\n\n{exc}",
+                )
+                return
+
+            min_bpm: int = self.bpm_range_min.get()
+            max_bpm: int = self.bpm_range_max.get()
+
+            if min_bpm >= max_bpm:
+                messagebox.showerror(
+                    "Invalid BPM Range",
+                    f"Minimum BPM ({min_bpm}) must be less than Maximum BPM "
+                    f"({max_bpm}).",
+                )
+                return
+
+            if not (40 <= min_bpm <= 300):
+                messagebox.showerror(
+                    "Invalid BPM Range",
+                    f"Minimum BPM must be between 40 and 300 (current: {min_bpm}).",
+                )
+                return
+
+            if not (60 <= max_bpm <= 400):
+                messagebox.showerror(
+                    "Invalid BPM Range",
+                    f"Maximum BPM must be between 60 and 400 (current: {max_bpm}).",
+                )
+                return
+
+            duration: int = self.analysis_duration.get()
+            if not (10 <= duration <= 300):
+                messagebox.showerror(
+                    "Invalid Duration",
+                    f"Analysis duration must be between 10 and 300 seconds "
+                    f"(current: {duration}).",
+                )
+                return
+
+            workers: int = self.max_workers.get()
+            if workers < 1:
+                messagebox.showerror(
+                    "Invalid Workers",
+                    f"Number of workers must be at least 1 (current: {workers}).",
+                )
+                return
+
+            # Persist parallel processing settings
+            _suite_config.save_value("bpm_parallel_mode", self.parallel_mode.get())
+            _suite_config.save_value("bpm_max_workers", workers)
+
+            # All validations passed — start processing.
+            self.start_btn.config(state="disabled")
+            self.notebook.select(self._tab_processing)
+            self.overall_status.set("Analyzing BPM...")
+            is_dry_run: bool = self.run_mode.get() == "Dry Run"
+            parallel: bool = self.parallel_mode.get()
+            logger.info(
+                "start_processing: folder=%s dry_run=%s bpm=[%d,%d] duration=%ds "
+                "parallel=%s workers=%d",
+                folder,
+                is_dry_run,
+                min_bpm,
+                max_bpm,
+                duration,
+                parallel,
+                workers,
+            )
+
+            threading.Thread(
+                target=self._run_analysis,
+                args=(
+                    folder,
+                    is_dry_run,
+                    min_bpm,
+                    max_bpm,
+                    duration,
+                    parallel,
+                    workers,
+                ),
+                daemon=True,
+            ).start()
+
+        except Exception as exc:
+            mapped = map_to_audio_error(exc, context={"action": "start_processing"})
+            logger.error(
+                "[%s] Validation error in start_processing: %s",
+                type(mapped).__name__,
+                mapped,
+                exc_info=True,
+            )
+            messagebox.showerror(
+                "Validation Error",
+                f"Failed to validate inputs:\n{user_message_for(mapped)}",
+            )
+
+    # ── Background thread ─────────────────────────────────────────────────────
+
+    @handle_audio_errors(reraise=False, context="bpm_analyzer_app_run")
+    def _run_analysis(
+        self,
+        dir_path: str,
+        is_dry_run: bool,
+        bpm_min: int,
+        bpm_max: int,
+        analysis_duration: int,
+        parallel_mode: bool = False,
+        max_workers: int | None = None,
+    ) -> None:
+        """Background thread: delegate to file_processor.run_analysis."""
+        self._dir_path = dir_path
+        self._log_path = os.path.join(
+            dir_path, "bpm_dry_run_log.txt" if is_dry_run else "bpm_sync_log.txt"
+        )
+
+        header: list[str] = [
+            "BPM ANALYSIS REPORT\n",
+            f"Mode: {'DRY RUN' if is_dry_run else 'LIVE UPDATE'}\n",
+            f"BPM Range: {bpm_min} - {bpm_max}\n",
+            f"Analysis Duration: {analysis_duration} seconds\n",
+            f"Parallel: {'Yes' if parallel_mode else 'No'}\n",
+            f"Workers: {max_workers or 4}\n",
+            "=" * 60 + "\n",
+        ]
+
+        self.root.after(0, self._reset_progress_ui)
+
+        with active_batch("bpm_analyzer", "tag_edit"):
+            file_processor.run_analysis(
+                dir_path=dir_path,
+                is_dry_run=is_dry_run,
+                min_bpm=bpm_min,
+                max_bpm=bpm_max,
+                analysis_duration=analysis_duration,
+                slot_vars=self._safe_slot_vars,
+                slot_queue=self.slot_queue,
+                on_progress=self._on_progress,
+                on_complete=lambda **kw: self._on_complete(header=header, **kw),
+                on_error=self._on_error,
+                parallel_mode=parallel_mode,
+                max_workers=max_workers,
+            )
+
+    def _reset_progress_ui(self) -> None:
+        """Reset UI progress indicators (must be called on main thread)."""
+        self.progress["value"] = 0
+        self.stats_label.config(text="Processed: 0 | Skipped: 0 | Errors: 0")
+
+    def _on_progress(
+        self,
+        processed: int,
+        total: int,
+        skipped: int,
+        errors: int,
+        display_text: str,
+    ) -> None:
+        """Called from worker threads to update UI (scheduled on main thread)."""
+        self.root.after(
+            0, self._update_progress_ui, processed, total, skipped, errors, display_text
+        )
+
+    def _update_progress_ui(
+        self,
+        processed: int,
+        total: int,
+        skipped: int,
+        errors: int,
+        display_text: str,
+    ) -> None:
+        """Update progress UI elements (must be called on main thread)."""
+        self.progress["maximum"] = total
+        self.progress["value"] = processed
+        self.stats_label.config(
+            text=f"Processed: {processed} | Skipped: {skipped} | Errors: {errors}"
+        )
+        self.file_listbox.insert(tk.END, display_text)
+        self.file_listbox.see(tk.END)
+
+    def _on_complete(
+        self,
+        header: list[str],
+        total: int,
+        processed: int,
+        skipped: int,
+        errors: int,
+        duration_secs: float,
+        log_entries: list[str],
+    ) -> None:
+        """Called on the background thread after all files finish."""
+        minutes: int = int(duration_secs // 60)
+        seconds: int = int(duration_secs % 60)
+        tagged: int = processed - skipped - errors
+
+        summary: list[str] = [
+            "\n" + "=" * 60 + "\n",
+            "SUMMARY:\n",
+            f"Total files: {total}\n",
+            f"Tagged/Analyzed: {tagged}\n",
+            f"Skipped: {skipped}\n",
+            f"Errors: {errors}\n",
+            f"Time: {minutes:02d}:{seconds:02d}\n",
+        ]
+        all_entries: list[str] = header + log_entries + summary
+
+        try:
+            with open(self._log_path, "w", encoding="utf-8") as f:
+                f.writelines(all_entries)
+            logger.info("Log written to '%s'", self._log_path)
+        except PermissionError as exc:
+            logger.error(
+                "Permission denied writing log '%s': %s",
+                self._log_path,
+                exc,
+                exc_info=True,
+            )
+        except OSError as exc:
+            logger.error(
+                "OSError writing log '%s': %s", self._log_path, exc, exc_info=True
+            )
+        except Exception as exc:
+            mapped = map_to_audio_error(exc, context={"log_path": self._log_path})
+            logger.error(
+                "[%s] Unexpected error writing log: %s",
+                type(mapped).__name__,
+                mapped,
+                exc_info=True,
+            )
+
+        self.root.after(
+            0,
+            self._update_ui_on_complete,
+            total,
+            tagged,
+            skipped,
+            errors,
+            minutes,
+            seconds,
+        )
+
+    def _update_ui_on_complete(
+        self,
+        total: int,
+        tagged: int,
+        skipped: int,
+        errors: int,
+        minutes: int,
+        seconds: int,
+    ) -> None:
+        """Update UI after analysis completes (must be called on main thread)."""
+        is_dry_run: bool = self.run_mode.get() == "Dry Run"
+        self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")
+        self.summary_label.config(
+            text=(
+                f"Total: {total} files\n"
+                f"Tagged/Analyzed: {tagged}\n"
+                f"Skipped: {skipped}\n"
+                f"Errors: {errors}"
+            )
+        )
+        self.completion_label.config(
+            text="Analysis Complete!" if is_dry_run else "BPM Tagging Complete!"
+        )
+        self.notebook.select(self._tab_results)
+        self.start_btn.config(state="normal")
+
+        logger.info(
+            "Processing complete — total=%d tagged=%d skipped=%d "
+            "errors=%d time=%02d:%02d",
+            total,
+            tagged,
+            skipped,
+            errors,
+            minutes,
+            seconds,
+        )
+
+        if self.auto_end:
+            self.root.after(2000, self.root.destroy)
+
+    def _on_error(self, message: str) -> None:
+        """Called when a fatal processing error occurs."""
+        logger.error("Fatal processing error reported to UI: %s", message)
+        self.root.after(0, self._show_error_dialog, message)
+
+    def _show_error_dialog(self, message: str) -> None:
+        """Show error dialog and re-enable start button (must be called on
+        main thread)."""
+        messagebox.showerror("Error", message)
+        self.start_btn.config(state="normal")
+
+    # ── Presets ───────────────────────────────────────────────────────────────
+
+    def _collect_settings(self) -> dict[str, int | bool | str]:
+        """Collect current UI settings into a dict for preset storage."""
+        return {
+            "bpm_min": self.bpm_range_min.get(),
+            "bpm_max": self.bpm_range_max.get(),
+            "duration": self.analysis_duration.get(),
+            "parallel_mode": self.parallel_mode.get(),
+            "max_workers": self.max_workers.get(),
+            "run_mode": self.run_mode.get(),
+        }
+
+    def _apply_preset(self, settings: dict[str, int | bool | str]) -> None:
+        """Apply a preset dict to the UI variables."""
+        self.bpm_range_min.set(int(settings.get("bpm_min", 75)))
+        self.bpm_range_max.set(int(settings.get("bpm_max", 175)))
+        self.analysis_duration.set(int(settings.get("duration", 90)))
+        self.parallel_mode.set(bool(settings.get("parallel_mode", False)))
+        self.max_workers.set(int(settings.get("max_workers", 4)))
+        self.run_mode.set(str(settings.get("run_mode", "Dry Run")))
+
+    def _on_preset_selected(self, event: object = None) -> None:
+        """Handle preset combobox selection change."""
+        name: str = self._preset_combo.get() if self._preset_combo else ""
+        if not name:
+            return
+        data: str | None = cast(
+            str | None, _suite_config.load_value(f"bpm_preset_{name}", None)
+        )
+        if data is not None:
+            try:
+                settings: dict[str, int | bool | str] = json.loads(data)
+                self._apply_preset(settings)
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                logger.error("Failed to load preset '%s': %s", name, exc)
+
+    def _save_current_as_preset(self) -> None:
+        """Prompt for a name and save the current settings as a preset."""
+        from tkinter.simpledialog import askstring
+
+        name: str | None = askstring("Save Preset", "Preset name:", parent=self.root)
+        if not name or not name.strip():
+            return
+        name = name.strip()
+        settings: dict[str, int | bool | str] = self._collect_settings()
+        _suite_config.save_value(f"bpm_preset_{name}", json.dumps(settings))
+        # Update the preset names list
+        names_json: str | None = cast(
+            str | None, _suite_config.load_value("bpm_presets_list", None)
+        )
+        names: list[str] = json.loads(names_json) if names_json else []
+        if name not in names:
+            names.append(name)
+        _suite_config.save_value("bpm_presets_list", json.dumps(names))
+        self._refresh_preset_list()
+
+    def _delete_preset(self) -> None:
+        """Delete the currently selected preset."""
+        name: str = self._preset_combo.get() if self._preset_combo else ""
+        if not name:
+            return
+        confirm: bool = messagebox.askyesno(
+            "Delete Preset",
+            f"Delete preset '{name}'?",
+        )
+        if not confirm:
+            return
+        # Remove from the preset names list
+        names_json: str | None = cast(
+            str | None, _suite_config.load_value("bpm_presets_list", None)
+        )
+        names: list[str] = json.loads(names_json) if names_json else []
+        if name in names:
+            names.remove(name)
+        _suite_config.save_value("bpm_presets_list", json.dumps(names))
+        self._refresh_preset_list()
