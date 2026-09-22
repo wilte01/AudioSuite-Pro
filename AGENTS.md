@@ -243,6 +243,40 @@ Follow them or the "passing" run is misleading.
   import (`python -c "import <pkg>.<mod>"`) or the compile gate
   (`python -m compileall -q -f .`).
 
+- **pwsh: `\"` is not an escape inside double-quoted strings — and `rg` may
+  not be installed; run secret scans as `git grep --cached`.** Any pattern
+  containing `["']` or a bare `\"` is a ParserError in a PS double-quoted
+  string (PowerShell only honours backtick escapes, so the quote *terminates*
+  the string and the scan never runs). Build patterns in single-quoted
+  variables (double any inner single quote as `''`), or split the `["']`
+  class into separate double-quote and single-quote greps. After
+  `git add -A`, prefer `git grep --cached -n -i -E -I -e '<pattern>'` over
+  `rg` — it scans exactly the files about to be committed, the precise
+  "blocker" gate. This is what caught and excluded the live Fanart.tv keys in
+  P1 (`PLAN_audit_priority_actions.md`, Decision D11).
+
+- **A secret scan is only as good as its alternation: match `*_key`/`*_secret`
+  suffixes, 32-hex literals and 44+-char base64, not just
+  `api[_-]?key|secret|passwd|password|token`.** The audit regex sailed past
+  `album_art_sync/*/album_art_config.json`'s `"app_key"`/`"client_key"`
+  Fanart.tv keys — neither token is in the alternation and a 32-hex value is
+  not matched. Supplemental scans that caught them:
+  ```
+  git grep --cached -n -i -E -I -e '[-_](key|secret|token|password|passwd|client)[^ ]*[=:][^A-Za-z0-9_][A-Za-z0-9+/=_-]{10,}'
+  git grep --cached -n -i -E -I -e '"[a-f0-9]{32}"'
+  git grep --cached -n -E -I -e '"[A-Za-z0-9+/]{44,}={0,2}"'
+  git grep --cached -n -E -I -e '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----'
+  ```
+  The PEM pattern must be passed with `-e` (it starts with `-`). Files named
+  `*_config.json`/`.key` siblings belong in `.gitignore` before any commit.
+
+- **`compileall -x '(^|/)(\.venv|\.git)/'` does not exclude `.venv` on
+  Windows.** The `-x` regexp uses forward-slash separators but Windows paths
+  use `\`, so the exclusion silently fails and third-party `site-packages`
+  modules get byte-compiled (harmless pre-existing `SyntaxWarning`s, e.g.
+  pydub). Keep the documented command as-is; the warnings are noise, not
+  failures.
+
 ## Master Driver Card Naming (Mandatory Convention)
 
 `enrich_tab.py` and `utilities_window.py` lazy-import each tool's card as
