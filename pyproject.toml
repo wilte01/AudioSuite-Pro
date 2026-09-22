@@ -60,13 +60,8 @@ exclude_dirs = ["tests"]
 
 [tool.mypy]
 python_version = "3.12"
+strict = true
 ignore_missing_imports = true
-no_implicit_optional = true
-warn_redundant_casts = true
-warn_unused_configs = true
-warn_return_any = true
-disallow_incomplete_defs = true
-check_untyped_defs = true
 # Third-party packages that ship py.typed but contain untyped defs:
 # calling into them must not trip --strict's disallow_untyped_calls.
 untyped_calls_exclude = [

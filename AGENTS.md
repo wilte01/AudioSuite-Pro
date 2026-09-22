@@ -101,8 +101,9 @@ Follow them or the "passing" run is misleading.
 
 - **Failing tests must be resolved — never shipped.** "Tests that fail are
   worse than no tests": a red suite is silently ignored and masks real
-  regressions, so every tool in the pipeline (`pytest`, `ruff`, `mypy
-  --strict`, `bandit`) must pass 100% before work is marked complete. Do not
+  regressions, so every tool in the pipeline (`pytest`, `ruff`, `mypy`
+  (strict via `[tool.mypy] strict = true`), `bandit`) must pass 100% before
+  work is marked complete. Do not
   delete, skip, `xfail`, or add `# type: ignore` to make a failure go away —
   resolve the underlying cause. If a test or check is genuinely wrong, fix
   the test/check itself in lockstep with the code, and update the relevant
