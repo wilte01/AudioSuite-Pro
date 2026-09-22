@@ -1,6 +1,6 @@
 # PLAN — Audit Priority Actions (Post-Audit Remediation)
 
-**Status:** In progress — **P1 complete** (initial commit `a056bb9`); **P2 complete** (commit `d7680f7`); **P3 complete** (commits `c06730c` + `e540819`); **P4 complete** (commits `f409e11` + this); P5–P7 not started. See Decision Log (D10–D14) and the session retrospective for discoveries.
+**Status:** In progress — **P1 complete** (initial commit `a056bb9`); **P2 complete** (commit `d7680f7`); **P3 complete** (commits `c06730c` + `e540819`); **P4 complete** (commits `f409e11` + this); **P5 complete** (commit `0666936` + this); P6–P7 not started. See Decision Log (D10–D14) and the session retrospective for discoveries.
 **Source:** "Honest Audit Report" (product capability + code-quality audit, 2026)
 **Scope:** The 7 priority actions named in the audit's closing section. Each action is broken into fully addressable steps with acceptance criteria, lockstep tests, and verification commands.
 **Anti-creep rule:** Implement ONLY the steps below. No adjacent refactors, no styling changes outside the touched files, no speculative features. Any defect discovered *while* implementing one of these steps must be fixed in the same change with a regression test (AGENTS.md §7), and noted in the Decision Log.
@@ -296,78 +296,112 @@ Option B (fallback only if the error tail proves unreasonable — see step 2): a
 1. **Inventory semantics before writing anything.** Grep each `utils/cli_args.py` + its `tests/test_cli_args.py` and record every asserted input → output pair (e.g. `["prog"]→False`, `["prog","folder"]→True`, `["prog","--no-clear-logs"]→True`, `[]→False`, plus the `argv=None`→`sys.argv` variants). There WILL be subtle differences (some tools additionally treat the second entry as numeric "0" placeholder). Build the union matrix.
 2. **Add the canonical function** to `audio_suite_shared/cli_helpers.py` (alongside the existing handler classes):
    ```python
-   _DRIVER_ONLY_FLAGS: frozenset[str] = frozenset(
-       {"--clear-logs", "--no-clear-logs", "--parallel-run", "--no-parallel-run"}
-   )
-
    def was_launched_from_driver(argv: list[str] | None = None) -> bool:
-       """True when *argv* indicates a launch from the Master Driver.
-
-       The driver always passes at least one positional argument (a path or
-       the numeric placeholder used by enrich tools) or a driver-only display
-       flag (``--clear-logs``/``--parallel-run`` and their negatives).
-       """
+       """True when a full argv (index 0 = program name) holds more than one
+       entry — the Master Driver always passes at least one argument (a path
+       or the numeric placeholder used by enrich tools) plus the display-only
+       handshake flags, while a standalone launch passes none."""
        if argv is None:
-           argv = sys.argv[1:]
-       if not argv:
-           return False
-       first = argv[0]
-       return first in _DRIVER_ONLY_FLAGS or not first.startswith("-")
+           argv = sys.argv
+       return len(argv) > 1
    ```
+   The audited union matrix (step 1) showed **all 19 legacy bodies are
+   byte-identical** — `if argv is None: argv = sys.argv[1:]; return len(argv) > 1`
+   (no `silence_trimmer` shortened variant exists) — and the plan sketch below
+   was *not* used because it contradicts the union matrix (it returns True for
+   `["prog"]`, which tests assert is False). The canonical form differs from
+   legacy only in the `None` default (full `sys.argv` instead of the `[1:]`
+   slice): both call patterns — bare standalone launch (`argv = ["prog"]`) and
+   driver launch (`argv = [prog, path, flags…]`) — produce identical booleans on
+   both forms, so every union-matrix row and every production call site is
+   reproduced. The one semantic refinement: a genuine manual run like
+   `Tempo_Analyzer.pyw D:/Music` now counts as "driven" (was standalone under the
+   legacy `[1:]` default) — consistent with the sketch's intent (any non-flag
+   first arg ⇒ driven). See Decision Log D14.
    Verify this canonical implementation reproduces *every* row of the union matrix from step 1. If a specific tool's legacy behaviour is unreproducible by the canonical form, record that tool + its divergence in the Decision Log and adjust the canonical form; do not special-case per tool.
-3. **Re-export from each tool** so existing call sites (`app.py` → `cli_args.was_launched_from_driver()`) remain untouched. In each of the ~19 `utils/cli_args.py` files replace the local body with:
+3. **Re-export from each tool** so existing call sites (`app.py` → `cli_args.was_launched_from_driver()`) remain untouched. In each of the ~19 `utils/cli_args.py` files replace the local body with an explicit re-export using the redundant-alias form — `# noqa: F401` alone passes ruff but fails mypy `--strict` with `Module "…utils.cli_args" does not explicitly export attribute` (from `CheckPy` on the importing `app.py`); the `as`-alias names the symbol as an intentional re-export and satisfies both:
    ```python
-   from audio_suite_shared.cli_helpers import was_launched_from_driver  # noqa: F401
+   from audio_suite_shared.cli_helpers import (
+       was_launched_from_driver as was_launched_from_driver,
+   )
    ```
-   Delete the local implementation (including the shortened `silence_trimmer` variant — confirm its tests pass against the canonical form). Keep each file's `parse()`/`validate_args()` local (out of scope).
+   Delete the local implementation (`silence_trimmer` had no shortened variant — confirm each tool's `test_cli_args.py` passes against the canonical form). Keep each file's `parse()`/`validate_args()` local (out of scope).
 4. **Move the test matrix** into `audio_suite_shared/tests/test_cli_helpers.py` as a parameterised class (`TestWasLaunchedFromDriver`) containing every union-matrix row with its originating tool in the parametrisation id. Then reduce each tool's `tests/test_cli_args.py` to keep its own `parse()`/`validate_args()` rows, dropping the now-duplicated `was_launched_from_driver` rows (delete, do not xfail).
 
 ### 5b. Single shared hidden-Tk conftest
-1. **Add a repo-root `conftest.py`** providing the canonical session-scoped hidden root, with graceful skip when no display is available (mirrors `tempo_analyzer/tests/conftest.py`, but never destroys the root — see the Python 3.14 Tcl-corruption note in `audio_suite_shared/tests/conftest.py:169-171`):
+1. **Add a repo-root `conftest.py`** providing the canonical session-scoped hidden root, with graceful skip when no display is available:
    ```python
-   """Repo-root pytest fixtures: one hidden Tk root for the whole session."""
+   """Repo-root pytest config: one hidden Tk root for the whole session."""
+
+   import tkinter as tk
 
    import pytest
 
-   _root = None
-
+   _root: tk.Tk | None = None
 
    def pytest_configure(config: pytest.Config) -> None:
        global _root
-       import tkinter as tk
-
        try:
            _root = tk.Tk()
            _root.withdraw()
        except tk.TclError:
-           pytest.skip("No display available — tkinter tests require a GUI environment",
-                       allow_module_level=False)
+           _root = None
 
+   def pytest_unconfigure(config: pytest.Config) -> None:
+       if _root is not None:
+           _root.destroy()
+
+   def pytest_collection_modifyitems(
+       config: pytest.Config, items: list[pytest.Item]
+   ) -> None:
+       if _root is None:
+           for item in items:
+               item.add_marker(
+                   pytest.mark.skip(
+                       reason=(
+                           "No display available — tkinter tests require a "
+                           "GUI environment"
+                       )
+                   )
+               )
 
    @pytest.fixture(scope="session")
-   def root():
+   def root() -> tk.Tk:
        """The shared hidden Tk root (kept alive for the whole session)."""
-       assert _root is not None
+       assert _root is not None, "No display available — Tk root was not created"
        return _root
 
-
    @pytest.fixture(scope="session")
-   def tk_root():
+   def tk_root() -> tk.Tk:
        """Alias for the shared hidden root, for tests that use this name."""
        return root()
    ```
-   Notes: the existing `audio_suite_shared/tests/conftest.py` defines `tk_root` at lines 167-176 — **remove that duplicate definition** from the shared-suite conftest and rely on the root one (the package conftest still owns its non-Tk fixtures: `temp_directory`, `sample_audio_files`, `mock_processor`, etc.).
+   (the released file adds a module docstring and `from __future__ import annotations`, and its `tk_root` fixture asserts `_root` directly rather than calling `root()`).
+   Defect found while implementing: the plan's original sketch called
+   `pytest.skip()` *inside* `pytest_configure` — on pytest 9.x that raises
+   `INTERNALERROR: usage._ExitCode` (exit code 3) because the runner is not yet
+   collecting, so the skip cannot be recorded. Validated empirically with a temp
+   experiment; the released form records `_root = None` and instead adds
+   `pytest.mark.skip` markers in `pytest_collection_modifyitems` (exit code 0,
+   "X skipped"). The root is destroyed in `pytest_unconfigure` (safe — it runs
+   once at session end, so the "never re-create after destroy" rule from the
+   Python 3.14 Tcl-corruption note in `audio_suite_shared/tests/conftest.py:169-171`
+   is preserved).
+   Notes: the existing `audio_suite_shared/tests/conftest.py` defined `tk_root` at
+   lines 167-176 — **remove that duplicate definition** from the shared-suite
+   conftest and rely on the root one (the package conftest still owns its non-Tk
+   fixtures: `temp_directory`, `sample_audio_files`, `mock_processor`, etc.).
 2. **Inventory the per-tool conftests.** List every `tests/conftest.py` whose *only* content is the Tk bootstrap. Replace each with a zero-body file (`"""Placeholder — shared root comes from the repo-root conftest."""`). Do not delete files outright (pytest `testpaths` discovery is unaffected either way, but keeping the file avoids churn in package layouts that import fixtures from `conftest`).
 3. **Keep every package conftest that carries private fixtures** untouched.
-4. **Validate.** Run `pytest --collect-only` then the full suite. Confirm tests that previously required the per-package `root` fixture still resolve (repo-root conftest applies to all `testpaths` directories). Confirm headless CI behaviour: the matrix already runs on `ubuntu-latest` where `tkinter` is present but headless — the skip-on-`TclError` must fire there as it does today.
+4. **Validate.** Run `pytest --collect-only` then the full suite. Confirm tests that previously required the per-package `root` fixture still resolve (repo-root conftest applies to all `testpaths` directories). Confirm headless CI behaviour: the matrix already runs on `ubuntu-latest` where `tkinter` is present but headless — the marker-skip on `TclError` fires there (all tests collected but skipped). Headless caveat: the root conftest causes a headless full-suite run to record 0% coverage of Tk-dependent code; that path already produces a `--cov-fail-under` failure today (skipped tests contribute no coverage), so it is a pre-existing limitation, not a P5 regression.
 
 ### Tests in lockstep
 - `audio_suite_shared/tests/test_cli_helpers.py::TestWasLaunchedFromDriver` → full union matrix.
 - Full suite must remain green; no per-tool conftest may silently lose its `root` fixture.
 
 ### Acceptance criteria
-- `grep -c "def was_launched_from_driver" audio_suite_shared/cli_helpers.py` = 1; zero local definitions remain in tool packages.
-- Root `conftest.py` exists; ≤1 definition of `tk_root` across the tree (the shared-suite one removed).
+- `grep -c "def was_launched_from_driver" audio_suite_shared/cli_helpers.py` = 1; zero local definitions remain in tool packages (each `utils/cli_args.py` ships the single-line `as` re-export, which is what makes mypy `--strict` pass on the importing `app.py` call sites).
+- Root `conftest.py` exists; ≤1 definition of `tk_root` across the tree (the shared-suite one removed; `audio_fingerprinter/tests/conftest.py` keeps only its private fixtures, `genre_sync/tests/conftest.py` untouched).
 - Full suite green, coverage ≥75%.
 
 ### Decisions / risks
@@ -527,7 +561,34 @@ These close the three largest market gaps named in the audit. They are independe
 
 1. **P1** (foundation: VCS for reviewable commits) → commit with message `P1: initialise git repository`.
 2. **P2** + **P3** + **P4** in parallel (independent; P4 rewrites no runtime code, P2/P3 are localised) → commits `P2: harden CI security+compile gate`, `P3: library_cache concurrency`, `P4: strict mypy config` (commits `d7680f7`, `c06730c`+`e540819`, `f409e11`+plan update — all DONE).
-3. **P5** (largest touching change) → commit `P5: deduplicate driver-launch + Tk test root`.
+3. **P5** (largest touching change) → commit `P5: deduplicate driver-launch + Tk test root` (commit `0666936` + plan update — DONE).
+4. **P6** (self-contained product-surface fix) → commit `P6: register orphan DSP tools`.
+5. **P7** items: separate plans, separate gates, backlog order 7a → 7b → 7c.
+6. After every commit: run the Definition of Done gate; after P4 also `mypy .` and after P6 run the Master Driver manually.
+
+Each commit above may be split into several commits at the implementer's discretion (atomic units preferred), but the gate runs must correspond to the *state after each item*, not after P1..P6 cumulatively.
+
+---
+
+## Session retrospective (fill in after each item lands)
+
+| Item | Lesson learned / gotcha | Feed into AGENTS.md? |
+|---|---|---|
+| P1 | (1) pwsh `\"` inside a double-quoted string is **not** an escape — it terminates the string, so any audit `rg`/`grep` pattern carrying `["']` must be rebuilt (split the quote class, or use single-quoted pattern vars with `''` doubling). (2) `rg` was also absent from the machine — `git grep --cached` over the *staged* set is the stronger gate anyway (scans only what is about to be committed). (3) The audit secret regex only matches `api[_-]?key`-families and quoted assignments — real `app_key`/`client_key` values in `album_art_sync/*.json` (an `app_key: "…"` hit is not even a `secret/password/token` token) sailed through until a supplemental `-e '[-_](key|secret|token|password|passwd|client)[^ ]*[=:][^A-Za-z0-9_][A-Za-z0-9+/=_-]{10,}'` + 32-hex + 44+-base64 scan ran. (4) `compileall -x '(^|/)(\.venv|\.git)/'` uses forward slashes; on Windows it does **not** exclude `.venv` (paths use `\`), emitting harmless third-party SyntaxWarnings — plan-wide, accepted as-is. | Yes — the pwsh secret-scan gotchas (1)/(3) are generic; propose a Windows secret-scan note for AGENTS.md ⌈Verification Tooling⌉/§6. |
+| P2 | (1) The widened full-tree scan lands at 0 High / 0 Medium with zero surprises — the "26-package worry" never materialised because the suite's subprocess discipline already routes everything through `run_secure_subprocess()`; expected Medium count was zero and stayed zero. (2) The Low tail is dominated by **B105 false positives on CLI flag strings** (`--bpm-min`, `--workers`, `--apply-gain`, …) — a whole class of noise that only appears once you scan per-tool `utils/cli_args.py` files; record them as known-noise rather than editing code to appease bandit. (3) `compileall -x` on Windows does NOT exclude `.venv` (forward-slash regexp vs backslash paths) — the pydub SyntaxWarnings are expected noise; CI (Linux, no `.venv`) will not see them. | No — B105-flag noise and the `-x` Windows quirk are already covered by existing AGENTS.md notes; no new generic rule emerged. |
+| P3 | (1) **Write the regression test BEFORE the fix and run it against the buggy code** — the two-instance barrier test failed pre-fix with the exact `OperationalError('database is locked')` the plan predicted, converting the plan's "fails pre-fix" claim from hearsay into a verified repro. (2) **`sqlite3` connections are thread-affine by default** — a raw holder connection created on the main thread and used inside a worker thread dies with `check_same_thread`, so test harnesses that drive SQLite from threads must create the connection in the thread (or pass `check_same_thread=False`). (3) A busy-wait acceptance test (`BEGIN EXCLUSIVE` → upsert blocks then succeeds) passes *both* before and after the fix because the pre-fix default `sqlite3` timeout is already 5 s — such tests verify the *new* 30 s contract but are not failing-pre-fix regressions; do not mislabel them. | No — (2) is a Python stdlib fact already implied by the suite's `check_same_thread=False` use; (1)/(3) are session-specific verification habits already covered by AGENTS.md §3/§9 |
+| P4 | (1) `strict = true` predicts "a small, mechanical error tail" but the reality can be zero — the strict-missing-flag set was already ~99% covered by years of incremental flag promotion (`no_implicit_optional`/`warn_redundant_casts`/`warn_unused_configs`/`warn_return_any`/`disallow_incomplete_defs`/`check_untyped_defs` were already set). Always run the post-change `mypy .` *before* assuming fixes are needed. (2) Mypy's `run metrics` summary has two identical-looking blocks: "Total issues (by severity)" vs "Total issues (by confidence)" — the `31 Medium / 20 High` numbers are confidence buckets; the 0H/0M/51L gate reads the **severity** block. (3) Verify strict actually *fires* (probe file with a known `no-untyped-def`/`type-arg` violation) rather than trusting config parsing — `warn_unused_configs`' "unused section(s)" note is the smoking gun when an override block matches nothing (it appeared in my single-file probe because the probe imported none of the override modules; the full-tree run has no such note). | No — (2) is bandit-version noise, (3) is a mypy-internals curiosity; the transferable lesson (strict=true lands clean; verify with a probe) is already implied by AGENTS.md §3/§6. |
+| P5 | (1) **Trust the union matrix over the sketch** — grepping the 19 legacy bodies proved they were all `sys.argv[1:]` + `len > 1`, so the plan's flag-set/first-token sketch (which misfires on `["prog"]`) was replaced with full-argv `len > 1`; write the matrix first, reconcile the implementation to it. (2) **`pytest.skip()` inside `pytest_configure` is a pytest-9 fatal** (`INTERNALERROR`, exit 3); skip markers must be added in `pytest_collection_modifyitems`. (3) **mypy `--strict` re-export discipline:** a `# noqa: F401` re-export passes ruff but fails `CheckPy` on the importing module — use the `name as name` alias; it is also self-documenting as an explicit re-export. (4) A parenthesized `from ... import (...)` is not a safe insertion point for a scripted re-export edit — `tempo_analyzer`/`replaygain_analyzer` ended up with the new import nesting inside the existing parenthesized `cli_dataclasses` import and had to be repaired by hand; scripted bulk edits must always be followed by a compile gate + a visual diff of the touched lines. (5) The per-tool list of tools that "defined" `was_launched_from_driver` was also wrong in the plan: `audio_enhancer`/`audio_normalizer` never defined it (re-export made them consistent for free); `silence_trimmer` had no shortened variant. Re-derive such lists from grep, not from the plan prose. | Yes — (3) is a generic mypy/strict-reexport rule worth an AGENTS.md note under Verification Tooling; (4) is a scripted-edit-safety habit; (1)(2)(5) are covered by the D14 decision-log row. |
+| P6 | (reserved) | |
+| D14 | P5 canonical form + conftest skip + tk_root strip | **Applied in P5** — (1) **Canonical form:** every legacy body was byte-identical `if argv is None: argv = sys.argv[1:]; return len(argv) > 1`, so the plan's `_DRIVER_ONLY_FLAGS`/first-token sketch was *dropped* (it would return True for `["prog"]`, which the union matrix asserts is False). Released canonical: full `sys.argv` + `len(argv) > 1`; both call patterns (standalone bare launch, driver-with-path launch) yield identical booleans on legacy and canonical, and all 20 union-matrix rows (8 false / 12 true) pass. Refinement: a manual `Tempo_Analyzer.pyw D:/Music` run now counts as driven (was standalone under the `[1:]` default). (2) **`pytest.skip()` inside `pytest_configure` is fatal:** on pytest 9.x it raises `INTERNALERROR: usage._ExitCode` (exit 3) — verified with a temp experiment; the released root conftest records `_root = None` in `pytest_configure` and adds `pytest.mark.skip` markers in `pytest_collection_modifyitems` (exit 0, "X skipped"). (3) **mypy strict vs re-export:** `# noqa: F401`-only re-exports fail `CheckPy` on the importing `app.py` ("does not explicitly export attribute"); the redundant-alias form (`was_launched_from_driver as was_launched_from_driver`) is the explicit-reexport marker mypy accepts. (4) `audio_fingerprinter/tests/conftest.py`'s `tk_root` stripped (kept its 10 private fixtures); `genre_sync`'s local `root` kept (shadows the root-conftest fixture for its package only). Headless all-skip ⇒ 0% coverage of Tk code, a pre-existing `--cov-fail-under` failure, not a P5 regression | Single source of truth (`grep -c "def was_launched_from_driver" cli_helpers.py` = 1); 23 bootstrap conftests → placeholders; full suite 6527 passed / 5 skipped, coverage 77.36% |
+
+---
+
+## Execution order & sequencing
+
+1. **P1** (foundation: VCS for reviewable commits) → commit with message `P1: initialise git repository`.
+2. **P2** + **P3** + **P4** in parallel (independent; P4 rewrites no runtime code, P2/P3 are localised) → commits `P2: harden CI security+compile gate`, `P3: library_cache concurrency`, `P4: strict mypy config` (commits `d7680f7`, `c06730c`+`e540819`, `f409e11`+plan update — all DONE).
+3. **P5** (largest touching change) → commit `P5: deduplicate driver-launch + Tk test root` (commit `0666936` + plan update — DONE).
 4. **P6** (self-contained product-surface fix) → commit `P6: register orphan DSP tools`.
 5. **P7** items: separate plans, separate gates, backlog order 7a → 7b → 7c.
 6. After every commit: run the Definition of Done gate; after P4 also `mypy .` and after P6 run the Master Driver manually.
