@@ -190,6 +190,26 @@ Follow them or the "passing" run is misleading.
   as `unused-ignore`. This also un-types the symbols, so cascading errors
   like `"APIC" has no attribute "data"` disappear.
 
+- **mypy `--strict` re-export discipline: `# noqa: F401` on a re-export is a**
+  **ruff-only fix — mypy still fails on the importing module.** A
+  `from audio_suite_shared.cli_helpers import was_launched_from_driver  # noqa: F401`
+  in a tool's `utils/cli_args.py` passes ruff but makes every call site
+  (`app.py` → `cli_args.was_launched_from_driver()`) fail `--strict` with
+  `Module "…utils.cli_args" does not explicitly export attribute
+  "was_launched_from_driver" [attr-defined]`. The redundant-alias form is the
+  canonical explicit-reexport marker mypy accepts (and ruff treats as intention
+  to re-export, so no `noqa`):
+  ```python
+  from audio_suite_shared.cli_helpers import (
+      was_launched_from_driver as was_launched_from_driver,
+  )
+  ```
+  If running a scripted bulk edit that inserts a re-export line, a
+  parenthesized `from … import (…)` block is not a safe insertion point — the
+  new import can land nested inside the existing parentheses (`tempo_analyzer` /
+  `replaygain_analyzer` ships exactly this during P5 and had to be repaired by
+  hand). Always re-run the compile gate and eyeball a diff of the touched lines.
+
 - **Mutagen FLAC: rebinding `.tags` never persists — mutate in place.**
   mutagen's `FLAC` serializes the Vorbis comment dict captured into
   `metadata_blocks` at load time, so `audio.tags = other_tags` followed by
