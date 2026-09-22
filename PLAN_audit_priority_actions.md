@@ -1,6 +1,6 @@
 # PLAN — Audit Priority Actions (Post-Audit Remediation)
 
-**Status:** In progress — **P1 complete** (initial commit `a056bb9`); P2–P7 not started. See Decision Log (D10/D11) and the session retrospective for P1 discoveries.
+**Status:** In progress — **P1 complete** (initial commit `a056bb9`); **P2 complete** (commit `d7680f7`); P3–P7 not started. See Decision Log (D10/D11/D12) and the session retrospective for discoveries.
 **Source:** "Honest Audit Report" (product capability + code-quality audit, 2026)
 **Scope:** The 7 priority actions named in the audit's closing section. Each action is broken into fully addressable steps with acceptance criteria, lockstep tests, and verification commands.
 **Anti-creep rule:** Implement ONLY the steps below. No adjacent refactors, no styling changes outside the touched files, no speculative features. Any defect discovered *while* implementing one of these steps must be fixed in the same change with a regression test (AGENTS.md §7), and noted in the Decision Log.
@@ -109,6 +109,31 @@ Completion record:
 
 **Problem:** `.github/workflows/ci.yml:43` runs `bandit -r audio_suite_shared/ -c pyproject.toml || bandit -r audio_suite_shared/` — the `||` fallback re-runs *without* `-c` (the exact anti-pattern AGENTS.md §Verification warns about) and the scan covers only 1 of 26 packages. No compile/import gate exists in CI despite AGENTS.md mandating it as verification step 0.
 
+**Status:** COMPLETE — landed as commit `d7680f7` (message "P2: harden CI security+compile gate").
+
+Completion record:
+- [x] **Step 2 — widened scan verified BEFORE touching CI.** Ran the exact canonical command locally (repo root, pwsh):
+  ```powershell
+  $env:PYTHONUTF8='1'; python -X utf8 -m bandit -r . -x ./.venv -c pyproject.toml
+  ```
+  Result: **0 High / 0 Medium across all 26 packages** (51 Low findings). Breakdown of the Low tail by site:
+  - B606 `os.startfile`/opener sites: `album_art_normalizer.py:186`, `audio_suite_shared/platform_utils.py:38,166`, `ui_common.py:46`, `cd_ripper/ui/results_tab.py:118`, `master_driver/utils/platform_utils.py:29`.
+  - B603 via `run_secure_subprocess()` only (audited single wrapper): `secure_subprocess.py:279,366,428`.
+  - B603/B607 raw-but-benign sites: `audio_enhancer/core/ffmpeg_io.py` (local ffmpeg binary, no shell), `cd_ripper/ui/results_tab.py:130-155` (fixed drive-letter eject/explorer select, `CREATE_NO_WINDOW`), `master_driver/utils/platform_utils.py:31,33`.
+  - B105 false positives on CLI flag strings: `bpm_analyzer`, `lyrics_manager`, `replaygain_analyzer` `utils/cli_args.py` (`--bpm-min`, `--workers`, `--apply-gain`, …) — no actual hardcoded secrets (token-class scan in P1 confirmed none).
+  - B403/B112 `batch_undo.py` pickle with `# nosec B301 - legacy self-writes`; B405 `asx_extractor/core/asx_parser.py` ElementTree (read-only local parse).
+  - Expected count was **zero Medium**; confirmed — no in-change security fix required (D3 held as a no-op).
+- [x] **Step 1 — CI security job hardened** (`.github/workflows/ci.yml:34-46`): scan command replaced with the canonical full-tree invocation, `||` fallback removed, `PYTHONUTF8="1"` set as an env on the step:
+  ```yaml
+  - name: Bandit (full tree)
+    env:
+      PYTHONUTF8: "1"
+    run: bandit -r . -x ./.venv -c pyproject.toml
+  ```
+- [x] **Step 3 — new dedicated `compile` job added** (`.github/workflows/ci.yml:48-56`): `actions/checkout@v4` + `actions/setup-python@v5` (3.12) + `python -X utf8 -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'`. Mirrors the preflight guard in CI, where `guard_or_exit()` cannot run (needs a Tk root). Dedicated job so the byte-compile gate runs independently of the test matrix.
+- [x] **Step 4 — no other CI changes** (deliberate): `mypy .`, ruff, and the pytest matrix untouched.
+- [x] **Verification:** bandit (exact command above) 0 H / 0 M; compile gate (`compileall -f . -x …`) clean — the only output being the known `.venv` third-party pydub `SyntaxWarning`s (documented AGENTS.md gotcha; CI has no `.venv` so they cannot appear there). ruff/mypy/pytest not re-run: zero first-party Python was modified (YAML-only change), consistent with the P1 precedent.
+
 ### Steps
 
 1. **Replace the security job scan command** (`.github/workflows/ci.yml:43`) with the canonical full-tree invocation:
@@ -123,7 +148,7 @@ Completion record:
    - `-x ./.venv` matches the documented invocation and is a no-op in a fresh checkout (the security job has no `uv sync`, so no `.venv` is created — keep the flag for parity).
    - `PYTHONUTF8` avoids the `charmap` report crash on any path containing `→`/non-ASCII docstring chars.
    - Remove the `||` fallback entirely — a scan failure must fail the job.
-2. **Verify the widened scan passes before enabling.** Run the exact command locally (see Definition of Done step 3). Expected result: 0 High / 0 Medium; remaining findings are the documented B603/B606/B607 first-party subprocess call sites routed through `run_secure_subprocess()` and the shared test–sonly sites excluded by config. If any genuine Medium surfaces outside `audio_suite_shared/`, fix it *in the same change* (AGENTS.md §7) before updating CI.
+2. **Verify the widened scan passes before enabling.** Run the exact command locally (see Definition of Done step 3). Expected result: 0 High / 0 Medium; remaining findings are the documented B603/B606/B607 first-party subprocess call sites routed through `run_secure_subprocess()` and the shared test–sonly sites excluded by config. If any genuine Medium surfaces outside `audio_suite_shared/`, fix it *in the same change* (AGENTS.md §7) before updating CI. *(Verified locally first; see completion record — zero Medium, no fix needed.)*
 3. **Add a compile/import gate job.** Append a new job (or a step in the existing `test` job — recommend a dedicated job so it runs on both semantics independently):
    ```yaml
      compile:
@@ -471,6 +496,7 @@ These close the three largest market gaps named in the audit. They are independe
 | D9 | Defects discovered during implementation | Fixed in the change that found them + regression test | Global AGENTS.md §7; applies to every P1–P6 step |
 | D10 | P1 prerequisite: git absent from machine | Installed Git for Windows 2.55.0.3 via `winget` (user-approved) | P1 is blocked without VCS; standard supported install |
 | D11 | P1 secret-gate gap + staged secrets | Subtracted the audit regex's blind spots: `\*_key`/`\*_secret`-suffixed keys, 32-hex literals, 44+-char base64 — none were flagged by the plan's `api[_-]?key|...` pattern. Found four staged `album_art_sync/{,core/}album_art_config.{json,key}` with live Fanart.tv keys: unstaged, `.gitignore` extended with `album_art_config.json` / `album_art_config.key` (matches any depth), `AGENTS.md` §Repository now names them, and the `check-ignore` lockstep list extended | AGENTS.md: never commit API keys/secrets; a live key was caught mid-stage exactly as the P1 risk block warned |
+| D12 | P2 widened-scan outcome | **Applied in P2** — full-tree scan landed at 0 High / 0 Medium (51 Low, all documented categories), so D3 held as a no-op and CI was updated exactly as specced. B105 flag-string findings (`--bpm-min`, `--workers`, `--apply-gain`, …) recorded as false positives, not secrets (P1 token-class scans clean) | Widening to all 26 packages surfaced no release-blocking defect; keeping the Low tail documented avoids noise-chasing on false positives |
 
 ---
 
@@ -492,7 +518,7 @@ Each commit above may be split into several commits at the implementer's discret
 | Item | Lesson learned / gotcha | Feed into AGENTS.md? |
 |---|---|---|
 | P1 | (1) pwsh `\"` inside a double-quoted string is **not** an escape — it terminates the string, so any audit `rg`/`grep` pattern carrying `["']` must be rebuilt (split the quote class, or use single-quoted pattern vars with `''` doubling). (2) `rg` was also absent from the machine — `git grep --cached` over the *staged* set is the stronger gate anyway (scans only what is about to be committed). (3) The audit secret regex only matches `api[_-]?key`-families and quoted assignments — real `app_key`/`client_key` values in `album_art_sync/*.json` (an `app_key: "…"` hit is not even a `secret/password/token` token) sailed through until a supplemental `-e '[-_](key|secret|token|password|passwd|client)[^ ]*[=:][^A-Za-z0-9_][A-Za-z0-9+/=_-]{10,}'` + 32-hex + 44+-base64 scan ran. (4) `compileall -x '(^|/)(\.venv|\.git)/'` uses forward slashes; on Windows it does **not** exclude `.venv` (paths use `\`), emitting harmless third-party SyntaxWarnings — plan-wide, accepted as-is. | Yes — the pwsh secret-scan gotchas (1)/(3) are generic; propose a Windows secret-scan note for AGENTS.md ⌈Verification Tooling⌉/§6. |
-| P2 | (reserved) | |
+| P2 | (1) The widened full-tree scan lands at 0 High / 0 Medium with zero surprises — the "26-package worry" never materialised because the suite's subprocess discipline already routes everything through `run_secure_subprocess()`; expected Medium count was zero and stayed zero. (2) The Low tail is dominated by **B105 false positives on CLI flag strings** (`--bpm-min`, `--workers`, `--apply-gain`, …) — a whole class of noise that only appears once you scan per-tool `utils/cli_args.py` files; record them as known-noise rather than editing code to appease bandit. (3) `compileall -x` on Windows does NOT exclude `.venv` (forward-slash regexp vs backslash paths) — the pydub SyntaxWarnings are expected noise; CI (Linux, no `.venv`) will not see them. | No — B105-flag noise and the `-x` Windows quirk are already covered by existing AGENTS.md notes; no new generic rule emerged. |
 | P3 | (reserved) | |
 | P4 | (reserved) | |
 | P5 | (reserved) | |
