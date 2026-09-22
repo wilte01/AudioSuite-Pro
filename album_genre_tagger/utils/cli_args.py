@@ -18,6 +18,9 @@ import sys
 from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
+from audio_suite_shared.cli_helpers import (
+    was_launched_from_driver as was_launched_from_driver,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,24 +32,6 @@ class GenreTaggerArgs(BaseCLIArgs):
     min_coverage: int = 50
     clear_logs: bool = False
     parallel_run: bool = False
-
-
-def was_launched_from_driver(argv: list[str] | None = None) -> bool:
-    """
-    Return True when this process was started by the Master Driver.
-
-    The driver always launches tools with at least one CLI argument
-    (the folder path); a standalone launch of the .pyw passes none.
-
-    Args:
-        argv: Argument vector to inspect; defaults to ``sys.argv``.
-
-    Returns:
-        True if any CLI arguments beyond the script name are present.
-    """
-    if argv is None:
-        argv = sys.argv
-    return len(argv) > 1
 
 
 def validate_args(args: GenreTaggerArgs) -> list[str]:

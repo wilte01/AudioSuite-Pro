@@ -9,7 +9,6 @@ import pytest
 from album_art_normalizer.utils.cli_args import (
     AlbumArtNormalizerArgs,
     parse,
-    was_launched_from_driver,
 )
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -108,23 +107,6 @@ class TestDriverDisplayFlags:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# was_launched_from_driver
-# ═════════════════════════════════════════════════════════════════════════════
-
-
-class TestWasLaunchedFromDriver:
-    def test_true_when_argv_has_arguments(self):
-        assert was_launched_from_driver(["script.py", "C:/music"]) is True
-
-    def test_false_for_bare_argv(self):
-        assert was_launched_from_driver(["script.py"]) is False
-
-    def test_false_for_empty_argv(self):
-        assert was_launched_from_driver([]) is False
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-# folder validation
 # ═════════════════════════════════════════════════════════════════════════════
 
 

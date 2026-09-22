@@ -14,6 +14,7 @@ This reduces code duplication across all 19 Audio Suite applications.
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -25,6 +26,28 @@ AutoStartFunc = Optional[Callable[[], None]]
 # attribute object is accepted here; per-tool dataclasses cannot share one
 # static Protocol because they each expose a different subset of fields.
 ParsedCliArgs = Any
+
+
+def was_launched_from_driver(argv: list[str] | None = None) -> bool:
+    """
+    Detect whether the application was launched by the Master Driver.
+
+    The Master Driver always passes CLI arguments — at minimum a target path
+    (or the numeric placeholder used for enrich tools) followed by the
+    display-only handshake flags. A standalone launch starts with no
+    arguments at all, so a full argv (index 0 = program name) holding more
+    than one entry proves a driver launch.
+
+    Args:
+        argv: Full argument vector including the program name at index 0.
+            Defaults to ``sys.argv`` when omitted.
+
+    Returns:
+        True when at least one CLI argument follows the program name.
+    """
+    if argv is None:
+        argv = sys.argv
+    return len(argv) > 1
 
 
 def create_standard_parser(

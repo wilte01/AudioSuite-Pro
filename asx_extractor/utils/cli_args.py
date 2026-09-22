@@ -12,6 +12,9 @@ import sys
 from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
+from audio_suite_shared.cli_helpers import (
+    was_launched_from_driver as was_launched_from_driver,
+)
 
 
 @dataclass
@@ -22,23 +25,6 @@ class ASXExtractorArgs(BaseCLIArgs):
     mode: str | None = None
     clear_logs: bool = False  # Display only — driver-owned orchestration flag
     parallel_run: bool = False  # Display only — driver-owned orchestration flag
-
-
-def was_launched_from_driver(argv: list[str] | None = None) -> bool:
-    """Detect whether this tool was started by the Master Driver.
-
-    The Master Driver always passes a full handshake argument vector, so any
-    argv beyond the program name indicates a driven launch.
-
-    Args:
-        argv: Argument vector to inspect; defaults to ``sys.argv``.
-
-    Returns:
-        True when extra arguments are present.
-    """
-    if argv is None:
-        argv = sys.argv
-    return len(argv) > 1
 
 
 def validate_args(args: ASXExtractorArgs) -> list[str]:

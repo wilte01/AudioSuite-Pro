@@ -2,29 +2,11 @@
 
 from __future__ import annotations
 
-import sys
-from unittest.mock import patch
-
 from audio_fingerprinter.utils.cli_args import (
     FingerprintArgs,
     parse,
     validate_args,
-    was_launched_from_driver,
 )
-
-
-class TestWasLaunchedFromDriver:
-    def test_no_extra_args(self):
-        assert was_launched_from_driver(["prog"]) is False
-
-    def test_with_args(self):
-        assert was_launched_from_driver(["prog", "folder"]) is True
-
-    def test_default_uses_sys_argv(self):
-        with patch.object(sys, "argv", ["prog"]):
-            assert was_launched_from_driver() is False
-        with patch.object(sys, "argv", ["prog", "folder"]):
-            assert was_launched_from_driver() is True
 
 
 class TestParse:

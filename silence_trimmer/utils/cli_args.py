@@ -22,20 +22,9 @@ import sys
 from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
-
-
-def was_launched_from_driver(argv: list[str] | None = None) -> bool:
-    """Return True when the tool was launched by the Master Driver.
-
-    Args:
-        argv: Argument list to inspect; defaults to sys.argv if None.
-
-    Returns:
-        True if argv has more than one element (i.e. a folder path was passed).
-    """
-    if argv is None:
-        argv = sys.argv
-    return len(argv) > 1
+from audio_suite_shared.cli_helpers import (
+    was_launched_from_driver as was_launched_from_driver,
+)
 
 
 @dataclass

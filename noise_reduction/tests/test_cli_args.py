@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from noise_reduction.utils.cli_args import parse, was_launched_from_driver
+from noise_reduction.utils.cli_args import parse
 
 
 def _parse(*args: str):
@@ -126,11 +126,3 @@ class TestDriverHandshake:
     def test_parallel_run_flags(self):
         ns = _parse("--reduce-hum", "--parallel-run")
         assert ns.parallel_run is True
-
-    def test_launched_from_driver(self):
-        with patch.object(sys, "argv", ["app.py", "arg"]):
-            assert was_launched_from_driver() is True
-
-    def test_not_launched_from_driver(self):
-        with patch.object(sys, "argv", ["app.py"]):
-            assert was_launched_from_driver() is False

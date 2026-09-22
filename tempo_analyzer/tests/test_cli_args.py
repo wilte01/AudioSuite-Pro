@@ -13,9 +13,7 @@ from tempo_analyzer.utils.cli_args import (
     parse,
 )
 
-# ---------------------------------------------------------------------------
 # parse — argument mapping
-# ---------------------------------------------------------------------------
 
 
 class TestParse:
@@ -71,9 +69,7 @@ class TestParse:
         assert result.scheme is None
 
 
-# ---------------------------------------------------------------------------
 # parse — validation failures raise CLIValidationError (not SystemExit)
-# ---------------------------------------------------------------------------
 
 
 class TestParseRaisesOnInvalidArgs:
@@ -89,9 +85,7 @@ class TestParseRaisesOnInvalidArgs:
         # If SystemExit bubbled up pytest would report an error, not a pass
 
 
-# ---------------------------------------------------------------------------
 # CLIValidationError type
-# ---------------------------------------------------------------------------
 
 
 class TestCLIValidationError:
@@ -110,28 +104,6 @@ class TestCLIValidationError:
     def test_carries_message(self):
         exc = CLIValidationError("folder not found")
         assert "folder not found" in str(exc)
-
-
-# ---------------------------------------------------------------------------
-# was_launched_from_driver + display-only driver flags
-# ---------------------------------------------------------------------------
-
-
-class TestWasLaunchedFromDriver:
-    def test_true_when_argv_has_arguments(self):
-        from tempo_analyzer.utils.cli_args import was_launched_from_driver
-
-        assert was_launched_from_driver(["script.py", "C:/music"]) is True
-
-    def test_false_for_bare_argv(self):
-        from tempo_analyzer.utils.cli_args import was_launched_from_driver
-
-        assert was_launched_from_driver(["script.py"]) is False
-
-    def test_false_for_empty_argv(self):
-        from tempo_analyzer.utils.cli_args import was_launched_from_driver
-
-        assert was_launched_from_driver([]) is False
 
 
 class TestDriverDisplayFlags:

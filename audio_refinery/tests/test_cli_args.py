@@ -2,33 +2,9 @@
 
 from __future__ import annotations
 
-import sys
-from unittest.mock import patch
-
-from audio_refinery.utils.cli_args import RefineryArgs, parse, was_launched_from_driver
+from audio_refinery.utils.cli_args import RefineryArgs, parse
 
 # ── WasLaunchedFromDriver ─────────────────────────────────────────────────
-
-
-class TestWasLaunchedFromDriver:
-    """Tests for was_launched_from_driver detection."""
-
-    def test_no_args_returns_false(self) -> None:
-        with patch.object(sys, "argv", ["Audio_Refinery.pyw"]):
-            assert was_launched_from_driver() is False
-
-    def test_one_arg_returns_true(self) -> None:
-        with patch.object(sys, "argv", ["Audio_Refinery.pyw", "--source", "/music"]):
-            assert was_launched_from_driver() is True
-
-    def test_explicit_argv_empty(self) -> None:
-        assert was_launched_from_driver(argv=["program"]) is False
-
-    def test_explicit_argv_with_flags(self) -> None:
-        assert was_launched_from_driver(argv=["program", "--dry"]) is True
-
-
-# ── Display-only flags ───────────────────────────────────────────────────
 
 
 class TestDisplayFlags:

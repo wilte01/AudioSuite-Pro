@@ -323,26 +323,6 @@ class TestParseInvalidFolderPath:
         assert captured.out == ""
 
 
-# ── was_launched_from_driver + display-only driver flags ─────────────────────
-
-
-class TestWasLaunchedFromDriver:
-    def test_true_when_argv_has_arguments(self):
-        from music_format_converter.utils.cli_args import was_launched_from_driver
-
-        assert was_launched_from_driver(["script.py", "C:/music"]) is True
-
-    def test_false_for_bare_argv(self):
-        from music_format_converter.utils.cli_args import was_launched_from_driver
-
-        assert was_launched_from_driver(["script.py"]) is False
-
-    def test_false_for_empty_argv(self):
-        from music_format_converter.utils.cli_args import was_launched_from_driver
-
-        assert was_launched_from_driver([]) is False
-
-
 class TestDriverDisplayFlags:
     def test_flags_default_false(self):
         args = ConverterArgs()

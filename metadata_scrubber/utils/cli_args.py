@@ -21,6 +21,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
+from audio_suite_shared.cli_helpers import (
+    was_launched_from_driver as was_launched_from_driver,
+)
 
 
 @dataclass
@@ -32,24 +35,6 @@ class ScrubberArgs(BaseCLIArgs):
     preserve_embedded_art: bool = True
     clear_logs: bool = False
     parallel_run: bool = False
-
-
-def was_launched_from_driver(argv: list[str] | None = None) -> bool:
-    """Return True when this process was started by the Master Driver.
-
-    The driver always launches tools with at least one CLI argument
-    (the source path); a standalone double-click/console start of the
-    .pyw passes none.
-
-    Args:
-        argv: Argument list to inspect; defaults to ``sys.argv``.
-
-    Returns:
-        True if any CLI arguments beyond the script name are present.
-    """
-    if argv is None:
-        argv = sys.argv
-    return len(argv) > 1
 
 
 def validate_args(args: ScrubberArgs) -> list[Any]:

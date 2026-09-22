@@ -10,7 +10,6 @@ from mood_analysis_batch_tagger.utils.cli_args import (
     MoodAnalysisBatchTaggerArgs,
     parse,
     validate_args,
-    was_launched_from_driver,
 )
 
 
@@ -140,14 +139,3 @@ class TestValidateArgs:
     def test_parse_exits_on_invalid_duration(self, tmp_path) -> None:
         with pytest.raises(SystemExit):
             parse(["prog", str(tmp_path), "--duration", "5"])
-
-
-class TestWasLaunchedFromDriver:
-    def test_true_when_argv_has_arguments(self) -> None:
-        assert was_launched_from_driver(["script.py", "C:/music"]) is True
-
-    def test_false_for_bare_argv(self) -> None:
-        assert was_launched_from_driver(["script.py"]) is False
-
-    def test_false_for_empty_argv(self) -> None:
-        assert was_launched_from_driver([]) is False

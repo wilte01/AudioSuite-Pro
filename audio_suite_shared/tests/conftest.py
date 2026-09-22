@@ -164,18 +164,6 @@ def sample_file_extensions() -> tuple[str, ...]:
     return (".mp3", ".flac", ".ogg", ".m4a", ".opus", ".wav", ".aiff")
 
 
-@pytest.fixture(scope="session")
-def tk_root() -> None:
-    """Single session-scoped Tk root — never destroyed to avoid Tcl corruption
-    on platforms where creating a second Tk instance after destroying the first
-    fails (Windows Python 3.14+)."""
-    import tkinter as tk
-
-    root = tk.Tk()
-    root.withdraw()
-    return root  # keep alive for entire session
-
-
 @pytest.fixture
 def mock_time() -> Generator[MagicMock, None, None]:
     """Mock time.time() for consistent timing tests.

@@ -1,4 +1,9 @@
-"""Shared test fixtures for audio_fingerprinter/tests."""
+"""
+Shared test fixtures for audio_fingerprinter/tests.
+
+tk_root itself lives in the repo-root conftest.py (P5 consolidation); this
+file only carries the package's private fixtures.
+"""
 
 from __future__ import annotations
 
@@ -11,19 +16,6 @@ from tkinter import StringVar
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-
-@pytest.fixture(scope="session")
-def tk_root():
-    """Single session-scoped hidden Tk root for widget tests."""
-    import tkinter as tk
-
-    root = tk.Tk()
-    root.withdraw()
-    try:
-        yield root
-    finally:
-        root.destroy()
 
 
 @pytest.fixture

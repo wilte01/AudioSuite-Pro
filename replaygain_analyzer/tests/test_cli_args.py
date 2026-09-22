@@ -15,7 +15,6 @@ from replaygain_analyzer.utils.cli_args import (
     ReplayGainArgs,
     parse,
     validate_args,
-    was_launched_from_driver,
 )
 
 # ── validate_args ─────────────────────────────────────────────────────────────
@@ -52,25 +51,6 @@ class TestValidateArgs:
 
 
 # ── parse — happy path ────────────────────────────────────────────────────────
-
-
-class TestWasLaunchedFromDriver:
-    """Driver launches always carry CLI args; standalone starts do not."""
-
-    def test_no_args_means_standalone(self):
-        assert was_launched_from_driver(["ReplayGain_Analyzer.pyw"]) is False
-
-    def test_any_argument_means_driven(self):
-        assert was_launched_from_driver(["prog", "D:/Music", "-16.0"]) is True
-
-    def test_flag_only_argv_means_driven(self):
-        assert was_launched_from_driver(["prog", "--start", "--end"]) is True
-
-    def test_defaults_to_sys_argv(self, monkeypatch):
-        monkeypatch.setattr("sys.argv", ["prog"])
-        assert was_launched_from_driver() is False
-        monkeypatch.setattr("sys.argv", ["prog", "D:/Music"])
-        assert was_launched_from_driver() is True
 
 
 class TestParseHappyPath:

@@ -7,7 +7,11 @@ Comprehensive test coverage for CLI argument parsing and handlers.
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from audio_suite_shared.cli_helpers import (
     SourceOutputCLIHandler,
@@ -16,6 +20,7 @@ from audio_suite_shared.cli_helpers import (
     create_standard_parser,
     parse_cli_args,
     validate_cli_args,
+    was_launched_from_driver,
 )
 
 
@@ -63,6 +68,108 @@ class TestCreateStandardParser:
         parser = create_standard_parser("Test", add_stages=False)
         args = parser.parse_args([])
         assert not hasattr(args, "stages")
+
+
+class TestWasLaunchedFromDriver:
+    """Union matrix of every per-tool test across the 19 Audio Suite apps.
+
+    The canonical function inspects the FULL argv (index 0 = program name)
+    and reports True iff more than one entry is present: the Master Driver
+    always launches with arguments (path or numeric placeholder, plus the
+    display-only handshake flags), while a standalone launch has none.
+    """
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            pytest.param(
+                [],
+                id="empty - album_art_normalizer/album_art_sync/"
+                "asx_extractor/key_detector/mood_analyzer/music_format_converter/"
+                "mood_analysis_batch_tagger/pop_click_remover/tempo_analyzer",
+            ),
+            pytest.param(
+                ["prog"],
+                id="bare - album_genre_tagger/audio_fingerprinter/"
+                "bpm_analyzer/genre_sync/lyrics_manager",
+            ),
+            pytest.param(
+                ["script.py"],
+                id="bare - album_art_normalizer/album_art_sync/"
+                "asx_extractor/key_detector/mood_analyzer/music_format_converter/"
+                "mood_analysis_batch_tagger/tempo_analyzer",
+            ),
+            pytest.param(["app.py"], id="bare - pop_click_remover/noise_reduction"),
+            pytest.param(
+                ["ReplayGain_Analyzer.pyw"], id="bare launcher - replaygain_analyzer"
+            ),
+            pytest.param(
+                ["Metadata_Scrubber.pyw"], id="bare launcher - metadata_scrubber"
+            ),
+            pytest.param(["Audio_Refinery.pyw"], id="bare launcher - audio_refinery"),
+            pytest.param(["program"], id="bare keyword - audio_refinery"),
+        ],
+    )
+    def test_false_without_arguments(self, argv: list[str]) -> None:
+        """A standalone start carries no CLI arguments."""
+        assert was_launched_from_driver(argv) is False
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            pytest.param(
+                ["script.py", "C:/music"],
+                id="path - album_art_normalizer/"
+                "album_art_sync/asx_extractor/key_detector/mood_analyzer/"
+                "music_format_converter/mood_analysis_batch_tagger/tempo_analyzer",
+            ),
+            pytest.param(
+                ["prog", "--no-clear-logs"],
+                id="flag only - genre_tagger/bpm/genre_sync/lyrics_manager",
+            ),
+            pytest.param(
+                ["prog", "D:/Music", "-16.0"],
+                id="path+param - replaygain_analyzer",
+            ),
+            pytest.param(
+                ["prog", "--start", "--end"],
+                id="flags - replaygain_analyzer/metadata_scrubber",
+            ),
+            pytest.param(["app.py", "/music"], id="path - pop_click_remover"),
+            pytest.param(
+                ["app.py", "/music", "--live"], id="path+live - pop_click_remover"
+            ),
+            pytest.param(["app.py", "arg"], id="single arg - noise_reduction"),
+            pytest.param(["prog", "folder"], id="folder - audio_fingerprinter"),
+            pytest.param(
+                ["Metadata_Scrubber.pyw", "D:/Music"],
+                id="launcher+path - metadata_scrubber",
+            ),
+            pytest.param(
+                ["Audio_Refinery.pyw", "--source", "/music"],
+                id="launcher+flag - audio_refinery",
+            ),
+            pytest.param(["program", "--dry"], id="keyword+flag - audio_refinery"),
+            pytest.param(
+                ["prog", "D:/Music"], id="path - metadata_scrubber/replaygain_analyzer"
+            ),
+        ],
+    )
+    def test_true_with_arguments(self, argv: list[str]) -> None:
+        """A driver launch always passes at least one CLI argument."""
+        assert was_launched_from_driver(argv) is True
+
+    def test_any_argument_means_driven(self, tmp_path: Path) -> None:
+        """Path-valued arguments must be detected (album_genre_tagger, bpm_analyzer,
+        genre_sync, lyrics_manager)."""
+        assert was_launched_from_driver(["prog", str(tmp_path)]) is True
+
+    def test_defaults_to_sys_argv(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """With argv omitted the full sys.argv vector is inspected."""
+        monkeypatch.setattr(sys, "argv", ["prog"])
+        assert was_launched_from_driver() is False
+        monkeypatch.setattr(sys, "argv", ["prog", "D:/Music"])
+        assert was_launched_from_driver() is True
 
 
 class TestStandardCLIHandler:

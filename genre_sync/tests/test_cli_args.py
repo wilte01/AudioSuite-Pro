@@ -9,7 +9,6 @@ from genre_sync.utils.cli_args import (
     GenreSyncArgs,
     parse,
     validate_args,
-    was_launched_from_driver,
 )
 
 # ── validate_args ─────────────────────────────────────────────────────────────
@@ -174,27 +173,6 @@ class TestParseInvalidFolderPath:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# was_launched_from_driver
-# ═════════════════════════════════════════════════════════════════════════════
-
-
-class TestWasLaunchedFromDriver:
-    def test_no_args_means_standalone(self):
-        assert was_launched_from_driver(["prog"]) is False
-
-    def test_any_argument_means_driven(self, tmp_path):
-        assert was_launched_from_driver(["prog", str(tmp_path)]) is True
-
-    def test_flag_only_argv_means_driven(self):
-        assert was_launched_from_driver(["prog", "--no-clear-logs"]) is True
-
-    def test_defaults_to_sys_argv(self, monkeypatch):
-        monkeypatch.setattr("sys.argv", ["prog"])
-        assert was_launched_from_driver() is False
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-# parse — display-only driver orchestration flags
 # ═════════════════════════════════════════════════════════════════════════════
 
 

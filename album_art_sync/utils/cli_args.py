@@ -23,6 +23,9 @@ import sys
 from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
+from audio_suite_shared.cli_helpers import (
+    was_launched_from_driver as was_launched_from_driver,
+)
 
 from ..config.settings import ALBUM_MATCH_THRESHOLD, MIN_ART_DIMENSION
 
@@ -54,23 +57,6 @@ def _flag_value(argv: list[str], name: str) -> str | None:
     if idx + 1 >= len(argv):
         return None
     return argv[idx + 1]
-
-
-def was_launched_from_driver(argv: list[str] | None = None) -> bool:
-    """Detect whether this tool was started by the Master Driver.
-
-    The Master Driver always passes a full handshake argument vector, so any
-    argv beyond the program name indicates a driven launch.
-
-    Args:
-        argv: Argument vector to inspect; defaults to ``sys.argv``.
-
-    Returns:
-        True when extra arguments are present.
-    """
-    if argv is None:
-        argv = sys.argv
-    return len(argv) > 1
 
 
 def validate_args(args: ArtArgs) -> list[str]:

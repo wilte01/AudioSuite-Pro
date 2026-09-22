@@ -12,16 +12,11 @@ before any audio processing begins.
 from __future__ import annotations
 
 import argparse
-import sys
 
 from audio_suite_shared.cli_dataclasses import validate_folder_path
-
-
-def was_launched_from_driver(argv: list[str] | None = None) -> bool:
-    """Return True when argv contains any Master Driver handshake flag."""
-    if argv is None:
-        argv = sys.argv
-    return len(argv) > 1
+from audio_suite_shared.cli_helpers import (
+    was_launched_from_driver as was_launched_from_driver,
+)
 
 
 def parse() -> argparse.Namespace:

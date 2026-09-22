@@ -27,7 +27,7 @@ from unittest.mock import patch
 
 import pytest
 
-from pop_click_remover.utils.cli_args import parse, was_launched_from_driver
+from pop_click_remover.utils.cli_args import parse
 
 
 def _parse(*args: str):
@@ -174,26 +174,6 @@ class TestFolderValidation:
         captured = capsys.readouterr()
         assert "does not exist" in captured.err
         assert "--sensitivity" in captured.err
-
-
-class TestWasLaunchedFromDriver:
-    def test_empty_argv_returns_false(self):
-        assert was_launched_from_driver([]) is False
-
-    def test_single_arg_returns_false(self):
-        assert was_launched_from_driver(["app.py"]) is False
-
-    def test_two_args_returns_true(self):
-        assert was_launched_from_driver(["app.py", "/music"]) is True
-
-    def test_driver_flags_returns_true(self):
-        assert was_launched_from_driver(["app.py", "/music", "--live"]) is True
-
-    def test_default_uses_sys_argv(self):
-        with patch.object(sys, "argv", ["app.py"]):
-            assert was_launched_from_driver() is False
-        with patch.object(sys, "argv", ["app.py", "/music"]):
-            assert was_launched_from_driver() is True
 
 
 class TestDisplayFlags:

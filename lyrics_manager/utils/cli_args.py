@@ -11,26 +11,11 @@ import sys
 from typing import Optional
 
 from audio_suite_shared.cli_dataclasses import LyricsArgs, validate_folder_path
+from audio_suite_shared.cli_helpers import (
+    was_launched_from_driver as was_launched_from_driver,
+)
 
 logger = logging.getLogger(__name__)
-
-
-def was_launched_from_driver(argv: Optional[list[str]] = None) -> bool:
-    """
-    Return True when this process was started by the Master Driver.
-
-    The driver always launches tools with at least one CLI argument
-    (the folder path); a standalone launch of the .pyw passes none.
-
-    Args:
-        argv: Argument vector to inspect; defaults to ``sys.argv``.
-
-    Returns:
-        True if any CLI arguments beyond the script name are present.
-    """
-    if argv is None:
-        argv = sys.argv
-    return len(argv) > 1
 
 
 def parse(argv: Optional[list[str]] = None) -> LyricsArgs:

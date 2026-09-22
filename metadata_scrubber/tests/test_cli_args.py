@@ -9,7 +9,6 @@ from metadata_scrubber.utils.cli_args import (
     ScrubberArgs,
     parse,
     validate_args,
-    was_launched_from_driver,
 )
 
 
@@ -115,25 +114,6 @@ class TestParse:
         assert args.preserve_lyrics is False
         assert args.preserve_album_artist is False
         assert args.preserve_embedded_art is False
-
-
-class TestWasLaunchedFromDriver:
-    """Driver launches always carry CLI args; standalone starts do not."""
-
-    def test_no_args_means_standalone(self):
-        assert was_launched_from_driver(["Metadata_Scrubber.pyw"]) is False
-
-    def test_any_argument_means_driven(self):
-        assert was_launched_from_driver(["Metadata_Scrubber.pyw", "D:/Music"]) is True
-
-    def test_flag_only_argv_means_driven(self):
-        assert was_launched_from_driver(["prog", "--start", "--end"]) is True
-
-    def test_defaults_to_sys_argv(self, monkeypatch):
-        monkeypatch.setattr("sys.argv", ["prog"])
-        assert was_launched_from_driver() is False
-        monkeypatch.setattr("sys.argv", ["prog", "D:/Music"])
-        assert was_launched_from_driver() is True
 
 
 class TestValidateArgs:
