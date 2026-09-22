@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+import sqlite3
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -85,6 +88,102 @@ class TestLifecycle:
             conn1 = c._connect()
             conn2 = c._connect()
             assert conn1 is conn2
+
+
+# ── LibraryCache: concurrency (P3 regression) ────────────────────────────────
+
+
+class TestConcurrency:
+    """P3: module-level lock + timeout=30 serialise cross-instance writers."""
+
+    def test_instances_share_module_lock(self, tmp_path: Path) -> None:
+        """Instances hold no private lock — serialisation is module-wide."""
+        import library_stats.library_cache as mod
+
+        a = LibraryCache(tmp_path / "a.db")
+        b = LibraryCache(tmp_path / "b.db")
+        try:
+            assert not hasattr(a, "_lock")
+            assert not hasattr(b, "_lock")
+            assert isinstance(mod._DB_LOCK, type(threading.Lock()))
+        finally:
+            a.close()
+            b.close()
+
+    @pytest.mark.parametrize("n", (1, 5))
+    def test_concurrent_writers_two_instances(self, tmp_path: Path, n: int) -> None:
+        """Two instances, same DB file, barrier-synchronised writers.
+
+        Per-instance locks cannot serialise separate connections, so this
+        must rely on the shared module lock + busy timeout.  Parametrised
+        repeat (n) makes the shared-lock determinism check explicit.
+        """
+        db = tmp_path / "shared.db"
+        a = LibraryCache(db)
+        b = LibraryCache(db)
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+        writes_per_thread = 25
+
+        def writer(cache: LibraryCache, prefix: str) -> None:
+            try:
+                barrier.wait(timeout=10)
+                for i in range(writes_per_thread):
+                    path = str(tmp_path / f"{prefix}{i}.mp3")
+                    cache.upsert_file(path, mtime=float(i), size=1, format_ext=".mp3")
+            except BaseException as exc:  # noqa: BLE001 — collected for assert
+                errors.append(exc)
+
+        ta = threading.Thread(target=writer, args=(a, "a"))
+        tb = threading.Thread(target=writer, args=(b, "b"))
+        ta.start()
+        tb.start()
+        ta.join(timeout=60)
+        tb.join(timeout=60)
+        try:
+            assert not errors, f"concurrent writers raised: {errors!r}"
+            assert a.row_count() == 2 * writes_per_thread
+            assert b.row_count() == 2 * writes_per_thread
+        finally:
+            a.close()
+            b.close()
+
+    def test_upsert_waits_out_exclusive_transaction(self, tmp_path: Path) -> None:
+        """A concurrent BEGIN EXCLUSIVE blocks upsert; it succeeds after."""
+        db = tmp_path / "busy.db"
+        cache = LibraryCache(db)
+        cache._connect()  # create schema before the exclusive txn
+        ready = threading.Event()
+
+        def hold_exclusive() -> None:
+            holder = sqlite3.connect(db, timeout=30, check_same_thread=False)
+            try:
+                holder.execute("BEGIN EXCLUSIVE")
+                ready.set()
+                time.sleep(0.5)  # keep the exclusive txn short
+                holder.commit()
+            finally:
+                holder.close()
+
+        t = threading.Thread(target=hold_exclusive)
+        t.start()
+        try:
+            assert ready.wait(timeout=10)
+            started = time.monotonic()
+            cache.upsert_file(
+                str(tmp_path / "waited.mp3"),
+                mtime=1.0,
+                size=1,
+                format_ext=".mp3",
+            )
+            elapsed = time.monotonic() - started
+            t.join(timeout=35)
+            assert elapsed >= 0.3, "upsert did not block on the exclusive txn"
+            assert elapsed < 30, "upsert exceeded the 30 s busy timeout"
+            assert cache.row_count() == 1
+        finally:
+            t.join(timeout=35)
+            cache.close()
 
 
 # ── LibraryCache: row operations ─────────────────────────────────────────────

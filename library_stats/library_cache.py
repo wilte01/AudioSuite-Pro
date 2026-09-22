@@ -23,6 +23,14 @@ Schema (matches FUTURE_ENHANCEMENTS.md proposal):
         year INTEGER,
         scanned_at TEXT DEFAULT (datetime('now'))
     )
+
+Concurrency:
+    Connection creation is serialised by a module-level lock shared by every
+    instance (per-instance locks cannot serialise separate connections to the
+    same DB file), and each connection waits up to 30 s (``timeout=30`` +
+    ``PRAGMA busy_timeout``) for a competing writer rather than raising
+    ``OperationalError: database is locked`` — the pattern documented in
+    AGENTS.md and used by ``audio_suite_shared.batch_undo``.
 """
 
 from __future__ import annotations
@@ -37,6 +45,10 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Global lock shared by every LibraryCache instance: SQLite only permits one
+# writer at a time, and separate instances must not step on each other.
+_DB_LOCK = threading.Lock()
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS files (
@@ -85,18 +97,18 @@ class LibraryCache:
         )
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: sqlite3.Connection | None = None
-        self._lock = threading.Lock()
 
     # ── Connection management ─────────────────────────────────────────
 
     def _connect(self) -> sqlite3.Connection:
         if self._conn is None:
-            with self._lock:
+            with _DB_LOCK:
                 if self._conn is None:
                     self._conn = sqlite3.connect(
-                        str(self._path), check_same_thread=False
+                        str(self._path), check_same_thread=False, timeout=30
                     )
                     self._conn.execute("PRAGMA journal_mode=WAL")
+                    self._conn.execute("PRAGMA busy_timeout=30000")
                     self._conn.executescript(_SCHEMA_SQL)
         return self._conn
 
