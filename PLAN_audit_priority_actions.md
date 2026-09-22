@@ -1,6 +1,6 @@
 # PLAN — Audit Priority Actions (Post-Audit Remediation)
 
-**Status:** In progress — **P1 complete** (initial commit `a056bb9`); **P2 complete** (commit `d7680f7`); **P3 complete** (commit `a2ce82c`); P4–P7 not started. See Decision Log (D10/D11/D12/D13) and the session retrospective for discoveries.
+**Status:** In progress — **P1 complete** (initial commit `a056bb9`); **P2 complete** (commit `d7680f7`); **P3 complete** (commit `c06730c`); P4–P7 not started. See Decision Log (D10/D11/D12/D13) and the session retrospective for discoveries.
 **Source:** "Honest Audit Report" (product capability + code-quality audit, 2026)
 **Scope:** The 7 priority actions named in the audit's closing section. Each action is broken into fully addressable steps with acceptance criteria, lockstep tests, and verification commands.
 **Anti-creep rule:** Implement ONLY the steps below. No adjacent refactors, no styling changes outside the touched files, no speculative features. Any defect discovered *while* implementing one of these steps must be fixed in the same change with a regression test (AGENTS.md §7), and noted in the Decision Log.
@@ -182,7 +182,7 @@ Completion record:
 
 **Problem:** `library_stats/library_cache.py:96-98` connects with `sqlite3.connect(str(self._path), check_same_thread=False)` and **no `timeout=`**, guarded by a **per-instance** `self._lock` (`:88`). This is exactly the pattern AGENTS.md forbids ("concurrent writers from multiple instances/threads raise OperationalError: database is locked"). The correct reference pattern is `audio_suite_shared/batch_undo.py:53,173` (module-level lock, `timeout=30`, WAL, `ORDER BY rowid`). Currently latent (single-instance use), it is the one module that contradicts the documented rule.
 
-**Status:** COMPLETE — landed as commit `a2ce82c` (message "P3: library_cache concurrency").
+**Status:** COMPLETE — landed as commit `c06730c` (message "P3: library_cache concurrency").
 
 Completion record:
 - [x] **Step 1 — module-level lock.** `_DB_LOCK = threading.Lock()` added next to `logger` (with the batch_undo-style comment); per-instance `self._lock = threading.Lock()` removed from `__init__`.
