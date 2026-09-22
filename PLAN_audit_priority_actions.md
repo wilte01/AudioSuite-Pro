@@ -1,6 +1,6 @@
 # PLAN — Audit Priority Actions (Post-Audit Remediation)
 
-**Status:** Draft — proposed, nothing implemented yet
+**Status:** In progress — **P1 complete** (initial commit `a056bb9`); P2–P7 not started. See Decision Log (D10/D11) and the session retrospective for P1 discoveries.
 **Source:** "Honest Audit Report" (product capability + code-quality audit, 2026)
 **Scope:** The 7 priority actions named in the audit's closing section. Each action is broken into fully addressable steps with acceptance criteria, lockstep tests, and verification commands.
 **Anti-creep rule:** Implement ONLY the steps below. No adjacent refactors, no styling changes outside the touched files, no speculative features. Any defect discovered *while* implementing one of these steps must be fixed in the same change with a regression test (AGENTS.md §7), and noted in the Decision Log.
@@ -36,6 +36,18 @@ Ordering note: **P1 (git) should land first** so every subsequent change is a re
 ---
 
 ## P1 — Initialise git repository and first commit
+
+**Status:** COMPLETE — landed as commit `a056bb9` (message "Initial commit of AudioSuite-Pro 1.0.0").
+
+Completion record:
+- [x] Pre-flight inventory; `git init -b main` (Git for Windows 2.55.0.3 installed via winget first — see D10); global identity used (`Terrence Williams <wilte01@gmail.com>`).
+- [x] Q1/Q2 decided and applied (D1/D2): `uv.lock` ignore line removed and file committed; `fpcalc.exe` committed (measured 3.95 MB < 5 MB).
+- [x] `.gitignore` hardened: added `audio_suite_config.key`, `.coverage.*`, `htmlcov/`, `*.lnk`, `.env`, `.env.*`, `!.env.example`; extended further for the D11 discovery.
+- [x] Secret gate: the audit `rg` pattern + `git grep --cached` supplemental scans (catches `*_key`/`*_secret` suffixes, 32-hex, 44+-base64 literals the audit regex misses — see D11). Four `album_art_sync/*` files carrying live Fanart.tv keys were found staged, unstaged, and excluded.
+- [x] `git check-ignore` verified for `audio_suite_config.json`, `audio_suite_config.key`, `logs/`, `.venv/`, and the `album_art_config.*` pairs (root + `core/`).
+- [x] Commit: 832 tracked files (712 `.py`, 32 `.pyw`, docs, `uv.lock`, `fpcalc.exe`); `git status` clean; CI workflow still triggers on push/PR to `main`.
+- [x] VCS-presence + tracked-binary note added to `AGENTS.md` (no root README exists; this is the lightweight doc change step 6 asks for).
+- [x] Compile gate (`compileall`) green. `ruff`/`mypy`/`bandit`/`pytest` not re-run for P1: zero first-party Python was modified (docs/.gitignore/git only).
 
 **Problem:** The working copy has no VCS. For a ~133k-LOC suite with a committed engineering discipline, the absence of commits/diffs/rollback is the single biggest engineering-process gap, and it blocks normal review practice and CI-on-push (CI already triggers on `main`, which does not exist).
 
@@ -448,8 +460,8 @@ These close the three largest market gaps named in the audit. They are independe
 
 | # | Item | Decision | Rationale |
 |---|---|---|---|
-| D1 | P1/Q1 `uv.lock` | Commit it (remove ignore line) | Reproducible CI dependency graph; `uv sync` already consumes it |
-| D2 | P1/Q2 `fpcalc.exe` | Commit it (small native runtime binary) | Out-of-the-box fingerprinting; verify size first; if >5 MB, ignore + document download instead |
+| D1 | P1/Q1 `uv.lock` | **Applied in P1** — commit it (remove ignore line) | `uv.lock` now tracked; CI's `uv sync` graph pinned |
+| D2 | P1/Q2 `fpcalc.exe` | **Applied in P1** — commit it (measured 3.95 MB < 5 MB limit) | Tracked + noted in `AGENTS.md` (no root README exists; the note substitutes) |
 | D3 | P2 std Medium findings | Fix-in-change per AGENTS.md §7 | Widened scan must land at 0 H / 0 M |
 | D4 | P4 mypy strict | Option A: `strict = true` | Aligns config with documented claim; tail is expected small (~99% annotated); escalate if >~40 sites |
 | D5 | P5 is-launched-from-driver | Canonical in `cli_helpers`, per-tool re-export | Zero churn at call sites; single source of truth |
@@ -457,6 +469,8 @@ These close the three largest market gaps named in the audit. They are independe
 | D7 | P6 enhancer output-dir | Required; missing → card omits tool from batch | Enhancer never writes in place by design |
 | D8 | P7 order | 7a → 7b → 7c; each its own gate | Increasing complexity; 7c is the largest |
 | D9 | Defects discovered during implementation | Fixed in the change that found them + regression test | Global AGENTS.md §7; applies to every P1–P6 step |
+| D10 | P1 prerequisite: git absent from machine | Installed Git for Windows 2.55.0.3 via `winget` (user-approved) | P1 is blocked without VCS; standard supported install |
+| D11 | P1 secret-gate gap + staged secrets | Subtracted the audit regex's blind spots: `\*_key`/`\*_secret`-suffixed keys, 32-hex literals, 44+-char base64 — none were flagged by the plan's `api[_-]?key|...` pattern. Found four staged `album_art_sync/{,core/}album_art_config.{json,key}` with live Fanart.tv keys: unstaged, `.gitignore` extended with `album_art_config.json` / `album_art_config.key` (matches any depth), `AGENTS.md` §Repository now names them, and the `check-ignore` lockstep list extended | AGENTS.md: never commit API keys/secrets; a live key was caught mid-stage exactly as the P1 risk block warned |
 
 ---
 
@@ -477,7 +491,7 @@ Each commit above may be split into several commits at the implementer's discret
 
 | Item | Lesson learned / gotcha | Feed into AGENTS.md? |
 |---|---|---|
-| P1 | (reserved) | |
+| P1 | (1) pwsh `\"` inside a double-quoted string is **not** an escape — it terminates the string, so any audit `rg`/`grep` pattern carrying `["']` must be rebuilt (split the quote class, or use single-quoted pattern vars with `''` doubling). (2) `rg` was also absent from the machine — `git grep --cached` over the *staged* set is the stronger gate anyway (scans only what is about to be committed). (3) The audit secret regex only matches `api[_-]?key`-families and quoted assignments — real `app_key`/`client_key` values in `album_art_sync/*.json` (an `app_key: "…"` hit is not even a `secret/password/token` token) sailed through until a supplemental `-e '[-_](key|secret|token|password|passwd|client)[^ ]*[=:][^A-Za-z0-9_][A-Za-z0-9+/=_-]{10,}'` + 32-hex + 44+-base64 scan ran. (4) `compileall -x '(^|/)(\.venv|\.git)/'` uses forward slashes; on Windows it does **not** exclude `.venv` (paths use `\`), emitting harmless third-party SyntaxWarnings — plan-wide, accepted as-is. | Yes — the pwsh secret-scan gotchas (1)/(3) are generic; propose a Windows secret-scan note for AGENTS.md ⌈Verification Tooling⌉/§6. |
 | P2 | (reserved) | |
 | P3 | (reserved) | |
 | P4 | (reserved) | |
