@@ -338,6 +338,47 @@ class TestAppStateAttributeExistence:
     def test_cd_ripper_cue_exists(self, state):
         assert hasattr(state, "cd_ripper_cue")
 
+    # ── Audio Enhancer ────────────────────────────────────────────────────
+
+    def test_enhancer_output_dir_exists(self, state):
+        assert hasattr(state, "enhancer_output_dir")
+
+    def test_enhancer_preset_exists(self, state):
+        assert hasattr(state, "enhancer_preset")
+
+    # ── Audio Normalizer ──────────────────────────────────────────────────
+
+    def test_normalizer_target_lufs_exists(self, state):
+        assert hasattr(state, "normalizer_target_lufs")
+
+    def test_normalizer_tolerance_exists(self, state):
+        assert hasattr(state, "normalizer_tolerance")
+
+    def test_normalizer_mode_exists(self, state):
+        assert hasattr(state, "normalizer_mode")
+
+    # ── Pop & Click Remover ───────────────────────────────────────────────
+
+    def test_declick_sensitivity_exists(self, state):
+        assert hasattr(state, "declick_sensitivity")
+
+    def test_declick_max_width_exists(self, state):
+        assert hasattr(state, "declick_max_width")
+
+    # ── Silence Trimmer ───────────────────────────────────────────────────
+
+    def test_trimmer_threshold_exists(self, state):
+        assert hasattr(state, "trimmer_threshold")
+
+    def test_trimmer_apply_fade_exists(self, state):
+        assert hasattr(state, "trimmer_apply_fade")
+
+    def test_trimmer_fade_in_ms_exists(self, state):
+        assert hasattr(state, "trimmer_fade_in_ms")
+
+    def test_trimmer_fade_out_ms_exists(self, state):
+        assert hasattr(state, "trimmer_fade_out_ms")
+
 
 # ===========================================================================
 # AppState — default values
@@ -570,6 +611,39 @@ class TestAppStateDefaults:
     def test_cd_ripper_cue_default_false(self, state):
         assert state.cd_ripper_cue.get() is False
 
+    def test_enhancer_output_dir_default_empty(self, state):
+        assert state.enhancer_output_dir.get() == ""
+
+    def test_enhancer_preset_default_moderate(self, state):
+        assert state.enhancer_preset.get() == "Moderate"
+
+    def test_normalizer_target_lufs_default(self, state):
+        assert state.normalizer_target_lufs.get() == "-14.0"
+
+    def test_normalizer_tolerance_default(self, state):
+        assert state.normalizer_tolerance.get() == "0.5"
+
+    def test_normalizer_mode_default(self, state):
+        assert state.normalizer_mode.get() == "normalise"
+
+    def test_declick_sensitivity_default(self, state):
+        assert state.declick_sensitivity.get() == "0.25"
+
+    def test_declick_max_width_default(self, state):
+        assert state.declick_max_width.get() == "5"
+
+    def test_trimmer_threshold_default(self, state):
+        assert state.trimmer_threshold.get() == "-50"
+
+    def test_trimmer_apply_fade_default_false(self, state):
+        assert state.trimmer_apply_fade.get() is False
+
+    def test_trimmer_fade_in_ms_default_is_gui_valid(self, state):
+        assert state.trimmer_fade_in_ms.get() == "500"
+
+    def test_trimmer_fade_out_ms_default_is_gui_valid(self, state):
+        assert state.trimmer_fade_out_ms.get() == "1000"
+
 
 # ===========================================================================
 # AppState — module_toggles
@@ -601,6 +675,10 @@ class TestModuleToggles:
         "noise_reduction",
         "lyrics_manager",
         "undo_tag_edits",
+        "audio_enhancer",
+        "audio_normalizer",
+        "pop_click_remover",
+        "silence_trimmer",
         # Refinery
         "audio_refinery",
     }

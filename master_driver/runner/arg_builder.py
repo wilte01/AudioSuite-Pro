@@ -279,13 +279,42 @@ def _build_utility_tool_args(
             path, mode_flag, start_flag, end_flag, state
         ),
         "tag_field_updater": lambda: [path, mode_flag],
+        "audio_enhancer": lambda: _build_audio_enhancer_args(path, state),
+        "audio_normalizer": lambda: [
+            path,
+            state.normalizer_target_lufs.get(),
+            mode_flag,
+            start_flag,
+            end_flag,
+            "--tolerance",
+            state.normalizer_tolerance.get(),
+            "--mode",
+            state.normalizer_mode.get(),
+        ],
+        "pop_click_remover": lambda: [
+            path,
+            mode_flag,
+            start_flag,
+            end_flag,
+            "--sensitivity",
+            state.declick_sensitivity.get(),
+            "--width",
+            state.declick_max_width.get(),
+        ],
+        "silence_trimmer": lambda: _build_silence_trimmer_args(
+            path, mode_flag, start_flag, end_flag, state
+        ),
     }
     builder = builders.get(tool_id)
     if builder is None:
         return []
-    return builder() + _driver_display_flags(
-        state.util_clear_logs_var, state.parallel_var
-    )
+    args = builder()
+    # The Audio Enhancer GUI parser is strict argparse (parse_args, no
+    # parse_known_args); the driver display flags would fatal at launch,
+    # so the enhancer never receives them.
+    if tool_id == "audio_enhancer":
+        return args
+    return args + _driver_display_flags(state.util_clear_logs_var, state.parallel_var)
 
 
 def _build_converter_args(
@@ -543,6 +572,59 @@ def _build_noise_reduction_args(
             state.nr_noise_end.get(),
             "--gate-threshold",
             state.nr_gate_threshold.get(),
+        ]
+    return args
+
+
+def _build_audio_enhancer_args(path: str, state: AppState) -> list[str]:
+    """Return the CLI argument list for the Audio Enhancer.
+
+    The enhancer GUI parses strict ``parse_args`` — it has no positional
+    path and no live/dry or start/end flags.  When the output directory is
+    empty the tool cannot run, so return ``[]`` (the card renders a
+    required-field hint); an empty list never emits a broken flag.
+    """
+    output = state.enhancer_output_dir.get()
+    if not output:
+        return []
+    args = [
+        "--source",
+        path,
+        "--output",
+        output,
+        "--preset",
+        state.enhancer_preset.get() or "Moderate",
+    ]
+    if state.util_auto_start.get():
+        args.append("--auto-start")
+    if state.util_auto_end.get():
+        args.append("--auto-end")
+    return args
+
+
+def _build_silence_trimmer_args(
+    path: str,
+    mode_flag: str,
+    start_flag: str,
+    end_flag: str,
+    state: AppState,
+) -> list[str]:
+    """Return the CLI argument list for the Silence Trimmer."""
+    args = [
+        path,
+        mode_flag,
+        start_flag,
+        end_flag,
+        "--threshold",
+        state.trimmer_threshold.get(),
+    ]
+    if state.trimmer_apply_fade.get():
+        args += [
+            "--fade",
+            "--fade-in",
+            state.trimmer_fade_in_ms.get(),
+            "--fade-out",
+            state.trimmer_fade_out_ms.get(),
         ]
     return args
 

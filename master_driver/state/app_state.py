@@ -190,6 +190,28 @@ class AppState:
         self.cd_ripper_tracks = tk.StringVar(master, value="")
         self.cd_ripper_cue = tk.BooleanVar(master, value=False)
 
+        # ── Audio Enhancer controls ──────────────────────────────────────────
+        self.enhancer_output_dir = tk.StringVar(master, value="")
+        self.enhancer_preset = tk.StringVar(master, value="Moderate")
+
+        # ── Audio Normalizer controls ────────────────────────────────────────
+        self.normalizer_target_lufs = tk.StringVar(master, value="-14.0")
+        self.normalizer_tolerance = tk.StringVar(master, value="0.5")
+        self.normalizer_mode = tk.StringVar(master, value="normalise")
+
+        # ── Pop & Click Remover controls ─────────────────────────────────────
+        self.declick_sensitivity = tk.StringVar(master, value="0.25")
+        self.declick_max_width = tk.StringVar(master, value="5")
+
+        # ── Silence Trimmer controls ─────────────────────────────────────────
+        # Fade defaults are the GUI app's own valid defaults (500/1000 ms),
+        # not the click CLI's 25/25 — the GUI parser validates 100–3000 /
+        # 100–5000 and would SystemExit at launch on out-of-range values.
+        self.trimmer_threshold = tk.StringVar(master, value="-50")
+        self.trimmer_apply_fade = tk.BooleanVar(master, value=False)
+        self.trimmer_fade_in_ms = tk.StringVar(master, value="500")
+        self.trimmer_fade_out_ms = tk.StringVar(master, value="1000")
+
     # ── Backward-compatible property aliases for utility toggles ──────────────
     # These delegate to the module_toggles dict so existing card code and
     # tests continue to work unchanged.  New code should use

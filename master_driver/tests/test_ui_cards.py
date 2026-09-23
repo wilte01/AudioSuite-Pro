@@ -71,6 +71,10 @@ def _make_state(root_widget):
             "cd_ripper",
             "library_stats",
             "tag_field_updater",
+            "audio_enhancer",
+            "audio_normalizer",
+            "pop_click_remover",
+            "silence_trimmer",
         )
     }
 
@@ -101,6 +105,18 @@ def _make_state(root_widget):
 
     state.asx_extractor_toggle = tk.BooleanVar(root_widget, value=False)
     state.cd_ripper_toggle = tk.BooleanVar(root_widget, value=False)
+
+    state.enhancer_output_dir = tk.StringVar(root_widget, value="")
+    state.enhancer_preset = tk.StringVar(root_widget, value="Moderate")
+    state.normalizer_target_lufs = tk.StringVar(root_widget, value="-14.0")
+    state.normalizer_tolerance = tk.StringVar(root_widget, value="0.5")
+    state.normalizer_mode = tk.StringVar(root_widget, value="normalise")
+    state.declick_sensitivity = tk.StringVar(root_widget, value="0.25")
+    state.declick_max_width = tk.StringVar(root_widget, value="5")
+    state.trimmer_threshold = tk.StringVar(root_widget, value="-50")
+    state.trimmer_apply_fade = tk.BooleanVar(root_widget, value=False)
+    state.trimmer_fade_in_ms = tk.StringVar(root_widget, value="500")
+    state.trimmer_fade_out_ms = tk.StringVar(root_widget, value="1000")
 
     state.palette_var = tk.StringVar(root_widget, value="Purple")
     state.theme_mode_var = tk.StringVar(root_widget, value="Light")
@@ -572,6 +588,206 @@ class TestAsxCard:
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.asx_extractor_toggle) in v for v in variables)
+
+
+# ---------------------------------------------------------------------------
+# audio_enhancer_card
+# ---------------------------------------------------------------------------
+
+
+class TestAudioEnhancerCard:
+    @pytest.fixture(autouse=True)
+    def _import(self):
+        from master_driver.ui.cards import audio_enhancer_card
+
+        self.card = audio_enhancer_card
+
+    def test_build_does_not_raise(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+
+    def test_checkbutton_uses_enhancer_toggle(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(str(state.module_toggles["audio_enhancer"]) in v for v in variables)
+
+    def test_output_dir_entry_wired_to_state(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        entries = _find_entries(parent)
+        var_names = [str(e.cget("textvariable")) for e in entries]
+        assert any(str(state.enhancer_output_dir) in v for v in var_names)
+
+    def test_expand_button_present(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        assert len(_find_buttons_with_textvariable(parent)) >= 1
+
+    def test_build_idempotent(self, root):
+        state = _make_state(root)
+        p1 = tk.Frame(root)
+        p2 = tk.Frame(root)
+        self.card.build(p1, state)
+        self.card.build(p2, state)
+        p1.destroy()
+        p2.destroy()
+
+
+# ---------------------------------------------------------------------------
+# audio_normalizer_card
+# ---------------------------------------------------------------------------
+
+
+class TestAudioNormalizerCard:
+    @pytest.fixture(autouse=True)
+    def _import(self):
+        from master_driver.ui.cards import audio_normalizer_card
+
+        self.card = audio_normalizer_card
+
+    def test_build_does_not_raise(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+
+    def test_checkbutton_uses_normalizer_toggle(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(
+            str(state.module_toggles["audio_normalizer"]) in v for v in variables
+        )
+
+    def test_lufs_combobox_wired_to_state(self, parent, root):
+        from tkinter import ttk
+
+        state = _make_state(root)
+        self.card.build(parent, state)
+        combos = []
+
+        def _collect(w):
+            if isinstance(w, ttk.Combobox):
+                combos.append(w)
+            for child in w.winfo_children():
+                _collect(child)
+
+        _collect(parent)
+        combo_var_names = [str(c.cget("textvariable")) for c in combos]
+        assert any(str(state.normalizer_target_lufs) in v for v in combo_var_names)
+
+    def test_tolerance_entry_wired_to_state(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        entries = _find_entries(parent)
+        var_names = [str(e.cget("textvariable")) for e in entries]
+        assert any(str(state.normalizer_tolerance) in v for v in var_names)
+
+    def test_build_idempotent(self, root):
+        state = _make_state(root)
+        p1 = tk.Frame(root)
+        p2 = tk.Frame(root)
+        self.card.build(p1, state)
+        self.card.build(p2, state)
+        p1.destroy()
+        p2.destroy()
+
+
+# ---------------------------------------------------------------------------
+# pop_click_remover_card
+# ---------------------------------------------------------------------------
+
+
+class TestPopClickRemoverCard:
+    @pytest.fixture(autouse=True)
+    def _import(self):
+        from master_driver.ui.cards import pop_click_remover_card
+
+        self.card = pop_click_remover_card
+
+    def test_build_does_not_raise(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+
+    def test_checkbutton_uses_declick_toggle(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(
+            str(state.module_toggles["pop_click_remover"]) in v for v in variables
+        )
+
+    def test_sensitivity_entry_wired_to_state(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        entries = _find_entries(parent)
+        var_names = [str(e.cget("textvariable")) for e in entries]
+        assert any(str(state.declick_sensitivity) in v for v in var_names)
+
+    def test_width_entry_wired_to_state(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        entries = _find_entries(parent)
+        var_names = [str(e.cget("textvariable")) for e in entries]
+        assert any(str(state.declick_max_width) in v for v in var_names)
+
+    def test_build_idempotent(self, root):
+        state = _make_state(root)
+        p1 = tk.Frame(root)
+        p2 = tk.Frame(root)
+        self.card.build(p1, state)
+        self.card.build(p2, state)
+        p1.destroy()
+        p2.destroy()
+
+
+# ---------------------------------------------------------------------------
+# silence_trimmer_card
+# ---------------------------------------------------------------------------
+
+
+class TestSilenceTrimmerCard:
+    @pytest.fixture(autouse=True)
+    def _import(self):
+        from master_driver.ui.cards import silence_trimmer_card
+
+        self.card = silence_trimmer_card
+
+    def test_build_does_not_raise(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+
+    def test_checkbutton_uses_trimmer_toggle(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(str(state.module_toggles["silence_trimmer"]) in v for v in variables)
+
+    def test_threshold_entry_wired_to_state(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        entries = _find_entries(parent)
+        var_names = [str(e.cget("textvariable")) for e in entries]
+        assert any(str(state.trimmer_threshold) in v for v in var_names)
+
+    def test_apply_fade_checkbutton_wired_to_state(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(str(state.trimmer_apply_fade) in v for v in variables)
+
+    def test_build_idempotent(self, root):
+        state = _make_state(root)
+        p1 = tk.Frame(root)
+        p2 = tk.Frame(root)
+        self.card.build(p1, state)
+        self.card.build(p2, state)
+        p1.destroy()
+        p2.destroy()
 
 
 # ---------------------------------------------------------------------------

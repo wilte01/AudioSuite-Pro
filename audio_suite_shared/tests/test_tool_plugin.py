@@ -162,6 +162,7 @@ class TestDefaultRegistry:
     def test_registry_is_populated(self):
         r = get_registry()
         assert len(r) >= 16  # all first-party tools
+        assert len(r) == 26  # 11 enrich + 14 utility + 1 refinery
 
     def test_has_all_enrich_tools(self):
         r = get_registry()
@@ -195,6 +196,10 @@ class TestDefaultRegistry:
             "tag_field_updater",
             "noise_reduction",
             "undo_tag_edits",
+            "audio_enhancer",
+            "audio_normalizer",
+            "pop_click_remover",
+            "silence_trimmer",
         }
         assert ids == expected
 
@@ -227,6 +232,10 @@ class TestDefaultRegistry:
             "tag-update",
             "reduce",
             "lyrics",
+            "enhance",
+            "normalise",
+            "declick",
+            "silence-trim",
         }
         assert commands == expected
 
@@ -243,6 +252,10 @@ class TestDefaultRegistry:
             "tag_field_updater",
             "noise_reduction",
             "undo_tag_edits",
+            "audio_enhancer",
+            "audio_normalizer",
+            "pop_click_remover",
+            "silence_trimmer",
         }
         assert standalone == expected
 

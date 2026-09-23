@@ -381,6 +381,58 @@ def _build_default_registry() -> ToolRegistry:
 
     r.register(
         ToolManifest(
+            id="audio_enhancer",
+            name="Audio Enhancer",
+            category="utility",
+            pyw_filename="Audio_Enhancer.pyw",
+            description="Improve dynamic range and clarity of audio files",
+            cli_command="enhance",
+            standalone=True,
+            order=43,
+        )
+    )
+
+    r.register(
+        ToolManifest(
+            id="audio_normalizer",
+            name="Audio Normalizer",
+            category="utility",
+            pyw_filename="Audio_Normalizer.pyw",
+            description="Normalise audio loudness to a target LUFS level",
+            cli_command="normalise",
+            standalone=True,
+            order=44,
+        )
+    )
+
+    r.register(
+        ToolManifest(
+            id="pop_click_remover",
+            name="Pop & Click Remover",
+            category="utility",
+            pyw_filename="Pop_Click_Remover.pyw",
+            description="Remove clicks and pops from audio files",
+            cli_command="declick",
+            standalone=True,
+            order=45,
+        )
+    )
+
+    r.register(
+        ToolManifest(
+            id="silence_trimmer",
+            name="Silence Trimmer",
+            category="utility",
+            pyw_filename="Silence_Trimmer.pyw",
+            description="Trim silence and optionally apply fades",
+            cli_command="silence-trim",
+            standalone=True,
+            order=46,
+        )
+    )
+
+    r.register(
+        ToolManifest(
             id="lyrics_manager",
             name="Lyrics Manager",
             category="enrich",

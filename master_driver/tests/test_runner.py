@@ -87,6 +87,10 @@ def _make_state(
         "asx_extractor",
         "cd_ripper",
         "library_stats",
+        "audio_enhancer",
+        "audio_normalizer",
+        "pop_click_remover",
+        "silence_trimmer",
     ):
         state.module_toggles[key] = _bool_var(True)
 
@@ -138,6 +142,17 @@ def _make_state(
     state.cd_ripper_format = _str_var("flac")
     state.cd_ripper_tracks = _str_var("")
     state.cd_ripper_cue = _bool_var(False)
+    state.enhancer_output_dir = _str_var("")
+    state.enhancer_preset = _str_var("Moderate")
+    state.normalizer_target_lufs = _str_var("-14.0")
+    state.normalizer_tolerance = _str_var("0.5")
+    state.normalizer_mode = _str_var("normalise")
+    state.declick_sensitivity = _str_var("0.25")
+    state.declick_max_width = _str_var("5")
+    state.trimmer_threshold = _str_var("-50")
+    state.trimmer_apply_fade = _bool_var(False)
+    state.trimmer_fade_in_ms = _str_var("500")
+    state.trimmer_fade_out_ms = _str_var("1000")
 
     # Enrich params (noise reduction + fingerprinter)
     state.nr_reduce_hum = _bool_var(False)
@@ -702,6 +717,110 @@ class TestBuildUtilityArgs:
         state = _make_state()
         args_list = build_utility_args(state)
         assert any("Tag Field Updater" in e[1].name for e in args_list)
+
+    def test_enhancer_returns_empty_args_without_output_dir(self):
+        state = _make_state()
+        state.enhancer_output_dir = _str_var("")
+        args_list = build_utility_args(state)
+        enh_entry = next(e for e in args_list if "Audio Enhancer" in e[1].name)
+        assert enh_entry[2] == []
+
+    def test_enhancer_emits_source_output_preset(self):
+        state = _make_state()
+        state.enhancer_output_dir = _str_var("/out/enhanced")
+        state.enhancer_preset = _str_var("Mild")
+        args_list = build_utility_args(state)
+        enh_entry = next(e for e in args_list if "Audio Enhancer" in e[1].name)
+        args = enh_entry[2]
+        assert "--source" in args
+        assert "/music" == args[args.index("--source") + 1]
+        assert "--output" in args
+        assert "/out/enhanced" == args[args.index("--output") + 1]
+        assert "--preset" in args
+        assert "Mild" == args[args.index("--preset") + 1]
+
+    def test_enhancer_skips_driver_display_flags(self):
+        """The enhancer GUI uses strict parse_args — display handshake
+        flags would fatal at launch, so they must never be emitted."""
+        state = _make_state()
+        state.enhancer_output_dir = _str_var("/out/enhanced")
+        state.util_clear_logs_var = _bool_var(True)
+        state.parallel_var = _bool_var(True)
+        args_list = build_utility_args(state)
+        enh_entry = next(e for e in args_list if "Audio Enhancer" in e[1].name)
+        assert "--clear-logs" not in enh_entry[2]
+        assert "--parallel-run" not in enh_entry[2]
+
+    def test_enhancer_auto_flags_when_set(self):
+        state = _make_state(util_auto_start=True)
+        state.util_auto_end = _bool_var(True)
+        state.enhancer_output_dir = _str_var("/out/enhanced")
+        args_list = build_utility_args(state)
+        enh_entry = next(e for e in args_list if "Audio Enhancer" in e[1].name)
+        assert "--auto-start" in enh_entry[2]
+        assert "--auto-end" in enh_entry[2]
+
+    def test_normalizer_args_shape(self):
+        state = _make_state()
+        args_list = build_utility_args(state)
+        norm_entry = next(e for e in args_list if "Audio Normalizer" in e[1].name)
+        args = norm_entry[2]
+        assert args[0] == "/music"
+        assert args[1] == "-14.0"
+        assert args[args.index("--tolerance") + 1] == "0.5"
+        assert args[args.index("--mode") + 1] == "normalise"
+
+    def test_normalizer_target_lufs_and_mode_from_state(self):
+        state = _make_state()
+        state.normalizer_target_lufs = _str_var("-23.0")
+        state.normalizer_mode = _str_var("lossless")
+        args_list = build_utility_args(state)
+        norm_entry = next(e for e in args_list if "Audio Normalizer" in e[1].name)
+        args = norm_entry[2]
+        assert args[1] == "-23.0"
+        assert "lossless" == args[args.index("--mode") + 1]
+
+    def test_pop_click_args_use_width_not_max_width(self):
+        """The GUI parser's grass width flag is --width (the click CLI's
+        --max-width would be silently discarded)."""
+        state = _make_state()
+        state.declick_sensitivity = _str_var("0.15")
+        state.declick_max_width = _str_var("3")
+        args_list = build_utility_args(state)
+        pc_entry = next(e for e in args_list if "Pop & Click" in e[1].name)
+        args = pc_entry[2]
+        assert "--sensitivity" in args
+        assert "0.15" == args[args.index("--sensitivity") + 1]
+        assert "--width" in args
+        assert "3" == args[args.index("--width") + 1]
+        assert "--max-width" not in args
+
+    def test_silence_trimmer_threshold_in_args(self):
+        state = _make_state()
+        args_list = build_utility_args(state)
+        trim_entry = next(e for e in args_list if "Silence Trimmer" in e[1].name)
+        args = trim_entry[2]
+        assert "--threshold" in args
+        assert "-50" == args[args.index("--threshold") + 1]
+
+    def test_silence_trimmer_fade_flags_only_when_enabled(self):
+        state = _make_state()
+        state.trimmer_apply_fade = _bool_var(True)
+        state.trimmer_fade_in_ms = _str_var("800")
+        state.trimmer_fade_out_ms = _str_var("2000")
+        args_list = build_utility_args(state)
+        trim_entry = next(e for e in args_list if "Silence Trimmer" in e[1].name)
+        args = trim_entry[2]
+        assert "--fade" in args
+        assert "800" == args[args.index("--fade-in") + 1]
+        assert "2000" == args[args.index("--fade-out") + 1]
+
+    def test_silence_trimmer_no_fade_when_disabled(self):
+        state = _make_state()
+        args_list = build_utility_args(state)
+        trim_entry = next(e for e in args_list if "Silence Trimmer" in e[1].name)
+        assert "--fade" not in trim_entry[2]
+        assert "--fade-in" not in trim_entry[2]
 
 
 # ═════════════════════════════════════════════════════════════════════════════

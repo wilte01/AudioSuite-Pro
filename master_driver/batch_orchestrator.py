@@ -139,6 +139,10 @@ DEPENDENCY_GRAPH: dict[str, list[str]] = {
     "file_reorganizer": [],
     "lyrics_manager": [],
     "audio_refinery": [],
+    "audio_enhancer": [],
+    "audio_normalizer": [],
+    "pop_click_remover": [],
+    "silence_trimmer": [],
 }
 
 
