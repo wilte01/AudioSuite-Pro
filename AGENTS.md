@@ -14,6 +14,20 @@ full Definition-of-Done gate runs against the state after each commit.
   `album_art_sync`). Never `git add -f` them; a live Fanart.tv key was caught
   inline during P1 and staged, then reverted.
 
+## Plan Governance
+
+- At session start, confirm and state the **governing plan** from the user's
+  instruction; if the brief is silent, ask before plan-anchored commits.
+- A mechanism-name grep picks *reference code*, never authority — the governing
+  plan is the one that **owns the modules/tools being touched** (four orphan DSP
+  tools → `PLAN_audit_priority_actions.md` P6, not the completed
+  `PLAN_basesetupframe_refactor.md`).
+- A plan whose items are all marked COMPLETE/DONE is a **historical record**:
+  add follow-on work only as a clearly-labelled decision-log/supersession entry
+  (with user approval) or a new plan.
+- Defects found in working code during any session → fix in the same change +
+  regression test + record in the governing plan's decision log (§7).
+
 ## Test File Naming
 
 All test files live in `<package>/tests/` and follow the standard pytest
