@@ -330,3 +330,25 @@ class TestDriverMirrorVars:
         app.parallel_var = tk.BooleanVar(value=False)
         app.parallel_var.set(True)
         assert app.parallel_var.get() is True
+
+
+class TestMainEntryPoint:
+    """Launcher contract: Pop_Click_Remover.pyw imports ``main`` from app."""
+
+    def test_main_is_importable(self) -> None:
+        from pop_click_remover.app import main
+
+        assert callable(main)
+
+    def test_main_creates_root_and_enters_mainloop(self) -> None:
+        root = MagicMock()
+        with (
+            patch("pop_click_remover.app.tk.Tk", return_value=root),
+            patch("pop_click_remover.app.PopClickRemoverApp") as app_cls,
+        ):
+            from pop_click_remover.app import main
+
+            main()
+
+        app_cls.assert_called_once_with(root)
+        root.mainloop.assert_called_once_with()

@@ -393,3 +393,14 @@ class PopClickRemoverApp(UIHelperMixin, AuditionMixin):
 
     def _open_folder(self) -> None:
         self._open_folder_standard()
+
+
+def main() -> None:
+    """Standalone entry point: create the Tk root, run the app."""
+    root = tk.Tk()
+    PopClickRemoverApp(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
