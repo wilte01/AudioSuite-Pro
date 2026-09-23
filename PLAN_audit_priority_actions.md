@@ -1,6 +1,6 @@
 # PLAN — Audit Priority Actions (Post-Audit Remediation)
 
-**Status:** In progress — **P1 complete** (initial commit `a056bb9`); **P2 complete** (commit `d7680f7`); **P3 complete** (commits `c06730c` + `e540819`); **P4 complete** (commits `f409e11` + this); **P5 complete** (commit `0666936` + this); **P6 complete** (commit `<P6-HASH>` + this); P7 not started. See Decision Log (D10–D17) and the session retrospective for discoveries.
+**Status:** In progress — **P1 complete** (initial commit `a056bb9`); **P2 complete** (commit `d7680f7`); **P3 complete** (commits `c06730c` + `e540819`); **P4 complete** (commits `f409e11` + this); **P5 complete** (commit `0666936` + this); **P6 complete** (commit `f84a392` + this); P7 not started. See Decision Log (D10–D17) and the session retrospective for discoveries.
 **Source:** "Honest Audit Report" (product capability + code-quality audit, 2026)
 **Scope:** The 7 priority actions named in the audit's closing section. Each action is broken into fully addressable steps with acceptance criteria, lockstep tests, and verification commands.
 **Anti-creep rule:** Implement ONLY the steps below. No adjacent refactors, no styling changes outside the touched files, no speculative features. Any defect discovered *while* implementing one of these steps must be fixed in the same change with a regression test (AGENTS.md §7), and noted in the Decision Log.
