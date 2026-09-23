@@ -484,6 +484,13 @@ Configuration LabelFrame via `build_config_panel`; exports `build_config_panel` 
 - `include_controls_panel=False` required dummy `auto_start_var`/`auto_end_var` (and for
   enhancer a `folder_path`/`run_mode`) placeholders — base requires the panel vars even when
   the panel is not built; noted as a base-contract quirk.
+
+**Superseded (driver-parity follow-up):** the enhancer and normalizer exclusions above were
+later reverted deliberately. Both now use `include_controls_panel=True` with the full shared
+`DriverControlsPanel` (Source bar, 3-way Mode, Auto Start/End, Clear Logs, Parallel), with the
+driver vars threaded through `setup_tab.build()` and the apps' `_apply_cli_args`. The
+`include_controls_panel=False` + dummy-placeholder quirk therefore remains only for the
+migrated tools that never adopted the panel (bpm, refinery, asx, cd_ripper…).
 - Refinery import gate passed for all six source modules; full verification pipeline passed:
   `compileall` clean; `ruff check --fix` / `format` clean; `mypy . --strict` clean (381 source
   files); bandit zero findings on all three migrated setup_tab files (asserts replaced with

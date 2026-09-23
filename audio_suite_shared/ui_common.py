@@ -704,7 +704,7 @@ class BaseSetupFrame(tk.Frame):
         on_preset_selected: Callable[[str], None] | None = None,
         preset_row_always: bool = False,
         browse_text: str = "Browse...",
-        modes: tuple[str, str] | None = None,
+        modes: tuple[str, ...] | None = None,
         include_controls_panel: bool = True,
         padx: int = 30,
         pady: int = 30,

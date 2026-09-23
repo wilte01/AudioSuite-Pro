@@ -117,6 +117,27 @@ class TestNormalizerParse:
         result = parse(["prog", str(tmp_path), str(VALID_LUFS[0]), "--no-end"])
         assert result.auto_end is False
 
+    def test_clear_logs_flag_sets_clear_logs_true(self, tmp_path: Path) -> None:
+        result = parse(["prog", str(tmp_path), str(VALID_LUFS[0]), "--clear-logs"])
+        assert result.clear_logs is True
+
+    def test_no_clear_logs_flag_sets_clear_logs_false(self, tmp_path: Path) -> None:
+        result = parse(["prog", str(tmp_path), str(VALID_LUFS[0]), "--no-clear-logs"])
+        assert result.clear_logs is False
+
+    def test_parallel_run_flag_sets_parallel_run_true(self, tmp_path: Path) -> None:
+        result = parse(["prog", str(tmp_path), str(VALID_LUFS[0]), "--parallel-run"])
+        assert result.parallel_run is True
+
+    def test_no_parallel_run_flag_sets_parallel_run_false(self, tmp_path: Path) -> None:
+        result = parse(["prog", str(tmp_path), str(VALID_LUFS[0]), "--no-parallel-run"])
+        assert result.parallel_run is False
+
+    def test_clear_logs_and_parallel_run_default_false(self, tmp_path: Path) -> None:
+        result = parse(["prog", str(tmp_path), str(VALID_LUFS[0])])
+        assert result.clear_logs is False
+        assert result.parallel_run is False
+
     def test_tolerance_flag_sets_tolerance(self, tmp_path: Path) -> None:
         result = parse(
             ["prog", str(tmp_path), str(VALID_LUFS[0]), "--tolerance", "1.5"]

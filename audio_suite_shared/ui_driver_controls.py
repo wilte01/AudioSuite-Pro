@@ -63,7 +63,7 @@ class DriverControlsPanel(tk.Frame):
         bg: str | None = None,
         clear_logs_var: tk.BooleanVar | None = None,
         parallel_var: tk.BooleanVar | None = None,
-        modes: tuple[str, str] = _MODES,
+        modes: tuple[str, ...] = _MODES,
     ) -> None:
         super().__init__(
             parent, bg=styles.BG_WHITE if bg is None else bg, padx=10, pady=8

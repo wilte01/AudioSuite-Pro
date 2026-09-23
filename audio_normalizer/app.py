@@ -16,7 +16,12 @@ from audio_suite_shared import platform_utils, styles, suite_config
 from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.batch_undo import active_batch
-from audio_suite_shared.cli_helpers import UniversalCLIHandler
+from audio_suite_shared.cli_helpers import (
+    UniversalCLIHandler,
+)
+from audio_suite_shared.cli_helpers import (
+    was_launched_from_driver as was_launched_from_driver,
+)
 from audio_suite_shared.exceptions import (
     handle_audio_errors,
     map_to_audio_error,
@@ -54,12 +59,17 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
         self.run_mode = tk.StringVar(value="Dry Run")
         self.target_lufs = tk.DoubleVar(value=-14.0)
         self.tolerance = tk.DoubleVar(value=0.5)
+        self.auto_start_var = tk.BooleanVar(value=False)
+        self.auto_end_var = tk.BooleanVar(value=False)
+        self.clear_logs_var = tk.BooleanVar(value=False)
+        self.parallel_var = tk.BooleanVar(value=False)
 
         # ── State ─────────────────────────────────────────────────────────────
         self._log_path: str = ""
         self._dir_path: str = ""
         self._run_was_dry_run: bool = False
         self.auto_end: bool = False
+        self._driver_locked = was_launched_from_driver()
         self._preset_combo: ttk.Combobox | None = None
         self._refresh_preset_list: Any = None
 
@@ -121,6 +131,11 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
             tolerance=self.tolerance,
             on_browse=self._browse_folder,
             on_start=self.start_processing,
+            auto_start_var=self.auto_start_var,
+            auto_end_var=self.auto_end_var,
+            clear_logs_var=self.clear_logs_var,
+            parallel_var=self.parallel_var,
+            driver_locked=self._driver_locked,
             preset_names=suite_config.list_presets(TOOL_ID),
             on_save_preset=self._save_current_as_preset,
             on_delete_preset=self._delete_preset,
@@ -205,6 +220,12 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
             else:
                 mode = "Dry Run"
             self.run_mode.set(mode)
+
+        # Mirror driver display-only vars
+        self.auto_start_var.set(parsed.auto_start)
+        self.auto_end_var.set(parsed.auto_end)
+        self.clear_logs_var.set(parsed.clear_logs)
+        self.parallel_var.set(parsed.parallel_run)
 
         if should_auto_start:
             self.root.after(1500, self.start_processing)
@@ -386,7 +407,7 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
                 None, None, "No supported audio file found for audition."
             )
 
-        if self.auto_end:
+        if self.auto_end_var.get():
             all_entries.append("\n[Auto End enabled - closing in 2 seconds...]\n")
             try:
                 with open(self._log_path, "w", encoding="utf-8") as f:

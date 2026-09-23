@@ -38,6 +38,11 @@ def build(
     tolerance: tk.DoubleVar,
     on_browse: Callable[[], None],
     on_start: Callable[[], None],
+    auto_start_var: tk.BooleanVar,
+    auto_end_var: tk.BooleanVar,
+    clear_logs_var: tk.BooleanVar | None = None,
+    parallel_var: tk.BooleanVar | None = None,
+    driver_locked: bool = False,
     preset_names: list[str] | None = None,
     on_save_preset: Callable[[str], None] | None = None,
     on_delete_preset: Callable[[str], None] | None = None,
@@ -45,22 +50,32 @@ def build(
 ) -> tuple[tk.Button, Callable[[list[str]], None], ttk.Combobox]:
     """
     Populate the Setup tab and return the Start button widget.
+
+    The shared Run Controls panel (source bar, 3-way Mode, Auto Start/End,
+    Clear Logs, Parallel) is rendered by BaseSetupFrame; the tool-specific
+    Options section keeps only the Target LUFS / tolerance configuration.
     """
     frame = _SetupFrame(
         parent,
         title="Audio Normalizer - Optimized",
         start_text="BEGIN NORMALIZATION",
         on_start=on_start,
-        include_controls_panel=False,
+        include_controls_panel=True,
         folder_path=folder_path,
         run_mode=run_mode,
+        modes=("Dry Run", "Normalize", "Lossless Normalize"),
+        auto_start_var=auto_start_var,
+        auto_end_var=auto_end_var,
+        clear_logs_var=clear_logs_var,
+        parallel_var=parallel_var,
+        on_browse=on_browse,
+        driver_locked=driver_locked,
         preset_names=preset_names,
         on_save_preset=on_save_preset,
         on_delete_preset=on_delete_preset,
         on_preset_selected=on_preset_selected,
         target_lufs=target_lufs,
         tolerance=tolerance,
-        on_browse=on_browse,
     )
     return (
         cast(tk.Button, frame.start_btn),
@@ -84,23 +99,14 @@ class _SetupFrame(BaseSetupFrame):
         # which calls _layout() -> _build_options() during construction.
         self._target_lufs = target_lufs
         self._tolerance = tolerance
-        # The base requires the run-controls panel auto-checkbox variables even
-        # when the panel itself is not built (include_controls_panel=False);
-        # provide inert placeholders so the skeleton constructs cleanly.
-        kwargs.setdefault("auto_start_var", tk.BooleanVar(master=parent))
-        kwargs.setdefault("auto_end_var", tk.BooleanVar(master=parent))
         super().__init__(parent, **kwargs)
 
     def _build_options(self) -> None:
-        # Folder selection
-        on_browse = cast(Callable[[], None], self._on_browse)
-        ui_common.path_row(self, "Music Directory:", self._folder_path, on_browse)
-
-        # Configuration LabelFrame
+        # The shared Run Controls panel already renders the Source bar
+        # (source directory + Browse) and the 3-way Mode combo; keep only
+        # the Target LUFS / tolerance configuration here.
         cfg_frame = self.add_config_group("Configuration")
-        build_config_panel(
-            cfg_frame, self._run_mode, self._target_lufs, self._tolerance
-        )
+        build_config_panel(cfg_frame, None, self._target_lufs, self._tolerance)
 
 
 def build_config_panel(
@@ -122,8 +128,9 @@ def build_config_panel(
 
     Args:
         parent: Parent frame to populate.
-        run_mode: StringVar for execution mode, or None when embedded in
-            Audio Refinery (mode selection is suppressed).
+        run_mode: StringVar for execution mode, or None when mode selection
+            is rendered elsewhere (shared Run Controls panel, or embedded
+            in Audio Refinery) so the mode row is suppressed.
         target_lufs: DoubleVar that holds the currently selected LUFS preset.
         tolerance: DoubleVar for the skip-tolerance value.
     """

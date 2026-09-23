@@ -184,6 +184,33 @@ class TestAppApplyCliArgs:
             app._apply_cli_args()
             assert app.run_mode.get() == "Lossless Normalize"
 
+    def test_threads_driver_display_vars_from_parsed_args(
+        self, tmp_path: os.PathLike
+    ) -> None:
+        app, _root = _make_app()
+        with (
+            patch(
+                "audio_normalizer.app.cli_args.parse",
+                return_value=NormalizerArgs(
+                    folder_path=str(tmp_path),
+                    target_lufs=-16.0,
+                    auto_start=True,
+                    auto_end=True,
+                    clear_logs=True,
+                    parallel_run=True,
+                ),
+            ),
+            patch("audio_normalizer.app.UniversalCLIHandler") as mock_cls,
+        ):
+            mock_handler = MagicMock()
+            mock_handler.apply_cli_args.return_value = False
+            mock_cls.return_value = mock_handler
+            app._apply_cli_args()
+            assert app.auto_start_var.get() is True
+            assert app.auto_end_var.get() is True
+            assert app.clear_logs_var.get() is True
+            assert app.parallel_var.get() is True
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # start_processing — validation guards
@@ -366,7 +393,7 @@ class TestAuditionOnComplete:
         app._tab_results = MagicMock()
         app.start_btn = MagicMock()
         app.run_mode = tk.StringVar(value="Normalize")
-        app.auto_end = False
+        app.auto_end_var = tk.BooleanVar(value=False)
         app._run_was_dry_run = False
         app._audition_original = None
         app._audition_result = None

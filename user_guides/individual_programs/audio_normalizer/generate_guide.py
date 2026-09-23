@@ -66,9 +66,15 @@ for step in (
 
 doc.add_heading("Setup", level=1)
 doc.add_paragraph(
-    "The Setup tab contains the Music Directory picker, "
-    "Configuration panel, preset "
-    "controls, and BEGIN NORMALIZATION button. The "
+    "The Setup tab contains the shared Source "
+    "directory bar with the Mode dropdown "
+    "(Dry Run, Normalize, Lossless Normalize), "
+    "Auto Start/End, Clear Logs, and Parallel "
+    "options, the Configuration panel, preset "
+    "controls, and the BEGIN NORMALIZATION button. "
+    "When launched from the Master Driver, the "
+    "directory, mode, and option controls are driven "
+    "by the driver's orchestration state. The "
     "last-used directory is restored from "
     "shared suite configuration."
 )

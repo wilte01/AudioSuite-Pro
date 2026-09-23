@@ -13,10 +13,17 @@ is pure and tested unconditionally.
 from __future__ import annotations
 
 import tkinter as tk
+from tkinter import ttk
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
-from audio_normalizer.ui.setup_tab import _closest_lufs_index, build_config_panel
+from audio_normalizer.ui.setup_tab import (
+    _closest_lufs_index,
+    build,
+    build_config_panel,
+)
 from audio_suite_shared.cli_dataclasses import VALID_TARGET_LUFS_VALUES
 
 
@@ -157,3 +164,70 @@ class TestTargetLufsSlider:
         target_lufs = tk.DoubleVar(value=-23.0)
         tolerance = tk.DoubleVar(value=0.5)
         build_config_panel(parent, None, target_lufs, tolerance)
+
+
+@requires_display
+class TestSharedControlsPanel:
+    """The Setup tab renders the shared Run Controls panel (not a tool-local
+    Source/Mode row), with the normalizer's three-way mode labels."""
+
+    @pytest.fixture(autouse=True)
+    def setup_tk(self):
+        try:
+            self.root = tk.Tk()
+        except tk.TclError as exc:
+            pytest.skip(f"tkinter not available: {exc}")
+        self.root.withdraw()
+        yield
+        try:
+            self.root.destroy()
+        except tk.TclError:
+            pass
+
+    def _all_combos(self, widget: Any) -> list[Any]:
+        combos = [w for w in widget.winfo_children() if isinstance(w, ttk.Combobox)]
+        for child in widget.winfo_children():
+            combos.extend(self._all_combos(child))
+        return combos
+
+    def test_build_wires_shared_panel_with_three_way_modes(self) -> None:
+        parent = tk.Frame(self.root)
+        # Bind the vars to the fixture root explicitly: after test_app.py's
+        # shared root exists, tk._default_root no longer points at this
+        # fixture's Tk, so masterless variables land in a different
+        # interpreter and the Source bar would show stale/empty values.
+        folder_path = tk.StringVar(master=self.root, value="/music")
+        run_mode = tk.StringVar(master=self.root, value="Dry Run")
+        target_lufs = tk.DoubleVar(master=self.root, value=-16.0)
+        tolerance = tk.DoubleVar(master=self.root, value=0.5)
+        auto_start_var = tk.BooleanVar(master=self.root, value=False)
+        auto_end_var = tk.BooleanVar(master=self.root, value=False)
+        clear_logs_var = tk.BooleanVar(master=self.root, value=False)
+        parallel_var = tk.BooleanVar(master=self.root, value=False)
+        build(
+            parent,
+            folder_path=folder_path,
+            run_mode=run_mode,
+            target_lufs=target_lufs,
+            tolerance=tolerance,
+            on_browse=MagicMock(),
+            on_start=MagicMock(),
+            auto_start_var=auto_start_var,
+            auto_end_var=auto_end_var,
+            clear_logs_var=clear_logs_var,
+            parallel_var=parallel_var,
+        )
+
+        frame = parent.winfo_children()[0]
+        assert frame.controls_panel is not None
+        assert list(frame.controls_panel.mode_combo["values"]) == [
+            "Dry Run",
+            "Normalize",
+            "Lossless Normalize",
+        ]
+        # The shared panel's Source bar binds the folder variable, replacing
+        # the old tool-local "Music Directory:" row.
+        assert frame.controls_panel.source_entry.get() == "/music"
+        # Exactly one Mode combobox: the shared panel's. The Configuration
+        # group must not duplicate the mode row.
+        assert len(self._all_combos(frame)) == 1

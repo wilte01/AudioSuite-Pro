@@ -20,6 +20,8 @@ class NormalizerArgs(BaseCLIArgs):
     target_lufs: float = -16.0
     tolerance: float = 0.5
     normalization_mode: str = "normalise"
+    clear_logs: bool = False
+    parallel_run: bool = False
 
 
 def validate_args(args: NormalizerArgs) -> list[str]:
@@ -97,6 +99,12 @@ def parse(argv: list[str] | None = None) -> NormalizerArgs:
         elif arg == "--mode" and i + 1 < len(argv):
             args.normalization_mode = argv[i + 1]
             i += 2
+        elif arg in ("--clear-logs", "--no-clear-logs"):
+            args.clear_logs = arg == "--clear-logs"
+            i += 1
+        elif arg in ("--parallel-run", "--no-parallel-run"):
+            args.parallel_run = arg == "--parallel-run"
+            i += 1
         elif arg.startswith("-") and arg not in ["--tolerance", "--mode"]:
             try:
                 args.target_lufs = float(arg)
@@ -105,6 +113,7 @@ def parse(argv: list[str] | None = None) -> NormalizerArgs:
             i += 1
         else:
             i += 1
+
     errors = validate_args(args)
     if errors:
         for error in errors:
