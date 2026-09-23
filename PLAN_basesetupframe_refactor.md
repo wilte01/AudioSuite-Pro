@@ -24,7 +24,7 @@ verbatim duplication:
 |---|---|---|
 | Root frame `tk.Frame(padx=30, pady=30, bg=BG_WHITE)` + `.pack(expand, fill)` | 19/19 | asx uses `padx=40`; refinery `24/16` |
 | Title label (`FONT_TITLE`, `pady=(0, 20)`) | 19/19 | asx uses `FONT_TITLE_L`, `pady=(0,25)` |
-| `DriverControlsPanel` assembly + `.set_driven()` | 16/19 | missing only in enhancer/normalizer/cd_ripper |
+| `DriverControlsPanel` assembly + `.set_driven()` | 18/19 | only cd_ripper remains (was 16/19 — enhancer + normalizer adopted the shared panel in the superseded driver-parity follow-up, see the Phase-3 supersession note) |
 | Preset row (combo + Save/Delete + dialog + refresh) | 17/19 | ~90–120 lines duplicated verbatim |
 | Start button `BEGIN …` (`side=BOTTOM, fill=x, pady=10, height=2`) | 18/19 | asx packs `fill="x"` (no side) |
 | Parallel/Workers row | bpm, key_detector, silence_trimmer | identical ~35-line block |
@@ -478,19 +478,29 @@ Configuration LabelFrame via `build_config_panel`; exports `build_config_panel` 
   consumes it at import time); local preset helpers deleted — base shared dialog used;
   placeholders injected for the base's required panel vars; `ui_common` remains a module
   attribute (test_processor imports it).
+  **[RETIRED — this exclusion was reverted by the driver-parity follow-up; see the
+  supersession note below.]**
 - `audio_normalizer/ui/setup_tab.py`: `include_controls_panel=False`; tuple return
   `(start_btn, refresh_preset_list, preset_combo)`; `build_config_panel` + `_closest_lufs_index`
   byte-identical (refinery + tests consume them).
+  **[RETIRED — this exclusion was reverted by the driver-parity follow-up; see the
+  supersession note below.]**
 - `include_controls_panel=False` required dummy `auto_start_var`/`auto_end_var` (and for
   enhancer a `folder_path`/`run_mode`) placeholders — base requires the panel vars even when
   the panel is not built; noted as a base-contract quirk.
 
-**Superseded (driver-parity follow-up):** the enhancer and normalizer exclusions above were
-later reverted deliberately. Both now use `include_controls_panel=True` with the full shared
-`DriverControlsPanel` (Source bar, 3-way Mode, Auto Start/End, Clear Logs, Parallel), with the
-driver vars threaded through `setup_tab.build()` and the apps' `_apply_cli_args`. The
-`include_controls_panel=False` + dummy-placeholder quirk therefore remains only for the
-migrated tools that never adopted the panel (bpm, refinery, asx, cd_ripper…).
+**Superseded (driver-parity follow-up; retirement recorded):** the two `include_controls_panel=False`
+entries above are **retired**. The enhancer and normalizer exclusions were reverted deliberately:
+both now use `include_controls_panel=True` with the full shared `DriverControlsPanel` (Source
+bar, 3-way Mode, Auto Start/End, Clear Logs, Parallel), the driver vars threaded through
+`setup_tab.build()` and the apps' `_apply_cli_args`. Landed in commits `a1a5890` (normalizer,
+with docs/guide) and `6ec5665` (enhancer dry-run write-site fix landed in the same pass);
+both states passed the full DoD gate (6588 / 6591 passed, mypy `.` clean, bandit 0 High /
+0 Medium, ruff clean). Adopting the shared panel across enhancer + normalizer advances the
+Phase-0 `DriverControlsPanel` inventory from 16/19 to **18/19 — `cd_ripper` is now the LAST
+tool without the shared panel, and migrating its Setup tab is the remaining step toward the
+19/19 goal** (currently tier-3 out of scope below). The `include_controls_panel=False` +
+dummy-placeholder quirk remains only for bpm/refinery/asx (tier-1/2) and cd_ripper (tier-3).
 - Refinery import gate passed for all six source modules; full verification pipeline passed:
   `compileall` clean; `ruff check --fix` / `format` clean; `mypy . --strict` clean (381 source
   files); bandit zero findings on all three migrated setup_tab files (asserts replaced with
