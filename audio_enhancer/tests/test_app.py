@@ -63,7 +63,9 @@ class TestOnCompleteLogFormatting:
         app.notebook = MagicMock()
         app._tab_results = MagicMock()
         app.start_btn = MagicMock()
-        app.auto_end = False
+        app._run_was_dry_run = False
+        app.auto_end_var = MagicMock()
+        app.auto_end_var.get.return_value = False
         app._scheduled = scheduled  # stash so _run_completion can invoke it
         return app
 
@@ -232,8 +234,8 @@ class TestOnCompleteLogFormatting:
         app.start_btn.config.assert_called_once_with(state="normal")
 
     def test_auto_end_schedules_root_destroy(self, app: AudioEnhancerApp) -> None:
-        """When auto_end is True, root.after must be called for root.destroy."""
-        app.auto_end = True
+        """When auto_end_var is True, root.after must be called for root.destroy."""
+        app.auto_end_var.get.return_value = True
         results = [
             ProcessingResult(
                 source=Path("ok.mp3"),
@@ -340,6 +342,8 @@ class TestStartProcessingOutputResolution:
         app._tab_processing = MagicMock()
         app.overall_status = MagicMock()
         app.params = MagicMock()
+        app.run_mode = MagicMock()
+        app.run_mode.get.return_value = "Dry Run"
         app.slot_vars = MagicMock()
         app.slot_queue = MagicMock()
         return app

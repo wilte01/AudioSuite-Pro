@@ -49,6 +49,7 @@ def _run(
     files: list[Path],
     process_file_side_effect,
     direct_retry: bool = False,
+    is_dry_run: bool = False,
 ) -> dict:
     """Run run_enhancement synchronously and collect all callback data.
 
@@ -59,6 +60,7 @@ def _run(
             the mocked process_file's side_effect.
         direct_retry: When True, unwrap run_with_retry to call the worker
             once so the retry backoff sleep is skipped (deterministic tests).
+        is_dry_run: Forwarded to run_enhancement's is_dry_run parameter.
 
     Returns:
         dict with keys: progress_calls (list of kwargs dicts from each
@@ -118,6 +120,7 @@ def _run(
             source_path=Path("/fake/source"),
             output_dir=Path("/fake/output"),
             params=EnhancementParams(),
+            is_dry_run=is_dry_run,
             slot_vars=slot_vars,
             slot_queue=slot_queue,
             on_progress=on_progress,
@@ -152,7 +155,7 @@ def test_skipped_file_keeps_its_display_text() -> None:
     """A SKIPPED result's pre-built display_text must reach on_progress
     unmodified — not be overwritten with an empty "[ERROR]   " string."""
 
-    def fake_process_file(info, params, output_dir, on_progress=None):
+    def fake_process_file(info, params, output_dir, on_progress=None, dry_run=False):
         raise AudioFileNotFoundError("vanished.mp3 not found", path="vanished.mp3")
 
     out = _run([Path("vanished.mp3")], fake_process_file)
@@ -167,7 +170,7 @@ def test_skipped_file_is_not_counted_as_an_error() -> None:
     """Skips must not inflate the `errors` counter — they are a distinct,
     non-fatal outcome per the user guide and ProcessingResult semantics."""
 
-    def fake_process_file(info, params, output_dir, on_progress=None):
+    def fake_process_file(info, params, output_dir, on_progress=None, dry_run=False):
         raise AudioFileNotFoundError("vanished.mp3 not found", path="vanished.mp3")
 
     out = _run([Path("vanished.mp3")], fake_process_file)
@@ -187,7 +190,7 @@ def test_failed_file_keeps_its_display_text_and_counts_as_error() -> None:
     """A genuinely FAILED (non-skippable) result must keep its own
     display_text and must still count toward `errors`."""
 
-    def fake_process_file(info, params, output_dir, on_progress=None):
+    def fake_process_file(info, params, output_dir, on_progress=None, dry_run=False):
         raise AudioPermissionError("locked.mp3 permission denied", path="locked.mp3")
 
     out = _run([Path("locked.mp3")], fake_process_file)
@@ -206,7 +209,7 @@ def test_done_file_display_text_built_from_result_fields() -> None:
     source name / gain / tags_copied fields, as before — this path was
     not broken and must not regress."""
 
-    def fake_process_file(info, params, output_dir, on_progress=None):
+    def fake_process_file(info, params, output_dir, on_progress=None, dry_run=False):
         return ProcessingResult(
             source=Path("good.mp3"),
             status=JobStatus.DONE,
@@ -223,11 +226,52 @@ def test_done_file_display_text_built_from_result_fields() -> None:
     assert out["complete_kwargs"]["errors"] == 0
 
 
+def test_run_enhancement_dry_run_flag_reaches_process_file() -> None:
+    """Dry Run mode must forward is_dry_run so process_file skips writes —
+    otherwise Dry Run would overwrite source files in in-place runs."""
+
+    seen: list[bool] = []
+
+    def fake_process_file(info, params, output_dir, on_progress=None, dry_run=False):
+        seen.append(dry_run)
+        return ProcessingResult(
+            source=Path("good.mp3"),
+            status=JobStatus.DONE,
+            rms_before_db=-20.0,
+            rms_after_db=-14.0,
+            tags_copied=5,
+        )
+
+    _run([Path("good.mp3")], fake_process_file, is_dry_run=True)
+
+    assert seen == [True]
+
+
+def test_run_enhancement_defaults_to_write_mode() -> None:
+    """is_dry_run must default to False so normal runs still write."""
+
+    seen: list[bool] = []
+
+    def fake_process_file(info, params, output_dir, on_progress=None, dry_run=False):
+        seen.append(dry_run)
+        return ProcessingResult(
+            source=Path("good.mp3"),
+            status=JobStatus.DONE,
+            rms_before_db=-20.0,
+            rms_after_db=-14.0,
+            tags_copied=5,
+        )
+
+    _run([Path("good.mp3")], fake_process_file)
+
+    assert seen == [False]
+
+
 def test_mixed_batch_counts_done_skipped_and_failed_independently() -> None:
     """processed == done + errors + skipped, and skipped is excluded
     from errors, across a batch with all three outcomes."""
 
-    def fake_process_file(info, params, output_dir, on_progress=None):
+    def fake_process_file(info, params, output_dir, on_progress=None, dry_run=False):
         name = info.path.name
         if name == "good.mp3":
             return ProcessingResult(
@@ -272,7 +316,7 @@ def test_worker_audio_suite_error_counts_as_failure() -> None:
     class _ConcreteError(AudioSuiteError):
         pass
 
-    def fake_process_file(info, params, output_dir, on_progress=None):
+    def fake_process_file(info, params, output_dir, on_progress=None, dry_run=False):
         raise _ConcreteError("boom")
 
     out = _run([Path("bad.mp3")], fake_process_file, direct_retry=True)
@@ -289,7 +333,7 @@ def test_worker_oserror_maps_to_failure_after_retries() -> None:
     map_to_audio_error and surfaced as a FAILED result (unwrapped retry so
     the backoff sleep is skipped)."""
 
-    def fake_process_file(info, params, output_dir, on_progress=None):
+    def fake_process_file(info, params, output_dir, on_progress=None, dry_run=False):
         raise OSError("disk io")
 
     out = _run([Path("io.mp3")], fake_process_file, direct_retry=True)

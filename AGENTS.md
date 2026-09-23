@@ -125,6 +125,16 @@ Follow them or the "passing" run is misleading.
   the code just wrote. Self-consistent field read-back cannot detect
   corruption (see the lossless_gain stereo-offset bug, iterations 1–2 in
   `PLAN_audit_remediation.md` / `PLAN_iteration2_remediation.md`).
+- **GUI Dry Run / mode flags must be traced end-to-end to the write site.**
+  A mode the app computes and passes (e.g. `is_dry_run=is_dry_run` into
+  `run_enhancement`) silently does nothing if any layer of the chain lacks
+  the parameter or ignores it — the processor keeps writing, and an
+  "in-place Dry Run" rewrites the source files. mypy's `Unexpected keyword
+  argument` on the call site is the canary. When threading a dry-run/mode
+  flag, add it to every signature in the chain and add a regression test
+  asserting the **real outcome** on a temp file: no output file created, no
+  write call, no tag copy, DONE status with measurements — not merely that
+  the flag value arrived (see the enhancer `is_dry_run` fix).
 
 - **Bandit must be run with `-c pyproject.toml` and UTF-8 enabled.**
   Plain `bandit -r <dirs>` does NOT auto-load `[tool.bandit]` from

@@ -993,3 +993,42 @@ class TestProcessFile:
         ]
         assert write_kwargs, "write call should carry an explicit quality for .mp3"
         assert write_kwargs[0]["quality"] == 320
+
+    def test_dry_run_measures_but_writes_nothing(self, tmp_path: Path) -> None:
+        """Dry Run must run the DSP chain (so level/gain are measured) but
+        must NOT create an output file or copy tags — verifying the real
+        outcome, not read-back of internal state."""
+        info, out = self._info(tmp_path, "in.opus")
+        audio = _sine(440.0, channels=2).astype(np.float32)
+
+        with (
+            patch(
+                "audio_enhancer.core.processor.build_enhancement_chain",
+                return_value=MagicMock(),
+            ) as build_chain,
+            patch(
+                "audio_enhancer.core.processor.compute_rms_db",
+                side_effect=[-30.0, -20.0],
+            ),
+            patch(
+                "audio_enhancer.core.processor.post_chain_clip_check",
+                side_effect=lambda a, stage_name="Enhance": a,
+            ),
+            patch(
+                "audio_enhancer.core.ffmpeg_io.read_audio",
+                return_value=(audio, SR),
+            ),
+            patch("audio_enhancer.core.ffmpeg_io.write_audio") as write_audio,
+            patch("audio_enhancer.core.processor.copy_tags") as copy_tags,
+        ):
+            result = process_file(info, EnhancementParams(), out, dry_run=True)
+
+        write_audio.assert_not_called()
+        copy_tags.assert_not_called()
+        assert not (out / "in.opus").exists()
+        assert result.status == JobStatus.DONE
+        assert result.tags_copied == 0
+        assert result.rms_before_db == pytest.approx(-30.0)
+        assert result.rms_after_db == pytest.approx(-20.0)
+        assert result.gain_db == pytest.approx(10.0)
+        build_chain.assert_called_once()

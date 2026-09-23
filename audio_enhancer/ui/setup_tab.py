@@ -30,6 +30,12 @@ def build(
     on_browse_src: Callable[..., Any],
     on_browse_out: Callable[..., Any],
     on_start: Callable[..., Any],
+    run_mode: tk.StringVar,
+    auto_start_var: tk.BooleanVar,
+    auto_end_var: tk.BooleanVar,
+    clear_logs_var: tk.BooleanVar | None = None,
+    parallel_var: tk.BooleanVar | None = None,
+    driver_locked: bool = False,
     preset_names: "list[str] | None" = None,
     on_save_preset: "Callable[[str], None] | None" = None,
     on_delete_preset: "Callable[[str], None] | None" = None,
@@ -38,8 +44,11 @@ def build(
     """
     Populate the Setup tab.
 
-    Returns (start_button, refresh_preset_list_fn).
+    Returns (start_button, refresh_preset_list_fn, param_values).
 
+    The shared Run Controls panel (source bar, Mode, Auto Start/End, Clear
+    Logs, Parallel) is rendered by BaseSetupFrame; the tool-specific Options
+    section keeps only the output folder row plus the preset/DSP config.
     All user-controllable values use constrained widgets (Scale, Combobox)
     so that invalid values never reach the processing layer.
     """
@@ -48,12 +57,20 @@ def build(
         title="Audio Enhancer",
         start_text="BEGIN ENHANCEMENT",
         on_start=on_start,
-        include_controls_panel=False,
+        include_controls_panel=True,
         preset_names=preset_names,
         on_save_preset=on_save_preset,
         on_delete_preset=on_delete_preset,
         on_preset_selected=on_preset_selected,
         pady=20,
+        folder_path=source_path,
+        run_mode=run_mode,
+        auto_start_var=auto_start_var,
+        auto_end_var=auto_end_var,
+        clear_logs_var=clear_logs_var,
+        parallel_var=parallel_var,
+        on_browse=on_browse_src,
+        driver_locked=driver_locked,
         source_path=source_path,
         output_path=output_path,
         preset_name=preset_name,
@@ -89,22 +106,11 @@ class _SetupFrame(BaseSetupFrame):
         self._on_browse_src = on_browse_src
         self._on_browse_out = on_browse_out
         self._param_values: dict[str, float] = {}
-        # The base requires the run-controls panel variables even when the
-        # panel itself is not built (include_controls_panel=False); provide
-        # inert placeholders so the skeleton constructs cleanly.
-        kwargs.setdefault("folder_path", source_path)
-        kwargs.setdefault("run_mode", tk.StringVar(master=parent))
-        kwargs.setdefault("auto_start_var", tk.BooleanVar(master=parent))
-        kwargs.setdefault("auto_end_var", tk.BooleanVar(master=parent))
         super().__init__(parent, **kwargs)
 
     def _build_options(self) -> None:
-        # ── Source path ───────────────────────────────────────────────────────
-        ui_common.path_row(
-            self, "Source (file or folder):", self._source_path, self._on_browse_src
-        )
-
         # ── Output path ───────────────────────────────────────────────────────
+        # The shared Run Controls panel already renders the Source bar.
         ui_common.path_row(
             self,
             "Output folder (leave blank for auto):",

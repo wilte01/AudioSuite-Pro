@@ -34,6 +34,7 @@ def process_file(
     params: EnhancementParams,
     output_dir: Path,
     on_progress: ProgressCallback | None = None,
+    dry_run: bool = False,
 ) -> ProcessingResult:
     """
     Apply the DSP chain to one file and write the result to output_dir.
@@ -46,6 +47,9 @@ def process_file(
     on_progress : Optional callback(message) for real-time UI progress updates.
                   Called from the processing thread — caller must marshal to
                   the Tk main thread via root.after(0, fn).
+    dry_run     : When True, the DSP chain still runs (so level / gain are
+                  measured) but no output file is written and no tags are
+                  copied — used by the app's "Dry Run" mode.
 
     Returns
     -------
@@ -104,6 +108,11 @@ def process_file(
             f"Level: {result.rms_before_db:.1f} \u2192 {result.rms_after_db:.1f} dBFS "
             f"({result.gain_db:+.1f} dB)"
         )
+
+        if dry_run:
+            _emit("Dry run \u2014 nothing written")
+            result.status = JobStatus.DONE
+            return result
 
         output_dir.mkdir(parents=True, exist_ok=True)
 

@@ -177,9 +177,19 @@ def run_enhancement(
     ],  # (processed, total, done, errors, result, display_text)
     on_complete: Callable[..., None],  # (total, done, errors, duration_secs, results)
     on_error: Callable[[str], None],  # (message)
+    is_dry_run: bool = False,
 ) -> None:
     """
     Discover audio files under source_path and process them in parallel.
+
+    Parameters
+    ----------
+    source_path : Directory to scan for audio files.
+    output_dir  : Directory to write enhanced files into (unused when
+                  is_dry_run is True).
+    params      : DSP parameters to apply.
+    is_dry_run  : When True, the DSP chain runs file-by-file but nothing is
+                  written — used to preview per-file gain / level.
 
     Callbacks (all invoked from worker/orchestrator threads — caller must
     marshal to the Tk main thread via root.after(0, fn)):
@@ -257,7 +267,7 @@ def run_enhancement(
 
         def _enhance() -> ProcessingResult:
             info = inspect(source_path / file_name)
-            result = process_file(info, params, output_dir)
+            result = process_file(info, params, output_dir, dry_run=is_dry_run)
             return result
 
         try:

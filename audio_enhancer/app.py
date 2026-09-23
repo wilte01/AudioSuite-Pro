@@ -30,7 +30,10 @@ from typing import Any, cast
 from audio_suite_shared import styles, suite_config
 from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
-from audio_suite_shared.cli_helpers import UniversalCLIHandler
+from audio_suite_shared.cli_helpers import (
+    UniversalCLIHandler,
+    was_launched_from_driver as was_launched_from_driver,
+)
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from audio_suite_shared.dsp_models import (
     EnhancementParams as SharedEnhancementParams,
@@ -75,6 +78,11 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
         self.source_path = tk.StringVar()
         self.output_path = tk.StringVar()
         self.preset_name = tk.StringVar(value=PresetName.MODERATE.value)
+        self.run_mode = tk.StringVar(value="Live Update")
+        self.auto_start_var = tk.BooleanVar(value=False)
+        self.auto_end_var = tk.BooleanVar(value=False)
+        self.clear_logs_var = tk.BooleanVar(value=False)
+        self.parallel_var = tk.BooleanVar(value=False)
 
         # Shared mutable params object — sliders write into it directly via
         # trace callbacks built inside setup_tab.
@@ -84,8 +92,10 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
         self._log_path: str = ""
         self._out_dir: str = ""
         self._in_place: bool = False
+        self._run_was_dry_run: bool = False
         self.auto_start: bool = False
         self.auto_end: bool = False
+        self._driver_locked = was_launched_from_driver()
 
         self._preset_combo: ttk.Combobox | None = None
         self._refresh_preset_list: Any = None
@@ -129,6 +139,14 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
         if args.preset:
             self.preset_name.set(args.preset)
         self.auto_end = args.auto_end
+        if args.live_mode is not None:
+            self.run_mode.set("Live Update" if args.live_mode else "Dry Run")
+        self.auto_start_var.set(args.auto_start)
+        self.auto_end_var.set(args.auto_end)
+
+        # Mirror driver display-only vars
+        self.clear_logs_var.set(args.clear_logs)
+        self.parallel_var.set(args.parallel_run)
 
         if should_auto_start:
             self.root.after(1500, self.start_processing)
@@ -173,6 +191,12 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
             on_browse_src=self._browse_source,
             on_browse_out=self._browse_output,
             on_start=self.start_processing,
+            run_mode=self.run_mode,
+            auto_start_var=self.auto_start_var,
+            auto_end_var=self.auto_end_var,
+            clear_logs_var=self.clear_logs_var,
+            parallel_var=self.parallel_var,
+            driver_locked=self._driver_locked,
             preset_names=suite_config.list_presets(_TOOL_ID),
             on_save_preset=self._save_current_as_preset,
             on_delete_preset=self._delete_preset,
@@ -320,6 +344,7 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
             str(source_path if source_path.is_dir() else source_path.parent)
         )
 
+        self._run_was_dry_run = self.run_mode.get() == "Dry Run"
         self.start_btn.config(state="disabled")
         self.file_listbox.delete(0, tk.END)
         self.progress["value"] = 0
@@ -335,10 +360,12 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
     @handle_audio_errors(reraise=False, context="audio_enhancer_app_run")
     def _run(self, source_path: Path, output_dir: Path) -> None:
         """Runs entirely on the daemon worker thread."""
+        is_dry_run = self.run_mode.get() == "Dry Run"
         run_enhancement(
             source_path=source_path,
             output_dir=output_dir,
             params=EnhancementParams(**self._param_values),
+            is_dry_run=is_dry_run,
             slot_vars=self._safe_slot_vars,
             slot_queue=self.slot_queue,
             on_progress=self._on_progress,
@@ -425,14 +452,24 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
             self.summary_label.config(
                 text=(f"Total: {total} files\nEnhanced: {done}\nErrors: {errors}")
             )
-            self.completion_label.config(text="Enhancement Complete!")
+            self.completion_label.config(
+                text="Enhancement Complete!"
+                if not self._run_was_dry_run
+                else "Enhancement Dry Run Complete!"
+            )
             self.notebook.select(self._tab_results)
             self.start_btn.config(state="normal")
 
             # Expose the before/after audition pair (first successfully enhanced
             # file) once the run has finished.
             done_results = [r for r in results if r.status.value == "Done"]
-            if self._in_place:
+            if self._run_was_dry_run:
+                self.set_audition_state(
+                    self._audition_original,
+                    None,
+                    "Dry Run — nothing written. Play Result is unavailable.",
+                )
+            elif self._in_place:
                 if (
                     self._audition_original is not None
                     and self._audition_result is not None
@@ -455,7 +492,7 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
                     f"Audition ready — {first.source.name} (original vs enhanced)",
                 )
 
-            if self.auto_end:
+            if self.auto_end_var.get():
                 self.root.after(500, self.root.destroy)
 
         self.root.after(0, _update)

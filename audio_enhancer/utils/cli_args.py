@@ -11,6 +11,14 @@ Usage examples
     python main.py --source "D:/Music/Albums"
     python main.py --source "D:/Music" --preset aggressive --auto-start
     python main.py --source "D:/Music" --output "D:/Enhanced" --preset mild
+    python main.py --source "D:/Music" --output "D:/Enhanced" --live
+    python main.py --source "D:/Music" --dry --start --no-end
+
+The Master Driver handshake uses ``--live``/``--dry`` (whether output is
+written), ``--start``/``--no-start`` and ``--end``/``--no-end`` (auto
+start/end), plus the display-only ``--clear-logs``/``--no-clear-logs`` and
+``--parallel-run``/``--no-parallel-run`` flags.  The legacy ``--auto-start``
+and ``--auto-end`` spellings remain supported for backward compatibility.
 """
 
 from __future__ import annotations
@@ -28,6 +36,9 @@ class CliArgs:
     preset: str = "Moderate"
     auto_start: bool = False
     auto_end: bool = False
+    live_mode: bool | None = None
+    clear_logs: bool = False
+    parallel_run: bool = False
 
 
 _VALID_PRESETS: tuple[str, ...] = ("Mild", "Moderate", "Aggressive")
@@ -83,15 +94,66 @@ def parse() -> CliArgs:
         choices=["Mild", "Moderate", "Aggressive"],
         help="Enhancement preset (default: Moderate). Case-insensitive.",
     )
-    parser.add_argument(
-        "--auto-start",
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--live",
+        dest="live_mode",
         action="store_true",
+        default=None,
+        help="Write enhanced output (default when neither flag is passed).",
+    )
+    mode_group.add_argument(
+        "--dry",
+        dest="live_mode",
+        action="store_false",
+        default=None,
+        help="Analyse only — compute gains but write no files.",
+    )
+    start_group = parser.add_mutually_exclusive_group()
+    start_group.add_argument(
+        "--auto-start",
+        "--start",
+        dest="auto_start",
+        action="store_true",
+        default=False,
         help="Begin processing automatically after launch.",
     )
-    parser.add_argument(
+    start_group.add_argument(
+        "--no-start",
+        dest="auto_start",
+        action="store_false",
+        default=False,
+        help="Do not begin processing automatically after launch.",
+    )
+    end_group = parser.add_mutually_exclusive_group()
+    end_group.add_argument(
         "--auto-end",
+        "--end",
+        dest="auto_end",
         action="store_true",
+        default=False,
         help="Close the application automatically when processing completes.",
+    )
+    end_group.add_argument(
+        "--no-end",
+        dest="auto_end",
+        action="store_false",
+        default=False,
+        help="Keep the application open when processing completes.",
+    )
+    parser.add_argument(
+        "--clear-logs",
+        action=argparse.BooleanOptionalAction,
+        dest="clear_logs",
+        default=False,
+        help="Mirror of the driver's Clear Logs toggle (display only).",
+    )
+    parser.add_argument(
+        "--parallel-run",
+        action=argparse.BooleanOptionalAction,
+        dest="parallel_run",
+        default=False,
+        help="Mirror of the driver's Parallel toggle (display only).",
     )
 
     args = parser.parse_args()
@@ -101,4 +163,7 @@ def parse() -> CliArgs:
         preset=args.preset,
         auto_start=args.auto_start,
         auto_end=args.auto_end,
+        live_mode=args.live_mode,
+        clear_logs=args.clear_logs,
+        parallel_run=args.parallel_run,
     )
