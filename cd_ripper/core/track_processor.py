@@ -9,12 +9,25 @@ function that reads raw CDDA sectors and writes a WAV file.
 import ctypes
 import os
 import struct
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from enum import Enum
 
 import numpy as np
 
 from audio_suite_shared.exceptions import AudioConfigurationError
+from cd_ripper.core.accuraterip import (
+    EDGE_SKIP_FRAMES,
+    FRAMES_PER_SECTOR,
+    LookupFound,
+    LookupNotFound,
+    LookupOffline,
+    LookupResult,
+    VerificationStatus,
+    compute_track_checksums,
+    verify_track,
+    with_gap_window,
+)
 from cd_ripper.core.drive_handler import (
     BITS_PER_SAMPLE,
     CHANNELS,
@@ -346,3 +359,236 @@ def extract_track_scsi(
         )
     finally:
         ctypes.windll.kernel32.CloseHandle(handle)
+
+
+# ── Track verification (rip-twice + AccurateRip cross-check) ──────────────
+
+
+class RipVerificationMode(str, Enum):
+    """Per-disc verification strategy (7a of the governing plan)."""
+
+    OFF = "off"
+    TWICE = "twice"
+    ACCURATERIP = "accuraterip"
+
+
+@dataclass(frozen=True)
+class VerificationPlan:
+    """One verification strategy, resolved once per disc before any rip.
+
+    Attributes:
+        mode: The strategy to apply to each extracted track.
+        lookup: AccurateRip result from the session-level disc lookup, or
+            ``None`` for local-only modes.
+        toc: The full disc TOC, so track numbering and gap-edge neighbours
+            stay consistent across every track's verification.
+    """
+
+    mode: RipVerificationMode = RipVerificationMode.OFF
+    lookup: LookupResult | None = None
+    toc: tuple[dict[str, int], ...] = ()
+
+
+def read_wav_pcm(path: str) -> bytes:
+    """Return the raw PCM payload of a PCM16 RIFF/WAVE file.
+
+    Walks the chunk list to locate the ``data`` chunk so exotic headers
+    (extra ``fmt`` padding, ``LIST`` chunks) do not break extraction.
+
+    Raises:
+        ValueError: If the file is not a RIFF/WAVE container or lacks a
+            ``data`` chunk.
+    """
+    with open(path, "rb") as fh:
+        blob = fh.read()
+    if len(blob) < 44 or blob[:4] != b"RIFF" or blob[8:12] != b"WAVE":
+        raise ValueError(f"{path}: not a RIFF/WAVE file")
+    pos = 12
+    while pos + 8 <= len(blob):
+        chunk_id = blob[pos : pos + 4]
+        size = struct.unpack_from("<I", blob, pos + 4)[0]
+        if chunk_id == b"data":
+            if pos + 8 + size > len(blob):
+                raise ValueError(f"{path}: data chunk truncated")
+            return blob[pos + 8 : pos + 8 + size]
+        pos += 8 + size + (size & 1)
+    raise ValueError(f"{path}: no data chunk found")
+
+
+def read_track_pcm(
+    drive_letter: str,
+    start_lba: int,
+    sectors: int,
+    track_num: int,
+    cancelled_fn: Callable[[], bool],
+    log_cb: Callable[[str], None],
+    verification_config: RipVerificationConfig | None = None,
+) -> bytes:
+    """Re-read raw CDDA audio and return the PCM bytes.
+
+    The rip-twice pass: an independent second read of the same extents using
+    the same verified multi-read machinery as extraction. Returns fewer bytes
+    than requested if ``cancelled_fn`` becomes true; callers must re-check
+    their cancellation state afterwards.
+
+    Raises:
+        UnresolvedSectorError, AudioIOError, OSError: propagated from the
+            verified-read path; callers must treat any of these as a failed
+            verification and never write the track.
+    """
+    config = verification_config or RipVerificationConfig()
+    handle = _open_device(drive_letter)
+    CHUNK = 20
+    try:
+        out = bytearray()
+        written = 0
+        buf = ctypes.create_string_buffer(
+            CHUNK * _bytes_per_sector(request_c2=config.use_c2_hint)
+        )
+        while written < sectors:
+            if cancelled_fn():
+                break
+            chunk = min(CHUNK, sectors - written)
+            lba = start_lba + written
+            audio_bytes = _read_verified_chunk(
+                handle, lba, chunk, buf, log_cb, track_num, config
+            )
+            out += audio_bytes
+            written += chunk
+        return bytes(out)
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
+def _toc_index(toc: Sequence[dict[str, int]], toc_entry: dict[str, int]) -> int:
+    """Resolve a track's position in the disc TOC (identity, then number)."""
+    for index, entry in enumerate(toc):
+        if entry is toc_entry or entry.get("number") == toc_entry.get("number"):
+            return index
+    return -1
+
+
+def verify_extracted_track(
+    drive_letter: str,
+    toc_entry: dict[str, int],
+    toc: Sequence[dict[str, int]],
+    first_pcm: bytes,
+    plan: VerificationPlan,
+    verification_config: RipVerificationConfig | None,
+    track_num: int,
+    cancelled_fn: Callable[[], bool],
+    log_cb: Callable[[str], None],
+) -> tuple[VerificationStatus | None, str]:
+    """Verify one freshly extracted track using the plan's strategy.
+
+    Pass A is the extracted PCM, pass B is a fresh device read. If both agree
+    and the mode needs the database, the track-level checksums are matched
+    first; with-gap candidates are checked only when the track window misses,
+    re-reading the previous track's tail and next track's head separately.
+
+    Returns a ``VerificationStatus`` plus a human-readable detail for the
+    ``MISMATCH`` / ``NO_ENTRY`` / ``OFFLINE`` cases, or ``(None, "cancelled")``
+    when the pass-B re-reads were cut short. The caller decides how to block
+    on the result; ``MISMATCH`` must never be written.
+
+    Raises:
+        ValueError: If the re-read produced an unexpected number of sectors
+            or the TOC does not contain ``toc_entry``.
+    """
+    if plan.mode is RipVerificationMode.OFF:
+        raise ValueError("verify_extracted_track requires a non-OFF plan")
+    index = _toc_index(toc, toc_entry)
+    if index < 0:
+        raise ValueError("verification TOC does not contain this track's TOC entry")
+    track_number = index + 1
+    track_count = len(toc)
+
+    expected = toc_entry["sectors"] * SECTOR_SIZE
+    if len(first_pcm) != expected:
+        return VerificationStatus.MISMATCH, (
+            f"extraction produced {len(first_pcm)} data bytes, expected {expected}"
+        )
+
+    log_cb(f"[Verify] Track {track_num:02d}: re-reading for rip-twice comparison")
+    second_pcm = read_track_pcm(
+        drive_letter,
+        toc_entry["start_lba"],
+        toc_entry["sectors"],
+        track_num,
+        cancelled_fn,
+        log_cb,
+        verification_config,
+    )
+    if cancelled_fn():
+        return None, "cancelled"
+
+    try:
+        first_sums = compute_track_checksums(first_pcm, track_number, track_count)
+        second_sums = compute_track_checksums(second_pcm, track_number, track_count)
+    except ValueError as exc:
+        return VerificationStatus.MISMATCH, f"invalid PCM for checksum: {exc}"
+
+    if first_sums != second_sums:
+        return VerificationStatus.MISMATCH, (
+            f"rip-twice: second read differs from first "
+            f"(v1 {first_sums.crc1:08x} vs {second_sums.crc1:08x})"
+        )
+
+    if plan.mode is RipVerificationMode.TWICE:
+        return VerificationStatus.VERIFIED, "rip-twice check passed"
+
+    lookup = plan.lookup
+    if not isinstance(lookup, LookupFound):
+        if isinstance(lookup, LookupNotFound):
+            return VerificationStatus.NO_ENTRY, lookup.reason
+        if isinstance(lookup, LookupOffline):
+            return VerificationStatus.OFFLINE, lookup.reason
+        return VerificationStatus.OFFLINE, "no AccurateRip lookup performed"
+
+    if verify_track(second_sums, lookup.entries, index) is VerificationStatus.VERIFIED:
+        return VerificationStatus.VERIFIED, "matched AccurateRip (track window)"
+    if cancelled_fn():
+        return None, "cancelled"
+
+    prev_entry = toc[index - 1] if index > 0 else None
+    next_entry = toc[index + 1] if index + 1 < len(toc) else None
+    edge_sectors = EDGE_SKIP_FRAMES // FRAMES_PER_SECTOR
+    prev_tail: bytes | None = None
+    next_head: bytes | None = None
+    if prev_entry is not None:
+        tail_sectors = min(prev_entry["sectors"], edge_sectors)
+        tail_start = prev_entry["start_lba"] + prev_entry["sectors"] - tail_sectors
+        prev_tail = read_track_pcm(
+            drive_letter,
+            tail_start,
+            tail_sectors,
+            track_num,
+            cancelled_fn,
+            log_cb,
+            verification_config,
+        )
+        if cancelled_fn():
+            return None, "cancelled"
+    if next_entry is not None:
+        head_sectors = min(next_entry["sectors"], edge_sectors)
+        next_head = read_track_pcm(
+            drive_letter,
+            next_entry["start_lba"],
+            head_sectors,
+            track_num,
+            cancelled_fn,
+            log_cb,
+            verification_config,
+        )
+        if cancelled_fn():
+            return None, "cancelled"
+
+    gap_pcm = with_gap_window(second_pcm, prev_tail, next_head)
+    gap_sums = compute_track_checksums(gap_pcm, track_number, track_count)
+    if verify_track(gap_sums, lookup.entries, index) is VerificationStatus.VERIFIED:
+        return VerificationStatus.VERIFIED, "matched AccurateRip (with-gap window)"
+    return VerificationStatus.MISMATCH, (
+        f"AccurateRip cross-check failed: CRC not found for track "
+        f"{track_number}/{track_count} (v1 {second_sums.crc1:08x}, "
+        f"v2 {second_sums.crc2:08x})"
+    )

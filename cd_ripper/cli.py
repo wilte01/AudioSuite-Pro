@@ -44,6 +44,17 @@ from audio_suite_shared.cli_base import cli
     help="Write a CUE sheet alongside the ripped tracks.",
 )
 @click.option(
+    "--verify",
+    "verify_mode",
+    default="twice",
+    type=click.Choice(["off", "twice", "accuraterip"]),
+    help=(
+        "Track verification: 'twice' re-reads each track for accuracy; "
+        "'accuraterip' additionally cross-checks against the AccurateRip "
+        "database; 'off' disables verification."
+    ),
+)
+@click.option(
     "--dry/--live",
     default=False,
     help="Show what would be ripped without writing files.",
@@ -61,6 +72,7 @@ def cd_rip_cli(
     tracks: str | None,
     quality: str | None,
     write_cue: bool,
+    verify_mode: str,
     dry: bool,
     json_output: bool,
 ) -> None:
@@ -84,6 +96,7 @@ def cd_rip_cli(
         click.echo(f"  Format:    {fmt}", err=True)
         click.echo(f"  Tracks:    {tracks or 'all'}", err=True)
         click.echo(f"  CUE sheet: {'yes' if write_cue else 'no'}", err=True)
+        click.echo(f"  Verify:    {verify_mode}", err=True)
         return
 
     # The --format Choice uses lowercase values ('wav', 'opus') while
@@ -137,6 +150,7 @@ def cd_rip_cli(
         session_done_cb=session_done_cb,
         log_cb=log_cb,
         write_cue=write_cue,
+        verify_mode=verify_mode,
     )
     session.start()
     done_event.wait()
@@ -146,6 +160,7 @@ def cd_rip_cli(
         "output_dir": output_dir,
         "format": fmt,
         "tracks": tracks or "all",
+        "verify": verify_mode,
         "log": log_lines,
     }
 

@@ -242,6 +242,62 @@ class TestRipOutput:
         assert '"tracks": "all"' in result.output
 
 
+class TestVerifyOption:
+    def test_default_passes_twice(self, runner: CliRunner) -> None:
+        captured: dict[str, Any] = {}
+        with patch.object(
+            ripper, "RipSession", side_effect=_fake_session_factory(captured)
+        ):
+            result = runner.invoke(cli, ["cd-rip", "D:", "--output-dir", "/out"])
+        assert result.exit_code == 0
+        assert captured["verify_mode"] == "twice"
+
+    @pytest.mark.parametrize("mode", ["off", "twice", "accuraterip"])
+    def test_explicit_mode_passes_through(self, runner, mode) -> None:
+        captured: dict[str, Any] = {}
+        with patch.object(
+            ripper, "RipSession", side_effect=_fake_session_factory(captured)
+        ):
+            result = runner.invoke(
+                cli, ["cd-rip", "D:", "--output-dir", "/out", "--verify", mode]
+            )
+        assert result.exit_code == 0
+        assert captured["verify_mode"] == mode
+
+    def test_invalid_choice_is_rejected(self, runner: CliRunner) -> None:
+        with patch.object(ripper, "RipSession") as session_cls:
+            result = runner.invoke(
+                cli, ["cd-rip", "D:", "--output-dir", "/out", "--verify", "banana"]
+            )
+        assert result.exit_code == 2
+        session_cls.assert_not_called()
+
+    def test_dry_run_announces_verify_mode(self, runner: CliRunner) -> None:
+        result = runner.invoke(
+            cli,
+            ["cd-rip", "D:", "--output-dir", "/out", "--dry", "--verify", "off"],
+        )
+        assert result.exit_code == 0
+        assert "Verify" in result.output
+
+    def test_json_output_includes_verify_field(self, runner: CliRunner) -> None:
+        with patch.object(ripper, "RipSession", side_effect=_fake_session_factory({})):
+            result = runner.invoke(
+                cli,
+                [
+                    "cd-rip",
+                    "D:",
+                    "--output-dir",
+                    "/out",
+                    "--json",
+                    "--verify",
+                    "accuraterip",
+                ],
+            )
+        assert result.exit_code == 0
+        assert '"verify": "accuraterip"' in result.output
+
+
 class TestCueFlag:
     def test_default_passes_write_cue_false(self, runner: CliRunner) -> None:
         captured: dict[str, Any] = {}

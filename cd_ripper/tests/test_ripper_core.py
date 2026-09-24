@@ -18,6 +18,7 @@ real ffmpeg/SCSI calls.
 
 import ctypes
 import os
+import struct
 import sys
 import threading
 from pathlib import Path
@@ -84,10 +85,17 @@ from cd_ripper.core.ripper import (  # noqa: E402
     OPUS_QUALITY_ARGS,
     SCSI_PASS_THROUGH_DIRECT,
     SECTOR_SIZE,
+    DBEntry,
+    DBTrackEntry,
+    LookupFound,
+    LookupNotFound,
+    LookupOffline,
     RipSession,
     RipTask,
     RipVerificationConfig,
+    RipVerificationMode,
     UnresolvedSectorError,
+    VerificationPlan,
     _build_metadata_args,
     _bytes_per_sector,
     _msf_to_lba,
@@ -96,12 +104,18 @@ from cd_ripper.core.ripper import (  # noqa: E402
     _resolve_by_majority,
     _run_ffmpeg_streaming,
     _safe_filename,
+    compute_disc_ids,
+    compute_track_checksums,
     diagnose_c2_reliability,
     extract_track_scsi,
     get_quality_options,
     probe_ffmpeg,
     read_toc,
+    read_track_pcm,
+    read_wav_pcm,
     spin_down_drive,
+    verify_extracted_track,
+    with_gap_window,
 )
 
 # ===========================================================================
@@ -1844,3 +1858,784 @@ def test_riptask_default_verification_config_is_created_when_omitted():
     assert isinstance(task.verification_config, RipVerificationConfig)
     assert task.verification_config.max_read_attempts == 3
     assert task.verification_config.use_c2_hint is False
+
+
+# ===========================================================================
+# read_wav_pcm — canonical RIFF/WAVE chunk walking
+# ===========================================================================
+
+
+class TestReadWavPcm:
+    def test_canonical_wav_returns_data_chunk(self, tmp_path):
+        path = tmp_path / "canonical.wav"
+        chunk = bytes(range(256)) * 20
+        header = struct.pack(
+            "<4sI4s4sIHHIIHH4sI",
+            b"RIFF",
+            36 + len(chunk),
+            b"WAVE",
+            b"fmt ",
+            16,
+            1,
+            2,
+            44100,
+            176400,
+            4,
+            16,
+            b"data",
+            len(chunk),
+        )
+        path.write_bytes(header + chunk)
+        assert read_wav_pcm(str(path)) == chunk
+
+    def test_extra_chunk_before_data_is_skipped(self, tmp_path):
+        path = tmp_path / "listed.wav"
+        chunk = b"\x01\x02\x03\x04" * 10
+        body = (
+            b"fmt "
+            + struct.pack("<IHHIIHH", 16, 1, 2, 44100, 176400, 4, 16)
+            + b"LIST"
+            + struct.pack("<I", 4)
+            + b"INFO"
+            + b"data"
+            + struct.pack("<I", len(chunk))
+            + chunk
+        )
+        path.write_bytes(b"RIFF" + struct.pack("<I", 4 + len(body)) + b"WAVE" + body)
+        assert read_wav_pcm(str(path)) == chunk
+
+    def test_missing_data_chunk_raises(self, tmp_path):
+        path = tmp_path / "nodata.wav"
+        # A >44-byte RIFF/WAVE that declares only a fmt chunk (trailing
+        # padding so the file clears the minimal-44 container gate).
+        payload = (
+            b"fmt "
+            + struct.pack("<IHHIIHH", 16, 1, 2, 44100, 176400, 4, 16)
+            + b"\x00" * 32
+        )
+        path.write_bytes(
+            b"RIFF" + struct.pack("<I", 4 + len(payload)) + b"WAVE" + payload
+        )
+        with pytest.raises(ValueError, match="no data chunk"):
+            read_wav_pcm(str(path))
+
+    def test_not_a_wave_raises(self, tmp_path):
+        path = tmp_path / "junk.bin"
+        path.write_bytes(b"not a riff file at all")
+        with pytest.raises(ValueError, match="RIFF/WAVE"):
+            read_wav_pcm(str(path))
+
+    def test_truncated_data_chunk_raises(self, tmp_path):
+        path = tmp_path / "trunc.wav"
+        chunk = b"\xaa" * 8
+        header = struct.pack(
+            "<4sI4s4sIHHIIHH4sI",
+            b"RIFF",
+            36 + len(chunk) + 4,
+            b"WAVE",
+            b"fmt ",
+            16,
+            1,
+            2,
+            44100,
+            176400,
+            4,
+            16,
+            b"data",
+            len(chunk) + 4,
+        )
+        path.write_bytes(header + chunk)
+        with pytest.raises(ValueError, match="truncated"):
+            read_wav_pcm(str(path))
+
+
+# ===========================================================================
+# read_track_pcm — independent second read for rip-twice verification
+# ===========================================================================
+
+
+@pytest.mark.hardware
+class TestReadTrackPcm:
+    def test_reads_all_sectors_and_returns_pcm(self):
+        sectors = 4
+        fake_audio = bytes([0xAB]) * (sectors * SECTOR_SIZE)
+        captured = []
+
+        def _fake_chunk(handle, lba, count, buf, log_cb, track_num, config):
+            captured.append((lba, count))
+            payload = bytes([0xAB]) * (count * SECTOR_SIZE)
+            buf[: len(payload)] = payload
+            return payload
+
+        with (
+            patch("cd_ripper.core.track_processor._open_device", return_value=42),
+            patch(
+                "cd_ripper.core.track_processor._read_verified_chunk",
+                side_effect=_fake_chunk,
+            ),
+            patch("ctypes.windll") as mock_windll,
+        ):
+            mock_windll.kernel32 = MagicMock()
+            result = read_track_pcm(
+                "D",
+                start_lba=100,
+                sectors=sectors,
+                track_num=2,
+                cancelled_fn=lambda: False,
+                log_cb=_noop,
+            )
+
+        assert result == fake_audio
+        assert captured == [(100, 4)]
+        mock_windll.kernel32.CloseHandle.assert_called_once_with(42)
+
+    def test_cancelled_mid_read_returns_partial_bytes(self):
+        state = {"calls": 0}
+
+        def _fake_chunk(handle, lba, count, buf, log_cb, track_num, config):
+            state["calls"] += 1
+            payload = bytes([7]) * (count * SECTOR_SIZE)
+            buf[: len(payload)] = payload
+            return payload
+
+        with (
+            patch("cd_ripper.core.track_processor._open_device", return_value=1),
+            patch(
+                "cd_ripper.core.track_processor._read_verified_chunk",
+                side_effect=_fake_chunk,
+            ),
+            patch("ctypes.windll") as mock_windll,
+        ):
+            mock_windll.kernel32 = MagicMock()
+            result = read_track_pcm(
+                "D",
+                start_lba=0,
+                sectors=25,
+                track_num=1,
+                cancelled_fn=lambda: state["calls"] >= 1,
+                log_cb=_noop,
+            )
+
+        # One full 20-sector chunk is read before the cancellation fires.
+        assert len(result) == 20 * SECTOR_SIZE
+        mock_windll.kernel32.CloseHandle.assert_called_once_with(1)
+
+
+# ===========================================================================
+# verify_extracted_track — rip-twice + AccurateRip matching matrix
+# ===========================================================================
+
+
+def _db_entry_with_track(track_count, index, crc1, crc2, confidence=20):
+    tracks = (
+        tuple(DBTrackEntry(confidence=confidence, crc1=0, crc2=0) for _ in range(index))
+        + (DBTrackEntry(confidence=confidence, crc1=crc1, crc2=crc2),)
+        + tuple(
+            DBTrackEntry(confidence=confidence, crc1=0, crc2=0)
+            for _ in range(track_count - index - 1)
+        )
+    )
+    return DBEntry(disc_id1=0, disc_id2=0, cddb_id=0, tracks=tracks)
+
+
+def _sectors_pcm(value, sectors):
+    return bytes([value]) * (sectors * SECTOR_SIZE)
+
+
+class TestVerifyExtractedTrack:
+    def _toc(self):
+        return [
+            _make_toc_entry(number=1, start_lba=0, sectors=10),
+            _make_toc_entry(number=2, start_lba=10, sectors=10),
+            _make_toc_entry(number=3, start_lba=20, sectors=10),
+        ]
+
+    def _verify(self, first_pcm, plan, second_pcm=None, cancelled_fn=lambda: False):
+        toc = self._toc()
+        if second_pcm is None:
+            second_pcm = first_pcm
+
+        with patch(
+            "cd_ripper.core.track_processor.read_track_pcm",
+            return_value=second_pcm,
+        ) as mock_read:
+            status, detail = verify_extracted_track(
+                drive_letter="D",
+                toc_entry=toc[1],
+                toc=toc,
+                first_pcm=first_pcm,
+                plan=plan,
+                verification_config=None,
+                track_num=2,
+                cancelled_fn=cancelled_fn,
+                log_cb=_noop,
+            )
+        return status, detail, mock_read
+
+    def test_twice_mode_matching_reads_verifies(self):
+        pcm = _sectors_pcm(0x11, 10)
+        plan = VerificationPlan(mode=RipVerificationMode.TWICE, toc=tuple(self._toc()))
+        status, detail, mock_read = self._verify(pcm, plan)
+        assert status.value == "VERIFIED"
+        assert "rip-twice" in detail
+        mock_read.assert_called_once()
+
+    def test_twice_mode_crc_difference_is_mismatch(self):
+        plan = VerificationPlan(mode=RipVerificationMode.TWICE, toc=tuple(self._toc()))
+        status, detail, _ = self._verify(
+            _sectors_pcm(0x11, 10), plan, second_pcm=_sectors_pcm(0x22, 10)
+        )
+        assert status.value == "MISMATCH"
+        assert "rip-twice" in detail
+
+    def test_mismatched_payload_length_reports_mismatch_without_reread(self):
+        plan = VerificationPlan(mode=RipVerificationMode.TWICE, toc=tuple(self._toc()))
+        with patch("cd_ripper.core.track_processor.read_track_pcm") as mock_read:
+            status, detail = verify_extracted_track(
+                drive_letter="D",
+                toc_entry=self._toc()[1],
+                toc=self._toc(),
+                first_pcm=_sectors_pcm(0x11, 9),
+                plan=plan,
+                verification_config=None,
+                track_num=2,
+                cancelled_fn=lambda: False,
+                log_cb=_noop,
+            )
+        assert status.value == "MISMATCH"
+        assert "expected" in detail
+        mock_read.assert_not_called()
+
+    def test_cancelled_during_reread_returns_none(self):
+        plan = VerificationPlan(mode=RipVerificationMode.TWICE, toc=tuple(self._toc()))
+        status, detail, _ = self._verify(
+            _sectors_pcm(0x11, 10), plan, cancelled_fn=lambda: True
+        )
+        assert status is None
+        assert detail == "cancelled"
+
+    def test_off_plan_raises(self):
+        plan = VerificationPlan(mode=RipVerificationMode.OFF, toc=tuple(self._toc()))
+        with pytest.raises(ValueError, match="non-OFF"):
+            self._verify(_sectors_pcm(0x11, 10), plan)
+
+    def test_toc_missing_entry_raises(self):
+        plan = VerificationPlan(mode=RipVerificationMode.TWICE, toc=tuple(self._toc()))
+        bogus = _make_toc_entry(number=99, start_lba=999, sectors=10)
+        with patch("cd_ripper.core.track_processor.read_track_pcm"):
+            with pytest.raises(ValueError, match="does not contain"):
+                verify_extracted_track(
+                    drive_letter="D",
+                    toc_entry=bogus,
+                    toc=self._toc(),
+                    first_pcm=_sectors_pcm(0x11, 10),
+                    plan=plan,
+                    verification_config=None,
+                    track_num=2,
+                    cancelled_fn=lambda: False,
+                    log_cb=_noop,
+                )
+
+    def _acqui_plan(self, entries):
+        return VerificationPlan(
+            mode=RipVerificationMode.ACCURATERIP,
+            lookup=LookupFound(
+                entries=tuple(entries), url="https://x.accuraterip/test"
+            ),
+            toc=tuple(self._toc()),
+        )
+
+    def test_accuraterip_track_window_match_verifies_with_single_read(self):
+        second = _sectors_pcm(0x33, 10)
+        sums = compute_track_checksums(second, track_number=2, track_count=3)
+        plan = self._acqui_plan([_db_entry_with_track(3, 1, sums.crc1, sums.crc2)])
+        status, detail, mock_read = self._verify(second, plan)
+        assert status.value == "VERIFIED"
+        assert "track window" in detail
+        mock_read.assert_called_once()
+
+    def test_accuraterip_with_gap_window_match_verifies_after_edge_rereads(self):
+        second = _sectors_pcm(0x44, 10)
+        prev_tail = _sectors_pcm(0x55, 5)
+        next_head = _sectors_pcm(0x66, 5)
+
+        cache = {
+            (10, 10): second,
+            (5, 5): prev_tail,
+            (20, 5): next_head,
+        }
+
+        def _fake_read(
+            drive, start_lba, sectors, track_num, cancelled_fn, log_cb, config
+        ):
+            return cache[(start_lba, sectors)]
+
+        toc = self._toc()
+        gap_pcm = with_gap_window(second, prev_tail, next_head)
+        gap_sums = compute_track_checksums(gap_pcm, track_number=2, track_count=3)
+        plan = self._acqui_plan(
+            [_db_entry_with_track(3, 1, gap_sums.crc1, gap_sums.crc2)]
+        )
+
+        with patch(
+            "cd_ripper.core.track_processor.read_track_pcm", side_effect=_fake_read
+        ) as mock_read:
+            status, detail = verify_extracted_track(
+                drive_letter="D",
+                toc_entry=toc[1],
+                toc=toc,
+                first_pcm=second,
+                plan=plan,
+                verification_config=None,
+                track_num=2,
+                cancelled_fn=lambda: False,
+                log_cb=_noop,
+            )
+        assert status.value == "VERIFIED"
+        assert "with-gap" in detail
+        assert mock_read.call_count == 3
+
+    def test_accuraterip_no_match_is_mismatch(self):
+        second = _sectors_pcm(0x77, 10)
+        # A structurally different PCM whose checksum matches neither the
+        # track-window nor the with-gap candidate (constant-byte streams
+        # share a crc2 collision, so use a non-constant pattern here).
+        other_pcm = (bytes(range(16)) * 9999)[: 10 * SECTOR_SIZE]
+        other = compute_track_checksums(other_pcm, 2, 3)
+        entry = _db_entry_with_track(3, 1, other.crc1, other.crc2)
+        plan = self._acqui_plan([entry])
+
+        toc = self._toc()
+        cache = {
+            (10, 10): second,
+            (5, 5): _sectors_pcm(0xAA, 5),
+            (20, 5): _sectors_pcm(0xBB, 5),
+        }
+
+        def _fake_read(
+            drive, start_lba, sectors, track_num, cancelled_fn, log_cb, config
+        ):
+            return cache[(start_lba, sectors)]
+
+        with patch(
+            "cd_ripper.core.track_processor.read_track_pcm", side_effect=_fake_read
+        ) as mock_read:
+            status, detail = verify_extracted_track(
+                drive_letter="D",
+                toc_entry=toc[1],
+                toc=toc,
+                first_pcm=second,
+                plan=plan,
+                verification_config=None,
+                track_num=2,
+                cancelled_fn=lambda: False,
+                log_cb=_noop,
+            )
+        assert status.value == "MISMATCH"
+        assert "AccurateRip cross-check failed" in detail
+        assert mock_read.call_count == 3
+
+    def test_accuraterip_not_found_is_no_entry_without_edge_rereads(self):
+        second = _sectors_pcm(0x11, 10)
+        plan = VerificationPlan(
+            mode=RipVerificationMode.ACCURATERIP,
+            lookup=LookupNotFound(reason="no entry"),
+            toc=tuple(self._toc()),
+        )
+        status, detail, mock_read = self._verify(second, plan)
+        assert status.value == "NO_ENTRY"
+        assert "no entry" in detail
+        mock_read.assert_called_once()
+
+    def test_accuraterip_offline_degrades_to_offline(self):
+        second = _sectors_pcm(0x11, 10)
+        plan = VerificationPlan(
+            mode=RipVerificationMode.ACCURATERIP,
+            lookup=LookupOffline(reason="network down"),
+            toc=tuple(self._toc()),
+        )
+        status, detail, mock_read = self._verify(second, plan)
+        assert status.value == "OFFLINE"
+        assert "network down" in detail
+        mock_read.assert_called_once()
+
+
+# ===========================================================================
+# RipTask verification gating — MISMATCH must block the write
+# ===========================================================================
+
+
+class TestRipTaskVerificationGating:
+    def _run_with_verify(self, tmp_path, task, plan, status_detail):
+        out_wav = str(tmp_path / "track.wav")
+        Path(out_wav).write_bytes(b"RIFF" + b"\x00" * 44)
+
+        encode_calls = []
+
+        def _fake_popen(ffmpeg, args, **kw):
+            encode_calls.append(args)
+            proc = MagicMock()
+            proc.returncode = 0
+            proc.stderr = iter([])
+            proc.wait.return_value = 0
+            return proc
+
+        status, detail = status_detail
+        with (
+            patch("cd_ripper.core.encoding_pipeline.extract_track_scsi"),
+            patch(
+                "cd_ripper.core.encoding_pipeline.tempfile.mkstemp",
+                return_value=(0, out_wav),
+            ),
+            patch("os.close"),
+            patch("os.path.exists", return_value=True),
+            patch("os.path.getsize", return_value=1000),
+            patch(
+                "cd_ripper.core.encoding_pipeline.read_wav_pcm",
+                return_value=b"\x11" * 2352,
+            ),
+            patch(
+                "cd_ripper.core.encoding_pipeline.verify_extracted_track",
+                return_value=(status, detail),
+            ),
+            patch(
+                "cd_ripper.core.metadata_resolver.run_secure_popen",
+                side_effect=_fake_popen,
+            ),
+            patch("os.makedirs"),
+        ):
+            task.run()
+        return encode_calls
+
+    def _task(self, tmp_path, plan, **kwargs):
+        return RipTask(
+            drive="D:",
+            track=_make_track(),
+            toc_entry=_make_toc_entry(),
+            out_dir=str(tmp_path),
+            fmt="FLAC",
+            codec_args=FORMAT_OPTIONS["FLAC"]["codec_args"],
+            progress_cb=_noop,
+            done_cb=_noop,
+            ffmpeg_path="ffmpeg",
+            log_cb=_noop,
+            verification=plan,
+            **kwargs,
+        )
+
+    def test_mismatch_blocks_encode_and_reports(self, tmp_path):
+        plan = VerificationPlan(
+            mode=RipVerificationMode.TWICE,
+            toc=(_make_toc_entry(),),
+        )
+        task = self._task(tmp_path, plan)
+        done = []
+        task.done_cb = lambda num, ok, path, err: done.append((num, ok, path, err))
+        from cd_ripper.core.accuraterip import VerificationStatus
+
+        encode_calls = self._run_with_verify(
+            tmp_path,
+            task,
+            plan,
+            (VerificationStatus.MISMATCH, "rip-twice: second read differs"),
+        )
+        assert encode_calls == []
+        num, ok, path, err = done[0]
+        assert ok is False
+        assert path == ""
+        assert err.startswith("MISMATCH:")
+
+    def test_verified_labels_done_and_encode_proceeds(self, tmp_path):
+        plan = VerificationPlan(
+            mode=RipVerificationMode.TWICE,
+            toc=(_make_toc_entry(),),
+        )
+        task = self._task(tmp_path, plan)
+        done = []
+        task.done_cb = lambda num, ok, path, err: done.append((num, ok, path, err))
+        from cd_ripper.core.accuraterip import VerificationStatus
+
+        encode_calls = self._run_with_verify(
+            tmp_path,
+            task,
+            plan,
+            (VerificationStatus.VERIFIED, "rip-twice check passed"),
+        )
+        assert len(encode_calls) == 1
+        num, ok, path, err = done[0]
+        assert ok is True
+        assert err == "VERIFIED"
+
+    def test_no_entry_label_flows_to_done_when_encode_succeeds(self, tmp_path):
+        plan = VerificationPlan(
+            mode=RipVerificationMode.ACCURATERIP,
+            lookup=LookupNotFound(reason="absent"),
+            toc=(_make_toc_entry(),),
+        )
+        task = self._task(tmp_path, plan)
+        done = []
+        task.done_cb = lambda num, ok, path, err: done.append((num, ok, path, err))
+        from cd_ripper.core.accuraterip import VerificationStatus
+
+        self._run_with_verify(
+            tmp_path,
+            task,
+            plan,
+            (VerificationStatus.NO_ENTRY, "absent"),
+        )
+        num, ok, path, err = done[0]
+        assert ok is True
+        assert err == "NO_ENTRY"
+
+    def test_off_mode_skips_verification_entirely(self, tmp_path):
+        plan = VerificationPlan()  # mode OFF
+        task = self._task(tmp_path, plan)
+        done = []
+        task.done_cb = lambda num, ok, path, err: done.append((num, ok, path, err))
+
+        out_wav = str(tmp_path / "track.wav")
+        Path(out_wav).write_bytes(b"RIFF" + b"\x00" * 44)
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stderr = iter([])
+        mock_proc.wait.return_value = 0
+
+        with (
+            patch("cd_ripper.core.encoding_pipeline.extract_track_scsi"),
+            patch(
+                "cd_ripper.core.encoding_pipeline.tempfile.mkstemp",
+                return_value=(0, out_wav),
+            ),
+            patch("os.close"),
+            patch("os.path.exists", return_value=True),
+            patch("os.path.getsize", return_value=1000),
+            patch(
+                "cd_ripper.core.metadata_resolver.run_secure_popen",
+                return_value=mock_proc,
+            ),
+            patch("os.makedirs"),
+            patch(
+                "cd_ripper.core.encoding_pipeline.verify_extracted_track"
+            ) as mock_verify,
+        ):
+            task.run()
+        mock_verify.assert_not_called()
+        num, ok, path, err = done[0]
+        assert ok is True
+        assert err == ""
+
+    def test_read_wav_failure_blocks_encode(self, tmp_path):
+        plan = VerificationPlan(
+            mode=RipVerificationMode.TWICE,
+            toc=(_make_toc_entry(),),
+        )
+        task = self._task(tmp_path, plan)
+        done = []
+        task.done_cb = lambda num, ok, path, err: done.append((num, ok, path, err))
+
+        out_wav = str(tmp_path / "track.wav")
+        Path(out_wav).write_bytes(b"RIFF" + b"\x00" * 44)
+
+        with (
+            patch("cd_ripper.core.encoding_pipeline.extract_track_scsi"),
+            patch(
+                "cd_ripper.core.encoding_pipeline.tempfile.mkstemp",
+                return_value=(0, out_wav),
+            ),
+            patch("os.close"),
+            patch("os.path.exists", return_value=True),
+            patch("os.path.getsize", return_value=1000),
+            patch(
+                "cd_ripper.core.encoding_pipeline.read_wav_pcm",
+                side_effect=ValueError("not a RIFF/WAVE file"),
+            ),
+            patch("cd_ripper.core.metadata_resolver.run_secure_popen") as mock_popen,
+            patch("os.makedirs"),
+        ):
+            task.run()
+        mock_popen.assert_not_called()
+        num, ok, path, err = done[0]
+        assert ok is False
+        assert "Verification failed" in err
+
+    def test_verify_value_error_blocks_encode(self, tmp_path):
+        plan = VerificationPlan(
+            mode=RipVerificationMode.ACCURATERIP,
+            lookup=LookupFound(entries=(), url="https://x.test/none"),
+            toc=(_make_toc_entry(),),
+        )
+        task = self._task(tmp_path, plan)
+        done = []
+        task.done_cb = lambda num, ok, path, err: done.append((num, ok, path, err))
+
+        out_wav = str(tmp_path / "track.wav")
+        Path(out_wav).write_bytes(b"RIFF" + b"\x00" * 44)
+
+        with (
+            patch("cd_ripper.core.encoding_pipeline.extract_track_scsi"),
+            patch(
+                "cd_ripper.core.encoding_pipeline.tempfile.mkstemp",
+                return_value=(0, out_wav),
+            ),
+            patch("os.close"),
+            patch("os.path.exists", return_value=True),
+            patch("os.path.getsize", return_value=1000),
+            patch(
+                "cd_ripper.core.encoding_pipeline.read_wav_pcm",
+                return_value=b"\x11" * 2352,
+            ),
+            patch(
+                "cd_ripper.core.encoding_pipeline.verify_extracted_track",
+                side_effect=ValueError("verification TOC does not contain"),
+            ),
+            patch("cd_ripper.core.metadata_resolver.run_secure_popen") as mock_popen,
+            patch("os.makedirs"),
+        ):
+            task.run()
+        mock_popen.assert_not_called()
+        num, ok, path, err = done[0]
+        assert ok is False
+        assert "Verification failed" in err
+
+
+# ===========================================================================
+# RipSession verification planning — one plan per disc, reused by every task
+# ===========================================================================
+
+
+class TestRipSessionVerificationPlan:
+    def _session(self, tmp_path, verify_mode="off"):
+        tracks = [_make_track(number=1)]
+        return RipSession(
+            drive="D:",
+            tracks=tracks,
+            out_dir=str(tmp_path),
+            fmt="FLAC",
+            quality_args=None,
+            progress_cb=_noop,
+            track_done_cb=_noop,
+            session_done_cb=_noop,
+            ffmpeg_path="ffmpeg",
+            log_cb=_noop,
+            verify_mode=verify_mode,
+        )
+
+    def test_default_mode_is_off(self, tmp_path):
+        session = self._session(tmp_path)
+        assert session.verify_mode is RipVerificationMode.OFF
+
+    def test_string_modes_coerce_to_enum(self, tmp_path):
+        assert self._session(tmp_path, "twice").verify_mode is RipVerificationMode.TWICE
+        assert (
+            self._session(tmp_path, "accuraterip").verify_mode
+            is RipVerificationMode.ACCURATERIP
+        )
+
+    def test_invalid_mode_raises_value_error(self, tmp_path):
+        with pytest.raises(ValueError):
+            self._session(tmp_path, "banana")
+
+    def test_enum_instance_is_kept(self, tmp_path):
+        session = self._session(tmp_path, RipVerificationMode.TWICE)
+        assert session.verify_mode is RipVerificationMode.TWICE
+
+    def test_twice_plan_has_no_lookup_and_toc(self, tmp_path):
+        toc = [_make_toc_entry(number=1), _make_toc_entry(number=2)]
+        session = self._session(tmp_path, "twice")
+        plan = session._build_verification_plan(toc)
+        assert plan.mode is RipVerificationMode.TWICE
+        assert plan.lookup is None
+        assert plan.toc == tuple(toc)
+
+    def test_empty_toc_skips_database_lookup(self, tmp_path):
+        session = self._session(tmp_path, "accuraterip")
+        with patch("cd_ripper.core.ripper.AccurateRipClient") as mock_client_cls:
+            plan = session._build_verification_plan([])
+        assert plan.mode is RipVerificationMode.ACCURATERIP
+        assert plan.lookup is None
+        assert plan.toc == ()
+        mock_client_cls.assert_not_called()
+
+    def test_accuraterip_plan_resolves_disc_ids_and_url(self, tmp_path):
+        toc = [
+            _make_toc_entry(number=1, start_lba=0, sectors=16875),
+            _make_toc_entry(number=2, start_lba=16875, sectors=5475),
+        ]
+        session = self._session(tmp_path, "accuraterip")
+        entries = (
+            DBEntry(
+                disc_id1=0,
+                disc_id2=0,
+                cddb_id=0,
+                tracks=(DBTrackEntry(confidence=1, crc1=0, crc2=0),),
+            ),
+        )
+        found = LookupFound(entries=entries, url="https://x.test/raw/0")
+        log_lines = []
+        session.log_cb = log_lines.append
+
+        with patch("cd_ripper.core.ripper.AccurateRipClient") as mock_client_cls:
+            mock_client_cls.return_value.resolve.return_value = found
+            plan = session._build_verification_plan(toc)
+
+        expected_ids = compute_disc_ids(
+            [e["start_lba"] for e in toc],
+            toc[-1]["start_lba"] + toc[-1]["sectors"],
+        )
+        mock_client_cls.return_value.resolve.assert_called_once_with(
+            expected_ids.accuraterip_path
+        )
+        assert plan.mode is RipVerificationMode.ACCURATERIP
+        assert isinstance(plan.lookup, LookupFound)
+        assert plan.lookup.entries == entries
+        assert plan.toc == tuple(toc)
+        assert any("Disc ID" in line for line in log_lines)
+
+    def test_accuraterip_offline_result_is_kept_for_degraded_rip(self, tmp_path):
+        toc = [_make_toc_entry(number=1, start_lba=0, sectors=16875)]
+        session = self._session(tmp_path, "accuraterip")
+        offline = LookupOffline(reason="network down")
+        session.log_cb = _noop
+        with patch(
+            "cd_ripper.core.ripper.AccurateRipClient",
+            return_value=MagicMock(resolve=MagicMock(return_value=offline)),
+        ):
+            plan = session._build_verification_plan(toc)
+        assert isinstance(plan.lookup, LookupOffline)
+        assert plan.mode is RipVerificationMode.ACCURATERIP
+
+    def test_session_passes_plan_into_each_task(self, tmp_path):
+        captures = []
+
+        class _CaptureTask:
+            def __init__(self, **kwargs):
+                captures.append(kwargs.get("verification"))
+
+            def run(self):
+                return None
+
+        toc = [_make_toc_entry(number=1, start_lba=0, sectors=16875)]
+        session = RipSession(
+            drive="D:",
+            tracks=[_make_track(number=1)],
+            out_dir=str(tmp_path),
+            fmt="FLAC",
+            quality_args=None,
+            progress_cb=_noop,
+            track_done_cb=_noop,
+            session_done_cb=_noop,
+            ffmpeg_path="ffmpeg",
+            log_cb=_noop,
+            verify_mode="twice",
+        )
+        with (
+            patch("cd_ripper.core.ripper.probe_ffmpeg", return_value={"version": "t"}),
+            patch("cd_ripper.core.ripper.read_toc", return_value=toc),
+            patch("cd_ripper.core.ripper.spin_down_drive"),
+            patch("cd_ripper.core.ripper.RipTask", _CaptureTask),
+        ):
+            session._run()
+        assert len(captures) == 1
+        plan = captures[0]
+        assert plan.mode is RipVerificationMode.TWICE
+        assert plan.toc == tuple(toc)

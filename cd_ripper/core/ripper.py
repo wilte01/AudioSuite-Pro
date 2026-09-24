@@ -12,6 +12,7 @@ compatibility.  See the individual sub-modules for implementation details:
     track_processor    –  Read verification, C2 diagnostics, extraction
     metadata_resolver  –  Format definitions, FFmpeg probing, metadata
     encoding_pipeline  –  Per-track RipTask orchestration
+    accuraterip        –  AccurateRip disc IDs, checksums, database client
 """
 
 import logging as _logging
@@ -25,6 +26,30 @@ from audio_suite_shared.cue_generator import (
     TrackSpec,
     build_cue,
     write_cue,
+)
+
+# ── Re-exports from accuraterip ────────────────────────────────────────────
+from cd_ripper.core.accuraterip import (  # noqa: F401
+    ACCURATERIP_URL,
+    DEFAULT_TIMEOUT_SECS,
+    EDGE_SKIP_FRAMES,
+    FRAMES_PER_SECTOR,
+    AccurateRipClient,
+    DBEntry,
+    DBTrackEntry,
+    DiscIds,
+    LookupFound,
+    LookupNotFound,
+    LookupOffline,
+    LookupResult,
+    TrackChecksums,
+    VerificationStatus,
+    compute_disc_ids,
+    compute_track_checksums,
+    parse_db_entry,
+    parse_db_payload,
+    verify_track,
+    with_gap_window,
 )
 
 # ── Re-exports from drive_handler ─────────────────────────────────────────
@@ -63,18 +88,35 @@ from cd_ripper.core.metadata_resolver import (  # noqa: F401
 # ── Re-exports from track_processor ───────────────────────────────────────
 from cd_ripper.core.track_processor import (  # noqa: F401
     RipVerificationConfig,
+    RipVerificationMode,
     UnresolvedSectorError,
+    VerificationPlan,
     _read_verified_chunk,
     _resolve_by_majority,
     diagnose_c2_reliability,
     extract_track_scsi,
+    read_track_pcm,
+    read_wav_pcm,
+    verify_extracted_track,
 )
 
 __all__ = [
+    "ACCURATERIP_URL",
     "C2_FLAG_BYTES_PER_SECTOR",
+    "DBEntry",
+    "DBTrackEntry",
+    "DEFAULT_TIMEOUT_SECS",
+    "DiscIds",
+    "EDGE_SKIP_FRAMES",
     "FLAC_QUALITY_ARGS",
     "FORMAT_OPTIONS",
+    "FRAMES_PER_SECTOR",
     "INVALID_HANDLE_VALUE",
+    "AccurateRipClient",
+    "LookupFound",
+    "LookupNotFound",
+    "LookupOffline",
+    "LookupResult",
     "M4A_QUALITY_ARGS",
     "MP3_QUALITY_ARGS",
     "OGG_QUALITY_ARGS",
@@ -82,9 +124,13 @@ __all__ = [
     "RipSession",
     "RipTask",
     "RipVerificationConfig",
+    "RipVerificationMode",
     "SCSI_PASS_THROUGH_DIRECT",
     "SECTOR_SIZE",
+    "TrackChecksums",
     "UnresolvedSectorError",
+    "VerificationPlan",
+    "VerificationStatus",
     "_CDROM_TOC",
     "_build_metadata_args",
     "_bytes_per_sector",
@@ -94,12 +140,21 @@ __all__ = [
     "_read_verified_chunk",
     "_resolve_by_majority",
     "_safe_filename",
+    "compute_disc_ids",
+    "compute_track_checksums",
     "diagnose_c2_reliability",
     "extract_track_scsi",
     "get_quality_options",
+    "parse_db_entry",
+    "parse_db_payload",
     "probe_ffmpeg",
     "read_toc",
+    "read_track_pcm",
+    "read_wav_pcm",
     "spin_down_drive",
+    "verify_extracted_track",
+    "verify_track",
+    "with_gap_window",
 ]
 
 # ── RipSession (orchestration) ─────────────────────────────────────────────
@@ -122,6 +177,7 @@ class RipSession:
         log_cb: Callable[[str], None] | None = None,
         write_cue: bool = False,
         verification_config: RipVerificationConfig | None = None,
+        verify_mode: str | RipVerificationMode = "off",
     ) -> None:
         self.drive = drive
         self.tracks = tracks
@@ -146,6 +202,10 @@ class RipSession:
         self.log_cb = log_cb or (lambda msg: None)
         self.write_cue = write_cue
         self.verification_config = verification_config or RipVerificationConfig()
+        if isinstance(verify_mode, RipVerificationMode):
+            self.verify_mode = verify_mode
+        else:
+            self.verify_mode = RipVerificationMode(str(verify_mode or "off"))
         self._cancelled = False
         self._current_task: RipTask | None = None
         self._thread: threading.Thread | None = None
@@ -177,6 +237,7 @@ class RipSession:
             toc = []
 
         toc_map = {e["number"]: e for e in toc}
+        verification_plan = self._build_verification_plan(toc)
 
         done_paths: list[tuple[int, str]] = []
 
@@ -205,6 +266,7 @@ class RipSession:
                 ffmpeg_path=self.ffmpeg,
                 log_cb=self.log_cb,
                 verification_config=self.verification_config,
+                verification=verification_plan,
             )
             self._current_task = task
             task.run()
@@ -222,6 +284,53 @@ class RipSession:
         if self.write_cue and done_paths:
             self._write_rip_cue(done_paths)
         self.session_done_cb()
+
+    def _build_verification_plan(self, toc: list[dict[str, int]]) -> VerificationPlan:
+        """Resolve the disc-level verification plan once per session.
+
+        For ACCURATERIP the disc IDs are computed from the TOC and looked up
+        in a single network call reused by every track. Lookup failures
+        degrade to OFFLINE so ripping still proceeds; only a found but
+        mismatching record blocks a write.
+        """
+        if self.verify_mode is RipVerificationMode.OFF or not toc:
+            return VerificationPlan(mode=self.verify_mode, toc=tuple(toc))
+        if self.verify_mode is RipVerificationMode.TWICE:
+            return VerificationPlan(mode=self.verify_mode, toc=tuple(toc))
+
+        starts = [entry["start_lba"] for entry in toc]
+        leadout = toc[-1]["start_lba"] + toc[-1]["sectors"]
+        try:
+            disc_ids = compute_disc_ids(starts, leadout)
+        except ValueError as exc:
+            self.log_cb(f"[Verify] AccurateRip disc ID failed: {exc}")
+            return VerificationPlan(
+                mode=self.verify_mode,
+                lookup=LookupOffline(reason=f"disc ID: {exc}"),
+                toc=tuple(toc),
+            )
+        self.log_cb(
+            f"[Verify] Disc ID ({disc_ids.track_count} tracks): "
+            f"{disc_ids.disc_id1:08X} / {disc_ids.disc_id2:08X} / "
+            f"CDDB {disc_ids.cddb_id:08X}"
+        )
+        try:
+            lookup = AccurateRipClient().resolve(disc_ids.accuraterip_path)
+        except Exception as exc:  # never crash a rip on a lookup bug
+            _logging.getLogger(__name__).error(
+                "AccurateRip lookup raised unexpectedly: %s", exc, exc_info=True
+            )
+            lookup = LookupOffline(reason=f"lookup error: {exc}")
+        if isinstance(lookup, LookupFound):
+            self.log_cb(
+                f"[Verify] AccurateRip: {len(lookup.entries)} record(s) for this disc"
+            )
+        elif isinstance(lookup, LookupNotFound):
+            self.log_cb(f"[Verify] AccurateRip: {lookup.reason}")
+        else:
+            reason = lookup.reason if isinstance(lookup, LookupOffline) else str(lookup)
+            self.log_cb(f"[Verify] AccurateRip: offline \u2014 {reason}")
+        return VerificationPlan(mode=self.verify_mode, lookup=lookup, toc=tuple(toc))
 
     def _write_rip_cue(self, done_paths: list[tuple[int, str]]) -> None:
         """Write one .cue sheet per album folder once all tracks succeeded.

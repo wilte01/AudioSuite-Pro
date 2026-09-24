@@ -13,6 +13,7 @@ import tempfile
 from collections.abc import Callable
 from typing import Any
 
+from cd_ripper.core.accuraterip import VerificationStatus
 from cd_ripper.core.metadata_resolver import (
     FORMAT_OPTIONS,
     _build_metadata_args,
@@ -21,7 +22,11 @@ from cd_ripper.core.metadata_resolver import (
 )
 from cd_ripper.core.track_processor import (
     RipVerificationConfig,
+    RipVerificationMode,
+    VerificationPlan,
     extract_track_scsi,
+    read_wav_pcm,
+    verify_extracted_track,
 )
 
 
@@ -41,6 +46,7 @@ class RipTask:
         ffmpeg_path: str = "ffmpeg",
         log_cb: Callable[[str], None] | None = None,
         verification_config: RipVerificationConfig | None = None,
+        verification: VerificationPlan | None = None,
     ) -> None:
         self.drive = drive
         self.track = track
@@ -53,6 +59,8 @@ class RipTask:
         self.ffmpeg = ffmpeg_path
         self.log_cb = log_cb or (lambda msg: None)
         self.verification_config = verification_config or RipVerificationConfig()
+        self.verification = verification or VerificationPlan()
+        self.verification_label = ""
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -113,6 +121,42 @@ class RipTask:
                 self.done_cb(num, False, "", "Extraction produced empty file")
                 return
 
+            # Stage 1.5: verification (rip-twice and/or AccurateRip)
+            if self.verification.mode is not RipVerificationMode.OFF:
+                self.progress_cb(num, 91, "Verifying\u2026")
+                try:
+                    first_pcm = read_wav_pcm(tmp_wav)
+                except (OSError, ValueError) as exc:
+                    self.done_cb(num, False, "", f"Verification failed: {exc}")
+                    return
+                try:
+                    status, detail = verify_extracted_track(
+                        drive_letter=drive_letter,
+                        toc_entry=self.toc_entry,
+                        toc=self.verification.toc,
+                        first_pcm=first_pcm,
+                        plan=self.verification,
+                        verification_config=self.verification_config,
+                        track_num=num,
+                        cancelled_fn=self._is_cancelled,
+                        log_cb=self.log_cb,
+                    )
+                except (OSError, ValueError) as exc:
+                    self.done_cb(num, False, "", f"Verification failed: {exc}")
+                    return
+                if self._cancelled:
+                    self.done_cb(num, False, "", "Cancelled")
+                    return
+                if status is VerificationStatus.MISMATCH:
+                    self.log_cb(f"[Verify] Track {num:02d}: MISMATCH \u2014 {detail}")
+                    self.done_cb(num, False, "", f"MISMATCH: {detail}")
+                    return
+                if status is not None:
+                    self.verification_label = status.value
+                    self.log_cb(
+                        f"[Verify] Track {num:02d}: {status.value} \u2014 {detail}"
+                    )
+
             # Stage 2: encode
             self.progress_cb(num, 92, "Encoding\u2026")
             encode_args = (
@@ -138,7 +182,7 @@ class RipTask:
 
             if rc == 0:
                 self.progress_cb(num, 100, "Done")
-                self.done_cb(num, True, out_path, "")
+                self.done_cb(num, True, out_path, self.verification_label)
             else:
                 err_lines = [
                     line.strip() for line in stderr.splitlines() if line.strip()
