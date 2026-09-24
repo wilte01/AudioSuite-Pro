@@ -92,6 +92,16 @@ bullet(
 )
 bullet(
     doc,
+    "Detect Read Offset: ",
+    "Measures this drive's read offset against the AccurateRip database "
+    "using the inserted CD and stores it for the drive; every future rip "
+    "applies the correction automatically. This reads the whole disc twice, "
+    "so expect a few minutes. Do it once per drive, with a disc that is "
+    "present in the AccurateRip database and the network reachable. On "
+    "failure nothing is stored and the status line explains why.",
+)
+bullet(
+    doc,
     "MusicBrainz Matches: ",
     "Choose among returned releases and click Apply. "
     "If there is no match, enter metadata manually.",
@@ -264,13 +274,14 @@ doc.add_paragraph(
     "to the sector it was asked for. Without correction, every AccurateRip "
     "window shifts off the database vectors and a perfectly good rip "
     "reports MISMATCH on every track. CD Ripper measures this offset once "
-    "per drive (see Command Line, --detect-read-offset) and stores it in "
-    "the shared suite configuration; every rip then re-aligns the "
-    "extracted audio and both verification reads automatically. For the "
-    "final track of a disc, the shifted tail would need a read past the "
-    "lead-out, which drives refuse, so the extracted audio is short by the "
-    "offset (a few hundredths of a second) — the same compromise EAC makes "
-    "for non-overreading drives, and the AccurateRip checksum is unaffected."
+    "per drive — with the Detect Read Offset button on the Setup tab, or "
+    "the --detect-read-offset CLI flag — and stores it in the shared suite "
+    "configuration; every rip then re-aligns the extracted audio and both "
+    "verification reads automatically. For the final track of a disc, the "
+    "shifted tail would need a read past the lead-out, which drives refuse, "
+    "so the extracted audio is short by the offset (a few hundredths of a "
+    "second) — the same compromise EAC makes for non-overreading drives, "
+    "and the AccurateRip checksum is unaffected."
 )
 doc.add_paragraph(
     "The result of each track's verification is appended to its status, "
@@ -380,10 +391,11 @@ bullet(
 bullet(
     doc,
     "Every track reports AccurateRip MISMATCH on a known-good disc: ",
-    "The drive probably has an uncorrected read offset. Run "
-    "cd-rip <drive> --detect-read-offset once with a disc that is in the "
-    "AccurateRip database; the measured offset is stored per drive and "
-    "applied to every future rip automatically.",
+    "The drive probably has an uncorrected read offset. Click Detect Read "
+    "Offset on the Setup tab (or run cd-rip <drive> --detect-read-offset) "
+    "once with a disc that is in the AccurateRip database; the measured "
+    "offset is stored per drive and applied to every future rip "
+    "automatically.",
 )
 bullet(
     doc,

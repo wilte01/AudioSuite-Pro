@@ -56,6 +56,12 @@ if sys.platform == "win32":
     # never the bare ctypes.GetLastError().  See:
     # https://docs.python.org/3/library/ctypes.html#ctypes.get_last_error
     _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    # CreateFileW returns a HANDLE (pointer-sized).  ctypes' default restype
+    # (c_int) truncates INVALID_HANDLE_VALUE to -1, so a failed open could
+    # never match the 64-bit sentinel in _open_device's check and the -1
+    # was passed on to DeviceIoControl, surfacing as a confusing
+    # "Win32 error 6" instead of the clear open-failure message.
+    _kernel32.CreateFileW.restype = ctypes.wintypes.HANDLE
 else:
     INVALID_HANDLE_VALUE = -1  # Placeholder; ripper is Windows-only at runtime
     _kernel32 = None  # Unused; every call site requiring it is Windows-only at runtime

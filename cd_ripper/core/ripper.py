@@ -87,7 +87,11 @@ from cd_ripper.core.metadata_resolver import (  # noqa: F401
 )
 
 # ── Re-exports from offset_detect ─────────────────────────────────────────
-from cd_ripper.core.offset_detect import detect_read_offset_frames  # noqa: F401
+from cd_ripper.core.offset_detect import (  # noqa: F401
+    ReadOffsetDetectionError,
+    detect_read_offset_frames,
+    run_read_offset_detection,
+)
 
 # ── Re-exports from read_offset ───────────────────────────────────────────
 from cd_ripper.core.read_offset import (  # noqa: F401
@@ -141,6 +145,7 @@ __all__ = [
     "RipVerificationConfig",
     "RipVerificationMode",
     "READ_OFFSET_CONFIG_KEY",
+    "ReadOffsetDetectionError",
     "SCSI_PASS_THROUGH_DIRECT",
     "SECTOR_SIZE",
     "TrackChecksums",
@@ -173,6 +178,7 @@ __all__ = [
     "read_toc",
     "read_track_pcm",
     "read_wav_pcm",
+    "run_read_offset_detection",
     "set_read_offset_frames",
     "spin_down_drive",
     "verify_extracted_track",

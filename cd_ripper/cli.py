@@ -199,35 +199,16 @@ def _detect_read_offset(
     drive: str, log_cb: Callable[[str], None], json_output: bool
 ) -> None:
     """Measure and persist DRIVE's read offset, then report the result."""
-    from cd_ripper.core.accuraterip import (
-        AccurateRipClient,
-        LookupFound,
-        LookupNotFound,
-        LookupOffline,
-        compute_disc_ids,
-    )
-    from cd_ripper.core.drive_handler import read_toc
-    from cd_ripper.core.offset_detect import detect_read_offset_frames
-    from cd_ripper.core.read_offset import set_read_offset_frames
+    from audio_suite_shared.exceptions import AudioSuiteError
+    from cd_ripper.core.offset_detect import run_read_offset_detection
 
-    toc = read_toc(drive, log_cb)
-    leadout_lba = toc[-1]["start_lba"] + toc[-1]["sectors"]
-    disc_ids = compute_disc_ids([entry["start_lba"] for entry in toc], leadout_lba)
-    log_cb(f"[Offset] disc id {disc_ids.disc_id1:08x} at {disc_ids.accuraterip_path}")
+    try:
+        offset = run_read_offset_detection(drive, log_cb)
+    except AudioSuiteError as exc:
+        # Covers ReadOffsetDetectionError (no DB record / no unanimous
+        # offset) and device-level AudioIOError (no disc, open failure).
+        raise click.ClickException(str(exc)) from exc
 
-    found = AccurateRipClient().resolve(disc_ids.accuraterip_path)
-    if isinstance(found, (LookupNotFound, LookupOffline)):
-        log_cb(f"[Offset] AccurateRip lookup failed: {found.reason}")
-        raise click.ClickException("read-offset detection requires a database match")
-    assert isinstance(found, LookupFound)
-
-    log_cb(f"[Offset] {len(found.entries)} database record(s)")
-    offset = detect_read_offset_frames(drive, toc, found.entries, log_cb)
-    if offset is None:
-        raise click.ClickException(
-            "could not determine a unanimous read offset for this disc"
-        )
-    set_read_offset_frames(drive, offset)
     if json_output:
         click.echo(
             json.dumps({"drive": drive, "read_offset_frames": offset, "log": []})

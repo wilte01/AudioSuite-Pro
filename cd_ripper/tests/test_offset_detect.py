@@ -18,9 +18,10 @@ Coverage strategy
 from __future__ import annotations
 
 from collections.abc import Callable
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 
 from cd_ripper.core.accuraterip import (
     EDGE_SKIP_FRAMES,
@@ -31,11 +32,13 @@ from cd_ripper.core.accuraterip import (
     compute_track_checksums,
 )
 from cd_ripper.core.offset_detect import (
+    ReadOffsetDetectionError,
     _prefix_arrays,
     _read_raw_range,
     _v1_fast,
     _window_bounds,
     detect_read_offset_frames,
+    run_read_offset_detection,
 )
 
 FRAMES = FRAMES_PER_SECTOR
@@ -215,6 +218,109 @@ class TestDetectReadOffsetFrames:
         )
         result, _ = _run_detection(phys, empty, offset=6)
         assert result is None
+
+
+# ===========================================================================
+# run_read_offset_detection — shared CLI/GUI pipeline
+# ===========================================================================
+
+
+class TestRunReadOffsetDetection:
+    """The full pipeline: TOC -> disc ids -> DB lookup -> sweep -> persist.
+
+    Every dependency is a module-level import of ``offset_detect``, so the
+    patches target that module's own bindings (the AGENTS.md mock rule).
+    """
+
+    def _patches(self, lookup, detected):
+        from cd_ripper.core import accuraterip, offset_detect
+
+        ids = accuraterip.DiscIds(
+            disc_id1=0x11111111,
+            disc_id2=0x22222222,
+            cddb_id=0x33333333,
+            track_count=3,
+        )
+        return (
+            patch.object(offset_detect, "read_toc", return_value=list(_TOC)),
+            patch.object(offset_detect, "compute_disc_ids", return_value=ids),
+            patch.object(
+                offset_detect,
+                "AccurateRipClient",
+                return_value=MagicMock(resolve=MagicMock(return_value=lookup)),
+            ),
+            patch.object(
+                offset_detect, "detect_read_offset_frames", return_value=detected
+            ),
+            patch.object(offset_detect, "set_read_offset_frames"),
+        )
+
+    def test_success_returns_and_persists_offset(self) -> None:
+        from cd_ripper.core import accuraterip
+
+        found = accuraterip.LookupFound(entries=(), url="http://ar/x.bin")
+        p = self._patches(found, 6)
+        with (
+            p[0],
+            p[1],
+            p[2],
+            p[3],
+            p[4] as set_off,
+        ):
+            offset = run_read_offset_detection("E:", lambda _m: None)
+        assert offset == 6
+        set_off.assert_called_once_with("E", 6)
+
+    def test_drive_letter_is_normalised_for_the_device_layer(self) -> None:
+        """Regression: 'E:' passed to _open_device builds the invalid raw
+        path '\\\\.\\E::' (Win32 error 2); the pipeline must normalise."""
+        from cd_ripper.core import accuraterip
+
+        found = accuraterip.LookupFound(entries=(), url="http://ar/x.bin")
+        p = self._patches(found, 6)
+        with (
+            p[0] as read_toc,
+            p[1],
+            p[2],
+            p[3] as detect,
+            p[4],
+        ):
+            run_read_offset_detection("E:", lambda _m: None)
+        read_toc.assert_called_once()
+        assert read_toc.call_args.args[0] == "E"
+        detect.assert_called_once()
+        assert detect.call_args.args[0] == "E"
+
+    def test_lookup_failure_raises_and_persists_nothing(self) -> None:
+        from cd_ripper.core import accuraterip
+
+        p = self._patches(accuraterip.LookupNotFound(reason="no entry"), None)
+        with (
+            p[0],
+            p[1],
+            p[2],
+            p[3],
+            p[4] as set_off,
+        ):
+            with pytest.raises(ReadOffsetDetectionError):
+                run_read_offset_detection("E", lambda _m: None)
+        set_off.assert_not_called()
+
+    def test_inconclusive_sweep_raises_and_persists_nothing(self) -> None:
+        from cd_ripper.core import accuraterip
+
+        found = accuraterip.LookupFound(entries=(), url="http://ar/x.bin")
+        p = self._patches(found, None)
+        with (
+            p[0],
+            p[1],
+            p[2],
+            p[3],
+            p[4] as set_off,
+        ):
+            with pytest.raises(ReadOffsetDetectionError, match="unanimous"):
+                run_read_offset_detection("E", lambda _m: None)
+        set_off.assert_not_called()
 
 
 # ===========================================================================

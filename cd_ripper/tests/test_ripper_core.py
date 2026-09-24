@@ -18,6 +18,7 @@ real ffmpeg/SCSI calls.
 
 import ctypes
 import os
+import string
 import struct
 import sys
 import threading
@@ -101,6 +102,7 @@ from cd_ripper.core.ripper import (  # noqa: E402
     _build_metadata_args,
     _bytes_per_sector,
     _msf_to_lba,
+    _open_device,
     _read_cd_scsi,
     _read_verified_chunk,
     _resolve_by_majority,
@@ -1538,6 +1540,25 @@ class TestBytesPerSector:
 
     def test_with_c2(self):
         assert _bytes_per_sector(True) == SECTOR_SIZE + C2_FLAG_BYTES_PER_SECTOR
+
+
+class TestOpenDeviceFailureReporting:
+    """Regression: a failed device open must report the *open* failure.
+
+    CreateFileW's default ctypes restype (c_int) truncated
+    INVALID_HANDLE_VALUE to -1, so the sentinel check in _open_device
+    never matched and the failure surfaced downstream as a confusing
+    DeviceIoControl "Win32 error 6" instead of the clear
+    "Cannot open CD device ... Try running as Administrator" message.
+    """
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="needs Win32 kernel32")
+    def test_failed_open_raises_clear_audio_io_error(self):
+        used = set(os.listdrives())
+        letter = next(c for c in string.ascii_uppercase if f"{c}:\\" not in used)
+        with pytest.raises(AudioIOError) as excinfo:
+            _open_device(letter)
+        assert "Cannot open CD device" in str(excinfo.value)
 
 
 class TestRipVerificationConfig:

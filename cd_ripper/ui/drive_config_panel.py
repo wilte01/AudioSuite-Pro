@@ -90,6 +90,15 @@ class DriveConfigPanel:
             command=self._test_c2_threaded,
         )
         self._c2_btn.pack(side="left", padx=(8, 0))
+        self._offset_btn = tk.Button(
+            drive_row,
+            text="📏 Detect Read Offset",
+            bg=styles.get_main(),
+            fg="white",
+            font=styles.FONT_LABEL_B,
+            command=self._detect_offset_threaded,
+        )
+        self._offset_btn.pack(side="left", padx=(8, 0))
         self._status_lbl = tk.Label(
             drive_row,
             text="",
@@ -227,6 +236,56 @@ class DriveConfigPanel:
         self.set_status(summary, error=not result.c2_appears_honest)
         messagebox.showinfo(
             "C2 Diagnostic Result",
+            f"{summary}\n\nFull detail written to:\n{get_log_path()}",
+        )
+
+    # ── Read-offset detection ─────────────────────────────────────────────────
+
+    def _detect_offset_threaded(self) -> None:
+        drive = self._drive_var.get()
+        if not drive:
+            messagebox.showwarning("No Drive", "Please select a CD drive first.")
+            return
+        self._offset_btn.configure(state="disabled")
+        self.set_status(
+            "Measuring read offset… (reads the disc twice — takes a few minutes)"
+        )
+        threading.Thread(
+            target=self._run_offset_detection, args=(drive,), daemon=True
+        ).start()
+
+    def _run_offset_detection(self, drive: str) -> None:
+        from audio_suite_shared.exceptions import AudioSuiteError
+        from cd_ripper.core.offset_detect import run_read_offset_detection
+
+        try:
+            offset = run_read_offset_detection(drive, write_log_line)
+        except (AudioSuiteError, OSError, RuntimeError, ValueError) as e:
+            error_message = str(e)
+            self.frame.after(
+                0, lambda: self._on_offset_detection_done(None, error_message)
+            )
+            return
+        self.frame.after(0, lambda: self._on_offset_detection_done(offset, None))
+
+    def _on_offset_detection_done(self, offset: int | None, error: str | None) -> None:
+        self._offset_btn.configure(state="normal")
+
+        if error is not None:
+            self.set_status(f"Read-offset detection failed: {error}", error=True)
+            messagebox.showerror("Read-Offset Detection Failed", error)
+            return
+
+        assert offset is not None
+        drive = self._drive_var.get().rstrip(":/\\")
+        summary = (
+            f"Drive read offset: {offset:+d} frame(s).\n\n"
+            "Stored for this drive — every future rip applies it "
+            "automatically. You only need to do this once per drive."
+        )
+        self.set_status(f"Read offset {offset:+d} frames stored for drive {drive}.")
+        messagebox.showinfo(
+            "Read-Offset Detection Result",
             f"{summary}\n\nFull detail written to:\n{get_log_path()}",
         )
 

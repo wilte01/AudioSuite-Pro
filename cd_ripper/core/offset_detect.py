@@ -28,22 +28,33 @@ from typing import TypeAlias
 import numpy as np
 import numpy.typing as npt
 
-from audio_suite_shared.exceptions import AudioIOError
+from audio_suite_shared.exceptions import AudioIOError, AudioSuiteError
 from cd_ripper.core.accuraterip import (
     EDGE_SKIP_FRAMES,
     FIRST_TRACK_SKIP_FRAMES,
     FRAMES_PER_SECTOR,
+    AccurateRipClient,
     DBEntry,
+    LookupFound,
+    LookupNotFound,
+    LookupOffline,
     VerificationStatus,
+    compute_disc_ids,
     compute_track_checksums,
     verify_track,
 )
-from cd_ripper.core.drive_handler import SECTOR_SIZE, _open_device, _read_cd_scsi
+from cd_ripper.core.drive_handler import (
+    SECTOR_SIZE,
+    _open_device,
+    _read_cd_scsi,
+    read_toc,
+)
 from cd_ripper.core.read_offset import (
     TrackReadLayout,
     aligned_track_pcm,
     compute_track_read_layout,
     pad_tail_shortfall,
+    set_read_offset_frames,
 )
 
 logger = logging.getLogger(__name__)
@@ -279,3 +290,61 @@ def _confirm_with_production(
         if status is not VerificationStatus.VERIFIED:
             return None
     return offset_frames
+
+
+# ── Shared detection pipeline (CLI + GUI) ──────────────────────────────────
+
+
+class ReadOffsetDetectionError(AudioSuiteError):
+    """A read-offset detection attempt failed with a user-readable cause.
+
+    Raised by ``run_read_offset_detection`` for every expected failure:
+    no TOC, the disc missing from the AccurateRip database, the network
+    lookup failing, or no unanimous offset being confirmable. Nothing is
+    persisted when it is raised.
+    """
+
+
+def run_read_offset_detection(drive_letter: str, log_cb: Callable[[str], None]) -> int:
+    """Measure and persist a drive's read offset against the live database.
+
+    Single source of truth for both the ``cd-rip --detect-read-offset``
+    CLI command and the GUI's Detect Read Offset button: reads the TOC,
+    resolves the disc's AccurateRip database records, sweeps for the
+    offset, re-confirms every track with the production checksum pipeline,
+    and persists the result for the drive in the shared suite config.
+
+    Args:
+        drive_letter: Drive specifier ('E', 'E:', 'E:\\' are all accepted
+            and normalised to the bare letter).
+        log_cb: Progress/log sink for TOC and per-track messages.
+
+    Returns:
+        The measured offset in whole frames.
+
+    Raises:
+        ReadOffsetDetectionError: The disc has no usable AccurateRip
+            records, or no unanimous offset could be confirmed. Nothing
+            is persisted in that case.
+        AudioIOError: The drive could not be opened or the disc could
+            not be read (e.g. no disc inserted).
+    """
+    drive = drive_letter.rstrip("/\\").rstrip(":")
+    toc = read_toc(drive, log_cb)
+    leadout_lba = toc[-1]["start_lba"] + toc[-1]["sectors"]
+    disc_ids = compute_disc_ids([entry["start_lba"] for entry in toc], leadout_lba)
+    log_cb(f"[Offset] disc id {disc_ids.disc_id1:08x} at {disc_ids.accuraterip_path}")
+
+    found = AccurateRipClient().resolve(disc_ids.accuraterip_path)
+    if isinstance(found, (LookupNotFound, LookupOffline)):
+        raise ReadOffsetDetectionError(f"AccurateRip lookup failed: {found.reason}")
+    assert isinstance(found, LookupFound)
+    log_cb(f"[Offset] {len(found.entries)} database record(s)")
+
+    offset = detect_read_offset_frames(drive, toc, found.entries, log_cb)
+    if offset is None:
+        raise ReadOffsetDetectionError(
+            "could not determine a unanimous read offset for this disc"
+        )
+    set_read_offset_frames(drive, offset)
+    return offset
