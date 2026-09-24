@@ -130,16 +130,18 @@ audiosuite refine "D:\Music" --stages reduce_noise --reduce-hum --hum-frequency 
 Rip audio CD tracks to files from a command line.
 
 ```bash
-audiosuite cd-rip DRIVE --output-dir DIR [--format FMT] [--tracks LIST] [--cue] [OPTIONS]
+audiosuite cd-rip DRIVE [--output-dir DIR] [--format FMT] [--tracks LIST] [--cue] [OPTIONS]
 ```
 
 **Options:**
-- `--output-dir DIR` — Destination folder (required)
+- `--output-dir DIR` — Destination folder (required for ripping; not needed with `--detect-read-offset`)
 - `--format [wav|mp3|flac|ogg|m4a|opus]` — Output audio format (default: flac)
 - `--tracks LIST` — Comma-separated track numbers to rip (default: all)
 - `--quality TEXT` — Format-specific quality preset string
 - `--cue` / `--no-cue` — Write a CUE sheet alongside the ripped tracks (default: no-cue)
+- `--verify [off|twice|accuraterip]` — Track verification: `twice` re-reads each track and compares, `accuraterip` additionally cross-checks against the AccurateRip database, `off` disables verification (default: twice)
 - `--dry` / `--live` — Show what would be ripped without writing files
+- `--detect-read-offset` — Measure the drive's read offset against the AccurateRip database using the inserted CD and persist it for the drive; applied automatically to future rips. Needs a multi-track disc present in the database and network access; exits non-zero and persists nothing on failure
 - `--json` / `--text` — Output results as JSON
 
 **Examples:**
@@ -147,6 +149,8 @@ audiosuite cd-rip DRIVE --output-dir DIR [--format FMT] [--tracks LIST] [--cue] 
 audiosuite cd-rip D: --output-dir /output/flac --format flac
 audiosuite cd-rip D: --output-dir /output/mp3 --format mp3 --tracks 1,2,3
 audiosuite cd-rip D: --output-dir /output/flac --cue
+audiosuite cd-rip D: --output-dir /output/flac --verify accuraterip
+audiosuite cd-rip D: --detect-read-offset
 ```
 
 ## CUE Sheets

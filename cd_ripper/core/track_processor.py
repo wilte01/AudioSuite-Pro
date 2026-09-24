@@ -38,6 +38,12 @@ from cd_ripper.core.drive_handler import (
     _read_cd_scsi,
     _require_windows,
 )
+from cd_ripper.core.read_offset import (
+    TrackReadLayout,
+    aligned_track_pcm,
+    compute_track_read_layout,
+    pad_tail_shortfall,
+)
 
 # ── Exceptions and configuration ──────────────────────────────────────────
 
@@ -65,16 +71,30 @@ class RipVerificationConfig:
             specific drive actually populates the C2 field -- a drive
             that silently zero-fills C2 will look identical to a clean
             read, silently defeating verification. Defaults to False.
+        read_offset_frames: Drive read offset in whole CDDA frames (1/75 s),
+            the number of frames by which the drive's stream leads the LBA
+            it was asked for. A non-zero value re-aligns the extracted
+            window and the rip-twice/AccurateRip checksums so a
+            mis-aligned drive does not produce spurious MISMATCHes.
+            Measured per drive via ``cd-rip --detect-read-offset`` and
+            persisted in the shared suite config. Must be within
+            [0, FRAMES_PER_SECTOR]. Defaults to 0.
     """
 
     max_read_attempts: int = 3
     use_c2_hint: bool = False
+    read_offset_frames: int = 0
 
     def __post_init__(self) -> None:
         if self.max_read_attempts < 2:
             raise AudioConfigurationError(
                 "max_read_attempts must be >= 2 to allow read comparison, "
                 f"got {self.max_read_attempts}"
+            )
+        if self.read_offset_frames < 0 or self.read_offset_frames > FRAMES_PER_SECTOR:
+            raise AudioConfigurationError(
+                "read_offset_frames must be within "
+                f"[0, {FRAMES_PER_SECTOR}], got {self.read_offset_frames}"
             )
 
 
@@ -300,8 +320,19 @@ def extract_track_scsi(
     cancelled_fn: Callable[[], bool],
     log_cb: Callable[[str], None],
     verification_config: RipVerificationConfig | None = None,
+    is_last_track: bool = False,
 ) -> None:
     config = verification_config or RipVerificationConfig()
+    layout: TrackReadLayout = compute_track_read_layout(
+        start_lba, sectors, config.read_offset_frames, is_last_track
+    )
+    if config.read_offset_frames:
+        log_cb(
+            f"[Offset] Track {track_num:02d}: applying drive read offset "
+            f"{config.read_offset_frames:+d} frame(s) "
+            f"(read LBA {layout.read_start_lba}, {layout.read_sectors} sectors)"
+        )
+
     handle = _open_device(drive_letter)
     CHUNK = 20
 
@@ -331,30 +362,40 @@ def extract_track_scsi(
         with open(out_wav, "wb") as fout:
             fout.write(wav_header(data_size))
             written = 0
+            in_byte = 0
+            total_in = layout.read_sectors * SECTOR_SIZE
             buf = ctypes.create_string_buffer(
                 CHUNK * _bytes_per_sector(request_c2=config.use_c2_hint)
             )
 
-            while written < sectors:
+            while in_byte < total_in and written < data_size:
                 if cancelled_fn():
                     break
-                chunk = min(CHUNK, sectors - written)
-                lba = start_lba + written
+                chunk = min(CHUNK, layout.read_sectors - in_byte // SECTOR_SIZE)
+                lba = layout.read_start_lba + in_byte // SECTOR_SIZE
                 audio_bytes = _read_verified_chunk(
                     handle, lba, chunk, buf, log_cb, track_num, config
                 )
-                fout.write(audio_bytes)
-                written += chunk
-                pct = min(int(written / sectors * 90), 90)
+                # Clip the chunk to the aligned window (drops the leading
+                # offset frames and any tail shortfall beyond the nominal end).
+                seg_start = max(0, layout.skip_bytes - in_byte)
+                seg_end = min(
+                    chunk * SECTOR_SIZE, layout.skip_bytes + data_size - in_byte
+                )
+                if seg_start < seg_end:
+                    fout.write(audio_bytes[seg_start:seg_end])
+                    written += seg_end - seg_start
+                in_byte += chunk * SECTOR_SIZE
+                pct = min(int(written / data_size * 90), 90)
                 progress_cb(track_num, pct, f"Extracting\u2026 {pct}%")
 
             # Rewrite header with actual size
-            actual = written * SECTOR_SIZE
             fout.seek(0)
-            fout.write(wav_header(actual))
+            fout.write(wav_header(written))
 
         log_cb(
-            f"[SCSI] Track {track_num:02d}: {written}/{sectors} sectors \u2192 "
+            f"[SCSI] Track {track_num:02d}: "
+            f"{written // SECTOR_SIZE}/{sectors} sectors \u2192 "
             f"{os.path.basename(out_wav)}"
         )
     finally:
@@ -423,13 +464,19 @@ def read_track_pcm(
     cancelled_fn: Callable[[], bool],
     log_cb: Callable[[str], None],
     verification_config: RipVerificationConfig | None = None,
+    is_last_track: bool = False,
 ) -> bytes:
-    """Re-read raw CDDA audio and return the PCM bytes.
+    """Re-read raw CDDA audio and return the aligned PCM bytes.
 
     The rip-twice pass: an independent second read of the same extents using
     the same verified multi-read machinery as extraction. Returns fewer bytes
     than requested if ``cancelled_fn`` becomes true; callers must re-check
     their cancellation state afterwards.
+
+    When the read config carries a drive read offset, the same
+    ``compute_track_read_layout`` used for extraction is applied so pass B
+    (and the AccurateRip checksum) uses the *exact* window extraction wrote —
+    a mis-aligned drive must not be able to make a good rip mismatch.
 
     Raises:
         UnresolvedSectorError, AudioIOError, OSError: propagated from the
@@ -437,6 +484,9 @@ def read_track_pcm(
             verification and never write the track.
     """
     config = verification_config or RipVerificationConfig()
+    layout: TrackReadLayout = compute_track_read_layout(
+        start_lba, sectors, config.read_offset_frames, is_last_track
+    )
     handle = _open_device(drive_letter)
     CHUNK = 20
     try:
@@ -445,17 +495,17 @@ def read_track_pcm(
         buf = ctypes.create_string_buffer(
             CHUNK * _bytes_per_sector(request_c2=config.use_c2_hint)
         )
-        while written < sectors:
+        while written < layout.read_sectors:
             if cancelled_fn():
                 break
-            chunk = min(CHUNK, sectors - written)
-            lba = start_lba + written
+            chunk = min(CHUNK, layout.read_sectors - written)
+            lba = layout.read_start_lba + written
             audio_bytes = _read_verified_chunk(
                 handle, lba, chunk, buf, log_cb, track_num, config
             )
             out += audio_bytes
             written += chunk
-        return bytes(out)
+        return aligned_track_pcm(bytes(out), layout, sectors)
     finally:
         ctypes.windll.kernel32.CloseHandle(handle)
 
@@ -502,8 +552,19 @@ def verify_extracted_track(
         raise ValueError("verification TOC does not contain this track's TOC entry")
     track_number = index + 1
     track_count = len(toc)
+    is_last_track = index == track_count - 1
 
-    expected = toc_entry["sectors"] * SECTOR_SIZE
+    # The extraction window comes up short of the nominal length only for the
+    # final track of a read-offset drive: recovering the shifted tail needs a
+    # past-lead-out read, which the drive refuses. That shortfall lives
+    # entirely inside the AccurateRip last-track skip window, so the
+    # checksums stay comparable; account for it in the length gate rather
+    # than mis-flagging a correctly aligned rip.
+    offset_frames = (verification_config or RipVerificationConfig()).read_offset_frames
+    layout: TrackReadLayout = compute_track_read_layout(
+        toc_entry["start_lba"], toc_entry["sectors"], offset_frames, is_last_track
+    )
+    expected = toc_entry["sectors"] * SECTOR_SIZE - layout.tail_shortfall_bytes
     if len(first_pcm) != expected:
         return VerificationStatus.MISMATCH, (
             f"extraction produced {len(first_pcm)} data bytes, expected {expected}"
@@ -518,9 +579,18 @@ def verify_extracted_track(
         cancelled_fn,
         log_cb,
         verification_config,
+        is_last_track=is_last_track,
     )
     if cancelled_fn():
         return None, "cancelled"
+
+    # A short final-track window must be padded to nominal length before
+    # any checksum: the skip boundary is derived from the PCM length, and
+    # the padding (inside the never-hashed 2940-frame skip) keeps both
+    # passes byte-identical to the full window.
+    if layout.tail_shortfall_bytes:
+        first_pcm = pad_tail_shortfall(first_pcm, layout, toc_entry["sectors"])
+        second_pcm = pad_tail_shortfall(second_pcm, layout, toc_entry["sectors"])
 
     try:
         first_sums = compute_track_checksums(first_pcm, track_number, track_count)
@@ -556,6 +626,8 @@ def verify_extracted_track(
     prev_tail: bytes | None = None
     next_head: bytes | None = None
     if prev_entry is not None:
+        # The previous track can never be the final track (this track has a
+        # next), so its edge read uses the standard forward-extended layout.
         tail_sectors = min(prev_entry["sectors"], edge_sectors)
         tail_start = prev_entry["start_lba"] + prev_entry["sectors"] - tail_sectors
         prev_tail = read_track_pcm(
@@ -566,6 +638,7 @@ def verify_extracted_track(
             cancelled_fn,
             log_cb,
             verification_config,
+            is_last_track=False,
         )
         if cancelled_fn():
             return None, "cancelled"
@@ -579,6 +652,7 @@ def verify_extracted_track(
             cancelled_fn,
             log_cb,
             verification_config,
+            is_last_track=index + 1 == track_count - 1,
         )
         if cancelled_fn():
             return None, "cancelled"

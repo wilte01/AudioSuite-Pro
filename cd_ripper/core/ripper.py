@@ -15,6 +15,7 @@ compatibility.  See the individual sub-modules for implementation details:
     accuraterip        –  AccurateRip disc IDs, checksums, database client
 """
 
+import dataclasses
 import logging as _logging
 import os
 import threading
@@ -85,6 +86,20 @@ from cd_ripper.core.metadata_resolver import (  # noqa: F401
     probe_ffmpeg,
 )
 
+# ── Re-exports from offset_detect ─────────────────────────────────────────
+from cd_ripper.core.offset_detect import detect_read_offset_frames  # noqa: F401
+
+# ── Re-exports from read_offset ───────────────────────────────────────────
+from cd_ripper.core.read_offset import (  # noqa: F401
+    READ_OFFSET_CONFIG_KEY,
+    TrackReadLayout,
+    aligned_track_pcm,
+    compute_track_read_layout,
+    get_read_offset_frames,
+    pad_tail_shortfall,
+    set_read_offset_frames,
+)
+
 # ── Re-exports from track_processor ───────────────────────────────────────
 from cd_ripper.core.track_processor import (  # noqa: F401
     RipVerificationConfig,
@@ -125,9 +140,11 @@ __all__ = [
     "RipTask",
     "RipVerificationConfig",
     "RipVerificationMode",
+    "READ_OFFSET_CONFIG_KEY",
     "SCSI_PASS_THROUGH_DIRECT",
     "SECTOR_SIZE",
     "TrackChecksums",
+    "TrackReadLayout",
     "UnresolvedSectorError",
     "VerificationPlan",
     "VerificationStatus",
@@ -140,17 +157,23 @@ __all__ = [
     "_read_verified_chunk",
     "_resolve_by_majority",
     "_safe_filename",
+    "aligned_track_pcm",
     "compute_disc_ids",
     "compute_track_checksums",
+    "compute_track_read_layout",
+    "detect_read_offset_frames",
     "diagnose_c2_reliability",
     "extract_track_scsi",
     "get_quality_options",
+    "get_read_offset_frames",
+    "pad_tail_shortfall",
     "parse_db_entry",
     "parse_db_payload",
     "probe_ffmpeg",
     "read_toc",
     "read_track_pcm",
     "read_wav_pcm",
+    "set_read_offset_frames",
     "spin_down_drive",
     "verify_extracted_track",
     "verify_track",
@@ -201,7 +224,17 @@ class RipSession:
         self.ffmpeg = ffmpeg_path
         self.log_cb = log_cb or (lambda msg: None)
         self.write_cue = write_cue
-        self.verification_config = verification_config or RipVerificationConfig()
+        base_config = verification_config or RipVerificationConfig()
+        stored_offset = get_read_offset_frames(self.drive)
+        if stored_offset and base_config.read_offset_frames == 0:
+            self.log_cb(
+                f"[Offset] drive read offset {stored_offset:+d} frame(s) "
+                "applied from shared config"
+            )
+            base_config = dataclasses.replace(
+                base_config, read_offset_frames=stored_offset
+            )
+        self.verification_config = base_config
         if isinstance(verify_mode, RipVerificationMode):
             self.verify_mode = verify_mode
         else:

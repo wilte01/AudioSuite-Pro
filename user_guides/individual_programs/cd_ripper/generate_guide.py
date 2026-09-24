@@ -259,6 +259,20 @@ doc.add_paragraph(
     "choice because both reads describe the same physical frames."
 )
 doc.add_paragraph(
+    "Separately from press offsets, a drive has a read offset: its raw "
+    "audio stream can run a fixed number of frames early or late relative "
+    "to the sector it was asked for. Without correction, every AccurateRip "
+    "window shifts off the database vectors and a perfectly good rip "
+    "reports MISMATCH on every track. CD Ripper measures this offset once "
+    "per drive (see Command Line, --detect-read-offset) and stores it in "
+    "the shared suite configuration; every rip then re-aligns the "
+    "extracted audio and both verification reads automatically. For the "
+    "final track of a disc, the shifted tail would need a read past the "
+    "lead-out, which drives refuse, so the extracted audio is short by the "
+    "offset (a few hundredths of a second) — the same compromise EAC makes "
+    "for non-overreading drives, and the AccurateRip checksum is unaffected."
+)
+doc.add_paragraph(
     "The result of each track's verification is appended to its status, "
     "and the Results summary aggregates the outcomes (for example "
     "'5 VERIFIED, 1 NO ENTRY, 1 failed'), so a successful track without a "
@@ -293,7 +307,8 @@ doc.add_paragraph(
     "python -m audio_suite_shared.cli_app cd-rip D: --output-dir "
     "<output> --format flac --verify accuraterip\n"
     "python -m audio_suite_shared.cli_app cd-rip D: --output-dir "
-    "<output> --format flac --verify off"
+    "<output> --format flac --verify off\n"
+    "python -m audio_suite_shared.cli_app cd-rip D: --detect-read-offset"
 )
 doc.add_paragraph(
     "CLI options include --format, --tracks, --quality, --cue/--no-cue, --dry/--live, "
@@ -301,7 +316,20 @@ doc.add_paragraph(
     "and --json/--text. Dry Run prints the selected settings (including the "
     "verification level) and does not "
     "read or write tracks. "
-    "Track lists are comma-separated; invalid or empty track selections are rejected."
+    "Track lists are comma-separated; invalid or empty track selections are rejected. "
+    "--output-dir is required for ripping (and for a dry run) but not for "
+    "--detect-read-offset."
+)
+doc.add_paragraph(
+    "--detect-read-offset measures the drive's read offset against the "
+    "AccurateRip database using the CD currently in the drive: it reads "
+    "each track once with a margin, sweeps every candidate frame shift "
+    "against the database checksums, requires the winning candidate to "
+    "agree across the graded tracks, re-confirms it with the production "
+    "checksum pipeline on every track, and persists the result for the "
+    "drive in the shared suite configuration. It needs a multi-track disc "
+    "present in the AccurateRip database and a working network connection; "
+    "on failure nothing is persisted and the command exits non-zero."
 )
 
 doc.add_heading("Troubleshooting", level=1)
@@ -348,6 +376,14 @@ bullet(
     "The re-read differed from the first extraction or the AccurateRip "
     "checksum disagreed. Try cleaning the disc, re-reading it, or switching "
     "to Verify Rips = Twice for drives with an audio offset.",
+)
+bullet(
+    doc,
+    "Every track reports AccurateRip MISMATCH on a known-good disc: ",
+    "The drive probably has an uncorrected read offset. Run "
+    "cd-rip <drive> --detect-read-offset once with a disc that is in the "
+    "AccurateRip database; the measured offset is stored per drive and "
+    "applied to every future rip automatically.",
 )
 bullet(
     doc,

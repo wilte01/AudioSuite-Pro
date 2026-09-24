@@ -336,3 +336,137 @@ class TestCueFlag:
         )
         assert result.exit_code == 0
         assert "CUE sheet" in result.output
+
+
+class TestOutputDirRequirement:
+    """--output-dir became conditionally required: mandatory for ripping,
+    optional for --detect-read-offset."""
+
+    def test_missing_output_dir_on_rip_path_is_usage_error(
+        self, runner: CliRunner
+    ) -> None:
+        with patch.object(ripper, "RipSession") as session_cls:
+            result = runner.invoke(cli, ["cd-rip", "D:"])
+        assert result.exit_code == 2
+        assert "--output-dir" in result.output
+        session_cls.assert_not_called()
+
+
+class TestDetectReadOffsetFlag:
+    """--detect-read-offset: TOC -> disc ids -> DB lookup -> sweep -> persist.
+
+    The CLI detection path uses function-local imports, so every dependency
+    is patched at its source module (the AGENTS.md mock-target rule).
+    """
+
+    _TOC = [
+        {"number": 1, "start_lba": 0, "end_lba": 99, "sectors": 100},
+        {"number": 2, "start_lba": 100, "end_lba": 219, "sectors": 120},
+        {"number": 3, "start_lba": 220, "end_lba": 382, "sectors": 163},
+    ]
+
+    def _patched_detection(self, lookup_result, detected, logs=None):
+        from cd_ripper.core import (
+            accuraterip,
+            drive_handler,
+            offset_detect,
+            read_offset,
+        )
+
+        accuraterip_mod = accuraterip
+        ids = accuraterip.DiscIds(
+            disc_id1=0x11111111,
+            disc_id2=0x22222222,
+            cddb_id=0x33333333,
+            track_count=3,
+        )
+        return (
+            patch.object(drive_handler, "read_toc", return_value=self._TOC),
+            patch.object(accuraterip_mod, "compute_disc_ids", return_value=ids),
+            patch.object(
+                accuraterip_mod,
+                "AccurateRipClient",
+                return_value=MagicMock(resolve=MagicMock(return_value=lookup_result)),
+            ),
+            patch.object(
+                offset_detect,
+                "detect_read_offset_frames",
+                return_value=detected,
+            ),
+            patch.object(read_offset, "set_read_offset_frames"),
+        )
+
+    def test_success_persists_offset_and_prints_result(self, runner: CliRunner) -> None:
+        from cd_ripper.core import accuraterip
+
+        found = accuraterip.LookupFound(entries=(), url="http://ar/x.bin")
+        patches = self._patched_detection(found, 6)
+        with patches[0], patches[1], patches[2], patches[3], patches[4] as set_off:
+            result = runner.invoke(cli, ["cd-rip", "D:", "--detect-read-offset"])
+        assert result.exit_code == 0
+        assert "Read offset measured: +6 frames" in result.output
+        set_off.assert_called_once_with("D:", 6)
+
+    def test_success_json_output(self, runner: CliRunner) -> None:
+        from cd_ripper.core import accuraterip
+
+        found = accuraterip.LookupFound(entries=(), url="http://ar/x.bin")
+        patches = self._patched_detection(found, 6)
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            result = runner.invoke(
+                cli, ["cd-rip", "D:", "--detect-read-offset", "--json"]
+            )
+        assert result.exit_code == 0
+        assert '"read_offset_frames": 6' in result.output
+
+    def test_db_lookup_failure_exits_nonzero(self, runner: CliRunner) -> None:
+        from cd_ripper.core import accuraterip
+
+        patches = self._patched_detection(
+            accuraterip.LookupNotFound(reason="no entry"), None
+        )
+        with patches[0], patches[1], patches[2], patches[3], patches[4] as set_off:
+            result = runner.invoke(cli, ["cd-rip", "D:", "--detect-read-offset"])
+        assert result.exit_code == 1
+        assert "database match" in result.output
+        set_off.assert_not_called()
+
+    def test_inconclusive_detection_persists_nothing(self, runner: CliRunner) -> None:
+        from cd_ripper.core import accuraterip
+
+        found = accuraterip.LookupFound(entries=(), url="http://ar/x.bin")
+        patches = self._patched_detection(found, None)
+        with patches[0], patches[1], patches[2], patches[3], patches[4] as set_off:
+            result = runner.invoke(cli, ["cd-rip", "D:", "--detect-read-offset"])
+        assert result.exit_code == 1
+        assert "unanimous" in result.output
+        set_off.assert_not_called()
+
+    def test_detection_does_not_need_output_dir(self, runner: CliRunner) -> None:
+        from cd_ripper.core import accuraterip
+
+        found = accuraterip.LookupFound(entries=(), url="http://ar/x.bin")
+        patches = self._patched_detection(found, 6)
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            result = runner.invoke(
+                cli, ["cd-rip", "D:", "--detect-read-offset", "--dry"]
+            )
+        # --dry is ignored on the detection path; detection runs regardless.
+        assert result.exit_code == 0
+
+    def test_rip_session_not_started_for_detection(self, runner: CliRunner) -> None:
+        from cd_ripper.core import accuraterip
+
+        found = accuraterip.LookupFound(entries=(), url="http://ar/x.bin")
+        patches = self._patched_detection(found, 6)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patch.object(ripper, "RipSession") as session_cls,
+        ):
+            result = runner.invoke(cli, ["cd-rip", "D:", "--detect-read-offset"])
+        assert result.exit_code == 0
+        session_cls.assert_not_called()

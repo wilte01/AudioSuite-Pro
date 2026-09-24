@@ -69,6 +69,14 @@ class RipTask:
     def _is_cancelled(self) -> bool:
         return self._cancelled
 
+    def _is_last_track(self) -> bool:
+        """Whether this task's TOC entry is the final track on the disc."""
+        toc = self.verification.toc
+        if not toc:
+            return False
+        my_number: int = int(self.track["number"])
+        return my_number == max(int(entry.get("number", 0)) for entry in toc)
+
     def run(self) -> None:
         num = self.track["number"]
         ext = FORMAT_OPTIONS[self.fmt]["ext"]
@@ -111,6 +119,7 @@ class RipTask:
                 cancelled_fn=self._is_cancelled,
                 log_cb=self.log_cb,
                 verification_config=self.verification_config,
+                is_last_track=self._is_last_track(),
             )
 
             if self._cancelled:

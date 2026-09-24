@@ -79,6 +79,7 @@ from cd_ripper.core.ripper import (  # noqa: E402
     C2_FLAG_BYTES_PER_SECTOR,
     FLAC_QUALITY_ARGS,
     FORMAT_OPTIONS,  # noqa: E402
+    FRAMES_PER_SECTOR,
     M4A_QUALITY_ARGS,
     MP3_QUALITY_ARGS,
     OGG_QUALITY_ARGS,
@@ -96,6 +97,7 @@ from cd_ripper.core.ripper import (  # noqa: E402
     RipVerificationMode,
     UnresolvedSectorError,
     VerificationPlan,
+    VerificationStatus,
     _build_metadata_args,
     _bytes_per_sector,
     _msf_to_lba,
@@ -104,8 +106,10 @@ from cd_ripper.core.ripper import (  # noqa: E402
     _resolve_by_majority,
     _run_ffmpeg_streaming,
     _safe_filename,
+    aligned_track_pcm,
     compute_disc_ids,
     compute_track_checksums,
+    compute_track_read_layout,
     diagnose_c2_reliability,
     extract_track_scsi,
     get_quality_options,
@@ -113,6 +117,7 @@ from cd_ripper.core.ripper import (  # noqa: E402
     read_toc,
     read_track_pcm,
     read_wav_pcm,
+    set_read_offset_frames,
     spin_down_drive,
     verify_extracted_track,
     with_gap_window,
@@ -1051,6 +1056,56 @@ class TestRipSession:
 
 
 # ===========================================================================
+# RipSession — per-drive read-offset folding
+# ===========================================================================
+
+
+class TestRipSessionOffsetFolding:
+    """The stored per-drive offset folds into the session's verification
+    config unless the caller supplied one with an explicit non-zero offset."""
+
+    def _session(self, tmp_path, config=None):
+        return RipSession(
+            drive="E:",
+            tracks=[_make_track()],
+            out_dir=str(tmp_path),
+            fmt="FLAC",
+            quality_args=None,
+            progress_cb=_noop,
+            track_done_cb=_noop,
+            session_done_cb=_noop,
+            ffmpeg_path="ffmpeg",
+            verification_config=config,
+        )
+
+    def test_stored_offset_applied_when_config_omitted(self, tmp_path):
+        set_read_offset_frames("E", 6)
+        session = self._session(tmp_path)
+        assert session.verification_config.read_offset_frames == 6
+
+    def test_stored_offset_applied_over_default_config(self, tmp_path):
+        set_read_offset_frames("E", 6)
+        session = self._session(tmp_path, config=RipVerificationConfig())
+        assert session.verification_config.read_offset_frames == 6
+
+    def test_explicit_nonzero_offset_wins_over_stored(self, tmp_path):
+        set_read_offset_frames("E", 6)
+        session = self._session(
+            tmp_path, config=RipVerificationConfig(read_offset_frames=12)
+        )
+        assert session.verification_config.read_offset_frames == 12
+
+    def test_no_stored_offset_leaves_zero(self, tmp_path):
+        session = self._session(tmp_path)
+        assert session.verification_config.read_offset_frames == 0
+
+    def test_other_drives_offset_not_applied(self, tmp_path):
+        set_read_offset_frames("F", 30)
+        session = self._session(tmp_path)
+        assert session.verification_config.read_offset_frames == 0
+
+
+# ===========================================================================
 # RipSession — CUE sheet output
 # ===========================================================================
 
@@ -1490,10 +1545,23 @@ class TestRipVerificationConfig:
         config = RipVerificationConfig()
         assert config.max_read_attempts == 3
         assert config.use_c2_hint is False
+        assert config.read_offset_frames == 0
 
     def test_rejects_max_attempts_below_two(self):
         with pytest.raises(AudioConfigurationError):
             RipVerificationConfig(max_read_attempts=1)
+
+    def test_rejects_negative_read_offset(self):
+        with pytest.raises(AudioConfigurationError):
+            RipVerificationConfig(read_offset_frames=-1)
+
+    def test_rejects_read_offset_above_one_sector(self):
+        with pytest.raises(AudioConfigurationError):
+            RipVerificationConfig(read_offset_frames=FRAMES_PER_SECTOR + 1)
+
+    def test_accepts_full_sector_read_offset(self):
+        config = RipVerificationConfig(read_offset_frames=FRAMES_PER_SECTOR)
+        assert config.read_offset_frames == FRAMES_PER_SECTOR
 
     def test_is_frozen(self):
         config = RipVerificationConfig()
@@ -1796,6 +1864,233 @@ class TestExtractTrackScsiAbortsOnUnresolvedSector:
                     cancelled_fn=lambda: False,
                     log_cb=_noop,
                 )
+
+
+# ===========================================================================
+# offset-aligned extraction & verification — synthetic mis-aligned drive
+# ===========================================================================
+
+_OFFSET_FRAMES = 6
+_LEADIN_SECTORS = 16  # readable pre-LBA-0 content the drive model delivers
+
+
+def _offset_phys_bytes(total_sectors: int) -> bytes:
+    """Deterministic pseudo-random PCM for lead-in + program area."""
+    import numpy as np
+
+    frames = (_LEADIN_SECTORS + total_sectors) * FRAMES_PER_SECTOR
+    values = np.arange(frames, dtype=np.uint64)
+    mixed = (values * 2_654_435_761 + 972_613_119) & 0xFFFFFFFF
+    return mixed.astype("<u4").tobytes()
+
+
+def _offset_drive_payload(phys: bytes, lba: int, count: int) -> bytes:
+    """Raw bytes an offset drive delivers for ``read(lba, count)``.
+
+    Empirically verified model: raw frame ``k`` holds physical frame
+    ``lba * 588 + k - offset``.
+    """
+    start = ((_LEADIN_SECTORS + lba) * FRAMES_PER_SECTOR) - _OFFSET_FRAMES
+    end = start + count * FRAMES_PER_SECTOR
+    assert start >= 0
+    return phys[start * 4 : end * 4]
+
+
+def _offset_chunk_fake(phys: bytes):
+    """``_read_verified_chunk`` stand-in backed by the synthetic drive."""
+
+    def _fake_chunk(handle, lba, count, buf, log_cb, track_num, config):
+        payload = _offset_drive_payload(phys, lba, count)
+        buf[: len(payload)] = payload
+        return payload
+
+    return _fake_chunk
+
+
+def _offset_disc_toc() -> list:
+    return [
+        _make_toc_entry(number=1, start_lba=0, end_lba=9, sectors=10),
+        _make_toc_entry(number=2, start_lba=10, end_lba=19, sectors=10),
+        _make_toc_entry(number=3, start_lba=20, end_lba=29, sectors=10),
+    ]
+
+
+def _offset_db_entries(phys: bytes, toc: list) -> tuple:
+    tracks = tuple(
+        DBTrackEntry(
+            confidence=5,
+            crc1=compute_track_checksums(
+                _offset_nominal_window(phys, entry), entry["number"], len(toc)
+            ).crc1,
+            crc2=compute_track_checksums(
+                _offset_nominal_window(phys, entry), entry["number"], len(toc)
+            ).crc2,
+        )
+        for entry in toc
+    )
+    return (DBEntry(disc_id1=0, disc_id2=0, cddb_id=0, tracks=tracks),)
+
+
+def _offset_nominal_window(phys: bytes, entry: dict) -> bytes:
+    lo = (_LEADIN_SECTORS + entry["start_lba"]) * FRAMES_PER_SECTOR
+    hi = lo + entry["sectors"] * FRAMES_PER_SECTOR
+    return phys[lo * 4 : hi * 4]
+
+
+class TestOffsetAlignedExtraction:
+    """The real outcome on an offset drive: extracted WAV + verify status."""
+
+    def _extract(self, phys, tmp_path, start_lba, sectors, is_last, config):
+        out_wav = str(tmp_path / "track.wav")
+        with (
+            patch("cd_ripper.core.track_processor._open_device", return_value=7),
+            patch("ctypes.windll") as mock_windll,
+            patch(
+                "cd_ripper.core.track_processor._read_verified_chunk",
+                side_effect=_offset_chunk_fake(phys),
+            ),
+        ):
+            mock_windll.kernel32 = MagicMock()
+            extract_track_scsi(
+                drive_letter="D",
+                start_lba=start_lba,
+                sectors=sectors,
+                out_wav=out_wav,
+                progress_cb=_noop,
+                track_num=1,
+                cancelled_fn=lambda: False,
+                log_cb=_noop,
+                verification_config=config,
+                is_last_track=is_last,
+            )
+        return read_wav_pcm(out_wav)
+
+    def test_non_last_track_wav_matches_physical_window(self, tmp_path):
+        phys = _offset_phys_bytes(60)
+        start_lba, sectors = 20, 10
+        config = RipVerificationConfig(read_offset_frames=_OFFSET_FRAMES)
+
+        wav_pcm = self._extract(
+            phys, tmp_path, start_lba, sectors, is_last=False, config=config
+        )
+
+        expected = _offset_nominal_window(
+            phys, _make_toc_entry(start_lba=start_lba, sectors=sectors)
+        )
+        assert wav_pcm == expected
+        assert len(wav_pcm) == sectors * SECTOR_SIZE
+
+    def test_last_track_wav_is_short_by_offset_frames(self, tmp_path):
+        phys = _offset_phys_bytes(60)
+        start_lba, sectors = 40, 10
+        config = RipVerificationConfig(read_offset_frames=_OFFSET_FRAMES)
+
+        wav_pcm = self._extract(
+            phys, tmp_path, start_lba, sectors, is_last=True, config=config
+        )
+
+        nominal = _offset_nominal_window(
+            phys, _make_toc_entry(start_lba=start_lba, sectors=sectors)
+        )
+        assert wav_pcm == nominal[: -_OFFSET_FRAMES * 4]
+        assert len(wav_pcm) == sectors * SECTOR_SIZE - _OFFSET_FRAMES * 4
+
+    def test_zero_offset_extraction_is_passthrough(self, tmp_path):
+        phys = _offset_phys_bytes(60)
+        start_lba, sectors = 20, 10
+
+        wav_pcm = self._extract(
+            phys,
+            tmp_path,
+            start_lba,
+            sectors,
+            is_last=True,
+            config=RipVerificationConfig(),
+        )
+
+        # No correction: the WAV keeps the raw (mis-aligned) stream bytes.
+        assert wav_pcm == _offset_drive_payload(phys, start_lba, sectors)
+
+    def _verify(self, phys, toc, index, config, plan):
+        entry = toc[index]
+        if config.read_offset_frames:
+            layout = compute_track_read_layout(
+                entry["start_lba"],
+                entry["sectors"],
+                config.read_offset_frames,
+                index == len(toc) - 1,
+            )
+            raw = _offset_drive_payload(
+                phys, layout.read_start_lba, layout.read_sectors
+            )
+            first_pcm = aligned_track_pcm(raw, layout, entry["sectors"])
+        else:
+            # Without correction, extraction writes the raw (mis-aligned)
+            # stream bytes: read(start, sectors) verbatim.
+            first_pcm = _offset_drive_payload(
+                phys, entry["start_lba"], entry["sectors"]
+            )
+
+        with (
+            patch("cd_ripper.core.track_processor._open_device", return_value=7),
+            patch("ctypes.windll") as mock_windll,
+            patch(
+                "cd_ripper.core.track_processor._read_verified_chunk",
+                side_effect=_offset_chunk_fake(phys),
+            ),
+        ):
+            mock_windll.kernel32 = MagicMock()
+            status, detail = verify_extracted_track(
+                drive_letter="D",
+                toc_entry=toc[index],
+                toc=toc,
+                first_pcm=first_pcm,
+                plan=plan,
+                verification_config=config,
+                track_num=toc[index]["number"],
+                cancelled_fn=lambda: False,
+                log_cb=_noop,
+            )
+        return status, detail
+
+    def test_verify_with_offset_matches_database(self):
+        """The original bug: correct rip, spurious MISMATCH without the fix."""
+        toc = _offset_disc_toc()
+        phys = _offset_phys_bytes(30)
+        entries = _offset_db_entries(phys, toc)
+        plan = VerificationPlan(
+            mode=RipVerificationMode.ACCURATERIP,
+            toc=tuple(toc),
+            lookup=LookupFound(entries=entries, url="http://ar/test.bin"),
+        )
+
+        for index in range(len(toc)):
+            status, _ = self._verify(
+                phys,
+                toc,
+                index,
+                RipVerificationConfig(read_offset_frames=_OFFSET_FRAMES),
+                plan,
+            )
+            assert status is VerificationStatus.VERIFIED, f"track {index + 1}"
+
+    def test_verify_without_offset_mismatches(self):
+        """Without the correction the same drive mis-matches every track."""
+        toc = _offset_disc_toc()
+        phys = _offset_phys_bytes(30)
+        entries = _offset_db_entries(phys, toc)
+        plan = VerificationPlan(
+            mode=RipVerificationMode.ACCURATERIP,
+            toc=tuple(toc),
+            lookup=LookupFound(entries=entries, url="http://ar/test.bin"),
+        )
+
+        for index in range(len(toc)):
+            status, detail = self._verify(
+                phys, toc, index, RipVerificationConfig(), plan
+            )
+            assert status is VerificationStatus.MISMATCH, f"track {index + 1}"
+            assert "AccurateRip cross-check failed" in detail
 
 
 def test_riptask_surfaces_unresolved_sector_as_track_failure(tmp_path):
@@ -2166,7 +2461,14 @@ class TestVerifyExtractedTrack:
         }
 
         def _fake_read(
-            drive, start_lba, sectors, track_num, cancelled_fn, log_cb, config
+            drive,
+            start_lba,
+            sectors,
+            track_num,
+            cancelled_fn,
+            log_cb,
+            config,
+            is_last_track=False,
         ):
             return cache[(start_lba, sectors)]
 
@@ -2213,7 +2515,14 @@ class TestVerifyExtractedTrack:
         }
 
         def _fake_read(
-            drive, start_lba, sectors, track_num, cancelled_fn, log_cb, config
+            drive,
+            start_lba,
+            sectors,
+            track_num,
+            cancelled_fn,
+            log_cb,
+            config,
+            is_last_track=False,
         ):
             return cache[(start_lba, sectors)]
 
