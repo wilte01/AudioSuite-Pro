@@ -1,6 +1,6 @@
 # PLAN — Audit Priority Actions (Post-Audit Remediation)
 
-**Status:** In progress — **P1 complete** (initial commit `a056bb9`); **P2 complete** (commit `d7680f7`); **P3 complete** (commits `c06730c` + `e540819`); **P4 complete** (commits `f409e11` + this); **P5 complete** (commit `0666936` + this); **P6 complete** (commits `f84a392` + `2fd0c9e` + this); **P7 7a delivered** (rip verification; no commit yet — awaiting user instruction); **P7 7b delivered** (album-level AcoustID clustering; no commit yet — awaiting user instruction); P7 7c not started. See Decision Log (D10–D22) and the session retrospective for discoveries.
+**Status:** In progress — **P1 complete** (initial commit `a056bb9`); **P2 complete** (commit `d7680f7`); **P3 complete** (commits `c06730c` + `e540819`); **P4 complete** (commits `f409e11` + this); **P5 complete** (commit `0666936` + this); **P6 complete** (commits `f84a392` + `2fd0c9e` + this); **P7 7a delivered** (rip verification; no commit yet — awaiting user instruction); **P7 7b delivered** (album-level AcoustID clustering; commit `7cce6c4`); P7 7c not started. See Decision Log (D10–D22) and the session retrospective for discoveries.
 **Source:** "Honest Audit Report" (product capability + code-quality audit, 2026)
 **Scope:** The 7 priority actions named in the audit's closing section. Each action is broken into fully addressable steps with acceptance criteria, lockstep tests, and verification commands.
 **Anti-creep rule:** Implement ONLY the steps below. No adjacent refactors, no styling changes outside the touched files, no speculative features. Any defect discovered *while* implementing one of these steps must be fixed in the same change with a regression test (AGENTS.md §7), and noted in the Decision Log.
@@ -638,7 +638,7 @@ All §7b acceptance criteria verified against the current tree (uncommitted — 
 - **Docs** — `user_guides/individual_programs/audio_fingerprinter/generate_guide.py` updated (Album Match bullet, two-phase pipeline note, album-clustering matching bullets, CLI flags + example, troubleshooting entry) and the `.docx` regenerated from it; `user_guides/reference/CLI_Commands_Reference.md` has no `fingerprint` section, so nothing to update there (verified by grep).
 - **Definition-of-Done gate green on the confirmed state** — `compileall` clean (known `.venv` pydub SyntaxWarnings only); `ruff check` 0 + `ruff format` clean; `mypy .` success (438 files, strict); bandit **0 High / 0 Medium** (documented Low tail); bare full-suite `pytest` **6785 passed / 5 skipped**, coverage **78.17% ≥ 75%**.
 
-**Decision: P7 §7b — Album-level AcoustID clustering (Fingerprinter) is DELIVERED** (code + tests + GUI + CLI + guide + acceptance + record; uncommitted). P7 7c remains backlog.
+**Decision: P7 §7b — Album-level AcoustID clustering (Fingerprinter) is DELIVERED** (code + tests + GUI + CLI + guide + acceptance + record; commit `7cce6c4`). P7 7c remains backlog.
 
 ---
 
