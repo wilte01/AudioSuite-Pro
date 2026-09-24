@@ -96,8 +96,24 @@ class ResultsTab:
         ok = sum(1 for r in results if r["success"])
         fail = len(results) - ok
 
+        # Aggregate verification outcomes for the summary line.
+        status_counts: dict[str, int] = {}
+        for r in results:
+            if r["success"] and r["error"]:
+                status_counts[r["error"]] = status_counts.get(r["error"], 0) + 1
+
+        if status_counts:
+            parts = [
+                f"{count} {status}" for status, count in sorted(status_counts.items())
+            ]
+            summary = (
+                f"Rip complete  —  {ok} succeeded ({', '.join(parts)}),  {fail} failed"
+            )
+        else:
+            summary = f"Rip complete  —  {ok} succeeded,  {fail} failed"
+
         self._summary_lbl.configure(
-            text=f"Rip complete  —  {ok} succeeded,  {fail} failed",
+            text=summary,
             fg=styles.get_main() if fail == 0 else "#cc3333",
         )
 
@@ -105,7 +121,12 @@ class ResultsTab:
             num = r["number"]
             title = tracks.get(num, {}).get("title", f"Track {num:02d}")
             fname = os.path.basename(r["path"]) if r["path"] else "—"
-            status = "✓  OK" if r["success"] else f"✗  {r['error']}"
+            if r["success"] and r["error"]:
+                status = f"✓  {r['error']}"
+            elif r["success"]:
+                status = "✓  OK"
+            else:
+                status = f"✗  {r['error']}"
             tag = "ok" if r["success"] else "fail"
             self._tree.insert(
                 "", "end", iid=str(num), tags=(tag,), values=(num, title, fname, status)

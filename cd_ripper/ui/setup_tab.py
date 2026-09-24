@@ -173,6 +173,7 @@ class SetupTab:
                 "quality_args": quality_args,
                 "ffmpeg_path": ffmpeg,
                 "write_cue": bool(self._fmt_panel.cue_var.get()),
+                "verify_mode": self._fmt_panel.verify_var.get(),
             }
         )
         self.ready_cb()

@@ -92,6 +92,36 @@ class FormatConfigPanel:
         self.quality_combo.pack(side="left", padx=(5, 0))
         self.update_quality_combo()
 
+        # Verification mode
+        verify_row = tk.Frame(self.frame, bg=styles.BG_WHITE)
+        verify_row.pack(fill="x", pady=(8, 0))
+        tk.Label(
+            verify_row,
+            text="Verify Rips:",
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            font=styles.FONT_BODY,
+        ).pack(side="left")
+        self.verify_var = tk.StringVar(value="twice")
+        ttk.Combobox(
+            verify_row,
+            textvariable=self.verify_var,
+            values=["twice", "off", "accuraterip"],
+            font=styles.FONT_BODY,
+            state="readonly",
+            width=14,
+        ).pack(side="left", padx=(5, 0))
+        tk.Label(
+            verify_row,
+            text=(
+                "Twice (re-read, no internet) · AccurateRip (DB cross-check) · "
+                "Off (no check)"
+            ),
+            font=styles.FONT_CAPTION,
+            fg=styles.FG_SUB,
+            bg=styles.BG_WHITE,
+        ).pack(side="left", padx=(8, 0))
+
         # CUE sheet option
         self.cue_var = tk.BooleanVar(value=False)
         tk.Checkbutton(

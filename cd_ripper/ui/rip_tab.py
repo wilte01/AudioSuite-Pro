@@ -67,9 +67,14 @@ class _TrackRow:
     def set_done(self, success: bool, msg: str = "") -> None:
         self.prog["value"] = 100 if success else 0
         colour = "#2e9e4f" if success else "#cc3333"
-        self.status_lbl.configure(
-            text="✓  Done" if success else f"✗  {msg}", foreground=colour
-        )
+        if success and msg:
+            # msg carries the verification outcome (VERIFIED / NO ENTRY / OFFLINE)
+            text = f"✓  {msg}"
+        elif success:
+            text = "✓  Done"
+        else:
+            text = f"✗  {msg}"
+        self.status_lbl.configure(text=text, foreground=colour)
 
     def set_active(self) -> None:
         self.status_lbl.configure(text="Ripping…", foreground=styles.get_main())
@@ -256,6 +261,7 @@ class RipTab:
             ffmpeg_path=self.state.get("ffmpeg_path", "ffmpeg"),
             log_cb=write_log_line,
             write_cue=self.state.get("write_cue", False),
+            verify_mode=self.state.get("verify_mode", "twice"),
         )
         assert self._session is not None
         self._session.start()
