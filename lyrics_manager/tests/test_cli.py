@@ -222,3 +222,37 @@ class TestJsonOutput:
     def test_json_matches_text_directory_missing_errors(self, runner: CliRunner):
         result = runner.invoke(cli, ["lyrics", "--json", "does/not/exist"])
         assert result.exit_code == 2
+
+
+class TestUndoBatchIsolation:
+    """Regression: the ``audiosuite lyrics`` command must record its undo
+    batch in the session-isolated default database — never the real per-user
+    ``~/.audiosuite/undo_log.db`` that Undo Tag Edits reads.
+
+    Previously every ``--live`` CLI test left a ``pytest-of-<user>`` song in
+    the production log, which then showed up in the GUI's "Recent runs" list
+    even though Lyrics Manager was never run by the user.
+    """
+
+    def test_live_run_records_into_isolated_default_db(
+        self, runner: CliRunner, tmp_path: Path
+    ):
+        from audio_suite_shared.batch_undo import (
+            BatchUndoLog,
+            list_recent_batches,
+        )
+
+        default_path = BatchUndoLog()._path
+        assert ".audiosuite" not in str(default_path).replace("\\", "/")
+
+        audio = _make_audio(tmp_path)
+        result = runner.invoke(
+            cli, ["lyrics", "--live", "--provider", "fake_cli_provider", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+
+        batches = list_recent_batches()
+        target = [b for b in batches if b.tool_name == "lyrics_manager"]
+        assert target, "live run produced no undo batch in the default DB"
+        records = BatchUndoLog().get_batch_records(target[0].batch_id)
+        assert [str(r.file_path) for r in records] == [str(audio)]

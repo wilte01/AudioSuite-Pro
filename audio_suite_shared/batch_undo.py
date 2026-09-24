@@ -4,7 +4,9 @@ batch_undo.py — Centralised batch undo / revert log for Audio Suite.
 Provides SQLite-backed logging of tag edits and file reorganizations so
 that batch operations can be reverted after the fact.
 
-Storage location: ``~/.audiosuite/undo_log.db``
+Storage location: ``~/.audiosuite/undo_log.db`` (override with the
+``AUDIOSUITE_UNDO_DB`` environment variable).  The database is created with
+``auto_vacuum=FULL`` so pruned batches never leave free-page bloat behind.
 
 Usage as context manager::
 
@@ -90,6 +92,31 @@ _DEFAULT_MAX_ENTRIES = 50
 # exceed any entry count, so the byte budget is enforced independently.
 _DEFAULT_MAX_BYTES = 1024 * 1024 * 1024
 
+# Environment variable that overrides the default undo-log location.  Pytest
+# sets this for every session so CLI/GUI tests that wrap runs in
+# ``active_batch(...)`` can never write into the real per-user database.
+_ENV_DB_OVERRIDE = "AUDIOSUITE_UNDO_DB"
+
+# SQLite auto_vacuum mode meaning FULL (deleted pages are returned to the OS
+# at commit).  Set on every undo log so batch pruning never leaves bloat.
+_AUTO_VACUUM_FULL = 1
+
+
+def _default_db_path() -> Path:
+    """Return the default undo-log database path.
+
+    Honors the ``AUDIOSUITE_UNDO_DB`` environment variable (used by the test
+    suite to isolate every batch from the real per-user log), falling back to
+    ``~/.audiosuite/undo_log.db``.
+
+    Returns:
+        The resolved default database path.
+    """
+    override = os.environ.get(_ENV_DB_OVERRIDE)
+    if override:
+        return Path(override)
+    return Path.home() / ".audiosuite" / "undo_log.db"
+
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -154,12 +181,11 @@ class BatchUndoLog:
         """Initialise the undo log.
 
         Args:
-            db_path: Path to the SQLite database.  Defaults to
-                ``~/.audiosuite/undo_log.db``.
+            db_path: Path to the SQLite database.  Defaults to the path from
+                the ``AUDIOSUITE_UNDO_DB`` environment variable when set,
+                otherwise ``~/.audiosuite/undo_log.db``.
         """
-        self._path = (
-            Path(db_path) if db_path else (Path.home() / ".audiosuite" / "undo_log.db")
-        )
+        self._path = Path(db_path) if db_path else _default_db_path()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: sqlite3.Connection | None = None
         self._lock = _DB_LOCK
@@ -176,7 +202,25 @@ class BatchUndoLog:
                     self._conn.execute("PRAGMA journal_mode=WAL")
                     self._conn.executescript(_SCHEMA_SQL)
                     self._migrate_delete_payloads(self._conn)
+                    self._enable_auto_vacuum(self._conn)
         return self._conn
+
+    def _enable_auto_vacuum(self, conn: sqlite3.Connection) -> None:
+        """Ensure the undo log reclaims freed pages automatically.
+
+        Sets the persistent ``auto_vacuum=FULL`` file flag so every prune
+        (batch cleanup) returns freed pages to the operating system at commit
+        instead of leaving them inside a permanently growing database file.
+        Files that predate the flag are converted in place with a one-time
+        ``VACUUM``; once the flag is set, later connects only read it and
+        skip.  Must be called under ``self._lock`` with no open transaction.
+        """
+        row = conn.execute("PRAGMA auto_vacuum").fetchone()
+        if row is not None and int(row[0]) == _AUTO_VACUUM_FULL:
+            return
+        conn.execute("PRAGMA auto_vacuum = FULL")
+        conn.commit()
+        conn.execute("VACUUM")
 
     def _migrate_delete_payloads(self, conn: sqlite3.Connection) -> None:
         """Rewrite legacy pickled delete payloads to raw bytes.

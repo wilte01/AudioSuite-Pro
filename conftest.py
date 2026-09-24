@@ -19,7 +19,9 @@ unchanged.
 
 from __future__ import annotations
 
+import os
 import tkinter as tk
+from typing import Generator
 
 import pytest
 
@@ -78,3 +80,30 @@ def tk_root() -> tk.Tk:
     tk_root = _root
     assert tk_root is not None, "No display available — Tk root was not created"
     return tk_root
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_undo_db(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Generator[None, None, None]:
+    """Point the shared undo log at a scratch database for the whole session.
+
+    Every batch_undo access that relies on the default path — CLI commands
+    wrapping runs in ``active_batch(...)``, and the GUI ``active_batch``
+    callers — would otherwise write into the real per-user
+    ``~/.audiosuite/undo_log.db`` and pollute the Undo Tag Edits "Recent
+    runs" list with pytest artifacts (paths like
+    ``pytest-of-<user>\\test_skip_existing_by_default0\\song.mp3``).  The
+    override is session-wide and autouse so no test can ever touch the
+    production log, no matter which tool it exercises.
+    """
+    path = tmp_path_factory.mktemp("undo_db") / "undo_log.db"
+    previous = os.environ.get("AUDIOSUITE_UNDO_DB")
+    os.environ["AUDIOSUITE_UNDO_DB"] = str(path)
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("AUDIOSUITE_UNDO_DB", None)
+        else:
+            os.environ["AUDIOSUITE_UNDO_DB"] = previous

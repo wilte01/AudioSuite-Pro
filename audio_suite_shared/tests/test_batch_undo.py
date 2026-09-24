@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import pickle
 import shutil
+import sqlite3
 import threading
 from pathlib import Path
 from typing import Generator
@@ -21,6 +22,7 @@ import pytest
 from audio_suite_shared.batch_undo import (
     _BATCH_DB_PATHS,
     _DEFAULT_MAX_ENTRIES,
+    _SCHEMA_SQL,
     BatchUndoLog,
     RevertResult,
     _thread_local,
@@ -120,6 +122,114 @@ class TestSchema:
         with bl:
             assert bl._conn is not None
         assert bl._conn is None
+
+
+class TestDefaultDbPath:
+    """Regression: tests must never open the real per-user undo log.
+
+    Conftest redirects the default database via ``AUDIOSUITE_UNDO_DB`` for the
+    whole session; the engine itself must honor that override so CLI and GUI
+    runs under pytest stop writing into ``~/.audiosuite/undo_log.db`` (they
+    previously left ``pytest-of-<user>`` songs on the Undo Tag Edits list).
+    """
+
+    def test_env_override_redirects_default_path(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        override = tmp_path / "scratch_undo.db"
+        monkeypatch.setenv("AUDIOSUITE_UNDO_DB", str(override))
+        assert BatchUndoLog()._path == override
+
+    def test_env_override_is_resolved_per_instance(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.delenv("AUDIOSUITE_UNDO_DB", raising=False)
+        assert BatchUndoLog()._path == Path.home() / ".audiosuite" / "undo_log.db"
+        override = tmp_path / "other.db"
+        monkeypatch.setenv("AUDIOSUITE_UNDO_DB", str(override))
+        assert BatchUndoLog()._path == override
+
+    def test_use_batch_without_db_path_honors_override(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        mock_tag_handler_factory: MagicMock,
+    ) -> None:
+        override = tmp_path / "batch_undo.db"
+        monkeypatch.setenv("AUDIOSUITE_UNDO_DB", str(override))
+        with active_batch("test_tool", "tag_edit") as batch_id:
+            assert batch_id
+            record_tag_edit_snapshot("/song.mp3", "write_test")
+        assert Path(BatchUndoLog()._path) == override
+        batches = list_recent_batches()
+        assert [b.tool_name for b in batches] == ["test_tool"]
+
+
+class TestAutoVacuum:
+    """Regression: every undo log must be self-compacting.
+
+    Batch pruning deletes rows constantly; without ``auto_vacuum=FULL`` the
+    freed pages stay inside the database file and it grows without bound (the
+    production log had reached 5.5 GB with only ~62 MB of live data).  New
+    databases must be born with the flag, and legacy files must be converted
+    on first connect.
+    """
+
+    def test_new_database_has_full_auto_vacuum(self, tmp_path: Path) -> None:
+        db = tmp_path / "fresh.db"
+        with BatchUndoLog(db_path=db) as log:
+            row = log._connect().execute("PRAGMA auto_vacuum").fetchone()
+            assert row is not None
+            assert int(row[0]) == 1  # FULL
+
+    def test_existing_connection_is_not_revacuumed(self, tmp_path: Path) -> None:
+        db = tmp_path / "persist.db"
+        with BatchUndoLog(db_path=db) as log:
+            first_header = log._connect().execute("PRAGMA auto_vacuum").fetchone()
+        with BatchUndoLog(db_path=db) as log:
+            second_header = log._connect().execute("PRAGMA auto_vacuum").fetchone()
+        assert first_header == second_header
+        assert int(first_header[0]) == 1
+
+    def test_legacy_database_with_freelist_bloat_is_converted(
+        self, tmp_path: Path
+    ) -> None:
+        db = tmp_path / "legacy.db"
+        raw = sqlite3.connect(str(db), timeout=30)
+        try:
+            raw.executescript(_SCHEMA_SQL)
+            raw.execute("PRAGMA auto_vacuum = NONE")
+            raw.execute(
+                "INSERT INTO undo_batches (batch_id, tool_name, operation_type) "
+                "VALUES ('legacy1', 'test', 'file_delete')"
+            )
+            raw.execute(
+                "INSERT INTO undo_records "
+                "(batch_id, file_path, operation, old_tags_snapshot, file_action) "
+                "VALUES ('legacy1', '/x.flac', 'file_delete', ?, 'delete')",
+                [b"\x00" * (2 * 1024 * 1024)],
+            )
+            raw.commit()
+            # Deleting leaves ~2 MB of free pages inside the file (legacy bloat).
+            raw.execute("DELETE FROM undo_records WHERE batch_id = 'legacy1'")
+            raw.execute("DELETE FROM undo_batches WHERE batch_id = 'legacy1'")
+            raw.commit()
+            free_before = int(raw.execute("PRAGMA freelist_count").fetchone()[0])
+            assert free_before > 0
+        finally:
+            raw.close()
+
+        with BatchUndoLog(db_path=db):
+            pass
+
+        conn = sqlite3.connect(str(db), timeout=30)
+        try:
+            auto_vacuum = int(conn.execute("PRAGMA auto_vacuum").fetchone()[0])
+            free_after = int(conn.execute("PRAGMA freelist_count").fetchone()[0])
+        finally:
+            conn.close()
+        assert auto_vacuum == 1  # FULL
+        assert free_after == 0  # VACUUM reclaimed the free pages
 
 
 # ---------------------------------------------------------------------------
