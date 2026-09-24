@@ -32,6 +32,8 @@ from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.cli_helpers import (
     UniversalCLIHandler,
+)
+from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
