@@ -24,6 +24,7 @@ def build(
     parallel_var: tk.BooleanVar | None,
     lookup_enabled: tk.BooleanVar,
     write_tags: tk.BooleanVar,
+    album_mode: tk.BooleanVar,
     threshold: tk.StringVar,
     max_length: tk.StringVar,
     fpcalc_path: tk.StringVar,
@@ -60,6 +61,7 @@ def build(
         start_side=None,
         lookup_enabled=lookup_enabled,
         write_tags=write_tags,
+        album_mode=album_mode,
         threshold=threshold,
         max_length=max_length,
         fpcalc_path=fpcalc_path,
@@ -85,6 +87,7 @@ class _SetupFrame(BaseSetupFrame):
         parent: tk.Frame,
         lookup_enabled: tk.BooleanVar,
         write_tags: tk.BooleanVar,
+        album_mode: tk.BooleanVar,
         threshold: tk.StringVar,
         max_length: tk.StringVar,
         fpcalc_path: tk.StringVar,
@@ -97,6 +100,7 @@ class _SetupFrame(BaseSetupFrame):
     ) -> None:
         self._lookup_enabled_var = lookup_enabled
         self._write_tags_var = write_tags
+        self._album_mode_var = album_mode
         self._threshold_var = threshold
         self._max_length_var = max_length
         self._fpcalc_path_var = fpcalc_path
@@ -227,6 +231,23 @@ class _SetupFrame(BaseSetupFrame):
             activebackground=styles.BG_WHITE,
             activeforeground=styles.FG_MAIN,
             font=styles.FONT_BODY,
+        ).pack(anchor="w", pady=2)
+        tk.Checkbutton(
+            self,
+            text=(
+                "Album Match — cluster each folder's lookups by MusicBrainz "
+                "release group; tag only when the album is decided "
+                "(ambiguous albums are left untagged)"
+            ),
+            variable=self._album_mode_var,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            selectcolor=styles.BG_WHITE,
+            activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
+            font=styles.FONT_BODY,
+            wraplength=700,
+            justify=tk.LEFT,
         ).pack(anchor="w", pady=2)
 
         row = tk.Frame(self, bg=styles.BG_WHITE)

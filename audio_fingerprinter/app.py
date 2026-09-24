@@ -59,6 +59,7 @@ class FingerprinterApp(UIHelperMixin):
         self.run_mode = tk.StringVar(value="Dry Run")
         self.lookup_enabled = tk.BooleanVar(value=True)
         self.write_tags = tk.BooleanVar(value=False)
+        self.album_mode = tk.BooleanVar(value=False)
         self.threshold = tk.StringVar(value=_DEFAULT_THRESHOLD)
         self.max_length = tk.StringVar(value=str(DEFAULT_MAX_LENGTH))
         self.fpcalc_path = tk.StringVar()
@@ -138,6 +139,7 @@ class FingerprinterApp(UIHelperMixin):
             parallel_var=self.parallel_var,
             lookup_enabled=self.lookup_enabled,
             write_tags=self.write_tags,
+            album_mode=self.album_mode,
             threshold=self.threshold,
             max_length=self.max_length,
             fpcalc_path=self.fpcalc_path,
@@ -372,6 +374,7 @@ class FingerprinterApp(UIHelperMixin):
                 threshold=threshold,
                 max_length=max_length,
                 fpcalc_path=self.fpcalc_path.get().strip(),
+                album_mode=self.album_mode.get(),
             )
             threading.Thread(target=self._run, args=(params,), daemon=True).start()
 
@@ -400,6 +403,7 @@ class FingerprinterApp(UIHelperMixin):
             f"Mode: {'DRY RUN' if is_dry_run else 'LIVE UPDATE'}\n",
             f"Lookup: {'ON' if params.lookup_enabled else 'OFF'}\n",
             f"Write Tags: {'ON' if params.write_tags else 'OFF'}\n",
+            f"Album Match: {'ON' if params.album_mode else 'OFF'}\n",
             f"Min Score: {params.threshold}\n",
             f"Max Length: {params.max_length} sec\n",
             f"Input Directory: {input_dir}\n",
@@ -464,9 +468,15 @@ class FingerprinterApp(UIHelperMixin):
             f"No match: {counts['no_match']}\n",
             f"Tags written: {counts['tagged']}\n",
             f"Lookup skipped: {counts['lookup_skipped']}\n",
-            f"Errors: {counts['errors']}\n",
-            f"Time: {minutes:02d}:{seconds:02d}\n",
         ]
+        if counts.get("album_ambiguous"):
+            summary.append(f"Album ambiguous: {counts['album_ambiguous']}\n")
+        summary.extend(
+            [
+                f"Errors: {counts['errors']}\n",
+                f"Time: {minutes:02d}:{seconds:02d}\n",
+            ]
+        )
 
         try:
             with open(self._log_path, "w", encoding="utf-8") as f:
@@ -486,6 +496,8 @@ class FingerprinterApp(UIHelperMixin):
             f"Tags Written: {counts['tagged']}\n"
             f"Errors: {counts['errors']}"
         )
+        if counts.get("album_ambiguous"):
+            summary_text += f"\nAlbum Ambiguous: {counts['album_ambiguous']}"
         self.summary_label.config(text=summary_text)
         self.completion_label.config(text="Fingerprinting Complete!")
 

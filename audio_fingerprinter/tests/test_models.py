@@ -6,6 +6,7 @@ from audio_fingerprinter.core.models import (
     FingerprintFileResult,
     FingerprintParams,
     LookupResult,
+    ReleaseGroup,
 )
 
 
@@ -37,6 +38,33 @@ class TestAcoustidRecording:
         assert d["title"] == "Song"
         assert d["score"] == 0.9
 
+    def test_release_groups_default_empty(self):
+        rec = AcoustidRecording("a", "b", "Song", score=0.9)
+        assert rec.release_groups == ()
+
+    def test_to_dict_includes_release_groups(self):
+        rec = AcoustidRecording(
+            acoustid_id="a1",
+            recording_id="b2",
+            title="Song",
+            release_groups=(ReleaseGroup("rg-1", "Album Title"),),
+        )
+        d = rec.to_dict()
+        assert list(d["release_groups"]) == [
+            {"release_group_id": "rg-1", "title": "Album Title"}
+        ]
+
+
+class TestReleaseGroup:
+    def test_construction_and_to_dict(self):
+        group = ReleaseGroup(release_group_id="rg-1", title="Album")
+        assert group.release_group_id == "rg-1"
+        assert group.title == "Album"
+        assert group.to_dict() == {"release_group_id": "rg-1", "title": "Album"}
+
+    def test_title_defaults_empty(self):
+        assert ReleaseGroup("rg-2").title == ""
+
 
 class TestLookupResult:
     def test_best_match_returns_first(self):
@@ -67,12 +95,16 @@ class TestFingerprintParams:
         assert p.max_length == 120
         assert p.fpcalc_path == ""
         assert p.requests_per_second == 1.0
+        assert p.album_mode is False
+        assert p.album_min == 3
 
     def test_to_dict_roundtrip(self):
         p = FingerprintParams(threshold=0.7, max_length=180)
         d = p.to_dict()
         assert d["threshold"] == 0.7
         assert d["max_length"] == 180
+        assert d["album_mode"] is False
+        assert d["album_min"] == 3
 
 
 class TestFingerprintFileResult:

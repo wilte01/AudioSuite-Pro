@@ -33,9 +33,20 @@ from audio_suite_shared.file_processor_base import BaseFileProcessor
 from audio_suite_shared.tag_helper_reader import read_artist_title
 
 from .acoustid_client import AcoustidClient, resolve_best_match
+from .album_cluster import (
+    AlbumFile,
+    AlbumFileDecision,
+    group_albums,
+    resolve_album,
+)
 from .exceptions import FingerprintError
 from .fingerprinter import generate_fingerprint, resolve_fpcalc
-from .models import AcoustidRecording, FingerprintFileResult, FingerprintParams
+from .models import (
+    AcoustidRecording,
+    Fingerprint,
+    FingerprintFileResult,
+    FingerprintParams,
+)
 from .tag_writer import write_acoustid_tags
 
 logger = logging.getLogger(__name__)
@@ -67,7 +78,34 @@ def _result_display(result: FingerprintFileResult) -> str:
         return f"[ERROR] {result.filename}: {result.message}"
     if result.status in {"MATCHED", "TAGGED", "TAG WRITE FAILED"}:
         return f"[{result.status}] {result.filename} — {result.message}"
+    if result.status == "ALBUM AMBIGUOUS":
+        return f"[ALBUM AMBIGUOUS] {result.filename} — {result.message}"
     return f"[{result.status}] {result.filename}"
+
+
+def _match_message(
+    best: AcoustidRecording,
+    ambiguous: bool,
+    tag_resolved: bool,
+    recordings: tuple[AcoustidRecording, ...],
+) -> str:
+    """Build the per-file match detail, surfacing ambiguity by convention.
+
+    Near-ties that the file tags settled are marked "matched file tags";
+    unresolved near-ties surface the runner-up candidate in the message.
+    """
+    title = f"{best.title}" + (f" — {best.artist}" if best.artist else "")
+    message = f"{title or best.recording_id} (score {best.score:.2f})"
+    if tag_resolved:
+        message += "; matched file tags"
+    elif ambiguous and len(recordings) > 1:
+        runner = recordings[1]
+        runner_text = f"{runner.title}" + (
+            f" — {runner.artist}" if runner.artist else ""
+        )
+        if runner_text:
+            message += f"; ambiguous — also {runner_text} (score {runner.score:.2f})"
+    return message
 
 
 def _fingerprint_worker(job: _FingerprintJob) -> None:
@@ -170,6 +208,19 @@ def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult
             message="Lookup disabled.",
         )
 
+    if job.params.album_mode:
+        # Album mode defers lookup and matching to the post-batch cluster
+        # phase — clustering needs every folder's lookups in hand before
+        # it can decide anything.
+        return FingerprintFileResult(
+            file_path=full_path,
+            filename=job.filename,
+            duration=fingerprint.duration,
+            fingerprint=fingerprint.fingerprint,
+            status="ANALYSED",
+            message="Fingerprint ready for album matching.",
+        )
+
     lookup = client.lookup(fingerprint.fingerprint, int(fingerprint.duration))
     if lookup.status == "error":
         return FingerprintFileResult(
@@ -198,18 +249,7 @@ def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult
             message="No candidate above the score threshold.",
         )
 
-    title = f"{best.title}" + (f" — {best.artist}" if best.artist else "")
-    match_text = title or best.recording_id
-    message = f"{match_text} (score {best.score:.2f})"
-    if tag_resolved:
-        message += "; matched file tags"
-    elif ambiguous:
-        runner = lookup.recordings[1]
-        runner_text = f"{runner.title}" + (
-            f" — {runner.artist}" if runner.artist else ""
-        )
-        if runner_text:
-            message += f"; ambiguous — also {runner_text} (score {runner.score:.2f})"
+    message = _match_message(best, ambiguous, tag_resolved, lookup.recordings)
     result = FingerprintFileResult(
         file_path=full_path,
         filename=job.filename,
@@ -270,6 +310,7 @@ def _summarise_results(
         "no_match": 0,
         "tagged": 0,
         "lookup_skipped": 0,
+        "album_ambiguous": 0,
         "errors": 0,
     }
     for result in results:
@@ -286,7 +327,266 @@ def _summarise_results(
             counts["no_match"] += 1
         elif result.status == "LOOKUP SKIPPED":
             counts["lookup_skipped"] += 1
+        elif result.status == "ALBUM AMBIGUOUS":
+            counts["album_ambiguous"] += 1
     return counts
+
+
+def _finalize_album_file(
+    result: FingerprintFileResult,
+    best: AcoustidRecording | None,
+    unmatched_status: str,
+    message: str,
+    recordings: tuple[AcoustidRecording, ...],
+    write_enabled: bool,
+    undo_batch: str | None,
+) -> FingerprintFileResult:
+    """Apply one album decision to a file, writing tags when enabled.
+
+    Args:
+        result: The interim ``ANALYSED`` result for the file.
+        best: The cluster-chosen candidate (``None`` leaves the file
+            untagged with ``unmatched_status``).
+        unmatched_status: Status for the ``best is None`` case
+            (``"NO MATCH"`` or ``"ALBUM AMBIGUOUS"``).
+        message: Final per-file status message.
+        recordings: The file's full filtered candidate list.
+        write_enabled: Whether tags should be written (live + enabled).
+        undo_batch: Active undo batch id for the tag snapshot.
+
+    Returns:
+        The final ``FingerprintFileResult`` (MATCHED / TAGGED /
+        TAG WRITE FAILED / NO MATCH / ALBUM AMBIGUOUS).
+    """
+    if best is None or not best.recording_id:
+        return FingerprintFileResult(
+            file_path=result.file_path,
+            filename=result.filename,
+            duration=result.duration,
+            fingerprint=result.fingerprint,
+            status=unmatched_status,
+            message=message,
+            recordings=recordings,
+        )
+
+    if not write_enabled:
+        return FingerprintFileResult(
+            file_path=result.file_path,
+            filename=result.filename,
+            duration=result.duration,
+            fingerprint=result.fingerprint,
+            status="MATCHED",
+            message=message,
+            acoustid_id=best.acoustid_id,
+            recordings=recordings,
+        )
+
+    with use_batch(undo_batch):
+        ok, msg = write_acoustid_tags(
+            result.file_path, result.fingerprint, best.acoustid_id
+        )
+    if not ok:
+        return FingerprintFileResult(
+            file_path=result.file_path,
+            filename=result.filename,
+            duration=result.duration,
+            fingerprint=result.fingerprint,
+            status="TAG WRITE FAILED",
+            message=f"{message} — {msg}",
+            acoustid_id=best.acoustid_id,
+            recordings=recordings,
+        )
+    return FingerprintFileResult(
+        file_path=result.file_path,
+        filename=result.filename,
+        duration=result.duration,
+        fingerprint=result.fingerprint,
+        status="TAGGED",
+        message=message,
+        acoustid_id=best.acoustid_id,
+        recordings=recordings,
+        tag_written=True,
+    )
+
+
+def _apply_album_decision(
+    file: AlbumFile,
+    decision: AlbumFileDecision,
+) -> tuple[str, AcoustidRecording | None, str]:
+    """Map one album decision to a result status, candidate, and message.
+
+    Args:
+        file: The clustered file (its candidates feed the message).
+        decision: The cluster's outcome for this file.
+
+    Returns:
+        Tuple ``(status, best, message)`` — *best* is ``None`` for the
+        untagged outcomes (NO MATCH / ALBUM AMBIGUOUS).
+    """
+    if decision.outcome == "ambiguous":
+        return (
+            "ALBUM AMBIGUOUS",
+            None,
+            f"album ambiguous — {decision.cluster_title}; left untagged",
+        )
+    if decision.outcome == "fallback" and decision.best is None:
+        return (
+            "NO MATCH",
+            None,
+            "No candidate above the score threshold.",
+        )
+    if decision.best is None:
+        # Defensive: cluster and surviving-fallback outcomes always
+        # carry a candidate; log rather than silently mislabel the file.
+        logger.warning(
+            "Album decision %r for %s carried no candidate.",
+            decision.outcome,
+            file.file_path,
+        )
+        return (
+            "NO MATCH",
+            None,
+            "No candidate above the score threshold.",
+        )
+    if decision.outcome == "cluster":
+        message = (
+            f"{_match_message(decision.best, False, False, file.recordings)}"
+            f"; album consensus {decision.cluster_title}"
+        )
+    else:
+        message = _match_message(
+            decision.best,
+            decision.ambiguous,
+            decision.tag_resolved,
+            file.recordings,
+        )
+    return "MATCHED", decision.best, message
+
+
+def _run_album_phase(
+    results: list[FingerprintFileResult],
+    client: AcoustidClient,
+    params: FingerprintParams,
+    undo_batch: str | None,
+    processed: list[int],
+    errors: list[int],
+    on_progress: Callable[..., None],
+    on_error: Callable[[str], None],
+) -> tuple[bool, list[str]]:
+    """Cluster the analysed files per folder and apply the decisions.
+
+    Phase two of album match mode: the parallel batch produced
+    ``ANALYSED`` results (fingerprint only); this phase looks every
+    pending file up through ``lookup_many``, clusters each folder by
+    MusicBrainz release group, and replaces the interim results with
+    the final statuses (cluster matches, per-file fallbacks, album
+    ambiguities).  Display lines stream through ``on_progress`` without
+    touching the already-final processed count.
+
+    Args:
+        results: Shared results list; interim entries are replaced.
+        client: The rate-limited AcoustID client.
+        params: Runtime parameters (``album_min`` used here).
+        undo_batch: Active undo batch id for tag snapshots.
+        processed: Mutable single-element processed counter.
+        errors: Mutable single-element error counter.
+        on_progress: The run-level progress callback.
+        on_error: Fatal-error callback.
+
+    Returns:
+        Tuple ``(ok, report_lines)``.  ``ok`` is False after a fatal
+        lookup failure (``on_error`` has then already been called and
+        the caller must abort); ``report_lines`` carries the per-album
+        cluster summary for the run report.
+    """
+    pending = [r for r in results if r.status == "ANALYSED"]
+    if not pending:
+        return True, []
+
+    def _display(text: str) -> None:
+        on_progress(
+            processed=processed[0],
+            total=len(results),
+            errors=errors[0],
+            display_text=text,
+        )
+
+    def _lookup_progress(done: int, count: int) -> None:
+        _display(f"[ALBUM LOOKUP] {done}/{count} files")
+
+    try:
+        lookups = client.lookup_many(
+            [
+                Fingerprint(duration=r.duration, fingerprint=r.fingerprint)
+                for r in pending
+            ],
+            on_progress=_lookup_progress,
+        )
+    except FingerprintError as exc:
+        logger.error("Album-mode lookup failed: %s", exc, exc_info=True)
+        on_error(user_message_for(exc))
+        return False, []
+
+    finals: dict[str, FingerprintFileResult] = {}
+    entries: list[tuple[FingerprintFileResult, AlbumFile]] = []
+    for result, lookup in zip(pending, lookups, strict=True):
+        if lookup.status == "error":
+            errors[0] += 1
+            finals[result.file_path] = FingerprintFileResult(
+                file_path=result.file_path,
+                filename=result.filename,
+                duration=result.duration,
+                fingerprint=result.fingerprint,
+                status="ERROR",
+                message=lookup.error or "AcoustID lookup failed.",
+            )
+            continue
+        try:
+            artist_tag, title_tag = read_artist_title(result.file_path)
+        except (OSError, AudioSuiteError) as exc:
+            logger.warning("Could not read tags from %s: %s", result.file_path, exc)
+            artist_tag, title_tag = "", ""
+        entries.append(
+            (
+                result,
+                AlbumFile(
+                    file_path=result.file_path,
+                    folder_path=os.path.dirname(result.file_path),
+                    fingerprint=result.fingerprint,
+                    duration=result.duration,
+                    artist_tag=artist_tag,
+                    title_tag=title_tag,
+                    recordings=lookup.recordings,
+                ),
+            )
+        )
+
+    write_enabled = params.write_tags and not params.is_dry_run
+    report_lines: list[str] = []
+    for folder_files in group_albums([entry[1] for entry in entries]).values():
+        resolution = resolve_album(folder_files, params.album_min)
+        report_lines.append(resolution.report_line)
+        folder_by_path = {entry[1].file_path: entry for entry in entries}
+        for file, decision in zip(folder_files, resolution.decisions, strict=True):
+            interim = folder_by_path[file.file_path][0]
+            status, best, message = _apply_album_decision(file, decision)
+            finals[interim.file_path] = _finalize_album_file(
+                interim,
+                best,
+                status,
+                message,
+                file.recordings,
+                write_enabled,
+                undo_batch,
+            )
+
+    for idx, result in enumerate(results):
+        final = finals.get(result.file_path)
+        if final is not None:
+            results[idx] = final
+            _display(_result_display(final))
+
+    return True, report_lines
 
 
 @handle_audio_errors(reraise=False, context="fingerprint_run")
@@ -414,13 +714,35 @@ def run_fingerprinting(
 
     processor.process_batch(jobs, _fingerprint_worker, max_workers=DEFAULT_MAX_WORKERS)
 
+    report_lines: list[str] = []
+    if params.album_mode and client is not None:
+        ok, report_lines = _run_album_phase(
+            results,
+            client,
+            params,
+            undo_batch,
+            processed,
+            errors,
+            on_progress,
+            on_error,
+        )
+        if not ok:
+            return
+
     log_entries: list[str] = []
+    for line in report_lines:
+        log_entries.append(f"{line}\n")
     for result in sorted(results, key=lambda r: r.file_path):
         if result.status == "ERROR":
             log_entries.append(f"[ERROR] {result.filename}\n    {result.message}\n")
         elif result.status == "LOOKUP SKIPPED":
             log_entries.append(f"[LOOKUP SKIPPED] {result.filename}\n")
-        elif result.status in {"MATCHED", "TAGGED", "TAG WRITE FAILED"}:
+        elif result.status in {
+            "MATCHED",
+            "TAGGED",
+            "TAG WRITE FAILED",
+            "ALBUM AMBIGUOUS",
+        }:
             log_entries.append(
                 f"[{result.status}] {result.filename}\n    {result.message}\n"
             )

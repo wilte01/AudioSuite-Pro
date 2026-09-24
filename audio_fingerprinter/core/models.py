@@ -27,6 +27,23 @@ class Fingerprint:
 
 
 @dataclass(frozen=True)
+class ReleaseGroup:
+    """A MusicBrainz release group a recording candidate appears on.
+
+    Attributes:
+        release_group_id: MusicBrainz release-group MBID (the album-level
+            clustering key in album match mode).
+        title: Release-group title as reported by the service (display only).
+    """
+
+    release_group_id: str
+    title: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class AcoustidRecording:
     """A single recording candidate returned by the AcoustID lookup.
 
@@ -38,6 +55,9 @@ class AcoustidRecording:
         artist: Artist name (album-artist joinphrase is a precomputed string).
         score: AcoustID match score in the range 0.0-1.0.
         duration: Recording duration in seconds when the API reported it.
+        release_groups: MusicBrainz release groups the recording appears
+            on (empty when the service reported no release metadata) —
+            the clustering key for album match mode.
     """
 
     acoustid_id: str
@@ -46,6 +66,7 @@ class AcoustidRecording:
     artist: str = ""
     score: float = 0.0
     duration: int | None = None
+    release_groups: tuple[ReleaseGroup, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -92,6 +113,10 @@ class FingerprintParams:
         fpcalc_path: Explicit ``fpcalc`` binary path; empty resolves via env
             var ``FPCALC`` then ``shutil.which``.
         requests_per_second: Max AcoustID API request rate (per process).
+        album_mode: Cluster each folder's lookups by MusicBrainz release
+            group; tag files only when the folder's album is decided.
+        album_min: Minimum files voting for one release group before an
+            album cluster can form (album match mode only).
     """
 
     lookup_enabled: bool = True
@@ -101,6 +126,8 @@ class FingerprintParams:
     max_length: int = 120
     fpcalc_path: str = ""
     requests_per_second: float = 1.0
+    album_mode: bool = False
+    album_min: int = 3
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -114,8 +141,11 @@ class FingerprintFileResult:
     Attributes:
         file_path: Absolute path of the processed file.
         filename: Basename used in the progress listbox.
-        status: One of ``"IDENTIFIED"``, ``"NO MATCH"``, ``"LOOKUP SKIPPED"``,
-            ``"TAGGED"``, or ``"ERROR"``.
+        status: One of ``"IDENTIFIED"``, ``"MATCHED"``, ``"NO MATCH"``,
+            ``"LOOKUP SKIPPED"``, ``"ANALYSED"`` (album mode: fingerprint
+            ready, awaiting the album decision), ``"ALBUM AMBIGUOUS"``
+            (album mode: cluster tie, left untagged), ``"TAGGED"``,
+            ``"TAG WRITE FAILED"``, or ``"ERROR"``.
         message: Short human-readable detail (e.g. the error text, or the
             matched artist / title with its AcoustID score).
         duration: fpcalc-reported file duration.

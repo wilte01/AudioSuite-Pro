@@ -50,6 +50,20 @@ from .core.models import FingerprintParams
     default=None,
     help="AcoustID API key (overrides stored/env key for this run).",
 )
+@click.option(
+    "--album-mode/--no-album-mode",
+    default=False,
+    help=(
+        "Cluster each folder's lookups by MusicBrainz release group and "
+        "tag only when the album is decided (ambiguous albums stay untagged)."
+    ),
+)
+@click.option(
+    "--album-min",
+    default=3,
+    type=click.IntRange(min=1),
+    help="Minimum files voting for one release group to form an album cluster.",
+)
 def fingerprint(
     directory: str,
     dry_run: bool,
@@ -60,6 +74,8 @@ def fingerprint(
     max_length: int,
     fpcalc: str | None,
     api_key: str | None,
+    album_mode: bool,
+    album_min: int,
 ) -> None:
     """Generate Chromaprint fingerprints and identify tracks via AcoustID."""
     from .core.file_processor import run_fingerprinting
@@ -81,6 +97,8 @@ def fingerprint(
         threshold=threshold,
         max_length=max_length,
         fpcalc_path=fpcalc or "",
+        album_mode=album_mode,
+        album_min=album_min,
     )
 
     with active_batch("audio_fingerprinter", "tag_edit"):

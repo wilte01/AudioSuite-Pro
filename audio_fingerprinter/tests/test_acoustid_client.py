@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,7 +14,11 @@ from audio_fingerprinter.core.acoustid_client import (
     resolve_best_match,
 )
 from audio_fingerprinter.core.exceptions import AcoustidApiError, AcoustidAuthError
-from audio_fingerprinter.core.models import AcoustidRecording, LookupResult
+from audio_fingerprinter.core.models import (
+    AcoustidRecording,
+    Fingerprint,
+    LookupResult,
+)
 
 
 def _make_response(status_code: int = 200, payload: dict | None = None) -> MagicMock:
@@ -362,3 +367,160 @@ class TestDurationConsistency:
     def test_long_track_gross_mismatch_filtered(self):
         result = self._lookup(recording_duration=560, file_duration=500)
         assert result.status == "no results"
+
+
+def _payload_with_release_groups() -> dict:
+    """A lookup payload nesting release groups under releases."""
+    return {
+        "status": "ok",
+        "results": [
+            {
+                "id": "ac-1",
+                "score": 0.95,
+                "recordings": [
+                    {
+                        "id": "mb-1",
+                        "title": "Song A",
+                        "duration": 60,
+                        "releases": [
+                            {
+                                "id": "rel-1",
+                                "title": "Album One",
+                                "releasegroups": [
+                                    {"id": "rg-1", "title": "Album One"},
+                                    {"id": "rg-1", "title": "Album One (dup)"},
+                                ],
+                            },
+                            {
+                                "id": "rel-2",
+                                "title": "Compilation",
+                                "releasegroups": [
+                                    {"id": "rg-2", "title": "Compilation"}
+                                ],
+                            },
+                            {"id": "rel-bad", "title": "Malformed"},
+                            "not-a-dict",
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+class TestReleaseGroupParsing:
+    def _lookup(self, payload: dict) -> LookupResult:
+        client = AcoustidClient("key", min_score=0.5)
+        resp = _make_response(200, payload)
+        with patch.object(client._session, "post", return_value=resp):
+            return client.lookup("fp", 60)
+
+    def test_release_groups_parsed_from_releases(self):
+        result = self._lookup(_payload_with_release_groups())
+        best = result.best_match
+        assert best is not None
+        ids = [g.release_group_id for g in best.release_groups]
+        titles = [g.title for g in best.release_groups]
+        assert ids == ["rg-1", "rg-2"]
+        assert titles == ["Album One", "Compilation"]
+
+    def test_release_groups_absent_payload(self):
+        payload = {
+            "status": "ok",
+            "results": [
+                {
+                    "id": "ac-1",
+                    "score": 0.9,
+                    "recordings": [{"id": "mb-1", "title": "Song", "duration": 60}],
+                }
+            ],
+        }
+        result = self._lookup(payload)
+        best = result.best_match
+        assert best is not None
+        assert best.release_groups == ()
+
+    def test_malformed_release_metadata_ignored(self):
+        payload = _payload_with_release_groups()
+        rec = payload["results"][0]["recordings"][0]
+        rec["releases"] = ["not-a-dict", {"id": "x", "releasegroups": "bad"}]
+        result = self._lookup(payload)
+        best = result.best_match
+        assert best is not None
+        assert best.release_groups == ()
+
+
+class TestLookupMany:
+    def _client(self, requests_per_second: float = 1000.0) -> AcoustidClient:
+        return AcoustidClient(
+            "key", min_score=0.5, requests_per_second=requests_per_second
+        )
+
+    @staticmethod
+    def _fps(count: int) -> list[Fingerprint]:
+        return [Fingerprint(duration=60.0, fingerprint=f"fp-{i}") for i in range(count)]
+
+    def test_results_aligned_with_input_order(self):
+        client = self._client()
+        recorded = [
+            LookupResult(status="ok", recordings=(_rec(f"Song {i}", score=0.9),))
+            for i in range(3)
+        ]
+        with patch.object(client, "lookup", side_effect=recorded) as mock_lookup:
+            results = client.lookup_many(self._fps(3))
+        assert results == recorded
+        assert mock_lookup.call_args_list[0].args == ("fp-0", 60)
+        assert mock_lookup.call_args_list[2].args == ("fp-2", 60)
+
+    def test_empty_input_returns_empty(self):
+        client = self._client()
+        progress = MagicMock()
+        with patch.object(client, "lookup") as mock_lookup:
+            results = client.lookup_many([], on_progress=progress)
+        assert results == []
+        mock_lookup.assert_not_called()
+        progress.assert_not_called()
+
+    def test_every_request_goes_through_the_rate_limiter(self):
+        client = self._client()
+        resp = _make_response(200, {"status": "ok", "results": []})
+        with patch.object(client._session, "post", return_value=resp):
+            with patch.object(client._rate_limiter, "wait_for_slot") as mock_slot:
+                client.lookup_many(self._fps(4))
+        assert mock_slot.call_count == 4
+
+    def test_requests_are_rate_limited_in_time(self):
+        client = self._client(requests_per_second=50.0)  # 20 ms spacing
+        resp = _make_response(200, {"status": "ok", "results": []})
+        start = time.monotonic()
+        with patch.object(client._session, "post", return_value=resp):
+            client.lookup_many(self._fps(3))
+        elapsed = time.monotonic() - start
+        assert elapsed >= 0.04, f"limiter spacing not enforced ({elapsed:.4f}s)"
+
+    def test_progress_reported_per_batch(self):
+        client = self._client()
+        recorded = [LookupResult(status="no results") for _ in range(7)]
+        progress = MagicMock()
+        with patch.object(client, "lookup", side_effect=recorded):
+            client.lookup_many(self._fps(7), on_progress=progress)
+        assert [c.args for c in progress.call_args_list] == [(5, 7), (7, 7)]
+
+    def test_per_file_api_error_becomes_error_result(self):
+        client = self._client()
+        ok = _make_response(200, {"status": "ok", "results": []})
+        boom = _make_response(500)
+        responses = [ok, boom, ok]
+        with patch.object(client._session, "post", side_effect=responses):
+            results = client.lookup_many(self._fps(3))
+        assert results[0].status == "no results"
+        assert results[1].status == "error"
+        assert "HTTP 500" in results[1].error
+        assert results[2].status == "no results"
+
+    def test_auth_error_propagates_and_aborts(self):
+        client = self._client()
+        rejected = _make_response(401)
+        with patch.object(client._session, "post", return_value=rejected):
+            with pytest.raises(AcoustidAuthError):
+                client.lookup_many(self._fps(3))

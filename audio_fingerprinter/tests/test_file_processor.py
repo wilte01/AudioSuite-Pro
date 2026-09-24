@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from queue import Queue
 from typing import Any
@@ -20,8 +21,11 @@ from audio_fingerprinter.core.file_processor import (
 )
 from audio_fingerprinter.core.models import (
     AcoustidRecording,
+    Fingerprint,
     FingerprintFileResult,
     FingerprintParams,
+    LookupResult,
+    ReleaseGroup,
 )
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 
@@ -229,6 +233,7 @@ class TestSummariseResults:
         counts = _summarise_results([])
         assert counts["identified"] == 0
         assert counts["errors"] == 0
+        assert counts["album_ambiguous"] == 0
 
     def test_counts_statuses(self):
         results = [
@@ -242,6 +247,9 @@ class TestSummariseResults:
             FingerprintFileResult(
                 file_path="f", filename="f.mp3", status="TAG WRITE FAILED"
             ),
+            FingerprintFileResult(
+                file_path="g", filename="g.mp3", status="ALBUM AMBIGUOUS"
+            ),
         ]
         counts = _summarise_results(results)
         assert counts["identified"] == 2
@@ -249,6 +257,7 @@ class TestSummariseResults:
         assert counts["no_match"] == 1
         assert counts["lookup_skipped"] == 1
         assert counts["errors"] == 2
+        assert counts["album_ambiguous"] == 1
 
 
 class TestFingerprintProcessor:
@@ -288,6 +297,18 @@ class TestResultDisplay:
             file_path="x", filename="a.mp3", status="NO MATCH"
         )
         assert _result_display(result) == "[NO MATCH] a.mp3"
+
+    def test_album_ambiguous_line_includes_message(self):
+        result = FingerprintFileResult(
+            file_path="x",
+            filename="a.mp3",
+            status="ALBUM AMBIGUOUS",
+            message="album ambiguous — A vs B; left untagged",
+        )
+        assert (
+            _result_display(result)
+            == "[ALBUM AMBIGUOUS] a.mp3 — album ambiguous — A vs B; left untagged"
+        )
 
 
 class TestFingerprintWorker:
@@ -389,3 +410,401 @@ class TestRunFingerprinting:
         error.assert_not_called()
         texts = [c.kwargs.get("display_text") for c in progress.call_args_list]
         assert any(t and t.startswith("[ERROR]") for t in texts)
+
+
+_ALBUM = ReleaseGroup("rg-album", "The Album")
+_OTHER = ReleaseGroup("rg-other", "Other Album")
+
+
+def _rg_rec(
+    recording_id: str,
+    score: float,
+    groups: tuple[ReleaseGroup, ...],
+    title: str = "Song",
+    artist: str = "Artist",
+) -> AcoustidRecording:
+    return AcoustidRecording(
+        acoustid_id=f"ac-{recording_id}",
+        recording_id=recording_id,
+        title=title,
+        artist=artist,
+        score=score,
+        duration=60,
+        release_groups=groups,
+    )
+
+
+def _patch_fingerprint_by_name():
+    """Patch generate_fingerprint to a distinct Fingerprint per file."""
+    return patch(
+        "audio_fingerprinter.core.file_processor.generate_fingerprint",
+        side_effect=lambda path, **_kw: Fingerprint(
+            duration=60.0, fingerprint=f"fp-{os.path.basename(path)}"
+        ),
+    )
+
+
+def _mock_client(responses_by_fp: dict[str, LookupResult]) -> MagicMock:
+    """A client stub whose lookup_many answers by fingerprint string."""
+    client = MagicMock(name="AcoustidClient")
+
+    def _lookup_many(fps, on_progress=None):
+        results = [responses_by_fp[fp.fingerprint] for fp in fps]
+        if on_progress is not None:
+            on_progress(len(fps), len(fps))
+        return results
+
+    client.lookup_many.side_effect = _lookup_many
+    return client
+
+
+def _run_album(
+    folder,
+    client: MagicMock,
+    params: FingerprintParams,
+    progress: MagicMock,
+    complete: MagicMock,
+    error: MagicMock,
+):
+    slot_q: Queue[int] = Queue()
+    for i in range(DEFAULT_MAX_WORKERS):
+        slot_q.put(i)
+    with (
+        _patch_fingerprint_by_name(),
+        patch(
+            "audio_fingerprinter.core.file_processor.resolve_fpcalc",
+            return_value="fpcalc",
+        ),
+        patch(
+            "audio_fingerprinter.core.file_processor.read_artist_title",
+            return_value=("Unknown", "Unknown"),
+        ),
+        patch(
+            "audio_fingerprinter.core.file_processor.AcoustidClient",
+            return_value=client,
+        ),
+    ):
+        run_fingerprinting(
+            dir_path=str(folder),
+            api_key="key",
+            params=params,
+            slot_vars=[MagicMock() for _ in range(DEFAULT_MAX_WORKERS)],
+            slot_queue=slot_q,
+            on_progress=progress,
+            on_complete=complete,
+            on_error=error,
+        )
+
+
+class TestProcessFileAlbumMode:
+    @patch("audio_fingerprinter.core.file_processor.generate_fingerprint")
+    def test_album_mode_defers_lookup_to_cluster_phase(self, mock_fp):
+        mock_fp.return_value = MagicMock(duration=60.0, fingerprint="ABC")
+        job = _make_job(params=FingerprintParams(album_mode=True))
+        result = _process_file(job, "/path/track.mp3")
+        assert result.status == "ANALYSED"
+        assert "album matching" in result.message
+        job.client.lookup.assert_not_called()
+
+    @patch("audio_fingerprinter.core.file_processor.generate_fingerprint")
+    def test_album_mode_without_key_still_skips_lookup(self, mock_fp):
+        mock_fp.return_value = MagicMock(duration=60.0, fingerprint="ABC")
+        job = _make_job(params=FingerprintParams(album_mode=True))
+        job.api_key = ""
+        result = _process_file(job, "/path/track.mp3")
+        assert result.status == "LOOKUP SKIPPED"
+
+
+class TestRunFingerprintingAlbumMode:
+    """Album mode: fingerprint in workers, cluster after the batch."""
+
+    def _album_dir(self, tmp_path, names):
+        folder = tmp_path / "album"
+        folder.mkdir()
+        for name in names:
+            (folder / name).write_bytes(b"\x00" * 100)
+        return folder
+
+    def _decided_responses(self) -> dict[str, LookupResult]:
+        """Three album votes plus one remix-topped file the cluster
+        pulls back to the album release group."""
+        responses = {
+            f"fp-{name}.mp3": LookupResult(
+                status="ok",
+                recordings=(_rg_rec(f"mb-{name}", 0.93, (_ALBUM,)),),
+            )
+            for name in ("a", "b", "c")
+        }
+        responses["fp-d.mp3"] = LookupResult(
+            status="ok",
+            recordings=(
+                _rg_rec("mb-remix", 0.984, (_OTHER,), title="Remix"),
+                _rg_rec(
+                    "mb-orig",
+                    0.947,
+                    (_ALBUM,),
+                    title="Original",
+                    artist="10cc",
+                ),
+            ),
+        )
+        return responses
+
+    def test_decided_cluster_dry_run_reports_and_defers_writes(self, tmp_path):
+        folder = self._album_dir(tmp_path, ["a.mp3", "b.mp3", "c.mp3", "d.mp3"])
+        progress, complete, error = MagicMock(), MagicMock(), MagicMock()
+        params = FingerprintParams(album_mode=True, write_tags=True, is_dry_run=True)
+        with patch(
+            "audio_fingerprinter.core.file_processor.write_acoustid_tags"
+        ) as mock_write:
+            _run_album(
+                folder,
+                _mock_client(self._decided_responses()),
+                params,
+                progress,
+                complete,
+                error,
+            )
+            mock_write.assert_not_called()
+
+        error.assert_not_called()
+        complete.assert_called_once()
+        kwargs = complete.call_args.kwargs
+        results = {os.path.basename(r.file_path): r for r in kwargs["results"]}
+        assert set(results) == {"a.mp3", "b.mp3", "c.mp3", "d.mp3"}
+        for name in ("a.mp3", "b.mp3", "c.mp3"):
+            assert results[name].status == "MATCHED"
+            assert results[name].tag_written is False
+        # The remix-topped file is pulled to the album's candidate.
+        pulled = results["d.mp3"]
+        assert pulled.status == "MATCHED"
+        assert pulled.acoustid_id == "ac-mb-orig"
+        assert "album consensus The Album" in pulled.message
+        assert "Remix" not in pulled.message
+        # The per-album report line is present.
+        assert any(
+            line.startswith("[ALBUM]") and "decided — The Album" in line
+            for line in kwargs["log_entries"]
+        )
+        assert kwargs["counts"]["identified"] == 4
+        assert kwargs["counts"]["album_ambiguous"] == 0
+
+    def test_ambiguous_album_leaves_files_untagged_with_runner_up(self, tmp_path):
+        folder = self._album_dir(
+            tmp_path, ["a.mp3", "b.mp3", "c.mp3", "d.mp3", "e.mp3", "f.mp3"]
+        )
+        responses = {
+            f"fp-{name}.mp3": LookupResult(
+                status="ok",
+                recordings=(
+                    _rg_rec(f"mb-{name}", 0.90, (_ALBUM if i < 3 else _OTHER,)),
+                ),
+            )
+            for i, name in enumerate("abcdef")
+        }
+        progress, complete, error = MagicMock(), MagicMock(), MagicMock()
+        params = FingerprintParams(album_mode=True, write_tags=True, is_dry_run=False)
+        with patch(
+            "audio_fingerprinter.core.file_processor.write_acoustid_tags"
+        ) as mock_write:
+            _run_album(
+                folder, _mock_client(responses), params, progress, complete, error
+            )
+            mock_write.assert_not_called()
+
+        error.assert_not_called()
+        kwargs = complete.call_args.kwargs
+        assert all(r.status == "ALBUM AMBIGUOUS" for r in kwargs["results"])
+        for result in kwargs["results"]:
+            assert "album ambiguous — The Album vs Other Album" in result.message
+            assert result.tag_written is False
+        assert kwargs["counts"]["album_ambiguous"] == 6
+        assert any(
+            "ambiguous" in line and "left untagged" in line
+            for line in kwargs["log_entries"]
+            if line.startswith("[ALBUM]")
+        )
+
+    def test_below_minimum_falls_back_to_per_file_matching(self, tmp_path):
+        folder = self._album_dir(tmp_path, ["a.mp3", "b.mp3"])
+        responses = {
+            f"fp-{name}.mp3": LookupResult(
+                status="ok",
+                recordings=(_rg_rec(f"mb-{name}", 0.9, (_ALBUM,)),),
+            )
+            for name in "ab"
+        }
+        progress, complete, error = MagicMock(), MagicMock(), MagicMock()
+        _run_album(
+            folder,
+            _mock_client(responses),
+            FingerprintParams(album_mode=True, album_min=3),
+            progress,
+            complete,
+            error,
+        )
+        error.assert_not_called()
+        kwargs = complete.call_args.kwargs
+        assert len(kwargs["results"]) == 2
+        for result in kwargs["results"]:
+            assert result.status == "MATCHED"
+            assert "album consensus" not in result.message
+            assert "(score 0.90)" in result.message
+        assert any(
+            "3-file minimum" in line
+            for line in kwargs["log_entries"]
+            if line.startswith("[ALBUM]")
+        )
+
+    def test_per_file_lookup_error_counts_as_error(self, tmp_path):
+        folder = self._album_dir(tmp_path, ["a.mp3", "b.mp3", "c.mp3"])
+        responses = {
+            f"fp-{name}.mp3": LookupResult(
+                status="ok",
+                recordings=(_rg_rec(f"mb-{name}", 0.9, (_ALBUM,)),),
+            )
+            for name in "abc"
+        }
+        responses["fp-b.mp3"] = LookupResult(
+            status="error", error="AcoustID returned HTTP 500."
+        )
+        progress, complete, error = MagicMock(), MagicMock(), MagicMock()
+        _run_album(
+            folder,
+            _mock_client(responses),
+            FingerprintParams(album_mode=True),
+            progress,
+            complete,
+            error,
+        )
+        error.assert_not_called()
+        kwargs = complete.call_args.kwargs
+        by_name = {os.path.basename(r.file_path): r for r in kwargs["results"]}
+        assert by_name["b.mp3"].status == "ERROR"
+        assert "HTTP 500" in by_name["b.mp3"].message
+        # The other two files still form a below-minimum fallback... they
+        # are only 2 votes, so both fall back to per-file matching.
+        assert by_name["a.mp3"].status == "MATCHED"
+        assert kwargs["errors"] == 1
+
+    def test_auth_failure_aborts_run_with_on_error(self, tmp_path):
+        folder = self._album_dir(tmp_path, ["a.mp3", "b.mp3"])
+        client = MagicMock(name="AcoustidClient")
+        from audio_fingerprinter.core.exceptions import AcoustidAuthError
+
+        client.lookup_many.side_effect = AcoustidAuthError(
+            "AcoustID rejected the application API key (HTTP 401)."
+        )
+        progress, complete, error = MagicMock(), MagicMock(), MagicMock()
+        _run_album(
+            folder,
+            client,
+            FingerprintParams(album_mode=True),
+            progress,
+            complete,
+            error,
+        )
+        error.assert_called_once()
+        complete.assert_not_called()
+
+
+class TestAlbumModeRealOutcome:
+    """Decode-and-measure: real MP3 files, real tag writes, tags read
+    back with mutagen — the decided cluster must actually write the
+    cluster-chosen Acoustid Id per file, and a Dry Run must not."""
+
+    @staticmethod
+    def _make_album(tmp_path, names):
+        from pydub import AudioSegment
+
+        folder = tmp_path / "album"
+        folder.mkdir()
+        for name in names:
+            AudioSegment.silent(duration=300).export(str(folder / name), format="mp3")
+        return folder
+
+    @staticmethod
+    def _acoustid_tags(path) -> dict[str, str]:
+        import mutagen
+
+        audio = mutagen.File(str(path))
+        assert audio is not None and audio.tags is not None
+        return {str(tag.desc): str(tag) for tag in audio.tags.getall("TXXX")}
+
+    def _responses(self, names) -> dict[str, LookupResult]:
+        return {
+            f"fp-{name}": LookupResult(
+                status="ok",
+                recordings=(_rg_rec(f"mb-{name}", 0.93, (_ALBUM,)),),
+            )
+            for name in names
+        }
+
+    def test_decided_cluster_writes_real_tags(self, tmp_path):
+        names = ["a.mp3", "b.mp3", "c.mp3"]
+        folder = self._make_album(tmp_path, names)
+        progress, complete, error = MagicMock(), MagicMock(), MagicMock()
+        _run_album(
+            folder,
+            _mock_client(self._responses(names)),
+            FingerprintParams(album_mode=True, write_tags=True, is_dry_run=False),
+            progress,
+            complete,
+            error,
+        )
+        error.assert_not_called()
+        kwargs = complete.call_args.kwargs
+        assert kwargs["counts"]["tagged"] == 3
+        for name in names:
+            tags = self._acoustid_tags(folder / name)
+            assert tags["Acoustid Id"] == f"ac-mb-{name}", (
+                f"cluster-decided Acoustid Id missing on {name}"
+            )
+            assert tags["Acoustid Fingerprint"] == f"fp-{name}"
+
+    def test_dry_run_writes_no_tags(self, tmp_path):
+        names = ["a.mp3", "b.mp3", "c.mp3"]
+        folder = self._make_album(tmp_path, names)
+        progress, complete, error = MagicMock(), MagicMock(), MagicMock()
+        _run_album(
+            folder,
+            _mock_client(self._responses(names)),
+            FingerprintParams(album_mode=True, write_tags=True, is_dry_run=True),
+            progress,
+            complete,
+            error,
+        )
+        error.assert_not_called()
+        assert complete.call_args.kwargs["counts"]["tagged"] == 0
+        for name in names:
+            assert "Acoustid Id" not in self._acoustid_tags(folder / name)
+
+    def test_ambiguous_album_writes_no_tags(self, tmp_path):
+        names = [f"{ch}.mp3" for ch in "abcdef"]
+        folder = self._make_album(tmp_path, names)
+        responses = {
+            f"fp-{name}": LookupResult(
+                status="ok",
+                recordings=(
+                    _rg_rec(
+                        f"mb-{name}",
+                        0.90,
+                        (_ALBUM if i < 3 else _OTHER,),
+                    ),
+                ),
+            )
+            for i, name in enumerate(names)
+        }
+        progress, complete, error = MagicMock(), MagicMock(), MagicMock()
+        _run_album(
+            folder,
+            _mock_client(responses),
+            FingerprintParams(album_mode=True, write_tags=True, is_dry_run=False),
+            progress,
+            complete,
+            error,
+        )
+        error.assert_not_called()
+        assert complete.call_args.kwargs["counts"]["tagged"] == 0
+        for name in names:
+            assert "Acoustid Id" not in self._acoustid_tags(folder / name)

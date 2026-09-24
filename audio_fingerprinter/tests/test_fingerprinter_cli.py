@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 from click.testing import CliRunner
 
 from audio_fingerprinter.cli import fingerprint
@@ -27,3 +29,51 @@ class TestFingerprintCommand:
             or "does not exist" in result.output.lower()
             or "error" in result.output.lower()
         )
+
+
+class TestAlbumModeFlags:
+    """--album-mode / --album-min must reach FingerprintParams."""
+
+    def _invoke(self, args: list[str]):
+        runner = CliRunner()
+        tool_result = MagicMock(
+            processed=0, errors=0, duration_secs=0.0, extra={"counts": {}}
+        )
+        with (
+            patch(
+                "audio_fingerprinter.utils.api_key.load_api_key",
+                return_value="k",
+            ),
+            patch(
+                "audio_fingerprinter.cli._run_tool", return_value=tool_result
+            ) as mock_tool,
+            patch("audio_fingerprinter.cli.active_batch"),
+        ):
+            result = runner.invoke(fingerprint, args)
+        params = mock_tool.call_args.kwargs.get("params") if mock_tool.called else None
+        return result, params
+
+    def test_album_mode_off_by_default(self, tmp_path):
+        result, params = self._invoke([str(tmp_path)])
+        assert result.exit_code == 0
+        assert params is not None
+        assert params.album_mode is False
+        assert params.album_min == 3
+
+    def test_album_mode_flag_sets_params(self, tmp_path):
+        result, params = self._invoke(
+            [str(tmp_path), "--album-mode", "--album-min", "2"]
+        )
+        assert result.exit_code == 0
+        assert params is not None
+        assert params.album_mode is True
+        assert params.album_min == 2
+
+    def test_album_min_must_be_at_least_one(self, tmp_path):
+        runner = CliRunner()
+        with patch("audio_fingerprinter.cli._run_tool"):
+            result = runner.invoke(
+                fingerprint,
+                [str(tmp_path), "--album-mode", "--album-min", "0"],
+            )
+        assert result.exit_code != 0

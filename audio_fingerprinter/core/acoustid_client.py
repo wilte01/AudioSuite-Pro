@@ -10,13 +10,14 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Callable, Sequence
 
 import requests
 
 from audio_suite_shared.exceptions import handle_audio_errors
 
 from .exceptions import AcoustidApiError, AcoustidAuthError
-from .models import AcoustidRecording, LookupResult
+from .models import AcoustidRecording, Fingerprint, LookupResult, ReleaseGroup
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,10 @@ ACOUSTID_LOOKUP_URL = "https://api.acoustid.org/v2/lookup"
 DEFAULT_META = "recordings releases releasegroups compress sources"
 DEFAULT_TIMEOUT_SECS = 30
 _MAX_CANDIDATES_PER_LOOKUP = 10
+# The v2 lookup endpoint accepts exactly one fingerprint per HTTP request,
+# so "batching" below means chunked iteration for progress reporting —
+# never multiple fingerprints in one payload.
+_LOOKUP_BATCH_SIZE = 5
 # MusicBrainz documents that a lookup result whose recording differs from the
 # source audio by more than a few seconds is always an error, so candidates
 # are accepted only when their reported duration is within this 7-second
@@ -173,6 +178,53 @@ class AcoustidClient:
 
         return self._parse_payload(payload, duration)
 
+    def lookup_many(
+        self,
+        fingerprints: Sequence[Fingerprint],
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> list[LookupResult]:
+        """Look up many fingerprints in input order, honouring the rate limit.
+
+        Used by album match mode, which needs every folder's lookups in
+        hand before clustering can decide.  Iteration is chunked into
+        batches of ``_LOOKUP_BATCH_SIZE`` purely so progress can be
+        reported between chunks — each fingerprint still issues exactly
+        one rate-limited request through ``lookup`` (the v2 endpoint
+        accepts one fingerprint per request).
+
+        Args:
+            fingerprints: Fingerprints to look up, in the desired result
+                order.
+            on_progress: Optional callback(done, total) invoked after each
+                batch completes.
+
+        Returns:
+            Results aligned with ``fingerprints`` by position.
+
+        Raises:
+            AcoustidAuthError: Propagated from the first lookup that
+                rejects the API key — a rejected key fails every
+                request, so the caller should abort instead of issuing
+                doomed lookups.
+        """
+        results: list[LookupResult] = []
+        total = len(fingerprints)
+        for start in range(0, total, _LOOKUP_BATCH_SIZE):
+            for fingerprint in fingerprints[start : start + _LOOKUP_BATCH_SIZE]:
+                try:
+                    results.append(
+                        self.lookup(fingerprint.fingerprint, int(fingerprint.duration))
+                    )
+                except AcoustidApiError as exc:
+                    # Transport/protocol failures are per-file conditions
+                    # (mirroring the per-file worker path); the run
+                    # continues with the remaining fingerprints.
+                    logger.warning("Album-mode lookup failed for one file: %s", exc)
+                    results.append(LookupResult(status="error", error=str(exc)))
+            if on_progress is not None:
+                on_progress(min(start + _LOOKUP_BATCH_SIZE, total), total)
+        return results
+
     def _parse_payload(self, payload: object, duration: int) -> LookupResult:
         """Decode the lookup JSON into a ``LookupResult``."""
         if not isinstance(payload, dict):
@@ -269,6 +321,41 @@ def _is_api_key_error(response: requests.Response) -> bool:
     return "api" in message and "key" in message
 
 
+def _build_release_groups(rec: dict[str, object]) -> tuple[ReleaseGroup, ...]:
+    """Collect the MusicBrainz release groups a recording appears on.
+
+    With ``meta=releases releasegroups`` the service nests the groups
+    under each release (``recordings[].releases[].releasegroups[]``).
+    Entries are deduplicated by id and malformed links are skipped —
+    release metadata is an optional enrichment, never a hard requirement.
+    """
+    releases = rec.get("releases")
+    if not isinstance(releases, list):
+        return ()
+    groups: list[ReleaseGroup] = []
+    seen: set[str] = set()
+    for release in releases:
+        if not isinstance(release, dict):
+            continue
+        raw_groups = release.get("releasegroups")
+        if not isinstance(raw_groups, list):
+            continue
+        for group in raw_groups:
+            if not isinstance(group, dict):
+                continue
+            group_id = str(group.get("id", "") or "")
+            if not group_id or group_id in seen:
+                continue
+            seen.add(group_id)
+            groups.append(
+                ReleaseGroup(
+                    release_group_id=group_id,
+                    title=str(group.get("title", "") or ""),
+                )
+            )
+    return tuple(groups)
+
+
 def _build_recording(
     rec: dict[str, object],
     acoustid_id: str,
@@ -293,6 +380,7 @@ def _build_recording(
         artist=artist,
         score=score,
         duration=duration_int,
+        release_groups=_build_release_groups(rec),
     )
 
 

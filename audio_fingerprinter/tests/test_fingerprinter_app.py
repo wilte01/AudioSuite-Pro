@@ -76,3 +76,122 @@ class TestOnProgress:
         app._on_progress(2, 5, 0)
         app.file_listbox.insert.assert_not_called()
         app.file_listbox.see.assert_not_called()
+
+
+class TestStartProcessingAlbumMode:
+    """The Album Match checkbox must reach FingerprintParams."""
+
+    @staticmethod
+    def _make_startable_app(tmp_path) -> MagicMock:
+        from audio_fingerprinter.app import FingerprinterApp
+
+        app = object.__new__(FingerprinterApp)
+        app.root = MagicMock()
+        app.folder_path = MagicMock()
+        app.folder_path.get.return_value = str(tmp_path)
+        app.run_mode = MagicMock()
+        app.run_mode.get.return_value = "Dry Run"
+        app.lookup_enabled = MagicMock()
+        app.lookup_enabled.get.return_value = True
+        app.write_tags = MagicMock()
+        app.write_tags.get.return_value = False
+        app.album_mode = MagicMock()
+        app.threshold = MagicMock()
+        app.threshold.get.return_value = "0.5"
+        app.max_length = MagicMock()
+        app.max_length.get.return_value = "120"
+        app.fpcalc_path = MagicMock()
+        app.fpcalc_path.get.return_value = ""
+        app.start_btn = MagicMock()
+        app.file_listbox = MagicMock()
+        app.notebook = MagicMock()
+        app._tab_processing = MagicMock()
+        app.overall_status = MagicMock()
+        return app
+
+    def _start(self, tmp_path, album_mode: bool):
+        from unittest.mock import patch
+
+        app = self._make_startable_app(tmp_path)
+        app.album_mode.get.return_value = album_mode
+        with (
+            patch("audio_fingerprinter.app.resolve_fpcalc", return_value="fpcalc"),
+            patch.object(type(app), "_resolve_run_api_key", return_value="key"),
+            patch("audio_fingerprinter.app.threading.Thread") as mock_thread,
+        ):
+            app.start_processing()
+        return mock_thread
+
+    def test_album_mode_true_reaches_params(self, tmp_path):
+        mock_thread = self._start(tmp_path, album_mode=True)
+        mock_thread.assert_called_once()
+        params = mock_thread.call_args.kwargs["args"][0]
+        assert params.album_mode is True
+        assert params.album_min == 3
+
+    def test_album_mode_false_reaches_params(self, tmp_path):
+        mock_thread = self._start(tmp_path, album_mode=False)
+        params = mock_thread.call_args.kwargs["args"][0]
+        assert params.album_mode is False
+
+
+class TestOnCompleteSummary:
+    @staticmethod
+    def _make_app(tmp_path) -> MagicMock:
+        from audio_fingerprinter.app import FingerprinterApp
+
+        app = object.__new__(FingerprinterApp)
+        app.root = MagicMock()
+        app.time_label = MagicMock()
+        app.summary_label = MagicMock()
+        app.completion_label = MagicMock()
+        app.file_listbox = MagicMock()
+        app.notebook = MagicMock()
+        app._tab_results = MagicMock()
+        app.start_btn = MagicMock()
+        app._log_path = str(tmp_path / "fingerprint_dry_run_log.txt")
+        return app
+
+    @staticmethod
+    def _counts(album_ambiguous: int = 0) -> dict:
+        return {
+            "identified": 1,
+            "no_match": 0,
+            "tagged": 0,
+            "lookup_skipped": 0,
+            "album_ambiguous": album_ambiguous,
+            "errors": 0,
+        }
+
+    def _complete(self, tmp_path, counts: dict) -> MagicMock:
+        app = self._make_app(tmp_path)
+        app._on_complete(
+            header=[],
+            total=3,
+            processed=3,
+            skipped=0,
+            errors=0,
+            duration_secs=1.0,
+            log_entries=[],
+            results=[],
+            counts=counts,
+        )
+        return app
+
+    def test_album_ambiguous_surfaced_in_summary_and_log(self, tmp_path):
+        app = self._complete(tmp_path, self._counts(album_ambiguous=2))
+        summary_text = app.summary_label.config.call_args.kwargs["text"]
+        assert "Album Ambiguous: 2" in summary_text
+        log_text = (tmp_path / "fingerprint_dry_run_log.txt").read_text(
+            encoding="utf-8"
+        )
+        assert "Album ambiguous: 2" in log_text
+
+    def test_zero_album_ambiguous_omits_the_line(self, tmp_path):
+        app = self._complete(tmp_path, self._counts(album_ambiguous=0))
+        summary_text = app.summary_label.config.call_args.kwargs["text"]
+        assert "Album Ambiguous" not in summary_text
+        log_text = (tmp_path / "fingerprint_dry_run_log.txt").read_text(
+            encoding="utf-8"
+        )
+        assert "Album ambiguous" not in log_text

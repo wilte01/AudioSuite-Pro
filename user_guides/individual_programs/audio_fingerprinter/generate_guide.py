@@ -104,6 +104,20 @@ bullet(
 )
 bullet(
     doc,
+    "Album Match: ",
+    "Clusters each folder's lookups by MusicBrainz release "
+    "group and tags only when the album is decided. A "
+    "release group forms a cluster when at least three "
+    "files (the --album-min default) carry candidates in "
+    "it; the cluster is decided when its score (files "
+    "voting times average confidence) leads the runner-up "
+    "by 25 percent. Ambiguous albums are left untagged "
+    "with the runner-up surfaced. Files no decided "
+    "cluster claims fall back to per-file matching. "
+    "Disabled by default.",
+)
+bullet(
+    doc,
     "Min Score: ",
     "Accepts candidates from 0.0 to 1.0; default 0.5. Higher values are stricter.",
 )
@@ -135,6 +149,14 @@ doc.add_paragraph(
     "fingerprint_live_log.txt in the input directory. "
     "Results are sorted by file path when displayed."
 )
+doc.add_paragraph(
+    "In Album Match mode the log starts with one "
+    "[ALBUM] line per folder summarising the cluster "
+    "decision, files decided by an album carry an "
+    "'album consensus' note in their message, and the "
+    "summary adds an Album Ambiguous count when any "
+    "folder tied."
+)
 
 doc.add_heading("Fingerprinting Pipeline", level=1)
 for step in (
@@ -148,6 +170,14 @@ for step in (
     "Optionally write Acoustid Fingerprint and Acoustid Id in Live Update mode.",
 ):
     doc.add_paragraph(step, style="List Number")
+doc.add_paragraph(
+    "Album Match mode runs the same pipeline in two "
+    "phases: every file is fingerprinted first (the live "
+    "log shows ANALYSED lines), then all lookups run "
+    "through the rate-limited batch client, each folder "
+    "is clustered by MusicBrainz release group, and only "
+    "decided albums are tagged."
+)
 
 doc.add_heading("AcoustID Matching", level=1)
 bullet(
@@ -182,6 +212,24 @@ bullet(
     "A file receives NO MATCH when no candidate "
     "remains above the score and duration guardrails.",
 )
+bullet(
+    doc,
+    "Album clustering: ",
+    "In Album Match mode each folder's candidates are "
+    "grouped by MusicBrainz release group. A group with "
+    "at least the album-minimum of voting files forms a "
+    "cluster scored as (files voting) times (average "
+    "confidence). A cluster is decided only when it "
+    "leads the runner-up by 25 percent; otherwise the "
+    "album is reported ambiguous and its files are left "
+    "untagged with both clusters named. A decided "
+    "cluster pulls each voting file to its best "
+    "candidate inside the winning release group, which "
+    "resolves remix-versus-original near ties that "
+    "per-file scores cannot. Files outside the decided "
+    "cluster keep the per-file matching described "
+    "above, including the tag-aware near-tie break.",
+)
 
 doc.add_heading("Tags and Key Storage", level=1)
 doc.add_paragraph(
@@ -211,12 +259,18 @@ doc.add_paragraph(
     "python -m audio_suite_shared.cli_app fingerprint "
     "<folder> --write-tags --live --api-key <key>\n"
     "python -m audio_suite_shared.cli_app fingerprint "
+    "<folder> --album-mode --album-min 3 --write-tags --live\n"
+    "python -m audio_suite_shared.cli_app fingerprint "
     "<folder> --fpcalc <path> --json"
 )
 doc.add_paragraph(
     "Options include --lookup/--no-lookup, "
     "--write-tags/--no-write-tags, --threshold, "
-    "--max-length, --fpcalc, --api-key, --dry, "
+    "--max-length, --fpcalc, --api-key, "
+    "--album-mode/--no-album-mode (cluster each folder "
+    "by release group; tag only decided albums), "
+    "--album-min (minimum voting files per release "
+    "group, default 3, at least 1), --dry, "
     "and --json. Lookup requires an API key. Text "
     "output reports files, identified matches, tagged "
     "files, errors, and elapsed time."
@@ -265,6 +319,16 @@ bullet(
     "Confirm Live Update and Write AcoustID tags are "
     "enabled, and that files are writable. Dry Run "
     "never writes tags.",
+)
+bullet(
+    doc,
+    "Album files left untagged (ALBUM AMBIGUOUS): ",
+    "The folder's release-group clusters tied inside "
+    "the decision margin, so album mode refuses to "
+    "guess; the log names both clusters. Lower "
+    "--album-min or resolve the ambiguity manually; "
+    "a run without Album Match still applies per-file "
+    "matching.",
 )
 bullet(
     doc,
