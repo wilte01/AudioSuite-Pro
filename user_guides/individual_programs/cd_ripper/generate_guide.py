@@ -114,6 +114,16 @@ bullet(
     "Required before proceeding; the last configured location "
     "is retained by the tool preferences.",
 )
+bullet(
+    doc,
+    "Verify Rips: ",
+    "Choose the per-track verification level before ripping. "
+    "Twice (the default) re-reads each extracted track and compares the two "
+    "independent reads. AccurateRip additionally looks up the disc's "
+    "AccurateRip database records and cross-checks the rip against them over "
+    "the network. Off disables verification entirely and only encodes the "
+    "single extraction.",
+)
 
 doc.add_heading("MusicBrainz Lookup", level=1)
 doc.add_paragraph(
@@ -204,6 +214,62 @@ doc.add_paragraph(
     "on a best-effort basis."
 )
 
+doc.add_heading("Rip Verification", level=1)
+doc.add_paragraph(
+    "When verification is enabled, each track is checked after extraction "
+    "and before encoding. "
+    "A track that fails verification is NOT written to disk; its status reports "
+    "MISMATCH and the session marks the task failed."
+)
+bullet(
+    doc,
+    "Off: ",
+    "No re-read or network cross-check. The single extraction is encoded as before.",
+)
+bullet(
+    doc,
+    "Twice: ",
+    "The track's sectors are read a second time and the two reads "
+    "are compared. Identical reads produce a VERIFIED status. "
+    "Twice requires only the local drive and works offline.",
+)
+bullet(
+    doc,
+    "AccurateRip: ",
+    "The disc's AccurateRip disc ID is computed from the TOC and the "
+    "database is queried over the network. The rip is first checked against "
+    "the database's main track-window record; if the disc was mastered with "
+    "an audio offset, the candidates read adjacent TOC-gap sectors and are "
+    "checked again over a wider with-gap window. A cross-check match reports "
+    "VERIFIED. If the internet is unreachable the lookup degrades to the "
+    "local rip-twice check and reports OFFLINE.",
+)
+bullet(
+    doc,
+    "Outcomes: ",
+    "VERIFIED, NO ENTRY (disc absent from the AccurateRip database; "
+    "an unverified rip is still written), OFFLINE (database unreachable; "
+    "degraded to rip-twice), or MISMATCH (reads differ or the database "
+    "checksum disagrees; the track is NOT written).",
+)
+doc.add_paragraph(
+    "Drives with an audio offset master discs with adjacent-track data at "
+    "each track boundary. AccurateRip's with-gap window accounts for this, "
+    "but for such drives the local rip-twice mode is the most reliable "
+    "choice because both reads describe the same physical frames."
+)
+doc.add_paragraph(
+    "The result of each track's verification is appended to its status, "
+    "and the Results summary aggregates the outcomes (for example "
+    "'5 VERIFIED, 1 NO ENTRY, 1 failed'), so a successful track without a "
+    "verification label was ripped with verification disabled."
+)
+doc.add_paragraph(
+    "With AccurateRip mode the app logs the computed disc ID "
+    "(ID1 / ID2 / CDDB) and "
+    "whether database records were found, absent, or unavailable for the disc."
+)
+
 doc.add_heading("Results", level=1)
 doc.add_paragraph(
     "Results shows succeeded and failed counts, "
@@ -223,11 +289,17 @@ doc.add_paragraph(
     "python -m audio_suite_shared.cli_app cd-rip D: --output-dir "
     "<output> --format flac --cue\n"
     "python -m audio_suite_shared.cli_app cd-rip D: --output-dir "
-    "<output> --dry --format opus"
+    "<output> --dry --format opus\n"
+    "python -m audio_suite_shared.cli_app cd-rip D: --output-dir "
+    "<output> --format flac --verify accuraterip\n"
+    "python -m audio_suite_shared.cli_app cd-rip D: --output-dir "
+    "<output> --format flac --verify off"
 )
 doc.add_paragraph(
     "CLI options include --format, --tracks, --quality, --cue/--no-cue, --dry/--live, "
-    "and --json/--text. Dry Run prints the selected settings and does not "
+    "--verify off|twice|accuraterip (default twice), "
+    "and --json/--text. Dry Run prints the selected settings (including the "
+    "verification level) and does not "
     "read or write tracks. "
     "Track lists are comma-separated; invalid or empty track selections are rejected."
 )
@@ -266,8 +338,29 @@ bullet(
 bullet(
     doc,
     "Track was not written: ",
-    "A failed extraction, cancellation, missing TOC entry, or failed encode "
+    "A failed extraction, cancellation, missing TOC entry, failed encode, "
+    "or a verification MISMATCH "
     "prevents a successful output file.",
+)
+bullet(
+    doc,
+    "Verification reports MISMATCH: ",
+    "The re-read differed from the first extraction or the AccurateRip "
+    "checksum disagreed. Try cleaning the disc, re-reading it, or switching "
+    "to Verify Rips = Twice for drives with an audio offset.",
+)
+bullet(
+    doc,
+    "AccurateRip shows NO ENTRY: ",
+    "The disc is not (yet) in the AccurateRip database. "
+    "The rip is treated as a single extraction and written anyway; "
+    "the label distinguishes this from a verified rip.",
+)
+bullet(
+    doc,
+    "AccurateRip shows OFFLINE: ",
+    "The database could not be reached; the mode degraded to the local "
+    "rip-twice re-read. Verify the network connection.",
 )
 
 doc.add_heading("Safety and Recovery", level=1)
@@ -277,7 +370,7 @@ doc.add_paragraph(
     "low-level drive access and requires administrator rights. "
     "Keep the original CD available "
     "until all tracks and metadata have been reviewed. "
-    "A failed or cancelled track does not "
+    "A failed, cancelled, or verification-mismatched track does not "
     "produce a completed output "
     "file, and temporary WAV files are cleaned up after each task."
 )
