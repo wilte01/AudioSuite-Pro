@@ -6,7 +6,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from audio_suite_shared.exceptions import AudioDirectoryError, AudioSuiteError
-from tag_editor.core.processor import EditResult, TagRow
+from tag_editor.core.csv_io import CsvImportPlan
+from tag_editor.core.processor import EditResult, FieldEdit, TagRow
 from tag_editor.ui.app import TagEditorApp, main
 
 
@@ -148,6 +149,45 @@ class TestTagEditorApp:
         messagebox.showwarning.assert_called_once()
         app.tree.set.assert_not_called()
 
+    def test_apply_selection_error_dialog_excludes_successful_rows(
+        self, tmp_path: Path
+    ) -> None:
+        app = _app(tmp_path)
+        ok_path = tmp_path / "ok.mp3"
+        bad_path = tmp_path / "bad.mp3"
+        app.tree.selection.return_value = [str(ok_path), str(bad_path)]
+        app._rows[str(ok_path)] = (ok_path, {})
+        app._rows[str(bad_path)] = (bad_path, {})
+        app.field_var.get.return_value = "title"
+        app.value_var.get.return_value = "New"
+        app.clear_var.get.return_value = False
+        app.dry_run.get.return_value = False
+        app.processor.apply_edits.return_value = [
+            EditResult(
+                path=ok_path,
+                field="title",
+                old_value=None,
+                new_value="New",
+                changed=True,
+                written=True,
+            ),
+            EditResult(
+                path=bad_path,
+                field="title",
+                old_value=None,
+                new_value="New",
+                changed=False,
+                written=False,
+                error="write refused",
+            ),
+        ]
+        with patch("tag_editor.ui.app.messagebox") as messagebox:
+            app.apply_selection()
+        messagebox.showwarning.assert_called_once()
+        message = messagebox.showwarning.call_args.args[1]
+        assert "write refused" in message
+        assert "Unknown error" not in message
+
     def test_apply_bulk_selection_passes_operation_options(
         self, tmp_path: Path
     ) -> None:
@@ -229,6 +269,145 @@ class TestTagEditorApp:
         app._update_row(result)
         assert values["title"] == "New"
         app.tree.set.assert_called_once_with(str(path), "title", "New")
+
+
+class TestTagEditorAppCsv:
+    def test_import_csv_applies_plan_edits(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        app.directory.get.return_value = str(tmp_path)
+        app.dry_run.get.return_value = True
+        path = tmp_path / "track.mp3"
+        app._rows[str(path)] = (path, {"title": "Old"})
+        app.processor.apply_edits.return_value = [
+            EditResult(
+                path=path,
+                field="title",
+                old_value="Old",
+                new_value="New",
+                changed=True,
+                written=False,
+            )
+        ]
+        plan = CsvImportPlan(edits=[FieldEdit(path, "title", "New")], row_count=1)
+
+        with (
+            patch("tag_editor.ui.app.filedialog.askopenfilename", return_value="e.csv"),
+            patch("tag_editor.ui.app.build_import_plan", return_value=plan),
+            patch("tag_editor.ui.app.messagebox") as messagebox,
+        ):
+            app.import_csv()
+
+        assert app.processor.apply_edits.call_args.kwargs["dry_run"] is True
+        assert app._rows[str(path)][1]["title"] == "New"
+        messagebox.showerror.assert_not_called()
+        messagebox.showwarning.assert_not_called()
+
+    def test_import_csv_requires_directory(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        app.directory.get.return_value = ""
+        with patch("tag_editor.ui.app.messagebox") as messagebox:
+            app.import_csv()
+        messagebox.showerror.assert_called_once()
+        app.processor.apply_edits.assert_not_called()
+
+    def test_import_csv_cancelled_dialog_does_nothing(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        app.directory.get.return_value = str(tmp_path)
+        with patch("tag_editor.ui.app.filedialog.askopenfilename", return_value=""):
+            app.import_csv()
+        app.processor.apply_edits.assert_not_called()
+
+    def test_import_csv_reports_validation_error(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        app.directory.get.return_value = str(tmp_path)
+        app.dry_run.get.return_value = False
+        with (
+            patch("tag_editor.ui.app.filedialog.askopenfilename", return_value="e.csv"),
+            patch(
+                "tag_editor.ui.app.build_import_plan",
+                side_effect=AudioSuiteError("CSV must contain a file column."),
+            ),
+            patch("tag_editor.ui.app.messagebox") as messagebox,
+        ):
+            app.import_csv()
+        messagebox.showerror.assert_called_once()
+        app.processor.apply_edits.assert_not_called()
+
+    def test_import_csv_surfaces_row_errors_and_ignored_columns(
+        self, tmp_path: Path
+    ) -> None:
+        app = _app(tmp_path)
+        app.directory.get.return_value = str(tmp_path)
+        app.dry_run.get.return_value = True
+        plan = CsvImportPlan(
+            edits=[],
+            row_errors=["Row 2: file not found: gone.mp3"],
+            ignored_columns=["cover"],
+            row_count=2,
+        )
+        with (
+            patch("tag_editor.ui.app.filedialog.askopenfilename", return_value="e.csv"),
+            patch("tag_editor.ui.app.build_import_plan", return_value=plan),
+            patch("tag_editor.ui.app.messagebox") as messagebox,
+        ):
+            app.import_csv()
+
+        messagebox.showwarning.assert_called_once()
+        assert "file not found" in messagebox.showwarning.call_args.args[1]
+        status = "".join(call.args[0] for call in app.status_var.set.call_args_list)
+        assert "Ignored columns: cover" in status
+
+    def test_export_csv_writes_rows(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        app.directory.get.return_value = str(tmp_path)
+        path = tmp_path / "track.mp3"
+        app._rows[str(path)] = (path, {"title": "One", "artist": None})
+
+        with (
+            patch(
+                "tag_editor.ui.app.filedialog.asksaveasfilename", return_value="out.csv"
+            ),
+            patch("tag_editor.ui.app.export_csv", return_value=1) as exporter,
+        ):
+            app.export_csv()
+
+        rows = exporter.call_args.args[0]
+        assert rows[0].path == path
+        assert rows[0].values["title"] == "One"
+        assert exporter.call_args.args[2] == tmp_path
+
+    def test_export_csv_requires_loaded_grid(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        with patch("tag_editor.ui.app.messagebox") as messagebox:
+            app.export_csv()
+        messagebox.showwarning.assert_called_once()
+
+    def test_export_csv_cancelled_dialog_does_nothing(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        app._rows[str(tmp_path / "a.mp3")] = (tmp_path / "a.mp3", {})
+        with (
+            patch("tag_editor.ui.app.filedialog.asksaveasfilename", return_value=""),
+            patch("tag_editor.ui.app.export_csv") as exporter,
+        ):
+            app.export_csv()
+        exporter.assert_not_called()
+
+    def test_export_csv_reports_write_error(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        app.directory.get.return_value = str(tmp_path)
+        app._rows[str(tmp_path / "a.mp3")] = (tmp_path / "a.mp3", {})
+        with (
+            patch(
+                "tag_editor.ui.app.filedialog.asksaveasfilename", return_value="out.csv"
+            ),
+            patch(
+                "tag_editor.ui.app.export_csv",
+                side_effect=AudioSuiteError("Permission denied"),
+            ),
+            patch("tag_editor.ui.app.messagebox") as messagebox,
+        ):
+            app.export_csv()
+        messagebox.showerror.assert_called_once()
 
 
 class TestMainEntryPoint:

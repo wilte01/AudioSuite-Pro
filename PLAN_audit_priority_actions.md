@@ -1,6 +1,6 @@
 # PLAN — Audit Priority Actions (Post-Audit Remediation)
 
-**Status:** In progress — **P1 complete** (initial commit `a056bb9`); **P2 complete** (commit `d7680f7`); **P3 complete** (commits `c06730c` + `e540819`); **P4 complete** (commits `f409e11` + this); **P5 complete** (commit `0666936` + this); **P6 complete** (commits `f84a392` + `2fd0c9e` + this); **P7 7a delivered** (rip verification; no commit yet — awaiting user instruction); **P7 7b delivered** (album-level AcoustID clustering; commit `7cce6c4`); P7 7c not started. See Decision Log (D10–D22) and the session retrospective for discoveries.
+**Status:** In progress — **P1 complete** (initial commit `a056bb9`); **P2 complete** (commit `d7680f7`); **P3 complete** (commits `c06730c` + `e540819`); **P4 complete** (commits `f409e11` + this); **P5 complete** (commit `0666936` + this); **P6 complete** (commits `f84a392` + `2fd0c9e` + this); **P7 7a delivered** (rip verification; no commit yet — awaiting user instruction); **P7 7b delivered** (album-level AcoustID clustering; commit `7cce6c4`); **P7 7c delivered** (Freeform batch Tag Editor, phases A/B/C; no commit yet — awaiting user instruction). All 7 priority actions are now delivered. See Decision Log (D10–D22) and the session retrospective for discoveries.
 **Source:** "Honest Audit Report" (product capability + code-quality audit, 2026)
 **Scope:** The 7 priority actions named in the audit's closing section. Each action is broken into fully addressable steps with acceptance criteria, lockstep tests, and verification commands.
 **Anti-creep rule:** Implement ONLY the steps below. No adjacent refactors, no styling changes outside the touched files, no speculative features. Any defect discovered *while* implementing one of these steps must be fixed in the same change with a regression test (AGENTS.md §7), and noted in the Decision Log.
@@ -638,7 +638,101 @@ All §7b acceptance criteria verified against the current tree (uncommitted — 
 - **Docs** — `user_guides/individual_programs/audio_fingerprinter/generate_guide.py` updated (Album Match bullet, two-phase pipeline note, album-clustering matching bullets, CLI flags + example, troubleshooting entry) and the `.docx` regenerated from it; `user_guides/reference/CLI_Commands_Reference.md` has no `fingerprint` section, so nothing to update there (verified by grep).
 - **Definition-of-Done gate green on the confirmed state** — `compileall` clean (known `.venv` pydub SyntaxWarnings only); `ruff check` 0 + `ruff format` clean; `mypy .` success (438 files, strict); bandit **0 High / 0 Medium** (documented Low tail); bare full-suite `pytest` **6785 passed / 5 skipped**, coverage **78.17% ≥ 75%**.
 
-**Decision: P7 §7b — Album-level AcoustID clustering (Fingerprinter) is DELIVERED** (code + tests + GUI + CLI + guide + acceptance + record; commit `7cce6c4`). P7 7c remains backlog.
+**Decision: P7 §7b — Album-level AcoustID clustering (Fingerprinter) is DELIVERED** (code + tests + GUI + CLI + guide + acceptance + record; commit `7cce6c4`). P7 7c is delivered below.
+
+---
+
+## P7 §7c completion confirmation — Freeform batch Tag Editor
+
+Delivered in three gated phases (A → B → C), uncommitted pending user instruction. Scope held to
+§7c: no tag inference (that is 7b) and no regex action groups (explicitly a further backlog item).
+
+### Phase A — read-only grid + single-field edit
+- **New tool registered end-to-end** per the "Registering a New Tool" checklist: package `tag_editor/`
+  (registry id `tag_editor`, category `utility`, `standalone=True`, order 47, CLI `tag-edit`,
+  `.pyw` launcher `Tag_Editor.pyw`), `master_driver/ui/cards/tag_editor_card.py`,
+  `arg_builder.py` entry `[path, mode_flag]`, `DEPENDENCY_GRAPH` `[]`, registry-driven `AppState`
+  toggle, `cli_app.py` import, `platform_utils.py` guide mapping, `pyproject.toml` testpaths +
+  coverage entries, and expected-set updates in `test_tool_plugin.py` / `test_app_state.py` /
+  `test_runner.py` / `test_ui_cards.py`.
+- **Formats are the canonical boundary** — the grid scans `SUPPORTED_EXTENSIONS` and writes through
+  the existing `TagHandlerFactory` (ID3 / Vorbis / MP4). `.wma` is deliberately excluded: it is not
+  in the shared supported-extension set and has no first-party handler, so supporting it here would
+  create a format boundary the rest of the suite does not have.
+- **Shared standard-field API** — `EDITABLE_FIELDS`, `read_editable_tags`, `write_editable_tag`,
+  `delete_tags`, and per-format mappings in `audio_suite_shared/tag_helper_base.py`, re-exported from
+  `tag_helper`. `None` clears, `""` sets blank. Writes flow through
+  `record_tag_edit_snapshot` and `active_batch("tag_editor", "tag_edit")`.
+
+### Phase B — bulk ops
+- Set Blank, Clear Field, Swap Fields, Case Convert, and Normalize Slashes (TXXX rule), all under
+  **one** undo batch. The TXXX rule reuses `tag_field_updater`'s `update_value` by import
+  (cross-referenced, not monkey-patched) and is restricted to text fields so track totals and dates
+  cannot be corrupted.
+
+### Phase C — import/export
+- `tag_editor/core/csv_io.py`: `build_import_plan` (column→field map, `file`/`filename`/`path`
+  column, absolute or root-relative file values, per-row and per-cell validation errors) and
+  `export_csv` (mirrors the `library_stats` exporter: UTF-8, header row, one record per file, empty
+  cell for an unset tag). **Empty cells mean "leave unchanged"**, so re-importing an exported grid
+  never clears a tag; exported values are re-asserted and reported unchanged rather than rewritten.
+- GUI `Import CSV...` / `Export CSV...` buttons; headless `audiosuite tag-edit PATH --csv FILE --dry`
+  where `PATH` is the library directory. `--field/--value/--clear` cannot be combined with `--csv`;
+  a directory without `--csv` is a usage error. The import honours Dry Run and records one batch.
+
+### Defects found and fixed in the same change (§7)
+- **Tagless files were un-undoable** — `batch_undo` could not represent "this file had no tags
+  before the run", so reverting a tag-editor batch left the newly created frames behind. Snapshots
+  are now pickled as `None` and revert calls `handler.delete_tags()`. Regression-tested for MP3 and
+  FLAC in `test_batch_undo.py` and `tag_editor/tests/test_processor.py`.
+- **`FileType.__len__` truthiness skipped the save** — after clearing the last frame, the handler's
+  `_audio`/`_tags` container is empty, so `if self._audio:` was False and nothing was written. All
+  save guards are now `is not None`, restoring clear-the-last-tag for WAV/AIFF/MP3/Vorbis/MP4.
+- **`VorbisHandler` could not create tags on a tagless FLAC/OGG/Opus** — it now calls `add_tags()`
+  when absent, while still supporting the dict-like test doubles.
+- **GUI diagnostics reported successful rows as "Unknown error"** — `_report_results` and
+  `import_csv` built their message list with `result.error or "Unknown error"` over *every* result,
+  so a mixed apply listed successful files as failures and a fully successful CSV import raised a
+  warning containing one "Unknown error" per row. Both now go through `_error_messages()`, which
+  filters on `result.error is not None`; regression-tested by
+  `test_apply_selection_error_dialog_excludes_successful_rows` and the strengthened
+  `test_import_csv_applies_plan_edits` (both fail against the pre-fix expression).
+- **CSV import could retag any file on the machine** — `build_import_plan` resolved a file value
+  with `root / candidate` and checked only the extension, so a spreadsheet row could point
+  anywhere. Worse, the obvious containment guard was itself ineffective: an unnormalised
+  `root / "../.."` still reports `is_relative_to(root) == True`, verified empirically, so
+  traversal would have passed a naive check. `_contained_path()` now normalises with
+  `os.path.normpath` (which collapses `..` before the comparison) and rejects values that leave
+  the root, including foreign absolute paths, deep traversal, and drive-relative values — the
+  last of which `Path.__truediv__` silently rewrites by discarding the root
+  (`root / "C:evil\x.mp3"` yields `root\evil\x.mp3`), so they are refused rather than reinterpreted.
+  Violations are non-fatal row errors, consistent with every other CSV diagnostic, and a rejected
+  row never aborts the remaining rows. Normalisation is lexical rather than `Path.resolve()` on
+  purpose: it keeps the check symmetric with `export_csv`'s `_display_path`, so a library that
+  reaches another volume through a symlink or junction can export and re-import its own files.
+  Pinned by `TestPathContainment` (8 tests, 4 of which fail against the unguarded resolution).
+
+### Acceptance
+- **Load a folder, edit across selected rows, undo the whole batch** — `TestRealAudioRoundTrip`
+  covers single edit, swap, case, and TXXX on pydub-exported MP3/FLAC/OGG/M4A, reading values back
+  through mutagen directly and reverting via `revert_batch_by_id`.
+- **CSV round trip** — `test_csv_io.py` covers export→import on synthetic and real files, plus
+  decode-and-measure: an imported CSV writes real MP3/FLAC frames, and `--dry` leaves both tagless.
+- **CLI** — `test_cli.py` asserts `--csv` reaches the processor with the dry-run flag, row errors
+  exit nonzero, and the usage errors for a file path or a combined `--field`.
+- **GUI** — `test_app.py` drives `import_csv` / `export_csv` through the `object.__new__` +
+  `MagicMock` pattern, including cancelled dialogs and validation errors.
+- **Definition-of-Done gate green on the confirmed state** — `compileall` clean; `ruff check` 0 and
+  `ruff format` clean; `mypy .` success (448 files, strict); bandit **0 High / 0 Medium** (51 Low
+  documented tail); bare full-suite `pytest` **6969 passed / 5 skipped**, coverage **78.29% ≥ 75%**
+  (Package suite: 128 passed).
+- **Docs** — `user_guides/individual_programs/tag_editor/generate_guide.py` updated (CSV section with
+  a sample table, CSV CLI examples, Undo/Quick Start coverage) and the `.docx` regenerated from it.
+
+**Decision: P7 §7c — Freeform batch Tag Editor is DELIVERED** (code + tests + GUI + CLI + guide +
+acceptance + record; uncommitted). All of P7 (7a, 7b, 7c) is now delivered; nothing in this plan
+remains open.
+
 
 ---
 

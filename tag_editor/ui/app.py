@@ -8,6 +8,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from audio_suite_shared.app_bootstrap import BaseSuiteApp
 from audio_suite_shared.exceptions import AudioDirectoryError, AudioSuiteError
+from tag_editor.core.csv_io import build_import_plan, export_csv
 from tag_editor.core.processor import (
     BULK_OPERATION_LABELS,
     CASE_MODE_LABELS,
@@ -82,7 +83,13 @@ class TagEditorApp(BaseSuiteApp):
             row=0, column=1, padx=(0, 5)
         )
         ttk.Button(folder_frame, text="Load Grid", command=self.load_library).grid(
-            row=0, column=2
+            row=0, column=2, padx=(0, 5)
+        )
+        ttk.Button(folder_frame, text="Import CSV...", command=self.import_csv).grid(
+            row=0, column=3, padx=(0, 5)
+        )
+        ttk.Button(folder_frame, text="Export CSV...", command=self.export_csv).grid(
+            row=0, column=4
         )
 
         edit_frame = ttk.LabelFrame(main, text="Single Field Edit", padding=8)
@@ -279,11 +286,99 @@ class TagEditorApp(BaseSuiteApp):
             f"{stats.errors} error(s)"
         )
         if stats.errors:
-            messages = [result.error or "Unknown error" for result in results]
+            messages = self._error_messages(results)
             messagebox.showwarning(
                 "Tag Editor",
                 "\n".join(dict.fromkeys(messages)),
             )
+
+    @staticmethod
+    def _error_messages(results: list[EditResult]) -> list[str]:
+        """Collect the failure messages from edit results.
+
+        Only results that actually failed are reported: a successful result
+        carries ``error=None`` and must never surface as "Unknown error".
+
+        Args:
+            results: Edit results from a grid apply or CSV import.
+
+        Returns:
+            The deduplicated-by-caller list of failure messages, in result
+            order.
+        """
+        return [result.error for result in results if result.error is not None]
+
+    def import_csv(self) -> None:
+        """Apply a CSV of per-file field edits to the loaded library."""
+        directory = self.directory.get().strip()
+        if not directory:
+            messagebox.showerror(
+                "Tag Editor", "Select a music library directory first."
+            )
+            return
+        selected = filedialog.askopenfilename(
+            title="Import Tag CSV",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+        )
+        if not selected:
+            return
+        try:
+            plan = build_import_plan(Path(selected), Path(directory))
+            results = self.processor.apply_edits(plan.edits, dry_run=self.dry_run.get())
+        except AudioSuiteError as exc:
+            messagebox.showerror("Tag Editor", str(exc))
+            return
+
+        stats = summarize_results(results)
+        for result in results:
+            if result.error is None:
+                self._update_row(result)
+        mode = "previewed" if self.dry_run.get() else "written"
+        errors = stats.errors + len(plan.row_errors)
+        self.status_var.set(
+            f"Imported {plan.row_count} CSV row(s): {stats.changed} change(s) "
+            f"{mode}, {stats.unchanged} unchanged, {errors} error(s)"
+        )
+        if plan.ignored_columns:
+            self.status_var.set(
+                f"{self.status_var.get()} | Ignored columns: "
+                f"{', '.join(plan.ignored_columns)}"
+            )
+        messages = self._error_messages(results)
+        messages.extend(plan.row_errors)
+        if messages:
+            messagebox.showwarning(
+                "Tag Editor",
+                "\n".join(dict.fromkeys(messages)),
+            )
+
+    def export_csv(self) -> None:
+        """Write the loaded grid to a CSV file."""
+        if not self._rows:
+            messagebox.showwarning("Tag Editor", "Load the grid before exporting.")
+            return
+        selected = filedialog.asksaveasfilename(
+            title="Export Tag CSV",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+        )
+        if not selected:
+            return
+        rows = [
+            TagRow(path=path, values=dict(values))
+            for path, values in self._rows.values()
+        ]
+        directory = self.directory.get().strip()
+        try:
+            written = export_csv(
+                rows,
+                Path(selected),
+                Path(directory) if directory else None,
+            )
+        except AudioSuiteError as exc:
+            messagebox.showerror("Tag Editor", str(exc))
+            return
+        self.status_var.set(f"Exported {written} file row(s) to {selected}")
 
     def _update_row(self, result: EditResult) -> None:
         """Refresh one grid row from an edit result.

@@ -17,8 +17,8 @@ doc.add_heading("Overview", level=1)
 doc.add_paragraph(
     "The Tag Editor is an interactive grid for common audio metadata fields. "
     "It recursively loads supported audio files, displays their tag values in "
-    "an editable table, and applies validated single-field edits and bulk "
-    "transformations to the selected files. Every live write "
+    "an editable table, and applies validated single-field edits, bulk "
+    "transformations, and CSV imports to the selected files. Every live write "
     "is recorded as one undoable batch, so an entire apply run can be restored "
     "from Undo Tag Edits."
 )
@@ -30,9 +30,9 @@ doc.add_paragraph(
     "3. Click Load Grid.\n"
     "4. Select one or more file rows.\n"
     "5. Choose a field, type a value, and click Apply to Selection.\n"
-    "6. Choose a bulk operation and click Apply Bulk to transform every "
-    "highlighted row at once.\n"
-    "7. Keep Dry Run checked to preview changes, or clear it to write tags."
+    "6. Keep Dry Run checked to preview changes, or clear it to write tags.\n"
+    "7. Use Export CSV... / Import CSV... to work on the grid in a "
+    "spreadsheet."
 )
 
 doc.add_heading("Supported File Formats", level=1)
@@ -163,6 +163,62 @@ doc.add_paragraph(
     "track totals and dates cannot be corrupted."
 )
 
+doc.add_heading("CSV Import and Export", level=1)
+doc.add_paragraph(
+    "Import CSV... applies a batch of per-file edits to the loaded library. "
+    "The CSV needs a file column (file, filename, or path) plus one column per "
+    "editable field. Column headers may use the field key (album_artist) or "
+    "the display label (Album Artist). The exported layout is:"
+)
+
+csv_sample = doc.add_table(rows=4, cols=4)
+csv_sample.style = "Table Grid"
+csv_header = csv_sample.rows[0].cells
+csv_header[0].text = "file"
+csv_header[1].text = "title"
+csv_header[2].text = "album_artist"
+csv_header[3].text = "year"
+for cell in csv_header:
+    for paragraph in cell.paragraphs:
+        for run in paragraph.runs:
+            run.bold = True
+
+csv_rows = [
+    ("Artist/01 - One.mp3", "One", "Various", "1999"),
+    ("Artist/02 - Two.mp3", "Two", "Various", "1999"),
+    ("Artist/03 - Three.mp3", "Three", "Various", "2001"),
+]
+for index, record in enumerate(csv_rows, start=1):
+    cells = csv_sample.rows[index].cells
+    for column_index, value in enumerate(record):
+        cells[column_index].text = value
+
+doc.add_paragraph(
+    "File values may be absolute or relative to the loaded library folder, so a "
+    "spreadsheet exported by Export CSV... can be edited and re-imported "
+    "directly. Export CSV... writes the loaded grid as UTF-8 CSV with one row "
+    "per file, using an empty cell for a tag that is not set."
+)
+
+doc.add_paragraph(
+    "Every file value must point inside the loaded library folder. A value that "
+    "climbs out with a parent-directory reference (..), names a folder elsewhere "
+    "on the machine, or uses a drive-relative path is reported as an error for "
+    "that row and skipped, so a pasted spreadsheet can never retag files outside "
+    "the folder you loaded. Import CSV... also refuses to run until a library "
+    "folder is selected, because that folder is what file values are resolved "
+    "against."
+)
+
+doc.add_paragraph(
+    "Empty cells mean leave unchanged, so re-importing an exported grid never "
+    "clears a tag. Unrecognised columns are ignored and listed in the status "
+    "bar. Rows naming a missing or unsupported file, and cells that fail "
+    "validation, are reported per row and do not stop the remaining rows from "
+    "applying. Import honours the Dry Run state and records one undo batch for "
+    "the whole file."
+)
+
 doc.add_heading("Dry Run and Live Update", level=1)
 doc.add_paragraph(
     "Dry Run is selected by default. A dry run reads current values and "
@@ -173,7 +229,7 @@ doc.add_paragraph(
 
 doc.add_heading("Undo", level=1)
 doc.add_paragraph(
-    "Every live Apply to Selection or Apply Bulk run creates one "
+    "Every live Apply to Selection, Apply Bulk, or Import CSV run creates one "
     "tag_editor undo batch. Open Undo_Tag_Edits.pyw and revert that batch to "
     "restore every file changed by the run. Files that had no tags before the "
     "run are restored to their tagless state."
@@ -181,14 +237,20 @@ doc.add_paragraph(
 
 doc.add_heading("Command Line", level=1)
 doc.add_paragraph(
-    "The headless command edits one field in one audio file. It defaults to "
-    "live mode; add --dry to preview the change without writing."
+    "The headless command edits one field in one audio file, or imports a CSV "
+    "of per-file edits for a library directory. It defaults to live mode; add "
+    "--dry to preview the change without writing."
 )
 doc.add_paragraph('audiosuite tag-edit PATH --field title --value "New Title"')
 doc.add_paragraph("audiosuite tag-edit PATH --field comment --clear --dry")
+doc.add_paragraph("audiosuite tag-edit /Music --csv /Music/edits.csv --dry")
 doc.add_paragraph(
-    "Use --json for machine-readable output. The command exits with a nonzero "
-    "status when validation or the tag write fails."
+    "With --csv, PATH is the library directory used to resolve relative file "
+    "values, and it is also the boundary those values may not escape; "
+    "--field, --value, and --clear cannot be combined with it. Use --json for "
+    "machine-readable output, including the parsed row count, planned edits, "
+    "per-row errors, and ignored columns. The command exits with a nonzero "
+    "status when validation, a row, or a tag write fails."
 )
 
 doc.add_heading("Master Driver", level=1)
