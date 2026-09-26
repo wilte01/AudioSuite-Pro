@@ -121,6 +121,7 @@ def open_help(guide_filename: str) -> None:
         "ReplayGain_Analyzer_User_Guide.docx": "replaygain_analyzer",
         "Silence_Trimmer_User_Guide.docx": "silence_trimmer",
         "Tag_Field_Updater_User_Guide.docx": "tag_field_updater",
+        "Tag_Editor_User_Guide.docx": "tag_editor",
         "Tempo_Analyzer_User_Guide.docx": "tempo_analyzer",
         "Undo_Tag_Edits_User_Guide.docx": "undo_tag_edits",
     }

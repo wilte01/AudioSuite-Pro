@@ -71,6 +71,7 @@ def _make_state(root_widget):
             "cd_ripper",
             "library_stats",
             "tag_field_updater",
+            "tag_editor",
             "audio_enhancer",
             "audio_normalizer",
             "pop_click_remover",
@@ -838,6 +839,39 @@ class TestTagFieldUpdaterCard:
         assert any(
             str(state.module_toggles["tag_field_updater"]) in v for v in variables
         )
+
+    def test_expand_button_present(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        assert len(_find_buttons_with_textvariable(parent)) >= 1
+
+    def test_build_idempotent(self, root):
+        state = _make_state(root)
+        p1 = tk.Frame(root)
+        p2 = tk.Frame(root)
+        self.card.build(p1, state)
+        self.card.build(p2, state)
+        p1.destroy()
+        p2.destroy()
+
+
+class TestTagEditorCard:
+    @pytest.fixture(autouse=True)
+    def _import(self):
+        from master_driver.ui.cards import tag_editor_card
+
+        self.card = tag_editor_card
+
+    def test_build_does_not_raise(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+
+    def test_checkbutton_uses_tag_editor_toggle(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(str(state.module_toggles["tag_editor"]) in v for v in variables)
 
     def test_expand_button_present(self, parent, root):
         state = _make_state(root)

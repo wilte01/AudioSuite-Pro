@@ -143,6 +143,7 @@ DEPENDENCY_GRAPH: dict[str, list[str]] = {
     "audio_normalizer": [],
     "pop_click_remover": [],
     "silence_trimmer": [],
+    "tag_editor": [],
 }
 
 

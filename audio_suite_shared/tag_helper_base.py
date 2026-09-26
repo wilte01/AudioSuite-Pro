@@ -10,6 +10,7 @@ Supports: MP3, FLAC, OGG (Vorbis), M4A/MP4, Opus, WAV, AIFF
 import abc
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Union
 
@@ -29,6 +30,18 @@ if TYPE_CHECKING:
 
 # Initialize logger for shared component
 logger = logging.getLogger(__name__)
+
+EDITABLE_FIELDS: tuple[str, ...] = (
+    "title",
+    "artist",
+    "album",
+    "album_artist",
+    "track",
+    "year",
+    "genre",
+    "comment",
+)
+"""Canonical editable tag fields exposed by the freeform Tag Editor."""
 
 
 @dataclass(frozen=True)
@@ -335,6 +348,37 @@ class BaseTagHandler(abc.ABC):
         """
         return None, None
 
+    def read_editable_tags(self) -> dict[str, str | None]:
+        """Read the freeform editor fields from the file's tags.
+
+        Returns:
+            Dict mapping every field in ``EDITABLE_FIELDS`` to its string
+            value, or ``None`` when the field is absent.
+        """
+        return {field: None for field in EDITABLE_FIELDS}
+
+    def write_editable_tag(self, field: str, value: str | None) -> None:
+        """Write or clear one freeform editor field and save immediately.
+
+        Args:
+            field: Canonical field name from ``EDITABLE_FIELDS``.
+            value: String value to store, or ``None`` to remove the field.
+
+        Raises:
+            AudioTagError: If the handler cannot edit the requested field.
+        """
+        raise AudioTagError(
+            f"write_editable_tag is not supported for {type(self).__name__}"
+        )
+
+    def delete_tags(self) -> None:
+        """Remove the file's tag container without touching its audio payload.
+
+        Raises:
+            AudioTagError: If the handler cannot delete tags.
+        """
+        raise AudioTagError(f"delete_tags is not supported for {type(self).__name__}")
+
     def get_raw_tags(self) -> Any:
         """Return the raw mutagen tags object for direct manipulation.
 
@@ -380,7 +424,7 @@ class MP3Handler(BaseTagHandler):
 
     def save(self) -> None:
         """Save ID3 tags back to the MP3 file."""
-        if self._audio:
+        if self._audio is not None:
             self._audio.save()
 
     def _ensure_tags(self) -> None:
@@ -840,6 +884,137 @@ class MP3Handler(BaseTagHandler):
         self._tags.add(USLT(encoding=3, lang="XXX", desc="", text=text))
         self.save()
 
+    def read_editable_tags(self) -> dict[str, str | None]:
+        """Read the freeform editor fields from ID3 frames.
+
+        Year values prefer the modern TDRC frame and fall back to legacy
+        TYER. Comment values read the first COMM frame regardless of its
+        language or description.
+
+        Returns:
+            Dict mapping every field in ``EDITABLE_FIELDS`` to its string
+            value, or ``None`` when the field is absent.
+        """
+        frame_by_field: dict[str, str] = {
+            "title": "TIT2",
+            "artist": "TPE1",
+            "album": "TALB",
+            "album_artist": "TPE2",
+            "track": "TRCK",
+            "genre": "TCON",
+        }
+        result = super().read_editable_tags()
+        if self._tags:
+            for field, frame_id in frame_by_field.items():
+                result[field] = self._read_id3_frame_text(frame_id)
+            year = self._read_id3_frame_text("TDRC")
+            if year is None:
+                year = self._read_id3_frame_text("TYER")
+            result["year"] = year
+            result["comment"] = self._read_id3_comment()
+        return result
+
+    def write_editable_tag(self, field: str, value: str | None) -> None:
+        """Write or clear one freeform editor field in its ID3 frame.
+
+        Args:
+            field: Canonical field name from ``EDITABLE_FIELDS``.
+            value: String value to store, or ``None`` to remove the field.
+
+        Raises:
+            AudioTagError: If the field is not editable for ID3 files.
+        """
+        from mutagen.id3 import COMM, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TRCK
+
+        frame_by_field: dict[str, str] = {
+            "title": "TIT2",
+            "artist": "TPE1",
+            "album": "TALB",
+            "album_artist": "TPE2",
+            "track": "TRCK",
+            "genre": "TCON",
+        }
+        if field not in frame_by_field and field not in ("year", "comment"):
+            raise AudioTagError(f"Unsupported editable tag field: {field}")
+
+        self._ensure_tags()
+        if field == "comment":
+            self._tags.delall("COMM")
+            if value is not None:
+                self._tags.setall(
+                    "COMM", [COMM(encoding=3, lang="XXX", desc="", text=value)]
+                )
+        elif field == "year":
+            self._tags.delall("TDRC")
+            self._tags.delall("TYER")
+            if value is not None:
+                self._tags.add(TDRC(encoding=3, text=[value]))
+        else:
+            frame_id = frame_by_field[field]
+            frame_classes: dict[str, Callable[..., object]] = {
+                "TIT2": TIT2,
+                "TPE1": TPE1,
+                "TALB": TALB,
+                "TPE2": TPE2,
+                "TRCK": TRCK,
+                "TCON": TCON,
+            }
+            frame_cls = frame_classes.get(frame_id)
+            if frame_cls is None:
+                raise AudioTagError(f"Unsupported ID3 frame: {frame_id}")
+            self._tags.delall(frame_id)
+            if value is not None:
+                self._tags.add(frame_cls(encoding=3, text=[value]))
+        self.save()
+
+    def delete_tags(self) -> None:
+        """Remove the ID3 tag container and reload the audio file."""
+        if self._audio is None:
+            return
+        self._audio.delete()
+        self.load()
+
+    def _read_id3_frame_text(self, frame_id: str) -> str | None:
+        """Read the first text value from an ID3 frame.
+
+        Args:
+            frame_id: ID3 frame identifier.
+
+        Returns:
+            The frame's first text value, or ``None`` when absent or empty.
+        """
+        if not self._tags:
+            return None
+        frames = self._tags.getall(frame_id)
+        if not frames:
+            return None
+        try:
+            text = frames[0].text
+            if not text:
+                return None
+            return str(text[0])
+        except (AttributeError, IndexError, TypeError):
+            return None
+
+    def _read_id3_comment(self) -> str | None:
+        """Read the first COMM frame's text.
+
+        Returns:
+            Comment text, or ``None`` when no COMM frame has text.
+        """
+        if not self._tags:
+            return None
+        frames = self._tags.getall("COMM")
+        if not frames:
+            return None
+        try:
+            text = frames[0].text
+            if not text:
+                return None
+            return str(text[0])
+        except (AttributeError, IndexError, TypeError):
+            return None
+
     def set_raw_tags(self, tags: Any) -> None:
         """Persist a raw mutagen tags object directly to the MP3 file.
 
@@ -934,15 +1109,17 @@ class VorbisHandler(BaseTagHandler):
 
     def save(self) -> None:
         """Save Vorbis comment tags back to the file."""
-        if self._audio:
+        if self._audio is not None:
             self._audio.save()
 
     def _ensure_tags(self) -> None:
         """Guarantee the Vorbis tags dict exists."""
-        if self._tags is None:
-            self._tags = (
-                self._audio.tags if hasattr(self._audio, "tags") else self._audio
-            )
+        if not hasattr(self._audio, "tags"):
+            self._tags = self._audio
+            return
+        if self._audio.tags is None:
+            self._audio.add_tags()
+        self._tags = self._audio.tags
 
     def read_bpm(self) -> int | None:
         """Read BPM from the ``bpm`` Vorbis comment field.
@@ -1334,7 +1511,7 @@ class VorbisHandler(BaseTagHandler):
         """Write plain lyrics to the ``LYRICS`` Vorbis comment and save.
 
         Synced lyrics stored in ``SYNCEDLYRICS`` are left untouched so both
-        coexist.
+        can coexist.
 
         Args:
             text: Plain lyric text to store.
@@ -1342,6 +1519,74 @@ class VorbisHandler(BaseTagHandler):
         self._ensure_tags()
         self._audio["lyrics"] = [text]
         self.save()
+
+    def read_editable_tags(self) -> dict[str, str | None]:
+        """Read the freeform editor fields from Vorbis comments.
+
+        Returns:
+            Dict mapping every field in ``EDITABLE_FIELDS`` to its string
+            value, or ``None`` when the field is absent.
+        """
+        keys_by_field: dict[str, tuple[str, ...]] = {
+            "title": ("title",),
+            "artist": ("artist",),
+            "album": ("album",),
+            "album_artist": ("albumartist",),
+            "track": ("tracknumber",),
+            "year": ("date",),
+            "genre": ("genre",),
+            "comment": ("comment", "description"),
+        }
+        result = super().read_editable_tags()
+        if self._audio:
+            for field, keys in keys_by_field.items():
+                for key in keys:
+                    if key in self._audio:
+                        try:
+                            result[field] = str(self._audio[key][0])
+                        except (IndexError, TypeError, ValueError):
+                            result[field] = None
+                        break
+        return result
+
+    def write_editable_tag(self, field: str, value: str | None) -> None:
+        """Write or clear one freeform editor field in a Vorbis comment.
+
+        Args:
+            field: Canonical field name from ``EDITABLE_FIELDS``.
+            value: String value to store, or ``None`` to remove the field.
+
+        Raises:
+            AudioTagError: If the field is not editable for Vorbis files.
+        """
+        keys_by_field: dict[str, tuple[str, ...]] = {
+            "title": ("title",),
+            "artist": ("artist",),
+            "album": ("album",),
+            "album_artist": ("albumartist",),
+            "track": ("tracknumber",),
+            "year": ("date",),
+            "genre": ("genre",),
+            "comment": ("comment", "description"),
+        }
+        keys = keys_by_field.get(field)
+        if keys is None:
+            raise AudioTagError(f"Unsupported editable tag field: {field}")
+
+        self._ensure_tags()
+        for key in keys:
+            if key in self._audio:
+                del self._audio[key]
+        if value is not None:
+            self._audio[keys[0]] = [value]
+        self.save()
+
+    def delete_tags(self) -> None:
+        """Remove the Vorbis comment block and reload the audio file."""
+        if self._audio is None:
+            return
+        self._audio.delete()
+        self.load()
 
     def set_raw_tags(self, tags: Any) -> None:
         """Persist a raw mutagen tags object directly to the Vorbis file.
@@ -1383,7 +1628,7 @@ class MP4Handler(BaseTagHandler):
 
     def save(self) -> None:
         """Save MP4 atom tags back to the file."""
-        if self._audio:
+        if self._audio is not None:
             self._audio.save()
 
     def _ensure_tags(self) -> None:
@@ -1742,6 +1987,114 @@ class MP4Handler(BaseTagHandler):
                 else:
                     album_gain = value
         return track_gain, album_gain
+
+    def read_editable_tags(self) -> dict[str, str | None]:
+        """Read the freeform editor fields from MP4 atoms.
+
+        Returns:
+            Dict mapping every field in ``EDITABLE_FIELDS`` to its string
+            value, or ``None`` when the atom is absent.
+        """
+        keys_by_field: dict[str, str] = {
+            "title": "\xa9nam",
+            "artist": "\xa9ART",
+            "album": "\xa9alb",
+            "album_artist": "aART",
+            "year": "\xa9day",
+            "genre": "\xa9gen",
+            "comment": "\xa9cmt",
+        }
+        result = super().read_editable_tags()
+        if self._tags:
+            for field, key in keys_by_field.items():
+                if key in self._tags:
+                    try:
+                        result[field] = str(self._tags[key][0])
+                    except (IndexError, TypeError, ValueError):
+                        result[field] = None
+            result["track"] = self._read_mp4_track()
+        return result
+
+    def write_editable_tag(self, field: str, value: str | None) -> None:
+        """Write or clear one freeform editor field in an MP4 atom.
+
+        Args:
+            field: Canonical field name from ``EDITABLE_FIELDS``.
+            value: String value to store, or ``None`` to remove the field.
+
+        Raises:
+            AudioTagError: If the field is not editable for MP4 files.
+        """
+        keys_by_field: dict[str, str] = {
+            "title": "\xa9nam",
+            "artist": "\xa9ART",
+            "album": "\xa9alb",
+            "album_artist": "aART",
+            "year": "\xa9day",
+            "genre": "\xa9gen",
+            "comment": "\xa9cmt",
+        }
+        if field != "track" and field not in keys_by_field:
+            raise AudioTagError(f"Unsupported editable tag field: {field}")
+
+        self._ensure_tags()
+        if field == "track":
+            if "trkn" in self._tags:
+                del self._tags["trkn"]
+            if value is not None:
+                track, total = self._parse_track_value(value)
+                self._tags["trkn"] = [(track, total)]
+        else:
+            key = keys_by_field[field]
+            if key in self._tags:
+                del self._tags[key]
+            if value is not None:
+                self._tags[key] = [value]
+        self.save()
+
+    def delete_tags(self) -> None:
+        """Remove the MP4 tag container and reload the audio file."""
+        if self._audio is None:
+            return
+        self._audio.delete()
+        self.load()
+
+    def _read_mp4_track(self) -> str | None:
+        """Read the track number atom as an editor string.
+
+        Returns:
+            ``"N"`` when no disc total is stored, ``"N/M"`` when both values
+            are present, or ``None`` when the atom is absent.
+        """
+        if not self._tags or "trkn" not in self._tags:
+            return None
+        try:
+            track, total = self._tags["trkn"][0]
+            if total in (0, None):
+                return str(track)
+            return f"{track}/{total}"
+        except (IndexError, TypeError, ValueError):
+            return None
+
+    def _parse_track_value(self, value: str) -> tuple[int, int]:
+        """Parse an editor track value into an MP4 track tuple.
+
+        Args:
+            value: Track string in ``"N"`` or ``"N/M"`` form.
+
+        Returns:
+            Two-tuple ``(track, total)`` with zero for an absent total.
+
+        Raises:
+            AudioTagError: If the value cannot be parsed.
+        """
+        parts = value.split("/", 1)
+        try:
+            track = int(parts[0])
+            total = int(parts[1]) if len(parts) == 2 else 0
+        except ValueError as exc:
+            raise AudioTagError(f"Invalid track value for MP4: {value}") from exc
+        return track, total
 
     def set_raw_tags(self, tags: Any) -> None:
         """Persist a raw mutagen tags object directly to the MP4 file.

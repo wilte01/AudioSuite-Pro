@@ -279,6 +279,7 @@ def _build_utility_tool_args(
             path, mode_flag, start_flag, end_flag, state
         ),
         "tag_field_updater": lambda: [path, mode_flag],
+        "tag_editor": lambda: [path, mode_flag],
         "audio_enhancer": lambda: _build_audio_enhancer_args(path, state),
         "audio_normalizer": lambda: [
             path,

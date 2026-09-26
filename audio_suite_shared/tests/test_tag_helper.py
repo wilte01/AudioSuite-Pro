@@ -23,6 +23,7 @@ except ImportError:
 from mutagen.flac import FLAC
 
 from audio_suite_shared.tag_helper import (
+    EDITABLE_FIELDS,
     IFFID3Handler,
     MP3Handler,
     MP4Handler,
@@ -33,12 +34,14 @@ from audio_suite_shared.tag_helper import (
     read_artist_album,
     read_bpm,
     read_custom_genre_fields,
+    read_editable_tags,
     read_genre,
     read_key,
     read_tags_raw,
     read_tempo_marking,
     write_album_genre_result,
     write_bpm,
+    write_editable_tag,
     write_genre,
     write_genre_sync_result,
     write_key,
@@ -1148,3 +1151,50 @@ class TestFormatExpansionAlbumGenre:
         assert read_custom_genre_fields(str(short_path))["ALBUMGENRE"] == "Blues"
         handler = TagHandlerFactory.get_handler(str(short_path))
         assert _album_derived_marker(handler) == "Y"
+
+
+class TestEditableTagFields:
+    def test_field_set_is_stable(self):
+        assert EDITABLE_FIELDS == (
+            "title",
+            "artist",
+            "album",
+            "album_artist",
+            "track",
+            "year",
+            "genre",
+            "comment",
+        )
+
+    @pytest.mark.parametrize("fixture_name", _ALL_FORMAT_FIXTURES)
+    def test_missing_fields_read_as_none(self, fixture_name, request):
+        path = request.getfixturevalue(fixture_name)
+        values = read_editable_tags(path)
+        assert set(values) == set(EDITABLE_FIELDS)
+        assert all(value is None for value in values.values())
+
+    @pytest.mark.parametrize("fixture_name", _ALL_FORMAT_FIXTURES)
+    def test_title_write_and_read_round_trip(self, fixture_name, request):
+        path = request.getfixturevalue(fixture_name)
+        write_editable_tag(path, "title", "Editable Title")
+        assert read_editable_tags(path)["title"] == "Editable Title"
+
+    @pytest.mark.parametrize("fixture_name", _ALL_FORMAT_FIXTURES)
+    def test_clear_title_removes_field(self, fixture_name, request):
+        path = request.getfixturevalue(fixture_name)
+        write_editable_tag(path, "title", "Temporary")
+        write_editable_tag(path, "title", None)
+        assert read_editable_tags(path)["title"] is None
+
+    def test_mp3_year_falls_back_to_legacy_tyer(self, mp3_file):
+        from mutagen.id3 import TYER
+        from mutagen.mp3 import MP3
+
+        audio = MP3(mp3_file)
+        audio.tags.add(TYER(encoding=3, text=["1974"]))
+        audio.save()
+        assert read_editable_tags(mp3_file)["year"] == "1974"
+
+    def test_mp4_track_reads_total(self, m4a_file):
+        write_editable_tag(m4a_file, "track", "3/12")
+        assert read_editable_tags(m4a_file)["track"] == "3/12"

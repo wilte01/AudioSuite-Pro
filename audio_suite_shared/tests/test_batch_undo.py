@@ -296,12 +296,18 @@ class TestRecordTagEdit:
         restored = pickle.loads(row[0])
         assert restored == original
 
-    def test_none_tags_stored_as_none(self, log: BatchUndoLog) -> None:
+    def test_none_tags_stored_as_tagless_snapshot(self, log: BatchUndoLog) -> None:
         batch_id = log.start_batch("test", "tag_edit")
         log.record_tag_edit(batch_id, "/song.mp3", "write_bpm", None)
 
         records = log.get_batch_records(batch_id)
-        assert records[0].has_snapshot is False
+        assert records[0].has_snapshot is True
+        conn = log._connect()
+        row = conn.execute(
+            "SELECT old_tags_snapshot FROM undo_records WHERE batch_id = ?",
+            [batch_id],
+        ).fetchone()
+        assert pickle.loads(row[0]) is None
 
     def test_multiple_records_per_batch(self, log: BatchUndoLog) -> None:
         batch_id = log.start_batch("test", "tag_edit")
@@ -372,7 +378,7 @@ class TestRecordTagEdit:
         assert result.reverted == 1
         assert result.failed == 0
         mock_handler.set_raw_tags.assert_called_once_with(original)
-        mock_handler.save.assert_called_once()
+        mock_handler.save.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -487,7 +493,26 @@ class TestRevertTagEdit:
         assert result.reverted == 1
         assert result.failed == 0
         mock_handler.set_raw_tags.assert_called_once_with(original_tags)
-        mock_handler.save.assert_called_once()
+        mock_handler.save.assert_not_called()
+
+    def test_revert_tagless_snapshot_deletes_created_tags(
+        self, log: BatchUndoLog
+    ) -> None:
+        batch_id = log.start_batch("tag_editor", "tag_edit")
+        log.record_tag_edit(batch_id, "/tagless/song.mp3", "write_editable_tag", None)
+
+        with patch(
+            "audio_suite_shared.tag_helper_base.TagHandlerFactory"
+        ) as mock_factory:
+            mock_handler = MagicMock()
+            mock_factory.get_handler.return_value = mock_handler
+
+            result = log.revert_batch(batch_id)
+
+        assert result.reverted == 1
+        assert result.failed == 0
+        mock_handler.delete_tags.assert_called_once()
+        mock_handler.set_raw_tags.assert_not_called()
 
     def test_revert_missing_file_logs_error(self, log: BatchUndoLog) -> None:
         batch_id = log.start_batch("test", "tag_edit")

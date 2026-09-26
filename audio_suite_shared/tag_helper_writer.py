@@ -182,6 +182,19 @@ def write_plain_lyrics(path: str, text: str) -> None:
     TagHandlerFactory.get_handler(path).write_plain_lyrics(text)
 
 
+@handle_audio_errors(reraise=True, context="tag_write")
+def write_editable_tag(path: str, field: str, value: str | None) -> None:
+    """Write or clear one freeform editor field in any supported audio file.
+
+    Args:
+        path: Path to the audio file.
+        field: Canonical field name from ``EDITABLE_FIELDS``.
+        value: String value to store, or ``None`` to remove the field.
+    """
+    record_tag_edit_snapshot(path, "write_editable_tag")
+    TagHandlerFactory.get_handler(path).write_editable_tag(field, value)
+
+
 def write_tags_raw(path: str, tags: Any, record_snapshot: bool = True) -> None:
     """Write a raw mutagen tags object directly to a file.
 

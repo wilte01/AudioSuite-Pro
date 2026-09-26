@@ -11,7 +11,7 @@ from typing import Any
 
 from .audio_formats import SUPPORTED_EXTENSIONS
 from .exceptions import handle_audio_errors
-from .tag_helper_base import LyricsTags, TagHandlerFactory
+from .tag_helper_base import EDITABLE_FIELDS, LyricsTags, TagHandlerFactory
 
 
 @handle_audio_errors(reraise=False, return_on_error=False, context="tag_read")
@@ -237,6 +237,24 @@ def read_lyrics_tags(path: str) -> LyricsTags:
         instance when the file stores neither (or on read failure).
     """
     return TagHandlerFactory.get_handler(path).read_lyrics_tags()
+
+
+@handle_audio_errors(
+    reraise=False,
+    return_on_error={field: None for field in EDITABLE_FIELDS},
+    context="tag_read",
+)
+def read_editable_tags(path: str) -> dict[str, str | None]:
+    """Read all freeform editor fields from any supported audio file.
+
+    Args:
+        path: Path to the audio file.
+
+    Returns:
+        Dict mapping every canonical editable field to its string value, or
+        ``None`` on absence or read failure.
+    """
+    return TagHandlerFactory.get_handler(path).read_editable_tags()
 
 
 @handle_audio_errors(reraise=False, return_on_error=None, context="tag_read")

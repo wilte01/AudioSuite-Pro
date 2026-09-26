@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 from .audio_formats import SUPPORTED_EXTENSIONS
 from .tag_helper_art import embed_artwork
 from .tag_helper_base import (
+    EDITABLE_FIELDS,
     BaseTagHandler,
     IFFID3Handler,
     MP3Handler,
@@ -33,6 +34,7 @@ from .tag_helper_reader import (
     read_artist_title,
     read_bpm,
     read_custom_genre_fields,
+    read_editable_tags,
     read_energy,
     read_genre,
     read_key,
@@ -45,6 +47,7 @@ from .tag_helper_reader import (
 from .tag_helper_writer import (
     write_album_genre_result,
     write_bpm,
+    write_editable_tag,
     write_energy,
     write_genre,
     write_genre_sync_result,
@@ -83,6 +86,7 @@ def read_tag_text(audio: "ID3", frame_key: str) -> str | None:
 __all__ = [
     "AudioTagError",
     "BaseTagHandler",
+    "EDITABLE_FIELDS",
     "IFFID3Handler",
     "MP3Handler",
     "MP4Handler",
@@ -99,6 +103,7 @@ __all__ = [
     "read_artist_title",
     "read_bpm",
     "read_custom_genre_fields",
+    "read_editable_tags",
     "read_energy",
     "read_genre",
     "read_key",
@@ -109,6 +114,7 @@ __all__ = [
     "read_tempo_marking",
     "write_album_genre_result",
     "write_bpm",
+    "write_editable_tag",
     "write_energy",
     "write_genre",
     "write_genre_sync_result",

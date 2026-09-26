@@ -91,6 +91,7 @@ def _make_state(
         "audio_normalizer",
         "pop_click_remover",
         "silence_trimmer",
+        "tag_editor",
     ):
         state.module_toggles[key] = _bool_var(True)
 
@@ -717,6 +718,13 @@ class TestBuildUtilityArgs:
         state = _make_state()
         args_list = build_utility_args(state)
         assert any("Tag Field Updater" in e[1].name for e in args_list)
+
+    def test_tag_editor_entry_present(self):
+        state = _make_state()
+        args_list = build_utility_args(state)
+        entry = next(e for e in args_list if e[1].id == "tag_editor")
+        assert entry[2][:2] == ["/music", "--dry"]
+        assert entry[2][-2:] == ["--no-clear-logs", "--no-parallel-run"]
 
     def test_enhancer_returns_empty_args_without_output_dir(self):
         state = _make_state()

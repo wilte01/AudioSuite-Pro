@@ -53,6 +53,7 @@ import noise_reduction.cli  # noqa: F401, E402 — reduce
 import pop_click_remover.cli  # noqa: F401, E402  — declick
 import replaygain_analyzer.cli  # noqa: F401, E402  — replaygain
 import silence_trimmer.cli  # noqa: F401, E402  — silence-trim
+import tag_editor.cli  # noqa: F401, E402  — tag-edit
 import tag_field_updater.cli  # noqa: F401, E402  — tag-update
 import tempo_analyzer.cli  # noqa: F401, E402  — tempo
 

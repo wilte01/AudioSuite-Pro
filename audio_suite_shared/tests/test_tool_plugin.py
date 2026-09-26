@@ -162,7 +162,7 @@ class TestDefaultRegistry:
     def test_registry_is_populated(self):
         r = get_registry()
         assert len(r) >= 16  # all first-party tools
-        assert len(r) == 26  # 11 enrich + 14 utility + 1 refinery
+        assert len(r) == 27  # 11 enrich + 15 utility + 1 refinery
 
     def test_has_all_enrich_tools(self):
         r = get_registry()
@@ -194,6 +194,7 @@ class TestDefaultRegistry:
             "library_stats",
             "file_reorganizer",
             "tag_field_updater",
+            "tag_editor",
             "noise_reduction",
             "undo_tag_edits",
             "audio_enhancer",
@@ -230,6 +231,7 @@ class TestDefaultRegistry:
             "cd-rip",
             "mood-analysis-batch",
             "tag-update",
+            "tag-edit",
             "reduce",
             "lyrics",
             "enhance",
@@ -250,6 +252,7 @@ class TestDefaultRegistry:
             "audio_refinery",
             "file_reorganizer",
             "tag_field_updater",
+            "tag_editor",
             "noise_reduction",
             "undo_tag_edits",
             "audio_enhancer",

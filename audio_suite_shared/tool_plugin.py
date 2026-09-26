@@ -433,6 +433,19 @@ def _build_default_registry() -> ToolRegistry:
 
     r.register(
         ToolManifest(
+            id="tag_editor",
+            name="Tag Editor",
+            category="utility",
+            pyw_filename="Tag_Editor.pyw",
+            description="Edit common tags in an interactive grid",
+            cli_command="tag-edit",
+            standalone=True,
+            order=47,
+        )
+    )
+
+    r.register(
+        ToolManifest(
             id="lyrics_manager",
             name="Lyrics Manager",
             category="enrich",

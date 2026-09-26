@@ -161,6 +161,7 @@ testpaths = [
     "pop_click_remover/tests",
     "replaygain_analyzer/tests",
     "silence_trimmer/tests",
+    "tag_editor/tests",
     "tag_field_updater/tests",
     "tempo_analyzer/tests",
     "utilities/tests",
@@ -204,6 +205,7 @@ source = [
     "pop_click_remover",
     "replaygain_analyzer",
     "silence_trimmer",
+    "tag_editor",
     "tag_field_updater",
     "tempo_analyzer",
 ]

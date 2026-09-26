@@ -371,13 +371,10 @@ class BatchUndoLog:
             batch_id:   The batch this record belongs to.
             file_path:  Absolute path to the audio file.
             operation:  Name of the write operation (e.g. ``"write_bpm"``).
-            old_tags:   Raw mutagen tags object *before* modification.
+            old_tags:   Raw mutagen tags object *before* modification, or
+                ``None`` when the file had no tag container.
         """
-        snapshot = (
-            pickle.dumps(old_tags, protocol=pickle.HIGHEST_PROTOCOL)
-            if old_tags is not None
-            else None
-        )
+        snapshot = pickle.dumps(old_tags, protocol=pickle.HIGHEST_PROTOCOL)
         conn = self._connect()
         with self._lock:
             existing = conn.execute(
@@ -529,8 +526,10 @@ class BatchUndoLog:
         # into a local per-user database; never user-supplied input.
         tags = pickle.loads(snapshot)  # nosec B301
         handler = TagHandlerFactory.get_handler(file_path)
-        handler.set_raw_tags(tags)
-        handler.save()
+        if tags is None:
+            handler.delete_tags()
+        else:
+            handler.set_raw_tags(tags)
         logger.debug("Restored tags for %s", file_path)
 
     def _revert_file_reorg(self, source_path: str, dest_path: str, action: str) -> bool:

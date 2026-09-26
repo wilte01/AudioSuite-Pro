@@ -119,6 +119,29 @@ class InputValidator:
         return sanitised[:max_length].strip()
 
     @classmethod
+    def validate_tag_value(cls, value: str, max_length: int = 4096) -> bool:
+        """
+        Validate a freeform audio tag value.
+
+        Allows all printable Unicode characters plus tab, newline, and
+        carriage return. Rejects other control characters and over-length
+        values without altering the caller's string.
+
+        Args:
+            value: Tag value to validate.
+            max_length: Maximum number of Unicode code points.
+
+        Returns:
+            True if the value is safe to store in an audio tag.
+        """
+        if not isinstance(value, str) or len(value) > max_length:
+            return False
+        return not any(
+            (ord(char) < 32 and char not in "\t\n\r") or ord(char) == 127
+            for char in value
+        )
+
+    @classmethod
     def validate_directory_path(cls, dir_path: str) -> bool:
         """
         Validate a directory path for security vulnerabilities.

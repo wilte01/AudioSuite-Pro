@@ -672,6 +672,7 @@ class TestModuleToggles:
         "library_stats",
         "file_reorganizer",
         "tag_field_updater",
+        "tag_editor",
         "noise_reduction",
         "lyrics_manager",
         "undo_tag_edits",

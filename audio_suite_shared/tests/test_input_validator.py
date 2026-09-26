@@ -1,9 +1,10 @@
 """
 test_input_validator.py — Unit tests for audio_suite_shared.security.input_validator
 
-Covers all 6 public methods of InputValidator:
+Covers all 7 public methods of InputValidator:
     • validate_file_path
     • sanitize_input
+    • validate_tag_value
     • validate_directory_path
     • validate_filename
     • sanitize_api_input
@@ -123,6 +124,33 @@ class TestSanitizeInput:
     def test_only_dangerous_chars_returns_empty(self) -> None:
         result = InputValidator.sanitize_input('<>"&')
         assert result == ""
+
+
+class TestValidateTagValue:
+    def test_plain_text_returns_true(self) -> None:
+        assert InputValidator.validate_tag_value("Artist — Title") is True
+
+    def test_unicode_and_markup_characters_return_true(self) -> None:
+        assert InputValidator.validate_tag_value('Café & <tag> "quoted"') is True
+
+    def test_empty_string_returns_true(self) -> None:
+        assert InputValidator.validate_tag_value("") is True
+
+    def test_newline_tab_and_carriage_return_return_true(self) -> None:
+        assert InputValidator.validate_tag_value("line\nline\r\n\tend") is True
+
+    def test_non_string_returns_false(self) -> None:
+        assert InputValidator.validate_tag_value(None) is False  # type: ignore[arg-type]
+        assert InputValidator.validate_tag_value(42) is False  # type: ignore[arg-type]
+
+    def test_control_characters_return_false(self) -> None:
+        assert InputValidator.validate_tag_value("bad\x00value") is False
+        assert InputValidator.validate_tag_value("bad\x1bvalue") is False
+        assert InputValidator.validate_tag_value("bad\x7fvalue") is False
+
+    def test_over_length_returns_false(self) -> None:
+        assert InputValidator.validate_tag_value("x" * 4096) is True
+        assert InputValidator.validate_tag_value("x" * 4097) is False
 
 
 # ── validate_directory_path ────────────────────────────────────────────────────
