@@ -9,10 +9,13 @@ from tkinter import filedialog, messagebox, ttk
 from audio_suite_shared.app_bootstrap import BaseSuiteApp
 from audio_suite_shared.exceptions import AudioDirectoryError, AudioSuiteError
 from tag_editor.core.processor import (
+    BULK_OPERATION_LABELS,
+    CASE_MODE_LABELS,
     FIELD_LABELS,
     EditResult,
     FieldEdit,
     TagEditorProcessor,
+    TagRow,
     normalize_field,
     summarize_results,
 )
@@ -48,6 +51,10 @@ class TagEditorApp(BaseSuiteApp):
         self.field_var = tk.StringVar(value="title")
         self.value_var = tk.StringVar()
         self.clear_var = tk.BooleanVar(value=False)
+        self.bulk_operation_var = tk.StringVar(value=BULK_OPERATION_LABELS["set_blank"])
+        self.bulk_field_var = tk.StringVar(value="genre")
+        self.second_field_var = tk.StringVar(value="album_artist")
+        self.case_mode_var = tk.StringVar(value=CASE_MODE_LABELS["title"])
         self.dry_run = tk.BooleanVar(value=not live_mode)
         self.status_var = tk.StringVar(
             value="Ready. Select a folder and load the grid."
@@ -62,7 +69,7 @@ class TagEditorApp(BaseSuiteApp):
         main.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.root.rowconfigure(0, weight=1)
         self.root.columnconfigure(0, weight=1)
-        main.rowconfigure(2, weight=1)
+        main.rowconfigure(3, weight=1)
         main.columnconfigure(0, weight=1)
 
         folder_frame = ttk.LabelFrame(main, text="Music Library", padding=8)
@@ -102,8 +109,46 @@ class TagEditorApp(BaseSuiteApp):
             edit_frame, text="Apply to Selection", command=self.apply_selection
         ).grid(row=0, column=6)
 
+        bulk_frame = ttk.LabelFrame(main, text="Bulk Operations", padding=8)
+        bulk_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 8))
+        ttk.Label(bulk_frame, text="Operation:").grid(row=0, column=0, padx=(0, 5))
+        ttk.Combobox(
+            bulk_frame,
+            textvariable=self.bulk_operation_var,
+            values=list(BULK_OPERATION_LABELS.values()),
+            state="readonly",
+            width=30,
+        ).grid(row=0, column=1, padx=(0, 10))
+        ttk.Label(bulk_frame, text="Field:").grid(row=0, column=2, padx=(0, 5))
+        ttk.Combobox(
+            bulk_frame,
+            textvariable=self.bulk_field_var,
+            values=list(FIELD_LABELS),
+            state="readonly",
+            width=16,
+        ).grid(row=0, column=3, padx=(0, 10))
+        ttk.Label(bulk_frame, text="Swap With:").grid(row=0, column=4, padx=(0, 5))
+        ttk.Combobox(
+            bulk_frame,
+            textvariable=self.second_field_var,
+            values=list(FIELD_LABELS),
+            state="readonly",
+            width=16,
+        ).grid(row=0, column=5, padx=(0, 10))
+        ttk.Label(bulk_frame, text="Case:").grid(row=0, column=6, padx=(0, 5))
+        ttk.Combobox(
+            bulk_frame,
+            textvariable=self.case_mode_var,
+            values=list(CASE_MODE_LABELS.values()),
+            state="readonly",
+            width=12,
+        ).grid(row=0, column=7, padx=(0, 10))
+        ttk.Button(
+            bulk_frame, text="Apply Bulk", command=self.apply_bulk_selection
+        ).grid(row=0, column=8)
+
         grid_frame = ttk.Frame(main)
-        grid_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 8))
+        grid_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 8))
         grid_frame.rowconfigure(0, weight=1)
         grid_frame.columnconfigure(0, weight=1)
         columns = ("file", *tuple(FIELD_LABELS))
@@ -193,6 +238,30 @@ class TagEditorApp(BaseSuiteApp):
         ]
         try:
             results = self.processor.apply_edits(edits, dry_run=self.dry_run.get())
+        except AudioSuiteError as exc:
+            messagebox.showerror("Tag Editor", str(exc))
+            return
+        self._report_results(results)
+
+    def apply_bulk_selection(self) -> None:
+        """Apply the selected bulk operation to every highlighted row."""
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showwarning("Tag Editor", "Select at least one file row.")
+            return
+        rows = [
+            TagRow(path=self._rows[iid][0], values=dict(self._rows[iid][1]))
+            for iid in selection
+        ]
+        try:
+            results = self.processor.apply_bulk(
+                rows,
+                self.bulk_operation_var.get(),
+                self.bulk_field_var.get(),
+                second_field=self.second_field_var.get(),
+                case_mode=self.case_mode_var.get(),
+                dry_run=self.dry_run.get(),
+            )
         except AudioSuiteError as exc:
             messagebox.showerror("Tag Editor", str(exc))
             return

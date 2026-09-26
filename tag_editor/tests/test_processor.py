@@ -21,6 +21,10 @@ from audio_suite_shared.exceptions import (
 from tag_editor.core.processor import (
     FieldEdit,
     TagEditorProcessor,
+    TagRow,
+    build_bulk_edits,
+    normalize_bulk_operation,
+    normalize_case_mode,
     normalize_field,
     summarize_results,
     validate_field_value,
@@ -108,6 +112,102 @@ class TestFieldValidation:
     def test_year_rejects_partial_date(self) -> None:
         with pytest.raises(AudioSuiteError, match="Year"):
             validate_field_value("year", "199")
+
+
+class TestBulkOperationValidation:
+    def test_operation_labels_normalize(self) -> None:
+        assert normalize_bulk_operation(" Set Blank ") == "set_blank"
+        assert normalize_bulk_operation("swap_fields") == "swap_fields"
+
+    def test_unknown_operation_rejected(self) -> None:
+        with pytest.raises(AudioSuiteError, match="Unsupported bulk operation"):
+            normalize_bulk_operation("explode")
+
+    def test_case_mode_labels_normalize(self) -> None:
+        assert normalize_case_mode(" Title Case ") == "title"
+        assert normalize_case_mode("upper") == "upper"
+        assert normalize_case_mode("lower") == "lower"
+
+    def test_unknown_case_mode_rejected(self) -> None:
+        with pytest.raises(AudioSuiteError, match="Unsupported case mode"):
+            normalize_case_mode("sideways")
+
+
+class TestBuildBulkEdits:
+    def _row(self, tmp_path: Path, **values: str | None) -> TagRow:
+        return TagRow(path=tmp_path / "track.mp3", values=dict(values))
+
+    def test_set_blank_and_clear_generate_distinct_values(self, tmp_path: Path) -> None:
+        row = self._row(tmp_path, genre="Rock")
+        blank = build_bulk_edits([row], "Set Blank", "Genre")
+        clear = build_bulk_edits([row], "Clear Field", "Genre")
+        assert blank == [FieldEdit(row.path, "genre", "")]
+        assert clear == [FieldEdit(row.path, "genre", None)]
+
+    def test_swap_generates_two_edits(self, tmp_path: Path) -> None:
+        row = self._row(tmp_path, title="Title", artist="Artist")
+        edits = build_bulk_edits([row], "Swap Fields", "Title", second_field="Artist")
+        assert edits == [
+            FieldEdit(row.path, "title", "Artist"),
+            FieldEdit(row.path, "artist", "Title"),
+        ]
+
+    def test_swap_omits_equal_values(self, tmp_path: Path) -> None:
+        row = self._row(tmp_path, title="Same", artist="Same")
+        assert (
+            build_bulk_edits([row], "Swap Fields", "Title", second_field="Artist") == []
+        )
+
+    def test_swap_requires_second_field(self, tmp_path: Path) -> None:
+        row = self._row(tmp_path, title="Title")
+        with pytest.raises(AudioSuiteError, match="second field"):
+            build_bulk_edits([row], "Swap Fields", "Title")
+
+    def test_swap_rejects_same_field(self, tmp_path: Path) -> None:
+        row = self._row(tmp_path, title="Title")
+        with pytest.raises(AudioSuiteError, match="two different fields"):
+            build_bulk_edits([row], "Swap Fields", "Title", second_field="Title")
+
+    @pytest.mark.parametrize(
+        ("mode", "expected"),
+        [
+            ("Title Case", "Hello World"),
+            ("Upper Case", "HELLO WORLD"),
+            ("Lower Case", "hello world"),
+        ],
+    )
+    def test_case_convert_modes(self, tmp_path: Path, mode: str, expected: str) -> None:
+        row = self._row(tmp_path, title="hello WORLD")
+        edits = build_bulk_edits([row], "Case Convert", "Title", case_mode=mode)
+        assert edits == [FieldEdit(row.path, "title", expected)]
+
+    def test_case_convert_omits_empty_and_unchanged(self, tmp_path: Path) -> None:
+        empty = self._row(tmp_path, title="")
+        unchanged = self._row(tmp_path / "other.mp3", title="Already Title")
+        assert (
+            build_bulk_edits(
+                [empty, unchanged], "Case Convert", "Title", case_mode="Title Case"
+            )
+            == []
+        )
+
+    def test_txxx_rule_normalizes_bare_slashes(self, tmp_path: Path) -> None:
+        row = self._row(tmp_path, genre="Rock/Pop")
+        edits = build_bulk_edits([row], "Normalize Slashes (TXXX Rule)", "Genre")
+        assert edits == [FieldEdit(row.path, "genre", "Rock; Pop")]
+
+    def test_txxx_rule_preserves_space_slash_space(self, tmp_path: Path) -> None:
+        row = self._row(tmp_path, genre="Rock / Pop")
+        assert build_bulk_edits([row], "Normalize Slashes (TXXX Rule)", "Genre") == []
+
+    def test_txxx_rule_rejects_track_and_year(self, tmp_path: Path) -> None:
+        row = self._row(tmp_path, track="3/12")
+        with pytest.raises(AudioSuiteError, match="text fields"):
+            build_bulk_edits([row], "Normalize Slashes (TXXX Rule)", "Track")
+
+    def test_error_rows_are_skipped(self, tmp_path: Path) -> None:
+        row = TagRow(path=tmp_path / "broken.mp3", values={}, error="unreadable")
+        assert build_bulk_edits([row], "Set Blank", "Genre") == []
 
 
 class TestScanDirectory:
@@ -294,3 +394,50 @@ class TestRealAudioRoundTrip:
 
         revert_batch_by_id(self._latest_tag_editor_batch())
         assert FLAC(str(flac_file)).tags is None
+
+    def test_bulk_set_blank_then_clear_genre(self, flac_file: Path) -> None:
+        processor = TagEditorProcessor()
+        processor.apply_edits([FieldEdit(flac_file, "genre", "Rock")])
+        row = processor.refresh_file(flac_file)
+
+        processor.apply_bulk([row], "Set Blank", "Genre")
+        assert FLAC(str(flac_file))["genre"][0] == ""
+
+        row = processor.refresh_file(flac_file)
+        processor.apply_bulk([row], "Clear Field", "Genre")
+        assert "genre" not in FLAC(str(flac_file))
+
+    def test_bulk_swap_and_undo(self, mp3_file: Path) -> None:
+        processor = TagEditorProcessor()
+        processor.apply_edits(
+            [
+                FieldEdit(mp3_file, "title", "Original Title"),
+                FieldEdit(mp3_file, "artist", "Original Artist"),
+            ]
+        )
+        row = processor.refresh_file(mp3_file)
+        processor.apply_bulk([row], "Swap Fields", "Title", second_field="Artist")
+
+        audio = MP3(str(mp3_file))
+        assert str(audio.tags["TIT2"].text[0]) == "Original Artist"
+        assert str(audio.tags["TPE1"].text[0]) == "Original Title"
+
+        revert_batch_by_id(self._latest_tag_editor_batch())
+        restored = MP3(str(mp3_file))
+        assert str(restored.tags["TIT2"].text[0]) == "Original Title"
+        assert str(restored.tags["TPE1"].text[0]) == "Original Artist"
+
+    def test_bulk_case_convert(self, flac_file: Path) -> None:
+        processor = TagEditorProcessor()
+        processor.apply_edits([FieldEdit(flac_file, "title", "hello WORLD")])
+        row = processor.refresh_file(flac_file)
+        processor.apply_bulk([row], "Case Convert", "Title", case_mode="Title Case")
+        assert FLAC(str(flac_file))["title"][0] == "Hello World"
+
+    def test_bulk_txxx_rule(self, mp3_file: Path) -> None:
+        processor = TagEditorProcessor()
+        processor.apply_edits([FieldEdit(mp3_file, "genre", "Rock/Pop")])
+        row = processor.refresh_file(mp3_file)
+        processor.apply_bulk([row], "Normalize Slashes (TXXX Rule)", "Genre")
+        audio = MP3(str(mp3_file))
+        assert str(audio.tags["TCON"].text[0]) == "Rock; Pop"

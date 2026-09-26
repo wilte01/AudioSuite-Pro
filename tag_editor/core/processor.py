@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import string
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -23,6 +24,7 @@ from audio_suite_shared.tag_helper import (
     read_editable_tags,
     write_editable_tag,
 )
+from tag_field_updater.core.mapping_engine import update_value
 
 TOOL_NAME = "tag_editor"
 MAX_TAG_VALUE_LENGTH = 4096
@@ -36,6 +38,21 @@ FIELD_LABELS: dict[str, str] = {
     "genre": "Genre",
     "comment": "Comment",
 }
+BULK_OPERATION_LABELS: dict[str, str] = {
+    "set_blank": "Set Blank",
+    "clear_field": "Clear Field",
+    "swap_fields": "Swap Fields",
+    "case_convert": "Case Convert",
+    "apply_txxx_rule": "Normalize Slashes (TXXX Rule)",
+}
+CASE_MODE_LABELS: dict[str, str] = {
+    "title": "Title Case",
+    "upper": "Upper Case",
+    "lower": "Lower Case",
+}
+_TEXT_RULE_FIELDS = frozenset(
+    {"title", "artist", "album", "album_artist", "genre", "comment"}
+)
 _TRACK_PATTERN = re.compile(r"([1-9][0-9]{0,3})(?:/([1-9][0-9]{0,3}))?")
 _YEAR_PATTERN = re.compile(r"([12][0-9]{3})(?:-[0-9]{2}-[0-9]{2})?")
 
@@ -170,6 +187,126 @@ def summarize_results(results: Iterable[EditResult]) -> EditStats:
     )
 
 
+def normalize_bulk_operation(operation: str) -> str:
+    """Return the canonical bulk operation name.
+
+    Args:
+        operation: User- or caller-supplied operation name or label.
+
+    Returns:
+        Canonical bulk operation key.
+
+    Raises:
+        AudioSuiteError: If the operation is not supported.
+    """
+    display = operation.strip().lower()
+    canonical_by_label = {
+        label.lower(): key for key, label in BULK_OPERATION_LABELS.items()
+    }
+    canonical = canonical_by_label.get(display, display.replace(" ", "_"))
+    if canonical not in BULK_OPERATION_LABELS:
+        valid = ", ".join(BULK_OPERATION_LABELS)
+        raise AudioTagError(
+            f"Unsupported bulk operation: {operation}. Valid operations: {valid}"
+        )
+    return canonical
+
+
+def normalize_case_mode(mode: str) -> str:
+    """Return the canonical case-conversion mode.
+
+    Args:
+        mode: User- or caller-supplied mode name or label.
+
+    Returns:
+        Canonical case mode key.
+
+    Raises:
+        AudioSuiteError: If the mode is not supported.
+    """
+    display = mode.strip().lower()
+    canonical_by_label = {label.lower(): key for key, label in CASE_MODE_LABELS.items()}
+    canonical = canonical_by_label.get(display, display.replace(" ", "_"))
+    if canonical not in CASE_MODE_LABELS:
+        valid = ", ".join(CASE_MODE_LABELS)
+        raise AudioTagError(f"Unsupported case mode: {mode}. Valid modes: {valid}")
+    return canonical
+
+
+def _convert_case(value: str, mode: str) -> str:
+    """Convert *value* using the canonical case *mode*."""
+    if mode == "upper":
+        return value.upper()
+    if mode == "lower":
+        return value.lower()
+    return string.capwords(value)
+
+
+def build_bulk_edits(
+    rows: Iterable[TagRow],
+    operation: str,
+    field: str,
+    *,
+    second_field: str | None = None,
+    case_mode: str = "title",
+) -> list[FieldEdit]:
+    """Build validated field edits for a bulk operation.
+
+    Args:
+        rows: Loaded file rows containing current editable values.
+        operation: Bulk operation name or display label.
+        field: Primary editable field.
+        second_field: Secondary field for swap operations.
+        case_mode: Case mode used by case-conversion operations.
+
+    Returns:
+        Field edits in file order; rows that would not change are omitted.
+
+    Raises:
+        AudioSuiteError: If the operation, fields, or case mode are invalid.
+    """
+    bulk_operation = normalize_bulk_operation(operation)
+    primary = normalize_field(field)
+    secondary = normalize_field(second_field) if second_field else None
+    mode = normalize_case_mode(case_mode)
+
+    if bulk_operation == "swap_fields":
+        if secondary is None:
+            raise AudioTagError("Swap Fields requires a second field.")
+        if secondary == primary:
+            raise AudioTagError("Swap Fields requires two different fields.")
+    elif bulk_operation == "apply_txxx_rule" and primary not in _TEXT_RULE_FIELDS:
+        raise AudioTagError(
+            "Normalize Slashes is available for text fields, not track or year."
+        )
+
+    edits: list[FieldEdit] = []
+    for row in rows:
+        if row.error is not None:
+            continue
+        current = row.values.get(primary)
+        if bulk_operation == "set_blank":
+            edits.append(FieldEdit(row.path, primary, ""))
+        elif bulk_operation == "clear_field":
+            edits.append(FieldEdit(row.path, primary, None))
+        elif bulk_operation == "swap_fields" and secondary is not None:
+            other = row.values.get(secondary)
+            if current != other:
+                edits.append(FieldEdit(row.path, primary, other))
+                edits.append(FieldEdit(row.path, secondary, current))
+        elif bulk_operation == "case_convert":
+            if current:
+                converted = _convert_case(current, mode)
+                if converted != current:
+                    edits.append(FieldEdit(row.path, primary, converted))
+        elif bulk_operation == "apply_txxx_rule":
+            if current is not None:
+                normalized_value = update_value(current)
+                if normalized_value != current:
+                    edits.append(FieldEdit(row.path, primary, normalized_value))
+    return edits
+
+
 class TagEditorProcessor:
     """Scans supported audio files and applies validated field edits."""
 
@@ -233,6 +370,38 @@ class TagEditorProcessor:
         """
         values = read_editable_tags(str(path))
         return TagRow(path=path, values=values)
+
+    def apply_bulk(
+        self,
+        rows: Iterable[TagRow],
+        operation: str,
+        field: str,
+        *,
+        second_field: str | None = None,
+        case_mode: str = "title",
+        dry_run: bool = False,
+    ) -> list[EditResult]:
+        """Apply a bulk operation under one undo batch.
+
+        Args:
+            rows: Loaded file rows containing current editable values.
+            operation: Bulk operation name or display label.
+            field: Primary editable field.
+            second_field: Secondary field for swap operations.
+            case_mode: Case mode used by case-conversion operations.
+            dry_run: When True, report planned changes without writing.
+
+        Returns:
+            Edit results for every field edit generated by the operation.
+        """
+        edits = build_bulk_edits(
+            rows,
+            operation,
+            field,
+            second_field=second_field,
+            case_mode=case_mode,
+        )
+        return self.apply_edits(edits, dry_run=dry_run)
 
     def apply_edits(
         self,

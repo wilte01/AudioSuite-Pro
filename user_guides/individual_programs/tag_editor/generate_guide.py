@@ -17,9 +17,10 @@ doc.add_heading("Overview", level=1)
 doc.add_paragraph(
     "The Tag Editor is an interactive grid for common audio metadata fields. "
     "It recursively loads supported audio files, displays their tag values in "
-    "an editable table, and applies validated single-field edits to every "
-    "selected row. Every live write is recorded as one undoable batch, so an "
-    "entire apply run can be restored from Undo Tag Edits."
+    "an editable table, and applies validated single-field edits and bulk "
+    "transformations to the selected files. Every live write "
+    "is recorded as one undoable batch, so an entire apply run can be restored "
+    "from Undo Tag Edits."
 )
 
 doc.add_heading("Quick Start", level=1)
@@ -29,7 +30,9 @@ doc.add_paragraph(
     "3. Click Load Grid.\n"
     "4. Select one or more file rows.\n"
     "5. Choose a field, type a value, and click Apply to Selection.\n"
-    "6. Keep Dry Run checked to preview changes, or clear it to write tags."
+    "6. Choose a bulk operation and click Apply Bulk to transform every "
+    "highlighted row at once.\n"
+    "7. Keep Dry Run checked to preview changes, or clear it to write tags."
 )
 
 doc.add_heading("Supported File Formats", level=1)
@@ -113,6 +116,53 @@ doc.add_paragraph(
     "reported as unchanged and are not rewritten."
 )
 
+doc.add_heading("Bulk Operations", level=1)
+doc.add_paragraph(
+    "The Bulk Operations panel applies a transformation to every selected row "
+    "in one undoable apply run."
+)
+
+bulk = doc.add_table(rows=6, cols=2)
+bulk.style = "Table Grid"
+bulk_header = bulk.rows[0].cells
+bulk_header[0].text = "Operation"
+bulk_header[1].text = "Effect"
+for cell in bulk_header:
+    for paragraph in cell.paragraphs:
+        for run in paragraph.runs:
+            run.bold = True
+
+bulk_rows = [
+    (
+        "Set Blank",
+        "Stores an empty string in the selected field without removing the tag.",
+    ),
+    ("Clear Field", "Removes the selected field from each highlighted file."),
+    (
+        "Swap Fields",
+        "Exchanges the selected field with the second field on every row.",
+    ),
+    (
+        "Case Convert",
+        "Converts the selected field to Title Case, Upper Case, or Lower Case.",
+    ),
+    (
+        "Normalize Slashes (TXXX Rule)",
+        "Replaces bare '/' separators with '; ' while preserving ' / ', "
+        "matching the Tag Field Updater rule.",
+    ),
+]
+for index, (operation, effect) in enumerate(bulk_rows, start=1):
+    cells = bulk.rows[index].cells
+    cells[0].text = operation
+    cells[1].text = effect
+
+doc.add_paragraph(
+    "Swap Fields uses both field selectors and ignores rows where the two "
+    "values are already equal. Normalize Slashes is limited to text fields so "
+    "track totals and dates cannot be corrupted."
+)
+
 doc.add_heading("Dry Run and Live Update", level=1)
 doc.add_paragraph(
     "Dry Run is selected by default. A dry run reads current values and "
@@ -123,10 +173,10 @@ doc.add_paragraph(
 
 doc.add_heading("Undo", level=1)
 doc.add_paragraph(
-    "Every live Apply to Selection run creates one tag_editor undo batch. Open "
-    "Undo_Tag_Edits.pyw and revert that batch to restore every file changed by "
-    "the run. Files that had no tags before the run are restored to their "
-    "tagless state."
+    "Every live Apply to Selection or Apply Bulk run creates one "
+    "tag_editor undo batch. Open Undo_Tag_Edits.pyw and revert that batch to "
+    "restore every file changed by the run. Files that had no tags before the "
+    "run are restored to their tagless state."
 )
 
 doc.add_heading("Command Line", level=1)

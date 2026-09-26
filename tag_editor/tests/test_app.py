@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from audio_suite_shared.exceptions import AudioDirectoryError
+from audio_suite_shared.exceptions import AudioDirectoryError, AudioSuiteError
 from tag_editor.core.processor import EditResult, TagRow
 from tag_editor.ui.app import TagEditorApp, main
 
@@ -18,6 +18,10 @@ def _app(tmp_path: Path) -> TagEditorApp:
     app.field_var = MagicMock()
     app.value_var = MagicMock()
     app.clear_var = MagicMock()
+    app.bulk_operation_var = MagicMock()
+    app.bulk_field_var = MagicMock()
+    app.second_field_var = MagicMock()
+    app.case_mode_var = MagicMock()
     app.dry_run = MagicMock()
     app.status_var = MagicMock()
     app.tree = MagicMock()
@@ -143,6 +147,71 @@ class TestTagEditorApp:
             app.apply_selection()
         messagebox.showwarning.assert_called_once()
         app.tree.set.assert_not_called()
+
+    def test_apply_bulk_selection_passes_operation_options(
+        self, tmp_path: Path
+    ) -> None:
+        app = _app(tmp_path)
+        path = tmp_path / "track.mp3"
+        app.tree.selection.return_value = [str(path)]
+        app._rows[str(path)] = (path, {"genre": "Rock/Pop", "album": "Album"})
+        app.bulk_operation_var.get.return_value = "Normalize Slashes (TXXX Rule)"
+        app.bulk_field_var.get.return_value = "genre"
+        app.second_field_var.get.return_value = "album"
+        app.case_mode_var.get.return_value = "Title Case"
+        app.dry_run.get.return_value = True
+        result = EditResult(
+            path=path,
+            field="genre",
+            old_value="Rock/Pop",
+            new_value="Rock; Pop",
+            changed=True,
+            written=False,
+        )
+        app.processor.apply_bulk.return_value = [result]
+
+        app.apply_bulk_selection()
+
+        rows = app.processor.apply_bulk.call_args.args[0]
+        assert rows[0].path == path
+        assert rows[0].values["genre"] == "Rock/Pop"
+        assert app.processor.apply_bulk.call_args.args[1:] == (
+            "Normalize Slashes (TXXX Rule)",
+            "genre",
+        )
+        assert app.processor.apply_bulk.call_args.kwargs == {
+            "second_field": "album",
+            "case_mode": "Title Case",
+            "dry_run": True,
+        }
+        app.tree.set.assert_called_once_with(str(path), "genre", "Rock; Pop")
+
+    def test_apply_bulk_selection_requires_selection(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        app.tree.selection.return_value = []
+        with patch("tag_editor.ui.app.messagebox") as messagebox:
+            app.apply_bulk_selection()
+        messagebox.showwarning.assert_called_once()
+        app.processor.apply_bulk.assert_not_called()
+
+    def test_apply_bulk_selection_reports_validation_error(
+        self, tmp_path: Path
+    ) -> None:
+        app = _app(tmp_path)
+        path = tmp_path / "track.mp3"
+        app.tree.selection.return_value = [str(path)]
+        app._rows[str(path)] = (path, {})
+        app.bulk_operation_var.get.return_value = "Swap Fields"
+        app.bulk_field_var.get.return_value = "title"
+        app.second_field_var.get.return_value = "title"
+        app.case_mode_var.get.return_value = "Title Case"
+        app.dry_run.get.return_value = False
+        app.processor.apply_bulk.side_effect = AudioSuiteError(
+            "Swap Fields requires two different fields."
+        )
+        with patch("tag_editor.ui.app.messagebox") as messagebox:
+            app.apply_bulk_selection()
+        messagebox.showerror.assert_called_once()
 
     def test_update_row_updates_cached_values(self, tmp_path: Path) -> None:
         app = _app(tmp_path)
