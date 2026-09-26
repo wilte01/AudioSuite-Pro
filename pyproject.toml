@@ -27,6 +27,13 @@ dependencies = [
 [project.scripts]
 audiosuite = "audio_suite_shared.cli_app:cli"
 
+# External system requirement (plan A5, audit #6): ffmpeg is invoked from 35
+# production files but is a binary, not a Python package, so it belongs here as
+# a declaration, not in dependencies.  Machine-readable source of truth:
+# audio_suite_shared/system_requirements.py (probed at launch by preflight).
+# ffmpeg + ffprobe must be on PATH: winget install Gyan.FFmpeg / brew install
+# ffmpeg / sudo apt install ffmpeg.
+
 [project.optional-dependencies]
 cd-ripping = [
     "discid>=1.2.0",

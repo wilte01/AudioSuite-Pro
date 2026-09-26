@@ -59,6 +59,21 @@ bullet(
     "The launcher attempts to preload discid.dll when it exists beside the launcher.",
 )
 
+doc.add_heading("System Requirements", level=1)
+doc.add_paragraph(
+    "This tool requires ffmpeg and ffprobe to be installed and on PATH. "
+    "ffmpeg decodes and encodes the audio formats the suite reads and "
+    "writes; ffprobe reads stream metadata (duration, codec, bitrate) "
+    "for analysis tools. The suite shows a startup warning naming any "
+    "missing binary and how to install it."
+)
+for _hint in (
+    "Windows: winget install Gyan.FFmpeg",
+    "macOS:   brew install ffmpeg",
+    "Linux:   sudo apt install ffmpeg",
+):
+    doc.add_paragraph(_hint, style="List Bullet")
+
 doc.add_heading("Quick Start", level=1)
 for step in (
     "Insert an audio CD and open CD_Ripper.pyw.",

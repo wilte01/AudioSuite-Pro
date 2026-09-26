@@ -13,6 +13,12 @@ Tk roots, run side effects, or recurse into the very bug we are catching).  It
 only verifies that every module *parses*.  Runtime import failures are surfaced
 separately by Python's own import machinery once the guard passes.
 
+:func:`report_missing_requirements` is a second, independent check: it probes the
+external binaries declared in :mod:`audio_suite_shared.system_requirements`.
+That check is **warning-level only** — it never blocks.  A missing ``ffmpeg``
+must not stop a user who only wants to run, say, the tag editor, so only the
+compile gate keeps blocking semantics.
+
 The core scan is pure (no GUI) and fully unit-testable; :func:`guard_or_exit`
 adds the blocking-dialog behaviour used by the launchers.
 """
@@ -23,10 +29,25 @@ import compileall
 import logging
 import os
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable
+
+from audio_suite_shared.system_requirements import (
+    SystemRequirement,
+    find_missing_requirements,
+    format_requirement_report,
+)
 
 logger = logging.getLogger(__name__)
+
+#: Title of the blocking dialog shown when the compile gate fails.
+BLOCKED_TITLE = "Audio Suite — Startup Blocked"
+
+#: Title of the non-blocking dialog shown when a required system tool is
+#: missing.  Deliberately distinct from :data:`BLOCKED_TITLE` so a user (or a
+#: screenshot in a bug report) can tell a warning from a block.
+WARNING_TITLE = "Audio Suite — Missing System Tool"
 
 #: Mostly-unique extensions checked by the suite's build tooling.  Only
 #: first-party ``.py`` source is *.py; ``.pyw`` launchers are checked too since
@@ -119,7 +140,7 @@ def _emit_failure(
     else:
         logger.error(report)
 
-    show_dialog("Audio Suite — Startup Blocked", report)
+    show_dialog(BLOCKED_TITLE, report)
 
     if exit_fn is not None:
         exit_fn(1)
@@ -164,8 +185,53 @@ def verify_suite(
     return False
 
 
+def report_missing_requirements(
+    show_dialog: Callable[[str, str], None],
+    *,
+    log_fn: Callable[[str], object] | None = None,
+) -> list[SystemRequirement]:
+    """Report any missing system tool as a **warning**, without blocking.
+
+    This is deliberately warning-level.  ``ffmpeg`` is used by many tools and
+    by none of the metadata-only ones, so a hard exit here would break a user
+    whose task never touches a binary.  The message names each missing binary,
+    what the suite uses it for, and the plain install command per platform, so
+    the user can act on it without leaving the tool.
+
+    Pure by contract: it takes the dialog as a parameter and never imports
+    ``tkinter`` or constructs a widget, so it is callable from a headless
+    context and unit-testable without a display.
+
+    Args:
+        show_dialog: Callable(title, message) invoked only when something is
+            missing.
+        log_fn: Callable used to emit the report line (defaults to
+            ``logger.warning``).  Injectable for hermetic tests.
+
+    Returns:
+        The requirements that could not be found, in declaration order; empty
+        when every declared tool is present.
+    """
+    missing = find_missing_requirements()
+    if not missing:
+        return []
+
+    report = format_requirement_report(missing)
+    if log_fn is not None:
+        log_fn(report)
+    else:
+        logger.warning(report)
+
+    show_dialog(WARNING_TITLE, report)
+    return missing
+
+
 def guard_or_exit(root: Path) -> bool:
     """Run :func:`verify_suite` with the standard GUI + exit behaviour.
+
+    Runs the blocking compile gate first, then the warning-level system-tool
+    check.  Only the compile gate can block: a missing ``ffmpeg`` is reported
+    and the launcher continues.
 
     Args:
         root: The suite root directory to scan.
@@ -178,4 +244,12 @@ def guard_or_exit(root: Path) -> bool:
     def show_dialog(title: str, message: str) -> None:
         messagebox.showerror(title, message)
 
-    return verify_suite(root, show_dialog)
+    def warn_dialog(title: str, message: str) -> None:
+        messagebox.showwarning(title, message)
+
+    parsed = verify_suite(root, show_dialog)
+    if not parsed:
+        return parsed
+
+    report_missing_requirements(warn_dialog)
+    return parsed
