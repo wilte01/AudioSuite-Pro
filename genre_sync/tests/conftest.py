@@ -2,41 +2,18 @@
 Pytest fixtures for genre_sync tests.
 
 mock_tk_app builds a fully-mocked tkinter environment for orchestrator
-tests; a session-scoped hidden Tk root is also provided for tests that
-exercise real widget behaviour (DriverControlsPanel etc.).
+tests.  The session-scoped hidden Tk root (and the ``root`` / ``tk_root``
+fixtures plus the headless skip behaviour) come from the repo-root
+``conftest.py`` — this package deliberately owns no Tk bootstrap of its own.
+See PLAN_iteration5_remediation.md item A3: the private ``pytest_configure``
+that called ``pytest.skip()`` on ``tk.TclError`` raised ``INTERNALERROR``
+(pytest exit code 3) during ``config._do_configure()``, which takes down the
+whole session on a headless host — not just genre_sync.
 """
 
-import tkinter as tk
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-_root: tk.Tk | None = None
-
-
-def pytest_configure(config: pytest.Config) -> None:
-    """Create the shared hidden Tk root before any test module is collected."""
-    global _root
-    try:
-        _root = tk.Tk()
-        _root.withdraw()
-    except tk.TclError:
-        pytest.skip("No display available — tkinter tests require a GUI environment")
-
-
-def pytest_unconfigure(config: pytest.Config) -> None:
-    """Destroy the shared root after the whole session finishes."""
-    global _root
-    if _root is not None:
-        _root.destroy()
-        _root = None
-
-
-@pytest.fixture(scope="session")
-def root() -> tk.Tk:
-    """The shared hidden Tk root, for tests that want it explicitly."""
-    assert _root is not None, "pytest_configure should have created the root"
-    return _root
 
 
 def _mock_stringvar(value=None, master=None, name=None):

@@ -157,6 +157,7 @@ testpaths = [
     "metadata_scrubber/tests",
     "mood_analyzer/tests",
     "mood_analysis_batch_tagger/tests",
+    "noise_reduction/tests",
     "music_format_converter/tests",
     "pop_click_remover/tests",
     "replaygain_analyzer/tests",
@@ -201,6 +202,7 @@ source = [
     "metadata_scrubber",
     "mood_analyzer",
     "mood_analysis_batch_tagger",
+    "noise_reduction",
     "music_format_converter",
     "pop_click_remover",
     "replaygain_analyzer",
@@ -237,6 +239,14 @@ exclude_lines = [
 
 [tool.ruff.format]
 quote-style = "double"
+# Plan A1 (audit #1): never format Markdown.  Ruff formats Python code blocks
+# inside .md files, so the completed PLAN_*.md records are part of the tree and
+# a documentation file would fail the project-wide format gate — and running
+# `ruff format .` to "fix" it would rewrite a historical plan's content.  This
+# must stay a `format.exclude` entry and NOT the CLI form `--exclude "*.md"`:
+# the CLI form REPLACES Ruff's built-in exclusions instead of adding to them,
+# which re-admits .venv.  Verified empirically against ruff 0.15.22.
+exclude = ["*.md"]
 
 [tool.setuptools.packages.find]
 where = ["."]
