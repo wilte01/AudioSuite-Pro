@@ -64,6 +64,7 @@ def _make_state(root_widget):
             "bpm",
             "tempo",
             "key",
+            "mood_analyzer",
             "art",
             "lyrics_manager",
             "converter",
@@ -89,6 +90,9 @@ def _make_state(root_widget):
     state.bpm_duration = tk.StringVar(root_widget, value="90")
     state.tempo_scheme = tk.StringVar(root_widget, value="Italian")
     state.key_duration = tk.StringVar(root_widget, value="90")
+    state.mood_duration = tk.StringVar(root_widget, value="90")
+    state.mood_parallel = tk.BooleanVar(root_widget, value=False)
+    state.mood_workers = tk.StringVar(root_widget, value="4")
     state.art_res = tk.StringVar(root_widget, value="800")
     state.art_purge = tk.BooleanVar(root_widget, value=True)
     state.lyrics_provider = tk.StringVar(root_widget, value="lrclib")
@@ -541,6 +545,44 @@ class TestKeyCard:
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.key_duration) in v for v in var_names)
+
+
+# ---------------------------------------------------------------------------
+# mood_analyzer_card
+# ---------------------------------------------------------------------------
+
+
+class TestMoodAnalyzerCard:
+    @pytest.fixture(autouse=True)
+    def _import(self):
+        from master_driver.ui.cards import mood_analyzer_card
+
+        self.card = mood_analyzer_card
+
+    def test_build_does_not_raise(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+
+    def test_checkbutton_uses_mood_toggle(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(str(state.module_toggles["mood_analyzer"]) in v for v in variables)
+
+    def test_duration_and_workers_wired_to_state(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        var_names = [str(e.cget("textvariable")) for e in _find_entries(parent)]
+        assert any(str(state.mood_duration) in v for v in var_names)
+        assert any(str(state.mood_workers) in v for v in var_names)
+
+    def test_parallel_checkbutton_wired_to_state(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(str(state.mood_parallel) in v for v in variables)
 
 
 # ---------------------------------------------------------------------------
