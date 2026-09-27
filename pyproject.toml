@@ -1,5 +1,9 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+# setuptools >= 77 is required by the PEP 639 metadata below: the SPDX
+# `license` string and `license-files` forms are only parsed from that
+# version on. Verified empirically via the install path (uv sync), not by
+# reading docs (plan E2).
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +11,12 @@ name = "audiosuite-pro"
 version = "1.0.0"
 readme = "README.md"
 requires-python = ">=3.10"
+# Plan iteration 5 E2 (audit #11), decision D1: GPL-3.0, chosen because the
+# heaviest first-party dependency (pedalboard) is GPL-3.0 and the rejected
+# analysis engines (essentia=AGPL, madmom's models=CC BY-NC-SA) constrain a
+# permissive grant anyway. See LICENSE (verbatim GNU GPL v3 text).
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = [
     "certifi>=2021.5.30",
     "click>=8.0.0",

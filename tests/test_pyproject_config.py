@@ -19,6 +19,7 @@ layers, so it cannot silently rot back to "everything runs":
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -217,6 +218,75 @@ class TestConfigLock:
         assert missing == [
             name for name in ("ffmpeg", "ffprobe") if shutil.which(name) is None
         ]
+
+
+# ---------------------------------------------------------------------------
+# E2 — packaging metadata lock (licence)
+# ---------------------------------------------------------------------------
+
+#: SHA-256 of the canonical GNU GPL v3 text (https://www.gnu.org/licenses/
+#: gpl-3.0.txt). Locking the hash, not just the header, means a corrupted or
+#: silently re-flowed LICENSE fails here — the plan requires the D1 licence
+#: text verbatim.
+_GPL3_SHA256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+
+_BASELINE_DOCS = ("CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md")
+
+
+@pytest.mark.skipif(
+    not _HAS_TOMLLIB,
+    reason="tomllib requires Python 3.11+; the 3.12 CI legs enforce this lock",
+)
+class TestPackagingMetadataLock:
+    """Plan E2 (audit #11): the licence is declared and real.
+
+    A metadata-only change otherwise has no verification at all, so this
+    lock asserts the SPDX declaration in ``[project]``, the on-disk licence
+    file (verbatim, hash-locked), and the E2 acceptance requirement that
+    the baseline documents exist and are referenced from the README.
+    """
+
+    @staticmethod
+    def _project_section() -> dict[str, object]:
+        pyproject = tomllib.load(open(PYPROJECT, "rb"))
+        project = pyproject["project"]
+        assert isinstance(project, dict)
+        return project
+
+    def test_the_licence_is_declared_as_the_D1_decision(self) -> None:
+        project = self._project_section()
+        license_str = project.get("license")
+        assert license_str == "GPL-3.0-or-later", (
+            "decision D1 resolved the licence to GPL-3.0"
+        )
+        license_files = project.get("license-files")
+        assert license_files == ["LICENSE"]
+
+    def test_the_licence_file_exists_verbatim(self) -> None:
+        path = REPO_ROOT / "LICENSE"
+        assert path.is_file(), "LICENSE must exist on disk"
+        raw = path.read_bytes()
+        text = raw.decode("utf-8")
+        assert hashlib.sha256(raw).hexdigest() == _GPL3_SHA256, (
+            "LICENSE is not the verbatim GNU GPL v3 text — refetch it from "
+            "https://www.gnu.org/licenses/gpl-3.0.txt rather than editing"
+        )
+        assert text.startswith("                    GNU GENERAL PUBLIC LICENSE")
+        assert "Version 3, 29 June 2007" in text
+
+    def test_the_baseline_documents_exist_and_are_linked_from_the_readme(
+        self,
+    ) -> None:
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        # The licence decision must read the same everywhere: the project
+        # metadata, the distribution files and the README.
+        assert "GPL-3.0-or-later" in readme
+        assert "GPL-3.0-or-later" in (REPO_ROOT / "CONTRIBUTING.md").read_text(
+            encoding="utf-8"
+        )
+        for name in _BASELINE_DOCS:
+            assert (REPO_ROOT / name).is_file(), f"{name} must exist"
+            assert name in readme, f"README must reference {name}"
 
 
 # ---------------------------------------------------------------------------
