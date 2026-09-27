@@ -565,7 +565,7 @@ GUI skip is replaced by a loud, bounded failure mode.
 
 ---
 
-### B1 — Test the mood batch tagger's process-pool path `[audit #5]`
+### B1 [x] — Test the mood batch tagger's process-pool path `[audit #5]`
 
 **Priority:** High | **Effort:** 0.5 day | **Risk:** Medium (test design)
 
@@ -581,11 +581,11 @@ not a crash.
 
 **Scope:**
 
-- [ ] Read the full call chain first: the public entry that chooses between
+- [x] Read the full call chain first: the public entry that chooses between
       the thread and process paths, the arguments handed to the pool, and the
       worker function's picklability. A test that mocks away the chooser tests
       nothing (AGENTS.md §9).
-- [ ] Add `mood_analysis_batch_tagger/tests/test_batch_analysis_engine.py`
+- [x] Add `mood_analysis_batch_tagger/tests/test_batch_analysis_engine.py`
       cases that execute the real process pool on a small input set:
       - happy path — N inputs, N results, correct ordering, progress callback
         invoked once per completed item;
@@ -596,10 +596,11 @@ not a crash.
       - worker picklability — assert the worker callable is a module-level
         function, not a closure, on a platform whose default start method is
         `spawn` (Windows/macOS), because a closure is unpicklable there.
-- [ ] Where a genuine platform constraint makes real multiprocessing
+- [x] Where a genuine platform constraint makes real multiprocessing
       untestable in-process, mark the skip with a reason that names the
-      constraint — never a bare `@pytest.mark.skip`.
-- [ ] **Do not** refactor the engine while testing it. If the tests reveal a
+      constraint — never a bare `@pytest.mark.skip`. **No skip was needed:**
+      real `ProcessPoolExecutor` dispatch runs on this Windows host.
+- [x] **Do not** refactor the engine while testing it. If the tests reveal a
       defect, fix that defect with its regression test in this same change and
       log it; any structural cleanup is a separate item with approval.
 
@@ -623,7 +624,7 @@ gets fixed — never weaken the assertion to make it green.
 
 ---
 
-### B2 — Cover `analysis_loader`'s decode path `[audit #15]`
+### B2 [x] — Cover `analysis_loader`'s decode path `[audit #15]`
 
 **Priority:** High | **Effort:** 0.4 day | **Risk:** Low
 
@@ -637,18 +638,19 @@ propagates.
 
 **Scope:**
 
-- [ ] Enumerate the uncovered lines first (`pytest --cov=audio_suite_shared
-      --cov-report=term-missing`) and identify which are reachable.
-- [ ] Add `audio_suite_shared/tests/test_analysis_loader.py` covering:
+- [x] Enumerate the uncovered lines first (`pytest --cov=audio_suite_shared
+      --cov-report=term-missing`) and identify which are reachable. Baseline
+      missing set: `56-86, 102-103, 119-124, 140-141` — all reachable.
+- [x] Add `audio_suite_shared/tests/test_analysis_loader.py` covering:
       - the nominal path for each supported input form the loader accepts;
       - the failure paths — missing file, unreadable/corrupt file, and an
         unsupported or empty stream — each asserting the *specific* exception
         type the callers already catch, not a generic `pytest.raises`;
       - any resampling/mono-downmix branch, verified on real audio.
-- [ ] Per AGENTS.md §7, at least one case must decode a **real** generated
+- [x] Per AGENTS.md §7, at least one case must decode a **real** generated
       audio file and assert a measured property (sample count, channel count,
       duration) rather than only asserting that a call happened.
-- [ ] If an uncovered branch turns out to be dead code, say so explicitly in
+- [x] If an uncovered branch turns out to be dead code, say so explicitly in
       the Completion Log and propose removal as a follow-up item — do not
       delete it here.
 
@@ -668,7 +670,7 @@ re-specification of what the loader ought to do.
 
 ---
 
-### B3 — Test `ffmpeg_finder`'s discovery fallbacks `[audit #16]`
+### B3 [x] — Test `ffmpeg_finder`'s discovery fallbacks `[audit #16]`
 
 **Priority:** Medium | **Effort:** 0.25 day | **Risk:** Low
 
@@ -680,21 +682,35 @@ ffmpeg-backed tool breaks in a way that is hard to trace back here.
 
 **Scope:**
 
-- [ ] Add `audio_normalizer/tests/test_ffmpeg_finder.py` (extend the existing
+- [x] Add `audio_normalizer/tests/test_ffmpeg_finder.py` (extend the existing
       file if one exists — check first, and do not create a second test module
       for the same source module, per `AGENTS.md` "Test File Naming").
-- [ ] Cover: binary present on `PATH`; found via an explicit configured path;
+      **Extended, not duplicated:** the file existed but tested
+      `audio_suite_shared.subprocess_utils.get_startupinfo` and **zero** lines
+      of `ffmpeg_finder.py` — which is why the module sat at 44%. The existing
+      `TestGetStartupinfo` class is preserved verbatim.
+- [x] Cover: binary present on `PATH`; found via an explicit configured path;
       not found anywhere; a configured path that no longer exists (stale
       cache); a configured path that exists but is not executable; and the
       platform-conditional branches (`sys.platform` splits) via monkeypatched
       platform values rather than real platform differences.
-- [ ] Pin the **failure contract** the preflight (A5) and the callers rely on:
+      **Three of these six describe a module that does not exist — see the
+      Notes column.** What the real 51-line module has is covered: all three
+      discovery sources, both `sys.platform` splits of the binary name, the
+      `sys.frozen` split of the base directory (with a negative control), and
+      the miss.
+- [x] Pin the **failure contract** the preflight (A5) and the callers rely on:
       what the finder returns when nothing is found, and whether it caches.
       If a cache exists, test that an invalidated entry is re-resolved.
-- [ ] Per AGENTS.md §7, follow the mock-patch rule: if the code imports the
+- [x] Per AGENTS.md §7, follow the mock-patch rule: if the code imports the
       name inside the function body, patch the *source* module; if the import
       is module-level, patch the *importing* module's binding. Verify which
-      applies before writing the patch targets.
+      applies before writing the patch targets. **Verified:** `os`, `shutil`
+      and `sys` are all module-level imports, so every target is
+      `audio_normalizer.utils.ffmpeg_finder.<name>`. Because those bindings
+      *are* the real `os`/`shutil`/`sys` module objects, `monkeypatch`
+      (auto-restoring, teardown-on-failure) is used throughout instead of
+      `unittest.mock.patch`.
 
 **Tests (lockstep):** the file above.
 
@@ -712,7 +728,7 @@ behaviour is the specification.
 
 ---
 
-### B4 — Replace the blanket GUI skip with a loud, bounded failure `[audit #18]`
+### B4 [x] — Replace the blanket GUI skip with a loud, bounded failure `[audit #18]`
 
 **Priority:** High | **Effort:** 0.3 day | **Risk:** Medium
 
@@ -729,26 +745,26 @@ for a pass.
 
 **Scope:**
 
-- [ ] Keep the existing behaviour as the last resort, but add an explicit,
+- [x] Keep the existing behaviour as the last resort, but add an explicit,
       always-printed session summary: display availability, number of tests
       skipped for display reasons, and an explicit line stating that GUI
       behaviour was **not verified** in this run.
-- [ ] Make it **bounded**: skip only the tests that actually need Tk, not the
+- [x] Make it **bounded**: skip only the tests that actually need Tk, not the
       whole session. The blanket hook is what makes the Linux leg's skip count
       meaningless (A4). Prefer marking display-dependent tests via a
       `gui` marker or a fixture-level skip, with the session-wide hook retained
       as a safety net for collection-time failures.
-- [ ] Add a pytest **warning** (not just a skip) when the blanket path fires,
+- [x] Add a pytest **warning** (not just a skip) when the blanket path fires,
       so it appears in `-ra` output and in CI logs as a distinct class.
-- [ ] Add `gui` to `markers` in `pyproject.toml` and to the CI matrix
+- [x] Add `gui` to `markers` in `pyproject.toml` and to the CI matrix
       semantics agreed in A4/D4.
-- [ ] If any test genuinely requires a display and cannot use the shared root,
+- [x] If any test genuinely requires a display and cannot use the shared root,
       it gets an explicit skip with a reason naming the requirement — never an
       inherited blanket skip.
 
 **Tests (lockstep):**
 
-- [ ] `tests/test_conftest.py` (root): a headless simulation — monkeypatch
+- [x] `tests/test_conftest.py` (root): a headless simulation — monkeypatch
       `tk.Tk` to raise `tk.TclError` — asserts (a) the session still exits 0,
       (b) the skip reasons are attributable, (c) the "GUI not verified"
       summary line is emitted, and (d) a non-GUI test in the same run is
@@ -1682,7 +1698,88 @@ Nothing in the Stage 0 diff touches Tk geometry or widget state; the probes
 are environment-conditional by construction and both outcomes are sanctioned
 by their own test code.
 
+### Stage 1
+
+| Item | Stage | Completed | Baseline → after | Gate Evidence (date + the six commands + pass/coverage counts) | Notes |
+|------|-------|-----------|------------------|------------------------------------------------------|-------|
+| B1 | 1 | 2026-09-27 | `batch_analysis_engine.py` **68% → 99%**; `_run_process_pool` branch **0% → 100%** of its reachable lines | Full gate all green, 2026-09-27 (commands 0–6 below). Item-specific: `mood_analysis_batch_tagger/tests` → 124 passed, of which `test_batch_analysis_engine.py` = **46 passed, 0 skipped** (31 test functions at HEAD → 46), so the pool tests are *executed*, not collected-and-skipped. `analysis_loader` defect fixed in the same change (Decision Log). | Real `ProcessPoolExecutor` — the chooser is **not** mocked; only the CPU worker may be substituted. Asserted: worker is a module-level function and `pickle.dumps`/`loads`-round-trips under the `spawn` start method; analysis provably runs in child PIDs (`os.getpid()` parity, not a mock); 3 real WAVs → 3 results in input order with one progress event each; live run's tag verified by reading it back with `read_mood`/`read_energy`; dry run writes nothing; a corrupt `.flac` yields a reported `error` result and the batch completes; a worker exception is mapped and reported while the other two files still complete; a tag-write failure is reported as a **skip** (not an abort) and the batch completes; slot claim/release accounting verified via the slot callback (including release of an in-flight cancelled slot); pre-set stop and mid-flight stop both report nothing/only-the-completed-item. Remaining 3 uncovered lines are **not** in the pool path: `104` (`_WorkerSlotTracker.acquire`'s `-1` fallback — provably unreachable from the pool path, whose inner `while` bounds `len(pending) < slots._count` before each submit, so ≥1 slot is always free) and `460` (thread-pool stop check) are thread-path code, and **`624` (`if not pending: break`) is dead code** — the outer `while index < len(pending_list) or pending` at `607` guarantees `pending` is non-empty on entry and nothing between `607` and `623` removes from it. **Proposed follow-up (not done here, per this item's own rule):** delete line 624 and the unreachable `return -1` fallback, or restructure the outer loop so the invariant is stated once. |
+| B2 | 1 | 2026-09-27 | `analysis_loader.py` **34.3% → 100%** (36 statements, 0 missing) | Full gate all green, 2026-09-27 (same run as B1). Item-specific: `audio_suite_shared/tests` → green; the loader's four consumers (key/bpm/tempo/mood) pass unchanged; bare full suite **7140 passed / 3 skipped** vs the 7090/3 baseline = **exactly +50** new tests (15 in the B1 file, 35 in the new loader file), with **no skip added**. | Baseline missing set `56-86, 102-103, 119-124, 140-141` was **entirely reachable** — no dead code in this module. Measured, not mocked: real generated WAVs assert sample count, channel count, `float64` dtype, native sample rate, `max_duration` truncation, stereo→mono downmix, and the real decoded RMS. Failure paths assert the **specific** exception type the callers already catch (`AudioCodecError` with the original chained via `from`, `AudioAnalysisError` for short/empty/zero-rate) plus the `logger.error` with `exc_info=True`. Two corrections to the plan's scope text, for the record: the loader has **no resampling branch** (`sr=None` is passed to `librosa.load`, so the native rate is preserved by design) — the downmix is librosa's `mono=True` and is verified on real stereo audio; and the two silent-signal boundaries are asserted against `SILENCE_RMS_THRESHOLD` in **RMS** terms, scaling a sine by `√2` rather than assuming amplitude == RMS. The zero-sample-rate path found by B1 is now part of this file's contract. |
+| B3 | 1 | 2026-09-27 | `ffmpeg_finder.py` **44% → 100%** (18 statements, 0 missing); `audio_normalizer/tests/test_ffmpeg_finder.py` 2 → 21 tests | Full gate all green, 2026-09-27 (see Stage 1 gate block below, B3 run). Item-specific: `audio_normalizer/tests` → **185 passed / 1 skipped** (the pre-existing `test_setup_tab` Tk probe); bare full suite **7159 passed / 3 skipped**, coverage **78.53%**, skip count **unchanged at 3**. | **Three scope bullets describe branches that do not exist** in the shipped 51-line module, verified by reading it: there is no *configured* path (no config read at all), no memoisation/cache dict, and no executability check. The finder's three sources are PATH → beside-the-module-or-frozen-exe → hard-coded `C:\ffmpeg\bin` on Windows. Tests were written against the code as shipped, per this item's own Risks note ("existing behaviour is the specification"); the mismatch is **reported, not papered over**: `test_os_access_is_never_consulted` fails the test if `os.access` is ever called, and `test_a_directory_named_like_the_binary_is_accepted` demonstrates the real consequence portably — a *directory* called `ffmpeg(.exe)` beside the module satisfies `os.path.exists`, so the finder returns a path that can never be executed. **Follow-up proposed (not done here):** `os.path.isfile(...) and os.access(..., os.X_OK)` in the source-2 gate. Also pinned, because the plan's acceptance asked for it: the module's cache behaviour (the import-time constant is the cache — asserted not to re-resolve when `PATH` later changes, and to be recomputed on re-import, with a restore-reload that cannot leak a fake singleton), the two "step 3 returns the literal while steps 1/2 `abspath`" asymmetry, the miss value `"ffmpeg"` **passing `validate_executable`** (so a user sees `FileNotFoundError`, not `SubprocessSecurityError`), and — asserted against the shared constants `FFMPEG_PURPOSE` / `REQUIRED_EXECUTABLES`, never a re-spelled literal — the A5 report line. |
+
+| B4 | 1 | 2026-09-27 | headless run: **every** collected test skipped (7,162 skipped, exit 0, nothing verified) → **741 of 7,162** skipped, 6,398 passed, exit 0, GUI reported NOT VERIFIED | Full gate all green, 2026-09-27 (see Stage 1 gate block below, B4 run). Item-specific: `tests/test_conftest.py` → **21 passed**; display-present bare run **7180 passed / 3 skipped**, coverage **78.53%**, display skips **0**; empirical headless simulation of the real suite → **6398 passed / 764 skipped / 0 failed / 0 errors**, exit 0, skip count **bounded at 741 (10.3%)**. | The blanket hook is gone: skipping is decided per test from two declarative signals (a `root`/`tk_root` fixture request, or the `gui` marker), so a non-GUI test can no longer be skipped for display reasons. The always-printed report is the load-bearing part — it states display availability, the skip count, and `GUI behaviour: VERIFIED / NOT VERIFIED in this run`. **Empirical finding (the reason this was not a 10-minute change):** the bounded skip does not make a headless run green on its own. The first headless simulation of the real suite produced **31 failures + 63 errors (94 affected tests)** in exactly six UI test files, all the same root cause — those tests mock the *widget* but still construct real `tk.Variable` objects, which need a live interpreter. Those 17 classes now carry `@pytest.mark.gui` with a reason; that is the plan's own prescribed path for "genuinely requires a display and cannot use the shared root". **Collection evidence used to choose the signals:** 7,162 collected → 644 request `root`/`tk_root`, 682 mention those names in source, and **6,480 require neither**, so a fixture/marker rule leaves the non-GUI majority running. The pre-existing `requires_display` skipif in five modules was audited by AST and **all five already carry their own `reason=`**, so no inherited-blanket skip remains. `AUDIOSUITE_GUI_SKIP=all` is retained as an explicit, warned-about safety net and is tested: it skips everything and its report says `SAFETY NET ACTIVE ... this run proves nothing`. **CI half of the scope bullet:** the marker is registered in `pyproject.toml` (verified under `--strict-markers` in the simulation), and under D4's `xvfb` a display *is* present, so no `gui` job-level matrix flag is required; the actual Linux leg wiring stays with A4 (`[~]`, blocked — no remote). |
+**Deviation recorded for B3's acceptance bullet.** The plan requires that "a
+forced 'not found' produces exactly the message A5's dialog expects". It cannot
+be asserted as written: A5's own Decision Log entry records the deliberate
+*non*-reuse of this finder ("Its contract also returns the bare string
+`"ffmpeg"` on miss, so it cannot answer the presence question"), and
+`system_requirements.py` documents itself as the wording source. The two answer
+different questions and are decoupled by design. The invariant that *is* real —
+and is tested — is that they agree on **which executable is missing**: the
+finder's miss value is the `name` of the declared `SystemRequirement`, and with
+the same falsy lookup A5's report renders `ffmpeg` with the shared purpose and
+install-hint constants.
+
+**Stage 1 gate evidence (per item, 2026-09-27, Windows host, Python 3.14.7):**
+
+B1 + B2 run:
+
+0. `python -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'` → exit 0
+1. `python -m ruff check .` → clean · `python -m ruff format --check .` →
+   746 files already formatted
+2. `python -m mypy .` → `Success: no issues found in 449 source files`
+3. `$env:PYTHONUTF8='1'; python -X utf8 -m bandit -r . -x ./.venv -c pyproject.toml`
+   → 0 High / 0 Medium / 51 Low (baseline-identical)
+4. bare `python -m pytest -q` → **7140 passed / 3 skipped** (baseline 7090 / 3)
+5. coverage → **78.49%** ≥ `fail_under = 75` (D3 decision held; baseline 78.07%)
+6. `git grep --cached` secret scans (primary + 4 supplemental patterns) → no
+   live secrets. Every hit is pre-existing and benign: documentation prose about
+   the scans themselves, `album_art_sync/api/fanart.py:68` (code that *sends*
+   `api_key`/`client_key` from a gitignored config, no literal), `preset_key` /
+   `no_key` identifier names in existing code, and the pre-existing public
+   AcoustID fingerprint fixture in `audio_fingerprinter/tests/conftest.py`. No
+   32-hex, no base64-44+, no PEM. None of this change's three files appear.
+
+B3 run (after the `ffmpeg_finder` tests were added):
+
+0. `python -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'` → exit 0
+1. `python -m ruff check .` → `All checks passed!` ·
+   `python -m ruff format --check .` → 746 files already formatted
+2. `python -m mypy .` → `Success: no issues found in 449 source files`
+3. `$env:PYTHONUTF8='1'; python -X utf8 -m bandit -r . -x ./.venv -c pyproject.toml`
+   → 0 High / 0 Medium / 51 Low (baseline-identical)
+4. bare `python -m pytest -q` → **7159 passed / 3 skipped**
+   (baseline 7090 / 3 → **+69** across Stage 1 so far: 15 B1 + 35 B2 + 19 B3)
+5. coverage → **78.53%** ≥ `fail_under = 75`
+6. `git grep --cached` over this change's files → zero hits; the only
+   tree-wide base64 hit remains the pre-existing public fingerprint fixture.
+
+B4 run (after the bounded GUI skip landed):
+
+0. `python -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'` → exit 0
+1. `python -m ruff check .` → `All checks passed!` ·
+   `python -m ruff format --check .` → 746 files already formatted
+2. `python -m mypy .` → `Success: no issues found in 449 source files`
+3. `$env:PYTHONUTF8='1'; python -X utf8 -m bandit -r . -x ./.venv -c pyproject.toml`
+   → 0 High / 0 Medium / 51 Low (baseline-identical)
+4. bare `python -m pytest -q` → **7180 passed / 3 skipped** (baseline
+   7090 / 3 → **+90** across Stage 1: 15 B1 + 35 B2 + 19 B3 + 21 B4), skip
+   count **unchanged at 3**, and the new report prints
+   `Tk display available : yes` / `Tests skipped for display reasons : 0` /
+   `GUI behaviour : VERIFIED in this run`
+5. coverage → **78.53%** ≥ `fail_under = 75`
+6. `git grep --cached` over this change's files → zero hits.
+
+**B4 headless acceptance evidence** (empirical, full suite, not a unit test):
+with `tk.Tk` monkeypatched to raise `TclError` in a `-p` plugin, the bare suite
+collects 7,162, **passes 6,398, skips 764, fails 0, errors 0, exit 0**, and
+prints `Tests skipped for display reasons : 741 of 7162 collected` plus
+`GUI behaviour : NOT VERIFIED in this run`. The 764 total = 741 bounded skips +
+23 pre-existing explicit `requires_display` skips. The other 764 tests —
+including all of B1/B2/B3's new coverage — actually execute, which is the
+regression this item exists to fix.
+
 ---
+
 
 ## Decision Log
 
@@ -1701,6 +1798,8 @@ by their own test code.
 | 2026-09-26 | A5 | **Deviation: `ffmpeg_finder` not reused; `shutil.which` behind an injectable `resolver` instead** | `ffmpeg_finder` lives in a *tool* package (`audio_normalizer`); importing it from `audio_suite_shared.preflight` — which every `.pyw` launcher runs before any tool import — inverts the base→tool layering and drags a tool into every launch. Its contract also returns the bare string `"ffmpeg"` on miss, so it cannot answer the presence question. The injectable `resolver` parameter keeps one presence seam (asserted by test to default to `shutil.which`) so B3 can attach a richer discovery mechanism later without re-implementing the check. The finder's untested fallbacks remain B3's scope, untouched. |
 | 2026-09-26 | A5 | Guides: System Requirements section added to the **9 ffmpeg-dependent tools'** generators (not all 27) and regenerated; wording locked by test against `system_requirements.py` | Dependent set derived by grepping first-party non-test code for ffmpeg/ffprobe/pydub/AudioSegment: audio_enhancer, audio_normalizer, audio_refinery, cd_ripper, music_format_converter, noise_reduction, pop_click_remover, replaygain_analyzer, silence_trimmer (asx_extractor's cue-split command is shared CLI, but its own tool code has no ffmpeg path). Stating the requirement in a guide for a tool that never shells out to ffmpeg would be inaccurate documentation. `test_system_requirements.py::TestGuideWordingLock` reads the generated `.docx` artifacts and asserts the canonical purpose phrases + install hints appear verbatim, with a real-data negative control (key_detector's guide has no such section), so the dialog wording and the guides cannot drift. Regeneration verified lossless against HEAD for all 9 (paragraph-diff: 0 lost, +5 added each). |
 | 2026-09-26 | A6 / (context) | Iteration-4 D1 precedent recorded here, **not** by editing `PLAN_iteration4_remediation.md` | Completed plans are historical records under `AGENTS.md` "Plan Governance". The iteration-4 Decision Log itself states the gate was not re-run before marking the item complete. The per-item gate rule is now stated in "How to read this plan", before the first item. |
+| 2026-09-27 | B1 (defect) | **Fixed a real defect in `audio_suite_shared.analysis_loader.check_min_duration`, not the engine.** Writing the item's first corrupt-file test produced a `ZeroDivisionError` from `f"Audio is too short to analyse ({len(y) / sr:.2f}s)"` — a file whose container is corrupt can make librosa fall back to `audioread` and return an **empty array with `sr == 0`**, so the very guard that detects the unusable decode crashed while formatting its own message. The `sr <= 0` case was already part of the guard's condition, so the *detection* was right and only the message was unsafe. | A shared loader is high fan-out, and the "too short" message is what a user sees for every one of the four analysis tools, so the branch needed a real test rather than a mocked one. The fix computes the duration only once the rate is known positive (`len(y) / sr if sr > 0 else 0.0`), leaving the detection logic, the exception type and the message text for the `sr > 0` case byte-identical — the minimal diff, with no engine refactor. Regression-test direction is the point: the guard's own condition decided the file was unusable *before* the crash, so the test asserts the typed `AudioAnalysisError` for a real corrupt `.flac` and a zero-rate signal, and B1's real-process-pool test independently asserts the batch reports that file as an `error` and still completes. Per `AGENTS.md` §7 and this plan's own B1 scope bullet, the defect is fixed in the same change with its regression test and logged here. |
+| 2026-09-27 | B3 | **Test the finder as shipped and report the plan/code mismatch; do not add the three branches the plan assumed.** Six of the scope bullets describe a configured path, a cache, and an executability check. The shipped module has none of them: it reads no config, memoises nothing, and gates on `os.path.exists` alone. Fabricating tests for them would mean inventing a specification the code does not implement (and the item's own Risks note forbids exactly that: "the item is a coverage fix, so the existing behaviour is the specification"). | Writing the real tests took 21 of the module's 18 statements to 100% with zero skips, and the mismatch is now a *test* — `test_a_directory_named_like_the_binary_is_accepted` shows the real user-visible consequence of the missing `X_OK` check, and `test_os_access_is_never_consulted` fails loudly if anyone later adds one without updating the tests. That is strictly more useful than a test that asserts an imagined cache. The source-2 gate fix is proposed as a follow-up rather than smuggled in, because B3 is a coverage item and `AGENTS.md` §2 forbids unsolicited changes to working code. The A5 "not found" acceptance bullet is decoupled by A5's own recorded deviation, so the testable invariant (both mechanisms agree on *which* binary is missing) is pinned against the shared constants instead. |
 | — | C2 | Consolidate the shared **workflow** only; the two DSP algorithms stay separate | `noise_reduction` and `pop_click_remover` are different algorithms; only the discover/temp/write/undo sequence is duplicated. Merging the DSP would be a behavioural rewrite on an audio write path. |
 | — | C3 | Split the manifest **data** out of `_build_default_registry()`; do not split `tool_plugin.py` into multiple modules | The manifest is one cohesive contract; a cross-file split would be an anti-creep violation, and the expected-set test already guards value and order drift. |
 | — | D1 | `hardware` is deselected **by default** with an explicit opt-in (`pytest -m hardware`); `integration` runs wherever ffmpeg is present | The markers were registered but never acted on — 273 + 30 tests ran by default. The opt-in path is documented in `CONTRIBUTING.md` (E2) so it is actually run. |

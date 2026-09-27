@@ -372,6 +372,7 @@ def _audition_caption(root: Any) -> str:
     return ""
 
 
+@pytest.mark.gui  # builds real tk.Variable objects: needs a Tk root
 class TestAuditionOnComplete:
     """_on_complete() drives the shared audition state machine."""
 

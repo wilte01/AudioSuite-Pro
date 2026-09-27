@@ -60,6 +60,7 @@ def _audition_caption(root: Any) -> str:
     return ""
 
 
+@pytest.mark.gui  # builds real tk.Variable objects: needs a Tk root
 class TestOnComplete:
     """_on_complete() updates UI labels, time, and switches to Results tab."""
 
@@ -302,6 +303,7 @@ class TestOnError:
         app.start_btn.config.assert_called_once_with(state="normal")
 
 
+@pytest.mark.gui  # builds real tk.Variable objects: needs a Tk root
 class TestDriverMirrorVars:
     """Driver-mirror BooleanVars and _launched_from_driver flag."""
 

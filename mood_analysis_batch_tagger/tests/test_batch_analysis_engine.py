@@ -10,6 +10,9 @@ Covers:
   - _analyse_audio_cpu    (process-pool worker)
   - run_batch             (dry-run, live, empty, scan error, stop event,
                            thread-pool and process-pool dispatch)
+  - _run_process_pool     (really executed: real child processes, real
+                           decoded audio, ordering, progress, worker-slot
+                           accounting, error mapping, cancellation)
   - worker slot status    (Analyzing/Tagging labels, run_with_retry wiring)
   - BatchResult summary
 
@@ -19,14 +22,25 @@ mocked so the suite runs quickly and standalone.
 
 from __future__ import annotations
 
+import inspect
 import os
+import pickle
 import queue
 import threading
+import wave
+from collections.abc import Callable
+from contextlib import ExitStack
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 
-from audio_suite_shared.exceptions import AudioDirectoryError
+from audio_suite_shared.exceptions import (
+    AudioAnalysisError,
+    AudioDirectoryError,
+    user_message_for,
+)
+from audio_suite_shared.tag_helper_reader import read_energy, read_mood
 from mood_analyzer.core.signal_mood_engine import MoodAnalysis
 
 MODULE = "mood_analysis_batch_tagger.core.batch_analysis_engine"
@@ -672,3 +686,450 @@ class TestBatchResult:
         assert result.errors == 1
         assert result.folders == 2
         assert result.log_path == "x.txt"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# run_batch — the process pool, really executed
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# The ProcessPoolExecutor branch is the highest-risk untested region in the
+# suite.  Windows and macOS default to the ``spawn`` start method, so the worker
+# callable is pickled *by reference* and imported inside the child: a closure, a
+# lambda, or a double that only exists in the parent's namespace fails there and
+# nowhere else.  Two properties make that concrete and both are asserted here —
+# the production worker is a module-level function (``TestProcessPoolWorker-
+# Picklability``), and the analyses really do run in child processes
+# (``TestProcessPoolExecution.test_pool_runs_the_analysis_in_child_processes``).
+#
+# Every stand-in below is therefore a module-level function taking the exact
+# two positional arguments ``executor.submit`` passes.  The audio cases use the
+# genuine ``_analyse_audio_cpu`` on real generated WAV files, and cross-check the
+# value that crossed the process boundary against the same analysis performed
+# in-process, so a corrupted worker result cannot pass unnoticed.
+
+#: Worker stand-in mood.  Carries the child's PID so the tests can prove the
+#: analysis ran somewhere other than the parent process.
+_PID_MOOD_PREFIX = "pid"
+
+#: Basename stem whose file makes ``_spawn_worker_boom`` raise.  Sorted between
+#: the two healthy stems so the batch is in-flight across the failure.
+_BOOM_STEM = "b_boom"
+
+
+#: Deterministic stand-in for ``_analyse_audio_cpu``.
+def _spawn_worker_report(file_path: str, analysis_duration: int) -> dict[str, object]:
+    """Succeed for every file, stamping the executing process's PID.
+
+    Module level and two positional parameters because that is exactly what
+    ``executor.submit(_analyse_audio_cpu, file_path, analysis_duration)``
+    pickles and replays in the child.
+    """
+    return {
+        "status": "ok",
+        "mood": f"{_PID_MOOD_PREFIX}{os.getpid()}",
+        "confidence": 0.5,
+        "energy": 2,
+    }
+
+
+def _spawn_worker_boom(file_path: str, analysis_duration: int) -> dict[str, object]:
+    """Raise for one designated file, succeed for the rest.
+
+    The production worker swallows its own exceptions and returns a
+    ``status="error"`` dict, so this is the only way to reach the pool's
+    ``future.result()`` failure branch — the case where the exception never
+    made it back as a value at all.
+    """
+    name = os.path.basename(file_path)
+    if name.startswith(_BOOM_STEM):
+        raise RuntimeError(f"worker exploded on {name}")
+    return _spawn_worker_report(file_path, analysis_duration)
+
+
+def _write_tone_wav(path: str, seconds: float = 1.0, sr: int = 22050) -> str:
+    """Write a real, decodable mono WAV tone and return its path.
+
+    A deterministic sine, written with the stdlib ``wave`` module so the
+    fixture is byte-reproducible and genuinely decodable by the real
+    ``_analyse_audio_cpu`` — the process-pool cases need a signal the analysis
+    engines can actually run on, not a placeholder.
+    """
+    t = np.arange(int(seconds * sr), dtype=np.float64) / sr
+    samples = (0.3 * np.sin(2.0 * np.pi * 220.0 * t) * 32767.0).astype("<i2")
+    with wave.open(path, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sr)
+        handle.writeframes(samples.tobytes())
+    return path
+
+
+def _run_pool(
+    root: str,
+    *,
+    live: bool,
+    max_workers: int,
+    worker: Callable[..., dict[str, object]] | None = None,
+    stop: threading.Event | None = None,
+    on_worker_status: Callable[[int, str], None] | None = None,
+) -> tuple[list[tuple], list[tuple[int, str]]]:
+    """Run ``run_batch`` through the real ProcessPoolExecutor branch.
+
+    Nothing about the pool itself is mocked; only the CPU worker may be
+    substituted, so dispatch, result collection, error mapping, slot
+    accounting and cancellation are all executed for real.
+
+    Args:
+        root:        Directory scanned for audio files.
+        live:        When True the real tag-write path runs.
+        max_workers: Pool size, which also bounds the worker-slot pool.
+        worker:      Optional stand-in for the production CPU worker.  When
+                     ``None`` the real ``_analyse_audio_cpu`` is used.
+        stop:        Optional pre-built stop event (for cancellation tests).
+        on_worker_status: Optional extra slot-status callback, invoked after
+                     recording, so a test can raise the stop event from inside
+                     the result handler instead of racing the workers.
+
+    Returns:
+        The drained queue messages and the worker-slot status events.
+    """
+    q: queue.Queue[object] = queue.Queue()
+    stop_event = stop if stop is not None else threading.Event()
+    status: list[tuple[int, str]] = []
+
+    def _record(slot: int, label: str) -> None:
+        status.append((slot, label))
+        if on_worker_status is not None:
+            on_worker_status(slot, label)
+
+    with ExitStack() as stack:
+        if worker is not None:
+            stack.enter_context(patch(f"{MODULE}._analyse_audio_cpu", worker))
+        batch_analysis_engine.run_batch(
+            root,
+            q,
+            stop_event,
+            live=live,
+            analysis_duration=30,
+            parallel_mode=True,
+            max_workers=max_workers,
+            on_worker_status=_record,
+        )
+    return _drain(q), status
+
+
+def _results(msgs: list[tuple]) -> list[tuple]:
+    return [m for m in msgs if m[0] == "result"]
+
+
+def _progress(msgs: list[tuple]) -> list[tuple]:
+    return [m for m in msgs if m[0] == "progress"]
+
+
+def _done(msgs: list[tuple]) -> tuple:
+    return next(m for m in msgs if m[0] == "done")
+
+
+class TestProcessPoolWorkerPicklability:
+    """The ``spawn`` contract: the worker must be importable by name."""
+
+    def test_worker_is_a_module_level_function_not_a_closure(self) -> None:
+        worker = batch_analysis_engine._analyse_audio_cpu
+        assert inspect.isfunction(worker)
+        assert worker.__module__ == MODULE
+        assert worker.__qualname__ == "_analyse_audio_cpu"
+        assert "<locals>" not in worker.__qualname__
+
+    def test_worker_round_trips_through_pickle_by_reference(self) -> None:
+        """A closure would raise ``PicklingError`` here — and, on Windows,
+        only at run time, long after the suite went green."""
+        worker = batch_analysis_engine._analyse_audio_cpu
+        assert pickle.loads(pickle.dumps(worker)) is worker
+
+    def test_every_test_stand_in_is_also_importable_by_name(self) -> None:
+        """The stand-ins must clear the same bar as the production worker."""
+        for stand_in in (_spawn_worker_report, _spawn_worker_boom):
+            assert stand_in.__module__ == __name__
+            assert pickle.loads(pickle.dumps(stand_in)) is stand_in
+
+
+class TestProcessPoolExecution:
+    """The pool branch, executed — not collected, not short-circuited."""
+
+    def test_pool_runs_the_analysis_in_child_processes(self, tmp_path) -> None:
+        _make_file(str(tmp_path / "a.mp3"))
+        _make_file(str(tmp_path / "b.mp3"))
+        msgs, _ = _run_pool(
+            str(tmp_path),
+            live=False,
+            max_workers=2,
+            worker=_spawn_worker_report,
+        )
+        results = _results(msgs)
+        assert len(results) == 2
+        child_pids = {int(str(m[4]).removeprefix("pid").split(" ")[0]) for m in results}
+        assert child_pids, "no result detail carried a pid"
+        assert os.getpid() not in child_pids, (
+            "the analysis ran in the parent process — the pool did not execute"
+        )
+        assert (_done(msgs)[1], _done(msgs)[3]) == (2, 0)
+
+    def test_happy_path_reports_every_file_in_input_order(self, tmp_path) -> None:
+        """One worker, so submission order and completion order must agree."""
+        names = ("a.wav", "b.wav", "c.wav")
+        files = [_write_tone_wav(str(tmp_path / name)) for name in names]
+        expected = {
+            os.path.basename(path): batch_analysis_engine._analyse_audio_cpu(path, 30)
+            for path in files
+        }
+        msgs, status = _run_pool(str(tmp_path), live=False, max_workers=1)
+
+        results = _results(msgs)
+        assert [os.path.basename(m[1]) for m in results] == ["a.wav", "b.wav", "c.wav"]
+        assert all(m[3] is True for m in results)
+        for message in results:
+            want = expected[os.path.basename(message[1])]
+            assert message[4] == f"{want['mood']} (dry run - not written)"
+
+        progress = _progress(msgs)
+        assert [m[1] for m in progress] == [1, 2, 3]
+        assert [m[2] for m in progress] == [3, 3, 3]
+        assert [m[3] for m in progress] == ["a.wav", "b.wav", "c.wav"]
+
+        kinds = [m[0] for m in msgs]
+        assert kinds[0] == "folder"
+        assert kinds[-1] == "done"
+        assert kinds.count("result") == 3
+        assert kinds.count("progress") == 3
+
+        done = _done(msgs)
+        assert (done[1], done[2], done[3], done[4]) == (3, 0, 0, 1)
+
+        with open(done[5], encoding="utf-8") as handle:
+            log = handle.read()
+        for name, want in expected.items():
+            assert f"  DRY   {name}" in log
+            assert str(want["mood"]) in log
+
+    def test_worker_slots_alternate_claim_and_release_with_one_worker(
+        self, tmp_path
+    ) -> None:
+        _make_file(str(tmp_path / "a.mp3"))
+        _make_file(str(tmp_path / "b.mp3"))
+        _, status = _run_pool(
+            str(tmp_path),
+            live=False,
+            max_workers=1,
+            worker=_spawn_worker_report,
+        )
+        assert [label for _, label in status] == [
+            "Analyzing: a.mp3...",
+            "IDLE",
+            "Analyzing: b.mp3...",
+            "IDLE",
+        ]
+        assert {slot for slot, _ in status} == {0}
+
+    def test_slot_claims_stay_within_the_pool_and_are_all_released(
+        self, tmp_path
+    ) -> None:
+        for stem in ("a", "b", "c", "d"):
+            _make_file(str(tmp_path / f"{stem}.mp3"))
+        msgs, status = _run_pool(
+            str(tmp_path),
+            live=False,
+            max_workers=2,
+            worker=_spawn_worker_report,
+        )
+        assert {slot for slot, _ in status} <= {0, 1}
+        labels = [label for _, label in status]
+        assert sum(1 for label in labels if label.startswith("Analyzing:")) == 4
+        assert labels.count("IDLE") == 4
+        outstanding = 0
+        for _, label in status:
+            outstanding += -1 if label == "IDLE" else 1
+            assert 0 <= outstanding <= 2, f"slot accounting leaked: {status}"
+        assert outstanding == 0
+        assert (_done(msgs)[1], _done(msgs)[3]) == (4, 0)
+
+    def test_live_run_writes_the_workers_own_mood_onto_the_file(self, tmp_path) -> None:
+        """Outcome check: decode the worker's result off disk, not the queue.
+
+        The tags are read back with the suite's own readers, so a value that
+        was mangled in transit between the child process and the writer shows
+        up as a tag mismatch rather than passing unnoticed.
+        """
+        path = _write_tone_wav(str(tmp_path / "a.wav"))
+        expected = batch_analysis_engine._analyse_audio_cpu(path, 30)
+        msgs, status = _run_pool(str(tmp_path), live=True, max_workers=1)
+
+        results = _results(msgs)
+        assert len(results) == 1
+        assert results[0][3] is True
+        assert read_mood(path) == expected["mood"]
+        assert read_energy(path) == str(expected["energy"])
+        assert "Tagging: a.wav..." in [label for _, label in status]
+        assert (_done(msgs)[1], _done(msgs)[3]) == (1, 0)
+
+    def test_dry_run_writes_nothing(self, tmp_path) -> None:
+        path = _write_tone_wav(str(tmp_path / "a.wav"))
+        msgs, _ = _run_pool(str(tmp_path), live=False, max_workers=1)
+        assert len(_results(msgs)) == 1
+        assert read_mood(path) is None
+        assert read_energy(path) is None
+
+
+class TestProcessPoolErrorMapping:
+    """Failures are mapped and reported; the batch always finishes."""
+
+    def test_worker_error_status_becomes_a_reported_error(self, tmp_path) -> None:
+        """The real worker returns ``status="error"`` for an undecodable file."""
+        good = _write_tone_wav(str(tmp_path / "a_good.wav"))
+        bad = str(tmp_path / "b_broken.flac")
+        with open(bad, "wb") as handle:
+            handle.write(b"this is not an audio file at all")
+
+        msgs, _ = _run_pool(str(tmp_path), live=False, max_workers=2)
+
+        done = _done(msgs)
+        assert (done[1], done[2], done[3]) == (1, 0, 1)
+        results = {os.path.basename(m[1]): m for m in _results(msgs)}
+        assert results["b_broken.flac"][3] is False
+        assert "too short to analyse" in results["b_broken.flac"][4]
+        assert results["a_good.wav"][3] is True
+        with open(done[5], encoding="utf-8") as handle:
+            log = handle.read()
+        assert "  ERROR b_broken.flac" in log
+        assert "  DRY   a_good.wav" in log
+        assert os.path.isfile(good)
+
+    def test_raised_worker_exception_is_mapped_not_propagated(self, tmp_path) -> None:
+        _make_file(str(tmp_path / "a_ok.mp3"))
+        _make_file(str(tmp_path / f"{_BOOM_STEM}.mp3"))
+        _make_file(str(tmp_path / "c_ok.mp3"))
+
+        msgs, _ = _run_pool(
+            str(tmp_path),
+            live=False,
+            max_workers=2,
+            worker=_spawn_worker_boom,
+        )
+
+        done = _done(msgs)
+        assert (done[1], done[2], done[3]) == (2, 0, 1)
+        results = {os.path.basename(m[1]): m for m in _results(msgs)}
+        assert set(results) == {"a_ok.mp3", f"{_BOOM_STEM}.mp3", "c_ok.mp3"}
+        assert results[f"{_BOOM_STEM}.mp3"][3] is False
+        assert results[f"{_BOOM_STEM}.mp3"][4] == user_message_for(
+            AudioAnalysisError("worker exploded")
+        )
+        assert {name for name, m in results.items() if m[3] is True} == {
+            "a_ok.mp3",
+            "c_ok.mp3",
+        }
+        with open(done[5], encoding="utf-8") as handle:
+            log = handle.read()
+        assert f"  ERROR {_BOOM_STEM}.mp3" in log
+
+    def test_failed_worker_still_releases_its_slot(self, tmp_path) -> None:
+        _make_file(str(tmp_path / "a_ok.mp3"))
+        _make_file(str(tmp_path / f"{_BOOM_STEM}.mp3"))
+        _, status = _run_pool(
+            str(tmp_path),
+            live=False,
+            max_workers=2,
+            worker=_spawn_worker_boom,
+        )
+        assert [label for _, label in status].count("IDLE") == 2
+
+    def test_pre_set_stop_event_cancels_without_reporting_results(
+        self, tmp_path
+    ) -> None:
+        _make_file(str(tmp_path / "a.mp3"))
+        _make_file(str(tmp_path / "b.mp3"))
+        stop = threading.Event()
+        stop.set()
+        msgs, status = _run_pool(
+            str(tmp_path),
+            live=False,
+            max_workers=2,
+            worker=_spawn_worker_report,
+            stop=stop,
+        )
+        assert _results(msgs) == []
+        assert _progress(msgs) == []
+        assert status == []
+        done = _done(msgs)
+        assert (done[1], done[2], done[3]) == (0, 0, 0)
+
+    def test_stop_mid_flight_reports_only_the_completed_item(self, tmp_path) -> None:
+        """The stop event is raised from the slot callback, i.e. from inside
+        the result handler, so the cancellation branch runs deterministically
+        rather than depending on a race with the workers.
+
+        Exactly one result is reported — whichever of the two in-flight files
+        finished first — and the item still queued is never reported at all.
+        """
+        for stem in ("a", "b", "c"):
+            _make_file(str(tmp_path / f"{stem}.mp3"))
+        stop = threading.Event()
+        msgs, status = _run_pool(
+            str(tmp_path),
+            live=False,
+            max_workers=2,
+            worker=_spawn_worker_report,
+            stop=stop,
+            on_worker_status=lambda slot, label: (
+                stop.set() if label == "IDLE" else None
+            ),
+        )
+        results = _results(msgs)
+        assert len(results) == 1
+        assert results[0][3] is True
+        assert os.path.basename(results[0][1]) in {"a.mp3", "b.mp3"}
+        assert [m[3] for m in _progress(msgs)] == [os.path.basename(results[0][1])]
+        # Both claimed slots are released, including the in-flight one that was
+        # cancelled rather than completed.
+        assert [label for _, label in status].count("IDLE") == 2
+        done = _done(msgs)
+        assert (done[1], done[2], done[3]) == (1, 0, 0)
+
+    def test_tag_write_failure_is_reported_as_a_skip_and_the_batch_completes(
+        self, tmp_path
+    ) -> None:
+        """An error writing the tag must not abort the batch: the file is
+        counted as skipped with the declared user message, the slot is still
+        released, and every other file is processed."""
+        from audio_suite_shared.exceptions import AudioTagError
+
+        _make_file(str(tmp_path / "a.mp3"))
+        _make_file(str(tmp_path / "b.mp3"))
+        q: queue.Queue[object] = queue.Queue()
+        status: list[tuple[int, str]] = []
+        with (
+            patch(f"{MODULE}._analyse_audio_cpu", _spawn_worker_report),
+            patch(
+                f"{MODULE}._write_tags_from_result",
+                side_effect=AudioTagError("tag write failed"),
+            ),
+        ):
+            batch_analysis_engine.run_batch(
+                str(tmp_path),
+                q,
+                threading.Event(),
+                live=True,
+                analysis_duration=30,
+                parallel_mode=True,
+                max_workers=2,
+                on_worker_status=lambda slot, label: status.append((slot, label)),
+            )
+        msgs = _drain(q)
+        results = _results(msgs)
+        assert len(results) == 2
+        assert all(m[3] is False for m in results)
+        assert all(
+            m[4] == user_message_for(AudioTagError("tag write failed")) for m in results
+        )
+        assert [label for _, label in status].count("IDLE") == 2
+        done = _done(msgs)
+        assert (done[1], done[2], done[3]) == (0, 2, 0)

@@ -177,6 +177,7 @@ testpaths = [
 markers = [
     "integration: marks tests that require ffmpeg and real audio files",
     "hardware: marks tests that require physical CD drive hardware",
+    "gui: marks tests that genuinely require a graphical display. Skipped with an attributable reason on a headless host; for tests that need a real Tk root without using the shared root/tk_root fixture.",
 ]
 addopts = "--strict-markers -ra --cov --cov-report=term-missing"
 filterwarnings = [

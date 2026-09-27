@@ -97,11 +97,16 @@ def check_min_duration(
         min_seconds: Minimum acceptable duration.
 
     Raises:
-        AudioAnalysisError: If ``len(y) / sr < min_seconds``.
+        AudioAnalysisError: If ``len(y) / sr < min_seconds``, or if the decoder
+            reported a non-positive sample rate (a corrupt container can decode
+            to an empty signal with ``sr == 0``).
     """
     if sr <= 0 or len(y) / sr < min_seconds:
+        # A corrupt container can yield an empty signal with sr == 0, so the
+        # duration is only computable once the rate is known to be positive.
+        duration = len(y) / sr if sr > 0 else 0.0
         raise AudioAnalysisError(
-            f"Audio is too short to analyse ({len(y) / sr:.2f}s).",
+            f"Audio is too short to analyse ({duration:.2f}s).",
             context={"min_seconds": min_seconds},
         )
 

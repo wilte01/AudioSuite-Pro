@@ -56,6 +56,7 @@ def launch_mocks():
         yield SimpleNamespace(thread=mock_thread, show_message=mock_msg)
 
 
+@pytest.mark.gui  # builds real tk.Variable objects: needs a Tk root
 class TestLaunchUtilityValidation:
     """Validation gating in launch_utility()."""
 
@@ -132,6 +133,7 @@ class TestLaunchUtilityValidation:
         assert utility_ids <= set(state.module_toggles.keys())
 
 
+@pytest.mark.gui  # builds real tk.Variable objects: needs a Tk root
 class TestDirectoryExistenceValidation:
     """Regression: non-existent directories must be blocked with a friendly
     popup before any subprocess is spawned (previously produced an ugly
@@ -202,6 +204,7 @@ class TestGetCurrentAccent:
             assert _get_current_accent() is None
 
 
+@pytest.mark.gui  # builds real tk.Variable objects: needs a Tk root
 class TestLaunchRefineryValidation:
     def test_no_source_shows_message(self, state, launch_mocks) -> None:
         state.refinery_source.set("")
@@ -246,6 +249,7 @@ class TestLaunchRefineryValidation:
         assert launch_mocks.thread.call_args.kwargs.get("daemon") is True
 
 
+@pytest.mark.gui  # builds real tk.Variable objects: needs a Tk root
 class TestLaunchEnrichValidation:
     def test_no_directory_shows_message(self, state, launch_mocks) -> None:
         state.dir_path.set("")
@@ -254,6 +258,7 @@ class TestLaunchEnrichValidation:
         launch_mocks.thread.assert_not_called()
 
 
+@pytest.mark.gui  # builds real tk.Variable objects: needs a Tk root
 class TestRunRefineryPipeline:
     def test_runs_modules_and_completes(self, state, launch_mocks, tmp_path) -> None:
         root = _RunAfterRoot()
@@ -290,6 +295,7 @@ class TestRunRefineryPipeline:
         btn.config.assert_any_call(state="normal", text="LAUNCH REFINERY")
 
 
+@pytest.mark.gui  # builds real tk.Variable objects: needs a Tk root
 class TestRunEnrichPipeline:
     def test_runs_modules_and_completes(self, state, launch_mocks, tmp_path) -> None:
         root = _RunAfterRoot()
@@ -320,6 +326,7 @@ class TestRunEnrichPipeline:
         on_done.assert_called_once()
 
 
+@pytest.mark.gui  # builds real tk.Variable objects: needs a Tk root
 class TestRunUtilityPipeline:
     def test_runs_modules_and_completes(self, state, launch_mocks, tmp_path) -> None:
         root = _RunAfterRoot()

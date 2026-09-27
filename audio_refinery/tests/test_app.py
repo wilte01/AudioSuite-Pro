@@ -28,6 +28,7 @@ def _make_app_stub() -> object:
     return app
 
 
+@pytest.mark.gui  # builds real tk.Variable objects: needs a Tk root
 class TestDriverMirrorVars:
     """Tests that the app exposes driver-mirror BooleanVars."""
 
@@ -105,6 +106,7 @@ def _audition_caption(root: Any) -> str:
     return ""
 
 
+@pytest.mark.gui  # builds real tk.Variable objects: needs a Tk root
 class TestAuditionOnComplete:
     """_on_complete() drives the shared audition state machine."""
 
@@ -169,6 +171,7 @@ class TestAuditionOnComplete:
         )
 
 
+@pytest.mark.gui  # builds real tk.Variable objects: needs a Tk root
 class TestStartProcessingStageValidation:
     """Regression: reduce_noise alone must satisfy the no-stage check."""
 
