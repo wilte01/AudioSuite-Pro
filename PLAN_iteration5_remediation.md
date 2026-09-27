@@ -817,32 +817,32 @@ preferred habitat here.
 
 **Scope:**
 
-- [ ] Characterise the pair precisely before editing: diff them, and list the
+- [x] Characterise the pair precisely before editing: diff them, and list the
       *behavioural* differences (not textual ones). Textual similarity
       overstates sharing; the two files may differ in a way that a naive
       extraction would flatten.
-- [ ] Identify the true shared shape: a base app class in
+- [x] Identify the true shared shape: a base app class in
       `audio_suite_shared/` (the established home for shared UI), following the
       existing `UIHelperMixin` / `bootstrap_tool_app` pattern rather than
       inventing a new one.
-- [ ] Behaviour-lock **before** refactoring: `key_detector/tests` and
+- [x] Behaviour-lock **before** refactoring: `key_detector/tests` and
       `mood_analyzer/tests` must pass against the current code, and the
       per-tool differences must each have a test that fails if the difference
       is accidentally collapsed.
-- [ ] Extract in one commit; the follow-up commit deletes the duplicated
+- [x] Extract in one commit; the follow-up commit deletes the duplicated
       bodies. Never leave a half-extracted pair.
-- [ ] Per AGENTS.md §2, this is the one item in the plan where a wider touch
+- [x] Per AGENTS.md §2, this is the one item in the plan where a wider touch
       is *sanctioned* — but the sanctioned blast radius is exactly these two
       apps plus the shared base. No other app is touched in this item.
 
 **Tests (lockstep):**
 
-- [ ] A test in each tool's suite proving its distinct behaviour survives
+- [x] A test in each tool's suite proving its distinct behaviour survives
       (e.g. `mood_analyzer` still calls its own analysis, `key_detector` still
       calls key detection) — these are the tests that would catch an
       over-eager dedup.
-- [ ] Tests for the new shared base, in `audio_suite_shared/tests`.
-- [ ] The `master_driver` card for each tool still builds (the cards import
+- [x] Tests for the new shared base, in `audio_suite_shared/tests`.
+- [x] The `master_driver` card for each tool still builds (the cards import
       these apps — see `AGENTS.md` "Master Driver Card Naming").
 
 **Acceptance:**
@@ -880,29 +880,29 @@ executed by the default suite.
 
 **Scope:**
 
-- [ ] Diff the pair and classify every difference: DSP-specific (keep) versus
+- [x] Diff the pair and classify every difference: DSP-specific (keep) versus
       workflow-identical (consolidate). Assume nothing is safe to merge.
-- [ ] Push the shared workflow into `BaseFileProcessor` (or its base) as a
+- [x] Push the shared workflow into `BaseFileProcessor` (or its base) as a
       template method with the per-tool DSP supplied as a callable — the
       pattern the Iteration-4 sprint 2 already established for
       `process_batch`, which both tools already inherit.
-- [ ] **Unchanged, byte-for-byte:** the undo snapshot, the per-file error
+- [x] **Unchanged, byte-for-byte:** the undo snapshot, the per-file error
       slot-pool, the progress-callback signature, temp-file naming, and the
       dry-run/no-write path.
-- [ ] Do not unify the DSP. `noise_reduction` (IIR/FFT denoise) and
+- [x] Do not unify the DSP. `noise_reduction` (IIR/FFT denoise) and
       `pop_click_remover` (click interpolation) are different algorithms; the
       duplication is the *workflow*, not the *processing*.
 
 **Tests (lockstep):**
 
-- [ ] Outcome-level tests, not read-back: generate a real input file, run each
+- [x] Outcome-level tests, not read-back: generate a real input file, run each
       tool, **decode the result and measure it** — the `AGENTS.md`
       audio-correctness rule. For `noise_reduction`, assert the noise floor
       dropped and the tonal content survived; for `pop_click_remover`, assert
       the click impulses are attenuated and the surrounding signal is intact.
-- [ ] Undo round-trip for both tools: delete/modify, revert, and assert the
+- [x] Undo round-trip for both tools: delete/modify, revert, and assert the
       file is restored to the **original bytes**.
-- [ ] Dry-run: assert no output file is created and no write call is made
+- [x] Dry-run: assert no output file is created and no write call is made
       (the existing "mode flags must be traced end-to-end to the write site"
       trap).
 
@@ -938,27 +938,27 @@ buried in that literal.
 
 **Scope:**
 
-- [ ] Move each manifest's *data* into a small declarative table (a list of
+- [x] Move each manifest's *data* into a small declarative table (a list of
       frozen `ToolManifest` instances, or a per-module table) and make
       `_build_default_registry()` assemble the registry from it. Keep the
       function name, the return type, and the lazy-singleton call site
       (`tool_plugin.py:492`) unchanged so nothing downstream breaks.
-- [ ] Preserve the exact set of 27 ids, their field values, and their
+- [x] Preserve the exact set of 27 ids, their field values, and their
       declaration order — order affects the Master Driver's tool listing.
-- [ ] Prefer splitting the data *out of the function*, not splitting
+- [x] Prefer splitting the data *out of the function*, not splitting
       `tool_plugin.py` into many modules: the manifest is one cohesive
       contract and a cross-file split would be an anti-creep violation.
-- [ ] Add the missing `__init__.py`-style export discipline as mypy requires
+- [x] Add the missing `__init__.py`-style export discipline as mypy requires
       (this project already uses the redundant-alias re-export form for
       `mypy --strict`; follow it if the split creates one).
 
 **Tests (lockstep):**
 
-- [ ] `audio_suite_shared/tests/test_tool_plugin.py` — the existing
+- [x] `audio_suite_shared/tests/test_tool_plugin.py` — the existing
       expected-set test must pass **unchanged** (27 ids, same values, same
       order). Per `AGENTS.md` "Lockstep Updates", the test is the lock; if it
       needs editing, the refactor changed behaviour and the change is wrong.
-- [ ] Add a test that the registry is constructible and immutable from the
+- [x] Add a test that the registry is constructible and immutable from the
       outside (a caller cannot mutate the shared registry in place).
 
 **Acceptance:**
@@ -1778,6 +1778,54 @@ prints `Tests skipped for display reasons : 741 of 7162 collected` plus
 including all of B1/B2/B3's new coverage — actually execute, which is the
 regression this item exists to fix.
 
+### Stage 2
+
+| Item | Stage | Completed | Baseline → after | Gate Evidence (date + the six commands + pass/coverage counts) | Notes |
+|------|-------|-----------|------------------|------------------------------------------------------|-------|
+| C1 | 2 | 2026-09-27 | `key_detector/app.py` and `mood_analyzer/app.py`: two ~431-line duplicated app bodies → thin subclasses; the scaffold lives once in `audio_suite_shared/analysis_app_base.py` | Full gate all green, 2026-09-27 (Stage 2 full-gate block below). Item-specific: targeted suites (key_detector + mood_analyzer + audio_suite_shared + master_driver) → `2994 passed, 1 skipped`; then a per-module coverage run over the three files → `333 passed`, with `analysis_app_base.py`, `key_detector/app.py` and `mood_analyzer/app.py` each at **100 %**. The Master Driver card for the Mood Analyzer now has coverage tests (`master_driver/tests/test_ui_cards.py` +42 lines). | Distinct-behaviour tests assert the call that differs (key detection vs. signal mood engine), satisfying the plan's "assert the call, not merely construction" rule. Behaviour-locked pre-refactor: both suites passed against the unmodified code before extraction. |
+| C2 | 2 | 2026-09-27 | `noise_reduction/core/file_processor.py` (249 lines) and `pop_click_remover/core/file_processor.py` (272) duplicated workflow → one shared `process_audio_file_inplace()` / `run_inplace_dsp_batch()` in `audio_suite_shared/file_processor_base.py`; tool files are now thin DSP adapters (36 / 34 statements) | Full gate all green, 2026-09-27 (Stage 2 full-gate block below). Item-specific: **pre-refactor locks** run against the unmodified tool code — noise suite `12 passed`, combined tool suites `223 passed`; **post-refactor identical counts** (`12` / `223`) plus `59 passed` in the new `test_file_processor_base.py`. Outcome locks measured on real audio and asserted numerically (noise: 60 Hz hum −4.44 → −20.42 dBFS, **≥ 12 dB** drop asserted; 1 kHz tone drift **≤ 0.25 dB**; declick: first-difference 0.90 → 0.07, untouched first 0.5 s **bit-identical**, frame count/rate unchanged). Dry-run: SHA-256 + mtime unchanged, no output file, export calls 0 dry / 1 live. Undo: real WAV tag snapshot recorded and restored through a real `BatchUndoLog`. Module coverage: shared base **100 %** (266 stmts), noise adapter **100 %** (36), pop adapter **100 %** (34). | The workflow-only consolidation decision is in the Decision Log. The mock-based pop tests were migrated to their new patch homes (`audio_suite_shared.file_processor_base` / `audio_suite_shared.tag_helper`) and pass against the shared implementation. |
+| C3 | 2 | 2026-09-27 | `_build_default_registry()`: ~300-line literal → 13-line assembler over the declarative `_DEFAULT_MANIFESTS` tuple; `tool_plugin.py` stayed one module | Full gate all green, 2026-09-27 (Stage 2 full-gate block below). Item-specific: the existing expected-set tests pass **unedited** (21 tests total: +3 new immutability tests, zero edits to the 18 pre-C3 tests); a programmatic HEAD-vs-post-C3 comparison asserted **27 manifests field-for-field identical in declaration order** (astuple comparison; the naive `all == all` cross-module comparison is a dataclass-identity false positive, not drift). | No re-exports were needed — the split kept every name in the same module, so the redundant-alias rule was not triggered; recorded here so its non-use is evidence of scope, not omission. |
+
+Stage 2 gate evidence (2026-09-27, Windows host, Python 3.14.7, ruff 0.15.22,
+pytest 9.0.3). Commands 0–6 are the plan-wide Phase Gate; the sub-blocks below
+them are item-specific evidence run during the items:
+
+**C2 pre-refactor locks (run before the file-processor rewrite existed):**
+
+3. targeted suites `pop_click_remover/tests` + `noise_reduction/tests` →
+   **223 passed** against the unmodified tool code
+
+**C2 post-refactor:**
+
+- module coverage over the three test modules with per-module `--cov=` →
+  shared base **100 %**, noise adapter **100 %**, pop adapter **100 %**
+
+**C3 regression check:**
+
+- `_build_default_registry()` reconstructed from `git show HEAD:` and compared
+  with the post-C3 registry via `dataclasses.astuple(m) for m in reg.all` →
+  lists equal, 27 entries
+
+**Stage 2 full gate (command-by-command, end-state tree):**
+
+0. `python -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'` → exit 0
+   (third-party pydub SyntaxWarnings; the Windows `-x` separator mismatch is
+   the documented pre-existing behaviour)
+1. `python -m ruff check .` → `All checks passed!` ·
+   `python -m ruff format --check .` → **749 files already formatted**
+2. `python -m mypy .` → `Success: no issues found in 450 source files`
+3. `$env:PYTHONUTF8='1'; python -X utf8 -m bandit -r . -x ./.venv -c pyproject.toml`
+   → **0 High / 0 Medium / 51 Low** (baseline-identical)
+4. bare `python -m pytest -q` → **7332 passed / 3 skipped** (Stage 1 close
+   baseline 7180 / 3 → **+152** new tests across C1–C3), coverage
+   **79.56 % ≥ 75** (D3 decision held)
+5. `git grep --cached` secret scans (primary + 4 supplemental patterns) over
+   the 15 staged Stage 2 files → **zero hits inside the change**; the only
+   tree-wide hits are the pre-existing documented/benign set (gitignored-config
+   prose, `fanart.py:68` code that *sends* keys read from a gitignored config,
+   `preset_key`/`no_key` identifier names, and the public AcoustID fingerprint
+   fixture). No 32-hex, no base64-44+, no PEM.
+
 ---
 
 
@@ -1800,9 +1848,12 @@ regression this item exists to fix.
 | 2026-09-26 | A6 / (context) | Iteration-4 D1 precedent recorded here, **not** by editing `PLAN_iteration4_remediation.md` | Completed plans are historical records under `AGENTS.md` "Plan Governance". The iteration-4 Decision Log itself states the gate was not re-run before marking the item complete. The per-item gate rule is now stated in "How to read this plan", before the first item. |
 | 2026-09-27 | B1 (defect) | **Fixed a real defect in `audio_suite_shared.analysis_loader.check_min_duration`, not the engine.** Writing the item's first corrupt-file test produced a `ZeroDivisionError` from `f"Audio is too short to analyse ({len(y) / sr:.2f}s)"` — a file whose container is corrupt can make librosa fall back to `audioread` and return an **empty array with `sr == 0`**, so the very guard that detects the unusable decode crashed while formatting its own message. The `sr <= 0` case was already part of the guard's condition, so the *detection* was right and only the message was unsafe. | A shared loader is high fan-out, and the "too short" message is what a user sees for every one of the four analysis tools, so the branch needed a real test rather than a mocked one. The fix computes the duration only once the rate is known positive (`len(y) / sr if sr > 0 else 0.0`), leaving the detection logic, the exception type and the message text for the `sr > 0` case byte-identical — the minimal diff, with no engine refactor. Regression-test direction is the point: the guard's own condition decided the file was unusable *before* the crash, so the test asserts the typed `AudioAnalysisError` for a real corrupt `.flac` and a zero-rate signal, and B1's real-process-pool test independently asserts the batch reports that file as an `error` and still completes. Per `AGENTS.md` §7 and this plan's own B1 scope bullet, the defect is fixed in the same change with its regression test and logged here. |
 | 2026-09-27 | B3 | **Test the finder as shipped and report the plan/code mismatch; do not add the three branches the plan assumed.** Six of the scope bullets describe a configured path, a cache, and an executability check. The shipped module has none of them: it reads no config, memoises nothing, and gates on `os.path.exists` alone. Fabricating tests for them would mean inventing a specification the code does not implement (and the item's own Risks note forbids exactly that: "the item is a coverage fix, so the existing behaviour is the specification"). | Writing the real tests took 21 of the module's 18 statements to 100% with zero skips, and the mismatch is now a *test* — `test_a_directory_named_like_the_binary_is_accepted` shows the real user-visible consequence of the missing `X_OK` check, and `test_os_access_is_never_consulted` fails loudly if anyone later adds one without updating the tests. That is strictly more useful than a test that asserts an imagined cache. The source-2 gate fix is proposed as a follow-up rather than smuggled in, because B3 is a coverage item and `AGENTS.md` §2 forbids unsolicited changes to working code. The A5 "not found" acceptance bullet is decoupled by A5's own recorded deviation, so the testable invariant (both mechanisms agree on *which* binary is missing) is pinned against the shared constants instead. |
-| — | C2 | Consolidate the shared **workflow** only; the two DSP algorithms stay separate | `noise_reduction` and `pop_click_remover` are different algorithms; only the discover/temp/write/undo sequence is duplicated. Merging the DSP would be a behavioural rewrite on an audio write path. |
-| — | C3 | Split the manifest **data** out of `_build_default_registry()`; do not split `tool_plugin.py` into multiple modules | The manifest is one cohesive contract; a cross-file split would be an anti-creep violation, and the expected-set test already guards value and order drift. |
+| 2026-09-27 | C2 (scope) | Consolidate the shared **workflow** only; the two DSP algorithms stay separate (dated — row previously undated) | Existing decision retained; the consolidation landed exactly in this shape: `BaseFileProcessor.process_audio_file_inplace()` / `run_inplace_dsp_batch()` and thin per-tool DSP adapters. |
+| 2026-09-27 | C2 (defect, scope) | **Two findings preserved, not fixed, inside the behaviour-preservation refactor.** (1) **Dry-run divergence between the twins is a product defect.** `reduce_noise()` short-circuits on `params.dry_run` and returns `was_modified=False`, so a noise dry run reports `SKIP ("Clean")` even on a file it *would* repair; `declick_audio()` always decodes+analyses, so pop dry runs correctly report `FOUND`. The consolidation keeps both behaviours byte-for-byte (the plan's demand); the outcome tests pin the divergence (0 dry / 1 live exports on both sides). (2) **The plan's "undo ... assert the file is restored to the original bytes" is unimplementable as written.** `record_tag_edit_snapshot()` + `_revert_tag_edit()` round-trip the tag payload only (ID3 `TPE1` verified restored on a real WAV); no byte-level undo exists anywhere in the suite. The tests assert the real, shipped contract — tag round-trip — and the gap is reported, not papered over. | Both are pre-existing behaviours, deliberately not "fixed" inside a behaviour-preservation refactor (`AGENTS.md` §2). A follow-up item should make both dry-run reports honest (noise dry runs are misleading today) and settle the undo contract (tag-only vs. byte-level); both change user-visible behaviour and need an owner decision. |
+| 2026-09-27 | C2 (defect) | **A scripted C2 edit de-indented the tail of the inherited `process_batch()`, so only the last file of a batch was collected.** The extraction script that moved the manifest-table edit re-indented `results.append(result)` / `completed[0] += 1` / the `progress_callback` block out of the `for f in futures:` loop; four pre-existing `TestProcessBatch` tests caught it in the post-refactor run (`len(results) == 1` for a 3-file batch). Fixed by restoring the loop-level indentation; the four tests are the regression locks and pass unchanged. | Found by the gate, not by review — the existing `process_batch` tests were the designed canary for exactly this class of edit on the shared-executor code the in-place workflow sits on. Now the second time a scripted bulk edit has landed badly (P5 note 4 was the first): re-diff the touched lines after any scripted edit, always. |
 | — | D1 | `hardware` is deselected **by default** with an explicit opt-in (`pytest -m hardware`); `integration` runs wherever ffmpeg is present | The markers were registered but never acted on — 273 + 30 tests ran by default. The opt-in path is documented in `CONTRIBUTING.md` (E2) so it is actually run. |
+| 2026-09-27 | C3 (scope, dated) | Split the manifest **data** out of `_build_default_registry()` into a module-level declarative tuple; do **not** split `tool_plugin.py` into multiple modules | Landed as decided: `_DEFAULT_MANIFESTS` + a 13-line assembler; the file stays one module (anti-creep). The expected-set test passed unedited, and a programmatic HEAD-vs-post-C3 tuple comparison confirmed 27 manifests field-for-field identical in declaration order. |
+| 2026-09-27 | C1 / C3 | Module-level `TOOL_ID` aliases: **not restored — zero consumers.** C1 moved the tool ids onto the app classes as `TOOL_ID: ClassVar[str]`; a grep over the consumer surfaces (master_driver cards, CLI imports, the fingerprinter suite that once printed the old constant) shows class-level lookups are the only remaining reference. No `from <tool>.app import TOOL_ID` module-level consumer exists in-tree. | Restoring an alias with no consumer would be speculative API surface (`AGENTS.md` §2). The class-level `ClassVar` is the sanctioned lookup path; the decision is recorded so a future "where did the constant go" surprise has an owner. |
 | — | D2 | Broad `except ImportError` coverage exclusion replaced by narrow per-line `pragma: no cover` with reasons | A pattern-level exclusion cannot distinguish a legitimate optional-dependency guard from untested error handling, so the gate cannot see either. |
 | — | F1 | Vector tests are **additive only** and must pass unchanged against current code | A vector test that "needs" fixing in the same commit destroys the before/after evidence that makes F2 verifiable. |
 | — | F2 | No profile re-tuning against the F1 fixtures | Tuning on the test set and then citing it as validation is circular; a labelled corpus would be a separate item. A measured revert is an acceptable outcome. |

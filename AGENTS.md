@@ -150,6 +150,17 @@ Follow them or the "passing" run is misleading.
   write call, no tag copy, DONE status with measurements — not merely that
   the flag value arrived (see the enhancer `is_dry_run` fix).
 
+- **mypy per-file invocations bypass pyproject's module excludes — the gate**
+  **is always the bare `mypy .`.** Passing explicit paths
+  (`mypy audio_suite_shared/x.py pkg/tests/test_y.py`) drops the
+  `[tool.mypy] exclude = ["^tests/", ..., "/tests/"]` filtering
+  context, so test files get re-checked with no per-module overrides applied
+  (empirically: 89 false `no-untyped-def`/`type-arg` errors on test files the
+  bare gate passes clean, plus `untyped_calls_exclude` gaps tripping
+  `no-untyped-call`). Do not "fix" code or add `# type: ignore` to satisfy a
+  per-file run; run `python -m mypy .` — that is the gate — and use targeted
+  mypy only for debugging with the bare-run result as the arbiter.
+
 - **Bandit must be run with `-c pyproject.toml` and UTF-8 enabled.**
   Plain `bandit -r <dirs>` does NOT auto-load `[tool.bandit]` from
   pyproject.toml, so it ignores `skips = ["B404", "B101"]` and
