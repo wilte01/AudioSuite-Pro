@@ -3,10 +3,10 @@
 **Source:** Independent engineering audit of commit `e729626` (2026-09-26).
 21 findings, ordered by the audit's own severity ranking. Each is reproduced
 below with the evidence that justifies it and mapped to exactly one staged item.
-**Status:** Active — Stage 0 implemented (2026-09-26); Stage 1 implemented (2026-09-27); Stage 2 implemented (2026-09-27); Stage 3 implemented (2026-09-27); Stages 4–6 not started.
+**Status:** Active — Stage 0 implemented (2026-09-26); Stage 1 implemented (2026-09-27); Stage 2 implemented (2026-09-27); Stage 3 implemented (2026-09-27); Stage 4 implemented (2026-09-27); Stages 5–6 not started.
 All five open decisions (D1–D5) resolved by the maintainer on 2026-09-26 in
 favour of the recommended options — see the Decision Log.
-**Last Updated:** 2026-09-27 (Stage 3)
+**Last Updated:** 2026-09-27 (Stage 4)
 **Scope:** All 21 audit findings, delivered as seven independently shippable
 stages. Nothing in this plan is authorized for implementation until the open
 decisions in the *Open Decisions* section are resolved by the maintainer.
@@ -1165,7 +1165,7 @@ declared in machine-readable metadata.
 
 ---
 
-### E1 — Write the README: quick start, tool index, architecture `[audit #10]`
+### E1 [x] — Write the README: quick start, tool index, architecture `[audit #10]`
 
 **Priority:** Medium | **Effort:** 0.4 day | **Risk:** Low
 
@@ -1178,7 +1178,7 @@ discoverability complaint rests on.
 
 **Scope:**
 
-- [ ] Create `README.md` with, in this order: what the suite is (one
+- [x] Create `README.md` with, in this order: what the suite is (one
       paragraph); **prerequisites** (Python version, `ffmpeg`/`ffprobe` via
       A5's documented install commands, platform support per D5);
       installation (`uv sync` with the extras, plus the `pip` alternative);
@@ -1188,26 +1188,28 @@ discoverability complaint rests on.
       `audio_suite_shared` layer, `BaseFileProcessor`/undo/progress model,
       Master Driver, per-tool `app.py` + `core/` + `ui/` shape); and a
       contributing pointer (item E2).
-- [ ] Set `readme = "README.md"` in `[project]`.
-- [ ] The tool index is the trap: do not hand-write 27 rows that immediately
+- [x] Set `readme = "README.md"` in `[project]`.
+- [x] The tool index is the trap: do not hand-write 27 rows that immediately
       drift from `tool_plugin.py`. Either generate the table from the manifest
       in a tiny script under `utilities/`, or state explicitly in the README
       that the manifest is the source of truth. The `AGENTS.md`
       `guide_to_program` registry in `platform_utils.py` is the existing
       index of guides — reuse it rather than creating a third list.
-- [ ] Do not duplicate the per-tool guides; link to the `.docx` guides already
+      (Both: the table is *generated* by `utilities/generate_readme_tool_index.py`
+      AND the README states the manifest is the source of truth.)
+- [x] Do not duplicate the per-tool guides; link to the `.docx` guides already
       generated under `user_guides/individual_programs/`.
-- [ ] Per `AGENTS.md` §8, treat the README as a user-facing document: if a
+- [x] Per `AGENTS.md` §8, treat the README as a user-facing document: if a
       generator produces part of it, edit the generator, not the artifact.
 
 **Tests (lockstep):**
 
-- [ ] A test that every manifest id appears in the README's tool index (or, if
+- [x] A test that every manifest id appears in the README's tool index (or, if
       the index is generated, a test that the generator runs and produces a
       table matching the manifest). This converts a documentation claim into an
       enforced invariant and prevents the exact drift that
       `AGENTS.md` "Registering a New Tool" warns about.
-- [ ] `AGENTS.md`'s checklist already requires registering a guide filename in
+- [x] `AGENTS.md`'s checklist already requires registering a guide filename in
       `guide_to_program`; fold that into the same test so one assertion covers
       manifest ↔ card ↔ CLI ↔ guide.
 
@@ -1225,7 +1227,7 @@ agreed here.
 
 ---
 
-### E2 — Add the licence, and the contribution/security/changelog baseline `[audit #11]`
+### E2 [x] — Add the licence, and the contribution/security/changelog baseline `[audit #11]`
 
 **Priority:** High | **Effort:** 0.3 day | **Risk:** Low (legal exposure if skipped)
 **Blocked on:** D1 (recommendation: GPL-3.0)
@@ -1240,32 +1242,36 @@ intent. Contributing, security, and changelog documents are absent for the same
 
 **Scope:**
 
-- [ ] Add the `LICENSE` file matching the D1 decision verbatim (GPL-3.0 if the
+- [x] Add the `LICENSE` file matching the D1 decision verbatim (GPL-3.0 if the
       recommendation is accepted) and declare it in `pyproject.toml`
       (`license = "GPL-3.0-or-later"` plus a `LICENSE` file reference, in
       whichever form the pinned setuptools/PEP 621 version accepts — verify
       against the installed version, do not guess the field syntax).
-- [ ] Add `CHANGELOG.md` in Keep-a-Changelog form, seeded with the audit-era
+      (PEP 639 form used — see the Decision Log entry.)
+- [x] Add `CHANGELOG.md` in Keep-a-Changelog form, seeded with the audit-era
       baseline (`e729626`) as the first entry so the file is not empty history.
-- [ ] Add `CONTRIBUTING.md`: how to run the mandatory gate (the six commands
+- [x] Add `CONTRIBUTING.md`: how to run the mandatory gate (the six commands
       in the Phase Gate), the test-file naming rule, the
       "register the tool in all ten places" checklist, and **how to run the
       `hardware`-marked tests** (the opt-in path from item D1 — this is the
       mitigation for losing those 30 tests from the default run).
-- [ ] Add `SECURITY.md`: how to report a vulnerability, with an explicit
+- [x] Add `SECURITY.md`: how to report a vulnerability, with an explicit
       statement about the subprocess allowlist surface
       (`audio_suite_shared/secure_subprocess.py`) and the fact that raw audio
       and tag files are untrusted input. Keep it short and honest; do not
       promise a response time the maintainer has not agreed to.
-- [ ] Do not add `CODE_OF_CONDUCT.md` unless the maintainer wants one — it is
+      (Reporting channel: repository issue tracker, explicitly no SLA — see
+      the Decision Log.)
+- [x] Do not add `CODE_OF_CONDUCT.md` unless the maintainer wants one — it is
       the one item in this group that is a policy decision rather than a gap.
+      (Deliberately not added; recorded in the Decision Log.)
 
 **Tests (lockstep):**
 
-- [ ] A packaging test asserting `pyproject.toml` declares a licence and that
+- [x] A packaging test asserting `pyproject.toml` declares a licence and that
       the referenced `LICENSE` file exists on disk (a metadata-only change
       otherwise has no verification at all).
-- [ ] `python -m build`-level check is *not* required, but the metadata must
+- [x] `python -m build`-level check is *not* required, but the metadata must
       not break the existing install path: `uv sync` still succeeds.
 
 **Acceptance:**
@@ -1877,6 +1883,56 @@ Stage 3 notes:
 - Deselect-vs-filter rationale is recorded in Decision Log row "D1
   (deselect mechanism)" below.
 
+### Stage 4
+
+| Item | Stage | Completed | Baseline → after | Gate Evidence (date + the six commands + pass/coverage counts) | Notes |
+|------|-------|-----------|------------------|------------------------------------------------------|-------|
+| E1 | 4 | 2026-09-27 | no README / no `readme` metadata → `README.md` shipped in `[project]`, with a generated 27-tool index and cross-surface registration locks | Full gate all green, 2026-09-27 (commit `3ec5861`; commands 0–6 below). Item-specific: `tests/test_readme.py` → **6 passed** (drift lock: the README's TOOL INDEX block byte-compared against a fresh render from the manifest; registration lock: launcher `.pyw` exists, card module exists per the `master_driver.ui.utilities_window._CARD_MODULE_OVERRIDES` registry, `cli_command` resolves in `audio_suite_shared.cli_app.cli.commands`, guide registered in `guide_to_program` + `.docx` on disk; metadata lock: `readme == "README.md"` and 27 manifests; A5 lock: the README quotes `FFMPEG_PURPOSE`/`FFPROBE_PURPOSE` and all three install hints verbatim from `system_requirements.py`). Bare full suite **7323 passed / 3 skipped / 30 deselected** (Stage 3 close 7317 → **+6**, exactly the new tests), coverage **79.00%**. | Index built with **no third list**: rows come from the manifest table; the guide filename is derived (`<pyw stem>_User_Guide.docx`) with one documented override (`art` → `Album_Art_Synchronizer_User_Guide.docx`), every guide validated against the `guide_to_program` registry (extracted from `platform_utils.py` via `ast` — it is a function-local literal; re-exporting it would have been a production refactor outside E1's scope), and every row validated for an existing `.docx` and existing launcher before it is emitted. The README smoke test is `uv run audiosuite --help` plus a real first tool (`uv run audiosuite normalise "C:\path\to\music" --dry`). Cross-item dependency: the README's contributing pointer targets `CONTRIBUTING.md`/`SECURITY.md`/`CHANGELOG.md`, which E2 creates in the following commit — deliberate, recorded here so E1's dangling links for one commit are a stated decision. |
+| E2 | 4 | 2026-09-27 | no LICENSE/no `license` field, no changelog/contributing/security docs → verbatim GPL-3.0 LICENSE + PEP 639 SPDX metadata + three baseline documents | Full gate all green, 2026-09-27 (commit `ed1e67c`; commands 0–6 below). Item-specific: +3 packaging locks in `tests/test_pyproject_config.py` → **16 passed** in that file: `license == "GPL-3.0-or-later"` and `license-files == ["LICENSE"]` (decision D1); `LICENSE` is the **canonical GNU GPL v3 text**, hash-locked to the published SHA-256 `3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986` (fetched verbatim from gnu.org, never hand-typed; a corrupted or silently reflowed file fails the lock); `CHANGELOG.md`/`CONTRIBUTING.md`/`SECURITY.md` exist and are referenced from `README.md`, which also states `GPL-3.0-or-later` (`git grep -c "GPL-3.0"`: README 1, CONTRIBUTING 1, pyproject 3 — they agree). **`uv sync` verified empirically, not by reading:** exit 0, and `importlib.metadata` shows `License-Expression: GPL-3.0-or-later`, `License-File: LICENSE`, Metadata-Version 2.4. Bare full suite **7326 passed / 3 skipped / 30 deselected** (+3 = the E2 locks), coverage **79.00%**, bandit **0 High / 0 Medium / 51 Low** (baseline-identical). | The field-syntax question the item flagged ("verify against the installed version, do not guess") resolved empirically: the PEP 639 SPDX string form needs **setuptools ≥ 77**, so `[build-system] requires` was raised from `>=68` to `>=77` and the install path re-run to prove it. **Finding discovered by the required `uv sync` check, recorded not deferred:** `uv.lock` was stale against already-declared `[project] dependencies` — `librosa` and `sounddevice` were missing from the base graph and `types-requests` from the dev extra; `uv sync` repaired it (35-line lock update committed in the same change). Nothing was added to declared dependencies by this item; the lock repair is bookkeeping of the *existing* declaration, and CI's `uv sync` would have failed against the stale lock otherwise. |
+
+**Stage 4 gate evidence (2026-09-27, Windows host, Python 3.14.7,
+ruff 0.15.22, mypy 1.20.0, pytest 9.0.3 — E1 run at commit `3ec5861`,
+E2 run at commit `ed1e67c`):**
+
+0. `python -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'` → exit 0
+   (documented pre-existing third-party pydub `SyntaxWarning` noise)
+1. `python -m ruff check .` → `All checks passed!`
+   `python -m ruff format --check .` → E1: **752 files already formatted**
+   (749 → 752: README excluded from formatting by the A1 `*.md` rule;
+   generator + test module added). E2 end-state: 752 files (one
+   self-reformat of the new E2 test module applied).
+2. `python -m mypy .` → `Success: no issues found in 450 source files`
+   (both runs; `utilities/` and `tests/` remain under the declared mypy
+   excludes)
+3. `$env:PYTHONUTF8='1'; python -X utf8 -m bandit -r . -x ./.venv -c pyproject.toml`
+   → **0 High / 0 Medium / 51 Low** (baseline-identical, both runs)
+4. bare `python -m pytest -q` →
+   E1: **7323 passed / 3 skipped / 30 deselected** (Stage 3 close
+   7317 / 3 → +6, exactly the E1 lock tests);
+   E2: **7326 passed / 3 skipped / 30 deselected** (+3, the E2 packaging
+   locks); skip count unchanged at the 3 pre-existing platform probes
+5. coverage → **79.00% ≥ `fail_under = 75`** (D3 decision held; unchanged —
+   documentation/metadata changes touch no measured source)
+6. `git grep --cached` secret scans (primary + 4 supplemental patterns) →
+   **zero hits inside the Stage 4 changes** (verified per-item against the
+   staged file set); tree-wide hits remain the documented pre-existing
+   benign set (gitignored-config prose, `fanart.py:68` code *sending* keys
+   from gitignored config, `preset_key`/`no_key` identifier names, and the
+   public AcoustID fingerprint fixture). No 32-hex, no base64-44+, no PEM.
+
+Stage 4 notes:
+
+- The Stage 4 note's own rule was obeyed: the README's ffmpeg section is
+  the `system_requirements.py` wording (purpose sentences + the three
+  install commands) copied verbatim and locked by
+  `TestFfmpegWording` in `tests/test_readme.py` — the same invariant A5
+  gave the 9 dependent tools' guides, extended to the README, so the
+  dialog, the guides and the README cannot drift apart.
+- `CODE_OF_CONDUCT.md` was **not** added (E2 leaves it to the maintainer's
+  explicit policy decision — see Decision Log).
+- The A5-not-reused seam was not reopened here: E1's lock test reuses the
+  shared constants (`FFMPEG_PURPOSE`, `install_hints`), not the finder.
+
 ---
 
 
@@ -1911,6 +1967,11 @@ Stage 3 notes:
 | 2026-09-27 | C1 / C3 | Module-level `TOOL_ID` aliases: **not restored — zero consumers.** C1 moved the tool ids onto the app classes as `TOOL_ID: ClassVar[str]`; a grep over the consumer surfaces (master_driver cards, CLI imports, the fingerprinter suite that once printed the old constant) shows class-level lookups are the only remaining reference. No `from <tool>.app import TOOL_ID` module-level consumer exists in-tree. | Restoring an alias with no consumer would be speculative API surface (`AGENTS.md` §2). The class-level `ClassVar` is the sanctioned lookup path; the decision is recorded so a future "where did the constant go" surprise has an owner. |
 | — | F1 | Vector tests are **additive only** and must pass unchanged against current code | A vector test that "needs" fixing in the same commit destroys the before/after evidence that makes F2 verifiable. |
 | — | F2 | No profile re-tuning against the F1 fixtures | Tuning on the test set and then citing it as validation is circular; a labelled corpus would be a separate item. A measured revert is an acceptable outcome. |
+| 2026-09-27 | E1 | Tool index built by a generator with **no third list**: rows from the manifest, guide names derived from the launcher (one override), validated against `guide_to_program` (AST-extracted) | The plan allowed either a generated table or a source-of-truth statement; both were done. `guide_to_program` is a function-local literal in `platform_utils.py`, so it is extracted with `ast` rather than re-declared — re-exporting the constant would have been a production refactor outside E1's blast radius. The generator aborts with `[ERROR]` (never emits a dead row) if a guide is unregistered, its `.docx` is missing, or the launcher is missing, so the drift the audit feared fails loudly. The single filename deviation the derivation cannot express (`art` → `Album_Art_Synchronizer_User_Guide.docx`, launcher is `Album_Art_Synch.pyw`) is an explicit, commented override. Card lookup reuses `utilities_window._CARD_MODULE_OVERRIDES` instead of copying the mapping, and `audio_refinery`'s card-less UI (the embedded REFINE tab) is asserted as `refinery_tab.py` instead of being grandfathered silently. |
+| 2026-09-27 | E2 (scope) | **Licence metadata form:** PEP 639 SPDX string (`license = "GPL-3.0-or-later"` + `license-files = ["LICENSE"]`), proven by installing, with `[build-system] requires = ["setuptools>=77", "wheel"]` | The item warned "verify against the installed version, do not guess the field syntax". Verified empirically, not by reading docs: `uv sync` (exit 0) and the installed distribution metadata (`importlib.metadata`: `License-Expression: GPL-3.0-or-later`, `License-File: LICENSE`, `Metadata-Version: 2.4`). The SPDX string form is a PEP 639 feature setuptools only parses from 77.0, so the build floor was raised from `>=68` — the same dependency, an explicit version statement, not a new dependency (AGENTS.md §4; the rationale is commented at the field). |
+| 2026-09-27 | E2 (scope) | **`SECURITY.md` reporting channel: repository issue tracker, explicitly no SLA**; `CODE_OF_CONDUCT.md` deliberately not added | The plan's constraint was "short and honest; do not promise a response time the maintainer has not agreed to". The repository has no remote and no configured private channel, so the honest statement is exactly that: report via an issue titled `[security]`, no promised response time, and no aspirational SLA. The two technical statements the item required are explicit: the `audio_suite_shared/secure_subprocess.py` allowlist surface, and "raw audio and tag files are untrusted input". A code of conduct is a policy decision the maintainer has not made; the item itself says it is optional and it was left out rather than invented. |
+| 2026-09-27 | E2 (finding) | **`uv sync` (the item's own acceptance check) found a stale `uv.lock`; the repaired lock is committed** | First plain `uv sync` run in the plan (earlier stages ran pytest/ruff/mypy/bandit, which do not need the lock refreshed). It repaired three entries for dependencies that were **already declared** in `[project] dependencies`/extras: `librosa` and `sounddevice` were missing from the base package graph and `types-requests` from the dev extra. No declared dependency changed in Stage 4 — the update is bookkeeping of the existing declaration, and committing the repaired lock (which CI consumed) is required by the AGENTS.md "`uv.lock` is committed" rule. Left uncommented here because a lock repair surfacing under a baseline documentation item is exactly the kind of "discovered while implementing" event the plan mandates recording. |
+| 2026-09-27 | E1/E2 (order) | **README ↔ baseline docs cross-reference completes across the two item commits** | E1's README links `CONTRIBUTING.md`, `SECURITY.md` and `CHANGELOG.md` (created by E2 in the following commit), and E2's acceptance "referenced from `README.md`" is satisfied by E1's lock test. The gap is one commit wide inside the same session and is recorded on both Completion Log rows rather than silently absorbed. |
 
 ---
 
