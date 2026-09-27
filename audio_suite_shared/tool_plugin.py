@@ -150,337 +150,292 @@ class ToolRegistry:
 _REGISTRY: ToolRegistry | None = None
 
 
+# ── First-party manifest table ────────────────────────────────────────────────
+#
+# Declarative source of truth for every first-party tool.  Each ``id`` is the
+# key every other registration point must agree with: the card module filename
+# (``master_driver.ui.cards.{id}_card``), the CLI command, the arg-builder
+# entry, the batch-orchestrator dependency graph, the AppState toggle key and
+# the user-guide registry.  Declaration order below is load-bearing: it drives
+# the Master Driver's tool listing.
+
+_DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
+    # ── Enrich tools (tag / metadata) ────────────────────────────────────
+    ToolManifest(
+        id="scrubber",
+        name="Metadata Scrubber",
+        category="enrich",
+        pyw_filename="Metadata_Scrubber.pyw",
+        description="Scrub metadata from MP3 files",
+        cli_command="scrub",
+        order=10,
+    ),
+    ToolManifest(
+        id="fingerprinter",
+        name="Audio Fingerprinter",
+        category="enrich",
+        pyw_filename="Audio_Fingerprinter.pyw",
+        description="Fingerprint audio and identify tracks via AcoustID",
+        cli_command="fingerprint",
+        standalone=True,
+        order=15,
+    ),
+    ToolManifest(
+        id="replaygain",
+        name="ReplayGain Analyzer",
+        category="enrich",
+        pyw_filename="ReplayGain_Analyzer.pyw",
+        description="Measure and write ReplayGain tags",
+        cli_command="replaygain",
+        order=20,
+    ),
+    ToolManifest(
+        id="album_genre",
+        name="Album Genre Tagger",
+        category="enrich",
+        pyw_filename="AlbumGenre_Tagger.pyw",
+        description="Tag genre from album-level metadata",
+        cli_command="album-genre",
+        standalone=False,
+        order=30,
+    ),
+    ToolManifest(
+        id="genre_sync",
+        name="Genre Sync",
+        category="enrich",
+        pyw_filename="Genre_Sync.pyw",
+        description="Sync genre tags from custom field hierarchy",
+        cli_command="genre-sync",
+        order=40,
+    ),
+    ToolManifest(
+        id="bpm",
+        name="BPM Analyzer",
+        category="enrich",
+        pyw_filename="BPM_Analyzer.pyw",
+        description="Detect and tag BPM for audio files",
+        cli_command="bpm",
+        order=50,
+    ),
+    ToolManifest(
+        id="tempo",
+        name="Tempo Analyzer",
+        category="enrich",
+        pyw_filename="Tempo_Analyzer.pyw",
+        description="Derive tempo markings from existing BPM tags",
+        cli_command="tempo",
+        order=60,
+    ),
+    ToolManifest(
+        id="key",
+        name="Key Detector",
+        category="enrich",
+        pyw_filename="Key_Detector.pyw",
+        description="Detect and tag musical key",
+        cli_command="key",
+        order=70,
+    ),
+    ToolManifest(
+        id="mood_analyzer",
+        name="Mood Analyzer",
+        category="enrich",
+        pyw_filename="Mood_Analyzer.pyw",
+        description="Signal-based mood tagging (valence-arousal)",
+        cli_command="mood-analyzer",
+        order=85,
+    ),
+    ToolManifest(
+        id="art",
+        name="Album Art Sync",
+        category="enrich",
+        pyw_filename="Album_Art_Synch.pyw",
+        description="Embed and synchronise album art",
+        cli_command="album-art",
+        standalone=False,
+        order=90,
+    ),
+    # ── Utility tools ────────────────────────────────────────────────────
+    ToolManifest(
+        id="converter",
+        name="Music Format Converter",
+        category="utility",
+        pyw_filename="Music_Format_Converter.pyw",
+        description="Convert audio files between formats",
+        cli_command="convert",
+        order=10,
+    ),
+    ToolManifest(
+        id="asx_extractor",
+        name="ASX Playlist Extractor",
+        category="utility",
+        pyw_filename="ASX_Playlist_Extractor.pyw",
+        description="Extract playlists from ASX files",
+        cli_command="asx-extract",
+        standalone=False,
+        order=20,
+    ),
+    ToolManifest(
+        id="album_art_normalizer",
+        name="Album Art Normalizer",
+        category="utility",
+        pyw_filename="Album_Art_Normalizer.pyw",
+        description="Resize and normalize embedded album artwork",
+        standalone=False,
+        cli_command="artnormalize",
+        order=25,
+    ),
+    ToolManifest(
+        id="cd_ripper",
+        name="CD Ripper",
+        category="utility",
+        pyw_filename="CD_Ripper.pyw",
+        description="Rip audio CDs",
+        cli_command="cd-rip",
+        standalone=True,
+        order=30,
+    ),
+    ToolManifest(
+        id="mood_analysis_batch",
+        name="Mood Analysis Batch Tagger",
+        category="utility",
+        pyw_filename="Mood_Analysis_Batch_Tagger.pyw",
+        description="Recursive signal-based batch mood analysis and tagging",
+        cli_command="mood-analysis-batch",
+        standalone=True,
+        order=41,
+    ),
+    ToolManifest(
+        id="library_stats",
+        name="Library Statistics Dashboard",
+        category="utility",
+        pyw_filename="Library_Stats.pyw",
+        description="Read-only tag statistics dashboard",
+        cli_command="stats",
+        standalone=True,
+        order=50,
+    ),
+    ToolManifest(
+        id="file_reorganizer",
+        name="Tag-Based File Reorganizer",
+        category="utility",
+        pyw_filename="File_Reorganizer.pyw",
+        description="Move/copy files into a tag-based folder hierarchy",
+        cli_command="reorganize",
+        standalone=True,
+        order=55,
+    ),
+    ToolManifest(
+        id="tag_field_updater",
+        name="Tag Field Updater",
+        category="utility",
+        pyw_filename="Tag_Field_Updater.pyw",
+        description="Scan and update tag fields",
+        cli_command="tag-update",
+        standalone=True,
+        order=45,
+    ),
+    ToolManifest(
+        id="noise_reduction",
+        name="Noise Reduction",
+        category="utility",
+        pyw_filename="Noise_Reduction.pyw",
+        description="Remove hum and broadband noise from audio files",
+        cli_command="reduce",
+        standalone=True,
+        order=42,
+    ),
+    ToolManifest(
+        id="audio_enhancer",
+        name="Audio Enhancer",
+        category="utility",
+        pyw_filename="Audio_Enhancer.pyw",
+        description="Improve dynamic range and clarity of audio files",
+        cli_command="enhance",
+        standalone=True,
+        order=43,
+    ),
+    ToolManifest(
+        id="audio_normalizer",
+        name="Audio Normalizer",
+        category="utility",
+        pyw_filename="Audio_Normalizer.pyw",
+        description="Normalise audio loudness to a target LUFS level",
+        cli_command="normalise",
+        standalone=True,
+        order=44,
+    ),
+    ToolManifest(
+        id="pop_click_remover",
+        name="Pop & Click Remover",
+        category="utility",
+        pyw_filename="Pop_Click_Remover.pyw",
+        description="Remove clicks and pops from audio files",
+        cli_command="declick",
+        standalone=True,
+        order=45,
+    ),
+    ToolManifest(
+        id="silence_trimmer",
+        name="Silence Trimmer",
+        category="utility",
+        pyw_filename="Silence_Trimmer.pyw",
+        description="Trim silence and optionally apply fades",
+        cli_command="silence-trim",
+        standalone=True,
+        order=46,
+    ),
+    ToolManifest(
+        id="tag_editor",
+        name="Tag Editor",
+        category="utility",
+        pyw_filename="Tag_Editor.pyw",
+        description="Edit common tags in an interactive grid",
+        cli_command="tag-edit",
+        standalone=True,
+        order=47,
+    ),
+    ToolManifest(
+        id="lyrics_manager",
+        name="Lyrics Manager",
+        category="enrich",
+        pyw_filename="Lyrics_Manager.pyw",
+        description="Fetch and embed synced & plain lyrics from online sources",
+        cli_command="lyrics",
+        order=95,
+    ),
+    ToolManifest(
+        id="undo_tag_edits",
+        name="Undo Tag Edits",
+        category="utility",
+        pyw_filename="Undo_Tag_Edits.pyw",
+        description="Restore file tags to the way they were before a batch run",
+        standalone=True,
+        order=60,
+    ),
+    # ── Refinery (single pipeline) ───────────────────────────────────────
+    ToolManifest(
+        id="audio_refinery",
+        name="Audio Refinery",
+        category="refinery",
+        pyw_filename="Audio_Refinery.pyw",
+        description="DSP pipeline: declick, trim, enhance, normalise",
+        standalone=True,
+        order=10,
+    ),
+)
+
+
 def _build_default_registry() -> ToolRegistry:
-    """Create and populate the registry with all first-party tools."""
+    """Create and populate the registry with all first-party tools.
+
+    Assembles the registry from the declarative ``_DEFAULT_MANIFESTS`` table.
+    The table's ids, field values and declaration order are the contract the
+    expected-set test (``test_tool_plugin.py``) and the Master Driver's tool
+    listing depend on — edit the table, never this function, to add a tool.
+    """
     r = ToolRegistry()
-
-    # ── Enrich tools (tag / metadata) ─────────────────────────────────────
-    r.register(
-        ToolManifest(
-            id="scrubber",
-            name="Metadata Scrubber",
-            category="enrich",
-            pyw_filename="Metadata_Scrubber.pyw",
-            description="Scrub metadata from MP3 files",
-            cli_command="scrub",
-            order=10,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="fingerprinter",
-            name="Audio Fingerprinter",
-            category="enrich",
-            pyw_filename="Audio_Fingerprinter.pyw",
-            description="Fingerprint audio and identify tracks via AcoustID",
-            cli_command="fingerprint",
-            standalone=True,
-            order=15,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="replaygain",
-            name="ReplayGain Analyzer",
-            category="enrich",
-            pyw_filename="ReplayGain_Analyzer.pyw",
-            description="Measure and write ReplayGain tags",
-            cli_command="replaygain",
-            order=20,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="album_genre",
-            name="Album Genre Tagger",
-            category="enrich",
-            pyw_filename="AlbumGenre_Tagger.pyw",
-            description="Tag genre from album-level metadata",
-            cli_command="album-genre",
-            standalone=False,
-            order=30,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="genre_sync",
-            name="Genre Sync",
-            category="enrich",
-            pyw_filename="Genre_Sync.pyw",
-            description="Sync genre tags from custom field hierarchy",
-            cli_command="genre-sync",
-            order=40,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="bpm",
-            name="BPM Analyzer",
-            category="enrich",
-            pyw_filename="BPM_Analyzer.pyw",
-            description="Detect and tag BPM for audio files",
-            cli_command="bpm",
-            order=50,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="tempo",
-            name="Tempo Analyzer",
-            category="enrich",
-            pyw_filename="Tempo_Analyzer.pyw",
-            description="Derive tempo markings from existing BPM tags",
-            cli_command="tempo",
-            order=60,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="key",
-            name="Key Detector",
-            category="enrich",
-            pyw_filename="Key_Detector.pyw",
-            description="Detect and tag musical key",
-            cli_command="key",
-            order=70,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="mood_analyzer",
-            name="Mood Analyzer",
-            category="enrich",
-            pyw_filename="Mood_Analyzer.pyw",
-            description="Signal-based mood tagging (valence-arousal)",
-            cli_command="mood-analyzer",
-            order=85,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="art",
-            name="Album Art Sync",
-            category="enrich",
-            pyw_filename="Album_Art_Synch.pyw",
-            description="Embed and synchronise album art",
-            cli_command="album-art",
-            standalone=False,
-            order=90,
-        )
-    )
-
-    # ── Utility tools ─────────────────────────────────────────────────────
-    r.register(
-        ToolManifest(
-            id="converter",
-            name="Music Format Converter",
-            category="utility",
-            pyw_filename="Music_Format_Converter.pyw",
-            description="Convert audio files between formats",
-            cli_command="convert",
-            order=10,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="asx_extractor",
-            name="ASX Playlist Extractor",
-            category="utility",
-            pyw_filename="ASX_Playlist_Extractor.pyw",
-            description="Extract playlists from ASX files",
-            cli_command="asx-extract",
-            standalone=False,
-            order=20,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="album_art_normalizer",
-            name="Album Art Normalizer",
-            category="utility",
-            pyw_filename="Album_Art_Normalizer.pyw",
-            description="Resize and normalize embedded album artwork",
-            standalone=False,
-            cli_command="artnormalize",
-            order=25,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="cd_ripper",
-            name="CD Ripper",
-            category="utility",
-            pyw_filename="CD_Ripper.pyw",
-            description="Rip audio CDs",
-            cli_command="cd-rip",
-            standalone=True,
-            order=30,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="mood_analysis_batch",
-            name="Mood Analysis Batch Tagger",
-            category="utility",
-            pyw_filename="Mood_Analysis_Batch_Tagger.pyw",
-            description="Recursive signal-based batch mood analysis and tagging",
-            cli_command="mood-analysis-batch",
-            standalone=True,
-            order=41,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="library_stats",
-            name="Library Statistics Dashboard",
-            category="utility",
-            pyw_filename="Library_Stats.pyw",
-            description="Read-only tag statistics dashboard",
-            cli_command="stats",
-            standalone=True,
-            order=50,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="file_reorganizer",
-            name="Tag-Based File Reorganizer",
-            category="utility",
-            pyw_filename="File_Reorganizer.pyw",
-            description="Move/copy files into a tag-based folder hierarchy",
-            cli_command="reorganize",
-            standalone=True,
-            order=55,
-        )
-    )
-
-    r.register(
-        ToolManifest(
-            id="tag_field_updater",
-            name="Tag Field Updater",
-            category="utility",
-            pyw_filename="Tag_Field_Updater.pyw",
-            description="Scan and update tag fields",
-            cli_command="tag-update",
-            standalone=True,
-            order=45,
-        )
-    )
-    r.register(
-        ToolManifest(
-            id="noise_reduction",
-            name="Noise Reduction",
-            category="utility",
-            pyw_filename="Noise_Reduction.pyw",
-            description="Remove hum and broadband noise from audio files",
-            cli_command="reduce",
-            standalone=True,
-            order=42,
-        )
-    )
-
-    r.register(
-        ToolManifest(
-            id="audio_enhancer",
-            name="Audio Enhancer",
-            category="utility",
-            pyw_filename="Audio_Enhancer.pyw",
-            description="Improve dynamic range and clarity of audio files",
-            cli_command="enhance",
-            standalone=True,
-            order=43,
-        )
-    )
-
-    r.register(
-        ToolManifest(
-            id="audio_normalizer",
-            name="Audio Normalizer",
-            category="utility",
-            pyw_filename="Audio_Normalizer.pyw",
-            description="Normalise audio loudness to a target LUFS level",
-            cli_command="normalise",
-            standalone=True,
-            order=44,
-        )
-    )
-
-    r.register(
-        ToolManifest(
-            id="pop_click_remover",
-            name="Pop & Click Remover",
-            category="utility",
-            pyw_filename="Pop_Click_Remover.pyw",
-            description="Remove clicks and pops from audio files",
-            cli_command="declick",
-            standalone=True,
-            order=45,
-        )
-    )
-
-    r.register(
-        ToolManifest(
-            id="silence_trimmer",
-            name="Silence Trimmer",
-            category="utility",
-            pyw_filename="Silence_Trimmer.pyw",
-            description="Trim silence and optionally apply fades",
-            cli_command="silence-trim",
-            standalone=True,
-            order=46,
-        )
-    )
-
-    r.register(
-        ToolManifest(
-            id="tag_editor",
-            name="Tag Editor",
-            category="utility",
-            pyw_filename="Tag_Editor.pyw",
-            description="Edit common tags in an interactive grid",
-            cli_command="tag-edit",
-            standalone=True,
-            order=47,
-        )
-    )
-
-    r.register(
-        ToolManifest(
-            id="lyrics_manager",
-            name="Lyrics Manager",
-            category="enrich",
-            pyw_filename="Lyrics_Manager.pyw",
-            description="Fetch and embed synced & plain lyrics from online sources",
-            cli_command="lyrics",
-            order=95,
-        )
-    )
-
-    r.register(
-        ToolManifest(
-            id="undo_tag_edits",
-            name="Undo Tag Edits",
-            category="utility",
-            pyw_filename="Undo_Tag_Edits.pyw",
-            description=("Restore file tags to the way they were before a batch run"),
-            standalone=True,
-            order=60,
-        )
-    )
-
-    # ── Refinery (single pipeline) ────────────────────────────────────────
-    r.register(
-        ToolManifest(
-            id="audio_refinery",
-            name="Audio Refinery",
-            category="refinery",
-            pyw_filename="Audio_Refinery.pyw",
-            description="DSP pipeline: declick, trim, enhance, normalise",
-            standalone=True,
-            order=10,
-        )
-    )
-
+    for manifest in _DEFAULT_MANIFESTS:
+        r.register(manifest)
     r._freeze()
     return r
 

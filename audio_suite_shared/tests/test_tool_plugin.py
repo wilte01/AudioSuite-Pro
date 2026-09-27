@@ -275,3 +275,28 @@ class TestDefaultRegistry:
         m = ToolManifest(id="late", name="Late", category="e", pyw_filename="late.pyw")
         with pytest.raises(AudioConfigurationError):
             r.register(m)
+
+    def test_all_returns_a_copy_not_a_live_view(self):
+        """Mutating a returned list must not touch the shared registry."""
+        r = get_registry()
+        before = len(r.all)
+        r.all.clear()
+        assert len(r.all) == before
+        assert len(r) == before
+
+    def test_by_category_returns_a_copy_not_a_live_view(self):
+        r = get_registry()
+        before = len(r.by_category("utility"))
+        r.by_category("utility").clear()
+        assert len(r.by_category("utility")) == before
+
+    def test_all_manifests_are_frozen_dataclasses(self):
+        """The registry's manifest data itself must resist in-place edits."""
+        import dataclasses
+
+        import pytest
+
+        for m in get_registry().all:
+            assert dataclasses.is_dataclass(m)
+            with pytest.raises(dataclasses.FrozenInstanceError):
+                m.name = "tampered"  # type: ignore[misc]
