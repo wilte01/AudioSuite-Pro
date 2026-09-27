@@ -22,7 +22,12 @@ try:
     from cryptography.fernet import Fernet, InvalidToken
 
     CRYPTOGRAPHY_AVAILABLE = True
-except ImportError:
+    # cryptography is a declared hard dependency (pyproject); this fallback
+    # exists to keep the module importable in an incomplete env, so it cannot
+    # run in a correctly installed suite. The disabled-encryption behaviour
+    # itself is exercised by TestEncryptionDisabled patching the flag
+    # (tests/test_key_manager.py) — only the import-time guard is excluded.
+except ImportError:  # pragma: no cover
     CRYPTOGRAPHY_AVAILABLE = False
     Fernet = None  # type: ignore[assignment, misc]
     InvalidToken = None  # type: ignore[assignment, misc]

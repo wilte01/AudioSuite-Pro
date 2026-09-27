@@ -1286,6 +1286,33 @@ class TestPaletteCard:
         _collect(parent)
         assert len(radios) == len(PALETTES)
 
+    def test_windows_accent_row_builds_when_winaccent_is_missing(
+        self, parent, root, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The.function-level winaccent fallback runs instead of being excluded.
+
+        Plan D2 retired the broad ``except ImportError`` coverage exclusion:
+        this card's per-palette import guard is exercisable, so the test
+        executes it via a missing module and asserts the real degradation —
+        the panel still builds all palette rows with the placeholder colours.
+        """
+        from audio_suite_shared.styles import PALETTES
+
+        monkeypatch.setitem(sys.modules, "winaccent", None)
+        state = _make_state(root)
+        state.palette_var.set("Windows Accent")
+        self.card.build(parent, state)
+        radios = []
+
+        def _collect(w):
+            if isinstance(w, tk.Radiobutton):
+                radios.append(w)
+            for child in w.winfo_children():
+                _collect(child)
+
+        _collect(parent)
+        assert len(radios) == len(PALETTES)
+
 
 # ---------------------------------------------------------------------------
 # typography_card

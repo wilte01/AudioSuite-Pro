@@ -335,7 +335,11 @@ def process_file(
             from audio_enhancer.core.ffmpeg_io import write_audio as ffmpeg_write
 
             use_ffmpeg = ext in FFMPEG_EXTENSIONS
-        except ImportError:
+        # audio_enhancer.ffmpeg_io is first-party, always present in a valid
+        # install (its own ffmpeg-missing failure is an AudioMissingDependency
+        # raised at call time, not an ImportError) — a defensive guard only
+        # reachable when the suite itself is broken (plan D2).
+        except ImportError:  # pragma: no cover
             use_ffmpeg = False
 
         if use_ffmpeg:

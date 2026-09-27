@@ -240,9 +240,6 @@ exclude_lines = [
     "^\\s*\\.\\.\\.\\s*$",
     # Script entry points covered by CLI tests instead
     'if __name__ == "__main__":',
-    # Defensive re-export guards and optional-dependency fallbacks
-    "except ImportError",
-    "raise AudioMissingDependencyError",
 ]
 
 [tool.ruff.format]

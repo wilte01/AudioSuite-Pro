@@ -27,7 +27,12 @@ try:
     import mutagen
 
     MUTAGEN_AVAILABLE = True
-except ImportError:
+    # mutagen is a declared hard dependency (pyproject [project.dependencies]);
+    # this fallback exists only to keep the module importable in an incomplete
+    # env. The graceful-degradation beaviour itself is exercised by tests
+    # patching MUTAGEN_AVAILABLE (test_replaygain_core.py), so only the
+    # import-time guard cannot run in a correct install (plan D2).
+except ImportError:  # pragma: no cover
     MUTAGEN_AVAILABLE = False
 
 _REPLAYGAIN_FIELDS: tuple[str, ...] = (

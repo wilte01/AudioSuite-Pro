@@ -34,7 +34,10 @@ from audio_suite_shared.lossless_gain import apply_track_gain, is_mp3_file
 
 try:
     from mutagen import MutagenError
-except ImportError:
+    # mutagen is a declared hard dependency (pyproject [project.dependencies]);
+    # this fallback exists only to keep the module importable in an incomplete
+    # env, so it cannot run in a correctly installed suite (plan D2).
+except ImportError:  # pragma: no cover
     MutagenError = Exception  # type: ignore[misc,assignment]
 
 from .ffmpeg_metrics import get_metrics

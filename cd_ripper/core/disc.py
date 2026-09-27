@@ -26,7 +26,13 @@ try:
     import discid
 
     HAS_DISCID = True
-except ImportError:
+    # discid/musicbrainzngs are declared OPTIONAL extras ([project]
+    # optional-dependencies "cd-ripping"), installed when that extra is
+    # synced; the import guards then cannot run. Every decision point they
+    # down-select (HAS_DISCID / HAS_MBZ) is exercised by tests patching those
+    # flags (tests/test_disc_core.py), so only the import-time guards and
+    # their env-conditional assignments are excluded (plan D2).
+except ImportError:  # pragma: no cover
     HAS_DISCID = False
 
 try:
@@ -34,7 +40,7 @@ try:
 
     mbz.set_useragent("AudioSuiteCDRipper", "1.0", "https://github.com/audio-suite")
     HAS_MBZ = True
-except ImportError:
+except ImportError:  # pragma: no cover
     HAS_MBZ = False
 
 

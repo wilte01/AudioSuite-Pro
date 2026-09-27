@@ -129,12 +129,14 @@ def process_file(
 
         result.status = JobStatus.DONE
         _emit("Done \u2713")
-
-    except ImportError as exc:
+    # pedalboard is a declared hard dependency (pyproject); this mapped
+    # fallback exists to keep process_file's typed failure contract intact in
+    # an incomplete env, so it cannot run in a correctly installed suite (D2).
+    except ImportError as exc:  # pragma: no cover
         from audio_suite_shared.exceptions import AudioMissingDependencyError
 
         mapped = AudioMissingDependencyError(
-            "pedalboard is not installed — run: pip install pedalboard",
+            "pedalboard is not installed - run: pip install pedalboard",
             dependency="pedalboard",
             original=exc,
         )

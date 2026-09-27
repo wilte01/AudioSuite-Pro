@@ -1,5 +1,4 @@
-"""
-test_styles.py — Unit tests for audio_suite_shared.styles
+"""test_styles.py — Unit tests for audio_suite_shared.styles
 
 Strategy
 --------
@@ -15,13 +14,16 @@ Covers:
     • set_active_typography: font tuples updated for all sizes
     • get_main / get_dark / tab_active / tab_inactive return hex strings
     • Colour constants are valid hex strings
+    • The module-level winaccent fallback guard (D2): executed by importing
+      the module without winaccent, not hidden by a coverage exclusion
 """
 
 from __future__ import annotations
 
+import importlib
 import re
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -322,3 +324,41 @@ class TestApplyStyles:
         assert (
             bg is None or is_hex_colour(bg) or "theme not applied until widget creation"
         )
+
+
+class TestWindowsAccentFallback:
+    """The module-level winaccent guard, exercised rather than excluded.
+
+    Plan D2 retired the broad ``except ImportError`` coverage exclusion: a
+    guard that CAN run must be exercised by a test instead of hidden by a
+    config-wide pattern. winaccent is platform-marked in pyproject
+    (``sys_platform == 'win32'``), so on a non-Windows host this exact branch
+    executes at import; a reload under a missing module reproduces it here,
+    and asserts the real degradation: no system-accent lookup, placeholder
+    colours preserved.
+    """
+
+    def test_windows_accent_palette_holds_the_placeholder_without_winaccent(
+        self,
+    ) -> None:
+        placeholder_main = styles.PALETTES["Windows Accent"]["main"]
+        was_available = styles.HAS_WINACCENT
+
+        with patch.dict(sys.modules, {"winaccent": None}):
+            importlib.reload(styles)
+            assert styles.HAS_WINACCENT is False
+
+            # The degradation, not just the flag: requesting the accent
+            # palette without winaccent must keep the placeholder colours
+            # and reach no accent attribute at all.
+            styles.set_active_palette("Windows Accent")
+            assert styles.PURPLE_MAIN == styles.PALETTES["Windows Accent"]["main"]
+            assert is_hex_colour(styles.PURPLE_MAIN)
+
+            # The placeholder itself must not have been mutated by the
+            # fallback lookup.
+            assert styles.PALETTES["Windows Accent"]["main"] == placeholder_main
+
+        importlib.reload(styles)
+        assert styles.HAS_WINACCENT == was_available
+        assert styles.PALETTES["Windows Accent"]["main"] == placeholder_main

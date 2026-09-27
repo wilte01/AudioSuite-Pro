@@ -101,6 +101,59 @@ declaration.find_missing_requirements = lambda *_args, **_kwargs: [
     not _HAS_TOMLLIB,
     reason="tomllib requires Python 3.11+; the 3.12 CI legs enforce this lock",
 )
+class TestCoverageExclusionLock:
+    """Plan D2: no syntax-pattern exclusion may hide arbitrary error handling.
+
+    The former ``except ImportError`` and ``raise AudioMissingDependencyError``
+    exclusions hid every *real* error handler on those patterns tree-wide, so
+    an untested error path was permanently invisible. Legitimate guards now
+    carry a per-line ``pragma: no cover`` with a reason; this lock stops the
+    broad patterns from quietly returning (and no ``fail_under`` move absorbing
+    the newly-visible lines — decision D3 holds 75).
+    """
+
+    @staticmethod
+    def _coverage_field(name: str) -> object:
+        pyproject = tomllib.load(open(PYPROJECT, "rb"))
+        tool = pyproject["tool"]
+        assert isinstance(tool, dict)
+        coverage_config = tool["coverage"]
+        assert isinstance(coverage_config, dict)
+        report = coverage_config["report"]
+        assert isinstance(report, dict)
+        return report.get(name)
+
+    def test_exclusions_contain_no_broad_error_pattern(self) -> None:
+        exclude_lines = self._coverage_field("exclude_lines")
+        assert isinstance(exclude_lines, list)
+        assert "except ImportError" not in exclude_lines
+        assert "raise AudioMissingDependencyError" not in exclude_lines
+        assert not any(
+            isinstance(entry, str) and "except ImportError" in entry
+            for entry in exclude_lines
+        )
+
+    def test_the_universal_exclusions_are_untouched(self) -> None:
+        exclude_lines = self._coverage_field("exclude_lines")
+        assert isinstance(exclude_lines, list)
+        assert "pragma: no cover" in exclude_lines
+        assert "if TYPE_CHECKING:" in exclude_lines
+        assert "@abstractmethod" in exclude_lines
+        assert "raise NotImplementedError" in exclude_lines
+        assert 'if __name__ == "__main__":' in exclude_lines
+
+    def test_the_gate_holds_seventy_five(self) -> None:
+        fail_under = self._coverage_field("fail_under")
+        assert fail_under == 75, (
+            "decision D3 holds fail_under at 75; lowering it would "
+            "re-institutionalise the audit's finding 17"
+        )
+
+
+@pytest.mark.skipif(
+    not _HAS_TOMLLIB,
+    reason="tomllib requires Python 3.11+; the 3.12 CI legs enforce this lock",
+)
 class TestConfigLock:
     """The wiring must be in the config file itself, not in ritual."""
 

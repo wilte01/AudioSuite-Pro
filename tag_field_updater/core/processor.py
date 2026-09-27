@@ -27,7 +27,10 @@ try:
     from mutagen.oggopus import OggOpus  # noqa: F401
     from mutagen.oggvorbis import OggVorbis  # noqa: F401
     from mutagen.wave import WAVE  # noqa: F401
-except ImportError as e:
+# mutagen is a declared hard dependency (pyproject); this typed failure exists
+# only to give a broken install an actionable message, so it cannot run in a
+# correctly installed suite (plan D2).
+except ImportError as e:  # pragma: no cover
     raise AudioMissingDependencyError(
         "Mutagen library not found. Please install with: pip install mutagen",
         dependency="mutagen",
