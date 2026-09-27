@@ -6,10 +6,12 @@ Part of audio_suite_shared. Provides a single consistent path for tools
 mono, 64-bit float time series suitable for DSP, plus a silence / too-short
 guard so analysis engines never receive degenerate input.
 
-Decoding uses librosa (SoundFile-backed when available, falling back to
-audioread for non-PCM containers). Samples are always upcast to
-``numpy.float64`` to avoid quantisation noise accumulation during feature
-extraction.
+Decoding uses librosa (SoundFile-backed; on librosa <= 0.11 a corrupt
+container can additionally fall back to audioread and decode to an empty
+signal at ``sr == 0``, which the guard below rejects — librosa >= 1.0 removed
+that fallback and raises the soundfile error instead). Samples are always
+upcast to ``numpy.float64`` to avoid quantisation noise accumulation during
+feature extraction.
 """
 
 from __future__ import annotations

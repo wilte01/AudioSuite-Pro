@@ -3,10 +3,10 @@
 **Source:** Independent engineering audit of commit `e729626` (2026-09-26).
 21 findings, ordered by the audit's own severity ranking. Each is reproduced
 below with the evidence that justifies it and mapped to exactly one staged item.
-**Status:** Active — Stage 0 implemented (2026-09-26); Stages 1–6 not started.
+**Status:** Active — Stage 0 implemented (2026-09-26); Stage 1 implemented (2026-09-27); Stage 2 implemented (2026-09-27); Stage 3 implemented (2026-09-27); Stages 4–6 not started.
 All five open decisions (D1–D5) resolved by the maintainer on 2026-09-26 in
 favour of the recommended options — see the Decision Log.
-**Last Updated:** 2026-09-26 (Stage 0)
+**Last Updated:** 2026-09-27 (Stage 3)
 **Scope:** All 21 audit findings, delivered as seven independently shippable
 stages. Nothing in this plan is authorized for implementation until the open
 decisions in the *Open Decisions* section are resolved by the maintainer.
@@ -989,7 +989,7 @@ re-decided with real data.
 
 ---
 
-### D1 — Honour the `integration` and `hardware` markers `[audit #14]`
+### D1 [x] — Honour the `integration` and `hardware` markers `[audit #14]`
 
 **Priority:** Medium | **Effort:** 0.3 day | **Risk:** Medium
 
@@ -1008,31 +1008,31 @@ test reaches a real device, CI is unrunnable on hosted runners.
 
 **Scope:**
 
-- [ ] Decide the contract explicitly and write it down in the marker
+- [x] Decide the contract explicitly and write it down in the marker
       descriptions themselves (the description is what a reader sees):
       - `integration` — runs by default **where ffmpeg is present** (which A4
         installs on Linux); auto-skips with an explicit reason where it is not.
       - `hardware` — never runs in CI; deselected by default and enabled only
         by an explicit opt-in flag.
-- [ ] Implement the split: keep `integration` in the default `addopts`, and
+- [x] Implement the split: keep `integration` in the default `addopts`, and
       deselect `hardware` by default via `-m "not hardware"`, with the opt-in
       path being a plain, documented flag/override (for example running
       `pytest -m hardware` directly). Do not invent an environment-variable
       switch that nobody can discover.
-- [ ] Every auto-skip must carry a reason naming the missing prerequisite.
+- [x] Every auto-skip must carry a reason naming the missing prerequisite.
       A bare `@pytest.mark.skip` on a marker is exactly the failure mode B4
       removes.
-- [ ] Update the `master_driver` / `audio_suite_shared` marker documentation
+- [x] Update the `master_driver` / `audio_suite_shared` marker documentation
       if any README or guide text describes the current (non-existent)
       behaviour.
 
 **Tests (lockstep):**
 
-- [ ] A test asserting the marker wiring itself: collect with the default
+- [x] A test asserting the marker wiring itself: collect with the default
       `addopts` and assert the `hardware` set is excluded and the `integration`
       set is included. Without this, the contract can silently rot back to
       "everything runs".
-- [ ] `audio_suite_shared/tests/` (or the root `tests/`) is the right home for
+- [x] `audio_suite_shared/tests/` (or the root `tests/`) is the right home for
       a suite-wide configuration test — follow the existing convention for
       config-locking tests rather than inventing a new location.
 
@@ -1053,7 +1053,7 @@ is the cost — mitigated by requiring the opt-in path to be documented in
 
 ---
 
-### D2 — Stop the coverage exclusions from hiding live branches `[audit #17]`
+### D2 [x] — Stop the coverage exclusions from hiding live branches `[audit #17]`
 
 **Priority:** Medium | **Effort:** 0.25 day | **Risk:** Low
 
@@ -1076,18 +1076,18 @@ that the gate cannot see them, so nobody can tell whether they are exercised.
 
 **Scope:**
 
-- [ ] Replace the two broad patterns with a **narrow, explicit** mechanism. The
+- [x] Replace the two broad patterns with a **narrow, explicit** mechanism. The
       cleanest form this codebase already uses is a per-line pragma: keep
       `pragma: no cover` available and apply it at the individual guard lines
       that genuinely cannot run, instead of excluding a syntax pattern
       tree-wide. The `AGENTS.md` "Comments Policy" applies: annotate the
       legitimate guards with a *reason*.
-- [ ] Where a guard genuinely can be exercised, do not exclude it — write the
+- [x] Where a guard genuinely can be exercised, do not exclude it — write the
       test. B2 and B3 are the templates: both are exactly this situation.
-- [ ] Keep the genuinely universal exclusions (`if TYPE_CHECKING:`,
+- [x] Keep the genuinely universal exclusions (`if TYPE_CHECKING:`,
       `@abstractmethod`, `raise NotImplementedError`, the `...` body rule, the
       `__main__` guard) untouched.
-- [ ] Do not lower `fail_under` to absorb the newly-visible lines; D3 governs
+- [x] Do not lower `fail_under` to absorb the newly-visible lines; D3 governs
       the gate, and its recommendation is to hold 75.
 
 **Tests (lockstep):** none strictly required — the change makes existing
@@ -1110,7 +1110,7 @@ mid-stage.
 
 ---
 
-### D3 — Re-baseline the coverage gate under the honest measurement `[gate — no new finding]`
+### D3 [x] — Re-baseline the coverage gate under the honest measurement `[gate — no new finding]`
 
 **Priority:** High | **Effort:** 0.1 day | **Risk:** Low (decision-heavy)
 
@@ -1122,13 +1122,13 @@ fitted to it.
 
 **Scope:**
 
-- [ ] Run the bare full suite and record the post-A2/post-D2 number verbatim.
-- [ ] Apply the D3 decision (recommendation: hold 75). If the number is below
+- [x] Run the bare full suite and record the post-A2/post-D2 number verbatim.
+- [x] Apply the D3 decision (recommendation: hold 75). If the number is below
       the gate, the correct outcome is to record the shortfall and schedule the
       specific untested regions — not to move the goalpost.
-- [ ] Record the number, the decision, and the resulting action in the
+- [x] Record the number, the decision, and the resulting action in the
       Completion Log and the Decision Log.
-- [ ] If the maintainer chooses a *higher* gate (D3 option B), record which
+- [x] If the maintainer chooses a *higher* gate (D3 option B), record which
       items must land first for it to be reachable.
 
 **Tests (lockstep):** none.
@@ -1826,6 +1826,57 @@ them are item-specific evidence run during the items:
    `preset_key`/`no_key` identifier names, and the public AcoustID fingerprint
    fixture). No 32-hex, no base64-44+, no PEM.
 
+## Stage 3
+
+| Item | Stage | Completed | Baseline → after | Gate Evidence (date + the six commands + pass/coverage counts) | Notes |
+|------|-------|-----------|------------------|------------------------------------------------------|-------|
+| D1 | 3 | 2026-09-27 | marker contract: 273 `integration` + 30 `hardware` tests collected-and-run by every default session → **bare run summary reports 30 deselected**; `pytest -m hardware` collects the full mocked-hardware set (30) through the plain CLI override; an ffmpeg/ffprobe-missing host auto-skips **each integration test** with a reason naming the missing executables, bounded to the marker | Full gate all green, 2026-09-27 (commit `99cc90a`; end-state block below). Item-specific: `tests/test_pyproject_config.py` marker locks **10 passed** (config lock parsed with `tomllib`; full-tree subprocess contract: default-run deselect count == hardware-set size, every hardware id from `cd_ripper/tests`, integration ids ⊆ default selection; pytester runs against a byte-copy of the real conftest: ffmpeg-missing sandbox → 1 passed / 1 skipped with the single `SKIPPED` group carrying the reason "fake ffmpeg, fake ffprobe not found on PATH"; the presence sandbox **self-inverts** on a host without the binaries; the `-m hardware` CLI override runs the opt-in sample). Bare full suite **7312 passed / 3 skipped / 30 deselected**, 0 failed. | Deselect mechanism chosen **in `addopts`** (the plan's own `-m "not hardware"`) rather than a conftest item-filter: CLI args come after addopts, so the documented `pytest -m hardware` opt-in overrides cleanly, and the deselected 30 leave the collection, the summary line and the coverage denominator consistently. Marker-doc audit: the only tree text describing marker behaviour (`cd_ripper/tests/test_ripper_core.py:1209`, "Mark with ``-m 'not hardware'`` to exclude from CI") described the contract this item now implements — no stale doc to update. **Defect discovered in working code, fixed in this same change (Decision Log):** B1's corrupt-file pool test pinned one decode-failure branch; uv.lock resolves librosa 1.0.0 on py≥3.12 (0.11.0 on py<3.12) and librosa 1.0 **removed the audioread fallback**, so the corrupt container now takes the *decoder-raised* branch ("Could not decode audio file …"), not the *empty-decode* branch ("too short to analyse"). The batch test is corrected to the backend-neutral batch contract (status="error", non-empty reported message, batch completes) with both branch texts pinned where they belonged — `test_analysis_loader.py`. |
+| D2 | 3 | 2026-09-27 | `[tool.coverage.report] exclude_lines` no longer carries any syntax-pattern exclusion broad enough to hide arbitrary error handling; 17 production guard sites classified line-by-line | Full gate all green, 2026-09-27 (commit `401fb3b`; end-state block below). Item-specific: config locks +3 (no `except ImportError` / `raise AudioMissingDependencyError` pattern may return; the universal exclusions untouched; `fail_under == 75` asserted — decision D3 cannot be absorbed). Per-line delta (acceptance "explained line-by-line in the Completion Log"): **(a) well hidden and executed without a pragma (7 sites)** — `album_art_normalizer/core/art_processor.py:22` (pre-existing pragma; `sys.exit` guard unexercisable in-process), `asx_extractor/core/file_ops.py:32` (send2trash not installed → branch *executes* at import), `library_stats/app.py:39` (matplotlib not declared → branch *executes*), `audio_enhancer/core/tags.py:25` (executed during the existing `TestCopyTags` module-reload test), `audio_enhancer/core/tags.py:42` (function-level, already exercised by that test), `audio_enhancer/core/ffmpeg_io.py:81,:93` (existing `TestRequireFfmpeg`/`TestRequireFfprobe` raise-path tests); **(b) genuinely unreachable in a valid install → per-line `# pragma: no cover` with reason (9 sites)** — `tag_field_updater/core/processor.py:30` (mutagen hard-dep raise), `audio_enhancer/core/processor.py:133` (pedalboard hard-dep mapped handler), `audio_refinery/core/pipeline.py:338` (first-party import guard, broken-suite-only), `audio_enhancer/core/inspector.py:13`, `file_reorganizer/core/engine.py:23`, `replaygain_analyzer/core/file_processor.py:37`, `replaygain_analyzer/core/tag_writer.py:30` (mutagen hard-dep fallbacks), `audio_suite_shared/security/key_manager.py:25` (cryptography hard-dep; the disabled-encryption behaviour itself stays exercised via `TestEncryptionDisabled`) and `cd_ripper/core/disc.py:29,:37` (declared OPTIONAL extras; every decision point they down-select already tested via `HAS_DISCID`/`HAS_MBZ` flag patches); **(c) exercisable, so tested instead of excluded (2 sites)** — `audio_suite_shared/styles.py:16` (module reload under a missing winaccent asserts the real degradation: placeholder palette holds, no accent attribute lookup) and `master_driver/ui/cards/palette_card.py:99` (function-level import under `sys.modules["winaccent"]=None`; all palette rows still build). `utilities/*.py` matches sit inside the coverage `omit`, out of scope. Measured: coverage **78.99% → 79.00%** (+5 tests). | The expected drop did not materialise because every pattern-hidden line was either already executed, honestly re-excluded per-line, or genuinely covered by this item's tests — the two newly-exercised sites are the residual honesty gain, and the denominator now includes every reachable error line. Three files re-formatted during the gate (`ruff format`). The lock class also asserts the D3 constraint, per the item's own "do not lower `fail_under`" bullet. |
+| D3 | 3 | 2026-09-27 | first fully-honest post-A2/post-D1/D2 number recorded against the unadjusted gate | Full gate all green, 2026-09-27 (end-state block below). Item-specific: bare `python -m pytest -q` → **7317 passed / 3 skipped / 30 deselected**, **0 failed**; coverage **79.00%** measured against **`fail_under = 75`** (decision D3, held — never lowered). | Shortfall: none — the gate clears by 4.00 pt under the honest denominator, so no residual untested regions need scheduling *for the threshold*. The number is lower than the dishonest Stage-2 headline (79.56%) — expected and recorded: the deselected 30 hardware tests no longer execute, and the D1/deselection + the D2 line count changes are the only motions. **Comment-drift finding fixed in the D3 change:** `analysis_loader.py`'s module docstring still described the audioread fallback the py≥3.12 lock removes — corrected (comment-only; compile/ruff/mypy re-run green; loader suite 35 passed). |
+
+Stage 3 gate evidence (2026-09-27, Windows host, Python 3.14.7, ruff 0.15.22,
+mypy 1.20.0, pytest 9.0.3 — end-state commands re-run after the D3
+comment-fix):
+
+0. `python -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'` → exit 0
+   (documented pre-existing third-party pydub `SyntaxWarning` noise)
+1. `python -m ruff check .` → `All checks passed!` ·
+   `python -m ruff format --check .` → **750 files already formatted**
+2. `python -m mypy .` → `Success: no issues found in 450 source files`
+3. `$env:PYTHONUTF8='1'; python -X utf8 -m bandit -r . -x ./.venv -c pyproject.toml`
+   → **0 High / 0 Medium / 51 Low** (baseline-identical)
+4. bare `python -m pytest -q` → **7317 passed / 3 skipped / 30 deselected**
+   (accounting vs Stage 2 close 7332 / 3: −30 hardware deselected by the new
+   contract, −1 corrupt-branch test re-judged then fixed, +15 across the three
+   Stage 3 test files: 10 D1 marker locks + 3 D2 config locks + 2
+   exercisable-guard tests), collection summary prints the deselection
+   explicitly
+5. coverage → **79.00% ≥ `fail_under = 75`** (D3 decision held) — measured
+   with both pattern exclusions gone: the first fully-honest headline number
+   of the plan
+6. `git grep --cached` secret scans (primary + supplemental 32-hex and
+   base64-44+ patterns) → no live secrets in any Stage 3 change; the only
+   hits remain the pre-existing documented benign set (`fanart.py:68` code
+   sending keys from gitignored config, `preset_key`/`no_key` identifier
+   names, the public AcoustID fingerprint fixture, and `test_exceptions.py`
+   test-literal strings)
+
+Stage 3 notes:
+
+- **D1 deselect-accounting note:** the deselected 30 hardware tests leave the
+  default run the same way B4 bounded display skips — visible in the
+  summary line, attributable to the marker contract, and automatically
+  excludable from the coverage denominator under pytest's own deselection
+  semantics. The honest headline move is a *measurement* change, not hidden
+  work.
+- **D2 classification note:** the audit's complaint — "a pattern-level
+  exclusion cannot distinguish a legitimate guard from an untested error
+  path" — is resolved by the per-site split recorded above: the gate now
+  sees every error handler that can actually execute, and the two
+  exercisable guards run in tests instead of hiding behind the gate.
+- Deselect-vs-filter rationale is recorded in Decision Log row "D1
+  (deselect mechanism)" below.
+
 ---
 
 
@@ -1851,10 +1902,13 @@ them are item-specific evidence run during the items:
 | 2026-09-27 | C2 (scope) | Consolidate the shared **workflow** only; the two DSP algorithms stay separate (dated — row previously undated) | Existing decision retained; the consolidation landed exactly in this shape: `BaseFileProcessor.process_audio_file_inplace()` / `run_inplace_dsp_batch()` and thin per-tool DSP adapters. |
 | 2026-09-27 | C2 (defect, scope) | **Two findings preserved, not fixed, inside the behaviour-preservation refactor.** (1) **Dry-run divergence between the twins is a product defect.** `reduce_noise()` short-circuits on `params.dry_run` and returns `was_modified=False`, so a noise dry run reports `SKIP ("Clean")` even on a file it *would* repair; `declick_audio()` always decodes+analyses, so pop dry runs correctly report `FOUND`. The consolidation keeps both behaviours byte-for-byte (the plan's demand); the outcome tests pin the divergence (0 dry / 1 live exports on both sides). (2) **The plan's "undo ... assert the file is restored to the original bytes" is unimplementable as written.** `record_tag_edit_snapshot()` + `_revert_tag_edit()` round-trip the tag payload only (ID3 `TPE1` verified restored on a real WAV); no byte-level undo exists anywhere in the suite. The tests assert the real, shipped contract — tag round-trip — and the gap is reported, not papered over. | Both are pre-existing behaviours, deliberately not "fixed" inside a behaviour-preservation refactor (`AGENTS.md` §2). A follow-up item should make both dry-run reports honest (noise dry runs are misleading today) and settle the undo contract (tag-only vs. byte-level); both change user-visible behaviour and need an owner decision. |
 | 2026-09-27 | C2 (defect) | **A scripted C2 edit de-indented the tail of the inherited `process_batch()`, so only the last file of a batch was collected.** The extraction script that moved the manifest-table edit re-indented `results.append(result)` / `completed[0] += 1` / the `progress_callback` block out of the `for f in futures:` loop; four pre-existing `TestProcessBatch` tests caught it in the post-refactor run (`len(results) == 1` for a 3-file batch). Fixed by restoring the loop-level indentation; the four tests are the regression locks and pass unchanged. | Found by the gate, not by review — the existing `process_batch` tests were the designed canary for exactly this class of edit on the shared-executor code the in-place workflow sits on. Now the second time a scripted bulk edit has landed badly (P5 note 4 was the first): re-diff the touched lines after any scripted edit, always. |
-| — | D1 | `hardware` is deselected **by default** with an explicit opt-in (`pytest -m hardware`); `integration` runs wherever ffmpeg is present | The markers were registered but never acted on — 273 + 30 tests ran by default. The opt-in path is documented in `CONTRIBUTING.md` (E2) so it is actually run. |
+| 2026-09-27 | D1 | `hardware` is deselected **by default** with an explicit opt-in (`pytest -m hardware`); `integration` runs wherever ffmpeg is present | The markers were registered but never acted on — 273 + 30 tests ran by default. The opt-in path is documented in `CONTRIBUTING.md` (E2) so it is actually run. |
+| 2026-09-27 | D1 (deselect mechanism) | Deselection lives in pytest **`addopts`** (`-m "not hardware"`), not in a conftest item-filter | The plan's own text specifies the addopts form. It also has the better property set: CLI args come after addopts, so the documented `pytest -m hardware` opt-in overrides cleanly (verified by test); the deselected 30 leave collection, the summary line and the coverage denominator under pytest's own semantics (a conftest skip would instead have left 30 *dead* marks in the coverage accounting); and the wiring is testable by running pytest itself against the real config. |
+| 2026-09-27 | D1 (defect) | **B1's corrupt-file pool test pinned a host-dependent decode branch; corrected to the backend-neutral batch contract.** The test asserted the corrupt `.flac` reports "too short to analyse" — the *empty-decode* branch produced by librosa ≤ 0.11's audioread fallback. uv.lock resolves librosa **1.0.0 on py≥3.12** (0.11.0 on py<3.12) and librosa 1.0 **removed the audioread fallback**, so the corrupt container now takes the *decoder-raised* branch ("Could not decode audio file …") and the B1 test failed at HEAD. Reproduced both directions empirically (with- and without-D1 tree) before editing. | The loader's contract is unchanged and correctly written for both branches (the `sr <= 0` empty-decode guard is pinned by `_fake_librosa_load`, the raise branch by the real decoder and `test_decoder_exception_raises_audio_codec_error`); what was wrong was asserting one branch's *message* at the *batch* level, where the batch contract is only "status=error, non-empty message, batch completes". Both branch texts are now pinned in `test_analysis_loader.py` (whose fixture comment documents the version split), and the batch test pins the batch outcome. Not a production defect: the engine's behaviour is correct under both library versions; the drift is a lock-version property. The corresponding stale module docstring in `analysis_loader.py` (claiming the fallback unconditionally) was corrected as a comment-only fix in the D3 change. |
+| 2026-09-27 | D2 | Broad `except ImportError` coverage exclusion replaced by narrow per-line `pragma: no cover` with reasons | A pattern-level exclusion cannot distinguish a legitimate optional-dependency guard from untested error handling, so the gate cannot see either. Landed with the split recorded in the D2 Completion row: 9 unreachable guards carry pragma+reason, 2 exercisable guards are exercised by tests instead (`styles` reload, `palette_card` sys.modules patch), 7 were already executed or pragma'd, and the config-lock test forbids the broad patterns from returning. |
+| 2026-09-27 | D3 (item) | Coverage gate re-baselined at **79.00%** against `fail_under = 75` — decision D3 (hold 75) applied without any threshold movement | The bare full-suite run is now fully honest: `noise_reduction` in the denominator (A2), hardware deselected by the D1 contract, and the D2 exclusions gone. The gate clears by 4.00 pt, so no untested regions need scheduling for the threshold. This is the Stage-3 baseline subsequent stages are judged against. |
 | 2026-09-27 | C3 (scope, dated) | Split the manifest **data** out of `_build_default_registry()` into a module-level declarative tuple; do **not** split `tool_plugin.py` into multiple modules | Landed as decided: `_DEFAULT_MANIFESTS` + a 13-line assembler; the file stays one module (anti-creep). The expected-set test passed unedited, and a programmatic HEAD-vs-post-C3 tuple comparison confirmed 27 manifests field-for-field identical in declaration order. |
 | 2026-09-27 | C1 / C3 | Module-level `TOOL_ID` aliases: **not restored — zero consumers.** C1 moved the tool ids onto the app classes as `TOOL_ID: ClassVar[str]`; a grep over the consumer surfaces (master_driver cards, CLI imports, the fingerprinter suite that once printed the old constant) shows class-level lookups are the only remaining reference. No `from <tool>.app import TOOL_ID` module-level consumer exists in-tree. | Restoring an alias with no consumer would be speculative API surface (`AGENTS.md` §2). The class-level `ClassVar` is the sanctioned lookup path; the decision is recorded so a future "where did the constant go" surprise has an owner. |
-| — | D2 | Broad `except ImportError` coverage exclusion replaced by narrow per-line `pragma: no cover` with reasons | A pattern-level exclusion cannot distinguish a legitimate optional-dependency guard from untested error handling, so the gate cannot see either. |
 | — | F1 | Vector tests are **additive only** and must pass unchanged against current code | A vector test that "needs" fixing in the same commit destroys the before/after evidence that makes F2 verifiable. |
 | — | F2 | No profile re-tuning against the F1 fixtures | Tuning on the test set and then citing it as validation is circular; a labelled corpus would be a separate item. A measured revert is an acceptable outcome. |
 
