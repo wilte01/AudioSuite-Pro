@@ -7,15 +7,27 @@ tracking, and parallel processing.
 
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from dataclasses import FrozenInstanceError
 from pathlib import Path
+from queue import Queue
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydub import AudioSegment
 
 from audio_suite_shared.exceptions import AudioSuiteError
-from audio_suite_shared.file_processor_base import BaseFileProcessor
+from audio_suite_shared.file_processor_base import (
+    BaseFileProcessor,
+    InplaceDspFn,
+    InplaceDspResult,
+    ProgressCallback,
+)
 
 
 class TestBaseFileProcessorInitialization:
@@ -991,6 +1003,7 @@ class TestProcessBatch:
             mock_instance.submit.side_effect = [timed_out, ok]
 
             processor = BaseFileProcessor(max_workers=1, operation_type="batch")
+            errors: list[str] = []
             with caplog.at_level(
                 "ERROR", logger="audio_suite_shared.file_processor_base"
             ):
@@ -998,8 +1011,447 @@ class TestProcessBatch:
                     [tmp_path / "slow.mp3", tmp_path / "fast.mp3"],
                     worker_fn=lambda f: f.name,
                     future_timeout=0.001,
+                    on_error=errors.append,
                 )
 
         assert results[0] is None
         assert results[1] == "ok"
         assert "timed out" in caplog.text
+        # The timeout is reported on the user-message channel like any other
+        # escaped worker failure, never swallowed as a bare counter.
+        assert len(errors) == 1
+        assert "timed out" in errors[0]
+
+
+# ── Shared in-place DSP workflow (C2) ─────────────────────────────────────────
+#
+# These tests drive BaseFileProcessor's template methods with a fake DSP so they
+# pin the shared workflow itself.  The tools that plug into it (noise_reduction,
+# pop_click_remover) keep their own outcome-level tests against real audio.
+
+
+@pytest.fixture
+def inplace_processor() -> Generator[BaseFileProcessor, None, None]:
+    """Single-worker processor so file ordering is deterministic."""
+    with patch("audio_suite_shared.file_processor_base.get_resource_manager"):
+        yield BaseFileProcessor(max_workers=1, operation_type="test_inplace")
+
+
+def _write_wav(path: Path, *, freq_hz: float = 440.0, duration_ms: int = 60) -> None:
+    """Write a tiny real mono WAV so the workflow runs against real I/O."""
+    from pydub.generators import Sine
+
+    segment = Sine(freq_hz).to_audio_segment(duration=duration_ms).set_channels(1)
+    segment.export(str(path), format="wav")
+
+
+def _clean_dsp(audio: AudioSegment) -> InplaceDspResult:
+    """Fake DSP that never reports a modification."""
+    return InplaceDspResult(audio=audio, was_modified=False, action="Clean")
+
+
+def _repairing_dsp(audio: AudioSegment) -> InplaceDspResult:
+    """Fake DSP that always reports a modification."""
+    return InplaceDspResult(
+        audio=audio,
+        was_modified=True,
+        action="Fixed 1 thing",
+        repaired_suffix=" — Done",
+    )
+
+
+def _slot_pool(n: int) -> tuple[list[Any], Queue[int]]:
+    slot_vars: list[Any] = [MagicMock() for _ in range(n)]
+    slot_queue: Queue[int] = Queue()
+    for i in range(n):
+        slot_queue.put(i)
+    return slot_vars, slot_queue
+
+
+class TestInplaceDspResult:
+    """The result contract a tool's DSP adapter must satisfy."""
+
+    def test_repaired_suffix_defaults_to_empty(self) -> None:
+        result = InplaceDspResult(audio=MagicMock(), was_modified=False, action="Clean")
+        assert result.repaired_suffix == ""
+
+    def test_is_frozen(self) -> None:
+        result = InplaceDspResult(audio=MagicMock(), was_modified=False, action="Clean")
+        with pytest.raises(FrozenInstanceError):
+            result.action = "something else"  # type: ignore[misc]
+
+
+class TestProcessAudioFileInplace:
+    """Per-file half of the shared workflow."""
+
+    def _process(
+        self,
+        processor: BaseFileProcessor,
+        audio_file: Path,
+        run_dsp: InplaceDspFn,
+        *,
+        is_dry_run: bool = False,
+        temp_dir: str | None = None,
+    ) -> list[dict[str, Any]]:
+        batch_temp = temp_dir if temp_dir is not None else tempfile.mkdtemp()
+        slot_vars, slot_queue = _slot_pool(processor.max_workers)
+        progress: list[dict[str, Any]] = []
+        try:
+            processor.process_audio_file_inplace(
+                audio_file.name,
+                str(audio_file.parent),
+                batch_temp,
+                slot_vars,
+                slot_queue,
+                threading.Lock(),
+                lambda **kw: progress.append(kw),
+                run_dsp=run_dsp,
+                dsp_label="Testing",
+                tag_operation="test_edit",
+                is_dry_run=is_dry_run,
+            )
+            # The per-worker temp directory is always cleaned up.
+            assert os.listdir(batch_temp) == []
+        finally:
+            shutil.rmtree(batch_temp, ignore_errors=True)
+        return progress
+
+    def test_clean_file_reports_skip(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        audio_file = tmp_path / "a.wav"
+        _write_wav(audio_file)
+
+        progress = self._process(inplace_processor, audio_file, _clean_dsp)
+
+        assert len(progress) == 1
+        assert progress[0]["status"] == "SKIP"
+        assert progress[0]["display_text"] == "[SKIP] a.wav → Clean"
+        assert progress[0]["log_text"] == "[SKIP] a.wav | Clean\n"
+
+    def test_live_run_reports_fixed_and_appends_suffix(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        audio_file = tmp_path / "a.wav"
+        _write_wav(audio_file)
+        digest = audio_file.read_bytes()
+
+        with patch(
+            "audio_suite_shared.file_processor_base.record_tag_edit_snapshot"
+        ) as snapshot:
+            progress = self._process(inplace_processor, audio_file, _repairing_dsp)
+
+        assert progress[0]["status"] == "FIXED"
+        assert progress[0]["display_text"] == "[FIXED] a.wav → Fixed 1 thing — Done"
+        snapshot.assert_called_once_with(str(audio_file), "test_edit")
+        assert audio_file.read_bytes() != digest
+
+    def test_dry_run_reports_found_without_writing(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        audio_file = tmp_path / "a.wav"
+        _write_wav(audio_file)
+        digest = audio_file.read_bytes()
+
+        with patch(
+            "audio_suite_shared.file_processor_base.record_tag_edit_snapshot"
+        ) as snapshot:
+            progress = self._process(
+                inplace_processor, audio_file, _repairing_dsp, is_dry_run=True
+            )
+
+        assert progress[0]["status"] == "FOUND"
+        assert progress[0]["display_text"] == "[FOUND] a.wav → Fixed 1 thing"
+        snapshot.assert_not_called()
+        assert audio_file.read_bytes() == digest
+
+    def test_staging_file_naming(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        """``in<ext>``/``out<ext>`` staging is a shared contract, not an accident."""
+        audio_file = tmp_path / "a.wav"
+        _write_wav(audio_file)
+        batch_temp = tempfile.mkdtemp()
+        during_dsp: list[str] = []
+        worker_dir: list[Path] = []
+
+        def _spy_dsp(audio: AudioSegment) -> InplaceDspResult:
+            entries = list(Path(batch_temp).iterdir())
+            assert len(entries) == 1 and entries[0].is_dir()
+            worker_dir.append(entries[0])
+            during_dsp.extend(sorted(p.name for p in entries[0].iterdir()))
+            return _repairing_dsp(audio)
+
+        progress = self._process(
+            inplace_processor,
+            audio_file,
+            _spy_dsp,
+            temp_dir=batch_temp,
+        )
+
+        # The decoded input is staged as in<ext>; out<ext> only exists once the
+        # repaired audio is written, and both are gone once the file is done.
+        assert during_dsp == ["in.wav"]
+        assert progress[0]["status"] == "FIXED"
+        assert not os.path.exists(worker_dir[0])
+
+    def test_error_path_returns_the_slot_and_reports_error(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        audio_file = tmp_path / "bad.wav"
+        audio_file.write_bytes(b"not a wav file")
+
+        batch_temp = tempfile.mkdtemp()
+        slot_vars, slot_queue = _slot_pool(inplace_processor.max_workers)
+        progress: list[dict[str, Any]] = []
+        try:
+            inplace_processor.process_audio_file_inplace(
+                audio_file.name,
+                str(tmp_path),
+                batch_temp,
+                slot_vars,
+                slot_queue,
+                threading.Lock(),
+                lambda **kw: progress.append(kw),
+                run_dsp=_clean_dsp,
+                dsp_label="Testing",
+                tag_operation="test_edit",
+                is_dry_run=False,
+            )
+        finally:
+            shutil.rmtree(batch_temp, ignore_errors=True)
+
+        assert progress[0]["status"] == "ERROR"
+        assert progress[0]["display_text"].startswith("[ERROR] bad.wav: ")
+        assert progress[0]["log_text"].startswith("[ERROR] bad.wav: ")
+        assert slot_queue.qsize() == inplace_processor.max_workers
+        slot_vars[0].set.assert_called_with("IDLE")
+
+    def test_slot_var_shows_dsp_label_then_returns_to_idle(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        audio_file = tmp_path / "a.wav"
+        _write_wav(audio_file)
+
+        batch_temp = tempfile.mkdtemp()
+        slot_vars, slot_queue = _slot_pool(inplace_processor.max_workers)
+        try:
+            inplace_processor.process_audio_file_inplace(
+                audio_file.name,
+                str(tmp_path),
+                batch_temp,
+                slot_vars,
+                slot_queue,
+                threading.Lock(),
+                lambda **kw: None,
+                run_dsp=_clean_dsp,
+                dsp_label="Reducing noise",
+                tag_operation="test_edit",
+                is_dry_run=True,
+            )
+        finally:
+            shutil.rmtree(batch_temp, ignore_errors=True)
+
+        labels = [call.args[0] for call in slot_vars[0].set.call_args_list]
+        assert labels[0] == "Loading: a.wav..."
+        assert "Reducing noise: a.wav..." in labels
+        assert labels[-1] == "IDLE"
+
+
+class TestRunInplaceDspBatch:
+    """Batch half of the shared workflow."""
+
+    def _run(
+        self,
+        processor: BaseFileProcessor,
+        dir_path: Path,
+        run_dsp: InplaceDspFn,
+        *,
+        is_dry_run: bool = False,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], list[str]]:
+        progress: list[dict[str, Any]] = []
+        complete: dict[str, Any] = {}
+        errors: list[str] = []
+        slot_vars, slot_queue = _slot_pool(processor.max_workers)
+
+        def _make_worker(
+            temp_dir: str, lock: threading.Lock, report: ProgressCallback
+        ) -> Callable[[str], None]:
+            def _worker(name: str) -> None:
+                processor.process_audio_file_inplace(
+                    name,
+                    str(dir_path),
+                    temp_dir,
+                    slot_vars,
+                    slot_queue,
+                    lock,
+                    report,
+                    run_dsp=run_dsp,
+                    dsp_label="Testing",
+                    tag_operation="test_edit",
+                    is_dry_run=is_dry_run,
+                )
+
+            return _worker
+
+        processor.run_inplace_dsp_batch(
+            str(dir_path),
+            make_worker=_make_worker,
+            on_progress=lambda **kw: progress.append(kw),
+            on_complete=lambda **kw: complete.update(kw),
+            on_error=errors.append,
+        )
+        return progress, complete, errors
+
+    def test_empty_directory_reports_the_shared_message(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        progress, complete, errors = self._run(inplace_processor, tmp_path, _clean_dsp)
+
+        assert errors == ["No supported audio files found in the selected directory."]
+        assert progress == []
+        assert complete == {}
+
+    def test_scan_failure_reports_one_sanitised_error(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        with patch(
+            "audio_suite_shared.file_processor_base.os.scandir",
+            side_effect=OSError("permission denied"),
+        ):
+            _progress, complete, errors = self._run(
+                inplace_processor, tmp_path, _clean_dsp
+            )
+
+        assert len(errors) == 1
+        assert complete == {}
+
+    def test_files_are_processed_in_sorted_order(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        for name in ("c.wav", "a.wav", "b.wav"):
+            _write_wav(tmp_path / name)
+
+        progress, complete, _errors = self._run(inplace_processor, tmp_path, _clean_dsp)
+
+        assert [p["display_text"].split("] ")[1].split(" ")[0] for p in progress] == [
+            "a.wav",
+            "b.wav",
+            "c.wav",
+        ]
+        assert [p["processed"] for p in progress] == [1, 2, 3]
+        assert complete["total"] == 3
+        assert complete["processed"] == 3
+        assert complete["skipped"] == 3
+        assert complete["succeeded"] == 0
+        assert complete["errors"] == 0
+        assert len(complete["log_entries"]) == 3
+        assert complete["duration_secs"] >= 0.0
+
+    def test_mixed_batch_aggregates_counters(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        # Duration identifies the file to the fake DSP, so the outcome of each
+        # file is decided by the file itself rather than by call order.
+        _write_wav(tmp_path / "a_clean.wav", duration_ms=60)
+        _write_wav(tmp_path / "b_dirty.wav", duration_ms=120)
+        (tmp_path / "c_broken.wav").write_bytes(b"not a wav file")
+
+        def _dsp(audio: AudioSegment) -> InplaceDspResult:
+            # len(audio_segment) is milliseconds, not frames.
+            if len(audio) > 90:
+                return _repairing_dsp(audio)
+            return _clean_dsp(audio)
+
+        with patch(
+            "audio_suite_shared.file_processor_base.record_tag_edit_snapshot"
+        ) as snapshot:
+            _progress, complete, errors = self._run(inplace_processor, tmp_path, _dsp)
+
+        assert not errors
+        assert complete["total"] == 3
+        assert complete["skipped"] == 1
+        assert complete["succeeded"] == 1
+        assert complete["errors"] == 1
+        snapshot.assert_called_once()
+
+    def test_worker_runs_inside_the_active_undo_batch(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        from audio_suite_shared.batch_undo import get_active_batch_id
+
+        _write_wav(tmp_path / "a.wav")
+        seen: list[str | None] = []
+
+        def _spy_dsp(audio: AudioSegment) -> InplaceDspResult:
+            seen.append(get_active_batch_id())
+            return _clean_dsp(audio)
+
+        with patch(
+            "audio_suite_shared.file_processor_base.get_active_batch_id",
+            return_value="batch-123",
+        ):
+            self._run(inplace_processor, tmp_path, _spy_dsp)
+
+        assert seen == ["batch-123"]
+
+    def test_no_retry_layer_double_attempts_a_failing_file(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        """A per-file failure is reported through the counters, so a retry
+        wrapper could never observe it; exactly one attempt is made."""
+        _write_wav(tmp_path / "a.wav")
+        attempts: list[str] = []
+
+        def _failing_dsp(audio: AudioSegment) -> InplaceDspResult:
+            del audio
+            attempts.append("attempt")
+            raise RuntimeError("boom")
+
+        _progress, complete, errors = self._run(
+            inplace_processor, tmp_path, _failing_dsp
+        )
+
+        assert attempts == ["attempt"]
+        assert complete["errors"] == 1
+        assert not errors  # per-file errors are never fatal
+
+    def test_shared_temp_dir_is_removed_after_the_batch(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        _write_wav(tmp_path / "a.wav")
+        seen: list[str] = []
+        slot_vars, slot_queue = _slot_pool(inplace_processor.max_workers)
+
+        def _make_worker(
+            temp_dir: str, lock: threading.Lock, report: ProgressCallback
+        ) -> Callable[[str], None]:
+            seen.append(temp_dir)
+
+            def _worker(name: str) -> None:
+                inplace_processor.process_audio_file_inplace(
+                    name,
+                    str(tmp_path),
+                    temp_dir,
+                    slot_vars,
+                    slot_queue,
+                    lock,
+                    report,
+                    run_dsp=_clean_dsp,
+                    dsp_label="Testing",
+                    tag_operation="test_edit",
+                    is_dry_run=True,
+                )
+
+            return _worker
+
+        inplace_processor.run_inplace_dsp_batch(
+            str(tmp_path),
+            make_worker=_make_worker,
+            on_progress=lambda **kw: None,
+            on_complete=lambda **kw: None,
+            on_error=lambda msg: None,
+        )
+
+        assert len(seen) == 1
+        assert not os.path.exists(seen[0])

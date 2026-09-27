@@ -9,14 +9,24 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+import tempfile
 import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from queue import Queue
 from typing import Any, TypeVar
 
-from .audio_formats import SUPPORTED_EXTENSIONS
+from pydub import AudioSegment
+
+from .audio_formats import SUPPORTED_EXTENSIONS, get_export_args
+from .batch_undo import (
+    get_active_batch_id,
+    record_tag_edit_snapshot,
+    use_batch,
+)
 from .constants import (
     CPU_WORKER_TIMEOUT_SECS,
     DEFAULT_MAX_WORKERS,
@@ -50,6 +60,38 @@ _T = TypeVar("_T")
 ProgressCallback = Callable[..., None]
 CompleteCallback = Callable[..., None]
 ErrorCallback = Callable[[str], None]
+
+
+@dataclass(frozen=True)
+class InplaceDspResult:
+    """Outcome of a per-tool DSP pass over a single file.
+
+    Mirrors the shape of the per-tool DSP results (``NoiseReductionResult`` /
+    ``DeclickResult``): ``audio`` is always present — the DSP implementations
+    return the untouched input when there is nothing to do — and
+    ``was_modified`` carries the verdict.  ``action`` is the human-readable
+    summary the shared report displays; ``repaired_suffix`` is appended to it
+    only once the repaired audio has actually been written back to disk.
+
+    This is the *only* thing a tool has to supply to plug its DSP into the
+    shared in-place workflow; the DSP itself stays in the tool module.
+    """
+
+    audio: AudioSegment
+    was_modified: bool
+    action: str
+    repaired_suffix: str = ""
+
+
+#: Per-tool DSP adapter: takes the decoded segment, returns the shared result.
+InplaceDspFn = Callable[[AudioSegment], InplaceDspResult]
+
+#: Builds a per-file worker.  Called once per batch with the shared temp dir,
+#: counter lock and inner progress callback; returns the ``worker(name)`` that
+#: :meth:`BaseFileProcessor.run_inplace_dsp_batch` submits to the thread pool.
+InplaceWorkerFactory = Callable[
+    [str, threading.Lock, ProgressCallback], Callable[[str], None]
+]
 
 
 class BaseFileProcessor:
@@ -580,3 +622,213 @@ class BaseFileProcessor:
                     progress_callback(completed[0], n_total)
 
         return results
+
+    def process_audio_file_inplace(
+        self,
+        name: str,
+        dir_path: str,
+        temp_dir: str,
+        slot_vars: list[Any],
+        slot_queue: Queue[int],
+        lock: threading.Lock,
+        on_progress: ProgressCallback,
+        *,
+        run_dsp: InplaceDspFn,
+        dsp_label: str,
+        tag_operation: str,
+        is_dry_run: bool,
+    ) -> None:
+        """Run one file through the shared in-place DSP workflow.
+
+        This is the single implementation of the discover/temp-file/write/undo
+        sequence that the in-place repair tools share; only ``run_dsp`` (and
+        the wording it produces) differs between them.
+
+        Steps
+        -----
+        1. Copy the source into a per-worker temp directory, so the source
+           file is never opened for writing until the final copy-back.
+        2. Read and preserve all metadata tags.
+        3. Run the tool's DSP via *run_dsp*.
+        4. Live run only: export the processed audio, re-apply the tags,
+           record the undo snapshot, then copy back over the source.
+        5. Report the outcome through *on_progress* under *lock*.
+
+        The slot index is always returned to *slot_queue* and the per-worker
+        temp directory is always removed, so neither can leak on an exception.
+
+        Args:
+            name: Filename (basename only) to process.
+            dir_path: Directory containing *name*.
+            temp_dir: Shared batch temp directory; a per-worker
+                sub-directory is created inside it and removed afterwards.
+            slot_vars: Per-worker status label variables.
+            slot_queue: Pool of available slot indices.
+            lock: Serialises writes to shared counters and *on_progress*.
+            on_progress: Inner progress callback
+                ``(status, display_text, log_text)`` where status is one of
+                ``"SKIP"``, ``"FOUND"``, ``"FIXED"`` or ``"ERROR"``.
+            run_dsp: Tool-supplied DSP adapter returning an
+                :class:`InplaceDspResult`.
+            dsp_label: Progress label, e.g. ``"Reducing noise"``.
+            tag_operation: Undo operation name recorded for a live write.
+            is_dry_run: When ``True``, detect but never write audio back.
+        """
+        from .tag_helper import read_tags_raw, write_tags_raw
+
+        slot_idx = slot_queue.get()
+        full_path = os.path.join(dir_path, name)
+        ext = os.path.splitext(name)[1].lower()
+
+        worker_temp = tempfile.mkdtemp(dir=temp_dir)
+        temp_input = os.path.join(worker_temp, f"in{ext}")
+        temp_output = os.path.join(worker_temp, f"out{ext}")
+
+        try:
+            slot_vars[slot_idx].set(f"Loading: {name[:25]}...")
+            original_tags = read_tags_raw(full_path)
+            shutil.copy2(full_path, temp_input)
+
+            slot_vars[slot_idx].set(f"{dsp_label}: {name[:25]}...")
+            audio = AudioSegment.from_file(temp_input)
+            outcome = run_dsp(audio)
+
+            if not outcome.was_modified:
+                status = "SKIP"
+                action = outcome.action
+            else:
+                action = outcome.action
+                status = "FOUND"  # dry run: detected but not written
+                if not is_dry_run:
+                    slot_vars[slot_idx].set(f"Exporting: {name[:25]}...")
+                    fmt, export_params = get_export_args(ext)
+                    outcome.audio.export(
+                        temp_output, format=fmt, parameters=export_params
+                    )
+
+                    slot_vars[slot_idx].set(f"Tagging: {name[:25]}...")
+                    write_tags_raw(temp_output, original_tags, record_snapshot=False)
+                    record_tag_edit_snapshot(full_path, tag_operation)
+                    shutil.copy2(temp_output, full_path)
+                    action += outcome.repaired_suffix
+                    status = "FIXED"
+
+            display = f"[{status}] {name} → {action}"
+            log = f"[{status}] {name} | {action}\n"
+
+            with lock:
+                on_progress(status=status, display_text=display, log_text=log)
+
+        except Exception as exc:
+            mapped = map_to_audio_error(exc)
+            logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
+            display = f"[ERROR] {name}: {str(exc)[:80]}"
+            log = f"[ERROR] {name}: {exc}\n"
+            with lock:
+                on_progress(status="ERROR", display_text=display, log_text=log)
+
+        finally:
+            shutil.rmtree(worker_temp, ignore_errors=True)
+            slot_vars[slot_idx].set("IDLE")
+            slot_queue.put(slot_idx)
+
+    @handle_audio_errors(reraise=False, context="run_inplace_dsp_batch")
+    def run_inplace_dsp_batch(
+        self,
+        dir_path: str,
+        make_worker: InplaceWorkerFactory,
+        on_progress: ProgressCallback,
+        on_complete: CompleteCallback,
+        on_error: ErrorCallback,
+        extensions: tuple[str, ...] | None = None,
+    ) -> None:
+        """Discover, dispatch and summarise a batch of in-place DSP repairs.
+
+        The batch-level half of the shared in-place workflow: sorted discovery,
+        the succeeded/skipped/errors counters, joining the caller's undo batch,
+        the shared temp directory and the completion callback.  Each file is
+        handled by :meth:`process_audio_file_inplace` via the worker that
+        *make_worker* builds.
+
+        Unlike :meth:`run_parallel_processing` this method does **not** wrap
+        files in a retry loop: a per-file failure is already reported through
+        the counters by the worker, so a retry could never observe it.
+
+        Args:
+            dir_path: Directory of audio files to process.
+            make_worker: Factory called once as
+                ``make_worker(temp_dir, lock, on_progress)`` and expected to
+                return a ``worker(name)`` callable.
+            on_progress: Called per finished file with
+                ``(processed, total, succeeded, skipped, errors, display_text)``.
+            on_complete: Called once after every file finished with
+                ``(total, processed, succeeded, skipped, errors, duration_secs,
+                log_entries)``.
+            on_error: Called for fatal errors that prevent the batch from
+                starting, with a sanitised ``user_message_for()`` string.
+            extensions: Extensions to discover.  Defaults to
+                ``SUPPORTED_EXTENSIONS``.
+        """
+        try:
+            files = sorted(self.discover_audio_files(dir_path, extensions))
+        except AudioSuiteError as exc:
+            logger.error(
+                "File discovery failed for %s: %s", dir_path, exc, exc_info=True
+            )
+            on_error(user_message_for(exc))
+            return
+
+        if not files:
+            on_error("No supported audio files found in the selected directory.")
+            return
+
+        lock = threading.Lock()
+        processed = [0]
+        succeeded = [0]
+        skipped = [0]
+        errors = [0]
+        log_entries: list[str] = []
+        undo_batch = get_active_batch_id()
+
+        def _on_progress(status: str, display_text: str, log_text: str) -> None:
+            """Inner callback — called under *lock* from each worker thread."""
+            processed[0] += 1
+            if status == "ERROR":
+                errors[0] += 1
+            elif status == "SKIP":
+                skipped[0] += 1
+            else:  # "FOUND" or "FIXED"
+                succeeded[0] += 1
+            log_entries.append(log_text)
+            on_progress(
+                processed=processed[0],
+                total=len(files),
+                succeeded=succeeded[0],
+                skipped=skipped[0],
+                errors=errors[0],
+                display_text=display_text,
+            )
+
+        start = time.monotonic()
+        temp_dir = tempfile.mkdtemp()
+        worker = make_worker(temp_dir, lock, _on_progress)
+
+        def _worker(name: str) -> None:
+            """Run one file inside the caller's undo batch."""
+            with use_batch(undo_batch):
+                worker(name)
+
+        try:
+            self.process_batch(files, _worker, max_workers=self.max_workers)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+        on_complete(
+            total=len(files),
+            processed=succeeded[0] + skipped[0] + errors[0],
+            succeeded=succeeded[0],
+            skipped=skipped[0],
+            errors=errors[0],
+            duration_secs=time.monotonic() - start,
+            log_entries=log_entries,
+        )

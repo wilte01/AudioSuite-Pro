@@ -5,6 +5,11 @@ Multi-threaded orchestrator for the Noise Reduction tool.
 Discovers audio files, dispatches each to a worker thread that applies
 hum removal and/or spectral gating, and reports progress via callbacks.
 
+The discover/temp-file/write/undo/cleanup sequence is shared with every other
+in-place repair tool through ``BaseFileProcessor.run_inplace_dsp_batch`` and
+``BaseFileProcessor.process_audio_file_inplace``; this module supplies only the
+noise-specific DSP adapter and its report wording.
+
 Concurrency model
 -----------------
 A thread pool with ``DEFAULT_MAX_WORKERS`` threads, managed via
@@ -22,39 +27,67 @@ Counter semantics
 from __future__ import annotations
 
 import logging
-import os
-import shutil
-import tempfile
 import threading
-import time
+from collections.abc import Callable
 from queue import Queue
-from typing import Any, Callable
+from typing import Any
 
 from pydub import AudioSegment
 
-from audio_suite_shared.audio_formats import get_export_args
-from audio_suite_shared.batch_undo import (
-    get_active_batch_id,
-    record_tag_edit_snapshot,
-    use_batch,
-)
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
-from audio_suite_shared.exceptions import (
-    handle_audio_errors,
-    map_to_audio_error,
-    user_message_for,
+from audio_suite_shared.exceptions import handle_audio_errors
+from audio_suite_shared.file_processor_base import (
+    BaseFileProcessor,
+    InplaceDspResult,
 )
-from audio_suite_shared.file_processor_base import BaseFileProcessor
-from audio_suite_shared.tag_helper import (
-    SUPPORTED_EXTENSIONS,
-    read_tags_raw,
-    write_tags_raw,
-)
+from audio_suite_shared.tag_helper import SUPPORTED_EXTENSIONS
 
 from .models import NoiseReductionParams
 from .noise_reducer import reduce_noise
 
 logger = logging.getLogger(__name__)
+
+#: Progress label shown while the DSP runs.
+DSP_LABEL = "Reducing noise"
+
+#: Undo operation recorded for a live write.
+TAG_OPERATION = "noise_reduce_edit"
+
+
+def _build_processor() -> BaseFileProcessor:
+    return BaseFileProcessor(
+        max_workers=DEFAULT_MAX_WORKERS, operation_type="noise_reduction"
+    )
+
+
+def _make_dsp(
+    params: NoiseReductionParams,
+) -> Callable[[AudioSegment], InplaceDspResult]:
+    """Adapt the noise DSP to the shared in-place workflow.
+
+    Returns the callable the shared workflow invokes with the decoded
+    segment.  ``reduce_noise`` returns the untouched input (with
+    ``was_modified=False``) in dry-run mode, so a dry run reports the file as
+    skipped rather than as "found but not written".
+    """
+
+    def _run_dsp(audio: AudioSegment) -> InplaceDspResult:
+        result = reduce_noise(audio, params)
+        if not result.was_modified:
+            return InplaceDspResult(
+                audio=result.audio,
+                was_modified=False,
+                action="Clean — no noise detected",
+            )
+        attenuation = result.energy_before_db - result.energy_after_db
+        return InplaceDspResult(
+            audio=result.audio,
+            was_modified=True,
+            action=f"Attenuated {attenuation:.1f} dB",
+            repaired_suffix=" — Reduced",
+        )
+
+    return _run_dsp
 
 
 def process_single_file(
@@ -69,6 +102,9 @@ def process_single_file(
 ) -> None:
     """Process a single audio file in a worker thread.
 
+    Thin wiring onto the shared in-place workflow: this tool's DSP, progress
+    label, undo operation name and dry-run flag, nothing else.
+
     Parameters
     ----------
     name : str
@@ -76,7 +112,7 @@ def process_single_file(
     dir_path : str
         Absolute path to the directory containing *name*.
     params : NoiseReductionParams
-        Processing parameters for this run.
+        Processing parameters for this run, including ``dry_run``.
     temp_dir : str
         Shared temporary directory.
     slot_vars : list[Any]
@@ -88,60 +124,19 @@ def process_single_file(
     on_progress : Callable[..., None]
         Inner progress callback ``(status, display_text, log_text)``.
     """
-    slot_idx = slot_queue.get()
-    full_path = os.path.join(dir_path, name)
-    ext = os.path.splitext(name)[1].lower()
-
-    worker_temp = tempfile.mkdtemp(dir=temp_dir)
-    temp_input = os.path.join(worker_temp, f"in{ext}")
-    temp_output = os.path.join(worker_temp, f"out{ext}")
-
-    try:
-        slot_vars[slot_idx].set(f"Loading: {name[:25]}...")
-        original_tags = read_tags_raw(full_path)
-        shutil.copy2(full_path, temp_input)
-
-        slot_vars[slot_idx].set(f"Reducing noise: {name[:25]}...")
-        audio = AudioSegment.from_file(temp_input)
-        result = reduce_noise(audio, params)
-
-        if not result.was_modified:
-            status = "SKIP"
-            action = "Clean — no noise detected"
-        else:
-            attenuation = result.energy_before_db - result.energy_after_db
-            action = f"Attenuated {attenuation:.1f} dB"
-            status = "FOUND"
-            if not params.dry_run:
-                slot_vars[slot_idx].set(f"Exporting: {name[:25]}...")
-                fmt, params_export = get_export_args(ext)
-                result.audio.export(temp_output, format=fmt, parameters=params_export)
-
-                slot_vars[slot_idx].set(f"Tagging: {name[:25]}...")
-                write_tags_raw(temp_output, original_tags, record_snapshot=False)
-                record_tag_edit_snapshot(full_path, "noise_reduce_edit")
-                shutil.copy2(temp_output, full_path)
-                action += " — Reduced"
-                status = "FIXED"
-
-        display = f"[{status}] {name} → {action}"
-        log = f"[{status}] {name} | {action}\n"
-
-        with lock:
-            on_progress(status=status, display_text=display, log_text=log)
-
-    except Exception as exc:
-        mapped = map_to_audio_error(exc)
-        logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
-        display = f"[ERROR] {name}: {str(exc)[:80]}"
-        log = f"[ERROR] {name}: {exc}\n"
-        with lock:
-            on_progress(status="ERROR", display_text=display, log_text=log)
-
-    finally:
-        shutil.rmtree(worker_temp, ignore_errors=True)
-        slot_vars[slot_idx].set("IDLE")
-        slot_queue.put(slot_idx)
+    _build_processor().process_audio_file_inplace(
+        name,
+        dir_path,
+        temp_dir,
+        slot_vars,
+        slot_queue,
+        lock,
+        on_progress,
+        run_dsp=_make_dsp(params),
+        dsp_label=DSP_LABEL,
+        tag_operation=TAG_OPERATION,
+        is_dry_run=params.dry_run,
+    )
 
 
 @handle_audio_errors(reraise=False, context="noise_reduction_run")
@@ -173,82 +168,30 @@ def run_noise_reduction(
     on_error : Callable[[str], None]
         Fatal-error callback.
     """
-    try:
-        files: list[str] = sorted(
-            e.name
-            for e in os.scandir(dir_path)
-            if e.is_file() and e.name.lower().endswith(SUPPORTED_EXTENSIONS)
-        )
-    except OSError as exc:
-        mapped = map_to_audio_error(exc)
-        logger.error("Directory scan failed: %s", mapped, exc_info=True)
-        on_error(user_message_for(mapped))
-        return
+    processor = _build_processor()
 
-    if not files:
-        on_error("No supported audio files found in the selected directory.")
-        return
+    def _make_worker(
+        temp_dir: str, lock: threading.Lock, report: Callable[..., None]
+    ) -> Callable[[str], None]:
+        def _worker(name: str) -> None:
+            process_single_file(
+                name,
+                dir_path,
+                params,
+                temp_dir,
+                slot_vars,
+                slot_queue,
+                lock,
+                report,
+            )
 
-    lock = threading.Lock()
-    processed = [0]
-    succeeded = [0]
-    skipped = [0]
-    errors = [0]
-    log_entries: list[str] = []
-    undo_batch: str | None = get_active_batch_id()
+        return _worker
 
-    def _join_undo_batch(*args: Any, **kwargs: Any) -> None:
-        with use_batch(undo_batch):
-            process_single_file(*args, **kwargs)
-
-    def _on_progress(status: str, display_text: str, log_text: str) -> None:
-        processed[0] += 1
-        if status == "ERROR":
-            errors[0] += 1
-        elif status == "SKIP":
-            skipped[0] += 1
-        else:
-            succeeded[0] += 1
-        log_entries.append(log_text)
-        on_progress(
-            processed=processed[0],
-            total=len(files),
-            succeeded=succeeded[0],
-            skipped=skipped[0],
-            errors=errors[0],
-            display_text=display_text,
-        )
-
-    start = time.monotonic()
-    temp_dir = tempfile.mkdtemp()
-
-    processor = BaseFileProcessor(
-        max_workers=DEFAULT_MAX_WORKERS, operation_type="noise_reduction"
-    )
-
-    def _worker(name: str) -> None:
-        _join_undo_batch(
-            name,
-            dir_path,
-            params,
-            temp_dir,
-            slot_vars,
-            slot_queue,
-            lock,
-            _on_progress,
-        )
-
-    try:
-        processor.process_batch(files, _worker, max_workers=processor.max_workers)
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-    on_complete(
-        total=len(files),
-        processed=succeeded[0] + skipped[0] + errors[0],
-        succeeded=succeeded[0],
-        skipped=skipped[0],
-        errors=errors[0],
-        duration_secs=time.monotonic() - start,
-        log_entries=log_entries,
+    processor.run_inplace_dsp_batch(
+        dir_path,
+        make_worker=_make_worker,
+        on_progress=on_progress,
+        on_complete=on_complete,
+        on_error=on_error,
+        extensions=SUPPORTED_EXTENSIONS,
     )

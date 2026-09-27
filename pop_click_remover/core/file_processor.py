@@ -2,6 +2,11 @@
 file_processor.py
 Orchestrates multi-threaded audio file processing.
 
+The discover/temp-file/write/undo/cleanup sequence is shared with every other
+in-place repair tool through ``BaseFileProcessor.run_inplace_dsp_batch`` and
+``BaseFileProcessor.process_audio_file_inplace``; this module supplies only the
+declicker DSP adapter and its report wording.
+
 Concurrency model
 -----------------
 A thread pool with DEFAULT_MAX_WORKERS threads, managed via
@@ -23,38 +28,67 @@ Counter semantics
 from __future__ import annotations
 
 import logging
-import os
-import shutil
-import tempfile
 import threading
-import time
+from collections.abc import Callable
 from queue import Queue
-from typing import Any, Callable
+from typing import Any
 
 from pydub import AudioSegment
 
-from audio_suite_shared.audio_formats import get_export_args
-from audio_suite_shared.batch_undo import (
-    get_active_batch_id,
-    record_tag_edit_snapshot,
-    use_batch,
-)
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
-from audio_suite_shared.exceptions import (
-    handle_audio_errors,
-    map_to_audio_error,
-    user_message_for,
+from audio_suite_shared.exceptions import handle_audio_errors
+from audio_suite_shared.file_processor_base import (
+    BaseFileProcessor,
+    InplaceDspResult,
 )
-from audio_suite_shared.file_processor_base import BaseFileProcessor
-from audio_suite_shared.tag_helper import (
-    SUPPORTED_EXTENSIONS,
-    read_tags_raw,
-    write_tags_raw,
-)
+from audio_suite_shared.tag_helper import SUPPORTED_EXTENSIONS
 
 from .declicker import declick_audio
 
 logger = logging.getLogger(__name__)
+
+#: Progress label shown while the DSP runs.
+DSP_LABEL = "De-clicking"
+
+#: Undo operation recorded for a live write.
+TAG_OPERATION = "declick_edit"
+
+
+# ── DSP adapter ───────────────────────────────────────────────────────────────
+
+
+def _build_processor() -> BaseFileProcessor:
+    return BaseFileProcessor(
+        max_workers=DEFAULT_MAX_WORKERS, operation_type="pop_click_removal"
+    )
+
+
+def _make_dsp(
+    sensitivity: float, max_width: int
+) -> Callable[[AudioSegment], InplaceDspResult]:
+    """Adapt the declicker DSP to the shared in-place workflow.
+
+    Returns the callable the shared workflow invokes with the decoded segment.
+    ``declick_audio`` has no dry-run awareness, so the shared workflow is what
+    keeps a dry run from writing the detected defects back to disk.
+    """
+
+    def _run_dsp(audio: AudioSegment) -> InplaceDspResult:
+        result = declick_audio(audio, threshold=sensitivity, max_width_ms=max_width)
+        if not result.was_modified:
+            return InplaceDspResult(
+                audio=result.audio,
+                was_modified=False,
+                action="Clean — no defects found",
+            )
+        return InplaceDspResult(
+            audio=result.audio,
+            was_modified=True,
+            action=f"Found {result.clicks_found} click(s)",
+            repaired_suffix=" — Repaired",
+        )
+
+    return _run_dsp
 
 
 # ── Single-file worker ────────────────────────────────────────────────────────
@@ -75,18 +109,10 @@ def process_single_file(
     """
     Process a single audio file in a worker thread.
 
-    Steps
-    -----
-    1. Copy the source to a per-worker temp directory (source file is never
-       opened for writing until the final atomic shutil.copy2 at the end).
-    2. Read and preserve all metadata tags.
-    3. Run the declicker.
-    4. Live run only: export the repaired audio, re-apply tags, then
-       atomically replace the source file.
-    5. Report progress via *on_progress* under *lock*.
-
-    Slot-pool bookkeeping is always performed in the finally block so that
-    a slot is never leaked on exception.
+    Thin wiring onto the shared in-place workflow: this tool's DSP, progress
+    label, undo operation name and dry-run flag, nothing else.  The source file
+    is never opened for writing until the final copy-back, and the slot index
+    is always returned to *slot_queue* even on an exception.
 
     Parameters
     ----------
@@ -109,63 +135,23 @@ def process_single_file(
         Pool of available slot indices; blocks until a slot is free.
     lock : threading.Lock
         Serialises writes to shared counters and the *on_progress* call.
-    on_progress : Callable[[str, str, str], None]
+    on_progress : Callable[..., None]
         Inner progress callback with signature
         ``(status, display_text, log_text)``.
     """
-    slot_idx = slot_queue.get()
-    full_path = os.path.join(dir_path, name)
-    ext = os.path.splitext(name)[1].lower()
-
-    worker_temp = tempfile.mkdtemp(dir=temp_dir)
-    temp_input = os.path.join(worker_temp, f"in{ext}")
-    temp_output = os.path.join(worker_temp, f"out{ext}")
-
-    try:
-        slot_vars[slot_idx].set(f"Loading: {name[:25]}...")
-        original_tags = read_tags_raw(full_path)
-        shutil.copy2(full_path, temp_input)
-
-        slot_vars[slot_idx].set(f"De-clicking: {name[:25]}...")
-        audio = AudioSegment.from_file(temp_input)
-        result = declick_audio(audio, threshold=sensitivity, max_width_ms=max_width)
-
-        if not result.was_modified:
-            status = "SKIP"
-            action = "Clean — no defects found"
-        else:
-            action = f"Found {result.clicks_found} click(s)"
-            status = "FOUND"  # dry run: detected but not written
-            if not is_dry_run:
-                slot_vars[slot_idx].set(f"Exporting: {name[:25]}...")
-                fmt, params = get_export_args(ext)
-                result.audio.export(temp_output, format=fmt, parameters=params)
-
-                slot_vars[slot_idx].set(f"Tagging: {name[:25]}...")
-                write_tags_raw(temp_output, original_tags, record_snapshot=False)
-                record_tag_edit_snapshot(full_path, "declick_edit")
-                shutil.copy2(temp_output, full_path)
-                action += " — Repaired"
-                status = "FIXED"
-
-        display = f"[{status}] {name} → {action}"
-        log = f"[{status}] {name} | {action}\n"
-
-        with lock:
-            on_progress(status=status, display_text=display, log_text=log)
-
-    except Exception as exc:
-        mapped = map_to_audio_error(exc)
-        logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
-        display = f"[ERROR] {name}: {str(exc)[:80]}"
-        log = f"[ERROR] {name}: {exc}\n"
-        with lock:
-            on_progress(status="ERROR", display_text=display, log_text=log)
-
-    finally:
-        shutil.rmtree(worker_temp, ignore_errors=True)
-        slot_vars[slot_idx].set("IDLE")
-        slot_queue.put(slot_idx)
+    _build_processor().process_audio_file_inplace(
+        name,
+        dir_path,
+        temp_dir,
+        slot_vars,
+        slot_queue,
+        lock,
+        on_progress,
+        run_dsp=_make_dsp(sensitivity, max_width),
+        dsp_label=DSP_LABEL,
+        tag_operation=TAG_OPERATION,
+        is_dry_run=is_dry_run,
+    )
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
@@ -222,88 +208,32 @@ def run_declicking(
     on_error : Callable[[str], None]
         Fatal-error callback accepting a human-readable message string.
     """
-    # ── Discover files ────────────────────────────────────────────────────────
-    try:
-        files: list[str] = sorted(
-            e.name
-            for e in os.scandir(dir_path)
-            if e.is_file() and e.name.lower().endswith(SUPPORTED_EXTENSIONS)
-        )
-    except OSError as exc:
-        mapped = map_to_audio_error(exc)
-        logger.error("Directory scan failed: %s", mapped, exc_info=True)
-        on_error(user_message_for(mapped))
-        return
+    processor = _build_processor()
 
-    if not files:
-        on_error("No supported audio files found in the selected directory.")
-        return
+    def _make_worker(
+        temp_dir: str, lock: threading.Lock, report: Callable[..., None]
+    ) -> Callable[[str], None]:
+        def _worker(name: str) -> None:
+            process_single_file(
+                name,
+                dir_path,
+                is_dry_run,
+                sensitivity,
+                max_width,
+                temp_dir,
+                slot_vars,
+                slot_queue,
+                lock,
+                report,
+            )
 
-    # ── Shared state (mutable cells, always accessed under lock) ─────────────
-    lock = threading.Lock()
-    processed = [0]
-    succeeded = [0]
-    skipped = [0]
-    errors = [0]
-    log_entries: list[str] = []
-    undo_batch: str | None = get_active_batch_id()
+        return _worker
 
-    def _join_undo_batch(*args: Any, **kwargs: Any) -> None:
-        with use_batch(undo_batch):
-            process_single_file(*args, **kwargs)
-
-    def _on_progress(status: str, display_text: str, log_text: str) -> None:
-        """Inner callback — called under *lock* from each worker thread."""
-        processed[0] += 1
-        if status == "ERROR":
-            errors[0] += 1
-        elif status == "SKIP":
-            skipped[0] += 1
-        else:  # "FOUND" or "FIXED"
-            succeeded[0] += 1
-        log_entries.append(log_text)
-        on_progress(
-            processed=processed[0],
-            total=len(files),
-            succeeded=succeeded[0],
-            skipped=skipped[0],
-            errors=errors[0],
-            display_text=display_text,
-        )
-
-    # ── Process files in parallel ─────────────────────────────────────────────
-    start = time.monotonic()
-    temp_dir = tempfile.mkdtemp()
-
-    processor = BaseFileProcessor(
-        max_workers=DEFAULT_MAX_WORKERS, operation_type="pop_click_removal"
-    )
-
-    def _worker(name: str) -> None:
-        _join_undo_batch(
-            name,
-            dir_path,
-            is_dry_run,
-            sensitivity,
-            max_width,
-            temp_dir,
-            slot_vars,
-            slot_queue,
-            lock,
-            _on_progress,
-        )
-
-    try:
-        processor.process_batch(files, _worker, max_workers=processor.max_workers)
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-    on_complete(
-        total=len(files),
-        processed=succeeded[0] + skipped[0] + errors[0],
-        succeeded=succeeded[0],
-        skipped=skipped[0],
-        errors=errors[0],
-        duration_secs=time.monotonic() - start,
-        log_entries=log_entries,
+    processor.run_inplace_dsp_batch(
+        dir_path,
+        make_worker=_make_worker,
+        on_progress=on_progress,
+        on_complete=on_complete,
+        on_error=on_error,
+        extensions=SUPPORTED_EXTENSIONS,
     )

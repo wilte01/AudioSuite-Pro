@@ -5,19 +5,30 @@ Pytest suite for noise_reduction.core.file_processor.
 
 from __future__ import annotations
 
+import hashlib
 import sys
 import threading
+from pathlib import Path
 from queue import Queue
 from unittest.mock import MagicMock, patch
 
+import numpy as np
+from mutagen.id3 import TPE1
+from mutagen.wave import WAVE
+from pydub import AudioSegment
 from pydub.generators import Sine
 
+from audio_suite_shared.audio_conversion import segment_to_numpy
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from noise_reduction.core.file_processor import (
     process_single_file,
     run_noise_reduction,
 )
 from noise_reduction.core.models import NoiseReductionParams
+
+_HUM_HZ = 60
+_TONE_HZ = 1000
+_SAMPLE_RATE = 44100
 
 
 def _parse(*args: str):
@@ -32,8 +43,92 @@ def _make_audio_file(path, freq_hz=60.0, duration_ms=500) -> None:
     seg.export(str(path), format="wav")
 
 
-def _make_params() -> NoiseReductionParams:
-    return NoiseReductionParams(reduce_hum=True, hum_frequency=60)
+def _make_params(*, dry_run: bool = False) -> NoiseReductionParams:
+    return NoiseReductionParams(reduce_hum=True, hum_frequency=60, dry_run=dry_run)
+
+
+def _make_tone_plus_hum_file(
+    path: Path, *, tone_amp: float = 0.35, hum_amp: float = 0.6
+) -> None:
+    """Write a 1 kHz tone + 60 Hz hum WAV (1 s, mono, 16-bit).
+
+    One second is a whole number of cycles for both components, so a
+    rectangular-window DFT places each in a single bin with no leakage.
+    """
+    t = np.arange(_SAMPLE_RATE) / _SAMPLE_RATE
+    signal = tone_amp * np.sin(2 * np.pi * _TONE_HZ * t) + hum_amp * np.sin(
+        2 * np.pi * _HUM_HZ * t
+    )
+    pcm = np.round(np.clip(signal, -1.0, 1.0) * 32767).astype(np.int16)
+    segment = AudioSegment(
+        pcm.tobytes(), frame_rate=_SAMPLE_RATE, sample_width=2, channels=1
+    )
+    segment.export(str(path), format="wav")
+
+
+def _bin_amplitude_db(path: Path, freq_hz: float) -> float:
+    """Amplitude (dBFS) of *path* at *freq_hz*, measured from the decoded file."""
+    samples, _sample_rate = segment_to_numpy(AudioSegment.from_file(str(path)))
+    mono = samples.mean(axis=0).astype(np.float64)
+    spectrum = np.fft.rfft(mono)
+    k = int(round(freq_hz * len(mono) / _SAMPLE_RATE))
+    assert k < len(spectrum)
+    return float(20 * np.log10(max(2 * abs(spectrum[k]) / len(mono), 1e-12)))
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _run_noise(dir_path: str, params: NoiseReductionParams) -> tuple[dict, list[str]]:
+    """Drive ``run_noise_reduction`` with recording callbacks.
+
+    Returns the ``on_complete`` keyword arguments and the per-file
+    ``display_text`` values, in completion order.  A fatal ``on_error`` is
+    raised here rather than inside the callback because ``handle_audio_errors``
+    swallows exceptions raised by the callback itself.
+    """
+    complete: dict = {}
+    display: list[str] = []
+    errors: list[str] = []
+
+    run_noise_reduction(
+        dir_path,
+        params,
+        [MagicMock() for _ in range(DEFAULT_MAX_WORKERS)],
+        _full_slot_queue(),
+        lambda **kw: display.append(kw["display_text"]),
+        lambda **kw: complete.update(kw),
+        errors.append,
+    )
+    if errors:
+        raise AssertionError(f"run_noise_reduction reported a fatal error: {errors}")
+    return complete, display
+
+
+def _full_slot_queue() -> Queue[int]:
+    queue: Queue[int] = Queue()
+    for i in range(DEFAULT_MAX_WORKERS):
+        queue.put(i)
+    return queue
+
+
+def _write_artist(path: Path, artist: str) -> None:
+    """Write an ID3 ``TPE1`` (artist) frame to a WAV file."""
+    wave = WAVE(str(path))
+    if wave.tags is None:
+        wave.add_tags()
+    wave["TPE1"] = TPE1(encoding=3, text=[artist])
+    wave.save()
+
+
+def _read_artist(path: Path) -> str | None:
+    wave = WAVE(str(path))
+    tags = wave.tags
+    if tags is None:
+        return None
+    frame = tags.get("TPE1")
+    return str(frame) if frame is not None else None
 
 
 class TestConstants:
@@ -234,6 +329,132 @@ class TestRunNoiseReduction:
             assert len(records) == 1
             assert records[0].file_path == str(audio_file)
             assert records[0].operation == "noise_reduce_edit"
+
+
+class TestNoiseReductionOutcome:
+    """Outcome-level locks for C2 (audio write path).
+
+    Every assertion here decodes the file that was actually written and
+    measures it — none of them read back internal state the processor just
+    wrote.  The expected values were recorded by running this suite against
+    the pre-refactor twin (``noise_reduction/core/file_processor.py`` with its
+    hand-rolled discover/temp/write/undo sequence) and re-measuring after the
+    workflow was consolidated into ``BaseFileProcessor``.
+
+    Signal: 1 kHz tone (tonal content) + 60 Hz mains hum (the noise floor),
+    1 s, mono 16-bit WAV.  The duration is a whole number of cycles for both
+    components, so a rectangular-window DFT places each in exactly one bin.
+    """
+
+    def test_hum_floor_drops_and_tone_survives(self, tmp_path):
+        audio_file = tmp_path / "hum.wav"
+        _make_tone_plus_hum_file(audio_file)
+
+        hum_before = _bin_amplitude_db(audio_file, _HUM_HZ)
+        tone_before = _bin_amplitude_db(audio_file, _TONE_HZ)
+        assert hum_before > tone_before - 5.0  # hum is the louder component
+
+        complete, display = _run_noise(str(tmp_path), _make_params())
+
+        assert complete["succeeded"] == 1
+        assert display[0].startswith(f"[FIXED] {audio_file.name} → Attenuated ")
+
+        hum_after = _bin_amplitude_db(audio_file, _HUM_HZ)
+        tone_after = _bin_amplitude_db(audio_file, _TONE_HZ)
+
+        # Pre-refactor measurement: 60 Hz bin -4.44 dBFS -> -20.42 dBFS
+        # (a 15.98 dB drop); 1 kHz bin -9.12 dBFS -> -9.12 dBFS (-0.005 dB).
+        assert hum_after <= hum_before - 12.0
+        assert abs(tone_after - tone_before) <= 0.25
+
+    def test_dry_run_writes_nothing(self, tmp_path):
+        audio_file = tmp_path / "hum.wav"
+        _make_tone_plus_hum_file(audio_file)
+        digest_before = _sha256(audio_file)
+        mtime_before = audio_file.stat().st_mtime_ns
+
+        complete, display = _run_noise(str(tmp_path), _make_params(dry_run=True))
+
+        # Measured pre-refactor behaviour, preserved verbatim: this tool's dry
+        # run short-circuits inside ``reduce_noise`` itself (it returns
+        # ``was_modified=False`` without running the DSP), so the file is
+        # reported SKIP and the status line reads "Clean - no noise detected"
+        # even for a file that carries 15.98 dB of hum.  ``pop_click_remover``
+        # does NOT do this - its dry run detects and reports FOUND.  The twins
+        # disagree here, so the shared workflow must keep them distinct.
+        # The misleading status text is a product-behaviour finding recorded in
+        # the C2 decision log, not something C2 may silently change.
+        assert complete["skipped"] == 1
+        assert complete["succeeded"] == 0
+        assert display == [f"[SKIP] {audio_file.name} → Clean — no noise detected"]
+        assert _sha256(audio_file) == digest_before
+        assert audio_file.stat().st_mtime_ns == mtime_before
+        assert [p.name for p in tmp_path.iterdir()] == ["hum.wav"]
+
+    def test_export_call_count_differs_between_dry_run_and_live(self, tmp_path):
+        """The dry-run flag must be traced all the way to the write site."""
+        dry_dir = tmp_path / "dry"
+        live_dir = tmp_path / "live"
+        dry_dir.mkdir()
+        live_dir.mkdir()
+        _make_tone_plus_hum_file(dry_dir / "hum.wav")
+        _make_tone_plus_hum_file(live_dir / "hum.wav")
+
+        real_export = AudioSegment.export
+        exported: list[str] = []
+
+        def _tracking_export(self, *args, **kwargs):
+            exported.append(str(args[0]) if args else "")
+            return real_export(self, *args, **kwargs)
+
+        with patch.object(AudioSegment, "export", _tracking_export):
+            _run_noise(str(dry_dir), _make_params(dry_run=True))
+        assert exported == []
+
+        with patch.object(AudioSegment, "export", _tracking_export):
+            _run_noise(str(live_dir), _make_params())
+        assert len(exported) == 1
+
+    def test_undo_round_trip_restores_original_tags(self, tmp_path):
+        """The live run records the pre-edit tag payload and revert restores it.
+
+        Documented limitation, asserted deliberately: ``record_tag_edit_snapshot``
+        stores a *tag* payload and ``_revert_tag_edit`` only calls
+        ``set_raw_tags`` — the original **audio bytes** are not restored by
+        revert.  C2's scope forbids changing that ("unchanged, byte-for-byte:
+        the undo snapshot"), so this test pins the real contract and the audio
+        assertion below fails loudly if someone later makes undo byte-level
+        without also updating the user-facing documentation.
+        """
+        audio_file = tmp_path / "hum.wav"
+        _make_tone_plus_hum_file(audio_file)
+        _write_artist(audio_file, "Original Artist")
+
+        from audio_suite_shared.batch_undo import BatchUndoLog, active_batch
+
+        undo_db = tmp_path / "undo.db"
+        with active_batch("noise_reduction", "tag_edit", db_path=str(undo_db)):
+            complete, _ = _run_noise(str(tmp_path), _make_params())
+        assert complete["succeeded"] == 1
+
+        with BatchUndoLog(db_path=str(undo_db)) as log:
+            batches = log.list_batches(limit=10)
+            records = log.get_batch_records(batches[0].batch_id)
+            assert len(records) == 1
+            assert records[0].file_path == str(audio_file)
+            assert records[0].operation == "noise_reduce_edit"
+
+        # The tool preserved the incoming tags across the audio rewrite.
+        assert _read_artist(audio_file) == "Original Artist"
+
+        _write_artist(audio_file, "Someone Else")
+        assert _read_artist(audio_file) == "Someone Else"
+
+        with BatchUndoLog(db_path=str(undo_db)) as log:
+            result = log.revert_batch(batches[0].batch_id)
+
+        assert result.reverted == 1
+        assert _read_artist(audio_file) == "Original Artist"
 
 
 class TestCliArgsIntegration:

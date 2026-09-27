@@ -21,18 +21,34 @@ Coverage
 
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
 from contextlib import nullcontext
+from pathlib import Path
 from queue import Queue
 from unittest.mock import MagicMock, patch
 
+import numpy as np
+from mutagen.id3 import TPE1
+from mutagen.wave import WAVE
+from pydub import AudioSegment
+
+from audio_suite_shared.audio_conversion import segment_to_numpy
 from audio_suite_shared.audio_formats import get_export_args as _export_args
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from pop_click_remover.core.file_processor import (
     process_single_file,
     run_declicking,
 )
+
+_SAMPLE_RATE = 44100
+_TONE_HZ = 1000
+_QUIET_AMP = 0.002
+_TONE_AMP = 0.5
+_CLICK_AMP = 0.9
+_TONE_SAMPLES = 22050  # exactly 0.5 s == 500 cycles of 1 kHz
+_CLICK_OFFSETS = (26460, 33075, 39690)  # 0.60 s, 0.75 s, 0.90 s
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -83,6 +99,8 @@ class TestExportArgs:
 # ── run_declicking ────────────────────────────────────────────────────────────
 
 _SHARED_PATCH_BASE = "pop_click_remover.core.file_processor"
+_WORKFLOW_PATCH_BASE = "audio_suite_shared.file_processor_base"
+_TAG_PATCH_BASE = "audio_suite_shared.tag_helper"
 
 
 class TestRunDeclicking:
@@ -131,14 +149,15 @@ class TestRunDeclicking:
         mock_declick = declick_result or MagicMock(was_modified=False, clicks_found=0)
 
         with (
-            patch(f"{_SHARED_PATCH_BASE}.os.scandir") as mock_scan,
-            patch(f"{_SHARED_PATCH_BASE}.shutil.copy2"),
-            patch(f"{_SHARED_PATCH_BASE}.shutil.rmtree"),
-            patch(f"{_SHARED_PATCH_BASE}.tempfile.mkdtemp", return_value="/tmp/fake"),
-            patch(f"{_SHARED_PATCH_BASE}.read_tags_raw", return_value={}),
-            patch(f"{_SHARED_PATCH_BASE}.write_tags_raw"),
+            patch(f"{_WORKFLOW_PATCH_BASE}.os.scandir") as mock_scan,
+            patch(f"{_WORKFLOW_PATCH_BASE}.shutil.copy2"),
+            patch(f"{_WORKFLOW_PATCH_BASE}.shutil.rmtree"),
+            patch(f"{_WORKFLOW_PATCH_BASE}.tempfile.mkdtemp", return_value="/tmp/fake"),
+            patch(f"{_TAG_PATCH_BASE}.read_tags_raw", return_value={}),
+            patch(f"{_TAG_PATCH_BASE}.write_tags_raw"),
             patch(
-                f"{_SHARED_PATCH_BASE}.AudioSegment.from_file", return_value=MagicMock()
+                f"{_WORKFLOW_PATCH_BASE}.AudioSegment.from_file",
+                return_value=MagicMock(),
             ),
             patch(f"{_SHARED_PATCH_BASE}.declick_audio", return_value=mock_declick),
             patch(f"{_SHARED_PATCH_BASE}.SUPPORTED_EXTENSIONS", (".mp3", ".flac")),
@@ -281,13 +300,14 @@ class TestRunDeclicking:
 
         with (
             patch(f"{_SHARED_PATCH_BASE}.DEFAULT_MAX_WORKERS", 1),
-            patch(f"{_SHARED_PATCH_BASE}.os.scandir") as mock_scan,
-            patch(f"{_SHARED_PATCH_BASE}.shutil.rmtree"),
-            patch(f"{_SHARED_PATCH_BASE}.tempfile.mkdtemp", return_value="/tmp/fake"),
-            patch(f"{_SHARED_PATCH_BASE}.read_tags_raw", return_value={}),
-            patch(f"{_SHARED_PATCH_BASE}.write_tags_raw"),
+            patch(f"{_WORKFLOW_PATCH_BASE}.os.scandir") as mock_scan,
+            patch(f"{_WORKFLOW_PATCH_BASE}.shutil.rmtree"),
+            patch(f"{_WORKFLOW_PATCH_BASE}.tempfile.mkdtemp", return_value="/tmp/fake"),
+            patch(f"{_TAG_PATCH_BASE}.read_tags_raw", return_value={}),
+            patch(f"{_TAG_PATCH_BASE}.write_tags_raw"),
             patch(
-                f"{_SHARED_PATCH_BASE}.AudioSegment.from_file", return_value=MagicMock()
+                f"{_WORKFLOW_PATCH_BASE}.AudioSegment.from_file",
+                return_value=MagicMock(),
             ),
             patch(f"{_SHARED_PATCH_BASE}.SUPPORTED_EXTENSIONS", (".mp3",)),
         ):
@@ -307,9 +327,12 @@ class TestRunDeclicking:
                 patch(
                     f"{_SHARED_PATCH_BASE}.declick_audio", side_effect=[clean, modified]
                 ),
-                patch(f"{_SHARED_PATCH_BASE}.shutil.copy2", side_effect=copy2_results),
                 patch(
-                    f"{_SHARED_PATCH_BASE}.map_to_audio_error", side_effect=lambda e: e
+                    f"{_WORKFLOW_PATCH_BASE}.shutil.copy2", side_effect=copy2_results
+                ),
+                patch(
+                    f"{_WORKFLOW_PATCH_BASE}.map_to_audio_error",
+                    side_effect=lambda e: e,
                 ),
             ):
                 complete_result: dict = {}
@@ -334,18 +357,21 @@ class TestRunDeclicking:
         """An exception in a worker should increment errors and not stall
         on_complete."""
         with (
-            patch(f"{_SHARED_PATCH_BASE}.os.scandir") as mock_scan,
+            patch(f"{_WORKFLOW_PATCH_BASE}.os.scandir") as mock_scan,
             patch(
-                f"{_SHARED_PATCH_BASE}.shutil.copy2", side_effect=OSError("disk full")
+                f"{_WORKFLOW_PATCH_BASE}.shutil.copy2", side_effect=OSError("disk full")
             ),
-            patch(f"{_SHARED_PATCH_BASE}.shutil.rmtree"),
-            patch(f"{_SHARED_PATCH_BASE}.tempfile.mkdtemp", return_value="/tmp/fake"),
-            patch(f"{_SHARED_PATCH_BASE}.read_tags_raw", return_value={}),
+            patch(f"{_WORKFLOW_PATCH_BASE}.shutil.rmtree"),
+            patch(f"{_WORKFLOW_PATCH_BASE}.tempfile.mkdtemp", return_value="/tmp/fake"),
+            patch(f"{_TAG_PATCH_BASE}.read_tags_raw", return_value={}),
             patch(
-                f"{_SHARED_PATCH_BASE}.AudioSegment.from_file", return_value=MagicMock()
+                f"{_WORKFLOW_PATCH_BASE}.AudioSegment.from_file",
+                return_value=MagicMock(),
             ),
             patch(f"{_SHARED_PATCH_BASE}.declick_audio"),
-            patch(f"{_SHARED_PATCH_BASE}.map_to_audio_error", side_effect=lambda e: e),
+            patch(
+                f"{_WORKFLOW_PATCH_BASE}.map_to_audio_error", side_effect=lambda e: e
+            ),
             patch(f"{_SHARED_PATCH_BASE}.SUPPORTED_EXTENSIONS", (".mp3",)),
         ):
             entry = MagicMock()
@@ -392,16 +418,19 @@ class TestRunDeclicking:
             raise OSError("disk full")
 
         with (
-            patch(f"{_SHARED_PATCH_BASE}.os.scandir") as mock_scan,
-            patch(f"{_SHARED_PATCH_BASE}.shutil.copy2", side_effect=_failing_copy2),
-            patch(f"{_SHARED_PATCH_BASE}.shutil.rmtree"),
-            patch(f"{_SHARED_PATCH_BASE}.tempfile.mkdtemp", return_value="/tmp/fake"),
-            patch(f"{_SHARED_PATCH_BASE}.read_tags_raw", return_value={}),
+            patch(f"{_WORKFLOW_PATCH_BASE}.os.scandir") as mock_scan,
+            patch(f"{_WORKFLOW_PATCH_BASE}.shutil.copy2", side_effect=_failing_copy2),
+            patch(f"{_WORKFLOW_PATCH_BASE}.shutil.rmtree"),
+            patch(f"{_WORKFLOW_PATCH_BASE}.tempfile.mkdtemp", return_value="/tmp/fake"),
+            patch(f"{_TAG_PATCH_BASE}.read_tags_raw", return_value={}),
             patch(
-                f"{_SHARED_PATCH_BASE}.AudioSegment.from_file", return_value=MagicMock()
+                f"{_WORKFLOW_PATCH_BASE}.AudioSegment.from_file",
+                return_value=MagicMock(),
             ),
             patch(f"{_SHARED_PATCH_BASE}.declick_audio"),
-            patch(f"{_SHARED_PATCH_BASE}.map_to_audio_error", side_effect=lambda e: e),
+            patch(
+                f"{_WORKFLOW_PATCH_BASE}.map_to_audio_error", side_effect=lambda e: e
+            ),
             patch(f"{_SHARED_PATCH_BASE}.SUPPORTED_EXTENSIONS", (".mp3",)),
         ):
             entry = MagicMock()
@@ -456,14 +485,16 @@ class TestProcessSingleFileSlotBookkeeping:
 
         with (
             patch(
-                f"{_SHARED_PATCH_BASE}.shutil.copy2", side_effect=RuntimeError("boom")
+                f"{_WORKFLOW_PATCH_BASE}.shutil.copy2", side_effect=RuntimeError("boom")
             ),
-            patch(f"{_SHARED_PATCH_BASE}.shutil.rmtree"),
-            patch(f"{_SHARED_PATCH_BASE}.tempfile.mkdtemp", return_value=str(tmp_path)),
+            patch(f"{_WORKFLOW_PATCH_BASE}.shutil.rmtree"),
             patch(
-                f"{_SHARED_PATCH_BASE}.read_tags_raw", side_effect=RuntimeError("boom")
+                f"{_WORKFLOW_PATCH_BASE}.tempfile.mkdtemp", return_value=str(tmp_path)
             ),
-            patch(f"{_SHARED_PATCH_BASE}.map_to_audio_error", side_effect=lambda e: e),
+            patch(f"{_TAG_PATCH_BASE}.read_tags_raw", side_effect=RuntimeError("boom")),
+            patch(
+                f"{_WORKFLOW_PATCH_BASE}.map_to_audio_error", side_effect=lambda e: e
+            ),
         ):
             initial_size = slot_queue.qsize()
 
@@ -484,3 +515,240 @@ class TestProcessSingleFileSlotBookkeeping:
         assert slot_queue.qsize() == initial_size
         # Error path must have called on_progress with ERROR status
         assert any(c.get("status") == "ERROR" for c in progress_calls)
+
+
+# ── Outcome-level locks (C2) ──────────────────────────────────────────────────
+
+
+def _make_tone_with_clicks_file(path: Path) -> np.ndarray:
+    """Write a 1 kHz tone with three single-sample clicks.
+
+    Layout (1 s, mono, 16-bit, 44.1 kHz):
+      0.000-0.500 s  1 kHz tone at 0.5 amplitude  — legitimate content
+      0.500-0.505 s  raised-cosine fade down to the quiet bed (no step edge,
+                    which would itself look like a click to the detector)
+      0.505-1.000 s  1 kHz tone at 0.002 amplitude — near-silent bed
+      0.600/0.750/0.900 s  single-sample clicks at +/-0.9
+
+    The clicks sit in the quiet bed on purpose: the declicker detects a spike
+    relative to the *local* first-difference MAD, so a full-scale click on top
+    of a loud tone is below its detection floor by design.
+
+    Returns the int16 sample array that was written.
+    """
+    t = np.arange(_SAMPLE_RATE) / _SAMPLE_RATE
+    tone = _TONE_AMP * np.sin(2 * np.pi * _TONE_HZ * t)
+    fade_start, fade_end = _TONE_SAMPLES, _TONE_SAMPLES + 220
+    ramp = np.linspace(0.0, 1.0, fade_end - fade_start)
+    fade = _TONE_AMP + (_QUIET_AMP - _TONE_AMP) * (0.5 - 0.5 * np.cos(np.pi * ramp))
+    tone[fade_start:fade_end] = fade * np.sin(
+        2 * np.pi * _TONE_HZ * t[fade_start:fade_end]
+    )
+    signal = tone.copy()
+    signal[fade_end:] = _QUIET_AMP * np.sin(2 * np.pi * _TONE_HZ * t[fade_end:])
+    for offset, sign in zip(_CLICK_OFFSETS, (1.0, -1.0, 1.0)):
+        signal[offset] += sign * _CLICK_AMP
+
+    pcm = np.round(np.clip(signal, -1.0, 1.0) * 32767).astype(np.int16)
+    segment = AudioSegment(
+        pcm.tobytes(), frame_rate=_SAMPLE_RATE, sample_width=2, channels=1
+    )
+    segment.export(str(path), format="wav")
+    return pcm
+
+
+def _read_mono(path: Path) -> tuple[np.ndarray, int]:
+    """Decode *path* and return ``(mono float64 samples, frame_rate)``."""
+    samples, sample_rate = segment_to_numpy(AudioSegment.from_file(str(path)))
+    return samples.mean(axis=0).astype(np.float64), sample_rate
+
+
+def _tone_bin_db(samples: np.ndarray) -> float:
+    """Amplitude (dBFS) of the 1 kHz component of *samples*."""
+    spectrum = np.fft.rfft(samples)
+    k = int(round(_TONE_HZ * len(samples) / _SAMPLE_RATE))
+    return float(20 * np.log10(max(2 * abs(spectrum[k]) / len(samples), 1e-12)))
+
+
+def _max_abs_diff(samples: np.ndarray) -> float:
+    return float(np.abs(np.diff(samples)).max())
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _run_declicking_live(dir_path: Path, *, dry_run: bool) -> tuple[dict, list[str]]:
+    """Drive ``run_declicking`` with recording callbacks.
+
+    Returns the ``on_complete`` keyword arguments and the per-file
+    ``display_text`` values.  A fatal ``on_error`` is raised here rather than
+    inside the callback because ``handle_audio_errors`` swallows exceptions
+    raised by the callback itself.
+    """
+    complete: dict = {}
+    display: list[str] = []
+    errors: list[str] = []
+
+    run_declicking(
+        dir_path=str(dir_path),
+        is_dry_run=dry_run,
+        sensitivity=0.31,
+        max_width=2,
+        slot_vars=_make_slot_vars(),
+        slot_queue=_make_slot_queue(),
+        on_progress=lambda **kw: display.append(kw["display_text"]),
+        on_complete=lambda **kw: complete.update(kw),
+        on_error=errors.append,
+    )
+    if errors:
+        raise AssertionError(f"run_declicking reported a fatal error: {errors}")
+    return complete, display
+
+
+def _write_artist(path: Path, artist: str) -> None:
+    """Write an ID3 ``TPE1`` (artist) frame to a WAV file."""
+    wave = WAVE(str(path))
+    if wave.tags is None:
+        wave.add_tags()
+    wave["TPE1"] = TPE1(encoding=3, text=[artist])
+    wave.save()
+
+
+def _read_artist(path: Path) -> str | None:
+    wave = WAVE(str(path))
+    tags = wave.tags
+    if tags is None:
+        return None
+    frame = tags.get("TPE1")
+    return str(frame) if frame is not None else None
+
+
+class TestDeclickOutcome:
+    """Outcome-level locks for C2 (audio write path).
+
+    Every assertion decodes the file that was actually written and measures it.
+    The expected values were recorded by running this suite against the
+    pre-refactor twin and re-measuring after the workflow was consolidated
+    into ``BaseFileProcessor``.
+    """
+
+    def test_clicks_are_attenuated_and_tone_is_intact(self, tmp_path):
+        audio_file = tmp_path / "clicks.wav"
+        before_pcm = _make_tone_with_clicks_file(audio_file)
+        before, _rate = _read_mono(audio_file)
+        assert _max_abs_diff(before) >= 0.8  # the clicks are really in the input
+
+        complete, display = _run_declicking_live(tmp_path, dry_run=False)
+
+        assert complete["succeeded"] == 1
+        assert display == [f"[FIXED] {audio_file.name} → Found 3 click(s) — Repaired"]
+
+        after, rate = _read_mono(audio_file)
+        # Pre-refactor measurements:
+        #   frame count 44100 -> 44100, rate 44100 -> 44100 (length invariant)
+        #   max |first difference| 0.9002 -> 0.0712
+        #   1 kHz bin (0-0.5 s) -6.0209 dBFS -> -6.0209 dBFS
+        assert len(after) == len(before) == 44100
+        assert rate == _SAMPLE_RATE
+        assert _max_abs_diff(after) <= 0.15
+        # The untouched tone section survives bit-for-bit: WAV is lossless PCM
+        # and the repair only rewrites the three click samples.
+        assert np.array_equal(after[:_TONE_SAMPLES], before[:_TONE_SAMPLES])
+        assert (
+            abs(
+                _tone_bin_db(after[:_TONE_SAMPLES])
+                - _tone_bin_db(before[:_TONE_SAMPLES])
+            )
+            <= 0.25
+        )
+        # The clicks themselves are gone, not merely quieter.
+        assert np.abs(after[list(_CLICK_OFFSETS)]).max() <= 0.01
+        assert np.abs(before[list(_CLICK_OFFSETS)]).max() >= 0.8
+        assert not np.array_equal(after, before_pcm.astype(np.float64) / 32767.0)
+
+    def test_dry_run_writes_nothing(self, tmp_path):
+        audio_file = tmp_path / "clicks.wav"
+        _make_tone_with_clicks_file(audio_file)
+        digest_before = _sha256(audio_file)
+        mtime_before = audio_file.stat().st_mtime_ns
+
+        complete, display = _run_declicking_live(tmp_path, dry_run=True)
+
+        # FOUND, not SKIP — the detector ran, so this test cannot pass
+        # vacuously by the file being untouched for lack of detected defects.
+        assert complete["succeeded"] == 1
+        assert complete["skipped"] == 0
+        assert display == [f"[FOUND] {audio_file.name} → Found 3 click(s)"]
+        assert _sha256(audio_file) == digest_before
+        assert audio_file.stat().st_mtime_ns == mtime_before
+        assert [p.name for p in tmp_path.iterdir()] == ["clicks.wav"]
+
+    def test_export_call_count_differs_between_dry_run_and_live(self, tmp_path):
+        """The dry-run flag must be traced all the way to the write site."""
+        dry_dir = tmp_path / "dry"
+        live_dir = tmp_path / "live"
+        dry_dir.mkdir()
+        live_dir.mkdir()
+        _make_tone_with_clicks_file(dry_dir / "clicks.wav")
+        _make_tone_with_clicks_file(live_dir / "clicks.wav")
+
+        real_export = AudioSegment.export
+        exported: list[str] = []
+
+        def _tracking_export(self, *args, **kwargs):
+            exported.append(str(args[0]) if args else "")
+            return real_export(self, *args, **kwargs)
+
+        with patch.object(AudioSegment, "export", _tracking_export):
+            _run_declicking_live(dry_dir, dry_run=True)
+        assert exported == []
+
+        with patch.object(AudioSegment, "export", _tracking_export):
+            _run_declicking_live(live_dir, dry_run=False)
+        assert len(exported) == 1
+
+    def test_undo_round_trip_restores_original_tags(self, tmp_path):
+        """The live run records the pre-edit tag payload and revert restores it.
+
+        Documented limitation, asserted deliberately: ``record_tag_edit_snapshot``
+        stores a *tag* payload and ``_revert_tag_edit`` only calls
+        ``set_raw_tags`` — the original **audio bytes** are not restored by
+        revert.  C2's scope forbids changing that ("unchanged, byte-for-byte:
+        the undo snapshot"), so this test pins the real contract and the audio
+        assertion below fails loudly if someone later makes undo byte-level
+        without also updating the user-facing documentation.
+        """
+        from audio_suite_shared.batch_undo import BatchUndoLog, active_batch
+
+        audio_file = tmp_path / "clicks.wav"
+        _make_tone_with_clicks_file(audio_file)
+        _write_artist(audio_file, "Original Artist")
+        repaired_bytes = None
+
+        undo_db = tmp_path / "undo.db"
+        with active_batch("pop_click_remover", "tag_edit", db_path=str(undo_db)):
+            complete, _ = _run_declicking_live(tmp_path, dry_run=False)
+        assert complete["succeeded"] == 1
+
+        with BatchUndoLog(db_path=str(undo_db)) as log:
+            batches = log.list_batches(limit=10)
+            records = log.get_batch_records(batches[0].batch_id)
+            assert len(records) == 1
+            assert records[0].file_path == os.path.join(str(tmp_path), "clicks.wav")
+            assert records[0].operation == "declick_edit"
+
+        # The tool preserved the incoming tags across the audio rewrite.
+        assert _read_artist(audio_file) == "Original Artist"
+        repaired_bytes = _sha256(audio_file)
+
+        _write_artist(audio_file, "Someone Else")
+        assert _read_artist(audio_file) == "Someone Else"
+
+        with BatchUndoLog(db_path=str(undo_db)) as log:
+            result = log.revert_batch(batches[0].batch_id)
+
+        assert result.reverted == 1
+        assert _read_artist(audio_file) == "Original Artist"
+        # Audio bytes are NOT restored by revert — see the docstring.
+        assert _sha256(audio_file) == repaired_bytes
