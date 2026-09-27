@@ -175,11 +175,11 @@ testpaths = [
     "utilities/tests",
 ]
 markers = [
-    "integration: marks tests that require ffmpeg and real audio files",
-    "hardware: marks tests that require physical CD drive hardware",
+    "integration: marks tests that require ffmpeg and real audio files. They run by default wherever ffmpeg/ffprobe are found (CI installs ffmpeg, plan A4); where a binary is missing the root conftest auto-skips each integration test with a reason naming the missing executable.",
+    "hardware: marks tests that require physical CD drive hardware and the Win32 drive API. They are deselected by default (addopts runs pytest -m \"not hardware\") and never run in CI; the documented opt-in is `pytest -m hardware` (CONTRIBUTING, plan E2).",
     "gui: marks tests that genuinely require a graphical display. Skipped with an attributable reason on a headless host; for tests that need a real Tk root without using the shared root/tk_root fixture.",
 ]
-addopts = "--strict-markers -ra --cov --cov-report=term-missing"
+addopts = '--strict-markers -ra -m "not hardware" --cov --cov-report=term-missing'
 filterwarnings = [
     # pydub 0.25.1 (latest on PyPI) ships lazy invalid-escape regexes in
     # utils.py that emit SyntaxWarning on Python 3.14 — otherwise masked

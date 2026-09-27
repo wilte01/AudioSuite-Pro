@@ -983,7 +983,17 @@ class TestProcessPoolErrorMapping:
     """Failures are mapped and reported; the batch always finishes."""
 
     def test_worker_error_status_becomes_a_reported_error(self, tmp_path) -> None:
-        """The real worker returns ``status="error"`` for an undecodable file."""
+        """The real worker returns ``status="error"`` for an undecodable file.
+
+        Which *message* the decoder produces is a backend-dependent branch,
+        not a batch-level contract: librosa ≤ 0.11's audioread fallback can
+        return an empty decode (yielding the loader's "too short to analyse"
+        message) while librosa ≥ 1.0 raises the soundfile error instead
+        (yielding "Could not decode audio file …"). Both branch texts are
+        pinned in ``audio_suite_shared/tests/test_analysis_loader.py``; this
+        batch-level test pins the batch outcome — status="error", a non-empty
+        reported message, and the other files still completing.
+        """
         good = _write_tone_wav(str(tmp_path / "a_good.wav"))
         bad = str(tmp_path / "b_broken.flac")
         with open(bad, "wb") as handle:
@@ -995,7 +1005,11 @@ class TestProcessPoolErrorMapping:
         assert (done[1], done[2], done[3]) == (1, 0, 1)
         results = {os.path.basename(m[1]): m for m in _results(msgs)}
         assert results["b_broken.flac"][3] is False
-        assert "too short to analyse" in results["b_broken.flac"][4]
+        error_message = results["b_broken.flac"][4]
+        assert isinstance(error_message, str) and error_message.strip(), (
+            f"a corrupt file must yield a reported, non-empty error message, "
+            f"got: {error_message!r}"
+        )
         assert results["a_good.wav"][3] is True
         with open(done[5], encoding="utf-8") as handle:
             log = handle.read()

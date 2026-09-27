@@ -78,12 +78,15 @@ def _write_stereo_wav(
 def _fake_librosa_load(monkeypatch: pytest.MonkeyPatch, y: np.ndarray, sr: int) -> None:
     """Pin ``librosa.load`` to the exact array/sample-rate pair under test.
 
-    librosa's audioread fallback does not raise on a corrupt container — it
-    returns an empty signal with ``sr == 0``.  Depending on which audio backend
-    a host happens to have installed, a given corrupt file can therefore take
-    either the "decoder raised" branch or the "decoder returned nothing"
-    branch.  Substituting the loader lets both branches be asserted identically
-    everywhere instead of depending on the host's ffmpeg.
+    The degenerate decode branch is backend-dependent, not hypothetical:
+    librosa ≤ 0.11's audioread fallback returns an empty signal with
+    ``sr == 0`` on a corrupt container, while librosa ≥ 1.0 removed the
+    fallback and raises soundfile's format error instead — the uv.lock pins
+    both versions by Python version (0.11.0 on py<3.12, 1.0.0 on py≥3.12).
+    Substituting the loader here (and pinning the raise branch via
+    ``librosa.load`` itself elsewhere in this file) lets both branches be
+    asserted identically everywhere instead of depending on the host's audio
+    backend; batch-level callers assert only the reported-error outcome.
     """
     import librosa
 

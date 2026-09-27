@@ -28,6 +28,16 @@ still exit 0 — nothing distinguished "this machine verified nothing" from
 - **Still recoverable** — ``AUDIOSUITE_GUI_SKIP=all`` restores the old
   session-wide skip as an explicit, warned-about safety net for hosts that
   cannot yet run a bounded subset.
+
+D1 (Stage 3) completes the marker contract on the same principle:
+
+- ``hardware`` is *deselected* by default (``-m "not hardware"`` in pyproject
+  ``addopts``) and never runs in CI; documented opt-in is ``pytest -m hardware``.
+- ``integration`` runs by default wherever the declared ffmpeg/ffprobe
+  executables are found — the same A5 declaration the startup preflight
+  consults — and where one is missing, each integration test skips with a
+  reason naming the missing binary. The skip is bounded to the marker, so a
+  missing ffmpeg can never take the rest of the run with it.
 """
 
 from __future__ import annotations
@@ -57,6 +67,16 @@ _GUI_FIXTURES = frozenset({"root", "tk_root"})
 #: Env var that restores the pre-B4 session-wide skip (safety net only).
 GUI_SKIP_ENV = "AUDIOSUITE_GUI_SKIP"
 
+_NO_FFMPEG_REASON_TEMPLATE = (
+    "Requires ffmpeg and ffprobe for real audio decode/export "
+    "({missing} not found on PATH) — install with the commands quoted in "
+    "audio_suite_shared/system_requirements.py"
+)
+
+_missing_executables: list[str] | None = None
+
+INTEGRATION_MARKER = "integration"
+
 NO_DISPLAY_REASON = "No display available — this test needs a real Tk root"
 
 BLANKET_REASON = (
@@ -73,6 +93,54 @@ class GuiDisplayUnavailableWarning(UserWarning):
     A distinct category (rather than a bare ``UserWarning``) so CI can filter
     or fail on it, and so it is attributable in the warnings summary.
     """
+
+
+def probe_missing_executables() -> list[str]:
+    """Return the declared system executables that cannot be found on PATH.
+
+    Probed once per session and cached: the declaration lives in
+    :mod:`audio_suite_shared.system_requirements` (plan A5), the same single
+    source the startup preflight consults, so the dialog a user sees at launch
+    and the skip a CI log shows for an ``integration`` test cannot disagree.
+
+    A conftest can be copied out of its repository (``tests/test_conftest.py``
+    does exactly that), so an import failure here degrades to "cannot probe"
+    rather than aborting the whole session — those runs let the integration
+    tests execute and fail loudly instead of hiding anything.
+
+    Returns:
+        Names of the missing executables in declaration order; empty when
+        every declared requirement resolves (or the declaration is
+        unreachable).
+    """
+    global _missing_executables
+    if _missing_executables is None:
+        # Probed against the live module at call time (function-local import,
+        # matching the AGENTS.md patch rule): a test harness that replaces the
+        # declaration module sees the replacement, regardless of import order.
+        try:
+            from audio_suite_shared import system_requirements as declared
+        except ImportError:
+            missing: list[str] = []
+        else:
+            missing = [
+                requirement.name for requirement in declared.find_missing_requirements()
+            ]
+        _missing_executables = missing
+    return _missing_executables
+
+
+def integration_skip_reason(missing: list[str]) -> str:
+    """Build the attributable skip reason for one missing-binary report.
+
+    Args:
+        missing: Names returned by :func:`probe_missing_executables`.
+
+    Returns:
+        A reason naming exactly which prerequisite is absent, so a reader can
+        interpret the skip without guessing (plan D1).
+    """
+    return _NO_FFMPEG_REASON_TEMPLATE.format(missing=", ".join(missing))
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -146,6 +214,18 @@ def pytest_collection_modifyitems(
     global _display_skips, _blanket_mode, _collected
     _collected = len(items)
     _blanket_mode = os.environ.get(GUI_SKIP_ENV, "").strip().lower() == "all"
+
+    # D1: `integration` runs by default wherever the declared executables are
+    # present; where they are missing, each integration test skips with a
+    # reason naming the missing prerequisite — bounded to the marker, so a
+    # missing ffmpeg never takes the rest of the run with it.
+    missing = probe_missing_executables()
+    if missing:
+        reason = integration_skip_reason(missing)
+        for item in items:
+            if item.get_closest_marker(INTEGRATION_MARKER):
+                item.add_marker(pytest.mark.skip(reason=reason))
+
     if _display_available:
         return
 
