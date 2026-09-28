@@ -3,10 +3,16 @@
 **Source:** Independent engineering audit of commit `e729626` (2026-09-26).
 21 findings, ordered by the audit's own severity ranking. Each is reproduced
 below with the evidence that justifies it and mapped to exactly one staged item.
-**Status:** Active — Stage 0 implemented (2026-09-26); Stage 1 implemented (2026-09-27); Stage 2 implemented (2026-09-27); Stage 3 implemented (2026-09-27); Stage 4 implemented (2026-09-27); Stages 5–6 not started.
-All five open decisions (D1–D5) resolved by the maintainer on 2026-09-26 in
-favour of the recommended options — see the Decision Log.
-**Last Updated:** 2026-09-27 (Stage 4)
+**Status:** Complete (2026-09-28) — all seven stages implemented and
+evidence-recorded (Stages 0–4 on 2026-09-26/27; Stages 5–6 on 2026-09-28).
+The single externally-blocked acceptance item is A4's first-run CI evidence
+(no git remote on the development host — named re-open condition in the A4
+Completion Log row). All follow-on work is split to
+`PLAN_iteration6_followups.md` per the Plan Close-Out Checklist.
+All five open decisions (D1–D5) resolved by the maintainer (Wilte) on
+2026-09-26 in favour of the recommended options — see the Decision Log.
+**Last Updated:** 2026-09-28 (plan close-out — retrospective filled,
+close-out checklist ticked, audit index checked off item by item)
 **Scope:** All 21 audit findings, delivered as seven independently shippable
 stages. Nothing in this plan is authorized for implementation until the open
 decisions in the *Open Decisions* section are resolved by the maintainer.
@@ -77,31 +83,34 @@ the ones most likely to be violated by a large multi-stage plan:
 ## Audit Finding Index
 
 Severity is the audit's own rating. "Stage" is where this plan places the
-remediation. Every number appears exactly once across all stages.
+remediation. Every number appears exactly once across all stages. The
+"Closed" column is the per-finding close-out state, checked off item by item
+at plan close (2026-09-28); finding #4's `[~]` mirrors A4's pending
+first-run CI evidence (named re-open condition in the A4 row).
 
-| # | Finding (abridged) | Severity | Stage |
-|---|--------------------|----------|-------|
-| 1 | `ruff format --check .` fails on tracked Markdown | Medium | 0 |
-| 2 | `noise_reduction` absent from `testpaths` and coverage `source` | High | 0 |
-| 3 | `genre_sync/tests/conftest.py` calls `pytest.skip()` in `pytest_configure` | High | 0 |
-| 4 | Linux CI leg has no display, no Tk, no ffmpeg — the leg proves nothing | High | 0 |
-| 5 | `batch_analysis_engine._run_process_pool` multiprocessing path untested | High | 1 |
-| 6 | `ffmpeg` is an undeclared hard runtime dependency | High | 0 |
-| 7 | Key detection is locked to static Krumhansl-Schmuckler profiles | Medium | 5 |
-| 8 | Near-verbatim `app.py` GUI scaffolds (94.2% pair) | Medium | 2 |
-| 9 | Near-verbatim `core/file_processor.py` twins (70.9% pair) | Medium | 2 |
-| 10 | No README / quick start / architecture overview | Medium | 4 |
-| 11 | No LICENSE and no `license` metadata despite GPL-incompatible deps | High | 4 |
-| 12 | Phase gate skipped after a "complete" item (iteration-4 D1 precedent) | High | 0 |
-| 13 | `tool_plugin._build_default_registry()` is a ~300-line literal builder | Medium | 2 |
-| 14 | `integration` / `hardware` markers registered but never deselected | Medium | 3 |
-| 15 | `analysis_loader` — the shared decode path — at 34.3% coverage | High | 1 |
-| 16 | `ffmpeg_finder` discovery fallbacks untested | Medium | 1 |
-| 17 | Coverage `exclude_lines` hides untested optional-dependency branches | Medium | 3 |
-| 18 | Blanket session-wide GUI skip can zero the whole suite silently | High | 1 |
-| 19 | Analysis family has no measured-outcome / golden-vector tests | High | 5 |
-| 20 | Platform-specific paths with no verified support matrix | Medium | 6 |
-| 21 | No discoverability surface: no changelog, no `audiosuite --help` contract | Low | 6 |
+| # | Finding (abridged) | Severity | Stage | Closed |
+|---|--------------------|----------|-------|--------|
+| 1 | `ruff format --check .` fails on tracked Markdown | Medium | 0 | `[x]` A1 |
+| 2 | `noise_reduction` absent from `testpaths` and coverage `source` | High | 0 | `[x]` A2 |
+| 3 | `genre_sync/tests/conftest.py` calls `pytest.skip()` in `pytest_configure` | High | 0 | `[x]` A3 |
+| 4 | Linux CI leg has no display, no Tk, no ffmpeg — the leg proves nothing | High | 0 | `[~]` A4 |
+| 5 | `batch_analysis_engine._run_process_pool` multiprocessing path untested | High | 1 | `[x]` B1 |
+| 6 | `ffmpeg` is an undeclared hard runtime dependency | High | 0 | `[x]` A5 |
+| 7 | Key detection is locked to static Krumhansl-Schmuckler profiles | Medium | 5 | `[x]` F2 |
+| 8 | Near-verbatim `app.py` GUI scaffolds (94.2% pair) | Medium | 2 | `[x]` C1 |
+| 9 | Near-verbatim `core/file_processor.py` twins (70.9% pair) | Medium | 2 | `[x]` C2 |
+| 10 | No README / quick start / architecture overview | Medium | 4 | `[x]` E1 |
+| 11 | No LICENSE and no `license` metadata despite GPL-incompatible deps | High | 4 | `[x]` E2 |
+| 12 | Phase gate skipped after a "complete" item (iteration-4 D1 precedent) | High | 0 | `[x]` A6 |
+| 13 | `tool_plugin._build_default_registry()` is a ~300-line literal builder | Medium | 2 | `[x]` C3 |
+| 14 | `integration` / `hardware` markers registered but never deselected | Medium | 3 | `[x]` D1 |
+| 15 | `analysis_loader` — the shared decode path — at 34.3% coverage | High | 1 | `[x]` B2 |
+| 16 | `ffmpeg_finder` discovery fallbacks untested | Medium | 1 | `[x]` B3 |
+| 17 | Coverage `exclude_lines` hides untested optional-dependency branches | Medium | 3 | `[x]` D2 |
+| 18 | Blanket session-wide GUI skip can zero the whole suite silently | High | 1 | `[x]` B4 |
+| 19 | Analysis family has no measured-outcome / golden-vector tests | High | 5 | `[x]` F1 |
+| 20 | Platform-specific paths with no verified support matrix | Medium | 6 | `[x]` G1 |
+| 21 | No discoverability surface: no changelog, no `audiosuite --help` contract | Low | 6 | `[x]` G2 |
 
 Stage totals: Stage 0 = 6 items, Stage 1 = 4, Stage 2 = 3, Stage 3 = 2,
 Stage 4 = 2, Stage 5 = 2, Stage 6 = 2 → **21**.
@@ -1698,7 +1707,7 @@ Python 3.14.7, ruff 0.15.22, mypy 1.20.0, pytest 9.0.3):
 | A1 | 0 | 2026-09-26 | `ruff format --check .`: 1 `.md` flagged under `--preview` → 0 | Full gate (commands 0–6 above) all green, 2026-09-26. Item-specific: post-fix `--preview` run has 0 `.md` matches; stable run exit 0, 745 files. | On ruff 0.15.22 stable the gate already passed — the finding reproduces under `--preview`, where `PLAN_audit_priority_actions.md` *was* flagged and is now excluded. Forward-protective, not retro-only. |
 | A2 | 0 | 2026-09-26 | collected 6,983 → 7,071 (+88 exactly); coverage 78.26% → **78.04%** | Full gate all green, 2026-09-26. Item-specific: `--collect-only noise_reduction/tests` = 88; bare run count +88, all passing; coverage report gains a `noise_reduction` row. | **78.04% is the first honest (post-A2) baseline** every later stage is judged against, recorded before D3 was applied. Post-A3/A5 end-state measurement: 78.07%. |
 | A3 | 0 | 2026-09-26 | headless bare run: exit 3 (INTERNALERROR) → exit 0 | Full gate all green, 2026-09-26. Item-specific: `genre_sync/tests` 177 passed; headless simulation (`tk.Tk` → `TclError`) on bare suite: 7,071 collected, exit 0, per-test attributable skips; live `pytest.skip(` call-site grep over all conftest files: 0. | Acceptance grep deviation recorded in the Decision Log (three docstring mentions of the banned pattern remain, by design, as documentation). |
-| A4 | 0 | **[~] not complete** | Linux leg: no display/Tk/ffmpeg → xvfb + python3-tk + ffmpeg | **PENDING — no CI evidence available.** This host is Windows and the repository has no git remote, so the Linux leg cannot be executed or observed from here. YAML syntax-validated (parsed; `bash -n` exit 0 on the run step), but the required first post-merge CI run URL + Linux passed count are outstanding. | Item stays `[~]` per its own acceptance rule: the run URL must be recorded here *before* the item is marked complete. Marker split deliberately deferred to Stage 3 D1 by this item's own instruction. |
+| A4 | 0 | **[~] not complete** | Linux leg: no display/Tk/ffmpeg → xvfb + python3-tk + ffmpeg | **PENDING — no CI evidence available.** This host is Windows and the repository has no git remote, so the Linux leg cannot be executed or observed from here. YAML syntax-validated (parsed; `bash -n` exit 0 on the run step), but the required first post-merge CI run URL + Linux passed count are outstanding. | Item stays `[~]` per its own acceptance rule: the run URL must be recorded here *before* the item is marked complete. Marker split deliberately deferred to Stage 3 D1 by this item's own instruction. **Close-out decision (2026-09-28, maintainer Wilte): the plan closes with A4 `[~]` — a named condition, not a silent drop.** The implementation and YAML validation are complete; the first post-merge CI run URL + Linux passed count must be appended to this row as soon as the repository gains a git remote, and audit-index finding #4 flips `[~]` → `[x]` with that evidence. The condition is tracked as item A1 of `PLAN_iteration6_followups.md`. |
 | A5 | 0 | 2026-09-26 | ffmpeg: undeclared + silent at launch → declared + warned at launch | Full gate all green, 2026-09-26. Item-specific: 33 tests green across the two A5 test modules; end-to-end real-launch acceptance on the real tree — ffmpeg stripped from PATH: compile gate passes, 0 blocking dialogs, exactly 1 warning naming ffmpeg + ffprobe with all three install hints; ffmpeg present: 0 dialogs, return `True`. `git grep -n "ffmpeg" pyproject.toml` → marker description + one documentation block only. | New `system_requirements.py` (machine-readable table) + `report_missing_requirements()` (pure, warning-level) + 9 dependent-tool guides regenerated (lossless: +5 paragraphs each, 0 lost) + `TestGuideWordingLock` enforcing the artifact↔module wording invariant. `ffmpeg_finder` reuse declined with rationale — Decision Log. |
 | A6 | 0 | 2026-09-26 | no per-item evidence rule → mandatory Gate Evidence column + pre-item rule | Full gate all green, 2026-09-26 (this table is itself the deliverable: six commands + counts recorded per item above). | Per-item gate rule now stated in "How to read this plan" (before the first item); iteration-4 D1 precedent recorded in the Decision Log, dated; `PLAN_iteration4_remediation.md` untouched. |
 
@@ -2083,11 +2092,11 @@ Stage 6 notes:
 
 | Date | Item | Decision | Rationale |
 |------|------|----------|-----------|
-| 2026-09-26 | (scope) | **D1 licence RESOLVED: GPL-3.0** — maintainer accepted the recommendation | Matches the heaviest dependency (`pedalboard`, GPL-3.0) and the AGPL-rejected research surface. Confirmed before Stage 4 opens, as the decision required. |
-| 2026-09-26 | (scope) | **D2 key engine RESOLVED: self-contained profile correlation; `madmom` and `essentia` rejected** — maintainer accepted the recommendation | `madmom` is BSD **+ CC BY-NC-SA models**, sdist-only with no wheel, needs Cython at build time, and failed to install on Python 3.14.7 with `ModuleNotFoundError: No module named 'Cython'`. `essentia` is AGPL (incompatible with a GPL-3.0 non-AGPL distribution) and its wheels stop at CPython 3.12. An earlier draft of the audit discussion described `madmom` as MIT and wheel-ready; that claim is **superseded** by this entry. |
-| 2026-09-26 | (scope) | **D3 coverage RESOLVED: hold `fail_under = 75`** — maintainer accepted the recommendation, chosen before the first honest run as the decision required | Lowering it to match the post-A2/post-D2 number would re-institutionalise the finding. First honest (post-A2) number: **78.04%** — above the gate; recorded in the Completion Log. |
-| 2026-09-26 | (scope) | **D4 Linux CI RESOLVED: `xvfb` + `python3-tk` + `ffmpeg`, explicit platform skips only** — maintainer accepted the recommendation | The current leg passes while verifying almost nothing. |
-| 2026-09-26 | (scope) | **D5 cross-platform RESOLVED: declared matrix + CLI-first portable core** — maintainer accepted the recommendation | Bounds the scope to something testable; the Windows-only subsystems are declared, not silently untested. |
+| 2026-09-26 | (scope) | **D1 licence RESOLVED: GPL-3.0** — maintainer (Wilte) accepted the recommendation | Matches the heaviest dependency (`pedalboard`, GPL-3.0) and the AGPL-rejected research surface. Confirmed before Stage 4 opens, as the decision required. |
+| 2026-09-26 | (scope) | **D2 key engine RESOLVED: self-contained profile correlation; `madmom` and `essentia` rejected** — maintainer (Wilte) accepted the recommendation | `madmom` is BSD **+ CC BY-NC-SA models**, sdist-only with no wheel, needs Cython at build time, and failed to install on Python 3.14.7 with `ModuleNotFoundError: No module named 'Cython'`. `essentia` is AGPL (incompatible with a GPL-3.0 non-AGPL distribution) and its wheels stop at CPython 3.12. An earlier draft of the audit discussion described `madmom` as MIT and wheel-ready; that claim is **superseded** by this entry. |
+| 2026-09-26 | (scope) | **D3 coverage RESOLVED: hold `fail_under = 75`** — maintainer (Wilte) accepted the recommendation, chosen before the first honest run as the decision required | Lowering it to match the post-A2/post-D2 number would re-institutionalise the finding. First honest (post-A2) number: **78.04%** — above the gate; recorded in the Completion Log. |
+| 2026-09-26 | (scope) | **D4 Linux CI RESOLVED: `xvfb` + `python3-tk` + `ffmpeg`, explicit platform skips only** — maintainer (Wilte) accepted the recommendation | The current leg passes while verifying almost nothing. |
+| 2026-09-26 | (scope) | **D5 cross-platform RESOLVED: declared matrix + CLI-first portable core** — maintainer (Wilte) accepted the recommendation | Bounds the scope to something testable; the Windows-only subsystems are declared, not silently untested. |
 | 2026-09-26 | A1 | `ruff format` exclusion set in `pyproject.toml` as `exclude = ["*.md"]`; the CLI form `--exclude "*.md"` explicitly **not** used | The CLI form *replaces* Ruff's default exclusions rather than adding to them, re-admitting `.venv`. Verified empirically before writing the item. **Implementation note:** on the installed ruff 0.15.22 the stable-mode gate already passes (Markdown code blocks are only formatted in `--preview`); the finding reproduces under `--preview` (99 files flagged incl. `PLAN_audit_priority_actions.md`), and with the exclusion the `.md` set drops out of the `--preview` run too. The exclusion is therefore forward-protective: any future ruff that promotes Markdown formatting to stable would otherwise break the gate or, worse, a `ruff format .` would rewrite a completed plan's record. |
 | 2026-09-26 | A2 | `noise_reduction` added to both `testpaths` and coverage `source`; **not** git-tracked-missing | The package is fully tracked with 88 passing tests — the defect is measurement configuration, not VCS. Recorded so a future reader does not re-investigate the wrong thing. **Empirically confirmed:** bare-suite collection rose 6,983 → 7,071 (exactly +88), all pass; coverage 78.26% → **78.04%** (the drop is the honest number — the package's `app.py` 32% / `ui/setup_tab.py` 24% now count in the denominator). |
 | 2026-09-26 | A3 | `genre_sync/tests/conftest.py`'s Tk bootstrap deleted entirely, not just the `pytest.skip()` call | The root `conftest.py` already provides the session root, both fixtures, and the skip behaviour. Patching only the `pytest.skip()` line would leave a redundant private root shadowing the shared one. **Empirically confirmed first:** the crash reproduced as documented — bare headless simulation (monkeypatched `tk.Tk` → `TclError`) exits `INTERNAL_ERROR: 3` from `config._do_configure()`, taking down the whole session; post-fix the same simulation exits 0 with attributable per-test skips. **Acceptance deviation:** the literal `grep "pytest.skip" */tests/conftest.py` still matches three *docstring* lines (two in the root conftest's own historical explanation, one in the rewritten `genre_sync` docstring) that document why the pattern is banned. A call-site grep (`^\s*pytest\.skip`) is clean; keeping the ban's documentation is worth more than satisfying the letter of the grep. |
@@ -2154,29 +2163,196 @@ Stage 6 notes:
 
 ---
 
-## Retrospective (fill at plan close)
+## Retrospective (filled at plan close, 2026-09-28)
 
-- Which stage produced findings that should have been Stage 0 (i.e. evidence
-  that should have existed before any code changed)?
-- Did any item's tests pass without actually executing the code under scrutiny?
-  (Compare collected count vs executed count for every new test — this is the
-  failure mode that made 88 `noise_reduction` tests invisible.)
-- Did any decision recorded here turn out to be wrong, and what evidence
-  changed it?
-- Which `AGENTS.md` gotcha would have prevented a mistake made in this
-  iteration? Propose the addition to the user — never edit `AGENTS.md`
-  silently.
+The four questions below are the ones this section was opened with. Each is
+answered from the Decision Log and Completion Log evidence, not from memory.
+
+**1. Which stage produced findings that should have been Stage 0 (i.e.
+evidence that should have existed before any code changed)?**
+
+Three — all pre-existing measurement-integrity defects that the Stage 0
+baseline certified green only because the Phase Gate itself lacked the
+checks that would have caught them:
+
+- **The stale `uv.lock` (found by E2's required `uv sync`, Stage 4).**
+  `librosa` and `sounddevice` were missing from the base dependency graph
+  and `types-requests` from the dev extra — the lock had drifted from
+  *declared* `[project]` dependencies, and Stages 0–3 ran the whole gate for
+  four stages against a dependency graph CI's own `uv sync` would have
+  failed on. Gate integrity is Stage 0's scope; the transferable part is
+  that any plan gate which can touch the dependency graph must include
+  `uv sync`, not only pytest/ruff/mypy/bandit.
+- **The `>=3.10` floor dishonesty (found during Stage 6).** The committed
+  lock resolved *different* numeric stacks per interpreter
+  (`python_full_version < '3.11'` → numpy 2.2.6 / scipy 1.15.3; 3.12+ →
+  numpy 2.5.2 / scipy 1.18.0) and the dev host (3.14.7) had no CI leg at
+  all — a green 3.10 leg validating a dependency graph nobody developed or
+  shipped against. The evidence sat in the baseline's own lockfile, which
+  Stage 0's "restore trust in the gates" scope should have inspected.
+  Resolved the same session by the maintainer-approved floor raise to 3.11.
+- **The order-dependent `test_styles.py` pair (found during the Stage 5
+  gate).** `set_active_palette()` mutates module-level `PALETTES` in place,
+  so an `importlib.reload()`-based restore silently did not restore;
+  whichever test ran second failed, and only on the *second* full-suite
+  run. A suite whose outcome depends on run order is not a trustworthy
+  gate — squarely Stage 0's scope. Fixed in the same change (test-side,
+  plus a deterministic pollution regression); the production in-place
+  mutation is follow-up B4 of `PLAN_iteration6_followups.md`.
+
+Also recorded: audit finding #1 reproduces only under `--preview` on the
+installed ruff 0.15.22 — the stable-mode gate already passed, so the A1 fix
+was forward-protective, not retroactive (the Completion Log row says so).
+An audit that files a gate finding should reproduce it against the
+installed toolchain first.
+
+**2. Did any item's tests pass without actually executing the code under
+scrutiny? (Compare collected count vs executed count for every new test —
+this is the failure mode that made 88 `noise_reduction` tests invisible.)**
+
+No *new* test shipped vacuously in this iteration — every
+"executed, not collected-and-skipped" claim carries a pass count (B1:
+46 passed / 0 skipped, with real child-PID parity; F1: 60 vectors, with
+`git status` proving test-only files; B4 chose its signals from
+collection-vs-execution counting: 7,162 collected, 6,480 requiring neither
+`root`/`tk_root`; every coverage-target item records before/after module
+coverage). But the failure mode was *encountered* three times, and each
+catch is the transferable part:
+
+- **B3 discovered it pre-existing:**
+  `audio_normalizer/tests/test_ffmpeg_finder.py` tested `get_startupinfo`
+  and *zero* lines of `ffmpeg_finder.py` (module at 44%) — the same shape
+  as the 88 invisible `noise_reduction` tests, undetected because a test
+  file *named* for a module it never touched satisfies the naming
+  convention. Per-module coverage numbers, not test counts, exposed it.
+- **G1 self-inflicted, caught in-change:** the skip-attribution walk
+  reused `_EXCLUDED_DIRS` (which contains `tests`) and scanned **zero**
+  files — it would have passed vacuously forever; the assert-non-empty
+  design is what caught it.
+- **G2's verification harness reported "LOCK FIRED" on a scratch run that
+  executed no test** (PowerShell `[string]` collapse → pytest received one
+  character → the usage message's `ERROR` matched the verdict). Fixed to
+  `[string[]]` plus a verdict keyed on `FAILED`/`ERROR` *test* lines.
+
+**3. Did any decision recorded here turn out to be wrong, and what
+evidence changed it?**
+
+- **The audit's own D2 research input was wrong** — "`madmom` is MIT and
+  wheel-installable" was overturned by attempting the install on Python
+  3.14.7 (BSD-licensed code but **CC BY-NC-SA models**, sdist-only,
+  `ModuleNotFoundError: No module named 'Cython'`). Superseded in the
+  Decision Log *before* the decision was taken — the empirical install
+  attempt is what made decision D2 safe to resolve.
+- **This session's own first report was wrong** — the `tomllib` collection
+  defect was first reported against both `tests/test_readme.py` and
+  `tests/test_pyproject_config.py`; AST re-verification proved only
+  `test_readme.py:30` was unguarded (the other file already guards the
+  import and carries three `skipif`s). Grep matched a guard that exists;
+  AST proved it. The correction is recorded in the Decision Log.
+- **B1's corrupt-file assertion was wrong at HEAD** — the test pinned the
+  empty-decode branch's message at the batch level; uv.lock resolves
+  librosa 1.0 on py≥3.12, which removed the audioread fallback, so the
+  same corrupt container took the decoder-raised branch and the test
+  failed. Reproduced both directions before editing; corrected to the
+  backend-neutral batch contract.
+- **The repository's implicit `>=3.10` support posture was wrong** —
+  overturned by lock inspection (the per-interpreter numeric split) plus
+  numpy/scipy `Requires-Python >= 3.11` metadata plus a CI matrix that
+  never tested the development interpreter; resolved by the
+  maintainer-approved 3.11 floor.
+- **Not wrong, for the record:** decision D3 (hold 75) survived contact —
+  the honest number never fell below the gate at any stage (78.04% →
+  79.11%), so the "may fail for a while" contingency never fired.
+
+**4. Which `AGENTS.md` gotcha would have prevented a mistake made in this
+iteration? Propose the addition to the user — never edit `AGENTS.md`
+silently.**
+
+Two lessons were codified mid-iteration with approval, before close: the
+mypy-per-file-bypass lesson (Stage 2) and the requires-python/lockfile
+lesson (Stage 6). At close the maintainer (Wilte) approved six more, all
+grounded in real defects this iteration produced or caught, all added to
+`AGENTS.md` in the close-out change:
+
+1. A scripted edit that moves code between indentation levels is
+   valid-Python-wrong — the compile gate cannot catch it; re-diff the
+   touched lines and rely on behaviour-lock tests (C2's `process_batch`
+   de-indent, the second scripted-edit regression after P5 note 4).
+2. A scan reusing an opposite-purpose exclusion set silently scans zero
+   files and passes vacuously; assert the result set is non-empty (G1's
+   skip-attribution walk).
+3. Simulate platforms by patching `sys.platform` only — patching `os.name`
+   on Windows constructs a `PosixPath` hybrid that exists on no real
+   system (G1).
+4. A verification harness that cannot fail is worse than none — type
+   PowerShell array arguments `[string[]]` and key break-and-restore
+   verdicts on `FAILED`/`ERROR` *test* lines (G2's scratch check).
+5. `importlib.reload()` does not undo in-place mutations of module-level
+   dicts; capture expected state before pollution and add a deterministic
+   pollution regression (the Stage 5 `test_styles` order-dependence).
+6. Do not pin one dependency version's branch message at a consumer
+   boundary; assert the backend-neutral contract where versions change
+   the branch (B1/D1's librosa 1.0 audioread removal).
+
+**Close-out gate evidence (2026-09-28, Windows host, Python 3.14.7, ruff
+0.15.22, mypy 1.20.0, pytest 9.0.3):** the full six-command gate was run on
+the clean tree at `20e7c89` *before* the close-out edits and re-run in full
+on the post-edit tree; the close-out change is Markdown-only (this file,
+`PLAN_iteration6_followups.md`, `AGENTS.md`) and Markdown is excluded from
+`ruff format` by the A1 rule, so the two runs agree by construction as well
+as by measurement. Every number below is from the post-edit run:
+
+0. `python -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'` → exit 0
+   (documented pre-existing third-party pydub `SyntaxWarning` noise)
+1. `python -m ruff check .` → `All checks passed!` ·
+   `python -m ruff format --check .` → 757 files already formatted
+   (unchanged by the three edited `.md` files, per the A1 exclusion)
+2. `python -m mypy .` → `Success: no issues found in 452 source files`
+3. `$env:PYTHONUTF8='1'; python -X utf8 -m bandit -r . -x ./.venv
+   -c pyproject.toml` → 0 High / 0 Medium / 51 Low (baseline-identical)
+4. bare `python -m pytest -q` → 7,522 passed / 3 skipped / 30 deselected
+   (identical to the Stage 6 end state; the 3 skips remain the pre-existing
+   platform probes)
+5. coverage → 79.11% ≥ `fail_under = 75` (decision D3 held to the close)
+6. `git grep --cached` secret scans (primary + 4 supplemental patterns) over
+   the staged close-out change → no live secrets. Primary-pattern hits are
+   documentation prose only (the plans' and `AGENTS.md`'s own descriptions
+   of these scan patterns, and the word "token" meaning a *source-code*
+   platform token); the supplemental key/token, 32-hex, base64-44+ and PEM
+   patterns return zero hits.
+
+Post-block verification: commands 0–1 were re-run green after this block
+was written (compile exit 0; ruff check clean; `ruff format --check` 757
+files), confirming the Markdown-only gate-block edit itself moved nothing
+measured by the gate.
 
 ---
 
 ## Plan Close-Out Checklist
 
-- [ ] All 21 audit findings mapped, implemented, and evidence-recorded
-- [ ] All five open decisions resolved in the Decision Log with a name
-- [ ] Every item carries Gate Evidence in the Completion Log
-- [ ] `AGENTS.md` updated for any new transferable lesson (user-approved)
-- [ ] Any **new** plan opened for the deliberately-excluded work, so nothing
-      is silently dropped
-- [ ] This file's `Status` flipped to `Complete` and the audit index checked
-      off item by item
+- [x] All 21 audit findings mapped, implemented, and evidence-recorded —
+      20 findings closed `[x]`; finding #4 (A4) closed `[~]` per the
+      maintainer's close-out decision: implementation and YAML validation
+      complete, the first-run CI URL + Linux passed count to be appended
+      when the repository gains a remote (named condition in the A4 row;
+      tracked as item A1 of `PLAN_iteration6_followups.md`)
+- [x] All five open decisions resolved in the Decision Log with a name —
+      D1–D5 attributed to the maintainer (Wilte), 2026-09-26, recommended
+      options accepted
+- [x] Every item carries Gate Evidence in the Completion Log — all 21 rows
+      carry per-item date + the six commands + pass/coverage counts; A4's
+      row carries its honest pending-evidence note per its own rule
+- [x] `AGENTS.md` updated for any new transferable lesson (user-approved) —
+      six iteration-5 lessons added at close (see Retrospective answer 4);
+      the mypy-per-file-bypass and requires-python/lockfile lessons were
+      already codified mid-iteration with approval
+- [x] Any **new** plan opened for the deliberately-excluded work, so nothing
+      is silently dropped — `PLAN_iteration6_followups.md` carries the
+      roadmap's deliberately-excluded set plus every follow-up recorded in
+      this plan's Decision Log (A4 evidence, B1 dead code, B3 finder gate,
+      C2 dry-run honesty + undo contract, F2 low-confidence KEY-tag policy,
+      `test_styles` in-place mutation)
+- [x] This file's `Status` flipped to `Complete` and the audit index checked
+      off item by item — the "Closed" column added to the Audit Finding
+      Index (finding #4 `[~]`, mirroring A4's named condition)
 

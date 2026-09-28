@@ -349,6 +349,60 @@ Follow them or the "passing" run is misleading.
   pydub). Keep the documented command as-is; the warnings are noise, not
   failures.
 
+- **A scripted bulk edit that moves code between indentation levels produces
+  valid-Python-wrong code — the compile gate cannot catch it.** Iteration-5
+  C2's extraction script de-indented the tail of the inherited
+  `process_batch()` (the `results.append`/progress block slipped out of the
+  `for f in futures:` loop) while compile/ruff/mypy all stayed green; only
+  four pre-existing `TestProcessBatch` behaviour tests caught it
+  (`len(results) == 1` for a 3-file batch). After any scripted edit, re-diff
+  the touched lines and rely on behaviour-lock tests — never on the compile
+  gate alone. (Second scripted-edit regression after the P5
+  parenthesized-import insertion.)
+
+- **A scan reusing an opposite-purpose exclusion set silently scans zero
+  files and passes vacuously.** Iteration-5 G1's skip-attribution walk
+  reused `_EXCLUDED_DIRS` (which contains `tests`) while needing the exact
+  opposite, so every candidate was dropped before matching — it would have
+  passed vacuously forever. When a scan reuses a shared exclusion list,
+  assert the result set is non-empty so the empty scan fails loudly.
+
+- **Simulate platforms by patching `sys.platform` only — never `os.name`.**
+  The declared platform branches key on `sys.platform`; patching `os.name`
+  instead (iteration-5 G1) makes `pathlib.Path()` construct a `PosixPath` on
+  a Windows host, so the test measures a Windows/POSIX hybrid that exists on
+  no real system. The distinction is pinned by regression test via the
+  `PosixPath` consequence, not by assertion on the patch target.
+
+- **A verification harness that cannot fail is worse than none.** Iteration-5
+  G2's break-and-restore scratch check typed its pytest argument `[string]`
+  in PowerShell, so the array collapsed and pytest received a single
+  character; the usage message's `ERROR` line then matched the verdict
+  predicate and reported "LOCK FIRED" for a run that executed no test. Type
+  array arguments `[string[]]`, key break-and-restore verdicts on a
+  `FAILED`/`ERROR` *test* line (never on the literal word in any output),
+  confirm the summary line shows tests actually ran, and SHA-256-verify
+  every restore so the harness cannot leave a mutated file behind.
+
+- **`importlib.reload()` does not undo in-place mutations of module-level
+  dicts.** `set_active_palette()` mutates the module-level `PALETTES` dict in
+  place, so a test's reload-based "restore" silently did not restore and the
+  pair became order-dependent — surfacing only on the *second* full-suite
+  run (iteration-5 Stage 5). Never rely on reload to restore state another
+  test mutates in place: capture expected state before any test can pollute
+  it, and add a deterministic pollution regression when a test mutates
+  module-level globals.
+
+- **Do not pin one dependency version's branch message at a consumer
+  boundary.** Iteration-5 B1's corrupt-file pool test pinned the
+  empty-decode branch's "too short" message at the batch level; uv.lock
+  resolves librosa 1.0 on py≥3.12 (which removed the audioread fallback), so
+  the same corrupt container took the decoder-raised branch and the test
+  failed at HEAD. Where a dependency's version changes which branch runs,
+  assert the neutral contract (status=error, non-empty message, batch
+  completes) at the consumer, and pin each branch text in the loader's own
+  tests instead.
+
 ## Master Driver Card Naming (Mandatory Convention)
 
 `enrich_tab.py` and `utilities_window.py` lazy-import each tool's card as
