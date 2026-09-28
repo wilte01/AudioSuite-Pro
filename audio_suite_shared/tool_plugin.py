@@ -419,6 +419,11 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         category="refinery",
         pyw_filename="Audio_Refinery.pyw",
         description="DSP pipeline: declick, trim, enhance, normalise",
+        # Plan G2: audio_refinery.cli registers a `refine` subcommand, but the
+        # manifest declared cli_command=None — so the discoverability contract
+        # could not check this tool, and the CLI help had an orphan command no
+        # manifest pointed at. Declared here so the command and the tool agree.
+        cli_command="refine",
         standalone=True,
         order=10,
     ),

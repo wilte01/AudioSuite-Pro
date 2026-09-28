@@ -62,7 +62,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
-        python-version: ["3.10", "3.12"]
+        # The floor is 3.11 (see [project] requires-python): 3.10 could not
+        # supply current numpy/scipy wheels, so it resolved a second, stale
+        # numeric stack that nothing was developed against.  3.14 is the
+        # interpreter the suite is actually developed and run on, so it is
+        # tested rather than assumed.
+        python-version: ["3.11", "3.12", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

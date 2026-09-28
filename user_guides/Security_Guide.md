@@ -79,7 +79,7 @@ AudioSuite-Pro now includes enhanced security features to protect your data and 
 ### Prerequisites
 
 **Required Dependencies:**
-- Python 3.8+
+- Python 3.11+
 - cryptography>=3.4.8 (for encryption features)
 - certifi>=2021.5.30 (for SSL validation)
 

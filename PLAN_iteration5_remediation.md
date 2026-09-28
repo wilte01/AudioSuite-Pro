@@ -1461,7 +1461,7 @@ the tool surface is discoverable from the command line and the README.
 
 ---
 
-### G1 — Declare a platform support matrix and verify the portable core `[audit #20]`
+### G1 [x] — Declare a platform support matrix and verify the portable core `[audit #20]`
 
 **Priority:** Medium | **Effort:** 0.5 day | **Risk:** Low
 
@@ -1477,7 +1477,7 @@ source.
 
 **Scope:**
 
-- [ ] Produce the support matrix as a **documented table** (README per E1),
+- [x] Produce the support matrix as a **documented table** (README per E1),
       with three explicit tiers, and make the tiers *testable*:
       - **Portable core** — CLI-first tools whose core DSP/decode path has no
         platform-conditional code. This is the D5 option-A scope.
@@ -1486,38 +1486,42 @@ source.
       - **Unverified** — anything in a `sys.platform` branch that no CI leg
         exercises. Listed explicitly, with a note that it is untested rather
         than supported.
-- [ ] Enumerate every `sys.platform` / `os.name` / `sys.platform == "win32"`
+- [x] Enumerate every `sys.platform` / `os.name` / `sys.platform == "win32"`
       branch in first-party code and classify each into one of the three
       tiers. This enumeration is the deliverable; the table is its rendering.
-- [ ] For the portable core, add a test that exercises the core through the
+- [x] For the portable core, add a test that exercises the core through the
       **CLI** with a monkeypatched `sys.platform` value, proving the path is
       genuinely platform-independent rather than accidentally untested on
       Windows. A mocked platform value does not prove it runs on Linux — that
       is what A4's leg is for — but it does prove the branch is deliberate.
-- [ ] For each Windows-only subsystem, add a skip with a reason naming the
+- [x] For each Windows-only subsystem, add a skip with a reason naming the
       platform requirement, so the B4 blanket mechanism is not the thing
       hiding it.
-- [ ] Do not attempt to port anything. This item *declares* the current truth;
+- [x] Do not attempt to port anything. This item *declares* the current truth;
       a port is a new plan with the user's approval.
-- [ ] Correct the README's platform claim to match the matrix exactly — an
+- [x] Correct the README's platform claim to match the matrix exactly — an
       over-claim here is the defect this item exists to remove.
 
 **Tests (lockstep):**
 
-- [ ] A test asserting the documented matrix matches reality for the
+- [x] A test asserting the documented matrix matches reality for the
       portable-core subset: each tool listed as portable has a CLI test that
       runs with a monkeypatched non-Windows `sys.platform`.
-- [ ] A test asserting every Windows-only tool's suite either runs or skips
+- [x] A test asserting every Windows-only tool's suite either runs or skips
       with the declared reason — no silent pass-through.
 
 **Acceptance:**
 
-- Every platform-conditional branch in first-party code is classified into the
+- [x] Every platform-conditional branch in first-party code is classified into the
       three tiers; the enumeration is in the README and the count is recorded in
       the Completion Log.
-- The portable core has CLI tests that pass under a non-Windows `sys.platform`.
-- No README claim exceeds the matrix.
-- The Linux CI leg (A4) reports real results for the portable core.
+- [x] The portable core has CLI tests that pass under a non-Windows `sys.platform`.
+- [x] No README claim exceeds the matrix.
+- [~] The Linux CI leg (A4) reports real results for the portable core.
+      **Outstanding — owned by A4, not by this item:** the portable core is
+      verified here against a *mocked* platform, which is the honest ceiling
+      reachable from a Windows host. Real Linux results require A4's first
+      post-merge run (see the Completion Log's Stage 6 gate block).
 
 **Risks:** classification is a judgement call and can be wrong in the
 permissive direction ("portable" for something that is not). Mitigation: the
@@ -1527,7 +1531,7 @@ doubt, classify as **Unverified**, which is honest and cheap.
 
 ---
 
-### G2 — Make the tool surface discoverable from the command line `[audit #21]`
+### G2 [x] — Make the tool surface discoverable from the command line `[audit #21]`
 
 **Priority:** Low | **Effort:** 0.3 day | **Risk:** Low
 
@@ -1543,24 +1547,25 @@ until a user hits it.
 
 **Scope:**
 
-- [ ] Add a **golden contract test** that asserts, for every manifest id:
+- [x] Add a **golden contract test** that asserts, for every manifest id:
       a CLI subcommand exists and its `--help` resolves; a `guide_to_program`
       entry exists; and the expected launcher exists on disk. This is the
       enforceable version of the `AGENTS.md` "Registering a New Tool" ten-point
       checklist, and it belongs with item E1's index test (decide whether they
-      are one test or two, and record the choice).
-- [ ] `audiosuite --help` should group subcommands by function
+      are one test or two, and record the choice). → **Two tests**, split by
+      surface; the choice is recorded in the Decision Log.
+- [x] `audiosuite --help` should group subcommands by function
       (analysis / tagging / repair / utilities) — if the current help is a flat
       alphabetical list, grouping it is a small, contained improvement to the
       same entry point. Keep the flat list behaviour available if any existing
       test depends on ordering.
-- [ ] Ensure the Master Driver card naming rule is enforced by the same test
+- [x] Ensure the Master Driver card naming rule is enforced by the same test
       (the `AGENTS.md` "Master Driver Card Naming" failure mode — a
       near-miss filename is *silently* never found, with only a console
       warning as a symptom). A missing card must be a test failure.
-- [ ] Add a top-level `--version` that reports the version from
+- [x] Add a top-level `--version` that reports the version from
       `[project]` in `pyproject.toml`, so the version lives in exactly one place.
-- [ ] Do not build a new plugin/registry abstraction here; C3 has already split
+- [x] Do not build a new plugin/registry abstraction here; C3 has already split
       the existing one, and the discovery surface is the deliverable.
 
 **Tests (lockstep):** the contract test above is the deliverable and must fail
@@ -1568,11 +1573,11 @@ loudly for a missing subcommand, guide entry, launcher, or card.
 
 **Acceptance:**
 
-- Adding a tool without a CLI subcommand, guide entry, launcher, and card fails
-  the suite — verified by temporarily removing one in a scratch check, not by
+- [x] Adding a tool without a CLI subcommand, guide entry, launcher, and card fails
+      the suite — verified by temporarily removing one in a scratch check, not by
       assertion alone.
-- `audiosuite --version` matches `[project] version`.
-- `audiosuite --help` lists all 27 tools.
+- [x] `audiosuite --version` matches `[project] version`.
+- [x] `audiosuite --help` lists all 27 tools.
 
 **Risks:** a contract test this broad can become a maintenance tax. Keep it
 declarative — one table of expectations, one loop, no per-tool special cases —
@@ -2002,6 +2007,77 @@ Stage 5 notes:
 
 ---
 
+### Stage 6
+
+| Item | Stage | Completed | Baseline → after | Gate Evidence (date + the six commands + pass/coverage counts) | Notes |
+|------|-------|-----------|------------------|------------------------------------------------------|-------|
+| G1 | 6 | 2026-09-28 | no declared platform support anywhere; the README's claim exceeded the code → **30 distinct branches / 36 sites across 16 modules** classified into 3 tiers (16 portable core / 5 Windows-only / 9 unverified) and rendered into the README; **26 of 27 tools portable core, `cd_ripper` the only Windows-only tool** | Full gate all green, 2026-09-28 (Stage 6 gate block below). Item-specific: `audio_suite_shared/tests/test_platform_support.py` **60 passed**; `test_platform_support.py` + `test_project_version.py` together **79 passed**, both new modules at **100% coverage** (`platform_support` 47 statements, `project_version` 35, 0 missing). | The enumeration is an **exact AST↔declaration bijection**, not a survey: `TestEnumerationLock` re-walks the tree and fails on any undeclared branch, stale declaration, or wrong `occurrences` count, so a new `sys.platform` check cannot be added without classifying it. Scratch-verified (break-and-restore, every file SHA-256-verified restored): falsifying one `occurrences` → `TestEnumerationLock` fails; flipping a tier → the tier-integrity, tool-tier and README-drift locks fail. `key_manager` is classified `tool=None` (shared) because its `icacls` ACL work is allowlisted subprocess hardening, not a *tool* platform dependency. `secure_subprocess`'s MAX_PATH ceiling was **promoted** to portable core with executable evidence (it runs on any host and only the ceiling constant is Windows-shaped). The 9 unverified branches are listed as untested, never as supported. |
+| G2 | 6 | 2026-09-28 | 27 tools reachable only by an undocumented flat alphabetical `--help`; `--version` read *installed distribution metadata* (wrong or missing in a source checkout) → `--help` grouped into 3 functional sections + "Other commands"; `--version` reads `[project] version` in `pyproject.toml`; every tool's CLI surface is contract-locked | Full gate all green, 2026-09-28 (same run as G1). Item-specific: `audio_suite_shared/tests/test_cli_app.py` **87 passed** (was 45); `test_project_version.py` **19 passed**, `project_version.py` at **100% coverage**. `audiosuite --version` → `audiosuite, version 1.0.0`, equal to `[project] version` and cross-checked against `tomllib`. `audio_suite_shared/tests/test_tool_plugin.py` updated for `refine`. | `audio_refinery.cli_command` was **`None` while the `refine` subcommand existed** — the manifest was lying, not the CLI, so the manifest was corrected (the pre-existing gap table is derived from the manifest, so it had to agree). Scratch-verified (SHA-256-verified restore): commenting out `import bpm_analyzer.cli` → **4 contract tests fail** (the subcommand lock, the top-level-help lock, the grouping render lock, and the exactly-one-group lock), which is the plan's acceptance criterion demonstrated rather than asserted; hardcoding the version → **4 version tests fail**. Grouping is **rendering-only**: `list_commands()` is untouched, asserted to stay flat and sorted. `_command_groups` buckets by the manifest's own `category`, and a command with no manifest entry lands in "Other commands", so a newly registered command cannot be silently dropped. **17 of 26 subcommand help strings deliberately differ from the manifest description** (richer CLI docstrings vs UI tooltips) — measured, not assumed, and the contract asserts the *mechanism* rather than textual equality. `undo_tag_edits` is the one declared GUI-only gap with a stated reason; `test_no_undeclared_gap_below` fails if a *new* tool appears without a subcommand, and also fails on a stale entry. |
+
+**Stage 6 gate evidence (2026-09-28, Windows host, Python 3.14.7,
+ruff 0.15.22, mypy 1.20.0, pytest 9.0.3 — one run covering both G1 and G2):
+
+0. `python -X utf8 -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'` → exit 0
+   (documented pre-existing third-party pydub `SyntaxWarning` noise)
+1. `python -m ruff check .` → `All checks passed!`
+   `python -m ruff format --check .` → **757 files already formatted**
+   (was 752: +5 files added by Stage 6)
+2. `python -m mypy .` → `Success: no issues found in 452 source files`
+   (was 450: +`platform_support.py`, +`project_version.py`)
+3. `$env:PYTHONUTF8='1'; python -X utf8 -m bandit -r . -x ./.venv -c pyproject.toml`
+   → **0 High / 0 Medium / 51 Low** (baseline-identical)
+4. bare `python -m pytest -q` → **7520 passed / 3 skipped / 30 deselected**
+   (Stage 5 close 7406 / 3 → **+114**: the G1 matrix/enumeration/portable/attribution
+   tests, the 19 version tests, the G2 contract tests, and the registry assertions
+   that moved with the `refine` manifest correction);
+   the 3 skips remain the pre-existing platform probes
+5. coverage → **79.11% ≥ `fail_under = 75`** (D3 decision held; +0.08 over the
+   Stage 5 close, since both new modules are at 100% and nothing was excluded)
+6. secret scans (primary + 4 supplemental patterns, over the 6 modified and 5 new
+   files) → **7 hits, all benign and manually inspected**: 6 × the word "token"
+   in `test_platform_support.py`, where it means a *source-code* platform token
+   (`for token in ("os.name", "sys.platform", ...)`), and 1 × the tool name
+   `key_manager` in the README. No 32-hex, no base64-44+, no PEM, no key value.
+
+Stage 6 notes:
+
+- **The two gaps found while implementing G1/G2 were fixed in this change, not
+  deferred** (Decision Log). (a) The branch scan's directory exclusion list
+  contains `tests`, and the *skip-attribution* walk reused it — so the
+  attribution test silently scanned **zero** files and would have passed
+  vacuously forever. The two walks now have separate filters, the second
+  deliberately inverted (a platform token in a test is a mock, not a branch).
+  (b) The skip detector read only the `reason=` keyword, so `pytest.skip("…")`
+  — where the message *is* the reason and the condition lives in the enclosing
+  `if` — was reported as "a platform skip with no reason". Both spellings are
+  now handled, via a parent map.
+- **`os.name` is not `sys.platform`, and patching the wrong one produces a
+  measurement of a platform that does not exist** (Decision Log). With
+  `os.name="posix"` on Windows, `pathlib.Path()` constructs a `PosixPath`, so
+  a "posix" CLI test measures a Windows/POSIX hybrid. The portable-CLI tests
+  patch `sys.platform` only, and a regression test locks that distinction.
+- **The scratch check was itself wrong on the first run** and the fix is the
+  useful part: the PowerShell helper typed its pytest argument as `[string]`,
+  so the array collapsed and pytest received a single character; the harness
+  then matched the string `ERROR` in pytest's usage message and reported
+  "LOCK FIRED" for a run that had never executed a test. The verdict now keys
+  on a `FAILED`/`ERROR` *test* line and the argument is `[string[]]`. A
+  verification harness that cannot fail is worse than none.
+- **A pre-existing defect found in passing, now resolved by the 3.11 floor
+  decision** (see the Decision Log rows of 2026-09-28): `tests/test_readme.py`
+  had a bare module-scope `import tomllib` (line 30) and could not be collected
+  on 3.10 — proven by running it with `sys.modules["tomllib"] = None`, which
+  failed with `ModuleNotFoundError`. `tests/test_pyproject_config.py` was
+  *first* reported as affected and that was **wrong**; re-verified by AST, it
+  already guarded the import and carried three `skipif`s, so the blast radius
+  was **one file**. Rather than patching the import, the maintainer raised the
+  suite floor to Python 3.11 (decision below), which resolved the defect at
+  its root: `tomllib` is standard library on every supported interpreter, the
+  `test_readme.py` import is legal as written, and the guards/`skipif`s that
+  existed only for the 3.10 leg were deleted rather than left as dead code.
+
+---
+
 
 ## Decision Log
 
@@ -2046,6 +2122,17 @@ Stage 5 notes:
 | 2026-09-28 | F2 (scope, known gap) | **`key_detector.core.file_processor` writes `detect_key`'s result straight to a file's KEY tag, so untuned material will now be tagged `"Unknown"`. Deliberately left unfixed, and recorded here as a follow-up.** | The item's own scope says the change "must stay inside `key_engine.py` plus its own tests" and "keep the public interface and its callers unchanged", so filtering the fallback out at the tag writer is out of scope by the plan's own instruction — `AGENTS.md` §2 forbids the unrequested change. The behaviour is stated in `key_engine`'s module docstring rather than left to be discovered. A follow-up item should decide whether an untuned file is left untagged, tagged `'Unknown'`, or reported as skipped, and add a real-tag regression test for whichever is chosen. |
 | 2026-09-28 | F1/F2 (material) | **The F2 "real material" measurement uses a constructed, overtone-rich, multi-voice excerpt decoded through the real `analysis_loader` path — not a commercial recording.** | No third-party audio ships in this repository, librosa bundles none, and `librosa.example()` would make the test suite depend on a network fetch, so a genuine recording was not obtainable offline. The constraint F1 already set (no commercial audio, fixtures unambiguously redistributable) is honoured by construction instead: the excerpt is synthesised from a 6-partial series with a bass voice, per-note attack/release envelopes and a musical tempo, written to a **real 16-bit PCM WAV** and read back through the tool's own decoder, so the assertion is of decoded audio rather than of engine state — which is the substance of the AGENTS.md outcome-correctness rule. The test docstring states plainly that the material is constructed, so no future reader mistakes it for a recording. A labelled human-annotated corpus remains the honest way to settle the item's "mis-keys more often than a user expects" claim, and is left as future work rather than simulated. |
 | 2026-09-28 | (defect, cross-item) | **Intermittent `test_styles.py` failure found during the Stage 5 gate and fixed in the same change** — `TestWindowsAccentFallback` was order-dependent. | `set_active_palette()` mutates the module-level `PALETTES` dict **in place**, so a test installing `"Windows Accent"` permanently replaced the placeholder that the test's own `importlib.reload()` was supposed to restore; whichever of the two ran second then saw an accent-coloured button and failed. It surfaced only on the *second* full-suite run, which is why the pre-F1 baseline was re-taken. Fixed in the test — reload before capturing the placeholder — plus a new `test_fallback_survives_a_palette_polluted_by_an_earlier_test` that deterministically reproduces the pollution, so the fix is proven rather than assumed (the pre-fix body was run under the same pollution and failed). The underlying in-place production mutation is pre-existing, is a real coupling wart, and was deliberately **not** changed here: it is out of Stage 5's scope and a fix would change behaviour for every caller. Recorded as a follow-up. |
+| 2026-09-28 | G1 (defect, self-inflicted) | **The skip-attribution walk scanned zero files and would have passed vacuously forever** — found and fixed in the same change. | The branch-enumeration walk excludes test directories (a platform token in a test is a mock, not a branch) via a shared `_EXCLUDED_DIRS` set that contains `"tests"`. The new *skip-attribution* walk reused that same set while needing the exact opposite, so `rel.parts` matching happened *after* the exclusion and every candidate was dropped: `test_cd_ripper_declares_its_win32_requirement` found no gated skips and failed on the first run, which is how it surfaced rather than passing silently — the "expect a non-empty set" assertion caught it. Fixed by giving the two walks separate filters (`ignored = _EXCLUDED_DIRS - {"test", "tests"}`), with a docstring stating why the inversion is deliberate. The transferable lesson: **a shared "exclude" constant reused by a scan that needs the opposite silently empties the scan, and only an assertion that the result is non-empty catches it.** |
+| 2026-09-28 | G1 (defect, self-inflicted) | **The skip detector reported `pytest.skip("msg")` as a platform skip with no reason** — fixed in the same change. | It read only the `reason=` keyword, which exists for `pytest.mark.skipif(<cond>, reason=...)` but *not* for `pytest.skip("...")`, where the message **is** the reason and the platform condition lives in the enclosing `if` (e.g. `cd_ripper/tests/test_disc_core.py:666`, guarded by `if not hasattr(ctypes, "windll")`). Both spellings are now handled via an AST parent map. Consequence had it shipped: a legitimate, correctly-reasoned Windows skip would have been reported as reasonless, and the new "every platform skip names its platform requirement" lock would have pushed an author towards *removing* a correct skip to satisfy the test. |
+| 2026-09-28 | G1 (method) | **`os.name` is not `sys.platform`, and simulating a platform by patching the wrong one measures a platform that does not exist.** | Discovered while writing the portable-core CLI test: `sys.platform` is what the 36 declared branches branch on, but it is tempting to patch `os.name` instead, since `os.name` is what `pathlib` and `os.path` consult. With `os.name = "posix"` on a Windows host, `pathlib.Path()` returns a **`PosixPath`** — a Windows/POSIX hybrid that exists on no real system, and a test asserting behaviour on it is measuring a fiction. The portable tests therefore patch `sys.platform` only, and a dedicated regression test pins the distinction by asserting the `PosixPath` consequence rather than merely asserting the patch target. `test_platform_support.py`'s module docstring records it so the next author does not "helpfully" add `os.name`. |
+| 2026-09-28 | G1 (classification) | **`key_manager` is classified `tool=None` (shared) even though it contains the Windows-only `icacls` ACL path.** | A branch belongs to a *tool* only when it constrains that tool's usability. `key_manager`'s `icacls` work is allowlisted subprocess hardening on a POSIX-capable filesystem (Iteration-4 K1), not a Windows dependency, so counting it would have demoted a portable tool on the strength of a hardening detail. `secure_subprocess`'s MAX_PATH ceiling was treated the same way and **promoted to portable core** once an executable test showed the code runs on any host and only the ceiling *constant* is Windows-shaped. The matrix distinguishes "the code has a platform branch" from "the tool needs that platform", and `TestToolTiers` locks that `cd_ripper` is the only Windows-only tool. |
+| 2026-09-28 | G2 (scope, plan's own open question) | **The golden contract is TWO tests, split by surface, not one** — answering the plan's "decide whether they are one test or two, and record the choice". | `TestRegistrationLock` (E1, `tests/test_readme.py`) owns the **static** surfaces: launcher `.pyw`, Master Driver card module with the `audio_refinery` embedded-tab exception, `guide_to_program` entry, and the `.docx` artifact. `TestDiscoverabilityContract` (G2, `audio_suite_shared/tests/test_cli_app.py`) owns the **runtime** surfaces: subcommand resolves, `--help` renders, grouped-help completeness, `--version` agreement. One test would have had to import both the filesystem and Click concerns, and the decisive reason to keep them apart is that E1's card-overrides registry is *data* the contract must not duplicate — a second copy of that list is exactly the parallel-registry failure the plan forbids. `test_static_surfaces_are_covered_by_the_e1_test` therefore asserts the *other* half still exists, so the split cannot silently lose a surface. |
+| 2026-09-28 | G2 (defect, pre-existing) | **`audio_refinery.cli_command` was `None` while the `refine` subcommand existed — the manifest was corrected, not the CLI.** | The manifest is the single source of truth the new contract reads, so a missing entry would have made `audiosuite --help` grouping drop the tool into "Other commands" and left the suite's own gap table claiming a tool was CLI-less when it was not. The existing pre-G2 gap table is *derived* from the manifest, so it had to move with it, which is why the correction was not optional tidying. `test_tool_plugin.py`'s expected set gained `refine` in lockstep. |
+| 2026-09-28 | G2 (measurement) | **17 of 26 subcommand help strings do not match their manifest description, and the contract does not require them to.** | Checked before asserting: 9 match verbatim, 17 differ (e.g. manifest "Fingerprint audio and identify tracks via AcoustID" vs the CLI's longer "Generate Chromaprint fingerprints and identify tracks via AcoustID."). The two are different audiences — a UI tooltip versus a CLI docstring — so requiring textual equality would have forced either 17 rewrites of correct help text or a weakened assertion. The contract instead asserts the *mechanism* (the subcommand exists, `--help` exits 0 and renders, the command is grouped and listed), which is what the audit finding is actually about. |
+| 2026-09-28 | (process) | **A verification harness that cannot fail is worse than none — the G2 scratch check reported "LOCK FIRED" on a run that executed no test.** | The PowerShell helper typed its pytest argument `[string]`, so the `[string[]]` array collapsed and pytest received a single character (`ERROR: file or directory not found: a`). The verdict then matched the literal `ERROR` in pytest's usage message, so all four checks "passed" — vacuously, on a run where no test was collected. Caught because the summary line was empty and the reported failure was obviously not a test name. Fixed by typing the parameter `[string[]]` and keying the verdict on a `FAILED`/`ERROR` *test* line; all four checks were then re-run and each fired on the expected test. Every restore is SHA-256-verified, so the harness cannot leave a mutated file behind. Generalises to any break-and-restore gate. |
+| 2026-09-28 | (defect, cross-item, **RESOLVED — by the 3.11 floor decision**) | **`tests/test_readme.py` could not be collected on Python 3.10** (bare module-scope `import tomllib` at line 30). **Resolved at the root, not by patching the import:** the floor decision (two rows down) makes `tomllib` standard library on every supported interpreter, so the import is legal exactly as written and is unchanged. | **Correction to an earlier finding in this session:** the same defect was *first* reported against both `tests/test_readme.py` and `tests/test_pyproject_config.py`. That was wrong, and re-verified by AST rather than grep: `test_pyproject_config.py` already guards the import (`try: import tomllib … except ModuleNotFoundError: _HAS_TOMLLIB = False`) and carries three `skipif`s naming the constraint, so it collects fine on 3.10. **Only `test_readme.py:30` is unguarded**, and that is proven, not inferred: running the file with `sys.modules["tomllib"] = None` fails with `ModuleNotFoundError: import of tomllib halted`. The blast radius is one file, not two. The genuine open question behind it is the **minimum-version decision** (next row), not the import. |
+| 2026-09-28 | (packaging, **DECIDED — approved and implemented same session**) | **`requires-python = ">=3.10"` is no longer honest, and the right fix is to raise the floor to 3.11 — not to add a TOML dependency.** The argument below persuaded; the decision, the change list, and the gate evidence are in the next row. | The maintainer's question ("if `tomllib` is stdlib from 3.11, why not require 3.11?") is correct, and the evidence supports it well beyond TOML. (1) **The floor is already false in practice**: the committed `uv.lock` resolves *different* numeric libraries per Python — the `python_full_version < '3.11'` markers pin **numpy 2.2.6 + scipy 1.15.3**, while 3.12+ gets **numpy 2.5.2 + scipy 1.18.0**. Current numpy (2.3.5) and scipy (1.17.0) both declare `Requires-Python >= 3.11`, so a 3.10 user is pinned to a *stale* numeric stack. For an audio-DSP suite whose correctness claims are measured (ST 1/2), a green 3.10 leg validates a dependency graph **nobody develops or ships against** — the dev host is 3.14.7 and the `.pyw` tools launch on that global interpreter. That is a misleading safety net, not a useful one. (2) **The 3.10 leg is already known-degraded in our own docs**: `CONTRIBUTING.md:23` says "Python 3.12+ for `tomllib`-dependent locks", and `test_pyproject_config.py` carries three `skipif`s deferring its config lock to the 3.12 legs. (3) **CI never tests 3.14** — the matrix is `["3.10", "3.12"]`, so the version actually in daily use is the one version with no CI coverage. Recommended shape: `requires-python = ">=3.11"`; CI matrix `["3.11", "3.12", "3.14"]` (drop 3.10, *add* 3.14). That makes the `tomllib` guards in all three files deletable, removes the numpy/scipy split, and closes the 3.14 hole — all with **zero new dependencies**. Secondary effect to weigh at the same time: `audio_suite_shared/project_version.py` (added in G2) hand-rolls a scoped regex TOML reader *only* because of the 3.10 floor; on 3.11 it can call `tomllib` directly, and it should then be **simplified rather than kept alongside** a real parser. |
+| 2026-09-28 | (packaging, DECIDED & IMPLEMENTED) | **The maintainer approved raising the floor to Python 3.11, keeping 3.14.7 as the development target: "Python 3.14.7 was used to develop AudioSuite-Pro so all libraries need to be compatible with that; if we can go back to Python 3.11 as a minimum, but still maintain compatibility that's fine." Implemented in the same session, with zero new dependencies.** | **Code and packaging:** `requires-python = ">=3.11"`; `uv lock` re-resolved — the 3.10-only pins fell out by themselves (numpy 2.2.6, scipy 1.15.3, exceptiongroup 1.3.1, scikit-learn 1.7.2) and no `python_full_version < '3.11'` marker remains, so every supported interpreter now resolves the numeric stack actually developed against; CI matrix `["3.11", "3.12", "3.14"]` — 3.10 dropped, 3.14 (the development interpreter, previously *never* tested) added; `tests/test_pyproject_config.py`'s `_HAS_TOMLLIB` try/except and three `skipif`s deleted as dead code; `audio_suite_shared/project_version.py`'s hand-rolled regex TOML reader deleted — it existed only because of the 3.10 floor — replaced by `tomllib.loads` with a loud-failure contract (malformed TOML raises `TOMLDecodeError` instead of silently falling back to stale installed metadata); its vacuous tomllib-vs-tomllib cross-check test replaced with three meaningful locks (non-string version returns `None`, malformed TOML raises, the real file reads), net +2 tests. **Docs:** README prerequisite rewritten (states 3.10 is not supported and why); CONTRIBUTING's "Python 3.12+ for `tomllib`-dependent locks" caveat removed; Security_Guide's stale "Python 3.8+" corrected to 3.11+; tag_field_updater guide generator updated and the `.docx` regenerated and verified (3.11+ present, 3.10+ absent). **Gate (2026-09-28, Windows host, Python 3.14.7):** compile exit 0; ruff clean (3 import-order auto-fixes, then 757 files format-stable); mypy strict 0 issues / 452 files; bandit 0 High / 0 Medium / 51 Low (the unchanged documented set); full-suite pytest **7522 passed, 3 skipped, 30 deselected**, coverage **79.11%** (≥ 75). |
 
 ---
 

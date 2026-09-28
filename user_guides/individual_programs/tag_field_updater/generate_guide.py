@@ -374,7 +374,7 @@ doc.add_heading("Technical Details", level=1)
 
 doc.add_heading("Dependencies", level=2)
 p = doc.add_paragraph(style="List Bullet")
-p.add_run("Python 3.10+: ").bold = True
+p.add_run("Python 3.11+: ").bold = True
 p.add_run("Core runtime")
 p = doc.add_paragraph(style="List Bullet")
 p.add_run("Mutagen: ").bold = True

@@ -28,20 +28,12 @@ import sys
 from pathlib import Path
 
 import pytest
+import tomllib
 
 from tests.test_conftest import _load_root_conftest, _outcome, _outcome_line
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = REPO_ROOT / "pyproject.toml"
-
-try:
-    import tomllib
-
-    _HAS_TOMLLIB = True
-except ModuleNotFoundError:
-    # Python 3.10 (a CI leg) has no tomllib. The config lock below is enforced
-    # by the 3.12 legs; the 3.10 skip names its constraint instead of hiding.
-    _HAS_TOMLLIB = False
 
 #: Mirrors the real ``[tool.pytest.ini_options]`` markers and addopts in the
 #: pytester sandbox: ``--strict-markers`` accepts the three real markers and
@@ -98,10 +90,6 @@ declaration.find_missing_requirements = lambda *_args, **_kwargs: [
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(
-    not _HAS_TOMLLIB,
-    reason="tomllib requires Python 3.11+; the 3.12 CI legs enforce this lock",
-)
 class TestCoverageExclusionLock:
     """Plan D2: no syntax-pattern exclusion may hide arbitrary error handling.
 
@@ -151,10 +139,6 @@ class TestCoverageExclusionLock:
         )
 
 
-@pytest.mark.skipif(
-    not _HAS_TOMLLIB,
-    reason="tomllib requires Python 3.11+; the 3.12 CI legs enforce this lock",
-)
 class TestConfigLock:
     """The wiring must be in the config file itself, not in ritual."""
 
@@ -233,10 +217,6 @@ _GPL3_SHA256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986
 _BASELINE_DOCS = ("CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md")
 
 
-@pytest.mark.skipif(
-    not _HAS_TOMLLIB,
-    reason="tomllib requires Python 3.11+; the 3.12 CI legs enforce this lock",
-)
 class TestPackagingMetadataLock:
     """Plan E2 (audit #11): the licence is declared and real.
 

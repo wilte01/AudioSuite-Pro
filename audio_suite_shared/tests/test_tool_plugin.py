@@ -238,6 +238,9 @@ class TestDefaultRegistry:
             "normalise",
             "declick",
             "silence-trim",
+            # Plan G2: the CLI subcommand is `refine`, and the manifest now
+            # says so instead of leaving audio_refinery CLI-less by omission.
+            "refine",
         }
         assert commands == expected
 

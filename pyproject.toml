@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 name = "audiosuite-pro"
 version = "1.0.0"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 # Plan iteration 5 E2 (audit #11), decision D1: GPL-3.0, chosen because the
 # heaviest first-party dependency (pedalboard) is GPL-3.0 and the rejected
 # analysis engines (essentia=AGPL, madmom's models=CC BY-NC-SA) constrain a

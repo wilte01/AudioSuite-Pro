@@ -139,6 +139,22 @@ Follow them or the "passing" run is misleading.
   the code just wrote. Self-consistent field read-back cannot detect
   corruption (see the lossless_gain stereo-offset bug, iterations 1–2 in
   `PLAN_audit_remediation.md` / `PLAN_iteration2_remediation.md`).
+
+- **A `requires-python` floor is only honest if the committed lockfile honours
+  it.** `>=3.10` let `uv.lock` resolve a second, stale numeric stack for the
+  oldest leg (numpy 2.2.6 / scipy 1.15.3 behind `python_full_version < '3.11'`
+  markers) while 3.12+ got numpy 2.5.2 / scipy 1.18.0 — and the dev host
+  (3.14.7) had no CI leg at all, so the green 3.10 leg certified a dependency
+  graph nobody developed or shipped against. Whenever the floor or a heavy
+  dependency moves, audit the lock's per-interpreter markers: if the oldest
+  leg resolves older wheels than the interpreter the suite is actually
+  developed on, raise the floor or accept the split knowingly — never discover
+  it through a broken `tomllib` import two floors up. (2026-09-28: floor raised
+  to 3.11; CI matrix `["3.11", "3.12", "3.14"]`; the 3.10-only pins — numpy
+  2.2.6, scipy 1.15.3, exceptiongroup 1.3.1, scikit-learn 1.7.2 — fell out of
+  the lock by themselves, and the `tomllib` guards that existed only for 3.10
+  were deleted, not maintained.)
+
 - **GUI Dry Run / mode flags must be traced end-to-end to the write site.**
   A mode the app computes and passes (e.g. `is_dry_run=is_dry_run` into
   `run_enhancement`) silently does nothing if any layer of the chain lacks

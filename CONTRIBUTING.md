@@ -20,7 +20,9 @@ they are missing.
 ## The mandatory Phase Gate
 
 **Every change is gated before it is marked complete.** Run all six (from the
-suite root, Windows/pwsh; Python 3.12+ for `tomllib`-dependent locks):
+suite root, Windows/pwsh). The suite floor is Python 3.11, and `tomllib` is
+standard library on every supported version, so the TOML-dependent config locks
+run everywhere:
 
 ```pwsh
 # 0. compile / import gate — mandatory first step after any edit
