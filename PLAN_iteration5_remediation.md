@@ -1330,10 +1330,10 @@ well-tested suite and a tested-correct suite.
 
 **Scope:**
 
-- [ ] Do **not** start with the code. Build the reference vectors first, from
+- [x] Do **not** start with the code. Build the reference vectors first, from
       *known ground truth*, and record them in the Completion Log with their
       provenance.
-- [ ] Construct synthetic-but-deterministic fixtures whose correct answer is
+- [x] Construct synthetic-but-deterministic fixtures whose correct answer is
       knowable by construction:
       - a pure sine at a known fundamental plus its fifth → expected key
         signature;
@@ -1343,18 +1343,18 @@ well-tested suite and a tested-correct suite.
       Generate these with a helper in the tests (seeded `numpy` RNG so they
       are byte-reproducible), not from any real commercial audio, so the
       fixtures are unambiguously redistributable under the D1 licence.
-- [ ] Add `key_detector/tests/test_key_engine_vectors.py` and the equivalent
+- [x] Add `key_detector/tests/test_key_engine_vectors.py` and the equivalent
       for tempo/BPM/mood, following the naming convention (`test_<module>.py`
       per `AGENTS.md`, so extend the existing per-module test files where they
       exist rather than adding parallel ones).
-- [ ] Assert the **measured outcome**: the detected key equals the constructed
+- [x] Assert the **measured outcome**: the detected key equals the constructed
       key; the detected BPM is within a stated tolerance of the click rate.
       A tolerance is correct here — but it must be a declared, justified
       number, not whatever the current code happens to produce.
-- [ ] Add one **negative** case: a fixture that is deliberately ambiguous or
+- [x] Add one **negative** case: a fixture that is deliberately ambiguous or
       noise-only, asserting the engine returns a stated "low confidence" or
       falls back, rather than inventing a confident answer.
-- [ ] This item is **additive only** — it must not change any production
+- [x] This item is **additive only** — it must not change any production
       behaviour. If a vector test fails against the current engine, that is
       the F2 input, not an F1 defect.
 
@@ -1393,11 +1393,11 @@ piano pedalling, minor-key material) mis-keys more often than a user expects a
 
 **Scope:**
 
-- [ ] Implement the D2-recommended path: a self-contained, first-party
+- [x] Implement the D2-recommended path: a self-contained, first-party
       profile-correlation upgrade in `key_detector/core/key_engine.py`. Keep it
       pure `numpy` — **no new third-party dependency** (AGENTS.md §4; `madmom`
       and `essentia` are both rejected in D2 for recorded reasons).
-- [ ] The scope of "upgrade" is deliberately narrow, and must stay inside
+- [x] The scope of "upgrade" is deliberately narrow, and must stay inside
       `key_engine.py` plus its own tests:
       - make the correlation method and any weighting an explicit, documented
         parameter (so a user or a future iteration can tune without editing
@@ -1407,22 +1407,22 @@ piano pedalling, minor-key material) mis-keys more often than a user expects a
         the F1 negative vectors then assert this instead of a fabricated key;
       - keep the public interface (`detect_key` and its callers) unchanged
         unless F1 proves an interface defect.
-- [ ] Do **not** re-tune the profiles against the F1 fixtures. Tuning on the
+- [x] Do **not** re-tune the profiles against the F1 fixtures. Tuning on the
       test vectors and then reporting those vectors as validation is circular;
       if tuning is wanted, it needs a separate labelled corpus and a separate
       item.
-- [ ] Per `AGENTS.md` §2, this is a scoped internal change. It is not an
+- [x] Per `AGENTS.md` §2, this is a scoped internal change. It is not an
       invitation to restructure `key_detector`.
 
 **Tests (lockstep):**
 
-- [ ] The F1 vectors pass **before and after** with the same declared
+- [x] The F1 vectors pass **before and after** with the same declared
       tolerances — this is the regression lock. A change that improves the
       aggregate but breaks a specific constructed key must be rejected.
-- [ ] Add a test for the new confidence output: a clean synthetic key yields
+- [x] Add a test for the new confidence output: a clean synthetic key yields
       high confidence, the F1 negative vector yields the documented fallback,
       and a mid-confidence input is neither silently upgraded nor dropped.
-- [ ] A measurement test on **real** material: decode a small, redistributable
+- [x] A measurement test on **real** material: decode a small, redistributable
       reference excerpt and record the key before and after, with the
       confidence for each. Self-consistent read-back is explicitly not
       sufficient here (AGENTS.md).
@@ -1933,6 +1933,73 @@ Stage 4 notes:
 - The A5-not-reused seam was not reopened here: E1's lock test reuses the
   shared constants (`FFMPEG_PURPOSE`, `install_hints`), not the finder.
 
+### Stage 5
+
+| Item | Stage | Completed | Baseline → after | Gate Evidence (date + the six commands + pass/coverage counts) | Notes |
+|------|-------|-----------|------------------|------------------------------------------------------|-------|
+| F1 | 5 | 2026-09-28 | 0 measured-outcome vectors across the analysis family → **60 new vectors** in 5 existing per-module test files, no production line touched | Full gate all green, 2026-09-28 (Stage 5 gate block below). Item-specific: combined five-family run **755 passed**; `key_detector/tests` 174, `tempo_analyzer/tests` 149, `mood_analyzer/tests` 45, `bpm_analyzer/tests` 36, `test_analysis_loader.py` 44. Bare full suite **7385 passed / 3 skipped / 30 deselected** at F1 close, coverage **79.01%**. `git status` at F1 close: **7 modified files, all under `*/tests/`** — the additive-only proof. | Ground truth is constructed, never recorded: E+B dyad → E; all 12 major + 12 minor triads via the *internal* sharp `_KEYS` table (locked by `test_key_name_domain_is_the_internal_sharp_table` so a table change is loud); I-IV-V-I → C and the G pop loop → G; monophone → its own pitch class; white noise → a declared low-confidence band. BPM: 30 s seeded click trains at 90/100/120/140/165/172 BPM × 3 seeds, tolerance **±4 BPM declared** from onset-grid rounding, plus octave correction, silence clamp and repeatability. Tempo: every integer BPM 1–1000 resolves under all 7 schemes with band-count assertions. Mood: equal-weight major/minor triads, the one-semitone mode pair, C progression, RMS/arousal monotonicity and the exact silence threshold — all asserting the **valence sign**, never a self-consistent read-back. Loader: known-RMS broadband noise through a real 16-bit WAV encode/decode, tolerance derived from 16-bit quantisation rather than fitted to the output. No commercial audio, no `xfail`, no `skip` added. The F1 white-noise vector was left asserting a *band*, not a key, so it could be handed to F2. |
+| F2 | 5 | 2026-09-28 | `detect_key` returned a key with no confidence and fabricated one for atonal material → `analyze_key()` returns a `KeyAnalysis` (key, confidence, winner/runner-up correlations, low-confidence flag) over an explicit `correlation` × `weighting` parameter, with a documented `'Unknown'` fallback | Full gate all green, 2026-09-28 (Stage 5 gate block below, same run as F1). Item-specific: `key_detector/tests/test_key_engine.py` **87 passed** (was 67 at F1 close, +20 F2 tests); the four F1 families re-run at **unchanged tolerances, 770 passed**; bare full suite **7406 passed / 3 skipped / 30 deselected**, coverage **79.03% ≥ 75**; `python -m mypy .` → **0 issues in 450 files**; bandit **0 High / 0 Medium / 51 Low** (baseline-identical); `git diff pyproject.toml` → **empty** (the no-new-dependency acceptance clause). | **Before/after on real material** (overtone-rich, multi-voice I-IV-V-I in C, written to a real 16-bit PCM WAV and read back through `analysis_loader` — the tool's own decode path, so the measurement is of decoded audio, not of engine state): tonal passage, key `C` under **both** paths, confidence 1.0000 under both (saturated); the informative column is the margin, pearson 0.3765 → cosine 0.0979. Atonal complement (seeded white noise, same decode path): pearson margin 0.0462 / confidence 0.2311, cosine margin 0.0015 / confidence 0.0190 — both fall back, which is why the margin comparison matters rather than the single outcome. Profiles were **not** re-tuned (the item's own circularity rule). `correlation="pearson"` is retained for compatibility and is asserted to still resolve all 24 chromatic keys; it is *not* recommended, and `test_only_cosine_reliably_refuses_to_name_a_key_for_noise` pins the reason: across 4 noise seeds Pearson fabricates a confident key for two (`'Em'` 0.8995, `'C#m'` 0.6565) where cosine falls back on all four. The threshold 0.25 is placed between the highest measured atonal confidence (DC offset, 0.180) and the lowest measured genuine one (monophone, 0.286), and deliberately leans toward the tonal side. |
+
+**Stage 5 gate evidence (2026-09-28, Windows host, Python 3.14.7,
+ruff 0.15.22, mypy 1.20.0, pytest 9.0.3 — one run covering both F1 and F2):
+
+0. `python -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'` → exit 0
+   (documented pre-existing third-party pydub `SyntaxWarning` noise)
+1. `python -m ruff check .` → `All checks passed!`
+   `python -m ruff format --check .` → **752 files already formatted**
+   (unchanged from the Stage 4 end state: no file added, and the two F2
+   files were re-formatted in place)
+2. `python -m mypy .` → `Success: no issues found in 450 source files`
+3. `$env:PYTHONUTF8='1'; python -X utf8 -m bandit -r . -x ./.venv -c pyproject.toml`
+   → **0 High / 0 Medium / 51 Low** (baseline-identical)
+4. bare `python -m pytest -q` → **7406 passed / 3 skipped / 30 deselected**
+   (Stage 4 close 7326 / 3 → **+80**: +60 F1 vectors, +20 F2 confidence and
+   real-material tests); the 3 skips remain the pre-existing platform probes
+5. coverage → **79.03% ≥ `fail_under = 75`** (D3 decision held; +0.02 over
+   the F1 close, since F2 added covered production branches, not excluded
+   ones)
+6. `git grep --cached` secret scans (primary + 4 supplemental patterns) →
+   **zero hits inside the Stage 5 change set**; tree-wide hits are only the
+   documented pre-existing benign set (`fanart.py:68` code *sending* keys
+   from gitignored config, `preset_key`/`no_key` identifier names, the public
+   AcoustID fingerprint fixture, the GPL-3 SHA-256 constant). No 32-hex, no
+   base64-44+, no PEM.
+
+Stage 5 notes:
+
+- **F1 and F2 ran in one working tree but are separable**: `git status` at
+  F1 close showed 7 modified files, every one under `*/tests/`, which is the
+  item's own "additive only" acceptance test; the only production file F2
+  touched is `key_detector/core/key_engine.py`, honouring "must stay inside
+  `key_engine.py` plus its own tests".
+- **An intermittent failure was found and fixed in the same change, not
+  deferred** (Decision Log): `audio_suite_shared/tests/test_styles.py`
+  `TestWindowsAccentFallback` was order-dependent — `set_active_palette()`
+  mutates the module-level `PALETTES` in place, so a test that installed
+  `"Windows Accent"` permanently replaced the placeholder an
+  `importlib.reload()` was supposed to restore, and whichever of the two
+  tests ran second saw an accent-coloured button. Fixed in the test (reload
+  before capturing; new
+  `test_fallback_survives_a_palette_polluted_by_an_earlier_test`); the
+  in-place production mutation is pre-existing and left alone as out of
+  scope.
+- **The F1 → F2 tolerance handoff was used exactly once, and it was the case
+  F1 was built to hand over**: the F1 white-noise vector asserted
+  `0.10 <= strength <= 1.0` and a well-formed key; under F2 it asserts
+  `'Unknown'` and `0.0 <= confidence <= 0.05`. Every other F1 vector keeps its
+  F1 tolerance unchanged, and the F1 monophone vector keeps its stated
+  *intent* (a bare pitch may only earn a near-floor answer) while its
+  measured numbers were re-recorded, because the scoring method changed —
+  that re-recording is the F2 evidence, not a loosened tolerance.
+- **Five pre-existing key tests asserted a well-formed key for untuned
+  material** (impulse, DC offset, near-silence, white noise, a 0.1 s tone).
+  Their real contract is "does not crash and does not propagate NaN"; each
+  was changed to accept the documented fallback via one named
+  `_assert_key_or_fallback` helper, so the no-crash contract is still
+  asserted and the fabricated-key expectation is gone. No assertion was
+  deleted, skipped or loosened to anything a failing implementation would
+  pass.
+
 ---
 
 
@@ -1972,6 +2039,13 @@ Stage 4 notes:
 | 2026-09-27 | E2 (scope) | **`SECURITY.md` reporting channel: repository issue tracker, explicitly no SLA**; `CODE_OF_CONDUCT.md` deliberately not added | The plan's constraint was "short and honest; do not promise a response time the maintainer has not agreed to". The repository has no remote and no configured private channel, so the honest statement is exactly that: report via an issue titled `[security]`, no promised response time, and no aspirational SLA. The two technical statements the item required are explicit: the `audio_suite_shared/secure_subprocess.py` allowlist surface, and "raw audio and tag files are untrusted input". A code of conduct is a policy decision the maintainer has not made; the item itself says it is optional and it was left out rather than invented. |
 | 2026-09-27 | E2 (finding) | **`uv sync` (the item's own acceptance check) found a stale `uv.lock`; the repaired lock is committed** | First plain `uv sync` run in the plan (earlier stages ran pytest/ruff/mypy/bandit, which do not need the lock refreshed). It repaired three entries for dependencies that were **already declared** in `[project] dependencies`/extras: `librosa` and `sounddevice` were missing from the base package graph and `types-requests` from the dev extra. No declared dependency changed in Stage 4 — the update is bookkeeping of the existing declaration, and committing the repaired lock (which CI consumed) is required by the AGENTS.md "`uv.lock` is committed" rule. Left uncommented here because a lock repair surfacing under a baseline documentation item is exactly the kind of "discovered while implementing" event the plan mandates recording. |
 | 2026-09-27 | E1/E2 (order) | **README ↔ baseline docs cross-reference completes across the two item commits** | E1's README links `CONTRIBUTING.md`, `SECURITY.md` and `CHANGELOG.md` (created by E2 in the following commit), and E2's acceptance "referenced from `README.md`" is satisfied by E1's lock test. The gap is one commit wide inside the same session and is recorded on both Completion Log rows rather than silently absorbed. |
+| 2026-09-28 | F1 (scope) | **F1 landed test-only: no production file was modified.** The additive-only proof is `git status` at F1 close — 7 modified files, every one under `*/tests/`. | F1's own Risks note warns that "fixing a failing vector in the same commit destroys the before/after evidence that makes F2 verifiable", so the vectors were written to *record* current behaviour (including the vectors whose measured values F2 later had to re-record) rather than to assert what the engine ought to do. The white-noise vector was deliberately left as a declared **band** rather than a key, precisely so F2 could hand it over. |
+| 2026-09-28 | F2 (algorithm) | **Cosine correlation is the default; Pearson is retained and documented as compatibility-only, not recommended.** Both ship, as the item requires an explicit documented parameter — but the default is chosen by measurement, not preference. | The deciding evidence is that Pearson's winner-to-runner-up *margin* for white noise is unstable, not merely small: across 4 noise seeds it names a key for two of them and calls it confident (`'Em'` 0.8995, `'C#m'` 0.6565), and its measured noise margins span 0.029–0.180, which **overlaps** the major-triad band (0.118–0.122) — so no threshold can separate them and a fallback is unreachable on that path. Cosine separates cleanly (noise 0.0007–0.0024 vs triads 0.053–0.068, progressions 0.037–0.063). `test_only_cosine_reliably_refuses_to_name_a_key_for_noise` pins this so a future change cannot quietly move the default. STFT chroma was measured and **rejected** in favour of CQT: it mis-keyed most triads in probing, so it is not shipped and is not offered as an option. The K-S profiles themselves were **not** re-tuned, per the item's own circularity rule. |
+| 2026-09-28 | F2 (threshold) | **Low-confidence threshold 0.25, placed between the highest measured atonal confidence (0.180, a DC offset) and the lowest measured genuine one (0.286, a monophone) — deliberately leaning toward the tonal side.** | The constant is chosen from a *gap between two measured classes*, not fitted to make a vector pass, and it is exposed as `low_confidence_threshold` (asserted honoured: 0.0 still names `C`, 1.0 forces the fallback without altering the underlying confidence). The lean is a stated policy choice: for a key detector, declining to name a key when the material really has one is the worse failure than reporting a low-confidence guess, so the boundary sits closer to the atonal ceiling than to the tonal floor. Consequence, accepted and tested: a bare monophone is still *named* (just above threshold, at 0.286–0.297) rather than falling back — which is what preserves F1's original intent for that vector, that a monophone may only earn a near-floor answer. |
+| 2026-09-28 | F2 (interface) | **`detect_key_with_strength`'s second element is now the stated confidence.** Signature unchanged; only the meaning is redefined, and that redefinition is what makes an `'Unknown'` fallback safe for the existing consumer. | `mood_analyzer.core.signal_mood_engine` already weights a major/minor valence offset by this value, and it treats **any non-`m` key as major** — so a fallback key alone would have injected a spurious positive-valence contribution into every atonal file. Carrying the near-zero confidence alongside it makes the fallback self-neutralising, and that is asserted from the consumer's perspective (`test_fallback_confidence_is_near_zero_so_consumers_cannot_be_biased`). `analyze_key()` was **added** for the full picture rather than replacing anything, so the pre-F2 entry points and all callers keep working. |
+| 2026-09-28 | F2 (scope, known gap) | **`key_detector.core.file_processor` writes `detect_key`'s result straight to a file's KEY tag, so untuned material will now be tagged `"Unknown"`. Deliberately left unfixed, and recorded here as a follow-up.** | The item's own scope says the change "must stay inside `key_engine.py` plus its own tests" and "keep the public interface and its callers unchanged", so filtering the fallback out at the tag writer is out of scope by the plan's own instruction — `AGENTS.md` §2 forbids the unrequested change. The behaviour is stated in `key_engine`'s module docstring rather than left to be discovered. A follow-up item should decide whether an untuned file is left untagged, tagged `'Unknown'`, or reported as skipped, and add a real-tag regression test for whichever is chosen. |
+| 2026-09-28 | F1/F2 (material) | **The F2 "real material" measurement uses a constructed, overtone-rich, multi-voice excerpt decoded through the real `analysis_loader` path — not a commercial recording.** | No third-party audio ships in this repository, librosa bundles none, and `librosa.example()` would make the test suite depend on a network fetch, so a genuine recording was not obtainable offline. The constraint F1 already set (no commercial audio, fixtures unambiguously redistributable) is honoured by construction instead: the excerpt is synthesised from a 6-partial series with a bass voice, per-note attack/release envelopes and a musical tempo, written to a **real 16-bit PCM WAV** and read back through the tool's own decoder, so the assertion is of decoded audio rather than of engine state — which is the substance of the AGENTS.md outcome-correctness rule. The test docstring states plainly that the material is constructed, so no future reader mistakes it for a recording. A labelled human-annotated corpus remains the honest way to settle the item's "mis-keys more often than a user expects" claim, and is left as future work rather than simulated. |
+| 2026-09-28 | (defect, cross-item) | **Intermittent `test_styles.py` failure found during the Stage 5 gate and fixed in the same change** — `TestWindowsAccentFallback` was order-dependent. | `set_active_palette()` mutates the module-level `PALETTES` dict **in place**, so a test installing `"Windows Accent"` permanently replaced the placeholder that the test's own `importlib.reload()` was supposed to restore; whichever of the two ran second then saw an accent-coloured button and failed. It surfaced only on the *second* full-suite run, which is why the pre-F1 baseline was re-taken. Fixed in the test — reload before capturing the placeholder — plus a new `test_fallback_survives_a_palette_polluted_by_an_earlier_test` that deterministically reproduces the pollution, so the fix is proven rather than assumed (the pre-fix body was run under the same pollution and failed). The underlying in-place production mutation is pre-existing, is a real coupling wart, and was deliberately **not** changed here: it is out of Stage 5's scope and a fix would change behaviour for every caller. Recorded as a follow-up. |
 
 ---
 
