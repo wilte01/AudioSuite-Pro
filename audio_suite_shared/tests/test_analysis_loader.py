@@ -364,3 +364,124 @@ class TestIsEffectivelySilent:
             _write_mono_wav(str(tmp_path / "t.wav"), 0.5 * _tone(1.0))
         )
         assert is_effectively_silent(y) is False
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Golden-vector measurement (plan iteration 5, item F1 / audit #19)
+# ═════════════════════════════════════════════════════════════════════════════
+# The pre-existing classes above already assert measured properties on real
+# files, so the loader's nominal/failure/threshold contract needs no
+# duplication.  The one vector item F1 names explicitly -- "white noise with a
+# known RMS feeding the energy features" -- was missing: every existing RMS
+# test works on an in-memory sine or a tone file, so nothing pinned that a
+# *known-level broadband* signal keeps its level through the real
+# encode/decode round trip, which is the seam that would silently rescale or
+# clip every downstream analysis.
+#
+# Tolerance provenance (recorded in the Completion Log): the band is derived
+# from the 16-bit grid, not fitted to output.  Writing with `.astype("<i2")`
+# truncates toward zero rather than rounding, so every generated file carries
+# a systematic half-LSB magnitude shrink of `step / 2` on top of the ordinary
+# `step / sqrt(12)` quantisation noise; the decoder then rescales by
+# 32767/32768.  The bound below is the sum of those terms, rounded up, and it
+# is ~0.65 LSB -- tight enough that any real rescale (2% is 0.17 dB, three
+# orders of magnitude above the band) cannot hide inside it.
+_NOISE_RMS_VECTORS: tuple[float, ...] = (0.2, 0.05, 0.01)
+_QUANT_STEP = 1.0 / 32767.0
+_LEVEL_ABS_TOLERANCE = 0.5 * _QUANT_STEP + _QUANT_STEP / np.sqrt(12.0) + _QUANT_STEP
+
+
+def _db_tolerance(constructed_rms: float) -> float:
+    """The level band above, expressed in dB for a given signal level."""
+    return 20.0 * np.log10(1.0 + _LEVEL_ABS_TOLERANCE / constructed_rms)
+
+
+def _seeded_noise_at_rms(rms: float, seed: int = 12345) -> np.ndarray:
+    """Seeded white noise rescaled to an exact RMS, well below full scale.
+
+    The scale matters: a Gaussian's peaks exceed its RMS by several sigma, so
+    a noise fixture built near RMS 0.5 would clip on encode and the measured
+    level would no longer be the constructed one.
+    """
+    generator = np.random.default_rng(seed)
+    noise = generator.standard_normal(int(_SR * 2.0))
+    noise = noise / np.sqrt(np.mean(np.square(noise)))
+    return (noise * rms).astype(np.float64)
+
+
+class TestGoldenVectorMeasuredLevelFidelity:
+    """A known-RMS broadband signal keeps its level through a real file."""
+
+    @pytest.mark.parametrize("constructed_rms", _NOISE_RMS_VECTORS)
+    def test_noise_rms_survives_the_encode_decode_round_trip(
+        self, tmp_path, constructed_rms: float
+    ) -> None:
+        source = _seeded_noise_at_rms(constructed_rms)
+        path = _write_mono_wav(str(tmp_path / "noise.wav"), source)
+        decoded, _ = load_analysis_audio(path)
+        measured_rms = float(np.sqrt(np.mean(np.square(decoded))))
+        assert measured_rms == pytest.approx(
+            constructed_rms, abs=_LEVEL_ABS_TOLERANCE
+        ), (
+            f"level shifted by {measured_rms - constructed_rms:+.2e} across a "
+            f"16-bit round trip (band {_LEVEL_ABS_TOLERANCE:.2e})"
+        )
+
+    @pytest.mark.parametrize("constructed_rms", _NOISE_RMS_VECTORS)
+    def test_energy_db_matches_the_analytic_value(
+        self, tmp_path, constructed_rms: float
+    ) -> None:
+        """A level that survives intact must also report the documented dB,
+        against 20*log10(RMS) widened by the derived level band."""
+        path = _write_mono_wav(
+            str(tmp_path / "noise.wav"), _seeded_noise_at_rms(constructed_rms)
+        )
+        decoded, _ = load_analysis_audio(path)
+        measured_db = rms_energy_db(decoded)
+        analytic_db = 20.0 * np.log10(constructed_rms)
+        assert measured_db == pytest.approx(
+            analytic_db, abs=_db_tolerance(constructed_rms)
+        ), (
+            f"RMS {constructed_rms}: reported {measured_db:.5f} dB vs analytic "
+            f"{analytic_db:.5f} dB (band {_db_tolerance(constructed_rms):.5f} dB)"
+        )
+
+    def test_relative_level_survives_to_within_two_thousandths(self, tmp_path) -> None:
+        """A scale-invariant statement of the same property: halving the
+        constructed RMS must halve the measured RMS."""
+        ratios = []
+        for constructed_rms in (0.2, 0.1):
+            path = _write_mono_wav(
+                str(tmp_path / f"r{constructed_rms}.wav"),
+                _seeded_noise_at_rms(constructed_rms),
+            )
+            decoded, _ = load_analysis_audio(path)
+            ratios.append(float(np.sqrt(np.mean(np.square(decoded)))) / constructed_rms)
+        assert ratios[0] == pytest.approx(ratios[1], rel=2.0e-3)
+
+    def test_silence_classification_agrees_across_the_vector_ladder(
+        self, tmp_path
+    ) -> None:
+        """Every level in the ladder is above the -60 dBFS guard, so the
+        loader must not classify any of them as silent -- the guard is
+        about unusable audio, not quiet audio."""
+        for constructed_rms in _NOISE_RMS_VECTORS:
+            path = _write_mono_wav(
+                str(tmp_path / f"n{constructed_rms}.wav"),
+                _seeded_noise_at_rms(constructed_rms),
+            )
+            decoded, _ = load_analysis_audio(path)
+            assert is_effectively_silent(decoded) is False, (
+                f"RMS {constructed_rms} ({rms_energy_db(decoded):.1f} dB) was "
+                f"misclassified as silent"
+            )
+
+    def test_the_round_trip_is_bit_reproducible(self, tmp_path) -> None:
+        """Same seed, same file bytes: the decoded array must be identical,
+        which is what makes every downstream vector reproducible."""
+        first = _write_mono_wav(str(tmp_path / "a.wav"), _seeded_noise_at_rms(0.05))
+        second = _write_mono_wav(str(tmp_path / "b.wav"), _seeded_noise_at_rms(0.05))
+        decoded_a, sr_a = load_analysis_audio(first)
+        decoded_b, sr_b = load_analysis_audio(second)
+        assert sr_a == sr_b
+        assert np.array_equal(decoded_a, decoded_b)

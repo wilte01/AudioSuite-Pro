@@ -10,14 +10,19 @@ Tests are structured per claude.md §4:
   • BPMDetectionError raised on librosa failure
   • Edge-case boundaries (min==max, zero duration guard, corrupt file)
 
-All librosa I/O is mocked — tests run without real audio files.
+All librosa I/O is mocked — tests run without real audio files — except the
+F1 golden-vector measurement class, which writes real seeded click-train
+WAVs and asserts the measured BPM against the constructed click rate.
 """
 
 from __future__ import annotations
 
+import wave
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 # Module under test
@@ -433,3 +438,122 @@ class TestNonPositiveTempoRegression:
         with load_p, beat_p:
             result = self._detect_with_timeout("fake.mp3", min_bpm=75, max_bpm=175)
         assert result == 75
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Golden-vector measurement (plan iteration 5, item F1 / audit #19)
+# ═════════════════════════════════════════════════════════════════════════════
+# These cases write real 16-bit mono WAVs whose beat period is known by
+# construction, then assert the measured BPM against the constructed click
+# rate within a declared tolerance.  No mocks, no commercial audio -- the
+# fixtures are unambiguously redistributable under GPL-3.0.
+#
+# Tolerance provenance (recorded in the Completion Log): the +/-4 BPM band is
+# declared once for the whole octave-corrected sweep, not fitted per fixture.
+# It covers beat tracking's tempo-grid quantisation error with headroom on both
+# sides; measured at HEAD (three seeds per rate, 30 s trains) and must not be
+# loosened to rescue a failing engine.
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def _write_wav(path: Path, y: npt.NDArray[np.float64], sr: int = 22050) -> str:
+    """Write a 16-bit mono PCM WAV (values clipped to +/-1); return the path."""
+    pcm_bytes = (np.clip(y, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sr)
+        handle.writeframes(pcm_bytes)
+    return str(path)
+
+
+def clicked(
+    clicks_per_second: float,
+    seconds: float,
+    dither_seed: int = 7,
+) -> npt.NDArray[np.float64]:
+    """An impulse click train with seeded dither; peak-normalised to 0.9.
+
+    Clicks are 4 ms sine-carrier blips under an exponential decay so onset
+    strength keeps a sharp leading edge.  The dither floor is white (aperiodic),
+    so it adds no beat periodicity of its own -- it only keeps the onset
+    matrix away from degenerate zero energy.
+    """
+    sample_rate = 22050
+    n_samples = int(sample_rate * seconds)
+    signal = np.zeros(n_samples, dtype=np.float64)
+    click_len = max(4, int(0.004 * sample_rate))
+    onsets = np.arange(int(clicks_per_second * seconds) + 1)
+    starts = (onsets / clicks_per_second * sample_rate).astype(int)
+    decay = np.exp(-np.linspace(0.0, 8.0, click_len))
+    carrier = 2.0 * np.pi * 1000.0 * np.arange(click_len) / sample_rate
+    envelope = np.sin(carrier) * decay
+    for start in starts[starts + click_len < n_samples]:
+        signal[start : start + click_len] += envelope
+    generator = np.random.default_rng(dither_seed)
+    signal += generator.normal(0.0, 0.004, n_samples)
+    peak = float(np.max(np.abs(signal)))
+    if peak > 0:
+        signal = signal / peak * 0.9
+    return signal.astype(np.float64)
+
+
+class TestGoldenVectorMeasuredBpm:
+    """Measured tempo vectors: detected BPM == constructed click rate."""
+
+    def test_click_trains_across_the_default_band(self, tmp_path: Path) -> None:
+        """Seeded click trains at 90/100/120/140/165/172 BPM, three dither
+        seeds each for flakiness insurance; tolerance +/-4 BPM as declared
+        above."""
+        for constructed_bpm in (90.0, 100.0, 120.0, 140.0, 165.0, 172.0):
+            for dither_seed in (1, 2, 3):
+                signal = clicked(constructed_bpm / 60.0, 30.0, dither_seed=dither_seed)
+                wav_path = _write_wav(
+                    tmp_path / f"click_{int(constructed_bpm)}_{dither_seed}.wav",
+                    signal,
+                )
+                detected = detect_bpm(wav_path)
+                assert abs(detected - constructed_bpm) <= 4.0, (
+                    f"Click train at {constructed_bpm} BPM (seed {dither_seed}) "
+                    f"detected as {detected}"
+                )
+
+    def test_octave_correction_resolves_subband_clicks(self, tmp_path: Path) -> None:
+        """60 clicks/min sits below the default [75, 175] band; the engine
+        must return 120 -- the unique in-range octave (measured at HEAD:
+        raw 60.09 -> corrected 120).
+
+        A narrowed range [50, 90] pins the octave logic from the other side:
+        the same fixture returns 60 there.
+        """
+        slow_path = _write_wav(
+            tmp_path / "click_60.wav",
+            clicked(60 / 60.0, 30.0, dither_seed=11),
+        )
+        assert detect_bpm(slow_path) == 120
+        assert detect_bpm(slow_path, min_bpm=50, max_bpm=90) == 60
+
+    def test_digital_silence_resolves_via_hard_clamp(self, tmp_path: Path) -> None:
+        """Real-librosa behaviour (not a mock): silence -> tempo 0.0 -> the
+        non-positive guard skips octave correction -> the hard clamp lands on
+        min_bpm.  This asserts the documented resolution path itself."""
+        silence = np.zeros(int(30 * 22050), dtype=np.float64)
+        wav_path = _write_wav(tmp_path / "silence.wav", silence)
+        assert detect_bpm(wav_path, min_bpm=75, max_bpm=175) == 75
+
+    def test_white_noise_never_returns_outside_the_band(self, tmp_path: Path) -> None:
+        """Pure noise is beatless; only the in-range invariant holds."""
+        generator = np.random.default_rng(99)
+        noise = 0.5 * generator.standard_normal(int(30 * 22050))
+        detected = detect_bpm(_write_wav(tmp_path / "noise.wav", noise))
+        assert isinstance(detected, int)
+        assert 75 <= detected <= 175
+
+    def test_repeat_runs_are_identical(self, tmp_path: Path) -> None:
+        """Seeded fixture, run twice: identical results (reproducibility)."""
+        for constructed_bpm in (100.0, 120.0):
+            wav_path = _write_wav(
+                tmp_path / f"repeat_{int(constructed_bpm)}.wav",
+                clicked(constructed_bpm / 60.0, 30.0, dither_seed=3),
+            )
+            assert detect_bpm(wav_path) == detect_bpm(wav_path)

@@ -394,3 +394,62 @@ class TestGetTempoMarkingEdgeCases:
         markings = [(0, 100, "Low"), (101, None, "High")]
         assert get_tempo_marking(99.5, markings) == "Low"
         assert get_tempo_marking(101.0, markings) == "High"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Golden-vector measurement (plan iteration 5, item F1 / audit #19)
+# ═════════════════════════════════════════════════════════════════════════════
+# The pre-existing suite pins every scheme's *declared* boundaries plus three
+# spot coverage values (1 / 120 / 999).  A gap or overlap in the middle of a
+# band would still pass those, so these vectors measure the lookup exhaustively
+# at integer resolution instead: every BPM from 1 to 1000 must resolve to
+# exactly one real marking, and the marking may change only once per declared
+# band (transitions == len(markings) - 1).  Both properties were measured at
+# HEAD for all seven schemes; the tolerance is exact because the lookup is a
+# pure integer function with no numerical slack.
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestGoldenVectorExhaustiveSchemeCoverage:
+    """Measured outcome: full-range, per-scheme coverage of the marking table."""
+
+    @pytest.mark.parametrize("scheme_name", sorted(TEMPO_SCHEMES))
+    def test_every_positive_bpm_resolves_to_a_declared_marking(
+        self, scheme_name: str
+    ) -> None:
+        markings = TEMPO_SCHEMES[scheme_name]
+        declared = {marking for _, _, marking in markings}
+        unresolved = [
+            bpm
+            for bpm in range(1, 1001)
+            if get_tempo_marking(bpm, markings) == "Unknown"
+        ]
+        assert not unresolved, (
+            f"{scheme_name}: {len(unresolved)} BPM values in 1-1000 fell "
+            f"through every band (first: {unresolved[:5]})"
+        )
+        for bpm in (1, 500, 1000):
+            assert get_tempo_marking(bpm, markings) in declared
+
+    @pytest.mark.parametrize("scheme_name", sorted(TEMPO_SCHEMES))
+    def test_marking_changes_exactly_once_per_declared_band(
+        self, scheme_name: str
+    ) -> None:
+        """Each band boundary is crossed once -- proving the bands are
+        contiguous and non-overlapping rather than merely spot-checked."""
+        markings = TEMPO_SCHEMES[scheme_name]
+        resolved = [get_tempo_marking(bpm, markings) for bpm in range(1, 1001)]
+        transitions = [
+            resolved[index - 1]
+            for index in range(1, len(resolved))
+            if resolved[index] != resolved[index - 1]
+        ]
+        assert len(transitions) == len(markings) - 1, (
+            f"{scheme_name}: {len(transitions)} band transitions across "
+            f"1-1000 BPM but {len(markings)} bands declared "
+            f"(contiguity/overlap defect)"
+        )
+        assert len(set(transitions)) == len(transitions), (
+            f"{scheme_name}: a marking is re-entered after being left, so "
+            f"the bands are out of order or overlapping"
+        )

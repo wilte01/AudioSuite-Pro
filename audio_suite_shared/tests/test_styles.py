@@ -341,6 +341,17 @@ class TestWindowsAccentFallback:
     def test_windows_accent_palette_holds_the_placeholder_without_winaccent(
         self,
     ) -> None:
+        # Establish a known state before capturing the placeholder.
+        # set_active_palette() writes the live system accent into the
+        # module-level PALETTES dict *in place*, so on a host with winaccent
+        # installed any earlier test that activated "Windows Accent" leaves
+        # the placeholder overwritten for the rest of the process. The
+        # reload inside the guard then rebuilds PALETTES from the module
+        # literal, legitimately restoring the true placeholder, and the
+        # comparison below failed. Reloading first makes the captured value
+        # the real module-level placeholder instead of inherited state, so
+        # the assertion depends only on this test.
+        importlib.reload(styles)
         placeholder_main = styles.PALETTES["Windows Accent"]["main"]
         was_available = styles.HAS_WINACCENT
 
@@ -361,4 +372,31 @@ class TestWindowsAccentFallback:
 
         importlib.reload(styles)
         assert styles.HAS_WINACCENT == was_available
+        assert styles.PALETTES["Windows Accent"]["main"] == placeholder_main
+
+    def test_fallback_survives_a_palette_polluted_by_an_earlier_test(self) -> None:
+        """Regression for an intermittent full-suite failure.
+
+        The pollution is written directly, the way production does it, so
+        the guard is exercised even on a host where winaccent is absent and
+        set_active_palette() therefore never mutates anything. The fallback
+        contract -- a valid hex placeholder and no accent lookup -- must
+        hold regardless of what a previous test left behind.
+        """
+        styles.PALETTES["Windows Accent"]["main"] = "#123456"
+        assert styles.PALETTES["Windows Accent"]["main"] == "#123456"
+
+        with patch.dict(sys.modules, {"winaccent": None}):
+            importlib.reload(styles)
+            assert styles.HAS_WINACCENT is False
+            placeholder_main = styles.PALETTES["Windows Accent"]["main"]
+            assert placeholder_main != "#123456", (
+                "reload did not rebuild PALETTES, so this test would not "
+                "exercise the polluted-state path"
+            )
+            styles.set_active_palette("Windows Accent")
+            assert styles.PURPLE_MAIN == placeholder_main
+            assert is_hex_colour(styles.PURPLE_MAIN)
+
+        importlib.reload(styles)
         assert styles.PALETTES["Windows Accent"]["main"] == placeholder_main

@@ -316,3 +316,190 @@ class TestValenceHemisphereIsolation:
         words = _rank_mood_words(v_idx=1, a_idx=1)
         assert words == ("Somber", "Grim", "Melancholic")
         assert "Peaceful" not in words
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Golden-vector measurement (plan iteration 5, item F1 / audit #19)
+# ═════════════════════════════════════════════════════════════════════════════
+# The pre-existing suite above drives analyze_mood through _feature_stack,
+# which patches the tempo/flux/zcr/centroid/lowband extractors *and* the key
+# detector.  That proves the blend arithmetic given inputs, but nothing proves
+# a real major-keyed signal is actually read as positive-valence -- the
+# "asserted, not measured" gap this item exists to close.
+#
+# The vectors below run the whole chain on real audio: real librosa features,
+# the real key_detector key vote, the real blend.  Ground truth is knowable by
+# construction because the fixture's mode is a deliberate one-semitone change:
+#
+#   * major triad = root + M3 (4 semitones) + P5 (7)
+#   * minor triad = root + m3 (3 semitones) + P5 (7)
+#
+# so a major/minor pair differs ONLY in the third's height and the resulting
+# valence must differ in sign.  No commercial audio is involved; the fixtures
+# are generated in-memory and redistributable under GPL-3.0.
+#
+# Measured at HEAD (recorded in the Completion Log): every major triad scored
+# positive valence (+0.17 to +0.33) and every minor triad negative (-0.19 to
+# -0.93); the assertion bands below are sign invariants derived from the mode
+# semantics, with the numeric bands set from those measurements, not fitted.
+# ═════════════════════════════════════════════════════════════════════════════
+
+_MAJOR_THIRD = 4
+_MINOR_THIRD = 3
+_PERFECT_FIFTH = 7
+
+# Measured at HEAD; order is meaningful (ascending valence is not claimed).
+_MAJOR_TRIAD_ROOTS: tuple[int, ...] = (60, 65, 67, 62)  # C, F, G, D
+_MINOR_TRIAD_ROOTS: tuple[int, ...] = (57, 62, 64, 59)  # A, D, E, B
+
+
+def _triad(root_midi: int, third: int, seconds: float = 2.0) -> np.ndarray:
+    """A triad of equal-amplitude sines (root, third, fifth), peak-normalised.
+
+    Equal amplitudes keep the chroma vector symmetric about the root, so the
+    detected mode reflects the constructed third rather than a voicing
+    accident.
+    """
+    n = int(SR * seconds)
+    t = np.linspace(0.0, seconds, n, endpoint=False)
+    signal = sum(
+        np.sin(2.0 * np.pi * 440.0 * 2 ** ((root_midi + iv - 69) / 12.0) * t)
+        for iv in (0, third, _PERFECT_FIFTH)
+    )
+    return (signal / np.max(np.abs(signal))).astype(np.float64)
+
+
+def _major_triad(root_midi: int, seconds: float = 2.0) -> np.ndarray:
+    return _triad(root_midi, _MAJOR_THIRD, seconds)
+
+
+def _minor_triad(root_midi: int, seconds: float = 2.0) -> np.ndarray:
+    return _triad(root_midi, _MINOR_THIRD, seconds)
+
+
+def _noise_at_rms(rms: float, seed: int = 2024, seconds: float = 10.0) -> np.ndarray:
+    """Seeded white noise rescaled to an exact RMS."""
+    generator = np.random.default_rng(seed)
+    noise = generator.standard_normal(int(SR * seconds))
+    return (noise / np.sqrt(np.mean(np.square(noise))) * rms).astype(np.float64)
+
+
+class TestGoldenVectorMeasuredValence:
+    """Mode decides the valence sign, measured end-to-end on real audio."""
+
+    @pytest.mark.parametrize("root_midi", _MAJOR_TRIAD_ROOTS)
+    def test_major_triad_measures_positive_valence(self, root_midi: int) -> None:
+        result = analyze_mood(_major_triad(root_midi), SR)
+        assert result.valence > 0.0, (
+            f"major triad on MIDI {root_midi} measured valence "
+            f"{result.valence:+.4f}; a major mode must not read as negative"
+        )
+        assert 0.0 < result.valence <= 1.0
+        assert len(result.mood_words) == 3
+        assert "Grim" not in result.mood_words
+        assert "Dreary" not in result.mood_words
+
+    @pytest.mark.parametrize("root_midi", _MINOR_TRIAD_ROOTS)
+    def test_minor_triad_measures_negative_valence(self, root_midi: int) -> None:
+        result = analyze_mood(_minor_triad(root_midi), SR)
+        assert result.valence < 0.0, (
+            f"minor triad on MIDI {root_midi} measured valence "
+            f"{result.valence:+.4f}; a minor mode must not read as positive"
+        )
+        assert -1.0 <= result.valence < 0.0
+        assert len(result.mood_words) == 3
+        assert "Energetic" not in result.mood_words
+        assert "Playful" not in result.mood_words
+
+    @pytest.mark.parametrize("root_midi", (60, 62, 64, 65, 67, 69))
+    def test_only_the_third_differs_and_the_valence_sign_flips(
+        self, root_midi: int
+    ) -> None:
+        """The paired vector: identical root and fifth, one semitone of
+        third.  The mode vote -- not amplitude, length or sample rate -- is
+        what moves the sign, which is the property the blend must preserve."""
+        major = analyze_mood(_major_triad(root_midi), SR)
+        minor = analyze_mood(_minor_triad(root_midi), SR)
+        assert major.valence > 0.0 > minor.valence, (
+            f"root MIDI {root_midi}: major {major.valence:+.4f} / "
+            f"minor {minor.valence:+.4f} did not straddle zero"
+        )
+
+    def test_major_progression_reads_above_its_minor_counterpart(self) -> None:
+        """C I-IV-V-I vs A i-VI-III-VI-i over the same bar length."""
+        major_progression = np.concatenate([_major_triad(m) for m in (60, 65, 67, 60)])
+        minor_progression = np.concatenate(
+            [_minor_triad(m) for m in (57, 60, 65, 60, 57)]
+        )
+        major_result = analyze_mood(major_progression, SR)
+        minor_result = analyze_mood(minor_progression, SR)
+        assert major_result.valence > minor_result.valence, (
+            f"C progression {major_result.valence:+.4f} did not exceed "
+            f"Am progression {minor_result.valence:+.4f}"
+        )
+
+
+class TestGoldenVectorMeasuredArousal:
+    """Level and the silence guard, measured end-to-end."""
+
+    def test_arousal_increases_monotonically_with_loudness(self) -> None:
+        """Same seeded noise at three levels: only RMS differs, so any
+        arousal change is attributable to the RMS feature alone.
+
+        Measured at HEAD: 0.2328 (RMS 0.05) < 0.4728 (0.2) < 0.6328 (0.5).
+        The band is +/-0.02 around each measured value, and the ordering
+        assertion is the real invariant.
+        """
+        quiet = analyze_mood(_noise_at_rms(0.05), SR)
+        medium = analyze_mood(_noise_at_rms(0.2), SR)
+        loud = analyze_mood(_noise_at_rms(0.5), SR)
+        assert quiet.arousal < medium.arousal < loud.arousal, (
+            f"arousal not monotonic in level: {quiet.arousal:.4f} / "
+            f"{medium.arousal:.4f} / {loud.arousal:.4f}"
+        )
+        assert abs(quiet.arousal - 0.2328) <= 0.02
+        assert abs(medium.arousal - 0.4728) <= 0.02
+        assert abs(loud.arousal - 0.6328) <= 0.02
+        # Level must not leak into valence: the spectrum is unchanged.
+        assert abs(quiet.valence - medium.valence) <= 0.01
+        assert abs(medium.valence - loud.valence) <= 0.01
+
+    @pytest.mark.parametrize("rms", (0.5, 0.2, 0.05))
+    def test_energy_band_tracks_the_loudness_ladder(self, rms: float) -> None:
+        """Measured at HEAD: energy 5 / 4 / 4 for RMS 0.5 / 0.2 / 0.05 --
+        the loudest level is the only one reaching the top band."""
+        result = analyze_mood(_noise_at_rms(rms), SR)
+        assert 1 <= result.energy <= 5
+        if rms == 0.5:
+            assert result.energy == 5
+
+    def test_at_the_silence_threshold_the_signal_is_analysed(self) -> None:
+        """The guard rejects RMS < 1e-4, so exactly 1e-4 must be accepted.
+
+        This pins the boundary from the accepting side, complementing
+        TestGuards (which only covers a clearly-silent signal).
+        """
+        at_threshold = _noise_at_rms(1.0e-4, seed=5, seconds=3.0)
+        assert abs(float(np.sqrt(np.mean(np.square(at_threshold)))) - 1.0e-4) < 1e-9
+        result = analyze_mood(at_threshold, SR)
+        assert -1.0 <= result.valence <= 1.0
+        assert -1.0 <= result.arousal <= 1.0
+        assert 0.0 <= result.confidence <= 1.0
+
+    def test_just_below_the_silence_threshold_it_raises(self) -> None:
+        """The rejecting side of the same boundary, one part in 10^4 below."""
+        just_below = _noise_at_rms(9.9e-5, seed=5, seconds=3.0)
+        assert float(np.sqrt(np.mean(np.square(just_below)))) < 1.0e-4
+        with pytest.raises(AudioAnalysisError, match="near-silent"):
+            analyze_mood(just_below, SR)
+
+
+class TestGoldenVectorReproducibility:
+    def test_identical_input_measures_identical_output(self) -> None:
+        signal = _major_triad(60)
+        first = analyze_mood(signal, SR)
+        second = analyze_mood(signal, SR)
+        assert first == second
+
+    def test_seeded_noise_is_bit_reproducible(self) -> None:
+        assert np.array_equal(_noise_at_rms(0.2), _noise_at_rms(0.2))
