@@ -164,9 +164,10 @@ bullet(
 bullet(
     doc,
     "Undo: ",
-    "Live tag edits participate in the suite's tag-edit batch; "
-    "keep backups for complete "
-    "audio recovery.",
+    "Each live run is recorded in the suite's undo history with a full copy of "
+    "every file before it was rewritten, so Undo Tag Edits restores the original "
+    "audio byte for byte, along with the tags the file had at the time. Undo "
+    "history is capped, so keep your own backups of masters you care about.",
 )
 
 doc.add_heading("Processing and Results", level=1)
@@ -251,8 +252,8 @@ doc.add_paragraph(
     "Run Dry Run first and audition representative repairs. Live"
     " Update replaces source files "
     "only after temporary export succeeds, but keep backups of "
-    "important audio. Use available "
-    "tag-edit undo snapshots for metadata recovery."
+    "important audio. Undo Tag Edits restores the pre-run file in full "
+    "while the run is still in its capped history."
 )
 
 doc.save(OUTPUT)

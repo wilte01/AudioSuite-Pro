@@ -24,7 +24,7 @@ from pydub import AudioSegment
 from .audio_formats import SUPPORTED_EXTENSIONS, get_export_args
 from .batch_undo import (
     get_active_batch_id,
-    record_tag_edit_snapshot,
+    record_audio_overwrite_snapshot,
     use_batch,
 )
 from .constants import (
@@ -671,7 +671,9 @@ class BaseFileProcessor:
             run_dsp: Tool-supplied DSP adapter returning an
                 :class:`InplaceDspResult`.
             dsp_label: Progress label, e.g. ``"Reducing noise"``.
-            tag_operation: Undo operation name recorded for a live write.
+            tag_operation: Undo operation name recorded for a live write.  It
+                is stored on the byte-level undo record that restores the
+                file, not on a separate tag record.
             is_dry_run: When ``True``, detect but never write audio back.
         """
         from .tag_helper import read_tags_raw, write_tags_raw
@@ -708,7 +710,11 @@ class BaseFileProcessor:
 
                     slot_vars[slot_idx].set(f"Tagging: {name[:25]}...")
                     write_tags_raw(temp_output, original_tags, record_snapshot=False)
-                    record_tag_edit_snapshot(full_path, tag_operation)
+                    # Byte-level snapshot, taken while the source file is
+                    # still in its pre-run state: the write below replaces the
+                    # audio, so a tag-only snapshot would let Undo restore the
+                    # tags of audio that is still processed.
+                    record_audio_overwrite_snapshot(full_path, tag_operation)
                     shutil.copy2(temp_output, full_path)
                     action += outcome.repaired_suffix
                     status = "FIXED"

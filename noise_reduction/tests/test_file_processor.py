@@ -418,20 +418,23 @@ class TestNoiseReductionOutcome:
             _run_noise(str(live_dir), _make_params())
         assert len(exported) == 1
 
-    def test_undo_round_trip_restores_original_tags(self, tmp_path):
-        """The live run records the pre-edit tag payload and revert restores it.
+    def test_undo_round_trip_restores_original_bytes(self, tmp_path):
+        """Undo puts the file back exactly, audio and tags together.
 
-        Documented limitation, asserted deliberately: ``record_tag_edit_snapshot``
-        stores a *tag* payload and ``_revert_tag_edit`` only calls
-        ``set_raw_tags`` — the original **audio bytes** are not restored by
-        revert.  C2's scope forbids changing that ("unchanged, byte-for-byte:
-        the undo snapshot"), so this test pins the real contract and the audio
-        assertion below fails loudly if someone later makes undo byte-level
-        without also updating the user-facing documentation.
+        Inverted from the pre-B2 lock, which asserted the *documented
+        limitation* that the audio bytes were NOT restored (only the tags):
+        ``record_tag_edit_snapshot`` stored a tag payload and
+        ``_revert_tag_edit`` only called ``set_raw_tags``.  B2 settled the
+        contract the iteration-5 C2 row called unimplementable - the shared
+        in-place workflow now snapshots the whole file via
+        ``record_audio_overwrite_snapshot``, so the hash below returns to the
+        pre-run value instead of staying at the repaired one.
         """
         audio_file = tmp_path / "hum.wav"
         _make_tone_plus_hum_file(audio_file)
         _write_artist(audio_file, "Original Artist")
+        original_digest = _sha256(audio_file)
+        original_bytes = audio_file.read_bytes()
 
         from audio_suite_shared.batch_undo import BatchUndoLog, active_batch
 
@@ -446,10 +449,16 @@ class TestNoiseReductionOutcome:
             assert len(records) == 1
             assert records[0].file_path == str(audio_file)
             assert records[0].operation == "noise_reduce_edit"
+            # A byte-level record, not a pickled tag payload.
+            assert records[0].file_action == "overwrite"
 
-        # The tool preserved the incoming tags across the audio rewrite.
+        # The tool preserved the incoming tags across the audio rewrite, and
+        # the repair really did change the audio.
         assert _read_artist(audio_file) == "Original Artist"
+        repaired_digest = _sha256(audio_file)
+        assert repaired_digest != original_digest
 
+        # Corrupt the tags after the run, as a later tool would.
         _write_artist(audio_file, "Someone Else")
         assert _read_artist(audio_file) == "Someone Else"
 
@@ -457,6 +466,11 @@ class TestNoiseReductionOutcome:
             result = log.revert_batch(batches[0].batch_id)
 
         assert result.reverted == 1
+        assert result.failed == 0
+        # Byte-for-byte: the audio is the pre-run audio, and the tags that
+        # shipped with it come back with it.
+        assert _sha256(audio_file) == original_digest
+        assert audio_file.read_bytes() == original_bytes
         assert _read_artist(audio_file) == "Original Artist"
 
 

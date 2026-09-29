@@ -32,6 +32,28 @@ Mood Analyzer writes several tags (mood, confidence, energy) to each file
 in one run, and each write would otherwise record its own entry, showing a
 "3 files x 3 writes" count in the undo list.  The first snapshot already
 captures the full pre-run tag state, so later ones are redundant.
+
+What each record type stores
+-----------------------------
+* ``tag_edit``  — the pre-run tags (pickled).  Used by every tag-writing
+  tool.  Reverting restores tags only; the audio is untouched, because
+  those tools never rewrite it.
+* ``overwrite`` — the file's complete pre-run **bytes**, stored raw.  Used
+  by the in-place audio tools (noise reduction, pop/click removal, audio
+  enhancer, silence trimmer), which replace the source file.  A revert
+  restores the file byte for byte, which necessarily restores its tags too,
+  so those runs record a single ``overwrite`` record instead of a redundant
+  tag record.  This is the contract the iteration-6 B2 decision settled.
+* ``delete``    — the deleted file's bytes, so a deleted file can be
+  brought back.
+
+The stored payloads are capped (see ``_DEFAULT_MAX_BYTES``).  Byte-level
+records make that cap reachable with ordinary music collections, and the
+prune drops **whole batches** oldest-first when the total exceeds it, so a
+single very large run can push earlier runs out of the history.  This is
+documented in the Undo Tag Edits user guide and pinned by a test, because
+it is the one part of the undo contract that is a best-effort guarantee
+rather than a promise.
 """
 
 from __future__ import annotations
@@ -428,6 +450,56 @@ class BatchUndoLog:
             )
             conn.commit()
 
+    def record_file_overwrite(
+        self,
+        batch_id: str,
+        file_path: str,
+        operation: str,
+        file_bytes: bytes,
+    ) -> None:
+        """Record an in-place rewrite with the file's complete original bytes.
+
+        Used by the audio tools that replace the source file (noise
+        reduction, pop/click removal, ...).  The stored bytes are the whole
+        pre-run file, so :meth:`_revert_file_overwrite` can put the file back
+        exactly as it was - audio *and* tags, which is why a byte record
+        replaces the tag record for these runs instead of accompanying it.
+
+        As with :meth:`record_tag_edit`, only the first record per file is
+        kept within a batch: it already holds the true pre-run state.
+
+        The payload counts against the shared stored-bytes cap, so a large
+        batch can push older batches out of the history.  See the module
+        docstring.
+
+        Args:
+            batch_id:    The batch this record belongs to.
+            file_path:   Path of the file that is about to be rewritten.
+            operation:   Name of the write operation (e.g.
+                ``"noise_reduce_edit"``), kept for the undo list.
+            file_bytes:  The raw content of the file before the rewrite.
+        """
+        conn = self._connect()
+        with self._lock:
+            existing = conn.execute(
+                "SELECT 1 FROM undo_records WHERE batch_id = ? AND file_path = ?",
+                [batch_id, file_path],
+            ).fetchone()
+            if existing is not None:
+                logger.debug(
+                    "Skipped duplicate overwrite snapshot for %s in batch %s",
+                    file_path,
+                    batch_id,
+                )
+                return
+            conn.execute(
+                "INSERT INTO undo_records "
+                "(batch_id, file_path, operation, old_tags_snapshot, file_action) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [batch_id, file_path, operation, file_bytes, "overwrite"],
+            )
+            conn.commit()
+
     def record_file_delete(
         self,
         batch_id: str,
@@ -461,6 +533,8 @@ class BatchUndoLog:
         """Revert all operations in a batch.
 
         Tag edits are reverted by restoring the pickled snapshot.
+        In-place audio rewrites are reverted by writing the stored original
+        bytes back, which restores the audio and its tags together.
         File moves are reverted by moving the file back.
         File copies are reverted by removing the copy (with a warning
         if the original is missing).
@@ -486,6 +560,11 @@ class BatchUndoLog:
             try:
                 if snapshot is not None and action == "delete":
                     self._revert_file_delete(file_path, snapshot)
+                    result.reverted += 1
+                elif snapshot is not None and action == "overwrite":
+                    # Must precede the generic tag branch below: this payload
+                    # is raw file content, not a pickled tags object.
+                    self._revert_file_overwrite(file_path, snapshot)
                     result.reverted += 1
                 elif snapshot is not None:
                     self._revert_tag_edit(file_path, snapshot)
@@ -558,6 +637,33 @@ class BatchUndoLog:
             logger.warning("Copy target already gone: %s", dest_path)
             return False
         return False
+
+    def _revert_file_overwrite(self, file_path: str, snapshot: bytes) -> None:
+        """Restore a file that a tool rewrote in place, byte for byte.
+
+        Written to a sibling temp file and moved into place, because this
+        revert *overwrites a file that exists*: a failure part-way through a
+        direct write would leave the user with neither the processed audio nor
+        the original, whereas an interrupted temp write leaves the current
+        file untouched.
+
+        Args:
+            file_path: Path of the file that was rewritten.
+            snapshot:  Raw bytes of the file's content before the rewrite.
+        """
+        # The blob is written exclusively by our own record_file_overwrite()
+        # into a local per-user database; never user-supplied input.
+        path = Path(file_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_name(f"{path.name}.undo-restore")
+        try:
+            with open(temp, "wb") as fh:
+                fh.write(snapshot)
+            os.replace(temp, path)
+        except OSError:
+            temp.unlink(missing_ok=True)
+            raise
+        logger.debug("Restored in-place rewrite of %s", file_path)
 
     def _revert_file_delete(self, file_path: str, snapshot: bytes) -> None:
         """Restore a deleted file from its raw content blob.
@@ -816,6 +922,52 @@ def record_tag_edit_snapshot(file_path: str, operation: str) -> None:
     except Exception:
         # Snapshot failure must never block the actual write operation.
         logger.debug("Failed to snapshot tags for %s", file_path, exc_info=True)
+
+
+def record_audio_overwrite_snapshot(file_path: str, operation: str) -> None:
+    """Snapshot a file's bytes before a tool rewrites it in place.
+
+    This is the undo hook for the in-place audio tools: it stores the whole
+    file (audio **and** tags) so :meth:`BatchUndoLog.revert_batch` can restore
+    it exactly, which is the contract the iteration-6 B2 decision settled.
+    Call it immediately before the bytes are replaced, while the file is still
+    in its pre-run state.
+
+    A no-op when no batch is active, so unbatched runs pay nothing.  If the
+    file cannot be read it degrades to a tag-only snapshot rather than
+    recording nothing at all, and a recording failure never blocks the write.
+
+    Args:
+        file_path: Path to the audio file that is about to be rewritten.
+        operation: Name of the write operation, kept on the undo record.
+    """
+    batch_id = get_active_batch_id()
+    if batch_id is None:
+        return
+
+    log: BatchUndoLog | None = getattr(_thread_local, "log", None)
+    if log is None:
+        return
+
+    try:
+        # Read outside the module lock: a 40 MB FLAC must not serialise every
+        # other worker's snapshot behind this read.
+        with open(file_path, "rb") as fh:
+            original = fh.read()
+    except OSError:
+        logger.debug(
+            "Could not read %s for a byte-level snapshot; falling back to tags",
+            file_path,
+            exc_info=True,
+        )
+        record_tag_edit_snapshot(file_path, operation)
+        return
+
+    try:
+        log.record_file_overwrite(batch_id, file_path, operation, original)
+    except Exception:
+        # Snapshot failure must never block the actual write operation.
+        logger.debug("Failed to snapshot bytes for %s", file_path, exc_info=True)
 
 
 def record_file_reorg_snapshot(

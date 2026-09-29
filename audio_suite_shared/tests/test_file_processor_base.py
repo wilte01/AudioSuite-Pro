@@ -1137,7 +1137,7 @@ class TestProcessAudioFileInplace:
         digest = audio_file.read_bytes()
 
         with patch(
-            "audio_suite_shared.file_processor_base.record_tag_edit_snapshot"
+            "audio_suite_shared.file_processor_base.record_audio_overwrite_snapshot"
         ) as snapshot:
             progress = self._process(inplace_processor, audio_file, _repairing_dsp)
 
@@ -1154,7 +1154,7 @@ class TestProcessAudioFileInplace:
         digest = audio_file.read_bytes()
 
         with patch(
-            "audio_suite_shared.file_processor_base.record_tag_edit_snapshot"
+            "audio_suite_shared.file_processor_base.record_audio_overwrite_snapshot"
         ) as snapshot:
             progress = self._process(
                 inplace_processor, audio_file, _repairing_dsp, is_dry_run=True
@@ -1364,7 +1364,7 @@ class TestRunInplaceDspBatch:
             return _clean_dsp(audio)
 
         with patch(
-            "audio_suite_shared.file_processor_base.record_tag_edit_snapshot"
+            "audio_suite_shared.file_processor_base.record_audio_overwrite_snapshot"
         ) as snapshot:
             _progress, complete, errors = self._run(inplace_processor, tmp_path, _dsp)
 

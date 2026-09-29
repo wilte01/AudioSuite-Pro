@@ -31,6 +31,7 @@ from audio_suite_shared.batch_undo import (
     get_active_batch_id,
     is_undo_enabled,
     list_recent_batches,
+    record_audio_overwrite_snapshot,
     record_file_delete_snapshot,
     record_file_reorg_snapshot,
     record_tag_edit_snapshot,
@@ -884,6 +885,191 @@ class TestRecordFileDeleteSnapshot:
 
     def test_no_batch_for_record_file_delete_snapshot(self) -> None:
         record_file_delete_snapshot("/song.flac", b"payload")
+
+
+# ---------------------------------------------------------------------------
+# Byte-level undo for in-place audio rewrites (iteration-6 B2)
+# ---------------------------------------------------------------------------
+
+
+class TestRecordFileOverwrite:
+    def test_revert_restores_the_original_bytes(
+        self, undo_db: Path, tmp_path: Path
+    ) -> None:
+        """The whole point of B2: undo must put the audio back, not the tags.
+
+        Written as a real file whose bytes are asserted, not as a read-back of
+        the same internal state the record just wrote: a tag-only snapshot
+        would pass any self-consistency check while leaving the processed
+        audio in place.
+        """
+        original = b"ORIGINAL-AUDIO-BYTES" * 64
+        target = tmp_path / "song.flac"
+        target.write_bytes(original)
+
+        with BatchUndoLog(db_path=undo_db) as log:
+            batch_id = log.start_batch("noise_reduction", "audio_overwrite")
+            log.record_file_overwrite(
+                batch_id, str(target), "noise_reduce_edit", original
+            )
+            records = log.get_batch_records(batch_id)
+        assert len(records) == 1
+        assert records[0].file_action == "overwrite"
+        assert records[0].operation == "noise_reduce_edit"
+        assert records[0].has_snapshot is True
+
+        # Simulate the live run having replaced the file...
+        target.write_bytes(b"PROCESSED-AUDIO-BYTES" * 64)
+        assert target.read_bytes() != original
+
+        with BatchUndoLog(db_path=undo_db) as log:
+            result = log.revert_batch(batch_id)
+
+        assert result.reverted == 1
+        assert result.failed == 0
+        assert target.read_bytes() == original
+
+    def test_overwrite_payload_is_not_unpickled_as_tags(self, undo_db: Path) -> None:
+        """A byte payload must never reach the pickled-tags revert path.
+
+        ``_revert_tag_edit`` calls ``pickle.loads``; a raw FLAC payload would
+        raise and be reported as a failed revert, which is the failure mode a
+        dispatch-order mistake produces.
+        """
+        with BatchUndoLog(db_path=undo_db) as log:
+            batch_id = log.start_batch("noise_reduction", "audio_overwrite")
+            log.record_file_overwrite(
+                batch_id, "C:/music/song.flac", "noise_reduce_edit", b"\x00\x01\x02raw"
+            )
+            with patch(
+                "audio_suite_shared.batch_undo.BatchUndoLog._revert_tag_edit"
+            ) as tag_revert:
+                result = log.revert_batch(batch_id)
+
+        assert result.reverted == 1
+        assert result.failed == 0
+        tag_revert.assert_not_called()
+
+    def test_only_the_first_snapshot_per_file_is_kept(self, undo_db: Path) -> None:
+        """Same per-file dedup rule as ``record_tag_edit``.
+
+        The first record holds the true pre-run state; a later one would be a
+        duplicate entry in the undo list, not extra safety.
+        """
+        with BatchUndoLog(db_path=undo_db) as log:
+            batch_id = log.start_batch("noise_reduction", "audio_overwrite")
+            log.record_file_overwrite(
+                batch_id, "C:/music/song.flac", "noise_reduce_edit", b"first"
+            )
+            log.record_file_overwrite(
+                batch_id, "C:/music/song.flac", "noise_reduce_edit", b"second"
+            )
+            records = log.get_batch_records(batch_id)
+        assert len(records) == 1
+
+    def test_revert_leaves_no_temp_file_behind(
+        self, undo_db: Path, tmp_path: Path
+    ) -> None:
+        """The restore goes through a sibling temp file; it must be cleaned up."""
+        target = tmp_path / "song.mp3"
+        target.write_bytes(b"before")
+        with BatchUndoLog(db_path=undo_db) as log:
+            batch_id = log.start_batch("noise_reduction", "audio_overwrite")
+            log.record_file_overwrite(
+                batch_id, str(target), "noise_reduce_edit", b"before"
+            )
+        target.write_bytes(b"after")
+        with BatchUndoLog(db_path=undo_db) as log:
+            assert log.revert_batch(batch_id).reverted == 1
+        assert target.read_bytes() == b"before"
+        assert not list(tmp_path.glob("*.undo-restore"))
+
+
+class TestRecordAudioOverwriteSnapshot:
+    def test_records_the_files_bytes(self, undo_db: Path, tmp_path: Path) -> None:
+        target = tmp_path / "song.flac"
+        target.write_bytes(b"ORIGINAL")
+        with active_batch(
+            "noise_reduction", "audio_overwrite", db_path=undo_db
+        ) as batch_id:
+            record_audio_overwrite_snapshot(str(target), "noise_reduce_edit")
+            with BatchUndoLog(db_path=undo_db) as log:
+                records = log.get_batch_records(batch_id)
+
+        assert len(records) == 1
+        assert records[0].file_action == "overwrite"
+        assert records[0].operation == "noise_reduce_edit"
+
+    def test_no_batch_is_a_no_op(self, tmp_path: Path) -> None:
+        target = tmp_path / "song.flac"
+        target.write_bytes(b"ORIGINAL")
+        # Must not raise, and must not create the database's batch.
+        record_audio_overwrite_snapshot(str(target), "noise_reduce_edit")
+        assert target.read_bytes() == b"ORIGINAL"
+
+    def test_unreadable_file_falls_back_to_a_tag_snapshot(
+        self, undo_db: Path, tmp_path: Path
+    ) -> None:
+        """A byte snapshot that cannot be taken still records *something*.
+
+        Degrading to the tag payload keeps the pre-existing contract: a file
+        whose bytes cannot be read (locked, vanished) is still restorable at
+        tag level rather than losing its undo entry entirely.
+        """
+        missing = tmp_path / "gone.flac"
+        with active_batch(
+            "noise_reduction", "audio_overwrite", db_path=undo_db
+        ) as batch_id:
+            # ``record_audio_overwrite_snapshot`` calls the module-global
+            # ``record_tag_edit_snapshot``, so patch it there (the function-local
+            # ``TagHandlerFactory`` import inside it is not patchable here).
+            with patch(
+                "audio_suite_shared.batch_undo.record_tag_edit_snapshot"
+            ) as tag_snapshot:
+                record_audio_overwrite_snapshot(str(missing), "noise_reduce_edit")
+            tag_snapshot.assert_called_once_with(str(missing), "noise_reduce_edit")
+            with BatchUndoLog(db_path=undo_db) as log:
+                records = log.get_batch_records(batch_id)
+
+        # The fallback ran instead of the byte record, so no overwrite row.
+        assert all(r.file_action != "overwrite" for r in records)
+
+    def test_snapshot_failure_never_blocks_the_write(
+        self, undo_db: Path, tmp_path: Path
+    ) -> None:
+        """A DB error must not propagate to the tool's write path."""
+        target = tmp_path / "song.flac"
+        target.write_bytes(b"ORIGINAL")
+        with active_batch("noise_reduction", "audio_overwrite", db_path=undo_db):
+            with patch.object(
+                BatchUndoLog,
+                "record_file_overwrite",
+                side_effect=RuntimeError("db exploded"),
+            ):
+                record_audio_overwrite_snapshot(str(target), "noise_reduce_edit")
+
+    def test_oversized_payload_is_pruned_by_the_stored_bytes_cap(
+        self, tmp_path: Path
+    ) -> None:
+        """Pins the documented cap behaviour: a big run pushes itself out.
+
+        Byte-level records make the 1 GiB budget reachable with ordinary
+        music, and the prune drops whole batches oldest-first.  The
+        user-facing guide states this, so the behaviour must not change
+        silently - this test is the tripwire.
+        """
+        db = tmp_path / "cap.db"
+        with BatchUndoLog(db_path=db) as log:
+            big = log.start_batch("noise_reduction", "audio_overwrite")
+            log.record_file_overwrite(
+                big, "C:/music/big.flac", "noise_reduce_edit", b"x" * 4096
+            )
+            # Prune with a cap the payload cannot fit under: the batch holding
+            # the payload is dropped, exactly as start_batch would do on the
+            # next run.
+            removed = log.cleanup(max_entries=50, max_bytes=1024)
+            assert removed == 1
+            assert log.list_batches(limit=10) == []
 
 
 # ---------------------------------------------------------------------------

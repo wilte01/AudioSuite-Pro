@@ -93,6 +93,16 @@ class TestFriendlyToolName:
     def test_album_art_normalizer_mapped(self) -> None:
         assert friendly_tool_name("album_art_normalizer") == "Album Art Normalizer"
 
+    def test_in_place_audio_tools_mapped(self) -> None:
+        """The two byte-level tools must not show their raw id in the list.
+
+        B2 made their undo entries meaningful, and the batch list is where the
+        user picks what to undo; a raw ``noise_reduction`` row there looks like
+        an internal error.
+        """
+        assert friendly_tool_name("noise_reduction") == "Noise Reduction"
+        assert friendly_tool_name("pop_click_remover") == "Pop & Click Remover"
+
 
 class TestFriendlyBatchDescription:
     def test_singular_file(self) -> None:
@@ -144,6 +154,21 @@ class TestRecordPreviewLine:
         )
         line = record_preview_line(r)
         assert line == "Restore deleted file: C:\\Deleted\\song.flac"
+
+    def test_in_place_audio_revert_does_not_claim_tags(self) -> None:
+        """An in-place repair must not be previewed as a tag-only restore.
+
+        The byte-level record (iteration-6 B2) restores the audio too, so the
+        generic fall-through text would understate what Undo is about to do to
+        the user's file.
+        """
+        r = _record(
+            file_action="overwrite",
+            file_path="C:\\Music\\hum.wav",
+        )
+        line = record_preview_line(r)
+        assert line == "Restore original audio: C:\\Music\\hum.wav"
+        assert "tags" not in line
 
 
 class TestBuildPreview:

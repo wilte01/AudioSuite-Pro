@@ -5,7 +5,8 @@ Lists, inspects, and reverts the SQLite undo batches written by the suite
 tools (BPM Analyzer, Tempo Analyzer, Mood Analysis Batch Tagger, Tag Field
 Updater, File Reorganizer, ...).  A batch collects every file a single run
 touched;
-``undo`` restores the pre-run tags or reverses file copies/moves.
+``undo`` restores the pre-run tags, puts back audio that a tool repaired in
+place (Noise Reduction, Pop & Click Remover), or reverses file copies/moves.
 
 Batches live in ``~/.audiosuite/undo_log.db`` unless ``--db`` is given.
 
@@ -90,6 +91,8 @@ def _cmd_show(args: argparse.Namespace) -> int:
             detail = f"move: {r.source_path} -> {r.dest_path}"
         elif r.file_action == "copy":
             detail = f"copy: {r.source_path} -> {r.dest_path}"
+        elif r.file_action == "overwrite":
+            detail = f"{r.operation} [audio-bytes]"
         else:
             snap = "snapshot" if r.has_snapshot else "no-snapshot"
             detail = f"{r.operation} [{snap}]"
@@ -135,7 +138,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "List, inspect, and revert Audio Suite undo batches "
-            "(tag edits and file reorganizations)."
+            "(tag edits, in-place audio repairs, and file reorganizations)."
         ),
     )
     parser.add_argument(

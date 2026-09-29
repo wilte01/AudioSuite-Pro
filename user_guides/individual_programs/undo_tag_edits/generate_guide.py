@@ -35,7 +35,7 @@ doc.add_paragraph(
     "5. In the window that opens, select a run from the Recent runs list.\n"
     "6. Read the preview to confirm it is the run you want to undo.\n"
     "7. Click Undo Selected Run and confirm when asked.\n"
-    "8. Done \u2014 your files' tags are restored to how they were before that run."
+    "8. Done \u2014 your files are restored to how they were before that run."
 )
 
 doc.add_paragraph(
@@ -47,7 +47,8 @@ doc.add_paragraph(
 doc.add_heading("What Can Be Undone", level=1)
 doc.add_paragraph(
     "Undo history is recorded automatically by the tools that change tag "
-    "metadata and by the Tag-Based File Reorganizer. Typical examples:"
+    "metadata, by the tools that repair audio in place, and by the Tag-Based "
+    "File Reorganizer. Typical examples:"
 )
 p = doc.add_paragraph(style="List Bullet")
 p.add_run("Tag edits: ").bold = True
@@ -57,6 +58,15 @@ p.add_run(
     "cover image) are restored."
 )
 p = doc.add_paragraph(style="List Bullet")
+p.add_run("In-place audio repairs: ").bold = True
+p.add_run(
+    "files repaired by Noise Reduction or Pop & Click Remover are put back "
+    "exactly as they were before the run \u2014 the original audio, byte for "
+    "byte, along with the tags that were in the file at the time. The preview "
+    "line for these runs reads 'Restore original audio' rather than "
+    "'Restore tags'."
+)
+p = doc.add_paragraph(style="List Bullet")
 p.add_run("File moves: ").bold = True
 p.add_run("files that a reorganiser run moved are moved back to their original folder.")
 p = doc.add_paragraph(style="List Bullet")
@@ -64,11 +74,31 @@ p.add_run("File copies: ").bold = True
 p.add_run(
     "copies created by a reorganiser run are removed from the destination folder."
 )
+p = doc.add_paragraph(style="List Bullet")
+p.add_run("Deletions: ").bold = True
+p.add_run(
+    "files deleted by a Metadata Scrubber restore run are brought back with "
+    "their original content."
+)
 
 doc.add_paragraph(
     "No extra setup is needed. The snapshots are created automatically in the "
     "background while a tool runs \u2014 you never have to remember to turn "
     "anything on."
+)
+
+doc.add_heading("How Much History Is Kept", level=2)
+doc.add_paragraph(
+    "Undo history is capped so it cannot fill your disk: the most recent 50 runs "
+    "are kept, and the total stored size is limited as well. Because an in-place "
+    "audio repair stores a complete copy of every file it changes, one very large "
+    "run can use up a large part of that space, and older runs are dropped from "
+    "the list when the limit is reached."
+)
+doc.add_paragraph(
+    "In practice this means: undo a run soon after you make it, and keep your own "
+    "backups of masters you care about. Audio Suite never promises to hold an "
+    "unlimited history."
 )
 
 # ── The Window, Explained ──
@@ -86,8 +116,9 @@ doc.add_paragraph(
 doc.add_heading("What this will do", level=2)
 doc.add_paragraph(
     "When you select a run, this panel explains exactly what undoing it will do, "
-    "for example 'Restore tags: C:\\Music\\song.mp3' or 'Move back: ...'. This "
-    "lets you double-check that you picked the right run before doing anything."
+    "for example 'Restore tags: C:\\Music\\song.mp3', 'Restore original audio: "
+    "C:\\Music\\hum.wav' or 'Move back: ...'. This lets you double-check that you "
+    "picked the right run before doing anything."
 )
 
 doc.add_heading("Buttons", level=2)
@@ -110,10 +141,11 @@ p.add_run("Opens this guide.")
 # ── The Confirmation Step ──
 doc.add_heading("The Confirmation Step", level=1)
 doc.add_paragraph(
-    "Undoing a run permanently overwrites the current tags of the files in that "
-    "run with the saved pre-run versions. Because this cannot be undone, the "
-    "tool asks you to confirm before it makes any changes. Read the message "
-    "carefully and click Yes only if you are sure."
+    "Undoing a run permanently overwrites the current contents of the files in "
+    "that run with the saved pre-run versions. For a tag run that means the tags; "
+    "for an in-place audio repair it means the whole file, audio included. "
+    "Because this cannot be undone, the tool asks you to confirm before it makes "
+    "any changes. Read the message carefully and click Yes only if you are sure."
 )
 
 doc.add_heading("What You See After Undoing", level=2)
@@ -151,9 +183,10 @@ doc.add_paragraph(
 doc.add_heading("Files Changed By Another Tool", level=2)
 doc.add_paragraph(
     "If you edit the same files again after a saved run, undoing the older run "
-    "will replace the tags with the version saved before that older run \u2014 "
-    "any changes you made since then will be overwritten. Check the preview "
-    "before confirming."
+    "will put the files back the way they were before that older run \u2014 "
+    "the saved tags, or for an in-place audio repair the saved file itself. "
+    "Anything that happened to them since will be overwritten. Check the "
+    "preview before confirming."
 )
 
 # ── Troubleshooting ──
@@ -161,8 +194,9 @@ doc.add_heading("Troubleshooting", level=1)
 
 doc.add_paragraph(
     "The list says 'You have no saved undo history yet': "
-    "This is expected if you have not run a tag-editing tool yet, or if your "
-    "saved history was pruned. Run a tag tool first, then reopen the window."
+    "This is expected if you have not run a tool that records history, or if "
+    "your saved history was pruned. Run a tag tool or an in-place repair "
+    "first, then reopen the window."
 )
 doc.add_paragraph(
     "A run I expected is missing: "
@@ -171,7 +205,7 @@ doc.add_paragraph(
 )
 doc.add_paragraph(
     "A file could not be restored: "
-    "The file may be locked, read-only, or the original tags may be "
+    "The file may be locked, read-only, or the saved copy may be "
     "unavailable. Check the processing log for the exact error."
 )
 doc.add_paragraph(

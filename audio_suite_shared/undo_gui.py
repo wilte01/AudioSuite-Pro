@@ -1,11 +1,13 @@
 """
-undo_gui.py — Friendly graphical interface for undoing Audio Suite tag edits.
+undo_gui.py — Friendly graphical interface for undoing Audio Suite changes.
 
 Provides a self-contained Tk window (``UndoTagEditsApp``) that surfaces the
-batch undo log to non-technical users.  Every tag-editing tool in the suite
-records a snapshot of each file's tags before modifying it; this window lets a
-user pick one of those "runs" and restore the tags to the way they were before
-that run, with plain-English descriptions and a clear confirmation step.
+batch undo log to non-technical users.  Every tool that changes a file
+records what it is about to change: tag-writing tools snapshot the tags, and
+the tools that repair audio in place snapshot the complete file.  This window
+lets a user pick one of those "runs" and put the files back the way they were
+before that run, with plain-English descriptions and a clear confirmation
+step.
 
 The window reuses the shared ``batch_undo`` engine unchanged — no reads or
 writes other than through its public functions:
@@ -17,8 +19,8 @@ User-facing behaviour
 * A list of recent runs, each shown as a friendly description (e.g.
   ``Today 14:32 · BPM Analyzer · 50 files``) — the raw batch id is hidden.
 * Selecting a run shows a preview of what would be reverted.
-* Undoing requires an explicit confirmation warning that current tags will be
-  permanently overwritten with the pre-run versions.
+* Undoing requires an explicit confirmation warning that current file contents
+  will be permanently overwritten with the pre-run versions.
 * A refresh button re-reads the log (e.g. after the user has run a new tool).
 """
 
@@ -56,6 +58,8 @@ _TOOL_DISPLAY_NAMES: dict[str, str] = {
     "mood_analysis_batch_tagger": "Mood Analysis Batch Tagger",
     "mood_analyzer": "Mood Analyzer",
     "music_format_converter": "Music Format Converter",
+    "noise_reduction": "Noise Reduction",
+    "pop_click_remover": "Pop & Click Remover",
     "replaygain_analyzer": "ReplayGain Analyzer",
     "tag_field_updater": "Tag Field Updater",
     "tempo_analyzer": "Tempo Analyzer",
@@ -113,6 +117,8 @@ def record_preview_line(record: UndoRecord) -> str:
         return f"Remove copy: {record.dest_path}"
     if record.file_action == "delete":
         return f"Restore deleted file: {record.file_path}"
+    if record.file_action == "overwrite":
+        return f"Restore original audio: {record.file_path}"
     return f"Restore tags: {record.file_path}"
 
 
@@ -257,8 +263,9 @@ class UndoTagEditsApp:
                     "You have no saved undo history yet.\n\n"
                     "Undo history is recorded automatically whenever you run a "
                     "tag-editing tool (for example BPM Analyzer or Tempo "
-                    "Analyzer). Run one of those tools first, then return here "
-                    "to restore the tags."
+                    "Analyzer) or a tool that repairs audio in place (Noise "
+                    "Reduction, Pop & Click Remover). Run one of those tools "
+                    "first, then return here to restore your files."
                 )
             return "Select a run from the list above to see what it would undo."
         try:
@@ -274,9 +281,12 @@ class UndoTagEditsApp:
             return
         proceed = messagebox.askyesno(
             "Undo Tag Edits",
-            "This will permanently overwrite the current tags of the files in "
-            "this run, restoring them to the way they were before the run "
+            "This will permanently overwrite the current contents of the files "
+            "in this run, restoring them to the way they were before the run "
             "happened.\n\n"
+            "For a run that repaired audio in place (Noise Reduction, Pop & "
+            "Click Remover) that means the original audio is put back, byte "
+            "for byte, along with its tags.\n\n"
             "This action cannot be undone.\n\n"
             "Do you want to continue?",
         )
@@ -360,9 +370,12 @@ class UndoTagEditsApp:
             wraplength=700,
             text=(
                 "Every time you run a tag-editing tool, Audio Suite saves a "
-                "copy of the tags exactly as they were before that run. Choose "
-                "a run below and restore your file tags to the way they were "
-                "before it happened."
+                "copy of the tags exactly as they were before that run. Tools "
+                "that repair audio in place (Noise Reduction, Pop & Click "
+                "Remover) save the whole file instead, so undoing one of those "
+                "runs brings back the original audio byte for byte. Choose a "
+                "run below and restore your files to the way they were before "
+                "it happened."
             ),
             font=styles.FONT_BODY,
             bg=styles.BG_APP,

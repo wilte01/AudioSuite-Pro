@@ -10,8 +10,8 @@ the maintainer schedules it.** No audit drives these items. When an item is
 picked up, it receives the full six-field treatment (priority / effort / risk,
 scope checkboxes, lockstep tests, acceptance, risks) here before any code
 changes. Scheduled so far: A1 (withdrawn, no code), A2, A3 (complete —
-Section A is closed); B1 (complete). B2/B3 decided, B4 mechanical.
-**Last Updated:** 2026-09-29 (A1 withdrawn by maintainer decision; A2, A3 complete — Section A closed; B1 complete)
+Section A is closed); B1, B2 (complete). B3 decided, B4 mechanical.
+**Last Updated:** 2026-09-29 (A1 withdrawn by maintainer decision; A2, A3 complete — Section A closed; B1, B2 complete)
 **Governing plan:** this file, once scheduled. `PLAN_iteration5_remediation.md`
 is a completed record; this file is its supersession entry in plan form.
 The iteration-5 roadmap's "each belongs in its own plan with the user's
@@ -285,7 +285,7 @@ changing files", line 166). The documentation and the pop twin both already
 described the fix; only the implementation diverged, so B1 brings the code
 into line with the shipped guide rather than changing the guide.
 
-### B2 `[!]` — Settle the undo contract (tag-only vs byte-level)
+### B2 `[x]` — Settle the undo contract (tag-only vs byte-level)
 
 **Provenance:** iteration-5 C2 Decision Log row — the plan's "restored to
 the original bytes" was unimplementable as written; only a tag-payload
@@ -296,13 +296,95 @@ round-trip exists in the suite.
 C2 tests assert the shipped contract and the gap is reported, not papered
 over.
 
-**Decision needed:** declare tag-only undo as the contract (and state it
-in the affected user guides), or build byte-level restore (file
-backup/restore entries in `BatchUndoLog`).
+**Decision (Wilte, 2026-09-29): build byte-level restore.** The iteration-5
+C2 row read the shipped tag-only code as unimplementable; the missing piece was
+the *record type*, not a hard limit. One snapshot per file per batch (same
+rule as the existing reorg/delete records) subsumes the tag payload, so the
+tag round-trip becomes a strict subset of the file round-trip.
+
+**Resolution:**
+
+- `BatchUndoLog.record_file_overwrite()` stores the file's raw bytes under
+  `file_action = "overwrite"` in the existing `old_tags_snapshot` BLOB
+  column; `_revert_file_overwrite()` writes them back through a sibling
+  `*.undo-restore` temp file plus `os.replace()` (atomic, same directory).
+- `record_audio_overwrite_snapshot(file_path, operation)` is the shared entry
+  point. An `OSError` reading the file degrades to the old
+  `record_tag_edit_snapshot()` rather than blocking the tool's write, and a DB
+  failure is swallowed so undo logging can never abort a run.
+- `file_processor_base.py` calls it immediately before the in-place
+  `shutil.copy2()` — the one write site every in-place tool shares, so all of
+  them gain the behaviour from a single change.
 
 **Acceptance:** whichever is chosen, a regression test that exercises it
 on a real audio file (for byte-level: modify, undo, assert the file hashes
 equal the original), plus the documentation stating the contract.
+
+**Continuation of the resolution — dispatch, surfaces, cap:**
+
+- `revert_batch()` dispatches `overwrite` **before** the generic tag-snapshot
+  branch. The order is load-bearing: the raw payload is not a pickle, and a
+  generic-first dispatch fails the revert with `invalid load key` (proven
+  below).
+- `undo_gui.record_preview_line()` renders `Restore original audio: ...` for
+  overwrite records, and `_TOOL_DISPLAY_NAMES` gained `noise_reduction` and
+  `pop_click_remover`, which previously listed by raw id.
+- `utilities/undo.py` marks the detail line `[audio-bytes]`, not
+  `[snapshot]`.
+- **Cap behaviour, decided rather than hidden:** the log's existing
+  `_DEFAULT_MAX_ENTRIES = 50` / `_DEFAULT_MAX_BYTES = 1 GiB` budget is
+  unchanged, and a byte payload counts a whole file, so one large batch can
+  consume it. No per-file refusal and no silent skip: oversized batches are
+  pruned oldest-first as whole batches, so their entry leaves the list. The
+  undo guide documents this with a keep-your-own-backups instruction, and a
+  test prunes at `max_bytes=1024` and asserts the batch is gone.
+- The window title stays "Undo Tag Edits" and the manifest id is unchanged;
+  renaming a utility's public identity is outside this item's scope. The
+  *documented contract* inside it is now the full file.
+
+**Inverted locks.** The iteration-5 C2 tests asserted the *limitation*
+(`_sha256(audio_file) == repaired_bytes`, i.e. the audio deliberately not
+restored) and put the "C2's scope forbids that" rationale in the docstring.
+Both are now inverted in `noise_reduction/tests/test_file_processor.py` and
+`pop_click_remover/tests/test_file_processor.py`: each records the pre-run
+digest and bytes, proves the repair changed the file, corrupts the tags
+afterwards, and asserts the reverted file matches the original digest *and*
+the original tag.
+
+**Proofs.**
+
+- Reverting with the branch order deliberately inverted (generic tag branch
+  first) fails with `invalid load key, 'O'` — the raw payload reached
+  `pickle.loads()`. Restored from a SHA-256-verified backup;
+  `test_batch_undo.py` then reported 72 passed.
+- Reverting the write site to `record_tag_edit_snapshot()` fails both
+  inverted round-trip tests with `file_action=None` instead of `"overwrite"`,
+  then 223 passed after byte-exact restore of `file_processor_base.py`.
+- New: `TestRecordFileOverwrite` (revert restores original bytes, payload is
+  not unpickled, first-snapshot dedup, no temp file left) and
+  `TestRecordAudioOverwriteSnapshot` (records bytes, no-op without a batch,
+  `OSError` degrades to the tag snapshot, DB failure does not block, cap
+  pruning).
+- Updated: the three `record_tag_edit_snapshot` patch sites in
+  `audio_suite_shared/tests/test_file_processor_base.py`; new
+  `test_in_place_audio_revert_does_not_claim_tags` and
+  `test_in_place_audio_tools_mapped` in `test_undo_gui.py`; new
+  `test_shows_in_place_audio_record_as_audio_bytes` in
+  `utilities/tests/test_undo.py`.
+
+**Guide audit:** the undo guide's "What Can Be Undone", the cap section
+(new), the preview examples, the confirmation text, the
+"Files Changed By Another Tool" warning, the quick start and troubleshooting
+were all tag-only and are now whole-file. Noise Reduction and Pop & Click
+Remover guides claimed only "tag-edit undo snapshots" / asked the user to keep
+backups for audio recovery; both now state the byte-for-byte restore and the
+cap. All three generators were re-run, so the three DOCX files are
+regenerated from the edited sources.
+
+**Gate evidence:** compile 0 · ruff clean / 757 format-stable · mypy strict
+0 issues / 452 files · bandit 0H/0M/51L · bare suite **7543 passed** / 3
+skipped / 30 deselected · coverage **79.13%** ≥ 75. Net **+12 tests**
+(7531 → 7543), skip count unchanged at 3.
 
 ### B3 `[!]` — Decide the low-confidence KEY-tag policy
 
@@ -396,3 +478,4 @@ Gate Evidence is incomplete by definition).
 | A2 | A | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7528 passed** / 3 skipped / 30 deselected · coverage **79.15%** ≥ 75 | Dead `if not pending: break` deleted (invariant stated in a comment); the unreachable `return -1` removed by making `acquire()` blocking + adding `release(slot)`, per the item's first scope bullet. B1's pool tests pass **unedited**. 6 new tests in `mood_analysis_batch_tagger/tests/test_batch_analysis_engine.py` (`TestWorkerSlotTracker` + two exhaustion probes); 4 of 6 verified to fail pre-change via a SHA-256-verified source swap. No user-guide impact (worker-slot labelling behaviour is unchanged). |
 | A3 | A | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7531 passed** / 3 skipped / 30 deselected · coverage **79.11%** ≥ 75 | Source 2 gated on `isfile` + `access(X_OK)`. Both defect-pinning tests inverted (none deleted, none weakened): `test_executability_is_consulted_for_the_local_copy` asserts the probed mode, `test_a_directory_named_like_the_binary_is_rejected` parametrized win32/linux/darwin; both verified to fail pre-change. Net +3 tests. `_deny_local_copy()` + `__file__` redirection absorb the gate's move off `exists` (and de-vacuate a self-fulfilling `exists` assertion); `_make_exe` now chmods `0o755` so the Linux leg's real `X_OK` check passes. **Skip count unchanged at 3** — a `skipif` version of the execute-bit test was written and deleted in favour of asserting the platform difference. Source 3 left on `exists` by design. Guides audited: no guide documents the finder's discovery sources; A5 `TestGuideWordingLock` green. |
 | B1 | B | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7531 passed** / 3 skipped / 30 deselected · coverage **79.11%** ≥ 75 | Maintainer Wilte chose option A (match pop). The 4-line `if params.dry_run:` short-circuit is deleted, so `reduce_noise` is mode-agnostic and `dry_run` has exactly one consumer — the `is_dry_run` flag handed to the shared write site. Verified the short-circuit had no other live reader: the Refinery returns at `pipeline.py:195` on its own `config.dry_run` and never sets `noise_reduction_params.dry_run` (`cli.py:163`, `settings.py:114`). Both C2 locks inverted, none deleted: `test_dry_run_no_modification` → `test_dry_run_does_not_short_circuit_the_dsp` (asserts the dry result equals the live result — audio plus both energies — so the flag provably changes nothing the DSP computes), and the two tools' `test_dry_run_writes_nothing` are now symmetric (`succeeded == 1` / `skipped == 0` + SHA-256 + mtime + no temp file). `test_export_call_count_differs_between_dry_run_and_live` and `test_skips_clean_file` pass **unedited** — the 0-export write gate and the honest clean verdict are both still enforced. **Guide audit: no edit** — `noise_reduction/generate_guide.py:88` and `:166` already documented "Dry Run analyzes without writing" / "Calculates the reduction path without exporting", i.e. the shipped guide and the pop twin already described the fix and only the code diverged. Net test count unchanged (one test renamed). |
+| B2 | B | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7543 passed** / 3 skipped / 30 deselected · coverage **79.13%** ≥ 75 | Maintainer Wilte chose byte-level restore. The iteration-5 C2 row called the contract unimplementable, but the missing piece was the *record type*: `record_file_overwrite()` stores raw bytes under `file_action="overwrite"` in the existing BLOB column, and `revert_batch()` dispatches it **before** the generic tag branch (the order is load-bearing — generic-first fails with `invalid load key`, proven by a deliberate branch swap and a SHA-256-verified restore). `file_processor_base.py` swaps `record_tag_edit_snapshot` → `record_audio_overwrite_snapshot` at the one shared in-place `copy2()` write site, so every in-place tool gains it from a single change. Both C2 locks **inverted**, neither deleted: each tool test now records the pre-run digest and bytes, proves the repair changed the file, corrupts the tags afterwards, and asserts the reverted file matches the original digest and tag; verified to fail pre-change (`file_action=None`). **+12 tests**: 9 in `TestRecordFileOverwrite`/`TestRecordAudioOverwriteSnapshot`, 2 in `test_undo_gui.py`, 1 in `utilities/tests/test_undo.py`; the 3 `record_tag_edit_snapshot` patch sites in `test_file_processor_base.py` were retargeted and pass **unedited** otherwise. **Cap decided, not hidden:** 50 runs / 1 GiB unchanged, bytes count whole files, the oldest batch is pruned whole, pinned by a `max_bytes=1024` prune test and documented with a keep-your-own-backups instruction. **Guide audit: 3 guides edited and regenerated** (undo, noise, pop) — all three were tag-only. |

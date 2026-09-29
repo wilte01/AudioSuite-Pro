@@ -41,6 +41,18 @@ def _seed_tag_batch(db: Path, file_path: Path) -> str:
     return batch_id
 
 
+def _seed_overwrite_batch(db: Path, file_path: Path) -> str:
+    """Create an in-place-audio batch with one byte-level record."""
+    from audio_suite_shared.batch_undo import (
+        active_batch,
+        record_audio_overwrite_snapshot,
+    )
+
+    with active_batch("noise_reduction", "audio_overwrite", db_path=db) as batch_id:
+        record_audio_overwrite_snapshot(str(file_path), "noise_reduce_edit")
+    return batch_id
+
+
 def _seed_move_batch(db: Path, src: Path, dst: Path, action: str = "move") -> str:
     """Create a file-reorg batch with one file record; return its id."""
     from audio_suite_shared.batch_undo import active_batch, record_file_reorg_snapshot
@@ -111,6 +123,25 @@ class TestShow:
         db = tmp_path / "undo_log.db"
         assert undo._cmd_show(Namespace(batch_id="deadbeef", db=db)) == 1
         assert "[ERROR] Unknown batch" in capsys.readouterr().err
+
+    def test_shows_in_place_audio_record_as_audio_bytes(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        """The byte-level record must not be labelled a tag snapshot.
+
+        ``[snapshot]`` in this listing means "pickled tags"; for a file a tool
+        rewrote in place the payload is the whole original file, and the CLI
+        says so, so nobody reads a restored-audio revert as a tags-only one.
+        """
+        db = tmp_path / "undo_log.db"
+        wav = tmp_path / "hum.wav"
+        wav.write_bytes(b"ORIGINAL")
+        batch_id = _seed_overwrite_batch(db, wav)
+
+        assert undo._cmd_show(Namespace(batch_id=batch_id, db=db)) == 0
+        out = capsys.readouterr().out
+        assert "noise_reduce_edit [audio-bytes]" in out
+        assert "[snapshot]" not in out
 
 
 class TestUndo:
