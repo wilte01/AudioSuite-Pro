@@ -275,12 +275,34 @@ class TestSpectralGate:
 class TestReduceNoise:
     """Tests for reduce_noise() with combined parameters."""
 
-    def test_dry_run_no_modification(self) -> None:
+    def test_dry_run_does_not_short_circuit_the_dsp(self) -> None:
+        """The DSP is mode-agnostic: a dry run reports what it found.
+
+        Inverted from the pre-B1 lock, which asserted that a dry run
+        returned the untouched input with ``was_modified=False``.  That
+        short-circuit made a dry run report ``SKIP ("Clean - no noise
+        detected")`` for a file carrying 15.98 dB of hum, while the
+        pop-click twin reported ``FOUND`` for the same situation.  The
+        suppression of the write is the shared workflow's job (it is
+        passed ``is_dry_run`` separately), so the DSP must not fake a
+        clean verdict to achieve it.
+        """
         audio = _sine_segment(freq_hz=60.0, duration_ms=1000, amplitude=0.4)
-        params = NoiseReductionParams(reduce_hum=True, hum_frequency=60, dry_run=True)
-        result = reduce_noise(audio, params)
-        assert result.was_modified is False
-        assert result.audio == audio
+        dry = reduce_noise(
+            audio, NoiseReductionParams(reduce_hum=True, hum_frequency=60, dry_run=True)
+        )
+        live = reduce_noise(
+            audio, NoiseReductionParams(reduce_hum=True, hum_frequency=60)
+        )
+
+        assert dry.was_modified is True
+        assert dry.audio != audio
+        # The dry-run result is the live result, bit for bit: the flag
+        # changes nothing the DSP computes.
+        assert dry.audio == live.audio
+        assert dry.energy_before_db == live.energy_before_db
+        assert dry.energy_after_db == live.energy_after_db
+        assert dry.energy_after_db < dry.energy_before_db
 
     def test_hum_only(self) -> None:
         audio = _sine_segment(freq_hz=60.0, duration_ms=1000, amplitude=0.4)

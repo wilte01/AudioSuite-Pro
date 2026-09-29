@@ -9,9 +9,9 @@ or Decision Log / Completion Log row it comes from.
 the maintainer schedules it.** No audit drives these items. When an item is
 picked up, it receives the full six-field treatment (priority / effort / risk,
 scope checkboxes, lockstep tests, acceptance, risks) here before any code
-changes. Scheduled so far: A1 (withdrawn, no code), A2 (complete), A3
-(complete) — **Section A is now closed**; nothing in Section A remains.
-**Last Updated:** 2026-09-29 (A1 withdrawn by maintainer decision; A2, A3 complete — Section A closed)
+changes. Scheduled so far: A1 (withdrawn, no code), A2, A3 (complete —
+Section A is closed); B1 (complete). B2/B3 decided, B4 mechanical.
+**Last Updated:** 2026-09-29 (A1 withdrawn by maintainer decision; A2, A3 complete — Section A closed; B1 complete)
 **Governing plan:** this file, once scheduled. `PLAN_iteration5_remediation.md`
 is a completed record; this file is its supersession entry in plan form.
 The iteration-5 roadmap's "each belongs in its own plan with the user's
@@ -222,7 +222,7 @@ known asymmetry, not an oversight.
 
 ## Section B — Behaviour-decision items (decision first, then code)
 
-### B1 `[!]` — Make noise dry-run reports honest
+### B1 `[x]` — Make noise dry-run reports honest
 
 **Provenance:** iteration-5 C2 Decision Log row — "dry-run divergence
 between the twins is a product defect", preserved byte-for-byte by the C2
@@ -246,6 +246,44 @@ to the write site" rule requires.
 **Acceptance:** the C2 dry-run lock updated in lockstep (SHA-256 + mtime
 unchanged, no output file, no export call) with the honest `FOUND` report
 asserted on a repairable file.
+
+**Decision (2026-09-29, maintainer Wilte):** option A — match pop. A noise
+dry run analyses and reports honestly; the write stays suppressed at the
+write site.
+
+**Resolution (2026-09-29):** the four-line `if params.dry_run:` short-circuit
+is deleted from `reduce_noise()`, which is now mode-agnostic, so
+`dry_run` has exactly one consumer in this tool: the `is_dry_run` flag
+already passed to the shared in-place workflow that owns the write. Two
+things were verified before deleting it, because a short-circuit can have
+other readers:
+
+- the Audio Refinery calls `reduce_noise()` directly
+  (`audio_refinery/core/pipeline.py:273`), but returns at `pipeline.py:195`
+  on its **own** `config.dry_run` long before reaching the noise stage, and
+  neither `audio_refinery/cli.py:163` nor `utils/settings.py:114` ever sets
+  `noise_reduction_params.dry_run` — so the short-circuit had no live reader
+  outside this tool;
+- `"Clean — no noise detected"` is still the correct text for a genuinely
+  clean file, because the DSP now actually ran before claiming it.
+
+Both C2 locks were inverted rather than deleted:
+`test_dry_run_no_modification` → `test_dry_run_does_not_short_circuit_the_dsp`
+(asserts the dry-run result equals the live result, audio and both energies,
+so the flag provably changes nothing the DSP computes), and the
+`test_dry_run_writes_nothing` pair in the two tools is now symmetric — both
+assert `succeeded == 1` / `skipped == 0` plus SHA-256, mtime, no temp file
+and no export call. The unchanged `"Clean — no noise detected"` status is
+what a genuinely clean file now reports, which the pre-existing
+`test_skips_clean_file` still pins.
+
+**Guide audit: no edit needed, and this is the load-bearing evidence for
+the decision** — `user_guides/individual_programs/noise_reduction/generate_guide.py`
+already documented the *honest* semantics ("Dry Run analyzes without
+writing", line 88; "Calculates the reduction path without exporting or
+changing files", line 166). The documentation and the pop twin both already
+described the fix; only the implementation diverged, so B1 brings the code
+into line with the shipped guide rather than changing the guide.
 
 ### B2 `[!]` — Settle the undo contract (tag-only vs byte-level)
 
@@ -357,3 +395,4 @@ Gate Evidence is incomplete by definition).
 | A1 | A | **Withdrawn 2026-09-29** | n/a — no code change | Maintainer Wilte: no UNIX/Linux environment exists for this project, so the Linux CI leg is never run and the A4 run-URL/passed-count evidence can never be produced. Item closed as not required, not as verified; A4's CI configuration is left in place unchanged. Iteration-5 finding #4 stays `[~]` in that closed plan (historical record) and is not re-opened. |
 | A2 | A | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7528 passed** / 3 skipped / 30 deselected · coverage **79.15%** ≥ 75 | Dead `if not pending: break` deleted (invariant stated in a comment); the unreachable `return -1` removed by making `acquire()` blocking + adding `release(slot)`, per the item's first scope bullet. B1's pool tests pass **unedited**. 6 new tests in `mood_analysis_batch_tagger/tests/test_batch_analysis_engine.py` (`TestWorkerSlotTracker` + two exhaustion probes); 4 of 6 verified to fail pre-change via a SHA-256-verified source swap. No user-guide impact (worker-slot labelling behaviour is unchanged). |
 | A3 | A | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7531 passed** / 3 skipped / 30 deselected · coverage **79.11%** ≥ 75 | Source 2 gated on `isfile` + `access(X_OK)`. Both defect-pinning tests inverted (none deleted, none weakened): `test_executability_is_consulted_for_the_local_copy` asserts the probed mode, `test_a_directory_named_like_the_binary_is_rejected` parametrized win32/linux/darwin; both verified to fail pre-change. Net +3 tests. `_deny_local_copy()` + `__file__` redirection absorb the gate's move off `exists` (and de-vacuate a self-fulfilling `exists` assertion); `_make_exe` now chmods `0o755` so the Linux leg's real `X_OK` check passes. **Skip count unchanged at 3** — a `skipif` version of the execute-bit test was written and deleted in favour of asserting the platform difference. Source 3 left on `exists` by design. Guides audited: no guide documents the finder's discovery sources; A5 `TestGuideWordingLock` green. |
+| B1 | B | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7531 passed** / 3 skipped / 30 deselected · coverage **79.11%** ≥ 75 | Maintainer Wilte chose option A (match pop). The 4-line `if params.dry_run:` short-circuit is deleted, so `reduce_noise` is mode-agnostic and `dry_run` has exactly one consumer — the `is_dry_run` flag handed to the shared write site. Verified the short-circuit had no other live reader: the Refinery returns at `pipeline.py:195` on its own `config.dry_run` and never sets `noise_reduction_params.dry_run` (`cli.py:163`, `settings.py:114`). Both C2 locks inverted, none deleted: `test_dry_run_no_modification` → `test_dry_run_does_not_short_circuit_the_dsp` (asserts the dry result equals the live result — audio plus both energies — so the flag provably changes nothing the DSP computes), and the two tools' `test_dry_run_writes_nothing` are now symmetric (`succeeded == 1` / `skipped == 0` + SHA-256 + mtime + no temp file). `test_export_call_count_differs_between_dry_run_and_live` and `test_skips_clean_file` pass **unedited** — the 0-export write gate and the honest clean verdict are both still enforced. **Guide audit: no edit** — `noise_reduction/generate_guide.py:88` and `:166` already documented "Dry Run analyzes without writing" / "Calculates the reduction path without exporting", i.e. the shipped guide and the pop twin already described the fix and only the code diverged. Net test count unchanged (one test renamed). |

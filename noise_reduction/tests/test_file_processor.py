@@ -375,18 +375,21 @@ class TestNoiseReductionOutcome:
 
         complete, display = _run_noise(str(tmp_path), _make_params(dry_run=True))
 
-        # Measured pre-refactor behaviour, preserved verbatim: this tool's dry
-        # run short-circuits inside ``reduce_noise`` itself (it returns
-        # ``was_modified=False`` without running the DSP), so the file is
-        # reported SKIP and the status line reads "Clean - no noise detected"
-        # even for a file that carries 15.98 dB of hum.  ``pop_click_remover``
-        # does NOT do this - its dry run detects and reports FOUND.  The twins
-        # disagree here, so the shared workflow must keep them distinct.
-        # The misleading status text is a product-behaviour finding recorded in
-        # the C2 decision log, not something C2 may silently change.
-        assert complete["skipped"] == 1
-        assert complete["succeeded"] == 0
-        assert display == [f"[SKIP] {audio_file.name} → Clean — no noise detected"]
+        # FOUND, not SKIP - the DSP ran, so this test cannot pass
+        # vacuously by the file being untouched for lack of detected
+        # defects.  This mirrors ``pop_click_remover``'s twin lock exactly.
+        # Pre-B1 this asserted ``skipped == 1`` and the line
+        # "[SKIP] ... Clean - no noise detected" for a file carrying
+        # 15.98 dB of hum, because ``reduce_noise`` short-circuited on
+        # ``params.dry_run`` and returned ``was_modified=False``; the
+        # divergence between the twins was recorded as a product defect
+        # (iteration-5 C2) and is closed by B1.
+        assert complete["succeeded"] == 1
+        assert complete["skipped"] == 0
+        assert len(display) == 1
+        assert display[0].startswith(f"[FOUND] {audio_file.name} → Attenuated ")
+        # ...while still writing nothing: no export, no tag write, no
+        # temp file left behind, bytes and mtime untouched.
         assert _sha256(audio_file) == digest_before
         assert audio_file.stat().st_mtime_ns == mtime_before
         assert [p.name for p in tmp_path.iterdir()] == ["hum.wav"]

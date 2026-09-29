@@ -341,11 +341,12 @@ def reduce_noise(
     -------
     NoiseReductionResult
     """
-    if params.dry_run:
-        samples_f32, _sample_rate = segment_to_numpy(audio)
-        energy = _rms_db(samples_f32.T.astype(np.float64))
-        return NoiseReductionResult(audio, energy, energy, False)
-
+    # ``params.dry_run`` is deliberately NOT consulted here.  The DSP always
+    # measures and reports what it found; suppressing the write is the shared
+    # in-place workflow's job (it passes ``is_dry_run`` separately and skips
+    # the export), so a dry run can report ``was_modified=True`` honestly
+    # instead of having to claim the file was clean.  This matches
+    # ``pop_click_remover``'s declicker.
     current = audio
     any_modified = False
     energy_before_total = 0.0

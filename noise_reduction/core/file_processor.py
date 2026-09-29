@@ -66,9 +66,11 @@ def _make_dsp(
     """Adapt the noise DSP to the shared in-place workflow.
 
     Returns the callable the shared workflow invokes with the decoded
-    segment.  ``reduce_noise`` returns the untouched input (with
-    ``was_modified=False``) in dry-run mode, so a dry run reports the file as
-    skipped rather than as "found but not written".
+    segment.  ``reduce_noise`` is mode-agnostic — it always measures and
+    reports — so in dry-run mode it returns ``was_modified=True`` for a
+    repairable file and the shared workflow reports it as ``FOUND`` (found,
+    not written) rather than ``SKIP``.  The write itself is suppressed by
+    the ``is_dry_run`` flag this processor passes to that same workflow.
     """
 
     def _run_dsp(audio: AudioSegment) -> InplaceDspResult:
