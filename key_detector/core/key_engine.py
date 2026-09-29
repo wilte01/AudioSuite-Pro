@@ -33,11 +33,13 @@ Two knobs are exposed so the algorithm can be tuned without editing it:
 * ``weighting`` — how frames are collapsed into the 12-bin pitch-class
   profile (``"uniform"`` = flat mean, ``"energy"`` = energy-weighted).
 
-One consequence to be aware of: ``key_detector.core.file_processor`` writes
-whatever :func:`detect_key` returns straight to a file's KEY tag, so
-untuned material will now be tagged ``"Unknown"`` rather than given a
-fabricated key. Filtering that out at the tag writer is deliberately out of
-this item's scope.
+One consequence to be aware of: when the vote is not decisive
+:func:`detect_key` returns :data:`UNKNOWN_KEY`, and
+``key_detector.core.file_processor`` deliberately does **not** write that to a
+file's KEY tag (iteration-6 B3). The file's existing tags are left exactly as
+they are and the run reports ``[DETECTED (not tagged)]``. Material with no
+defensible key is therefore reported rather than tagged, instead of receiving
+a fabricated key or a permanent ``"Unknown"`` in the library.
 """
 
 import logging
@@ -358,11 +360,10 @@ def detect_key(
         correlation: ``"cosine"`` (default) or ``"pearson"``.
         weighting: ``"uniform"`` (default) or ``"energy"``.
         low_confidence_threshold: Below this confidence, :data:`UNKNOWN_KEY`
-            is returned instead of a fabricated key.  Note that callers which
-            write the result straight to a tag (see
-            ``key_detector.core.file_processor``) will therefore write
-            ``"Unknown"`` for material with no defensible key; that is the
-            documented low-confidence behaviour, not a key.
+            is returned instead of a fabricated key.  Callers must not treat
+            :data:`UNKNOWN_KEY` as a taggable value: it means "no vote",
+            not a key.  ``key_detector.core.file_processor`` therefore leaves
+            the file's tags untouched and reports the detection only.
 
     Returns:
         Key string in standard notation, e.g. 'Am', 'F#', 'Eb', or

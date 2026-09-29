@@ -141,6 +141,17 @@ bullet(
     "Detection failure: ",
     "The file is reported as an error or recoverable skip while other files continue.",
 )
+bullet(
+    doc,
+    "Material with no defensible key: ",
+    "When the winning correlation does not lead the runner-up by a decisive "
+    "margin -- broadband noise, percussive material, atonal music -- the file "
+    "is reported as DETECTED (not tagged) and no key is written, even in Live "
+    "Update. A file that already has a key tag keeps it. This is deliberate: "
+    'Key Detector never writes the literal value "Unknown" into your library, '
+    "because that reads as a musical fact it cannot support and would block a "
+    "better result on a later run.",
+)
 
 doc.add_heading("Dry Run and Live Update", level=1)
 bullet(
@@ -155,7 +166,8 @@ bullet(
     "Live Update: ",
     "Writes the detected key to the standard key "
     "metadata field, including format-appropriate "
-    "representations through the shared tag helper.",
+    "representations through the shared tag helper. Files whose key could not "
+    "be determined are reported instead of written.",
 )
 bullet(doc, "Undo: ", "Live tag changes participate in the suite's batch undo context.")
 

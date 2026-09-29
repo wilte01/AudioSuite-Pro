@@ -10,8 +10,8 @@ the maintainer schedules it.** No audit drives these items. When an item is
 picked up, it receives the full six-field treatment (priority / effort / risk,
 scope checkboxes, lockstep tests, acceptance, risks) here before any code
 changes. Scheduled so far: A1 (withdrawn, no code), A2, A3 (complete —
-Section A is closed); B1, B2 (complete). B3 decided, B4 mechanical.
-**Last Updated:** 2026-09-29 (A1 withdrawn by maintainer decision; A2, A3 complete — Section A closed; B1, B2 complete)
+Section A is closed); B1, B2, B3 (complete). B4 is next and mechanical.
+**Last Updated:** 2026-09-29 (A1 withdrawn by maintainer decision; A2, A3 complete — Section A closed; B1, B2, B3 complete)
 **Governing plan:** this file, once scheduled. `PLAN_iteration5_remediation.md`
 is a completed record; this file is its supersession entry in plan form.
 The iteration-5 roadmap's "each belongs in its own plan with the user's
@@ -386,7 +386,7 @@ regenerated from the edited sources.
 skipped / 30 deselected · coverage **79.13%** ≥ 75. Net **+12 tests**
 (7531 → 7543), skip count unchanged at 3.
 
-### B3 `[!]` — Decide the low-confidence KEY-tag policy
+### B3 `[x]` — Decide the low-confidence KEY-tag policy
 
 **Provenance:** iteration-5 F2 Decision Log row (scope, known gap).
 
@@ -400,9 +400,58 @@ is stated in `key_engine`'s module docstring but never decided for the
 **Decision needed (the F2 row's own three options):** leave untagged (skip
 the write), tag `'Unknown'`, or report as skipped.
 
+**Decision (Wilte, 2026-09-29): leave untagged, report as detected.** Not
+"skipped": the analysis did run and the user should see that the file was
+examined, so the status is `DETECTED (not tagged)` rather than a skip that
+implies no work happened. A `KEY="Unknown"` in a library is a claim the
+analyser cannot support, and it also poisons later passes: a file tagged
+`Unknown` looks "already analysed" to Dry Run, so the user is locked out of a
+better result on a re-run.
+
+**Resolution:**
+
+- `_should_tag_key(detected_key)` in `key_detector/core/file_processor.py` is
+  the single source of truth for the policy (`UNKNOWN_KEY` → do not write),
+  used by **both** the serial `_detect_file()` and the parallel
+  `_handle_key_result()`. Two call sites with the same contract are exactly
+  the shape that drifts, so the branch is a named helper rather than a
+  duplicated `!=` check.
+- Status becomes `DETECTED (not tagged)` via `_TAG_STATUS_UNKNOWN`; the
+  dry-run path keeps the plain `DETECTED` status it already had, since
+  nothing was written either way.
+- An existing KEY tag is left exactly as it is — the undecidable result never
+  overwrites a value from a previous good run.
+- `key_engine`'s module docstring and `detect_key`'s
+  `low_confidence_threshold` note previously stated that the tag writer
+  *would* write `"Unknown"`; both now state the decided policy. The engine
+  still returns `UNKNOWN_KEY` — only the tag surface changed.
+
 **Acceptance:** a real-tag regression test for the chosen behaviour —
 write to a real file, read the tag back through the tag reader — plus the
 module docstring updated to state the decided policy.
+
+**Proof.** Five new tests in `TestUnknownKeyIsNeverTagged` use **real WAV
+files and the real `read_key`/`write_key`**, never a mocked writer: a mocked
+`write_key` passes identically whether the code writes nothing, writes
+`"Unknown"`, or writes the wrong value, so it cannot witness this policy at
+all. Coverage: serial path leaves an untagged file untagged; serial path
+preserves a pre-existing real `Am` tag; parallel path leaves a real file
+untagged; dry run reports without a write; and a control that a defensible key
+*is* still written to a real file — without it, a regression that turned every
+run into a no-op would satisfy all the others.
+
+Verified against the pre-change source (policy branch reverted, SHA-256
+restore): **3 of the 5 fail** — `read_key` returns `"Unknown"` instead of
+`None`, and the pre-existing `Am` is overwritten. The control and the dry-run
+test pass in both states, as they should. After restore: 199 passed in
+`key_detector/tests`.
+
+**Guide audit:** the key detector guide documented neither the `Unknown`
+behaviour nor its absence — its "Live Update" section said the detected key
+is written, unqualified. Added a "Material with no defensible key" bullet
+(what triggers it, that it reports instead of writing, that an existing tag
+survives, and why `Unknown` is never written) and qualified the Live Update
+bullet. Generator re-run; DOCX regenerated.
 
 ### B4 `[ ]` — De-in-place `set_active_palette()`
 
@@ -479,3 +528,4 @@ Gate Evidence is incomplete by definition).
 | A3 | A | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7531 passed** / 3 skipped / 30 deselected · coverage **79.11%** ≥ 75 | Source 2 gated on `isfile` + `access(X_OK)`. Both defect-pinning tests inverted (none deleted, none weakened): `test_executability_is_consulted_for_the_local_copy` asserts the probed mode, `test_a_directory_named_like_the_binary_is_rejected` parametrized win32/linux/darwin; both verified to fail pre-change. Net +3 tests. `_deny_local_copy()` + `__file__` redirection absorb the gate's move off `exists` (and de-vacuate a self-fulfilling `exists` assertion); `_make_exe` now chmods `0o755` so the Linux leg's real `X_OK` check passes. **Skip count unchanged at 3** — a `skipif` version of the execute-bit test was written and deleted in favour of asserting the platform difference. Source 3 left on `exists` by design. Guides audited: no guide documents the finder's discovery sources; A5 `TestGuideWordingLock` green. |
 | B1 | B | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7531 passed** / 3 skipped / 30 deselected · coverage **79.11%** ≥ 75 | Maintainer Wilte chose option A (match pop). The 4-line `if params.dry_run:` short-circuit is deleted, so `reduce_noise` is mode-agnostic and `dry_run` has exactly one consumer — the `is_dry_run` flag handed to the shared write site. Verified the short-circuit had no other live reader: the Refinery returns at `pipeline.py:195` on its own `config.dry_run` and never sets `noise_reduction_params.dry_run` (`cli.py:163`, `settings.py:114`). Both C2 locks inverted, none deleted: `test_dry_run_no_modification` → `test_dry_run_does_not_short_circuit_the_dsp` (asserts the dry result equals the live result — audio plus both energies — so the flag provably changes nothing the DSP computes), and the two tools' `test_dry_run_writes_nothing` are now symmetric (`succeeded == 1` / `skipped == 0` + SHA-256 + mtime + no temp file). `test_export_call_count_differs_between_dry_run_and_live` and `test_skips_clean_file` pass **unedited** — the 0-export write gate and the honest clean verdict are both still enforced. **Guide audit: no edit** — `noise_reduction/generate_guide.py:88` and `:166` already documented "Dry Run analyzes without writing" / "Calculates the reduction path without exporting", i.e. the shipped guide and the pop twin already described the fix and only the code diverged. Net test count unchanged (one test renamed). |
 | B2 | B | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7543 passed** / 3 skipped / 30 deselected · coverage **79.13%** ≥ 75 | Maintainer Wilte chose byte-level restore. The iteration-5 C2 row called the contract unimplementable, but the missing piece was the *record type*: `record_file_overwrite()` stores raw bytes under `file_action="overwrite"` in the existing BLOB column, and `revert_batch()` dispatches it **before** the generic tag branch (the order is load-bearing — generic-first fails with `invalid load key`, proven by a deliberate branch swap and a SHA-256-verified restore). `file_processor_base.py` swaps `record_tag_edit_snapshot` → `record_audio_overwrite_snapshot` at the one shared in-place `copy2()` write site, so every in-place tool gains it from a single change. Both C2 locks **inverted**, neither deleted: each tool test now records the pre-run digest and bytes, proves the repair changed the file, corrupts the tags afterwards, and asserts the reverted file matches the original digest and tag; verified to fail pre-change (`file_action=None`). **+12 tests**: 9 in `TestRecordFileOverwrite`/`TestRecordAudioOverwriteSnapshot`, 2 in `test_undo_gui.py`, 1 in `utilities/tests/test_undo.py`; the 3 `record_tag_edit_snapshot` patch sites in `test_file_processor_base.py` were retargeted and pass **unedited** otherwise. **Cap decided, not hidden:** 50 runs / 1 GiB unchanged, bytes count whole files, the oldest batch is pruned whole, pinned by a `max_bytes=1024` prune test and documented with a keep-your-own-backups instruction. **Guide audit: 3 guides edited and regenerated** (undo, noise, pop) — all three were tag-only. |
+| B3 | B | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7548 passed** / 3 skipped / 30 deselected · coverage **79.14%** ≥ 75 | Maintainer Wilte chose leave-untagged, reported as detected. `_should_tag_key()` is the single source of truth and both the serial `_detect_file()` and the parallel `_handle_key_result()` consult it, so the two paths cannot drift; the status becomes `DETECTED (not tagged)`, an existing KEY survives, and the dry-run path keeps its plain `DETECTED`. Not chosen: 'skipped' (the analysis ran, and the user must see it), and `KEY="Unknown"` (a claim the analyser cannot support that also makes Dry Run treat the file as already analysed, locking out a better re-run). The engine still returns `UNKNOWN_KEY` — only the tag surface changed; `key_engine`'s module docstring and `detect_key`'s threshold note, which both said the writer *would* write `"Unknown"`, now state the policy. 5 new real-file tests (real WAV + real `read_key`/`write_key`, since a mocked writer passes whether the code writes nothing or the wrong value) covering both paths, tag preservation, dry run, and a control that a defensible key is still written; **3 of 5 verified to fail pre-change** (`read_key` returned `"Unknown"`, `Am` overwritten) via a SHA-256-verified source restore, after which `key_detector/tests` reported 199 passed. Guide edited (new "no defensible key" bullet + qualified Live Update) and regenerated. |

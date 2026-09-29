@@ -39,9 +39,34 @@ from audio_suite_shared.resource_manager import (
 )
 from audio_suite_shared.tag_helper import SUPPORTED_EXTENSIONS, read_key, write_key
 
-from .key_engine import detect_key
+from .key_engine import UNKNOWN_KEY, detect_key
 
 logger = logging.getLogger(__name__)
+
+# ── Low-confidence KEY policy (iteration-6 B3) ────────────────────────────────
+# Single source of truth for both the serial and the parallel tag path, so the
+# decided policy cannot drift between them. `detect_key` returns UNKNOWN_KEY
+# when the vote is not decisive; the maintainer's decision is that an
+# undecidable key is never written to a real tag, because a `KEY="Unknown"`
+# in a library is a statement of fact the analyser cannot support and it
+# suppresses the value the user would otherwise get on a later, better run.
+# The detection is still reported, so the user learns the file was analysed
+# and nothing was tagged.
+_TAG_STATUS_UNKNOWN = "DETECTED (not tagged)"
+
+
+def _should_tag_key(detected_key: str) -> bool:
+    """Return whether *detected_key* may be written to a file's KEY tag.
+
+    Args:
+        detected_key: The display key returned by :func:`detect_key`.
+
+    Returns:
+        ``False`` for :data:`UNKNOWN_KEY` (leave the file's tags untouched),
+        ``True`` for any defensible key.
+    """
+    return detected_key != UNKNOWN_KEY
+
 
 # ── Type aliases ──────────────────────────────────────────────────────────────
 
@@ -117,10 +142,12 @@ def process_single_file(
 
         status = "DETECTED"
 
-        if not is_dry_run:
+        if not is_dry_run and _should_tag_key(detected_key):
             slot_vars[slot_idx].set(f"Tagging: {name[:25]}...")
             write_key(file_path, detected_key)
             status = "TAGGED"
+        elif not is_dry_run:
+            status = _TAG_STATUS_UNKNOWN
 
         display = f"[{status}] {name} \u2192 {detected_key}"
         if existing_key and existing_key != detected_key:
@@ -225,10 +252,12 @@ def _handle_key_result(
         return
 
     status = "DETECTED"
-    if not is_dry_run:
+    if not is_dry_run and _should_tag_key(detected_key):
         slot_vars[slot_idx].set(f"Tagging: {filename[:25]}...")
         write_key(file_path, detected_key)
         status = "TAGGED"
+    elif not is_dry_run:
+        status = _TAG_STATUS_UNKNOWN
 
     display = f"[{status}] {filename} \u2192 {detected_key}"
     if existing_key and existing_key != detected_key:

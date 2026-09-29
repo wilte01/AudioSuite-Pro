@@ -562,3 +562,122 @@ class TestUndoBatchRecording:
 
     def test_dry_run_prunes_empty_batch(self, tmp_path):
         assert self._run(tmp_path, is_dry_run=True) == []
+
+
+# ── Iteration-6 B3: the low-confidence KEY policy ──────────────────────────────
+# The maintainer's decision is that UNKNOWN_KEY means "no vote", not a key: it
+# is reported and never written. These tests use REAL files and the REAL tag
+# reader, because a test that mocks `write_key` cannot tell a policy that
+# refuses to write from one that writes the wrong value -- it would pass
+# identically. Both tag paths are covered, since the serial and parallel
+# processors are separate code with the same contract.
+
+_SR = 22050
+
+
+def _make_real_wav(path, seconds: float = 1.0):
+    """Write a real mono 16-bit WAV so the real tag reader/writer can work."""
+    import numpy as np
+    from pydub import AudioSegment
+
+    n = int(_SR * seconds)
+    t = np.arange(n) / _SR
+    pcm = (0.4 * np.sin(2 * np.pi * 440.0 * t) * 32767).astype(np.int16)
+    segment = AudioSegment(pcm.tobytes(), frame_rate=_SR, sample_width=2, channels=1)
+    segment.export(str(path), format="wav")
+    return path
+
+
+class TestUnknownKeyIsNeverTagged:
+    """B3: UNKNOWN_KEY is detected and reported, but not written to a tag."""
+
+    def test_serial_path_leaves_a_real_file_untagged(self, tmp_path):
+        from audio_suite_shared.tag_helper import read_key
+
+        path = _make_real_wav(tmp_path / "untuned.wav")
+        assert read_key(str(path)) is None
+
+        args = _make_call_args(
+            name="untuned.wav", dir_path=str(tmp_path), is_dry_run=False
+        )
+        with patch(f"{MODULE}.detect_key", return_value="Unknown"):
+            process_single_file(**args)
+
+        # The real tag surface is unchanged -- no KEY="Unknown" written.
+        assert read_key(str(path)) is None
+        shown = args["on_progress"].call_args[1]["display_text"]
+        assert "Unknown" in shown
+        assert "not tagged" in shown
+        assert "[TAGGED]" not in shown
+
+    def test_serial_path_preserves_a_pre_existing_real_key(self, tmp_path):
+        """A file that already has a KEY keeps it; the undecidable result must
+        not overwrite a value the user (or a previous good run) supplied."""
+        from audio_suite_shared.tag_helper import read_key, write_key
+
+        path = _make_real_wav(tmp_path / "tagged.wav")
+        write_key(str(path), "Am")
+        assert read_key(str(path)) == "Am"
+
+        args = _make_call_args(
+            name="tagged.wav", dir_path=str(tmp_path), is_dry_run=False
+        )
+        with patch(f"{MODULE}.detect_key", return_value="Unknown"):
+            process_single_file(**args)
+
+        assert read_key(str(path)) == "Am"
+
+    def test_parallel_path_leaves_a_real_file_untagged(self, tmp_path):
+        """The parallel handler is separate code and must obey the same policy."""
+        from audio_suite_shared.tag_helper import read_key
+        from key_detector.core.file_processor import _handle_key_result
+
+        path = _make_real_wav(tmp_path / "untuned2.wav")
+        on_progress = MagicMock()
+
+        _handle_key_result(
+            filename="untuned2.wav",
+            dir_path=str(tmp_path),
+            result={"status": "ok", "key": "Unknown"},
+            slot_idx=0,
+            lock=threading.Lock(),
+            on_progress=on_progress,
+            is_dry_run=False,
+            slot_vars=[MagicMock()],
+        )
+
+        assert read_key(str(path)) is None
+        shown = on_progress.call_args[1]["display_text"]
+        assert "not tagged" in shown
+        assert "[TAGGED]" not in shown
+
+    def test_a_defensible_key_is_still_written(self, tmp_path):
+        """The control: the policy must not have become 'never tag'.
+
+        Without this, a regression that made every run a no-op would satisfy
+        every test above.
+        """
+        from audio_suite_shared.tag_helper import read_key
+
+        path = _make_real_wav(tmp_path / "tuned.wav")
+
+        args = _make_call_args(
+            name="tuned.wav", dir_path=str(tmp_path), is_dry_run=False
+        )
+        with patch(f"{MODULE}.detect_key", return_value="C"):
+            process_single_file(**args)
+
+        assert read_key(str(path)) == "C"
+        assert "[TAGGED]" in args["on_progress"].call_args[1]["display_text"]
+
+    def test_dry_run_reports_unknown_without_a_write_attempt(self, tmp_path):
+        """Dry run never writes, and its status stays the plain DETECTED one."""
+        from audio_suite_shared.tag_helper import read_key
+
+        path = _make_real_wav(tmp_path / "dry.wav")
+        args = _make_call_args(name="dry.wav", dir_path=str(tmp_path), is_dry_run=True)
+        with patch(f"{MODULE}.detect_key", return_value="Unknown"):
+            process_single_file(**args)
+
+        assert read_key(str(path)) is None
+        assert "[DETECTED]" in args["on_progress"].call_args[1]["display_text"]
