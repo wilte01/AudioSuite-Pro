@@ -139,6 +139,10 @@ def set_active_typography(
 # ── Active palette state ──────────────────────────────────────────────────────
 _active = PALETTES[DEFAULT_PALETTE].copy()
 
+# Live Windows Accent colours, read from the registry by set_active_palette().
+# Kept out of PALETTES on purpose -- see _resolve_palette().
+_WINACCENT_LIVE: dict[str, str] = {}
+
 PURPLE_MAIN = _active["main"]
 PURPLE_DARK = _active["dark"]
 BG_LIGHT = _active["bg_light"]
@@ -201,7 +205,7 @@ def set_theme_mode(mode: str) -> None:
         COLOR_SUCCESS = "#51cf66"
     else:
         # Revert to palette values or Light defaults
-        palette = PALETTES.get(get_active_palette_name(), PALETTES[DEFAULT_PALETTE])
+        palette = _resolve_palette(get_active_palette_name())
         BG_LIGHT = palette["bg_light"]
         BG_WHITE = palette["bg_white"]
         FG_MAIN = "#000000"
@@ -221,29 +225,33 @@ from . import suite_config  # noqa: E402
 def set_active_palette(name: str) -> None:
     global _active, PURPLE_MAIN, PURPLE_DARK, BG_LIGHT, BG_WHITE
 
-    # If using Windows Accent, try to get actual system colors
+    # If using Windows Accent, try to get actual system colors.
+    # The live colours go into _WINACCENT_LIVE, never into PALETTES: the
+    # registry is re-read on every selection, so writing them back into the
+    # table would let one session's accent leak into the next one's fallback
+    # and into the picker swatches (iteration-6 B4).
+    resolved = name
     if name == "Windows Accent" and HAS_WINACCENT:
         try:
-            palette = {
-                "main": winaccent.accent_normal,
-                "dark": winaccent.accent_dark,
-                "bg_light": winaccent.accent_light,
-                "bg_white": "#ffffff",
-            }
-            PALETTES["Windows Accent"].update(palette)
-            target_palette = palette
+            _WINACCENT_LIVE.clear()
+            _WINACCENT_LIVE.update(
+                {
+                    "main": winaccent.accent_normal,
+                    "dark": winaccent.accent_dark,
+                    "bg_light": winaccent.accent_light,
+                    "bg_white": "#ffffff",
+                }
+            )
         except (OSError, tk.TclError) as _exc:
             _log.debug(
                 "winaccent palette detection failed, using saved preference: %s", _exc
             )
-            fallback_name = suite_config.load_palette()
-            if fallback_name == "Windows Accent":
-                fallback_name = DEFAULT_PALETTE
-            target_palette = PALETTES.get(fallback_name, PALETTES[DEFAULT_PALETTE])
-    else:
-        target_palette = PALETTES.get(name, PALETTES[DEFAULT_PALETTE])
+            _WINACCENT_LIVE.clear()
+            resolved = suite_config.load_palette()
+            if resolved == "Windows Accent":
+                resolved = DEFAULT_PALETTE
 
-    _active = target_palette.copy()
+    _active = _resolve_palette(resolved).copy()
     PURPLE_MAIN = _active["main"]
     PURPLE_DARK = _active["dark"]
 
@@ -251,11 +259,34 @@ def set_active_palette(name: str) -> None:
     set_theme_mode(THEME_MODE)
 
 
+def _resolve_palette(name: str) -> dict[str, str]:
+    """Return the colours *name* resolves to right now.
+
+    Every reader goes through here so the Windows Accent swatch and the
+    applied theme can never disagree: the live accent values live in
+    :data:`_WINACCENT_LIVE` (empty until a selection has probed the
+    registry) and are never written back into :data:`PALETTES`.
+
+    Args:
+        name: A :data:`PALETTES` key.
+
+    Returns:
+        The live accent mapping when *name* is ``"Windows Accent"`` and the
+        registry has been read; otherwise the table entry, falling back to
+        :data:`DEFAULT_PALETTE` for an unknown name.  Always a fresh dict, so
+        a caller cannot reach back into :data:`_WINACCENT_LIVE` or
+        :data:`PALETTES` and mutate shared state by accident.
+    """
+    if name == "Windows Accent" and _WINACCENT_LIVE:
+        return dict(_WINACCENT_LIVE)
+    return dict(PALETTES.get(name, PALETTES[DEFAULT_PALETTE]))
+
+
 def get_active_palette_name() -> str:
     # Check if it's the current Windows Accent colors
     if HAS_WINACCENT:
         try:
-            wa = PALETTES["Windows Accent"]
+            wa = _resolve_palette("Windows Accent")
             # If the current main color matches the WA placeholder, then it's WA
             if _active.get("main") == wa.get("main") and wa.get("main") is not None:
                 return "Windows Accent"

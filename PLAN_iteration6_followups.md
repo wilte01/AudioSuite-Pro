@@ -10,8 +10,8 @@ the maintainer schedules it.** No audit drives these items. When an item is
 picked up, it receives the full six-field treatment (priority / effort / risk,
 scope checkboxes, lockstep tests, acceptance, risks) here before any code
 changes. Scheduled so far: A1 (withdrawn, no code), A2, A3 (complete —
-Section A is closed); B1, B2, B3 (complete). B4 is next and mechanical.
-**Last Updated:** 2026-09-29 (A1 withdrawn by maintainer decision; A2, A3 complete — Section A closed; B1, B2, B3 complete)
+Section A is closed); B1, B2, B3, B4 (complete) — Section B is closed.
+**Last Updated:** 2026-09-29 (A1 withdrawn by maintainer decision; A2, A3 complete — Section A closed; B1, B2, B3, B4 complete — Section B closed)
 **Governing plan:** this file, once scheduled. `PLAN_iteration5_remediation.md`
 is a completed record; this file is its supersession entry in plan form.
 The iteration-5 roadmap's "each belongs in its own plan with the user's
@@ -453,7 +453,7 @@ is written, unqualified. Added a "Material with no defensible key" bullet
 survives, and why `Unknown` is never written) and qualified the Live Update
 bullet. Generator re-run; DOCX regenerated.
 
-### B4 `[ ]` — De-in-place `set_active_palette()`
+### B4 `[x]` — De-in-place `set_active_palette()`
 
 **Provenance:** the intermittent `test_styles.py` Decision Log row (Stage
 5) — fixed test-side there; the production mutation was out of scope and
@@ -468,6 +468,63 @@ restore — the coupling wart that made two tests order-dependent.
 - Replace, don't mutate: rebuild `PALETTES` on change, or make the active
   palette a separate resolution step.
 - Keep every styles test green; no caller-visible behaviour change.
+
+**Decision (Wilte, 2026-09-29): the second scope option — make the active
+palette a separate resolution step, and keep the Windows Accent swatch live.**
+
+**Resolution:**
+
+- `_WINACCENT_LIVE` holds the accent read from the registry;
+  `PALETTES["Windows Accent"]` is never written to. The first scope option
+  (rebuilding the whole table) was rejected because the swatch then depends
+  on a rebuild having happened, and the user asked for the swatch to keep
+  showing the accent actually in force.
+- `_resolve_palette(name)` is the single read path: the live accent for
+  `"Windows Accent"` once probed, otherwise the table entry. It returns a
+  **fresh dict** in both branches — the first version returned the table
+  entry by reference, which a new test caught immediately, since a caller
+  that mutates what it is handed could then write straight into `PALETTES`
+  (the same bug class as the in-place update, one level down).
+- `set_active_palette()` applies `_resolve_palette(resolved)` where
+  `resolved` is the name, or the saved preference when a probe raises. The
+  probe path clears `_WINACCENT_LIVE` first, so a failed probe can never
+  inherit the previous session's accent — the concrete leak the in-place
+  mutation caused.
+- `set_theme_mode()` and `get_active_palette_name()` both go through the
+  resolver, and `master_driver/ui/cards/palette_card.py` iterates
+  `PALETTES` by key and resolves each swatch, so the picker previews the
+  accent in force instead of the static placeholder.
+- The live store is *not* re-probed on every read: it is replaced when a
+  selection probes it and cleared when a probe fails. Re-reading the
+  registry on each repaint would be slow and would turn a transient
+  registry error into a visible colour change.
+
+**Tests.** 8 new tests in `TestWindowsAccentIsNotWrittenBackIntoPalettes`
+with an autouse snapshot/restore fixture — snapshot, never
+`importlib.reload()`, because reload rebuilds `PALETTES` but does not undo an
+in-place dict mutation, which is the whole point of this item. They cover:
+PALETTES unmutated by a probe while the accent is still applied; the resolver
+serving the live accent; both branches returning a copy; ordinary and unknown
+names; the stale-accent leak after a failed probe; `get_active_palette_name()`
+still reporting `"Windows Accent"`; and the placeholder before any probe.
+
+A `_RaisingWinAccent` helper was needed rather than a MagicMock with
+`accent_normal = OSError(...)`: the code *reads* the attribute, so storing an
+exception instance silently returns the exception object and the failure path
+under test never runs — the test would have passed vacuously.
+
+Verified against the pre-change code (in-place `update()` reinstated,
+SHA-256-verified restore): **2 of the 8 fail** — `PALETTES["Windows Accent"]`
+differs after a probe, and `_WINACCENT_LIVE` is left holding the old accent
+after a failed probe. `test_fallback_survives_a_palette_polluted_by_an_earlier_test`
+(the item's named regression) passes in both states, **unedited in its
+assertions**; only its docstring was corrected, since it described the
+production mutation that B4 deletes. Two other docstrings that cited the same
+deleted coupling were corrected in place.
+
+**Guide audit: no guide change required** — the palette picker is a
+Master Driver setting with no generated guide of its own, and no user guide
+describes the Windows Accent fallback ordering.
 
 **Acceptance:** Phase Gate; the deterministic pollution regression
 (`test_fallback_survives_a_palette_polluted_by_an_earlier_test`) still
@@ -529,3 +586,4 @@ Gate Evidence is incomplete by definition).
 | B1 | B | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7531 passed** / 3 skipped / 30 deselected · coverage **79.11%** ≥ 75 | Maintainer Wilte chose option A (match pop). The 4-line `if params.dry_run:` short-circuit is deleted, so `reduce_noise` is mode-agnostic and `dry_run` has exactly one consumer — the `is_dry_run` flag handed to the shared write site. Verified the short-circuit had no other live reader: the Refinery returns at `pipeline.py:195` on its own `config.dry_run` and never sets `noise_reduction_params.dry_run` (`cli.py:163`, `settings.py:114`). Both C2 locks inverted, none deleted: `test_dry_run_no_modification` → `test_dry_run_does_not_short_circuit_the_dsp` (asserts the dry result equals the live result — audio plus both energies — so the flag provably changes nothing the DSP computes), and the two tools' `test_dry_run_writes_nothing` are now symmetric (`succeeded == 1` / `skipped == 0` + SHA-256 + mtime + no temp file). `test_export_call_count_differs_between_dry_run_and_live` and `test_skips_clean_file` pass **unedited** — the 0-export write gate and the honest clean verdict are both still enforced. **Guide audit: no edit** — `noise_reduction/generate_guide.py:88` and `:166` already documented "Dry Run analyzes without writing" / "Calculates the reduction path without exporting", i.e. the shipped guide and the pop twin already described the fix and only the code diverged. Net test count unchanged (one test renamed). |
 | B2 | B | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7543 passed** / 3 skipped / 30 deselected · coverage **79.13%** ≥ 75 | Maintainer Wilte chose byte-level restore. The iteration-5 C2 row called the contract unimplementable, but the missing piece was the *record type*: `record_file_overwrite()` stores raw bytes under `file_action="overwrite"` in the existing BLOB column, and `revert_batch()` dispatches it **before** the generic tag branch (the order is load-bearing — generic-first fails with `invalid load key`, proven by a deliberate branch swap and a SHA-256-verified restore). `file_processor_base.py` swaps `record_tag_edit_snapshot` → `record_audio_overwrite_snapshot` at the one shared in-place `copy2()` write site, so every in-place tool gains it from a single change. Both C2 locks **inverted**, neither deleted: each tool test now records the pre-run digest and bytes, proves the repair changed the file, corrupts the tags afterwards, and asserts the reverted file matches the original digest and tag; verified to fail pre-change (`file_action=None`). **+12 tests**: 9 in `TestRecordFileOverwrite`/`TestRecordAudioOverwriteSnapshot`, 2 in `test_undo_gui.py`, 1 in `utilities/tests/test_undo.py`; the 3 `record_tag_edit_snapshot` patch sites in `test_file_processor_base.py` were retargeted and pass **unedited** otherwise. **Cap decided, not hidden:** 50 runs / 1 GiB unchanged, bytes count whole files, the oldest batch is pruned whole, pinned by a `max_bytes=1024` prune test and documented with a keep-your-own-backups instruction. **Guide audit: 3 guides edited and regenerated** (undo, noise, pop) — all three were tag-only. |
 | B3 | B | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7548 passed** / 3 skipped / 30 deselected · coverage **79.14%** ≥ 75 | Maintainer Wilte chose leave-untagged, reported as detected. `_should_tag_key()` is the single source of truth and both the serial `_detect_file()` and the parallel `_handle_key_result()` consult it, so the two paths cannot drift; the status becomes `DETECTED (not tagged)`, an existing KEY survives, and the dry-run path keeps its plain `DETECTED`. Not chosen: 'skipped' (the analysis ran, and the user must see it), and `KEY="Unknown"` (a claim the analyser cannot support that also makes Dry Run treat the file as already analysed, locking out a better re-run). The engine still returns `UNKNOWN_KEY` — only the tag surface changed; `key_engine`'s module docstring and `detect_key`'s threshold note, which both said the writer *would* write `"Unknown"`, now state the policy. 5 new real-file tests (real WAV + real `read_key`/`write_key`, since a mocked writer passes whether the code writes nothing or the wrong value) covering both paths, tag preservation, dry run, and a control that a defensible key is still written; **3 of 5 verified to fail pre-change** (`read_key` returned `"Unknown"`, `Am` overwritten) via a SHA-256-verified source restore, after which `key_detector/tests` reported 199 passed. Guide edited (new "no defensible key" bullet + qualified Live Update) and regenerated. |
+| B4 | B | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7556 passed** / 3 skipped / 30 deselected · coverage **79.17%** ≥ 75 | Maintainer Wilte chose the second scope option (separate resolution step, swatch stays live) over rebuilding `PALETTES`, which would make the swatch depend on a rebuild having happened. The live accent now lives in `_WINACCENT_LIVE` and `PALETTES["Windows Accent"]` is never written; `_resolve_palette(name)` is the single read path and returns a **fresh dict** in both branches — the first version returned the table entry by reference and a new test caught it immediately (a caller mutating what it is handed would write straight into `PALETTES`: the same bug class one level down). A failed probe clears the live store first, so it can never inherit the previous session's accent — the concrete leak the in-place mutation caused. `set_theme_mode`, `get_active_palette_name` and `palette_card` all read the resolver, so the picker previews the accent in force. The store is replaced on a successful probe and cleared on a failed one, never re-read per repaint. 8 new tests with an autouse **snapshot/restore** fixture (snapshot, never `importlib.reload()`, which rebuilds `PALETTES` but does not undo an in-place mutation — the point of this item); **2 of 8 verified to fail pre-change** (table differs after a probe; live store retains the old accent after a failed probe) via a SHA-256-verified restore. Needed a `_RaisingWinAccent` helper, not a MagicMock carrying an `OSError` instance: the code reads the attribute, so the exception object would be returned and the failure path would never run — a vacuous pass. The item's named regression `test_fallback_survives_a_palette_polluted_by_an_earlier_test` passes **unedited in its assertions**; its docstring and two others that cited the deleted production coupling were corrected. No guide change required (no generated guide covers the palette picker). |

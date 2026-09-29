@@ -52,8 +52,13 @@ def build(parent: tk.Frame, state: "AppState") -> None:
     options_frame = tk.Frame(body, bg=styles.BG_WHITE)
     options_frame.pack(fill="x")
 
-    for name, colours in PALETTES.items():
-        _build_palette_row(options_frame, name, colours, state.palette_var)
+    # Resolve each swatch rather than reading PALETTES directly, so the
+    # Windows Accent row previews the accent actually in force instead of the
+    # static placeholder (iteration-6 B4).
+    for name in PALETTES:
+        _build_palette_row(
+            options_frame, name, styles._resolve_palette(name), state.palette_var
+        )
 
     def _toggle() -> None:
         if expanded[0]:
