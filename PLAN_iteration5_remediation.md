@@ -88,6 +88,18 @@ remediation. Every number appears exactly once across all stages. The
 at plan close (2026-09-28); finding #4's `[~]` mirrors A4's pending
 first-run CI evidence (named re-open condition in the A4 row).
 
+> **Post-close supersession (2026-09-29, maintainer Wilte) — finding #4.**
+> A4's re-open condition was carried as item A1 of
+> `PLAN_iteration6_followups.md` and has been **withdrawn as not required**:
+> there is no UNIX/Linux environment for this project, so the Linux leg is
+> never executed and its run-URL/passed-count evidence can never be produced.
+> Finding #4 therefore stays `[~]` in this frozen plan — closed as *not
+> applicable*, deliberately **not** flipped to `[x]`, which would falsely
+> claim the leg was verified. A4's CI configuration (matrix, `xvfb`,
+> `python3-tk`, `ffmpeg`) is left in place unchanged. The decision is
+> recorded in full at `PLAN_iteration6_followups.md` §A1; this note exists
+> only so the index does not point at an item that will never be worked.
+
 | # | Finding (abridged) | Severity | Stage | Closed |
 |---|--------------------|----------|-------|--------|
 | 1 | `ruff format --check .` fails on tracked Markdown | Medium | 0 | `[x]` A1 |
@@ -1707,7 +1719,7 @@ Python 3.14.7, ruff 0.15.22, mypy 1.20.0, pytest 9.0.3):
 | A1 | 0 | 2026-09-26 | `ruff format --check .`: 1 `.md` flagged under `--preview` → 0 | Full gate (commands 0–6 above) all green, 2026-09-26. Item-specific: post-fix `--preview` run has 0 `.md` matches; stable run exit 0, 745 files. | On ruff 0.15.22 stable the gate already passed — the finding reproduces under `--preview`, where `PLAN_audit_priority_actions.md` *was* flagged and is now excluded. Forward-protective, not retro-only. |
 | A2 | 0 | 2026-09-26 | collected 6,983 → 7,071 (+88 exactly); coverage 78.26% → **78.04%** | Full gate all green, 2026-09-26. Item-specific: `--collect-only noise_reduction/tests` = 88; bare run count +88, all passing; coverage report gains a `noise_reduction` row. | **78.04% is the first honest (post-A2) baseline** every later stage is judged against, recorded before D3 was applied. Post-A3/A5 end-state measurement: 78.07%. |
 | A3 | 0 | 2026-09-26 | headless bare run: exit 3 (INTERNALERROR) → exit 0 | Full gate all green, 2026-09-26. Item-specific: `genre_sync/tests` 177 passed; headless simulation (`tk.Tk` → `TclError`) on bare suite: 7,071 collected, exit 0, per-test attributable skips; live `pytest.skip(` call-site grep over all conftest files: 0. | Acceptance grep deviation recorded in the Decision Log (three docstring mentions of the banned pattern remain, by design, as documentation). |
-| A4 | 0 | **[~] not complete** | Linux leg: no display/Tk/ffmpeg → xvfb + python3-tk + ffmpeg | **PENDING — no CI evidence available.** This host is Windows and the repository has no git remote, so the Linux leg cannot be executed or observed from here. YAML syntax-validated (parsed; `bash -n` exit 0 on the run step), but the required first post-merge CI run URL + Linux passed count are outstanding. | Item stays `[~]` per its own acceptance rule: the run URL must be recorded here *before* the item is marked complete. Marker split deliberately deferred to Stage 3 D1 by this item's own instruction. **Close-out decision (2026-09-28, maintainer Wilte): the plan closes with A4 `[~]` — a named condition, not a silent drop.** The implementation and YAML validation are complete; the first post-merge CI run URL + Linux passed count must be appended to this row as soon as the repository gains a git remote, and audit-index finding #4 flips `[~]` → `[x]` with that evidence. The condition is tracked as item A1 of `PLAN_iteration6_followups.md`. |
+| A4 | 0 | **[~] not complete** | Linux leg: no display/Tk/ffmpeg → xvfb + python3-tk + ffmpeg | **PENDING — no CI evidence available.** This host is Windows and the repository has no git remote, so the Linux leg cannot be executed or observed from here. YAML syntax-validated (parsed; `bash -n` exit 0 on the run step), but the required first post-merge CI run URL + Linux passed count are outstanding. | Item stays `[~]` per its own acceptance rule: the run URL must be recorded here *before* the item is marked complete. Marker split deliberately deferred to Stage 3 D1 by this item's own instruction. **Close-out decision (2026-09-28, maintainer Wilte): the plan closes with A4 `[~]` — a named condition, not a silent drop.** The implementation and YAML validation are complete; the first post-merge CI run URL + Linux passed count must be appended to this row as soon as the repository gains a git remote, and audit-index finding #4 flips `[~]` → `[x]` with that evidence. The condition is tracked as item A1 of `PLAN_iteration6_followups.md`. **Superseded (2026-09-29, maintainer Wilte): A1 withdrawn as not required** — there is no UNIX/Linux environment for this project, so the Linux leg is never run and the evidence can never be produced. This row and finding #4 stay `[~]` (closed as *not applicable*, not as *verified*); the CI configuration is left unchanged. See the post-close note at the Audit Finding Index and `PLAN_iteration6_followups.md` §A1. |
 | A5 | 0 | 2026-09-26 | ffmpeg: undeclared + silent at launch → declared + warned at launch | Full gate all green, 2026-09-26. Item-specific: 33 tests green across the two A5 test modules; end-to-end real-launch acceptance on the real tree — ffmpeg stripped from PATH: compile gate passes, 0 blocking dialogs, exactly 1 warning naming ffmpeg + ffprobe with all three install hints; ffmpeg present: 0 dialogs, return `True`. `git grep -n "ffmpeg" pyproject.toml` → marker description + one documentation block only. | New `system_requirements.py` (machine-readable table) + `report_missing_requirements()` (pure, warning-level) + 9 dependent-tool guides regenerated (lossless: +5 paragraphs each, 0 lost) + `TestGuideWordingLock` enforcing the artifact↔module wording invariant. `ffmpeg_finder` reuse declined with rationale — Decision Log. |
 | A6 | 0 | 2026-09-26 | no per-item evidence rule → mandatory Gate Evidence column + pre-item rule | Full gate all green, 2026-09-26 (this table is itself the deliverable: six commands + counts recorded per item above). | Per-item gate rule now stated in "How to read this plan" (before the first item); iteration-4 D1 precedent recorded in the Decision Log, dated; `PLAN_iteration4_remediation.md` untouched. |
 
@@ -2335,7 +2347,10 @@ measured by the gate.
       maintainer's close-out decision: implementation and YAML validation
       complete, the first-run CI URL + Linux passed count to be appended
       when the repository gains a remote (named condition in the A4 row;
-      tracked as item A1 of `PLAN_iteration6_followups.md`)
+      tracked as item A1 of `PLAN_iteration6_followups.md`, **withdrawn
+      2026-09-29 as not required — no Linux environment exists for this
+      project**, so the condition is closed as not applicable and finding #4
+      is deliberately not flipped to `[x]`)
 - [x] All five open decisions resolved in the Decision Log with a name —
       D1–D5 attributed to the maintainer (Wilte), 2026-09-26, recommended
       options accepted
@@ -2354,5 +2369,6 @@ measured by the gate.
       `test_styles` in-place mutation)
 - [x] This file's `Status` flipped to `Complete` and the audit index checked
       off item by item — the "Closed" column added to the Audit Finding
-      Index (finding #4 `[~]`, mirroring A4's named condition)
+      Index (finding #4 `[~]`, mirroring A4's named condition, which was
+      withdrawn 2026-09-29 — see the post-close note at the index)
 

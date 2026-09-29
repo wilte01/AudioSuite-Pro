@@ -5,12 +5,12 @@
 opened for the deliberately-excluded work, so nothing is silently dropped".
 Every item below carries its provenance — the iteration-5 roadmap sentence
 or Decision Log / Completion Log row it comes from.
-**Status:** Active (backlog) — **nothing in this plan is authorized for
-implementation until the maintainer schedules it.** No audit drives these
-items. When an item is picked up, it receives the full six-field treatment
-(priority / effort / risk, scope checkboxes, lockstep tests, acceptance,
-risks) here before any code changes.
-**Last Updated:** 2026-09-28 (opened)
+**Status:** Active (backlog) — **no item is authorized for implementation until
+the maintainer schedules it.** No audit drives these items. When an item is
+picked up, it receives the full six-field treatment (priority / effort / risk,
+scope checkboxes, lockstep tests, acceptance, risks) here before any code
+changes. Scheduled so far: A1 (withdrawn, no code).
+**Last Updated:** 2026-09-29 (A1 withdrawn by maintainer decision)
 **Governing plan:** this file, once scheduled. `PLAN_iteration5_remediation.md`
 is a completed record; this file is its supersession entry in plan form.
 The iteration-5 roadmap's "each belongs in its own plan with the user's
@@ -50,13 +50,14 @@ preserved here verbatim so nothing is silently dropped.
 | `[-]`  | In progress |
 | `[x]`  | Completed |
 | `[~]`  | Partially completed |
-| `[!]`  | Blocked — needs a maintainer decision |
+| `[!]` | Blocked — needs a maintainer decision |
+| ~~ | Withdrawn — the maintainer decided the item is not required |
 
 ---
 
 ## Section A — Evidence-debt items (small, mechanical)
 
-### A1 `[!]` — Record A4's first CI run evidence
+### A1 `~~` — Record A4's first CI run evidence — **WITHDRAWN, not required**
 
 **Provenance:** iteration-5 A4 Completion Log row + close-out decision
 (2026-09-28, maintainer Wilte).
@@ -66,10 +67,25 @@ the Linux leg's passed-test count, appended to the iteration-5 Completion
 Log. The repository has no git remote, so the evidence cannot exist yet;
 the plan closed with the condition *named*, not silent.
 
-**Blocked on:** the repository gaining a git remote (a maintainer
-infrastructure decision, out of scope for this plan).
+**Decision (2026-09-29, maintainer Wilte): the item is not required and is
+withdrawn.** There is no UNIX/Linux environment available to this project, so
+the Linux CI leg is never executed and the required evidence can never be
+produced. The A4 CI configuration (matrix 3.11 / 3.12 / 3.14, the Linux
+`xvfb` + `python3-tk` + `ffmpeg` steps) stays in the workflow unchanged — it
+is correct if a remote and a Linux runner ever appear — but no further work
+is owed on collecting its evidence, and iteration-5's audit-index finding #4
+is **not** re-opened by this item.
 
-**Scope (when unblocked):**
+**Voided on withdrawal:** the push/run/append/triage scope below is not
+performed; finding #4 is not flipped to `[x]`, because it is closed as *not
+applicable* rather than as *verified*.
+
+**Supersession note:** iteration-5's finding #4 stays `[~]` in
+`PLAN_iteration5_remediation.md` (a completed historical record). Its named
+re-open condition now points at an item that will never be worked; the
+withdrawal is recorded here, the single place the plan designated for it.
+
+**Original scope (superseded, kept for provenance):**
 
 - Push to the remote and let CI run the matrix (3.11 / 3.12 / 3.14,
   Windows + Linux with the A4 `xvfb` + `python3-tk` + `ffmpeg` steps).
@@ -80,7 +96,7 @@ infrastructure decision, out of scope for this plan).
   platform bug is fixed with a regression test; a genuine limitation gets
   an explicit, reviewed skip. The B4 blanket skip is **not** reinstated.
 
-**Acceptance:** the appended evidence; finding #4 fully closed.
+**Acceptance:** none — withdrawn by maintainer decision (2026-09-29).
 
 ### A2 `[ ]` — Delete the provably dead pool-loop lines
 
@@ -262,4 +278,4 @@ Gate Evidence is incomplete by definition).
 
 | Item | Section | Completed | Gate Evidence | Notes |
 |------|---------|-----------|---------------|-------|
-| A1 | A | — pending remote | — | Opened as iteration-5's named A4 re-open condition. |
+| A1 | A | **Withdrawn 2026-09-29** | n/a — no code change | Maintainer Wilte: no UNIX/Linux environment exists for this project, so the Linux CI leg is never run and the A4 run-URL/passed-count evidence can never be produced. Item closed as not required, not as verified; A4's CI configuration is left in place unchanged. Iteration-5 finding #4 stays `[~]` in that closed plan (historical record) and is not re-opened. |
