@@ -9,8 +9,8 @@ or Decision Log / Completion Log row it comes from.
 the maintainer schedules it.** No audit drives these items. When an item is
 picked up, it receives the full six-field treatment (priority / effort / risk,
 scope checkboxes, lockstep tests, acceptance, risks) here before any code
-changes. Scheduled so far: A1 (withdrawn, no code).
-**Last Updated:** 2026-09-29 (A1 withdrawn by maintainer decision)
+changes. Scheduled so far: A1 (withdrawn, no code), A2 (complete).
+**Last Updated:** 2026-09-29 (A1 withdrawn by maintainer decision; A2 complete)
 **Governing plan:** this file, once scheduled. `PLAN_iteration5_remediation.md`
 is a completed record; this file is its supersession entry in plan form.
 The iteration-5 roadmap's "each belongs in its own plan with the user's
@@ -98,7 +98,7 @@ withdrawal is recorded here, the single place the plan designated for it.
 
 **Acceptance:** none — withdrawn by maintainer decision (2026-09-29).
 
-### A2 `[ ]` — Delete the provably dead pool-loop lines
+### A2 `[x]` — Delete the provably dead pool-loop lines
 
 **Provenance:** iteration-5 B1 Completion Log row (its own rule: structural
 cleanup is a separate item, not smuggled into a coverage fix).
@@ -120,6 +120,38 @@ before each submit.
 
 **Acceptance:** Phase Gate; B1's pool tests pass unedited; the dead lines
 gone.
+
+**Resolution (2026-09-29):** both dead lines are gone, and the ``-1``
+sentinel left the type contract rather than being replaced by a
+``None``.  `_WorkerSlotTracker.acquire()` is now *blocking* (``Condition``
++ ``wait``), which is what its own docstring already claimed, and releases
+route through a new `release(slot)` that notifies — so the "no slot
+available" case has no value to return at all.  This is safe only because
+each run path already bounds its own claims by `_count`: the thread path
+through `ThreadPoolExecutor(max_workers=...)` (one slot per worker thread,
+released before the thread takes its next item), the pool path through the
+`len(pending) < slots._count` submit bound (one slot per in-flight file).
+Both bounds are now stated in `acquire()`'s docstring, and the pool loop
+carries a one-line comment stating why `pending` cannot be empty at
+`as_completed()` — the invariant the deleted `if not pending: break` was
+redundantly re-checking.
+
+`slot >= 0` guards were **kept**: `active_slots.pop(file_path, -1)` is
+still a real `-1` source (a file submitted while the stop event is already
+set never gets an `active_slots` entry).
+
+Converting the sentinel into a wait changes the failure mode of a
+bound violation from "silently unlabelled worker box" to "batch stalls",
+so two new tests pin that neither path over-claims: a `_RecordingTracker`
+subclass flags any `acquire()` that finds the pool empty (must stay empty
+across a real 5-file/2-worker pool run and a real 7-file/2-worker thread
+run), and the thread-path one drives the batch from a watchdog thread so a
+stall fails the test instead of hanging the suite.  Four of the six new
+tests were confirmed to fail against the pre-change source.
+
+The `if not pending: break` at the sibling site
+`audio_fingerprinter/core/file_processor.py:503` was audited and is **not**
+dead — it guards a fresh list comprehension, not the pool loop.
 
 ### A3 `[ ]` — Gate `ffmpeg_finder` source 2 on a real executable file
 
@@ -279,3 +311,4 @@ Gate Evidence is incomplete by definition).
 | Item | Section | Completed | Gate Evidence | Notes |
 |------|---------|-----------|---------------|-------|
 | A1 | A | **Withdrawn 2026-09-29** | n/a — no code change | Maintainer Wilte: no UNIX/Linux environment exists for this project, so the Linux CI leg is never run and the A4 run-URL/passed-count evidence can never be produced. Item closed as not required, not as verified; A4's CI configuration is left in place unchanged. Iteration-5 finding #4 stays `[~]` in that closed plan (historical record) and is not re-opened. |
+| A2 | A | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7528 passed** / 3 skipped / 30 deselected · coverage **79.15%** ≥ 75 | Dead `if not pending: break` deleted (invariant stated in a comment); the unreachable `return -1` removed by making `acquire()` blocking + adding `release(slot)`, per the item's first scope bullet. B1's pool tests pass **unedited**. 6 new tests in `mood_analysis_batch_tagger/tests/test_batch_analysis_engine.py` (`TestWorkerSlotTracker` + two exhaustion probes); 4 of 6 verified to fail pre-change via a SHA-256-verified source swap. No user-guide impact (worker-slot labelling behaviour is unchanged). |

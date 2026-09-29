@@ -93,15 +93,29 @@ class _WorkerSlotTracker:
 
     def __init__(self, count: int) -> None:
         self._count = max(1, count)
-        self._lock = threading.Lock()
+        self._condition = threading.Condition()
         self._available: list[int] = list(range(self._count))
 
     def acquire(self) -> int:
-        """Claim a slot index, blocking briefly if none is free."""
-        with self._lock:
-            if self._available:
-                return self._available.pop()
-        return -1
+        """Claim a slot index, blocking until one is free.
+
+        The pool is empty only while every slot is held, and both call sites
+        hold at most ``_count`` slots at a time: the thread path through
+        ``ThreadPoolExecutor(max_workers=...)`` (one slot per worker thread,
+        released before the thread takes its next item), the pool path through
+        the ``len(pending) < slots._count`` submit bound (one slot per in-flight
+        file).  So a wait here always ends when the holder releases.
+        """
+        with self._condition:
+            while not self._available:
+                self._condition.wait()
+            return self._available.pop()
+
+    def release(self, slot: int) -> None:
+        """Return *slot* to the pool and wake a waiting acquirer."""
+        with self._condition:
+            self._available.append(slot)
+            self._condition.notify()
 
 
 def _collect_audio_files(root: str) -> list[str]:
@@ -450,8 +464,7 @@ def _run_thread_pool(
     slots = _WorkerSlotTracker(processor.max_workers)
 
     def _release(slot: int) -> None:
-        with slots._lock:
-            slots._available.append(slot)
+        slots.release(slot)
         if on_worker_status is not None:
             on_worker_status(slot, "IDLE")
 
@@ -592,8 +605,7 @@ def _run_process_pool(
                     )
                     on_file_result(file_path, True, detail, log_text)
         if slot >= 0:
-            with slots._lock:
-                slots._available.append(slot)
+            slots.release(slot)
             if on_worker_status is not None:
                 on_worker_status(slot, "IDLE")
 
@@ -605,6 +617,10 @@ def _run_process_pool(
         pending_list: list[str] = list(all_files)
         index = 0
         while index < len(pending_list) or pending:
+            # At least one future is always in flight below: the outer condition
+            # admits the iteration only while files remain or futures are still
+            # pending, and the inner loop submits whenever files remain, so
+            # ``pending`` cannot be empty at the ``as_completed`` call.
             while index < len(pending_list) and len(pending) < slots._count:
                 file_path = pending_list[index]
                 index += 1
@@ -620,8 +636,6 @@ def _run_process_pool(
                             slot,
                             _slot_label("Analyzing", os.path.basename(file_path)),
                         )
-            if not pending:
-                break
             done_iter = as_completed(list(pending.keys()))
             for future in done_iter:
                 file_path = pending.pop(future, "")
@@ -652,8 +666,7 @@ def _run_process_pool(
                         on_error_result(file_path, detail, log_text)
                         slot = active_slots.pop(file_path, -1)
                         if slot >= 0:
-                            with slots._lock:
-                                slots._available.append(slot)
+                            slots.release(slot)
                             if on_worker_status is not None:
                                 on_worker_status(slot, "IDLE")
                     else:
@@ -663,8 +676,7 @@ def _run_process_pool(
                     for pfile in remaining.values():
                         slot = active_slots.pop(pfile, -1)
                         if slot >= 0:
-                            with slots._lock:
-                                slots._available.append(slot)
+                            slots.release(slot)
                             if on_worker_status is not None:
                                 on_worker_status(slot, "IDLE")
                     for f in list(remaining.keys()):

@@ -13,6 +13,8 @@ Covers:
   - _run_process_pool     (really executed: real child processes, real
                            decoded audio, ordering, progress, worker-slot
                            accounting, error mapping, cancellation)
+  - _WorkerSlotTracker    (bounded hand-out, blocking acquire, release,
+                           exhaustion counters proving the pool never runs dry)
   - worker slot status    (Analyzing/Tagging labels, run_with_retry wiring)
   - BatchResult summary
 
@@ -116,6 +118,58 @@ def _make_file(path: str) -> str:
     with open(path, "wb") as fh:
         fh.write(b"dummy")
     return path
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# _WorkerSlotTracker
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestWorkerSlotTracker:
+    def test_hands_out_every_slot_index_exactly_once(self) -> None:
+        tracker = batch_analysis_engine._WorkerSlotTracker(3)
+        claimed = [tracker.acquire() for _ in range(3)]
+        assert sorted(claimed) == [0, 1, 2]
+
+    def test_release_makes_the_slot_available_again(self) -> None:
+        tracker = batch_analysis_engine._WorkerSlotTracker(2)
+        first = tracker.acquire()
+        tracker.release(first)
+        assert tracker.acquire() == first
+
+    def test_count_below_one_still_yields_one_slot(self) -> None:
+        for count in (0, -3):
+            tracker = batch_analysis_engine._WorkerSlotTracker(count)
+            assert tracker.acquire() == 0
+
+    def test_acquire_waits_for_a_release_instead_of_returning_a_sentinel(self) -> None:
+        """An empty pool blocks until a holder releases; it never yields -1.
+
+        The sentinel this pins was unreachable from both run paths (each holds
+        at most ``_count`` slots), so the ``slot >= 0`` guards it fed were
+        defensive only.  A pre-removal implementation returned ``-1`` here
+        immediately, and the released slot came back as a fresh index instead
+        of the one just handed back.
+        """
+        tracker = batch_analysis_engine._WorkerSlotTracker(1)
+        held = tracker.acquire()
+        assert held == 0
+
+        claimed: list[int] = []
+        waiter = threading.Thread(target=lambda: claimed.append(tracker.acquire()))
+        waiter.daemon = True
+        waiter.start()
+        try:
+            waiter.join(timeout=2.0)
+            assert waiter.is_alive(), (
+                f"acquire() returned {claimed} from an exhausted pool"
+            )
+            assert claimed == []
+        finally:
+            tracker.release(held)
+        waiter.join(timeout=2.0)
+        assert not waiter.is_alive()
+        assert claimed == [held]
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -524,6 +578,52 @@ class TestRunBatchWorkerStatus:
         assert "Analyzing: a.mp3..." in labels
         assert "Tagging: a.mp3..." in labels
 
+    def test_thread_pool_never_exhausts_the_slot_pool(self, tmp_path) -> None:
+        """The thread path's claim-per-worker bound is deadlock-free.
+
+        ``_WorkerSlotTracker.acquire()`` blocks once every slot is held, so a
+        run that over-claims would stall instead of degrading.  More files than
+        workers, driven from a watchdog thread so a stall fails the test rather
+        than hanging the suite.
+        """
+        for stem in ("a", "b", "c", "d", "e", "f", "g"):
+            _make_file(str(tmp_path / f"{stem}.mp3"))
+        q: queue.Queue[object] = queue.Queue()
+        stop = threading.Event()
+        status: list[tuple[int, str]] = []
+        waited: list[str] = []
+        tracker = _recording_slot_tracker(waited)
+        outcome: list[list[tuple]] = []
+
+        def _fake_analyse_file(path: str, d: int) -> MoodAnalysis:
+            return _FAKE_ANALYSIS
+
+        def _drive() -> None:
+            with (
+                patch(f"{MODULE}._analyse_file", side_effect=_fake_analyse_file),
+                patch(f"{MODULE}._write_tags"),
+                patch(f"{MODULE}._WorkerSlotTracker", tracker),
+            ):
+                batch_analysis_engine.run_batch(
+                    str(tmp_path),
+                    q,
+                    stop,
+                    live=False,
+                    max_workers=2,
+                    on_worker_status=lambda slot, label: status.append((slot, label)),
+                )
+            outcome.append(_drain(q))
+
+        driver = threading.Thread(target=_drive, daemon=True)
+        driver.start()
+        driver.join(timeout=60.0)
+        assert not driver.is_alive(), "the thread path stalled waiting for a slot"
+        assert waited == [], f"slot pool exhausted mid-run: {waited}"
+        assert outcome and (_done(outcome[0])[1], _done(outcome[0])[3]) == (7, 0)
+        # Not an exact set: the free list is LIFO, so workers that never
+        # overlap can legitimately reuse the same index throughout the run.
+        assert status and {slot for slot, _ in status} <= {0, 1}
+
     def test_thread_worker_runs_through_retry_wrapper(self, tmp_path) -> None:
         """Every file must be processed via run_with_retry, matching
         mood_analyzer's transient-failure recovery."""
@@ -764,6 +864,26 @@ def _write_tone_wav(path: str, seconds: float = 1.0, sr: int = 22050) -> str:
     return path
 
 
+def _recording_slot_tracker(waited: list[str]) -> type:
+    """Build a ``_WorkerSlotTracker`` subclass that flags exhausted acquires.
+
+    The tracker blocks when every slot is held, so an exhausted pool is the
+    observable form of the old ``-1`` sentinel: a run that hits it is a run
+    whose concurrency bound is broken.  *waited* collects the name of the
+    thread that had to wait, and must come back empty.
+    """
+    base = batch_analysis_engine._WorkerSlotTracker
+
+    class _RecordingTracker(base):
+        def acquire(self) -> int:
+            with self._condition:
+                if not self._available:
+                    waited.append(threading.current_thread().name)
+            return super().acquire()
+
+    return _RecordingTracker
+
+
 def _run_pool(
     root: str,
     *,
@@ -951,6 +1071,28 @@ class TestProcessPoolExecution:
             assert 0 <= outstanding <= 2, f"slot accounting leaked: {status}"
         assert outstanding == 0
         assert (_done(msgs)[1], _done(msgs)[3]) == (4, 0)
+
+    def test_the_slot_pool_is_never_exhausted_during_a_run(self, tmp_path) -> None:
+        """The ``len(pending) < slots._count`` submit bound guarantees a free
+        slot per submit, so no claim ever has to wait.
+
+        This is the pool-path half of the A2 invariant: an exhausted pool is
+        the observable form of the removed ``-1`` fallback, which the old
+        ``slot >= 0`` guards turned into a silently unlabelled worker box.
+        """
+        for stem in ("a", "b", "c", "d", "e"):
+            _make_file(str(tmp_path / f"{stem}.mp3"))
+        waited: list[str] = []
+        with patch(f"{MODULE}._WorkerSlotTracker", _recording_slot_tracker(waited)):
+            msgs, status = _run_pool(
+                str(tmp_path),
+                live=False,
+                max_workers=2,
+                worker=_spawn_worker_report,
+            )
+        assert waited == [], f"slot pool exhausted mid-run: {waited}"
+        assert (_done(msgs)[1], _done(msgs)[3]) == (5, 0)
+        assert {slot for slot, _ in status} == {0, 1}
 
     def test_live_run_writes_the_workers_own_mood_onto_the_file(self, tmp_path) -> None:
         """Outcome check: decode the worker's result off disk, not the queue.
