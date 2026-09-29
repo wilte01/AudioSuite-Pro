@@ -34,7 +34,10 @@ def _find_ffmpeg() -> str:
     # Binary name differs by platform (Windows uses .exe extension)
     local_name = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
     local = os.path.join(base, local_name)
-    if os.path.exists(local):
+    # Existence alone would also accept a *directory* named like the binary,
+    # handing every caller an argv[0] that can only ever fail at exec time
+    # with an opaque error, so the copy must be a real executable file.
+    if os.path.isfile(local) and os.access(local, os.X_OK):
         return os.path.abspath(local)
 
     # 3 — Windows common install location (Windows only)

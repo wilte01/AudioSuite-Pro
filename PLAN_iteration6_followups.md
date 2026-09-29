@@ -9,8 +9,9 @@ or Decision Log / Completion Log row it comes from.
 the maintainer schedules it.** No audit drives these items. When an item is
 picked up, it receives the full six-field treatment (priority / effort / risk,
 scope checkboxes, lockstep tests, acceptance, risks) here before any code
-changes. Scheduled so far: A1 (withdrawn, no code), A2 (complete).
-**Last Updated:** 2026-09-29 (A1 withdrawn by maintainer decision; A2 complete)
+changes. Scheduled so far: A1 (withdrawn, no code), A2 (complete), A3
+(complete) — **Section A is now closed**; nothing in Section A remains.
+**Last Updated:** 2026-09-29 (A1 withdrawn by maintainer decision; A2, A3 complete — Section A closed)
 **Governing plan:** this file, once scheduled. `PLAN_iteration5_remediation.md`
 is a completed record; this file is its supersession entry in plan form.
 The iteration-5 roadmap's "each belongs in its own plan with the user's
@@ -153,7 +154,7 @@ The `if not pending: break` at the sibling site
 `audio_fingerprinter/core/file_processor.py:503` was audited and is **not**
 dead — it guards a fresh list comprehension, not the pool loop.
 
-### A3 `[ ]` — Gate `ffmpeg_finder` source 2 on a real executable file
+### A3 `[x]` — Gate `ffmpeg_finder` source 2 on a real executable file
 
 **Provenance:** iteration-5 B3 Completion Log row + Decision Log.
 
@@ -173,6 +174,49 @@ currently pins the defect as the shipped behaviour.
 
 **Acceptance:** Phase Gate; the finder tests updated in lockstep, none
 weakened; a directory named like the binary no longer resolves.
+
+**Resolution (2026-09-29):** `audio_normalizer/utils/ffmpeg_finder.py`
+source 2 now gates on `os.path.isfile(local) and os.access(local, os.X_OK)`.
+Both pinning tests were inverted, neither dropped —
+`TestNoExecutabilityCheck` is now
+`TestSourceTwoAcceptsOnlyRealExecutables` and contains
+`test_executability_is_consulted_for_the_local_copy` (the exact inverse of
+`test_os_access_is_never_consulted`, and it asserts the probed *mode* is
+`X_OK`, not merely that a probe happened) plus
+`test_a_directory_named_like_the_binary_is_rejected`, now **parametrized
+over win32/linux/darwin** rather than the host's own platform, with source 3
+denied explicitly so the win32 leg cannot pass by finding a real ffmpeg in
+`C:\ffmpeg\bin`. All 4 fail against the pre-change source (verified by
+`git checkout` swap).
+
+Two consequences of the new gate had to be absorbed in the same change, and
+both are places where a test would otherwise have silently stopped testing
+what it claims:
+
+- The gate no longer consults `os.path.exists`, so every test that used to
+  force "no local copy" by stubbing `exists` alone was reading the **real**
+  filesystem of whichever host ran it. A `_deny_local_copy()` helper now
+  denies `exists` + `isfile` + `access` together, and the two
+  singleton-cache tests instead redirect `__file__` to an empty directory —
+  because they assert on the resolved path's real state, which a stub would
+  have made vacuous (`test_reimporting_re_resolves_a_stale_singleton`
+  previously asserted `not os.path.exists(...)` while `exists` was stubbed to
+  `False`; it now uses the unpatched `os.path.lexists`).
+- `_make_exe` now sets `0o755`. POSIX applies the new `X_OK` check for real,
+  and a default-mode file is not executable — without the chmod every positive
+  test would have failed on the Linux CI leg while passing on Windows.
+
+The execute-bit test asserts the **platform difference** instead of skipping
+(`test_a_non_executable_file_follows_the_platform_rule`): POSIX rejects the
+copy, Windows accepts it because `os.access(X_OK)` there only reports
+existence. A `skipif` was written first and deleted — it would have added a
+4th skip to a suite whose baseline is 3, and per A1 no Linux host will ever run
+it, so it would have rotted silently.
+
+Source 3 (`C:\ffmpeg\bin\ffmpeg.exe`) is deliberately left on bare
+`os.path.exists`: it is a hard-coded absolute path where a directory decoy is
+not a real-world scenario, and the item scoped source 2. Recorded here as a
+known asymmetry, not an oversight.
 
 ---
 
@@ -312,3 +356,4 @@ Gate Evidence is incomplete by definition).
 |------|---------|-----------|---------------|-------|
 | A1 | A | **Withdrawn 2026-09-29** | n/a — no code change | Maintainer Wilte: no UNIX/Linux environment exists for this project, so the Linux CI leg is never run and the A4 run-URL/passed-count evidence can never be produced. Item closed as not required, not as verified; A4's CI configuration is left in place unchanged. Iteration-5 finding #4 stays `[~]` in that closed plan (historical record) and is not re-opened. |
 | A2 | A | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7528 passed** / 3 skipped / 30 deselected · coverage **79.15%** ≥ 75 | Dead `if not pending: break` deleted (invariant stated in a comment); the unreachable `return -1` removed by making `acquire()` blocking + adding `release(slot)`, per the item's first scope bullet. B1's pool tests pass **unedited**. 6 new tests in `mood_analysis_batch_tagger/tests/test_batch_analysis_engine.py` (`TestWorkerSlotTracker` + two exhaustion probes); 4 of 6 verified to fail pre-change via a SHA-256-verified source swap. No user-guide impact (worker-slot labelling behaviour is unchanged). |
+| A3 | A | 2026-09-29 | compile 0 · ruff clean / 757 format-stable · mypy strict 0 issues / 452 files · bandit 0H/0M/51L · bare suite **7531 passed** / 3 skipped / 30 deselected · coverage **79.11%** ≥ 75 | Source 2 gated on `isfile` + `access(X_OK)`. Both defect-pinning tests inverted (none deleted, none weakened): `test_executability_is_consulted_for_the_local_copy` asserts the probed mode, `test_a_directory_named_like_the_binary_is_rejected` parametrized win32/linux/darwin; both verified to fail pre-change. Net +3 tests. `_deny_local_copy()` + `__file__` redirection absorb the gate's move off `exists` (and de-vacuate a self-fulfilling `exists` assertion); `_make_exe` now chmods `0o755` so the Linux leg's real `X_OK` check passes. **Skip count unchanged at 3** — a `skipif` version of the execute-bit test was written and deleted in favour of asserting the platform difference. Source 3 left on `exists` by design. Guides audited: no guide documents the finder's discovery sources; A5 `TestGuideWordingLock` green. |
