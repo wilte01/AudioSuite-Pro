@@ -16,6 +16,9 @@ Run including integration tests (requires ffmpeg on PATH):
 
 from __future__ import annotations
 
+import math
+import struct
+import wave
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -349,3 +352,241 @@ class TestProcessFileIntegration:
         assert result.status != FileStatus.ERROR
         assert real_wav.exists()
         assert real_wav.stat().st_size > 0
+
+
+# ===========================================================================
+# Tests: process_file — real-audio outcome locks (iteration-7 C3)
+#
+# These tests are the behaviour lock the decomposition must not change: every
+# test decodes the pipeline OUTPUT and measures it (per-channel RMS, duration,
+# sample rate, or integrated loudness via the shared loudness module) instead
+# of reading back written state.  Tolerances were measured against the
+# pre-decomposition function and are declared here per the F1 rule.
+# ===========================================================================
+
+
+def _write_wav(path: Path, segments: list[tuple[float, float]]) -> dict[str, float]:
+    """Write a 16-bit stereo 44.1 kHz WAV built from (duration_s, amplitude) parts.
+
+    Each part is a 440 Hz sine at the given peak amplitude (0.0 = silence).
+    Returns the measured source RMS per channel in dBFS.
+    """
+    rate = 44100
+    frames: list[tuple[int, int]] = []
+    for duration_s, amplitude in segments:
+        n = int(duration_s * rate)
+        for i in range(n):
+            v = int(amplitude * 32767 * math.sin(2 * math.pi * 440.0 * (i / rate)))
+            frames.append((v, v))
+    with wave.open(str(path), "w") as wf:
+        wf.setnchannels(2)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        for pair in frames:
+            wf.writeframes(struct.pack("<hh", *pair))
+    return _decode_wav(path)[0]
+
+
+def _decode_wav(path: Path) -> tuple[dict[str, float], dict[str, float]]:
+    """Decode a WAV and measure it.
+
+    Returns:
+        ``(signal, format)`` where *signal* carries per-channel RMS in dBFS
+        and *format* carries ``duration_s``, ``sample_rate`` and ``channels``.
+    """
+    with wave.open(str(path), "rb") as wf:
+        channels = wf.getnchannels()
+        rate = wf.getframerate()
+        n_frames = wf.getnframes()
+        raw = wf.readframes(n_frames)
+    count = len(raw) // 2
+    samples = struct.unpack("<" + "h" * count, raw)
+    per_channel_rms: dict[str, float] = {}
+    for ch in range(channels):
+        ch_samples = samples[ch::channels]
+        rms = math.sqrt(sum(s * s for s in ch_samples) / len(ch_samples))
+        per_channel_rms[f"ch{ch}_rms_dbfs"] = (
+            20 * math.log10(rms / 32768.0) if rms else -120.0
+        )
+    fmt = {
+        "duration_s": n_frames / rate,
+        "sample_rate": float(rate),
+        "channels": float(channels),
+    }
+    return per_channel_rms, fmt
+
+
+@pytest.mark.integration
+class TestProcessFileOutcomes:
+    """Real-audio decode-and-measure locks for the pipeline stages."""
+
+    @pytest.fixture()
+    def tone_wav(self, tmp_path: Path) -> Path:
+        p = tmp_path / "tone.wav"
+        _write_wav(p, [(2.0, 0.25)])
+        return p
+
+    def test_passthrough_preserves_signal(self, tone_wav: Path, tmp_path: Path) -> None:
+        from audio_refinery.core.pipeline import process_file
+
+        src_rms, _ = _decode_wav(tone_wav)
+        out = tmp_path / "out.wav"
+        result = process_file(tone_wav, out, _minimal_config())
+        assert result.status is FileStatus.DONE, result.error
+
+        out_rms, fmt = _decode_wav(out)
+        assert fmt["sample_rate"] == 44100.0
+        assert fmt["channels"] == 2.0
+        assert fmt["duration_s"] == pytest.approx(2.0, abs=0.02)
+        for ch in src_rms:
+            assert out_rms[ch] == pytest.approx(src_rms[ch], abs=0.1), ch
+
+    def test_declick_on_clean_audio_preserves_signal(
+        self, tone_wav: Path, tmp_path: Path
+    ) -> None:
+        from audio_refinery.core.pipeline import process_file
+
+        src_rms, _ = _decode_wav(tone_wav)
+        out = tmp_path / "out.wav"
+        result = process_file(tone_wav, out, _minimal_config(declick=True))
+        assert result.status is FileStatus.DONE, result.error
+
+        out_rms, fmt = _decode_wav(out)
+        assert fmt["duration_s"] == pytest.approx(2.0, abs=0.02)
+        for ch in src_rms:
+            assert out_rms[ch] == pytest.approx(src_rms[ch], abs=0.1), ch
+
+    def test_trim_removes_leading_and_trailing_silence(self, tmp_path: Path) -> None:
+        from audio_refinery.core.pipeline import process_file
+
+        src = tmp_path / "padded.wav"
+        _write_wav(src, [(0.5, 0.0), (1.0, 0.25), (0.5, 0.0)])
+
+        out = tmp_path / "out.wav"
+        result = process_file(src, out, _minimal_config(trim=True))
+        assert result.status is FileStatus.DONE, result.error
+
+        _, fmt = _decode_wav(out)
+        assert fmt["duration_s"] == pytest.approx(1.0, abs=0.05)
+        out_rms, _ = _decode_wav(out)
+        # The padded source's RMS sits ~3 dB below the tone's because half its
+        # samples are silence; the trimmed output contains only tone. The
+        # expected value is the measured RMS of a 0.25-peak sine, which equals
+        # the analytic 20*log10(0.25/sqrt(2)) = -15.05 dBFS.
+        expected_tone_rms = 20 * math.log10(0.25 / math.sqrt(2))
+        for ch in out_rms:
+            assert out_rms[ch] == pytest.approx(expected_tone_rms, abs=0.3), ch
+
+    def test_enhance_mild_gain_within_measured_band(
+        self, tone_wav: Path, tmp_path: Path
+    ) -> None:
+        from audio_refinery.core.pipeline import process_file
+
+        src_rms, _ = _decode_wav(tone_wav)
+        out = tmp_path / "out.wav"
+        config = StageConfig(declick=False, trim=False, enhance=True, normalise=False)
+        config.enhance_params.preset = "Mild"
+        result = process_file(tone_wav, out, config)
+        assert result.status is FileStatus.DONE, result.error
+
+        out_rms, fmt = _decode_wav(out)
+        assert fmt["duration_s"] == pytest.approx(2.0, abs=0.02)
+        gains = [out_rms[ch] - src_rms[ch] for ch in src_rms]
+        # Measured pre-decomposition: the Mild preset yields +3.79 dB on this
+        # fixture (stereo-identical). The band is the F1 lock: decomposition
+        # must not shift the measured output beyond it.
+        for gain in gains:
+            assert 3.2 <= gain <= 4.4, gain
+
+    @pytest.fixture()
+    def quiet_flac(self, tmp_path: Path) -> Path:
+        """A FLAC source at ≈ -30 dBFS (the normaliser refuses .wav by design)."""
+        from pydub import AudioSegment
+
+        wav = tmp_path / "quiet.wav"
+        _write_wav(wav, [(2.0, 0.03)])
+        flac = tmp_path / "quiet.flac"
+        AudioSegment.from_wav(str(wav)).export(str(flac), format="flac")
+        return flac
+
+    def test_normalise_reaches_target_lufs(
+        self, quiet_flac: Path, tmp_path: Path
+    ) -> None:
+        from pydub import AudioSegment
+
+        from audio_refinery.core.pipeline import process_file
+
+        out = tmp_path / "out.flac"
+        config = StageConfig(
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=True,
+        )
+        config.normalise_params.target_lufs = -16.0
+        result = process_file(quiet_flac, out, config)
+        assert result.status is FileStatus.DONE, result.error
+
+        from audio_normalizer.core.loudness import measure
+
+        loudness = measure(str(out), -16.0)
+        assert loudness is not None
+        assert loudness["input_i"] == pytest.approx(-16.0, abs=0.7)
+        # The FLAC output is decoded with pydub (ffmpeg-backed); the stdlib
+        # wave reader used by _decode_wav cannot read it.
+        duration = AudioSegment.from_file(str(out)).duration_seconds
+        assert duration == pytest.approx(2.0, abs=0.05)
+
+    def test_full_chain_all_stages(self, tmp_path: Path) -> None:
+        from pydub import AudioSegment
+
+        from audio_refinery.core.pipeline import process_file
+
+        wav = tmp_path / "full.wav"
+        _write_wav(wav, [(0.4, 0.0), (1.0, 0.25), (0.4, 0.0)])
+        src = tmp_path / "full.flac"
+        AudioSegment.from_wav(str(wav)).export(str(src), format="flac")
+
+        out = tmp_path / "out.flac"
+        config = StageConfig(declick=True, trim=True, enhance=True, normalise=True)
+        config.normalise_params.target_lufs = -16.0
+        result = process_file(src, out, config)
+        assert result.status is FileStatus.DONE, result.error
+        assert result.was_modified is True
+
+        duration = AudioSegment.from_file(str(out)).duration_seconds
+        assert duration == pytest.approx(1.0, abs=0.05)
+
+        from audio_normalizer.core.loudness import measure
+
+        loudness = measure(str(out), -16.0)
+        assert loudness is not None
+        assert loudness["input_i"] == pytest.approx(-16.0, abs=0.7)
+
+    def test_corrupt_input_fails_integrity_gate(self, tmp_path: Path) -> None:
+        from audio_refinery.core.pipeline import process_file
+
+        src = tmp_path / "corrupt.wav"
+        src.write_bytes(b"this is not audio at all" * 100)
+        original = src.read_bytes()
+        out = tmp_path / "out.wav"
+
+        result = process_file(src, out, StageConfig())
+
+        assert result.status is FileStatus.ERROR
+        assert result.error is not None
+        assert "integrity" in result.error.lower()
+        assert not out.exists()
+        assert src.read_bytes() == original
+
+    def test_in_place_replaces_source_with_processed_audio(
+        self, tmp_path: Path
+    ) -> None:
+        from audio_refinery.core.pipeline import process_file
+
+        src = tmp_path / "inplace.wav"
+        _write_wav(src, [(0.5, 0.0), (1.0, 0.25), (0.5, 0.0)])
+        result = process_file(src, src, _minimal_config(trim=True))
+        assert result.status is FileStatus.DONE, result.error
+        _, fmt = _decode_wav(src)
+        assert fmt["duration_s"] == pytest.approx(1.0, abs=0.05)
