@@ -53,7 +53,7 @@ from audio_suite_shared.exceptions import (
 from audio_suite_shared.tag_helper import read_tags_raw, write_tags_raw
 
 from .convert import numpy_to_segment, segment_to_numpy
-from .integrity import validate_file
+from .integrity import IntegrityResult, validate_file
 from .models import FileResult, FileStatus, StageConfig, StageMetrics
 
 # ── First-party imports (setup sys path first) ───────────────────────────────
@@ -160,27 +160,16 @@ def process_file(
 
     try:
         # ── 0. Integrity pre-flight check ──────────────────────────────────────
-        _emit("Validate", "Checking file integrity…")
-        integrity = validate_file(source_path)
+        integrity = _check_integrity(source_path, _emit)
         if not integrity.is_valid:
             result.status = FileStatus.ERROR
             result.error = (
                 f"File integrity check failed: {'; '.join(integrity.failures)}"
             )
-            _emit("Validate", f"FAILED: {integrity.summary}")
             return result
-        if integrity.warnings:
-            _emit("Validate", f"Warnings: {'; '.join(integrity.warnings)}")
-        _emit("Validate", f"OK: {integrity.summary}")
 
         # ── 1. Read tags and decode audio ─────────────────────────────────────
-        _emit("Load", "Reading tags…")
-        original_tags = read_tags_raw(str(source_path))
-
-        _emit("Load", "Decoding audio…")
-        audio: AudioSegment = AudioSegment.from_file(str(source_path))
-        audio.sample_width
-        audio.channels
+        original_tags, audio = _load_source(source_path, _emit)
 
         # ── DRY RUN: measure only, skip all modification stages and export ────
         if config.dry_run:
@@ -196,158 +185,26 @@ def process_file(
 
         # ── 2. Pop & Click Removal ────────────────────────────────────────────
         if config.declick:
-            _emit("Declick", "Detecting and removing clicks…")
-            try:
-                from pop_click_remover.core.declicker import declick_audio
-
-                p = config.declick_params
-                dc_result = declick_audio(
-                    audio,
-                    threshold=p.sensitivity,
-                    max_width_ms=p.max_width_ms,
-                )
-                audio = dc_result.audio
-                if dc_result.was_modified:
-                    msg = (
-                        f"Found and repaired {dc_result.clicks_found} click(s), "
-                        f"audio quality improved"
-                    )
-                else:
-                    msg = "No clicks found - audio already clean"
-                result.add_stage("Declick", FileStatus.DONE, msg)
-                _emit("Declick", msg)
-            except Exception as exc:
-                mapped = map_to_audio_error(exc)
-                logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
-                raise AudioProcessingError(
-                    f"Declick stage failed: {exc}",
-                    context={"stage": "declick"},
-                    original=exc,
-                ) from exc
+            audio, msg = _run_declick_stage(audio, config, _emit)
+            result.add_stage("Declick", FileStatus.DONE, msg)
 
         # ── 3. Silence Trimming / Fading ──────────────────────────────────────
         if config.trim:
-            _emit("Trim", "Detecting silence…")
-            try:
-                from silence_trimmer.core.trimmer import trim_and_fade
-
-                tp = config.trim_params
-                tr_result = trim_and_fade(
-                    audio=audio,
-                    threshold=tp.threshold,
-                    is_dry_run=False,
-                    apply_fade=tp.apply_fade,
-                    fade_in_ms=tp.fade_in_ms,
-                    fade_out_ms=tp.fade_out_ms,
-                )
-                if tr_result.trimmed is not None:
-                    audio = tr_result.trimmed
-                    # Parse the action message to extract details
-                    action = tr_result.action
-                    if "trimmed" in action.lower() or "removed" in action.lower():
-                        msg = f"{action}, improved flow between sections"
-                    elif "fade" in action.lower():
-                        msg = f"{action}, smooth transitions applied"
-                    else:
-                        msg = f"{action}, audio structure optimized"
-                else:
-                    msg = "No silence detected - original length maintained"
-                result.add_stage("Trim", FileStatus.DONE, msg)
-                _emit("Trim", msg)
-            except Exception as exc:
-                mapped = map_to_audio_error(exc)
-                logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
-                raise AudioProcessingError(
-                    f"Trim stage failed: {exc}",
-                    context={"stage": "trim"},
-                    original=exc,
-                ) from exc
+            audio, msg = _run_trim_stage(audio, config, _emit)
+            result.add_stage("Trim", FileStatus.DONE, msg)
 
         # ── 4. Noise Reduction ────────────────────────────────────────────
         if config.reduce_noise:
-            _emit("Noise Reduction", "Removing hum and noise…")
-            try:
-                from noise_reduction.core.noise_reducer import reduce_noise
-
-                nr_params = config.noise_reduction_params
-                nr_result = reduce_noise(audio, nr_params)
-                if nr_result.was_modified:
-                    audio = nr_result.audio
-                    attenuation = nr_result.energy_before_db - nr_result.energy_after_db
-                    msg = (
-                        f"Attenuated {attenuation:.1f} dB"
-                        f" (hum={'on' if nr_params.reduce_hum else 'off'},"
-                        f" broadband="
-                        f"{'on' if nr_params.reduce_broadband else 'off'})"
-                    )
-                else:
-                    msg = "No noise detected — audio already clean"
-                result.add_stage("Noise Reduction", FileStatus.DONE, msg)
-                _emit("Noise Reduction", msg)
-            except Exception as exc:
-                mapped = map_to_audio_error(exc)
-                logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
-                raise AudioProcessingError(
-                    f"Noise reduction stage failed: {exc}",
-                    context={"stage": "noise_reduction"},
-                    original=exc,
-                ) from exc
+            audio, msg = _run_noise_reduction_stage(audio, config, _emit)
+            result.add_stage("Noise Reduction", FileStatus.DONE, msg)
 
         # ── 5. Audio Enhancement ──────────────────────────────────────────────
         if config.enhance:
-            _emit("Enhance", "Applying DSP chain…")
-            try:
-                audio, rms_before, rms_after = _run_enhance(audio, config, _emit)
-                # Get preset name for more descriptive message
-                preset_name = config.enhance_params.preset
-                gain_db = rms_after - rms_before
-                if preset_name == "Mild":
-                    msg = f"Applied 'Mild' preset ({gain_db:+.1f} dB gain)"
-                elif preset_name == "Moderate":
-                    msg = f"Applied 'Moderate' preset ({gain_db:+.1f} dB gain)"
-                elif preset_name == "Aggressive":
-                    msg = f"Applied 'Aggressive' preset ({gain_db:+.1f} dB gain)"
-                else:
-                    msg = f"Applied 'Custom' preset ({gain_db:+.1f} dB gain)"
-                metrics = StageMetrics(
-                    stage="Enhance",
-                    before_values={"rms_dbfs": rms_before},
-                    after_values={"rms_dbfs": rms_after},
-                )
-                result.add_stage("Enhance", FileStatus.DONE, msg, metrics=metrics)
-                _emit("Enhance", msg)
-            except Exception as exc:
-                mapped = map_to_audio_error(exc)
-                logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
-                raise AudioProcessingError(
-                    f"Enhance stage failed: {exc}",
-                    context={"stage": "enhance"},
-                    original=exc,
-                ) from exc
+            audio, msg, metrics = _run_enhance_stage(audio, config, _emit)
+            result.add_stage("Enhance", FileStatus.DONE, msg, metrics=metrics)
 
         # ── 5. Write temp file (single encode, bitrate-aware)
-        _emit("Export", "Writing output file...")
-        src_bitrate, src_is_vbr = _inspect_source_bitrate(source_path)
-
-        # Opus/M4A: use ffmpeg_io for format-specific encode quality
-        try:
-            from audio_enhancer.core.ffmpeg_io import FFMPEG_EXTENSIONS
-            from audio_enhancer.core.ffmpeg_io import write_audio as ffmpeg_write
-
-            use_ffmpeg = ext in FFMPEG_EXTENSIONS
-        # audio_enhancer.ffmpeg_io is first-party, always present in a valid
-        # install (its own ffmpeg-missing failure is an AudioMissingDependency
-        # raised at call time, not an ImportError) — a defensive guard only
-        # reachable when the suite itself is broken (plan D2).
-        except ImportError:  # pragma: no cover
-            use_ffmpeg = False
-
-        if use_ffmpeg:
-            audio_np, sr = segment_to_numpy(audio)
-            ffmpeg_write(audio_np, sr, tmp_path, bitrate_kbps=src_bitrate)
-        else:
-            fmt, params = pydub_export_for_source(ext, src_bitrate, src_is_vbr)
-            audio.export(str(tmp_path), format=fmt, parameters=params)
+        _write_output(audio, tmp_path, source_path, ext, _emit)
 
         # 6. Restore tags
         _emit("Export", "Restoring tags...")
@@ -355,64 +212,8 @@ def process_file(
 
         # ── 7. Normalisation (FFmpeg on temp file, with retry)
         if config.normalise:
-            _emit("Normalise", "Measuring loudness…")
-            try:
-                # Measure loudness BEFORE normalization
-                from audio_normalizer.core.loudness import measure
-
-                loudness_data = measure(
-                    str(tmp_path), config.normalise_params.target_lufs
-                )
-
-                # Run normalization with retry for transient I/O failures
-                normalization_applied = retry_with_backoff(
-                    _run_normalise,
-                    _DEFAULT_RETRY,
-                    "normalise",
-                    tmp_path,
-                    config,
-                    _emit,
-                    loudness_data,
-                )
-
-                # Create appropriate message based on whether normalization was applied
-                if loudness_data:
-                    before_lufs = loudness_data.get("input_i", 0.0)
-                    target_lufs = config.normalise_params.target_lufs
-                    if normalization_applied:
-                        msg = (
-                            f"Adjusted loudness from"
-                            f" {before_lufs:.1f} to"
-                            f" {target_lufs:.1f} "
-                            f"LUFS for playlist consistency"
-                        )
-                    else:
-                        msg = (
-                            f"Loudness already within tolerance"
-                            f" ({before_lufs:.1f} LUFS) "
-                            f"\u2014 no adjustment needed"
-                        )
-                else:
-                    # Fallback if measurement failed
-                    target_lufs = config.normalise_params.target_lufs
-                    if normalization_applied:
-                        msg = (
-                            f"Adjusted loudness to {target_lufs}"
-                            f" LUFS for playlist consistency"
-                        )
-                    else:
-                        msg = "Loudness measurement failed — normalization skipped"
-
-                result.add_stage("Normalise", FileStatus.DONE, msg)
-                _emit("Normalise", msg)
-            except Exception as exc:
-                mapped = map_to_audio_error(exc)
-                logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
-                raise AudioProcessingError(
-                    f"Normalise stage failed: {exc}",
-                    context={"stage": "normalise"},
-                    original=exc,
-                ) from exc
+            msg = _run_normalise_stage(tmp_path, config, _emit)
+            result.add_stage("Normalise", FileStatus.DONE, msg)
 
         # ── 8. Atomic replace ─────────────────────────────────────────────────
         _emit("Done", "Complete ✓")
@@ -441,6 +242,340 @@ def process_file(
     return result
 
 
+# ── Integrity / load / per-stage orchestration helpers ────────────────────────
+# Each helper owns its stage's progress messages and maps a stage failure to
+# the same AudioProcessingError the inline body used to raise (context names
+# the stage); process_file alone touches the FileResult and performs the
+# atomic replace.
+
+
+def _check_integrity(source_path: Path, emit: Callable[..., Any]) -> IntegrityResult:
+    """Run the integrity pre-flight for *source_path* and emit the outcome.
+
+    Args:
+        source_path: Original audio file.
+        emit: Progress callback.
+
+    Returns:
+        The integrity result; callers branch on ``is_valid``.
+    """
+    emit("Validate", "Checking file integrity…")
+    integrity = validate_file(source_path)
+    if not integrity.is_valid:
+        emit("Validate", f"FAILED: {integrity.summary}")
+    elif integrity.warnings:
+        emit("Validate", f"Warnings: {'; '.join(integrity.warnings)}")
+        emit("Validate", f"OK: {integrity.summary}")
+    else:
+        emit("Validate", f"OK: {integrity.summary}")
+    return integrity
+
+
+def _load_source(
+    source_path: Path, emit: Callable[..., Any]
+) -> tuple[dict[str, Any], AudioSegment]:
+    """Read the original tags and decode the audio into memory.
+
+    Args:
+        source_path: Original audio file.
+        emit: Progress callback.
+
+    Returns:
+        ``(original_tags, audio)`` — tags are written back once, at the end.
+    """
+    emit("Load", "Reading tags…")
+    original_tags = read_tags_raw(str(source_path))
+
+    emit("Load", "Decoding audio…")
+    audio: AudioSegment = AudioSegment.from_file(str(source_path))
+    audio.sample_width
+    audio.channels
+    return original_tags, audio
+
+
+def _run_declick_stage(
+    audio: AudioSegment,
+    config: StageConfig,
+    emit: Callable[..., Any],
+) -> tuple[AudioSegment, str]:
+    """Detect and repair clicks, returning ``(audio, stage_message)``.
+
+    Raises:
+        AudioProcessingError: If the stage fails; preserves the original
+            exception with context ``stage="declick"``.
+    """
+    emit("Declick", "Detecting and removing clicks…")
+    try:
+        from pop_click_remover.core.declicker import declick_audio
+
+        p = config.declick_params
+        dc_result = declick_audio(
+            audio,
+            threshold=p.sensitivity,
+            max_width_ms=p.max_width_ms,
+        )
+        if dc_result.was_modified:
+            msg = (
+                f"Found and repaired {dc_result.clicks_found} click(s), "
+                f"audio quality improved"
+            )
+        else:
+            msg = "No clicks found - audio already clean"
+        emit("Declick", msg)
+        return dc_result.audio, msg
+    except Exception as exc:
+        mapped = map_to_audio_error(exc)
+        logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
+        raise AudioProcessingError(
+            f"Declick stage failed: {exc}",
+            context={"stage": "declick"},
+            original=exc,
+        ) from exc
+
+
+def _run_trim_stage(
+    audio: AudioSegment,
+    config: StageConfig,
+    emit: Callable[..., Any],
+) -> tuple[AudioSegment, str]:
+    """Trim leading/trailing silence (and optionally fade).
+
+    Returns:
+        ``(audio, stage_message)``.
+
+    Raises:
+        AudioProcessingError: If the stage fails; preserves the original
+            exception with context ``stage="trim"``.
+    """
+    emit("Trim", "Detecting silence…")
+    try:
+        from silence_trimmer.core.trimmer import trim_and_fade
+
+        tp = config.trim_params
+        tr_result = trim_and_fade(
+            audio=audio,
+            threshold=tp.threshold,
+            is_dry_run=False,
+            apply_fade=tp.apply_fade,
+            fade_in_ms=tp.fade_in_ms,
+            fade_out_ms=tp.fade_out_ms,
+        )
+        if tr_result.trimmed is not None:
+            audio = tr_result.trimmed
+            # Parse the action message to extract details
+            action = tr_result.action
+            if "trimmed" in action.lower() or "removed" in action.lower():
+                msg = f"{action}, improved flow between sections"
+            elif "fade" in action.lower():
+                msg = f"{action}, smooth transitions applied"
+            else:
+                msg = f"{action}, audio structure optimized"
+        else:
+            msg = "No silence detected - original length maintained"
+        emit("Trim", msg)
+        return audio, msg
+    except Exception as exc:
+        mapped = map_to_audio_error(exc)
+        logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
+        raise AudioProcessingError(
+            f"Trim stage failed: {exc}",
+            context={"stage": "trim"},
+            original=exc,
+        ) from exc
+
+
+def _run_noise_reduction_stage(
+    audio: AudioSegment,
+    config: StageConfig,
+    emit: Callable[..., Any],
+) -> tuple[AudioSegment, str]:
+    """Remove hum and broadband noise, returning ``(audio, stage_message)``.
+
+    Raises:
+        AudioProcessingError: If the stage fails; preserves the original
+            exception with context ``stage="noise_reduction"``.
+    """
+    emit("Noise Reduction", "Removing hum and noise…")
+    try:
+        from noise_reduction.core.noise_reducer import reduce_noise
+
+        nr_params = config.noise_reduction_params
+        nr_result = reduce_noise(audio, nr_params)
+        if nr_result.was_modified:
+            audio = nr_result.audio
+            attenuation = nr_result.energy_before_db - nr_result.energy_after_db
+            msg = (
+                f"Attenuated {attenuation:.1f} dB"
+                f" (hum={'on' if nr_params.reduce_hum else 'off'},"
+                f" broadband="
+                f"{'on' if nr_params.reduce_broadband else 'off'})"
+            )
+        else:
+            msg = "No noise detected — audio already clean"
+        emit("Noise Reduction", msg)
+        return audio, msg
+    except Exception as exc:
+        mapped = map_to_audio_error(exc)
+        logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
+        raise AudioProcessingError(
+            f"Noise reduction stage failed: {exc}",
+            context={"stage": "noise_reduction"},
+            original=exc,
+        ) from exc
+
+
+def _run_enhance_stage(
+    audio: AudioSegment,
+    config: StageConfig,
+    emit: Callable[..., Any],
+) -> tuple[AudioSegment, str, StageMetrics]:
+    """Apply the DSP chain, returning ``(audio, stage_message, metrics)``.
+
+    Raises:
+        AudioProcessingError: If the stage fails; preserves the original
+            exception with context ``stage="enhance"``.
+    """
+    emit("Enhance", "Applying DSP chain…")
+    try:
+        audio, rms_before, rms_after = _run_enhance(audio, config, emit)
+        # Get preset name for more descriptive message
+        preset_name = config.enhance_params.preset
+        gain_db = rms_after - rms_before
+        if preset_name == "Mild":
+            msg = f"Applied 'Mild' preset ({gain_db:+.1f} dB gain)"
+        elif preset_name == "Moderate":
+            msg = f"Applied 'Moderate' preset ({gain_db:+.1f} dB gain)"
+        elif preset_name == "Aggressive":
+            msg = f"Applied 'Aggressive' preset ({gain_db:+.1f} dB gain)"
+        else:
+            msg = f"Applied 'Custom' preset ({gain_db:+.1f} dB gain)"
+        metrics = StageMetrics(
+            stage="Enhance",
+            before_values={"rms_dbfs": rms_before},
+            after_values={"rms_dbfs": rms_after},
+        )
+        emit("Enhance", msg)
+        return audio, msg, metrics
+    except Exception as exc:
+        mapped = map_to_audio_error(exc)
+        logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
+        raise AudioProcessingError(
+            f"Enhance stage failed: {exc}",
+            context={"stage": "enhance"},
+            original=exc,
+        ) from exc
+
+
+def _write_output(
+    audio: AudioSegment,
+    tmp_path: Path,
+    source_path: Path,
+    ext: str,
+    emit: Callable[..., Any],
+) -> None:
+    """Write the processed audio to the temp file (single encode, bitrate-aware).
+
+    Args:
+        audio: Processed audio segment.
+        tmp_path: Destination temp file (same volume as the final output).
+        source_path: Original file, inspected for the export bitrate.
+        ext: Lower-case source extension, selecting the export path.
+        emit: Progress callback.
+    """
+    emit("Export", "Writing output file...")
+    src_bitrate, src_is_vbr = _inspect_source_bitrate(source_path)
+
+    # Opus/M4A: use ffmpeg_io for format-specific encode quality
+    try:
+        from audio_enhancer.core.ffmpeg_io import FFMPEG_EXTENSIONS
+        from audio_enhancer.core.ffmpeg_io import write_audio as ffmpeg_write
+
+        use_ffmpeg = ext in FFMPEG_EXTENSIONS
+    # audio_enhancer.ffmpeg_io is first-party, always present in a valid
+    # install (its own ffmpeg-missing failure is an AudioMissingDependency
+    # raised at call time, not an ImportError) — a defensive guard only
+    # reachable when the suite itself is broken (plan D2).
+    except ImportError:  # pragma: no cover
+        use_ffmpeg = False
+
+    if use_ffmpeg:
+        audio_np, sr = segment_to_numpy(audio)
+        ffmpeg_write(audio_np, sr, tmp_path, bitrate_kbps=src_bitrate)
+    else:
+        fmt, params = pydub_export_for_source(ext, src_bitrate, src_is_vbr)
+        audio.export(str(tmp_path), format=fmt, parameters=params)
+
+
+def _run_normalise_stage(
+    tmp_path: Path,
+    config: StageConfig,
+    emit: Callable[..., Any],
+) -> str:
+    """Measure loudness and run FFmpeg normalisation with retry.
+
+    Returns:
+        The human-readable stage message for the result record.
+
+    Raises:
+        AudioProcessingError: If the stage fails; preserves the original
+            exception with context ``stage="normalise"``.
+    """
+    emit("Normalise", "Measuring loudness…")
+    try:
+        # Measure loudness BEFORE normalization
+        from audio_normalizer.core.loudness import measure
+
+        loudness_data = measure(str(tmp_path), config.normalise_params.target_lufs)
+
+        # Run normalization with retry for transient I/O failures
+        normalization_applied = retry_with_backoff(
+            _run_normalise,
+            _DEFAULT_RETRY,
+            "normalise",
+            tmp_path,
+            config,
+            emit,
+            loudness_data,
+        )
+
+        # Create appropriate message based on whether normalization was applied
+        if loudness_data:
+            before_lufs = loudness_data.get("input_i", 0.0)
+            target_lufs = config.normalise_params.target_lufs
+            if normalization_applied:
+                msg = (
+                    f"Adjusted loudness from"
+                    f" {before_lufs:.1f} to"
+                    f" {target_lufs:.1f} "
+                    f"LUFS for playlist consistency"
+                )
+            else:
+                msg = (
+                    f"Loudness already within tolerance"
+                    f" ({before_lufs:.1f} LUFS) "
+                    f"\u2014 no adjustment needed"
+                )
+        else:
+            # Fallback if measurement failed
+            target_lufs = config.normalise_params.target_lufs
+            if normalization_applied:
+                msg = (
+                    f"Adjusted loudness to {target_lufs} LUFS for playlist consistency"
+                )
+            else:
+                msg = "Loudness measurement failed — normalization skipped"
+        emit("Normalise", msg)
+        return msg
+    except Exception as exc:
+        mapped = map_to_audio_error(exc)
+        logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
+        raise AudioProcessingError(
+            f"Normalise stage failed: {exc}",
+            context={"stage": "normalise"},
+            original=exc,
+        ) from exc
+
+
 # ── Enhancement stage helper ──────────────────────────────────────────────────
 
 
@@ -448,7 +583,7 @@ def _run_enhance(
     audio: AudioSegment,
     config: StageConfig,
     emit: Callable[..., Any],
-) -> AudioSegment:
+) -> tuple[AudioSegment, float, float]:
     """
     Apply the pedalboard DSP chain to an AudioSegment.
 

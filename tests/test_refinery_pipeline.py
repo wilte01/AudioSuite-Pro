@@ -590,3 +590,39 @@ class TestProcessFileOutcomes:
         assert result.status is FileStatus.DONE, result.error
         _, fmt = _decode_wav(src)
         assert fmt["duration_s"] == pytest.approx(1.0, abs=0.05)
+
+
+class TestPipelineShape:
+    """Structural lock guarding the C3 decomposition against re-inlining."""
+
+    def test_stage_helpers_have_declared_signatures(self) -> None:
+        import inspect
+
+        from audio_refinery.core import pipeline
+
+        expected = {
+            "_check_integrity": ["source_path", "emit"],
+            "_load_source": ["source_path", "emit"],
+            "_run_declick_stage": ["audio", "config", "emit"],
+            "_run_trim_stage": ["audio", "config", "emit"],
+            "_run_noise_reduction_stage": ["audio", "config", "emit"],
+            "_run_enhance_stage": ["audio", "config", "emit"],
+            "_write_output": ["audio", "tmp_path", "source_path", "ext", "emit"],
+            "_run_normalise_stage": ["tmp_path", "config", "emit"],
+        }
+        for name, params in expected.items():
+            fn = getattr(pipeline, name, None)
+            assert fn is not None, name
+            assert list(inspect.signature(fn).parameters) == params, name
+
+    def test_process_file_signature_unchanged(self) -> None:
+        import inspect
+
+        from audio_refinery.core.pipeline import process_file
+
+        assert list(inspect.signature(process_file).parameters) == [
+            "source_path",
+            "output_path",
+            "config",
+            "on_progress",
+        ]
