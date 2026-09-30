@@ -20,6 +20,11 @@ from typing import Any
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
 from audio_suite_shared.cli_helpers import (
+    consume_handshake_token,
+    print_tool_usage_error,
+    read_positional_handshake,
+)
+from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
 
@@ -33,6 +38,18 @@ class KeyDetectorArgs(BaseCLIArgs):
     max_workers: int = 4
     clear_logs: bool = False  # Display only — driver-owned orchestration flag
     parallel_run: bool = False  # Display only — driver-owned orchestration flag
+
+
+# The named-pair tail accepted only the display-only pair (mode/start/end
+# live in the fixed positional slots); mirror that token subset byte-exactly.
+ACCEPTED_HANDSHAKE = frozenset(
+    {
+        "--clear-logs",
+        "--no-clear-logs",
+        "--parallel-run",
+        "--no-parallel-run",
+    }
+)
 
 
 def validate_args(args: KeyDetectorArgs) -> list[Any]:
@@ -57,49 +74,35 @@ def parse(argv: list[str] | None = None) -> KeyDetectorArgs:
     if len(argv) < 2:
         return args
     args.folder_path = argv[1]
-    if len(argv) > 3:
-        args.live_mode = argv[3] == "--live"
-    if len(argv) > 4:
-        args.auto_start = argv[4] == "--start"
-    if len(argv) > 5:
-        args.auto_end = argv[5] == "--end"
+    read_positional_handshake(argv, args, mode_idx=3, start_idx=4, end_idx=5)
     i = 6
     while i < len(argv):
-        if argv[i] == "--duration" and i + 1 < len(argv):
+        arg = argv[i]
+        if arg == "--duration" and i + 1 < len(argv):
             try:
                 args.analysis_duration = int(argv[i + 1])
             except ValueError:
                 pass
             i += 2
-        elif argv[i] == "--workers" and i + 1 < len(argv):
+        elif arg == "--workers" and i + 1 < len(argv):
             try:
                 args.max_workers = int(argv[i + 1])
             except ValueError:
                 pass
             i += 2
-        elif argv[i] == "--parallel":
+        elif arg == "--parallel":
             args.parallel_mode = True
             i += 1
-        elif argv[i] == "--no-parallel":
+        elif arg == "--no-parallel":
             args.parallel_mode = False
             i += 1
-        elif argv[i] == "--clear-logs":
-            args.clear_logs = True
-            i += 1
-        elif argv[i] == "--no-clear-logs":
-            args.clear_logs = False
-            i += 1
-        elif argv[i] == "--parallel-run":
-            args.parallel_run = True
-            i += 1
-        elif argv[i] == "--no-parallel-run":
-            args.parallel_run = False
+        elif consume_handshake_token(arg, args, accepted=ACCEPTED_HANDSHAKE) is True:
             i += 1
         else:
             i += 1
     errors = validate_args(args)
     if errors:
         for error in errors:
-            print(f"Key Detector: {error}", file=sys.stderr)
+            print_tool_usage_error("Key Detector", error)
         raise SystemExit(1)
     return args

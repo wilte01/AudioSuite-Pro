@@ -22,6 +22,8 @@ from typing import Any
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
 from audio_suite_shared.cli_helpers import (
+    apply_handshake_membership,
+    print_tool_usage_error,
     was_launched_from_driver as was_launched_from_driver,
 )
 
@@ -56,9 +58,7 @@ def parse(argv: list[str] | None = None) -> ScrubberArgs:
     if len(argv) < 2:
         return args
     args.folder_path = argv[1]
-    args.live_mode = "--live" in argv
-    args.auto_start = "--start" in argv
-    args.auto_end = "--end" in argv
+    apply_handshake_membership(argv, args)
 
     # Lyrics preservation (default True; --no-preserve-lyrics disables)
     if "--no-preserve-lyrics" in argv:
@@ -75,13 +75,9 @@ def parse(argv: list[str] | None = None) -> ScrubberArgs:
         args.preserve_embedded_art = False
     # --preserve-embedded-art is default True; explicit flag accepted as no-op
 
-    # Display-only driver orchestration state (controls stay inert).
-    args.clear_logs = "--clear-logs" in argv
-    args.parallel_run = "--parallel-run" in argv
-
     errors = validate_args(args)
     if errors:
         for error in errors:
-            print(f"Metadata Scrubber: {error}", file=sys.stderr)
+            print_tool_usage_error("Metadata Scrubber", error)
         raise SystemExit(1)
     return args

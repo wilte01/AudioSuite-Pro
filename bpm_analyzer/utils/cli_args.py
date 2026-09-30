@@ -12,10 +12,26 @@ from typing import Optional
 
 from audio_suite_shared.cli_dataclasses import BPMArgs, validate_folder_path
 from audio_suite_shared.cli_helpers import (
+    consume_handshake_token,
+    print_tool_usage_error,
+    read_positional_handshake,
+)
+from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
 
 logger = logging.getLogger(__name__)
+
+# The named-pair tail accepted only the display-only pair (mode/start/end
+# live in the fixed positional slots); mirror that token subset byte-exactly.
+ACCEPTED_HANDSHAKE = frozenset(
+    {
+        "--clear-logs",
+        "--no-clear-logs",
+        "--parallel-run",
+        "--no-parallel-run",
+    }
+)
 
 
 def parse(argv: Optional[list[str]] = None) -> BPMArgs:
@@ -50,14 +66,7 @@ def parse(argv: Optional[list[str]] = None) -> BPMArgs:
 
     args.folder_path = argv[1]
 
-    if len(argv) > 3:
-        args.live_mode = argv[3] == "--live"
-
-    if len(argv) > 4:
-        args.auto_start = argv[4] == "--start"
-
-    if len(argv) > 5:
-        args.auto_end = argv[5] == "--end"
+    read_positional_handshake(argv, args, mode_idx=3, start_idx=4, end_idx=5)
 
     # Named option pairs from position 6 onwards.
     i = 6
@@ -82,7 +91,7 @@ def parse(argv: Optional[list[str]] = None) -> BPMArgs:
                     args.max_workers = value
             except ValueError:
                 logger.warning(
-                    "cli_args: invalid integer value '%s' for flag '%s' — ignored",
+                    "cli_args: invalid integer value '%s' for flag '%s' - ignored",
                     raw_value,
                     token,
                 )
@@ -93,17 +102,7 @@ def parse(argv: Optional[list[str]] = None) -> BPMArgs:
         elif token == "--no-parallel":
             args.parallel_mode = False
             i += 1
-        elif token == "--clear-logs":
-            args.clear_logs = True
-            i += 1
-        elif token == "--no-clear-logs":
-            args.clear_logs = False
-            i += 1
-        elif token == "--parallel-run":
-            args.parallel_run = True
-            i += 1
-        elif token == "--no-parallel-run":
-            args.parallel_run = False
+        elif consume_handshake_token(token, args, accepted=ACCEPTED_HANDSHAKE) is True:
             i += 1
         else:
             i += 1
@@ -111,7 +110,7 @@ def parse(argv: Optional[list[str]] = None) -> BPMArgs:
     errors = validate_folder_path(args.folder_path)
     if errors:
         for error in errors:
-            print(f"BPM Analyzer: {error}", file=sys.stderr)
+            print_tool_usage_error("BPM Analyzer", error)
         raise SystemExit(1)
 
     logger.debug("cli_args parsed: %s", args)

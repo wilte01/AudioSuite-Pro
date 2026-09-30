@@ -19,10 +19,26 @@ from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
 from audio_suite_shared.cli_helpers import (
+    consume_handshake_token,
+    print_tool_usage_error,
+    read_positional_handshake,
+)
+from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
 
 logger = logging.getLogger(__name__)
+
+# The named-pair tail accepted only the display-only pair (mode/start/end
+# live in the fixed positional slots); mirror that token subset byte-exactly.
+ACCEPTED_HANDSHAKE = frozenset(
+    {
+        "--clear-logs",
+        "--no-clear-logs",
+        "--parallel-run",
+        "--no-parallel-run",
+    }
+)
 
 
 @dataclass
@@ -75,22 +91,19 @@ def parse(argv: list[str] | None = None) -> GenreTaggerArgs:
     if len(argv) < 2:
         return GenreTaggerArgs()
 
-    folder_path: str = argv[1]
-    live_mode: bool = argv[2] == "--live" if len(argv) > 2 else False
-    auto_start: bool = argv[3] == "--start" if len(argv) > 3 else False
-    auto_end: bool = argv[4] == "--end" if len(argv) > 4 else False
-    min_coverage: int = 50
-    clear_logs: bool = False
-    parallel_run: bool = False
-
-    # Named-pair scan begins at argv[5] — the first index after all positional
-    # slots — so that the already-parsed argv[4] (--end/--no-end) is not
+    # Named-pair scan begins at argv[5] - the first index after all positional
+    # slots - so that the already-parsed argv[4] (--end/--no-end) is not
     # re-visited.
+    args = GenreTaggerArgs(folder_path=argv[1], min_coverage=50)
+    read_positional_handshake(argv, args, mode_idx=2, start_idx=3, end_idx=4)
     i = 5
     while i < len(argv):
-        if argv[i] == "--coverage" and i + 1 < len(argv):
+        arg = argv[i]
+        if consume_handshake_token(arg, args, accepted=ACCEPTED_HANDSHAKE) is True:
+            i += 1
+        elif arg == "--coverage" and i + 1 < len(argv):
             try:
-                min_coverage = int(argv[i + 1])
+                args.min_coverage = int(argv[i + 1])
             except ValueError:
                 logger.warning(
                     "Invalid --coverage value %r is not an integer; using default %d.",
@@ -98,33 +111,12 @@ def parse(argv: list[str] | None = None) -> GenreTaggerArgs:
                     50,
                 )
             i += 2
-        elif argv[i] == "--clear-logs":
-            clear_logs = True
-            i += 1
-        elif argv[i] == "--no-clear-logs":
-            clear_logs = False
-            i += 1
-        elif argv[i] == "--parallel-run":
-            parallel_run = True
-            i += 1
-        elif argv[i] == "--no-parallel-run":
-            parallel_run = False
-            i += 1
         else:
             i += 1
 
-    args = GenreTaggerArgs(
-        folder_path=folder_path,
-        live_mode=live_mode,
-        auto_start=auto_start,
-        auto_end=auto_end,
-        min_coverage=min_coverage,
-        clear_logs=clear_logs,
-        parallel_run=parallel_run,
-    )
     errors = validate_args(args)
     if errors:
         for error in errors:
-            print(f"Album Genre Tagger: {error}", file=sys.stderr)
+            print_tool_usage_error("Album Genre Tagger", error)
         raise SystemExit(1)
     return args

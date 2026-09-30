@@ -24,6 +24,9 @@ from audio_suite_shared.cli_dataclasses import (
     validate_target_lufs,
 )
 from audio_suite_shared.cli_helpers import (
+    print_tool_usage_error,
+    read_display_flag_slots,
+    read_positional_handshake,
     was_launched_from_driver as was_launched_from_driver,
 )
 
@@ -82,21 +85,10 @@ def parse(argv: list[str] | None = None) -> ReplayGainArgs:
         except ValueError:
             pass
 
-    if len(argv) > 3:
-        args.live_mode = argv[3] == "--live"
-
-    if len(argv) > 4:
-        args.auto_start = argv[4] == "--start"
-
-    if len(argv) > 5:
-        args.auto_end = argv[5] == "--end"
+    read_positional_handshake(argv, args, mode_idx=3, start_idx=4, end_idx=5)
 
     # Display-only driver orchestration state (controls stay inert).
-    if len(argv) > 6:
-        args.clear_logs = argv[6] == "--clear-logs"
-
-    if len(argv) > 7:
-        args.parallel_run = argv[7] == "--parallel-run"
+    read_display_flag_slots(argv, args, logs_idx=6, parallel_run_idx=7)
 
     # Standalone-only flag: when the last occurrence of --apply-gain /
     # --no-apply-gain is --apply-gain, bake the track gain into MP3
@@ -110,7 +102,7 @@ def parse(argv: list[str] | None = None) -> ReplayGainArgs:
     errors = validate_args(args)
     if errors:
         for error in errors:
-            print(f"ReplayGain Analyzer: {error}", file=sys.stderr)
+            print_tool_usage_error("ReplayGain Analyzer", error)
         raise SystemExit(1)
 
     return args

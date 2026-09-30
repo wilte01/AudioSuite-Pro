@@ -24,6 +24,8 @@ from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
 from audio_suite_shared.cli_helpers import (
+    apply_handshake_membership,
+    print_tool_usage_error,
     was_launched_from_driver as was_launched_from_driver,
 )
 
@@ -129,12 +131,8 @@ def parse(argv: list[str] | None = None) -> ArtArgs:
     if len(argv) < 2:
         return args
     args.folder_path = argv[1]
-    args.live_mode = "--live" in argv
-    args.auto_start = "--start" in argv
-    args.auto_end = "--end" in argv
+    apply_handshake_membership(argv, args)
     args.purge = "--no-purge" not in argv
-    args.clear_logs = "--clear-logs" in argv
-    args.parallel_run = "--parallel-run" in argv
     if "--embed-size" in argv:
         idx = argv.index("--embed-size")
         if idx + 1 < len(argv):
@@ -144,9 +142,9 @@ def parse(argv: list[str] | None = None) -> ArtArgs:
         try:
             args.min_art_dimension = int(raw_min_dim)
         except ValueError:
-            print(
-                f"Album Art Sync: Min dimension must be numeric, got: {raw_min_dim}",
-                file=sys.stderr,
+            print_tool_usage_error(
+                "Album Art Sync",
+                f"Min dimension must be numeric, got: {raw_min_dim}",
             )
             raise SystemExit(1) from None
     raw_threshold = _flag_value(argv, "--match-threshold")
@@ -154,15 +152,14 @@ def parse(argv: list[str] | None = None) -> ArtArgs:
         try:
             args.album_match_threshold = float(raw_threshold)
         except ValueError:
-            print(
-                "Album Art Sync: Match threshold must be numeric, "
-                f"got: {raw_threshold}",
-                file=sys.stderr,
+            print_tool_usage_error(
+                "Album Art Sync",
+                f"Match threshold must be numeric, got: {raw_threshold}",
             )
             raise SystemExit(1) from None
     errors = validate_args(args)
     if errors:
         for error in errors:
-            print(f"Album Art Sync: {error}", file=sys.stderr)
+            print_tool_usage_error("Album Art Sync", error)
         raise SystemExit(1)
     return args

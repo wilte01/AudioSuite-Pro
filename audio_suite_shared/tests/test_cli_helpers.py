@@ -632,6 +632,110 @@ class TestHandshakeGoldenTable:
             assert getattr(args, field) is value, f"{name}: {field}"
 
 
+class TestRepoHandshakeLock:
+    """Repo-level handshake consolidation lock (iteration-7 B1).
+
+    Asserts via AST over every per-tool ``utils/cli_args.py`` that the
+    Master-Driver display-flag pairs are *parsed* only in
+    ``audio_suite_shared.cli_helpers``: no per-tool parser performs a
+    comparison or membership test against one of the ten handshake tokens.
+    Argparse-based parsers declare flags via ``add_argument`` (a Call, not
+    a Compare) and therefore comply without exemptions.
+
+    Non-vacuity: the census must find all real files, and a positive
+    control exercises the detector on an inline ladder snippet.
+    """
+
+    def _cli_args_files(self) -> list[tuple[str, Path]]:
+
+        repo = Path(__file__).resolve().parents[2]
+        found: list[tuple[str, Path]] = []
+        for path in sorted(repo.glob("*/utils/cli_args.py")):
+            if ".venv" in path.parts:
+                continue
+            found.append((path.parts[0], path))
+        return found
+
+    def test_census_is_not_vacuous(self) -> None:
+        census = self._cli_args_files()
+        assert len(census) >= 20, f"cli_args census found only {len(census)} files"
+
+    def _compares_handshake_token(self, source: str) -> list[str]:
+        import ast
+
+        banned = {
+            "--live",
+            "--dry",
+            "--start",
+            "--no-start",
+            "--end",
+            "--no-end",
+            "--clear-logs",
+            "--no-clear-logs",
+            "--parallel-run",
+            "--no-parallel-run",
+        }
+        tree = ast.parse(source)
+        hits: list[str] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Compare):
+                continue
+            sides = (node.left, *node.comparators)
+            for side in sides:
+                if (
+                    isinstance(side, ast.Constant)
+                    and isinstance(side.value, str)
+                    and side.value in banned
+                ):
+                    hits.append(f"line {node.lineno}")
+                if isinstance(side, (ast.Tuple, ast.List, ast.Set)):
+                    for element in side.elts:
+                        if (
+                            isinstance(element, ast.Constant)
+                            and isinstance(element.value, str)
+                            and element.value in banned
+                        ):
+                            hits.append(f"line {node.lineno}")
+        return hits
+
+    def test_no_handshake_ladder_in_any_tool_parser(self) -> None:
+        offenders: list[tuple[str, list[str]]] = []
+        for tool, path in self._cli_args_files():
+            hits = self._compares_handshake_token(path.read_text(encoding="utf-8"))
+            if hits:
+                offenders.append((tool, hits))
+        assert offenders == [], (
+            "handshake tokens parsed outside cli_helpers in: "
+            + "; ".join(f"{tool} {hits}" for tool, hits in offenders)
+        )
+
+    def test_positive_control_detects_a_ladder(self) -> None:
+        ladder = (
+            "def storm():\n"
+            '    if arg == "--start":\n'
+            "        return 1\n"
+            '    elif arg == "--no-parallel-run":\n'
+            "        return 2\n"
+        )
+        assert self._compares_handshake_token(ladder) != []
+
+    def test_positive_control_detects_membership_form(self) -> None:
+        membership = 'args.live_mode = "--live" in argv\n'
+        assert self._compares_handshake_token(membership) != []
+
+    def test_positive_control_is_clean_for_argparse(self) -> None:
+        argparse_shape = 'parser.add_argument("--parallel-run", action="store_true")\n'
+        assert self._compares_handshake_token(argparse_shape) == []
+
+    def test_positive_control_is_clean_for_tool_flags(self) -> None:
+        tool_flag = (
+            "def storm():\n"
+            '    if arg == "--coverage":\n'
+            "        args.min_coverage = 50\n"
+        )
+        assert self._compares_handshake_token(tool_flag) == []
+
+
 class TestPrintToolUsageError:
     """The single owner of the '<tool>: <error>' stderr writer."""
 

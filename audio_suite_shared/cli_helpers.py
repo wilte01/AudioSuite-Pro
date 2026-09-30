@@ -153,6 +153,89 @@ def apply_handshake_segment(
     return consumed
 
 
+def read_positional_handshake(
+    argv: list[str],
+    args: Any,
+    *,
+    mode_idx: int,
+    start_idx: int,
+    end_idx: int,
+) -> None:
+    """Read the fixed positional handshake slots into *args*.
+
+    The Master Driver's argv layout for the folder tools places the mode /
+    auto-start / auto-end flags in consecutive slots (with a ``"0"``
+    placeholder or a tool-specific value before them). This shared reader
+    owns the ``argv[idx] == "--flag"`` equality that previously lived in
+    each positional tool's parser: any token other than the exact spelling
+    leaves the field at its default (False).
+
+    Args:
+        argv: Full argument vector (index 0 = program name).
+        args: Per-tool args object whose fields are mutated in place.
+        mode_idx: Absolute index holding ``--live`` / ``--dry``.
+        start_idx: Absolute index holding ``--start`` / ``--no-start``.
+        end_idx: Absolute index holding ``--end`` / ``--no-end``.
+    """
+    if len(argv) > mode_idx:
+        args.live_mode = argv[mode_idx] == "--live"
+    if len(argv) > start_idx:
+        args.auto_start = argv[start_idx] == "--start"
+    if len(argv) > end_idx:
+        args.auto_end = argv[end_idx] == "--end"
+
+
+def read_display_flag_slots(
+    argv: list[str],
+    args: Any,
+    logs_idx: int,
+    parallel_run_idx: int,
+) -> None:
+    """Read the display-only handshake pair at fixed indices into *args*.
+
+    Mirrors the genre_sync / replaygain bibliography where the driver's
+    launcher always appends the display flags right after the positional
+    block: ``--clear-logs`` first, then ``--parallel-run``. A non-matching
+    token at either slot writes False (the default), as before.
+
+    Args:
+        argv: Full argument vector (index 0 = program name).
+        args: Per-tool args object whose fields are mutated in place.
+        logs_idx: Absolute index holding ``--clear-logs`` /
+            ``--no-clear-logs``.
+        parallel_run_idx: Absolute index holding ``--parallel-run`` /
+            ``--no-parallel-run``.
+    """
+    if len(argv) > logs_idx:
+        args.clear_logs = argv[logs_idx] == "--clear-logs"
+    if len(argv) > parallel_run_idx:
+        args.parallel_run = argv[parallel_run_idx] == "--parallel-run"
+
+
+def apply_handshake_membership(
+    argv: list[str],
+    args: Any,
+) -> None:
+    """Set the handshake flags by presence anywhere in *argv*.
+
+    The album_art_sync / metadata_scrubber parsers used ``"--flag" in argv``
+    membership semantics: the positive spelling anywhere in the vector
+    turns the field on, and the ``--no-`` spelling is never consulted
+    (absence leaves the False default). This shared function keeps that
+    contract byte-identical, including the pathological both-spellings case
+    where the positive spelling wins.
+
+    Args:
+        argv: Full argument vector (index 0 = program name).
+        args: Per-tool args object whose fields are mutated in place.
+    """
+    args.live_mode = "--live" in argv
+    args.auto_start = "--start" in argv
+    args.auto_end = "--end" in argv
+    args.clear_logs = "--clear-logs" in argv
+    args.parallel_run = "--parallel-run" in argv
+
+
 def create_standard_parser(
     description: str, add_stages: bool = True
 ) -> argparse.ArgumentParser:
