@@ -526,9 +526,9 @@ class TestUndoBatchRecording:
         with (
             patch(f"{MODULE}.detect_key", return_value="C"),
             patch(f"{MODULE}.librosa.load", return_value=(fake_audio, 22050)),
-            patch(f"{MODULE}.get_resource_manager"),
-            patch(f"{MODULE}.track_thread"),
-            patch(f"{MODULE}.cleanup_expired_resources"),
+            patch("audio_suite_shared.file_processor_base.get_resource_manager"),
+            patch("audio_suite_shared.file_processor_base.track_thread"),
+            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
             patch(
                 "audio_suite_shared.tag_helper_base.TagHandlerFactory", shared_factory
             ),
@@ -681,3 +681,51 @@ class TestUnknownKeyIsNeverTagged:
 
         assert read_key(str(path)) is None
         assert "[DETECTED]" in args["on_progress"].call_args[1]["display_text"]
+
+
+class TestRealFileUndoRoundTrip:
+    """The byte-level undo contract (iteration-6 B2) extended to the key
+    tool (mirror of iteration-7 B5's mood_analyzer lock): a live run that
+    tags a real file, reverted via the real undo log, returns the file to
+    byte-identical original content."""
+
+    def test_undo_restores_the_original_tag_bytes(self, tmp_path):
+        import hashlib
+
+        from audio_suite_shared.batch_undo import (
+            active_batch,
+            list_recent_batches,
+            revert_batch_by_id,
+        )
+        from audio_suite_shared.tag_helper import read_key
+
+        path = _make_real_wav(tmp_path / "key_undo.wav")
+        original = path.read_bytes()
+        original_sha = hashlib.sha256()
+        original_sha.update(original)
+
+        undo_db = tmp_path / "undo_log.db"
+        args = _make_call_args(
+            name="key_undo.wav", dir_path=str(tmp_path), is_dry_run=False
+        )
+        with (
+            patch(f"{MODULE}.detect_key", return_value="C"),
+            patch(
+                f"{MODULE}.librosa.load",
+                return_value=(np.zeros(_SR, dtype=np.float32), _SR),
+            ),
+            patch("audio_suite_shared.file_processor_base.get_resource_manager"),
+            patch("audio_suite_shared.file_processor_base.track_thread"),
+            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+        ):
+            with active_batch("key_detector", "tag_edit", db_path=undo_db):
+                process_single_file(**args)
+
+        assert read_key(str(path)) == "C"
+
+        batches = list_recent_batches(limit=5, db_path=undo_db)
+        assert len(batches) == 1
+        result = revert_batch_by_id(batches[0].batch_id, db_path=undo_db)
+        assert result.reverted >= 1
+        assert path.read_bytes() == original
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == original_sha.hexdigest()

@@ -838,3 +838,146 @@ class BaseFileProcessor:
             duration_secs=time.monotonic() - start,
             log_entries=log_entries,
         )
+
+
+def run_analysis_workflow(
+    processor: BaseFileProcessor,
+    dir_path: str,
+    slot_vars: list[Any],
+    slot_queue: Queue[Any],
+    on_progress: Callable[[int, int, int, int, str], None],
+    on_complete: CompleteCallback,
+    on_error: ErrorCallback,
+    *,
+    extensions: tuple[str, ...],
+    is_dry_run: bool,
+    analysis_duration: int,
+    main_thread_label: str,
+    process_file: Callable[..., None],
+    cpu_worker: Callable[..., dict[str, object]],
+    cpu_result_handler: Callable[..., None],
+    parallel_mode: bool,
+    max_workers: int | None = None,
+) -> None:
+    """Run the shared analyse-and-tag batch workflow end-to-end.
+
+    The workflow every analysis tool previously repeated verbatim
+    (discover, analyse per file in a thread pool, report, join the active
+    undo batch): only the analyser and its tag-write semantics differ per
+    tool, and they are injected as callables.
+
+    In worker-thread mode each file goes through ``process_file`` — which
+    must accept ``(name, dir_path, is_dry_run, analysis_duration,
+    slot_vars, slot_idx, lock, on_progress)`` — inside the worker's
+    ``use_batch`` join. In parallel-CPU mode the batch is delegated to
+    :meth:`BaseFileProcessor.run_cpu_bound_processing` with the tool's
+    picklable worker and result handler.
+
+    Args:
+        processor: The tool's ``BaseFileProcessor`` instance driving the
+            batch (discover/process/slot management).
+        dir_path: Directory of audio files to analyse.
+        slot_vars: Per-worker status label variables.
+        slot_queue: Queue pre-loaded with worker slot indices.
+        on_progress: Called after each file with
+            ``(processed, total, skipped, errors, display_text)``.
+        on_complete: Called once with the summary keyword arguments.
+        on_error: Called with a human-readable message on fatal errors.
+        extensions: Discoverable audio extensions.
+        is_dry_run: Forwarded to ``process_file``.
+        analysis_duration: Forwarded to ``process_file`` and the CPU
+            worker kwargs.
+        main_thread_label: Resource-manager thread label.
+        process_file: Per-file step (thread mode).
+        cpu_worker: Picklable per-file CPU stage (parallel mode).
+        cpu_result_handler: Main-thread I/O/completion handler for CPU
+            results (parallel mode).
+        parallel_mode: When True, use the CPU-bound pool.
+        max_workers: Parallel-pool size (parallel mode only).
+    """
+    get_resource_manager()
+
+    if parallel_mode:
+        cpu_kwargs: dict[str, object] = {"analysis_duration": analysis_duration}
+        handler_kwargs: dict[str, object] = {
+            "is_dry_run": is_dry_run,
+            "slot_vars": slot_vars,
+        }
+        processor.run_cpu_bound_processing(
+            dir_path=dir_path,
+            cpu_worker=cpu_worker,
+            result_handler=cpu_result_handler,
+            on_progress=on_progress,
+            on_complete=on_complete,
+            on_error=on_error,
+            extensions=extensions,
+            max_workers=max_workers,
+            **{**cpu_kwargs, **handler_kwargs},
+        )
+        return
+
+    try:
+        files = processor.discover_audio_files(dir_path, extensions=extensions)
+    except Exception as exc:
+        mapped = map_to_audio_error(exc)
+        logger.error("Directory scan failed: %s", mapped, exc_info=True)
+        on_error(user_message_for(mapped))
+        return
+
+    if not files:
+        on_error("No supported audio files found in the selected directory.")
+        return
+
+    processed, skipped, errors, log_entries, _on_progress = (
+        processor.create_progress_tracker(
+            lambda processed_, total, skipped_, errors_, display_text: on_progress(
+                processed_, total, skipped_, errors_, display_text
+            ),
+            len(files),
+        )
+    )
+
+    lock = threading.Lock()
+    start = time.time()
+
+    main_thread = threading.current_thread()
+    track_thread(main_thread, main_thread_label)
+
+    # Join an active undo batch if the caller opened one.  Worker threads
+    # record tag snapshots against it via use_batch().
+    undo_batch: str | None = get_active_batch_id()
+
+    def _worker(name: str) -> None:
+        slot_idx = slot_queue.get()
+        try:
+            with use_batch(undo_batch):
+                process_file(
+                    name=name,
+                    dir_path=dir_path,
+                    is_dry_run=is_dry_run,
+                    analysis_duration=analysis_duration,
+                    slot_vars=slot_vars,
+                    slot_idx=slot_idx,
+                    lock=lock,
+                    on_progress=_on_progress,
+                )
+        finally:
+            slot_vars[slot_idx].set("IDLE")
+            slot_queue.put(slot_idx)
+
+    processor.process_batch(
+        files,
+        _worker,
+        max_workers=processor.max_workers,
+    )
+
+    on_complete(
+        total=len(files),
+        processed=processed[0],
+        skipped=skipped[0],
+        errors=errors[0],
+        duration_secs=time.time() - start,
+        log_entries=log_entries,
+    )
+
+    cleanup_expired_resources(max_age_hours=1)

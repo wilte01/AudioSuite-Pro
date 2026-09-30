@@ -14,13 +14,12 @@ Supports: MP3, FLAC, OGG, M4A, Opus
 import logging
 import os
 import threading
-import time
 from collections.abc import Callable
+from functools import partial
 from queue import Queue
 from typing import Any
 
 from audio_suite_shared.analysis_loader import load_analysis_audio
-from audio_suite_shared.batch_undo import get_active_batch_id, use_batch
 from audio_suite_shared.error_recovery import RecoveryAction, get_recovery_action
 from audio_suite_shared.exceptions import (
     AudioAnalysisError,
@@ -28,13 +27,10 @@ from audio_suite_shared.exceptions import (
     AudioFormatError,
     handle_audio_errors,
     map_to_audio_error,
-    user_message_for,
 )
-from audio_suite_shared.file_processor_base import BaseFileProcessor
-from audio_suite_shared.resource_manager import (
-    cleanup_expired_resources,
-    get_resource_manager,
-    track_thread,
+from audio_suite_shared.file_processor_base import (
+    BaseFileProcessor,
+    run_analysis_workflow,
 )
 from audio_suite_shared.tag_helper import (
     SUPPORTED_EXTENSIONS,
@@ -285,94 +281,26 @@ def run_analysis(
             analysis; when False (default), use ThreadPoolExecutor.
         max_workers:       Number of parallel workers.  Defaults to 4.
     """
-    get_resource_manager()
-
     processor = MoodAnalyzerProcessor(
         max_workers=max_workers or 4,
         parallel_mode=parallel_mode,
     )
 
-    if parallel_mode:
-        cpu_kwargs = {"analysis_duration": analysis_duration}
-        handler_kwargs = {"is_dry_run": is_dry_run, "slot_vars": slot_vars}
-        combined_kwargs: dict[str, object] = {**cpu_kwargs, **handler_kwargs}
-
-        processor.run_cpu_bound_processing(
-            dir_path=dir_path,
-            cpu_worker=_analyze_mood_cpu,
-            result_handler=_handle_mood_result,
-            on_progress=on_progress,
-            on_complete=on_complete,
-            on_error=on_error,
-            extensions=SUPPORTED_EXTENSIONS,
-            max_workers=max_workers,
-            **combined_kwargs,
-        )
-        return
-
-    try:
-        files = processor.discover_audio_files(
-            dir_path, extensions=SUPPORTED_EXTENSIONS
-        )
-    except Exception as exc:
-        mapped = map_to_audio_error(exc)
-        logger.error("Directory scan failed: %s", mapped, exc_info=True)
-        on_error(user_message_for(mapped))
-        return
-
-    if not files:
-        on_error("No supported audio files found in the selected directory.")
-        return
-
-    processed, skipped, errors, log_entries, _on_progress = (
-        processor.create_progress_tracker(
-            lambda processed, total, skipped, errors, display_text: on_progress(
-                processed, total, skipped, errors, display_text
-            ),
-            len(files),
-        )
+    run_analysis_workflow(
+        processor,
+        dir_path,
+        slot_vars,
+        slot_queue,
+        on_progress,
+        on_complete,
+        on_error,
+        extensions=SUPPORTED_EXTENSIONS,
+        is_dry_run=is_dry_run,
+        analysis_duration=analysis_duration,
+        main_thread_label="mood_analyzer_main",
+        process_file=partial(process_single_file, processor),
+        cpu_worker=_analyze_mood_cpu,
+        cpu_result_handler=_handle_mood_result,
+        parallel_mode=parallel_mode,
+        max_workers=max_workers,
     )
-
-    lock = threading.Lock()
-    start = time.time()
-
-    undo_batch: str | None = get_active_batch_id()
-
-    main_thread = threading.current_thread()
-    track_thread(main_thread, "mood_analyzer_main")
-
-    def _worker(name: str) -> None:
-        slot_idx = slot_queue.get()
-        try:
-            with use_batch(undo_batch):
-                process_single_file(
-                    processor=processor,
-                    name=name,
-                    dir_path=dir_path,
-                    is_dry_run=is_dry_run,
-                    analysis_duration=analysis_duration,
-                    slot_vars=slot_vars,
-                    slot_idx=slot_idx,
-                    lock=lock,
-                    on_progress=_on_progress,
-                )
-        finally:
-            slot_vars[slot_idx].set("IDLE")
-            slot_queue.put(slot_idx)
-
-    processor.process_batch(
-        files,
-        _worker,
-        max_workers=processor.max_workers,
-    )
-
-    on_complete(
-        total=len(files),
-        processed=processed[0],
-        skipped=skipped[0],
-        errors=errors[0],
-        duration_secs=time.time() - start,
-        log_entries=log_entries,
-    )
-
-    cleanup_expired_resources(max_age_hours=1)
