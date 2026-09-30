@@ -11,6 +11,7 @@ import logging
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from queue import Queue
 from typing import Any, Optional
 
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
@@ -48,6 +49,7 @@ def _normalize_single_file(
     lock: threading.Lock,
     on_progress: Callable[..., None],
     undo_batch: Optional[str] = None,
+    dry_run: bool = False,
     **kwargs: Any,
 ) -> None:
     """Process a single audio file: inspect and normalise embedded artwork.
@@ -63,6 +65,8 @@ def _normalize_single_file(
         undo_batch: Active undo batch id captured by the orchestrating
             thread; worker threads join it via :func:`use_batch` so shared
             embed snapshots are recorded against the run's batch.
+        dry_run: When True, every format processor previews the resize and
+            writes nothing (no embed, no undo snapshot).
         **kwargs: Extra keyword arguments (slot_vars, etc.).
     """
     path = Path(dir_path) / name
@@ -94,8 +98,10 @@ def _normalize_single_file(
 
     with use_batch(undo_batch):
         try:
-            outcome = processor(path, target_size)
-            updated = "resized" in outcome and "saved" in outcome
+            outcome = processor(path, target_size, dry_run)
+            # A dry run reports the resize it *would* apply, so it counts as an
+            # update even though its outcome text never claims a save.
+            updated = "resized" in outcome and ("saved" in outcome or dry_run)
             if updated:
                 display = f"[UPDATED] {name} → {outcome}"
                 log_line = f"[UPDATED] {name} | {outcome}\n"
@@ -139,10 +145,12 @@ def run_normalization(
     dir_path: str,
     target_size: tuple[int, int],
     slot_vars: Optional[list[Any]] = None,
+    slot_queue: Optional[Queue[int]] = None,
     on_progress: Optional[Callable[..., None]] = None,
     on_complete: Optional[Callable[..., None]] = None,
     on_error: Optional[Callable[[str], None]] = None,
     max_workers: int = 4,
+    is_dry_run: bool = False,
 ) -> None:
     """Run parallel album artwork normalisation using BaseFileProcessor.
 
@@ -150,17 +158,29 @@ def run_normalization(
         dir_path: Directory containing audio files.
         target_size: Desired ``(width, height)`` for embedded artwork.
         slot_vars: List of tk.StringVar for worker-slot status labels.
+        slot_queue: Pool of available worker-slot indices.  Declared so the
+            ``cli_base._run_tool`` call — which supplies one for every CLI
+            invocation — does not raise ``TypeError``.  ``BaseFileProcessor``
+            allocates its own pool internally and passes it to the workers, so
+            this value is absorbed and unused, exactly as in
+            ``audio_enhancer``'s and ``genre_sync``'s ``run_*``.  Forwarding it
+            instead would raise ``got multiple values for argument
+            'slot_queue'`` from ``_process_with_recovery``.
         on_progress: UI progress callback forwarded to BaseFileProcessor.
         on_complete: Completion callback forwarded to BaseFileProcessor.
         on_error: Error callback forwarded to BaseFileProcessor.
         max_workers: Number of parallel workers (default 4).
+        is_dry_run: When True, each file's artwork is decoded, measured and
+            re-encoded but nothing is embedded, so neither the file nor an
+            undo snapshot is written.
     """
     logger.info(
-        "run_normalization: dir=%s target=%dx%d workers=%d",
+        "run_normalization: dir=%s target=%dx%d workers=%d dry_run=%s",
         dir_path,
         target_size[0],
         target_size[1],
         max_workers,
+        is_dry_run,
     )
 
     undo_batch = get_active_batch_id()
@@ -183,6 +203,7 @@ def run_normalization(
             lock=lock,
             on_progress=on_progress,
             undo_batch=undo_batch,
+            dry_run=is_dry_run,
             slot_vars=slot_vars,
             **kwargs,
         )

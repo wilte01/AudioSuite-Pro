@@ -35,6 +35,7 @@ from album_art_normalizer import (
     center_crop_to_square,
     encode_image_to_jpeg_bytes,
     load_image_from_bytes,
+    process_audio_artwork,
     process_flac_artwork,
     process_folder_jpg,
     process_mp3_artwork,
@@ -812,3 +813,117 @@ class TestOpenPathInOs:
         ):
             aan._open_path_in_os(tmp_path)  # must not raise
         mock_err.assert_called_once()
+
+
+# ===========================================================================
+# 12. Dry Run contract  (audit A1, iteration 7 Stage 0)
+# ===========================================================================
+#
+# A1 found that Album Art Normalizer's CLI advertised a --dry flag that the
+# command did not declare, and separately that the GUI rendered a
+# "Dry Run" / "Live Update" choice that start_processing() never read - the
+# run_mode variable was written and then ignored, so the GUI always wrote.
+# Both halves of that claim are pinned here, at the *write sites* rather
+# than at the flag: a dry run must still decode, measure and re-encode (so
+# the user sees what would change) yet must leave every byte on disk alone.
+
+
+class TestDryRunWritesNothing:
+    """Every dry-run code path must not touch the filesystem."""
+
+    def test_mp3_dry_run_previews_without_embedding(self, tmp_path: Path) -> None:
+        data = _make_jpeg_bytes(500, 500)
+        mock_audio = MagicMock()
+        frame = MagicMock()
+        frame.data = data
+        frame.encoding = 3
+        frame.type = 3
+        frame.desc = "Cover"
+        mock_audio.tags.getall.return_value = [frame]
+        path = tmp_path / "track.mp3"
+        path.write_bytes(b"original mp3 bytes")
+        before = path.read_bytes()
+
+        with (
+            patch("album_art_normalizer.MP3", return_value=mock_audio),
+            patch("album_art_normalizer.core.art_processor.embed_artwork") as embed,
+        ):
+            result = process_mp3_artwork(path, (800, 800), dry_run=True)
+
+        embed.assert_not_called()
+        assert path.read_bytes() == before
+        assert "would be resized to 800×800" in result
+        assert "dry run" in result
+        assert "saved" not in result
+
+    def test_flac_dry_run_previews_without_embedding(self, tmp_path: Path) -> None:
+        mock_audio = MagicMock()
+        pic = MagicMock()
+        pic.data = _make_jpeg_bytes(500, 500)
+        pic.type = 3
+        pic.mime = "image/jpeg"
+        pic.desc = ""
+        mock_audio.pictures = [pic]
+        path = tmp_path / "track.flac"
+        path.write_bytes(b"original flac bytes")
+        before = path.read_bytes()
+
+        with (
+            patch("album_art_normalizer.FLAC", return_value=mock_audio),
+            patch("album_art_normalizer.core.art_processor.embed_artwork") as embed,
+        ):
+            result = process_flac_artwork(path, (800, 800), dry_run=True)
+
+        embed.assert_not_called()
+        assert path.read_bytes() == before
+        assert "dry run" in result
+        assert "saved" not in result
+
+    def test_generic_dry_run_previews_without_embedding(self, tmp_path: Path) -> None:
+        path = tmp_path / "track.ogg"
+        path.write_bytes(b"original ogg bytes")
+        before = path.read_bytes()
+
+        handler = MagicMock()
+        handler.extract_artwork.return_value = _make_jpeg_bytes(500, 500)
+        shared_factory = MagicMock()
+        shared_factory.get_handler.return_value = handler
+
+        with (
+            patch(
+                "audio_suite_shared.tag_helper_base.TagHandlerFactory", shared_factory
+            ),
+            patch("album_art_normalizer.core.art_processor.embed_artwork") as embed,
+        ):
+            result = process_audio_artwork(path, (800, 800), dry_run=True)
+
+        embed.assert_not_called()
+        assert path.read_bytes() == before
+        assert "dry run" in result
+        assert "saved" not in result
+
+    def test_folder_jpg_dry_run_leaves_the_image_alone(self, tmp_path: Path) -> None:
+        folder = tmp_path / "folder.jpg"
+        Image.new("RGB", (500, 500), (9, 9, 9)).save(folder, format="JPEG")
+        before = folder.read_bytes()
+
+        result = process_folder_jpg(tmp_path, dry_run=True)
+
+        assert folder.read_bytes() == before, "a dry run rewrote folder.jpg"
+        assert result is not None
+        assert "dry run" in result
+        assert "saved" not in result
+
+    def test_folder_jpg_live_run_does_rewrite_the_image(self, tmp_path: Path) -> None:
+        """The control: without it, the dry-run assertion could pass vacuously
+        because the live path never wrote either."""
+        folder = tmp_path / "folder.jpg"
+        Image.new("RGB", (500, 500), (9, 9, 9)).save(folder, format="JPEG")
+        before = folder.read_bytes()
+
+        result = process_folder_jpg(tmp_path, dry_run=False)
+
+        assert folder.read_bytes() != before, "a live run must rewrite folder.jpg"
+        assert Image.open(folder).size == (1000, 1000)
+        assert result is not None
+        assert "dry run" not in result

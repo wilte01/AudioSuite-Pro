@@ -10,6 +10,7 @@ import click
 
 from audio_suite_shared.cli_base import (
     _opt_dir,
+    _opt_dry_run,
     _opt_json,
     _run_tool,
     cli,
@@ -18,6 +19,7 @@ from audio_suite_shared.cli_base import (
 
 @cli.command()
 @_opt_dir
+@_opt_dry_run
 @_opt_json
 @click.option(
     "--output-dir",
@@ -30,7 +32,9 @@ from audio_suite_shared.cli_base import (
     default="Moderate",
     help="Enhancement preset (Mild, Moderate, Aggressive, Custom).",
 )
-def enhance(directory: str, json: bool, output_dir: str, preset: str) -> None:
+def enhance(
+    directory: str, dry_run: bool, json: bool, output_dir: str, preset: str
+) -> None:
     """Enhance audio with DSP chain."""
     from audio_enhancer.core.file_processor import run_enhancement
     from audio_enhancer.core.models import PRESETS, PresetName
@@ -51,6 +55,7 @@ def enhance(directory: str, json: bool, output_dir: str, preset: str) -> None:
         source_path=Path(directory),
         output_dir=out,
         params=params,
+        is_dry_run=dry_run,
     )
     if json:
         click.echo(_json_mod.dumps(result.to_dict(), indent=2))

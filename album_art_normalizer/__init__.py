@@ -2,7 +2,7 @@
 album_art_normalizer
 ====================
 Orchestrator, image-processing, and embed-writer modules for normalising
-album artwork in MP3 and FLAC files.
+album artwork in MP3, FLAC, OGG, Opus, M4A, MP4, WAV, AIFF and AIF files.
 
 Sub-modules
 -----------

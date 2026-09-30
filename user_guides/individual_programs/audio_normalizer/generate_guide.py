@@ -51,6 +51,45 @@ doc.add_paragraph(
     "written with the wrong codec."
 )
 
+doc.add_heading("Why Only Five Formats Normalise", level=1)
+doc.add_paragraph(
+    "This is a deliberate design decision, not a gap. Normalisation "
+    "re-encodes the audio stream, and the suite only configures an FFmpeg "
+    "codec and quality setting for the five formats listed above. A file "
+    "whose extension has no configured codec is therefore rejected with an "
+    "unsupported-format error instead of being processed anyway."
+)
+doc.add_paragraph(
+    "The reason is that the alternative is silent data damage. Without a "
+    "configured codec, the obvious fallback is to encode the audio as MP3 "
+    "while keeping the original extension. That would leave a WAV container "
+    "holding MP3 data, or an OGG file holding MP3 data: the library would "
+    "still play, but the mislabelled codec would be discovered only later, by "
+    "a player, a tagger, or a rip comparison. Rejecting the file keeps the "
+    "library's format claims true, and reports the reason instead."
+)
+bullet(
+    doc,
+    "What you see: ",
+    "Each unsupported file is reported as an error naming its extension and "
+    "listing the five supported formats. Other files in the same run "
+    "continue; one unsupported file never aborts the batch.",
+)
+bullet(
+    doc,
+    "MP3 lossless mode: ",
+    "The lossless mode adjusts the MP3 global_gain tag in place and does not "
+    "re-encode, so it is not subject to this format set. A non-MP3 file falls "
+    "back to the normalise path and is then subject to it.",
+)
+bullet(
+    doc,
+    "Adding a format: ",
+    "Adding one means adding its codec and quality arguments to the "
+    "normaliser's format table, so the guarantee is only as good as that "
+    "table.",
+)
+
 doc.add_heading("System Requirements", level=1)
 doc.add_paragraph(
     "This tool requires ffmpeg and ffprobe to be installed and on PATH. "

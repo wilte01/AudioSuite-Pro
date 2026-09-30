@@ -1,25 +1,71 @@
 """
 cli_app.py — Unified headless CLI for AudioSuite-Pro.
 
+Every flag shown below is part of the documented contract and is enforced by
+``audio_suite_shared/tests/test_cli_app.py::TestDocumentedFlagParity`` — a flag
+that is removed from its command fails the suite unless this block is updated
+in the same change.  Shown values are the option defaults unless a value is
+part of a usage example.
+
 Usage:
-    audiosuite bpm /path/to/dir [--bpm-min 60] [--bpm-max 200] [--dry]
-    audiosuite key /path/to/dir [--duration 30] [--dry]
-    audiosuite tempo /path/to/dir [--scheme Italian] [--dry]
-    audiosuite replaygain /path/to/dir [--target-lufs -14] [--dry]
-    audiosuite genre-sync /path/to/dir [--dry]
-    audiosuite mood /path/to/dir [--dry]
-    audiosuite normalise /path/to/dir [--target-lufs -14] [--tolerance 0.5] [--dry]
-    audiosuite scrub /path/to/dir [--preserve-lyrics] [--preserve-album-artist] [--dry]
-    audiosuite convert /path/to/dir [--format mp3] [--quality highest]
-                                    [--output-dir ...] [--dry]
+    audiosuite bpm /path/to/dir [--bpm-min 60] [--bpm-max 200] [--duration 30]
+                           [--parallel] [--workers 4] [--dry] [--json]
+    audiosuite key /path/to/dir [--duration 30] [--parallel] [--workers 4]
+                           [--dry] [--json]
+    audiosuite tempo /path/to/dir [--scheme Italian] [--dry] [--json]
+    audiosuite replaygain /path/to/dir [--target-lufs -14] [--apply-gain]
+                           [--dry] [--json]
+    audiosuite genre-sync /path/to/dir [--dry] [--json]
+    audiosuite album-genre /path/to/dir [--coverage 50] [--dry] [--json]
+    audiosuite mood-analyzer /path/to/dir [--duration 90] [--parallel]
+                           [--workers 4] [--dry] [--json]
+    audiosuite mood-analysis-batch /path/to/dir [--duration 90] [--parallel]
+                           [--workers 4] [--dry] [--json]
+    audiosuite fingerprint /path/to/dir [--write-tags] [--threshold 0.5]
+                           [--max-length 120] [--album-mode] [--dry] [--json]
+    audiosuite normalise /path/to/dir [--target-lufs -14] [--tolerance 0.5]
+                           [--mode lossless] [--dry] [--json]
+    audiosuite scrub /path/to/dir [--preserve-lyrics] [--preserve-album-artist]
+                           [--preserve-embedded-art] [--dry] [--json]
+    audiosuite tag-edit /path/to/track.mp3 --field comment --clear [--dry] [--json]
+    audiosuite tag-update /path/to/dir [--dry] [--json]
+    audiosuite lyrics /path/to/dir [--provider lrclib] [--request-timeout 10]
+                           [--skip-existing] [--plain-fallback] [--dry] [--json]
+    audiosuite album-art /path/to/dir [--embed-size 800] [--min-dimension 500]
+                           [--match-threshold 0.85] [--purge] [--dry] [--json]
+    audiosuite artnormalize /path/to/dir [--size 800] [--dry] [--json]
+    audiosuite asx-extract /path/to/dir [--dry] [--json]
+    audiosuite reorganize /path/to/dir --output-dir DIR [--action copy]
+                           [--specific-pattern PATTERN]
+                           [--various-pattern PATTERN] [--dry] [--json]
+    audiosuite stats /path/to/dir [--full] [--completeness] [--detail album_art]
+                           [--export-csv PATH] [--export-json PATH]
+                           [--incremental] [--refresh] [--json]
+    audiosuite convert /path/to/dir [--format flac] [--quality highest]
+                           [--sample-rate 44100] [--bit-depth 24]
+                           [--output-dir DIR] [--normalize-mp3] [--dry] [--json]
+    audiosuite refine /path/to/dir [--output FILE] [--stages declick,trim]
+                           [--preset Moderate] [--target-lufs -16]
+                           [--tolerance 0.5] [--dry] [--json]
+    audiosuite reduce /path/to/dir [--reduce-hum] [--reduce-broadband]
+                           [--hum-frequency 60] [--dry] [--json]
+    audiosuite declick /path/to/dir [--sensitivity 0.25] [--max-width 5]
+                           [--dry] [--json]
+    audiosuite silence-trim /path/to/dir [--threshold -50] [--fade]
+                           [--fade-in 25] [--fade-out 25] [--dry] [--json]
+    audiosuite enhance /path/to/dir --output-dir DIR [--preset Moderate]
+                           [--dry] [--json]
+    audiosuite cd-rip <drive> --output-dir DIR [--format flac] [--tracks N]
+                           [--cue] [--verify twice] [--detect-read-offset]
+                           [--dry] [--json]
     audiosuite cue parse /path/to/image.cue [--json]
     audiosuite cue generate /path/to/dir [--title "Album"] [--artist "Artist"]
     audiosuite cue split /path/to/image.cue [--output-dir DIR] [--ffmpeg PATH]
-    audiosuite lyrics /path/to/dir [--provider lrclib] [--request-timeout 10]
-                        [--skip-existing] [--plain-fallback] [--dry]
-    audiosuite silence-trim /path/to/dir [--threshold -50] [--fade] [--dry]
-    audiosuite declick /path/to/dir [--sensitivity 0.25] [--max-width 5] [--dry]
-    audiosuite enhance /path/to/dir --output-dir ... [--preset Moderate] [--dry]
+
+The ``--dry/--live`` pair is the shared run-mode option: ``--dry`` analyses and
+reports without writing, ``--live`` writes.  ``--json/--text`` selects the
+output format.  ``--log-level`` is a group-level option, so it precedes the
+subcommand (``audiosuite --log-level DEBUG bpm /path/to/dir``).
 
 Commands are registered by importing the corresponding tool's cli module.
 """

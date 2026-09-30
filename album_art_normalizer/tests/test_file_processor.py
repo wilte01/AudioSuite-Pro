@@ -122,7 +122,9 @@ class TestNormalizeSingleFile:
                 lock=threading.Lock(),
                 on_progress=lambda **kw: None,
             )
-        proc_mock.assert_called_once_with(Path("/fake") / "song.flac", (800, 800))
+        proc_mock.assert_called_once_with(
+            Path("/fake") / "song.flac", (800, 800), False
+        )
 
     def test_ogg_file_routes_to_unified_processor(self) -> None:
         proc_mock = MagicMock(return_value="resized and saved")
@@ -135,7 +137,7 @@ class TestNormalizeSingleFile:
                 lock=threading.Lock(),
                 on_progress=lambda **kw: None,
             )
-        proc_mock.assert_called_once_with(Path("/fake") / "song.ogg", (800, 800))
+        proc_mock.assert_called_once_with(Path("/fake") / "song.ogg", (800, 800), False)
 
     def test_wav_file_routes_to_unified_processor(self) -> None:
         proc_mock = MagicMock(return_value="resized and saved")
@@ -148,7 +150,7 @@ class TestNormalizeSingleFile:
                 lock=threading.Lock(),
                 on_progress=lambda **kw: None,
             )
-        proc_mock.assert_called_once_with(Path("/fake") / "song.wav", (800, 800))
+        proc_mock.assert_called_once_with(Path("/fake") / "song.wav", (800, 800), False)
 
     def test_aiff_file_routes_to_unified_processor(self) -> None:
         proc_mock = MagicMock(return_value="resized and saved")
@@ -161,7 +163,9 @@ class TestNormalizeSingleFile:
                 lock=threading.Lock(),
                 on_progress=lambda **kw: None,
             )
-        proc_mock.assert_called_once_with(Path("/fake") / "song.aiff", (800, 800))
+        proc_mock.assert_called_once_with(
+            Path("/fake") / "song.aiff", (800, 800), False
+        )
 
 
 class TestRunNormalization:
@@ -228,11 +232,18 @@ class TestUndoBatchRecording:
         Image.new("RGB", (80, 80), (10, 20, 30)).save(buf, format="JPEG")
         return buf.getvalue()
 
-    def _fake_embed_process(self, path: Path, target: tuple[int, int]) -> str:
+    def _fake_embed_process(
+        self, path: Path, target: tuple[int, int], dry_run: bool = False
+    ) -> str:
         from album_art_normalizer.core.art_processor import embed_artwork
 
-        embed_artwork(str(path), self._jpeg_bytes())
-        return "resized and saved"
+        # Honour dry_run rather than ignoring it: a test double that always
+        # embeds would make a future dry-run assertion pass for the wrong
+        # reason, and this fake stands in for the real write site.
+        if not dry_run:
+            embed_artwork(str(path), self._jpeg_bytes())
+            return "Embedded image resized to 800×800 and saved."
+        return "Embedded image would be resized to 800×800 (dry run)."
 
     def test_live_run_records_embed_snapshots_under_active_batch(
         self, tmp_path: Path

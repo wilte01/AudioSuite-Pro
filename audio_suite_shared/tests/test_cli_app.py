@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import importlib
+import inspect
+import re
+from pathlib import Path
+
 import click
 import pytest
 from click.testing import CliRunner
 
+from audio_suite_shared import cli_app as cli_app_module
 from audio_suite_shared.cli_app import _run_tool, cli
 from audio_suite_shared.tool_plugin import get_registry
 
@@ -582,3 +588,248 @@ class TestEdgeCases:
         f.write_text("hello")
         result = runner.invoke(cli, ["bpm", str(f)])
         assert result.exit_code != 0
+
+
+# ── A1 (audit #A1): the docstring is the documented contract ──────────────────
+#
+# ``audio_suite_shared/cli_app.py``'s module docstring advertises a usage line
+# per command.  That block is the *only* place a user learns the flag spelling
+# without running ``--help``, so a flag that appears there but not on the
+# command is a documented-but-false contract -- the exact defect the audit
+# reproduced with ``enhance ... --dry`` (exit 2, "No such option: --dry").
+#
+# This class makes the docstring executable documentation: every ``[--flag]``
+# token on a documented line must resolve against that command's real parser.
+# Removing a flag now fails the suite instead of silently shipping a lie.
+
+
+class TestDocumentedFlagParity:
+    """Every flag the docstring advertises must resolve on its command."""
+
+    #: Conventional, non-tool flags.  These are Click/click-suite conventions
+    #: rather than tool options, so their absence from a command's own option
+    #: list is not drift.  Every entry must state why it is exempt.
+    ALLOWED_ABSENT: dict[str, str] = {
+        "--help": "Click supplies --help on every command implicitly.",
+        "--json": (
+            "Output-format switch of the shared --json/--text pair; a command "
+            "that does not emit a summary has no use for it."
+        ),
+        "--text": "Counterpart of the shared --json/--text output switch.",
+    }
+
+    @staticmethod
+    def _docstring() -> str:
+        return inspect.getdoc(cli_app_module) or ""
+
+    @classmethod
+    def _usage_blocks(cls, docstring: str) -> list[tuple[str, str | None, str]]:
+        """Join the docstring's wrapped usage lines into one block per command.
+
+        A command's usage spans several indented lines, so a line-by-line parse
+        would attribute each continuation line's flags to whichever command
+        happened to be printed on it.  Blocks are therefore split on every
+        ``audiosuite <token>`` start, and the continuation lines are appended to
+        the block they belong to.  The block ends at the first blank line after
+        the usage section begins.
+
+        Args:
+            docstring: The ``cli_app`` module docstring.
+
+        Returns:
+            ``(command, subcommand, text)`` triples, one per documented
+            command.  ``subcommand`` is set only for the ``cue`` group, whose
+            options live one level down.
+        """
+        start = docstring.find("Usage:")
+        if start == -1:
+            return []
+        lines: list[str] = []
+        for raw in docstring[start:].splitlines()[1:]:
+            if not raw.strip():
+                if lines:
+                    break  # end of the usage section
+                continue
+            lines.append(raw)
+
+        blocks: list[tuple[str, str | None, str]] = []
+        command: str | None = None
+        subcommand: str | None = None
+        buffered: list[str] = []
+        for raw in lines:
+            tokens = raw.split()
+            if len(tokens) >= 2 and tokens[0] == "audiosuite":
+                if command is not None:
+                    blocks.append((command, subcommand, "\n".join(buffered)))
+                command = tokens[1]
+                # ``cue parse`` / ``cue generate`` / ``cue split``: the real
+                # target is the subcommand, not the group.
+                subcommand = tokens[2] if command == "cue" and len(tokens) > 2 else None
+                buffered = [raw]
+            elif command is not None:
+                buffered.append(raw)
+        if command is not None:
+            blocks.append((command, subcommand, "\n".join(buffered)))
+        return blocks
+
+    def test_documented_commands_exist(self) -> None:
+        """Each documented ``audiosuite <command>`` must be a real command."""
+        blocks = self._usage_blocks(self._docstring())
+        assert blocks, "the usage block documented no commands at all"
+
+        ctx = _introspection_context()
+        try:
+            registered = set(cli.list_commands(ctx))
+            for command, subcommand, _ in blocks:
+                assert command in registered, (
+                    f"cli_app.py's docstring documents 'audiosuite {command}', "
+                    f"which is not a registered command "
+                    f"(registered: {sorted(registered)})"
+                )
+                if subcommand is None:
+                    continue
+                group = cli.get_command(ctx, command)
+                assert (
+                    isinstance(group, click.Group) and subcommand in group.commands
+                ), (
+                    f"cli_app.py's docstring documents 'audiosuite {command} "
+                    f"{subcommand}', which is not a {command} subcommand"
+                )
+        finally:
+            ctx.close()
+
+    def test_every_documented_flag_resolves(self) -> None:
+        """The parity assertion: documented ``[--flag]`` tokens must be real."""
+        blocks = self._usage_blocks(self._docstring())
+        assert blocks, (
+            "no usage lines parsed from cli_app.py's docstring — the parser or "
+            "the docstring changed shape"
+        )
+
+        failures: list[str] = []
+        checked = 0
+        for command, subcommand, text in blocks:
+            documented = re.findall(r"\[(--[a-z0-9-]+)", text)
+            if not documented:
+                continue
+            ctx = _introspection_context()
+            try:
+                target = cli.get_command(ctx, command)
+                if subcommand is not None and isinstance(target, click.Group):
+                    target = target.get_command(ctx, subcommand)
+            finally:
+                ctx.close()
+            assert target is not None, f"command {command!r} did not resolve"
+            real: set[str] = set()
+            for param in target.params:
+                if isinstance(param, click.Option):
+                    real.update(param.opts)
+                    real.update(param.secondary_opts)
+            for flag in documented:
+                checked += 1
+                if flag in real or flag in self.ALLOWED_ABSENT:
+                    continue
+                failures.append(
+                    f"audiosuite {command}"
+                    + (f" {subcommand}" if subcommand else "")
+                    + f": documented {flag} but the command accepts "
+                    f"{sorted(real)}"
+                )
+
+        assert checked, "no documented flags were checked — parse produced none"
+        assert not failures, (
+            "cli_app.py's docstring advertises flags its commands do not "
+            "accept (audit A1, 'No such option'):\n  " + "\n  ".join(failures)
+        )
+
+    def test_the_known_missing_dry_flags_are_real(self) -> None:
+        """The audit's exact repro must now resolve, exit 0, and write nothing."""
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            result = runner.invoke(
+                cli, ["enhance", ".", "--output-dir", "out", "--dry"]
+            )
+            assert result.exit_code == 0, result.output
+            assert not (Path("out").exists() and any(Path("out").iterdir())), (
+                "a dry run must not write output files"
+            )
+
+
+# ── Every _run_tool target must actually accept _run_tool's kwargs ───────────
+
+
+def _resolve(dotted: str) -> object:
+    """Import and return the object named by a dotted path."""
+    module_name, _, attr = dotted.rpartition(".")
+    return getattr(importlib.import_module(module_name), attr)
+
+
+class TestRunToolTargetsAcceptItsKwargs:
+    """``_run_tool`` injects ``slot_vars`` and ``slot_queue`` into every call.
+
+    ``run_normalization`` (album_art_normalizer) was the one target that
+    declared neither a ``**kwargs`` catch-all nor those two names, so the CLI's
+    ``run_fn(**kwargs)`` raised ``TypeError``, the tool's own
+    ``@handle_audio_errors(reraise=False)`` downgraded it to a log line, and the
+    command reported "0 files, 0 skipped, 0 errors" — a clean-looking success
+    that had processed nothing.  Every test that mocked the engine stayed
+    green.  This locks the class of defect, not just the one instance.
+    """
+
+    #: command name -> dotted path of the callable it hands to _run_tool
+    TARGETS = {
+        "album-art": "album_art_sync.cli.run_cli_art_sync",
+        "album-genre": "album_genre_tagger.cli.run_cli_analysis",
+        "artnormalize": ("album_art_normalizer.core.file_processor.run_normalization"),
+        "asx-extract": "asx_extractor.cli.run_cli_extraction",
+        "bpm": "bpm_analyzer.core.file_processor.run_analysis",
+        "convert": "music_format_converter.core.file_processor.run_conversion",
+        "declick": "pop_click_remover.core.file_processor.run_declicking",
+        "enhance": "audio_enhancer.core.file_processor.run_enhancement",
+        "fingerprint": "audio_fingerprinter.core.file_processor.run_fingerprinting",
+        "key": "key_detector.core.file_processor.run_analysis",
+        "lyrics": "lyrics_manager.core.file_processor.run_fetch",
+        "mood-analyzer": "mood_analyzer.core.file_processor.run_analysis",
+        "normalise": "audio_normalizer.core.file_processor.run_parallel_process",
+        "replaygain": "replaygain_analyzer.core.file_processor.run_analysis",
+        "scrub": "metadata_scrubber.core.scrubber.run_scrubbing",
+        "silence-trim": "silence_trimmer.core.file_processor.run_trimming",
+        "tempo": "tempo_analyzer.core.file_processor.run_analysis",
+    }
+
+    @pytest.mark.parametrize("command", sorted(TARGETS))
+    def test_target_accepts_slot_vars_and_slot_queue(self, command: str) -> None:
+        dotted = self.TARGETS[command]
+        run_fn = _resolve(dotted)
+        params = inspect.signature(run_fn).parameters
+        accepts_kwargs = any(
+            p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+        )
+        missing = [n for n in ("slot_vars", "slot_queue") if n not in params]
+        assert accepts_kwargs or not missing, (
+            f"{dotted} accepts neither **kwargs nor {missing}, but "
+            "cli_base._run_tool passes both on every call — the command would "
+            "raise TypeError and report a clean '0 files, 0 errors'"
+        )
+
+    def test_the_inventory_is_not_silently_empty(self) -> None:
+        """A scan that resolves nothing passes vacuously; assert the count."""
+        resolved = sum(1 for d in self.TARGETS.values() if _resolve(d) is not None)
+        assert resolved == len(self.TARGETS)
+
+    def test_artnormalize_reaches_its_engine_unstubbed(self, tmp_path: Path) -> None:
+        """End-to-end: the real command, real engine, empty directory.
+
+        Pre-fix this printed a TypeError traceback for
+        ``run_normalization() got an unexpected keyword argument 'slot_queue'``
+        while still summarising "0 files, 0 skipped, 0 errors".
+        """
+        runner = CliRunner()
+        result = runner.invoke(cli, ["artnormalize", str(tmp_path)])
+
+        assert "unexpected keyword argument" not in result.output
+        assert "Traceback" not in result.output
+        assert "No supported audio files found" in result.output, (
+            "the command must reach the engine and report the empty directory; "
+            f"got: {result.output}"
+        )

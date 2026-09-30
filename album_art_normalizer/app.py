@@ -200,12 +200,14 @@ class ArtNormalizerApp(BaseSuiteApp):
             return
 
         target = RESOLUTION_MAP[resolution_key]
+        dry_run = self.run_mode.get() != "Live Update"
         logger.info(
-            "start_processing: folder=%s resolution=%s target=%dx%d",
+            "start_processing: folder=%s resolution=%s target=%dx%d dry_run=%s",
             folder,
             resolution_key,
             target[0],
             target[1],
+            dry_run,
         )
 
         self.start_btn.config(state="disabled")
@@ -214,13 +216,22 @@ class ArtNormalizerApp(BaseSuiteApp):
 
         threading.Thread(
             target=self._run_normalization,
-            args=(folder, target),
+            args=(folder, target, dry_run),
             daemon=True,
         ).start()
 
     @handle_audio_errors(reraise=False, context="art_normalizer_app_run")
-    def _run_normalization(self, directory: str, target_size: tuple[int, int]) -> None:
-        """Background thread: handle folder.jpg then delegate to file_processor."""
+    def _run_normalization(
+        self, directory: str, target_size: tuple[int, int], dry_run: bool
+    ) -> None:
+        """Background thread: handle folder.jpg then delegate to file_processor.
+
+        Args:
+            directory: The music directory to normalise.
+            target_size: Desired embedded artwork ``(width, height)``.
+            dry_run: When True, both write sites (``folder.jpg`` and the
+                embedded artwork) report what they would do and write nothing.
+        """
         self._dir_path = directory
         self._log_entries = []
 
@@ -230,13 +241,14 @@ class ArtNormalizerApp(BaseSuiteApp):
 
         _append_log("=== Session started ===")
         _append_log(f"Directory: {directory}")
+        _append_log(f"Mode: {'Dry Run' if dry_run else 'Live Update'}")
         _append_log(f"Embedded target: {target_size[0]}×{target_size[1]}")
         _append_log(f"folder.jpg target: {FOLDER_JPG_TARGET[0]}×{FOLDER_JPG_TARGET[1]}")
         _append_log("")
 
         # folder.jpg
         try:
-            result = process_folder_jpg(Path(directory))
+            result = process_folder_jpg(Path(directory), dry_run)
             if result is None:
                 _append_log("folder.jpg not present — skipped.")
             else:
@@ -262,6 +274,7 @@ class ArtNormalizerApp(BaseSuiteApp):
                     log_entries=kw.get("log_entries", []),
                 ),
                 on_error=self._on_error,
+                is_dry_run=dry_run,
             )
 
     def _reset_progress_ui(self) -> None:

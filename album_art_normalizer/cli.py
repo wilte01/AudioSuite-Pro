@@ -7,17 +7,25 @@ import json as _json_mod
 import click
 
 from audio_suite_shared.batch_undo import active_batch
-from audio_suite_shared.cli_base import _opt_dir, _opt_json, _run_tool, cli
+from audio_suite_shared.cli_base import (
+    _opt_dir,
+    _opt_dry_run,
+    _opt_json,
+    _run_tool,
+    cli,
+)
 
 
 @cli.command()
 @_opt_dir
+@_opt_dry_run
 @_opt_json
 @click.option(
     "--size", default=800, type=int, help="Embedded image size in pixels (default 800)."
 )
-def artnormalize(directory: str, json: bool, size: int) -> None:
-    """Normalise embedded album artwork in MP3 and FLAC files."""
+def artnormalize(directory: str, dry_run: bool, json: bool, size: int) -> None:
+    """Normalise embedded album artwork in MP3, FLAC, OGG, Opus, M4A, MP4, WAV,
+    AIFF and AIF files."""
     from album_art_normalizer.core.file_processor import run_normalization
 
     target_size = (size, size)
@@ -28,6 +36,7 @@ def artnormalize(directory: str, json: bool, size: int) -> None:
             run_normalization,
             dir_path=directory,
             target_size=target_size,
+            is_dry_run=dry_run,
         )
     if json:
         click.echo(_json_mod.dumps(result.to_dict(), indent=2))

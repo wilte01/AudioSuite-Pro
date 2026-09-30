@@ -4,7 +4,8 @@ art_processor.py
 Image and audio processing logic for album artwork management.
 
 Provides image helpers (crop, resize, encode), per-format audio processors
-for MP3 and FLAC, and folder.jpg normalisation.
+for MP3 and FLAC plus a shared handler-based processor for the remaining
+supported formats, and folder.jpg normalisation.
 
 The per-format processors (process_mp3_artwork, process_flac_artwork) import
 their mutagen dependencies from ``album_art_normalizer`` at call time so that
@@ -180,7 +181,37 @@ def encode_image_to_jpeg_bytes(img: Image.Image, target: tuple[int, int]) -> byt
 # ---------------------------------------------------------------------------
 
 
-def process_mp3_artwork(path: Path, target: tuple[int, int]) -> str:
+def _resize_outcome(
+    current_size: tuple[int, int],
+    spec: ImageResizeSpec,
+    target: tuple[int, int],
+    dry_run: bool,
+) -> str:
+    """Build the one-line status for a completed (or previewed) resize.
+
+    A dry run reports the resize it *would* apply and says so; the live path
+    reports what was written.  Both contain the word "resized", which is what
+    the caller uses to decide the file counts as an update.
+
+    Args:
+        current_size: Original ``(width, height)`` read from the file.
+        spec: The validated resize instruction for this conversion.
+        target: Desired output ``(width, height)``.
+        dry_run: True when nothing was embedded and the result is a preview.
+
+    Returns:
+        A human-readable one-line status string.
+    """
+    crop_note = " (centre-cropped)" if spec.needs_crop else ""
+    was = f"Embedded image was {current_size[0]}\u00d7{current_size[1]}{crop_note}; "
+    if dry_run:
+        return f"{was}would be resized to {target[0]}\u00d7{target[1]} (dry run)."
+    return f"{was}resized to {target[0]}\u00d7{target[1]} and saved."
+
+
+def process_mp3_artwork(
+    path: Path, target: tuple[int, int], dry_run: bool = False
+) -> str:
     """Inspect and, if necessary, update the embedded APIC artwork in an MP3.
 
     All existing ID3 tags are preserved; only the APIC frame is replaced.
@@ -188,6 +219,8 @@ def process_mp3_artwork(path: Path, target: tuple[int, int]) -> str:
     Args:
         path: Absolute path to the ``.mp3`` file.
         target: Desired embedded image size as ``(width, height)``.
+        dry_run: When True, decode, measure and re-encode the image but do not
+            embed it, so no file and no undo snapshot is written.
 
     Returns:
         A human-readable one-line status string describing the outcome.
@@ -238,16 +271,15 @@ def process_mp3_artwork(path: Path, target: tuple[int, int]) -> str:
     spec = ImageResizeSpec(source_size=current_size, target_size=target)
     new_data = encode_image_to_jpeg_bytes(img, target)
 
-    embed_artwork(str(path), new_data)
+    if not dry_run:
+        embed_artwork(str(path), new_data)
 
-    crop_note = " (centre-cropped)" if spec.needs_crop else ""
-    return (
-        f"Embedded image was {current_size[0]}\u00d7{current_size[1]}{crop_note}; "
-        f"resized to {target[0]}\u00d7{target[1]} and saved."
-    )
+    return _resize_outcome(current_size, spec, target, dry_run)
 
 
-def process_flac_artwork(path: Path, target: tuple[int, int]) -> str:
+def process_flac_artwork(
+    path: Path, target: tuple[int, int], dry_run: bool = False
+) -> str:
     """Inspect and, if necessary, update the embedded Picture block in a FLAC.
 
     All VorbisComment tags are preserved; only the picture block is replaced.
@@ -255,6 +287,8 @@ def process_flac_artwork(path: Path, target: tuple[int, int]) -> str:
     Args:
         path: Absolute path to the ``.flac`` file.
         target: Desired embedded image size as ``(width, height)``.
+        dry_run: When True, decode, measure and re-encode the image but do not
+            embed it, so no file and no undo snapshot is written.
 
     Returns:
         A human-readable one-line status string describing the outcome.
@@ -288,16 +322,15 @@ def process_flac_artwork(path: Path, target: tuple[int, int]) -> str:
     spec = ImageResizeSpec(source_size=current_size, target_size=target)
     new_data = encode_image_to_jpeg_bytes(img, target)
 
-    embed_artwork(str(path), new_data)
+    if not dry_run:
+        embed_artwork(str(path), new_data)
 
-    crop_note = " (centre-cropped)" if spec.needs_crop else ""
-    return (
-        f"Embedded image was {current_size[0]}\u00d7{current_size[1]}{crop_note}; "
-        f"resized to {target[0]}\u00d7{target[1]} and saved."
-    )
+    return _resize_outcome(current_size, spec, target, dry_run)
 
 
-def process_audio_artwork(path: Path, target: tuple[int, int]) -> str:
+def process_audio_artwork(
+    path: Path, target: tuple[int, int], dry_run: bool = False
+) -> str:
     """Inspect and, if necessary, update the embedded artwork in any supported
     audio file (MP3, FLAC, OGG, Opus, M4A, MP4, WAV, AIFF, AIF).
 
@@ -308,6 +341,8 @@ def process_audio_artwork(path: Path, target: tuple[int, int]) -> str:
     Args:
         path: Absolute path to the audio file.
         target: Desired embedded image size as ``(width, height)``.
+        dry_run: When True, decode, measure and re-encode the image but do not
+            embed it, so no file and no undo snapshot is written.
 
     Returns:
         A human-readable one-line status string describing the outcome.
@@ -340,13 +375,10 @@ def process_audio_artwork(path: Path, target: tuple[int, int]) -> str:
     spec = ImageResizeSpec(source_size=current_size, target_size=target)
     new_data = encode_image_to_jpeg_bytes(img, target)
 
-    embed_artwork(str(path), new_data)
+    if not dry_run:
+        embed_artwork(str(path), new_data)
 
-    crop_note = " (centre-cropped)" if spec.needs_crop else ""
-    return (
-        f"Embedded image was {current_size[0]}\u00d7{current_size[1]}{crop_note}; "
-        f"resized to {target[0]}\u00d7{target[1]} and saved."
-    )
+    return _resize_outcome(current_size, spec, target, dry_run)
 
 
 # ---------------------------------------------------------------------------
@@ -354,11 +386,13 @@ def process_audio_artwork(path: Path, target: tuple[int, int]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def process_folder_jpg(directory: Path) -> str | None:
+def process_folder_jpg(directory: Path, dry_run: bool = False) -> str | None:
     """Normalise ``folder.jpg`` in *directory* to exactly 1000×1000 px.
 
     Args:
         directory: Parent directory that may contain a ``folder.jpg`` file.
+        dry_run: When True, read and measure the image and report the resize
+            it would apply, but do not write the file back.
 
     Returns:
         A human-readable status string, or ``None`` if no ``folder.jpg``
@@ -386,6 +420,13 @@ def process_folder_jpg(directory: Path) -> str | None:
     spec = ImageResizeSpec(source_size=current_size, target_size=target)
     img = center_crop_to_square(img)
     img = img.resize(target, Image.Resampling.LANCZOS)
+
+    if dry_run:
+        crop_note = " (centre-cropped)" if spec.needs_crop else ""
+        return (
+            f"folder.jpg was {current_size[0]}\u00d7{current_size[1]}{crop_note}; "
+            f"would be resized to {target[0]}\u00d7{target[1]} (dry run)."
+        )
 
     try:
         img.save(folder_jpg, format="JPEG", quality=JPEG_QUALITY, optimize=True)
