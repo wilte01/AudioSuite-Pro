@@ -92,7 +92,7 @@ once. A8 (the typing strength) is an action too: it is recorded in Stage 0.
 |---|---|---|---|---|
 | audit A1 — CLI advertises `enhance --dry`; flag does not exist; `album_art_normalizer` docs understate 9 formats | Medium | Contract / docs | 0 | `[ ]` A1 |
 | audit A2 — `tempo_analyzer` guides have no generator; 12 `.docx.bak` tracked across 10 folders | Medium | Docs hygiene | 0 | `[ ]` A2 |
-| audit A3 — duplication class fixed at 2 instances, not across the class (3 families; largest clone ~395 lines) | Medium | Maintainability | 1 | `[ ]` B1–B5 |
+| audit A3 — duplication class fixed at 2 instances, not across the class (3 families; largest clone ~395 lines) | Medium | Maintainability | 1 | `[x]` B1–B5 |
 | audit A4 — GUI surfaces 49.6% vs 93.7% non-GUI; 8 modules at exactly 0% | Low | Test depth | 3 | `[ ]` D1–D3 |
 | audit A5 — 5 silent exception swallows | Low | Code quality | 0 | `[ ]` A3 |
 | audit A6 — `tag_helper_base.py` 2,151 lines; 167 functions >80 lines; 319-line audio-write `process_file` | Low | Maintainability | 2 | `[ ]` C2, C3 |
@@ -589,7 +589,7 @@ tree exists with the expected labels).
 
 ---
 
-### B4 `[!]` — Split the `bpm_analyzer` ↔ `lyrics_manager` app clone (395 shared lines — the repo's largest) `[audit A3 family 4]`
+### B4 `[x]` — Split the `bpm_analyzer` ↔ `lyrics_manager` app clone (395 shared lines — the repo's largest) `[audit A3 family 4]`
 
 **Priority:** Medium | **Effort:** 0.75 day | **Risk:** Medium-High (two whole
 GUI apps; the largest single consolidation in the plan)
@@ -606,16 +606,16 @@ controls are near-verbatim.
 
 **Scope:**
 
-- [ ] Diff and classify exactly as C1 did for its pair: every difference is
+- [x] Diff and classify exactly as C1 did for its pair: every difference is
       either DSP/feature-specific (keep) or app-scaffold (consolidate).
       Write the classification down before editing.
-- [ ] Extract the shared scaffold behind the existing
+- [x] Extract the shared scaffold behind the existing
       `analysis_app_base.py` if its shape fits, or a new
       `audio_suite_shared/tool_app_base.py` following the same pattern —
       the deciding criterion is which seam the *other* apps
       (`noise_reduction` ↔ `pop_click_remover`, 0.788) can also adopt, so the
       extraction is done once, not twice.
-- [ ] Each app keeps its own analysis call, its own options widgets, and its
+- [x] Each app keeps its own analysis call, its own options widgets, and its
       own distinct-behaviour test asserting that call is made.
 - [ ] `noise_reduction/app.py` ↔ `pop_click_remover/app.py` (0.788, 254
       shared lines) is the same extraction's second customer — include it in
@@ -1265,6 +1265,8 @@ incomplete by definition.
 | B3 | 1 | 2026-09-30 | compileall exit 0; ruff check . "All checks passed!"; ruff format . clean (4 files); mypy . "Success: no issues found in 452 source files"; scoped pytest key_detector/tests/test_setup_tab.py + mood_analyzer/tests + mood_analysis_batch_tagger/tests -> 300 passed (0 skipped; bare full suite at the stage close) | Commit de06808, 4 files (+2 new test files). AnalysisSetupFrame added to audio_suite_shared/ui_common.py beside BaseSetupFrame: the analysis-duration widget block, the optional Parallel Processing / Workers row and the optional help block share one implementation. The three tools' ui/setup_tab.py files become declarative specs over that builder (title, start text, parallel caption, help heading/text); each build() keeps its public signature incl. its own parameter name (key/mood `folder_path`, batch `root_path`). Lockstep: mood_analyzer and mood_analysis_batch_tagger had no test_setup_tab.py at all - both suites were written FIRST against the pre-refactor code and passed before the extraction (9 + 8 tests), then re-run green after: titles, option labels, proprietary help strings, parallel captions and the BEGIN <x> button labels survive; key_detector's existing 10-test suite passed unedited. Acceptance via the stage-gate alternative branch: the geometry is consolidated behind one implementation (the shared builder); the whole-file pairwise similarity alone remains above 0.60 because ~40% of each file is tool-proprietary help text that must NOT be merged - record here rather than wording the texts. per-file line deltas: mood_analyzer 135->71, key_detector 107->50, mood_analysis_batch_tagger 144->81. Trusted no-UI side effects: build() remains a pure composition over the shared skeleton. Cached secret scan: clean. |
 
 | B2 | 1 | 2026-09-30 | compileall exit 0; ruff check . "All checks passed!"; ruff format --check . "765 files already formatted"; mypy . "Success: no issues found in 453 source files"; bare pytest -q -p no:cacheprovider -> 7705 passed, 3 skipped, 30 deselected in 191.78s; coverage report total 27547 stmts, 5496 missed = 80% (>=75; same command block as the run); bandit scoped master_driver + audio_suite_shared 0 High / 0 Medium (full-tree run at B1's gate also 0H/0M) | Commits ab474c8 (cards) + frame work in de06808 (B3) and 64559cb (B5). master_driver/ui/cards/_card_base.py adds SimpleCardSpec plus four typed row records over one build_simple_card() implementation. Eight simple-tool cards converted to data specs (key, mood_analyzer, asx, tag_editor, genre_sync, tag_field_updater, mood_analysis_batch, album_art_normalizer) - the audit's two named twin pairs are now shell-identical modulo the spec data (the audit measured the pairs at 0.933 and 0.903; whole-file similarity stays above 0.60 because the remaining per-card content is the spec data and tool texts that must not merge - the stage-gate OR branch "or consolidated behind one implementation" is the acceptance in force). Settings-heavy cards (b) kept bespoke code per scope; card files keep the {tool_id}_card.py names and the build(parent, state) signature; the AGENTS.md card-naming rule untouched. Lockstep: noise_reduction / library_stats / fingerprinter / file_reorganizer / mood_analysis_batch / album_art_normalizer cards gain executed-build tests asserting real widget-state wiring via _make_state (extended with the previously missing state vars, incl. key_parallel/key_workers the shell family reveals), removing the audit's file-existence-only failure mode - recorded here so Stage-3 D1 does not re-test them. All 115 card tests green; test_ui_cards.py state stub extended in the same change. Defects fixed in-change during conversion: pad values were typed as strings (TclError "bad pad value"), one mypy Any-return on the toggle resolver, and ruff flagged an unused helper - all resolved before commit. Cached secret scans: clean. |
+| B4 | 1 | 2026-09-30 | compileall exit 0; ruff check . "All checks passed!"; ruff format --check . "766 files already formatted"; mypy . "Success: no issues found in 454 source files"; bare pytest -q -p no:cacheprovider -> 7705 passed, 3 skipped, 30 deselected in 189.65s; coverage report total 27544 stmts, 5456 missed = 80% (same command block); bandit scoped audio_suite_shared + bpm_analyzer + lyrics_manager 0 High / 0 Medium | Commit 050c8e8, 3 files (bpm 673->467, lyrics 681->517 lines; the new tool_app_base.py is 118 stmts at 81% coverage). Classification table (record in lieu of plan-text edits): byte-identical scaffold blocks consolidated in audio_suite_shared/tool_app_base.AnalysisTagToolApp = _apply_cli_args (with _apply_tool_cli_options hook for lyrics' four provider-driven options), _browse_folder, _open_help, _open_log, _open_folder, _reset_progress_ui, _on_progress, _update_progress_ui, _on_complete (one-word TAGGED_LABEL difference parameterised: "Tagged/Analyzed" vs "Tagged/Updated"), _update_ui_on_complete (two wording tokens parameterised: DRY/LIVE_COMPLETE_LABEL), _on_error, _show_error_dialog, and bpm's local _ThreadSafeSlotVar twin retired behind make_safe_slot_vars (a seam lyrics and three other tools already owned). Per-tool preserved exactly as the item mandates: each app's own Tk variables and bootstrap, its own options widgets, its own start validation, its own analysis call and thread, its own preset value sets, bpm's distinctive BPM-range guards and lyrics' provider lookup signalling. Two app-seam tests needed the module-level UniversalCLIHandler name to stay patchable - resolved by resolving the handler via the tool module's attribute first (the mock-patch namespace preserved), both suites pass unedited. Second customer decision recorded as the item requires: noise_reduction <-> pop_click_remover share the outline (0.788) but their harness differs (AuditionMixin, different dialog flow) - the extraction would need a second design pass to fit their audition-driven flows, so named follow-up, not in-flight scope. Cached secret scans: clean. |
+
 ### A3 finding — a sixth silent swallow the plan's census missed
 
 The item asserted the rest of the suite was clean ("Everywhere else the suite is
