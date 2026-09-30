@@ -85,9 +85,7 @@ class TestWiredWidgets:
 
     def test_start_button_label_is_batch_mood_specific(self, root: tk.Tk) -> None:
         _, widgets, _ = _build(root)
-        assert (
-            widgets["start_btn"].cget("text") == "BEGIN BATCH MOOD ANALYSIS"
-        )
+        assert widgets["start_btn"].cget("text") == "BEGIN BATCH MOOD ANALYSIS"
 
 
 class TestDistinctToolSurfaces:

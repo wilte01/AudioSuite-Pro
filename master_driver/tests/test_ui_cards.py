@@ -77,6 +77,11 @@ def _make_state(root_widget):
             "audio_normalizer",
             "pop_click_remover",
             "silence_trimmer",
+            "noise_reduction",
+            "fingerprinter",
+            "file_reorganizer",
+            "mood_analysis_batch",
+            "album_art_normalizer",
         )
     }
 
@@ -90,9 +95,15 @@ def _make_state(root_widget):
     state.bpm_duration = tk.StringVar(root_widget, value="90")
     state.tempo_scheme = tk.StringVar(root_widget, value="Italian")
     state.key_duration = tk.StringVar(root_widget, value="90")
+    state.key_parallel = tk.BooleanVar(root_widget, value=False)
+    state.key_workers = tk.StringVar(root_widget, value="4")
     state.mood_duration = tk.StringVar(root_widget, value="90")
     state.mood_parallel = tk.BooleanVar(root_widget, value=False)
     state.mood_workers = tk.StringVar(root_widget, value="4")
+    state.mood_analysis_batch_duration = tk.StringVar(root_widget, value="90")
+    state.mood_analysis_batch_parallel = tk.BooleanVar(root_widget, value=False)
+    state.mood_analysis_batch_workers = tk.StringVar(root_widget, value="4")
+    state.art_normalizer_size = tk.StringVar(root_widget, value="800")
     state.art_res = tk.StringVar(root_widget, value="800")
     state.art_purge = tk.BooleanVar(root_widget, value=True)
     state.lyrics_provider = tk.StringVar(root_widget, value="lrclib")
@@ -122,6 +133,35 @@ def _make_state(root_widget):
     state.trimmer_apply_fade = tk.BooleanVar(root_widget, value=False)
     state.trimmer_fade_in_ms = tk.StringVar(root_widget, value="500")
     state.trimmer_fade_out_ms = tk.StringVar(root_widget, value="1000")
+
+    state.nr_reduce_hum = tk.BooleanVar(root_widget, value=False)
+    state.nr_hum_frequency = tk.StringVar(root_widget, value="60")
+    state.nr_hum_harmonics = tk.StringVar(root_widget, value="8")
+    state.nr_hum_quality = tk.StringVar(root_widget, value="30.0")
+    state.nr_reduce_broadband = tk.BooleanVar(root_widget, value=False)
+    state.nr_noise_start = tk.StringVar(root_widget, value="0")
+    state.nr_noise_end = tk.StringVar(root_widget, value="500")
+    state.nr_gate_threshold = tk.StringVar(root_widget, value="3.0")
+
+    state.fingerprinter_lookup = tk.BooleanVar(root_widget, value=True)
+    state.fingerprinter_write_tags = tk.BooleanVar(root_widget, value=False)
+    state.fingerprinter_threshold = tk.StringVar(root_widget, value="0.5")
+    state.fingerprinter_max_length = tk.StringVar(root_widget, value="120")
+    state.fingerprinter_fpcalc = tk.StringVar(root_widget, value="")
+    state.fingerprinter_api_key = tk.StringVar(root_widget, value="")
+
+    state.library_stats_toggle = tk.BooleanVar(root_widget, value=False)
+    state.library_stats_incremental = tk.StringVar(root_widget, value="full")
+    state.library_stats_refresh = tk.BooleanVar(root_widget, value=False)
+    state.library_stats_export_csv = tk.StringVar(root_widget, value="")
+    state.library_stats_export_json = tk.StringVar(root_widget, value="")
+    state.library_stats_completeness = tk.BooleanVar(root_widget, value=False)
+    state.library_stats_detail = tk.StringVar(root_widget, value="")
+
+    state.file_reorg_output_dir = tk.StringVar(root_widget, value="")
+    state.file_reorg_action = tk.StringVar(root_widget, value="move")
+    state.file_reorg_specific_pattern = tk.StringVar(root_widget, value="")
+    state.file_reorg_various_pattern = tk.StringVar(root_widget, value="")
 
     state.palette_var = tk.StringVar(root_widget, value="Purple")
     state.theme_mode_var = tk.StringVar(root_widget, value="Light")
@@ -1363,3 +1403,181 @@ class TestTypographyCard:
         assert len(combos) >= 1
         combo_var_names = [str(c.cget("textvariable")) for c in combos]
         assert any(str(state.font_family_var) in v for v in combo_var_names)
+
+
+# ---------------------------------------------------------------------------
+# Consolidated shell (iteration-7 B2): the simple-card family must execute
+# its build() and wire the correct toggle/state vars — the audit A4's
+# "file-exists check" failure mode is a test failure after this item.
+# ---------------------------------------------------------------------------
+
+
+class TestNoiseReductionCardExecuted:
+    @pytest.fixture(autouse=True)
+    def _import(self):
+        from master_driver.ui.cards import noise_reduction_card
+
+        self.card = noise_reduction_card
+
+    def test_build_does_not_raise(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+
+    def checkbutton_refuses_toggle_key_or_attr_name(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(str(state.module_toggles["noise_reduction"]) in v for v in variables)
+
+    def test_build_idempotent(self, root):
+        state = _make_state(root)
+        p1 = tk.Frame(root)
+        p2 = tk.Frame(root)
+        self.card.build(p1, state)
+        self.card.build(p2, state)
+        p1.destroy()
+        p2.destroy()
+
+
+class TestLibraryStatsCardExecuted:
+    @pytest.fixture(autouse=True)
+    def _import(self):
+        from master_driver.ui.cards import library_stats_card
+
+        self.card = library_stats_card
+
+    def test_build_does_not_raise(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+
+    def test_checkbutton_uses_library_stats_toggle(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(str(state.library_stats_toggle) in v for v in variables)
+
+
+class TestFingerprinterCardExecuted:
+    @pytest.fixture(autouse=True)
+    def _import(self):
+        from master_driver.ui.cards import fingerprinter_card
+
+        self.card = fingerprinter_card
+
+    def test_build_does_not_raise(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+
+    def test_checkbutton_uses_fingerprinter_toggle(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(str(state.module_toggles["fingerprinter"]) in v for v in variables)
+
+    def test_lookup_and_threshold_wired(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(str(state.fingerprinter_lookup) in v for v in variables)
+        entries = _find_entries(parent)
+        var_names = [str(e.cget("textvariable")) for e in entries]
+        assert any(str(state.fingerprinter_threshold) in v for v in var_names)
+
+
+class TestFileReorganizerCardExecuted:
+    @pytest.fixture(autouse=True)
+    def _import(self):
+        from master_driver.ui.cards import file_reorganizer_card
+
+        self.card = file_reorganizer_card
+
+    def test_build_does_not_raise(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+
+    def test_checkbutton_uses_file_reorganizer_toggle(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(
+            str(state.module_toggles["file_reorganizer"]) in v for v in variables
+        )
+
+    def test_output_dir_entry_wired_to_state(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        entries = _find_entries(parent)
+        var_names = [str(e.cget("textvariable")) for e in entries]
+        assert any(str(state.file_reorg_output_dir) in v for v in var_names)
+
+
+class TestMoodAnalysisBatchCardExecuted:
+    @pytest.fixture(autouse=True)
+    def _import(self):
+        from master_driver.ui.cards import mood_analysis_batch_card
+
+        self.card = mood_analysis_batch_card
+
+    def test_build_does_not_raise(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+
+    def test_checkbutton_uses_mood_batch_toggle(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(
+            str(state.module_toggles["mood_analysis_batch"]) in v for v in variables
+        )
+
+    def test_duration_and_workers_wired_to_state(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        entries = _find_entries(parent)
+        var_names = [str(e.cget("textvariable")) for e in entries]
+        assert any(str(state.mood_analysis_batch_duration) in v for v in var_names)
+        assert any(str(state.mood_analysis_batch_workers) in v for v in var_names)
+
+
+class TestAlbumArtNormalizerCardExecuted:
+    @pytest.fixture(autouse=True)
+    def _import(self):
+        from master_driver.ui.cards import album_art_normalizer_card
+
+        self.card = album_art_normalizer_card
+
+    def test_build_does_not_raise(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+
+    def test_checkbutton_uses_album_art_normalizer_toggle(self, parent, root):
+        state = _make_state(root)
+        self.card.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(
+            str(state.module_toggles["album_art_normalizer"]) in v for v in variables
+        )
+
+    def test_size_combobox_wired_to_state(self, parent, root):
+        from tkinter import ttk
+
+        state = _make_state(root)
+        self.card.build(parent, state)
+        combos = []
+
+        def _collect(w):
+            if isinstance(w, ttk.Combobox):
+                combos.append(w)
+            for child in w.winfo_children():
+                _collect(child)
+
+        _collect(parent)
+        combo_var_names = [str(c.cget("textvariable")) for c in combos]
+        assert any(str(state.art_normalizer_size) in v for v in combo_var_names)
