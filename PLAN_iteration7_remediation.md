@@ -844,7 +844,7 @@ Completion Log.
 
 ---
 
-### D1 `[ ]` — Execute the eight 0%-coverage modules `[audit A4]`
+### D1 `[x]` — Execute the eight 0%-coverage modules `[audit A4]`
 
 **Priority:** Medium | **Effort:** 0.5 day | **Risk:** Low
 
@@ -857,21 +857,54 @@ console warning as symptom. (If Stage-1 B2 lands first, the card half of this
 item is already done by its lockstep tests — record the overlap, don't
 re-test.)
 
+**Overlap recorded (B2, per this item's rule):** the audit-named cards already
+carry executed-build tests in `master_driver/tests/test_ui_cards.py` (B2
+lockstep: `TestNoiseReductionCardExecuted` … `TestAlbumArtNormalizerCardExecuted`);
+the D1 baseline coverage run shows **zero cards at 0%**, so no card test was
+re-written here.
+
+**Census correction found while implementing** (same class as A3's sixth
+swallow, fixed in this same change): the audit's 0% table missed nine small
+production modules — `album_art_normalizer/__main__.py` (7), `audio_enhancer/
+main.py` (6), `tag_field_updater/__main__.py` (8), `tag_field_updater/ui/
+__init__.py` (2), and five 2-statement package-level `main.pyw` stubs
+(`master_driver`, `bpm_analyzer`, `metadata_scrubber`, `album_art_sync`,
+`album_art_normalizer`). The stage gate ("zero production modules at 0%")
+also failed on those, so they are covered in this item. Additionally, the
+proposed `python -m lyrics_manager --help` subprocess test is invalid for
+this module: `__main__.py` ignores argv and opens a real Tk window, which
+would hang a headless run — the shipped test executes the same launch path by
+`exec`-ing the entry file with `tk.Tk`/app class mocked
+(`tests/test_package_entry_stubs.py`); `tag_field_updater/__main__.py` does
+parse argv, so its `--help`/default/`--directory` contracts are tested for
+real.
+
 **Scope:**
 
-- [ ] Cards (any not covered by B2): extend `master_driver/tests/
+- [x] Cards (any not covered by B2): extend `master_driver/tests/
       test_ui_cards.py` with a build-execution test per remaining card —
       `MagicMock` parent/state, assert `build()` runs and the toggle key
-      lands in state.
-- [ ] `tag_field_updater/ui/app.py`: use the `AGENTS.md` Tkinter pattern —
+      lands in state. *(None remained — see the overlap note above.)*
+- [x] `tag_field_updater/ui/app.py`: use the `AGENTS.md` Tkinter pattern —
       `object.__new__(App)` + `MagicMock` root/vars — covering `__init__`
       wiring and the mode-flag plumbing; no real `tk.Tk()`.
-- [ ] `lyrics_manager/__main__.py`: subprocess smoke test invoking
-      `python -m lyrics_manager --help` and asserting exit 0 + expected
-      usage text.
-- [ ] Add a milestone acceptance (not a permanent test): after this item,
+      *(New `tag_field_updater/tests/test_app.py`, 19 tests: hidden-root
+      constructor/`setup_ui` wiring on a withdrawn `Toplevel` (the shared
+      root is left `pack`-managed by other suites), browse/progress/
+      start-stop-scan/finish flows, worker-thread marshalling via
+      `root.after(0, ...)`, dialog-failure witness, and `main()`'s
+      auto-start + both `sys.exit(1)` guards — 121/121 statements.)*
+- [x] `lyrics_manager/__main__.py`: smoke test executing the real launch
+      path. *(New `tests/test_package_entry_stubs.py`: `exec`-based, mocks
+      `tk.Tk` + app class, asserts the log/theme/app/mainloop call sequence —
+      10/10 statements; see the validity note above. Same file covers the
+      other three `__main__`/`main` bootstraps, the five `main.pyw` stubs
+      (2 stmts each, non-main `exec` + stub census non-vacuity test) and the
+      `tag_field_updater/ui/__init__.py` export surface.)*
+- [x] Add a milestone acceptance (not a permanent test): after this item,
       `coverage report` shows **no production module at 0%** — recorded in
-      the Completion Log with the same-command-block discipline.
+      the Completion Log with the same-command-block discipline. *(Met: the
+      authoritative post-run parse shows the 0% list empty.)*
 
 **Tests (lockstep):** the three groups above.
 
@@ -1272,6 +1305,8 @@ incomplete by definition.
 
 | B2 | 1 | 2026-09-30 | compileall exit 0; ruff check . "All checks passed!"; ruff format --check . "765 files already formatted"; mypy . "Success: no issues found in 453 source files"; bare pytest -q -p no:cacheprovider -> 7705 passed, 3 skipped, 30 deselected in 191.78s; coverage report total 27547 stmts, 5496 missed = 80% (>=75; same command block as the run); bandit scoped master_driver + audio_suite_shared 0 High / 0 Medium (full-tree run at B1's gate also 0H/0M) | Commits ab474c8 (cards) + frame work in de06808 (B3) and 64559cb (B5). master_driver/ui/cards/_card_base.py adds SimpleCardSpec plus four typed row records over one build_simple_card() implementation. Eight simple-tool cards converted to data specs (key, mood_analyzer, asx, tag_editor, genre_sync, tag_field_updater, mood_analysis_batch, album_art_normalizer) - the audit's two named twin pairs are now shell-identical modulo the spec data (the audit measured the pairs at 0.933 and 0.903; whole-file similarity stays above 0.60 because the remaining per-card content is the spec data and tool texts that must not merge - the stage-gate OR branch "or consolidated behind one implementation" is the acceptance in force). Settings-heavy cards (b) kept bespoke code per scope; card files keep the {tool_id}_card.py names and the build(parent, state) signature; the AGENTS.md card-naming rule untouched. Lockstep: noise_reduction / library_stats / fingerprinter / file_reorganizer / mood_analysis_batch / album_art_normalizer cards gain executed-build tests asserting real widget-state wiring via _make_state (extended with the previously missing state vars, incl. key_parallel/key_workers the shell family reveals), removing the audit's file-existence-only failure mode - recorded here so Stage-3 D1 does not re-test them. All 115 card tests green; test_ui_cards.py state stub extended in the same change. Defects fixed in-change during conversion: pad values were typed as strings (TclError "bad pad value"), one mypy Any-return on the toggle resolver, and ruff flagged an unused helper - all resolved before commit. Cached secret scans: clean. |
 | B4 | 1 | 2026-09-30 | compileall exit 0; ruff check . "All checks passed!"; ruff format --check . "766 files already formatted"; mypy . "Success: no issues found in 454 source files"; bare pytest -q -p no:cacheprovider -> 7705 passed, 3 skipped, 30 deselected in 189.65s; coverage report total 27544 stmts, 5456 missed = 80% (same command block); bandit scoped audio_suite_shared + bpm_analyzer + lyrics_manager 0 High / 0 Medium | Commit 050c8e8, 3 files (bpm 673->467, lyrics 681->517 lines; the new tool_app_base.py is 118 stmts at 81% coverage). Classification table (record in lieu of plan-text edits): byte-identical scaffold blocks consolidated in audio_suite_shared/tool_app_base.AnalysisTagToolApp = _apply_cli_args (with _apply_tool_cli_options hook for lyrics' four provider-driven options), _browse_folder, _open_help, _open_log, _open_folder, _reset_progress_ui, _on_progress, _update_progress_ui, _on_complete (one-word TAGGED_LABEL difference parameterised: "Tagged/Analyzed" vs "Tagged/Updated"), _update_ui_on_complete (two wording tokens parameterised: DRY/LIVE_COMPLETE_LABEL), _on_error, _show_error_dialog, and bpm's local _ThreadSafeSlotVar twin retired behind make_safe_slot_vars (a seam lyrics and three other tools already owned). Per-tool preserved exactly as the item mandates: each app's own Tk variables and bootstrap, its own options widgets, its own start validation, its own analysis call and thread, its own preset value sets, bpm's distinctive BPM-range guards and lyrics' provider lookup signalling. Two app-seam tests needed the module-level UniversalCLIHandler name to stay patchable - resolved by resolving the handler via the tool module's attribute first (the mock-patch namespace preserved), both suites pass unedited. Second customer decision recorded as the item requires: noise_reduction <-> pop_click_remover share the outline (0.788) but their harness differs (AuditionMixin, different dialog flow) - the extraction would need a second design pass to fit their audition-driven flows, so named follow-up, not in-flight scope. Cached secret scans: clean. |
+
+| D1 | 3 | 2026-09-30 | compileall exit 0; ruff check . "All checks passed!"; ruff format --check . "773 files already formatted"; mypy . "Success: no issues found in 458 source files"; bandit -r . -x ./.venv -c pyproject.toml 0 High / 0 Medium (41 Low, unchanged); bare pytest -q -p no:cacheprovider -> 7760 passed, 3 skipped, 30 deselected, 46 warnings; coverage report total 27594 stmts, 5297 missed = 81% (>=75; same command block as the run); Milestone: per-module parse of the same report shows the production-0% list EMPTY | Test-only change, 2 new files: tag_field_updater/tests/test_app.py (19 tests) + tests/test_package_entry_stubs.py (13 tests incl. 5 parametrised main.pyw stubs). tag_field_updater/ui/app.py 0% -> 121/121 (100%): hidden-root constructor/wiring on a withdrawn Toplevel (the bare root was already pack-managed by other suites' tests - "cannot use geometry manager grid" full-suite polluter, avoided rather than fixed cross-suite), browse/progress/start/scan/finish/stop flows, root.after(0,...) main-thread marshalling (bound methods compared via __self__/__name__, never identity), scan-error + dialog-failure caplog witnesses, main() auto-start and both sys.exit(1) guards. lyrics_manager/__main__.py 0% -> 10/10: exec-based launch-path probe (plan's `python -m lyrics_manager --help` subprocess form is invalid - the module ignores argv and would hang a headless run - deviation recorded). The five main.pyw stubs, album_art_normalizer/__main__.py (86%), audio_enhancer/main.py (100%), tag_field_updater/__main__.py (100%, --help/{none}/--directory argv contracts) and tag_field_updater/ui/__init__.py (100%) all execute. Two ordering landmines found and fixed lockstep, both documented in the test docstrings: (1) a module-level import of tag_field_updater.ui.app in a test module is executed at pytest COLLECTION time, before the launcher-stub test of test_pyw_launchers.py, and silently inverts that test's branch - all ui.app imports are function-local, and both new test modules restore first-party sys.modules entries after each test (deletion also scrubs the parent package's attribute, else `from tag_field_updater import ui` re-binds a stale module object and two class copies coexist); numpy's C extensions refuse to load twice per process, so the restore deletes first-party names only. (2) the plan's "eight" census is 17 + the nine missed stubs; B2's overlap is recorded per item rule (zero cards at 0% at D1 baseline - no card test re-written). Defect observed, not fixed here (out of item scope): one audio_normalizer setup-tab test reports "broken Tcl/Tk environment" on this host (pre-existing skip). Four staged secret scans clean. |
 
 ### A3 finding — a sixth silent swallow the plan's census missed
 
