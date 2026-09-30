@@ -267,6 +267,20 @@ class BatchUndoLog:
                 try:
                     decoded = pickle.loads(payload)  # nosec B301 - legacy self-writes
                 except Exception:
+                    # Kept deliberately broad: skipping an undecodable legacy row
+                    # is the shipped migration contract, and a one-shot migration
+                    # must never abort on a single corrupt payload. ``exc_info``
+                    # records the concrete ``pickle.UnpicklingError`` / ``EOFError``
+                    # (or whatever else) so the skip is no longer silent. Narrowing
+                    # this to the two expected decode errors would turn a
+                    # best-effort migration into a potential startup failure.
+                    logger.warning(
+                        "Skipping undecodable legacy undo payload for record %s "
+                        "(it stays unmigrated; undo of that row will not restore "
+                        "exact bytes)",
+                        record_id,
+                        exc_info=True,
+                    )
                     continue
                 if isinstance(decoded, bytes):
                     conn.execute(

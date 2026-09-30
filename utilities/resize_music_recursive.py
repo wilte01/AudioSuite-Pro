@@ -1,4 +1,5 @@
 import io
+import logging
 import os
 from pathlib import Path
 
@@ -8,7 +9,9 @@ from mutagen.flac import FLAC, Picture
 from mutagen.id3 import APIC
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4, MP4Cover
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, UnidentifiedImageError
+
+logger = logging.getLogger(__name__)
 
 try:
     # Canonical extension list from the shared suite config; the fallback
@@ -174,8 +177,20 @@ def resize_embedded_art(file_path: Path, target_size: int) -> bool:
                         img = Image.open(io.BytesIO(apic.data))
                         if img.size == (target_size, target_size):
                             continue
-                    except Exception:
-                        pass
+                    except (UnidentifiedImageError, OSError):
+                        # A frame PIL cannot decode cannot be size-checked, so
+                        # falling through to the resize is the safe action; the
+                        # silence was the defect. UnidentifiedImageError is a
+                        # subclass of OSError, so this tuple names both the
+                        # unidentifiable and the truncated cases explicitly.
+                        logger.debug(
+                            "Embedded frame %s of %s is not decodable as an "
+                            "image; treating it as not-at-target-size and "
+                            "resizing",
+                            key,
+                            file_path,
+                            exc_info=True,
+                        )
 
                     resized_data = resize_image_bytes(apic.data, target_size)
                     if resized_data:

@@ -3,12 +3,18 @@
 File_Reorganizer.pyw - Launcher for Tag-Based File Reorganizer.
 """
 
+import logging
+
 from audio_suite_shared.app_bootstrap import configure_logging
+
 configure_logging("file_reorganizer")
+
+logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
     try:
         from file_reorganizer import main
+
         main()
     except ImportError as e:
         try:
@@ -24,7 +30,13 @@ if __name__ == "__main__":
             )
             _root.destroy()
         except Exception:
-            pass
+            # The error dialog is best-effort: a broken Tk cannot be reported
+            # through Tk. Without this the original failure vanishes entirely.
+            logger.exception(
+                "Could not show the import-error dialog; the underlying "
+                "ImportError was %s",
+                e,
+            )
     except Exception as e:
         try:
             import tkinter as tk
@@ -38,4 +50,9 @@ if __name__ == "__main__":
             )
             _root.destroy()
         except Exception:
-            pass
+            # See above: the dialog failing must not hide the startup error.
+            logger.exception(
+                "Could not show the startup-error dialog; the underlying "
+                "startup failure was %s",
+                e,
+            )

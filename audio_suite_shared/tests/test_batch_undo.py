@@ -8,6 +8,7 @@ auto-snapshot thread-local integration.
 
 from __future__ import annotations
 
+import logging
 import os
 import pickle
 import shutil
@@ -469,6 +470,125 @@ class TestRecordFileDelete:
         assert result.failed == 0
         assert target.exists()
         assert target.read_bytes() == content
+
+    def test_corrupt_legacy_payload_is_witnessed_and_other_rows_still_migrate(
+        self, undo_db: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A3 regression: an undecodable legacy row is still skipped, but the
+        skip is no longer silent.
+
+        The shipped contract is that a corrupt legacy payload is skipped and
+        the migration continues, so this asserts the behaviour is *unchanged*
+        and additionally that a warning naming the record id is emitted. Before
+        the fix the handler was a bare ``continue`` with no log, so the
+        ``caplog`` assertion fails on the pre-change source.
+        """
+        corrupt_target = tmp_path / "corrupt.flac"
+        good_target = tmp_path / "good.flac"
+        good_content = b"\xaa\xbb\xcc good legacy audio bytes"
+        # Starts with the pickle PROTO opcode, so the migration takes the
+        # pickle branch, but is not a decodable pickle.
+        corrupt_payload = b"\x80\x05corrupt-garbage-not-a-pickle"
+
+        with BatchUndoLog(db_path=undo_db) as log:
+            batch_id = log.start_batch("music_format_converter", "file_delete")
+            conn = log._connect()
+            conn.execute(
+                "INSERT INTO undo_records "
+                "(record_id, batch_id, file_path, operation, "
+                "old_tags_snapshot, file_action) "
+                "VALUES (?, ?, ?, 'file_delete', ?, 'delete')",
+                [1, batch_id, str(corrupt_target), corrupt_payload],
+            )
+            conn.execute(
+                "INSERT INTO undo_records "
+                "(record_id, batch_id, file_path, operation, "
+                "old_tags_snapshot, file_action) "
+                "VALUES (?, ?, ?, 'file_delete', ?, 'delete')",
+                [
+                    2,
+                    batch_id,
+                    str(good_target),
+                    pickle.dumps(good_content, protocol=pickle.HIGHEST_PROTOCOL),
+                ],
+            )
+            conn.commit()
+            # Simulate a pre-migration database so the next connect migrates.
+            conn.execute("PRAGMA user_version = 0")
+            conn.commit()
+
+        with caplog.at_level(logging.WARNING):
+            with BatchUndoLog(db_path=undo_db) as log2:
+                conn = log2._connect()
+                rows = dict(
+                    conn.execute(
+                        "SELECT record_id, old_tags_snapshot FROM undo_records "
+                        "WHERE batch_id = ?",
+                        [batch_id],
+                    ).fetchall()
+                )
+
+        # The corrupt row is skipped, left byte-identical (still unmigrated)...
+        assert rows[1] == corrupt_payload
+        # ...while the healthy row in the same run still migrated.
+        assert rows[2] == good_content
+        # And the skip is now witnessed, naming the offending record id.
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        messages = [r.getMessage() for r in warnings]
+        assert any(str(1) in m for m in messages), (
+            f"no warning named the record: {messages}"
+        )
+        assert any(
+            r.exc_info is not None for r in warnings if str(1) in r.getMessage()
+        ), "the witness must carry the underlying decode traceback"
+
+    def test_corrupt_legacy_payload_does_not_abort_the_run(
+        self, undo_db: Path, tmp_path: Path
+    ) -> None:
+        """A single bad row must not stop the migration from completing.
+
+        The migration is one-shot (gated by ``PRAGMA user_version``), so a
+        raise would both kill the connection and leave every *other* legacy
+        row unmigrated. The sentinel row below is the canary.
+        """
+        bad_target = tmp_path / "bad.flac"
+        sentinel_target = tmp_path / "sentinel.flac"
+        sentinel_content = b"\x11\x22\x33 sentinel bytes"
+
+        with BatchUndoLog(db_path=undo_db) as log:
+            batch_id = log.start_batch("music_format_converter", "file_delete")
+            conn = log._connect()
+            conn.execute(
+                "INSERT INTO undo_records "
+                "(batch_id, file_path, operation, old_tags_snapshot, file_action) "
+                "VALUES (?, ?, 'file_delete', ?, 'delete')",
+                [batch_id, str(bad_target), b"\x80\x05garbage"],
+            )
+            conn.execute(
+                "INSERT INTO undo_records "
+                "(batch_id, file_path, operation, old_tags_snapshot, file_action) "
+                "VALUES (?, ?, 'file_delete', ?, 'delete')",
+                [
+                    batch_id,
+                    str(sentinel_target),
+                    pickle.dumps(sentinel_content, protocol=pickle.HIGHEST_PROTOCOL),
+                ],
+            )
+            conn.commit()
+            conn.execute("PRAGMA user_version = 0")
+            conn.commit()
+
+        with BatchUndoLog(db_path=undo_db) as log2:
+            conn = log2._connect()
+            migrated = conn.execute(
+                "SELECT old_tags_snapshot FROM undo_records WHERE file_path = ?",
+                [str(sentinel_target)],
+            ).fetchone()
+            user_version = conn.execute("PRAGMA user_version").fetchone()[0]
+
+        assert migrated is not None and migrated[0] == sentinel_content
+        # The one-shot migration still marked itself complete.
+        assert int(user_version) >= 1
 
 
 # ---------------------------------------------------------------------------
