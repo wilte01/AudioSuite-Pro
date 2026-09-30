@@ -9,16 +9,22 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from tempfile import mkdtemp
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from audio_suite_shared.cli_dataclasses import BaseCLIArgs
 from audio_suite_shared.cli_helpers import (
+    HANDSHAKE_FLAG_PAIRS,
     SourceOutputCLIHandler,
     StandardCLIHandler,
     UniversalCLIHandler,
+    apply_handshake_segment,
+    consume_handshake_token,
     create_standard_parser,
     parse_cli_args,
+    print_tool_usage_error,
     validate_cli_args,
     was_launched_from_driver,
 )
@@ -348,6 +354,300 @@ class TestParseCliArgs:
         with patch("sys.argv", ["test"]):
             result = parse_cli_args("Test Description", add_stages=False)
             assert isinstance(result, argparse.Namespace)
+
+
+# ---------------------------------------------------------------------------
+# Master-Driver display-flag handshake seam (iteration-7 B1)
+# ---------------------------------------------------------------------------
+# The shared owner of the 10-token handshake ladder. The golden table below is
+# transcribed from the pre-refactor per-tool ladders (captured 2026-09-30, see
+# PLAN_iteration7_remediation.md item B1): every payload asserts the
+# pre-change ladder semantics — five pairs, on/off spellings, one-occurrence
+# last-owns consumption — against a BaseCLIArgs-shaped holder.
+
+
+class _GoldenArgs(BaseCLIArgs):
+    """BaseCLIArgs-shaped holder mirroring the per-tool Clear/Parallel fields."""
+
+    clear_logs: bool = False  # Display only - driver-owned orchestration flag
+    parallel_run: bool = False  # Display only - driver-owned orchestration flag
+
+
+def _holder() -> _GoldenArgs:
+    return _GoldenArgs(folder_path="D:/Music")
+
+
+class TestHandshakeFlagContract:
+    """The ten shared tokens and exactly two spellings per pair."""
+
+    def test_five_pairs_of_exactly_ten_tokens(self) -> None:
+        flags = {pair[0] for pair in HANDSHAKE_FLAG_PAIRS} | {
+            pair[1] for pair in HANDSHAKE_FLAG_PAIRS
+        }
+        assert len(flags) == 10
+
+    def test_pairs_are_on_off_complements(self) -> None:
+        positives = {pair[0] for pair in HANDSHAKE_FLAG_PAIRS}
+        negatives = {pair[1] for pair in HANDSHAKE_FLAG_PAIRS}
+        assert positives == {
+            "--live",
+            "--start",
+            "--end",
+            "--clear-logs",
+            "--parallel-run",
+        }
+        assert negatives == {
+            "--dry",
+            "--no-start",
+            "--no-end",
+            "--no-clear-logs",
+            "--no-parallel-run",
+        }
+
+
+class TestConsumeHandshakeToken:
+    """Token-level contract: sets the matched field, rejects others."""
+
+    @pytest.mark.parametrize(
+        "token,field,value",
+        [
+            ("--live", "live_mode", True),
+            ("--dry", "live_mode", False),
+            ("--start", "auto_start", True),
+            ("--no-start", "auto_start", False),
+            ("--end", "auto_end", True),
+            ("--no-end", "auto_end", False),
+            ("--clear-logs", "clear_logs", True),
+            ("--no-clear-logs", "clear_logs", False),
+            ("--parallel-run", "parallel_run", True),
+            ("--no-parallel-run", "parallel_run", False),
+        ],
+    )
+    def test_each_token_maps_its_field(
+        self, token: str, field: str, value: bool
+    ) -> None:
+        args = _holder()
+        assert consume_handshake_token(token, args) is True
+        assert getattr(args, field) is value
+
+    def test_unrelated_token_is_none(self) -> None:
+        args = _holder()
+        assert consume_handshake_token("--scheme", args) is None
+        assert consume_handshake_token("--duration", args) is None
+        assert args == _holder()
+
+    def test_rejected_pair_token_is_false_and_writes_nothing(self) -> None:
+        args = _holder()
+        accepted = frozenset({"--start"})  # fingerprinter/converter-shaped subset
+        assert consume_handshake_token("--no-start", args, accepted=accepted) is False
+        assert args.auto_start is False  # untouched default
+        assert consume_handshake_token("--start", args, accepted=accepted) is True
+        assert args.auto_start is True
+
+    def test_last_occurrence_wins_in_scan_order(self) -> None:
+        args = _holder()
+        assert consume_handshake_token("--live", args) is True
+        assert consume_handshake_token("--dry", args) is True
+        assert args.live_mode is False
+        args2 = _holder()
+        assert consume_handshake_token("--dry", args2) is True
+        assert consume_handshake_token("--live", args2) is True
+        assert args2.live_mode is True
+
+
+class TestApplyHandshakeSegment:
+    """The segment walk mirrors the pre-change ladder on full token tails."""
+
+    def test_full_driver_tail_all_pairs_applied(self) -> None:
+        args = _holder()
+        tail = [
+            "--live",
+            "--start",
+            "--end",
+            "--clear-logs",
+            "--parallel-run",
+        ]
+        assert apply_handshake_segment(tail, args) is True
+        assert (args.live_mode, args.auto_start, args.auto_end) == (True, True, True)
+        assert (args.clear_logs, args.parallel_run) == (True, True)
+
+    def test_full_dry_driver_tail(self) -> None:
+        args = _holder()
+        tail = [
+            "--dry",
+            "--no-start",
+            "--no-end",
+            "--no-clear-logs",
+            "--no-parallel-run",
+        ]
+        assert apply_handshake_segment(tail, args) is True
+        assert args.live_mode is False and args.auto_start is False
+        assert args.auto_end is False and args.clear_logs is False
+        assert args.parallel_run is False
+
+    def test_placeholder_and_unknown_tokens_skipped(self) -> None:
+        args = _holder()
+        tail = ["0", "--duration", "120", "--scheme", "Italian", "--live"]
+        assert apply_handshake_segment(tail, args) is True
+        assert args.live_mode is True
+
+    def test_returns_false_when_not_one_token_matched(self) -> None:
+        args = _holder()
+        assert apply_handshake_segment(["0", "--workers", "8"], args) is False
+
+    def test_empty_tail_writes_nothing(self) -> None:
+        args = _holder()
+        assert apply_handshake_segment([], args) is False
+
+
+class TestHandshakeGoldenTable:
+    """argv -> fields captured from the pre-refactor ladders (post-B1).
+
+    Vectors mirror the Master Driver's argv layouts (arg_builder) plus the
+    scan-only shapes the per-tool ladders historically accepted. Recorded
+    against the shared ``_GoldenArgs`` holder; per-tool parity is owned by
+    each tool's own unedited ``tests/test_cli_args.py``.
+    """
+
+    GOLDEN: list[tuple[str, list[str], dict[str, bool]]] = [
+        pytest.param(
+            "driver_full_live",
+            [
+                "prog",
+                "<DIR>",
+                "0",
+                "--live",
+                "--start",
+                "--end",
+                "--clear-logs",
+                "--parallel-run",
+            ],
+            {
+                "live_mode": True,
+                "auto_start": True,
+                "auto_end": True,
+                "clear_logs": True,
+                "parallel_run": True,
+            },
+            id="driver_full_live scan-from-2 ladder",
+        ),
+        pytest.param(
+            "driver_full_dry",
+            [
+                "prog",
+                "<DIR>",
+                "0",
+                "--dry",
+                "--no-start",
+                "--no-end",
+                "--no-clear-logs",
+                "--no-parallel-run",
+            ],
+            {
+                "live_mode": False,
+                "auto_start": False,
+                "auto_end": False,
+                "clear_logs": False,
+                "parallel_run": False,
+            },
+            id="driver_full_dry scan-from-2 ladder",
+        ),
+        pytest.param(
+            "driver_min",
+            ["prog", "<DIR>"],
+            {
+                "live_mode": False,
+                "auto_start": False,
+                "auto_end": False,
+                "clear_logs": False,
+                "parallel_run": False,
+            },
+            id="driver_min (no flags; defaults held)",
+        ),
+        pytest.param(
+            "double_dry_live",
+            ["prog", "<DIR>", "--dry", "--live"],
+            {
+                "live_mode": True,
+                "auto_start": False,
+                "auto_end": False,
+                "clear_logs": False,
+                "parallel_run": False,
+            },
+            id="double_dry_live last-occurrence-wins",
+        ),
+        pytest.param(
+            "double_live_dry",
+            ["prog", "<DIR>", "--live", "--dry"],
+            {
+                "live_mode": False,
+                "auto_start": False,
+                "auto_end": False,
+                "clear_logs": False,
+                "parallel_run": False,
+            },
+            id="double_live_dry last-occurrence-wins",
+        ),
+        pytest.param(
+            "neg_at_2",
+            ["prog", "<DIR>", "-16.0", "--live", "--start", "--end"],
+            {
+                "live_mode": True,
+                "auto_start": True,
+                "auto_end": True,
+                "clear_logs": False,
+                "parallel_run": False,
+            },
+            id="neg_at_2 (LUFS-like token not a handshake token)",
+        ),
+    ]
+
+    @pytest.mark.parametrize("name,tail,expected", GOLDEN)
+    def test_scan_ladder_golden(
+        self, name: str, tail: list[str], expected: dict[str, bool]
+    ) -> None:
+        assert name  # label ping
+        real_dir = mkdtemp()
+        argv = [t.replace("<DIR>", real_dir) for t in tail]
+        args = _GoldenArgs()
+        result = apply_handshake_segment(argv[2:], args)
+        assert result is (
+            any(
+                f in argv
+                for f in (
+                    "--live",
+                    "--dry",
+                    "--start",
+                    "--no-start",
+                    "--end",
+                    "--no-end",
+                    "--clear-logs",
+                    "--no-clear-logs",
+                    "--parallel-run",
+                    "--no-parallel-run",
+                )
+            )
+        )
+        for field, value in expected.items():
+            assert getattr(args, field) is value, f"{name}: {field}"
+
+
+class TestPrintToolUsageError:
+    """The single owner of the '<tool>: <error>' stderr writer."""
+
+    def test_writes_prefixed_line_to_stderr(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        print_tool_usage_error("BPM Analyzer", "Coverage must be 0-100%, got: 150")
+        out, err = capsys.readouterr()
+        assert out == ""
+        assert err == "BPM Analyzer: Coverage must be 0-100%, got: 150\n"
+
+    def test_no_stdout_side_effects(self, capsys: pytest.CaptureFixture[str]) -> None:
+        print_tool_usage_error("Album Art Sync", "Embed size must be numeric, got: x")
+        out, err = capsys.readouterr()
+        assert out == ""
+        assert err == "Album Art Sync: Embed size must be numeric, got: x\n"
 
 
 class TestValidateCliArgs:

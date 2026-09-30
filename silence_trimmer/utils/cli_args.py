@@ -23,7 +23,23 @@ from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
 from audio_suite_shared.cli_helpers import (
-    was_launched_from_driver as was_launched_from_driver,
+    consume_handshake_token,
+    print_tool_usage_error,
+)
+
+ACCEPTED_HANDSHAKE = frozenset(
+    {
+        "--live",
+        "--dry",
+        "--start",
+        "--no-start",
+        "--end",
+        "--no-end",
+        "--clear-logs",
+        "--no-clear-logs",
+        "--parallel-run",
+        "--no-parallel-run",
+    }
 )
 
 
@@ -99,23 +115,7 @@ def parse(argv: list[str] | None = None) -> SilenceTrimmerArgs:
     i = 2
     while i < len(argv):
         arg = argv[i]
-        if arg == "--live":
-            args.live_mode = True
-            i += 1
-        elif arg == "--dry":
-            args.live_mode = False
-            i += 1
-        elif arg == "--start":
-            args.auto_start = True
-            i += 1
-        elif arg == "--no-start":
-            args.auto_start = False
-            i += 1
-        elif arg == "--end":
-            args.auto_end = True
-            i += 1
-        elif arg == "--no-end":
-            args.auto_end = False
+        if consume_handshake_token(arg, args, accepted=ACCEPTED_HANDSHAKE) is True:
             i += 1
         elif arg == "--fade":
             args.apply_fade = True
@@ -147,30 +147,11 @@ def parse(argv: list[str] | None = None) -> SilenceTrimmerArgs:
         elif arg == "--no-parallel":
             args.parallel_mode = False
             i += 1
-        elif arg == "--clear-logs":
-            args.clear_logs = True
-            i += 1
-        elif arg == "--no-clear-logs":
-            args.clear_logs = False
-            i += 1
-        elif arg == "--parallel-run":
-            args.parallel_run = True
-            i += 1
-        elif arg == "--no-parallel-run":
-            args.parallel_run = False
-            i += 1
-        elif arg.startswith("-") and arg not in {
-            "--fade",
-            "--fade-in",
-            "--fade-out",
-            "--workers",
-            "--parallel",
-            "--no-parallel",
-            "--clear-logs",
-            "--no-clear-logs",
-            "--parallel-run",
-            "--no-parallel-run",
-        }:
+        elif arg.startswith("-"):
+            # Bare positional tokens (e.g. a lone "50" threshold with a
+            # leading dash) and any other negative-looking value attempt
+            # integer conversion; every handshake-token clash is consumed
+            # above, so this branch only sees non-handshake tokens.
             try:
                 args.threshold = int(arg)
             except ValueError:
@@ -181,6 +162,6 @@ def parse(argv: list[str] | None = None) -> SilenceTrimmerArgs:
     errors = validate_args(args)
     if errors:
         for error in errors:
-            print(f"Silence Trimmer: {error}", file=sys.stderr)
+            print_tool_usage_error("Silence Trimmer", error)
         raise SystemExit(1)
     return args

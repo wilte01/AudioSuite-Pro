@@ -22,7 +22,27 @@ from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs, validate_folder_path
 from audio_suite_shared.cli_helpers import (
+    apply_handshake_segment,
+    print_tool_usage_error,
     was_launched_from_driver as was_launched_from_driver,
+)
+from audio_suite_shared.cli_helpers import (
+    was_launched_from_driver as was_launched_from_driver,
+)
+
+ACCEPTED_HANDSHAKE = frozenset(
+    {
+        "--live",
+        "--dry",
+        "--start",
+        "--no-start",
+        "--end",
+        "--no-end",
+        "--clear-logs",
+        "--no-clear-logs",
+        "--parallel-run",
+        "--no-parallel-run",
+    }
 )
 
 
@@ -55,46 +75,12 @@ def parse(argv: list[str] | None = None) -> AlbumArtNormalizerArgs:
 
     args.folder_path = argv[1]
 
-    i = 2
-    while i < len(argv):
-        arg = argv[i]
-        if arg == "--start":
-            args.auto_start = True
-            i += 1
-        elif arg == "--no-start":
-            args.auto_start = False
-            i += 1
-        elif arg == "--end":
-            args.auto_end = True
-            i += 1
-        elif arg == "--no-end":
-            args.auto_end = False
-            i += 1
-        elif arg == "--dry":
-            args.live_mode = False
-            i += 1
-        elif arg == "--live":
-            args.live_mode = True
-            i += 1
-        elif arg == "--clear-logs":
-            args.clear_logs = True
-            i += 1
-        elif arg == "--no-clear-logs":
-            args.clear_logs = False
-            i += 1
-        elif arg == "--parallel-run":
-            args.parallel_run = True
-            i += 1
-        elif arg == "--no-parallel-run":
-            args.parallel_run = False
-            i += 1
-        else:
-            i += 1
+    apply_handshake_segment(argv[2:], args, accepted=ACCEPTED_HANDSHAKE)
 
     errors = validate_folder_path(args.folder_path)
     if errors:
         for error in errors:
-            print(f"Album Art Normalizer: {error}", file=sys.stderr)
+            print_tool_usage_error("Album Art Normalizer", error)
         raise SystemExit(1)
 
     return args

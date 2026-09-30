@@ -21,7 +21,25 @@ from audio_suite_shared.cli_dataclasses import (
     validate_tempo_scheme,
 )
 from audio_suite_shared.cli_helpers import (
+    consume_handshake_token,
+)
+from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
+)
+
+ACCEPTED_HANDSHAKE = frozenset(
+    {
+        "--live",
+        "--dry",
+        "--start",
+        "--no-start",
+        "--end",
+        "--no-end",
+        "--clear-logs",
+        "--no-clear-logs",
+        "--parallel-run",
+        "--no-parallel-run",
+    }
 )
 
 
@@ -83,35 +101,7 @@ def parse(argv: list[str] | None = None) -> TempoAnalyzerArgs:
     while i < len(argv):
         arg = argv[i]
 
-        if arg == "--live":
-            args.live_mode = True
-            i += 1
-        elif arg == "--dry":
-            args.live_mode = False
-            i += 1
-        elif arg == "--start":
-            args.auto_start = True
-            i += 1
-        elif arg == "--no-start":
-            args.auto_start = False
-            i += 1
-        elif arg == "--end":
-            args.auto_end = True
-            i += 1
-        elif arg == "--no-end":
-            args.auto_end = False
-            i += 1
-        elif arg == "--clear-logs":
-            args.clear_logs = True
-            i += 1
-        elif arg == "--no-clear-logs":
-            args.clear_logs = False
-            i += 1
-        elif arg == "--parallel-run":
-            args.parallel_run = True
-            i += 1
-        elif arg == "--no-parallel-run":
-            args.parallel_run = False
+        if consume_handshake_token(arg, args, accepted=ACCEPTED_HANDSHAKE) is True:
             i += 1
         elif arg == "--scheme" and i + 1 < len(argv):
             args.scheme = argv[i + 1]

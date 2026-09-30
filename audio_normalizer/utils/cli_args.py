@@ -9,6 +9,25 @@ import sys
 from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs, validate_target_lufs
+from audio_suite_shared.cli_helpers import (
+    consume_handshake_token,
+    print_tool_usage_error,
+)
+
+ACCEPTED_HANDSHAKE = frozenset(
+    {
+        "--live",
+        "--dry",
+        "--start",
+        "--no-start",
+        "--end",
+        "--no-end",
+        "--clear-logs",
+        "--no-clear-logs",
+        "--parallel-run",
+        "--no-parallel-run",
+    }
+)
 
 VALID_NORMALIZATION_MODES: tuple[str, ...] = ("normalise", "lossless")
 
@@ -72,23 +91,7 @@ def parse(argv: list[str] | None = None) -> NormalizerArgs:
     i = 2
     while i < len(argv):
         arg = argv[i]
-        if arg == "--live":
-            args.live_mode = True
-            i += 1
-        elif arg == "--dry":
-            args.live_mode = False
-            i += 1
-        elif arg == "--start":
-            args.auto_start = True
-            i += 1
-        elif arg == "--no-start":
-            args.auto_start = False
-            i += 1
-        elif arg == "--end":
-            args.auto_end = True
-            i += 1
-        elif arg == "--no-end":
-            args.auto_end = False
+        if consume_handshake_token(arg, args, accepted=ACCEPTED_HANDSHAKE) is True:
             i += 1
         elif arg == "--tolerance" and i + 1 < len(argv):
             try:
@@ -99,13 +102,15 @@ def parse(argv: list[str] | None = None) -> NormalizerArgs:
         elif arg == "--mode" and i + 1 < len(argv):
             args.normalization_mode = argv[i + 1]
             i += 2
-        elif arg in ("--clear-logs", "--no-clear-logs"):
-            args.clear_logs = arg == "--clear-logs"
-            i += 1
-        elif arg in ("--parallel-run", "--no-parallel-run"):
-            args.parallel_run = arg == "--parallel-run"
-            i += 1
-        elif arg.startswith("-") and arg not in ["--tolerance", "--mode"]:
+        elif (
+            arg.startswith("-")
+            and arg not in ACCEPTED_HANDSHAKE
+            and arg
+            not in [
+                "--tolerance",
+                "--mode",
+            ]
+        ):
             try:
                 args.target_lufs = float(arg)
             except ValueError:
@@ -117,6 +122,6 @@ def parse(argv: list[str] | None = None) -> NormalizerArgs:
     errors = validate_args(args)
     if errors:
         for error in errors:
-            print(f"Audio Normalizer: {error}", file=sys.stderr)
+            print_tool_usage_error("Audio Normalizer", error)
         raise SystemExit(1)
     return args

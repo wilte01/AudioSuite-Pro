@@ -17,7 +17,27 @@ from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs, validate_folder_path
 from audio_suite_shared.cli_helpers import (
+    apply_handshake_segment,
+    print_tool_usage_error,
     was_launched_from_driver as was_launched_from_driver,
+)
+from audio_suite_shared.cli_helpers import (
+    was_launched_from_driver as was_launched_from_driver,
+)
+
+ACCEPTED_HANDSHAKE = frozenset(
+    {
+        "--live",
+        "--dry",
+        "--start",
+        "--no-start",
+        "--end",
+        "--no-end",
+        "--clear-logs",
+        "--no-clear-logs",
+        "--parallel-run",
+        "--no-parallel-run",
+    }
 )
 
 
@@ -62,29 +82,10 @@ def parse(argv: list[str] | None = None) -> TagEditorArgs:
     if len(argv) < 2:
         return args
     args.folder_path = argv[1]
-    i = 2
-    while i < len(argv):
-        arg = argv[i]
-        if arg in ("--start", "--no-start"):
-            args.auto_start = arg == "--start"
-            i += 1
-        elif arg in ("--end", "--no-end"):
-            args.auto_end = arg == "--end"
-            i += 1
-        elif arg in ("--dry", "--live"):
-            args.live_mode = arg == "--live"
-            i += 1
-        elif arg in ("--clear-logs", "--no-clear-logs"):
-            args.clear_logs = arg == "--clear-logs"
-            i += 1
-        elif arg in ("--parallel-run", "--no-parallel-run"):
-            args.parallel_run = arg == "--parallel-run"
-            i += 1
-        else:
-            i += 1
+    apply_handshake_segment(argv[2:], args, accepted=ACCEPTED_HANDSHAKE)
     errors = validate_args(args)
     if errors:
         for error in errors:
-            print(f"Tag Editor: {error}", file=sys.stderr)
+            print_tool_usage_error("Tag Editor", error)
         raise SystemExit(1)
     return args

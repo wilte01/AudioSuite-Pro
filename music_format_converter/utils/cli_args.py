@@ -27,10 +27,28 @@ from typing import Optional
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
 from audio_suite_shared.cli_helpers import (
-    was_launched_from_driver as was_launched_from_driver,
+    consume_handshake_token,
+    print_tool_usage_error,
 )
 
 from ..core.ffmpeg_params import BIT_DEPTH_PRESETS, SAMPLE_RATE_PRESETS
+
+# Byte-exact per-tool handshake subset: the pre-change ladder handled --start
+# but had no --no-start branch (that token skipped the loop), mirrored here so
+# "--start --no-start" keeps raising auto_start as before.
+ACCEPTED_HANDSHAKE = frozenset(
+    {
+        "--live",
+        "--dry",
+        "--start",
+        "--end",
+        "--no-end",
+        "--clear-logs",
+        "--no-clear-logs",
+        "--parallel-run",
+        "--no-parallel-run",
+    }
+)
 
 
 @dataclass
@@ -105,20 +123,7 @@ def parse(argv: list[str] | None = None) -> ConverterArgs:
         i = 3
     while i < len(argv):
         arg = argv[i]
-        if arg == "--start":
-            args.auto_start = True
-            i += 1
-        elif arg == "--end":
-            args.auto_end = True
-            i += 1
-        elif arg == "--no-end":
-            args.auto_end = False
-            i += 1
-        elif arg == "--dry":
-            args.live_mode = False
-            i += 1
-        elif arg == "--live":
-            args.live_mode = True
+        if consume_handshake_token(arg, args, accepted=ACCEPTED_HANDSHAKE) is True:
             i += 1
         elif arg == "--quality" and i + 1 < len(argv):
             q = argv[i + 1].lower()
@@ -150,23 +155,11 @@ def parse(argv: list[str] | None = None) -> ConverterArgs:
             except ValueError:
                 pass
             i += 2
-        elif arg == "--clear-logs":
-            args.clear_logs = True
-            i += 1
-        elif arg == "--no-clear-logs":
-            args.clear_logs = False
-            i += 1
-        elif arg == "--parallel-run":
-            args.parallel_run = True
-            i += 1
-        elif arg == "--no-parallel-run":
-            args.parallel_run = False
-            i += 1
         else:
             i += 1
     errors = validate_args(args)
     if errors:
         for error in errors:
-            print(f"Music Format Converter: {error}", file=sys.stderr)
+            print_tool_usage_error("Music Format Converter", error)
         raise SystemExit(1)
     return args

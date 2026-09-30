@@ -7,8 +7,9 @@ Provides standardized implementations for common CLI operations:
 - Stage toggles and parameters
 - Auto-start functionality
 - Common CLI patterns
+- The Master Driver display-flag handshake segment shared by every tool
 
-This reduces code duplication across all 19 Audio Suite applications.
+This reduces code duplication across all Audio Suite applications.
 """
 
 from __future__ import annotations
@@ -48,6 +49,108 @@ def was_launched_from_driver(argv: list[str] | None = None) -> bool:
     if argv is None:
         argv = sys.argv
     return len(argv) > 1
+
+
+#: The Master-Driver display-flag handshake pairs and the mutable state each
+#: pair drives. Order matters only for documentation; parse order is content
+#: driven. ``live_mode`` defaults to False (a driver "min" argv carries the
+#: placeholder slot but no mode flag, and every pre-existing parser reported
+#: dry/net-default in that case).
+_HANDSHAKE_PAIRS: dict[str, str] = {
+    "--live": "live_mode=True",
+    "--dry": "live_mode=False",
+    "--start": "auto_start=True",
+    "--no-start": "auto_start=False",
+    "--end": "auto_end=True",
+    "--no-end": "auto_end=False",
+    "--clear-logs": "clear_logs=True",
+    "--no-clear-logs": "clear_logs=False",
+    "--parallel-run": "parallel_run=True",
+    "--no-parallel-run": "parallel_run=False",
+}
+
+#: The 5 flag pairs that make up the Master Driver handshake segment.
+HANDSHAKE_FLAG_PAIRS: tuple[tuple[str, str], ...] = (
+    ("--live", "--dry"),
+    ("--start", "--no-start"),
+    ("--end", "--no-end"),
+    ("--clear-logs", "--no-clear-logs"),
+    ("--parallel-run", "--no-parallel-run"),
+)
+
+
+def print_tool_usage_error(tool_label: str, error: str) -> None:
+    """Print a tool-prefixed usage error to stderr.
+
+    The single owner of the one-line ``f"{tool_label}: {error}"`` writer
+    previously duplicated in every per-tool ``utils/cli_args.py``.
+
+    Args:
+        tool_label: Display name of the tool, e.g. ``"BPM Analyzer"``.
+        error: The human-readable validation error text.
+    """
+    print(f"{tool_label}: {error}", file=sys.stderr)
+
+
+def consume_handshake_token(
+    token: str,
+    args: Any,
+    accepted: frozenset[str] | set[str] | None = None,
+) -> bool | None:
+    """Consume one Master-Driver handshake token against *args*.
+
+    Attributes are only written when the token is a handshake flag the tool
+    accepts, so a caller-driven token-subset contract is preserved exactly:
+    a tool that never reads ``--dry`` still never gets ``live_mode`` written.
+
+    Args:
+        token: The argv token under consideration.
+        args: Per-tool args object (any attribute carrier) whose fields are
+            mutated in place.
+        accepted: Restriction set. ``None`` (default) accepts all 10
+            handshake tokens; a subset restricts which tokens may take
+            effect. Tokens outside *accepted* are reported as not-here (the
+            caller continues scanning past them as before).
+
+    Returns:
+        True when the token was consumed (attribute written),
+        False when the token is a handshake token the tool does not accept,
+        None when the token is not a handshake token at all.
+    """
+    if token not in _HANDSHAKE_PAIRS:
+        return None
+    if accepted is not None and token not in accepted:
+        return False
+    spec = _HANDSHAKE_PAIRS[token]
+    attr_name, _, literal = spec.partition("=")
+    setattr(args, attr_name, literal == "True")
+    return True
+
+
+def apply_handshake_segment(
+    argv: list[str],
+    args: Any,
+    accepted: frozenset[str] | set[str] | None = None,
+) -> bool:
+    """Scan an argv tail for Master-Driver display-flag handshake tokens.
+
+    The shared implementation of the flag ladder that every per-tool
+    ``utils/cli_args.py`` previously re-implemented. Attributes are only
+    written for pairs the tool accepts, matching each per-tool contract.
+
+    Args:
+        argv: The argv (or tail) to scan.
+        args: Per-tool args object whose fields are mutated in place.
+        accepted: Optional restriction to a token subset.
+
+    Returns:
+        True when *any* handshake token was consumed.
+    """
+    consumed = False
+    for token in argv:
+        if consume_handshake_token(token, args, accepted=accepted) is True:
+            consumed = True
+    return consumed
 
 
 def create_standard_parser(

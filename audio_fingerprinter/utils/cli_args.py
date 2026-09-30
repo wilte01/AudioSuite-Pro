@@ -22,10 +22,31 @@ from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
 from audio_suite_shared.cli_helpers import (
+    consume_handshake_token,
+    print_tool_usage_error,
+)
+from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
 
 from ..core.models import FingerprintParams
+
+# Byte-exact per-tool handshake subset: the pre-change ladder handled --start
+# but had no --no-start branch (that token skipped the loop), mirrored here so
+# "--start --no-start" in one argv keeps raising auto_start as before.
+ACCEPTED_HANDSHAKE = frozenset(
+    {
+        "--live",
+        "--dry",
+        "--start",
+        "--end",
+        "--no-end",
+        "--clear-logs",
+        "--no-clear-logs",
+        "--parallel-run",
+        "--no-parallel-run",
+    }
+)
 
 
 @dataclass
@@ -127,32 +148,7 @@ def parse(argv: list[str] | None = None) -> FingerprintArgs:
         elif arg == "--api-key" and i + 1 < len(argv):
             args.api_key = argv[i + 1]
             i += 2
-        elif arg == "--dry":
-            args.live_mode = False
-            i += 1
-        elif arg == "--live":
-            args.live_mode = True
-            i += 1
-        elif arg == "--start":
-            args.auto_start = True
-            i += 1
-        elif arg == "--end":
-            args.auto_end = True
-            i += 1
-        elif arg == "--no-end":
-            args.auto_end = False
-            i += 1
-        elif arg == "--clear-logs":
-            args.clear_logs = True
-            i += 1
-        elif arg == "--no-clear-logs":
-            args.clear_logs = False
-            i += 1
-        elif arg == "--parallel-run":
-            args.parallel_run = True
-            i += 1
-        elif arg == "--no-parallel-run":
-            args.parallel_run = False
+        elif consume_handshake_token(arg, args, accepted=ACCEPTED_HANDSHAKE) is True:
             i += 1
         else:
             i += 1
@@ -160,6 +156,6 @@ def parse(argv: list[str] | None = None) -> FingerprintArgs:
     errors = validate_args(args)
     if errors:
         for error in errors:
-            print(f"Audio Fingerprinter: {error}", file=sys.stderr)
+            print_tool_usage_error("Audio Fingerprinter", error)
         raise SystemExit(1)
     return args

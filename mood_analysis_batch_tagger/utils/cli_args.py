@@ -21,7 +21,23 @@ from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
 from audio_suite_shared.cli_helpers import (
-    was_launched_from_driver as was_launched_from_driver,
+    consume_handshake_token,
+    print_tool_usage_error,
+)
+
+ACCEPTED_HANDSHAKE = frozenset(
+    {
+        "--live",
+        "--dry",
+        "--start",
+        "--no-start",
+        "--end",
+        "--no-end",
+        "--clear-logs",
+        "--no-clear-logs",
+        "--parallel-run",
+        "--no-parallel-run",
+    }
 )
 
 
@@ -79,20 +95,7 @@ def parse(argv: list[str] | None = None) -> MoodAnalysisBatchTaggerArgs:
     i = 2
     while i < len(argv):
         arg = argv[i]
-        if arg in ("--start", "--no-start"):
-            args.auto_start = arg == "--start"
-            i += 1
-        elif arg in ("--end", "--no-end"):
-            args.auto_end = arg == "--end"
-            i += 1
-        elif arg in ("--dry", "--live"):
-            args.live_mode = arg == "--live"
-            i += 1
-        elif arg in ("--clear-logs", "--no-clear-logs"):
-            args.clear_logs = arg == "--clear-logs"
-            i += 1
-        elif arg in ("--parallel-run", "--no-parallel-run"):
-            args.parallel_run = arg == "--parallel-run"
+        if consume_handshake_token(arg, args, accepted=ACCEPTED_HANDSHAKE) is True:
             i += 1
         elif arg in ("--parallel", "--no-parallel"):
             args.parallel_mode = arg == "--parallel"
@@ -114,6 +117,6 @@ def parse(argv: list[str] | None = None) -> MoodAnalysisBatchTaggerArgs:
     errors = validate_args(args)
     if errors:
         for error in errors:
-            print(f"Mood Analysis Batch Tagger: {error}", file=sys.stderr)
+            print_tool_usage_error("Mood Analysis Batch Tagger", error)
         raise SystemExit(1)
     return args
