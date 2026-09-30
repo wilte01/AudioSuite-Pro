@@ -918,7 +918,7 @@ in-change with a regression test.
 
 ---
 
-### D2 `[ ]` — Raise `library_stats/app.py` from 12% (300 statements — the largest GUI gap) `[audit A4]`
+### D2 `[x]` — Raise `library_stats/app.py` from 12% (300 statements — the largest GUI gap) `[audit A4]`
 
 **Priority:** Medium | **Effort:** 0.5 day | **Risk:** Low (read-only tool)
 
@@ -927,18 +927,32 @@ largest GUI gap in the suite, and the tool is read-only, so its app logic
 (scan orchestration, filter state, completeness display, CSV/JSON export
 wiring) is testable without any write-path hazard.
 
+**Premise corrections recorded while implementing:** there was no
+`test_app.py` to extend (the tests directory had never contained one), so the
+file was created per the naming rule; and the app has **no filter UI** — its
+flows are scan / refresh / export / completeness, all of which are covered
+instead. Chart rendering (the `HAVE_MPL` block, lines 615–686) is *not*
+exercised because matplotlib is not a declared dependency of this suite —
+recorded as the named gap for the graph tab; the graceful no-matplotlib
+branch is covered by the scan-complete flow.
+
 **Scope:**
 
-- [ ] Use the `object.__new__` + `MagicMock` pattern for the Tk app shell;
-      drive the scan/filter/export flows through the app object with the
-      core `file_processor` (100% covered) as the real engine.
-- [ ] Cover: initial state, folder-scan flow with mocked progress, filter
+- [x] Use the `object.__new__` + `MagicMock` pattern for the Tk app shell;
+      drive the scan/filter/export flows through the app object with the core
+      `file_processor` (100% covered) as the real engine.
+- [x] Cover: initial state, folder-scan flow with mocked progress, filter
       changes re-rendering counts, CSV export writing a real temp file with
       expected header + rows, JSON export shape, and the error path when the
-      scan raises.
+      scan raises. *(No filter UI exists — premise corrected above; every real
+      flow is covered, including the real `LibraryCache` SQLite backend and
+      the real completeness CSV/JSON writers read back from disk.)*
 
-**Tests (lockstep):** `library_stats/tests/test_app.py` extended (follow the
-existing file-naming rule — extend, do not add a second module).
+**Tests (lockstep):** `library_stats/tests/test_app.py` created (22 tests;
+follow the existing file-naming rule — extend, do not add a second module).
+*The "engine real, readers mocked" convention from `test_file_processor.py`
+is applied: the walk, aggregation, cache backend and export writers run for
+real; only per-file tag readers are mocked.*
 
 **Acceptance:** `app.py` ≥ 60%; suite green; bare full-suite green.
 
@@ -1307,6 +1321,8 @@ incomplete by definition.
 | B4 | 1 | 2026-09-30 | compileall exit 0; ruff check . "All checks passed!"; ruff format --check . "766 files already formatted"; mypy . "Success: no issues found in 454 source files"; bare pytest -q -p no:cacheprovider -> 7705 passed, 3 skipped, 30 deselected in 189.65s; coverage report total 27544 stmts, 5456 missed = 80% (same command block); bandit scoped audio_suite_shared + bpm_analyzer + lyrics_manager 0 High / 0 Medium | Commit 050c8e8, 3 files (bpm 673->467, lyrics 681->517 lines; the new tool_app_base.py is 118 stmts at 81% coverage). Classification table (record in lieu of plan-text edits): byte-identical scaffold blocks consolidated in audio_suite_shared/tool_app_base.AnalysisTagToolApp = _apply_cli_args (with _apply_tool_cli_options hook for lyrics' four provider-driven options), _browse_folder, _open_help, _open_log, _open_folder, _reset_progress_ui, _on_progress, _update_progress_ui, _on_complete (one-word TAGGED_LABEL difference parameterised: "Tagged/Analyzed" vs "Tagged/Updated"), _update_ui_on_complete (two wording tokens parameterised: DRY/LIVE_COMPLETE_LABEL), _on_error, _show_error_dialog, and bpm's local _ThreadSafeSlotVar twin retired behind make_safe_slot_vars (a seam lyrics and three other tools already owned). Per-tool preserved exactly as the item mandates: each app's own Tk variables and bootstrap, its own options widgets, its own start validation, its own analysis call and thread, its own preset value sets, bpm's distinctive BPM-range guards and lyrics' provider lookup signalling. Two app-seam tests needed the module-level UniversalCLIHandler name to stay patchable - resolved by resolving the handler via the tool module's attribute first (the mock-patch namespace preserved), both suites pass unedited. Second customer decision recorded as the item requires: noise_reduction <-> pop_click_remover share the outline (0.788) but their harness differs (AuditionMixin, different dialog flow) - the extraction would need a second design pass to fit their audition-driven flows, so named follow-up, not in-flight scope. Cached secret scans: clean. |
 
 | D1 | 3 | 2026-09-30 | compileall exit 0; ruff check . "All checks passed!"; ruff format --check . "773 files already formatted"; mypy . "Success: no issues found in 458 source files"; bandit -r . -x ./.venv -c pyproject.toml 0 High / 0 Medium (41 Low, unchanged); bare pytest -q -p no:cacheprovider -> 7760 passed, 3 skipped, 30 deselected, 46 warnings; coverage report total 27594 stmts, 5297 missed = 81% (>=75; same command block as the run); Milestone: per-module parse of the same report shows the production-0% list EMPTY | Test-only change, 2 new files: tag_field_updater/tests/test_app.py (19 tests) + tests/test_package_entry_stubs.py (13 tests incl. 5 parametrised main.pyw stubs). tag_field_updater/ui/app.py 0% -> 121/121 (100%): hidden-root constructor/wiring on a withdrawn Toplevel (the bare root was already pack-managed by other suites' tests - "cannot use geometry manager grid" full-suite polluter, avoided rather than fixed cross-suite), browse/progress/start/scan/finish/stop flows, root.after(0,...) main-thread marshalling (bound methods compared via __self__/__name__, never identity), scan-error + dialog-failure caplog witnesses, main() auto-start and both sys.exit(1) guards. lyrics_manager/__main__.py 0% -> 10/10: exec-based launch-path probe (plan's `python -m lyrics_manager --help` subprocess form is invalid - the module ignores argv and would hang a headless run - deviation recorded). The five main.pyw stubs, album_art_normalizer/__main__.py (86%), audio_enhancer/main.py (100%), tag_field_updater/__main__.py (100%, --help/{none}/--directory argv contracts) and tag_field_updater/ui/__init__.py (100%) all execute. Two ordering landmines found and fixed lockstep, both documented in the test docstrings: (1) a module-level import of tag_field_updater.ui.app in a test module is executed at pytest COLLECTION time, before the launcher-stub test of test_pyw_launchers.py, and silently inverts that test's branch - all ui.app imports are function-local, and both new test modules restore first-party sys.modules entries after each test (deletion also scrubs the parent package's attribute, else `from tag_field_updater import ui` re-binds a stale module object and two class copies coexist); numpy's C extensions refuse to load twice per process, so the restore deletes first-party names only. (2) the plan's "eight" census is 17 + the nine missed stubs; B2's overlap is recorded per item rule (zero cards at 0% at D1 baseline - no card test re-written). Defect observed, not fixed here (out of item scope): one audio_normalizer setup-tab test reports "broken Tcl/Tk environment" on this host (pre-existing skip). Four staged secret scans clean. |
+
+| D2 | 3 | 2026-09-30 | compileall exit 0; ruff check . "All checks passed!" (1 unused-import fix auto-applied); ruff format --check . "774 files already formatted"; mypy . "Success: no issues found in 458 source files"; bandit -r . -x ./.venv -c pyproject.toml 0 High / 0 Medium (41 Low, unchanged); bare pytest -q -p no:cacheprovider -> 7782 passed, 3 skipped, 30 deselected, 46 warnings; coverage report total 27594 stmts, 5049 missed = 82% (>=75; same command block as the run), with library_stats/app.py at 85% (342 stmts / 52 missed - the >=60% acceptance met) | Test-only change, 1 new file: library_stats/tests/test_app.py (22 tests). library_stats/app.py 12% -> 85%. The real engine runs everywhere as the item mandates: real scan_directory walk + aggregation over a 2-file tmp library (only per-file tag readers mocked, the test_file_processor.py convention), real analyse_completeness, real LibraryCache SQLite backend (scratch db via a factory patched onto the app's default-path constructor) - the cache test asserts 2 rows really stored and the status line reports them, the refresh flag asserted where it actually propagates (thread kwargs (path, True) plus "(full refresh)" status), real export_csv/export_json + completeness CSV/JSON written to real files and read back (header + row-count assertions), the scan-raise error path resets UI and surfaces via patched show_error_from_exception, auto-scan scheduling asserted. Bound methods compared via __self__/__name__ (fresh-object identity trap hit once, locked by a shared assert_bound helper). Chart tab NOT exercised: matplotlib is not a declared suite dependency so HAVE_MPL is False here - the graceful branch renders via the scan-completion flow; recorded as the named remaining gap rather than adding a dependency (approval rule). Premise corrections recorded in the item: no pre-existing test_app.py (created per the naming rule) and no filter UI in the app (the audit's "filter changes" premise was inaccurate; every real flow is covered). Import chain untouched; no production code changes in the diff. Secret scans clean. |
 
 ### A3 finding — a sixth silent swallow the plan's census missed
 
