@@ -27,7 +27,7 @@ import argparse
 from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(frozen=True)
 class CliArgs:
     """CLI arguments for Audio Enhancer."""
 

@@ -24,7 +24,7 @@ from audio_suite_shared.cli_helpers import (
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class RefineryArgs:
     """CLI arguments for Audio Refinery."""
 

@@ -131,7 +131,7 @@ def available_output_formats(input_fmt: str) -> list[str]:
 # ── Directory scan ─────────────────────────────────────────────────────────────
 
 
-@dataclass
+@dataclass(frozen=True)
 class ScanResult:
     """Outcome of scanning an input directory for audio files."""
 

@@ -103,7 +103,7 @@ class FileStatus(str, Enum):
     ERROR = "Error"
 
 
-@dataclass
+@dataclass(frozen=True)
 class StageMetrics:
     """Detailed before/after measurements for a pipeline stage."""
 
@@ -123,7 +123,7 @@ class StageMetrics:
         return None
 
 
-@dataclass
+@dataclass(frozen=True)
 class StageResult:
     """Outcome of a single stage for one file."""
 

@@ -87,7 +87,7 @@ class BatchStep:
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BatchProgress:
     """Snapshot of batch progress, emitted via callback."""
 
@@ -104,7 +104,7 @@ class BatchProgress:
     """Per-step status list: [(tool_id, name, status_str), ...]"""
 
 
-@dataclass
+@dataclass(frozen=True)
 class BatchReport:
     """Final report returned after batch execution."""
 

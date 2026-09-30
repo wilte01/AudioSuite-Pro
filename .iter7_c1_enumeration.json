@@ -1,0 +1,814 @@
+{
+  "total": 115,
+  "frozen_count": 64,
+  "mutable_count": 51,
+  "mutable": [
+    {
+      "file": "audio_suite_shared\\batch_undo.py",
+      "line": 174,
+      "class": "RevertResult",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\cli_base.py",
+      "line": 50,
+      "class": "_Result",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\cli_dataclasses.py",
+      "line": 22,
+      "class": "BaseCLIArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\cli_dataclasses.py",
+      "line": 40,
+      "class": "SourceOutputArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\cli_dataclasses.py",
+      "line": 54,
+      "class": "BPMArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\cli_dataclasses.py",
+      "line": 67,
+      "class": "TempoAnalyzerArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\cli_dataclasses.py",
+      "line": 74,
+      "class": "ReplayGainArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\cli_dataclasses.py",
+      "line": 81,
+      "class": "LyricsArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\error_recovery.py",
+      "line": 32,
+      "class": "RetryConfig",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\resource_manager.py",
+      "line": 26,
+      "class": "ResourceInfo",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "master_driver\\batch_orchestrator.py",
+      "line": 51,
+      "class": "BatchStep",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "master_driver\\batch_orchestrator.py",
+      "line": 91,
+      "class": "BatchProgress",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "master_driver\\batch_orchestrator.py",
+      "line": 108,
+      "class": "BatchReport",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "tempo_analyzer\\utils\\cli_args.py",
+      "line": 47,
+      "class": "TempoAnalyzerArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "tag_field_updater\\core\\mapping_engine.py",
+      "line": 34,
+      "class": "ProcessingStats",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "tag_editor\\core\\processor.py",
+      "line": 61,
+      "class": "TagRow",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "tag_editor\\core\\processor.py",
+      "line": 79,
+      "class": "EditResult",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "tag_editor\\utils\\cli_args.py",
+      "line": 44,
+      "class": "TagEditorArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "silence_trimmer\\tests\\test_silence_trimmer.py",
+      "line": 58,
+      "class": "BaseCLIArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "silence_trimmer\\utils\\cli_args.py",
+      "line": 50,
+      "class": "SilenceTrimmerArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "replaygain_analyzer\\utils\\cli_args.py",
+      "line": 37,
+      "class": "ReplayGainArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "noise_reduction\\core\\models.py",
+      "line": 19,
+      "class": "NoiseReductionParams",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "music_format_converter\\core\\formats.py",
+      "line": 135,
+      "class": "ScanResult",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "music_format_converter\\utils\\cli_args.py",
+      "line": 58,
+      "class": "ConverterArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "mood_analyzer\\utils\\cli_args.py",
+      "line": 33,
+      "class": "MoodAnalyzerArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "mood_analysis_batch_tagger\\utils\\cli_args.py",
+      "line": 48,
+      "class": "MoodAnalysisBatchTaggerArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "metadata_scrubber\\utils\\cli_args.py",
+      "line": 34,
+      "class": "ScrubberArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "library_stats\\core\\file_processor.py",
+      "line": 44,
+      "class": "StatsReport",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "key_detector\\utils\\cli_args.py",
+      "line": 33,
+      "class": "KeyDetectorArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "genre_sync\\utils\\cli_args.py",
+      "line": 33,
+      "class": "GenreSyncArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "file_reorganizer\\core\\engine.py",
+      "line": 35,
+      "class": "ReorganizerStats",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_refinery\\core\\integrity.py",
+      "line": 70,
+      "class": "IntegrityResult",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_refinery\\core\\models.py",
+      "line": 23,
+      "class": "DeclickParams",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_refinery\\core\\models.py",
+      "line": 35,
+      "class": "TrimParams",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_refinery\\core\\models.py",
+      "line": 45,
+      "class": "EnhanceParams",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_refinery\\core\\models.py",
+      "line": 66,
+      "class": "NormaliseParams",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_refinery\\core\\models.py",
+      "line": 74,
+      "class": "StageConfig",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_refinery\\core\\models.py",
+      "line": 107,
+      "class": "StageMetrics",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_refinery\\core\\models.py",
+      "line": 127,
+      "class": "StageResult",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_refinery\\core\\models.py",
+      "line": 137,
+      "class": "FileResult",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_refinery\\utils\\cli_args.py",
+      "line": 28,
+      "class": "RefineryArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_normalizer\\utils\\cli_args.py",
+      "line": 36,
+      "class": "NormalizerArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_fingerprinter\\utils\\cli_args.py",
+      "line": 53,
+      "class": "FingerprintArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_enhancer\\core\\models.py",
+      "line": 121,
+      "class": "AudioFileInfo",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_enhancer\\core\\models.py",
+      "line": 136,
+      "class": "ProcessingResult",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "audio_enhancer\\utils\\cli_args.py",
+      "line": 31,
+      "class": "CliArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "asx_extractor\\utils\\cli_args.py",
+      "line": 21,
+      "class": "ASXExtractorArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "album_genre_tagger\\utils\\cli_args.py",
+      "line": 45,
+      "class": "GenreTaggerArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "album_art_sync\\tests\\test_album_art_sync.py",
+      "line": 144,
+      "class": "BaseCLIArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "album_art_sync\\utils\\cli_args.py",
+      "line": 45,
+      "class": "ArtArgs",
+      "frozen": false,
+      "slots": false
+    },
+    {
+      "file": "album_art_normalizer\\utils\\cli_args.py",
+      "line": 49,
+      "class": "AlbumArtNormalizerArgs",
+      "frozen": false,
+      "slots": false
+    }
+  ],
+  "frozen": [
+    {
+      "file": "audio_suite_shared\\batch_undo.py",
+      "line": 149,
+      "class": "BatchInfo",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\batch_undo.py",
+      "line": 160,
+      "class": "UndoRecord",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\cue_generator.py",
+      "line": 52,
+      "class": "TrackSpec",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\cue_generator.py",
+      "line": 69,
+      "class": "CueFileSpec",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\cue_parser.py",
+      "line": 38,
+      "class": "CueIndex",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\cue_parser.py",
+      "line": 66,
+      "class": "CueTrack",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\cue_parser.py",
+      "line": 95,
+      "class": "CueFileEntry",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\cue_parser.py",
+      "line": 107,
+      "class": "CueSheet",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\dsp_models.py",
+      "line": 21,
+      "class": "EnhancementParams",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\file_processor_base.py",
+      "line": 66,
+      "class": "InplaceDspResult",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\lrc_handler.py",
+      "line": 43,
+      "class": "LrcLine",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\lrc_handler.py",
+      "line": 56,
+      "class": "LrcMetadata",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\lrc_handler.py",
+      "line": 75,
+      "class": "LrcDocument",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\platform_support.py",
+      "line": 121,
+      "class": "PlatformBranch",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\system_requirements.py",
+      "line": 32,
+      "class": "SystemRequirement",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\tag_helper_base.py",
+      "line": 48,
+      "class": "LyricsTags",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_suite_shared\\tool_plugin.py",
+      "line": 26,
+      "class": "ToolManifest",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "tag_field_updater\\core\\mapping_engine.py",
+      "line": 17,
+      "class": "ProcessingResult",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "tag_editor\\core\\csv_io.py",
+      "line": 32,
+      "class": "CsvImportPlan",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "tag_editor\\core\\processor.py",
+      "line": 70,
+      "class": "FieldEdit",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "tag_editor\\core\\processor.py",
+      "line": 92,
+      "class": "EditStats",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "silence_trimmer\\core\\trimmer.py",
+      "line": 18,
+      "class": "TrimResult",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "replaygain_analyzer\\core\\file_processor.py",
+      "line": 54,
+      "class": "_MeasureJob",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "replaygain_analyzer\\core\\file_processor.py",
+      "line": 71,
+      "class": "_WriteJob",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "mood_analyzer\\core\\signal_mood_engine.py",
+      "line": 67,
+      "class": "MoodAnalysis",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "mood_analysis_batch_tagger\\core\\batch_analysis_engine.py",
+      "line": 75,
+      "class": "BatchResult",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "master_driver\\ui\\cards\\_card_base.py",
+      "line": 39,
+      "class": "CardCaption",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "master_driver\\ui\\cards\\_card_base.py",
+      "line": 49,
+      "class": "CardEntryRow",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "master_driver\\ui\\cards\\_card_base.py",
+      "line": 61,
+      "class": "CardComboRow",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "master_driver\\ui\\cards\\_card_base.py",
+      "line": 74,
+      "class": "CardCheckEntryRow",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "master_driver\\ui\\cards\\_card_base.py",
+      "line": 86,
+      "class": "SimpleCardSpec",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "lyrics_manager\\core\\providers\\base.py",
+      "line": 28,
+      "class": "LyricResult",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "library_stats\\core\\completeness.py",
+      "line": 46,
+      "class": "TagCompleteness",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "library_stats\\core\\completeness.py",
+      "line": 63,
+      "class": "CompletenessReport",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "library_stats\\core\\file_processor.py",
+      "line": 239,
+      "class": "_FileTags",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "key_detector\\core\\key_engine.py",
+      "line": 149,
+      "class": "KeyAnalysis",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "cd_ripper\\core\\accuraterip.py",
+      "line": 76,
+      "class": "DiscIds",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "cd_ripper\\core\\accuraterip.py",
+      "line": 144,
+      "class": "TrackChecksums",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "cd_ripper\\core\\accuraterip.py",
+      "line": 246,
+      "class": "DBTrackEntry",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "cd_ripper\\core\\accuraterip.py",
+      "line": 261,
+      "class": "DBEntry",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "cd_ripper\\core\\accuraterip.py",
+      "line": 350,
+      "class": "LookupFound",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "cd_ripper\\core\\accuraterip.py",
+      "line": 358,
+      "class": "LookupNotFound",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "cd_ripper\\core\\accuraterip.py",
+      "line": 366,
+      "class": "LookupOffline",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "cd_ripper\\core\\read_offset.py",
+      "line": 49,
+      "class": "TrackReadLayout",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "cd_ripper\\core\\track_processor.py",
+      "line": 60,
+      "class": "RipVerificationConfig",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "cd_ripper\\core\\track_processor.py",
+      "line": 102,
+      "class": "C2DiagnosticResult",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "cd_ripper\\core\\track_processor.py",
+      "line": 417,
+      "class": "VerificationPlan",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_fingerprinter\\core\\album_cluster.py",
+      "line": 37,
+      "class": "AlbumFile",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_fingerprinter\\core\\album_cluster.py",
+      "line": 61,
+      "class": "ReleaseGroupCluster",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_fingerprinter\\core\\album_cluster.py",
+      "line": 82,
+      "class": "AlbumFileDecision",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_fingerprinter\\core\\album_cluster.py",
+      "line": 111,
+      "class": "AlbumResolution",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_fingerprinter\\core\\file_processor.py",
+      "line": 56,
+      "class": "_FingerprintJob",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_fingerprinter\\core\\fingerprinter.py",
+      "line": 34,
+      "class": "FpcalcOutput",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_fingerprinter\\core\\models.py",
+      "line": 13,
+      "class": "Fingerprint",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_fingerprinter\\core\\models.py",
+      "line": 30,
+      "class": "ReleaseGroup",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_fingerprinter\\core\\models.py",
+      "line": 47,
+      "class": "AcoustidRecording",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_fingerprinter\\core\\models.py",
+      "line": 76,
+      "class": "LookupResult",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_fingerprinter\\core\\models.py",
+      "line": 103,
+      "class": "FingerprintParams",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_fingerprinter\\core\\models.py",
+      "line": 137,
+      "class": "FingerprintFileResult",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "audio_enhancer\\core\\models.py",
+      "line": 34,
+      "class": "EnhancementParams",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "album_art_sync\\core\\pipeline.py",
+      "line": 34,
+      "class": "ArtSyncReport",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "album_art_sync\\core\\ranker.py",
+      "line": 14,
+      "class": "RankedCandidate",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "album_art_normalizer\\core\\art_processor.py",
+      "line": 79,
+      "class": "ProcessingResult",
+      "frozen": true,
+      "slots": false
+    },
+    {
+      "file": "album_art_normalizer\\core\\art_processor.py",
+      "line": 94,
+      "class": "ImageResizeSpec",
+      "frozen": true,
+      "slots": false
+    }
+  ]
+}

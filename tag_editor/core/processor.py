@@ -57,7 +57,7 @@ _TRACK_PATTERN = re.compile(r"([1-9][0-9]{0,3})(?:/([1-9][0-9]{0,3}))?")
 _YEAR_PATTERN = re.compile(r"([12][0-9]{3})(?:-[0-9]{2}-[0-9]{2})?")
 
 
-@dataclass
+@dataclass(frozen=True)
 class TagRow:
     """One loaded audio file and its editable tag values."""
 

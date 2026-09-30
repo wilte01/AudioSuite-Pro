@@ -28,7 +28,7 @@ class RecoveryAction(Enum):
     USER_CHOICE = "user_choice"
 
 
-@dataclass
+@dataclass(frozen=True)
 class RetryConfig:
     """Configuration for retry behavior."""
 
