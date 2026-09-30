@@ -1470,3 +1470,49 @@ guide to a later item.** Consequences, all recorded rather than assumed:
 Note: the plan text at A2 is left as originally written so the audit trail
 shows what was planned; this entry is the supersession of record.
 
+### decision D-hardening (2026-09-30, maintainer-approved) — anti-vacuity hardening of the test discipline
+
+During the Stage-3 GUI work, several of the assistant's own test drafts
+transiently contained shapes that compile and pass but verify nothing
+(`assert x if False else y`, `assert ... or True`, duplicate blocks,
+undefined names). Root cause was verified empirically: every such draft was
+generated through shell-string editing (`python -c` / here-string
+`str.replace(...)` chains) — every file-tool edit in the same session came
+out clean — so the fix addresses the mechanism, not one incident. Maintainer
+approved all three counter-measures; commit `804b2b0`:
+
+1. **Discipline rule (global AGENTS.md §9)** — "No shell-string code
+   surgery": file content is written via the file tools; a bulk edit that
+   genuinely needs a script is a script on disk, reviewed, run, diffed —
+   never inline text built under quoting pressure.
+2. **Vacuity lock** — new `tests/test_vacuous_asserts.py`: AST sweep over
+   every tracked `tests/**` file rejecting constant-operand boolean
+   asserts, tuple-literal operands and constant `IfExp` tests, with
+   positive/negative non-vacuity controls. It found **four live defects**
+   the previous gates missed, all fixed at intent in the same change
+   (including a masked-false `assert hasattr(FingerprinterApp, "TOOL_ID")`
+   that was a module constant, and a no-op dependency-census assertion,
+   each replaced with the real consumer contract).
+3. **Ruff hardening** — `pyproject.toml` `[tool.ruff.lint] select` now
+   includes the B005/B006/B008/B011/B015/B017/B018/B024/B025/B026/B027/
+   B028/B032 and PLW0120/0127/0129/0131 subsets, triaged on the full tree.
+   All 12 findings fixed at intent in the same change: dead attribute
+   accesses in `audio_refinery/core/pipeline.py` (audio-write path; no
+   behaviour change — the accesses were no-ops), three duplicate `OSError`
+   except arms in `audio_suite_shared/platform_utils.py` (narrowed to
+   `CalledProcessError` behind the fully-handling `OSError` arm),
+   a no-op fixture-formality line in `file_reorganizer/tests`, and six
+   `pytest.raises(Exception)` frozen-dataclass tests narrowed to the C1
+   contract (`FrozenInstanceError`) with imports added.
+
+Gate evidence (bare run, same command block as the coverage report):
+`compileall` exit 0; `ruff check .` clean; `ruff format --check .` "778
+files already formatted" (779 with the new file); `mypy .` "Success: no
+issues found in 458 source files"; bandit 0 High / 0 Medium (41 Low);
+bare `pytest -q -p no:cacheprovider` → **7,883 passed, 3 skipped, 30
+deselected** in 226.53s; `coverage report` total 27,592 stmts / 3,374
+missed = **88%** (≥75). Staged secret scans clean. Policy consequence for
+future stages: the lint gate now fails on any vacuous-assert or
+over-broad-raises reintroduction, so "shipping a draft and fixing later"
+is fenced both by review convention (rule 1) and by tooling (rules 2–3).
+
