@@ -698,3 +698,81 @@ class TestMP4HandlerRaw:
             with pytest.raises(ValueError, match="boom"):
                 handler.set_raw_tags(SimpleNamespace())
         assert "Failed to save raw MP4 tags" in caplog.text
+
+
+# ── Facade surface (iteration-7 C2) ──────────────────────────────────────────
+
+
+class TestFacadeSurface:
+    """The facade re-exports the full pre-split public name set unchanged."""
+
+    _PRE_SPLIT_PUBLIC_NAMES: frozenset[str] = frozenset(
+        {
+            "Any",
+            "AudioFormatError",
+            "AudioTagError",
+            "BaseTagHandler",
+            "Callable",
+            "EDITABLE_FIELDS",
+            "IFFID3Handler",
+            "LyricsTags",
+            "MP3Handler",
+            "MP4Handler",
+            "TYPE_CHECKING",
+            "TagHandlerFactory",
+            "Union",
+            "VorbisHandler",
+            "abc",
+            "dataclass",
+            "logger",
+            "logging",
+            "os",
+        }
+    )
+
+    def test_public_name_set_is_preserved(self) -> None:
+        """Every pre-split public name is still importable from the facade."""
+        import audio_suite_shared.tag_helper_base as facade
+
+        names = {n for n in dir(facade) if not n.startswith("_")}
+
+        assert names == self._PRE_SPLIT_PUBLIC_NAMES
+
+    def test_handler_reexports_are_the_real_classes(self) -> None:
+        """The facade names bind to the per-format modules' real classes."""
+        import audio_suite_shared.tag_helper_base as facade
+        from audio_suite_shared import (
+            tag_helper_iffid3,
+            tag_helper_mp3,
+            tag_helper_mp4,
+            tag_helper_vorbis,
+        )
+
+        assert facade.MP3Handler is tag_helper_mp3.MP3Handler
+        assert facade.IFFID3Handler is tag_helper_iffid3.IFFID3Handler
+        assert facade.VorbisHandler is tag_helper_vorbis.VorbisHandler
+        assert facade.MP4Handler is tag_helper_mp4.MP4Handler
+
+        for handler_cls in (
+            facade.MP3Handler,
+            facade.IFFID3Handler,
+            facade.VorbisHandler,
+            facade.MP4Handler,
+        ):
+            assert issubclass(handler_cls, facade.BaseTagHandler)
+
+    def test_factory_registry_maps_every_supported_extension(self) -> None:
+        """The factory still registers exactly the pre-split extension set."""
+        from audio_suite_shared.tag_helper_base import TagHandlerFactory
+
+        assert set(TagHandlerFactory._handlers) == {
+            ".mp3",
+            ".flac",
+            ".ogg",
+            ".opus",
+            ".m4a",
+            ".mp4",
+            ".wav",
+            ".aiff",
+            ".aif",
+        }
