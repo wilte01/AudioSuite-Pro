@@ -26,6 +26,9 @@ from audio_suite_shared.cli_helpers import (
     consume_handshake_token,
     print_tool_usage_error,
 )
+from audio_suite_shared.cli_helpers import (
+    was_launched_from_driver as was_launched_from_driver,
+)
 
 ACCEPTED_HANDSHAKE = frozenset(
     {
