@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -269,7 +270,7 @@ class TestDataclasses:
         tc = TagCompleteness(
             field="bpm", total=1, present=0, missing=1, pct_complete=0.0
         )
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             tc.present = 5  # type: ignore[misc]
 
 

@@ -4,6 +4,7 @@ tests/test_cue_parser.py — tests for audio_suite_shared/cue_parser.py.
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
@@ -117,7 +118,7 @@ class TestIndexTiming:
 
     def test_frozen(self):
         index = CueIndex(1, 0, 0, 0)
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             index.mm = 1
 
 

@@ -14,6 +14,7 @@ Run with:
 from __future__ import annotations
 
 import io
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from unittest.mock import ANY, MagicMock, patch
 
@@ -85,7 +86,7 @@ class TestProcessingResult:
 
     def test_is_frozen(self) -> None:
         r = ProcessingResult(total_files=5, images_updated=2, errors=0)
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             r.total_files = 99  # type: ignore[misc]
 
 
@@ -109,7 +110,7 @@ class TestImageResizeSpec:
 
     def test_frozen(self) -> None:
         spec = ImageResizeSpec(source_size=(100, 100), target_size=(200, 200))
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             spec.target_size = (300, 300)  # type: ignore[misc]
 
 

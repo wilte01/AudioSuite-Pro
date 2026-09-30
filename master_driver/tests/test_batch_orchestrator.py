@@ -437,12 +437,13 @@ class TestDependencyGraph:
         registry = get_registry()
         registered_ids = {m.id for m in registry.all}
         graph_ids = set(DEPENDENCY_GRAPH.keys())
-        # Every registered id should be in the graph (or at least not cause errors)
+        # The consumer contract: a tool missing a graph entry resolves to
+        # empty dependencies ( newcomers run in parallel by default ), which
+        # is exactly what run_modules reads. Assert that resolution works.
         missing = registered_ids - graph_ids
-        # This is informative; new tools may not have entries yet
-        # but that's OK — they default to empty deps
         for tid in missing:
-            assert tid in DEPENDENCY_GRAPH or True
+            deps = DEPENDENCY_GRAPH.get(tid, [])
+            assert isinstance(deps, list), (tid, deps)
 
     def test_no_self_reference(self):
         for tid, deps in DEPENDENCY_GRAPH.items():

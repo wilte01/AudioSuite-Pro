@@ -53,7 +53,9 @@ def open_path(path: str) -> None:
         messagebox.showerror(
             "Open Error", f"Failed to open path:\n{path}\n\n{str(exc)}"
         )
-    except (OSError, subprocess.CalledProcessError) as exc:
+    except subprocess.CalledProcessError as exc:
+        # OSError is fully handled by the arms above; only the subprocess
+        # failure (start-style handler chain) reaches this catch-all arm.
         mapped = map_to_audio_error(exc)
         logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
         messagebox.showerror(
@@ -187,7 +189,8 @@ def open_help(guide_filename: str) -> None:
         messagebox.showerror(
             "Help File Error", f"Failed to open help file:\n{help_file}\n\n{str(exc)}"
         )
-    except (OSError, subprocess.CalledProcessError) as exc:
+    except subprocess.CalledProcessError as exc:
+        # Same dedup as open_path: OSError is fully handled above.
         mapped = map_to_audio_error(exc)
         logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
         messagebox.showerror(
@@ -245,7 +248,9 @@ def setup_window(
             config_module.save_value(config_key, root.geometry())
         except OSError as _exc:
             logger.debug("Could not save window geometry: %s", _exc, exc_info=True)
-        except (OSError, subprocess.CalledProcessError) as _exc:
+        except subprocess.CalledProcessError as _exc:
+            # OSError fully handled by the arm above; only subprocess failures
+            # (via the shared config write seam) reach this arm.
             logger.debug(
                 "Unexpected error saving window geometry: %s", _exc, exc_info=True
             )

@@ -806,7 +806,6 @@ class TestEngineRunIntegration:
     ) -> None:
         src = tmp_path / "src"
         src.mkdir()
-        flac_factory  # noqa: F841 - fixture initialisation
         track = src / "t1.flac"
         _make_flac(track)
         _tag_flac(

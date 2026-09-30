@@ -192,7 +192,6 @@ class TestUtilSelectAll:
 def assert_bound(callback: object, name: str, obj: object) -> None:
     """Bound methods are fresh objects per access: compare attributes."""
     assert getattr(callback, "__self__", None) is obj
-    assert callable(getattr(callback, "__name__", name)) or True  # noqa: E501
     assert getattr(callback, "__name__", None) == name
 
 

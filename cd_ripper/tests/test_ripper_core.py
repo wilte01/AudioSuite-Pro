@@ -22,6 +22,7 @@ import string
 import struct
 import sys
 import threading
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1586,7 +1587,7 @@ class TestRipVerificationConfig:
 
     def test_is_frozen(self):
         config = RipVerificationConfig()
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             config.max_read_attempts = 5
 
 

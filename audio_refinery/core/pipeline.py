@@ -288,8 +288,6 @@ def _load_source(
 
     emit("Load", "Decoding audio…")
     audio: AudioSegment = AudioSegment.from_file(str(source_path))
-    audio.sample_width
-    audio.channels
     return original_tags, audio
 
 

@@ -13,11 +13,14 @@ class TestAppClassDefinition:
         assert FingerprinterApp.__name__ == "FingerprinterApp"
 
     def test_mixin_and_props(self):
+        from audio_fingerprinter import app as app_mod
         from audio_fingerprinter.app import FingerprinterApp
         from audio_suite_shared.ui_helpers import UIHelperMixin
 
         assert issubclass(FingerprinterApp, UIHelperMixin)
-        assert hasattr(FingerprinterApp, "TOOL_ID") or True
+        # TOOL_ID is a module-level constant in app.py, not a class
+        # attribute; the previous `... or True` masked that distinction.
+        assert app_mod.TOOL_ID == "audio_fingerprinter"
         assert FingerprinterApp.HELP_GUIDE == "Audio_Fingerprinter_User_Guide.docx"
 
     def test_module_constants(self):

@@ -4,6 +4,7 @@ tests/test_cue_generator.py — tests for audio_suite_shared/cue_generator.py.
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
@@ -154,7 +155,7 @@ class TestValidation:
 
     def test_specs_are_frozen(self):
         spec = TrackSpec(1, "One")
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             spec.title = "Changed"
 
 

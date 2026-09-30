@@ -360,16 +360,10 @@ class TestExecuteFlow:
         assert app.status_var.set.call_args_list[0].args[0] == "Executing..."
         thread = fake_threading.Thread.call_args
         assert_bound(thread.kwargs["target"], "_execute_thread", app)
-        assert (
-            thread.kwargs["args"]
-            == (
-                str(tmp_path / "src"),
-                str(tmp_path / "dst"),
-                ...,
-            )
-            if False
-            else True
-        )
+        assert thread.kwargs["args"][:2] == (
+            str(tmp_path / "src"),
+            str(tmp_path / "dst"),
+        ), thread.kwargs["args"]
 
     def test_execute_thread_runs_in_undo_batch_and_finishes(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path

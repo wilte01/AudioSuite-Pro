@@ -110,10 +110,9 @@ class TestValidateExecutable:
             validate_executable(str(script))
 
     def test_case_insensitive_for_exe_names(self):
-        # exe_name is lowercased before checking
-        assert (
-            validate_executable("FFMPEG") is True or True
-        )  # platform-dependent; no crash
+        # exe_name is lowercased before checking: both spellings must agree,
+        # whatever the platform-dependent allowlist says for the base name.
+        assert validate_executable("FFMPEG") is validate_executable("ffmpeg")
 
     def test_error_message_contains_executable_name(self):
         with pytest.raises(SubprocessSecurityError, match="bash"):

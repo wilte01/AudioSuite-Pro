@@ -149,7 +149,36 @@ target-version = "py310"
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I"]
+# Session D3 hardening: the E/F/I baseline misses assertions that can never
+# fail and a set of null-flow shapes that shell-string drafting produced.
+# The B (bugbear) and PLW subsets below were triaged on the full suite at
+# adoption; anything here must either be fixed or explicitly recorded as
+# policy per conflict with an existing accepted shape.
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "B005",  # duplicate .strip/.split arg: masks intent, never correct
+    "B006",  # mutable default argument (dataclass arg dicts)
+    "B008",  # call in default arg other than well-known patterns
+    "B011",  # `assert False` shipped as flow control
+    "B015",  # pure comparison statement that does nothing
+    "B018",  # useless attribute/class access statement
+    "B017",  # assertRaises(Exception): too broad in test settings
+    "B018",  # (duplicate guard removals handled by ruff itself)
+    "B024",  # ABC without abstract methods
+    "B025",  # duplicate base classes
+    "B026",  # fn keyword only arg used as positional in star form
+    "B027",  # empty method in interface/class
+    "B028",  # warnings.warn without stacklevel
+    "B032",  # unintended f-string cast
+    "PLW0120",  # useless else-on-loop slot
+    "PLW0127",  # self-assignment
+    "PLW0129",  # assert on a string literal
+    "PLW0131",  # named-expression reuse leak
+]
+unfixable = []
 ignore = []
 
 [tool.pytest.ini_options]
