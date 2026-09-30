@@ -29,6 +29,7 @@ Driver-mirror variables
 
 from __future__ import annotations
 
+import sys
 import tkinter as tk
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import noise_reduction.app as nr_mod
 from noise_reduction.app import NoiseReductionApp
 
 _SETTINGS_KEYS = (
@@ -353,3 +355,191 @@ class TestDriverMirrorVars:
         app.parallel_var = tk.BooleanVar(value=False)
         app.parallel_var.set(True)
         assert app.parallel_var.get() is True
+
+
+@pytest.fixture()
+def app_root(root: tk.Tk) -> Any:
+    top = tk.Toplevel(root)
+    top.withdraw()
+    try:
+        yield top
+    finally:
+        top.destroy()
+
+
+@pytest.fixture()
+def real_app(app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setattr(
+        "noise_reduction.app.suite_config.load_last_directory", lambda: ""
+    )
+    monkeypatch.setattr(sys, "argv", ["noise_reduction"])
+    return NoiseReductionApp(app_root)
+
+
+def assert_bound(callback: object, name: str, obj: object) -> None:
+    """Bound methods are fresh objects per access: compare attributes."""
+    assert getattr(callback, "__self__", None) is obj
+    assert getattr(callback, "__name__", None) == name
+
+
+class TestRealAppConstructionD3:
+    def test_full_ui_builds_and_wires_vars(self, real_app: Any) -> None:
+        app = real_app
+        assert app.start_btn is not None
+        assert app.folder_path.get() == ""
+        assert app.run_mode.get() == "Dry Run"
+        assert app.reduce_hum.get() is False
+        assert app.noise_end_ms.get() == 500
+
+    def test_worker_slot_pool_starts_full(self, real_app: Any) -> None:
+        drained = []
+        while True:
+            try:
+                drained.append(real_app.slot_queue.get_nowait())
+            except Exception:
+                break
+        assert drained == list(range(nr_mod.DEFAULT_MAX_WORKERS))
+
+
+class TestStartGuardsD3:
+    def _shell(self) -> Any:
+        app = object.__new__(NoiseReductionApp)
+        app.root = MagicMock()
+        app.folder_path = MagicMock()
+        app.run_mode = MagicMock()
+        app.reduce_hum = MagicMock()
+        app.reduce_broadband = MagicMock()
+        app.hum_frequency = MagicMock()
+        app.hum_harmonics = MagicMock()
+        app.hum_quality = MagicMock()
+        app.noise_start_ms = MagicMock()
+        app.noise_end_ms = MagicMock()
+        app.gate_threshold_db = MagicMock()
+        app.overall_status = MagicMock()
+        app.notebook = MagicMock()
+        app.start_btn = MagicMock()
+        app._tab_processing = MagicMock()
+        app.file_listbox = MagicMock()
+        app.progress = MagicMock()
+        app.stats_label = MagicMock()
+        app._safe_slot_vars = MagicMock()
+        app.slot_queue = MagicMock()
+        return app
+
+    def test_missing_folder_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        app = self._shell()
+        dialogs = MagicMock()
+        monkeypatch.setattr("noise_reduction.app.messagebox", dialogs)
+        app.folder_path.get.return_value = ""
+
+        app._on_start()
+
+        dialogs.showwarning.assert_called_once()
+
+    def test_nonexistent_folder_shows_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = self._shell()
+        dialogs = MagicMock()
+        monkeypatch.setattr("noise_reduction.app.messagebox", dialogs)
+        app.folder_path.get.return_value = "D:/definitely_missing_dir"
+
+        app._on_start()
+
+        dialogs.showerror.assert_called_once()
+
+    def test_no_stage_selected_warns(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = self._shell()
+        dialogs = MagicMock()
+        monkeypatch.setattr("noise_reduction.app.messagebox", dialogs)
+        app.folder_path.get.return_value = str(tmp_path)
+        app.reduce_hum.get.return_value = False
+        app.reduce_broadband.get.return_value = False
+
+        app._on_start()
+
+        dialogs.showwarning.assert_called_once()
+
+    def test_valid_start_builds_params_and_thread(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        fake_threading = MagicMock()
+        monkeypatch.setattr("noise_reduction.app.threading", fake_threading)
+        monkeypatch.setattr("noise_reduction.app.messagebox", MagicMock())
+        monkeypatch.setattr(
+            "noise_reduction.app.suite_config.save_last_directory", MagicMock()
+        )
+        built: dict[str, Any] = {}
+
+        class FakeParams:
+            def __init__(self, **kwargs: Any) -> None:
+                built.update(kwargs)
+
+        monkeypatch.setattr("noise_reduction.app.NoiseReductionParams", FakeParams)
+        monkeypatch.setattr(
+            "noise_reduction.app.run_noise_reduction", lambda *a, **k: None
+        )
+        app = self._shell()
+        app.prepare_in_place_audition = MagicMock()
+        app.folder_path.get.return_value = str(tmp_path)
+        app.reduce_hum.get.return_value = True
+        app.hum_frequency.get.return_value = 60
+        app.hum_harmonics.get.return_value = 8
+        app.hum_quality.get.return_value = 30.0
+        app.noise_start_ms.get.return_value = 0
+        app.noise_end_ms.get.return_value = 500
+        app.gate_threshold_db.get.return_value = 3.0
+        app.run_mode.get.return_value = "Live Update"
+
+        app._on_start()
+
+        assert built["dry_run"] is False
+        assert built["reduce_hum"] is True
+        assert built["gate_threshold_db"] == 3.0
+        # The target is a nested closure (not a bound method): compare name.
+        assert fake_threading.Thread.call_args.kwargs["target"].__name__ == (
+            "_run_noise_reduction_with_undo"
+        )
+        app_prepare = app.prepare_in_place_audition
+        app_prepare.assert_called_once_with(str(tmp_path), nr_mod.SUPPORTED_EXTENSIONS)
+
+
+class TestProgressUIAndErrorsD3:
+    def test_on_progress_marshals_onto_main_thread(self) -> None:
+        app = object.__new__(NoiseReductionApp)
+        app.root = MagicMock()
+
+        app._on_progress(3, 10, 2, 1, 1, "song.mp3")
+
+        assert app.root.after.call_args.args[0] == 0
+        assert getattr(app.root.after.call_args.args[1], "__name__") == (
+            "_update_progress_ui"
+        )
+
+    def test_update_progress_ui_sets_all_widgets(self) -> None:
+        app = object.__new__(NoiseReductionApp)
+        app.progress = MagicMock()
+        app.stats_label = MagicMock()
+        app.file_listbox = MagicMock()
+
+        app._update_progress_ui(3, 10, 2, 1, 1, "song.mp3")
+
+        assert app.stats_label.config.call_args.kwargs["text"].startswith(
+            "Processed: 3"
+        )
+        assert app.file_listbox.insert.call_args.args[1] == "song.mp3"
+
+    def test_on_error_restores_start_button(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = object.__new__(NoiseReductionApp)
+        app.start_btn = MagicMock()
+        dialogs = MagicMock()
+        monkeypatch.setattr("noise_reduction.app.messagebox", dialogs)
+
+        app._on_error("boom")
+
+        dialogs.showerror.assert_called_once()
+        app.start_btn.config.assert_called_once_with(state="normal")

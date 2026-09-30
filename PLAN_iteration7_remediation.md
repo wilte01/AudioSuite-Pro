@@ -93,7 +93,7 @@ once. A8 (the typing strength) is an action too: it is recorded in Stage 0.
 | audit A1 — CLI advertises `enhance --dry`; flag does not exist; `album_art_normalizer` docs understate 9 formats | Medium | Contract / docs | 0 | `[ ]` A1 |
 | audit A2 — `tempo_analyzer` guides have no generator; 12 `.docx.bak` tracked across 10 folders | Medium | Docs hygiene | 0 | `[ ]` A2 |
 | audit A3 — duplication class fixed at 2 instances, not across the class (3 families; largest clone ~395 lines) | Medium | Maintainability | 1 | `[x]` B1–B5 |
-| audit A4 — GUI surfaces 49.6% vs 93.7% non-GUI; 8 modules at exactly 0% | Low | Test depth | 3 | `[ ]` D1–D3 |
+| audit A4 — GUI surfaces 49.6% vs 93.7% non-GUI; 8 modules at exactly 0% | Low | Test depth | 3 | `[x]` D1–D3 |
 | audit A5 — 5 silent exception swallows | Low | Code quality | 0 | `[ ]` A3 |
 | audit A6 — `tag_helper_base.py` 2,151 lines; 167 functions >80 lines; 319-line audio-write `process_file` | Low | Maintainability | 2 | `[x]` C2, C3 |
 | audit A7 — 55% `frozen=True` adoption; 0 `slots=True` | Low | Consistency | 2 | `[x]` C1 |
@@ -961,7 +961,7 @@ real; only per-file tag readers are mocked.*
 
 ---
 
-### D3 `[ ]` — Raise the remaining GUI floors: `master_driver/app.py` 17%, `audio_refinery/app.py` 31%, the 23–37% band `[audit A4]`
+### D3 `[x]` — Raise the remaining GUI floors: `master_driver/app.py` 17%, `audio_refinery/app.py` 31%, the 23–37% band `[audit A4]`
 
 **Priority:** Low | **Effort:** 0.8 day | **Risk:** Low-Medium (GUI-only)
 
@@ -972,30 +972,52 @@ real; only per-file tag readers are mocked.*
 `audio_fingerprinter/app.py` (37%), `pop_click_remover/app.py` (37%), plus
 the cd_ripper UI panels (`rip_tab` 17%, `drive_config_panel` 31%).
 
+**Per-app method (record):** every real app was constructed on a withdrawn
+`Toplevel` of the session-hidden root (no `tk.Tk()`), which executes
+`__init__` + full `setup_ui`; per-app behaviour tests then drive the
+validation guards and the run threads with the module's `threading`
+captured, asserting **the mode flag reaches the core worker entry**
+(`is_dry_run` / `dry_run` / refresh flag, the GUI side of the mode-flag
+rule). The real constructor for argv-driven tools requires pinning
+`sys.argv` (the ctor consumes the Master-Driver handshake; pytest's argv
+must not leak into the parser). Re-measured percentages below are from the
+same-command-block gate run.
+
 **Scope:**
 
-- [ ] For each app: constructor/wiring tests via `object.__new__` +
-      `MagicMock`; the run-mode (Dry Run/Live) plumbing asserted to reach the
-      core entry point (the mode-flag rule, GUI side); start/stop state
-      transitions; per-app *distinct-behaviour* assertion (each app calls its
-      own core entry).
-- [ ] Batch as sub-checklists with one Completion Log row per app — the
-      item is done when each named app is ≥ 40% or carries a written reason
-      (e.g. pure layout code with no logic worth asserting).
-- [ ] Apps touched by Stage-1 B4 (`bpm_analyzer`, `lyrics_manager`) inherit
+- [x] Per-app: constructor/wiring tests via the real `Toplevel`
+      construction; run-mode (Dry Run/Live) plumbing asserted to reach the
+      core entry point; start/stop state transitions; per-app
+      *distinct-behaviour* assertion (each app calls its own core entry).
+- [x] Batch as sub-checklists with one Completion Log row per app — the
+      item is done when each named app is ≥ 40% or carries a written reason.
+      *(Zero reasons needed: every named app exceeded 40%; see the D3 rows
+      below for the per-app final numbers.)*
+- [x] Apps touched by Stage-1 B4 (`bpm_analyzer`, `lyrics_manager`) inherit
       that item's shared-base tests — record the overlap.
+      *(B4's `tool_app_base` tests were not duplicated; both apps' D3 rows
+      exercise only their newly-uncovered app-specific paths.)*
+
+**Defect found and fixed in-change (the session's hang):** a new
+`audio_refinery` test assigned `root.after = MagicMock()` **directly on the
+session-shared hidden Tk root** without monkeypatch restoration. That
+interned the real bound method for the rest of the session, so every later
+`root.after(...)` — including `audio_suite_shared`'s `TestShowMessage`
+200 ms "close the modal" timer — scheduled nothing and the real Tk modal in
+`show_message` blocked the bare suite forever. Fixed by building the test's
+own `StringVar` on a per-test `Toplevel` and patching `after` via
+monkeypatch (reverted). Verified by the streaming order run: the exact
+failure triad (entry stubs → refinery ctor → `TestShowMessage`) hangs
+pre-fix and passes in 1.7 s post-fix; bare full suite 7,879 passed.
 
 **Tests (lockstep):** per-app test extensions in each tool's existing
-`test_app.py`.
+`test_app.py` (`cd_ripper` had none and gained one per the naming rule).
 
-**Acceptance:** GUI-surface coverage (the 154-module band) moves from 49.6%
-to ≥ 60%; no app in the list left below 40% without a recorded reason; bare
-full-suite green.
-
-**Risks:** GUI tests are the flakiest surface — keep to the shared-root
-fixtures and the `MagicMock` pattern; any test that needs a real display
-takes the `requires_display` explicit skip with a reason, never the blanket
-hook (iteration-5 B4's contract).
+**Acceptance:** GUI-surface coverage (the 155-module band) reaches
+**74.1%** (from 49.6%, target ≥ 60%); no GUI `app.py` below 40%; total
+coverage 88%. The one remaining sub-40% GUI module is
+`asx_extractor/ui/processing_tab.py` (29%, 24 stmts) — not an `app.py`, not
+an audit-named item, left for iteration-6 §C3's all-tool parity pass.
 
 ---
 
@@ -1323,6 +1345,19 @@ incomplete by definition.
 | D1 | 3 | 2026-09-30 | compileall exit 0; ruff check . "All checks passed!"; ruff format --check . "773 files already formatted"; mypy . "Success: no issues found in 458 source files"; bandit -r . -x ./.venv -c pyproject.toml 0 High / 0 Medium (41 Low, unchanged); bare pytest -q -p no:cacheprovider -> 7760 passed, 3 skipped, 30 deselected, 46 warnings; coverage report total 27594 stmts, 5297 missed = 81% (>=75; same command block as the run); Milestone: per-module parse of the same report shows the production-0% list EMPTY | Test-only change, 2 new files: tag_field_updater/tests/test_app.py (19 tests) + tests/test_package_entry_stubs.py (13 tests incl. 5 parametrised main.pyw stubs). tag_field_updater/ui/app.py 0% -> 121/121 (100%): hidden-root constructor/wiring on a withdrawn Toplevel (the bare root was already pack-managed by other suites' tests - "cannot use geometry manager grid" full-suite polluter, avoided rather than fixed cross-suite), browse/progress/start/scan/finish/stop flows, root.after(0,...) main-thread marshalling (bound methods compared via __self__/__name__, never identity), scan-error + dialog-failure caplog witnesses, main() auto-start and both sys.exit(1) guards. lyrics_manager/__main__.py 0% -> 10/10: exec-based launch-path probe (plan's `python -m lyrics_manager --help` subprocess form is invalid - the module ignores argv and would hang a headless run - deviation recorded). The five main.pyw stubs, album_art_normalizer/__main__.py (86%), audio_enhancer/main.py (100%), tag_field_updater/__main__.py (100%, --help/{none}/--directory argv contracts) and tag_field_updater/ui/__init__.py (100%) all execute. Two ordering landmines found and fixed lockstep, both documented in the test docstrings: (1) a module-level import of tag_field_updater.ui.app in a test module is executed at pytest COLLECTION time, before the launcher-stub test of test_pyw_launchers.py, and silently inverts that test's branch - all ui.app imports are function-local, and both new test modules restore first-party sys.modules entries after each test (deletion also scrubs the parent package's attribute, else `from tag_field_updater import ui` re-binds a stale module object and two class copies coexist); numpy's C extensions refuse to load twice per process, so the restore deletes first-party names only. (2) the plan's "eight" census is 17 + the nine missed stubs; B2's overlap is recorded per item rule (zero cards at 0% at D1 baseline - no card test re-written). Defect observed, not fixed here (out of item scope): one audio_normalizer setup-tab test reports "broken Tcl/Tk environment" on this host (pre-existing skip). Four staged secret scans clean. |
 
 | D2 | 3 | 2026-09-30 | compileall exit 0; ruff check . "All checks passed!" (1 unused-import fix auto-applied); ruff format --check . "774 files already formatted"; mypy . "Success: no issues found in 458 source files"; bandit -r . -x ./.venv -c pyproject.toml 0 High / 0 Medium (41 Low, unchanged); bare pytest -q -p no:cacheprovider -> 7782 passed, 3 skipped, 30 deselected, 46 warnings; coverage report total 27594 stmts, 5049 missed = 82% (>=75; same command block as the run), with library_stats/app.py at 85% (342 stmts / 52 missed - the >=60% acceptance met) | Test-only change, 1 new file: library_stats/tests/test_app.py (22 tests). library_stats/app.py 12% -> 85%. The real engine runs everywhere as the item mandates: real scan_directory walk + aggregation over a 2-file tmp library (only per-file tag readers mocked, the test_file_processor.py convention), real analyse_completeness, real LibraryCache SQLite backend (scratch db via a factory patched onto the app's default-path constructor) - the cache test asserts 2 rows really stored and the status line reports them, the refresh flag asserted where it actually propagates (thread kwargs (path, True) plus "(full refresh)" status), real export_csv/export_json + completeness CSV/JSON written to real files and read back (header + row-count assertions), the scan-raise error path resets UI and surfaces via patched show_error_from_exception, auto-scan scheduling asserted. Bound methods compared via __self__/__name__ (fresh-object identity trap hit once, locked by a shared assert_bound helper). Chart tab NOT exercised: matplotlib is not a declared suite dependency so HAVE_MPL is False here - the graceful branch renders via the scan-completion flow; recorded as the named remaining gap rather than adding a dependency (approval rule). Premise corrections recorded in the item: no pre-existing test_app.py (created per the naming rule) and no filter UI in the app (the audit's "filter changes" premise was inaccurate; every real flow is covered). Import chain untouched; no production code changes in the diff. Secret scans clean. |
+
+| D3a | 3 | 2026-09-30 | bare `pytest -q -p no:cacheprovider` -> **7,879 passed, 3 skipped, 30 deselected** in 210.96s (-v streaming run), authoritatively re-confirmed with coverage in 316.35s; `python -m coverage report` same command block: total 27,594 stmts / 3,374 missed = **88%** (>=75); per-module parse of the same report: GUI band (155 modules) 8,949 stmts / 2,317 missed = **74.1%** (from 49.6%, target >=60 met); **zero GUI app.py below 40%**; zero production modules at 0%. Six-command gate: compileall exit 0; ruff check "All checks passed!"; ruff format --check "777 files already formatted"; mypy . "Success: no issues found in 458 source files"; bandit 0 High / 0 Medium (41 Low); staged secret scans clean | Per-app rows below (final numbers from the same gate report). One shared D3 defect fixed in-change as the item requires: a test assigned `root.after = MagicMock()` directly on the session-shared hidden root without monkeypatch restoration, interning the real method for the rest of the session and disabling every later `root.after` timer — `TestShowMessage`'s 200ms modal-closer never fired and a full bare suite hung inside a real Tk modal. Triad verified hanging pre-fix, passing post-fix. The pinned-`sys.argv` pattern (ctor consumes the Master-Driver handshake) also had to be documented because the real constructor otherwise parses pytest's own argv. Apps touched by B4 inherit its base tests — overlap recorded, not re-tested. |
+| D3b | 3 | 2026-09-30 | same gate as D3a | **master_driver/app.py 17% -> 91%** (real driver constructed on a Toplevel: `_build_ui`, menu, tab switching + dir mirroring rules, select-all helpers; accent poll transitions; `_on_close` state save; launch delegates patched at the `launch_*` seam asserting progress/on_batch_done hooks; `BatchProgress` zero-total and step-lines rendering, inner `_update` executed directly, per-step status lines + summary + pct asserted). |
+| D3c | 3 | 2026-09-30 | same gate as D3a | **file_reorganizer/app.py 22% -> 81%** (real app constructed; preset apply/collect roundtrip incl. pattern text widgets; preview guards (empty source / missing destination), preview flow with `threading` captured and target asserted; execute flow with real `active_batch`, `FileReorganizer` seam asserting `action`/`dry_run`; `_update_ui` from real `ReorganizerStats`; `_stop`/`_on_close` (engine stop + save_settings seam, destroy called); `run()`). |
+| D3d | 3 | 2026-09-30 | same gate as D3a | **bpm_analyzer/app.py 20% -> 72%** (real app constructed with pinned argv; preset roundtrip; BPM-range/duration/worker validation error paths; valid start threads `_run_analysis` asserting `is_dry_run` reaches the thread args from the run-mode var; `_run_analysis` calls `file_processor.run_analysis` with all flags, wrapped in the real undo batch). |
+| D3e | 3 | 2026-09-30 | same gate as D3a | **metadata_scrubber/app.py 26% -> 80%** (real app; preset roundtrip; missing-folder warning; valid start threads `_run_scrubbing` with the full flag 5-tuple (preserve list, three preserve flags, is_live); `_run_scrubbing` calls `core.scrubber.run_scrubbing` with `is_dry_run` + each preserve flag; `_on_complete` writes the real log and renders the summary labels; **dry run never persists tag_prefs** (regression for the is_live policy)). |
+| D3f | 3 | 2026-09-30 | same gate as D3a | **album_art_normalizer/app.py 28% -> 70%** (real app; missing-folder warning; invalid resolution error; valid start threads `_run_normalization` with dry flag; `_run_normalization` calls the real `process_folder_jpg` seam (patched at the importing module binding) and `file_processor.run_normalization` with `is_dry_run`/`target_size`, and opens the live log with the embedded-target line). |
+| D3g | 3 | 2026-09-30 | same gate as D3a | **cd_ripper/app.py 33% -> 98%** (new `test_app.py`: real window built with both Rip/Results tabs disabled; `_on_ready_to_rip` unlocks the Rip tab and calls `rip_tab.prepare`; `_on_rip_complete` unlocks Results and refreshes). Side-effect band gains: `rip_tab` 17% -> 41%, `drive_config_panel` 31% -> 52%, `metadata_config_panel` 14% -> 45%, `results_tab` 16% -> 47%, `setup_tab` 24% -> 61%, `format_config_panel` 22% -> 83%. |
+| D3h | 3 | 2026-09-30 | same gate as D3a | **noise_reduction/app.py 32% -> 77%** (real app; worker slot pool drains `range(DEFAULT_MAX_WORKERS)`; folder/range/no-stage validation guards; valid start builds `NoiseReductionParams` asserting `dry_run`/hum settings and schedules the nested `_run_noise_reduction_with_undo` closure; in-place audition prepared with the source + `SUPPORTED_EXTENSIONS`; `_on_progress` main-thread marshalling; `_update_progress_ui` widget assertions; `_on_error` re-enables start). Side gain: `ui/setup_tab.py` 24% -> 100%. |
+| D3i | 3 | 2026-09-30 | same gate as D3a | **pop_click_remover/app.py 37% -> 82%** (mirror of D3h's shape: slot pool, three guards, valid start asserting the dry-flag reaches `_on_progress` and `_run_declicking_with_undo`, audition prepared; `_on_error` restores the button). Side gains: `ui/setup_tab.py` 35% -> 80%, results/processing tabs 100%. |
+| D3j | 3 | 2026-09-30 | same gate as D3a | **silence_trimmer/app.py 34% -> 79%** (real app; preset roundtrip; no-folder / no-audio / out-of-range threshold errors; valid start threads `_run` with `_run_was_dry_run` + parallel persistence + audition preparation; `_run` calls `file_processor.run_trimming` with per-field flags incl. threshold, fades, parallel, workers; `_on_progress`). Side gain: `ui/setup_tab.py` 26% -> 87%. |
+| D3k | 3 | 2026-09-30 | same gate as D3a | **audio_fingerprinter/app.py 37% -> 67%** (real app; threshold/max-length parse clamping incl. `not-a-number` -> 0.5 default and length clamps; missing-folder / missing-fpcalc / lookup-without-key error paths; valid start builds `FingerprintParams` asserting `is_dry_run` + album mode + threshold and threads `_run`; `_run` calls `file_processor.run_fingerprinting` with dir, resolved api key and params; `_on_progress` scheduled `_update` executed). Side gain: `ui/setup_tab.py` 35% -> 100%. |
+| D3l | 3 | 2026-09-30 | same gate as D3a | **audio_refinery/app.py 31% -> 76%** (real app with fresh `StageConfig` settings seam; `_ThreadSafeSlotVar` scheduling contract on a per-test toplevel; preset apply on the real config's stage booleans + nested params; five validation guards (missing/nonexistent source, no stages, missing output dir); valid start threads `_run` with `_run_was_dry_run`, `_in_place` = False for a separate output dir, audition prepared via `peek_first_audio`; `_run` calls `app.run_pipeline` (patched at the importing module binding — the file-processor import rule) with `registry`/`config`; `_on_progress` scheduled `_update` executed). Side gains: `ui/setup_tab.py` 72% -> 75%, results/processing tabs 100%. |
 
 ### A3 finding — a sixth silent swallow the plan's census missed
 

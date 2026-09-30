@@ -33,6 +33,7 @@ Driver-mirror variables
 
 from __future__ import annotations
 
+import sys
 import tkinter as tk
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import silence_trimmer.app as st_mod
 from silence_trimmer.app import SilenceTrimmerApp
 
 
@@ -429,3 +431,208 @@ class TestDriverMirrorVars:
         app.parallel_var = tk.BooleanVar(value=False)
         app.parallel_var.set(True)
         assert app.parallel_var.get() is True
+
+
+@pytest.fixture()
+def app_root(root: tk.Tk) -> Any:
+    top = tk.Toplevel(root)
+    top.withdraw()
+    try:
+        yield top
+    finally:
+        top.destroy()
+
+
+@pytest.fixture()
+def real_app(app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setattr(
+        "silence_trimmer.app._suite_config.load_last_directory", lambda: ""
+    )
+    monkeypatch.setattr(sys, "argv", ["silence_trimmer"])
+    return SilenceTrimmerApp(app_root)
+
+
+class TestRealAppConstructionD3:
+    def test_full_ui_builds_and_wires_vars(self, real_app: Any) -> None:
+        app = real_app
+        assert app.start_btn is not None
+        assert app.folder_path.get() == ""
+        assert app.run_mode.get() == "Dry Run"
+        assert app.threshold.get() != ""
+        assert app.progress is not None
+
+    def test_preset_collect_and_apply_roundtrip(self, real_app: Any) -> None:
+        app = real_app
+        app._apply_preset(
+            {
+                "threshold": -45,
+                "fade_var": True,
+                "fade_in_duration": 250,
+                "fade_out_duration": 900,
+                "parallel_mode": True,
+                "max_workers": 2,
+                "run_mode": "Live Update",
+            }
+        )
+        assert app.threshold.get() == -45
+        assert app.fade_var.get() is True
+        assert app.fade_in_duration.get() == 250
+        assert app.fade_out_duration.get() == 900
+        assert app.parallel_mode.get() is True
+        assert app.max_workers.get() == 2
+        assert app.run_mode.get() == "Live Update"
+        assert app._collect_settings()["run_mode"] == "Live Update"
+
+
+class TestStartGuardsD3:
+    def _shell(self) -> Any:
+        app = object.__new__(SilenceTrimmerApp)
+        app.root = MagicMock()
+        app.folder_path = MagicMock()
+        app.run_mode = MagicMock()
+        app.threshold = MagicMock()
+        app.fade_var = MagicMock()
+        app.fade_in_duration = MagicMock()
+        app.fade_out_duration = MagicMock()
+        app.parallel_mode = MagicMock()
+        app.max_workers = MagicMock()
+        app.overall_status = MagicMock()
+        app.notebook = MagicMock()
+        app.start_btn = MagicMock()
+        app._tab_processing = MagicMock()
+        app.file_listbox = MagicMock()
+        app.progress = MagicMock()
+        app._safe_slot_vars = MagicMock()
+        app.slot_queue = MagicMock()
+        return app
+
+    def test_missing_folder_shows_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        app = self._shell()
+        dialogs = MagicMock()
+        monkeypatch.setattr("silence_trimmer.app.messagebox", dialogs)
+        app.folder_path.get.return_value = ""
+
+        app.start_processing()
+
+        dialogs.showerror.assert_called_once()
+
+    def test_folder_without_audio_shows_error(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = self._shell()
+        dialogs = MagicMock()
+        monkeypatch.setattr("silence_trimmer.app.messagebox", dialogs)
+        app.folder_path.get.return_value = str(tmp_path)  # empty directory
+        (tmp_path / "notes.txt").write_text("x", encoding="utf-8")
+
+        app.start_processing()
+
+        dialogs.showerror.assert_called_once()
+
+    def test_bad_threshold_shows_error(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = self._shell()
+        dialogs = MagicMock()
+        monkeypatch.setattr("silence_trimmer.app.messagebox", dialogs)
+        app.folder_path.get.return_value = str(tmp_path)
+        (tmp_path / "a.mp3").write_bytes(b"\x00" * 8)
+        app.threshold.get.return_value = -10  # above the -20 dB floor
+
+        app.start_processing()
+
+        dialogs.showerror.assert_called_once()
+
+    def test_valid_start_threads_with_dry_flag(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        fake_threading = MagicMock()
+        monkeypatch.setattr("silence_trimmer.app.threading", fake_threading)
+        monkeypatch.setattr("silence_trimmer.app.messagebox", MagicMock())
+        saved: list[tuple[str, Any]] = []
+        monkeypatch.setattr(
+            "silence_trimmer.app._suite_config.save_value",
+            lambda key, value: saved.append((key, value)),
+        )
+        monkeypatch.setattr(
+            "silence_trimmer.app._suite_config.load_last_directory", lambda: ""
+        )
+        app = self._shell()
+        app.prepare_in_place_audition = MagicMock()
+        app.folder_path.get.return_value = str(tmp_path)
+        (tmp_path / "a.mp3").write_bytes(b"\x00" * 8)
+        app.threshold.get.return_value = -45
+        app.fade_var.get.return_value = True
+        app.fade_in_duration.get.return_value = 300
+        app.fade_out_duration.get.return_value = 800
+        app.run_mode.get.return_value = "Dry Run"
+
+        app.start_processing()
+
+        thread = fake_threading.Thread.call_args
+        assert thread.kwargs["target"].__name__ == "_run"
+        assert app._run_was_dry_run is True
+        assert saved
+        app.prepare_in_place_audition.assert_called_once_with(
+            str(tmp_path), st_mod.SUPPORTED_EXTENSIONS
+        )
+
+
+class TestRunThreadD3:
+    def test_run_thread_passes_all_flags_to_core(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = object.__new__(SilenceTrimmerApp)
+        app.root = MagicMock()
+        app.folder_path = MagicMock()
+        app.run_mode = MagicMock()
+        app.threshold = MagicMock()
+        app.fade_var = MagicMock()
+        app.fade_in_duration = MagicMock()
+        app.fade_out_duration = MagicMock()
+        app.parallel_mode = MagicMock()
+        app.max_workers = MagicMock()
+        app.progress = MagicMock()
+        app.file_listbox = MagicMock()
+        app.folder_path.get.return_value = str(tmp_path)
+        app.run_mode.get.return_value = "Dry Run"
+        app.threshold.get.return_value = -45
+        app.fade_var.get.return_value = False
+        app.parallel_mode.get.return_value = True
+        app.max_workers.get.return_value = 3
+        app._safe_slot_vars = MagicMock()
+        app.slot_queue = MagicMock()
+        calls: dict[str, Any] = {}
+
+        def fake_run_trimming(**kwargs: Any) -> None:
+            calls.update(kwargs)
+
+        import silence_trimmer.core.file_processor as core
+
+        patch_target = "silence_trimmer.app.file_processor"
+        del patch_target  # the core module attribute is patched directly
+        monkeypatch.setattr(core, "run_trimming", fake_run_trimming)
+
+        app._run()
+
+        assert calls["dir_path"] == str(tmp_path)
+        assert calls["is_dry_run"] is True
+        assert calls["threshold"] == -45
+        assert calls["apply_fade"] is False
+        assert calls["parallel_mode"] is True
+        assert calls["max_workers"] == 3
+
+
+class TestProgressD3:
+    def test_on_progress_sets_widgets(self) -> None:
+        app = object.__new__(SilenceTrimmerApp)
+        app.progress = MagicMock()
+        app.stats_label = MagicMock()
+        app.file_listbox = MagicMock()
+
+        app._on_progress(4, 10, 1, 0, "song.mp3")
+
+        assert app.stats_label.config.call_args.kwargs["text"].startswith(
+            "Processed: 4"
+        )
+        assert app.file_listbox.insert.call_args.args[1] == "song.mp3"

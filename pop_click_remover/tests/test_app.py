@@ -32,6 +32,7 @@ Driver-mirror variables
 
 from __future__ import annotations
 
+import sys
 import tkinter as tk
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import pop_click_remover.app as pcr_mod
 from pop_click_remover.app import PopClickRemoverApp
 
 
@@ -354,3 +356,150 @@ class TestMainEntryPoint:
 
         app_cls.assert_called_once_with(root)
         root.mainloop.assert_called_once_with()
+
+
+@pytest.fixture()
+def app_root(root: tk.Tk) -> Any:
+    top = tk.Toplevel(root)
+    top.withdraw()
+    try:
+        yield top
+    finally:
+        top.destroy()
+
+
+@pytest.fixture()
+def real_app(app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setattr(
+        "pop_click_remover.app.suite_config.load_last_directory", lambda: ""
+    )
+    monkeypatch.setattr(sys, "argv", ["pop_click_remover"])
+    return PopClickRemoverApp(app_root)
+
+
+class TestRealAppConstructionD3:
+    def test_full_ui_builds_and_wires_vars(self, real_app: Any) -> None:
+        app = real_app
+        assert app.start_btn is not None
+        assert app.folder_path.get() == ""
+        assert app.run_mode.get() == "Dry Run"
+        assert app.sensitivity.get() != ""
+
+    def test_worker_slot_pool_starts_full(self, real_app: Any) -> None:
+        drained = []
+        while True:
+            try:
+                drained.append(real_app.slot_queue.get_nowait())
+            except Exception:
+                break
+        assert drained == list(range(pcr_mod.DEFAULT_MAX_WORKERS))
+
+
+class TestStartGuardsD3:
+    def _shell(self) -> Any:
+        app = object.__new__(PopClickRemoverApp)
+        app.root = MagicMock()
+        app.folder_path = MagicMock()
+        app.run_mode = MagicMock()
+        app.sensitivity = MagicMock()
+        app.max_width = MagicMock()
+        app.overall_status = MagicMock()
+        app.notebook = MagicMock()
+        app.start_btn = MagicMock()
+        app._tab_processing = MagicMock()
+        app.file_listbox = MagicMock()
+        app.progress = MagicMock()
+        app.stats_label = MagicMock()
+        app._safe_slot_vars = MagicMock()
+        app.slot_queue = MagicMock()
+        return app
+
+    def test_missing_folder_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        app = self._shell()
+        dialogs = MagicMock()
+        monkeypatch.setattr("pop_click_remover.app.messagebox", dialogs)
+        app.folder_path.get.return_value = ""
+
+        app._on_start()
+
+        dialogs.showwarning.assert_called_once()
+
+    def test_nonexistent_folder_shows_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = self._shell()
+        dialogs = MagicMock()
+        monkeypatch.setattr("pop_click_remover.app.messagebox", dialogs)
+        app.folder_path.get.return_value = "D:/no_such_dir_xyz"
+
+        app._on_start()
+
+        dialogs.showerror.assert_called_once()
+
+    def test_valid_start_threads_with_dry_flag(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        fake_threading = MagicMock()
+        monkeypatch.setattr("pop_click_remover.app.threading", fake_threading)
+        monkeypatch.setattr("pop_click_remover.app.messagebox", MagicMock())
+        monkeypatch.setattr(
+            "pop_click_remover.app.suite_config.save_last_directory", MagicMock()
+        )
+        declick_calls: list[tuple[Any, ...]] = []
+
+        def fake_run_declicking(*args: Any, **kwargs: Any) -> None:
+            declick_calls.append(args)
+
+        monkeypatch.setattr("pop_click_remover.app.run_declicking", fake_run_declicking)
+        app = self._shell()
+        app.prepare_in_place_audition = MagicMock()
+        app.folder_path.get.return_value = str(tmp_path)
+        app.run_mode.get.return_value = "Dry Run"
+        app.sensitivity.get.return_value = "0.25"
+        app.max_width.get.return_value = "5"
+
+        app._on_start()
+
+        thread = fake_threading.Thread.call_args
+        assert thread.kwargs["target"].__name__ == "_run_declicking_with_undo"
+        app.run_mode.get.return_value = "Dry Run"
+        assert app._run_was_dry_run is True
+        app.prepare_in_place_audition.assert_called_once_with(
+            str(tmp_path), pcr_mod.SUPPORTED_EXTENSIONS
+        )
+
+
+class TestProgressAndErrorD3:
+    def test_on_progress_marshals_onto_main_thread(self) -> None:
+        app = object.__new__(PopClickRemoverApp)
+        app.root = MagicMock()
+
+        app._on_progress(3, 10, 2, 1, 1, "song.mp3")
+
+        assert app.root.after.call_args.args[0] == 0
+
+    def test_update_progress_ui_sets_all_widgets(self) -> None:
+        app = object.__new__(PopClickRemoverApp)
+        app.progress = MagicMock()
+        app.stats_label = MagicMock()
+        app.file_listbox = MagicMock()
+
+        app._update_progress_ui(3, 10, 2, 1, 1, "song.mp3")
+
+        assert app.stats_label.config.call_args.kwargs["text"].startswith(
+            "Processed: 3"
+        )
+        assert app.file_listbox.insert.call_args.args[1] == "song.mp3"
+
+    def test_on_error_restores_start_button(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = object.__new__(PopClickRemoverApp)
+        app.start_btn = MagicMock()
+        dialogs = MagicMock()
+        monkeypatch.setattr("pop_click_remover.app.messagebox", dialogs)
+
+        app._on_error("boom")
+
+        dialogs.showerror.assert_called_once()
+        app.start_btn.config.assert_called_once_with(state="normal")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import tkinter as tk
 from pathlib import Path
 from typing import Any
@@ -9,7 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from audio_refinery.app import AudioRefineryApp
+import audio_refinery.app as ar_mod
+from audio_refinery.app import AudioRefineryApp, _ThreadSafeSlotVar
 from audio_refinery.core.models import StageConfig
 
 
@@ -244,3 +246,247 @@ class TestStartProcessingStageValidation:
         titles = [c.args[0] for c in mb.showerror.call_args_list]
         assert "No Stages Selected" in titles
         mb._thread_cls.assert_not_called()
+
+
+@pytest.fixture()
+def app_root(root: tk.Tk) -> Any:
+    top = tk.Toplevel(root)
+    top.withdraw()
+    try:
+        yield top
+    finally:
+        top.destroy()
+
+
+@pytest.fixture()
+def real_app(app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setattr(
+        "audio_refinery.app.suite_config.load_last_directory", lambda: ""
+    )
+    monkeypatch.setattr(sys, "argv", ["audio_refinery"])
+    # Fresh settings so no stale stage config leaks into the assertions.
+    from audio_refinery.core.models import StageConfig
+
+    monkeypatch.setattr("audio_refinery.app.load_settings", lambda: StageConfig())
+    return AudioRefineryApp(app_root)
+
+
+class TestRealAppConstructionD3:
+    def test_full_ui_builds_and_wires_vars(self, real_app: Any) -> None:
+        app = real_app
+        assert app.start_btn is not None
+        assert app.source_path.get() == ""
+        assert app.run_mode.get() in {"Dry Run", "Live Update"}
+        assert app.config is not None
+        assert len(app.slot_vars) == ar_mod.DEFAULT_MAX_WORKERS
+        assert app._registry is None
+
+    def test_thread_safe_slot_var_routes_set_to_main_thread(
+        self, app_root: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The wrapper schedules on a *dedicated* toplevel, never the session
+        shared root: a bare ``root.after = MagicMock()`` on the shared root
+        once leaked for the rest of the session and disabled every later
+        tkinter timer dispatched inside another test's modal wait_window
+        (TestShowMessage then blocked forever)."""
+        t_var = tk.StringVar(app_root, value="IDLE")
+        wrapper = _ThreadSafeSlotVar(app_root, t_var)
+        after_mock = MagicMock()
+        monkeypatch.setattr(app_root, "after", after_mock)
+
+        wrapper.set("Busy")
+
+        call = after_mock.call_args
+        assert call is not None
+        assert call.args[0] == 0
+        assert call.args[1] == t_var.set  # scheduled with the plain var setter
+        assert call.args[2] == "Busy"
+        assert t_var.get() == "IDLE"  # not applied until the main loop runs it
+
+    def test_preset_collect_and_apply_roundtrip(self, real_app: Any) -> None:
+        app = real_app
+        app._apply_preset(
+            {"declick": True, "enhance": True, "threshold": -45, "target_lufs": -14}
+        )
+        assert app.config.declick is True
+        assert app.config.enhance is True
+        assert app.config.trim_params.threshold == -45
+        assert app.config.normalise_params.target_lufs == -14
+
+
+class TestStartGuardsD3:
+    def _shell(self) -> Any:
+        app = object.__new__(AudioRefineryApp)
+        app.root = MagicMock()
+        app.source_path = MagicMock()
+        app.output_path = MagicMock()
+        app.run_mode = MagicMock()
+        app.overall_status = MagicMock()
+        app.notebook = MagicMock()
+        app.start_btn = MagicMock()
+        app._tab_processing = MagicMock()
+        app._file_listbox = MagicMock()
+        app._progress_bar = MagicMock()
+        app._registry = None
+        app._last_source_dir = ""
+        app._in_place = False
+        return app
+
+    def test_missing_source_shows_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        app = self._shell()
+        dialogs = MagicMock()
+        monkeypatch.setattr("audio_refinery.app.messagebox", dialogs)
+        app.source_path.get.return_value = ""
+        app.config = MagicMock(
+            declick=True, trim=True, enhance=True, normalise=True, reduce_noise=True
+        )
+
+        app.start_processing()
+
+        dialogs.showerror.assert_called_once()
+
+    def test_nonexistent_source_shows_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = self._shell()
+        dialogs = MagicMock()
+        monkeypatch.setattr("audio_refinery.app.messagebox", dialogs)
+        app.source_path.get.return_value = "D:/definitely_not_a_dir"
+        app.config = MagicMock(
+            declick=True, trim=True, enhance=True, normalise=True, reduce_noise=True
+        )
+
+        app.start_processing()
+
+        dialogs.showerror.assert_called_once()
+
+    def test_no_stage_selected_shows_error(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = self._shell()
+        dialogs = MagicMock()
+        monkeypatch.setattr("audio_refinery.app.messagebox", dialogs)
+        app.source_path.get.return_value = str(tmp_path)
+        (tmp_path / "a.wav").write_bytes(b"\x00" * 8)
+        app.config = MagicMock(
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=False,
+            reduce_noise=False,
+        )
+
+        app.start_processing()
+
+        dialogs.showerror.assert_called_once()
+
+    def test_invalid_output_dir_shows_error(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = self._shell()
+        dialogs = MagicMock()
+        monkeypatch.setattr("audio_refinery.app.messagebox", dialogs)
+        app.source_path.get.return_value = str(tmp_path)
+        (tmp_path / "a.wav").write_bytes(b"\x00" * 8)
+        app.config = MagicMock(
+            declick=True, trim=True, enhance=True, normalise=True, reduce_noise=True
+        )
+        app.output_path.get.return_value = "D:/no_such_output_dir"
+
+        app.start_processing()
+
+        dialogs.showerror.assert_called_once()
+
+    def test_valid_start_threads_pipeline_with_audition(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        fake_threading = MagicMock()
+        monkeypatch.setattr("audio_refinery.app.threading", fake_threading)
+        monkeypatch.setattr("audio_refinery.app.messagebox", MagicMock())
+        monkeypatch.setattr(
+            "audio_refinery.app.suite_config.save_last_directory", MagicMock()
+        )
+        monkeypatch.setattr("audio_refinery.app.save_settings", MagicMock())
+        monkeypatch.setattr(
+            "audio_refinery.app.audio_playback.peek_first_audio",
+            lambda *_a: None,
+        )
+        monkeypatch.setattr("audio_refinery.app.run_pipeline", lambda **_k: None)
+        app = self._shell()
+        app.clear_audition = MagicMock()
+        app.prepare_in_place_audition = MagicMock()
+        app.folder_path = app.source_path
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        (tmp_path / "a.wav").write_bytes(b"\x00" * 8)
+        app.source_path.get.return_value = str(tmp_path)
+        app.output_path.get.return_value = str(out_dir)
+        app.run_mode.get.return_value = "Dry Run"
+        app.config = MagicMock(
+            declick=True, trim=True, enhance=True, normalise=True, reduce_noise=True
+        )
+        from audio_refinery.core.registry import CompletionRegistry
+
+        app._registry = CompletionRegistry(tmp_path)
+
+        app.start_processing()
+
+        thread = fake_threading.Thread.call_args
+        assert thread.kwargs["target"].__name__ == "_run"
+        assert app._run_was_dry_run is True
+        assert app._in_place is False, "output dir is a separate folder"
+        app.clear_audition.assert_called_once_with()
+
+
+class TestRunThreadD3:
+    def test_run_thread_passes_registry_and_config(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = object.__new__(AudioRefineryApp)
+        app.root = MagicMock()
+        app._file_listbox = MagicMock()
+        app._progress_bar = MagicMock()
+        app.progress = app._progress_bar
+        app.file_listbox = app._file_listbox
+        calls: dict[str, Any] = {}
+
+        def fake_run_pipeline(**kwargs: Any) -> None:
+            calls.update(kwargs)
+
+        import audio_refinery.core.file_processor as core  # noqa: F401
+
+        # run_pipeline is imported into app.py at module level, so the
+        # importing module's binding is the one to patch (AGENTS.md rule).
+        monkeypatch.setattr("audio_refinery.app.run_pipeline", fake_run_pipeline)
+        from audio_refinery.core.registry import CompletionRegistry
+
+        registry = CompletionRegistry(tmp_path)
+        app._registry = registry
+        app.config = MagicMock()
+        app._safe_slot_vars = [MagicMock()]
+        app.slot_queue = MagicMock()
+
+        app._run(tmp_path, tmp_path)
+
+        assert calls["source_dir"] == tmp_path
+        assert calls["output_dir"] == tmp_path
+        assert calls["registry"] is registry
+        assert calls["config"] is app.config
+
+
+class TestProgressD3:
+    def test_on_progress_schedules_update(self) -> None:
+        app = object.__new__(AudioRefineryApp)
+        app.root = MagicMock()
+        app._file_listbox = MagicMock()
+        app._progress_bar = MagicMock()
+        app.stats_label = MagicMock()
+        app.overall_status = MagicMock()
+
+        app._on_progress(3, 10, 2, 1, 1, "song.wav", "log")
+
+        assert app.root.after.call_args.args[0] == 0
+        update_fn = app.root.after.call_args.args[1]
+        update_fn()
+        assert app._progress_bar.__setitem__("value", 3)
+        assert app._file_listbox.insert.call_args.args[1] == "song.wav"
