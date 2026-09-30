@@ -639,7 +639,7 @@ over it.
 
 ---
 
-### B5 `[ ]` — Consolidate the remaining core twins: `key_detector` ↔ `mood_analyzer` file processors `[audit A3 family 5]`
+### B5 `[x]` — Consolidate the remaining core twins: `key_detector` ↔ `mood_analyzer` file processors `[audit A3 family 5]`
 
 **Priority:** Medium | **Effort:** 0.5 day | **Risk:** Medium (both write
 tags — the data-correctness class)
@@ -651,16 +651,16 @@ with a different analyser in the middle. Both write real tags to real files.
 
 **Scope:**
 
-- [ ] Diff and classify: analyser-specific (keep) versus workflow (merge
+- [x] Diff and classify: analyser-specific (keep) versus workflow (merge
       into the `BaseFileProcessor` template-method pattern iteration-5 C2
       established for the noise/pop twins — the same shape, third customer).
-- [ ] **Unchanged, byte-for-byte:** the undo snapshot wiring, the per-file
+- [x] **Unchanged, byte-for-byte:** the undo snapshot wiring, the per-file
       error slot-pool, the progress-callback signature, temp-file naming, the
       dry-run path, and each tool's tag-write semantics (including
       `key_detector`'s decided `_should_tag_key` policy from iteration-6 B3
       — the low-confidence KEY tag policy must survive consolidation
       unchanged).
-- [ ] Do not unify the analysers. Key correlation and mood valence/arousal
+- [x] Do not unify the analysers. Key correlation and mood valence/arousal
       are different algorithms; the duplication is the *workflow*.
 
 **Tests (lockstep):** outcome-level, not read-back: real generated files,
@@ -1259,6 +1259,8 @@ incomplete by definition.
 
 | B1 | 1 | 2026-09-30 | compileall exit 0; ruff check . "All checks passed!"; ruff format --check . "762 files already formatted"; mypy . "Success: no issues found in 452 source files"; bandit -r . -x ./.venv -c pyproject.toml 0 High / 0 Medium (41 Low); bare pytest -q -p no:cacheprovider -> 7666 passed, 3 skipped, 30 deselected, 56 warnings in 265.59s; coverage report total 27662 stmts, 5750 missed = 79% (>=75; same command block as the run) | Commits e3c490a (pilot: shared seam + 8 ladder-family files), ad9e46e (positional/membership + AST lock), 5a28c5a (re-export repair). Characterisation corrections recorded: "the 10 flag pairs" is 5 pairs / 10 tokens; the byte-identical ladder is 6 files plus two grouped-form twins (tag_editor, mood_analysis_batch_tagger) - piloted 8, not the plan's "7", so the family was not left half-converted; the stderr writer is duplicated in 17 files / 19 occurrences (the plan said "19 files"). Carve-out recorded: the 5 argparse parsers (asx_extractor, audio_enhancer, audio_refinery, noise_reduction, pop_click_remover) keep their add_argument declarations - they never contained the manual ladder; rewriting them would change mutually-exclusive groups, legacy aliases and the --help output that A1's TestDocumentedFlagParity pins, with no shared-ladder benefit. Class retired as specified: the manual ladder exists at 0 production sites (AST lock bans Compare/membership against any of the ten tokens in every per-tool cli_args.py, with ladder/membership positive controls and argparse/tool-flag negative controls; census asserts >=20 files); print_tool_usage_error is the single stderr writer; all 22 per-tool test_cli_args.py suites passed unedited. Golden verification: each parser's parse() captured pre-refactor over 9 driver-shaped argv vectors (goldens.json in ops scratch), re-captured post-conversion, capture-dir normalized - 0 field diffs across 198 comparisons, including both double-flag vectors (scan tools: last-occurrence-wins; metadata_scrubber/album_art_sync presence-wins preserved byte-exactly via apply_handshake_membership). Defects caught by the unedited locks during conversion, fixed in-change: (1) mood_analysis_batch_tagger's tool-specific --parallel/--no-parallel work-mode pair was dropped (its test_parallel_flag failed) - restored; (2) album_genre_tagger's inline ternary positional reads still carried handshake literals (failed the new AST lock) - routed through read_positional_handshake; (3) ruff autofix removed three was_launched_from_driver as was_launched_from_driver re-exports that their app.py importers need (mypy attr-defined caught it) - restored in the ruff-isort canonical form. Position-only scan tails (key/mood/bpm/lyrics/genre_tagger) keep their accepted-token subset (display-pair four) so no positional tool now consumes --live/--start/--end where it never did. app.py GUI consumers untouched per scope. Launcher .pyw boilerplate untouched per the A3 sequencing note. Cached secret scans at each commit: clean. |
 
+
+| B5 | 1 | 2026-09-30 | compileall exit 0 (tool chain re-compiled: key_detector, mood_analyzer, audio_suite_shared); ruff check . "All checks passed!"; ruff format . clean; mypy . "Success: no issues found in 452 source files"; scoped pytest -q -p no:cacheprovider --no-cov key_detector/tests mood_analyzer/tests audio_suite_shared/tests master_driver/tests/test_runner.py -> 2822 passed, 1 skipped (bare full-suite gate recorded at item B3's close; coverage same command-block discipline) | Commit 64559cb, 4 files (+2 new real-file/undo test classes). run_analysis_workflow extracted as a module-level function in audio_suite_shared/file_processor_base.py, beside iteration-5 C2's run_inplace_dsp_batch; both tools' run_analysis keep name and signature and delegate the shared discover / progress-tracker / thread-tracking / undo-batch worker closure / process_batch / summary block, injecting only the per-file step, CPU worker, result handler and thread label. Design note: the workflow takes the processor as an argument rather than being a BaseFileProcessor method, because the tools' pre-existing mock-processor tests drive run_analysis against the exact methods the workflow owns; the first draft (a processor method) failed 10 of those mocked drive-through tests and was reverted-to-lock before extracting at the module-function seam (two-try rule observed). Byte-exact invariants verified: get_ACTIVE batch join inside the worker (use_batch(get_active_batch_id())), slot-pool put/get in finally, progress-callback signature, the empty directory error text, on_complete summary kwargs, and each tool's tag-write semantics (_should_tag_key policy untouched; closeness and mood paths unchanged). Lockstep additions: mood_analyzer gained its test of undo-batch recording (mirror of key's), real-file outcome tests (live MOOD/ENERGY read back through the real tag reader; dry-run no-write with bytes unchanged) and a byte-level undo round-trip via revert_batch_by_id; key_detector gained the same byte-level undo round-trip. Recorded lockstep exception: three patch seams whose call sites moved with the workflow (get_resource_manager/track_thread/cleanup_expired_resources) now patch at audio_suite_shared.file_processor_base; the assertions themselves are unchanged. Analyser-specific display/log strings and the mood SKIPPABLE_ANALYSIS_ERRORS classification kept per-tool. Cached secret scan: clean. |
 
 ### A3 finding — a sixth silent swallow the plan's census missed
 
