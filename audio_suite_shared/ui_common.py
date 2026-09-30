@@ -1015,3 +1015,112 @@ class BaseSetupFrame(tk.Frame):
             widgets["preset_combo"] = self.preset_combo
             widgets["refresh_preset_list"] = self.refresh_preset_list
         return widgets
+
+
+class AnalysisSetupFrame(BaseSetupFrame):
+    """Setup tab for the analyse-and-tag tools.
+
+    Builds the shared analysis-duration widget block, the optional
+    Parallel Processing / Workers row with a tool caption, and an
+    optional explanatory help block. Only the labels, ranges, defaults
+    and help text differ per tool — the geometry lives here once
+    (iteration-7 B3: third shared-seam customer after noise/pop and
+    key/mood file processors).
+
+    Subclasses stay data-thin; tool-specific extras that don't fit the
+    shared shape may still extend ``_build_options()``.
+    """
+
+    def __init__(
+        self,
+        parent: tk.Frame,
+        *,
+        analysis_duration: tk.IntVar,
+        parallel_mode: tk.BooleanVar | None = None,
+        max_workers: tk.IntVar | None = None,
+        parallel_caption: str = "",
+        help_heading: str | None = None,
+        help_text: str | None = None,
+        help_wraplength: int = 520,
+        **kwargs: Any,
+    ) -> None:
+        """Populate the analysis Setup tab.
+
+        Args:
+            analysis_duration: IntVar bound to the duration Entry.
+            parallel_mode: BooleanVar toggling parallel processing; the
+                parallel row is rendered only when both this and
+                ``max_workers`` are supplied.
+            max_workers: IntVar holding the worker count.
+            parallel_caption: Caption shown next to the parallel row.
+            help_heading: Optional bold heading above the help text
+                (e.g. "How Mood Is Determined:").
+            help_text: Optional explanatory paragraph. Omitted entirely
+                (e.g. key_detector) when None.
+            help_wraplength: Pixel wrap width of the help caption.
+            **kwargs: Forwarded to :class:`BaseSetupFrame`.
+        """
+        self._analysis_duration = analysis_duration
+        self._parallel_mode = parallel_mode
+        self._max_workers = max_workers
+        self._parallel_caption = parallel_caption
+        self._help_heading = help_heading
+        self._help_text = help_text
+        self._help_wraplength = help_wraplength
+        super().__init__(parent, **kwargs)
+
+    def _add_analysis_duration(self) -> None:
+        """The standard Analysis Duration label / entry / caption block."""
+        tk.Label(
+            self,
+            text="Analysis Duration (seconds):",
+            font=styles.FONT_BODY,
+            fg=styles.FG_MAIN,
+            bg=styles.BG_WHITE,
+        ).pack(anchor="w", pady=(15, 0))
+        tk.Entry(
+            self,
+            textvariable=self._analysis_duration,
+            font=styles.FONT_BODY,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            insertbackground=styles.FG_MAIN,
+            width=10,
+        ).pack(anchor="w", pady=5)
+        tk.Label(
+            self,
+            text="(Lower values = faster processing, less accuracy)",
+            font=styles.FONT_CAPTION,
+            fg=styles.FG_SUB,
+            bg=styles.BG_WHITE,
+        ).pack(anchor="w")
+
+    def _build_options(self) -> None:
+        """Duration block, optional parallel row, optional help block."""
+        self._add_analysis_duration()
+
+        if self._parallel_mode is not None and self._max_workers is not None:
+            self.add_parallel_row(
+                self._parallel_mode,
+                self._max_workers,
+                self._parallel_caption,
+            )
+
+        if self._help_heading is not None:
+            tk.Label(
+                self,
+                text=self._help_heading,
+                font=styles.FONT_BODY,
+                fg=styles.FG_MAIN,
+                bg=styles.BG_WHITE,
+            ).pack(anchor="w", pady=(20, 2))
+        if self._help_text is not None:
+            tk.Label(
+                self,
+                text=self._help_text,
+                font=styles.FONT_CAPTION,
+                fg=styles.FG_SUB,
+                bg=styles.BG_WHITE,
+                justify="left",
+                wraplength=self._help_wraplength,
+            ).pack(anchor="w")

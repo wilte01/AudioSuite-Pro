@@ -1,10 +1,11 @@
-"""setup_tab.py — Setup tab for Key Detector & Tagger."""
+"""
+setup_tab.py - Setup tab for Key Detector & Tagger.
+"""
 
 import tkinter as tk
 from typing import Any, Callable
 
-from audio_suite_shared import styles
-from audio_suite_shared.ui_common import BaseSetupFrame
+from audio_suite_shared.ui_common import AnalysisSetupFrame
 
 
 def build(
@@ -32,7 +33,7 @@ def build(
         Dict with keys: start_btn, refresh_preset_list, preset_combo,
         controls_panel.
     """
-    frame = _SetupFrame(
+    frame = AnalysisSetupFrame(
         parent,
         title="Key Detector & Tagger",
         start_text="BEGIN KEY DETECTION",
@@ -52,56 +53,6 @@ def build(
         analysis_duration=analysis_duration,
         parallel_mode=parallel_mode,
         max_workers=max_workers,
+        parallel_caption="(ProcessPoolExecutor bypasses GIL for chroma CQT)",
     )
     return frame.get_widgets()
-
-
-class _SetupFrame(BaseSetupFrame):
-    """Key Detector & Tagger Setup tab built on the shared BaseSetupFrame."""
-
-    def __init__(
-        self,
-        parent: tk.Frame,
-        analysis_duration: tk.IntVar,
-        parallel_mode: tk.BooleanVar | None = None,
-        max_workers: tk.IntVar | None = None,
-        **kwargs: Any,
-    ) -> None:
-        self._analysis_duration = analysis_duration
-        self._parallel_mode = parallel_mode
-        self._max_workers = max_workers
-        super().__init__(parent, **kwargs)
-
-    def _build_options(self) -> None:
-        # Analysis duration
-        tk.Label(
-            self,
-            text="Analysis Duration (seconds):",
-            font=styles.FONT_BODY,
-            fg=styles.FG_MAIN,
-            bg=styles.BG_WHITE,
-        ).pack(anchor="w", pady=(15, 0))
-        tk.Entry(
-            self,
-            textvariable=self._analysis_duration,
-            font=styles.FONT_BODY,
-            bg=styles.BG_WHITE,
-            fg=styles.FG_MAIN,
-            insertbackground=styles.FG_MAIN,
-            width=10,
-        ).pack(anchor="w", pady=5)
-        tk.Label(
-            self,
-            text="(Lower values = faster processing, less accuracy)",
-            font=styles.FONT_CAPTION,
-            fg=styles.FG_SUB,
-            bg=styles.BG_WHITE,
-        ).pack(anchor="w")
-
-        # Parallel processing
-        if self._parallel_mode is not None and self._max_workers is not None:
-            self.add_parallel_row(
-                self._parallel_mode,
-                self._max_workers,
-                "(ProcessPoolExecutor bypasses GIL for chroma CQT)",
-            )
