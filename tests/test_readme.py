@@ -17,6 +17,10 @@ enforced invariant:
 3. *Metadata lock* — ``pyproject.toml`` ships the README (``readme`` field)
    and the README states the A5 ffmpeg/ffprobe requirement the launch
    preflight enforces, with the same install commands.
+4. *Standards lock* — plan iteration 7 item A4: the README records the
+   engineering standard (audit A8's "record it") where new contributors read
+   first. The gate commands are read from ``CONTRIBUTING.md``, the normative
+   source, so the README summary cannot drift from the enforced gate.
 """
 
 from __future__ import annotations
@@ -204,3 +208,109 @@ class TestFfmpegWording:
         ffmpeg = self._requirement_over_readme(readme_text, sr.FFMPEG_PURPOSE)
         ffprobe = self._requirement_over_readme(readme_text, sr.FFPROBE_PURPOSE)
         assert {ffmpeg, ffprobe} == {"ffmpeg", "ffprobe"}
+
+
+class TestEngineeringStandards:
+    """The README records the engineering standard where contributors read first.
+
+    Plan iteration 7, item A4 (audit A8's "record it"). The gate commands are
+    read out of ``CONTRIBUTING.md`` — the normative source — rather than
+    hardcoded here, so this summary cannot drift from the gate that is actually
+    enforced, and a seventh command added there fails here until the README
+    catches up.
+    """
+
+    _HEADING = "## Engineering standards"
+    _CONTRIBUTING = "CONTRIBUTING.md"
+
+    @pytest.fixture(scope="class")
+    def standards_section(self, readme_text: str) -> str:
+        start = readme_text.find(self._HEADING)
+        assert start != -1, (
+            f"README.md is missing the {self._HEADING!r} section (item A4)"
+        )
+        remainder = readme_text[start + len(self._HEADING) :]
+        end = remainder.find("\n## ")
+        section = remainder[:end] if end != -1 else remainder
+        assert len(section.split()) > 40, (
+            "the standards section is too thin to be useful; item A4 asks for "
+            "the gate, the typing standard, the audio rule and the pointers"
+        )
+        return section
+
+    @pytest.fixture(scope="class")
+    def gate_commands(self) -> list[str]:
+        """The six gate command lines, as written in CONTRIBUTING.md."""
+        contributing = (REPO_ROOT / self._CONTRIBUTING).read_text(encoding="utf-8")
+        gate_start = contributing.find("## The mandatory Phase Gate")
+        assert gate_start != -1, "CONTRIBUTING.md lost its Phase Gate heading"
+        block_start = contributing.find("```pwsh", gate_start)
+        assert block_start != -1, "CONTRIBUTING.md's Phase Gate has no pwsh block"
+        block = contributing[block_start : contributing.find("```", block_start + 7)]
+        commands = [
+            line.strip()
+            for line in block.splitlines()
+            if line.strip().startswith(("python -m ", "$env:"))
+        ]
+        # Non-vacuity, as a floor rather than an equality: this guards a
+        # mis-parse that finds nothing, and deliberately does NOT pin the
+        # count to six. Pinning it would make adding a seventh gate command
+        # fail here with a bare "parsed 7" instead of reaching the
+        # per-command assertion, whose message names the command the README
+        # is missing — the diagnostic a maintainer actually needs.
+        assert len(commands) >= 6, (
+            f"expected at least the six gate commands, parsed {len(commands)}: "
+            f"{commands} — the gate block or this parser has drifted"
+        )
+        return commands
+
+    def test_section_names_every_gate_command(
+        self, standards_section: str, gate_commands: list[str]
+    ) -> None:
+        for command in gate_commands:
+            assert command in standards_section, (
+                f"the README standards section omits the gate command {command!r}; "
+                f"keep it in sync with {self._CONTRIBUTING}"
+            )
+
+    def test_section_states_the_typing_standard(self, standards_section: str) -> None:
+        assert "--strict" in standards_section, "the mypy --strict mode is unstated"
+        assert "annotat" in standards_section.lower(), (
+            "the annotation standard is unstated"
+        )
+
+    def test_section_states_the_audio_correctness_rule(
+        self, standards_section: str
+    ) -> None:
+        lowered = standards_section.lower()
+        assert "audio correctness" in lowered, "the audio rule is unstated"
+        # Stems, not one inflected form: the rule may be phrased "decode",
+        # "decoding" or "decoded" and all three satisfy it.
+        assert "decod" in lowered, (
+            "the audio rule must require decoding the result and measuring it"
+        )
+        assert "measur" in lowered, "the audio rule omits measuring the result"
+        assert "reading back" in lowered, (
+            "the audio rule must reject validating a fix by reading back the "
+            "state the code just wrote — that proves self-consistency, not "
+            "correctness"
+        )
+
+    def test_section_points_at_the_normative_sources(
+        self, standards_section: str
+    ) -> None:
+        for source in ("AGENTS.md", self._CONTRIBUTING):
+            assert source in standards_section, f"the README omits {source}"
+        assert "normative" in standards_section.lower(), (
+            "AGENTS.md and CONTRIBUTING.md must be marked normative so they win "
+            "on any conflict with this summary"
+        )
+
+    def test_standards_section_precedes_contributing(self, readme_text: str) -> None:
+        standards = readme_text.find(self._HEADING)
+        contributing = readme_text.find("\n## Contributing")
+        assert standards != -1 and contributing != -1
+        assert standards < contributing, (
+            "item A4 places the standards section after the architecture "
+            "overview, before Contributing"
+        )

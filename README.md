@@ -214,6 +214,57 @@ subcommands are documented in
   replays them); the configuration, keys and history live in the shared
   `audio_suite_config.json`.
 
+## Engineering standards
+
+The suite is held to a deliberately strict bar, so that a new contributor
+inherits the same guarantees the existing tools have rather than discovering
+them through review. Two properties are measured and enforced on every change:
+
+* **Typing** — 99.5% of production definitions are fully annotated (99.9% of
+  parameters) and `mypy` runs in `--strict` mode over 452 files with no
+  errors. Every public module, class and function carries a docstring; function
+  signatures are explicitly typed end to end.
+* **Audio correctness** — this suite transforms users' audio, so any change
+  that could corrupt, mis-normalise or mis-convert a file is the highest
+  priority class of fix. Such changes are validated by decoding the result and
+  measuring it, never by reading back the internal state the code just wrote. A
+  fix that only proves self-consistency has proved nothing.
+
+**The mandatory gate.** No change is complete until all six commands pass
+(Windows/pwsh, from the suite root; the Python floor is 3.11):
+
+```pwsh
+# 0. compile / import gate — mandatory first step after any edit
+python -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'
+
+# 1. lint + formatting
+python -m ruff check .
+python -m ruff format --check .
+
+# 2. static typing (strict is set in pyproject.toml)
+python -m mypy .
+
+# 3. security screening (UTF-8 enabled on Windows; -c loads pyproject skips)
+$env:PYTHONUTF8='1'; python -X utf8 -m bandit -r . -x ./.venv -c pyproject.toml
+
+# 4. the full test suite — a package-scoped run is NOT a substitute
+python -m pytest -q
+```
+
+Zero failures, zero "fix later": a failing test is never deleted, skipped or
+`xfail`ed to turn the gate green — the cause is resolved. Coverage is
+enforced on the bare full-suite run (`fail_under = 75`).
+
+A defect found during any session is fixed in the same change that found it,
+with a regression test alongside. Deferral is acceptable for new-feature
+backlog items, never for a defect in working code.
+
+`AGENTS.md` and `CONTRIBUTING.md` are the **normative** sources for these
+rules — this section is a summary, and they win where the two differ.
+`CONTRIBUTING.md` additionally documents the test-file naming convention, the
+checklist for registering a new tool, and the `pytest -m hardware` opt-in for
+the deselected hardware tests.
+
 ## Contributing
 
 * `CONTRIBUTING.md` — the mandatory Phase Gate commands, the test-file
