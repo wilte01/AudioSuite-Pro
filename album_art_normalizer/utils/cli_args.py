@@ -24,7 +24,6 @@ from audio_suite_shared.cli_dataclasses import BaseCLIArgs, validate_folder_path
 from audio_suite_shared.cli_helpers import (
     apply_handshake_segment,
     print_tool_usage_error,
-    was_launched_from_driver as was_launched_from_driver,
 )
 from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
