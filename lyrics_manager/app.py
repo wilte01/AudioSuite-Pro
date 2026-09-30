@@ -20,14 +20,16 @@ from audio_suite_shared import suite_config as _suite_config
 from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.audio_formats import is_supported_format
 from audio_suite_shared.batch_undo import active_batch
-from audio_suite_shared.cli_helpers import UniversalCLIHandler
+from audio_suite_shared.cli_helpers import (
+    UniversalCLIHandler as UniversalCLIHandler,
+)
 from audio_suite_shared.exceptions import (
     handle_audio_errors,
     map_to_audio_error,
     user_message_for,
 )
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
-from audio_suite_shared.ui_helpers import UIHelperMixin
+from audio_suite_shared.tool_app_base import AnalysisTagToolApp
 
 from .core import file_processor
 from .core.providers import get_provider
@@ -39,11 +41,15 @@ logger = logging.getLogger(__name__)
 TOOL_ID = "lyrics_manager"
 
 
-class LyricsManagerApp(UIHelperMixin):
+class LyricsManagerApp(AnalysisTagToolApp):
     """Lyrics Manager application GUI."""
 
     # Name of the user-guide document expected alongside this script.
     HELP_GUIDE: str = "Lyrics_Manager_User_Guide.docx"
+
+    TAGGED_LABEL: str = "Tagged/Updated"
+    DRY_COMPLETE_LABEL: str = "Lyric Lookup Complete!"
+    LIVE_COMPLETE_LABEL: str = "Lyrics Tagging Complete!"
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -205,34 +211,14 @@ class LyricsManagerApp(UIHelperMixin):
     def _apply_cli_args(self) -> None:
         """Parse and apply any command-line arguments supplied by the Master Driver."""
         parsed = cli_args.parse()
+        self._apply_driver_cli_args(parsed)
 
-        # Mirror the inherited driver arguments onto the Run Controls
-        # panel before any early return so the display always reflects
-        # exactly what the Master Driver passed.
-        self.run_mode.set("Live Update" if parsed.live_mode else "Dry Run")
-        self.auto_start_var.set(parsed.auto_start)
-        self.auto_end_var.set(parsed.auto_end)
-        self.clear_logs_var.set(parsed.clear_logs)
-        self.parallel_var.set(parsed.parallel_run)
-
-        # Lyrics-specific tool options from the driver handshake.
+    def _apply_tool_cli_options(self, parsed: Any) -> None:
+        """Lyrics-specific tool options from the driver handshake."""
         self.provider.set(parsed.provider)
         self.request_timeout.set(str(parsed.request_timeout))
         self.skip_existing.set(parsed.skip_existing)
         self.plain_fallback.set(parsed.plain_fallback)
-
-        if not parsed.folder_path:
-            return
-
-        cli_handler = UniversalCLIHandler(self)
-        should_auto_start: bool = cli_handler.apply_cli_args(
-            cast(Any, parsed),
-            folder_var=self.folder_path,
-            auto_start_func=self.start_processing,
-        )
-
-        if should_auto_start:
-            self.root.after(1500, self.start_processing)
 
     # ── User actions ──────────────────────────────────────────────────────────
 
@@ -453,155 +439,7 @@ class LyricsManagerApp(UIHelperMixin):
                 max_workers=max_workers,
             )
 
-    def _reset_progress_ui(self) -> None:
-        """Reset UI progress indicators (must be called on main thread)."""
-        self.progress["value"] = 0
-        self.stats_label.config(text="Processed: 0 | Skipped: 0 | Errors: 0")
-
-    def _on_progress(
-        self,
-        processed: int,
-        total: int,
-        skipped: int,
-        errors: int,
-        display_text: str,
-    ) -> None:
-        """Called from worker threads to update UI (scheduled on main thread)."""
-        self.root.after(
-            0, self._update_progress_ui, processed, total, skipped, errors, display_text
-        )
-
-    def _update_progress_ui(
-        self,
-        processed: int,
-        total: int,
-        skipped: int,
-        errors: int,
-        display_text: str,
-    ) -> None:
-        """Update progress UI elements (must be called on main thread)."""
-        self.progress["maximum"] = total
-        self.progress["value"] = processed
-        self.stats_label.config(
-            text=f"Processed: {processed} | Skipped: {skipped} | Errors: {errors}"
-        )
-        self.file_listbox.insert(tk.END, display_text)
-        self.file_listbox.see(tk.END)
-
-    def _on_complete(
-        self,
-        header: list[str],
-        total: int,
-        processed: int,
-        skipped: int,
-        errors: int,
-        duration_secs: float,
-        log_entries: list[str],
-    ) -> None:
-        """Called on the background thread after all files finish."""
-        minutes: int = int(duration_secs // 60)
-        seconds: int = int(duration_secs % 60)
-        tagged: int = processed - skipped - errors
-
-        summary: list[str] = [
-            "\n" + "=" * 60 + "\n",
-            "SUMMARY:\n",
-            f"Total files: {total}\n",
-            f"Tagged/Updated: {tagged}\n",
-            f"Skipped: {skipped}\n",
-            f"Errors: {errors}\n",
-            f"Time: {minutes:02d}:{seconds:02d}\n",
-        ]
-        all_entries: list[str] = header + log_entries + summary
-
-        try:
-            with open(self._log_path, "w", encoding="utf-8") as f:
-                f.writelines(all_entries)
-            logger.info("Log written to '%s'", self._log_path)
-        except PermissionError as exc:
-            logger.error(
-                "Permission denied writing log '%s': %s",
-                self._log_path,
-                exc,
-                exc_info=True,
-            )
-        except OSError as exc:
-            logger.error(
-                "OSError writing log '%s': %s", self._log_path, exc, exc_info=True
-            )
-        except Exception as exc:
-            mapped = map_to_audio_error(exc, context={"log_path": self._log_path})
-            logger.error(
-                "[%s] Unexpected error writing log: %s",
-                type(mapped).__name__,
-                mapped,
-                exc_info=True,
-            )
-
-        self.root.after(
-            0,
-            self._update_ui_on_complete,
-            total,
-            tagged,
-            skipped,
-            errors,
-            minutes,
-            seconds,
-        )
-
-    def _update_ui_on_complete(
-        self,
-        total: int,
-        tagged: int,
-        skipped: int,
-        errors: int,
-        minutes: int,
-        seconds: int,
-    ) -> None:
-        """Update UI after lookup completes (must be called on main thread)."""
-        is_dry_run: bool = self.run_mode.get() == "Dry Run"
-        self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")
-        self.summary_label.config(
-            text=(
-                f"Total: {total} files\n"
-                f"Tagged/Updated: {tagged}\n"
-                f"Skipped: {skipped}\n"
-                f"Errors: {errors}"
-            )
-        )
-        self.completion_label.config(
-            text="Lyric Lookup Complete!" if is_dry_run else "Lyrics Tagging Complete!"
-        )
-        self.notebook.select(self._tab_results)
-        self.start_btn.config(state="normal")
-
-        logger.info(
-            "Processing complete — total=%d tagged=%d skipped=%d "
-            "errors=%d time=%02d:%02d",
-            total,
-            tagged,
-            skipped,
-            errors,
-            minutes,
-            seconds,
-        )
-
-        if self.auto_end:
-            self.root.after(2000, self.root.destroy)
-
-    def _on_error(self, message: str) -> None:
-        """Called when a fatal processing error occurs."""
-        logger.error("Fatal processing error reported to UI: %s", message)
-        self.root.after(0, self._show_error_dialog, message)
-
-    def _show_error_dialog(self, message: str) -> None:
-        """Show error dialog and re-enable start button (must be called on
-        main thread)."""
-        messagebox.showerror("Error", message)
-        self.start_btn.config(state="normal")
-
     # ── Presets ───────────────────────────────────────────────────────────────
-
     def _collect_settings(self) -> dict[str, int | bool | str]:
         """Collect current UI settings into a dict for preset storage."""
         return {
