@@ -551,7 +551,7 @@ in-change.
 
 ---
 
-### B3 `[ ]` — Consolidate the `ui/setup_tab.py` widget builders (3 worst: 64.6% / 64.0% / 56.7%) `[audit A3 family 3]`
+### B3 `[x]` — Consolidate the `ui/setup_tab.py` widget builders (3 worst: 64.6% / 64.0% / 56.7%) `[audit A3 family 3]`
 
 **Priority:** Medium | **Effort:** 0.5 day | **Risk:** Medium (GUI)
 
@@ -564,13 +564,13 @@ already exists and is bypassed by these builders.
 
 **Scope:**
 
-- [ ] Diff the three files; classify every widget block as shared-shape
+- [x] Diff the three files; classify every widget block as shared-shape
       (consolidate) versus tool-specific label/range/default (parameterise).
-- [ ] Extract a declarative builder into `audio_suite_shared/`
+- [x] Extract a declarative builder into `audio_suite_shared/`
       (extend `analysis_app_base` or `ui_common` — whichever already owns
       setup-tab scaffolding; read before choosing). Each tool's setup tab
       becomes a spec (labels, ranges, defaults, callbacks) over one builder.
-- [ ] Distinct-behaviour tests first: each tool's `test_setup_tab.py` must
+- [x] Distinct-behaviour tests first: each tool's `test_setup_tab.py` must
       already pass unedited, and each must keep a test asserting its own
       labels/defaults survive the consolidation (the over-eager-dedup lock
       the original C1 mandated).
@@ -1261,6 +1261,8 @@ incomplete by definition.
 
 
 | B5 | 1 | 2026-09-30 | compileall exit 0 (tool chain re-compiled: key_detector, mood_analyzer, audio_suite_shared); ruff check . "All checks passed!"; ruff format . clean; mypy . "Success: no issues found in 452 source files"; scoped pytest -q -p no:cacheprovider --no-cov key_detector/tests mood_analyzer/tests audio_suite_shared/tests master_driver/tests/test_runner.py -> 2822 passed, 1 skipped (bare full-suite gate recorded at item B3's close; coverage same command-block discipline) | Commit 64559cb, 4 files (+2 new real-file/undo test classes). run_analysis_workflow extracted as a module-level function in audio_suite_shared/file_processor_base.py, beside iteration-5 C2's run_inplace_dsp_batch; both tools' run_analysis keep name and signature and delegate the shared discover / progress-tracker / thread-tracking / undo-batch worker closure / process_batch / summary block, injecting only the per-file step, CPU worker, result handler and thread label. Design note: the workflow takes the processor as an argument rather than being a BaseFileProcessor method, because the tools' pre-existing mock-processor tests drive run_analysis against the exact methods the workflow owns; the first draft (a processor method) failed 10 of those mocked drive-through tests and was reverted-to-lock before extracting at the module-function seam (two-try rule observed). Byte-exact invariants verified: get_ACTIVE batch join inside the worker (use_batch(get_active_batch_id())), slot-pool put/get in finally, progress-callback signature, the empty directory error text, on_complete summary kwargs, and each tool's tag-write semantics (_should_tag_key policy untouched; closeness and mood paths unchanged). Lockstep additions: mood_analyzer gained its test of undo-batch recording (mirror of key's), real-file outcome tests (live MOOD/ENERGY read back through the real tag reader; dry-run no-write with bytes unchanged) and a byte-level undo round-trip via revert_batch_by_id; key_detector gained the same byte-level undo round-trip. Recorded lockstep exception: three patch seams whose call sites moved with the workflow (get_resource_manager/track_thread/cleanup_expired_resources) now patch at audio_suite_shared.file_processor_base; the assertions themselves are unchanged. Analyser-specific display/log strings and the mood SKIPPABLE_ANALYSIS_ERRORS classification kept per-tool. Cached secret scan: clean. |
+
+| B3 | 1 | 2026-09-30 | compileall exit 0; ruff check . "All checks passed!"; ruff format . clean (4 files); mypy . "Success: no issues found in 452 source files"; scoped pytest key_detector/tests/test_setup_tab.py + mood_analyzer/tests + mood_analysis_batch_tagger/tests -> 300 passed (0 skipped; bare full suite at the stage close) | Commit de06808, 4 files (+2 new test files). AnalysisSetupFrame added to audio_suite_shared/ui_common.py beside BaseSetupFrame: the analysis-duration widget block, the optional Parallel Processing / Workers row and the optional help block share one implementation. The three tools' ui/setup_tab.py files become declarative specs over that builder (title, start text, parallel caption, help heading/text); each build() keeps its public signature incl. its own parameter name (key/mood `folder_path`, batch `root_path`). Lockstep: mood_analyzer and mood_analysis_batch_tagger had no test_setup_tab.py at all - both suites were written FIRST against the pre-refactor code and passed before the extraction (9 + 8 tests), then re-run green after: titles, option labels, proprietary help strings, parallel captions and the BEGIN <x> button labels survive; key_detector's existing 10-test suite passed unedited. Acceptance via the stage-gate alternative branch: the geometry is consolidated behind one implementation (the shared builder); the whole-file pairwise similarity alone remains above 0.60 because ~40% of each file is tool-proprietary help text that must NOT be merged - record here rather than wording the texts. per-file line deltas: mood_analyzer 135->71, key_detector 107->50, mood_analysis_batch_tagger 144->81. Trusted no-UI side effects: build() remains a pure composition over the shared skeleton. Cached secret scan: clean. |
 
 ### A3 finding — a sixth silent swallow the plan's census missed
 
