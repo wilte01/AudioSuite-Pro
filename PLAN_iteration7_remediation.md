@@ -430,7 +430,7 @@ byte-identical ladder exists at zero sites, and every touched suite passes
 
 ---
 
-### B1 `[ ]` — Consolidate the `utils/cli_args.py` flag ladders (22 files) `[audit A3 family 1]`
+### B1 `[x]` — Consolidate the `utils/cli_args.py` flag ladders (22 files) `[audit A3 family 1]`
 
 **Priority:** High | **Effort:** 0.8 day | **Risk:** Medium (CLI contract
 surface; the Master Driver handshake argv layout must not move)
@@ -451,37 +451,37 @@ shared layer owns.
 
 **Scope:**
 
-- [ ] Characterise first: diff the 7 ladder files and tabulate which flags
+- [x] Characterise first: diff the 7 ladder files and tabulate which flags
       each of the 22 files supports, their defaults, and their validation
       messages. Classify every difference: shared-handshake (consolidate)
       versus tool-specific (keep). Assume nothing is safe to merge.
-- [ ] Extend `cli_helpers` with one function that parses the **shared
+- [x] Extend `cli_helpers` with one function that parses the **shared
       handshake segment** (the 10 flag pairs) into `BaseCLIArgs`, plus a
       single shared usage-error printer
       (`print(f"{tool_label}: {error}", file=sys.stderr)` — one owner for the
       19 duplicated writers). The per-tool positional/named-argument parsing
       stays in each file.
-- [ ] Pilot on the 7 byte-identical files in one commit; convert the
+- [x] Pilot on the 7 byte-identical files in one commit; convert the
       remaining 15 in a second commit within this item. Each tool's
       `parse()` keeps its name and signature.
-- [ ] **Byte-for-byte unchanged:** the handshake argv layout the Master
+- [x] **Byte-for-byte unchanged:** the handshake argv layout the Master
       Driver depends on (positional contract, flag spellings, defaults), and
       every tool-specific flag's semantics.
-- [ ] Do not touch `app.py` GUI consumers in this item — `StandardCLIHandler`
+- [x] Do not touch `app.py` GUI consumers in this item — `StandardCLIHandler`
       integration is a separate decision if a defect surfaces.
 
 **Tests (lockstep):**
 
-- [ ] Every existing `tests/test_cli_args.py` must pass **unedited** — that is
+- [x] Every existing `tests/test_cli_args.py` must pass **unedited** — that is
       the behaviour lock (verify which of the 22 tools have one; for any that
       does not, write the parity test *first*, against the pre-refactor
       parser, then refactor).
-- [ ] One new shared test in `audio_suite_shared/tests/test_cli_helpers.py`:
+- [x] One new shared test in `audio_suite_shared/tests/test_cli_helpers.py`:
       the handshake parser accepts/rejects exactly the 10 flag pairs and
       records them into `BaseCLIArgs` identically to the pre-change ladder
       (pinned with a before/after argv→Namespace golden table captured from
       the pre-refactor code).
-- [ ] A repo-level lock: no `elif arg == "--no-parallel-run"` may return —
+- [x] A repo-level lock: no `elif arg == "--no-parallel-run"` may return —
       assert via AST over `utils/cli_args.py` files that the handshake pairs
       are parsed only in `cli_helpers`.
 
@@ -1256,6 +1256,9 @@ incomplete by definition.
 | A2 | 0 | 2026-09-30 | `compileall` exit 0; `ruff check` "All checks passed!"; `ruff format --check` "760 files already formatted"; `mypy .` "Success: no issues found in 452 source files"; `bandit` 0 High / 0 Medium (51 Low); `pytest -q -p no:cacheprovider --no-cov` → **7607 passed, 3 skipped, 30 deselected, 48 warnings in 187.93s** (bare full suite) | Commit `2806f42`, 33 files. `tempo_analyzer/generate_guide.py` created; the 7 scheme tables are now **imported** from `tempo_analyzer.core.tempo_schemes.TEMPO_SCHEMES` (a pure, I/O-free module) so the published BPM ranges cannot drift from the code that assigns them. Swept 12 `.bak`/`.bak2`/`.bak_lossless` across 10 folders and 17 `*_Logging_Guide.docx` + `mood_analyzer/generate_logging_guide.py`. New `tests/test_user_guide_hygiene.py` (8 tests) locks: every guide directory has a committed generator (empty `GENERATOR_EXEMPT_DIRS` allowlist), no `.bak` tracked under `user_guides/`, no per-tool logging guide or generator tracked, and every `guide_to_program` entry resolves on disk. Locks read `git ls-files`, so they assert on the **committed** set; each carries a non-vacuity assertion. Negative control: staging a decoy `.bak` + logging guide failed exactly `test_no_backup_files_tracked` and `test_no_logging_guide_tracked` (2 failed / 6 passed); unstaging the tempo generator failed `test_every_guide_has_a_generator` (3 failed / 5 passed); all decoys removed and re-verified green. Acceptance: `git ls-files \| Select-String '\.bak'` → no matches; no `*_Logging_Guide.docx` or `generate_logging_guide.py` tracked; `tempo_analyzer` present in the generator census; `Tempo_Analyzer_User_Guide.docx` still registered in `guide_to_program` and present. Four cached secret scans clean. |
 | A3 | 0 | 2026-09-30 | `compileall` exit 0; `ruff check` "All checks passed!"; `ruff format --check` "762 files already formatted"; `mypy .` "Success: no issues found in 452 source files"; `bandit` **0 High / 0 Medium**, and **0 B110 (try/except/pass) findings remain** with no `nosec` added; `pytest -q -p no:cacheprovider --no-cov` → **7627 passed, 3 skipped, 30 deselected, 48 warnings in 186.99s** (bare full suite) | Commit `eee93d6`, 8 files, +20 tests. The five planned sites plus **one found while implementing** (see finding below). Behaviour was preserved on every site - the silence was the defect. **Deviation, recorded deliberately:** `batch_undo.py`'s catch stays **broad** rather than narrowing to `(UnpicklingError, EOFError)` as the scope suggested, because the same scope also says "do not narrow what is skipped": the migration is one-shot and gated by `PRAGMA user_version`, so letting an unexpected decode error propagate would both abort the connection and leave *every* other legacy row unmigrated. `logger.warning(..., exc_info=True)` supplies the witness the item asked for and records the concrete exception type. `resize_music_recursive.py` **was** narrowed as instructed; the exception types were verified against PIL's real hierarchy first (`UnidentifiedImageError` subclasses `OSError`, so `OSError` is the operative one), and a probe confirmed random/empty bytes raise `UnidentifiedImageError` while truncated PNGs can raise `OSError`. Negative controls: reverting `batch_undo` fails exactly the witness test (1 failed / 73 passed); reverting the resize fix fails exactly the corrupt-frame witness (1 failed / 7 passed); reverting all three launchers to bare `pass` fails 7 of 10 launcher tests, and the 3 passers are the working-dialog cases that are correctly green either way. All restores SHA-256 verified. Acceptance: every one of the six sites has `silent_pass=0` and at least one `logger.*` call. Four cached secret scans clean. |
 | A4 | 0 | 2026-09-30 | `compileall` exit 0; `ruff check` "All checks passed!"; `ruff format --check` "762 files already formatted"; `mypy .` "Success: no issues found in 452 source files"; `bandit` 0 High / 0 Medium (49 Low, unchanged — doc and test only); `pytest -q -p no:cacheprovider --no-cov` → **7632 passed, 3 skipped, 30 deselected, 48 warnings in 185.19s** (bare full suite) | Commit `98e8ec2`, 2 files, +5 tests. `README.md` gains an "Engineering standards" section (+51 lines at `README.md:217`) placed after the architecture overview and before `## Contributing`: the two measured properties (typing at 99.5% of defs / 99.9% of params, `mypy --strict` over 452 files; the audio-correctness rule), the six-command gate, the no-deferral rule for defects, and `AGENTS.md` + `CONTRIBUTING.md` named as the **normative** sources that win on conflict. Nothing else regenerated: the diff is +51 lines in one hunk, and `TestIndexGeneration` (2 tests) still passes against a fresh render from the manifest, so the generated tool index and platform matrix are provably untouched. The new `TestEngineeringStandards` reads the gate commands **out of `CONTRIBUTING.md`** rather than hardcoding them, so the summary cannot drift from the gate actually enforced, and a command added there fails until the README catches up. Two negative controls, both SHA-256 verified on restore: **NC1** delete the section → `1 failed, 6 passed, 4 errors`; **NC2** add a 7th gate command → `1 failed, 10 passed`. **NC2 changed the design:** the fixture originally asserted `len(commands) == 6`, so adding a real seventh command failed with a bare "parsed 7" from a fixture *error*, hiding the actionable per-command assertion; relaxed to a floor of `>= 6` (with a comment recording why) so the failure now names the missing command while a mis-parse that finds nothing still fails loudly. One test was wrong rather than the prose: the audio rule asserted the literal `"decode"`, which rejects the equally correct "decoding" — changed to the stems `decod`/`measur` **plus** `reading back` to pin the discriminating clause, i.e. looser about inflection and stricter about meaning. Five cached secret scans clean; the single regex hit (`README.md:94`) is a pre-existing platform-matrix row naming `key_manager.py` and its test, present at HEAD and outside the added range. |
+
+| B1 | 1 | 2026-09-30 | compileall exit 0; ruff check . "All checks passed!"; ruff format --check . "762 files already formatted"; mypy . "Success: no issues found in 452 source files"; bandit -r . -x ./.venv -c pyproject.toml 0 High / 0 Medium (41 Low); bare pytest -q -p no:cacheprovider -> 7666 passed, 3 skipped, 30 deselected, 56 warnings in 265.59s; coverage report total 27662 stmts, 5750 missed = 79% (>=75; same command block as the run) | Commits e3c490a (pilot: shared seam + 8 ladder-family files), ad9e46e (positional/membership + AST lock), 5a28c5a (re-export repair). Characterisation corrections recorded: "the 10 flag pairs" is 5 pairs / 10 tokens; the byte-identical ladder is 6 files plus two grouped-form twins (tag_editor, mood_analysis_batch_tagger) - piloted 8, not the plan's "7", so the family was not left half-converted; the stderr writer is duplicated in 17 files / 19 occurrences (the plan said "19 files"). Carve-out recorded: the 5 argparse parsers (asx_extractor, audio_enhancer, audio_refinery, noise_reduction, pop_click_remover) keep their add_argument declarations - they never contained the manual ladder; rewriting them would change mutually-exclusive groups, legacy aliases and the --help output that A1's TestDocumentedFlagParity pins, with no shared-ladder benefit. Class retired as specified: the manual ladder exists at 0 production sites (AST lock bans Compare/membership against any of the ten tokens in every per-tool cli_args.py, with ladder/membership positive controls and argparse/tool-flag negative controls; census asserts >=20 files); print_tool_usage_error is the single stderr writer; all 22 per-tool test_cli_args.py suites passed unedited. Golden verification: each parser's parse() captured pre-refactor over 9 driver-shaped argv vectors (goldens.json in ops scratch), re-captured post-conversion, capture-dir normalized - 0 field diffs across 198 comparisons, including both double-flag vectors (scan tools: last-occurrence-wins; metadata_scrubber/album_art_sync presence-wins preserved byte-exactly via apply_handshake_membership). Defects caught by the unedited locks during conversion, fixed in-change: (1) mood_analysis_batch_tagger's tool-specific --parallel/--no-parallel work-mode pair was dropped (its test_parallel_flag failed) - restored; (2) album_genre_tagger's inline ternary positional reads still carried handshake literals (failed the new AST lock) - routed through read_positional_handshake; (3) ruff autofix removed three was_launched_from_driver as was_launched_from_driver re-exports that their app.py importers need (mypy attr-defined caught it) - restored in the ruff-isort canonical form. Position-only scan tails (key/mood/bpm/lyrics/genre_tagger) keep their accepted-token subset (display-pair four) so no positional tool now consumes --live/--start/--end where it never did. app.py GUI consumers untouched per scope. Launcher .pyw boilerplate untouched per the A3 sequencing note. Cached secret scans at each commit: clean. |
+
 
 ### A3 finding — a sixth silent swallow the plan's census missed
 
