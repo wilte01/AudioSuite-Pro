@@ -2,6 +2,7 @@
   "kept_tags": [
     "ALBUMARTISTGENRE",
     "ARTISTGENRE",
+    "GENREDERIVED",
     "TITLEGENRE"
   ]
 }
