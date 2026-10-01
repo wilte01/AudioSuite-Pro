@@ -465,25 +465,44 @@ def _run_album(
     progress: MagicMock,
     complete: MagicMock,
     error: MagicMock,
+    patch_album_reader: bool = True,
 ):
+    from contextlib import ExitStack
+
     slot_q: Queue[int] = Queue()
     for i in range(DEFAULT_MAX_WORKERS):
         slot_q.put(i)
-    with (
-        _patch_fingerprint_by_name(),
-        patch(
-            "audio_fingerprinter.core.file_processor.resolve_fpcalc",
-            return_value="fpcalc",
-        ),
-        patch(
-            "audio_fingerprinter.core.file_processor.read_artist_title",
-            return_value=("Unknown", "Unknown"),
-        ),
-        patch(
-            "audio_fingerprinter.core.file_processor.AcoustidClient",
-            return_value=client,
-        ),
-    ):
+    with ExitStack() as stack:
+        for entered in (
+            [
+                _patch_fingerprint_by_name(),
+                patch(
+                    "audio_fingerprinter.core.file_processor.resolve_fpcalc",
+                    return_value="fpcalc",
+                ),
+                patch(
+                    "audio_fingerprinter.core.file_processor.read_artist_title",
+                    return_value=("Unknown", "Unknown"),
+                ),
+            ]
+            + (
+                [
+                    patch(
+                        "audio_fingerprinter.core.file_processor.read_artist_album",
+                        return_value=("Unknown", "Unknown"),
+                    ),
+                ]
+                if patch_album_reader
+                else []
+            )
+            + [
+                patch(
+                    "audio_fingerprinter.core.file_processor.AcoustidClient",
+                    return_value=client,
+                ),
+            ]
+        ):
+            stack.enter_context(entered)
         run_fingerprinting(
             dir_path=str(folder),
             api_key="key",
@@ -761,6 +780,56 @@ class TestAlbumModeRealOutcome:
                 f"cluster-decided Acoustid Id missing on {name}"
             )
             assert tags["Acoustid Fingerprint"] == f"fp-{name}"
+
+    def test_album_tag_tie_break_decides_and_writes_real_tags(self, tmp_path):
+        """The measured 10cc failure shape, end to end: two clusters tie
+        exactly, the files' real album tags name the correct one, and the
+        run decides and writes tags instead of leaving the folder
+        ambiguous."""
+        import mutagen
+        from mutagen.id3 import TALB
+
+        from audio_fingerprinter.core.models import ReleaseGroup
+
+        names = ["a.mp3", "b.mp3", "c.mp3"]
+        folder = self._make_album(tmp_path, names)
+        for name in names:
+            audio = mutagen.File(str(folder / name))
+            if audio.tags is None:
+                audio.add_tags()
+            audio.tags.add(TALB(encoding=3, text=["The Album"]))
+            audio.save()
+
+        tied = (
+            ReleaseGroup("rg-album", "The Album"),
+            ReleaseGroup("rg-other", "Other Album"),
+        )
+        responses = {
+            f"fp-{name}": LookupResult(
+                status="ok",
+                recordings=(_rg_rec(f"mb-{name}", 0.9, tied),),
+            )
+            for name in names
+        }
+        progress, complete, error = MagicMock(), MagicMock(), MagicMock()
+        _run_album(
+            folder,
+            _mock_client(responses),
+            FingerprintParams(album_mode=True, write_tags=True, is_dry_run=False),
+            progress,
+            complete,
+            error,
+            patch_album_reader=False,
+        )
+        error.assert_not_called()
+        assert complete.call_args.kwargs["counts"]["tagged"] == 3
+        log_text = "\n".join(complete.call_args.kwargs["log_entries"])
+        assert "album-tag match among 2 clusters tied at 2.70" in log_text
+        for name in names:
+            tags = self._acoustid_tags(folder / name)
+            assert tags["Acoustid Id"] == f"ac-mb-{name}", (
+                f"tie-broken cluster did not tag {name}"
+            )
 
     def test_dry_run_writes_no_tags(self, tmp_path):
         names = ["a.mp3", "b.mp3", "c.mp3"]

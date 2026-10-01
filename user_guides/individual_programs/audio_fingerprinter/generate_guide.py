@@ -133,9 +133,16 @@ bullet(
     "files (the --album-min default) carry candidates in "
     "it; the cluster is decided when its score (files "
     "voting times average confidence) leads the runner-up "
-    "by 25 percent. Ambiguous albums are left untagged "
-    "with the runner-up surfaced. Files no decided "
-    "cluster claims fall back to per-file matching. "
+    "by 25 percent. Well-known albums often tie exactly "
+    "(one test album produced eight clusters at the same "
+    "score, because a recording appears on every release "
+    "group containing it); when the files share one album "
+    "tag and it matches exactly one tied cluster, that "
+    "cluster is decided - the user's own tag is the "
+    "evidence, and a match against several clusters still "
+    "refuses to guess. Ambiguous albums are left untagged "
+    "with the whole tied set named in the log. Files no "
+    "decided cluster claims fall back to per-file matching. "
     "Disabled by default.",
 )
 bullet(
@@ -391,8 +398,11 @@ bullet(
     "Album files left untagged (ALBUM AMBIGUOUS): ",
     "The folder's release-group clusters tied inside "
     "the decision margin, so album mode refuses to "
-    "guess; the log names both clusters. Lower "
-    "--album-min or resolve the ambiguity manually; "
+    "guess; the log names every tied cluster and its "
+    "scores, and the files' shared album tag already "
+    "decides the tie when it matches exactly one of "
+    "them. Otherwise lower --album-min, fix the "
+    "album tag, or resolve the ambiguity manually; "
     "a run without Album Match still applies per-file "
     "matching.",
 )

@@ -594,9 +594,10 @@ def _run_album_phase(
             continue
         try:
             artist_tag, title_tag = read_artist_title(result.file_path)
+            _, album_tag = read_artist_album(result.file_path)
         except (OSError, AudioSuiteError) as exc:
             logger.warning("Could not read tags from %s: %s", result.file_path, exc)
-            artist_tag, title_tag = "", ""
+            artist_tag, title_tag, album_tag = "", "", ""
         entries.append(
             (
                 result,
@@ -608,6 +609,7 @@ def _run_album_phase(
                     artist_tag=artist_tag,
                     title_tag=title_tag,
                     recordings=lookup.recordings,
+                    album_tag=album_tag,
                 ),
             )
         )

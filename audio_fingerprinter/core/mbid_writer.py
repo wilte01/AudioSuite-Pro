@@ -34,13 +34,16 @@ ARTISTID_TAG = "MUSICBRAINZ_ARTISTID"
 RECOVERY_CHARS = str.maketrans({"’": "'", "‘": "'", "`": "'", "´": "'"})
 
 
-def _normalize(value: str) -> str:
+def normalize_title(value: str) -> str:
     """Fold a title for comparison: case, punctuation, accents, whitespace.
 
     MusicBrainz uses a typographic apostrophe where a local tag usually has an
     ASCII one, and release titles differ from album tags by punctuation far more
     often than by wording.  Comparing the folded forms avoids failing a match
-    the user would consider exact.
+    the user would consider exact.  Shared by the per-file near-tie break
+    (``resolve_best_match``), the release selection (D2-am1) and the
+    album-cluster tie-break so every title comparison in the tool folds the
+    same way.
     """
     folded = unicodedata.normalize("NFKD", value.translate(RECOVERY_CHARS))
     stripped = "".join(ch for ch in folded if not unicodedata.combining(ch))
@@ -182,7 +185,7 @@ def _existing_album_id(file_path: str) -> str:
 
 def _narrow_by_title(candidates: list[Release], album_title: str) -> list[Release]:
     """Keep candidates whose release or release-group title matches the album."""
-    target = _normalize(album_title)
+    target = normalize_title(album_title)
     if not target:
         return candidates
     matched = [
@@ -190,8 +193,8 @@ def _narrow_by_title(candidates: list[Release], album_title: str) -> list[Releas
         for candidate in candidates
         if target
         in {
-            _normalize(candidate.release_group_title),
-            _normalize(candidate.title),
+            normalize_title(candidate.release_group_title),
+            normalize_title(candidate.title),
         }
     ]
     return matched or candidates

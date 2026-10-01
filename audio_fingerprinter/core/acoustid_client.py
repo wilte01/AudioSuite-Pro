@@ -17,6 +17,7 @@ import requests
 from audio_suite_shared.exceptions import handle_audio_errors
 
 from .exceptions import AcoustidApiError, AcoustidAuthError
+from .mbid_writer import normalize_title
 from .models import (
     AcoustidRecording,
     Fingerprint,
@@ -499,16 +500,6 @@ def _build_recording(
     )
 
 
-def _normalize_tag_text(value: str) -> str:
-    """Collapse a tag or candidate string to a punctuation-insensitive key.
-
-    Titles frequently differ from the MusicBrainz spelling only by
-    punctuation or casing (``Johnny, Don't Do It`` vs ``Johnny, Don't Do
-    It``), so only alphanumeric characters survive the comparison.
-    """
-    return "".join(ch for ch in value.casefold() if ch.isalnum())
-
-
 def resolve_best_match(
     recordings: tuple[AcoustidRecording, ...],
     artist_tag: str,
@@ -547,14 +538,14 @@ def resolve_best_match(
     if not ambiguous:
         return top, False, False
 
-    file_artist = _normalize_tag_text(artist_tag)
-    file_title = _normalize_tag_text(title_tag)
+    file_artist = normalize_title(artist_tag)
+    file_title = normalize_title(title_tag)
     if file_artist and file_title:
         for recording in recordings:
             if (top.score - recording.score) >= _AMBIGUITY_SCORE_GAP:
                 break
-            if _normalize_tag_text(recording.artist) == file_artist and (
-                _normalize_tag_text(recording.title) == file_title
+            if normalize_title(recording.artist) == file_artist and (
+                normalize_title(recording.title) == file_title
             ):
                 return recording, True, True
     return top, True, False

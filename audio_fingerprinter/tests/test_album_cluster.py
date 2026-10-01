@@ -37,6 +37,7 @@ def _file(
     artist_tag: str = "",
     title_tag: str = "",
     folder: str = _FOLDER,
+    album_tag: str = "",
 ) -> AlbumFile:
     return AlbumFile(
         file_path=f"{folder}/{name}",
@@ -46,6 +47,7 @@ def _file(
         artist_tag=artist_tag,
         title_tag=title_tag,
         recordings=recordings,
+        album_tag=album_tag,
     )
 
 
@@ -206,6 +208,178 @@ class TestAmbiguousCluster:
         ]  # score 2.58 -> ratio 1.2403 (inside the margin)
         resolution = resolve_album(winner_files + runner_files, album_min=3)
         assert resolution.status == "ambiguous"
+
+
+class TestClusterTagTieBreak:
+    """The album-tag tie-break: the cluster-level analogue of the per-file
+    near-tie break (measured live on a real 10cc album: six clusters at
+    exactly 9.73, the user's album tag '10cc' naming one of them)."""
+
+    # Six groups all containing the same tracks — the measured 10cc shape.
+    _TIE_GROUPS = (
+        ReleaseGroup("rg-20y", "20 Years (1972-1992)"),
+        ReleaseGroup("rg-best", "The Best of the Early Years"),
+        ReleaseGroup("rg-two", "Two Classic Albums: 10cc / Sheet Music"),
+        ReleaseGroup("rg-10cc", "10cc"),
+        ReleaseGroup("rg-coll", "The Collection"),
+        ReleaseGroup("rg-gh", "Greatest Hits"),
+    )
+
+    @classmethod
+    def _tied_files(cls, album_tag: str) -> list[AlbumFile]:
+        # One candidate per file carrying every tied group at the same
+        # score -> every cluster scores identically (files x confidence).
+        return [
+            _file(
+                f"t{i}.mp3",
+                (_rec(f"mb-{i}", 0.973, cls._TIE_GROUPS, title=f"Track {i}"),),
+                album_tag=album_tag,
+            )
+            for i in range(3)
+        ]
+
+    def test_matching_album_tag_decides_the_tied_clusters(self):
+        files = self._tied_files("10cc")
+        resolution = resolve_album(files, album_min=3)
+        assert resolution.status == "decided"
+        assert resolution.winner is not None
+        assert resolution.winner.release_group_id == "rg-10cc"
+        # The report says how the tie was broken, not just that it was.
+        assert "album-tag match among 6 clusters tied at 2.92" in (
+            resolution.report_line
+        )
+        for decision in resolution.decisions:
+            assert decision.outcome == "cluster"
+            assert decision.cluster_title == "10cc"
+            assert decision.best is not None
+            assert decision.best.recording_id.startswith("mb-")
+
+    def test_tag_matching_two_tied_clusters_stays_ambiguous(self):
+        files = self._tied_files("The Collection")
+        # Two distinct groups normalize to the same folded title, so the
+        # tag cannot pick one — refusing to guess still wins.
+        groups = (
+            ReleaseGroup("rg-coll-a", "The Collection"),
+            ReleaseGroup("rg-coll-b", "The  Collection"),
+        )
+        files = [
+            _file(
+                f"t{i}.mp3",
+                (_rec(f"mb-{i}", 0.973, groups, title=f"Track {i}"),),
+                album_tag="The Collection",
+            )
+            for i in range(3)
+        ]
+        resolution = resolve_album(files, album_min=3)
+        assert resolution.status == "ambiguous"
+        for decision in resolution.decisions:
+            assert decision.outcome == "ambiguous"
+            assert decision.best is None
+
+    def test_unmatched_album_tag_lists_the_whole_tie(self):
+        files = self._tied_files("A Different Album")
+        resolution = resolve_album(files, album_min=3)
+        assert resolution.status == "ambiguous"
+        # The full tied set is surfaced, not an arbitrary top two — the
+        # correct answer must at least be visible.
+        assert "6 clusters tied at 2.92" in resolution.report_line
+        assert "20 Years (1972-1992)" in resolution.report_line
+        assert "10cc" in resolution.report_line
+        assert "(+3 more)" in resolution.report_line
+        for decision in resolution.decisions:
+            assert "6 clusters tied" in decision.cluster_title
+
+    def test_unknown_placeholder_album_tag_is_ignored(self):
+        files = self._tied_files("Unknown")
+        resolution = resolve_album(files, album_min=3)
+        assert resolution.status == "ambiguous"
+        # 'Unknown' is the reader's placeholder, never evidence.
+        assert "album-tag match" not in resolution.report_line
+
+    def test_empty_album_tags_are_ignored(self):
+        files = self._tied_files("")
+        resolution = resolve_album(files, album_min=3)
+        assert resolution.status == "ambiguous"
+
+    def test_decisive_winner_is_not_overridden_by_the_tag(self):
+        # The tie-break only separates clusters the margin cannot; a tag
+        # naming the runner-up must never defeat a decisive winner.
+        album, other = _album_rg(), _other_rg()
+        winner_files = [
+            _file(f"w{i}.mp3", (_rec(f"mb-w{i}", 0.9, (album,)),)) for i in range(4)
+        ]
+        runner_files = [
+            _file(
+                f"r{i}.mp3",
+                (_rec(f"mb-r{i}", 0.5, (other,)),),
+                album_tag="Other Album",
+            )
+            for i in range(3)
+        ]
+        resolution = resolve_album(winner_files + runner_files, album_min=3)
+        assert resolution.status == "decided"
+        assert resolution.winner is not None
+        assert resolution.winner.release_group_id == "rg-album"
+        assert "album-tag match" not in resolution.report_line
+
+    def test_majority_album_tag_forms_the_consensus(self):
+        album, other = _album_rg(), _other_rg()
+        files = [
+            _file(
+                f"a{i}.mp3", (_rec(f"mb-a{i}", 0.9, (album,)),), album_tag="The Album"
+            )
+            for i in range(4)
+        ] + [
+            _file(
+                f"b{i}.mp3",
+                (_rec(f"mb-b{i}", 0.9, (other,)),),
+                album_tag="Other Album",
+            )
+            for i in range(3)
+        ]
+        resolution = resolve_album(files, album_min=3)
+        assert resolution.status == "decided"
+        assert resolution.winner is not None
+        assert resolution.winner.release_group_id == "rg-album"
+
+    def test_even_album_tag_split_has_no_consensus(self):
+        # Both clusters form and tie (3 files each), but the folder's
+        # album tags split 3 vs 3 — no consensus, so nothing is guessed.
+        album, other = _album_rg(), _other_rg()
+        files = [
+            _file(
+                f"a{i}.mp3", (_rec(f"mb-a{i}", 0.9, (album,)),), album_tag="The Album"
+            )
+            for i in range(3)
+        ] + [
+            _file(
+                f"b{i}.mp3",
+                (_rec(f"mb-b{i}", 0.9, (other,)),),
+                album_tag="Other Album",
+            )
+            for i in range(3)
+        ]
+        resolution = resolve_album(files, album_min=3)
+        assert resolution.status == "ambiguous"
+        assert "album-tag match" not in resolution.report_line
+
+    def test_curly_apostrophe_album_tag_still_matches(self):
+        groups = (
+            ReleaseGroup("rg-dont", "Don\u2019t Stop"),
+            ReleaseGroup("rg-other", "Other Album"),
+        )
+        files = [
+            _file(
+                f"t{i}.mp3",
+                (_rec(f"mb-{i}", 0.9, groups),),
+                album_tag="Don't Stop",
+            )
+            for i in range(3)
+        ]
+        resolution = resolve_album(files, album_min=3)
+        assert resolution.status == "decided"
+        assert resolution.winner is not None
+        assert resolution.winner.release_group_id == "rg-dont"
 
 
 class TestNoCluster:
