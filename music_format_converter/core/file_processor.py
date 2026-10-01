@@ -198,6 +198,7 @@ def process_single_file(
     bit_depth: str = "auto",
     normalize_mp3: bool = False,
     target_lufs: float = -16.0,
+    dither: bool = True,
 ) -> None:
     """Acquire a slot, convert one audio file, release the slot."""
     slot_idx = slot_queue.get()
@@ -273,6 +274,7 @@ def process_single_file(
             output_format,
             quality,
             sample_rate=sample_rate,
+            dither=dither,
             **_wav_params_for(input_path, input_format, output_format, bit_depth),
         )
 
@@ -435,6 +437,7 @@ def run_conversion(
     bit_depth: str = "auto",
     normalize_mp3: bool = False,
     target_lufs: float = -16.0,
+    dither: bool = True,
 ) -> None:
     """Scan directory, convert all supported audio files with a worker pool."""
     processor = MusicFormatConverterProcessor()
@@ -506,6 +509,7 @@ def run_conversion(
         norm_mp3: bool,
         tgt_lufs: float,
         proc: MusicFormatConverterProcessor | None = None,
+        dith: bool = True,
     ) -> None:
         with use_batch(undo_batch):
             process_single_file(
@@ -526,6 +530,7 @@ def run_conversion(
                 bit_depth=b_depth,
                 normalize_mp3=norm_mp3,
                 target_lufs=tgt_lufs,
+                dither=dith,
             )
 
     def _worker(name: str) -> object:
@@ -547,6 +552,7 @@ def run_conversion(
             normalize_mp3,
             target_lufs,
             processor,
+            dither,
         )
         return None
 

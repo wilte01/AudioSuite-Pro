@@ -14,6 +14,7 @@ Positional + named-flag layout:
     --output-dir PATH
     --normalize-mp3            - losslessly adjust MP3 output to target LUFS
     --target-lufs VALUE        - target loudness (default -16.0)
+    --dither / --no-dither     - TPDF dither on bit-depth reduction (default on)
     display-only flags: --clear-logs|--no-clear-logs,
                         --parallel-run|--no-parallel-run
 
@@ -66,6 +67,9 @@ class ConverterArgs(BaseCLIArgs):
     output_dir: Optional[str] = None
     normalize_mp3: bool = False
     target_lufs: float = -16.0
+    dither: Optional[bool] = None
+    """Tri-state: None = flag absent, so the GUI default (dither on) stands.
+    Only an explicit --no-dither resolves to False."""
     clear_logs: bool = False  # Display only — driver-owned orchestration flag
     parallel_run: bool = False  # Display only — driver-owned orchestration flag
 
@@ -158,6 +162,12 @@ def parse(argv: list[str] | None = None) -> ConverterArgs:
             except ValueError:
                 pass
             i += 2
+        elif arg == "--dither":
+            args.dither = True
+            i += 1
+        elif arg == "--no-dither":
+            args.dither = False
+            i += 1
         else:
             i += 1
     errors = validate_args(args)

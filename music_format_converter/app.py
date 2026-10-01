@@ -64,6 +64,10 @@ class MusicFormatConverterApp(UIHelperMixin):
         self.delete_originals = tk.BooleanVar(value=False)
         self.normalize_mp3 = tk.BooleanVar(value=False)
         self.target_lufs = tk.DoubleVar(value=-16.0)
+        # TPDF dither is on by default (plan E1 / decision D1 option A): it is
+        # what makes a bit-depth reduction artefact-free. The checkbox is the
+        # documented opt-out for bit-exact legacy output.
+        self.dither = tk.BooleanVar(value=True)
         self.run_mode = tk.StringVar(value="Live Update")
 
         # Driver-mirrored run controls (Clear Logs / Parallel are display-only)
@@ -139,6 +143,7 @@ class MusicFormatConverterApp(UIHelperMixin):
             delete_originals=self.delete_originals,
             normalize_mp3=self.normalize_mp3,
             target_lufs=self.target_lufs,
+            dither=self.dither,
             run_mode=self.run_mode,
             auto_start_var=self.auto_start_var,
             auto_end_var=self.auto_end_var,
@@ -193,6 +198,7 @@ class MusicFormatConverterApp(UIHelperMixin):
             "delete_originals": self.delete_originals.get(),
             "normalize_mp3": self.normalize_mp3.get(),
             "target_lufs": self.target_lufs.get(),
+            "dither": self.dither.get(),
             "run_mode": self.run_mode.get(),
         }
 
@@ -211,6 +217,10 @@ class MusicFormatConverterApp(UIHelperMixin):
             self.normalize_mp3.set(settings["normalize_mp3"])
         if "target_lufs" in settings:
             self.target_lufs.set(settings["target_lufs"])
+        # Absent from older presets: leave the dither default in place rather
+        # than silently switching it off when an old preset is loaded.
+        if "dither" in settings:
+            self.dither.set(settings["dither"])
         if "run_mode" in settings:
             self.run_mode.set(settings["run_mode"])
 
@@ -262,6 +272,11 @@ class MusicFormatConverterApp(UIHelperMixin):
             self.normalize_mp3.set(True)
         if parsed.target_lufs != -16.0:
             self.target_lufs.set(parsed.target_lufs)
+        # Tri-state on the parsed args: None means the flag was absent, so the
+        # GUI default (dither on) is kept. Only an explicit --no-dither
+        # switches it off.
+        if parsed.dither is not None:
+            self.dither.set(parsed.dither)
         if parsed.output_dir:
             self.output_folder.set(parsed.output_dir)
 
@@ -453,6 +468,7 @@ class MusicFormatConverterApp(UIHelperMixin):
         is_dry_run = self.run_mode.get() == "Dry Run"
         normalize_mp3 = self.normalize_mp3.get() and fmt == "mp3"
         target_lufs = self.target_lufs.get()
+        dither = self.dither.get()
 
         log_name = f"conversion_{'dry_run' if is_dry_run else 'live'}_log_{fmt}.txt"
         self._log_path = os.path.join(output_dir, log_name)
@@ -476,6 +492,7 @@ class MusicFormatConverterApp(UIHelperMixin):
             )
         else:
             header.append("Normalize MP3 (Lossless): NO\n")
+        header.append(f"Dither (TPDF): {'ON' if dither else 'OFF'}\n")
         header.append("=" * 60 + "\n")
 
         with active_batch("music_format_converter", "file_delete"):
@@ -498,6 +515,7 @@ class MusicFormatConverterApp(UIHelperMixin):
                 bit_depth=bit_depth,
                 normalize_mp3=normalize_mp3,
                 target_lufs=target_lufs,
+                dither=dither,
             )
 
     def _on_progress(

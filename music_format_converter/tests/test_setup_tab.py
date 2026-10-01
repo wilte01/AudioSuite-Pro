@@ -27,6 +27,7 @@ def _make_vars(root: tk.Tk) -> dict[str, tk.Variable]:
         "delete_originals": tk.BooleanVar(master=root, value=False),
         "normalize_mp3": tk.BooleanVar(master=root, value=False),
         "target_lufs": tk.DoubleVar(master=root, value=-16.0),
+        "dither": tk.BooleanVar(master=root, value=True),
         "run_mode": tk.StringVar(master=root, value="Dry Run"),
         "auto_start": tk.BooleanVar(master=root, value=False),
         "auto_end": tk.BooleanVar(master=root, value=False),
@@ -48,6 +49,7 @@ def _build(root: tk.Tk, **overrides):
         "delete_originals": vars_["delete_originals"],
         "normalize_mp3": vars_["normalize_mp3"],
         "target_lufs": vars_["target_lufs"],
+        "dither": vars_["dither"],
         "run_mode": vars_["run_mode"],
         "auto_start_var": vars_["auto_start"],
         "auto_end_var": vars_["auto_end"],
@@ -326,3 +328,42 @@ class TestBitDepthControl:
         kwargs["bit_depth"].set("24")
         widgets["update_format_menu"](["mp3", "ogg"], "mp3")
         assert kwargs["bit_depth"].get() == "auto"
+
+
+class TestDitherControl:
+    """The TPDF dither opt-out checkbox (plan E1, decision D1 option A)."""
+
+    @staticmethod
+    def _find_dither_box(container: tk.Widget) -> tk.Checkbutton:
+        boxes = [
+            b
+            for b in _all_checkbuttons(container)
+            if "dither" in str(b.cget("text")).lower()
+        ]
+        assert len(boxes) == 1, f"expected one dither checkbox, got {len(boxes)}"
+        return boxes[0]
+
+    def test_checkbox_present(self, root: tk.Tk) -> None:
+        _, _, container = _build(root)
+        assert self._find_dither_box(container) is not None
+
+    def test_defaults_to_on(self, root: tk.Tk) -> None:
+        """Dither is the always-on default; the checkbox is only an opt-out."""
+        kwargs, _, _ = _build(root)
+        assert kwargs["dither"].get() is True
+
+    def test_bound_to_the_supplied_var(self, root: tk.Tk) -> None:
+        """The widget must write through to the app's own BooleanVar."""
+        kwargs, _, container = _build(root)
+        box = self._find_dither_box(container)
+        box.invoke()
+        assert kwargs["dither"].get() is False
+        box.invoke()
+        assert kwargs["dither"].get() is True
+
+    def test_checkbox_is_enabled_for_every_output_format(self, root: tk.Tk) -> None:
+        """Unlike bit depth, this is not gated on format: the depth reduction
+        that AIFF performs internally needs it just as much as WAV does."""
+        _, widgets, container = _build(root)
+        widgets["update_format_menu"](["flac", "wav"], "wav")
+        assert str(self._find_dither_box(container).cget("state")) != "disabled"

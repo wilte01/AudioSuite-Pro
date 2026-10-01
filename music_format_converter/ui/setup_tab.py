@@ -27,6 +27,7 @@ def build(
     delete_originals: tk.BooleanVar,
     normalize_mp3: tk.BooleanVar,
     target_lufs: tk.DoubleVar,
+    dither: tk.BooleanVar,
     run_mode: tk.StringVar,
     auto_start_var: tk.BooleanVar,
     auto_end_var: tk.BooleanVar,
@@ -80,6 +81,7 @@ def build(
         delete_originals=delete_originals,
         normalize_mp3=normalize_mp3,
         target_lufs=target_lufs,
+        dither=dither,
         ffmpeg_available=ffmpeg_available,
         all_formats=all_formats,
         on_browse_output=on_browse_output,
@@ -110,6 +112,7 @@ class _SetupFrame(BaseSetupFrame):
         delete_originals: tk.BooleanVar,
         normalize_mp3: tk.BooleanVar,
         target_lufs: tk.DoubleVar,
+        dither: tk.BooleanVar,
         ffmpeg_available: bool,
         all_formats: list[str],
         on_browse_output: Callable[..., Any],
@@ -124,6 +127,7 @@ class _SetupFrame(BaseSetupFrame):
         self._delete_originals_var = delete_originals
         self._normalize_mp3_var = normalize_mp3
         self._target_lufs_var = target_lufs
+        self._dither_var = dither
         self._ffmpeg_available = ffmpeg_available
         self._all_formats = all_formats
         self._on_browse_output = on_browse_output
@@ -389,6 +393,28 @@ class _SetupFrame(BaseSetupFrame):
             fg=styles.FG_SUB,
             bg=styles.BG_WHITE,
         ).pack(side=tk.LEFT, padx=(6, 0))
+        tk.Checkbutton(
+            self,
+            text="Apply TPDF dither when reducing bit depth (WAV/AIFF)",
+            variable=self._dither_var,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            selectcolor=styles.BG_WHITE,
+            activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
+            font=styles.FONT_BODY,
+        ).pack(anchor="w", pady=(8, 0))
+        tk.Label(
+            self,
+            text=(
+                "(recommended: prevents distortion when lowering depth; "
+                "clear only if you need bit-identical legacy output)"
+            ),
+            font=styles.FONT_CAPTION,
+            fg=styles.FG_SUB,
+            bg=styles.BG_WHITE,
+            wraplength=700,
+        ).pack(anchor="w")
 
         # ── Info box ──────────────────────────────────────────────────────────
         info_frame = tk.Frame(self, bg="#e8f4f8", relief=tk.RIDGE, bd=1)

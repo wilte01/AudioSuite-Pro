@@ -4,6 +4,10 @@ Build the FFmpeg command list for a given format/quality combination.
 
 Pure function — no tkinter, no file I/O, no subprocess execution.
 The caller is responsible for running the returned command.
+
+Bit-depth reduction and sample-rate conversion both go through FFmpeg's
+``aresample`` filter (plan E1, decision D1): TPDF dither on every depth
+reduction, and the SoX resampler whenever a rate conversion is requested.
 """
 
 # ── Sample-rate presets ──────────────────────────────────────────────────────
@@ -30,6 +34,61 @@ WAV_DEPTH_CODECS: dict[str, str] = {
     "32": "pcm_s32le",
     "float": "pcm_f32le",
 }
+
+# ── Dither / resampler policy (plan E1, decision D1 option A) ────────────────
+
+DITHER_METHOD: str = "triangular"
+"""FFmpeg ``dither_method`` value. ``triangular`` is TPDF — the standard
+dither for bit-depth reduction, and the one whose measured output shows a flat
+noise floor rather than the correlated quantisation spurs of no dither. The
+noise-shaped alternative on this build is ``triangular_hp``; it is one word
+away but was not chosen, because D1 specifies TPDF and because its
+high-pass-shaped floor makes the artefact signature harder to assert."""
+
+RESAMPLER: str = "soxr"
+"""FFmpeg ``resampler`` engine used whenever a sample-rate conversion is
+requested. Measured on this build, a bare ``-ar`` leaks only ~10 dB down at
+22 kHz into a 44.1 kHz target; SoX suppresses the same tone by ~99 dB."""
+
+DITHER_TARGET_FORMATS: frozenset[str] = frozenset({"wav", "aiff", "aif"})
+"""Output formats whose integer PCM depth this tool selects itself — WAV via
+``--bit-depth`` and AIFF via the quality preset. Those are the only targets
+where a bit-depth reduction is possible, and therefore the only ones that need
+dither. Float targets (``pcm_f32le``/``pcm_f64le``) and same-depth targets were
+measured bit-identical with and without the filter."""
+
+
+def _aresample_filter(
+    output_format: str,
+    sample_rate: str,
+    dither: bool,
+    stream_copied: bool,
+) -> str | None:
+    """Return the ``aresample`` filter string, or None when none is needed.
+
+    Args:
+        output_format: Target format, tested against DITHER_TARGET_FORMATS.
+        sample_rate: Target rate; anything other than ``'source'`` (or empty)
+            requests a conversion, which selects the quality resampler.
+        dither: When False the dither term is omitted, leaving the resampler
+            (and, with no rate conversion, no filter at all). This is the
+            documented ``--no-dither`` opt-out, which restores the exact
+            pre-E1 command line.
+        stream_copied: True when the codec is a stream copy. A copied stream
+            cannot be filtered, so no filter is emitted.
+
+    Returns:
+        The filter string to pass to ``-af``, or None.
+    """
+    if stream_copied:
+        return None
+
+    parts: list[str] = []
+    if sample_rate and sample_rate != "source":
+        parts.append(f"resampler={RESAMPLER}")
+    if dither and output_format in DITHER_TARGET_FORMATS:
+        parts.append(f"dither_method={DITHER_METHOD}")
+    return "aresample=" + ":".join(parts) if parts else None
 
 
 def _wav_codec(
@@ -78,6 +137,7 @@ def get_ffmpeg_params(
     source_sample_fmt: str | None = None,
     source_bits_per_sample: int = 0,
     sample_rate: str = "source",
+    dither: bool = True,
 ) -> list[str]:
     """
     Return the FFmpeg command list for converting input_path to
@@ -97,6 +157,10 @@ def get_ffmpeg_params(
         sample_rate:          Target sample rate: 'source' to keep the
                               original rate, or a numeric string (e.g.
                               '44100', '48000', '96000').
+        dither:               Apply TPDF dither when the target depth is
+                              lower than the source. Default True (decision
+                              D1 option A); False reproduces the pre-E1
+                              command line byte for byte.
 
     Returns:
         List of strings ready to pass to ``run_secure_subprocess`` (the
@@ -112,6 +176,8 @@ def get_ffmpeg_params(
         input_path,
         "-y",
     ]
+
+    stream_copied = False
 
     # ── Per-format codec / bitrate settings ───────────────────────────────────
 
@@ -214,6 +280,12 @@ def get_ffmpeg_params(
         # formats.can_convert()/available_output_formats() before this
         # function is ever called, because FFmpeg has no APE encoder.
         cmd.extend(["-codec:a", "copy"])
+        stream_copied = True
+
+    # ── Dither + resampler quality (plan E1 / decision D1) ───────────────────
+    aresample = _aresample_filter(output_format, sample_rate, dither, stream_copied)
+    if aresample:
+        cmd.extend(["-af", aresample])
 
     # ── Sample rate override ─────────────────────────────────────────────────
     if sample_rate and sample_rate != "source":

@@ -55,6 +55,15 @@ from audio_suite_shared.suite_config import list_presets, load_preset
     help="Target integrated loudness in LUFS when --normalize-mp3 is set.",
 )
 @click.option("--delete-originals/--keep-originals", default=False)
+@click.option(
+    "--dither/--no-dither",
+    default=True,
+    show_default=True,
+    help=(
+        "Apply TPDF dither when the output depth is lower than the source "
+        "(WAV/AIFF). Clear only for bit-identical legacy output."
+    ),
+)
 @click.option("--preset", default=None, help="Load settings from a named preset.")
 def convert(
     directory: str,
@@ -69,6 +78,7 @@ def convert(
     preset: str | None,
     normalize_mp3: bool,
     target_lufs: float,
+    dither: bool,
 ) -> None:
     """Convert audio files between formats."""
     from music_format_converter.core.file_processor import run_conversion
@@ -85,6 +95,7 @@ def convert(
         sample_rate = settings.get("sample_rate", sample_rate)
         bit_depth = settings.get("bit_depth", bit_depth)
         delete_originals = settings.get("delete_originals", delete_originals)
+        dither = settings.get("dither", dither)
 
     _WORD_QUALITY: dict[str, str] = {
         "highest": "highest",
@@ -128,6 +139,7 @@ def convert(
             bit_depth=bit_depth,
             normalize_mp3=normalize_mp3,
             target_lufs=target_lufs,
+            dither=dither,
         )
     if json:
         click.echo(_json_mod.dumps(result.to_dict(), indent=2))

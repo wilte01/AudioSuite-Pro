@@ -29,7 +29,9 @@ doc.add_paragraph(
     "FFmpeg. It preserves metadata through the conversion path, "
     "supports format-specific "
     "quality controls, can resample audio, "
-    "can choose WAV bit depth, and optionally applies "
+    "can choose WAV bit depth, "
+    "dithers bit-depth reductions with TPDF noise, "
+    "and optionally applies "
     "lossless MP3 loudness gain after conversion."
 )
 doc.add_paragraph(
@@ -144,6 +146,20 @@ bullet(
 )
 bullet(
     doc,
+    "Dither (TPDF): ",
+    "On by default. Applies triangular-PDF dither whenever the output depth is "
+    "lower than the source, for WAV and AIFF alike. This removes the tonal "
+    "quantization distortion that a bare depth reduction produces; leave it on "
+    "unless you specifically need bit-identical legacy output.",
+)
+bullet(
+    doc,
+    "Resampling: ",
+    "Whenever a sample rate other than Source is chosen, the conversion uses "
+    "the SoX resampler for a steep, alias-free anti-alias filter.",
+)
+bullet(
+    doc,
     "Output Directory: ",
     "Optional separate destination. If blank, output defaults to the input directory.",
 )
@@ -167,7 +183,13 @@ bullet(doc, "OGG: ", "Vorbis quality 10, 8, or 6.")
 bullet(doc, "M4A: ", "AAC at 320, 256, or 192 kbps.")
 bullet(doc, "MP4: ", "AAC at 320, 256, or 192 kbps (same tiers as M4A).")
 bullet(doc, "Opus: ", "256, 192, or 128 kbps.")
-bullet(doc, "AIFF / AIF: ", "24-bit PCM at highest/high, 16-bit PCM at medium.")
+bullet(
+    doc,
+    "AIFF / AIF: ",
+    "24-bit PCM at highest/high, 16-bit PCM at medium. "
+    "Because the quality preset alone selects the depth, the dither option "
+    "applies to the 16-bit tiers as well.",
+)
 bullet(doc, "WMA: ", "320, 256, or 192 kbps.")
 
 doc.add_heading("Conversion Behavior", level=1)
@@ -176,6 +198,8 @@ for step in (
     "Validate that input and output formats are compatible.",
     "Build FFmpeg parameters for the selected format, "
     "quality, sample rate, and bit depth.",
+    "Apply the dither and resampler filter: TPDF dither on a depth "
+    "reduction, and the SoX resampler on any sample-rate conversion.",
     "Convert each file with retry handling and write "
     "the output filename with the target extension.",
     "Preserve metadata through the conversion path.",
@@ -231,6 +255,7 @@ doc.add_paragraph(
     "The converter writes its processing log in the resolved output directory. "
     "The log contains "
     "per-file conversion status, format transition, size information, "
+    "the Dither (TPDF) ON/OFF setting, "
     "skipped reasons, errors, "
     "and summary counts."
 )
@@ -244,11 +269,14 @@ doc.add_paragraph(
     "python -m audio_suite_shared.cli_app convert <folder> "
     "--format mp3 --normalize-mp3 --target-lufs -16\n"
     "python -m audio_suite_shared.cli_app convert <folder> "
-    "--format m4a --delete-originals --live --json"
+    "--format m4a --delete-originals --live --json\n"
+    "python -m audio_suite_shared.cli_app convert <folder> "
+    "--format wav --bit-depth 16 --no-dither"
 )
 doc.add_paragraph(
     "CLI options include --format, --quality, --sample-rate, "
     "--bit-depth, --output-dir, "
+    "--dither/--no-dither, "
     "--normalize-mp3, --target-lufs, "
     "--delete-originals/--keep-originals, --dry/--live, "
     "--preset, and --json. Saved presets can supply output and quality settings."

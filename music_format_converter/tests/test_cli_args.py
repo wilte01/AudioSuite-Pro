@@ -397,3 +397,51 @@ class TestNormalizeMp3Flag:
         """--normalize-mp3 immediately after the folder is a valid layout."""
         args = parse(["prog", str(tmp_path), "--normalize-mp3"])
         assert args.normalize_mp3 is True
+
+
+class TestDitherFlag:
+    """The --dither/--no-dither opt-out (plan E1, decision D1 option A)."""
+
+    def test_absent_flag_stays_tri_state_none(self, tmp_path):
+        """None must survive so the GUI default (dither on) is not clobbered
+        by a driver's argv that simply never mentions the flag."""
+        assert ConverterArgs().dither is None
+        assert parse(["prog", str(tmp_path)]).dither is None
+        assert parse(["prog", str(tmp_path), "wav"]).dither is None
+
+    def test_no_dither_parses_false(self, tmp_path):
+        assert parse(["prog", str(tmp_path), "--no-dither"]).dither is False
+
+    def test_dither_parses_true(self, tmp_path):
+        assert parse(["prog", str(tmp_path), "--dither"]).dither is True
+
+    def test_dither_is_the_documented_opt_out_only(self, tmp_path):
+        """There must be exactly one opt-out token, and it must win when both
+        appear last (click's own --flag/--no-flag semantics)."""
+        args = parse(["prog", str(tmp_path), "--dither", "--no-dither"])
+        assert args.dither is False
+
+    def test_parsed_mid_flag_ladder(self, tmp_path):
+        args = parse(
+            [
+                "prog",
+                str(tmp_path),
+                "wav",
+                "--quality",
+                "high",
+                "--bit-depth",
+                "16",
+                "--no-dither",
+            ]
+        )
+        assert args.dither is False
+        assert args.output_format == "wav"
+        assert args.bit_depth == "16"
+
+    def test_flag_is_not_a_handshake_token(self, tmp_path):
+        """--dither must reach the converter, not be swallowed by the shared
+        driver handshake consumer."""
+        args = parse(["prog", str(tmp_path), "--dither"])
+        assert args.dither is True
+        assert args.auto_start is False
+        assert args.auto_end is False

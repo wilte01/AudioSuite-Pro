@@ -51,6 +51,7 @@ def _make_cli_stub():
     stub.delete_originals = _FakeVar(False)
     stub.normalize_mp3 = _FakeVar(False)
     stub.target_lufs = _FakeVar(-16.0)
+    stub.dither = _FakeVar(True)
     stub.auto_start_var = _FakeVar(False)
     stub.auto_end_var = _FakeVar(False)
     stub.clear_logs_var = _FakeVar(False)
@@ -553,6 +554,85 @@ class TestPresetSampleRateAndBitDepth:
         assert stub.output_format.get() == "wav"
         assert stub.normalize_mp3.get() is True
         assert stub.target_lufs.get() == -11.0
+
+
+class TestDitherWiring:
+    """The dither opt-out reaches the core from var, preset and CLI alike."""
+
+    @staticmethod
+    def _stub(**values):
+        stub = MagicMock()
+        defaults = {
+            "output_format": "wav",
+            "quality_preset": "highest",
+            "sample_rate": "source",
+            "bit_depth": "16",
+            "delete_originals": False,
+            "normalize_mp3": False,
+            "target_lufs": -16.0,
+            "dither": True,
+            "run_mode": "Live Update",
+        }
+        defaults.update(values)
+        for attr, value in defaults.items():
+            setattr(stub, attr, _FakeVar(value))
+        return stub
+
+    def test_default_is_on(self):
+        """The GUI ships with dither enabled; it is an opt-out, not an opt-in."""
+        stub = self._stub()
+        assert stub.dither.get() is True
+
+    def test_settings_collected(self):
+        stub = self._stub(dither=False)
+        settings = MusicFormatConverterApp._collect_settings(stub)
+        assert settings["dither"] is False
+
+    def test_preset_applied(self):
+        stub = self._stub()
+        MusicFormatConverterApp._apply_preset(stub, {"dither": False})
+        assert stub.dither.get() is False
+
+    def test_preset_without_dither_keeps_the_default(self):
+        """A preset saved before E1 has no dither key; loading it must not
+        silently switch the always-on policy off."""
+        stub = self._stub(dither=True)
+        MusicFormatConverterApp._apply_preset(stub, {"bit_depth": "24"})
+        assert stub.dither.get() is True
+
+    def test_cli_no_dither_applies(self, tmp_path, monkeypatch):
+        stub = _make_cli_stub()
+        monkeypatch.setattr(
+            app_module.cli_args,
+            "parse",
+            lambda: ConverterArgs(folder_path=str(tmp_path), dither=False),
+        )
+        MusicFormatConverterApp._apply_cli_args(stub)
+        assert stub.dither.get() is False
+
+    def test_cli_dither_flag_applies(self, tmp_path, monkeypatch):
+        stub = _make_cli_stub()
+        stub.dither.set(False)
+        monkeypatch.setattr(
+            app_module.cli_args,
+            "parse",
+            lambda: ConverterArgs(folder_path=str(tmp_path), dither=True),
+        )
+        MusicFormatConverterApp._apply_cli_args(stub)
+        assert stub.dither.get() is True
+
+    def test_cli_absent_flag_keeps_the_gui_default(self, tmp_path, monkeypatch):
+        """The driver's argv never carries --no-dither, so the tri-state None
+        must leave the GUI default untouched."""
+        stub = _make_cli_stub()
+        monkeypatch.setattr(
+            app_module.cli_args,
+            "parse",
+            lambda: ConverterArgs(folder_path=str(tmp_path)),
+        )
+        assert ConverterArgs(folder_path=str(tmp_path)).dither is None
+        MusicFormatConverterApp._apply_cli_args(stub)
+        assert stub.dither.get() is True
 
 
 # ═════════════════════════════════════════════════════════════════════════════
