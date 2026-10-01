@@ -1078,6 +1078,139 @@ class TestWriteReplaygain:
             batch_undo._thread_local.enabled = False
 
 
+# ── MusicBrainz identifiers (E2) ─────────────────────────────────────────────
+# The MBID writer mirrors Picard's per-format conventions (ID3 TXXX /
+# Vorbis comments / MP4 freeform atoms) and the reader must return exactly
+# what was written — a decoded round trip, not internal state read-back.
+
+
+class TestMusicBrainzIds:
+    MBIDS = {
+        "MUSICBRAINZ_TRACKID": "cd2e7c47-16f5-46c6-a37c-a1eb7bf599ff",
+        "MUSICBRAINZ_ALBUMID": "db85c244-53e7-441c-bab0-52c9c0d27450",
+        "MUSICBRAINZ_ARTISTID": "6d7b7cd4-254b-4c25-83f6-dd20f98ceacd",
+    }
+
+    @pytest.mark.parametrize(
+        "fixture_name",
+        [
+            "mp3_file",
+            "flac_file",
+            "ogg_file",
+            "opus_file",
+            "m4a_file",
+            "wav_file",
+        ],
+    )
+    def test_round_trip_preserves_all_ids(self, fixture_name, request):
+        from audio_suite_shared.tag_helper_reader import read_musicbrainz_ids
+        from audio_suite_shared.tag_helper_writer import write_musicbrainz_ids
+
+        path = request.getfixturevalue(fixture_name)
+        write_musicbrainz_ids(path, dict(self.MBIDS))
+        assert read_musicbrainz_ids(path) == self.MBIDS
+
+    def test_absent_ids_read_as_empty_dict(self, mp3_file):
+        from audio_suite_shared.tag_helper_reader import read_musicbrainz_ids
+
+        assert read_musicbrainz_ids(mp3_file) == {}
+
+    def test_rewrite_replaces_instead_of_duplicating(self, mp3_file):
+        # ID3's add() replaces a TXXX frame with the same description; a
+        # re-write must never leave two MUSICBRAINZ_ALBUMID frames behind.
+        import mutagen
+        from mutagen.id3 import TXXX
+
+        from audio_suite_shared.tag_helper_reader import read_musicbrainz_ids
+        from audio_suite_shared.tag_helper_writer import write_musicbrainz_ids
+
+        write_musicbrainz_ids(mp3_file, {"MUSICBRAINZ_ALBUMID": "rel-first"})
+        write_musicbrainz_ids(mp3_file, {"MUSICBRAINZ_ALBUMID": "rel-second"})
+        audio = mutagen.File(mp3_file)
+        frames = [
+            f
+            for f in audio.tags.getall("TXXX")
+            if isinstance(f, TXXX) and str(f.desc).upper() == "MUSICBRAINZ_ALBUMID"
+        ]
+        assert len(frames) == 1
+        assert read_musicbrainz_ids(mp3_file)["MUSICBRAINZ_ALBUMID"] == ("rel-second")
+
+    def test_empty_values_never_written(self, flac_file):
+        # An unresolvable identifier is omitted, not stored as an empty tag.
+        import mutagen
+
+        from audio_suite_shared.tag_helper_reader import read_musicbrainz_ids
+        from audio_suite_shared.tag_helper_writer import write_musicbrainz_ids
+
+        write_musicbrainz_ids(
+            flac_file,
+            {"MUSICBRAINZ_ALBUMID": "", "MUSICBRAINZ_TRACKID": "mb-1"},
+        )
+        audio = mutagen.File(flac_file)
+        assert "MUSICBRAINZ_ALBUMID" not in audio.tags
+        assert read_musicbrainz_ids(flac_file) == {"MUSICBRAINZ_TRACKID": "mb-1"}
+
+    def test_empty_mapping_writes_nothing(self, mp3_file):
+        from audio_suite_shared.tag_helper_reader import read_musicbrainz_ids
+        from audio_suite_shared.tag_helper_writer import write_musicbrainz_ids
+
+        write_musicbrainz_ids(mp3_file, {})
+        assert read_musicbrainz_ids(mp3_file) == {}
+
+
+class TestReadDiscNumber:
+    """E2 criterion 4 reads the local disc count from the sibling files."""
+
+    def test_mp3_tpos(self, mp3_file):
+        import mutagen
+        from mutagen.id3 import TPOS
+
+        from audio_suite_shared.tag_helper_reader import read_disc_number
+
+        audio = mutagen.File(mp3_file)
+        audio.tags.add(TPOS(encoding=3, text=["2"]))
+        audio.save()
+        assert read_disc_number(mp3_file) == "2"
+
+    def test_wav_tpos_inherited_from_id3_handler(self, wav_file):
+        import mutagen
+        from mutagen.id3 import TPOS
+
+        from audio_suite_shared.tag_helper_reader import read_disc_number
+
+        audio = mutagen.File(wav_file)
+        if audio.tags is None:
+            audio.add_tags()
+        audio.tags.add(TPOS(encoding=3, text=["1"]))
+        audio.save()
+        assert read_disc_number(wav_file) == "1"
+
+    def test_flac_discnumber(self, flac_file):
+        import mutagen
+
+        from audio_suite_shared.tag_helper_reader import read_disc_number
+
+        audio = mutagen.File(flac_file)
+        audio["discnumber"] = "2"
+        audio.save()
+        assert read_disc_number(flac_file) == "2"
+
+    def test_m4a_disk_atom(self, m4a_file):
+        import mutagen
+
+        from audio_suite_shared.tag_helper_reader import read_disc_number
+
+        audio = mutagen.File(m4a_file)
+        audio["disk"] = [(1, 2)]
+        audio.save()
+        assert read_disc_number(m4a_file) == "1"
+
+    def test_absent_returns_none(self, mp3_file):
+        from audio_suite_shared.tag_helper_reader import read_disc_number
+
+        assert read_disc_number(mp3_file) is None
+
+
 # ── Format expansion: artwork extraction + album-genre writes ────────────────
 # Phase 1 of PLAN_format_support_expansion.md: every canonical format must
 # support extract_artwork() and write_album_genre_result() through the shared

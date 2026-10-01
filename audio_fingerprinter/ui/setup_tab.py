@@ -24,6 +24,8 @@ def build(
     parallel_var: tk.BooleanVar | None,
     lookup_enabled: tk.BooleanVar,
     write_tags: tk.BooleanVar,
+    write_mbids: tk.BooleanVar,
+    mbid_region: tk.StringVar,
     album_mode: tk.BooleanVar,
     threshold: tk.StringVar,
     max_length: tk.StringVar,
@@ -61,6 +63,8 @@ def build(
         start_side=None,
         lookup_enabled=lookup_enabled,
         write_tags=write_tags,
+        write_mbids=write_mbids,
+        mbid_region=mbid_region,
         album_mode=album_mode,
         threshold=threshold,
         max_length=max_length,
@@ -87,6 +91,8 @@ class _SetupFrame(BaseSetupFrame):
         parent: tk.Frame,
         lookup_enabled: tk.BooleanVar,
         write_tags: tk.BooleanVar,
+        write_mbids: tk.BooleanVar,
+        mbid_region: tk.StringVar,
         album_mode: tk.BooleanVar,
         threshold: tk.StringVar,
         max_length: tk.StringVar,
@@ -100,6 +106,8 @@ class _SetupFrame(BaseSetupFrame):
     ) -> None:
         self._lookup_enabled_var = lookup_enabled
         self._write_tags_var = write_tags
+        self._write_mbids_var = write_mbids
+        self._mbid_region_var = mbid_region
         self._album_mode_var = album_mode
         self._threshold_var = threshold
         self._max_length_var = max_length
@@ -235,6 +243,23 @@ class _SetupFrame(BaseSetupFrame):
         tk.Checkbutton(
             self,
             text=(
+                "Also write MusicBrainz identifiers (track / artist / album) "
+                "on a match — needs the option above and Live Update. The album "
+                "ID is written only when one release is unambiguous"
+            ),
+            variable=self._write_mbids_var,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            selectcolor=styles.BG_WHITE,
+            activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
+            font=styles.FONT_BODY,
+            wraplength=700,
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=2)
+        tk.Checkbutton(
+            self,
+            text=(
                 "Album Match — cluster each folder's lookups by MusicBrainz "
                 "release group; tag only when the album is decided "
                 "(ambiguous albums are left untagged)"
@@ -281,6 +306,23 @@ class _SetupFrame(BaseSetupFrame):
             row,
             textvariable=self._max_length_var,
             width=8,
+            font=styles.FONT_BODY,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            insertbackground=styles.FG_MAIN,
+        ).pack(side=tk.LEFT, padx=(15, 5))
+
+        tk.Label(
+            row,
+            text="MBID Region:",
+            font=styles.FONT_BODY,
+            fg=styles.FG_MAIN,
+            bg=styles.BG_WHITE,
+        ).pack(side=tk.LEFT, padx=(0, 5))
+        tk.Entry(
+            row,
+            textvariable=self._mbid_region_var,
+            width=5,
             font=styles.FONT_BODY,
             bg=styles.BG_WHITE,
             fg=styles.FG_MAIN,

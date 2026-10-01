@@ -98,6 +98,10 @@ class TestStartProcessingAlbumMode:
         app.lookup_enabled.get.return_value = True
         app.write_tags = MagicMock()
         app.write_tags.get.return_value = False
+        app.write_mbids = MagicMock()
+        app.write_mbids.get.return_value = False
+        app.mbid_region = MagicMock()
+        app.mbid_region.get.return_value = ""
         app.album_mode = MagicMock()
         app.threshold = MagicMock()
         app.threshold.get.return_value = "0.5"
@@ -120,6 +124,9 @@ class TestStartProcessingAlbumMode:
         with (
             patch("audio_fingerprinter.app.resolve_fpcalc", return_value="fpcalc"),
             patch.object(type(app), "_resolve_run_api_key", return_value="key"),
+            # start_processing persists the MBID region preference; patch
+            # so the run never writes to the host's real suite config.
+            patch("audio_fingerprinter.app.suite_config.save_value"),
             patch("audio_fingerprinter.app.threading.Thread") as mock_thread,
         ):
             app.start_processing()

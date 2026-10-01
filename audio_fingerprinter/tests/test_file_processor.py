@@ -808,3 +808,205 @@ class TestAlbumModeRealOutcome:
         assert complete.call_args.kwargs["counts"]["tagged"] == 0
         for name in names:
             assert "Acoustid Id" not in self._acoustid_tags(folder / name)
+
+
+class TestMbidRealOutcome:
+    """Decode-and-measure for E2: the opt-in MusicBrainz identifiers must
+    actually appear on real files (read back through the shared reader),
+    stay absent when off / dry-run / write-tags-off, and the album id must
+    be omitted when the release is ambiguous."""
+
+    TRACK_ID = "mb-rec"
+    ARTIST_ID = "mb-art"
+    ALBUM_ID = "mb-rel"
+
+    @staticmethod
+    def _make_track(tmp_path, name="t.mp3"):
+        from pydub import AudioSegment
+
+        AudioSegment.silent(duration=300).export(str(tmp_path / name), format="mp3")
+        return tmp_path / name
+
+    @staticmethod
+    def _mbid_tags(path) -> dict[str, str]:
+        from audio_suite_shared.tag_helper_reader import read_musicbrainz_ids
+
+        return read_musicbrainz_ids(str(path))
+
+    @staticmethod
+    def _acoustid_written(path) -> bool:
+        import mutagen
+
+        audio = mutagen.File(str(path))
+        assert audio is not None and audio.tags is not None
+        return any(str(tag.desc) == "Acoustid Id" for tag in audio.tags.getall("TXXX"))
+
+    def _recording(self, *release_ids: str) -> AcoustidRecording:
+        from audio_fingerprinter.core.models import Release
+
+        releases = tuple(
+            Release(
+                release_id=release_id,
+                release_group_id=_ALBUM.release_group_id,
+                release_group_title=_ALBUM.title,
+                release_group_type="Album",
+            )
+            for release_id in release_ids
+        )
+        return AcoustidRecording(
+            acoustid_id="a1",
+            recording_id=self.TRACK_ID,
+            title="Song",
+            artist="Artist",
+            artist_ids=(self.ARTIST_ID,),
+            score=0.9,
+            duration=60,
+            release_groups=(_ALBUM,),
+            releases=releases,
+        )
+
+    def _run_single_file(
+        self, folder, recording: AcoustidRecording, **params_kwargs: Any
+    ):
+        client = MagicMock()
+        client.lookup.return_value = LookupResult(status="ok", recordings=(recording,))
+        progress, complete, error = MagicMock(), MagicMock(), MagicMock()
+        slot_q: Queue[int] = Queue()
+        for i in range(DEFAULT_MAX_WORKERS):
+            slot_q.put(i)
+        defaults: dict[str, Any] = {
+            "lookup_enabled": True,
+            "write_tags": True,
+            "is_dry_run": False,
+        }
+        defaults.update(params_kwargs)
+        with (
+            _patch_fingerprint_by_name(),
+            patch(
+                "audio_fingerprinter.core.file_processor.resolve_fpcalc",
+                return_value="fpcalc",
+            ),
+            patch(
+                "audio_fingerprinter.core.file_processor.AcoustidClient",
+                return_value=client,
+            ),
+        ):
+            run_fingerprinting(
+                dir_path=str(folder),
+                api_key="key",
+                params=FingerprintParams(**defaults),
+                slot_vars=[MagicMock() for _ in range(DEFAULT_MAX_WORKERS)],
+                slot_queue=slot_q,
+                on_progress=progress,
+                on_complete=complete,
+                on_error=error,
+            )
+        return complete
+
+    def test_opt_in_writes_real_mbid_tags(self, tmp_path):
+        track = self._make_track(tmp_path)
+        complete = self._run_single_file(
+            tmp_path, self._recording("mb-rel"), write_mbids=True
+        )
+        assert complete.call_args.kwargs["counts"]["tagged"] == 1
+        tags = self._mbid_tags(track)
+        assert tags["MUSICBRAINZ_TRACKID"] == self.TRACK_ID
+        assert tags["MUSICBRAINZ_ARTISTID"] == self.ARTIST_ID
+        assert tags["MUSICBRAINZ_ALBUMID"] == self.ALBUM_ID
+
+    def test_default_off_writes_no_mbid_tags(self, tmp_path):
+        track = self._make_track(tmp_path)
+        self._run_single_file(tmp_path, self._recording("mb-rel"))
+        # The AcoustID tags were written; the MBIDs were not.
+        assert self._acoustid_written(track)
+        assert self._mbid_tags(track) == {}
+
+    def test_write_mbids_requires_write_tags(self, tmp_path):
+        track = self._make_track(tmp_path)
+        client = MagicMock()
+        client.lookup.return_value = LookupResult(
+            status="ok", recordings=(self._recording("mb-rel"),)
+        )
+        progress, complete, error = MagicMock(), MagicMock(), MagicMock()
+        slot_q: Queue[int] = Queue()
+        for i in range(DEFAULT_MAX_WORKERS):
+            slot_q.put(i)
+        with (
+            _patch_fingerprint_by_name(),
+            patch(
+                "audio_fingerprinter.core.file_processor.resolve_fpcalc",
+                return_value="fpcalc",
+            ),
+            patch(
+                "audio_fingerprinter.core.file_processor.AcoustidClient",
+                return_value=client,
+            ),
+        ):
+            run_fingerprinting(
+                dir_path=str(tmp_path),
+                api_key="key",
+                params=FingerprintParams(
+                    lookup_enabled=True,
+                    write_tags=False,
+                    write_mbids=True,
+                    is_dry_run=False,
+                ),
+                slot_vars=[MagicMock() for _ in range(DEFAULT_MAX_WORKERS)],
+                slot_queue=slot_q,
+                on_progress=progress,
+                on_complete=complete,
+                on_error=error,
+            )
+        assert complete.call_args.kwargs["counts"]["tagged"] == 0
+        assert self._mbid_tags(track) == {}
+
+    def test_dry_run_writes_no_mbid_tags(self, tmp_path):
+        track = self._make_track(tmp_path)
+        self._run_single_file(
+            tmp_path, self._recording("mb-rel"), write_mbids=True, is_dry_run=True
+        )
+        assert self._mbid_tags(track) == {}
+
+    def test_ambiguous_release_omits_albumid_only(self, tmp_path):
+        # Two indistinguishable releases: track and artist ids are written,
+        # the album id is not (never-guess guarantee).
+        track = self._make_track(tmp_path)
+        self._run_single_file(
+            tmp_path, self._recording("rel-a", "rel-b"), write_mbids=True
+        )
+        tags = self._mbid_tags(track)
+        assert tags["MUSICBRAINZ_TRACKID"] == self.TRACK_ID
+        assert tags["MUSICBRAINZ_ARTISTID"] == self.ARTIST_ID
+        assert "MUSICBRAINZ_ALBUMID" not in tags
+
+    def test_album_mode_opt_in_writes_real_mbid_tags(self, tmp_path):
+        names = ["a.mp3", "b.mp3", "c.mp3"]
+        folder = TestAlbumModeRealOutcome._make_album(tmp_path, names)
+        responses = {
+            f"fp-{name}": LookupResult(
+                status="ok",
+                recordings=(self._recording(f"rel-{name}"),),
+            )
+            for name in names
+        }
+        progress, complete, error = MagicMock(), MagicMock(), MagicMock()
+        _run_album(
+            folder,
+            _mock_client(responses),
+            FingerprintParams(
+                album_mode=True,
+                write_tags=True,
+                is_dry_run=False,
+                write_mbids=True,
+            ),
+            progress,
+            complete,
+            error,
+        )
+        error.assert_not_called()
+        assert complete.call_args.kwargs["counts"]["tagged"] == 3
+        for name in names:
+            tags = self._mbid_tags(folder / name)
+            assert tags["MUSICBRAINZ_TRACKID"] == self.TRACK_ID
+            assert tags["MUSICBRAINZ_ARTISTID"] == self.ARTIST_ID
+            assert tags["MUSICBRAINZ_ALBUMID"] == f"rel-{name}"

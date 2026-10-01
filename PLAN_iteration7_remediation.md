@@ -169,6 +169,140 @@ the intended contract?
 
 **Blocks:** E4.
 
+### decision D1 — RESOLVED 2026-10-01: option A (maintainer)
+
+TPDF dither always-on on every bit-depth reduction, `soxr` as the resampler, and
+a single documented `--no-dither` opt-out. AIFF is included: the quality preset
+alone picks `pcm_s24be` (highest/high) or `pcm_s16be` (medium), so the 16-bit
+tiers performed a depth reduction the user could neither see nor control. No
+new AIFF depth control was added — that was explicitly not selected.
+
+#### E1 probe evidence (both runs on ffmpeg 8.0.1, full build, `soxr` available)
+
+Probe scripts: `%TEMP%\opencode\e1_probe\probe_dither.py`,
+`probe_aiff.py`, `verify_e2e.py`. Method: a 24-bit 1 kHz sine at -60 dBFS,
+segment of 28224 samples (exactly 640 whole cycles, so no spectral leakage),
+Goertzel power at 2f (2000 Hz) and at 4500 Hz as the noise floor. Reported as
+`10*log10(P(2f)/P(floor))`: negative means the harmonic sits *below* the floor,
+i.e. no correlated spur.
+
+Dither method selection (24→16-bit, `-c:a pcm_s16le`):
+
+| Filter | 2f (dB) | floor (dB) | printed ratio |
+|--------|---------|------------|---------------|
+| none (pre-E1) | -271.25 | -258.59 | **-12.66 dB** |
+| `dither_method=triangular` | -284.83 | -283.95 | **-0.88 dB** |
+| `dither_method=triangular_hp` | -317.13 | -313.04 | -4.09 dB |
+| `+ resampler=soxr` | — | — | identical to `triangular` |
+| `+ output_sample_bits=16` | — | — | no change (filter is a no-op there) |
+
+AIFF coverage (the empirically justified part of the decision):
+
+| Case | 2f | floor | printed ratio |
+|------|----|-------|---------------|
+| AIFF `pcm_s24be`, plain | -359.98 | -349.90 | -10.08 dB (no reduction: artefact-free) |
+| AIFF `pcm_s24be`, dithered | -354.03 | -350.05 | -3.98 dB (dither is harmless when no reduction) |
+| **AIFF `pcm_s16be`, plain** | -271.25 | -258.59 | **-12.66 dB — identical defect to WAV** |
+| **AIFF `pcm_s16be`, dithered** | -284.83 | -283.95 | **-0.88 dB — fix works** |
+| WAV `pcm_f32le`, ± filter | -359.98 | -349.90 | bit-identical (float unaffected, as required) |
+
+Resampler selection (96→44.1 kHz, stopband rejection vs the 1 kHz passband
+tone; the probe tone itself is the only thing being measured, so larger = better
+rejection of content that would fold below Nyquist):
+
+| Probe tone | bare `-ar` (pre-E1) | `soxr` (default p20) | `soxr` p=28 |
+|-----------|---------------------|----------------------|-------------|
+| 20 kHz | 1.28 dB | 0.01 | 0.00 |
+| 21 kHz | 4.18 dB | 3.75 | 4.06 |
+| 21.5 kHz | 6.64 dB | **25.25** | **32.07** |
+| 22 kHz | 9.97 dB | **98.81** | **104.22** |
+
+Conclusions locked into the implementation: `triangular` (TPDF, per option A)
+rather than `triangular_hp`; soxr's default precision 20 rather than 28 (the
+extra 5 dB is not worth pinning a build-specific default); no
+`output_sample_bits`, which measured as a no-op on this build.
+
+End-to-end confirmation through the real `run_conversion` chain (24-bit FLAC →
+16-bit WAV, 2 s source): **spur -2.87 dB without dither → -15.23 dB with
+dither.** This is the fixture the golden test reproduces.
+
+**Implementation note for the record:** the first measured test attempt showed
+only a 2.0 dB improvement because its 16384-sample window was 371.5 cycles —
+not a whole number — so the fundamental leaked into the 4500 Hz "floor" bin and
+compressed the ratio. The window must be a whole number of cycles; the plan's
+golden test pins `SEG_N = 28224` for exactly this reason.
+
+### decision D2 — RESOLVED 2026-10-01: option A (maintainer)
+
+Recording + release + artist MBIDs written from the fingerprinter's existing
+AcoustID/MusicBrainz responses, tag write opt-in via `--write-mbids`. No new
+MusicBrainz release lookup. E3 (Cover Art Archive) remains a separate item and
+runs after E2.
+
+### decision D3 — RESOLVED 2026-10-01: option A (maintainer)
+
+Recursive scan with mixed input formats allowed; each file converts to the
+target format, per-format counts reported.
+
+### decision D2-am1 (2026-10-01, maintainer) — release-MBID selection criteria
+
+D2's premise — "the data is already in hand" — holds for the **recording** and
+**artist** MBIDs but **not** for an unambiguous **release** MBID. E2's live
+probing established that a single recording commonly appears on many releases
+(one sampled M83 track: **12 releases across 3 release groups**), and D2 forbids
+the new MusicBrainz release lookup that would disambiguate it. Rather than
+write an arbitrary release (a data-integrity risk in a user's library) or drop
+the field, the maintainer selected a **narrowing-criteria** policy applied to the
+releases already present in the AcoustID response.
+
+**Policy: `MUSICBRAINZ_ALBUMID` is written only when exactly one candidate
+survives the criteria; otherwise the field is omitted.** Criteria never guess.
+
+| # | Criterion | Signal source |
+|---|-----------|---------------|
+| 1 | The file's existing `MUSICBRAINZ_ALBUMID` matches a candidate | local tags |
+| 2 | Album title matches `releasegroups[].title` (and `releases[].title` when the service reported one) | local tags |
+| 3 | Local album track count matches the release's `track_count` | album-mode folder context |
+| 4 | Local disc count matches the release's `medium_count` | album-mode folder context |
+| 5 | `releasegroups[].type` (Album/Single/EP/Compilation) is admitted | response |
+| 6 | Region preference matches the release's country / `releaseevents[]` | response + new preference |
+
+Criterion 6 is an **addition beyond D2's decided scope**: it introduces a
+user-facing region preference. Approved by the maintainer as the explicit
+choice over a tag-only or criteria-1-5-only policy.
+
+Known, accepted limitation: criteria 3-4 need album context, so
+`MUSICBRAINZ_ALBUMID` resolves rarely in per-file mode. Releases differing only
+by country/date (e.g. nine 15-track/1-medium editions of one album) are **not**
+separable by any file-local criterion; the region preference is what breaks that
+tie, and where it cannot, the field is omitted rather than guessed.
+
+### decision E2-defect-1 (2026-10-01) — inverted release-group path (fixed in E2)
+
+`_build_release_groups` (`core/acoustid_client.py`) read the release groups from
+`recordings[].releases[].releasegroups[]`. The service never emits that shape.
+Two independent confirmations:
+
+1. **Server source** — `acoustid-server/acoustid/api/v2/__init__.py:585-603`
+   injects release groups with an **`if`/`elif`**: `releasegroups` first, `releases`
+   only as the `elif`. Because `DEFAULT_META` (`acoustid_client.py:25`) requests
+   **both**, `recordings[].releases` is never populated at all; groups arrive at
+   `recordings[].releasegroups[]` with releases nested *inside* each group
+   (`_inject_release_groups_internal`, `:520-529`). `fingerprint` and `trackid`
+   share this one handler (`:388`), so the shape is identical for both.
+2. **Live responses** — nine real AcoustID responses under the suite's exact
+   `DEFAULT_META` all showed `recordings[].releases` absent and
+   `recordings[].releasegroups[]` populated.
+
+Consequence: `_build_release_groups` returned `()` for every real response, so
+the album-mode clustering key was always empty — **the shipped album match mode
+could never form a cluster** and every file fell through to a per-file outcome.
+The docstring documented the same inverted assumption.
+
+Per the standing no-deferral rule this defect is fixed in E2 itself (the fix is a
+prerequisite for E2's release data regardless), with a regression test built
+from the verbatim live response shape.
+
 ---
 
 ## Stage 0 — Close the User-Visible Contracts
@@ -1038,11 +1172,11 @@ surface is involved.
 
 ---
 
-### E1 `[!]` — Dither on bit-depth reduction + quality resampler `[audit §5a gap 1; audio-correctness class]`
+### E1 `[x]` — Dither on bit-depth reduction + quality resampler `[audit §5a gap 1; audio-correctness class]`
 
 **Priority:** High (when scheduled) | **Effort:** 0.6 day | **Risk:** High
 (changes every converted file's bytes)
-**Blocked on:** decision D1 (recommendation: option A).
+**Blocked on:** decision D1 — **resolved 2026-10-01, option A** (see Decision Log).
 
 **Problem:** `music_format_converter/core/ffmpeg_params.py` changes bit depth
 with plain PCM codec swaps (`:27-32`) and sample rate with bare `-ar`
@@ -1051,26 +1185,26 @@ gap in the audit's list that belongs to the release-blocking class.
 
 **Scope:**
 
-- [ ] **Probe first:** on the suite's ffmpeg build, empirically verify which
+- [x] **Probe first:** on the suite's ffmpeg build, empirically verify which
       flags produce TPDF dither at 24→16 and which resampler quality options
       are accepted (`aresample` dither methods; `soxr` availability). Record
       the probe commands and outputs in the Decision Log — the golden test
       asserts measured audio, not flag spellings.
-- [ ] Implement the decided policy in `ffmpeg_params.py` (and anywhere else
+- [x] Implement the decided policy in `ffmpeg_params.py` (and anywhere else
       bit depth changes: `audio_normalizer`'s lossless path if applicable).
       Default per decision D1; the opt-out flag wired through CLI + GUI.
-- [ ] Metadata preservation (`-map_metadata`) and undo snapshots unchanged.
+- [x] Metadata preservation (`-map_metadata`) and undo snapshots unchanged.
 
 **Tests (lockstep, measured outcomes):**
 
-- [ ] Golden: a full-scale 24-bit sine at −60 dBFS down-converted to 16-bit —
+- [x] Golden: a full-scale 24-bit sine at −60 dBFS down-converted to 16-bit —
       undithered shows harmonic distortion spikes at the quantisation
       artifacts; dithered shows a flat noise floor. Assert the measured
       spectrum shape (or RMS-in-band distortion metric) for both modes, with
       declared tolerances derived from the probe.
-- [ ] A 96→44.1 kHz resample measured via decoded output: bandwidth above
+- [x] A 96→44.1 kHz resample measured via decoded output: bandwidth above
       the new Nyquist suppressed below a declared floor.
-- [ ] Existing converter outcome tests pass with their expectations updated
+- [x] Existing converter outcome tests pass with their expectations updated
       **only** where the decision changes bytes — and the Completion Log
       records which tests were retuned and why (bytes changing is the point
       of the item; silent byte changes are not).
@@ -1084,12 +1218,61 @@ converter's SHA-256-based undo/dry-run tests may need retuning to the new
 golden vectors; that is expected and logged. Do not let the retuning erase
 the old assertions' *intent* (write-suppression, metadata preservation).
 
+#### E1 delivery notes (2026-10-01)
+
+**No test needed retuning.** The plan anticipated that SHA-256-based converter
+outcome tests would encode the undithered bytes and have to be re-vectored.
+None did: the bare full suite was green on the first run after the change.
+That is worth stating explicitly, because the *risk* was that a silent byte
+change would hide behind a weakened assertion — instead the pre-existing
+outcome tests are format/lock/level assertions that were never byte-pinned,
+and they still pass against dithered output. No assertion intent was altered.
+
+**Implementation.** `_aresample_filter()` in `ffmpeg_params.py` is the single
+policy point: `resampler=soxr` whenever a rate conversion is requested (any
+output format), `dither_method=triangular` when the target format is in
+`DITHER_TARGET_FORMATS` (`wav`, `aiff`, `aif`) and the stream is not a copy.
+`get_ffmpeg_params(..., dither=True)` emits it before the output path.
+Threaded `dither` through `process_single_file` → `run_conversion` →
+`_process_with_undo`; GUI (`tk.BooleanVar(value=True)`, checkbox in Post-
+Conversion Options, preset save/load, run-log header line); Click
+(`--dither/--no-dither`, default on) and the driver handshake parser
+(`ConverterArgs.dither: Optional[bool]`, tri-state so an argv that never
+mentions the flag leaves the GUI default on). `--no-dither` reproduces the
+pre-E1 command line byte-for-byte at the source rate — locked by test.
+
+**Two gates the probes caught, both worth keeping:**
+1. A measured test that initially showed only 2.0 dB of improvement — its
+   16384-sample window was 371.5 cycles of 1 kHz, so the fundamental leaked
+   into the 4500 Hz floor bin and compressed the ratio. Whole-cycle windows
+   only; `SEG_N = 28224` (exactly 640 cycles) is now pinned in the test.
+2. The first resample control showed the *measured* tests could not detect
+   the filter being removed, because they invoke ffmpeg directly rather than
+   through the converter. Added `test_rate_change_through_the_chain_carries_
+   the_soxr_filter`, which records the argv the real chain runs (delegating
+   to the real subprocess so the output file is genuinely produced), plus its
+   negative twin for the source-rate path. Both verified to fail under a
+   deliberate `if False and` mutation of `_aresample_filter`, which was then
+   restored from a SHA-256-verified backup copy.
+
+**Declared tolerances** (derived from the probes, not fitted to the code):
+dithered 2f-vs-floor ratio must be ≥3 dB below the undithered one, and the
+undithered control must stay above −8 dB; resampled alias must land below
+−50 dB relative to the 1 kHz passband (measured −59.42) while the legacy
+bare `-ar` control stays above −30 dB (measured −19.94).
+
+**`audio_normalizer` audited, no change applicable:** its lossless path
+applies track gain, never a PCM depth swap, so there is no bit-depth
+reduction site for the dither policy.
+
 ---
 
-### E2 `[!]` — Write MusicBrainz identifiers from the fingerprinter `[audit §5a gap 2]`
+### E2 `[x]` — Write MusicBrainz identifiers from the fingerprinter `[audit §5a gap 2]`
 
 **Priority:** Medium | **Effort:** 0.5 day | **Risk:** Low (tag-write, opt-in)
-**Blocked on:** decision D2 (recommendation: option A).
+**Blocked on:** decision D2 — **resolved 2026-10-01, option A + D2-am1**
+(see Decision Log: the release-MBID selection criteria and the region
+preference, plus the release-group defect found and fixed in the same change).
 
 **Problem:** no `MUSICBRAINZ_*` field is written anywhere, yet the
 fingerprinter's AcoustID responses already carry MusicBrainz recording ids
@@ -1098,26 +1281,66 @@ write by default is one mapping away.
 
 **Scope:**
 
-- [ ] Map the decided fields per format through the shared tag helper
+- [x] Map the decided fields per format through the shared tag helper
       (ID3 `TXXX:MUSICBRAINZ_<X>` / Vorbis `MUSICBRAINZ_<X>` / MP4
       freeform `----:com.apple.iTunes:MUSICBRAINZ_<X>`), following the
       existing TXXX/freeform conventions in `tag_helper_base`'s handlers.
-- [ ] Opt-in surface: `--write-mbids` on the fingerprinter CLI + Setup-tab
+      `write_musicbrainz_ids` (writer) and `read_musicbrainz_ids` /
+      `read_disc_number` (reader + per-handler overrides) are new shared
+      entry points; `read_custom_field` is a new base-handler seam.
+- [x] Opt-in surface: `--write-mbids` on the fingerprinter CLI + Setup-tab
       toggle, default off (tag content changes must be user-visible choices).
-- [ ] Only write when the match is unambiguous — the existing
+      Surfaces: Click CLI (`--write-mbids/--no-write-mbids`,
+      `--mbid-region`, refuses `--write-mbids` without `--write-tags`),
+      the tool's argv ladder (`utils/cli_args.py`), the GUI Setup tab
+      (checkbox + region entry, persisted in shared suite config), and the
+      Master Driver handshake (app-state vars + arg-builder emission).
+- [x] Only write when the match is unambiguous — the existing
       `_AMBIGUITY_SCORE_GAP` tie-break and duration guard semantics apply to
-      MBIDs exactly as they do to artist/title.
+      MBIDs exactly as they do to artist/title. For the release id the
+      D2-am1 criteria implement the same never-guess principle: an id is
+      written only when exactly one release candidate survives, otherwise the
+      field is omitted (per-file message notes nothing; the criteria and their
+      limits are documented in the guide).
 
 **Tests (lockstep):** real-file round-trips per format (write → read through
 the real reader); ambiguity path writes nothing; guide updated (fingerprinter
 guide gains the MBID bullet) and regenerated.
 
+- `test_tag_helper.py` `TestMusicBrainzIds` (6 formats decoded round-trip,
+  rewrite-replaces, empty-values-skipped, absent-empty) + `TestReadDiscNumber`
+  (TPOS / Vorbis / MP4-tuple / WAV-inherited).
+- `test_mbid_writer.py` (new, per the one-file-per-module rule): one test per
+  criterion (existing ALBUMID, album title incl. curly-apostrophe, track
+  count, disc count, group type, region tie-break), the never-guess ties, and
+  the write-wrapper contract.
+- `test_file_processor.py` `TestMbidRealOutcome`: decode-and-measure — opt-in
+  run writes all three ids to real MP3s; default-off writes none while the
+  AcoustID tags ARE written; write-tags-off and Dry Run write none; a two-way
+  release tie writes TRACKID/ARTISTID and omits ALBUMID; album-mode opt-in
+  writes per-file release ids.
+- `test_acoustid_client.py`: live-shape regression (see E2-defect-1) + release
+  candidate parsing (group context, countries from full `releaseevents`,
+  dedup, partial dates, missing counts left as None).
+- `test_cli_args.py`, `test_fingerprinter_cli.py`, `test_models.py`,
+  `test_app.py`, `test_setup_tab.py`, `test_tag_writer.py`,
+  `master_driver/test_app_state.py`, `master_driver/test_runner.py` updated
+  in lockstep (new args/fields/flags, region persistence, MBID checkbox
+  binding, and the tag_writer tuple-contract regression).
+
 **Acceptance:** fields present in real files after an opt-in run; absent by
-default; bare full-suite green.
+default; bare full-suite green. — Verified: opt-in live run writes
+`MUSICBRAINZ_TRACKID/ARTISTID/ALBUMID` read back through the real reader;
+default-off / dry-run / write-tags-off write none; bare `pytest` 8003 passed,
+3 skipped, 30 deselected in 211.37 s; coverage 87.97%.
 
 **Risks:** multi-value MBID fields per format differ (release vs release
 group). Lock the field set to the decided minimum; adding more is E3's
-follow-on, not silent growth.
+follow-on, not silent growth. — Resolved by D2-am1: only the three Picard
+identifiers are written, single-valued; ARTISTID uses the first credited
+artist (ID3 TXXX is single-valued per description), and multi-artist
+recordings therefore carry the lead artist's id only. No release-group id is
+written.
 
 ---
 
@@ -1358,6 +1581,10 @@ incomplete by definition.
 | D3j | 3 | 2026-09-30 | same gate as D3a | **silence_trimmer/app.py 34% -> 79%** (real app; preset roundtrip; no-folder / no-audio / out-of-range threshold errors; valid start threads `_run` with `_run_was_dry_run` + parallel persistence + audition preparation; `_run` calls `file_processor.run_trimming` with per-field flags incl. threshold, fades, parallel, workers; `_on_progress`). Side gain: `ui/setup_tab.py` 26% -> 87%. |
 | D3k | 3 | 2026-09-30 | same gate as D3a | **audio_fingerprinter/app.py 37% -> 67%** (real app; threshold/max-length parse clamping incl. `not-a-number` -> 0.5 default and length clamps; missing-folder / missing-fpcalc / lookup-without-key error paths; valid start builds `FingerprintParams` asserting `is_dry_run` + album mode + threshold and threads `_run`; `_run` calls `file_processor.run_fingerprinting` with dir, resolved api key and params; `_on_progress` scheduled `_update` executed). Side gain: `ui/setup_tab.py` 35% -> 100%. |
 | D3l | 3 | 2026-09-30 | same gate as D3a | **audio_refinery/app.py 31% -> 76%** (real app with fresh `StageConfig` settings seam; `_ThreadSafeSlotVar` scheduling contract on a per-test toplevel; preset apply on the real config's stage booleans + nested params; five validation guards (missing/nonexistent source, no stages, missing output dir); valid start threads `_run` with `_run_was_dry_run`, `_in_place` = False for a separate output dir, audition prepared via `peek_first_audio`; `_run` calls `app.run_pipeline` (patched at the importing module binding — the file-processor import rule) with `registry`/`config`; `_on_progress` scheduled `_update` executed). Side gains: `ui/setup_tab.py` 72% -> 75%, results/processing tabs 100%. |
+
+| E1 | 4 | 2026-10-01 | compileall -q -f music_format_converter exit 0; `ruff check .` "All checks passed!"; `ruff format --check .` "779 files already formatted"; `mypy .` "Success: no issues found in 458 source files"; `bandit -r . -x ./.venv -c pyproject.toml` 0 High / 0 Medium (41 Low); bare `pytest -q` → **7927 passed, 3 skipped, 30 deselected, 56 warnings in 205.90s**; coverage report TOTAL 27632 stmts, 3330 missed = **88%** (≥75; captured in the **same command block** as the bare run — no scoped `--cov` anywhere in the session, per AGENTS.md §6 item 10) | Decision D1 resolved (option A): TPDF `triangular` dither applied automatically on any bit-depth reduction to integer PCM (wav/aiff/aif), soxr for every sample-rate conversion, single `--dither/--no-dither` opt-out, no new AIFF depth control. The policy lives in one function, `_aresample_filter()` in `core/ffmpeg_params.py`, reached from `process_single_file` → `run_conversion` → `_process_with_undo`; GUI `BooleanVar(default True)` + Post-Conversion checkbox + preset save/load + run-log header line, Click `--dither/--no-dither` (default on), and the B1 driver handshake ladder (`ConverterArgs.dither: Optional[bool]`, tri-state so an argv that never mentions the flag cannot clobber the GUI default). `--no-dither` reproduces the pre-E1 command line byte-for-byte at source rate — locked by test. **MEASURED-OUTCOME tests** (decode + Goertzel, whole-cycle `SEG_N = 28224` = exactly 640 cycles of the 1 kHz probe): 24-bit FLAC → 16-bit WAV, 2f-vs-floor ratio −2.87 dB undithered (control > −8 dB) vs −15.23 dB dithered (must be ≥3 dB below undithered); 96 → 44.1 kHz, alias bin −59.42 dB (floor −50 dB) vs the legacy bare `-ar` control at −19.94 dB (> −30 dB). AIFF `pcm_s16be` probed separately (−12.66 → −0.88 dB); `pcm_s24be`/`f32le` measured bit-identical, so the target set is correct and float formats are provably unaffected. **No pre-existing test needed retuning:** the anticipated SHA-256 byte-pin risk did not materialise because the converter outcome tests are format/lock/level assertions that were never byte-pinned — recorded explicitly so the absence of retuning is on the file as *verified*, not skipped. **Two gates the probes caught:** (1) a 16384-sample window measured only 2.0 dB of improvement because it held 371.5 cycles, leaking the 1 kHz fundamental into the 4500 Hz floor bin — whole-cycle windows only, now pinned in the test; (2) the resample control proved the two measured tests **cannot** detect filter removal (they invoke ffmpeg directly, bypassing the converter), so an argv-recording end-to-end wiring test was added that delegates to the **real** subprocess; the negative control (`if False and` on the rate branch) fails 4 tests (3 policy + the wiring test) versus 2 without it, proving the new test fires where the measured pair cannot — restored from a SHA-256-verified backup copy and re-verified by assertion on the touched lines. Guide regenerated **through** `generate_guide.py` (Dither/Resampling, AIFF note, log contents, CLI flag + examples), never hand-edited; per-module coverage `ffmpeg_params` 97%, `cli_args` 100%, `setup_tab` 92%, `cli` 84%. `audio_normalizer` audited — no applicable site (its lossless path applies track gain, never a PCM depth swap). |
+
+| E2 | 4 | 2026-10-01 | compileall -q -f . exit 0; `ruff check .` "All checks passed!"; `ruff format --check .` "781 files already formatted"; `mypy .` "Success: no issues found in 459 source files"; `bandit -r . -x ./.venv -c pyproject.toml` **0 High / 0 Medium** (41 Low, unchanged; the report's "Medium: 23 / High: 18" block is the **confidence** histogram, not severity); bare `pytest -q -p no:cacheprovider` → **8003 passed, 3 skipped, 30 deselected, 56 warnings in 211.37s**; coverage **87.97%** (≥75, printed by the same run) | Decision D2 (option A) + **D2-am1** (release criteria 1-5 + region preference, maintainer-selected over tag-only and criteria-1-5-only). New: `write_musicbrainz_ids` (shared writer; ID3 TXXX / Vorbis / `----:com.apple.iTunes:` per Picard), `read_musicbrainz_ids` + `read_disc_number` (reader facade; new `read_custom_field`/`read_disc_number` base-handler seams with MP3/Vorbis/MP4 overrides, IFFID3 inheriting TPOS), `core/mbid_writer.py` (`select_mbid_tags`: TRACKID + ARTISTID always when reported; ALBUMID only when exactly one release survives — existing ALBUMID → album title (NFKD fold, curly-apostrophe recovery) → folder track count → disc count from TPOS/discnumber/disk tags → group type Album/Compilation/EP → region tie-break; a criterion that would empty the set is ignored, never guessed). Opt-in surfaces: Click `--write-mbids/--no-write-mbids` (refuses `--write-mbids` without `--write-tags`) + `--mbid-region CC`; tool argv ladder (`FingerprintArgs.write_mbids/mbid_region` → `to_params`); GUI checkbox + region entry persisted via `suite_config` (`_persist_mbid_region` clears invalid entries); run-log header lines; Master Driver `fingerprinter_write_mbids`/`fingerprinter_mbid_region` state vars + arg-builder emission, both default-off locked by tests. **DECODE-AND-MEASURE:** 6-format round-trip through the real reader (mp3/flac/ogg/opus/m4a/wav), rewrite-replaces (one TXXX per desc), empty values never written; per-file + album-mode real-outcome runs write all three ids read back, default-off/dry-run/write-tags-off write none while AcoustID tags are provably present, and a two-way release tie writes TRACKID/ARTISTID and omits ALBUMID. **DEFECT FOUND AND FIXED IN-CHANGE (E2-defect-1):** `_build_release_groups` read the inverted path `recordings[].releases[].releasegroups[]` — the server's `if/elif` meta handling never populates `recordings[].releases` under the suite's `DEFAULT_META`, so every real response yielded `()` and **album-mode clustering was inert**. Proven two ways (server source `acoustid/api/v2/__init__.py:585-603,520-529` + nine live responses under the exact meta string, one shown carrying 12 releases / 3 groups), fixed to the recording-level path with legacy-shape tolerance, regression-tested from a verbatim live payload (the old fixture pinned the wrong shape and now documents itself as the compatibility case). **Second contract defect fixed in the same family:** `write_acoustid_tags`/`write_mbid_tags` caught only `AudioTagError`, so a mapped base `AudioSuiteError` (e.g. mutagen `FLACNoHeaderError`) escaped to the `reraise=False` decorator and returned **None**, crashing every `ok, msg = …` call site — both now catch the mapped-error base, regression-tested in both modules' test files; the deliberate decorator-swallow of *unexpected* exceptions (RuntimeError → None, pinned by an existing test) was left as a documented prior decision. **Guide** regenerated **through** `generate_guide.py` (two new GUI bullets, tag conventions + never-guess criteria prose, CLI example + options, troubleshooting bullet for the omitted album id). Test-side traps hit and locked: the album-mode app shell lacked the new attrs so `start_processing` fell into a **real Tk modal and hung the bare suite** (the "needs-someone-to-click" failure — shells + `suite_config.save_value` patching added in lockstep); `read_musicbrainz_ids`/`save_value` mock-signature corrections; pydub's flac/m4a export needs explicit `format=`/`ipod` (probe artifact, documented in the test). Region-pref scope addition beyond D2 recorded as D2-am1 with the maintainer's explicit choice. |
 
 ### A3 finding — a sixth silent swallow the plan's census missed
 

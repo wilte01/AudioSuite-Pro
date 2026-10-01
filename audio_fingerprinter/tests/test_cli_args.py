@@ -82,6 +82,22 @@ class TestParse:
         args = parse(["prog", str(tmp_path), "--max-length", "abc"])
         assert args.max_length == 120
 
+    def test_write_mbids(self, tmp_path):
+        args = parse(["prog", str(tmp_path), "--write-mbids"])
+        assert args.write_mbids is True
+
+    def test_no_write_mbids(self, tmp_path):
+        args = parse(["prog", str(tmp_path), "--no-write-mbids"])
+        assert args.write_mbids is False
+
+    def test_mbid_region_normalised_to_uppercase(self, tmp_path):
+        args = parse(["prog", str(tmp_path), "--mbid-region", "gb"])
+        assert args.mbid_region == "GB"
+
+    def test_mbid_region_default_empty(self, tmp_path):
+        args = parse(["prog", str(tmp_path)])
+        assert args.mbid_region == ""
+
 
 class TestValidateArgs:
     def test_valid_args(self):
@@ -144,3 +160,19 @@ class TestFingerprintArgs:
         assert params.threshold == 0.7
         assert params.max_length == 300
         assert params.fpcalc_path == "/path/to/fpcalc"
+
+    def test_to_params_defaults_mbid_writes_off(self):
+        params = FingerprintArgs().to_params()
+        assert params.write_mbids is False
+        assert params.mbid_region == ""
+
+    def test_to_params_threads_mbid_preferences(self):
+        args = FingerprintArgs(
+            write_tags=True,
+            live_mode=True,
+            write_mbids=True,
+            mbid_region="GB",
+        )
+        params = args.to_params()
+        assert params.write_mbids is True
+        assert params.mbid_region == "GB"

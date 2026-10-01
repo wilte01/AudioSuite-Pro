@@ -25,6 +25,10 @@ def real_app(app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(
         "audio_fingerprinter.app.suite_config.load_last_directory", lambda: ""
     )
+    monkeypatch.setattr(
+        "audio_fingerprinter.app.suite_config.load_value",
+        lambda key, default=None: default,
+    )
     monkeypatch.setattr(sys, "argv", ["audio_fingerprinter"])
     return FingerprinterApp(app_root)
 
@@ -66,6 +70,10 @@ class TestStartGuardsD3:
         app.fpcalc_path = MagicMock()
         app.lookup_enabled = MagicMock()
         app.write_tags = MagicMock()
+        app.write_mbids = MagicMock()
+        app.write_mbids.get.return_value = False
+        app.mbid_region = MagicMock()
+        app.mbid_region.get.return_value = ""
         app.album_mode = MagicMock()
         app.api_key = MagicMock()
         app.overall_status = MagicMock()
@@ -135,6 +143,11 @@ class TestStartGuardsD3:
         monkeypatch.setattr(
             "audio_fingerprinter.app.resolve_fpcalc", lambda _p: Path("fpcalc.exe")
         )
+        saved: dict[str, Any] = {}
+        monkeypatch.setattr(
+            "audio_fingerprinter.app.suite_config.save_value",
+            lambda key, value: saved.update({key: value}),
+        )
         built: dict[str, Any] = {}
 
         class FakeParams:
@@ -157,8 +170,80 @@ class TestStartGuardsD3:
         assert built["is_dry_run"] is True
         assert built["album_mode"] is True
         assert built["threshold"] == 0.5
+        assert built["write_mbids"] is False
+        assert built["mbid_region"] == ""
         thread = fake_threading.Thread.call_args
         assert thread.kwargs["target"].__name__ == "_run"
+        # An empty region clears any stale stored value rather than
+        # writing a blank preference.
+        assert saved.get("mbid_region") == ""
+
+    def test_valid_start_threads_mbid_preferences(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        fake_threading = MagicMock()
+        monkeypatch.setattr("audio_fingerprinter.app.threading", fake_threading)
+        monkeypatch.setattr("audio_fingerprinter.app.messagebox", MagicMock())
+        monkeypatch.setattr(
+            "audio_fingerprinter.app.resolve_fpcalc", lambda _p: Path("fpcalc.exe")
+        )
+        saved: dict[str, Any] = {}
+        monkeypatch.setattr(
+            "audio_fingerprinter.app.suite_config.save_value",
+            lambda key, value: saved.update({key: value}),
+        )
+        built: dict[str, Any] = {}
+
+        class FakeParams:
+            def __init__(self, **kwargs: Any) -> None:
+                built.update(kwargs)
+
+        monkeypatch.setattr("audio_fingerprinter.app.FingerprintParams", FakeParams)
+        app = self._shell()
+        app.folder_path.get.return_value = str(tmp_path)
+        app.fpcalc_path.get.return_value = ""
+        app.lookup_enabled.get.return_value = False
+        app.write_tags.get.return_value = True
+        app.write_mbids.get.return_value = True
+        app.mbid_region.get.return_value = "gb"
+        app.threshold.get.return_value = "0.5"
+        app.max_length.get.return_value = "120"
+        app.run_mode.get.return_value = "Live Update"
+        app.album_mode.get.return_value = False
+
+        app.start_processing()
+
+        assert built["write_mbids"] is True
+        # The region reaches the run normalised to the ISO code's
+        # canonical upper case, and is persisted for the next launch.
+        assert built["mbid_region"] == "GB"
+        assert saved.get("mbid_region") == "GB"
+
+    def test_invalid_mbid_region_is_cleared_not_stored(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        fake_threading = MagicMock()
+        monkeypatch.setattr("audio_fingerprinter.app.threading", fake_threading)
+        monkeypatch.setattr("audio_fingerprinter.app.messagebox", MagicMock())
+        monkeypatch.setattr(
+            "audio_fingerprinter.app.resolve_fpcalc", lambda _p: Path("fpcalc.exe")
+        )
+        saved: dict[str, Any] = {}
+        monkeypatch.setattr(
+            "audio_fingerprinter.app.suite_config.save_value",
+            lambda key, value: saved.update({key: value}),
+        )
+        monkeypatch.setattr("audio_fingerprinter.app.FingerprintParams", dict)
+        app = self._shell()
+        app.folder_path.get.return_value = str(tmp_path)
+        app.fpcalc_path.get.return_value = ""
+        app.lookup_enabled.get.return_value = False
+        app.write_tags.get.return_value = True
+        app.mbid_region.get.return_value = "Europe"
+
+        app.start_processing()
+
+        assert saved.get("mbid_region") == ""
 
 
 class TestRunThreadD3:

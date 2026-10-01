@@ -370,7 +370,12 @@ class TestDurationConsistency:
 
 
 def _payload_with_release_groups() -> dict:
-    """A lookup payload nesting release groups under releases."""
+    """A lookup payload nesting release groups under releases (legacy shape).
+
+    The live service attaches groups to the recording instead (see
+    :func:`_live_payload`); this shape is kept only to pin the parser's
+    backward compatibility with it.
+    """
     return {
         "status": "ok",
         "results": [
@@ -408,21 +413,141 @@ def _payload_with_release_groups() -> dict:
     }
 
 
+def _live_payload() -> dict:
+    """A lookup payload in the live service's actual shape.
+
+    Verbatim structure of the 2026-10-01 api.acoustid.org responses under the
+    suite's exact ``DEFAULT_META``: groups attached to the *recording*, with
+    releases (and their track/disc counts, countries and dates) nested inside
+    each group. ``recordings[].releases`` is never populated under this meta.
+    """
+    return {
+        "status": "ok",
+        "results": [
+            {
+                "id": "ac-1",
+                "score": 0.97,
+                "recordings": [
+                    {
+                        "id": "cd2e7c47-16f5-46c6-a37c-a1eb7bf599ff",
+                        "title": "Lower Your Eyelids to Die With the Sun",
+                        "duration": 639,
+                        "artists": [
+                            {
+                                "id": "6d7b7cd4-254b-4c25-83f6-dd20f98ceacd",
+                                "name": "M83",
+                            }
+                        ],
+                        "releasegroups": [
+                            {
+                                "id": "ddaa2d4d-314e-3e7c-b1d0-f6d207f5aa2f",
+                                "title": "Before the Dawn Heals Us",
+                                "type": "Album",
+                                "releases": [
+                                    {
+                                        "id": "db85c244-53e7-441c-bab0-52c9c0d27450",
+                                        "medium_count": 1,
+                                        "track_count": 15,
+                                        "country": "FR",
+                                        "date": {
+                                            "day": 24,
+                                            "month": 1,
+                                            "year": 2005,
+                                        },
+                                        "releaseevents": [
+                                            {
+                                                "country": "FR",
+                                                "date": {
+                                                    "day": 24,
+                                                    "month": 1,
+                                                    "year": 2005,
+                                                },
+                                            }
+                                        ],
+                                    },
+                                    {
+                                        "id": "e719659b-f591-4faf-ae77-f7f9ccc921c0",
+                                        "medium_count": 2,
+                                        "track_count": 15,
+                                        "country": "US",
+                                        "date": {
+                                            "day": 26,
+                                            "month": 8,
+                                            "year": 2014,
+                                        },
+                                        "releaseevents": [
+                                            {"country": "US", "date": {"year": 2014}},
+                                            {"country": "AU", "date": {"year": 2014}},
+                                        ],
+                                    },
+                                ],
+                            },
+                            {
+                                "id": "9e585041-f2c1-3f0d-be40-40c845a3323f",
+                                "title": "Donkey Punch",
+                                "type": "Album",
+                                "releases": [
+                                    {
+                                        "id": "11de51d7-32c0-4f8b-8df8-1dce7e65245f",
+                                        "medium_count": 2,
+                                        "track_count": 23,
+                                        "country": "GB",
+                                        "date": {
+                                            "day": 28,
+                                            "month": 7,
+                                            "year": 2008,
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
 class TestReleaseGroupParsing:
-    def _lookup(self, payload: dict) -> LookupResult:
+    def _lookup(self, payload: dict, file_duration: int = 639) -> LookupResult:
         client = AcoustidClient("key", min_score=0.5)
         resp = _make_response(200, payload)
         with patch.object(client._session, "post", return_value=resp):
-            return client.lookup("fp", 60)
+            # 639 s: the live payload's recording duration, so the duration
+            # consistency guard admits it.
+            return client.lookup("fp", file_duration)
 
     def test_release_groups_parsed_from_releases(self):
-        result = self._lookup(_payload_with_release_groups())
+        result = self._lookup(_payload_with_release_groups(), file_duration=60)
         best = result.best_match
         assert best is not None
         ids = [g.release_group_id for g in best.release_groups]
         titles = [g.title for g in best.release_groups]
         assert ids == ["rg-1", "rg-2"]
         assert titles == ["Album One", "Compilation"]
+
+    def test_release_groups_parsed_from_live_shape(self):
+        # Regression: the shipped parser read recordings[].releases[]
+        # .releasegroups[], which the live service never emits — every real
+        # response yielded an empty tuple and album mode could never cluster.
+        result = self._lookup(_live_payload())
+        best = result.best_match
+        assert best is not None
+        ids = [g.release_group_id for g in best.release_groups]
+        assert ids == [
+            "ddaa2d4d-314e-3e7c-b1d0-f6d207f5aa2f",
+            "9e585041-f2c1-3f0d-be40-40c845a3323f",
+        ]
+        assert best.release_groups[0].title == "Before the Dawn Heals Us"
+
+    def test_live_shape_never_has_recording_releases_key(self):
+        # The live shape's defining property: groups at the recording, no
+        # releases array at the recording level. If the shape drifts again,
+        # this is the canary.
+        payload = _live_payload()
+        rec = payload["results"][0]["recordings"][0]
+        assert "releases" not in rec
+        assert "releasegroups" in rec
 
     def test_release_groups_absent_payload(self):
         payload = {
@@ -435,19 +560,115 @@ class TestReleaseGroupParsing:
                 }
             ],
         }
-        result = self._lookup(payload)
+        result = self._lookup(payload, file_duration=60)
         best = result.best_match
         assert best is not None
         assert best.release_groups == ()
+        assert best.releases == ()
 
     def test_malformed_release_metadata_ignored(self):
         payload = _payload_with_release_groups()
         rec = payload["results"][0]["recordings"][0]
         rec["releases"] = ["not-a-dict", {"id": "x", "releasegroups": "bad"}]
-        result = self._lookup(payload)
+        result = self._lookup(payload, file_duration=60)
         best = result.best_match
         assert best is not None
         assert best.release_groups == ()
+
+    def test_malformed_live_release_metadata_ignored(self):
+        payload = _live_payload()
+        rec = payload["results"][0]["recordings"][0]
+        rec["releasegroups"] = [
+            "not-a-dict",
+            {"id": "rg-ok", "title": "Fine", "releases": "bad"},
+            {"title": "No Id"},
+        ]
+        result = self._lookup(payload)
+        best = result.best_match
+        assert best is not None
+        # Non-dict entries and id-less dicts are skipped; a group whose
+        # nested releases are malformed still parses, with no candidates.
+        assert [g.release_group_id for g in best.release_groups] == ["rg-ok"]
+        assert best.release_groups[0].title == "Fine"
+        assert best.releases == ()
+
+
+class TestReleaseCandidateParsing:
+    """Release candidates feed the MUSICBRAINZ_ALBUMID selection (E2)."""
+
+    def _best(self, payload: dict) -> AcoustidRecording:
+        client = AcoustidClient("key", min_score=0.5)
+        resp = _make_response(200, payload)
+        with patch.object(client._session, "post", return_value=resp):
+            result = client.lookup("fp", 639)
+        best = result.best_match
+        assert best is not None
+        return best
+
+    def test_artist_ids_parsed_in_service_order(self):
+        payload = _live_payload()
+        rec = payload["results"][0]["recordings"][0]
+        rec["artists"] = [
+            {"id": "a-1", "name": "One"},
+            {"id": "a-2", "name": "Two"},
+            {"id": "a-1", "name": "One (dup)"},
+            {"name": "No Id"},
+        ]
+        best = self._best(payload)
+        assert best.artist_ids == ("a-1", "a-2")
+
+    def test_releases_parsed_with_group_context(self):
+        best = self._best(_live_payload())
+        releases = best.releases
+        assert [r.release_id for r in releases] == [
+            "db85c244-53e7-441c-bab0-52c9c0d27450",
+            "e719659b-f591-4faf-ae77-f7f9ccc921c0",
+            "11de51d7-32c0-4f8b-8df8-1dce7e65245f",
+        ]
+        first = releases[0]
+        assert first.release_group_id == "ddaa2d4d-314e-3e7c-b1d0-f6d207f5aa2f"
+        assert first.release_group_title == "Before the Dawn Heals Us"
+        assert first.release_group_type == "Album"
+        assert first.track_count == 15
+        assert first.medium_count == 1
+        assert first.year == 2005
+        assert first.title == ""
+
+    def test_countries_from_full_releaseevents(self):
+        # compress flattens the first event onto the release; only the full
+        # releaseevents list reveals the multi-region AU edition.
+        best = self._best(_live_payload())
+        second = best.releases[1]
+        assert second.countries == ("US", "AU")
+        third = best.releases[2]
+        assert third.countries == ("GB",)
+
+    def test_release_ids_deduplicated_across_groups(self):
+        payload = _live_payload()
+        groups = payload["results"][0]["recordings"][0]["releasegroups"]
+        groups[1]["releases"] = groups[0]["releases"]
+        best = self._best(payload)
+        ids = [r.release_id for r in best.releases]
+        assert len(ids) == len(set(ids))
+
+    def test_partial_date_year_only(self):
+        payload = _live_payload()
+        release = payload["results"][0]["recordings"][0]["releasegroups"][0]
+        release["releases"] = [{"id": "r-y", "date": {"year": 2005}}]
+        best = self._best(payload)
+        assert best.releases[0].year == 2005
+        assert best.releases[0].countries == ()
+
+    def test_missing_counts_left_as_none(self):
+        # MusicBrainz coverage is patchy: a release without track_count must
+        # not be excluded from selection on that basis.
+        payload = _live_payload()
+        release = payload["results"][0]["recordings"][0]["releasegroups"][0]
+        release["releases"] = [{"id": "r-bare"}]
+        best = self._best(payload)
+        assert best.releases[0].track_count is None
+        assert best.releases[0].medium_count is None
+        assert best.releases[0].year is None
 
 
 class TestLookupMany:

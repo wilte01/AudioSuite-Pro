@@ -59,6 +59,10 @@ class FingerprinterApp(UIHelperMixin):
         self.run_mode = tk.StringVar(value="Dry Run")
         self.lookup_enabled = tk.BooleanVar(value=True)
         self.write_tags = tk.BooleanVar(value=False)
+        self.write_mbids = tk.BooleanVar(value=False)
+        self.mbid_region = tk.StringVar(
+            value=str(suite_config.load_value("mbid_region", ""))
+        )
         self.album_mode = tk.BooleanVar(value=False)
         self.threshold = tk.StringVar(value=_DEFAULT_THRESHOLD)
         self.max_length = tk.StringVar(value=str(DEFAULT_MAX_LENGTH))
@@ -139,6 +143,8 @@ class FingerprinterApp(UIHelperMixin):
             parallel_var=self.parallel_var,
             lookup_enabled=self.lookup_enabled,
             write_tags=self.write_tags,
+            write_mbids=self.write_mbids,
+            mbid_region=self.mbid_region,
             album_mode=self.album_mode,
             threshold=self.threshold,
             max_length=self.max_length,
@@ -212,6 +218,16 @@ class FingerprinterApp(UIHelperMixin):
         self.api_key.set("")
         self._refresh_api_key_status()
 
+    def _persist_mbid_region(self) -> None:
+        """Remember the MBID region preference in the shared suite config."""
+        region = self.mbid_region.get().strip().upper()
+        if len(region) != 2 or not region.isalpha():
+            # Not a usable country code: forget any stale value rather than
+            # letting an invalid preference silently bias release selection.
+            suite_config.save_value("mbid_region", "")
+            return
+        suite_config.save_value("mbid_region", region)
+
     def _resolve_run_api_key(self) -> str:
         """Return the effective key: per-run entry, CLI --api-key, then store."""
         entry_value = self.api_key.get().strip()
@@ -267,6 +283,9 @@ class FingerprinterApp(UIHelperMixin):
 
         self.lookup_enabled.set(parsed.lookup_enabled)
         self.write_tags.set(parsed.write_tags)
+        self.write_mbids.set(parsed.write_mbids)
+        if parsed.mbid_region:
+            self.mbid_region.set(parsed.mbid_region)
         self.threshold.set(str(parsed.threshold))
         self.max_length.set(str(parsed.max_length))
         if parsed.fpcalc_path:
@@ -361,6 +380,7 @@ class FingerprinterApp(UIHelperMixin):
 
             threshold = self._parse_threshold()
             max_length = self._parse_max_length()
+            self._persist_mbid_region()
 
             self.start_btn.config(state="disabled")
             self.file_listbox.delete(0, tk.END)
@@ -375,6 +395,8 @@ class FingerprinterApp(UIHelperMixin):
                 max_length=max_length,
                 fpcalc_path=self.fpcalc_path.get().strip(),
                 album_mode=self.album_mode.get(),
+                write_mbids=self.write_mbids.get(),
+                mbid_region=self.mbid_region.get().strip().upper(),
             )
             threading.Thread(target=self._run, args=(params,), daemon=True).start()
 
@@ -403,6 +425,8 @@ class FingerprinterApp(UIHelperMixin):
             f"Mode: {'DRY RUN' if is_dry_run else 'LIVE UPDATE'}\n",
             f"Lookup: {'ON' if params.lookup_enabled else 'OFF'}\n",
             f"Write Tags: {'ON' if params.write_tags else 'OFF'}\n",
+            f"Write MBIDs: {'ON' if params.write_mbids else 'OFF'}\n",
+            f"MBID Region: {params.mbid_region or '(none)'}\n",
             f"Album Match: {'ON' if params.album_mode else 'OFF'}\n",
             f"Min Score: {params.threshold}\n",
             f"Max Length: {params.max_length} sec\n",

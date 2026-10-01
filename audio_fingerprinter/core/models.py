@@ -44,6 +44,47 @@ class ReleaseGroup:
 
 
 @dataclass(frozen=True)
+class Release:
+    """One MusicBrainz release a recording candidate appears on.
+
+    A recording is frequently released many times (one sampled M83 track spans
+    12 releases across 3 release groups), so a release is a *candidate*, never a
+    single answer.  The selection criteria in
+    :mod:`audio_fingerprinter.core.mbid_writer` narrow the candidates and write
+    an id only when exactly one survives.
+
+    Attributes:
+        release_id: MusicBrainz release MBID.
+        title: Release title. Empty when the service omitted it — with
+            ``compress`` the title is dropped whenever it equals the parent
+            release group's title, so the group title is the practical
+            comparison target.
+        track_count: Total tracks on the release, when reported.
+        medium_count: Number of discs in the release, when reported.
+        countries: Countries the release was issued in (a multi-region
+            release reports every one of them).
+        year: Release year, when reported.
+        release_group_id: Parent release-group MBID.
+        release_group_title: Parent release-group title.
+        release_group_type: Release-group primary type (``"Album"``,
+            ``"Compilation"``, ``"EP"``, ``"Single"``, ...).
+    """
+
+    release_id: str
+    title: str = ""
+    track_count: int | None = None
+    medium_count: int | None = None
+    countries: tuple[str, ...] = ()
+    year: int | None = None
+    release_group_id: str = ""
+    release_group_title: str = ""
+    release_group_type: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class AcoustidRecording:
     """A single recording candidate returned by the AcoustID lookup.
 
@@ -53,20 +94,26 @@ class AcoustidRecording:
         recording_id: MusicBrainz recording MBID.
         title: Recording title.
         artist: Artist name (album-artist joinphrase is a precomputed string).
+        artist_ids: MusicBrainz artist MBIDs credited on the recording, in
+            service order (empty when the service reported none).
         score: AcoustID match score in the range 0.0-1.0.
         duration: Recording duration in seconds when the API reported it.
         release_groups: MusicBrainz release groups the recording appears
             on (empty when the service reported no release metadata) —
             the clustering key for album match mode.
+        releases: Every release the recording appears on, as selection
+            candidates for ``MUSICBRAINZ_ALBUMID``.
     """
 
     acoustid_id: str
     recording_id: str
     title: str
     artist: str = ""
+    artist_ids: tuple[str, ...] = ()
     score: float = 0.0
     duration: int | None = None
     release_groups: tuple[ReleaseGroup, ...] = ()
+    releases: tuple[Release, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -117,6 +164,14 @@ class FingerprintParams:
             group; tag files only when the folder's album is decided.
         album_min: Minimum files voting for one release group before an
             album cluster can form (album match mode only).
+        write_mbids: Also write ``MUSICBRAINZ_TRACKID`` / ``MUSICBRAINZ_ARTISTID``
+            / ``MUSICBRAINZ_ALBUMID`` on a match. Opt-in, off by default, and
+            additive to the AcoustID tags (which are governed by
+            ``write_tags``). Requires a Live Update like any other write.
+        mbid_region: Preferred release country (ISO 3166-1 alpha-2, e.g.
+            ``"GB"``). Empty means no regional preference. Only ever used to
+            break a tie between otherwise indistinguishable release
+            candidates — it can never select a release on its own.
     """
 
     lookup_enabled: bool = True
@@ -128,6 +183,8 @@ class FingerprintParams:
     requests_per_second: float = 1.0
     album_mode: bool = False
     album_min: int = 3
+    write_mbids: bool = False
+    mbid_region: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

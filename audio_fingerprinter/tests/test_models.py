@@ -6,6 +6,7 @@ from audio_fingerprinter.core.models import (
     FingerprintFileResult,
     FingerprintParams,
     LookupResult,
+    Release,
     ReleaseGroup,
 )
 
@@ -42,6 +43,11 @@ class TestAcoustidRecording:
         rec = AcoustidRecording("a", "b", "Song", score=0.9)
         assert rec.release_groups == ()
 
+    def test_artist_ids_and_releases_default_empty(self):
+        rec = AcoustidRecording("a", "b", "Song", score=0.9)
+        assert rec.artist_ids == ()
+        assert rec.releases == ()
+
     def test_to_dict_includes_release_groups(self):
         rec = AcoustidRecording(
             acoustid_id="a1",
@@ -54,6 +60,35 @@ class TestAcoustidRecording:
             {"release_group_id": "rg-1", "title": "Album Title"}
         ]
 
+    def test_to_dict_includes_artist_ids_and_releases(self):
+        rec = AcoustidRecording(
+            acoustid_id="a1",
+            recording_id="b2",
+            title="Song",
+            artist_ids=("mb-art",),
+            releases=(
+                Release(
+                    release_id="rel-1",
+                    track_count=15,
+                    medium_count=1,
+                    countries=("FR",),
+                    year=2005,
+                    release_group_id="rg-1",
+                    release_group_title="Album",
+                    release_group_type="Album",
+                ),
+            ),
+        )
+        d = rec.to_dict()
+        assert list(d["artist_ids"]) == ["mb-art"]
+        release = d["releases"][0]
+        assert release["release_id"] == "rel-1"
+        assert release["track_count"] == 15
+        assert release["medium_count"] == 1
+        assert release["countries"] == ("FR",)
+        assert release["year"] == 2005
+        assert release["release_group_title"] == "Album"
+
 
 class TestReleaseGroup:
     def test_construction_and_to_dict(self):
@@ -64,6 +99,39 @@ class TestReleaseGroup:
 
     def test_title_defaults_empty(self):
         assert ReleaseGroup("rg-2").title == ""
+
+
+class TestRelease:
+    """E2's release candidate — one of the many releases a recording spans."""
+
+    def test_defaults(self):
+        release = Release("rel-1")
+        assert release.release_id == "rel-1"
+        assert release.title == ""
+        assert release.track_count is None
+        assert release.medium_count is None
+        assert release.countries == ()
+        assert release.year is None
+        assert release.release_group_id == ""
+        assert release.release_group_title == ""
+        assert release.release_group_type == ""
+
+    def test_to_dict(self):
+        release = Release(
+            "rel-1",
+            track_count=15,
+            medium_count=2,
+            countries=("US", "AU"),
+            year=2014,
+            release_group_type="Album",
+        )
+        d = release.to_dict()
+        assert d["release_id"] == "rel-1"
+        assert d["track_count"] == 15
+        assert d["medium_count"] == 2
+        assert d["countries"] == ("US", "AU")
+        assert d["year"] == 2014
+        assert d["release_group_type"] == "Album"
 
 
 class TestLookupResult:
@@ -97,6 +165,8 @@ class TestFingerprintParams:
         assert p.requests_per_second == 1.0
         assert p.album_mode is False
         assert p.album_min == 3
+        assert p.write_mbids is False
+        assert p.mbid_region == ""
 
     def test_to_dict_roundtrip(self):
         p = FingerprintParams(threshold=0.7, max_length=180)
@@ -105,6 +175,14 @@ class TestFingerprintParams:
         assert d["max_length"] == 180
         assert d["album_mode"] is False
         assert d["album_min"] == 3
+        assert d["write_mbids"] is False
+        assert d["mbid_region"] == ""
+
+    def test_mbid_preferences_roundtrip(self):
+        p = FingerprintParams(write_mbids=True, mbid_region="GB")
+        d = p.to_dict()
+        assert d["write_mbids"] is True
+        assert d["mbid_region"] == "GB"
 
 
 class TestFingerprintFileResult:

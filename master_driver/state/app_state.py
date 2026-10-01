@@ -146,6 +146,8 @@ class AppState:
         # ── Fingerprinter controls ─────────────────────────────────────────────
         self.fingerprinter_lookup = tk.BooleanVar(master, value=True)
         self.fingerprinter_write_tags = tk.BooleanVar(master, value=False)
+        self.fingerprinter_write_mbids = tk.BooleanVar(master, value=False)
+        self.fingerprinter_mbid_region = tk.StringVar(master, value="")
         self.fingerprinter_threshold = tk.StringVar(master, value="0.5")
         self.fingerprinter_max_length = tk.StringVar(master, value="120")
         self.fingerprinter_fpcalc = tk.StringVar(master, value="")

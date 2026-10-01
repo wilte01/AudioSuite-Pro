@@ -30,7 +30,7 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.file_processor_base import BaseFileProcessor
-from audio_suite_shared.tag_helper_reader import read_artist_title
+from audio_suite_shared.tag_helper_reader import read_artist_album, read_artist_title
 
 from .acoustid_client import AcoustidClient, resolve_best_match
 from .album_cluster import (
@@ -41,6 +41,7 @@ from .album_cluster import (
 )
 from .exceptions import FingerprintError
 from .fingerprinter import generate_fingerprint, resolve_fpcalc
+from .mbid_writer import select_mbid_tags, write_mbid_tags
 from .models import (
     AcoustidRecording,
     Fingerprint,
@@ -171,6 +172,46 @@ def _fingerprint_worker(job: _FingerprintJob) -> None:
         job.slot_queue.put(slot_idx)
 
 
+def _write_mbids_for(
+    params: FingerprintParams,
+    recording: AcoustidRecording,
+    file_path: str,
+) -> str:
+    """Select and write the MusicBrainz identifiers, returning a note.
+
+    A failed MBID write does not fail the file — the AcoustID tags are already
+    committed and the identifiers are additive enrichment. The message says so
+    rather than reporting the file as untagged.
+
+    Args:
+        params: Runtime parameters (the opt-in flag and region preference).
+        recording: The matched AcoustID candidate.
+        file_path: Absolute path of the file being tagged.
+
+    Returns:
+        A short note for the per-file result message, empty when there was
+        nothing to write.
+    """
+    album_title = ""
+    try:
+        _, album_title = read_artist_album(file_path)
+    except (OSError, AudioSuiteError):
+        album_title = ""
+    tags = select_mbid_tags(
+        recording,
+        album_title=album_title,
+        file_path=file_path,
+        region=params.mbid_region,
+    )
+    if not tags:
+        return ""
+    ok, msg = write_mbid_tags(file_path, tags)
+    if not ok:
+        logger.warning("MusicBrainz tag write failed for %s: %s", file_path, msg)
+        return f"MBID write failed: {msg}"
+    return msg
+
+
 def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult:
     """Fingerprint one file and optionally look it up / tag it.
 
@@ -268,6 +309,10 @@ def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult
         ok, msg = write_acoustid_tags(
             full_path, fingerprint.fingerprint, best.acoustid_id
         )
+        if ok and job.params.write_mbids:
+            mbids = _write_mbids_for(job.params, best, full_path)
+            if mbids:
+                message = f"{message} — {mbids}"
 
     if not ok:
         return FingerprintFileResult(
@@ -340,6 +385,7 @@ def _finalize_album_file(
     recordings: tuple[AcoustidRecording, ...],
     write_enabled: bool,
     undo_batch: str | None,
+    params: FingerprintParams,
 ) -> FingerprintFileResult:
     """Apply one album decision to a file, writing tags when enabled.
 
@@ -353,6 +399,7 @@ def _finalize_album_file(
         recordings: The file's full filtered candidate list.
         write_enabled: Whether tags should be written (live + enabled).
         undo_batch: Active undo batch id for the tag snapshot.
+        params: Runtime parameters, for the MBID opt-in and region preference.
 
     Returns:
         The final ``FingerprintFileResult`` (MATCHED / TAGGED /
@@ -385,6 +432,10 @@ def _finalize_album_file(
         ok, msg = write_acoustid_tags(
             result.file_path, result.fingerprint, best.acoustid_id
         )
+        if ok and params.write_mbids:
+            mbids = _write_mbids_for(params, best, result.file_path)
+            if mbids:
+                message = f"{message} — {mbids}"
     if not ok:
         return FingerprintFileResult(
             file_path=result.file_path,
@@ -578,6 +629,7 @@ def _run_album_phase(
                 file.recordings,
                 write_enabled,
                 undo_batch,
+                params,
             )
 
     for idx, result in enumerate(results):

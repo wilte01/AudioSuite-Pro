@@ -5,6 +5,8 @@ Positional + named-flag layout heeded by the Master Driver:
     argv[1]               - input folder path
     --lookup/--no-lookup  - enable AcoustID lookup
     --write-tags          - write matched tags after lookup
+    --write-mbids         - also write MusicBrainz identifiers on a match
+    --mbid-region CC      - preferred release country when writing MBIDs
     --threshold VALUE     - minimum AcoustID match score (0.0-1.0)
     --max-length VALUE    - fpcalc analysis window in seconds
     --fpcalc PATH         - explicit fpcalc binary path
@@ -59,6 +61,8 @@ class FingerprintArgs(BaseCLIArgs):
     max_length: int = 120
     fpcalc_path: str = ""
     api_key: str = ""
+    write_mbids: bool = False
+    mbid_region: str = ""
     clear_logs: bool = False  # Display only — driver-owned orchestration flag
     parallel_run: bool = False  # Display only — driver-owned orchestration flag
 
@@ -75,6 +79,8 @@ class FingerprintArgs(BaseCLIArgs):
             threshold=self.threshold,
             max_length=self.max_length,
             fpcalc_path=self.fpcalc_path,
+            write_mbids=self.write_mbids,
+            mbid_region=self.mbid_region,
         )
 
 
@@ -126,6 +132,15 @@ def parse(argv: list[str] | None = None) -> FingerprintArgs:
         elif arg == "--write-tags":
             args.write_tags = True
             i += 1
+        elif arg == "--write-mbids":
+            args.write_mbids = True
+            i += 1
+        elif arg == "--no-write-mbids":
+            args.write_mbids = False
+            i += 1
+        elif arg == "--mbid-region" and i + 1 < len(argv):
+            args.mbid_region = argv[i + 1].strip().upper()
+            i += 2
         elif arg == "--threshold" and i + 1 < len(argv):
             try:
                 value = float(argv[i + 1])

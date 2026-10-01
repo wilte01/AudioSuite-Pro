@@ -64,6 +64,24 @@ from .core.models import FingerprintParams
     type=click.IntRange(min=1),
     help="Minimum files voting for one release group to form an album cluster.",
 )
+@click.option(
+    "--write-mbids/--no-write-mbids",
+    default=False,
+    help=(
+        "Also write MusicBrainz identifiers (MUSICBRAINZ_TRACKID / ARTISTID / "
+        "ALBUMID) on a match. Requires --write-tags and live mode. ALBUMID is "
+        "written only when one release is unambiguous."
+    ),
+)
+@click.option(
+    "--mbid-region",
+    default="",
+    metavar="CC",
+    help=(
+        "Preferred release country (ISO 3166-1 alpha-2, e.g. GB) used to break "
+        "ties between otherwise identical releases when writing MBIDs."
+    ),
+)
 def fingerprint(
     directory: str,
     dry_run: bool,
@@ -76,6 +94,8 @@ def fingerprint(
     api_key: str | None,
     album_mode: bool,
     album_min: int,
+    write_mbids: bool,
+    mbid_region: str,
 ) -> None:
     """Generate Chromaprint fingerprints and identify tracks via AcoustID."""
     from .core.file_processor import run_fingerprinting
@@ -90,6 +110,13 @@ def fingerprint(
         )
         raise SystemExit(1)
 
+    if write_mbids and not write_tags:
+        click.echo(
+            "--write-mbids adds to the AcoustID tags; it also needs --write-tags.",
+            err=True,
+        )
+        raise SystemExit(1)
+
     params = FingerprintParams(
         lookup_enabled=lookup,
         write_tags=write_tags,
@@ -99,6 +126,8 @@ def fingerprint(
         fpcalc_path=fpcalc or "",
         album_mode=album_mode,
         album_min=album_min,
+        write_mbids=write_mbids,
+        mbid_region=mbid_region.strip().upper(),
     )
 
     with active_batch("audio_fingerprinter", "tag_edit"):

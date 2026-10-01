@@ -257,6 +257,51 @@ def read_editable_tags(path: str) -> dict[str, str | None]:
     return TagHandlerFactory.get_handler(path).read_editable_tags()
 
 
+MUSICBRAINZ_ID_FIELDS: tuple[str, ...] = (
+    "MUSICBRAINZ_TRACKID",
+    "MUSICBRAINZ_ALBUMID",
+    "MUSICBRAINZ_ARTISTID",
+)
+"""Canonical MusicBrainz identifier fields, in Picard's order."""
+
+
+@handle_audio_errors(reraise=False, return_on_error={}, context="tag_read")
+def read_musicbrainz_ids(path: str) -> dict[str, str]:
+    """Read the MusicBrainz identifier tags from any supported audio file.
+
+    MP3/WAV/AIFF read the ``TXXX`` frames with a ``MUSICBRAINZ_*``
+    description, FLAC/OGG/Opus the native Vorbis comments, and M4A/MP4 the
+    ``----:com.apple.iTunes:`` freeform atoms.
+
+    Args:
+        path: Path to the audio file.
+
+    Returns:
+        Dict mapping only the fields that are present and non-empty. An
+        absent identifier is omitted rather than returned as an empty string.
+    """
+    handler = TagHandlerFactory.get_handler(path)
+    found: dict[str, str] = {}
+    for field in MUSICBRAINZ_ID_FIELDS:
+        value = handler.read_custom_field(field)
+        if value:
+            found[field] = value
+    return found
+
+
+@handle_audio_errors(reraise=False, return_on_error=None, context="tag_read")
+def read_disc_number(path: str) -> str | None:
+    """Read the disc number tag from any supported audio file.
+
+    Args:
+        path: Path to the audio file.
+
+    Returns:
+        The disc number as a string, or None if absent or unreadable.
+    """
+    return TagHandlerFactory.get_handler(path).read_disc_number()
+
+
 @handle_audio_errors(reraise=False, return_on_error=None, context="tag_read")
 def read_tags_raw(path: str) -> Any:
     """Return the raw mutagen tags object for a file without interpretation.

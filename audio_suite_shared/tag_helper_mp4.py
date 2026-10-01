@@ -392,6 +392,44 @@ class MP4Handler(BaseTagHandler):
                     album_gain = value
         return track_gain, album_gain
 
+    def read_custom_field(self, name: str) -> str | None:
+        """Read one custom tag from its iTunes freeform atom.
+
+        Args:
+            name: Canonical field name, e.g. ``'MUSICBRAINZ_ALBUMID'``.
+
+        Returns:
+            The atom's decoded value as a string, or None if absent or empty.
+        """
+        if not self._tags:
+            return None
+        key = f"----:com.apple.iTunes:{name}"
+        if key not in self._tags:
+            return None
+        try:
+            return str(self._tags[key][0].decode())
+        except (IndexError, AttributeError, UnicodeDecodeError):
+            return None
+
+    def read_disc_number(self) -> str | None:
+        """Read the disc number from the ``disk`` MP4 atom.
+
+        MP4 stores the disc as a ``(disc, total)`` tuple; the total is not
+        part of the disc number and is dropped.
+
+        Returns:
+            The disc number string, or None if absent or unreadable.
+        """
+        if self._tags and "disk" in self._tags:
+            try:
+                value = self._tags["disk"][0]
+                if isinstance(value, tuple) and value:
+                    return str(value[0])
+                return str(value)
+            except (IndexError, TypeError):
+                return None
+        return None
+
     def read_editable_tags(self) -> dict[str, str | None]:
         """Read the freeform editor fields from MP4 atoms.
 

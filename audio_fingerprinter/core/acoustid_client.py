@@ -17,7 +17,13 @@ import requests
 from audio_suite_shared.exceptions import handle_audio_errors
 
 from .exceptions import AcoustidApiError, AcoustidAuthError
-from .models import AcoustidRecording, Fingerprint, LookupResult, ReleaseGroup
+from .models import (
+    AcoustidRecording,
+    Fingerprint,
+    LookupResult,
+    Release,
+    ReleaseGroup,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -324,36 +330,143 @@ def _is_api_key_error(response: requests.Response) -> bool:
 def _build_release_groups(rec: dict[str, object]) -> tuple[ReleaseGroup, ...]:
     """Collect the MusicBrainz release groups a recording appears on.
 
-    With ``meta=releases releasegroups`` the service nests the groups
-    under each release (``recordings[].releases[].releasegroups[]``).
-    Entries are deduplicated by id and malformed links are skipped —
-    release metadata is an optional enrichment, never a hard requirement.
+    The service attaches groups to the **recording** (``recordings[].releasegroups[]``)
+    and nests the releases inside each group; it never emits
+    ``recordings[].releases[].releasegroups[]``.  Because ``DEFAULT_META``
+    requests ``releasegroups`` *and* ``releases``, the server takes its
+    ``releasegroups`` branch and leaves ``recordings[].releases`` unpopulated
+    entirely, so reading the releases key here silently yielded nothing.
+
+    Entries are deduplicated by id and malformed links are skipped — release
+    metadata is an optional enrichment, never a hard requirement.
     """
-    releases = rec.get("releases")
-    if not isinstance(releases, list):
-        return ()
     groups: list[ReleaseGroup] = []
     seen: set[str] = set()
-    for release in releases:
-        if not isinstance(release, dict):
+    for group in _iter_release_groups(rec):
+        group_id = str(group.get("id", "") or "")
+        if not group_id or group_id in seen:
             continue
-        raw_groups = release.get("releasegroups")
-        if not isinstance(raw_groups, list):
+        seen.add(group_id)
+        groups.append(
+            ReleaseGroup(
+                release_group_id=group_id,
+                title=str(group.get("title", "") or ""),
+            )
+        )
+    return tuple(groups)
+
+
+def _iter_release_groups(rec: dict[str, object]) -> list[dict[str, object]]:
+    """Return the recording's release-group dicts, primary shape first.
+
+    The live shape is ``recordings[].releasegroups[]``.  The legacy nested
+    shape is still accepted so a fixture or a future ``releases``-only meta
+    cannot silently drop the album-mode clustering key.
+    """
+    found: list[dict[str, object]] = []
+    primary = rec.get("releasegroups")
+    if isinstance(primary, list):
+        found.extend(g for g in primary if isinstance(g, dict))
+    releases = rec.get("releases")
+    if isinstance(releases, list):
+        for release in releases:
+            if not isinstance(release, dict):
+                continue
+            nested = release.get("releasegroups")
+            if isinstance(nested, list):
+                found.extend(g for g in nested if isinstance(g, dict))
+    return found
+
+
+def _optional_int(value: object) -> int | None:
+    """Coerce a JSON number to int, or None when absent/not numeric."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
+def _release_countries(release: dict[str, object]) -> tuple[str, ...]:
+    """Collect a release's countries, preferring the full ``releaseevents`` list.
+
+    ``compress`` collapses ``releaseevents`` to a single flattened ``country``;
+    a multi-region release (e.g. the Europe-wide 2014 edition) only reveals all
+    of its countries through the unabridged list.
+    """
+    found: list[str] = []
+    events = release.get("releaseevents")
+    if isinstance(events, list):
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            country = str(event.get("country", "") or "").upper()
+            if country and country not in found:
+                found.append(country)
+    flat = str(release.get("country", "") or "").upper()
+    if flat and flat not in found:
+        found.append(flat)
+    return tuple(found)
+
+
+def _release_year(release: dict[str, object]) -> int | None:
+    """Extract the release year from the (often partial) flattened date."""
+    date = release.get("date")
+    if isinstance(date, dict):
+        return _optional_int(date.get("year"))
+    return None
+
+
+def _build_releases(rec: dict[str, object]) -> tuple[Release, ...]:
+    """Collect every release candidate for a recording, deduplicated by id.
+
+    Releases live inside their release group (``releasegroups[].releases[]``),
+    so the group context travels with each candidate.  A recording with no
+    release metadata yields an empty tuple rather than failing the lookup.
+    """
+    releases: list[Release] = []
+    seen: set[str] = set()
+    for group in _iter_release_groups(rec):
+        group_id = str(group.get("id", "") or "")
+        group_title = str(group.get("title", "") or "")
+        group_type = str(group.get("type", "") or "")
+        nested = group.get("releases")
+        if not isinstance(nested, list):
             continue
-        for group in raw_groups:
-            if not isinstance(group, dict):
+        for release in nested:
+            if not isinstance(release, dict):
                 continue
-            group_id = str(group.get("id", "") or "")
-            if not group_id or group_id in seen:
+            release_id = str(release.get("id", "") or "")
+            if not release_id or release_id in seen:
                 continue
-            seen.add(group_id)
-            groups.append(
-                ReleaseGroup(
+            seen.add(release_id)
+            releases.append(
+                Release(
+                    release_id=release_id,
+                    title=str(release.get("title", "") or ""),
+                    track_count=_optional_int(release.get("track_count")),
+                    medium_count=_optional_int(release.get("medium_count")),
+                    countries=_release_countries(release),
+                    year=_release_year(release),
                     release_group_id=group_id,
-                    title=str(group.get("title", "") or ""),
+                    release_group_title=group_title,
+                    release_group_type=group_type,
                 )
             )
-    return tuple(groups)
+    return tuple(releases)
+
+
+def _build_artist_ids(rec: dict[str, object]) -> tuple[str, ...]:
+    """Collect the recording's MusicBrainz artist MBIDs in service order."""
+    artists = rec.get("artists")
+    if not isinstance(artists, list):
+        return ()
+    found: list[str] = []
+    for artist in artists:
+        if not isinstance(artist, dict):
+            continue
+        artist_id = str(artist.get("id", "") or "")
+        if artist_id and artist_id not in found:
+            found.append(artist_id)
+    return tuple(found)
 
 
 def _build_recording(
@@ -378,9 +491,11 @@ def _build_recording(
         recording_id=recording_id,
         title=title,
         artist=artist,
+        artist_ids=_build_artist_ids(rec),
         score=score,
         duration=duration_int,
         release_groups=_build_release_groups(rec),
+        releases=_build_releases(rec),
     )
 
 

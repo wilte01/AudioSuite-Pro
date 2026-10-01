@@ -104,6 +104,28 @@ bullet(
 )
 bullet(
     doc,
+    "Write MusicBrainz identifiers: ",
+    "Adds MUSICBRAINZ_TRACKID, MUSICBRAINZ_ARTISTID "
+    "and (when one release is unambiguous) "
+    "MUSICBRAINZ_ALBUMID to the AcoustID tags. Needs "
+    "the option above and Live Update; disabled by "
+    "default. The album id is never guessed - a "
+    "recording is typically released many times, and "
+    "the id is written only when exactly one release "
+    "survives the selection criteria below.",
+)
+bullet(
+    doc,
+    "MBID Region: ",
+    "Optional two-letter country code (ISO 3166-1 "
+    "alpha-2, e.g. GB) stored in suite configuration. "
+    "It only breaks ties between otherwise identical "
+    "releases (same track and disc counts, same "
+    "release group); it can never select a release "
+    "on its own.",
+)
+bullet(
+    doc,
     "Album Match: ",
     "Clusters each folder's lookups by MusicBrainz release "
     "group and tags only when the album is decided. A "
@@ -241,6 +263,34 @@ doc.add_paragraph(
     "system."
 )
 doc.add_paragraph(
+    "When Write MusicBrainz identifiers is also "
+    "enabled, the run writes the matched recording as "
+    "MUSICBRAINZ_TRACKID, the credited artist as "
+    "MUSICBRAINZ_ARTISTID, and - only when exactly one "
+    "release survives - the release as "
+    "MUSICBRAINZ_ALBUMID. The identifiers are stored "
+    "in each format's native convention: TXXX frames "
+    "for MP3/WAV/AIFF, Vorbis comments for "
+    "FLAC/OGG/Opus, and iTunes freeform atoms for "
+    "M4A/MP4."
+)
+doc.add_paragraph(
+    "The album id uses the releases already reported "
+    "by AcoustID - no separate MusicBrainz lookup is "
+    "made. Candidates are narrowed in order by an "
+    "existing MUSICBRAINZ_ALBUMID on the file, the "
+    "album title, the folder's track count and disc "
+    "count (Album Match folders provide these), the "
+    "release-group type, and finally the MBID Region "
+    "preference. A criterion that would eliminate "
+    "every candidate is ignored, and if more than one "
+    "release still survives the field is simply not "
+    "written. In per-file runs the track and disc "
+    "counts are usually unknown, so the album id "
+    "resolves less often than the track and artist "
+    "ids."
+)
+doc.add_paragraph(
     "The effective API key is resolved from "
     "ACOUSTID_API_KEY first, then the encrypted "
     "acoustid_api_key value in shared suite "
@@ -261,11 +311,16 @@ doc.add_paragraph(
     "python -m audio_suite_shared.cli_app fingerprint "
     "<folder> --album-mode --album-min 3 --write-tags --live\n"
     "python -m audio_suite_shared.cli_app fingerprint "
+    "<folder> --write-tags --write-mbids --mbid-region GB --live\n"
+    "python -m audio_suite_shared.cli_app fingerprint "
     "<folder> --fpcalc <path> --json"
 )
 doc.add_paragraph(
     "Options include --lookup/--no-lookup, "
-    "--write-tags/--no-write-tags, --threshold, "
+    "--write-tags/--no-write-tags, "
+    "--write-mbids/--no-write-mbids (needs "
+    "--write-tags), --mbid-region (two-letter release "
+    "country tie-break), --threshold, "
     "--max-length, --fpcalc, --api-key, "
     "--album-mode/--no-album-mode (cluster each folder "
     "by release group; tag only decided albums), "
@@ -319,6 +374,17 @@ bullet(
     "Confirm Live Update and Write AcoustID tags are "
     "enabled, and that files are writable. Dry Run "
     "never writes tags.",
+)
+bullet(
+    doc,
+    "MusicBrainz album id missing: ",
+    "The matched recording spans several "
+    "indistinguishable releases, so the run omits "
+    "MUSICBRAINZ_ALBUMID rather than guess. Set an "
+    "MBID Region, use Album Match so the folder's "
+    "track and disc counts can narrow the candidates, "
+    "or accept that only the track and artist ids "
+    "were written.",
 )
 bullet(
     doc,

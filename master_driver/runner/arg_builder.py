@@ -137,6 +137,9 @@ def _build_enrich_tool_args(
                 "--write-tags"
                 if state.fingerprinter_write_tags.get()
                 else "--no-write-tags",
+                "--write-mbids"
+                if state.fingerprinter_write_mbids.get()
+                else "--no-write-mbids",
                 "--threshold",
                 state.fingerprinter_threshold.get(),
                 "--max-length",
@@ -145,6 +148,11 @@ def _build_enrich_tool_args(
             + (
                 ["--fpcalc", state.fingerprinter_fpcalc.get()]
                 if state.fingerprinter_fpcalc.get()
+                else []
+            )
+            + (
+                ["--mbid-region", state.fingerprinter_mbid_region.get()]
+                if state.fingerprinter_mbid_region.get()
                 else []
             )
             + (

@@ -166,6 +166,8 @@ def _make_state(
     state.nr_gate_threshold = _str_var("3.0")
     state.fingerprinter_lookup = _bool_var(True)
     state.fingerprinter_write_tags = _bool_var(False)
+    state.fingerprinter_write_mbids = _bool_var(False)
+    state.fingerprinter_mbid_region = _str_var("")
     state.fingerprinter_threshold = _str_var("0.5")
     state.fingerprinter_max_length = _str_var("120")
     state.fingerprinter_fpcalc = _str_var("")
@@ -439,6 +441,30 @@ class TestBuildEnrichArgs:
         args_list = build_enrich_args(state)
         fp_entry = next(e for e in args_list if "Audio Fingerprinter" in e[1].name)
         assert "--write-tags" in fp_entry[2]
+
+    def test_fingerprinter_write_mbids_flag(self):
+        state = _make_state()
+        state.fingerprinter_write_mbids = _bool_var(True)
+        args_list = build_enrich_args(state)
+        fp_entry = next(e for e in args_list if "Audio Fingerprinter" in e[1].name)
+        assert "--write-mbids" in fp_entry[2]
+        assert "--no-write-mbids" not in fp_entry[2]
+
+    def test_fingerprinter_no_write_mbids_flag(self):
+        state = _make_state()
+        state.fingerprinter_write_mbids = _bool_var(False)
+        args_list = build_enrich_args(state)
+        fp_entry = next(e for e in args_list if "Audio Fingerprinter" in e[1].name)
+        assert "--no-write-mbids" in fp_entry[2]
+
+    def test_fingerprinter_mbid_region_flag_when_set(self):
+        state = _make_state()
+        state.fingerprinter_mbid_region = _str_var("GB")
+        args_list = build_enrich_args(state)
+        fp_entry = next(e for e in args_list if "Audio Fingerprinter" in e[1].name)
+        args = fp_entry[2]
+        assert "--mbid-region" in args
+        assert "GB" == args[args.index("--mbid-region") + 1]
 
     def test_fingerprinter_params_in_args(self):
         state = _make_state()

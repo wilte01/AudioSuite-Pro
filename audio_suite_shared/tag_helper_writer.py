@@ -272,6 +272,59 @@ def write_replaygain(path: str, rg_tags: dict[str, str]) -> None:
 
 
 @handle_audio_errors(reraise=True, context="tag_write")
+def write_musicbrainz_ids(path: str, mbids: dict[str, str]) -> None:
+    """Write MusicBrainz identifier tags in each format's native convention.
+
+    Mirrors MusicBrainz Picard: ``MUSICBRAINZ_TRACKID`` /
+    ``MUSICBRAINZ_ALBUMID`` / ``MUSICBRAINZ_ARTISTID`` stored as ``TXXX``
+    frames for ID3-backed formats (MP3, WAV, AIFF),
+    ``----:com.apple.iTunes:`` freeform atoms for M4A/MP4, and native
+    VorbisComment fields for FLAC/OGG/Opus.
+
+    Args:
+        path:  Path to the audio file.
+        mbids: Mapping of canonical MBID field name to its UUID value. Empty
+               values are skipped so an absent identifier is never written as
+               an empty tag.
+
+    Raises:
+        AudioTagError: If the file cannot be opened for tagging or the write
+            fails.
+    """
+    record_tag_edit_snapshot(path, "write_musicbrainz_ids")
+    import mutagen
+    from mutagen.id3 import TXXX
+    from mutagen.mp4 import MP4FreeForm
+
+    fields = {name: value for name, value in mbids.items() if value}
+    if not fields:
+        return
+
+    audio = mutagen.File(path)
+    if audio is None:
+        raise AudioTagError(f"mutagen could not open file for tagging: {path}")
+    ext = os.path.splitext(path)[1].lower()
+    if ext in _ID3_BACKED_EXTENSIONS:
+        if audio.tags is None:
+            audio.add_tags()
+        for desc, value in fields.items():
+            audio.tags.add(TXXX(encoding=3, desc=desc, text=value))
+    elif ext in _MP4_BACKED_EXTENSIONS:
+        if audio.tags is None:
+            audio.add_tags()
+        for desc, value in fields.items():
+            audio.tags[f"----:com.apple.iTunes:{desc}"] = [
+                MP4FreeForm(value.encode("utf-8"))
+            ]
+    else:
+        if audio.tags is None:
+            audio.add_tags()
+        for desc, value in fields.items():
+            audio.tags[desc] = value
+    audio.save()
+
+
+@handle_audio_errors(reraise=True, context="tag_write")
 def write_acoustid(path: str, fingerprint: str, acoustid_id: str) -> None:
     """Write AcoustID tags to an audio file in its native convention.
 

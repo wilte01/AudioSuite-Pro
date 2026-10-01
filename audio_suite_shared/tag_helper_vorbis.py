@@ -361,6 +361,33 @@ class VorbisHandler(BaseTagHandler):
             return str(self._audio["albumartist"][0])
         return None
 
+    def read_custom_field(self, name: str) -> str | None:
+        """Read one custom tag from the Vorbis comments.
+
+        Args:
+            name: Canonical field name, e.g. ``'MUSICBRAINZ_ALBUMID'``.
+
+        Returns:
+            The comment's first value as a string, or None if absent or empty.
+        """
+        if self._audio and name in self._audio:
+            values = self._audio[name]
+            if values:
+                return str(values[0])
+        return None
+
+    def read_disc_number(self) -> str | None:
+        """Read the disc number from the ``discnumber`` Vorbis comment.
+
+        Returns:
+            The disc number string, or None if absent.
+        """
+        if self._audio and "discnumber" in self._audio:
+            values = self._audio["discnumber"]
+            if values:
+                return str(values[0])
+        return None
+
     def has_artwork(self) -> bool:
         """Return True if FLAC picture blocks or an Ogg metadata block exist.
 

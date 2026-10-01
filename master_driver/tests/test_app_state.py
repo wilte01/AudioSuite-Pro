@@ -233,6 +233,12 @@ class TestAppStateAttributeExistence:
     def test_fingerprinter_write_tags_exists(self, state):
         assert hasattr(state, "fingerprinter_write_tags")
 
+    def test_fingerprinter_write_mbids_exists(self, state):
+        assert hasattr(state, "fingerprinter_write_mbids")
+
+    def test_fingerprinter_mbid_region_exists(self, state):
+        assert hasattr(state, "fingerprinter_mbid_region")
+
     def test_fingerprinter_threshold_exists(self, state):
         assert hasattr(state, "fingerprinter_threshold")
 
@@ -517,6 +523,12 @@ class TestAppStateDefaults:
 
     def test_fingerprinter_write_tags_default_false(self, state):
         assert state.fingerprinter_write_tags.get() is False
+
+    def test_fingerprinter_write_mbids_default_false(self, state):
+        assert state.fingerprinter_write_mbids.get() is False
+
+    def test_fingerprinter_mbid_region_default_empty(self, state):
+        assert state.fingerprinter_mbid_region.get() == ""
 
     def test_fingerprinter_threshold_default(self, state):
         assert state.fingerprinter_threshold.get() == "0.5"

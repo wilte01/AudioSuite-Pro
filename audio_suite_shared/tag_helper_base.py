@@ -234,6 +234,29 @@ class BaseTagHandler(abc.ABC):
         """
         return None
 
+    def read_custom_field(self, name: str) -> str | None:
+        """Read one arbitrary custom tag by its canonical field name.
+
+        The base implementation returns None; each format handler overrides it
+        with the lookup appropriate to its tag convention (ID3 ``TXXX``
+        description, Vorbis comment key, or MP4 freeform atom).
+
+        Args:
+            name: Canonical field name, e.g. ``'MUSICBRAINZ_ALBUMID'``.
+
+        Returns:
+            The field value as a string, or None if absent or unreadable.
+        """
+        return None
+
+    def read_disc_number(self) -> str | None:
+        """Read the disc number tag.
+
+        Returns:
+            Disc number as a string, or None if absent.
+        """
+        return None
+
     def read_mood(self) -> str | None:
         """Read the Mood tag.
 

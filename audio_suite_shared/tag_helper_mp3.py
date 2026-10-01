@@ -393,6 +393,38 @@ class MP3Handler(BaseTagHandler):
                     album_gain = str(frame.text[0])
         return track_gain, album_gain
 
+    def read_custom_field(self, name: str) -> str | None:
+        """Read one custom tag from the ``TXXX`` frame with a matching description.
+
+        Description matching is case-insensitive.
+
+        Args:
+            name: Canonical field name, e.g. ``'MUSICBRAINZ_ALBUMID'``.
+
+        Returns:
+            The frame's first value as a string, or None if absent or empty.
+        """
+        if not self._tags:
+            return None
+        target = name.upper()
+        for frame in self._tags.getall("TXXX"):
+            if str(frame.desc).upper() == target and frame.text:
+                return str(frame.text[0])
+        return None
+
+    def read_disc_number(self) -> str | None:
+        """Read the disc number from the TPOS ID3 frame.
+
+        Returns:
+            The disc number string, or None if absent or unreadable.
+        """
+        if self._tags and "TPOS" in self._tags:
+            try:
+                return str(self._tags["TPOS"].text[0])
+            except (ValueError, IndexError):
+                return None
+        return None
+
     def write_synced_lyrics(self, lrc_text: str) -> None:
         """Embed LRC lyrics as an ID3 SYLT frame and save.
 
