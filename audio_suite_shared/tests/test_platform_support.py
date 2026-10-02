@@ -544,7 +544,11 @@ class TestPortableCoreCLI:
             f"'stats' failed under a mocked Linux platform: {result.output}"
             f"{result.exception!r}"
         )
-        payload = json.loads(result.output[result.output.index("{") :])
+        # ``result.output`` is stdout+stderr merged (Click >= 8.2), and the
+        # scan logs a full traceback per unreadable file, so slicing from the
+        # first "{" only parses when the merge order happens to favour stdout.
+        # The JSON contract is the stdout channel; read that.
+        payload = json.loads(result.stdout)
         assert payload["total_files"] == 2
         assert payload["scan_path"] == str(music)
 
