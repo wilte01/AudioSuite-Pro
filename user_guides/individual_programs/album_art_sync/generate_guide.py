@@ -47,7 +47,13 @@ doc.add_paragraph(
     "Sources are queried in this order, stopping when a usable image is selected:"
 )
 for source in (
-    "MusicBrainz: identifies the release and supplies IDs needed by Fanart.tv.",
+    "Cover Art Archive: queried first. When the first "
+    "file carries a MusicBrainz release ID (written by "
+    "the Audio Fingerprinter's identifier write), the "
+    "exact release is looked up; otherwise the "
+    "release-group IDs are used.",
+    "MusicBrainz: identifies the release and supplies "
+    "the IDs needed by Cover Art Archive and Fanart.tv.",
     "Fanart.tv: queried when MusicBrainz returns release or recording-group IDs.",
     "Deezer: used as the next artwork source.",
     "iTunes Store: used as the final fallback source.",
@@ -78,9 +84,9 @@ bullet(
 bullet(
     doc,
     "Trusted source: ",
-    "Fanart.tv candidates skip album-name filtering "
-    "because the MusicBrainz identity has already "
-    "been used.",
+    "Cover Art Archive and Fanart.tv candidates skip "
+    "album-name filtering because the MusicBrainz "
+    "identity has already been used.",
 )
 bullet(
     doc,

@@ -86,6 +86,7 @@ class TestResolveAndApply:
             mock.patch(
                 "album_art_sync.api.musicbrainz.query", return_value=["mb-uuid"]
             ),
+            mock.patch("album_art_sync.api.caa.query", return_value=None),
             mock.patch("album_art_sync.api.fanart.query") as mock_fanart,
             mock.patch("album_art_sync.api.deezer.query"),
             mock.patch("album_art_sync.api.itunes.query"),
@@ -96,11 +97,14 @@ class TestResolveAndApply:
             mock.patch("album_art_sync.core.pipeline.apply_artwork", return_value=True),
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
             mock.patch(
-                "audio_suite_shared.tag_helper.read_artist_album",
+                "album_art_sync.core.pipeline.read_artist_album",
                 return_value=("Artist", "Album"),
             ),
             mock.patch(
-                "audio_suite_shared.tag_helper.read_album_artist", return_value=""
+                "album_art_sync.core.pipeline.read_album_artist", return_value=""
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}
             ),
         ):
             mock_fanart.return_value = b"fanart_image"
@@ -131,6 +135,7 @@ class TestResolveAndApply:
             mock.patch(
                 "album_art_sync.api.musicbrainz.query", return_value=["mb-uuid"]
             ),
+            mock.patch("album_art_sync.api.caa.query", return_value=None),
             mock.patch("album_art_sync.api.fanart.query", return_value=None),
             mock.patch("album_art_sync.api.deezer.query") as mock_deezer,
             mock.patch("album_art_sync.api.itunes.query"),
@@ -141,11 +146,14 @@ class TestResolveAndApply:
             mock.patch("album_art_sync.core.pipeline.apply_artwork", return_value=True),
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
             mock.patch(
-                "audio_suite_shared.tag_helper.read_artist_album",
+                "album_art_sync.core.pipeline.read_artist_album",
                 return_value=("Artist", "Album"),
             ),
             mock.patch(
-                "audio_suite_shared.tag_helper.read_album_artist", return_value=""
+                "album_art_sync.core.pipeline.read_album_artist", return_value=""
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}
             ),
         ):
             mock_deezer.return_value = b"deezer_image"
@@ -224,6 +232,7 @@ class TestResolveAndApply:
             mock.patch(
                 "album_art_sync.api.musicbrainz.query", return_value=["mb-uuid"]
             ),
+            mock.patch("album_art_sync.api.caa.query", return_value=None),
             mock.patch("album_art_sync.api.fanart.query", return_value=b"fanart_img"),
             mock.patch("album_art_sync.api.deezer.query"),
             mock.patch("album_art_sync.api.itunes.query"),
@@ -232,11 +241,14 @@ class TestResolveAndApply:
             ),
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
             mock.patch(
-                "audio_suite_shared.tag_helper.read_artist_album",
+                "album_art_sync.core.pipeline.read_artist_album",
                 return_value=("Artist", "Album"),
             ),
             mock.patch(
-                "audio_suite_shared.tag_helper.read_album_artist", return_value=""
+                "album_art_sync.core.pipeline.read_album_artist", return_value=""
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}
             ),
         ):
             report = resolve_and_apply(
@@ -296,6 +308,7 @@ class TestResolveAndApply:
             mock.patch(
                 "album_art_sync.api.musicbrainz.query", return_value=["mb-uuid"]
             ),
+            mock.patch("album_art_sync.api.caa.query", return_value=None),
             mock.patch("album_art_sync.api.fanart.query", return_value=b"fanart_img"),
             mock.patch("album_art_sync.api.deezer.query"),
             mock.patch("album_art_sync.api.itunes.query"),
@@ -311,6 +324,9 @@ class TestResolveAndApply:
                 "album_art_sync.core.pipeline.read_album_artist",
                 return_value="",
             ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}
+            ),
         ):
             report = resolve_and_apply(
                 str(mp3_file.parent),
@@ -322,7 +338,10 @@ class TestResolveAndApply:
         assert report.selection_audit is not None
         assert 'Artist: "Beatles"' in report.selection_audit
         assert 'Album: "Abbey Road"' in report.selection_audit
-        assert "MusicBrainz → Fanart.tv → Deezer → iTunes" in report.selection_audit
+        assert (
+            "Cover Art Archive → MusicBrainz → Fanart.tv → Deezer → iTunes"
+            in report.selection_audit
+        )
         assert "Selected from" in report.selection_audit
 
 
@@ -336,11 +355,14 @@ class TestResolveAndApplyConfig:
             mock.patch("album_art_sync.api.source_resolver.resolve") as mock_resolve,
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
             mock.patch(
-                "audio_suite_shared.tag_helper.read_artist_album",
+                "album_art_sync.core.pipeline.read_artist_album",
                 return_value=("A", "B"),
             ),
             mock.patch(
-                "audio_suite_shared.tag_helper.read_album_artist", return_value=""
+                "album_art_sync.core.pipeline.read_album_artist", return_value=""
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}
             ),
         ):
             mock_resolve.return_value = (None, None)
@@ -355,3 +377,125 @@ class TestResolveAndApplyConfig:
         _kwargs = mock_resolve.call_args[1]
         assert _kwargs["min_art_dimension"] == 600
         assert _kwargs["album_match_threshold"] == 0.90
+
+
+class TestAlbumMbidForwarding:
+    """The MUSICBRAINZ_ALBUMID from the album's files reaches the resolver.
+
+    E2's identifier write is what makes the Cover Art Archive's exact
+    release endpoint usable; these tests pin the read -> forward path so a
+    missing read cannot silently degrade CAA to the release-group fallback.
+    """
+
+    RELEASE_MBID = "db85c244-53e7-441c-bab0-52c9c0d27450"
+
+    def test_release_mbid_read_from_first_file_is_forwarded(
+        self, mp3_file: Path, log_cb: mock.Mock
+    ) -> None:
+        with (
+            mock.patch("album_art_sync.api.source_resolver.resolve") as mock_resolve,
+            mock.patch("album_art_sync.config.settings.load_config", return_value={}),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_artist_album",
+                return_value=("Pink Floyd", "The Wall"),
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_album_artist", return_value=""
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_musicbrainz_ids",
+                return_value={
+                    "MUSICBRAINZ_TRACKID": "track-uuid",
+                    "MUSICBRAINZ_ALBUMID": self.RELEASE_MBID,
+                },
+            ) as mock_read_ids,
+        ):
+            mock_resolve.return_value = (None, None)
+            report = resolve_and_apply(
+                str(mp3_file.parent),
+                auto_select=True,
+                log_callback=log_cb,
+            )
+
+        mock_read_ids.assert_called_once()
+        assert mock_read_ids.call_args.args[0].endswith("track.mp3")
+        assert mock_resolve.call_args.kwargs["album_mbid"] == self.RELEASE_MBID
+        assert report.selection_audit is not None
+        assert self.RELEASE_MBID in report.selection_audit
+
+    def test_untagged_album_forwards_an_empty_release_mbid(
+        self, mp3_file: Path, log_cb: mock.Mock
+    ) -> None:
+        """An absent identifier must not become a bogus CAA lookup key."""
+        with (
+            mock.patch("album_art_sync.api.source_resolver.resolve") as mock_resolve,
+            mock.patch("album_art_sync.config.settings.load_config", return_value={}),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_artist_album",
+                return_value=("A", "B"),
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_album_artist", return_value=""
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_musicbrainz_ids",
+                return_value={},
+            ),
+        ):
+            mock_resolve.return_value = (None, None)
+            report = resolve_and_apply(
+                str(mp3_file.parent),
+                auto_select=True,
+                log_callback=log_cb,
+            )
+
+        assert mock_resolve.call_args.kwargs["album_mbid"] == ""
+        assert report.selection_audit is not None
+        assert "release ID from tags" not in report.selection_audit
+
+    def test_caa_release_hit_short_circuits_every_other_source(
+        self, mp3_file: Path, log_cb: mock.Mock
+    ) -> None:
+        with (
+            mock.patch(
+                "album_art_sync.api.musicbrainz.query", return_value=["mb-uuid"]
+            ) as mock_mb,
+            mock.patch(
+                "album_art_sync.api.caa.query", return_value=b"caa_image"
+            ) as mock_caa,
+            mock.patch("album_art_sync.api.fanart.query") as mock_fanart,
+            mock.patch("album_art_sync.api.deezer.query") as mock_deezer,
+            mock.patch("album_art_sync.api.itunes.query") as mock_itunes,
+            mock.patch(
+                "album_art_sync.core.pipeline._download_image", return_value=b"data"
+            ),
+            mock.patch("album_art_sync.core.pipeline.apply_artwork", return_value=True),
+            mock.patch("album_art_sync.config.settings.load_config", return_value={}),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_artist_album",
+                return_value=("Pink Floyd", "The Wall"),
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_album_artist", return_value=""
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_musicbrainz_ids",
+                return_value={"MUSICBRAINZ_ALBUMID": self.RELEASE_MBID},
+            ),
+        ):
+            report = resolve_and_apply(
+                str(mp3_file.parent),
+                auto_select=True,
+                dry_run=False,
+                log_callback=log_cb,
+            )
+
+        assert report.success is True
+        assert report.source == "Cover Art Archive"
+        # CAA was consulted with the exact release id before the MB id lookup.
+        assert mock_caa.call_args.kwargs["release_mbid"] == self.RELEASE_MBID
+        assert mock_caa.call_args.kwargs["mb_rg_ids"] == []
+        mock_mb.assert_not_called()
+        mock_fanart.assert_not_called()
+        mock_deezer.assert_not_called()
+        mock_itunes.assert_not_called()

@@ -9,8 +9,11 @@ Coverage:
     - api/itunes.py              : query()
     - api/fanart.py              : query() -- including SSL/timeout/generic
                                     RequestException/bare-Exception branches
-    - api/source_resolver.py     : resolve() -- including all three
-                                    cancel_flag() checkpoints in the chain
+    - api/source_resolver.py     : resolve() -- the CAA-first chain
+                                    (release-mbid lookup, MusicBrainz id
+                                    lookup, CAA release-group fallback,
+                                    Fanart/Deezer/iTunes) including every
+                                    cancel_flag() checkpoint in the chain
     - core/artwork_applier.py    : apply() -- including purge OSError
                                     swallowing, empty file list, and
                                     folder.jpg vs. embed-size dimensions
@@ -198,6 +201,7 @@ _ensure_shared_available()
 # Now safe to import album_art_sync sub-modules.
 # ---------------------------------------------------------------------------
 from album_art_sync.api import (  # noqa: E402
+    caa,
     deezer,
     fanart,
     itunes,
@@ -1065,6 +1069,7 @@ class TestSourceResolver:
         on_pick = Mock(return_value=b"FANART")
         with (
             patch.object(musicbrainz, "query", return_value=["uuid-1"]),
+            patch.object(caa, "query", return_value=None) as mock_caa,
             patch.object(fanart, "query", return_value=b"FANART"),
             patch.object(deezer, "query") as mock_deezer,
             patch.object(itunes, "query") as mock_itunes,
@@ -1074,6 +1079,10 @@ class TestSourceResolver:
             )
         assert img == b"FANART"
         assert source == "Fanart.tv"
+        # No release id on the files -> CAA is consulted by release group only.
+        mock_caa.assert_called_once()
+        assert mock_caa.call_args.kwargs["release_mbid"] == ""
+        assert mock_caa.call_args.kwargs["mb_rg_ids"] == ["uuid-1"]
         mock_deezer.assert_not_called()
         mock_itunes.assert_not_called()
 
@@ -1083,6 +1092,7 @@ class TestSourceResolver:
         on_pick = Mock(return_value=b"DEEZER")
         with (
             patch.object(musicbrainz, "query", return_value=["uuid-1"]),
+            patch.object(caa, "query", return_value=None),
             patch.object(fanart, "query", return_value=None),
             patch.object(deezer, "query", return_value=b"DEEZER"),
             patch.object(itunes, "query") as mock_itunes,
@@ -1100,6 +1110,7 @@ class TestSourceResolver:
         on_pick = Mock(return_value=b"ITUNES")
         with (
             patch.object(musicbrainz, "query", return_value=[]),
+            patch.object(caa, "query", return_value=None) as mock_caa,
             patch.object(fanart, "query", return_value=None),
             patch.object(deezer, "query", return_value=None),
             patch.object(itunes, "query", return_value=b"ITUNES"),
@@ -1109,6 +1120,8 @@ class TestSourceResolver:
             )
         assert img == b"ITUNES"
         assert source == "iTunes Store"
+        # Without a release id or MB ids there is nothing CAA can key on.
+        mock_caa.assert_not_called()
 
     def test_returns_none_none_when_all_sources_fail(
         self, noop_log: Mock, no_cancel: Mock
@@ -1116,6 +1129,7 @@ class TestSourceResolver:
         on_pick = Mock(return_value=None)
         with (
             patch.object(musicbrainz, "query", return_value=[]),
+            patch.object(caa, "query", return_value=None),
             patch.object(fanart, "query", return_value=None),
             patch.object(deezer, "query", return_value=None),
             patch.object(itunes, "query", return_value=None),
@@ -1134,6 +1148,7 @@ class TestSourceResolver:
         on_pick = Mock()
         with (
             patch.object(musicbrainz, "query", return_value=["uuid-1"]),
+            patch.object(caa, "query", return_value=None) as mock_caa,
             patch.object(fanart, "query") as mock_fanart,
         ):
             img, source = source_resolver.resolve(
@@ -1141,12 +1156,16 @@ class TestSourceResolver:
             )
         assert img is None
         assert source is None
+        mock_caa.assert_not_called()
         mock_fanart.assert_not_called()
 
-    def test_skips_fanart_when_no_mb_ids(self, noop_log: Mock, no_cancel: Mock) -> None:
+    def test_skips_fanart_and_caa_when_no_mb_ids(
+        self, noop_log: Mock, no_cancel: Mock
+    ) -> None:
         on_pick = Mock(return_value=b"DEEZER")
         with (
             patch.object(musicbrainz, "query", return_value=[]),
+            patch.object(caa, "query") as mock_caa,
             patch.object(fanart, "query") as mock_fanart,
             patch.object(deezer, "query", return_value=b"DEEZER"),
             patch.object(itunes, "query", return_value=None),
@@ -1155,19 +1174,22 @@ class TestSourceResolver:
                 "Artist", "Album", {}, noop_log, no_cancel, on_pick
             )
         mock_fanart.assert_not_called()
+        mock_caa.assert_not_called()
         assert source == "Deezer"
 
     def test_returns_none_when_cancelled_between_fanart_and_deezer(
         self, noop_log: Mock
     ) -> None:
-        """The second cancel_flag() checkpoint sits after the Fanart branch
-        and before Deezer -- distinct from the checkpoint right after MB."""
-        # Call order: check-1 (after MB) -> False, check-2 (after Fanart) -> True
-        cancel_sequence = Mock(side_effect=[False, True])
+        """The checkpoint after Fanart -- distinct from the ones after MB and
+        after the CAA release-group fallback."""
+        # Call order: after MB -> False, after CAA release-group -> False,
+        # after Fanart -> True
+        cancel_sequence = Mock(side_effect=[False, False, True])
         on_pick = Mock()
         with (
             patch.object(musicbrainz, "query", return_value=["uuid-1"]),
-            patch.object(fanart, "query", return_value=None),
+            patch.object(caa, "query", return_value=None) as mock_caa,
+            patch.object(fanart, "query", return_value=None) as mock_fanart,
             patch.object(deezer, "query") as mock_deezer,
             patch.object(itunes, "query") as mock_itunes,
         ):
@@ -1176,21 +1198,46 @@ class TestSourceResolver:
             )
         assert img is None
         assert source is None
+        mock_caa.assert_called_once()
+        mock_fanart.assert_called_once()
         mock_deezer.assert_not_called()
         mock_itunes.assert_not_called()
+
+    def test_returns_none_when_cancelled_after_caa_release_group(
+        self, noop_log: Mock
+    ) -> None:
+        """Cancelling on the CAA release-group checkpoint must stop the chain
+        before Fanart.tv."""
+        cancel_sequence = Mock(side_effect=[False, True])
+        on_pick = Mock()
+        with (
+            patch.object(musicbrainz, "query", return_value=["uuid-1"]),
+            patch.object(caa, "query", return_value=None) as mock_caa,
+            patch.object(fanart, "query") as mock_fanart,
+            patch.object(deezer, "query") as mock_deezer,
+        ):
+            img, source = source_resolver.resolve(
+                "Artist", "Album", {}, noop_log, cancel_sequence, on_pick
+            )
+        assert img is None
+        assert source is None
+        mock_caa.assert_called_once()
+        mock_fanart.assert_not_called()
+        mock_deezer.assert_not_called()
 
     def test_returns_none_when_cancelled_between_deezer_and_itunes(
         self, noop_log: Mock
     ) -> None:
-        """The third cancel_flag() checkpoint sits after Deezer and before
+        """The last cancel_flag() checkpoint sits after Deezer and before
         iTunes -- must be honoured even though Deezer already ran."""
-        # No MB ids -> Fanart branch skipped entirely.
-        # Call order: check-1 (after MB) -> False, check-2 (after Fanart
-        # block, before Deezer) -> False, check-3 (after Deezer) -> True
+        # No MB ids -> Fanart and CAA release-group branches skipped entirely.
+        # Call order: after MB -> False, after Fanart block -> False,
+        # after Deezer -> True
         cancel_sequence = Mock(side_effect=[False, False, True])
         on_pick = Mock()
         with (
             patch.object(musicbrainz, "query", return_value=[]),
+            patch.object(caa, "query") as mock_caa,
             patch.object(fanart, "query") as mock_fanart,
             patch.object(deezer, "query", return_value=None) as mock_deezer,
             patch.object(itunes, "query") as mock_itunes,
@@ -1200,9 +1247,171 @@ class TestSourceResolver:
             )
         assert img is None
         assert source is None
+        mock_caa.assert_not_called()
         mock_fanart.assert_not_called()
         mock_deezer.assert_called_once()
         mock_itunes.assert_not_called()
+
+
+class TestSourceResolverCaaFirst:
+    """The Cover Art Archive lead: exact release id before any id lookup."""
+
+    RELEASE_MBID = "db85c244-53e7-441c-bab0-52c9c0d27450"
+
+    def test_release_mbid_hit_short_circuits_the_whole_chain(
+        self, noop_log: Mock, no_cancel: Mock
+    ) -> None:
+        on_pick = Mock(return_value=b"CAA_RELEASE")
+        with (
+            patch.object(caa, "query", return_value=b"CAA_RELEASE") as mock_caa,
+            patch.object(musicbrainz, "query") as mock_mb,
+            patch.object(fanart, "query") as mock_fanart,
+            patch.object(deezer, "query") as mock_deezer,
+            patch.object(itunes, "query") as mock_itunes,
+        ):
+            img, source = source_resolver.resolve(
+                "Artist",
+                "Album",
+                {},
+                noop_log,
+                no_cancel,
+                on_pick,
+                album_mbid=self.RELEASE_MBID,
+            )
+        assert img == b"CAA_RELEASE"
+        assert source == "Cover Art Archive"
+        mock_caa.assert_called_once()
+        assert mock_caa.call_args.kwargs["release_mbid"] == self.RELEASE_MBID
+        assert mock_caa.call_args.kwargs["mb_rg_ids"] == []
+        mock_mb.assert_not_called()
+        mock_fanart.assert_not_called()
+        mock_deezer.assert_not_called()
+        mock_itunes.assert_not_called()
+
+    def test_release_group_hit_short_circuits_fanart_and_below(
+        self, noop_log: Mock, no_cancel: Mock
+    ) -> None:
+        """A CAA hit on the MB-derived release-group ids is a win in its own
+        right -- it must stop the chain without reaching Fanart.tv."""
+        on_pick = Mock(return_value=b"CAA_GROUP")
+        with (
+            patch.object(caa, "query", return_value=b"CAA_GROUP") as mock_caa,
+            patch.object(musicbrainz, "query", return_value=["uuid-1"]),
+            patch.object(fanart, "query") as mock_fanart,
+            patch.object(deezer, "query") as mock_deezer,
+            patch.object(itunes, "query") as mock_itunes,
+        ):
+            img, source = source_resolver.resolve(
+                "Artist", "Album", {}, noop_log, no_cancel, on_pick
+            )
+        assert img == b"CAA_GROUP"
+        assert source == "Cover Art Archive"
+        mock_caa.assert_called_once()
+        assert mock_caa.call_args.kwargs["mb_rg_ids"] == ["uuid-1"]
+        mock_fanart.assert_not_called()
+        mock_deezer.assert_not_called()
+        mock_itunes.assert_not_called()
+
+    def test_release_miss_falls_through_to_group_then_fanart(
+        self, noop_log: Mock, no_cancel: Mock
+    ) -> None:
+        """CAA is tried on the release id, then again on the MB-derived
+        release-group ids, before Fanart.tv."""
+        with (
+            patch.object(caa, "query", return_value=None) as mock_caa,
+            patch.object(musicbrainz, "query", return_value=["uuid-1"]),
+            patch.object(fanart, "query", return_value=b"FANART") as mock_fanart,
+        ):
+            img, source = source_resolver.resolve(
+                "Artist",
+                "Album",
+                {},
+                noop_log,
+                no_cancel,
+                Mock(),
+                album_mbid=self.RELEASE_MBID,
+            )
+        assert img == b"FANART"
+        assert source == "Fanart.tv"
+        assert mock_caa.call_count == 2
+        assert mock_caa.call_args_list[0].kwargs["release_mbid"] == self.RELEASE_MBID
+        assert mock_caa.call_args_list[1].kwargs["release_mbid"] == ""
+        assert mock_caa.call_args_list[1].kwargs["mb_rg_ids"] == ["uuid-1"]
+        mock_fanart.assert_called_once()
+
+    def test_release_lookup_runs_before_the_musicbrainz_lookup(
+        self, noop_log: Mock, no_cancel: Mock
+    ) -> None:
+        """With no CAA art to offer, the exact release key is still consulted
+        before the MusicBrainz id lookup that feeds the group fallback."""
+        order: list[str] = []
+
+        def fake_caa(*_args: Any, **_kwargs: Any) -> None:
+            order.append("caa")
+            return None
+
+        def fake_mb(*_args: Any, **_kwargs: Any) -> list[str]:
+            order.append("musicbrainz")
+            return []
+
+        with (
+            patch.object(caa, "query", side_effect=fake_caa),
+            patch.object(musicbrainz, "query", side_effect=fake_mb),
+            patch.object(deezer, "query", return_value=None),
+            patch.object(itunes, "query", return_value=None),
+        ):
+            source_resolver.resolve(
+                "Artist",
+                "Album",
+                {},
+                noop_log,
+                no_cancel,
+                Mock(),
+                album_mbid=self.RELEASE_MBID,
+            )
+
+        # Release lookup first; the MusicBrainz id lookup only afterwards.
+        assert order == ["caa", "musicbrainz"]
+
+    def test_cancelled_after_the_release_lookup_stops_the_chain(
+        self, noop_log: Mock
+    ) -> None:
+        cancel_sequence = Mock(side_effect=[True])
+        with (
+            patch.object(caa, "query", return_value=None) as mock_caa,
+            patch.object(musicbrainz, "query") as mock_mb,
+        ):
+            img, source = source_resolver.resolve(
+                "Artist",
+                "Album",
+                {},
+                noop_log,
+                cancel_sequence,
+                Mock(),
+                album_mbid=self.RELEASE_MBID,
+            )
+        assert img is None
+        assert source is None
+        mock_caa.assert_called_once()
+        mock_mb.assert_not_called()
+
+    def test_no_caa_lookup_without_a_release_id_or_mb_ids(
+        self, noop_log: Mock, no_cancel: Mock
+    ) -> None:
+        with (
+            patch.object(caa, "query") as mock_caa,
+            patch.object(musicbrainz, "query", return_value=[]),
+            patch.object(fanart, "query") as mock_fanart,
+            patch.object(deezer, "query", return_value=None),
+            patch.object(itunes, "query", return_value=None),
+        ):
+            img, source = source_resolver.resolve(
+                "Artist", "Album", {}, noop_log, no_cancel, Mock()
+            )
+        assert img is None
+        assert source is None
+        mock_caa.assert_not_called()
+        mock_fanart.assert_not_called()
 
 
 # ===========================================================================

@@ -21,6 +21,7 @@ from audio_suite_shared.tag_helper import (
     read_album_artist,
     read_artist_album,
 )
+from audio_suite_shared.tag_helper_reader import read_musicbrainz_ids
 
 from ..api import source_resolver
 from ..config.settings import CONFIG, load_config
@@ -192,8 +193,14 @@ def resolve_and_apply(
         )
 
     lookup_artist = album_artist if album_artist else artist
+    # Never raises: an unreadable/untagged file yields an empty dict.
+    album_mbid = read_musicbrainz_ids(first_file).get("MUSICBRAINZ_ALBUMID", "")
     _audit(f'Artist: "{lookup_artist}"  Album: "{album}"')
-    _audit("Sources queried: MusicBrainz → Fanart.tv → Deezer → iTunes")
+    _audit(
+        "Sources queried: Cover Art Archive → MusicBrainz → Fanart.tv → Deezer → iTunes"
+    )
+    if album_mbid:
+        _audit(f'MusicBrainz release ID from tags: "{album_mbid}"')
     _audit("")
     _log(f"Files: {len(files)} audio file(s)")
 
@@ -216,6 +223,7 @@ def resolve_and_apply(
         on_pick=on_pick,
         min_art_dimension=min_art_dimension,
         album_match_threshold=album_match_threshold,
+        album_mbid=album_mbid,
     )
 
     if img_raw and source_used:

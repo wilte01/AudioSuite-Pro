@@ -340,6 +340,30 @@ Per the standing no-deferral rule this defect is fixed in E2 itself (the fix is 
 prerequisite for E2's release data regardless), with a regression test built
 from the verbatim live response shape.
 
+### decision E3-d1 (2026-10-02, maintainer) — CAA is the **first** source
+
+The plan left the chain position open ("placement per the decided chain
+position"). Maintainer decision: **Cover Art Archive first**, ahead of the
+existing chain.
+
+Chain now executed, in order:
+
+1. **CAA release endpoint**, keyed on `MUSICBRAINZ_ALBUMID` read from the
+   album's first file (E2's output). An exact release match is the strongest
+   evidence available and needs no API key — so it precedes even the
+   MusicBrainz **id** lookup it would otherwise have to wait for.
+2. **MusicBrainz id lookup** (unchanged; not an art source — it feeds both
+   below).
+3. **CAA release-group endpoint**, keyed on the release-group ids step 2
+   returns.
+4. **Fanart.tv** → 5. **Deezer** → 6. **iTunes Store**.
+
+Rationale for splitting CAA into two steps rather than one: the release and
+release-group endpoints are different lookups with different evidence, and
+step 3 cannot run before step 2. The audit line therefore reads
+`Cover Art Archive → MusicBrainz → Fanart.tv → Deezer → iTunes` — MusicBrainz
+appears as the id lookup it is, not as an art source.
+
 ---
 
 ## Stage 0 — Close the User-Visible Contracts
@@ -1381,32 +1405,91 @@ written.
 
 ---
 
-### E3 `[!]` — Cover Art Archive source for `album_art_sync` `[audit §5a gap 8]`
+### E3 `[x]` — Cover Art Archive source for `album_art_sync` `[audit §5a gap 8]`
 
 **Priority:** Medium | **Effort:** 0.35 day | **Risk:** Low
-**Blocked on:** decision D2 **and** E2 landed (CAA lookup keys on MBIDs).
+**Blocked on:** decision D2 **and** E2 landed (CAA lookup keys on MBIDs) —
+**both satisfied**; chain position **decision E3-d1 (2026-10-02): CAA first.**
 
-**Problem:** the art-source chain is MusicBrainz → Fanart.tv → Deezer →
+**Problem:** the art-source chain was MusicBrainz → Fanart.tv → Deezer →
 iTunes (`source_resolver.py:1-102`); CAA — the canonical MBID-keyed cover
-source Picard uses — is absent.
+source Picard uses — was absent.
 
 **Scope:**
 
-- [ ] New provider implementing the existing source interface; resolution
-      order placement per the decided chain position; HTTP via `requests`
-      per the bandit B310 rule (no `urllib.request.urlopen`).
-- [ ] Uses MBIDs from file tags where present (E2's output), falling back to
-      the existing MusicBrainz release lookup the tool already performs.
+- [x] New provider (`album_art_sync/api/caa.py`) implementing the existing
+      source interface; placed first per E3-d1; HTTP via `requests` on the
+      shared session per the bandit B310 rule (no `urllib.request.urlopen`).
+- [x] Uses MBIDs from file tags where present (E2's output —
+      `read_musicbrainz_ids(first_file)["MUSICBRAINZ_ALBUMID"]` in
+      `core/pipeline.py` and `app.py`), falling back to the existing
+      MusicBrainz release-group lookup the tool already performs.
+- [x] No new HTTP policy: the shared `api/session.py` session, its retry
+      budget (429/5xx) and `CONFIG["REQUEST_TIMEOUT"]`. A 404 is the
+      archive's normal "no art for this release" answer, so it is logged as a
+      miss and the chain continues — never an error.
+
+**Live shape confirmed before coding** (both endpoints, real responses):
+`GET /release/db85c244-53e7-441c-bab0-52c9c0d27450` → 200 with
+`{images: [{types, front, back, edit, image, comment, approved, id,
+thumbnails: {small, large, 250, 500, 1200}}], release}`; the
+`/release-group/` endpoint returns the same envelope; a random UUID returns
+404.
+
+**Candidate policy (new judgement call, recorded):** fronts win. An
+album-cover sync embeds one cover, so a back cover is not offered as a
+candidate when any `Front` image exists — a larger back image would otherwise
+outrank the real cover on area. A release whose images carry no `Front` type
+at all still yields its untyped images rather than nothing. CAA is a trusted
+source (the MBID *is* the trust evidence), so album-name fuzzy matching is
+skipped exactly as for Fanart.tv, while dimension/threshold settings still
+forward.
 
 **Tests (lockstep):** provider unit tests with mocked HTTP (fixture-shaped
 like the real CAA responses); end-to-end resolution test with the source
 chain mocked at the HTTP boundary; guide table updated + regenerated.
 
+- `test_caa.py` (new, per the one-file-per-module rule, 23 tests): release
+  endpoint keyed on the file's release id, release-group endpoint as
+  fallback, release-before-group precedence and short-circuit, per-id
+  iteration, 404-as-miss (never raises, never offers a pick), empty
+  `images`, images without a URL, whitespace-only id, cancel between ids,
+  rejected pick continues, front-over-back preference, untyped-image
+  fallback, trusted-source/guardrail forwarding, the real `filter_and_rank`
+  accepting a live-shaped front and rejecting an undersized one, and the
+  SSL/timeout/generic/non-200/malformed-JSON/non-dict-JSON branches.
+- `test_album_art_sync.py`: `TestSourceResolver` updated for the new chain
+  (CAA patched on every case; the two checkpoint tests re-sequenced for the
+  inserted CAA checkpoints — the old "between Fanart and Deezer" pair would
+  otherwise have cancelled *before* Fanart while still passing) +
+  `TestSourceResolverCaaFirst` (new): release hit short-circuits the whole
+  chain, release miss → group → Fanart, release-before-MusicBrainz ordering,
+  cancel after the release lookup, and no CAA call without any key.
+- `test_pipeline.py`: CAA patched wherever MusicBrainz ids are returned (the
+  chain would otherwise have issued real HTTP); audit-line assertion extended
+  to the CAA-inclusive chain; `TestAlbumMbidForwarding` (new) pins the
+  read → `album_mbid=` forward, the empty-id case, and a CAA release hit
+  short-circuiting the other three sources. Existing tag-reader mocks in the
+  touched blocks re-pointed at `album_art_sync.core.pipeline.*` — they
+  patched the `tag_helper` facade while the pipeline holds its own
+  module-level binding, so they never intercepted (silent false pass).
+
 **Acceptance:** CAA resolves for an MBID-bearing file; chain order matches
-the decision; bare full-suite green.
+the decision; bare full-suite green. — Verified: an MBID-bearing file
+resolves through the CAA release endpoint with every other source
+unconsulted, and the MBID-less file falls through release-group → Fanart; the
+audit line reads `Cover Art Archive → MusicBrainz → Fanart.tv → Deezer →
+iTunes`. Gate: `compileall` clean; `ruff check`/`format --check` clean;
+`mypy .` no issues in 460 source files; `bandit -c pyproject.toml` 0 High /
+0 Medium; bare `pytest` **8046 passed, 3 skipped, 30 deselected in 199.80 s**;
+coverage **88 %** (`api/caa.py` and `api/source_resolver.py` both 100 %).
+Guide regenerated from its generator.
 
 **Risks:** CAA rate limits — honour the same timeout/retry budget the other
-sources use; do not invent a new HTTP policy.
+sources use; do not invent a new HTTP policy. — Resolved: the provider
+inherits `api/session.py` unchanged, so it shares the existing retry budget
+and the 10 s `REQUEST_TIMEOUT`; a CAA outage degrades to the pre-existing
+Fanart → Deezer → iTunes chain rather than failing the run.
 
 ---
 

@@ -26,6 +26,7 @@ from audio_suite_shared.tag_helper import (
     read_album_artist,
     read_artist_album,
 )
+from audio_suite_shared.tag_helper_reader import read_musicbrainz_ids
 from audio_suite_shared.ui_helpers import UIHelperMixin
 
 from .api import source_resolver
@@ -373,6 +374,10 @@ class AudioSuiteV6(UIHelperMixin):
             return
 
         self._add_log(f"Album: {lookup_artist} - {album}")
+        # Never raises: an unreadable/untagged file yields an empty dict.
+        album_mbid = read_musicbrainz_ids(first_file).get("MUSICBRAINZ_ALBUMID", "")
+        if album_mbid:
+            self._add_log(f"MusicBrainz release ID: {album_mbid}")
         self._add_log(f"Files: {len(files)} audio file(s)")
         self._add_log("")
 
@@ -398,6 +403,7 @@ class AudioSuiteV6(UIHelperMixin):
                 log=self._add_log,
                 cancel_flag=lambda: self._cancel_requested,
                 on_pick=self._on_pick,
+                album_mbid=album_mbid,
             )
         except Exception as exc:
             mapped = map_to_audio_error(exc)
