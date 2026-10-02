@@ -1612,9 +1612,17 @@ false, so the fix restores it rather than changing the documented contract.
 
 ---
 
-### E5 `[!]` — Second lyrics provider behind the existing registry `[audit §5a gaps 7/9]`
+### E5 `[x]` — Second lyrics provider behind the existing registry `[audit §5a gaps 7/9]` — **closed as DECIDED: single provider by policy**
 
 **Priority:** Low | **Effort:** 0.3 day | **Risk:** Low
+**Closed 2026-10-02 as the item's second, equally valid acceptance (a recorded
+policy decision). No provider code changed; the research and the decision are
+logged under "decision E5-D1" below. The one Python change made while closing
+the item is unrelated to the provider and is recorded as a defect fix in the
+E5 completion-log row: a full-suite-only `JSONDecodeError` in
+`audio_suite_shared/tests/test_platform_support.py` caused by parsing Click's
+merged stdout+stderr instead of the stdout channel (commit `35e96ef`).**
+
 **Blocked on:** a maintainer decision naming the provider (the registry is
 the right shape — `register_provider(LRCLIBProvider)` is one line — but the
 *target source* is a product choice with licensing implications: scraped
@@ -1628,7 +1636,96 @@ decision records "single provider by policy" and the item closes as
 decided-not-deficient.**
 
 **Acceptance:** either a second provider shipping with tests, or a recorded
-policy decision. Both are valid closures.
+policy decision. Both are valid closures. — **Met by the recorded policy
+decision below** (2026-10-02), not by a second provider. The gaps are therefore
+closed *by decision, not by remediation*: the single-network-provider
+single-point-of-failure the audit named is knowingly retained, with the
+registry abstraction left in place so a future provider is still a drop-in plus
+one registration line.
+
+---
+
+#### decision E5-D1 (2026-10-02, maintainer-approved) — single provider by policy; Musixmatch ruled out by its own terms
+
+**Trigger.** The item was blocked on a maintainer decision naming the provider.
+Research was run against the licensing position first, then the maintainer
+selected **Musixmatch Developer API** as the target, on the ranking below.
+Reading the terms afterwards **invalidated that choice**; the maintainer then
+directed closure as a recorded policy decision rather than shipping a provider.
+
+**Candidate assessment (2026-10-02).** "Properly licensed" was the binding
+constraint, which removed every scraping source by policy (Genius, AZLyrics,
+musixmatch.com web pages, LyricFind).
+
+- **Musixmatch Developer API** — has a real written grant, and was selected;
+  see the disqualification below.
+- **Wikisource MediaWiki API** — genuine grant (public-domain works + CC BY-SA
+  transcriptions), no key, no agreement. **Viable but rejected for coverage**:
+  pre-1950 songs, hymns and libretti only — it does not help a modern library.
+- **AMLL TTML DB** — written CC0-1.0 declaration and word-level sync, but the
+  corpus provenance is Apple Music TTML dumps, so the declaration does not
+  cleanly cover the content. Rejected on provenance.
+- **Local `.lrc` sidecars** — no licence question at all, but not a *network*
+  source, so it does not close the single-point-of-failure gap either. Recorded
+  as the cheapest future candidate.
+- **LRCLIB** (the incumbent) — see the residual risk below.
+
+**Why Musixmatch was ruled out (verified by direct read of
+`https://about.musixmatch.com/apiterms`, "Last updated: 24 June 2025").** The
+grant exists (clause 1.1: *"non-exclusive, non-sublicensable,
+non-transferrable licence … solely for non-commercial purposes"*), but two
+prohibitions describe this tool's core function almost verbatim:
+
+> **2.2.12** — You must NOT "incorporate or fix Musixmatch Data into new audio
+> or audiovisual works"
+>
+> **2.2.13** — You must NOT "use Musixmatch Data in connection with any
+> marketing, **karaoke**, video games …"
+
+`lyrics_manager` exists to write lyrics **into** audio files (ID3 `USLT`/`SYLT`
+frames, `.lrc` sidecars) and to write **time-synced** lyrics for karaoke. That
+is 2.2.12 and 2.2.13 on their plain meaning, at every price tier; it is not a
+feature flag that a paid plan unlocks. Shipping it would mean shipping a
+provider that breaches its contract on first use, so it was abandoned rather
+than implemented. Secondary research additionally reports that caching is
+excluded below the Enterprise tier (~$2,000/mo) and that the API is now fully
+paid with no free tier — **both figures UNVERIFIED by this plan** (the pricing
+page 404'd at the time of writing) and neither is load-bearing: 2.2.12/2.2.13
+disqualify the provider on their own.
+
+**Other Musixmatch facts recorded so a post-exception attempt need not re-research
+them** (from `docs.musixmatch.com`, current): auth is a single `apikey` query
+param over HTTPS, no `us_token`/HMAC. Plain lyrics: `matcher.lyrics.get`
+(`q_track`/`q_artist`); synced: `matcher.subtitle.get`, Grow+ only.
+**The HTTP status is 200 even on errors** — the real code is
+`message.header.status_code`, so `raise_for_status()` is useless; not-found is
+404 with `body` being either `[]` or `{}` (both shapes occur, by endpoint), and
+there is no "no lyrics found" code. Clause 2.1.3 permits only the key
+Musixmatch issued, which rules out the scraped-shared-key wrappers; the
+`musicxmatch-api` PyPI package was verified broken and uses exactly such a key.
+No maintained official Python client exists. Clause 7.2.1 requires deleting all
+retrieved data on termination, and 2.1.5 requires a "powered by Musixmatch"
+credit on every use.
+
+**Residual risk knowingly retained.** LRCLIB publishes **no grant of any kind**
+over its lyrics text: `lrclib.net/terms` (and `/license`, `/tos`, `/legal`)
+all return the same 421-byte client-rendered SPA shell, the site's router
+declares only `/`, `/search/:keyword`, `/docs` and `/db-dumps`, and the server
+README states no licence for the database it serves (its MIT licence covers
+"the Software and associated documentation files"). Absence of a ToS is not a
+prohibition, but it is not permission either, so the default copyright position
+applies. Practical consequence, not a legal one: **a track's lyrics can vanish
+overnight** through the community flag queue, and a user's synced lyrics break
+with no notice. Cheapest mitigations, deliberately NOT implemented (out of
+E5's scope — no code change in this item): cache on first fetch, prefer a
+user-supplied `.lrc` sidecar over any network lookup, and degrade to "no synced
+lyrics" rather than failing the run.
+
+**Consequence for the plan.** E5 is closed. The audit's §5a gaps 7/9 are
+recorded as *decided-not-deficient* with the residual risk above stated, not
+silently dropped. No numbered follow-up item is opened, to keep the Stage 4
+structure stable; the local-`.lrc`-sidecar provider is the named next
+candidate whenever a second source is wanted.
 
 ---
 
@@ -1796,6 +1893,12 @@ incomplete by definition.
 | E2 | 4 | 2026-10-01 | compileall -q -f . exit 0; `ruff check .` "All checks passed!"; `ruff format --check .` "781 files already formatted"; `mypy .` "Success: no issues found in 459 source files"; `bandit -r . -x ./.venv -c pyproject.toml` **0 High / 0 Medium** (41 Low, unchanged; the report's "Medium: 23 / High: 18" block is the **confidence** histogram, not severity); bare `pytest -q -p no:cacheprovider` → **8003 passed, 3 skipped, 30 deselected, 56 warnings in 211.37s**; coverage **87.97%** (≥75, printed by the same run) | Decision D2 (option A) + **D2-am1** (release criteria 1-5 + region preference, maintainer-selected over tag-only and criteria-1-5-only). New: `write_musicbrainz_ids` (shared writer; ID3 TXXX / Vorbis / `----:com.apple.iTunes:` per Picard), `read_musicbrainz_ids` + `read_disc_number` (reader facade; new `read_custom_field`/`read_disc_number` base-handler seams with MP3/Vorbis/MP4 overrides, IFFID3 inheriting TPOS), `core/mbid_writer.py` (`select_mbid_tags`: TRACKID + ARTISTID always when reported; ALBUMID only when exactly one release survives — existing ALBUMID → album title (NFKD fold, curly-apostrophe recovery) → folder track count → disc count from TPOS/discnumber/disk tags → group type Album/Compilation/EP → region tie-break; a criterion that would empty the set is ignored, never guessed). Opt-in surfaces: Click `--write-mbids/--no-write-mbids` (refuses `--write-mbids` without `--write-tags`) + `--mbid-region CC`; tool argv ladder (`FingerprintArgs.write_mbids/mbid_region` → `to_params`); GUI checkbox + region entry persisted via `suite_config` (`_persist_mbid_region` clears invalid entries); run-log header lines; Master Driver `fingerprinter_write_mbids`/`fingerprinter_mbid_region` state vars + arg-builder emission, both default-off locked by tests. **DECODE-AND-MEASURE:** 6-format round-trip through the real reader (mp3/flac/ogg/opus/m4a/wav), rewrite-replaces (one TXXX per desc), empty values never written; per-file + album-mode real-outcome runs write all three ids read back, default-off/dry-run/write-tags-off write none while AcoustID tags are provably present, and a two-way release tie writes TRACKID/ARTISTID and omits ALBUMID. **DEFECT FOUND AND FIXED IN-CHANGE (E2-defect-1):** `_build_release_groups` read the inverted path `recordings[].releases[].releasegroups[]` — the server's `if/elif` meta handling never populates `recordings[].releases` under the suite's `DEFAULT_META`, so every real response yielded `()` and **album-mode clustering was inert**. Proven two ways (server source `acoustid/api/v2/__init__.py:585-603,520-529` + nine live responses under the exact meta string, one shown carrying 12 releases / 3 groups), fixed to the recording-level path with legacy-shape tolerance, regression-tested from a verbatim live payload (the old fixture pinned the wrong shape and now documents itself as the compatibility case). **Second contract defect fixed in the same family:** `write_acoustid_tags`/`write_mbid_tags` caught only `AudioTagError`, so a mapped base `AudioSuiteError` (e.g. mutagen `FLACNoHeaderError`) escaped to the `reraise=False` decorator and returned **None**, crashing every `ok, msg = …` call site — both now catch the mapped-error base, regression-tested in both modules' test files; the deliberate decorator-swallow of *unexpected* exceptions (RuntimeError → None, pinned by an existing test) was left as a documented prior decision. **Guide** regenerated **through** `generate_guide.py` (two new GUI bullets, tag conventions + never-guess criteria prose, CLI example + options, troubleshooting bullet for the omitted album id). Test-side traps hit and locked: the album-mode app shell lacked the new attrs so `start_processing` fell into a **real Tk modal and hung the bare suite** (the "needs-someone-to-click" failure — shells + `suite_config.save_value` patching added in lockstep); `read_musicbrainz_ids`/`save_value` mock-signature corrections; pydub's flac/m4a export needs explicit `format=`/`ipod` (probe artifact, documented in the test). Region-pref scope addition beyond D2 recorded as D2-am1 with the maintainer's explicit choice. |
 
 | E2-fix1 | 4 | 2026-10-01 | Live diagnosis (user's real `1973 - 10cc` folder, lookup-only): full cluster table via the suite's own client — **six clusters tied at exactly 9.73**, the correct `10cc` studio-album group among them (re-run: eight tied); post-fix live re-verification of the same folder's ten real lookups through `resolve_album` → **`decided — 10cc (album-tag match among 8 clusters tied at 9.73)`** (was `ambiguous`, 10 files untagged). Gates: compileall exit 0; `ruff check .` "All checks passed!"; `ruff format --check .` "781 files already formatted"; `mypy .` "Success: no issues found in 459 source files"; `bandit -r . -x ./.venv -c pyproject.toml` 0 High / 0 Medium (41 Low, unchanged); bare `pytest -q -p no:cacheprovider` → **8013 passed, 3 skipped, 30 deselected, 56 warnings in 437.89s**; coverage TOTAL **28024 stmts / 3359 missed = 88%** (report read from the same run's data file; no scoped `--cov` anywhere in the session) | Found in maintainer live testing of E2 and fixed in the same change (decision E2-fix1 above). `album_cluster.py`: `AlbumFile.album_tag`; `_folder_album_tag` consensus (mode of folded non-placeholder tags, unique-mode required); tie-break among clusters the margin cannot separate — exactly one matching tied cluster decides, several/none/even-split still refuse; decisive winners never overridden; ambiguous report + per-file messages name the **whole** tied set (`N clusters tied at X: first three + (+K more)`; two-way keeps the historical formats byte-for-byte); ambiguous per-file claim extended from top-two to any tied cluster. `resolve_best_match`'s private `_normalize_tag_text` retired — the stronger `normalize_title` (NFKD + curly-apostrophe recovery) is now the single fold used by the per-file tie-break, D2-am1 release selection and the cluster tie-break. `file_processor` album phase reads `read_artist_album` and threads the tag. **+9 tests:** unit tie-break class (match decides + report wording, two-match refuses, unmatched lists full tie + `(+N more)`, Unknown/empty ignored, decisive winner untouched, majority consensus, even split, curly apostrophe) + an end-to-end real-tag run through `run_fingerprinting` asserting the tie-broken write and the `[ALBUM]` line; `_run_album` gained `patch_album_reader=False` so the real tags flow. Guide regenerated through the generator (Album Match bullet + ALBUM AMBIGUOUS troubleshooting). One test-pinned format deliberately preserved: the per-file two-way message stays scoreless (`A vs B`), scores stay in the report line only. |
+
+| E3 | 4 | 2026-10-01 | compileall exit 0; `ruff check` / `format --check` clean; `mypy .` no issues in 460 source files; `bandit -c pyproject.toml` 0 High / 0 Medium; bare `pytest` **8046 passed, 3 skipped, 30 deselected in 199.80 s**; coverage **88 %** (`api/caa.py` and `api/source_resolver.py` both 100 %); guide regenerated from its generator | Commit `acf8436`. Cover Art Archive joins the `album_art_sync` chain as the **first** source, keyed on the file's release id with a release-group endpoint as fallback, release-before-group precedence and short-circuit, per-id iteration, 404-as-miss (never raises, never offers a pick), empty-`images` and whitespace-only-id handling, cancel-between-ids, and untyped-image fallback. CAA is a trusted source (the MBID *is* the trust evidence), so album-name fuzzy matching is skipped exactly as for Fanart.tv while dimension/threshold settings still forward; the provider inherits `api/session.py` unchanged, sharing the existing retry budget and 10 s timeout, so a CAA outage degrades to the pre-existing chain rather than failing a run. New `test_caa.py` (23 tests, per the one-file-per-module rule) + `TestSourceResolverCaaFirst` in `test_album_art_sync.py`; two existing checkpoint tests **re-sequenced** because the inserted CAA checkpoints would otherwise have cancelled *before* Fanart while still passing; existing tag-reader mocks re-pointed at `album_art_sync.core.pipeline.*` because they patched the `tag_helper` facade while the pipeline holds its own module-level binding (silent false pass). Audit line reads `Cover Art Archive → MusicBrainz → Fanart.tv → Deezer → iTunes`. |
+
+| E4 | 4 | 2026-10-02 | `compileall` exit 0 (tool chain re-compiled); `ruff check .` "All checks passed!"; `ruff format .` "783 files left unchanged"; `mypy .` "Success: no issues found in 460 source files"; `bandit -r . -x ./.venv -c pyproject.toml` **0 High / 0 Medium** (41 Low — the report's "High: 18 / Medium: 23" line is the **confidence** histogram, not severity); bare `pytest -q` → **8091 passed, 3 skipped, 30 deselected, 56 warnings in 210.60 s**; coverage **88 %** (`core/formats.py` 100 %, `core/file_processor.py` 96 %, `master_driver/ui/utilities_window.py` 92 %); staged secret scans clean | Commit `19e7e3a`, 13 files. Recursive, mixed-format converter input (D3). `core/formats.py` gains `discover_input_files(recursive=True)` on an explicit `os.scandir` walk yielding root-relative paths, and `scan_input_directory()` returns a `ScanResult` with `format_counts` plus `output_formats` as the **union** of reachable targets across detected formats (order preserved, APE still excluded as an output). An unreadable **root** is fatal and reported once via `on_error`; an unreadable **subtree** is logged and skipped so siblings still convert — the `BaseFileProcessor` per-file-error contract, not a batch abort. `core/file_processor.py` mirrors the relative path under the output root and creates output subdirectories only on a live write (dry runs leave no directories). `app.py` drops the mixed-format modal, scans recursively in preflight, and renders the format breakdown. `master_driver/ui/utilities_window.py` no longer carries a second, contradictory scanner and delegates to `scan_input_directory()`. **Post-acceptance defect, reported by the maintainer and fixed in the same change:** on the user's real `1973 - 10cc` folder (10 × `.mp3`) the Setup tab offered every output format including mp3 and all lossless targets, and a dry run skipped 10/10 as same-format. The scanner was correct; the menu is seeded with all 14 formats at build time and narrowed only by `_on_folder_change()`, which the setup tab fires from the folder Entry's `<FocusOut>`/`<Return>` — and a Driver/CLI-supplied folder arrives **pre-filled**, so no user edit fires them, while `_apply_cli_args` scanned only under `should_auto_start` (exactly the state the Driver launches in; `last_directory` restore had the same gap). Fix: scan whenever the folder field is non-empty via the new `_schedule_folder_scan()` (`after(0, …)`, reused by the restore path); auto-start stays flag-gated and the 0 ms scan still precedes the 1500 ms run. Verified against that directory through the real Driver argv against a real Tk combobox: `['aac','m4a','ogg','opus','mp4','wma']`, selection moved mp3 → aac. `test_no_auto_start_schedules_nothing` asserted the defect and was **replaced** by five tests (pre-fill scan, empty-folder no-scan, scan-before-run ordering, both helper branches) rather than deleted. Guide regenerated; the fix needed no guide text change because `generate_guide.py:138` already documented the menu-excludes-input-format contract the defect made false. |
+
+| E5 | 4 | 2026-10-02 | The decision itself is documentation-only, but the full gate was run because closing the item surfaced a suite failure: `compileall` exit 0; `ruff check .` "All checks passed!"; `ruff format --check .` "783 files already formatted"; `mypy .` "Success: no issues found in 460 source files"; `bandit -r . -x ./.venv -c pyproject.toml` **0 High / 0 Medium** (41 Low); bare `pytest -q` **8091 passed, 3 skipped, 30 deselected, 56 warnings in 416.75 s**; coverage **88 %** (28174 stmts, 3377 missed, read in the same command block as the run). Documentary verification: the Musixmatch disqualification rests on a direct read of `about.musixmatch.com/apiterms` ("Last updated: 24 June 2025") quoting clauses 2.2.12 and 2.2.13 verbatim, and the LRCLIB finding on the site's own route manifest and server README. Staged secret scans clean. | Commits `35e96ef` (the one-test fix below) and this plan row. **Defect found and fixed in the same change (suite-integrity class, E5's gate work not its scope):** the bare full suite failed `TestPortableCoreCLI::test_a_real_command_runs_end_to_end_under_a_non_windows_platform` with `JSONDecodeError: Extra data: line 38 column 1 (char 762)` on two consecutive full runs while the test passed in isolation each time. The payload was never wrong — the 761-character JSON is valid and the parse consumed the ~39 KB of stderr `stats` logs after it: Click 8.3 removed `mix_stderr`, so `Result.output` is stdout+stderr merged in write order, and the test sliced `result.output[result.output.index("{"):]`, which parses only while the merge happens to put stderr first. Bisected the flipping state to `audio_suite_shared/tests/test_app_bootstrap.py::TestExceptionHooks` (its `configure_logging()` + `_attach_list_handler()` leave the `audio_suite` logger configured session-wide, which decides whether `cli_base.cli`'s `logging.basicConfig` installs a stderr StreamHandler). Fixed by reading the channel that carries the contract — `stats --json` echoes the payload to stdout (`library_stats/cli.py:129`) and every diagnostic with `err=True`, so `result.stdout` is the pure document, verified 715/714 bytes parsing cleanly in both global states — leaving the real assertions (`total_files`, `scan_path` over two genuinely unreadable files) intact. Proof: the previously failing pair passes (7 passed), the file 60 passed, both files 82 passed. **Closed as a recorded policy decision (the item's second, equally valid acceptance), not by remediation** — the audit's §5a gaps 7/9 are recorded as decided-not-deficient with the residual risk stated, not silently dropped. Musixmatch was selected by the maintainer on a written-grant ranking, then **disqualified by its own terms**: clause 2.2.12 forbids "incorporate or fix Musixmatch Data into new audio or audiovisual works" and 2.2.13 forbids use "in connection with any … karaoke", which together describe `lyrics_manager`'s core function verbatim (writing lyrics into ID3 `USLT`/`SYLT` frames and `.lrc` sidecars, and writing time-synced lyrics) at **every** price tier. Shipping it would ship a contract breach on first use, so it was abandoned rather than implemented. Rejected alternatives: Wikisource MediaWiki (genuine PD / CC BY-SA grant and no key, but pre-1950/hymn/libretto coverage only), AMLL TTML DB (CC0 declaration, but corpus provenance is Apple Music TTML dumps), local `.lrc` sidecars (no licence question, but not a network source so it does not close the single-point-of-failure gap — named the next candidate). Musixmatch's technical contract is recorded so a post-exception attempt need not re-research it: `apikey` query param over HTTPS, `matcher.lyrics.get` plain and `matcher.subtitle.get` synced, **HTTP 200 even on errors** (the real code is `message.header.status_code`, so `raise_for_status()` is useless), not-found is 404 with `body` as either `[]` or `{}` depending on endpoint, 2.1.3 permits only the issued key (killing the scraped-shared-key wrappers — `musicxmatch-api` verified broken), 7.2.1 requires deleting all retrieved data on termination, 2.1.5 requires a "powered by Musixmatch" credit on every use, and no maintained official Python client exists. **Residual risk knowingly retained:** LRCLIB publishes no grant over its lyrics text — `/terms`, `/license`, `/tos` and `/legal` all return the same 421-byte client-rendered SPA shell, the router declares only `/`, `/search/:keyword`, `/docs`, `/db-dumps`, and the README states no licence for the database. Absence of a ToS is not a prohibition but not permission either, so a track's lyrics can vanish overnight through the community flag queue and a user's synced lyrics break with no notice. The three cheap mitigations (cache on first fetch, prefer a user `.lrc` sidecar, degrade to "no synced lyrics" rather than failing) are named and deliberately **not** implemented, being outside this item's no-code scope. The registry abstraction stays, so a future provider remains a drop-in plus one `register_provider` line. |
 
 ### A3 finding — a sixth silent swallow the plan's census missed
 
