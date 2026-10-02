@@ -49,12 +49,19 @@ bullet(
 bullet(
     doc,
     "Input directory: ",
-    "Must contain supported audio files directly in the selected directory.",
+    "Scanned recursively — every subfolder is included automatically.",
 )
 bullet(
     doc,
-    "Single input format: ",
-    "Mixed-format folders are rejected so one conversion rule applies consistently.",
+    "Mixed input formats: ",
+    "Supported. Each file is converted from its own format to the target, "
+    "and the detected files are listed per format.",
+)
+bullet(
+    doc,
+    "Output structure: ",
+    "Subfolders are mirrored in the output directory, so tracks with the "
+    "same filename in different subfolders stay separate.",
 )
 
 doc.add_heading("Supported Formats", level=1)
@@ -295,15 +302,15 @@ doc.add_paragraph(
 doc.add_heading("Troubleshooting", level=1)
 bullet(
     doc,
-    "Mixed formats detected: ",
-    "Place one input format in the selected directory "
-    "or separate the files before scanning.",
-)
-bullet(
-    doc,
     "No output format available: ",
     "The input may have no supported files, may be APE-only, "
     "or every valid output may be prohibited by conversion rules.",
+)
+bullet(
+    doc,
+    "Some files skipped in a mixed run: ",
+    "Files already in the target format, and lossy files targeted at a "
+    "lossless format, are skipped per file — the rest still convert.",
 )
 bullet(
     doc,

@@ -28,7 +28,6 @@ from .core import file_processor
 from .core.formats import (
     ALL_FORMATS,
     LOSSY_FORMATS,
-    detect_format,
     scan_input_directory,
 )
 from .ui import processing_tab, results_tab, setup_tab
@@ -104,6 +103,7 @@ class MusicFormatConverterApp(UIHelperMixin):
             last = suite_config.load_last_directory()
             if last:
                 self.folder_path.set(last)
+                self._schedule_folder_scan()
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -280,11 +280,21 @@ class MusicFormatConverterApp(UIHelperMixin):
         if parsed.output_dir:
             self.output_folder.set(parsed.output_dir)
 
-        if should_auto_start:
-            self.root.after(500, self._on_folder_change)
+        # A folder handed over by the CLI/Driver arrives with no user edit, so
+        # the setup tab's <FocusOut>/<Return> triggers never fire and the
+        # format menu would keep its build-time seed of every format. Scan
+        # unconditionally — the Output Format menu must reflect the folder
+        # contents whenever the field is pre-filled.
+        if self.folder_path.get():
+            self.root.after(0, self._on_folder_change)
 
         if should_auto_start:
             self.root.after(1500, self.start_processing)
+
+    def _schedule_folder_scan(self) -> None:
+        """Queue a deferred scan of the current folder field (pre-filled path)."""
+        if self.folder_path.get():
+            self.root.after(0, self._on_folder_change)
 
     # ── Folder-change handler (scan + update UI) ──────────────────────────────
 
@@ -292,17 +302,9 @@ class MusicFormatConverterApp(UIHelperMixin):
         result = scan_input_directory(self.folder_path.get())
         self._available_formats = result.output_formats
 
-        is_error = not result.ok and bool(result.mixed_formats or result.error_message)
-
-        self._update_detected_label(result.status_text, is_error)
-
-        if result.mixed_formats:
-            messagebox.showerror(
-                "Mixed Formats Detected",
-                f"Error: Input folder contains multiple audio formats: "
-                f"{', '.join(result.mixed_formats)}\n\n"
-                f"Please ensure all input files are in the same format.",
-            )
+        self._update_detected_label(
+            result.status_text, not result.ok and bool(result.error_message)
+        )
 
         current = self.output_format.get()
         if current in result.output_formats:
@@ -372,23 +374,22 @@ class MusicFormatConverterApp(UIHelperMixin):
                 )
                 return
 
-            try:
-                has_audio = any(
-                    detect_format(f) is not None for f in os.listdir(input_folder)
-                )
+            scan = scan_input_directory(input_folder)
 
-                if not has_audio:
-                    messagebox.showerror(
-                        "No Audio Files",
-                        f"No supported audio files found in:\n{input_folder}\n\n"
-                        f"Supported formats: "
-                        f"{', '.join(f.upper() for f in ALL_FORMATS)}",
-                    )
-                    return
-            except PermissionError as exc:
+            if not scan.ok:
                 messagebox.showerror(
                     "Access Denied",
-                    f"Cannot access input directory:\n{input_folder}\n\n{str(exc)}",
+                    f"Cannot access input directory:\n{input_folder}\n\n"
+                    f"{scan.error_message or 'Unknown error'}",
+                )
+                return
+
+            if scan.file_count == 0:
+                messagebox.showerror(
+                    "No Audio Files",
+                    f"No supported audio files found in:\n{input_folder}\n\n"
+                    f"Supported formats: "
+                    f"{', '.join(f.upper() for f in ALL_FORMATS)}",
                 )
                 return
 
@@ -484,7 +485,17 @@ class MusicFormatConverterApp(UIHelperMixin):
             f"Input Directory: {input_dir}\n",
             f"Output Directory: {output_dir}\n",
             f"Delete Originals: {'YES' if delete else 'NO'}\n",
+            "Scan: recursive (subfolders included)\n",
         ]
+        scan = scan_input_directory(input_dir)
+        if scan.format_counts:
+            breakdown = ", ".join(
+                f"{name.upper()}: {count}"
+                for name, count in sorted(
+                    scan.format_counts.items(), key=lambda kv: (-kv[1], kv[0])
+                )
+            )
+            header.append(f"Input Files Found: {scan.file_count} ({breakdown})\n")
         if self.normalize_mp3.get() and fmt == "mp3":
             header.append(
                 "Normalize MP3 (Lossless): YES\n"
@@ -547,6 +558,7 @@ class MusicFormatConverterApp(UIHelperMixin):
         duration_secs: float,
         log_entries: list[str],
         output_dir: str,
+        format_counts: dict[str, int] | None = None,
     ) -> None:
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)
@@ -563,6 +575,14 @@ class MusicFormatConverterApp(UIHelperMixin):
         ]
         if delete:
             summary.append(f"Originals deleted: {converted} (successful conversions)\n")
+        if format_counts:
+            breakdown = ", ".join(
+                f"{name.upper()}: {count}"
+                for name, count in sorted(
+                    format_counts.items(), key=lambda kv: (-kv[1], kv[0])
+                )
+            )
+            summary.append(f"Input files: {total} ({breakdown})\n")
         summary.append(f"Time: {minutes:02d}:{seconds:02d}\n")
 
         try:
@@ -585,6 +605,14 @@ class MusicFormatConverterApp(UIHelperMixin):
         )
         if delete:
             summary_text += f"\nOriginals Deleted: {converted}"
+        if format_counts:
+            breakdown = ", ".join(
+                f"{name.upper()}: {count}"
+                for name, count in sorted(
+                    format_counts.items(), key=lambda kv: (-kv[1], kv[0])
+                )
+            )
+            summary_text += f"\nInput: {total} files ({breakdown})"
         self.summary_label.config(text=summary_text)
         self.completion_label.config(text="Conversion Complete!")
         self.notebook.select(self._tab_results)

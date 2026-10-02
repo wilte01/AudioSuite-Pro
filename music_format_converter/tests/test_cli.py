@@ -78,3 +78,46 @@ class TestDitherOption:
         ):
             kwargs = _invoke(str(tmp_path), "--preset", "p", "--no-dither")
         assert kwargs["dither"] is False
+
+
+class TestRecursiveMixedCli:
+    """E4 — the CLI shares the tool's recursive, mixed-format behaviour."""
+
+    def test_dry_run_counts_nested_mixed_files_and_writes_nothing(self, tmp_path):
+        (tmp_path / "a.mp3").write_bytes(b"x")
+        (tmp_path / "CD1").mkdir()
+        (tmp_path / "CD1" / "b.mp3").write_bytes(b"x")
+        (tmp_path / "CD1" / "c.flac").write_bytes(b"x")
+        out = tmp_path / "converted"
+
+        result = CliRunner().invoke(
+            cli.convert,
+            [
+                str(tmp_path),
+                "--dry",
+                "--format",
+                "ogg",
+                "--output-dir",
+                str(out),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        # 3 files found recursively: 2 mp3 + 1 flac, all convertible to ogg.
+        assert "3 files" in result.output
+        assert "0 errors" in result.output
+        assert not out.exists()
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["CD1", "a.mp3"]
+
+    def test_all_skipped_tree_exits_cleanly(self, tmp_path):
+        """A tree already in the target format skips everything, no crash."""
+        (tmp_path / "a.flac").write_bytes(b"x")
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "b.flac").write_bytes(b"x")
+
+        result = CliRunner().invoke(
+            cli.convert, [str(tmp_path), "--dry", "--format", "flac"]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "2 skipped" in result.output

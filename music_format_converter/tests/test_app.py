@@ -274,7 +274,12 @@ class TestApplyCliArgsAutoStartScheduling:
         assert stub._on_folder_change in scheduled_funcs
         assert stub.start_processing in scheduled_funcs
 
-    def test_no_auto_start_schedules_nothing(self, tmp_path, monkeypatch):
+    def test_auto_start_off_still_scans_prefilled_folder(self, tmp_path, monkeypatch):
+        # Regression: a Driver/CLI-supplied folder arrives without a user
+        # edit, so the setup tab's <FocusOut>/<Return> handlers never fire.
+        # Scanning only on auto-start left the Output Format menu showing
+        # every format (including the input format and lossless targets)
+        # for an mp3-only directory.
         stub = _make_cli_stub()
         monkeypatch.setattr(
             app_module.cli_args,
@@ -282,7 +287,40 @@ class TestApplyCliArgsAutoStartScheduling:
             lambda: ConverterArgs(folder_path=str(tmp_path), auto_start=False),
         )
         MusicFormatConverterApp._apply_cli_args(stub)
+        scheduled_funcs = [func for _, func in stub._scheduled]
+        assert stub._on_folder_change in scheduled_funcs
+        # Auto-start must stay gated on the flag.
+        assert stub.start_processing not in scheduled_funcs
+
+    def test_no_folder_schedules_no_scan(self, monkeypatch):
+        stub = _make_cli_stub()
+        monkeypatch.setattr(app_module.cli_args, "parse", lambda: ConverterArgs())
+        MusicFormatConverterApp._apply_cli_args(stub)
         assert stub._scheduled == []
+
+    def test_prefilled_scan_runs_before_autostart_run(self, tmp_path, monkeypatch):
+        # The deferred scan must land before the auto-start conversion,
+        # otherwise Start validates against the unfiltered menu.
+        stub = _make_cli_stub()
+        monkeypatch.setattr(
+            app_module.cli_args,
+            "parse",
+            lambda: ConverterArgs(folder_path=str(tmp_path), auto_start=True),
+        )
+        MusicFormatConverterApp._apply_cli_args(stub)
+        delays = {func: ms for ms, func in stub._scheduled}
+        assert delays[stub._on_folder_change] < delays[stub.start_processing]
+
+    def test_schedule_folder_scan_skips_empty_folder(self):
+        stub = _make_cli_stub()
+        MusicFormatConverterApp._schedule_folder_scan(stub)
+        assert stub._scheduled == []
+
+    def test_schedule_folder_scan_schedules_deferred_scan(self, tmp_path):
+        stub = _make_cli_stub()
+        stub.folder_path.set(str(tmp_path))
+        MusicFormatConverterApp._schedule_folder_scan(stub)
+        assert [func for _, func in stub._scheduled] == [stub._on_folder_change]
 
 
 class TestApplyCliArgsFormatQualityAndFlags:
@@ -902,7 +940,8 @@ class TestOnFolderChange:
         MusicFormatConverterApp._on_folder_change(stub)
         stub._update_format_menu.assert_called_once_with([], "")
 
-    def test_mixed_formats_shows_error(self, monkeypatch):
+    def test_mixed_formats_are_accepted_without_error_dialog(self, monkeypatch):
+        """E4: mixed input is supported, so no modal error is raised."""
         from music_format_converter.core.formats import ScanResult
 
         stub = self._make_stub()
@@ -912,11 +951,65 @@ class TestOnFolderChange:
             app_module,
             "scan_input_directory",
             lambda p: ScanResult(
-                ok=False, mixed_formats=["mp3", "flac"], output_formats=[]
+                ok=True,
+                file_count=3,
+                mixed_formats=["flac", "mp3"],
+                output_formats=["mp3"],
+                format_counts={"mp3": 2, "flac": 1},
             ),
         )
         MusicFormatConverterApp._on_folder_change(stub)
-        assert len(errors) >= 1
+        assert errors == []
+
+    def test_mixed_formats_show_breakdown_in_detected_label(self, monkeypatch):
+        from music_format_converter.core.formats import ScanResult
+
+        stub = self._make_stub()
+        monkeypatch.setattr(
+            app_module,
+            "scan_input_directory",
+            lambda p: ScanResult(
+                ok=True,
+                file_count=3,
+                mixed_formats=["flac", "mp3"],
+                output_formats=["mp3"],
+                format_counts={"mp3": 2, "flac": 1},
+            ),
+        )
+        MusicFormatConverterApp._on_folder_change(stub)
+        text = stub._update_detected_label.call_args[0][0]
+        assert "MP3: 2" in text
+        assert "FLAC: 1" in text
+
+    def test_mixed_formats_still_offer_target_format(self, monkeypatch):
+        from music_format_converter.core.formats import ScanResult
+
+        stub = self._make_stub()
+        monkeypatch.setattr(
+            app_module,
+            "scan_input_directory",
+            lambda p: ScanResult(
+                ok=True,
+                file_count=3,
+                mixed_formats=["flac", "mp3"],
+                output_formats=["mp3"],
+                format_counts={"mp3": 2, "flac": 1},
+            ),
+        )
+        MusicFormatConverterApp._on_folder_change(stub)
+        assert stub._available_formats == ["mp3"]
+
+    def test_scan_error_still_flags_detected_label(self, monkeypatch):
+        from music_format_converter.core.formats import ScanResult
+
+        stub = self._make_stub()
+        monkeypatch.setattr(
+            app_module,
+            "scan_input_directory",
+            lambda p: ScanResult(ok=False, error_message="Permission denied"),
+        )
+        MusicFormatConverterApp._on_folder_change(stub)
+        assert stub._update_detected_label.call_args[0][1] is True
 
 
 # ═════════════════════════════════════════════════════════════════════════════

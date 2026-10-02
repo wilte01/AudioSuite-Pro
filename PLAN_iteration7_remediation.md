@@ -1493,33 +1493,122 @@ Fanart → Deezer → iTunes chain rather than failing the run.
 
 ---
 
-### E4 `[!]` — Recursive, mixed-format converter input `[audit §5a gap 4]`
+### E4 `[x]` — Recursive, mixed-format converter input `[audit §5a gap 4]`
 
 **Priority:** Medium | **Effort:** 0.35 day | **Risk:** Medium (write path)
-**Blocked on:** decision D3 (recommendation: option A).
+**Blocked on:** decision D3 — **satisfied** (option A, maintainer, 2026-10-01).
 
 **Problem:** `scan_input_directory` is flat (`os.scandir`,
 `formats.py:173`) and refuses mixed input (`:190-191`).
 
 **Scope:**
 
-- [ ] Implement the decided scan policy (`os.walk` + per-format target
-      handling); preserve the existing single-format flat behaviour
-      byte-for-byte for the common case.
-- [ ] Mixed-format runs report per-format counts; the scan result carries
-      the breakdown the UI already renders.
-- [ ] Dry-run enumerates what *would* convert per format without writing.
+- [x] Implemented the decided scan policy: `discover_input_files()` in
+      `core/formats.py` walks the tree (explicit `os.scandir` recursion, not
+      `os.walk`) and returns **relative** paths; `scan_input_directory`
+      consumes it, so the scan and the conversion can never disagree.
+      `recursive=False` keeps the legacy flat scan.
+- [x] Mixed input accepted: `available_output_formats_for()` returns the union
+      of each detected format's valid targets (a target unreachable from every
+      member is not offered), and `ScanResult` gained `format_counts`.
+- [x] Per-format counts reported: `ScanResult.status_text` (both the tool's
+      detected label and the Master Driver card) plus the report header and
+      summary, fed by `run_conversion`'s new `format_counts` completion kwarg.
+- [x] Dry-run enumerates every nested file per format and writes nothing —
+      output subdirectories are created only on the live path.
+- [x] Output mirrors the input tree (`process_single_file` `makedirs` the
+      relative subdir), so identical basenames in different subfolders no
+      longer collide — the flat design silently overwrote one of them.
 
-**Tests (lockstep):** real-tree fixtures (nested dirs, mixed extensions);
-assert converted outputs decode with the correct codec per target format;
-dry-run writes nothing; existing single-format tests pass unedited.
+**Judgement call recorded:** the union offers a target only if *some* file can
+reach it, so a flac+mp3 tree can target mp3 but **not** flac (same format for
+the flac files, lossy→lossless for the mp3s) — offering it would select a run
+that skips every single file.
+
+**Duplicate policy removed (defect found in working code):**
+`master_driver/ui/utilities_window.py:update_format_detection` carried its own
+flat `os.scandir` copy of the scanner and emptied the format dropdown on mixed
+input — the Driver card would have refused exactly the folders the tool now
+accepts. It now delegates to `scan_input_directory`, deleting the duplicate
+business rule (`master_driver/tests/test_utilities_format_detection.py` updated
+in lockstep; its hand-rolled format lists replaced by the tool's real ones, which
+is what `AppState` actually loads).
+
+**Tests (lockstep):**
+- `test_formats.py`: mixed scans now assert `ok`, `format_counts`, the union of
+  targets, recursive discovery (relative paths, deep nesting, determinism,
+  non-audio exclusion), unreadable **root** raising vs unreadable **subtree**
+  skipped, and `available_output_formats_for` unit coverage.
+- `test_file_processor.py`: new `TestRecursiveMixedConversion` — real-tree
+  nested/mixed fixtures; outputs decoded with pydub **and** `ffprobe` codec
+  checks (not field read-back); identical basenames in two subfolders keep
+  distinct content; lossless RMS within 1 % and duration within 5 ms; dry run
+  writes nothing (no files, no mirrored dirs); unreadable subtree does not
+  abort the batch while an unreadable root reports one error.
+- `test_app.py`: mixed input raises no modal, renders the breakdown, still
+  offers targets; a scan error still flags the label.
+- `test_cli.py`: `--dry` on a nested mixed tree counts 3 files and creates no
+  output; an all-skipped tree exits cleanly.
 
 **Acceptance:** nested mixed tree converts fully; per-format counts correct;
-bare full-suite green.
+bare full-suite green. — Verified: a `Disc A/01 Intro.wav` + `Disc B/01
+Intro.wav` + nested flac/mp3 tree converts to mirrored `Disc A/`/`Disc B/`
+outputs, each decoding as the target codec with intact audio; dry run over the
+same tree reports `MP3: 3` and leaves the output directory uncreated.
+Gate: `compileall` clean; `ruff check`/`format --check` clean; `mypy .` no
+issues in 460 source files; `bandit -r . -x ./.venv -c pyproject.toml` 0 High /
+0 Medium (41 Low); bare `pytest` **8091 passed, 3 skipped, 30 deselected in
+210.60 s**; coverage **88 %** (`core/formats.py` 100 %,
+`core/file_processor.py` 96 %, `master_driver/ui/utilities_window.py` 92 %).
+Guide regenerated from its generator (the post-acceptance fix below required no
+guide change — it restores behaviour the guide already documents).
 
 **Risks:** recursion multiplies failure surface (unwritable subdirs). Errors
 are per-file and reported, batch completes — the `BaseFileProcessor`
-contract; do not abort the batch on one bad subtree.
+contract; do not abort the batch on one bad subtree. — Resolved: the walk
+attributes each `OSError` to the directory that raised; only an unreadable
+**root** is fatal (reported once through `on_error`, no completion callback),
+while an unreadable **subtree** is logged and skipped so sibling files still
+convert. Live `makedirs(..., exist_ok=True)` before each write keeps an
+unwritable subdir a per-file error, not a batch abort.
+
+#### Post-acceptance defect fix (same change as E4) — pre-filled folder skipped the scan
+
+*Reported by the maintainer after the E4 gate:* launching the converter over a
+directory of 10 `.mp3` files, the Setup tab's **Output Format** menu offered
+every format — including `.mp3` and all lossless targets. Dry run then reported
+`0/10 converted`, every file skipped as same-format.
+
+*Root cause (verified against `D:/Users/wilte/Desktop/1973 - 10cc`, not
+inferred):* the scanner was never wrong — `scan_input_directory()` on that
+directory returns `{'mp3': 10}` → `['aac', 'm4a', 'ogg', 'opus', 'mp4', 'wma']`.
+The menu is seeded with all 14 formats at build time (`ui/setup_tab.py`) and is
+narrowed **only** by `_on_folder_change()`, which the setup tab triggers from the
+folder Entry's `<FocusOut>`/`<Return>`. A folder handed over by the Driver/CLI
+arrives pre-filled, so no user edit fires those handlers, and `_apply_cli_args`
+scanned **only** under `should_auto_start` — which is exactly the state the
+Master Driver launches the tool in (`master_driver/runner/arg_builder.py::
+_build_converter_args` passes the shared directory as the positional arg). The
+restored `last_directory` had the same gap.
+
+*Fix:* `_apply_cli_args` now schedules the scan whenever the folder field is
+non-empty, via the new `_schedule_folder_scan()` helper (`after(0, …)`), which
+the `last_directory` restore path reuses. Auto-start remains gated on the flag,
+and the deferred scan (0 ms) still precedes the auto-start run (1500 ms) so
+`start_processing()` validates against the narrowed menu.
+
+*Regression lock:* `test_no_auto_start_schedules_nothing` asserted the buggy
+behaviour (no folder argument → nothing scheduled) and was **replaced**, not
+deleted — it pinned a behaviour that contradicted the tool's own user guide.
+Five tests now cover: scan on pre-fill without auto-start, no scan for an empty
+folder, scan-before-run ordering, and both `_schedule_folder_scan` branches.
+End-to-end confirmation on the reported directory through the real Driver argv,
+against a real Tk combobox: menu is `['aac','m4a','ogg','opus','mp4','wma']`,
+selection moved `mp3` → `aac`, mp3 and lossless absent.
+
+*Guide impact:* none — `generate_guide.py:138` already documents that "the menu
+excludes the detected input format"; the defect made the documented behaviour
+false, so the fix restores it rather than changing the documented contract.
 
 ---
 

@@ -1,8 +1,12 @@
 """
 Tests for music_format_converter.core.formats
 Gap G-05: format_info, is_lossy, detect_format, can_convert,
-          available_output_formats, scan_input_directory, ScanResult
+          available_output_formats, available_output_formats_for,
+          discover_input_files, scan_input_directory, ScanResult
 """
+
+import os
+from unittest.mock import patch
 
 import pytest
 
@@ -14,8 +18,10 @@ from music_format_converter.core.formats import (
     UNSUPPORTED_OUTPUT_FORMATS,
     ScanResult,
     available_output_formats,
+    available_output_formats_for,
     can_convert,
     detect_format,
+    discover_input_files,
     format_info,
     is_lossy,
     scan_input_directory,
@@ -312,6 +318,38 @@ class TestAvailableOutputFormats:
         assert len(outputs) > 0
 
 
+class TestAvailableOutputFormatsFor:
+    def test_single_input_matches_available_output_formats(self):
+        assert available_output_formats_for(["flac"]) == available_output_formats(
+            "flac"
+        )
+
+    def test_union_is_order_preserving(self):
+        result = available_output_formats_for(["mp3", "flac"])
+        assert result == [f for f in ALL_OUTPUT_FORMATS if f in set(result)]
+
+    def test_lossy_only_union_has_no_lossless_target(self):
+        result = available_output_formats_for(["mp3", "ogg"])
+        assert not set(result) & set(LOSSLESS_FORMATS)
+
+    def test_target_unreachable_from_every_input_is_excluded(self):
+        """flac+mp3 cannot target flac: same-format for one, lossy→lossless
+        for the other, so no file would convert."""
+        result = available_output_formats_for(["flac", "mp3"])
+        assert "flac" not in result
+        assert "mp3" in result
+
+    def test_mixed_tree_keeps_targets_each_member_can_reach(self):
+        """ogg→mp3 is valid even though the mp3 files themselves skip."""
+        assert "mp3" in available_output_formats_for(["mp3", "ogg"])
+
+    def test_never_includes_ape(self):
+        assert "ape" not in available_output_formats_for(["flac", "wav", "mp3"])
+
+    def test_empty_input_returns_empty(self):
+        assert available_output_formats_for([]) == []
+
+
 # ── scan_input_directory ──────────────────────────────────────────────────────
 
 
@@ -361,19 +399,42 @@ class TestScanInputDirectory:
         for fmt in result.output_formats:
             assert fmt in LOSSY_FORMATS
 
-    def test_mixed_formats_returns_not_ok(self, tmp_path):
+    def test_mixed_formats_are_accepted_with_counts(self, tmp_path):
         (tmp_path / "a.mp3").write_bytes(b"x")
         (tmp_path / "b.flac").write_bytes(b"x")
         result = scan_input_directory(str(tmp_path))
-        assert result.ok is False
-        assert "mp3" in result.mixed_formats
-        assert "flac" in result.mixed_formats
+        assert result.ok is True
+        assert result.mixed_formats == ["flac", "mp3"]
+        assert result.input_format is None
+        assert result.file_count == 2
+        assert result.format_counts == {"mp3": 1, "flac": 1}
 
-    def test_mixed_formats_returns_empty_output_formats(self, tmp_path):
+    def test_mixed_formats_offer_union_of_valid_outputs(self, tmp_path):
+        """A flac+mp3 tree can still target flac (mp3 skipped) and mp3."""
         (tmp_path / "a.mp3").write_bytes(b"x")
         (tmp_path / "b.ogg").write_bytes(b"x")
         result = scan_input_directory(str(tmp_path))
-        assert result.output_formats == []
+        assert result.ok is True
+        assert set(result.output_formats) <= set(ALL_OUTPUT_FORMATS)
+        # lossy-only inputs never offer a lossless target
+        assert not set(result.output_formats) & set(LOSSLESS_FORMATS)
+
+    def test_mixed_lossless_and_lossy_keeps_lossy_target(self, tmp_path):
+        """flac+mp3 can still target mp3; flac itself stays unreachable."""
+        (tmp_path / "a.mp3").write_bytes(b"x")
+        (tmp_path / "b.flac").write_bytes(b"x")
+        result = scan_input_directory(str(tmp_path))
+        assert "mp3" in result.output_formats
+        assert "flac" not in result.output_formats
+
+    def test_single_format_reports_one_count(self, tmp_path):
+        (tmp_path / "a.mp3").write_bytes(b"x")
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "b.mp3").write_bytes(b"x")
+        result = scan_input_directory(str(tmp_path))
+        assert result.format_counts == {"mp3": 2}
+        assert result.mixed_formats == []
+        assert result.input_format == "mp3"
 
     def test_non_audio_files_ignored(self, tmp_path):
         (tmp_path / "cover.jpg").write_bytes(b"x")
@@ -410,14 +471,164 @@ class TestScanResultStatusText:
         assert "5" in r.status_text
         assert "MP3" in r.status_text
 
+    def test_counts_rendered_highest_first(self):
+        r = ScanResult(
+            ok=True,
+            file_count=5,
+            format_counts={"mp3": 3, "flac": 2},
+            output_formats=["ogg"],
+        )
+        text = r.status_text
+        assert "5" in text
+        assert text.index("MP3: 3") < text.index("FLAC: 2")
+
+    def test_mixed_scan_reports_per_format_counts(self, tmp_path):
+        (tmp_path / "a.mp3").write_bytes(b"x")
+        (tmp_path / "b.mp3").write_bytes(b"x")
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "c.flac").write_bytes(b"x")
+        text = scan_input_directory(str(tmp_path)).status_text
+        assert "MP3: 2" in text
+        assert "FLAC: 1" in text
+
+    def test_count_without_format_detail_falls_back_to_plain_label(self):
+        r = ScanResult(ok=True, file_count=2, output_formats=["ogg"])
+        assert r.status_text == "✓ Detected: 2 file(s)"
+
     def test_ok_no_format_shows_no_audio_found(self):
         r = ScanResult(ok=True, output_formats=[])
         assert "No audio" in r.status_text
 
-    def test_not_ok_with_mixed_shows_formats(self):
-        r = ScanResult(ok=False, mixed_formats=["mp3", "flac"], output_formats=[])
-        assert "mp3" in r.status_text or "flac" in r.status_text
-
     def test_not_ok_with_error_shows_message(self):
         r = ScanResult(ok=False, error_message="Permission denied", output_formats=[])
         assert "Permission denied" in r.status_text
+
+
+# ── discover_input_files — recursive discovery ─────────────────────────────────
+
+
+class TestDiscoverInputFiles:
+    def test_flat_mode_ignores_subdirectories(self, tmp_path):
+        (tmp_path / "a.mp3").write_bytes(b"x")
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "b.mp3").write_bytes(b"x")
+        files = discover_input_files(str(tmp_path), recursive=False)
+        assert files == ["a.mp3"]
+
+    def test_recursive_mode_returns_relative_paths(self, tmp_path):
+        (tmp_path / "a.mp3").write_bytes(b"x")
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "b.mp3").write_bytes(b"x")
+        files = discover_input_files(str(tmp_path), recursive=True)
+        assert [os.path.normpath(f) for f in files] == [
+            "a.mp3",
+            os.path.join("sub", "b.mp3"),
+        ]
+
+    def test_deeply_nested_files_found(self, tmp_path):
+        deep = tmp_path / "A" / "B" / "C"
+        deep.mkdir(parents=True)
+        (deep / "x.flac").write_bytes(b"x")
+        files = discover_input_files(str(tmp_path))
+        assert len(files) == 1
+        assert os.path.normpath(files[0]) == os.path.join("A", "B", "C", "x.flac")
+
+    def test_non_audio_files_excluded(self, tmp_path):
+        (tmp_path / "cover.jpg").write_bytes(b"x")
+        (tmp_path / "notes.txt").write_bytes(b"x")
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "track.mp3").write_bytes(b"x")
+        assert len(discover_input_files(str(tmp_path))) == 1
+
+    def test_empty_dir_returns_empty_list(self, tmp_path):
+        assert discover_input_files(str(tmp_path)) == []
+
+    def test_nonexistent_dir_returns_empty_list(self, tmp_path):
+        assert discover_input_files(str(tmp_path / "nope")) == []
+
+    def test_empty_path_returns_empty_list(self):
+        assert discover_input_files("") == []
+
+    def test_result_is_sorted_deterministically(self, tmp_path):
+        for name in ("c.mp3", "a.mp3", "b.mp3"):
+            (tmp_path / name).write_bytes(b"x")
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "z.mp3").write_bytes(b"x")
+        first = discover_input_files(str(tmp_path))
+        assert first == discover_input_files(str(tmp_path))
+        assert [os.path.basename(f) for f in first[:3]] == [
+            "a.mp3",
+            "b.mp3",
+            "c.mp3",
+        ]
+
+    def test_unreadable_root_raises(self, tmp_path):
+        """The root's unreadability must surface, not be swallowed."""
+        from unittest.mock import patch
+
+        with patch(
+            "music_format_converter.core.formats.os.scandir",
+            side_effect=PermissionError("denied"),
+        ):
+            with pytest.raises(PermissionError):
+                discover_input_files(str(tmp_path))
+
+    def test_unreadable_subtree_is_skipped_not_fatal(self, tmp_path):
+        """One bad subtree is logged and skipped; sibling files survive."""
+        good = tmp_path / "good"
+        good.mkdir()
+        (good / "track.mp3").write_bytes(b"x")
+        (tmp_path / "locked").mkdir()
+
+        real_scandir = os.scandir
+
+        def _scandir(path, *args, **kwargs):
+            if os.path.normpath(str(path)) == os.path.normpath(
+                str(tmp_path / "locked")
+            ):
+                raise PermissionError("denied")
+            return real_scandir(path, *args, **kwargs)
+
+        with patch("music_format_converter.core.formats.os.scandir", _scandir):
+            files = discover_input_files(str(tmp_path))
+
+        assert [os.path.normpath(f) for f in files] == [
+            os.path.join("good", "track.mp3")
+        ]
+
+    def test_ape_input_never_offers_ape_output_recursively(self, tmp_path):
+        nested = tmp_path / "sub"
+        nested.mkdir()
+        (nested / "a.ape").write_bytes(b"x")
+        result = scan_input_directory(str(tmp_path))
+        assert "ape" not in result.output_formats
+
+    def test_entry_that_cannot_be_statted_is_treated_as_a_file(self, tmp_path):
+        """A stat failure on one entry must not lose the whole directory."""
+
+        class _BrokenEntry:
+            name = "mystery.mp3"
+            path = str(tmp_path / "mystery.mp3")
+
+            def is_dir(self, follow_symlinks=True):
+                raise OSError("stat failed")
+
+        class _Listing(list):
+            """Minimal context-manager wrapper around a list of entries."""
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc_info):
+                return False
+
+        (tmp_path / "real.mp3").write_bytes(b"x")
+        real_scandir = os.scandir
+
+        with patch(
+            "music_format_converter.core.formats.os.scandir",
+            lambda path: _Listing([_BrokenEntry(), *list(real_scandir(path))]),
+        ):
+            files = discover_input_files(str(tmp_path))
+
+        assert "real.mp3" in files

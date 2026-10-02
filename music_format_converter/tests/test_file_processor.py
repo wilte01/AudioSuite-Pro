@@ -3,8 +3,10 @@ Tests for music_format_converter.core.ffmpeg_params (G-29 params matrix)
          music_format_converter.core.file_processor (G-29 pipeline)
 """
 
+import array
 import contextlib
 import json
+import math
 import os
 import subprocess
 import threading
@@ -14,6 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from pydub import AudioSegment
+from pydub.generators import Sine
 
 from audio_suite_shared.error_recovery import RecoveryAction
 from music_format_converter.core.ffmpeg_params import get_ffmpeg_params
@@ -869,7 +872,7 @@ class TestRunConversion:
         errors = []
 
         with patch(
-            "music_format_converter.core.file_processor.os.scandir",
+            "music_format_converter.core.formats.os.scandir",
             side_effect=PermissionError("access denied"),
         ):
             run_conversion(
@@ -1550,3 +1553,230 @@ class TestResamplerMeasuredOutcome:
                 bit_depth="24",
             )
         return seen
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# E4 — recursive input discovery + mixed source formats
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def _make_tone(tmp_path, name, freq=440, ms=1000, rate=44100):
+    """Write a real mono 16-bit tone and return its path."""
+    path = tmp_path / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    segment = Sine(freq).to_audio_segment(duration=ms, volume=-12.0)
+    segment = segment.set_frame_rate(rate).set_channels(1)
+    segment.export(str(path), format=path.suffix.lstrip("."))
+    return str(path)
+
+
+def _rms(segment: AudioSegment) -> float:
+    """Measured RMS of a decoded segment, normalised to 0..1."""
+    samples = array.array("h", segment.get_array_of_samples())
+    if not samples:
+        return 0.0
+    return math.sqrt(sum(float(s) * s for s in samples) / len(samples)) / 32768.0
+
+
+def _probe_codec(path: str) -> str:
+    """Return the audio codec name of *path* via a real ffprobe call."""
+    from audio_suite_shared.secure_subprocess import run_secure_subprocess
+
+    result = run_secure_subprocess(
+        "ffprobe",
+        [
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "csv=p=0",
+            path,
+        ],
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    return result.stdout.strip()
+
+
+class TestRecursiveMixedConversion:
+    def _run(self, in_dir, out_dir, output_format, is_dry_run=False, n_slots=4):
+        slot_vars, slot_queue = _make_slot_fixtures(n_slots)
+        progress, complete, errors = [], [], []
+        run_conversion(
+            input_dir=str(in_dir),
+            output_dir=str(out_dir),
+            output_format=output_format,
+            quality="highest",
+            delete_originals=False,
+            is_dry_run=is_dry_run,
+            lossy_formats=LOSSY_FORMATS,
+            slot_vars=slot_vars,
+            slot_queue=slot_queue,
+            on_progress=lambda **kw: progress.append(kw),
+            on_complete=lambda **kw: complete.append(kw),
+            on_error=lambda msg: errors.append(msg),
+        )
+        return progress, complete, errors
+
+    # ── Recursive discovery ──────────────────────────────────────────────
+
+    def test_nested_files_are_discovered(self, tmp_path):
+        _make_tone(tmp_path, "top.mp3")
+        _make_tone(tmp_path, os.path.join("CD1", "disc.mp3"))
+        _make_tone(tmp_path, os.path.join("A", "B", "deep.mp3"))
+        _, complete, errors = self._run(
+            tmp_path, tmp_path / "out", "flac", is_dry_run=True
+        )
+        assert errors == []
+        assert complete[0]["total"] == 3
+
+    def test_nested_output_mirrors_input_tree(self, tmp_path):
+        _make_tone(tmp_path, os.path.join("CD1", "track.mp3"))
+        _make_tone(tmp_path, os.path.join("CD2", "track.mp3"))
+        out = tmp_path / "out"
+        _, complete, errors = self._run(tmp_path, out, "ogg")
+        assert errors == []
+        assert complete[0]["converted"] == 2
+        assert (out / "CD1" / "track.ogg").exists()
+        assert (out / "CD2" / "track.ogg").exists()
+
+    def test_identical_basenames_in_different_subdirs_do_not_collide(self, tmp_path):
+        """The flat design would silently overwrite one of these two."""
+        a = _make_tone(tmp_path, os.path.join("Disc A", "01 Intro.wav"), freq=440)
+        b = _make_tone(tmp_path, os.path.join("Disc B", "01 Intro.wav"), freq=880)
+        out = tmp_path / "out"
+        _, complete, errors = self._run(tmp_path, out, "flac")
+        assert errors == []
+        assert complete[0]["converted"] == 2
+
+        first = AudioSegment.from_file(str(out / "Disc A" / "01 Intro.flac"))
+        second = AudioSegment.from_file(str(out / "Disc B" / "01 Intro.flac"))
+        # Distinct content must survive into distinct files, not one blob.
+        assert abs(_rms(first) - _rms(second)) < 0.05 or (
+            os.path.getsize(out / "Disc A" / "01 Intro.flac")
+            != os.path.getsize(out / "Disc B" / "01 Intro.flac")
+        )
+        assert _rms(first) > 0.1
+        assert _rms(second) > 0.1
+        assert os.path.exists(a) and os.path.exists(b)
+
+    # ── Mixed source formats ─────────────────────────────────────────────
+
+    def test_mixed_tree_converts_each_file_with_its_own_format(self, tmp_path):
+        _make_tone(tmp_path, os.path.join("lossy", "a.flac"), freq=440)
+        _make_tone(tmp_path, os.path.join("lossy", "b.mp3"), freq=660)
+        out = tmp_path / "out"
+        _, complete, errors = self._run(tmp_path, out, "ogg")
+        assert errors == []
+        assert complete[0]["converted"] == 2
+        assert (out / "lossy" / "a.ogg").exists()
+        assert (out / "lossy" / "b.ogg").exists()
+
+    def test_mixed_tree_reports_per_format_counts(self, tmp_path):
+        _make_tone(tmp_path, "a.flac")
+        _make_tone(tmp_path, os.path.join("sub", "b.flac"))
+        _make_tone(tmp_path, os.path.join("sub", "c.mp3"))
+        _, complete, _ = self._run(tmp_path, tmp_path / "out", "ogg", is_dry_run=True)
+        assert complete[0]["format_counts"] == {"flac": 2, "mp3": 1}
+        assert complete[0]["total"] == 3
+
+    def test_same_format_member_is_skipped_while_sibling_converts(self, tmp_path):
+        """A mixed flac+wav tree targeting flac converts the wav only."""
+        _make_tone(tmp_path, "a.flac")
+        _make_tone(tmp_path, os.path.join("sub", "b.wav"))
+        out = tmp_path / "out"
+        _, complete, errors = self._run(tmp_path, out, "flac")
+        assert errors == []
+        assert complete[0]["converted"] == 1
+        assert complete[0]["skipped"] == 1
+        assert complete[0]["errors"] == 0
+        assert (out / "sub" / "b.flac").exists()
+        assert not (out / "a.flac").exists()
+
+    def test_mixed_tree_output_decodes_with_target_codec(self, tmp_path):
+        _make_tone(tmp_path, os.path.join("x", "a.wav"), freq=440)
+        _make_tone(tmp_path, os.path.join("y", "b.flac"), freq=880)
+        out = tmp_path / "out"
+        _, complete, errors = self._run(tmp_path, out, "mp3")
+        assert errors == []
+        assert complete[0]["converted"] == 2
+        for rel in ("x/a.mp3", "y/b.mp3"):
+            path = out / rel
+            assert path.exists(), rel
+            assert _probe_codec(str(path)) == "mp3", rel
+            segment = AudioSegment.from_file(str(path))
+            assert len(segment) > 800, rel
+            assert _rms(segment) > 0.1, rel
+
+    def test_lossless_conversion_preserves_audio_content(self, tmp_path):
+        source = _make_tone(tmp_path, os.path.join("album", "tone.wav"), ms=1500)
+        original = AudioSegment.from_file(source)
+        out = tmp_path / "out"
+        _, complete, errors = self._run(tmp_path, out, "flac")
+        assert errors == []
+        assert complete[0]["converted"] == 1
+
+        converted = AudioSegment.from_file(str(out / "album" / "tone.flac"))
+        assert _probe_codec(str(out / "album" / "tone.flac")) == "flac"
+        assert converted.frame_rate == original.frame_rate
+        assert abs(len(converted) - len(original)) <= 5
+        assert abs(_rms(converted) - _rms(original)) < 0.01
+
+    # ── Dry run ──────────────────────────────────────────────────────────
+
+    def test_dry_run_enumerates_nested_files_without_writing(self, tmp_path):
+        _make_tone(tmp_path, os.path.join("CD1", "a.mp3"))
+        _make_tone(tmp_path, os.path.join("CD1", "b.mp3"))
+        _make_tone(tmp_path, os.path.join("CD2", "c.mp3"))
+        out = tmp_path / "out"
+        progress, complete, errors = self._run(tmp_path, out, "ogg", is_dry_run=True)
+        assert errors == []
+        assert complete[0]["total"] == 3
+        # Dry run reports what it *would* convert, but writes nothing.
+        assert complete[0]["converted"] == 3
+        assert complete[0]["format_counts"] == {"mp3": 3}
+        assert all(kw["display_text"].startswith("[DRY RUN]") for kw in progress)
+        # Nothing written: no output files and no mirrored directories.
+        assert not out.exists()
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["CD1", "CD2"]
+
+    # ── Error containment ────────────────────────────────────────────────
+
+    def test_unreadable_subtree_does_not_abort_batch(self, tmp_path):
+        _make_tone(tmp_path, os.path.join("open", "a.mp3"))
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        _make_tone(locked, "hidden.mp3")
+
+        real_scandir = os.scandir
+
+        def _scandir(path, *args, **kwargs):
+            if os.path.normpath(str(path)) == os.path.normpath(str(locked)):
+                raise PermissionError("denied")
+            return real_scandir(path, *args, **kwargs)
+
+        out = tmp_path / "out"
+        with patch("music_format_converter.core.formats.os.scandir", _scandir):
+            progress, complete, errors = self._run(tmp_path, out, "ogg")
+
+        assert errors == []
+        assert complete[0]["total"] == 1
+        assert complete[0]["converted"] == 1
+        assert complete[0]["errors"] == 0
+        assert (out / "open" / "a.ogg").exists()
+
+    def test_unreadable_root_reports_error_without_completing(self, tmp_path):
+        _make_tone(tmp_path, "a.mp3")
+        out = tmp_path / "out"
+        with patch(
+            "music_format_converter.core.formats.os.scandir",
+            side_effect=PermissionError("denied"),
+        ):
+            progress, complete, errors = self._run(tmp_path, out, "flac")
+        assert len(errors) == 1
+        assert complete == []
+        assert not out.exists()

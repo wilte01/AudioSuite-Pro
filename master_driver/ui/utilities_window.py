@@ -143,17 +143,19 @@ def update_format_detection(state: AppState) -> None:
             detected_label.config(text="")
         return
 
-    detected_formats = set()
-    file_count = 0
-    try:
-        for entry in os.scandir(dir_path):
-            if entry.is_file():
-                ext = entry.name.lower().rsplit(".", 1)[-1]
-                if ext in state.converter_all_formats:
-                    detected_formats.add(ext)
-                    file_count += 1
-    except (OSError, tk.TclError) as _exc:
-        _log.warning("Format discovery failed, using defaults: %s", _exc, exc_info=True)
+    # The converter's own scanner owns the rules: it walks subfolders,
+    # accepts mixed source formats, and reports the per-format counts.
+    from music_format_converter.core.formats import scan_input_directory
+
+    result = scan_input_directory(dir_path)
+
+    if not result.ok:
+        _log.warning(
+            "Format discovery failed for %s: %s",
+            dir_path,
+            result.error_message,
+            exc_info=True,
+        )
         state.converter_available_formats = list(state.converter_all_formats)
         if format_menu:
             format_menu["values"] = tuple(state.converter_all_formats)
@@ -161,7 +163,7 @@ def update_format_detection(state: AppState) -> None:
             detected_label.config(text="")
         return
 
-    if not detected_formats:
+    if not result.file_count:
         state.converter_available_formats = list(state.converter_all_formats)
         if format_menu:
             format_menu["values"] = tuple(state.converter_all_formats)
@@ -171,33 +173,13 @@ def update_format_detection(state: AppState) -> None:
             )
         return
 
-    if len(detected_formats) > 1:
-        fmt_list = ", ".join(sorted(detected_formats))
-        if detected_label:
-            detected_label.config(
-                text=f"\u26a0 Mixed formats ({fmt_list})", fg=styles.COLOR_ERROR
-            )
-        state.converter_available_formats = []
-        if format_menu:
-            format_menu["values"] = tuple([])
-        return
-
-    input_format = list(detected_formats)[0]
     if detected_label:
         detected_label.config(
-            text=f"\u2713 Detected: {file_count} {input_format.upper()} file(s)",
+            text=result.status_text,
             fg=styles.COLOR_SUCCESS,
         )
 
-    is_lossy = input_format in state.converter_lossy_formats
-    if is_lossy:
-        state.converter_available_formats = [
-            f for f in state.converter_lossy_formats if f != input_format
-        ]
-    else:
-        state.converter_available_formats = [
-            f for f in state.converter_all_formats if f != input_format
-        ]
+    state.converter_available_formats = list(result.output_formats)
 
     if format_menu:
         format_menu["values"] = tuple(state.converter_available_formats)

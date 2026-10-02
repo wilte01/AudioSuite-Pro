@@ -128,6 +128,21 @@ def available_output_formats(input_fmt: str) -> list[str]:
     return [f for f in candidates if f not in UNSUPPORTED_OUTPUT_FORMATS]
 
 
+def available_output_formats_for(inputs: list[str]) -> list[str]:
+    """
+    Return every output format reachable from *at least one* of the given
+    input formats, preserving ALL_FORMATS order and without duplicates.
+
+    A mixed-format tree offers the union of its members' valid targets:
+    a FLAC + MP3 tree can still target FLAC (the MP3 files are skipped as
+    lossy→lossless), so no target is lost by allowing mixed input.
+    """
+    seen: set[str] = set()
+    for input_fmt in inputs:
+        seen.update(available_output_formats(input_fmt))
+    return [f for f in ALL_OUTPUT_FORMATS if f in seen]
+
+
 # ── Directory scan ─────────────────────────────────────────────────────────────
 
 
@@ -136,30 +151,125 @@ class ScanResult:
     """Outcome of scanning an input directory for audio files."""
 
     ok: bool
-    input_format: Optional[str] = None  # single detected format
+    input_format: Optional[str] = None  # set only when a single format was found
     file_count: int = 0
     mixed_formats: list[str] = field(default_factory=list)
     output_formats: list[str] = field(default_factory=list)
     error_message: Optional[str] = None
+    # Per-source-format file counts, keyed by lowercase format extension.
+    format_counts: dict[str, int] = field(default_factory=dict)
 
     # Convenience label for the detected-format indicator in the UI
     @property
     def status_text(self) -> str:
         if not self.ok:
-            if self.mixed_formats:
-                return (
-                    f"⚠ ERROR: Mixed formats detected "
-                    f"({', '.join(sorted(self.mixed_formats))})"
-                )
             return f"⚠ {self.error_message or 'Unknown error'}"
+        if not self.file_count:
+            return "⚠ No audio files found in directory"
+        if self.format_counts:
+            breakdown = ", ".join(
+                f"{fmt.upper()}: {count}"
+                for fmt, count in sorted(self.format_counts.items(), key=_by_count_name)
+            )
+            return f"✓ Detected: {self.file_count} file(s) — {breakdown}"
         if self.input_format:
             return f"✓ Detected: {self.file_count} {self.input_format.upper()} file(s)"
-        return "⚠ No audio files found in directory"
+        return f"✓ Detected: {self.file_count} file(s)"
 
 
-def scan_input_directory(input_dir: str) -> ScanResult:
+def _by_count_name(item: tuple[str, int]) -> tuple[int, str]:
+    """Sort breakdown entries by descending count, then format name."""
+    fmt, count = item
+    return (-count, fmt)
+
+
+def discover_input_files(input_dir: str, recursive: bool = True) -> list[str]:
+    """
+    Return every supported audio file under *input_dir* as a list of paths
+    relative to *input_dir*.
+
+    Entries are sorted by name within each directory and subdirectories are
+    traversed in sorted order, so repeated scans of an unchanged tree
+    always yield the same list.
+
+    With ``recursive=False`` only the top level is inspected (the legacy
+    flat behaviour).  With ``recursive=True`` the whole tree is walked and
+    returned entries keep their relative subdirectory, so a caller can
+    mirror that structure when writing output.
+
+    Unreadable *nested* directories are logged and skipped so one bad
+    subtree never aborts a scan; an unreadable *root* re-raises so callers
+    can report the failure.
+    """
+    if not input_dir or not os.path.isdir(input_dir):
+        return []
+    if recursive:
+        return _discover_recursive(input_dir)
+    return _discover_flat(input_dir)
+
+
+def _discover_flat(input_dir: str) -> list[str]:
+    files: list[str] = []
+    with os.scandir(input_dir) as entries:
+        for entry in entries:
+            if entry.is_file() and detect_format(entry.name):
+                files.append(entry.name)
+    return sorted(files)
+
+
+def _discover_recursive(input_dir: str) -> list[str]:
+    """Walk *input_dir* top-down, returning relative paths of audio files.
+
+    Explicit recursion (rather than ``os.walk``) so an unreadable directory
+    is attributed precisely: the root re-raises so callers report the
+    failure, any nested directory is logged and skipped.
+    """
+    root = os.path.abspath(input_dir)
+    files: list[str] = []
+    # (path relative to input_dir, absolute directory path)
+    pending: list[tuple[str, str]] = [("", input_dir)]
+
+    while pending:
+        rel_dir, current = pending.pop(0)
+        try:
+            with os.scandir(current) as entries:
+                children = sorted(entries, key=lambda e: e.name)
+        except OSError as exc:
+            if os.path.abspath(current) == root:
+                raise
+            logger.warning(
+                "Skipping unreadable directory %s during scan: %s", current, exc
+            )
+            continue
+
+        subdirs: list[tuple[str, str]] = []
+        for entry in children:
+            try:
+                is_dir = entry.is_dir(follow_symlinks=False)
+            except OSError:
+                is_dir = False
+            if is_dir:
+                subdirs.append(
+                    (os.path.join(rel_dir, entry.name), entry.path)
+                    if rel_dir
+                    else (entry.name, entry.path)
+                )
+            elif detect_format(entry.name):
+                files.append(
+                    os.path.join(rel_dir, entry.name) if rel_dir else entry.name
+                )
+        pending.extend(sorted(subdirs))
+
+    return files
+
+
+def scan_input_directory(input_dir: str, recursive: bool = True) -> ScanResult:
     """
     Scan input_dir for audio files and determine valid output formats.
+
+    Subdirectories are included by default.  Mixed source formats are
+    supported: each file is converted against its own detected format and
+    the counts are reported per format.
 
     Returns a ScanResult describing what was found and what output
     formats are available.  Never raises.
@@ -167,15 +277,12 @@ def scan_input_directory(input_dir: str) -> ScanResult:
     if not input_dir or not os.path.isdir(input_dir):
         return ScanResult(ok=True, output_formats=ALL_OUTPUT_FORMATS)
 
-    detected: set[str] = set()
-    count = 0
+    counts: dict[str, int] = {}
     try:
-        for entry in os.scandir(input_dir):
-            if entry.is_file():
-                fmt = detect_format(entry.name)
-                if fmt:
-                    detected.add(fmt)
-                    count += 1
+        for rel_path in discover_input_files(input_dir, recursive=recursive):
+            fmt = detect_format(rel_path)
+            if fmt:
+                counts[fmt] = counts.get(fmt, 0) + 1
     except Exception as exc:
         mapped = map_to_audio_error(exc)
         logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
@@ -183,17 +290,16 @@ def scan_input_directory(input_dir: str) -> ScanResult:
             ok=False, error_message=str(exc), output_formats=ALL_OUTPUT_FORMATS
         )
 
-    if not detected:
+    if not counts:
         return ScanResult(ok=True, output_formats=ALL_OUTPUT_FORMATS)
 
-    if len(detected) > 1:
-        mixed = sorted(detected)
-        return ScanResult(ok=False, mixed_formats=mixed, output_formats=[])
-
-    input_fmt = next(iter(detected))
+    total = sum(counts.values())
+    detected = sorted(counts)
     return ScanResult(
         ok=True,
-        input_format=input_fmt,
-        file_count=count,
-        output_formats=available_output_formats(input_fmt),
+        input_format=detected[0] if len(detected) == 1 else None,
+        file_count=total,
+        mixed_formats=detected if len(detected) > 1 else [],
+        output_formats=available_output_formats_for(detected),
+        format_counts=counts,
     )

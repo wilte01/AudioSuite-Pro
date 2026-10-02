@@ -15,20 +15,26 @@ the attributes it accesses:
 
 Because the function only reads the file system and updates these attributes,
 no tkinter root is necessary.
+
+The format lists below are the converter's real ones — ``AppState`` loads them
+from ``music_format_converter.core.formats``, so the tests use the same source
+rather than hand-rolled stand-ins.
 """
 
 import os
 from unittest.mock import MagicMock
 
 from master_driver.ui.utilities_window import update_format_detection
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-LOSSY = ["mp3", "aac", "m4a", "ogg", "opus", "wma"]
-LOSSLESS = ["flac", "wav", "alac", "ape", "wv"]
-ALL_FORMATS = LOSSY + LOSSLESS
+from music_format_converter.core.formats import (
+    ALL_FORMATS,
+    UNSUPPORTED_OUTPUT_FORMATS,
+)
+from music_format_converter.core.formats import (
+    LOSSLESS_FORMATS as LOSSLESS,
+)
+from music_format_converter.core.formats import (
+    LOSSY_FORMATS as LOSSY,
+)
 
 
 def _make_state(**overrides):
@@ -177,7 +183,8 @@ class TestNoAudioFiles:
 
 
 class TestMixedFormats:
-    def test_mixed_formats_shows_warning_and_empties_available(self, tmp_path):
+    def test_mixed_formats_still_offer_targets(self, tmp_path):
+        """E4: mixed input is supported, so the menu is not emptied."""
         (tmp_path / "song.mp3").write_bytes(b"x")
         (tmp_path / "track.flac").write_bytes(b"x")
         label = _make_label()
@@ -189,16 +196,17 @@ class TestMixedFormats:
         )
         update_format_detection(state)
 
-        # Available formats should be empty
-        assert state.converter_available_formats == []
-        # Label should warn about mixed formats
-        label.config.assert_called_once()
-        kwargs = label.config.call_args[1]
-        assert "Mixed formats" in kwargs.get("text", "")
-        # Format menu values should be empty tuple
-        menu.__setitem__.assert_called_with("values", tuple([]))
+        assert state.converter_available_formats
+        # flac+mp3 can reach mp3 (via the flac file) but not flac
+        # (same format / lossy->lossless), and never ape.
+        assert "mp3" in state.converter_available_formats
+        assert "flac" not in state.converter_available_formats
+        assert "ape" not in state.converter_available_formats
+        menu.__setitem__.assert_called_with(
+            "values", tuple(state.converter_available_formats)
+        )
 
-    def test_three_formats_all_detected(self, tmp_path):
+    def test_mixed_formats_show_per_format_counts(self, tmp_path):
         (tmp_path / "a.mp3").write_bytes(b"x")
         (tmp_path / "b.ogg").write_bytes(b"x")
         (tmp_path / "c.flac").write_bytes(b"x")
@@ -208,9 +216,39 @@ class TestMixedFormats:
             _converter_detected_label=label,
         )
         update_format_detection(state)
-        assert state.converter_available_formats == []
-        kwargs = label.config.call_args[1]
-        assert "Mixed formats" in kwargs.get("text", "")
+
+        text = label.config.call_args[1].get("text", "")
+        assert "MP3: 1" in text
+        assert "OGG: 1" in text
+        assert "FLAC: 1" in text
+        assert "Mixed" not in text
+
+    def test_nested_subfolder_files_are_counted(self, tmp_path):
+        """E4: the scan is recursive, so subfolder tracks are detected."""
+        (tmp_path / "CD1").mkdir()
+        (tmp_path / "CD1" / "a.mp3").write_bytes(b"x")
+        (tmp_path / "CD1" / "b.mp3").write_bytes(b"x")
+        label = _make_label()
+        state = _make_state(
+            dir_path=str(tmp_path),
+            _converter_detected_label=label,
+        )
+        update_format_detection(state)
+
+        text = label.config.call_args[1].get("text", "")
+        assert "MP3: 2" in text
+
+    def test_audio_only_in_subfolder_is_not_reported_empty(self, tmp_path):
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "only.mp3").write_bytes(b"x")
+        label = _make_label()
+        state = _make_state(
+            dir_path=str(tmp_path),
+            _converter_detected_label=label,
+        )
+        update_format_detection(state)
+
+        assert "No audio files found" not in label.config.call_args[1].get("text", "")
 
     def test_same_format_multiple_files_is_not_mixed(self, tmp_path):
         """Multiple files all in the same format is not mixed."""
@@ -223,9 +261,9 @@ class TestMixedFormats:
             _converter_detected_label=label,
         )
         update_format_detection(state)
-        kwargs = label.config.call_args[1]
-        assert "Mixed" not in kwargs.get("text", "")
-        assert "Detected" in kwargs.get("text", "")
+        text = label.config.call_args[1].get("text", "")
+        assert "Mixed" not in text
+        assert "Detected" in text
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +341,7 @@ class TestSingleLossyFormat:
         update_format_detection(state)
 
         kwargs = label.config.call_args[1]
-        assert "2 MP3" in kwargs.get("text", "")
+        assert "MP3: 2" in kwargs.get("text", "")
 
 
 # ---------------------------------------------------------------------------
@@ -323,8 +361,12 @@ class TestSingleLosslessFormat:
         )
         update_format_detection(state)
 
-        # Should exclude the input format from all formats
-        expected = [f for f in ALL_FORMATS if f != "flac"]
+        # Excludes the input format and formats with no encoder (ape)
+        expected = [
+            f
+            for f in ALL_FORMATS
+            if f != "flac" and f not in UNSUPPORTED_OUTPUT_FORMATS
+        ]
         assert state.converter_available_formats == expected
 
     def test_lossless_format_shows_success_label(self, tmp_path):
@@ -390,4 +432,4 @@ class TestMixedContent:
 
         # Should detect mp3 only
         kwargs = label.config.call_args[1]
-        assert "1 MP3" in kwargs.get("text", "")
+        assert "MP3: 1" in kwargs.get("text", "")

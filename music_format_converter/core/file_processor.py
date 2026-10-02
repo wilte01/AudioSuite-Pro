@@ -29,7 +29,6 @@ from audio_suite_shared.error_recovery import RecoveryAction, get_recovery_actio
 from audio_suite_shared.exceptions import (
     AudioExternalToolError,
     AudioFormatError,
-    AudioSuiteError,
     handle_audio_errors,
     map_to_audio_error,
     user_message_for,
@@ -44,7 +43,12 @@ from audio_suite_shared.suite_config import load_value
 from audio_suite_shared.thread_safe_slot_var import ThreadSafeSlotVar
 
 from .ffmpeg_params import WAV_DEPTH_CODECS, get_ffmpeg_params
-from .formats import ALL_FORMATS, LOSSLESS_FORMATS, can_convert, detect_format
+from .formats import (
+    LOSSLESS_FORMATS,
+    can_convert,
+    detect_format,
+    discover_input_files,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +232,8 @@ def process_single_file(
             return
 
         # ── Build output path ─────────────────────────────────────────────────
+        # filename may be a relative path ("CD2/track.flac"); keeping it
+        # intact mirrors the input tree and prevents basename collisions.
         base_name = os.path.splitext(filename)[0]
         output_name = f"{base_name}.{output_format}"
         output_path = os.path.join(output_dir, output_name)
@@ -267,6 +273,11 @@ def process_single_file(
             return
 
         # ── Live conversion ───────────────────────────────────────────────────
+        # Mirror the input's relative subdirectory before ffmpeg writes.
+        output_subdir = os.path.dirname(output_path)
+        if output_subdir:
+            os.makedirs(output_subdir, exist_ok=True)
+
         slot_vars[slot_idx].set(f"Converting: {filename[:25]}...")
         cmd = get_ffmpeg_params(
             input_path,
@@ -439,21 +450,32 @@ def run_conversion(
     target_lufs: float = -16.0,
     dither: bool = True,
 ) -> None:
-    """Scan directory, convert all supported audio files with a worker pool."""
+    """Scan directory recursively, convert every audio file it finds.
+
+    Mixed source formats are supported: each file is validated against its
+    own detected format, and per-format counts are reported to the caller.
+    """
     processor = MusicFormatConverterProcessor()
 
-    # File discovery using BaseFileProcessor
-    extensions = tuple(f".{fmt}" for fmt in ALL_FORMATS)
+    # Recursive discovery keeps each file's relative path so the output
+    # tree mirrors the input instead of flattening every track together.
     try:
-        files = processor.discover_audio_files(input_dir, extensions)
-    except AudioSuiteError as exc:
-        logger.error("Directory scan failed: %s", exc, exc_info=True)
-        on_error(user_message_for(exc))
+        files = discover_input_files(input_dir, recursive=True)
+    except OSError as exc:
+        mapped = map_to_audio_error(exc)
+        logger.error("Directory scan failed: %s", mapped, exc_info=True)
+        on_error(user_message_for(mapped))
         return
 
     if not files:
         on_error("No supported audio files found in the selected directory.")
         return
+
+    format_counts: dict[str, int] = {}
+    for rel_path in files:
+        fmt = detect_format(rel_path)
+        if fmt:
+            format_counts[fmt] = format_counts.get(fmt, 0) + 1
 
     # Create output directory if needed
     if output_dir != input_dir and not is_dry_run:
@@ -567,4 +589,5 @@ def run_conversion(
         duration_secs=time.time() - start,
         log_entries=log_entries,
         output_dir=output_dir,
+        format_counts=format_counts,
     )

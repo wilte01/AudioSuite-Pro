@@ -424,8 +424,11 @@ class _SetupFrame(BaseSetupFrame):
             text=(
                 "ℹ Supported input formats: MP3, AAC, M4A, WAV, FLAC, "
                 "OGG, OPUS, WMA, ALAC, APE, WV\n"
-                "• All input files must be in the same format\n"
-                "• Output format options automatically exclude the input format\n"
+                "• Subfolders are included in the scan, recursively\n"
+                "• Mixed input formats are supported; each file is "
+                "converted from its own format\n"
+                "• Output format options exclude formats that no input "
+                "can be converted to\n"
                 "• Conversion maintains highest possible quality\n"
                 "• Lossy to lossless conversion is automatically prevented"
             ),
