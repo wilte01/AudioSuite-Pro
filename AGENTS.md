@@ -84,6 +84,23 @@ app.some_var.get.return_value = "expected"
 Never instantiate the real `tk.Tk` or `tk.Tk()` in tests unless using the
 session-scoped hidden root from `conftest.py`.
 
+- **A widget's construction-time default is what the user sees whenever its
+  update path never runs — and every programmatic pre-fill bypasses the widget
+  events that would have run it.** A `readonly` Combobox seeded in `build()`
+  with `values = ALL_FORMATS` is narrowed only by the handler bound to the
+  source widget's `<FocusOut>`/`<Return>`. None of those fire when the value was
+  set in Python instead of typed: the Master Driver/CLI arg
+  (`runner/arg_builder.py` passes the shared directory positionally), a
+  `--flag`-parsed value, or a restored `suite_config.load_last_directory()`.
+  The tool then launches showing every option — in
+  `music_format_converter` the mp3-only folder kept `mp3` *and* every lossless
+  target selectable, and a dry run skipped 10/10 files as same-format. Rule:
+  any variable written outside a widget edit must route through the **same**
+  update function the edit handler calls (schedule it, don't duplicate the
+  logic), and every pre-fill route needs a test asserting the *narrowed* state.
+  Audit all of them together — Driver argv, CLI flags, restored config — since
+  a single missed route reproduces the whole bug.
+
 ## Startup Pre-Flight Guard (Do Not Disable)
 
 `Master_Driver.pyw` (and the pattern it establishes) runs
@@ -326,6 +343,13 @@ Follow them or the "passing" run is misleading.
   `rg` — it scans exactly the files about to be committed, the precise
   "blocker" gate. This is what caught and excluded the live Fanart.tv keys in
   P1 (`PLAN_audit_priority_actions.md`, Decision D11).
+
+- **pwsh has no heredoc: long commit messages need `git commit -F <file>`.**
+  `git commit -F - <<'MSG'` is bash-only and dies with `ParserError: Missing
+  file specification after redirection operator`, wasting a round trip on a
+  message this repo's style expects to be long (every audit item records a
+  multi-paragraph body). Write the message to a file with the write tool, then
+  `git commit -F "<path>"`, and delete the scratch file afterwards.
 
 - **A secret scan is only as good as its alternation: match `*_key`/`*_secret`
   suffixes, 32-hex literals and 44+-char base64, not just
