@@ -11,13 +11,14 @@ import logging
 import os
 import threading
 import tkinter as tk
+from collections.abc import Sequence
 from tkinter import messagebox
-from typing import Callable, Optional, cast
+from typing import Any, Callable, Optional, cast
 
 from audio_refinery.core.models import StageConfig
 from audio_suite_shared import suite_config as _suite_config
 from audio_suite_shared import ui_common
-from audio_suite_shared.tool_plugin import get_registry
+from audio_suite_shared.tool_plugin import ToolManifest, get_registry
 
 from .batch_orchestrator import BatchProgress
 from .runner import arg_builder, module_runner
@@ -96,6 +97,12 @@ def launch_refinery(
     snapshot_clear_logs = state.clear_logs_var.get()
     snapshot_source = state.refinery_source.get().strip()
 
+    # Build the argv here, on the main thread: build_refinery_args reads live
+    # widget state, and an edit made while the batch is launching must not
+    # change the run already in flight (audit H4). The thread receives the
+    # finished spec list, not `state`.
+    specs = _resolved_specs(arg_builder.build_refinery_args(state, config))
+
     # Persist settings so standalone app stays in sync
     from .ui import refinery_tab
 
@@ -103,8 +110,7 @@ def launch_refinery(
     _suite_config.save_last_directory(snapshot_source)
     threading.Thread(
         target=lambda: _run_refinery(
-            state,
-            config,
+            specs,
             refine_btn,
             root,
             snapshot_clear_logs=snapshot_clear_logs,
@@ -114,16 +120,25 @@ def launch_refinery(
     ).start()
 
 
+def _resolved_specs(
+    specs: Sequence[tuple[Any, ToolManifest | str, list[str]]],
+) -> list[tuple[bool, ToolManifest | str, list[str]]]:
+    """Replace each toggle variable with its current value.
+
+    Called on the main thread so the worker's spec list holds no Tk variable:
+    ``run_modules`` then never calls ``.get()`` off-thread.
+    """
+    return [(bool(toggle.get()), manifest, args) for toggle, manifest, args in specs]
+
+
 def _run_refinery(
-    state: AppState,
-    config: StageConfig,
+    specs: Sequence[tuple[bool, ToolManifest | str, list[str]]],
     refine_btn: tk.Button,
     root: tk.Tk,
     *,
     snapshot_clear_logs: bool = False,
     snapshot_source: str = "",
 ) -> None:
-    specs = arg_builder.build_refinery_args(state, config)
     module_runner.run_modules(
         module_specs=specs,
         clear_logs=snapshot_clear_logs,
@@ -131,16 +146,13 @@ def _run_refinery(
         on_start=lambda: _after(
             root, lambda: refine_btn.config(state="disabled", text="REFINING...")
         ),
-        on_complete=lambda executed: _on_refinery_complete(
-            executed, state, refine_btn, root
-        ),
+        on_complete=lambda executed: _on_refinery_complete(executed, refine_btn, root),
         on_error=lambda t, m: _after(root, lambda: messagebox.showerror(t, m)),
     )
 
 
 def _on_refinery_complete(
     executed: int,
-    state: AppState,
     refine_btn: tk.Button,
     root: tk.Tk,
 ) -> None:
@@ -192,10 +204,13 @@ def launch_enrich(
     snapshot_clear_logs = state.clear_logs_var.get()
     snapshot_parallel = state.parallel_var.get()
 
+    # Built on the main thread; the thread receives the finished list.
+    specs = _resolved_specs(arg_builder.build_enrich_args(state))
+
     _suite_config.save_last_directory(snapshot_dir)
     threading.Thread(
         target=lambda: _run_enrich(
-            state,
+            specs,
             run_btn,
             root,
             progress_callback=progress_callback,
@@ -209,7 +224,7 @@ def launch_enrich(
 
 
 def _run_enrich(
-    state: AppState,
+    specs: Sequence[tuple[bool, ToolManifest | str, list[str]]],
     run_btn: tk.Button,
     root: tk.Tk,
     *,
@@ -219,7 +234,6 @@ def _run_enrich(
     snapshot_clear_logs: bool = False,
     snapshot_dir: str = "",
 ) -> None:
-    specs = arg_builder.build_enrich_args(state)
     module_runner.run_modules(
         module_specs=specs,
         clear_logs=snapshot_clear_logs,
@@ -312,10 +326,13 @@ def launch_utility(
     snapshot_clear_logs = state.util_clear_logs_var.get()
     snapshot_parallel = state.parallel_var.get()
 
+    # Built on the main thread; the thread receives the finished list.
+    specs = _resolved_specs(arg_builder.build_utility_args(state))
+
     _suite_config.save_last_directory(snapshot_dir)
     threading.Thread(
         target=lambda: _run_utility_modules(
-            state,
+            specs,
             util_run_btn,
             root,
             progress_callback=progress_callback,
@@ -329,7 +346,7 @@ def launch_utility(
 
 
 def _run_utility_modules(
-    state: AppState,
+    specs: Sequence[tuple[bool, ToolManifest | str, list[str]]],
     util_run_btn: tk.Button,
     root: tk.Tk,
     *,
@@ -339,7 +356,6 @@ def _run_utility_modules(
     snapshot_clear_logs: bool = False,
     snapshot_dir: str = "",
 ) -> None:
-    specs = arg_builder.build_utility_args(state)
     module_runner.run_modules(
         module_specs=specs,
         clear_logs=snapshot_clear_logs,

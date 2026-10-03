@@ -1,10 +1,11 @@
 """
 module_runner.py — Sequential subprocess execution and log clearing.
 
-Input is a list of (toggle_var, ToolManifest, args) tuples produced by
-arg_builder.py.  The manifest replaces the old sentinel-string approach:
-manifest.standalone controls whether the tool is launched as a standalone
-window or as a blocking subprocess.
+Input is a list of (enabled, ToolManifest, args) tuples produced by
+arg_builder.py and resolved by the launcher on the Tk main thread.  The
+manifest replaces the old sentinel-string approach: manifest.standalone
+controls whether the tool is launched as a standalone window or as a
+blocking subprocess.
 """
 
 from __future__ import annotations
@@ -81,7 +82,11 @@ def run_modules(
     """
     Execute enabled modules sequentially, then call on_complete(executed_count).
 
-    Each tuple in *module_specs* must be ``(toggle_var, ToolManifest, args)``.
+    Each tuple in *module_specs* must be ``(enabled, ToolManifest, args)``.
+
+    ``enabled`` is the toggle's value already resolved by the caller on the
+    Tk main thread; a Tk variable is still tolerated for direct callers, but
+    the launchers never pass one, so no ``.get()`` runs on the worker.
 
     Dispatch logic:
         manifest.standalone == True  → launch via start_python_script (non-blocking)
@@ -97,11 +102,13 @@ def run_modules(
     # ── Extract the active specs into a flat list ──────────────────────────
     specs: list[tuple[ToolManifest, list[str], Any]] = []
     for item in module_specs:
-        toggle = item[0]
+        enabled = item[0]
         spec = item[1]
         args = item[2] if len(item) > 2 else []
 
-        if not toggle.get():
+        # The launcher resolved every toggle on the main thread, so the common
+        # path is a plain bool. A Tk variable is accepted for direct callers.
+        if not (enabled if isinstance(enabled, bool) else bool(enabled.get())):
             continue
 
         # Accept both ToolManifest and legacy str filename
@@ -140,7 +147,7 @@ def run_modules(
                 )
             continue
 
-        specs.append((manifest, args, toggle))
+        specs.append((manifest, args, enabled))
 
     # ═══════════════════════════════════════════════════════════════════════
     # Dispatch: parallel (orchestrator) or sequential (legacy loop).

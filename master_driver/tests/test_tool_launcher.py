@@ -20,12 +20,15 @@ from __future__ import annotations
 
 import sys
 import threading
+import tkinter as tk
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from audio_refinery.core.models import StageConfig
+from master_driver.runner import arg_builder
 from master_driver.state.app_state import AppState
 from master_driver.tool_launcher import (
     _get_current_accent,
@@ -263,19 +266,13 @@ class TestRunRefineryPipeline:
     def test_runs_modules_and_completes(self, state, launch_mocks, tmp_path) -> None:
         root = _RunAfterRoot()
         btn = MagicMock()
-        config = StageConfig(declick=True)
         with (
-            patch(
-                "master_driver.runner.arg_builder.build_refinery_args",
-                return_value=[],
-            ),
             patch("master_driver.runner.module_runner.run_modules") as run_m,
             patch("master_driver.tool_launcher.ui_common.show_message"),
         ):
             run_m.side_effect = lambda **kw: kw["on_complete"](0)
             _run_refinery(
-                state,
-                config,
+                [],
                 btn,
                 root,
                 snapshot_clear_logs=False,
@@ -290,7 +287,7 @@ class TestRunRefineryPipeline:
         root = _RunAfterRoot()
         btn = MagicMock()
         with patch("master_driver.tool_launcher.ui_common.show_message") as msg:
-            _on_refinery_complete(2, state, btn, root)
+            _on_refinery_complete(2, btn, root)
         msg.assert_not_called()
         btn.config.assert_any_call(state="normal", text="LAUNCH REFINERY")
 
@@ -301,19 +298,13 @@ class TestRunEnrichPipeline:
         root = _RunAfterRoot()
         btn = MagicMock()
         on_done = MagicMock()
-        with (
-            patch(
-                "master_driver.runner.arg_builder.build_enrich_args",
-                return_value=[],
-            ),
-            patch("master_driver.runner.module_runner.run_modules") as run_m,
-        ):
+        with patch("master_driver.runner.module_runner.run_modules") as run_m:
             run_m.side_effect = lambda **kw: (
                 kw["on_start"](),
                 kw["on_complete"](2),
             )
             _run_enrich(
-                state,
+                [],
                 btn,
                 root,
                 on_batch_done=on_done,
@@ -332,19 +323,13 @@ class TestRunUtilityPipeline:
         root = _RunAfterRoot()
         btn = MagicMock()
         on_done = MagicMock()
-        with (
-            patch(
-                "master_driver.runner.arg_builder.build_utility_args",
-                return_value=[],
-            ),
-            patch("master_driver.runner.module_runner.run_modules") as run_m,
-        ):
+        with patch("master_driver.runner.module_runner.run_modules") as run_m:
             run_m.side_effect = lambda **kw: (
                 kw["on_start"](),
                 kw["on_complete"](1),
             )
             _run_utility_modules(
-                state,
+                [],
                 btn,
                 root,
                 on_batch_done=on_done,
@@ -361,14 +346,148 @@ class TestRunUtilityPipeline:
     ) -> None:
         root = _RunAfterRoot()
         btn = MagicMock()
-        with (
-            patch(
-                "master_driver.runner.arg_builder.build_utility_args",
-                return_value=[],
-            ),
-            patch("master_driver.runner.module_runner.run_modules") as run_m,
-        ):
+        with patch("master_driver.runner.module_runner.run_modules") as run_m:
             run_m.side_effect = lambda **kw: kw["on_complete"](0)
-            _run_utility_modules(state, btn, root, snapshot_dir=str(tmp_path))
+            _run_utility_modules([], btn, root, snapshot_dir=str(tmp_path))
         run_m.assert_called_once()
         btn.config.assert_any_call(state="normal", text="LAUNCH UTILITY PROCESS")
+
+
+class _DeferredThreads:
+    """Collects the launcher threads a test never lets start."""
+
+    def __init__(self) -> None:
+        self.created: list = []
+
+    def run_latest(self) -> None:
+        assert self.created, "launcher never created a thread"
+        self.created[-1].target()
+
+
+@contextmanager
+def deferred_threads():
+    """Replace threading.Thread with a recorder, innermost patch wins.
+
+    Applied inside the test body rather than as a fixture so it always wins
+    over the launch_mocks fixture's Thread patch, whatever the setup order.
+    """
+    holder = _DeferredThreads()
+
+    class _Recorder:
+        """Thread stand-in: records the target, ``start()`` does nothing."""
+
+        def __init__(self, target, daemon: bool = False, **_kwargs) -> None:
+            self.target = target
+            self.daemon = daemon
+            holder.created.append(self)
+
+        def start(self) -> None:
+            """Deliberately inert — the test invokes ``target`` explicitly."""
+
+    with patch.object(threading, "Thread", _Recorder):
+        yield holder
+
+
+@pytest.mark.gui  # builds real tk.Variable objects: needs a Tk root
+class TestArgvBuiltOnMainThread:
+    """A4 (audit H4): the argv must be built before the thread starts.
+
+    Regression background
+    ---------------------
+    ``build_*_args`` reads live widget state. The launchers used to call it
+    *inside* the daemon thread, so an edit made while the batch was launching
+    silently re-derived the argv — most visibly flipping the emitted
+    ``--live``/``--dry`` token of the run already in flight.
+    """
+
+    @staticmethod
+    def _argv_of(specs) -> list[list[str]]:
+        return [list(args) for _, _, args in specs]
+
+    def test_enrich_argv_survives_state_edit_before_thread_start(
+        self, state, launch_mocks, tmp_path
+    ) -> None:
+        state.dir_path.set(str(tmp_path))
+        state.global_mode.set("Live Update")
+        expected = self._argv_of(arg_builder.build_enrich_args(state))
+
+        with (
+            deferred_threads() as threads,
+            patch("master_driver.runner.module_runner.run_modules") as run_m,
+        ):
+            launch_enrich(state, MagicMock(), MagicMock())
+            # The edit lands after argv construction, before the thread runs.
+            state.global_mode.set("Dry Run")
+            state.dir_path.set(str(tmp_path / "elsewhere"))
+            threads.run_latest()
+
+        run_m.assert_called_once()
+        assert self._argv_of(run_m.call_args.kwargs["module_specs"]) == expected
+        assert any("--live" in args for args in expected)
+
+    def test_utility_argv_survives_state_edit_before_thread_start(
+        self, state, launch_mocks, tmp_path
+    ) -> None:
+        state.dir_path.set(str(tmp_path))
+        state.module_toggles["converter"].set(True)
+        expected = self._argv_of(arg_builder.build_utility_args(state))
+
+        with (
+            deferred_threads() as threads,
+            patch("master_driver.runner.module_runner.run_modules") as run_m,
+        ):
+            launch_utility(state, MagicMock(), MagicMock())
+            state.dir_path.set(str(tmp_path / "elsewhere"))
+            state.module_toggles["converter"].set(False)
+            threads.run_latest()
+
+        run_m.assert_called_once()
+        assert self._argv_of(run_m.call_args.kwargs["module_specs"]) == expected
+
+    def test_refinery_argv_survives_state_edit_before_thread_start(
+        self, state, launch_mocks, tmp_path
+    ) -> None:
+        state.refinery_source.set(str(tmp_path))
+        state.refinery_output.set(str(tmp_path / "out_a"))
+        config = StageConfig(declick=True)
+        expected = self._argv_of(arg_builder.build_refinery_args(state, config))
+
+        with (
+            deferred_threads() as threads,
+            patch("master_driver.runner.module_runner.run_modules") as run_m,
+            patch("master_driver.ui.refinery_tab.save_settings"),
+        ):
+            launch_refinery(state, config, MagicMock(), MagicMock())
+            state.refinery_output.set(str(tmp_path / "out_b"))
+            threads.run_latest()
+
+        run_m.assert_called_once()
+        argv = self._argv_of(run_m.call_args.kwargs["module_specs"])
+        assert argv == expected
+        assert any("out_a" in arg for args in argv for arg in args), (
+            "the pre-edit output path is missing from the emitted argv"
+        )
+        assert not any("out_b" in arg for args in argv for arg in args)
+
+    def test_thread_receives_resolved_specs_not_live_variables(
+        self, state, launch_mocks, tmp_path
+    ) -> None:
+        """The spec list holds plain values: no Tk variable crosses the boundary."""
+        state.dir_path.set(str(tmp_path))
+        state.module_toggles["converter"].set(True)
+
+        with (
+            deferred_threads() as threads,
+            patch("master_driver.runner.module_runner.run_modules") as run_m,
+        ):
+            launch_utility(state, MagicMock(), MagicMock())
+            threads.run_latest()
+
+        specs = run_m.call_args.kwargs["module_specs"]
+        assert specs, "build_utility_args returned no specs for the enabled registry"
+        assert all(type(enabled) is bool for enabled, _, _ in specs)
+        converter = next(
+            args for _, manifest, args in specs if manifest.id == "converter"
+        )
+        assert converter, "the enabled converter tool contributed no argv"
+        assert not any(type(arg) is tk.Variable for arg in converter)
