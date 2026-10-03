@@ -517,20 +517,101 @@ class TestEdgeCases:
 
 
 class TestDependencyGraph:
-    def test_all_registered_tools_have_entry(self):
-        """Every registered enrich/utility tool should have a DEPENDENCY_GRAPH entry."""
+    # Deliberate exclusions from the registry-completeness contract.
+    #
+    # A tool id belongs in DEPENDENCY_GRAPH only if the Master Driver can
+    # actually schedule it, which requires a CLI command (the batch launches
+    # modules as subprocesses) and an arg-builder entry. `undo_tag_edits` is
+    # the one registered tool with `cli_command is None`: it is a
+    # GUI-only undo utility with no CLI and no arg-builder entry, so it can
+    # never appear in an enrich/utility batch.
+    #
+    # This is an explicit, named allowlist as required by the registry
+    # agreement point in `audio_suite_shared/tool_plugin.py`, and
+    # `test_excluded_matches_the_batch_ineligible_rule` pins it to the rule
+    # itself so it cannot silently absorb a future tool.
+    EXCLUDED: frozenset[str] = frozenset({"undo_tag_edits"})
+
+    @staticmethod
+    def _registered() -> set[str]:
         from audio_suite_shared.tool_plugin import get_registry
 
-        registry = get_registry()
-        registered_ids = {m.id for m in registry.all}
-        graph_ids = set(DEPENDENCY_GRAPH.keys())
-        # The consumer contract: a tool missing a graph entry resolves to
-        # empty dependencies ( newcomers run in parallel by default ), which
-        # is exactly what run_modules reads. Assert that resolution works.
-        missing = registered_ids - graph_ids
-        for tid in missing:
-            deps = DEPENDENCY_GRAPH.get(tid, [])
-            assert isinstance(deps, list), (tid, deps)
+        return {m.id for m in get_registry().all}
+
+    def test_graph_covers_every_batch_eligible_tool(self):
+        """set(manifest ids) == set(DEPENDENCY_GRAPH keys | EXCLUDED).
+
+        This is the agreement point `tool_plugin.py` documents: a new tool
+        added to the registry must arrive with a graph entry, or its ordering
+        contract is unstated and it silently defaults to "no dependencies".
+        """
+        registered = self._registered()
+        expected = registered - self.EXCLUDED
+        assert set(DEPENDENCY_GRAPH.keys()) == expected, (
+            "missing from DEPENDENCY_GRAPH: "
+            f"{sorted(expected - set(DEPENDENCY_GRAPH))}; "
+            "stale (no longer registered): "
+            f"{sorted(set(DEPENDENCY_GRAPH) - expected)}"
+        )
+
+    def test_graph_has_no_stale_ids(self):
+        """The graph must not name a tool that is no longer registered."""
+        assert set(DEPENDENCY_GRAPH) - self._registered() == set()
+
+    def test_excluded_matches_the_batch_ineligible_rule(self):
+        """EXCLUDED == exactly the registered tools with no CLI command.
+
+        Anchors the allowlist to a derivable property rather than a hand-typed
+        list: if `undo_tag_edits` ever gains a CLI it automatically demands a
+        graph entry, and any new CLI-less tool is reported here as an
+        unexplained exclusion instead of passing silently.
+        """
+        from audio_suite_shared.tool_plugin import get_registry
+
+        no_cli = frozenset(m.id for m in get_registry().all if not m.cli_command)
+        assert self.EXCLUDED == no_cli
+
+    def test_excluded_tools_have_no_arg_builder_entry(self):
+        """An excluded id must not be schedulable, or the exclusion is wrong.
+
+        Both builders end with `builders.get(tool_id)` and return `[]` for an
+        unknown id, so an excluded tool with no entry yields no arguments and
+        can never be launched by a batch. That silent `[]` is exactly why the
+        exclusion has to be named here rather than left implicit.
+        """
+        from master_driver.runner.arg_builder import (
+            _build_enrich_tool_args,
+            _build_utility_tool_args,
+        )
+
+        assert self.EXCLUDED, "the exclusion allowlist must not be empty"
+        for tool_id in sorted(self.EXCLUDED):
+            for builder in (_build_enrich_tool_args, _build_utility_tool_args):
+                assert (
+                    builder(tool_id, "/tmp", "--dry", "--no-start", "--no-end", None)
+                    == []
+                )
+
+    # Note: `audio_refinery` is category "refinery" and is scheduled by
+    # build_refinery_args, not by the enrich/utility builders, so it is not
+    # reachable from them. Its scheduling contract is covered by
+    # TestBuildRefineryArgs in master_driver/tests/test_runner.py.
+
+    def test_non_vacuity_graph_is_not_empty(self):
+        """Guard the contract test itself: an empty graph must not pass it."""
+        registered = self._registered()
+        assert len(DEPENDENCY_GRAPH) >= len(registered) - len(self.EXCLUDED)
+        assert len(DEPENDENCY_GRAPH) == len(set(DEPENDENCY_GRAPH))
+
+    def test_new_ids_have_no_unstated_dependencies(self):
+        """The three ids added by iteration-8 C4 read only path/mode/start/end.
+
+        Each was verified against its arg-builder signature: none consumes
+        another tool's output, so `[]` is the correct declared dependency set.
+        """
+        for tool_id in ("mood_analyzer", "noise_reduction", "tag_field_updater"):
+            assert tool_id in DEPENDENCY_GRAPH
+            assert DEPENDENCY_GRAPH[tool_id] == []
 
     def test_no_self_reference(self):
         for tid, deps in DEPENDENCY_GRAPH.items():
@@ -542,6 +623,13 @@ class TestDependencyGraph:
             for dep in deps:
                 dep_deps = DEPENDENCY_GRAPH.get(dep, [])
                 assert tid not in dep_deps, f"Circular dependency: {tid} <-> {dep}"
+
+    def test_every_dependency_is_a_graph_key(self):
+        """A dep naming an unregistered id can never be satisfied."""
+        known = set(DEPENDENCY_GRAPH)
+        for tid, deps in DEPENDENCY_GRAPH.items():
+            for dep in deps:
+                assert dep in known, f"{tid} depends on ungraphed id {dep!r}"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
