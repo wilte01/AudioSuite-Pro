@@ -3,11 +3,8 @@ tests/security/test_input_validator.py
 
 Unit tests for audio_suite_shared.security.input_validator.
 
-These tests serve two purposes:
-1. Regression coverage for the validate_directory_path() logic bug
-   (the original implementation always returned True).
-2. General coverage of the validator's security surface so future
-   changes cannot silently break the checks.
+General coverage of the validator's security surface so future changes cannot
+silently break the checks.
 
 Run:
     pytest tests/security/test_input_validator.py
@@ -15,6 +12,7 @@ Run:
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -75,16 +73,13 @@ class TestValidateFilePath:
 
 class TestValidateDirectoryPath:
     """
-    Regression tests for the validate_directory_path() logic bug.
+    Coverage for validate_directory_path().
 
-    The original implementation compared resolved_path.startswith(original_path)
-    where both were derived identically via Path.resolve() — meaning the check
-    was always True and provided no protection.
-
-    The fix:
-    - Still returns True for legitimate paths (including secondary drives).
-    - Logs a warning for symlinks resolving outside safe roots.
-    - Returns False only for paths that fail validate_file_path() first.
+    The current implementation rejects only what validate_file_path() rejects
+    (relative paths, traversal, unsafe characters) and additionally *warns*
+    when a path traverses a symlink whose target sits outside the home and
+    temp roots.  A non-existent path is allowed because the caller may be
+    about to create it.
     """
 
     def test_existing_directory_accepted(self, tmp_path):
@@ -127,48 +122,49 @@ class TestValidateDirectoryPath:
         tmp = tempfile.gettempdir()
         assert InputValidator.validate_directory_path(tmp) is True
 
-    def test_symlink_outside_safe_root_logs_warning(self, tmp_path):
+    def test_symlink_outside_safe_root_logs_warning(self, tmp_path, caplog):
         """
-        A symlink that resolves outside home/tmp should log a warning
-        but still return True (secondary drives are legitimate).
-        """
-        # Create a real directory to point the symlink at.
-        real_target = tmp_path / "real_audio"
-        real_target.mkdir()
+        A symlink that resolves outside home/tmp logs a warning but is still
+        permitted (secondary drives are legitimate).
 
+        The branch is exercised through a simulated link so the assertion holds
+        on hosts where creating a symlink requires privileges.
+        """
+        # Pin the safe roots away from the resolved target.
+        safe_home = tmp_path / "fake_home"
+        safe_tmp = tmp_path / "fake_tmp"
+        safe_home.mkdir()
+        safe_tmp.mkdir()
+        target = tmp_path / "secondary_drive"
+        target.mkdir()
         link = tmp_path / "link_to_audio"
-        try:
-            link.symlink_to(real_target)
-        except (OSError, NotImplementedError):
-            pytest.skip("Symlinks not supported on this platform/filesystem")
+        link.mkdir()
 
-        import logging
+        original_resolve = Path.resolve
 
-        with patch.object(logging.getLogger("audio_suite.security"), "warning"):
-            # Patch safe_roots to exclude tmp_path so the warning fires.
-            with patch(
-                "audio_suite_shared.security.input_validator.Path.home",
-                return_value=Path("/nonexistent_home"),
-            ):
-                result = InputValidator.validate_directory_path(str(link))
+        def _resolve(self, *args, **kwargs):
+            return target if self == link else original_resolve(self, *args, **kwargs)
+
+        with (
+            patch.object(Path, "home", classmethod(lambda _cls: safe_home)),
+            patch("tempfile.gettempdir", return_value=str(safe_tmp)),
+            patch.object(Path, "resolve", _resolve),
+            caplog.at_level(logging.WARNING),
+        ):
+            result = InputValidator.validate_directory_path(str(link))
 
         # Should still return True — warn but don't block secondary drives.
         assert result is True
+        assert "Directory symlink resolves outside safe roots" in caplog.text
+        assert str(target) in caplog.text
 
-    def test_bug_regression_always_true_was_wrong(self, tmp_path):
+    def test_validation_is_not_vacuous(self, tmp_path):
         """
-        Regression: the original validate_directory_path() always returned
-        True because it compared resolved_path.startswith(resolved_path).
-        Verify the fix actually evaluates the path content.
+        validate_directory_path() must actually reject unsafe paths: a relative
+        path, an empty string and a traversal string are all refused.
         """
-        # A relative path must be rejected — the old code would accept it
-        # because str("relative").startswith("relative") is True.
         assert InputValidator.validate_directory_path("relative/path") is False
-
-        # An empty string must be rejected.
         assert InputValidator.validate_directory_path("") is False
-
-        # A traversal string must be rejected.
         assert InputValidator.validate_directory_path("../../../etc") is False
 
 
@@ -268,12 +264,21 @@ class TestValidateAudioFilePath:
         assert InputValidator.validate_audio_file_path(str(tmp_path)) is False
 
     def test_all_allowed_extensions(self, tmp_path):
-        exts = [".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aiff", ".aif", ".wma"]
-        for ext in exts:
+        """The accepted set tracks audio_formats.SUPPORTED_EXTENSIONS exactly."""
+        from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
+
+        for ext in SUPPORTED_EXTENSIONS:
             p = tmp_path / f"track{ext}"
             p.touch()
             assert InputValidator.validate_audio_file_path(str(p)) is True, (
                 f"Expected {ext} to be accepted"
+            )
+
+        for ext in (".wma", ".txt"):
+            p = tmp_path / f"track{ext}"
+            p.touch()
+            assert InputValidator.validate_audio_file_path(str(p)) is False, (
+                f"Expected {ext} to be rejected"
             )
 
 

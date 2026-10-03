@@ -12,6 +12,8 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
+from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,6 +22,11 @@ class InputValidator:
 
     # Allowed characters for file paths.
     SAFE_PATH_PATTERN = re.compile(r"^[a-zA-Z0-9_\-./\\: ,\'&!+()#]+$")
+
+    # The audio extensions this validator accepts. Derived from the suite's
+    # single declared source of truth (audio_suite_shared.audio_formats) so a
+    # newly supported format cannot drift out of the security gate.
+    AUDIO_EXTENSIONS = frozenset(SUPPORTED_EXTENSIONS)
 
     # Dangerous patterns to block.
     DANGEROUS_PATTERNS = [
@@ -123,9 +130,13 @@ class InputValidator:
         """
         Validate a freeform audio tag value.
 
-        Allows all printable Unicode characters plus tab, newline, and
-        carriage return. Rejects other control characters and over-length
-        values without altering the caller's string.
+        Allows every Unicode code point except the C0 control range (other
+        than tab, newline and carriage return) and DEL, plus values up to
+        *max_length* code points. C1 control code points (U+0080–U+009F) are
+        permitted, since tag metadata routinely carries non-Latin scripts.
+
+        Rejects disallowed characters and over-length values without
+        altering the caller's string.
 
         Args:
             value: Tag value to validate.
@@ -146,12 +157,21 @@ class InputValidator:
         """
         Validate a directory path for security vulnerabilities.
 
-        In addition to the checks in validate_file_path, this method
-        detects symlinks that resolve to locations outside the user's
-        home directory or the system temp directory.  Such paths are
-        permitted with a logged warning rather than hard-blocked, because
-        legitimate audio libraries on secondary drives (e.g. D:\\Music)
-        would otherwise be rejected.
+        In addition to the checks in validate_file_path, this method detects
+        a path that traverses a symlink (or Windows junction) and whose real
+        target lies outside the user's home directory and the system temp
+        directory.  Such paths are permitted with a logged warning rather than
+        hard-blocked, because legitimate audio libraries on secondary drives
+        (e.g. D:\\Music) would otherwise be rejected.
+
+        A symlink is detected by comparing the *filesystem-resolved* path
+        against the *lexically normalised* absolute path.  ``resolve()``
+        follows links and normalises the on-disk casing; ``abspath`` +
+        ``normpath`` only collapses ``.``/``..`` textually.  A difference
+        between the two therefore means at least one component was a link.
+        Both sides go through ``os.path.normcase`` so a plain directory whose
+        declared casing differs from the on-disk casing is not misreported as
+        a symlink on Windows.
 
         Args:
             dir_path: Directory path to validate.
@@ -172,7 +192,7 @@ class InputValidator:
                 return True
 
             # Detect symlinks that redirect outside expected locations.
-            if resolved != declared.resolve(strict=False):
+            if cls._traverses_symlink(declared, resolved):
                 # The path involved at least one symlink.
                 safe_roots = (
                     Path.home(),
@@ -193,6 +213,24 @@ class InputValidator:
             return False
 
         return True
+
+    @staticmethod
+    def _traverses_symlink(declared: Path, resolved: Path) -> bool:
+        """
+        Report whether *declared* reaches *resolved* via a symlink.
+
+        Args:
+            declared: The path exactly as the caller supplied it.
+            resolved: The same path after ``Path.resolve()``.
+
+        Returns:
+            True if resolving the path changed it, which can only happen when
+            a symlink or junction was traversed. The comparison is
+            case-insensitive on platforms where casing is not significant, so
+            a real directory declared with different casing is not flagged.
+        """
+        lexical = Path(os.path.normpath(os.path.abspath(declared)))
+        return os.path.normcase(str(lexical)) != os.path.normcase(str(resolved))
 
     @classmethod
     def validate_filename(cls, filename: str) -> bool:
@@ -253,8 +291,10 @@ class InputValidator:
         """
         Validate an audio file path specifically.
 
-        Checks that the path passes general security validation, has an
-        allowed audio extension, and refers to an existing file.
+        Checks that the path passes general security validation, carries an
+        extension from ``InputValidator.AUDIO_EXTENSIONS`` (derived from the
+        suite's declared ``SUPPORTED_EXTENSIONS``), and refers to an existing
+        regular file.
 
         Args:
             file_path: Audio file path to validate.
@@ -267,17 +307,7 @@ class InputValidator:
 
         try:
             path = Path(file_path)
-            allowed_extensions = {
-                ".mp3",
-                ".flac",
-                ".wav",
-                ".ogg",
-                ".m4a",
-                ".aiff",
-                ".aif",
-                ".wma",
-            }
-            if path.suffix.lower() not in allowed_extensions:
+            if path.suffix.lower() not in cls.AUDIO_EXTENSIONS:
                 return False
 
             return path.exists() and path.is_file()
