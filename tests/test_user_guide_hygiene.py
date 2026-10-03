@@ -18,6 +18,11 @@ invariant so the tree cannot silently rot again:
    per-tool "Log Files" section of each user guide; a central logging guide
    may be reintroduced later, but it is not a per-tool artifact.
 4. *Generator lock* - no ``generate_logging_guide.py`` remains, matching (3).
+5. *Changelog lock* - ``CHANGELOG.md``'s ``[Unreleased]`` section is never blank.
+   The file declares Keep-a-Changelog and SemVer compliance, so an empty
+   ``[Unreleased]`` is a silent lie: a release-sized iteration lands with
+   nothing recorded. An explicit "nothing yet" line satisfies the lock; a bare
+   heading does not.
 
 The tracked-file set is read through ``git ls-files`` so the locks assert on
 what is actually *committed*, not on what merely exists in a working tree -
@@ -223,4 +228,118 @@ class TestGuideRegistration:
         assert not offenders, (
             "platform_utils.guide_to_program still registers removed logging "
             "guides:\n  " + "\n  ".join(offenders)
+        )
+
+
+# ---------------------------------------------------------------------------
+# CHANGELOG hygiene
+# ---------------------------------------------------------------------------
+
+CHANGELOG = REPO_ROOT / "CHANGELOG.md"
+
+#: Heading that opens the not-yet-versioned section.
+UNRELEASED_MARKER = "## [Unreleased]"
+
+#: A maintainer may legitimately declare an empty section - but only in words.
+#: Any of these phrases counts as that declaration.
+_EXPLICIT_EMPTY_PHRASES: tuple[str, ...] = (
+    "nothing yet",
+    "nothing to record",
+    "no changes yet",
+    "_nothing recorded_",
+)
+
+
+def _changelog_text() -> str:
+    """Return the changelog's full text.
+
+    Returns:
+        The decoded contents of ``CHANGELOG.md``.
+    """
+    return CHANGELOG.read_text(encoding="utf-8")
+
+
+def _unreleased_section() -> str:
+    """Extract the body of the ``[Unreleased]`` section.
+
+    The extraction is bounded by the next version heading, so a malformed
+    changelog cannot make this return the whole file.
+
+    Returns:
+        The section's text with surrounding blank lines removed.
+
+    Raises:
+        AssertionError: if the ``[Unreleased]`` heading is absent, or if no
+            later version heading bounds it (which would mean the parse
+            matched nothing rather than finding an empty section).
+    """
+    text = _changelog_text()
+    assert UNRELEASED_MARKER in text, (
+        f"{CHANGELOG.name} has no {UNRELEASED_MARKER!r} heading"
+    )
+    remainder = text.split(UNRELEASED_MARKER, 1)[1]
+    section: list[str] = []
+    for line in remainder.splitlines():
+        if line.startswith("## "):
+            break
+        section.append(line)
+    else:
+        raise AssertionError(
+            f"{CHANGELOG.name}: {UNRELEASED_MARKER!r} is not followed by a version "
+            "heading - the section boundary could not be found, so this check "
+            "would pass vacuously"
+        )
+    return "\n".join(section).strip()
+
+
+class TestChangelogHygiene:
+    """``CHANGELOG.md`` must not carry a blank ``[Unreleased]`` section."""
+
+    def test_unreleased_section_is_populated_or_explicitly_empty(self) -> None:
+        """Record the release-sized changes, or say in words that there are none.
+
+        Non-vacuity comes from ``_unreleased_section``, which fails when the
+        heading or its boundary is missing - so this test can never pass by
+        matching nothing.
+        """
+        section = _unreleased_section()
+        if any(phrase in section.lower() for phrase in _EXPLICIT_EMPTY_PHRASES):
+            return
+        assert section, (
+            f"{CHANGELOG.name}: the {UNRELEASED_MARKER!r} section is empty. "
+            "Record the user-visible changes under Keep-a-Changelog headings "
+            "('### Added' / '### Changed' / '### Fixed'), or state explicitly "
+            "that there is nothing to record (e.g. 'Nothing yet.')."
+        )
+
+    def test_version_headings_are_well_formed(self) -> None:
+        """Every section heading names a version and, if released, a date."""
+        headings = [
+            line
+            for line in _changelog_text().splitlines()
+            if line.startswith("## ") and not line.startswith("### ")
+        ]
+        assert len(headings) >= 2, (
+            f"{CHANGELOG.name}: expected an [Unreleased] heading plus at least "
+            f"one released version, found {headings}"
+        )
+        released = [h for h in headings if h != UNRELEASED_MARKER]
+        assert released, f"{CHANGELOG.name}: no released version section found"
+        for heading in released:
+            assert heading.startswith("## ["), (
+                f"{CHANGELOG.name}: version heading is not bracketed: {heading!r}"
+            )
+            assert " - " in heading, (
+                f"{CHANGELOG.name}: released version heading has no date: {heading!r}"
+            )
+
+    def test_keep_a_changelog_and_semver_are_declared(self) -> None:
+        """The compliance the lock relies on is stated in the file itself."""
+        text = _changelog_text()
+        assert "keepachangelog.com" in text.lower(), (
+            f"{CHANGELOG.name} must cite Keep a Changelog for the format the "
+            "hygiene lock enforces"
+        )
+        assert "semver.org" in text.lower(), (
+            f"{CHANGELOG.name} must cite SemVer for the versioning the lock enforces"
         )
