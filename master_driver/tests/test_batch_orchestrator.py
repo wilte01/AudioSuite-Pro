@@ -7,6 +7,7 @@ execution with controlled durations and exit codes.
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -283,6 +284,12 @@ class TestBatchOrchestratorParallel:
         assert report.completed == 2
 
     def test_standalone_skipped_in_parallel(self):
+        """A standalone step never runs in parallel mode and says so.
+
+        Positive contract: the step is reported SKIPPED and the report's
+        completed/skipped split separates it from the step that actually ran.
+        (The previous version asserted ``completed == 2``, pinning the defect.)
+        """
         steps = [
             _make_step("bpm"),
             _make_step("cd_ripper", standalone=True),
@@ -293,7 +300,87 @@ class TestBatchOrchestratorParallel:
             return_value=_mock_result(0),
         ):
             report = orch.run(parallel=True, max_workers=2)
-        assert report.completed == 2
+        assert report.completed == 1
+        assert report.failed == 0
+        assert report.skipped == 1
+        statuses = {s.tool_id: s.status for s in report.steps}
+        assert statuses == {
+            "bpm": StepStatus.COMPLETED,
+            "cd_ripper": StepStatus.SKIPPED,
+        }
+
+    def test_standalone_step_is_never_submitted_to_the_pool(self):
+        """The skipped step must not be handed to the executor at all."""
+        steps = [
+            _make_step("bpm"),
+            _make_step("cd_ripper", standalone=True),
+        ]
+        orch = BatchOrchestrator(steps)
+        with (
+            patch(
+                "master_driver.batch_orchestrator.run_python_script",
+                return_value=_mock_result(0),
+            ) as run_script,
+            patch("master_driver.batch_orchestrator.start_python_script") as start,
+        ):
+            orch.run(parallel=True, max_workers=2)
+        assert [call.args[0] for call in run_script.call_args_list] == [
+            steps[0].script_path
+        ]
+        assert start.call_count == 0
+
+    def test_standalone_skip_is_logged_with_the_tool_names(self, caplog):
+        """The skipped set is surfaced, not just counted."""
+        steps = [
+            _make_step("bpm"),
+            _make_step("cd_ripper", standalone=True),
+            _make_step("undo_tag_edits", standalone=True),
+        ]
+        orch = BatchOrchestrator(steps)
+        with (
+            patch(
+                "master_driver.batch_orchestrator.run_python_script",
+                return_value=_mock_result(0),
+            ),
+            caplog.at_level(logging.INFO, logger="master_driver.batch_orchestrator"),
+        ):
+            orch.run(parallel=True, max_workers=2)
+        assert "skipped 2 standalone step(s)" in caplog.text
+        assert "cd_ripper" in caplog.text
+        assert "undo_tag_edits" in caplog.text
+
+    def test_standalone_progress_line_reads_skipped(self):
+        """The per-step status line the UI renders says 'skipped'."""
+        steps = [
+            _make_step("bpm"),
+            _make_step("cd_ripper", standalone=True),
+        ]
+        orch = BatchOrchestrator(steps)
+        seen: list[BatchProgress] = []
+        with patch(
+            "master_driver.batch_orchestrator.run_python_script",
+            return_value=_mock_result(0),
+        ):
+            orch.run(parallel=True, max_workers=2, progress_callback=seen.append)
+        assert seen, "no progress callback fired - the test would prove nothing"
+        last = seen[-1]
+        assert last.steps == [
+            ("bpm", "Bpm", "completed"),
+            ("cd_ripper", "Cd_Ripper", "skipped"),
+        ]
+
+    def test_all_standalone_parallel_batch_terminates(self):
+        """Every step skipped: the pool loop must exit, not spin."""
+        steps = [
+            _make_step("cd_ripper", standalone=True),
+            _make_step("undo_tag_edits", standalone=True),
+        ]
+        orch = BatchOrchestrator(steps)
+        with patch("master_driver.batch_orchestrator.start_python_script") as start:
+            report = orch.run(parallel=True, max_workers=2)
+        assert report.completed == 0
+        assert report.skipped == 2
+        assert start.call_count == 0
 
     def test_parallel_progress_callback_fires(self):
         steps = [

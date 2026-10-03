@@ -225,6 +225,23 @@ def _run_modules_sequential(
                     f"Please ensure all Audio Suite modules are present "
                     f"in the suite root folder.",
                 )
+            # Record the tool as failed and emit its status line before
+            # continuing. Without both, `_emit_progress`'s index-based mapping
+            # (`i < completed_steps`) later renders this step as "completed"
+            # once a *later* step finishes, because `executed` never advanced
+            # for it and it was in neither `failed` nor the finished prefix.
+            failed_steps.append(tool_id)
+            step_times.append(time.monotonic() - step_start)
+            _emit_progress(
+                callback=progress_callback,
+                total_steps=total,
+                completed_steps=executed,
+                current_step=tool_id,
+                failed=failed_steps,
+                batch_start=batch_start,
+                step_times=step_times,
+                all_step_identities=all_step_identities,
+            )
             continue
 
         if manifest.standalone:

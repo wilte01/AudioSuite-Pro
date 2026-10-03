@@ -288,29 +288,42 @@ class BatchOrchestrator:
         completed: set[str] = set()
         running: set[str] = set()
 
-        def _can_run(tid: str) -> bool:
-            return (
-                dep_map[tid].issubset(completed)
-                and tid not in completed
-                and tid not in running
-            )
-
-        # Mark audio_refinery as standalone; skip parallel execution
-        skipped_count = 0
+        # A standalone step is a blocking GUI window, so it cannot be driven
+        # concurrently with the rest of the batch. Parallel mode does not launch
+        # it (sequential mode does, via _launch_standalone) and the step is
+        # reported as SKIPPED — never counted as completed, which would report a
+        # tool that never ran as one that did. `skipped_ids` is tracked
+        # separately from `completed` because `completed` doubles as the
+        # dependency-satisfaction set: a skipped step's dependents must not run
+        # either, so they stay PENDING and are reported as not-run.
+        skipped_ids: set[str] = set()
         for s in self._steps:
             if s.manifest.standalone:
                 s.status = StepStatus.SKIPPED
                 s.start_time = time.monotonic()
                 s.end_time = time.monotonic()
-                completed.add(s.tool_id)
-                completed_count += 1
-                skipped_count += 1
+                skipped_ids.add(s.tool_id)
+
+        if skipped_ids:
+            logger.info(
+                "Parallel batch skipped %d standalone step(s): %s",
+                len(skipped_ids),
+                ", ".join(sorted(skipped_ids)),
+            )
+
+        def _can_run(tid: str) -> bool:
+            return (
+                dep_map[tid].issubset(completed)
+                and tid not in completed
+                and tid not in running
+                and tid not in skipped_ids
+            )
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures: dict[str, Future[bool]] = {}
 
             # Keep submitting tasks as dependencies resolve
-            while len(completed) < len(tool_ids):
+            while len(completed) + len(skipped_ids) < len(tool_ids):
                 for tid in tool_ids:
                     if _can_run(tid) and tid not in futures:
                         step = step_map[tid]

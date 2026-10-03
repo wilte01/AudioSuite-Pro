@@ -1902,6 +1902,110 @@ class TestRunModulesProgress:
             has_failed = any(c.failed_steps for c in captured)
             assert has_failed
 
+    def test_missing_module_is_reported_failed_not_completed(self, tmp_path):
+        """A spec whose .pyw is absent must be shown as 'failed'.
+
+        Positive contract, keyed off the emitted status line: the not-found
+        step appears in ``failed_steps`` and its status line reads 'failed'.
+        Pre-fix it appeared in neither, so the index-based mapping in
+        ``_emit_progress`` fell through to ``i < completed_steps`` and printed
+        'completed' for a module that never ran.
+        """
+        ghost = tmp_path / "ghost.pyw"
+        real = tmp_path / "real.pyw"
+        real.write_text("pass")
+        captured: list = []
+        on_error = MagicMock()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        with patch(
+            "master_driver.runner.module_runner.run_python_script",
+            return_value=mock_result,
+        ):
+            run_modules(
+                [
+                    (self._toggle(True), str(ghost), []),
+                    (self._toggle(True), str(real), []),
+                ],
+                False,
+                str(tmp_path),
+                lambda: None,
+                lambda n: None,
+                progress_callback=captured.append,
+                on_error=on_error,
+            )
+        on_error.assert_called_once()
+        assert captured, "no progress callback fired - the test would prove nothing"
+
+        ghost_key = str(ghost)
+        ghost_lines = [
+            p for p in captured if any(t == ghost_key for t, _, _ in p.steps)
+        ]
+        assert ghost_lines, f"ghost step never appeared in progress: {captured}"
+
+        ghost_status = dict((t, s) for t, _n, s in ghost_lines[-1].steps)[ghost_key]
+        assert ghost_status == "failed"
+
+        # The found sibling still executes normally (M8 must not disturb it).
+        assert captured[-1].completed_steps == 1
+
+    def test_missing_module_does_not_shift_its_siblings_status(self, tmp_path):
+        """A not-found step must never be shown as 'completed'.
+
+        Pre-fix, `executed` did not advance for the ghost, so once the *sibling*
+        finished, the index-based mapping (`i < completed_steps`) painted the
+        ghost green. The sibling's own rendering is a separate pre-existing
+        quirk of that index mapping and is deliberately not asserted here.
+        """
+        ghost = tmp_path / "ghost.pyw"
+        real = tmp_path / "real.pyw"
+        real.write_text("pass")
+        captured: list = []
+        with patch(
+            "master_driver.runner.module_runner.run_python_script",
+            return_value=MagicMock(returncode=0),
+        ):
+            run_modules(
+                [
+                    (self._toggle(True), str(ghost), []),
+                    (self._toggle(True), str(real), []),
+                ],
+                False,
+                str(tmp_path),
+                lambda: None,
+                lambda n: None,
+                progress_callback=captured.append,
+                on_error=MagicMock(),
+            )
+        ghost_key = str(ghost)
+        ghost_statuses = [
+            dict((t, s) for t, _n, s in p.steps).get(ghost_key) for p in captured
+        ]
+        assert "completed" not in ghost_statuses, ghost_statuses
+        assert ghost_statuses[-1] == "failed"
+        assert str(ghost) in captured[-1].failed_steps
+
+    def test_missing_module_status_line_fires_when_no_other_step_runs(self, tmp_path):
+        """The not-found branch emits its own progress event (no successor).
+
+        Guards the `continue`-only path: with nothing else in the batch there
+        is no later ``_emit_progress`` that could surface the failure.
+        """
+        ghost = tmp_path / "ghost.pyw"
+        captured: list = []
+        run_modules(
+            [(self._toggle(True), str(ghost), [])],
+            False,
+            str(tmp_path),
+            lambda: None,
+            lambda n: None,
+            progress_callback=captured.append,
+            on_error=MagicMock(),
+        )
+        assert len(captured) == 2, captured
+        assert captured[-1].steps == [(str(ghost), str(ghost), "failed")]
+        assert captured[-1].failed_steps == [str(ghost)]
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # _driver_display_flags (Clear Logs / Parallel mirroring)
