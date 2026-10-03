@@ -374,9 +374,11 @@ class RipSession:
     def _write_rip_cue(self, done_paths: list[tuple[int, str]]) -> None:
         """Write one .cue sheet per album folder once all tracks succeeded.
 
-        Every successfully-encoded track path contributes one ``TRACK`` whose
-        title/artist are taken from the session's track metadata, so the
-        generated sheet always matches the audio on disk.
+        A track-per-file rip emits **one** ``FILE`` block per encoded track,
+        each holding that track's single ``TRACK`` at ``INDEX 01 00:00:00``.
+        That is the only structure a cue-aware player can resolve for this
+        layout: a sheet with one ``FILE`` naming every track, all at offset
+        zero, describes a single continuous image the rip never produced.
 
         Args:
             done_paths: ``(track_number, output_path)`` pairs for tracks whose
@@ -400,21 +402,32 @@ class RipSession:
                     f"{_safe_filename(album_title) or 'album'}.cue",
                 )
                 os.makedirs(album_dir, exist_ok=True)
-                specs: list[TrackSpec] = []
-                for num, _path in entries:
+                files: list[CueFileSpec] = []
+                for num, path in entries:
                     track = track_by_number.get(str(num), {})
                     title = track.get("title", "") or f"Track {num:02d}"
                     artist = track.get("artist", "") or ""
-                    specs.append(TrackSpec(number=num, title=title, performer=artist))
+                    # ``path`` is captured here, inside the loop: every FILE
+                    # must name its own encoded image.  ``start_ms`` is stated
+                    # explicitly rather than leaning on TrackSpec's default —
+                    # each file begins at its own zero.
+                    files.append(
+                        CueFileSpec(
+                            filename=os.path.basename(path),
+                            tracks=(
+                                TrackSpec(
+                                    number=num,
+                                    title=title,
+                                    performer=artist,
+                                    start_ms=0,
+                                ),
+                            ),
+                        )
+                    )
                 cue_text = build_cue(
                     title=album_title,
                     performer=album_artist,
-                    files=(
-                        CueFileSpec(
-                            filename=os.path.basename(_path),
-                            tracks=tuple(specs),
-                        ),
-                    ),
+                    files=tuple(files),
                 )
                 write_cue(cue_name, cue_text)
                 self.log_cb(f"CUE sheet written: {cue_name}")

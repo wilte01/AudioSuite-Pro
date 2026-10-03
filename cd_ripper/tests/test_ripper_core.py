@@ -28,6 +28,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from audio_suite_shared.cue_parser import parse_cue_file
+from audio_suite_shared.cue_split import split_cue_file
 from audio_suite_shared.exceptions import AudioConfigurationError, AudioIOError
 
 # ---------------------------------------------------------------------------
@@ -1114,7 +1116,12 @@ class TestRipSessionOffsetFolding:
 
 
 class _FakeRipTask:
-    """Stands in for RipTask and reports every track as successfully encoded."""
+    """Stands in for RipTask and reports every track as successfully encoded.
+
+    It really creates each encoded image on disk: the sheet names one ``FILE``
+    per track, so a test that only counts strings cannot tell a sheet pointing
+    at real audio from one pointing at nothing.
+    """
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -1129,12 +1136,23 @@ class _FakeRipTask:
             "[2024] Hits",
             f"{num:02d} - {track.get('title')}.flac",
         )
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "wb") as handle:
+            handle.write(b"fLaC" + bytes(64))
         self.kwargs["done_cb"](num, True, out_path, "")
 
 
+def _rip_track(number):
+    return _make_track(number=number, title=f"Song {number}")
+
+
+def _image_name(number):
+    return f"{number:02d} - Song {number}.flac"
+
+
 class TestRipSessionCueWrite:
-    def _run_session(self, tmp_path, write_cue):
-        tracks = [_make_track(number=i + 1) for i in range(2)]
+    def _run_session(self, tmp_path, write_cue, track_count=2):
+        tracks = [_rip_track(i + 1) for i in range(track_count)]
         session_done = threading.Event()
         log_lines = []
         session = RipSession(
@@ -1150,7 +1168,7 @@ class TestRipSessionCueWrite:
             log_cb=log_lines.append,
             write_cue=write_cue,
         )
-        toc = [_make_toc_entry(number=i + 1) for i in range(2)]
+        toc = [_make_toc_entry(number=i + 1) for i in range(track_count)]
         with (
             patch(
                 "cd_ripper.core.ripper.probe_ffmpeg", return_value={"version": "test"}
@@ -1162,6 +1180,11 @@ class TestRipSessionCueWrite:
             session._run()
         assert session_done.is_set()
         return session, log_lines
+
+    def _single_cue(self, tmp_path):
+        cues = list(tmp_path.rglob("*.cue"))
+        assert len(cues) == 1
+        return cues[0]
 
     def test_write_cue_defaults_to_false(self, tmp_path):
         session, _ = self._run_session(tmp_path, write_cue=False)
@@ -1177,15 +1200,102 @@ class TestRipSessionCueWrite:
 
     def test_cue_written_after_successful_rip(self, tmp_path):
         self._run_session(tmp_path, write_cue=True)
-        cues = list(tmp_path.rglob("*.cue"))
-        assert len(cues) == 1
-        text = cues[0].read_text(encoding="utf-8")
+        text = self._single_cue(tmp_path).read_text(encoding="utf-8")
         assert 'TITLE "Album"' in text
         assert 'PERFORMER "Album Artist"' in text
         assert "  TRACK 01 AUDIO" in text
         assert "  TRACK 02 AUDIO" in text
-        assert "FILE " in text
-        assert text.count("INDEX 01") == 2
+
+    def test_each_track_gets_its_own_file_block(self, tmp_path):
+        """A track-per-file rip needs one FILE per track, not one for all."""
+        self._run_session(tmp_path, write_cue=True, track_count=3)
+        cue_path = self._single_cue(tmp_path)
+        text = cue_path.read_text(encoding="utf-8")
+
+        assert text.count("FILE ") == 3
+        assert text.count("INDEX 01") == 3
+        assert text.count("  TRACK ") == 3
+
+        sheet = parse_cue_file(cue_path)
+        assert [entry.filename for entry in sheet.files] == [
+            _image_name(1),
+            _image_name(2),
+            _image_name(3),
+        ]
+        assert [[track.number for track in entry.tracks] for entry in sheet.files] == [
+            [1],
+            [2],
+            [3],
+        ]
+        for entry in sheet.files:
+            index01 = entry.tracks[0].index01
+            assert index01 is not None
+            assert (index01.mm, index01.ss, index01.ff) == (0, 0, 0)
+
+    def test_file_names_are_existing_distinct_encoded_images(self, tmp_path):
+        """Every FILE must name an image the rip actually wrote, uniquely.
+
+        The single-CueFileSpec form emitted one FILE named after the *last*
+        track while listing every track inside it, so both the on-disk check
+        and the distinctness check fail against it.
+        """
+        self._run_session(tmp_path, write_cue=True, track_count=2)
+        cue_path = self._single_cue(tmp_path)
+        album_dir = cue_path.parent
+        encoded = {path.name for path in album_dir.glob("*.flac")}
+
+        sheet = parse_cue_file(cue_path)
+        referenced = [entry.filename for entry in sheet.files]
+
+        assert len(referenced) == len(set(referenced))
+        assert set(referenced) == encoded
+        for name in referenced:
+            assert (album_dir / name).is_file()
+
+    def test_single_track_rip_still_emits_exactly_one_file(self, tmp_path):
+        """The degenerate N=1 form must not fall back to a shared FILE block."""
+        self._run_session(tmp_path, write_cue=True, track_count=1)
+        cue_path = self._single_cue(tmp_path)
+        sheet = parse_cue_file(cue_path)
+
+        file_lines = [
+            line
+            for line in cue_path.read_text(encoding="utf-8").splitlines()
+            if line.startswith("FILE ")
+        ]
+        assert len(file_lines) == 1
+        assert [entry.filename for entry in sheet.files] == [_image_name(1)]
+
+    def test_generated_sheet_splits_back_to_every_encoded_image(self, tmp_path):
+        """The suite's own cue_split resolves the sheet to all three images.
+
+        This is the consumer the defect actually broke: with one FILE holding
+        every track, only the last track's audio was reachable.
+        """
+        self._run_session(tmp_path, write_cue=True, track_count=3)
+        cue_path = self._single_cue(tmp_path)
+
+        with patch(
+            "audio_suite_shared.cue_split.run_secure_subprocess",
+            return_value=MagicMock(returncode=0, stdout="", stderr=""),
+        ) as run_proc:
+            written = split_cue_file(cue_path, tmp_path / "split")
+
+        used_images = []
+        for call in run_proc.call_args_list:
+            args = call.args[1]
+            used_images.append(Path(args[args.index("-i") + 1]))
+        assert [image.name for image in used_images] == [
+            _image_name(1),
+            _image_name(2),
+            _image_name(3),
+        ]
+        assert all(image.is_file() for image in used_images)
+        assert [Path(path).name for path in written] == [
+            _image_name(1),
+            _image_name(2),
+            _image_name(3),
+        ]
 
     def test_cue_write_failure_is_non_fatal(self, tmp_path):
         with patch(

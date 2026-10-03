@@ -131,6 +131,43 @@ class TestBuildCue:
         text = build_cue(files=(spec,))
         assert 'FILE "x.flac" FLAC' in text
 
+    def test_each_file_spec_emits_its_own_block(self):
+        """``files`` is a sequence: one FILE block per spec, in order.
+
+        The ripper relies on this for track-per-file rips -- a sheet holding
+        every track inside one FILE describes a single continuous image.
+        """
+        text = build_cue(
+            files=(
+                CueFileSpec(filename="01 - One.flac", tracks=(TrackSpec(1, "One"),)),
+                CueFileSpec(filename="02 - Two.flac", tracks=(TrackSpec(2, "Two"),)),
+            )
+        )
+        assert [line for line in text.splitlines() if line.startswith("FILE ")] == [
+            'FILE "01 - One.flac" FLAC',
+            'FILE "02 - Two.flac" FLAC',
+        ]
+
+    def test_multi_file_sheet_round_trips_to_distinct_images(self):
+        """Parse back: two FILE entries, each naming its own image."""
+        from audio_suite_shared.cue_parser import parse_cue
+
+        text = build_cue(
+            files=(
+                CueFileSpec(filename="01 - One.flac", tracks=(TrackSpec(1, "One"),)),
+                CueFileSpec(filename="02 - Two.flac", tracks=(TrackSpec(2, "Two"),)),
+            )
+        )
+        sheet = parse_cue(text)
+        assert [entry.filename for entry in sheet.files] == [
+            "01 - One.flac",
+            "02 - Two.flac",
+        ]
+        assert [[track.title for track in entry.tracks] for entry in sheet.files] == [
+            ["One"],
+            ["Two"],
+        ]
+
 
 class TestValidation:
     def test_track_number_zero_rejected(self):
