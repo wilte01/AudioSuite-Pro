@@ -21,6 +21,7 @@ from audio_suite_shared.tool_plugin import get_registry
 from audio_suite_shared.ui_helpers import UIHelperMixin
 
 from .batch_orchestrator import DEPENDENCY_GRAPH, BatchProgress
+from .runner.arg_builder import REFINERY_STAGES
 from .state.app_state import AppState
 from .tool_launcher import (
     _get_current_accent,
@@ -360,7 +361,9 @@ class AudioSuiteDriver(UIHelperMixin):
                     and self._refinery_setup_state
                 ):
                     stage_vars = self._refinery_setup_state.get("stage_vars", {})
-                    for stage_name in ["declick", "trim", "enhance", "normalise"]:
+                    # Same source the arg builder emits (audit M12a), so
+                    # select-all can never omit a stage the pipeline runs.
+                    for _field, stage_name in REFINERY_STAGES:
                         if stage_name in stage_vars:
                             if stage_vars[stage_name].get() != v:
                                 stage_vars[stage_name].set(v)

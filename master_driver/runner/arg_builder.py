@@ -358,6 +358,21 @@ def _build_converter_args(
     return args
 
 
+# (StageConfig field, --stages name) pairs for the Refinery's stage toggles.
+#
+# Single source of truth (audit M12a): `build_refinery_args` emits this list
+# and the Master Driver's Refine-tab select-all iterates the same constant, so
+# a new stage cannot appear in one place and not the other. The field name and
+# the CLI stage name are asserted equal by test_runner.py.
+REFINERY_STAGES: tuple[tuple[str, str], ...] = (
+    ("declick", "declick"),
+    ("trim", "trim"),
+    ("enhance", "enhance"),
+    ("normalise", "normalise"),
+    ("reduce_noise", "reduce_noise"),
+)
+
+
 def build_refinery_args(
     state: AppState, config: Any
 ) -> list[tuple[_ToggleVar, ToolManifest, list[str]]]:
@@ -374,16 +389,8 @@ def build_refinery_args(
     source = state.refinery_source.get()
     output = state.refinery_output.get()
 
-    stage_map = [
-        (config.declick, "declick"),
-        (config.trim, "trim"),
-        (config.enhance, "enhance"),
-        (config.normalise, "normalise"),
-        (config.reduce_noise, "reduce_noise"),
-    ]
+    stage_map = [(getattr(config, field), name) for field, name in REFINERY_STAGES]
     active_stages = ",".join(s for enabled, s in stage_map if enabled)
-    if not active_stages:
-        active_stages = "declick,trim,enhance,normalise"
 
     p = config.enhance_params
     d = config.declick_params
@@ -442,7 +449,12 @@ def build_refinery_args(
     if state.refinery_auto_end.get():
         args.append("--auto-end")
 
-    args.extend(_driver_display_flags(state.util_clear_logs_var, state.parallel_var))
+    # Display flags (audit M12b + iteration-8 C5 decision): the Refine tab
+    # shows Clear Logs but hides the Parallel checkbox, so only the clear-logs
+    # flag is emitted and it must read the Refine tab's own binding
+    # (`state.clear_logs_var`), never the Utility tab's. The parallel display
+    # flags are not emitted at all — the child keeps its own default.
+    args.append("--clear-logs" if state.clear_logs_var.get() else "--no-clear-logs")
 
     always_on = _ALWAYS_ON
     return [(always_on, manifest, args)]

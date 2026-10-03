@@ -182,6 +182,76 @@ class TestUtilSelectAll:
             assert driver.state.module_toggles[manifest.id].get() is False, manifest.id
 
 
+class TestRefinerySelectAll:
+    """The REFINE-tab select-all must toggle every Refinery stage var.
+
+    Audit M12a: ``_toggle_all`` iterated a hand-typed four-stage list while
+    the pipeline has five, so Select-All silently never enabled Noise
+    Reduction. The list is now ``arg_builder.REFINERY_STAGES`` — the same
+    source ``build_refinery_args`` emits — and this class proves the bound
+    command really sets all five, both ways.
+    """
+
+    _WIDGETS = (
+        "_frame_refine",
+        "_frame_enrich",
+        "_frame_util",
+        "_frame_settings",
+        "_dir_frame",
+        "_ctrl_frame",
+        "_ctrl_rule",
+        "_btn_refine",
+        "_btn_enrich",
+        "_btn_util",
+        "_btn_settings",
+        "_select_all_btn",
+        "_mode_combo",
+        "_auto_start_btn",
+        "_auto_end_btn",
+        "_clear_logs_btn",
+        "_parallel_btn",
+    )
+
+    def _refine_driver(
+        self, root: tk.Tk
+    ) -> tuple[AudioSuiteDriver, dict[str, tk.BooleanVar], object]:
+        driver = _driver()
+        driver.state = AppState(root)
+        driver._active_tab = "settings"
+        for attr in self._WIDGETS:
+            setattr(driver, attr, MagicMock())
+        stage_vars = {
+            name: tk.BooleanVar(root, value=False)
+            for name in ("declick", "trim", "enhance", "normalise", "reduce_noise")
+        }
+        driver._refinery_setup_state = {"stage_vars": stage_vars}
+        driver._switch_tab("refine")
+        select_all_cmd = driver._select_all_btn.config.call_args.kwargs["command"]
+        return driver, stage_vars, select_all_cmd
+
+    def test_select_all_enables_all_five_stages_including_reduce_noise(
+        self, root
+    ) -> None:
+        _driver_app, stage_vars, select_all_cmd = self._refine_driver(root)
+
+        _driver_app.state.refinery_select_all_var.set(True)
+        select_all_cmd()
+
+        for name, var in stage_vars.items():
+            assert var.get() is True, f"select-all missed stage {name!r}"
+
+    def test_deselect_all_disables_all_five_stages(self, root) -> None:
+        driver_app, stage_vars, select_all_cmd = self._refine_driver(root)
+        for var in stage_vars.values():
+            var.set(True)
+
+        driver_app.state.refinery_select_all_var.set(False)
+        select_all_cmd()
+
+        for name, var in stage_vars.items():
+            assert var.get() is False, f"deselect-all missed stage {name!r}"
+
+
 # ---------------------------------------------------------------------------
 # Stage 3 / item D3 (audit A4): the real driver is constructed against the
 # shared hidden Tk root so __init__, _build_ui and tab switching execute; the

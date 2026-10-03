@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, patch
 
 from audio_suite_shared.tool_plugin import ToolManifest
 from master_driver.runner.arg_builder import (
+    REFINERY_STAGES,
     build_enrich_args,
     build_refinery_args,
     build_utility_args,
@@ -958,14 +959,78 @@ class TestBuildRefineryArgs:
         assert "--reduce-hum" not in args
         assert "--reduce-broadband" not in args
 
-    def test_all_stages_default_when_none_enabled(self):
+    def test_all_toggles_off_emits_empty_stages(self):
+        """All five stage toggles off => ``--stages`` is empty (M13).
+
+        Positive contract replacing ``test_all_stages_default_when_none_enabled``,
+        which asserted the silent fallback and so pinned the defect: a user
+        who turned every stage off had the full default chain silently
+        re-enabled. ``launch_refinery`` blocks an all-off run before the args
+        are built, so the child never receives the empty list from the driver.
+        """
         state = _make_state()
         config = _make_refinery_config()
         config.declick = config.trim = config.enhance = config.normalise = False
+        config.reduce_noise = False
         _, _, args = build_refinery_args(state, config)[0]
         stage_idx = args.index("--stages")
-        stages_str = args[stage_idx + 1]
-        assert stages_str == "declick,trim,enhance,normalise"
+        assert args[stage_idx + 1] == ""
+
+    def test_refinery_stage_source_matches_stage_config_toggles(self):
+        """``REFINERY_STAGES`` is the single stage list (M12a drift guard).
+
+        Every entry pairs a real boolean ``StageConfig`` field with the
+        ``--stages`` name the audio_refinery CLI recognises (field == name),
+        and the set covers all five stages — ``reduce_noise`` is the one the
+        Refine tab's select-all missed before the fix.
+        """
+        from audio_refinery.core.models import StageConfig
+
+        cfg = StageConfig()
+        for field, name in REFINERY_STAGES:
+            assert field == name, (field, name)
+            assert isinstance(getattr(cfg, field, None), bool)
+        assert {name for _, name in REFINERY_STAGES} == {
+            "declick",
+            "trim",
+            "enhance",
+            "normalise",
+            "reduce_noise",
+        }
+
+    def test_refinery_clear_logs_flag_follows_refine_tab_var(self):
+        """The clear-logs flag tracks the Refine tab's binding (M12b).
+
+        Pre-fix the flag read ``util_clear_logs_var``, so the child's inert
+        Run Controls panel displayed the *Utility* tab's Clear Logs state.
+        """
+        state = _make_state()
+        state.clear_logs_var = _bool_var(True)
+        state.util_clear_logs_var = _bool_var(False)
+        _, _, args = build_refinery_args(state, _make_refinery_config())[0]
+        assert "--clear-logs" in args
+        assert "--no-clear-logs" not in args
+
+        state = _make_state()
+        state.clear_logs_var = _bool_var(False)
+        state.util_clear_logs_var = _bool_var(True)
+        _, _, args = build_refinery_args(state, _make_refinery_config())[0]
+        assert "--no-clear-logs" in args
+        assert "--clear-logs" not in args
+
+    def test_refinery_args_never_emit_parallel_display_flags(self):
+        """No parallel display flag is emitted for Refinery (C5 decision).
+
+        The Refine tab hides its Parallel checkbox, so emitting a state the
+        user cannot see or change is dishonest in both directions; the child
+        keeps its own default.
+        """
+        for parallel in (False, True):
+            state = _make_state()
+            state.parallel_var = _bool_var(parallel)
+            _, _, args = build_refinery_args(state, _make_refinery_config())[0]
+            assert "--parallel-run" not in args, args
+            assert "--no-parallel-run" not in args, args
 
     def test_target_lufs_in_args(self):
         state = _make_state()
