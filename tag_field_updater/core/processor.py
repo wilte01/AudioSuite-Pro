@@ -131,6 +131,7 @@ class TagProcessor:
         self,
         directory: str,
         progress_callback: Callable[[str, ProcessingStats], None] | None = None,
+        dry_run: bool = False,
     ) -> list[ProcessingResult]:
         """Recursively scan a directory tree and update qualifying tag fields.
 
@@ -141,6 +142,10 @@ class TagProcessor:
             progress_callback: Optional callable invoked after each file is
                 processed.  Signature: ``callback(filename: str,
                 stats: ProcessingStats) -> None``.
+            dry_run: When True, report the tag rewrites each file *would* get
+                without persisting any of them — no undo snapshot is recorded
+                and no file is saved.  The returned results still carry
+                ``updated=True`` for the files that would change.
 
         Returns:
             A list of :class:`ProcessingResult` — one entry per file visited,
@@ -150,7 +155,11 @@ class TagProcessor:
         self.stats = ProcessingStats()
         self.stop_flag = False
 
-        logger.info("Starting scan of directory: %s", directory)
+        logger.info(
+            "Starting scan of directory: %s (mode: %s)",
+            directory,
+            "dry run" if dry_run else "live",
+        )
 
         try:
             for root, _dirs, files in os.walk(directory):
@@ -162,7 +171,7 @@ class TagProcessor:
                         break
 
                     file_path = Path(root) / file
-                    result = self.process_file(file_path)
+                    result = self.process_file(file_path, dry_run=dry_run)
                     results.append(result)
 
                     self.stats.processed_files += 1
@@ -191,7 +200,7 @@ class TagProcessor:
         """Signal the processor to abort the current scan on the next iteration."""
         self.stop_flag = True
 
-    def process_file(self, file_path: Path) -> ProcessingResult:
+    def process_file(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
         """Dispatch a single audio file to the appropriate format processor.
 
         Files whose extension is not in :attr:`SUPPORTED_EXTENSIONS` are skipped
@@ -200,6 +209,8 @@ class TagProcessor:
         Args:
             file_path: Absolute or relative :class:`~pathlib.Path` to the audio
                 file.
+            dry_run: When True, the format rule reports the rewrites it would
+                apply without persisting them.
 
         Returns:
             A :class:`ProcessingResult` describing the outcome.  ``error`` is
@@ -216,21 +227,21 @@ class TagProcessor:
 
             extension = file_path.suffix.lower()
             if extension == ".mp3":
-                result = self._process_mp3(file_path)
+                result = self._process_mp3(file_path, dry_run=dry_run)
             elif extension == ".flac":
-                result = self._process_flac(file_path)
+                result = self._process_flac(file_path, dry_run=dry_run)
             elif extension in [".mp4", ".m4a"]:
-                result = self._process_mp4(file_path)
+                result = self._process_mp4(file_path, dry_run=dry_run)
             elif extension == ".ogg":
-                result = self._process_ogg(file_path)
+                result = self._process_ogg(file_path, dry_run=dry_run)
             elif extension == ".opus":
-                result = self._process_opus(file_path)
+                result = self._process_opus(file_path, dry_run=dry_run)
             elif extension == ".wav":
-                result = self._process_wav(file_path)
+                result = self._process_wav(file_path, dry_run=dry_run)
             elif extension in (".aiff", ".aif"):
-                result = self._process_aiff(file_path)
+                result = self._process_aiff(file_path, dry_run=dry_run)
             elif extension == ".wma":
-                result = self._process_wma(file_path)
+                result = self._process_wma(file_path, dry_run=dry_run)
             else:
                 self.stats.skipped_files += 1
                 logger.info(
@@ -257,14 +268,14 @@ class TagProcessor:
     # Private delegate methods (backward-compatible dispatch targets)
     # ------------------------------------------------------------------
 
-    def _process_mp3(self, file_path: Path) -> ProcessingResult:
+    def _process_mp3(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
         """Process an MP3 file via the standalone transformation rule.
 
         Handles skip/error stats that the standalone function cannot
         because it has no reference to ``self.stats``.
         """
         try:
-            result = process_mp3_file(file_path)
+            result = process_mp3_file(file_path, dry_run=dry_run)
         except ID3NoHeaderError:
             self.stats.skipped_files += 1
             logger.info("Skipped %s: no ID3 header", file_path.name)
@@ -279,38 +290,38 @@ class TagProcessor:
 
         return result
 
-    def _process_flac(self, file_path: Path) -> ProcessingResult:
+    def _process_flac(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
         """Process a FLAC file via the standalone transformation rule."""
-        result = process_flac_file(file_path)
+        result = process_flac_file(file_path, dry_run=dry_run)
         if result.error:
             self.stats.error_files += 1
         return result
 
-    def _process_mp4(self, file_path: Path) -> ProcessingResult:
+    def _process_mp4(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
         """Process an MP4/M4A file via the standalone transformation rule."""
-        result = process_mp4_file(file_path)
+        result = process_mp4_file(file_path, dry_run=dry_run)
         if result.error:
             self.stats.error_files += 1
         return result
 
-    def _process_ogg(self, file_path: Path) -> ProcessingResult:
+    def _process_ogg(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
         """Process an OGG file via the standalone transformation rule."""
-        result = process_ogg_file(file_path)
+        result = process_ogg_file(file_path, dry_run=dry_run)
         if result.error:
             self.stats.error_files += 1
         return result
 
-    def _process_opus(self, file_path: Path) -> ProcessingResult:
+    def _process_opus(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
         """Process an Opus file via the standalone transformation rule."""
-        result = process_opus_file(file_path)
+        result = process_opus_file(file_path, dry_run=dry_run)
         if result.error:
             self.stats.error_files += 1
         return result
 
-    def _process_wav(self, file_path: Path) -> ProcessingResult:
+    def _process_wav(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
         """Process a WAV file via the standalone transformation rule."""
         try:
-            result = process_wav_file(file_path)
+            result = process_wav_file(file_path, dry_run=dry_run)
         except ID3NoHeaderError:
             self.stats.skipped_files += 1
             logger.info("Skipped %s: no ID3 header", file_path.name)
@@ -325,10 +336,10 @@ class TagProcessor:
 
         return result
 
-    def _process_aiff(self, file_path: Path) -> ProcessingResult:
+    def _process_aiff(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
         """Process an AIFF file via the standalone transformation rule."""
         try:
-            result = process_aiff_file(file_path)
+            result = process_aiff_file(file_path, dry_run=dry_run)
         except ID3NoHeaderError:
             self.stats.skipped_files += 1
             logger.info("Skipped %s: no ID3 header", file_path.name)
@@ -343,9 +354,9 @@ class TagProcessor:
 
         return result
 
-    def _process_wma(self, file_path: Path) -> ProcessingResult:
+    def _process_wma(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
         """Process a WMA file via the standalone transformation rule."""
-        result = process_wma_file(file_path)
+        result = process_wma_file(file_path, dry_run=dry_run)
         if result.error:
             self.stats.error_files += 1
         return result

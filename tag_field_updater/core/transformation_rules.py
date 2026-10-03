@@ -10,6 +10,12 @@ No mutable processor state is touched — that responsibility lives in
 All Mutagen imports are performed lazily (inside each function body) so
 that external patches on ``tag_field_updater.core.processor.MP3`` etc.
 are correctly picked up at call time.
+
+Every rule takes a ``dry_run`` flag and gates **both** persisted effects on
+it: the undo snapshot (:func:`~audio_suite_shared.batch_undo.record_tag_edit_snapshot`)
+and ``audio.save()``.  The in-memory tag rewrite still happens and the
+returned :class:`ProcessingResult` still reports ``updated=True``, so a dry
+run reports what *would* change without touching the file on disk.
 """
 
 import logging
@@ -41,7 +47,7 @@ class _SkipFile(Exception):
         super().__init__(reason)
 
 
-def process_mp3_file(file_path: Path) -> ProcessingResult:
+def process_mp3_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
     """Process an MP3 file and rewrite qualifying ID3 tags.
 
     Preserves the original ID3 version encoding (Latin-1 for v2.3,
@@ -50,6 +56,8 @@ def process_mp3_file(file_path: Path) -> ProcessingResult:
 
     Args:
         file_path: Path to the ``.mp3`` file.
+        dry_run: When True, compute the rewrite and report it but neither
+            snapshot the undo log nor save the file.
 
     Returns:
         A :class:`ProcessingResult` indicating which tags were updated.
@@ -115,8 +123,15 @@ def process_mp3_file(file_path: Path) -> ProcessingResult:
                         )
 
         if tags_updated:
-            record_tag_edit_snapshot(str(file_path), "tag_field_update")
-            audio.save()
+            if dry_run:
+                logger.info(
+                    "Dry run: %s not written (would update %s)",
+                    file_path.name,
+                    ", ".join(tags_updated),
+                )
+            else:
+                record_tag_edit_snapshot(str(file_path), "tag_field_update")
+                audio.save()
             result = ProcessingResult(
                 file_path=file_path,
                 updated=True,
@@ -145,11 +160,13 @@ def process_mp3_file(file_path: Path) -> ProcessingResult:
     return result
 
 
-def process_flac_file(file_path: Path) -> ProcessingResult:
+def process_flac_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
     """Process a FLAC file and rewrite qualifying Vorbis comment fields.
 
     Args:
         file_path: Path to the ``.flac`` file.
+        dry_run: When True, compute the rewrite and report it but neither
+            snapshot the undo log nor save the file.
 
     Returns:
         A :class:`ProcessingResult` indicating which tags were updated.
@@ -180,8 +197,15 @@ def process_flac_file(file_path: Path) -> ProcessingResult:
                         )
 
         if tags_updated:
-            record_tag_edit_snapshot(str(file_path), "tag_field_update")
-            audio.save()
+            if dry_run:
+                logger.info(
+                    "Dry run: %s not written (would update %s)",
+                    file_path.name,
+                    ", ".join(tags_updated),
+                )
+            else:
+                record_tag_edit_snapshot(str(file_path), "tag_field_update")
+                audio.save()
             result = ProcessingResult(
                 file_path=file_path,
                 updated=True,
@@ -204,11 +228,13 @@ def process_flac_file(file_path: Path) -> ProcessingResult:
     return result
 
 
-def process_mp4_file(file_path: Path) -> ProcessingResult:
+def process_mp4_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
     """Process an MP4/M4A file and rewrite qualifying atom tag fields.
 
     Args:
         file_path: Path to the ``.mp4`` or ``.m4a`` file.
+        dry_run: When True, compute the rewrite and report it but neither
+            snapshot the undo log nor save the file.
 
     Returns:
         A :class:`ProcessingResult` indicating which tags were updated.
@@ -239,8 +265,15 @@ def process_mp4_file(file_path: Path) -> ProcessingResult:
                         )
 
         if tags_updated:
-            record_tag_edit_snapshot(str(file_path), "tag_field_update")
-            audio.save()
+            if dry_run:
+                logger.info(
+                    "Dry run: %s not written (would update %s)",
+                    file_path.name,
+                    ", ".join(tags_updated),
+                )
+            else:
+                record_tag_edit_snapshot(str(file_path), "tag_field_update")
+                audio.save()
             result = ProcessingResult(
                 file_path=file_path,
                 updated=True,
@@ -263,11 +296,13 @@ def process_mp4_file(file_path: Path) -> ProcessingResult:
     return result
 
 
-def process_ogg_file(file_path: Path) -> ProcessingResult:
+def process_ogg_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
     """Process an OGG Vorbis file and rewrite qualifying comment fields.
 
     Args:
         file_path: Path to the ``.ogg`` file.
+        dry_run: When True, compute the rewrite and report it but neither
+            snapshot the undo log nor save the file.
 
     Returns:
         A :class:`ProcessingResult` indicating which tags were updated.
@@ -298,8 +333,15 @@ def process_ogg_file(file_path: Path) -> ProcessingResult:
                         )
 
         if tags_updated:
-            record_tag_edit_snapshot(str(file_path), "tag_field_update")
-            audio.save()
+            if dry_run:
+                logger.info(
+                    "Dry run: %s not written (would update %s)",
+                    file_path.name,
+                    ", ".join(tags_updated),
+                )
+            else:
+                record_tag_edit_snapshot(str(file_path), "tag_field_update")
+                audio.save()
             result = ProcessingResult(
                 file_path=file_path,
                 updated=True,
@@ -322,11 +364,13 @@ def process_ogg_file(file_path: Path) -> ProcessingResult:
     return result
 
 
-def process_opus_file(file_path: Path) -> ProcessingResult:
+def process_opus_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
     """Process an Opus file and rewrite qualifying Vorbis comment fields.
 
     Args:
         file_path: Path to the ``.opus`` file.
+        dry_run: When True, compute the rewrite and report it but neither
+            snapshot the undo log nor save the file.
 
     Returns:
         A :class:`ProcessingResult` indicating which tags were updated.
@@ -357,8 +401,15 @@ def process_opus_file(file_path: Path) -> ProcessingResult:
                         )
 
         if tags_updated:
-            record_tag_edit_snapshot(str(file_path), "tag_field_update")
-            audio.save()
+            if dry_run:
+                logger.info(
+                    "Dry run: %s not written (would update %s)",
+                    file_path.name,
+                    ", ".join(tags_updated),
+                )
+            else:
+                record_tag_edit_snapshot(str(file_path), "tag_field_update")
+                audio.save()
             result = ProcessingResult(
                 file_path=file_path,
                 updated=True,
@@ -381,13 +432,15 @@ def process_opus_file(file_path: Path) -> ProcessingResult:
     return result
 
 
-def process_wav_file(file_path: Path) -> ProcessingResult:
+def process_wav_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
     """Process a WAV file and rewrite qualifying ID3 tags.
 
     WAV files with ID3 tags use the same frame structure as MP3.
 
     Args:
         file_path: Path to the ``.wav`` file.
+        dry_run: When True, compute the rewrite and report it but neither
+            snapshot the undo log nor save the file.
 
     Returns:
         A :class:`ProcessingResult` indicating which tags were updated.
@@ -445,8 +498,15 @@ def process_wav_file(file_path: Path) -> ProcessingResult:
                         )
 
         if tags_updated:
-            record_tag_edit_snapshot(str(file_path), "tag_field_update")
-            audio.save()
+            if dry_run:
+                logger.info(
+                    "Dry run: %s not written (would update %s)",
+                    file_path.name,
+                    ", ".join(tags_updated),
+                )
+            else:
+                record_tag_edit_snapshot(str(file_path), "tag_field_update")
+                audio.save()
             result = ProcessingResult(
                 file_path=file_path,
                 updated=True,
@@ -475,13 +535,15 @@ def process_wav_file(file_path: Path) -> ProcessingResult:
     return result
 
 
-def process_aiff_file(file_path: Path) -> ProcessingResult:
+def process_aiff_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
     """Process an AIFF file and rewrite qualifying ID3 tags.
 
     AIFF files with ID3 tags use the same frame structure as MP3.
 
     Args:
         file_path: Path to the ``.aiff`` or ``.aif`` file.
+        dry_run: When True, compute the rewrite and report it but neither
+            snapshot the undo log nor save the file.
 
     Returns:
         A :class:`ProcessingResult` indicating which tags were updated.
@@ -539,8 +601,15 @@ def process_aiff_file(file_path: Path) -> ProcessingResult:
                         )
 
         if tags_updated:
-            record_tag_edit_snapshot(str(file_path), "tag_field_update")
-            audio.save()
+            if dry_run:
+                logger.info(
+                    "Dry run: %s not written (would update %s)",
+                    file_path.name,
+                    ", ".join(tags_updated),
+                )
+            else:
+                record_tag_edit_snapshot(str(file_path), "tag_field_update")
+                audio.save()
             result = ProcessingResult(
                 file_path=file_path,
                 updated=True,
@@ -569,11 +638,13 @@ def process_aiff_file(file_path: Path) -> ProcessingResult:
     return result
 
 
-def process_wma_file(file_path: Path) -> ProcessingResult:
+def process_wma_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
     """Process a WMA file and rewrite qualifying ASF metadata fields.
 
     Args:
         file_path: Path to the ``.wma`` file.
+        dry_run: When True, compute the rewrite and report it but neither
+            snapshot the undo log nor save the file.
 
     Returns:
         A :class:`ProcessingResult` indicating which tags were updated.
@@ -604,8 +675,15 @@ def process_wma_file(file_path: Path) -> ProcessingResult:
                         )
 
         if tags_updated:
-            record_tag_edit_snapshot(str(file_path), "tag_field_update")
-            audio.save()
+            if dry_run:
+                logger.info(
+                    "Dry run: %s not written (would update %s)",
+                    file_path.name,
+                    ", ".join(tags_updated),
+                )
+            else:
+                record_tag_edit_snapshot(str(file_path), "tag_field_update")
+                audio.save()
             result = ProcessingResult(
                 file_path=file_path,
                 updated=True,

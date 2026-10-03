@@ -720,11 +720,7 @@ class TestDocumentedFlagParity:
             finally:
                 ctx.close()
             assert target is not None, f"command {command!r} did not resolve"
-            real: set[str] = set()
-            for param in target.params:
-                if isinstance(param, click.Option):
-                    real.update(param.opts)
-                    real.update(param.secondary_opts)
+            real = self._real_flags(target)
             for flag in documented:
                 checked += 1
                 if flag in real or flag in self.ALLOWED_ABSENT:
@@ -741,6 +737,83 @@ class TestDocumentedFlagParity:
             "cli_app.py's docstring advertises flags its commands do not "
             "accept (audit A1, 'No such option'):\n  " + "\n  ".join(failures)
         )
+
+    def test_every_flag_in_a_command_example_resolves(self) -> None:
+        """The same parity, widened to each command's own ``Examples:`` block.
+
+        Audit H1 slipped through the gate above because ``cli_app.py``'s usage
+        block is written in the bracketed ``[--flag]`` syntax, and the
+        commands that document their invocations inline — ``tag-update``,
+        ``tag-edit``, ``cd-rip`` — do so in a plain-text ``Examples:`` block
+        the parser never looked at.  ``tag-update``'s block advertised
+        ``--dry-run`` for a command whose only spelling is ``--dry``, so the
+        documented invocation exited 2 with "No such option", and nothing
+        failed: the block carried no bracketed token, so the outer loop
+        ``continue``d past the command entirely.
+
+        Extraction is deliberately non-vacuous twice over: the example flags
+        found must be non-empty, and they must have been *checked*.
+        """
+        documented: list[tuple[str, str]] = []
+        ctx = _introspection_context()
+        try:
+            for command_name in sorted(cli.list_commands(ctx)):
+                target = cli.get_command(ctx, command_name)
+                if target is None or isinstance(target, click.Group):
+                    continue
+                doc = inspect.getdoc(target) or ""
+                if "Examples:" not in doc:
+                    continue
+                examples = doc.split("Examples:", 1)[1]
+                flags = re.findall(r"(--[a-z0-9-]+)", examples)
+                assert flags, (
+                    f"{command_name}'s Examples: block advertises no flags at "
+                    f"all, so this test would pass without checking anything"
+                )
+                documented.extend((command_name, flag) for flag in flags)
+        finally:
+            ctx.close()
+
+        assert documented, (
+            "no command documented an Examples: block with any flags in it — "
+            "the widened extraction matches nothing, so it cannot fail"
+        )
+
+        checked = 0
+        failures: list[str] = []
+        for command_name, flag in documented:
+            ctx = _introspection_context()
+            try:
+                target = cli.get_command(ctx, command_name)
+            finally:
+                ctx.close()
+            assert target is not None, f"command {command_name!r} did not resolve"
+            real = self._real_flags(target)
+            checked += 1
+            if flag in real or flag in self.ALLOWED_ABSENT:
+                continue
+            failures.append(
+                f"audiosuite {command_name}: its Examples: block documents "
+                f"{flag} but the command accepts {sorted(real)}"
+            )
+
+        assert checked == len(documented), (
+            f"only {checked} of {len(documented)} example flags were checked"
+        )
+        assert not failures, (
+            "a command's own help text advertises flags it does not accept "
+            "(audit H1, 'No such option --dry-run'):\n  " + "\n  ".join(failures)
+        )
+
+    @staticmethod
+    def _real_flags(target: click.Command) -> set[str]:
+        """Every option spelling *target* actually registers."""
+        real: set[str] = set()
+        for param in target.params:
+            if isinstance(param, click.Option):
+                real.update(param.opts)
+                real.update(param.secondary_opts)
+        return real
 
     def test_the_known_missing_dry_flags_are_real(self) -> None:
         """The audit's exact repro must now resolve, exit 0, and write nothing."""

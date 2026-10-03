@@ -22,9 +22,13 @@ from audio_suite_shared.cli_base import (
 def tag_update_cli(directory: str, dry_run: bool, json: bool) -> None:
     """Scan and update tag fields (replace bare '/' with '; ' in tag values).
 
+    With ``--dry`` the rewrites are computed and reported but nothing is
+    written: no file is saved and no undo record is created.
+
     \b
     Examples:
-        audiosuite tag-update /Music --dry-run
+        audiosuite tag-update /Music --dry
+        audiosuite tag-update /Music --live
         audiosuite tag-update /Music --json
     """
     from tag_field_updater.core.processor import TagProcessor
@@ -32,7 +36,7 @@ def tag_update_cli(directory: str, dry_run: bool, json: bool) -> None:
     processor = TagProcessor()
 
     with active_batch("tag_field_updater", "tag_edit"):
-        processor.scan_directory(directory)
+        processor.scan_directory(directory, dry_run=dry_run)
 
     stats = processor.stats
 
@@ -45,15 +49,13 @@ def tag_update_cli(directory: str, dry_run: bool, json: bool) -> None:
         "errors": stats.error_files,
     }
 
-    if dry_run:
-        processor.stop_flag = True
-
     if json:
         click.echo(_json_mod.dumps(result_data, indent=2))
     else:
+        updated_label = "would update" if dry_run else "updated"
         click.echo(
             f"  Files processed: {stats.processed_files}\n"
-            f"  Files updated:   {stats.updated_files}\n"
+            f"  Files {updated_label}: {stats.updated_files}\n"
             f"  Files skipped:   {stats.skipped_files}\n"
             f"  Errors:          {stats.error_files}"
         )

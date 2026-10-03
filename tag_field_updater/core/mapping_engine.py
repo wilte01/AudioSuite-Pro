@@ -19,7 +19,10 @@ class ProcessingResult:
 
     Attributes:
         file_path: Absolute path to the processed file.
-        updated: True if one or more tags were written back to disk.
+        updated: True if one or more tags were rewritten.  In dry-run mode
+            this reports the rewrite that *would* have been written back to
+            disk — nothing is persisted, so it means "needs updating", not
+            "already written".
         tags_updated: Names of tag keys that were modified.
         error: Human-readable error string if processing failed, else None.
     """
@@ -37,7 +40,8 @@ class ProcessingStats:
     Attributes:
         total_files: Audio files that matched a supported extension.
         processed_files: Files that were opened and inspected (includes errors).
-        updated_files: Files where at least one tag was rewritten.
+        updated_files: Files where at least one tag was rewritten — files that
+            *would* be rewritten when the run was a dry run.
         error_files: Files that raised an unhandled exception during processing.
         skipped_files: Files ignored due to unsupported extension or missing tags.
     """
