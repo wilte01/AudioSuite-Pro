@@ -308,16 +308,73 @@ class AudioSuiteV6(UIHelperMixin):
         self.cancel_btn.config(state=tk.NORMAL)
         self.start_btn.config(state=tk.DISABLED)
         self.notebook.select(self._tab_processing)
-        threading.Thread(target=self._run_logic, daemon=False).start()
+        # Snapshot every Tk variable on the main thread: _run_logic must not
+        # call .get() off-thread (see its thread-safety note below).
+        self._run_path = self.folder_path.get()
+        self._run_mode = self.run_mode.get()
+        self._run_embed_size = int(self.size_var.get())
+        self._run_purge = self.purge_var.get()
+        threading.Thread(target=self._run_logic, daemon=True).start()
 
-    # ── Logging (thread-safe via update_idletasks) ────────────────────────────
+    # ── Logging ────────────────────────────────────────────────────────────────
+    #
+    # Thread safety: _add_log is called from the worker thread, so it appends
+    # to the plain in-memory list immediately (that list is what the log file
+    # is written from) and schedules the Listbox update onto the Tk main
+    # thread. update_idletasks is kept only to force a repaint -- it does not
+    # make cross-thread Tk access safe.
 
     def _add_log(self, txt: str) -> None:
         """Append a line to the on-screen log and the in-memory log list."""
+        self._log_entries.append(txt + "\n")
+        self.root.after(0, self._append_log_line, txt)
+
+    def _append_log_line(self, txt: str) -> None:
+        """Append one line to the log Listbox (must run on the main thread)."""
         self.log_list.insert(tk.END, txt)
         self.log_list.see(tk.END)
-        self._log_entries.append(txt + "\n")
         self.root.update_idletasks()
+
+    def _set_status(self, text: str) -> None:
+        """Set the status label from any thread."""
+        self.root.after(0, self._apply_status, text)
+
+    def _apply_status(self, text: str) -> None:
+        """Write the status label (must run on the main thread)."""
+        self.status_txt.set(text)
+
+    def _set_progress(self, value: int, maximum: int | None = None) -> None:
+        """Update the progress bar from any thread."""
+        self.root.after(0, self._apply_progress, value, maximum)
+
+    def _apply_progress(self, value: int, maximum: int | None = None) -> None:
+        """Write the progress bar (must run on the main thread)."""
+        if maximum is None:
+            self.progress.config(value=value)
+        else:
+            self.progress.config(value=value, maximum=maximum)
+
+    def _show_result(self, text: str) -> None:
+        """Show a result message and switch to the results tab, from any thread."""
+        self.root.after(0, self._apply_result, text)
+
+    def _apply_result(self, text: str) -> None:
+        """Write the result label and select the results tab (main thread only)."""
+        self.res_msg.config(text=text)
+        self.notebook.select(self._tab_results)
+
+    def _show_results_tab(self) -> None:
+        """Switch to the results tab from any thread."""
+        self.root.after(0, self.notebook.select, self._tab_results)
+
+    def _restore_controls(self) -> None:
+        """Re-enable Start / disable Cancel from any thread (see _apply_controls)."""
+        self.root.after(0, self._apply_controls)
+
+    def _apply_controls(self) -> None:
+        """Enable Start and disable Cancel (must run on the main thread)."""
+        self.start_btn.config(state=tk.NORMAL)
+        self.cancel_btn.config(state=tk.DISABLED)
 
     # ── Thread-safe picker bridge ─────────────────────────────────────────────
 
@@ -333,16 +390,23 @@ class AudioSuiteV6(UIHelperMixin):
 
     @handle_audio_errors(reraise=False, context="art_sync_app_run")
     def _run_logic(self) -> None:
-        path = self.folder_path.get()
-        mode = self.run_mode.get()
+        """Resolve artwork and embed it, on a worker thread.
+
+        Thread safety: this runs off the Tk main thread, so it must not touch
+        a widget or call ``.get()`` on a Tk variable. The inputs are
+        snapshotted by ``start_thread`` on the main thread, and every UI write
+        goes through the small ``_set_*``/``_show_*`` helpers above, which
+        schedule a main-thread method via ``root.after(0, ...)``.
+        """
+        path = self._run_path
+        mode = self._run_mode
         self._add_log(f"--- SESSION START: {mode.upper()} ---")
         self._add_log(f"Directory: {path}")
 
         if not os.path.exists(path):
             self._add_log("Error: Directory does not exist")
             self._running = False
-            self.start_btn.config(state=tk.NORMAL)
-            self.cancel_btn.config(state=tk.DISABLED)
+            self._restore_controls()
             return
 
         files = [
@@ -351,8 +415,7 @@ class AudioSuiteV6(UIHelperMixin):
         if not files:
             self._add_log("Error: No supported audio files found in directory")
             self._running = False
-            self.start_btn.config(state=tk.NORMAL)
-            self.cancel_btn.config(state=tk.DISABLED)
+            self._restore_controls()
             return
 
         # Read artist/album from first file.
@@ -369,8 +432,7 @@ class AudioSuiteV6(UIHelperMixin):
                 f" {user_message_for(map_to_audio_error(exc))}"
             )
             self._running = False
-            self.start_btn.config(state=tk.NORMAL)
-            self.cancel_btn.config(state=tk.DISABLED)
+            self._restore_controls()
             return
 
         self._add_log(f"Album: {lookup_artist} - {album}")
@@ -382,7 +444,7 @@ class AudioSuiteV6(UIHelperMixin):
         self._add_log("")
 
         try:
-            self.status_txt.set("Searching for artwork...")
+            self._set_status("Searching for artwork...")
             # Use the Master Driver's per-run tuning values when launched via
             # the .pyw handshake; otherwise fall back to the suite defaults.
             parsed = getattr(self, "_pre_parsed_cli", None)
@@ -409,28 +471,24 @@ class AudioSuiteV6(UIHelperMixin):
             mapped = map_to_audio_error(exc)
             logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
             self._add_log("\nCRITICAL ERROR: " + user_message_for(mapped))
-            self.res_msg.config(text="Error - See Log")
-            self.notebook.select(self._tab_results)
+            self._show_result("Error - See Log")
             self._maybe_auto_end(delay=3000)
             self._running = False
-            self.start_btn.config(state=tk.NORMAL)
-            self.cancel_btn.config(state=tk.DISABLED)
+            self._restore_controls()
             return
 
         if self._cancel_requested:
             self._add_log("\n--- CANCELLED BY USER ---")
-            self.res_msg.config(text="Operation Cancelled")
-            self.notebook.select(self._tab_results)
+            self._show_result("Operation Cancelled")
             self._maybe_auto_end(delay=2000)
         elif img_raw:
             self._add_log(f"\n✓ Artwork retrieved from {source_used}")
-            self.status_txt.set("Applying artwork...")
+            self._set_status("Applying artwork...")
             applier_mode = "Dry Run" if mode == "Dry Run" else "Update Artwork"
-            self.progress.config(value=0, maximum=len(files))
+            self._set_progress(0, len(files))
 
             def _on_file_progress(i: int) -> None:
-                # config() returns a dict; discard it to satisfy the callback contract.
-                self.progress.config(value=i)
+                self._set_progress(i)
 
             success = False
             with active_batch("album_art_sync", "tag_edit"):
@@ -439,21 +497,21 @@ class AudioSuiteV6(UIHelperMixin):
                     files=files,
                     img_raw=img_raw,
                     mode=applier_mode,
-                    embed_size=int(self.size_var.get()),
-                    purge=self.purge_var.get(),
+                    embed_size=self._run_embed_size,
+                    purge=self._run_purge,
                     log=self._add_log,
                     cancel_flag=lambda: self._cancel_requested,
                     on_file_progress=_on_file_progress,
                 )
 
             if success:
-                self.res_msg.config(text=f"Sync Complete via {source_used}")
+                self._show_result(f"Sync Complete via {source_used}")
                 self._add_log("\n✓ Artwork sync completed successfully")
             else:
-                self.res_msg.config(text="Partial Success - Check Log")
+                self._show_result("Partial Success - Check Log")
                 self._add_log("\n⚠ Artwork sync completed with warnings")
         else:
-            self.res_msg.config(text="No Artwork Found")
+            self._show_result("No Artwork Found")
             self._add_log("\n✗ No artwork was found or selected")
 
         if not self._cancel_requested:
@@ -461,17 +519,15 @@ class AudioSuiteV6(UIHelperMixin):
             with open(log_path, "w", encoding="utf-8") as f_log:
                 f_log.writelines(self._log_entries)
             self._add_log(f"\n✓ Log saved: {log_path}")
-            self.notebook.select(self._tab_results)
+            self._show_results_tab()
             self._maybe_auto_end(delay=2000)
 
         self._running = False
-        self.start_btn.config(state=tk.NORMAL)
-        self.cancel_btn.config(state=tk.DISABLED)
+        self._restore_controls()
 
     def _maybe_auto_end(self, delay: int = 2000) -> None:
         if self.auto_end:
             self._add_log(
                 f"\n[Auto End enabled - closing in {delay // 1000} seconds...]"
             )
-            self.root.update_idletasks()
             self.root.after(delay, self.root.destroy)

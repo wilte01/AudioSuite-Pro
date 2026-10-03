@@ -2512,14 +2512,21 @@ class TestAppRunLogic:
 
         return AudioSuiteV6
 
-    def _make_bare_app(self, audio_suite_v6_cls: Any, folder: Path) -> Any:
+    def _make_bare_app(
+        self, audio_suite_v6_cls: Any, folder: Path, mode: str = "Dry Run"
+    ) -> Any:
         """Instance with __init__ skipped; only _run_logic()'s dependencies set."""
         app = object.__new__(audio_suite_v6_cls)
+        # A root whose after() runs the callback immediately: the assertions
+        # below then verify the main-thread helper actually performed the
+        # widget write. Scheduling itself is asserted separately, with a
+        # recording stub (test_worker_ui_writes_are_scheduled_on_main_thread).
         app.root = MagicMock()
+        app.root.after.side_effect = lambda delay, func, *args: func(*args)
         app.folder_path = Mock()
         app.folder_path.get = Mock(return_value=str(folder))
         app.run_mode = Mock()
-        app.run_mode.get = Mock(return_value="Dry Run")
+        app.run_mode.get = Mock(return_value=mode)
         app.size_var = Mock()
         app.size_var.get = Mock(return_value="800")
         app.purge_var = Mock()
@@ -2537,6 +2544,13 @@ class TestAppRunLogic:
         app.cancel_btn = Mock()
         app._tab_processing = Mock()
         app._tab_results = Mock()
+        # start_thread snapshots every Tk var on the main thread before the
+        # worker starts (see _run_logic's thread-safety note); mirror that so
+        # _run_logic can be driven directly.
+        app._run_path = app.folder_path.get()
+        app._run_mode = app.run_mode.get()
+        app._run_embed_size = int(app.size_var.get())
+        app._run_purge = app.purge_var.get()
         return app
 
     def teardown_method(self, method) -> None:
@@ -2717,8 +2731,7 @@ class TestAppRunLogic:
     ) -> None:
         AudioSuiteV6 = self._import_app_class()
         (tmp_path / "track01.mp3").write_bytes(b"fake")
-        app = self._make_bare_app(AudioSuiteV6, tmp_path)
-        app.run_mode.get = Mock(return_value=ui_mode)
+        app = self._make_bare_app(AudioSuiteV6, tmp_path, mode=ui_mode)
         with (
             patch("album_art_sync.app.read_artist_album", return_value=("A", "B")),
             patch("album_art_sync.app.read_album_artist", return_value=""),
@@ -2854,10 +2867,15 @@ class TestAppRunLogic:
             ),
         ):
             app._run_logic()
-        app.root.after.assert_called_once()
-        delay, callback = app.root.after.call_args[0]
-        assert delay == 2000
-        assert callback == app.root.destroy
+        # Auto End must schedule the window close at its delay; the same root
+        # also carries the zero-delay UI marshalling calls, so match on the
+        # scheduled delays rather than counting every after().
+        destroy_calls = [
+            call_
+            for call_ in app.root.after.call_args_list
+            if call_.args[:2] == (2000, app.root.destroy)
+        ]
+        assert len(destroy_calls) == 1
 
     # ---- small guard-clause methods ----------------------------------------
 
@@ -2879,3 +2897,129 @@ class TestAppRunLogic:
         app.log_list.delete.assert_not_called()
         app.cancel_btn.config.assert_not_called()
         app.notebook.select.assert_not_called()
+
+    # ---- worker-thread marshalling (audit H3) -------------------------------
+
+    def _scheduled(self, app: Any) -> list[tuple[int, Any, tuple[Any, ...]]]:
+        """Return (delay, callback, args) for each recorded after() call."""
+        return [tuple(call_.args) for call_ in app.root.after.call_args_list]
+
+    def test_worker_ui_writes_are_scheduled_on_main_thread(
+        self, tmp_path: Path
+    ) -> None:
+        """Every widget write on the worker path is deferred via after(0, ...).
+
+        The stubs record the scheduling instead of running it, so a direct
+        widget call from _run_logic would leave these lists empty.
+        """
+        AudioSuiteV6 = self._import_app_class()
+        (tmp_path / "track01.mp3").write_bytes(b"fake")
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app.root.after.side_effect = None  # record only, do not execute
+        with (
+            patch("album_art_sync.app.read_artist_album", return_value=("A", "B")),
+            patch("album_art_sync.app.read_album_artist", return_value=""),
+            patch(
+                "album_art_sync.app.source_resolver.resolve",
+                return_value=(b"IMG", "Deezer"),
+            ),
+            patch("album_art_sync.app.apply_artwork", return_value=True),
+        ):
+            app._run_logic()
+
+        scheduled = self._scheduled(app)
+        zero_delay = [entry for entry in scheduled if entry[0] == 0]
+        callbacks = [entry[1] for entry in zero_delay]
+        assert app._append_log_line in callbacks
+        assert app._apply_status in callbacks
+        assert app._apply_progress in callbacks
+        assert app._apply_result in callbacks
+        assert app._apply_controls in callbacks
+        # The status text and the result message reached the main thread.
+        # Bound methods are compared with == : each attribute access builds a
+        # new method object, so an identity check would never match.
+        assert any(
+            entry[1] == app._apply_status and entry[2] == "Searching for artwork..."
+            for entry in zero_delay
+        )
+        assert any(
+            entry[1] == app._apply_result and entry[2] == "Sync Complete via Deezer"
+            for entry in zero_delay
+        )
+        # No widget was written directly from the worker thread.
+        app.status_txt.set.assert_not_called()
+        app.res_msg.config.assert_not_called()
+        app.log_list.insert.assert_not_called()
+        app.start_btn.config.assert_not_called()
+        app.notebook.select.assert_not_called()
+        app.progress.config.assert_not_called()
+
+    def test_start_thread_snapshots_tk_vars_and_starts_daemon_worker(
+        self, tmp_path: Path
+    ) -> None:
+        """start_thread reads every Tk var, then starts a daemon thread.
+
+        The worker must never call .get() on a Tk variable, so the snapshot is
+        part of the thread-safety contract, not an optimisation.
+        """
+        AudioSuiteV6 = self._import_app_class()
+        (tmp_path / "track01.mp3").write_bytes(b"fake")
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app.root.after.side_effect = None
+        app.run_mode.get = Mock(return_value="Update Artwork")
+        app.size_var.get = Mock(return_value="1200")
+        app.purge_var.get = Mock(return_value=False)
+
+        with patch("album_art_sync.app.threading.Thread") as mock_thread:
+            app.start_thread()
+
+        assert app._run_path == str(tmp_path)
+        assert app._run_mode == "Update Artwork"
+        assert app._run_embed_size == 1200
+        assert app._run_purge is False
+        assert mock_thread.call_args.kwargs["daemon"] is True
+        assert mock_thread.call_args.kwargs["target"] == app._run_logic
+
+    def test_log_helper_updates_the_listbox_when_called_on_main_thread(
+        self, tmp_path: Path
+    ) -> None:
+        """The marshalled helper is directly callable and does the widget write."""
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app.root.after.side_effect = None
+
+        app._append_log_line("straight from the main thread")
+
+        app.log_list.insert.assert_called_once_with(
+            "end", "straight from the main thread"
+        )
+        app.root.update_idletasks.assert_called_once()
+
+
+class TestRealWidgetMarshalling:
+    """The after(0, ...) bridge against real Tk widgets.
+
+    A per-test withdrawn Toplevel off the session-scoped shared root is used
+    so nothing lasting past the test is interned on the shared root.
+    """
+
+    def test_add_log_line_reaches_a_real_listbox(self, root: Any) -> None:
+        sys.modules.pop("album_art_sync.app", None)
+        import tkinter as tk
+
+        from album_art_sync.app import AudioSuiteV6
+
+        top = tk.Toplevel(root)
+        try:
+            app = object.__new__(AudioSuiteV6)
+            app.root = top
+            app.log_list = tk.Listbox(top)
+            app._log_entries = []
+
+            app._add_log("scheduled from a worker")
+            assert app.log_list.size() == 0  # nothing yet: the bridge is deferred
+            top.update()
+            assert app.log_list.get(0, tk.END) == ("scheduled from a worker",)
+            assert app._log_entries == ["scheduled from a worker\n"]
+        finally:
+            top.destroy()

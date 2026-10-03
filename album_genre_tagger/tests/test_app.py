@@ -35,6 +35,12 @@ def _make_shell_app(parsed):
     app._tab_results = MagicMock()
     app.start_btn = MagicMock()
     app._cli_args_parsed = parsed
+    # Snapshotted by start_processing on the main thread (see _run's
+    # thread-safety note); seeded here so callbacks can be driven directly.
+    app._dir_path = ""
+    app._is_dry_run = False
+    app._min_coverage = 50
+    app._log_path = ""
 
     handler = MagicMock()
     handler.apply_cli_args.return_value = False
@@ -126,7 +132,7 @@ class TestCallbackSignatureConsistency:
     def test_on_complete_accepts_all_kwargs_from_consolidator(self, tmp_path):
         app, _, _ = _make_shell_app(None)
         app._log_path = str(tmp_path / "genre_log.txt")
-        app.run_mode.get.return_value = "Dry Run"
+        app._is_dry_run = True
 
         app._on_complete(
             total=10,
@@ -163,14 +169,12 @@ class TestRunOpensUndoBatch:
         from album_genre_tagger.app import GenreConsolidatorApp
 
         app = object.__new__(GenreConsolidatorApp)
-        app.folder_path = MagicMock()
-        app.folder_path.get.return_value = str(tmp_path)
-        app.run_mode = MagicMock()
-        app.run_mode.get.return_value = "Dry Run"
-        app.min_coverage = MagicMock()
-        app.min_coverage.get.return_value = 50
+        app.root = MagicMock()
         app.progress = MagicMock()
         app.file_listbox = MagicMock()
+        app._dir_path = str(tmp_path)
+        app._is_dry_run = True
+        app._min_coverage = 50
 
         mock_active_batch = MagicMock()
         with (
@@ -182,3 +186,135 @@ class TestRunOpensUndoBatch:
         mock_active_batch.assert_called_once_with("album_genre_tagger", "tag_edit")
         mock_run.assert_called_once()
         assert mock_run.call_args.kwargs["dir_path"] == str(tmp_path)
+        assert mock_run.call_args.kwargs["min_coverage"] == 50
+        assert mock_run.call_args.kwargs["is_dry_run"] is True
+
+
+class TestWorkerThreadMarshalling:
+    """Callbacks fire on a worker thread: every Tk write is deferred (audit H3).
+
+    ``root.after`` records the scheduling instead of running it, so a direct
+    widget call from the worker path would leave the recorded lists empty.
+    """
+
+    def _scheduled(self, app):
+        return [tuple(call_.args) for call_ in app.root.after.call_args_list]
+
+    def test_start_processing_snapshots_tk_vars_and_starts_daemon_thread(
+        self, tmp_path
+    ):
+        """The worker must never call .get() on a Tk variable."""
+        app, _, _ = _make_shell_app(None)
+        app.folder_path.get.return_value = str(tmp_path)
+        app.run_mode.get.return_value = "Live Update"
+        app.min_coverage.get.return_value = 72
+        app.overall_status = MagicMock()
+
+        with patch("album_genre_tagger.app.threading.Thread") as mock_thread:
+            app.start_processing()
+
+        assert app._dir_path == str(tmp_path)
+        assert app._is_dry_run is False
+        assert app._min_coverage == 72
+        assert app._log_path == str(tmp_path / "AlbumGenre_Tagger_Log.txt")
+        assert mock_thread.call_args.kwargs["daemon"] is True
+        assert mock_thread.call_args.kwargs["target"] == app._run
+
+    def test_run_schedules_its_header_instead_of_writing_widgets(self, tmp_path):
+        app, _, _ = _make_shell_app(None)
+        app._dir_path = str(tmp_path)
+        app._is_dry_run = True
+        app._min_coverage = 50
+
+        with (
+            patch("album_genre_tagger.app.active_batch"),
+            patch("album_genre_tagger.app.consolidator.run_analysis"),
+        ):
+            app._run()
+
+        assert self._scheduled(app) == [(0, app._reset_progress_ui)]
+        app.progress.__setitem__.assert_not_called()
+        app.file_listbox.insert.assert_not_called()
+        # No Tk variable was read on the worker thread.
+        app.folder_path.get.assert_not_called()
+        app.run_mode.get.assert_not_called()
+        app.min_coverage.get.assert_not_called()
+
+    def test_every_callback_schedules_its_main_thread_helper(self, tmp_path):
+        app, _, _ = _make_shell_app(None)
+        app._log_path = str(tmp_path / "genre_log.txt")
+        app._is_dry_run = True
+
+        app._on_phase1_progress(1, 3, 1, 0, "display", "log")
+        app._on_phase2_progress("display2", "log2")
+        app._on_coverage_fail(3, 1, 33.0, 50, 1.0, ["line\n"])
+        app._on_complete(
+            total=3,
+            files_with_genre=3,
+            coverage_pct=100.0,
+            unique_genres=["Rock"],
+            album_genre_string="Rock",
+            write_count=3,
+            write_errors=0,
+            read_errors=0,
+            duration_secs=1.0,
+            log_entries=["line\n"],
+        )
+        app._on_error("boom")
+
+        zero_delay = [entry for entry in self._scheduled(app) if entry[0] == 0]
+        callbacks = [entry[1] for entry in zero_delay]
+        assert callbacks == [
+            app._update_phase1_ui,
+            app._append_phase2_text,
+            app._show_coverage_fail,
+            app._show_complete,
+            app._show_error,
+        ]
+        assert zero_delay[0][2:] == (1, 3, 1, 0, "display")
+        assert zero_delay[1][2:] == ("display2",)
+        assert zero_delay[4][2:] == ("boom",)
+        # Nothing was written straight from the worker callback.
+        app.progress.__setitem__.assert_not_called()
+        app.file_listbox.insert.assert_not_called()
+        app.summary_label.config.assert_not_called()
+        app.notebook.select.assert_not_called()
+        app.start_btn.config.assert_not_called()
+
+    def test_log_write_failure_schedules_the_dialog(self, tmp_path):
+        app, _, _ = _make_shell_app(None)
+        app._log_path = str(tmp_path / "missing_dir" / "genre_log.txt")
+        app.error_logger = MagicMock()
+
+        app._write_log(["line\n"])
+
+        zero_delay = [entry for entry in self._scheduled(app) if entry[0] == 0]
+        assert [entry[1] for entry in zero_delay] == [app._show_log_error]
+        assert "Could not write log file" in zero_delay[0][2]
+
+
+class TestRealWidgetMarshalling:
+    """The after(0, ...) bridge against real Tk widgets.
+
+    A per-test withdrawn Toplevel off the session-scoped shared root is used
+    so nothing lasting past the test is interned on the shared root.
+    """
+
+    def test_scheduled_callback_updates_a_real_listbox(self, root):
+        import tkinter as tk
+
+        from album_genre_tagger.app import GenreConsolidatorApp
+
+        top = tk.Toplevel(root)
+        try:
+            app = object.__new__(GenreConsolidatorApp)
+            app.root = top
+            app.file_listbox = tk.Listbox(top)
+
+            app._on_phase2_progress("real widget line", "log")
+
+            assert app.file_listbox.size() == 0  # deferred, not written yet
+            top.update()
+            assert app.file_listbox.get(0, tk.END) == ("real widget line",)
+        finally:
+            top.destroy()
