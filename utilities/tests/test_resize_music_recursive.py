@@ -222,3 +222,196 @@ class TestUndecodableBytesHelper:
         from PIL import Image
 
         assert Image.open(io.BytesIO(out)).size == (300, 300)
+
+
+# ─── Iteration-8 C6 (audit M16): the artwork branches ───
+#
+# The audit reported that
+# ``if isinstance(audio, MP3) or hasattr(audio.tags, "add")`` captured FLAC
+# (VorbisComment) and MP4 (MP4Tags) too, "because both implement .add",
+# making the dedicated FLAC/MP4 branches unreachable. **That premise does
+# not hold on the resolved mutagen (1.47.0): probed against real files, a
+# FLAC's tags are VCFLACDict and an M4A's are MP4Tags, and neither has an
+# ``add`` attribute.** The FLAC/MP4 branches were therefore already
+# reachable, and restoring the old condition does not fail any test here.
+#
+# What the audit's other instruction — "verify the FLAC/MP4 art paths handle
+# their real mutagen structures" — did surface is a genuine live defect: the
+# reachable FLAC branch read ``pic.description``, which does not exist on
+# mutagen's ``Picture`` (the field is ``desc``), so any FLAC file whose art
+# was not already at the target size raised an uncaught AttributeError. The
+# tests below pin that outcome by decoding what the tool wrote back.
+#
+# The narrowing keys on the TAGS class — ``isinstance(audio.tags, ID3)`` —
+# not ``isinstance(audio, MP3)``: AIFF carries APIC frames in an ID3 subclass
+# (``_IFFID3``) and was already served by the first branch, so keying on the
+# file class would trade one silent loss for another. On mutagen 1.47.0 the
+# narrowing is behaviour-identical for every supported format; it replaces an
+# accidental ``hasattr`` probe whose meaning would silently break if a future
+# mutagen grows ``.add`` on VComment/MP4Tags.
+
+
+def _make_flac_with_art(directory: Path, image_data: bytes, size: int) -> Path:
+    """Write a real FLAC carrying one embedded Picture of ``size``."""
+    from mutagen.flac import FLAC, Picture
+    from pydub import AudioSegment
+
+    path = directory / "track.flac"
+    AudioSegment.silent(duration=200, frame_rate=44100).export(str(path), format="flac")
+    audio = FLAC(str(path))
+    pic = Picture()
+    pic.data = image_data
+    pic.mime = "image/png"
+    pic.type = 3
+    pic.desc = "Cover (front)"
+    pic.width = size
+    pic.height = size
+    pic.depth = 24
+    audio.add_picture(pic)
+    audio.save()
+    return path
+
+
+def _make_mp4_with_art(directory: Path, image_data: bytes) -> Path:
+    """Write a real M4A carrying one embedded ``covr`` cover."""
+    from mutagen.mp4 import MP4, MP4Cover
+    from pydub import AudioSegment
+
+    path = directory / "track.m4a"
+    AudioSegment.silent(duration=200, frame_rate=44100).export(str(path), format="mp4")
+    audio = MP4(str(path))
+    audio["covr"] = [MP4Cover(image_data, imageformat=MP4Cover.FORMAT_PNG)]
+    audio.save()
+    return path
+
+
+def _make_aiff_with_apic(directory: Path, image_data: bytes) -> Path:
+    """Write a real AIFF carrying an ID3 ``APIC`` frame.
+
+    AIFF's tags are mutagen's ``_IFFID3`` — an ``ID3`` subclass — so it
+    depends on the tags-class narrowing to keep being served by the first
+    branch. This is the regression guard for choosing
+    ``isinstance(audio.tags, ID3)`` over ``isinstance(audio, MP3)``.
+    """
+    from mutagen import File
+    from mutagen.id3 import APIC
+    from pydub import AudioSegment
+
+    path = directory / "track.aiff"
+    AudioSegment.silent(duration=200, frame_rate=44100).export(str(path), format="aiff")
+    audio = File(str(path), easy=False)
+    if audio.tags is None:
+        audio.add_tags()
+    audio.tags.add(
+        APIC(
+            encoding=3,
+            mime="image/png",
+            type=3,
+            desc="Cover (front)",
+            data=image_data,
+        )
+    )
+    audio.save()
+    return path
+
+
+class TestFlacEmbeddedArtIsResized:
+    def test_flac_art_enters_the_flac_branch(
+        self, tmp_path: Path, resize_spy: list[bytes]
+    ) -> None:
+        png = _real_png(500)
+        path = _make_flac_with_art(tmp_path, png, size=500)
+
+        assert rmr.resize_embedded_art(path, 300) is True
+        assert resize_spy == [png], "FLAC art never reached the resize"
+
+    def test_flac_art_outcome_is_measured_on_disk(self, tmp_path: Path) -> None:
+        """Decode what the tool wrote back and measure it."""
+        from mutagen.flac import FLAC
+        from PIL import Image
+
+        path = _make_flac_with_art(tmp_path, _real_png(500), size=500)
+        assert rmr.resize_embedded_art(path, 300) is True
+
+        reloaded = FLAC(str(path))
+        assert len(reloaded.pictures) == 1
+        pic = reloaded.pictures[0]
+        assert (pic.width, pic.height) == (300, 300)
+        assert Image.open(io.BytesIO(pic.data)).size == (300, 300)
+
+    def test_flac_art_extractable(
+        self, tmp_path: Path, resize_spy: list[bytes]
+    ) -> None:
+        """``extract_embedded_art_bytes`` reads the FLAC picture, not APIC."""
+        png = _real_png(500)
+        path = _make_flac_with_art(tmp_path, png, size=500)
+
+        assert rmr.extract_embedded_art_bytes(path) == png
+
+
+class TestMp4EmbeddedArtIsResized:
+    def test_mp4_art_enters_the_mp4_branch(
+        self, tmp_path: Path, resize_spy: list[bytes]
+    ) -> None:
+        png = _real_png(500)
+        path = _make_mp4_with_art(tmp_path, png)
+
+        assert rmr.resize_embedded_art(path, 300) is True
+        assert resize_spy == [png], "MP4 art never reached the resize"
+
+    def test_mp4_art_outcome_is_measured_on_disk(self, tmp_path: Path) -> None:
+        """Decode what the tool wrote back and measure it."""
+        from mutagen.mp4 import MP4
+        from PIL import Image
+
+        path = _make_mp4_with_art(tmp_path, _real_png(500))
+        assert rmr.resize_embedded_art(path, 300) is True
+
+        reloaded = MP4(str(path))
+        covers = reloaded["covr"]
+        assert len(covers) == 1
+        assert Image.open(io.BytesIO(bytes(covers[0]))).size == (300, 300)
+
+    def test_mp4_art_extractable(self, tmp_path: Path) -> None:
+        png = _real_png(500)
+        path = _make_mp4_with_art(tmp_path, png)
+
+        assert bytes(rmr.extract_embedded_art_bytes(path)) == png
+
+
+class TestAiffStillServedByTheId3Branch:
+    def test_aiff_apic_art_is_resized(
+        self, tmp_path: Path, resize_spy: list[bytes]
+    ) -> None:
+        """AIFF's ID3-subclass tags must keep reaching the APIC branch.
+
+        Guards the deviation from the plan's literal
+        ``isinstance(audio, MP3)``: that wording would have silently dropped
+        AIFF embedded art, which the pre-fix code did resize.
+        """
+        png = _real_png(500)
+        path = _make_aiff_with_apic(tmp_path, png)
+
+        assert rmr.resize_embedded_art(path, 300) is True
+        assert resize_spy == [png]
+
+    def test_aiff_art_extractable(self, tmp_path: Path) -> None:
+        png = _real_png(500)
+        path = _make_aiff_with_apic(tmp_path, png)
+
+        assert rmr.extract_embedded_art_bytes(path) == png
+
+
+class TestMp3BehaviourIsUnchanged:
+    def test_mp3_still_resized(self, tmp_path: Path, resize_spy: list[bytes]) -> None:
+        png = _real_png(500)
+        path = _make_mp3_with_apic(tmp_path, png)
+
+        assert rmr.resize_embedded_art(path, 300) is True
+        assert resize_spy == [png]
+
+    def test_mp3_art_extractable(self, tmp_path: Path) -> None:
+        png = _real_png(500)
+        path = _make_mp3_with_apic(tmp_path, png)
+
+        assert rmr.extract_embedded_art_bytes(path) == png

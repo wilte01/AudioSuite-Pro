@@ -14,10 +14,12 @@ writes for in-place processing runs:
 Because Audio Refinery's in-place mode overwrites the source file with the
 refined output, the file currently on disk IS the refined file. Hashing it
 now reproduces the same value the program itself would have stored at the
-end of a real run. This script does not invent or guess any hash logic of
-its own — it imports `_sha256` directly from the real registry module
-(falling back to an equivalent local implementation only if that import is
-unavailable, with a loud warning).
+end of a real run. This script does not import the registry module — it
+computes the digest with a local `_sha256` that mirrors
+`audio_refinery.core.registry._sha256` exactly (64 KiB blocks, raw bytes,
+hex digest). The equivalence is locked by
+`utilities/tests/test_rebuild_refinery_log.py`, which asserts both
+implementations produce the same digest for the same real file.
 
 ASSUMPTIONS — read before running:
   1. Every audio file in each target directory was *fully* refined already.
@@ -59,7 +61,7 @@ import os
 import sys
 from pathlib import Path
 
-from audio_suite_shared.exceptions import AudioFileNotFoundError
+from audio_suite_shared.exceptions import AudioFileNotFoundError, AudioSuiteError
 
 _BLOCK = 65536  # match registry.py's read block size exactly
 
@@ -156,7 +158,7 @@ def build_log_for_directory(
         The number of files that were (or would be) registered.
 
     Raises:
-        FileNotFoundError: If directory does not exist or is not a
+        AudioFileNotFoundError: If directory does not exist or is not a
             directory.
     """
     if not directory.is_dir():
@@ -253,7 +255,12 @@ def main() -> None:
                 total += build_log_for_directory(
                     directory, dry_run=args.dry_run, extensions=extensions
                 )
-            except FileNotFoundError as exc:
+            except AudioSuiteError as exc:
+                # build_log_for_directory raises AudioFileNotFoundError
+                # (AudioIOError -> AudioSuiteError); catching the suite base
+                # class also covers any future AudioIOError variant a shared
+                # helper starts raising. The old `except FileNotFoundError`
+                # could never match and let the traceback escape.
                 print(f"  [ERROR] {exc}", file=sys.stderr)
 
     print(f"\nDone. {total} file(s) registered across {dir_count} directory(ies).")

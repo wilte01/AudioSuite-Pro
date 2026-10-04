@@ -29,11 +29,14 @@ Notes:
 """
 
 import argparse
+import logging
 import os
 import sys
 import tempfile
 
 UTF8_BOM = b"\xef\xbb\xbf"
+
+logger = logging.getLogger(__name__)
 
 
 def find_target_files(root, extensions):
@@ -97,7 +100,15 @@ def _cleanup(tmp_path):
         if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
     except OSError:
-        pass
+        # Best-effort removal of a temp file that only exists because the
+        # real write already failed; the user-visible error was reported by
+        # the caller. Logged rather than swallowed silently (A3 standard)
+        # so a stuck temp file is diagnosable instead of invisible.
+        logger.warning(
+            "Could not remove temporary file %s after a failed write",
+            tmp_path,
+            exc_info=True,
+        )
 
 
 def main():

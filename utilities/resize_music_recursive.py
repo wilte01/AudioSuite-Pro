@@ -6,8 +6,7 @@ from pathlib import Path
 import click
 from mutagen import File
 from mutagen.flac import FLAC, Picture
-from mutagen.id3 import APIC
-from mutagen.mp3 import MP3
+from mutagen.id3 import APIC, ID3
 from mutagen.mp4 import MP4, MP4Cover
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -62,8 +61,16 @@ def extract_embedded_art_bytes(
         if audio is None or audio.tags is None:
             return None
 
-        # MP3 Files (ID3 Tags)
-        if isinstance(audio, MP3) or hasattr(audio.tags, "add"):
+        # MP3 / AIFF (ID3-family tags). The branch keys on the TAGS class:
+        # these are the formats that actually carry APIC frames. Probed
+        # empirically against mutagen 1.47.0, FLAC (VCFLACDict) and MP4
+        # (MP4Tags) tags have no `.add`, so the old
+        # `hasattr(audio.tags, "add")` probe happened not to capture them —
+        # but that was luck, not intent: the probe's meaning ("looks like
+        # ID3") is accidental and would silently swallow FLAC/MP4 into this
+        # APIC branch on any future mutagen that grows an `.add` on those
+        # tag classes. ID3 covers MP3 plus AIFF's _IFFID3 subclass.
+        if isinstance(audio.tags, ID3):
             for key in audio.tags.keys():
                 if key.startswith("APIC"):
                     return audio.tags[key].data
@@ -168,8 +175,9 @@ def resize_embedded_art(file_path: Path, target_size: int) -> bool:
 
         modified = False
 
-        # MP3 Files (ID3 Tags)
-        if isinstance(audio, MP3) or hasattr(audio.tags, "add"):
+        # MP3 / AIFF (ID3-family tags) — see the note in
+        # extract_embedded_art_bytes for why this keys on the tags class.
+        if isinstance(audio.tags, ID3):
             for key in list(audio.tags.keys()):
                 if key.startswith("APIC"):
                     apic = audio.tags[key]
@@ -217,7 +225,11 @@ def resize_embedded_art(file_path: Path, target_size: int) -> bool:
                     new_pic.data = resized_data
                     new_pic.type = pic.type
                     new_pic.mime = "image/jpeg"
-                    new_pic.description = pic.description
+                    # mutagen's Picture field is `desc`; the pre-fix code
+                    # read `pic.description`, which does not exist and raised
+                    # an uncaught AttributeError on every FLAC file whose
+                    # art was not already at the target size.
+                    new_pic.desc = pic.desc
                     new_pic.width = target_size
                     new_pic.height = target_size
                     new_pic.depth = 24

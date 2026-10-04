@@ -164,8 +164,13 @@ def main() -> None:
         p.add_argument(
             "--db",
             metavar="PATH",
-            default=None,
-            help="Path to the undo log database (defaults to the --db above).",
+            # SUPPRESS keeps the subparser from writing its default over a
+            # --db the top-level parser already consumed: `undo --db X show ID`
+            # previously lost X because the subparser's default=None shadowed
+            # it. With SUPPRESS the attribute is only set when the flag is
+            # actually given after the subcommand.
+            default=argparse.SUPPRESS,
+            help="Path to the undo log database (overrides the --db above).",
         )
 
     args = parser.parse_args()

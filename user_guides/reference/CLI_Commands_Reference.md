@@ -301,3 +301,9 @@ python utilities/undo.py undo <batch_id> [--db PATH]
 ```
 
 Batches live in `~/.audiosuite/undo_log.db` by default.
+
+`--db` may be given before or after the subcommand — both
+`undo.py --db PATH list` and `undo.py list --db PATH` select the same
+database, and a path given after the subcommand wins. Before iteration-8 C6
+the pre-subcommand position was silently overwritten by the subcommand's
+default, so the wrong database was read.
