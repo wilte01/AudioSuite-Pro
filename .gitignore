@@ -35,6 +35,10 @@ audio_suite_config.key
 # album_art_sync API-key files (live Fanart.tv keys — never commit; template lives on disk)
 album_art_config.json
 album_art_config.key
+# Backups written by KeyManager before it replaces an unusable key file.
+# A glob, not two literal names, so every current and future tool's key
+# backup is covered; these are secret-class like the keys themselves.
+*.key.bak
 *.spec
 .coverage
 .coverage.*

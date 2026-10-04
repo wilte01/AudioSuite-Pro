@@ -5,7 +5,10 @@ Gap G-19: KeyManager — key generation, encrypt/decrypt round-trips,
 """
 
 import base64
+import fnmatch
+import logging
 import os
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -402,3 +405,213 @@ class TestKeyFileErrorPaths:
         km._fernet.encrypt.side_effect = RuntimeError("encrypt blew up")
         with pytest.raises(AudioProcessingError, match="Encryption failed"):
             km.encrypt_string("secret")
+
+
+# ─── Iteration-8 C7 (audit M17): key-regeneration consequences ───
+#
+# When an existing key file is corrupt or unreadable, KeyManager overwrites it
+# with a brand-new key. Everything encrypted under the old key (the Fanart
+# app_key/client_key are the live case) becomes permanently undecryptable, and
+# before this change the user got no backup to restore from, no warning naming
+# the consequence, and — on a key *write* failure — a key that silently did not
+# survive the restart. These tests pin the recovery path, the surfaced warning,
+# and the real on-disk outcome.
+
+KEY_MANAGER_LOGGER = "audio_suite_shared.security.key_manager"
+
+
+def _corrupt_key_file(directory):
+    """Replace a working key file with garbage, then open it for real.
+
+    Builds a genuine key that encrypts a genuine value first, so the value
+    under test is one that a real user would have stored (the Fanart keys).
+    Returns (manager, secret, key_file, original_key_bytes).
+    """
+    config = directory / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    key_file = directory / "config.key"
+
+    first = KeyManager(str(config))
+    secret = first.encrypt_string("LIVE-FANART-KEY")
+    original_key = key_file.read_bytes()
+    key_file.write_bytes(b"corrupted garbage bytes not a valid fernet key")
+
+    return KeyManager(str(config)), secret, key_file, original_key
+
+
+def _messages(caplog, level):
+    """Log messages at ``level`` or above from the key manager logger."""
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == KEY_MANAGER_LOGGER and record.levelno >= level
+    ]
+
+
+class TestReplacedKeyIsBackedUp:
+    """The key being replaced is the only route back to old values."""
+
+    def test_backup_preserves_the_bytes_being_replaced(self, tmp_path, caplog):
+        """Nothing on disk is destroyed without a verbatim copy first.
+
+        Note the copy can only be worth as much as the file's contents: a
+        key file that is already corrupt yields a diagnostic copy, which is
+        why the warning text distinguishes the two cases.
+        """
+        config = tmp_path / "config.json"
+        config.write_text("{}", encoding="utf-8")
+        key_file = tmp_path / "config.key"
+        KeyManager(str(config))
+        corrupt_bytes = b"corrupted garbage bytes not a valid fernet key"
+        key_file.write_bytes(corrupt_bytes)
+
+        with caplog.at_level(logging.WARNING, logger=KEY_MANAGER_LOGGER):
+            manager = KeyManager(str(config))
+
+        backup = Path(f"{key_file}.bak")
+        assert backup.exists(), "the replaced key was destroyed with no backup"
+        assert backup.read_bytes() == corrupt_bytes
+        assert key_file.read_bytes() != corrupt_bytes, "the key was not replaced"
+        assert manager._fernet is not None
+
+        messages = _messages(caplog, logging.WARNING)
+        assert any("for diagnosis only" in m for m in messages), messages
+
+    def test_warning_names_the_re_entry_consequence(self, tmp_path, caplog):
+        with caplog.at_level(logging.WARNING, logger=KEY_MANAGER_LOGGER):
+            _corrupt_key_file(tmp_path)
+
+        messages = _messages(caplog, logging.WARNING)
+        assert any("re-entered" in m for m in messages), messages
+        assert any("app_key" in m for m in messages), messages
+
+    def test_existing_backup_is_never_clobbered(self, tmp_path):
+        """The .bak holds the *original* key, so a second backup must not
+        replace it with a more recent — and far less useful — key."""
+        config = tmp_path / "config.json"
+        config.write_text("{}", encoding="utf-8")
+        key_file = tmp_path / "config.key"
+        KeyManager(str(config))
+
+        sentinel = b"ORIGINAL-BACKUP-DO-NOT-CLOBBER"
+        Path(f"{key_file}.bak").write_bytes(sentinel)
+        key_file.write_bytes(b"bad_key")
+
+        KeyManager(str(config))
+
+        assert Path(f"{key_file}.bak").read_bytes() == sentinel
+
+    def test_restoring_the_backup_recovers_old_values(self, tmp_path, caplog):
+        """End-to-end proof of the procedure the warning tells the user to
+        follow: restore the .bak, drop the replacement key, and the values
+        encrypted under the old key decrypt again."""
+        config = tmp_path / "config.json"
+        config.write_text("{}", encoding="utf-8")
+        key_file = tmp_path / "config.key"
+
+        # A key that encrypts a real value, then becomes unreadable (here:
+        # replaced by a directory, so the read fails for real on any OS).
+        original_manager = KeyManager(str(config))
+        secret = original_manager.encrypt_string("LIVE-FANART-KEY")
+        Path(f"{key_file}.bak").write_bytes(key_file.read_bytes())
+        key_file.unlink()
+        key_file.mkdir()
+
+        with caplog.at_level(logging.WARNING, logger=KEY_MANAGER_LOGGER):
+            KeyManager(str(config))
+
+        # Follow the documented recovery: put the backup back, remove the
+        # key file the failed write left behind.
+        key_file.rmdir()
+        Path(f"{key_file}.bak").replace(key_file)
+
+        recovered = KeyManager(str(config))
+        assert recovered.decrypt_string(secret) == "LIVE-FANART-KEY"
+
+    def test_valid_key_is_reused_and_never_backed_up(self, tmp_path):
+        """The positive contract: a usable key is left completely alone."""
+        config = tmp_path / "config.json"
+        config.write_text("{}", encoding="utf-8")
+        key_file = tmp_path / "config.key"
+
+        first = KeyManager(str(config))
+        secret = first.encrypt_string("keep me")
+        original_key = key_file.read_bytes()
+
+        second = KeyManager(str(config))
+
+        assert key_file.read_bytes() == original_key
+        assert not Path(f"{key_file}.bak").exists()
+        assert second.decrypt_string(secret) == "keep me"
+
+    def test_gitignore_covers_key_backups(self):
+        """Backups are secret-class: the ignore rule must cover every tool's."""
+        gitignore = Path(__file__).resolve().parents[2] / ".gitignore"
+        patterns = [
+            line.strip()
+            for line in gitignore.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+        for candidate in ("album_art_config.key.bak", "audio_suite_config.key.bak"):
+            assert any(fnmatch.fnmatch(candidate, pattern) for pattern in patterns), (
+                f"{candidate} is not covered by .gitignore"
+            )
+
+
+class TestUnrecoverableValuesAreExplained:
+    """A value the suite can no longer decrypt must say why."""
+
+    def test_decrypt_of_old_value_names_the_key_regeneration(self, tmp_path):
+        manager, secret, _key_file, _original = _corrupt_key_file(tmp_path)
+
+        with pytest.raises(AudioProcessingError) as exc:
+            manager.decrypt_string(secret)
+
+        message = str(exc.value)
+        assert "regenerated" in message, message
+        assert "re-entered" in message, message
+
+    def test_decrypt_message_is_unchanged_without_regeneration(self, km):
+        """The added context must not appear on an ordinary bad-value error."""
+        km._key_regenerated = False
+        with pytest.raises(AudioProcessingError) as exc:
+            km.decrypt_string(base64.b64encode(b"x" * 80).decode("ascii"))
+        assert str(exc.value) == "Failed to decrypt configuration value"
+
+    def test_unreadable_key_file_still_surfaces_the_consequence(self, tmp_path, caplog):
+        """A directory where the key file should be: the read fails for real
+        (PermissionError/IsADirectoryError, both OSError) and there is nothing
+        worth backing up — the consequence warning must still appear."""
+        config = tmp_path / "config.json"
+        config.write_text("{}", encoding="utf-8")
+        (tmp_path / "config.key").mkdir()
+
+        with caplog.at_level(logging.WARNING, logger=KEY_MANAGER_LOGGER):
+            manager = KeyManager(str(config))
+
+        messages = _messages(caplog, logging.WARNING)
+        assert any("Could not read key file" in m for m in messages), messages
+        assert any("re-entered" in m for m in messages), messages
+        assert any("Could not back up" in m for m in messages), messages
+        assert manager._fernet is not None
+
+    def test_write_failure_says_the_key_will_not_survive_restart(
+        self, tmp_path, caplog
+    ):
+        """The audit's second finding: a key that could not be saved was
+        returned silently, so the next launch used a different one."""
+        config = tmp_path / "config.json"
+        config.write_text("{}", encoding="utf-8")
+        (tmp_path / "config.key").mkdir()
+
+        with caplog.at_level(logging.ERROR, logger=KEY_MANAGER_LOGGER):
+            manager = KeyManager(str(config))
+
+        errors = _messages(caplog, logging.ERROR)
+        assert any("only in memory" in m for m in errors), errors
+        assert any("restart" in m for m in errors), errors
+
+        # The real outcome, not just the message: the next launch cannot
+        # reproduce this session's key, so anything it encrypted is lost.
+        next_launch = KeyManager(str(config))
+        assert next_launch._key != manager._key

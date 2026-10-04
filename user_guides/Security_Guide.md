@@ -108,12 +108,25 @@ AudioSuite-Pro now includes enhanced security features to protect your data and 
 
 **New Files Created:**
 - `album_art_config.key` - Encryption key (restricted permissions)
+- `album_art_config.key.bak` - Copy of a key file that had to be replaced
+  (created only when an existing key file turns out to be unusable)
 - `album_art_config.json` - Encrypted configuration
 
 **File Security:**
 - Key files have restricted permissions on Unix-like systems
 - Configuration files contain encrypted sensitive data
 - Back up both key and config files together
+- Key backups are secret-class too: `*.key.bak` is git-ignored and must never
+  be committed or shared
+
+**If your key file is ever replaced:** values encrypted under the old key
+(the Fanart `app_key`/`client_key`) stop decrypting and must be re-entered, and
+the module logs a WARNING saying so at launch. Before overwriting a key file
+the module copies it to `<key file>.bak`. To recover the old values, stop the
+module, put that `.bak` file back in place of the `.key` file, delete the new
+`.key` file, and restart. If the key file was already corrupt when it was
+replaced, the `.bak` is a diagnostic copy only and the values cannot be
+recovered.
 
 ## User Actions
 

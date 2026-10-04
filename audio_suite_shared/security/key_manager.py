@@ -10,6 +10,7 @@ import base64
 import binascii
 import logging
 import os
+import shutil
 from typing import Any
 
 from audio_suite_shared.exceptions import AudioProcessingError
@@ -47,6 +48,10 @@ class KeyManager:
         self._encryption_enabled = CRYPTOGRAPHY_AVAILABLE
         self._key: bytes | None = None
         self._fernet: Any = None
+        # Set when an existing key file was unusable and had to be replaced.
+        # decrypt_string uses it to explain why older values are now
+        # unreadable instead of reporting a bare decryption failure.
+        self._key_regenerated: bool = False
 
         if CRYPTOGRAPHY_AVAILABLE:
             self._key = self._load_or_generate_key()
@@ -77,12 +82,78 @@ class KeyManager:
                 return key
             except (IOError, OSError) as e:
                 logger.warning("Could not read key file, generating new key: %s", e)
-                return self._generate_and_save_key(key_file)
+                # The bytes on disk may still be a perfectly good key that
+                # merely could not be read, so the copy is worth restoring.
+                recoverable = True
             except Exception as e:
                 logger.warning("Key file invalid, generating new key: %s", e)
-                return self._generate_and_save_key(key_file)
-        else:
+                # The stored key was already unusable; copying it preserves
+                # evidence, not the ability to decrypt anything.
+                recoverable = False
+
+            # An existing key is about to be overwritten. It is the only
+            # thing that can decrypt values already encrypted under it, so
+            # keep a copy before it goes, and record that the replacement
+            # makes those values unreadable.
+            self._key_regenerated = True
+            logger.warning(
+                "Replacing the encryption key at %s: a key file already existed "
+                "but could not be used. Values encrypted under the previous key "
+                "(for example the Fanart app_key/client_key) can no longer be "
+                "decrypted and will need to be re-entered.",
+                key_file,
+            )
+            self._backup_existing_key(key_file, recoverable=recoverable)
             return self._generate_and_save_key(key_file)
+        return self._generate_and_save_key(key_file)
+
+    def _backup_existing_key(self, key_file: str, *, recoverable: bool) -> None:
+        """
+        Copy an existing key file to ``<key_file>.bak`` before it is replaced.
+
+        The key being replaced is the only thing that can decrypt values
+        already encrypted under it, so this copy is what makes those values
+        recoverable. An existing ``.bak`` is never clobbered, because it holds
+        the *original* key, which is the more valuable of the two.
+
+        Args:
+            key_file: Path of the key file that is about to be overwritten.
+            recoverable: True when the stored bytes may still be a usable key
+                (it merely could not be read), so restoring the copy would
+                recover values. False when the stored key was already invalid,
+                making the copy diagnostic evidence only.
+        """
+        backup = f"{key_file}.bak"
+        if os.path.exists(backup):
+            logger.info(
+                "Keeping the existing key backup at %s rather than overwriting it",
+                backup,
+            )
+            return
+        try:
+            shutil.copy2(key_file, backup)
+        except OSError:
+            logger.warning(
+                "Could not back up the previous key to %s: values encrypted "
+                "under it are now unrecoverable",
+                backup,
+                exc_info=True,
+            )
+            return
+        if recoverable:
+            logger.warning(
+                "Backed up the previous encryption key to %s before replacing it. "
+                "Restore that file (and delete the new key file) to recover values "
+                "encrypted under the old key.",
+                backup,
+            )
+        else:
+            logger.warning(
+                "Kept a copy of the unusable key file at %s before replacing it. "
+                "The stored key was already invalid, so this copy is for diagnosis "
+                "only and cannot recover values encrypted under it.",
+                backup,
+            )
 
     def _generate_and_save_key(self, key_file: str) -> bytes:
         """
@@ -141,7 +212,14 @@ class KeyManager:
 
             return key
         except (IOError, OSError) as e:
-            logger.error("Could not save key file: %s", e, exc_info=True)
+            logger.error(
+                "Could not save key file: %s. The key returned for this session "
+                "exists only in memory: every value encrypted with it will be "
+                "undecryptable after a restart, and the next launch will "
+                "generate a different key.",
+                e,
+                exc_info=True,
+            )
             # Fallback to a generated key (won't persist)
             return Fernet.generate_key()
 
@@ -199,10 +277,14 @@ class KeyManager:
             return decrypted_bytes.decode("utf-8")
         except (InvalidToken, ValueError, binascii.Error) as e:
             logger.error("Error decrypting data: %s", e, exc_info=True)
-            raise AudioProcessingError(
-                "Failed to decrypt configuration value",
-                original=e,
-            ) from e
+            message = "Failed to decrypt configuration value"
+            if self._key_regenerated:
+                message += (
+                    ": the encryption key was regenerated because the previous "
+                    "key file was unusable, so values encrypted under it (for "
+                    "example the Fanart app_key/client_key) must be re-entered"
+                )
+            raise AudioProcessingError(message, original=e) from e
 
     def encrypt_config(self, config: dict[str, Any]) -> dict[str, Any]:
         """
