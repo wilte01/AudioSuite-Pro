@@ -26,6 +26,10 @@ class TrimResult:
         trimmed: The processed AudioSegment (with optional fades),
             or None if has_silence is False.
         status: 'TRIMMED' | 'DRY_RUN' | 'SKIP'
+        apply_fade: Whether fades were applied to the returned audio.
+            Callers that need to describe the outcome must read this rather
+            than substring-match ``action`` - ``action`` is human-readable
+            text and its wording is not a stable interface.
         action: Human-readable description of what was/would be done.
     """
 
@@ -36,6 +40,7 @@ class TrimResult:
     trimmed: AudioSegment | None
     status: str
     action: str
+    apply_fade: bool = False
 
 
 def trim_and_fade(
@@ -117,4 +122,5 @@ def trim_and_fade(
         trimmed=trimmed,
         status="TRIMMED",
         action=action,
+        apply_fade=bool(apply_fade),
     )

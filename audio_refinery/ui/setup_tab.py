@@ -154,7 +154,8 @@ def build(
 
         tk.Label(
             frame,
-            text="Single-pass pipeline: Declick  →  Trim  →  Enhance  →  Normalise",
+            text="Single-pass pipeline: Declick  →  Trim  →  Noise Reduction  "
+            "→  Enhance  →  Normalise",
             font=styles.FONT_CAPTION,
             bg=styles.BG_WHITE,
             fg=styles.FG_SUB,

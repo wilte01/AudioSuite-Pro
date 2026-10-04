@@ -443,6 +443,47 @@ class TestTrimAndFadeWithSilence:
             assert result.trimmed is not None
             assert "+ Fades" in result.action
 
+    def test_apply_fade_field_is_true_when_requested(self) -> None:
+        """`apply_fade` is the structured counterpart of the "+ Fades"
+        action text, so consumers need not substring-match `action`.
+        """
+        audio = _make_audio(duration_ms=1000, silence_ms=300)
+        result = trim_and_fade(
+            audio,
+            threshold=-60,
+            is_dry_run=False,
+            apply_fade=True,
+            fade_in_ms=100,
+            fade_out_ms=100,
+        )
+        assert result.apply_fade is True
+
+    def test_apply_fade_field_is_false_when_not_requested(self) -> None:
+        audio = _make_audio(duration_ms=1000, silence_ms=300)
+        result = trim_and_fade(audio, threshold=-60, is_dry_run=False, apply_fade=False)
+        assert result.apply_fade is False
+
+    def test_apply_fade_defaults_false_for_skipped_results(self) -> None:
+        """The skip and dry-run paths leave apply_fade at its False default."""
+        import array
+
+        from pydub import AudioSegment
+
+        loud = AudioSegment(
+            array.array("h", [32000] * 8000).tobytes(),
+            frame_rate=8000,
+            sample_width=2,
+            channels=1,
+        )
+        skipped = trim_and_fade(loud, threshold=-60, is_dry_run=False)
+        assert skipped.status == "SKIP"
+        assert skipped.apply_fade is False
+
+        audio = _make_audio(duration_ms=500, silence_ms=200)
+        dry = trim_and_fade(audio, threshold=-60, is_dry_run=True)
+        assert dry.status == "DRY_RUN"
+        assert dry.apply_fade is False
+
     def test_fade_not_applied_in_dry_run(self) -> None:
         audio = _make_audio(duration_ms=1000, silence_ms=300)
         result = trim_and_fade(

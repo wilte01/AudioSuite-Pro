@@ -2,7 +2,8 @@
 core/pipeline.py
 Single-file pipeline processor for Audio Refinery.
 
-Decode once → declick → trim → enhance → encode once → normalise (FFmpeg)
+Decode once → declick → trim → noise reduction → enhance → encode once →
+normalise (FFmpeg)
 
 All stages operate on in-memory audio; the file is only written once,
 at the very end of the in-memory chain.  If the normaliser stage is
@@ -203,19 +204,19 @@ def process_file(
             audio, msg, metrics = _run_enhance_stage(audio, config, _emit)
             result.add_stage("Enhance", FileStatus.DONE, msg, metrics=metrics)
 
-        # ── 5. Write temp file (single encode, bitrate-aware)
+        # ── 6. Write temp file (single encode, bitrate-aware) ─────────────────
         _write_output(audio, tmp_path, source_path, ext, _emit)
 
-        # 6. Restore tags
+        # ── 7. Restore tags ───────────────────────────────────────────────────
         _emit("Export", "Restoring tags...")
         write_tags_raw(str(tmp_path), original_tags, record_snapshot=False)
 
-        # ── 7. Normalisation (FFmpeg on temp file, with retry)
+        # ── 8. Normalisation (FFmpeg on temp file, with retry) ────────────────
         if config.normalise:
             msg = _run_normalise_stage(tmp_path, config, _emit)
             result.add_stage("Normalise", FileStatus.DONE, msg)
 
-        # ── 8. Atomic replace ─────────────────────────────────────────────────
+        # ── 9. Atomic replace ─────────────────────────────────────────────────
         _emit("Done", "Complete ✓")
         record_tag_edit_snapshot(str(output_path), "refinery_edit")
         os.replace(str(tmp_path), str(output_path))
@@ -360,14 +361,15 @@ def _run_trim_stage(
         )
         if tr_result.trimmed is not None:
             audio = tr_result.trimmed
-            # Parse the action message to extract details
-            action = tr_result.action
-            if "trimmed" in action.lower() or "removed" in action.lower():
-                msg = f"{action}, improved flow between sections"
-            elif "fade" in action.lower():
-                msg = f"{action}, smooth transitions applied"
+            # Map the structured result, never `action`: it is human-readable
+            # text whose wording is not a stable interface. The old substring
+            # match ("trimmed"/"removed" in action) could not fire for any
+            # value trim_and_fade actually produces, so a plain trim silently
+            # fell through to the generic "audio structure optimized" wording.
+            if tr_result.apply_fade:
+                msg = f"{tr_result.action}, smooth transitions applied"
             else:
-                msg = f"{action}, audio structure optimized"
+                msg = f"{tr_result.action}, improved flow between sections"
         else:
             msg = "No silence detected - original length maintained"
         emit("Trim", msg)

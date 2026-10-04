@@ -1,11 +1,15 @@
 """
 tests/test_pipeline_stages.py
 
-Unit tests for the three previously uncovered pipeline entry-points:
+Unit tests for the pipeline entry-points:
 
   process_file        — full single-file pipeline (all stages mocked)
+  _run_trim           — silence trim stage (silence_trimmer mocked)
   _run_enhance        — pedalboard DSP chain (pedalboard mocked)
   _run_normalise      — FFmpeg loudnorm stage (audio_normalizer mocked)
+
+Plus doc locks for the module's stage-order contract (the documented
+pipeline chain and the numbered step comments).
 
 Synthetic AudioSegments are built with NumPy so no real audio files or
 external binaries are required.  All third-party tool imports that would
@@ -14,6 +18,7 @@ need a full suite installation are patched at the module boundary.
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -84,6 +89,12 @@ def _config_enhance_only():
     from audio_refinery.core.models import StageConfig
 
     return StageConfig(declick=False, trim=False, enhance=True, normalise=False)
+
+
+def _config_trim_only():
+    from audio_refinery.core.models import StageConfig
+
+    return StageConfig(declick=False, trim=True, enhance=False, normalise=False)
 
 
 def _config_normalise_only():
@@ -767,6 +778,182 @@ class TestProcessFile:
 
         norm_msg = next(s.message for s in result.stages if s.stage == "Normalise")
         assert "failed" in norm_msg.lower()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# _run_trim
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestRunTrim:
+    """The trim stage message must be derived from silence_trimmer's
+    *structured* result, never by substring-matching its human ``action``
+    text.
+
+    ``action`` is display copy, not an interface: the real values are
+    ``"No silence detected"``, ``"Would trim ..."`` and ``"-Xms / -Yms"``
+    (optionally ``" + Fades"``).  The previous implementation looked for
+    ``"trimmed"``/``"removed"`` in that string, neither of which ever
+    occurs, so every non-fade trim silently degraded to the generic
+    "audio structure optimized" wording.  These tests pin the structured
+    contract so a wording change can never re-break the branch selection.
+    """
+
+    @staticmethod
+    def _result(**overrides: object) -> MagicMock:
+        """A TrimResult stand-in whose `action` deliberately contains none
+        of the words the old code searched for ("trimmed", "removed",
+        "fade"), so message selection can only come from the fields.
+        """
+        base: dict[str, object] = {
+            "start_trim_ms": 120,
+            "end_trim_ms": 340,
+            "total_trim_ms": 460,
+            "has_silence": True,
+            "trimmed": AudioSegment(
+                np.full(1000, 0.5, dtype=np.float32),
+                frame_rate=44100,
+                sample_width=2,
+                channels=2,
+            ),
+            "status": "TRIMMED",
+            # Opaque, wording-agnostic telemetry - no "trim"/"removed"/"fade".
+            "action": "-120ms / -340ms (opaque-9f2c telemetry)",
+            "apply_fade": False,
+        }
+        base.update(overrides)
+        return MagicMock(**base)
+
+    def test_plain_trim_message_comes_from_status_not_action_text(self) -> None:
+        """A structured trim with no matching action substrings must still
+        produce the trim-specific wording, not the generic fallback.
+        """
+        from audio_refinery.core.pipeline import _run_trim_stage
+
+        with patch(
+            "silence_trimmer.core.trimmer.trim_and_fade", return_value=self._result()
+        ):
+            _, msg = _run_trim_stage(
+                AudioSegment.silent(duration=2000), _config_trim_only(), MagicMock()
+            )
+
+        assert msg == (
+            "-120ms / -340ms (opaque-9f2c telemetry), improved flow between sections"
+        )
+
+    def test_fade_message_reads_structured_field_not_action_text(self) -> None:
+        """The fade wording is selected by the structured `apply_fade`
+        field even when `action` never mentions fades.
+        """
+        from audio_refinery.core.pipeline import _run_trim_stage
+
+        with patch(
+            "silence_trimmer.core.trimmer.trim_and_fade",
+            return_value=self._result(apply_fade=True),
+        ):
+            _, msg = _run_trim_stage(
+                AudioSegment.silent(duration=2000), _config_trim_only(), MagicMock()
+            )
+
+        assert msg.endswith(", smooth transitions applied")
+
+    def test_trimmed_audio_replaces_the_input_segment(self) -> None:
+        from audio_refinery.core.pipeline import _run_trim_stage
+
+        result = self._result()
+        with patch("silence_trimmer.core.trimmer.trim_and_fade", return_value=result):
+            audio, _ = _run_trim_stage(
+                AudioSegment.silent(duration=2000), _config_trim_only(), MagicMock()
+            )
+
+        assert audio is result.trimmed
+
+    def test_no_silence_reports_original_length_maintained(self) -> None:
+        """has_silence=False yields trimmed=None and the skip message."""
+        from audio_refinery.core.pipeline import _run_trim_stage
+
+        with patch(
+            "silence_trimmer.core.trimmer.trim_and_fade",
+            return_value=self._result(
+                has_silence=False,
+                trimmed=None,
+                status="SKIP",
+                action="No silence detected",
+            ),
+        ):
+            audio, msg = _run_trim_stage(
+                AudioSegment.silent(duration=2000), _config_trim_only(), MagicMock()
+            )
+
+        assert msg == "No silence detected - original length maintained"
+        assert len(audio) == 2000
+
+    def test_trim_failure_is_wrapped_with_stage_context(self) -> None:
+        from audio_refinery.core.pipeline import _run_trim_stage
+        from audio_suite_shared.exceptions import AudioProcessingError
+
+        with patch(
+            "silence_trimmer.core.trimmer.trim_and_fade", side_effect=ValueError("boom")
+        ):
+            with pytest.raises(AudioProcessingError) as exc_info:
+                _run_trim_stage(
+                    AudioSegment.silent(duration=2000), _config_trim_only(), MagicMock()
+                )
+
+        assert exc_info.value.context["stage"] == "trim"
+
+
+class TestPipelineChainDocs:
+    """Locks the documented stage order against the executed order.
+
+    The module docstring and the UI subtitle both omitted Noise Reduction
+    while the pipeline really runs declick → trim → noise reduction →
+    enhance, and two step comments were both numbered "5".  These tests
+    pin the contract so the docs cannot drift again silently.
+    """
+
+    def test_docstring_chain_matches_executed_stage_order(self) -> None:
+        from audio_refinery.core import pipeline
+
+        doc = pipeline.__doc__ or ""
+        # Collapse the wrapped continuation line into one chain string.
+        chain = " ".join(
+            line.strip()
+            for line in doc.splitlines()
+            if "\u2192" in line or "normalise (FFmpeg)" in line
+        )
+        positions = [
+            chain.index(word)
+            for word in (
+                "Decode once",
+                "declick",
+                "trim",
+                "noise reduction",
+                "enhance",
+                "encode once",
+                "normalise",
+            )
+        ]
+        assert positions == sorted(positions), (
+            f"docstring chain is out of executed order: {chain!r}"
+        )
+
+    def test_numbered_step_comments_are_unique_and_increasing(self) -> None:
+        import re
+
+        from audio_refinery.core import pipeline
+
+        source = inspect.getsource(pipeline)
+        steps = [
+            int(m)
+            for m in re.findall(
+                r"^\s*# \u2500\u2500 (\d+)\. ", source, flags=re.MULTILINE
+            )
+        ]
+        assert steps == list(range(len(steps))), (
+            f"step comments must be numbered 0..{len(steps) - 1} without "
+            f"duplicates, got {steps}"
+        )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
