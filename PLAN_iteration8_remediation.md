@@ -799,7 +799,7 @@ full suite green; existing `TestBuildEnrichArgs` shape assertions pass unedited.
 
 ---
 
-### C6 `[ ]` — Fix the `utilities/` defects `[audit M16]`
+### C6 `[x]` — Fix the `utilities/` defects `[audit M16]`
 
 **Priority:** P1 | **Effort:** 0.4 day | **Risk:** Low
 
@@ -830,30 +830,30 @@ defects here are invisible to every gate. The audit found five.
 
 **Scope:**
 
-- [ ] `rebuild_refinery_log.py`: correct the `:18-20` docstring to describe what
+- [x] `rebuild_refinery_log.py`: correct the `:18-20` docstring to describe what
       the code actually does (a purely local `_sha256`). If importing the real
-      registry `_sha256` is feasible and desired, that is a decision — the audit's
+      registry `_sha256` is feasible and desired, that is a decision - the audit's
       recommendation is to **correct the docstring**, since the tool's contract is
       "reproduce the value the program stored", and the local copy is the
       reproduced one.
-- [ ] `rebuild_refinery_log.py`: make the exception hierarchy consistent — the
+- [x] `rebuild_refinery_log.py`: make the exception hierarchy consistent - the
       caller must catch what the function raises. Either raise `FileNotFoundError`
       or catch `AudioSuiteError` at `:256`; **read the hierarchy in
       `exceptions.py`** and choose the option matching the suite's convention
       (record which). Recommended: catch `AudioSuiteError` so future
       `AudioIOError` variants are handled too.
-- [ ] `resize_music_recursive.py:172`: narrow the first branch to
+- [x] `resize_music_recursive.py:172`: narrow the first branch to
       `isinstance(audio, MP3)` only, so the FLAC (`:207`) and MP4 (`:234`)
       branches become reachable. Verify the FLAC/MP4 art paths handle their
       real mutagen structures.
-- [ ] `undo.py`: resolve the `--db` shadowing. Per `AGENTS.md` (argparse
+- [x] `undo.py`: resolve the `--db` shadowing. Per `AGENTS.md` (argparse
       subcommand flags are not inherited from the parent), register `--db` once
       per subparser and remove the shadowing parent, **or** have the subparser
       default pull the parent value explicitly. Choose the option that makes
       `undo --db X show ID` honour `X`.
-- [ ] `strip_bom.py:96-100`: log the swallowed `OSError` (`logger.warning(...,
-      exc_info=True)`) or raise — the A3 no-silent-swallow standard.
-- [ ] **Extend `utilities/tests/`** to cover the fixed scripts (the 5 remaining
+- [x] `strip_bom.py:96-100`: log the swallowed `OSError` (`logger.warning(...,
+      exc_info=True)`) or raise - the A3 no-silent-swallow standard.
+- [x] **Extend `utilities/tests/`** to cover the fixed scripts (the 5 remaining
       of 7), at minimum the three behavioural bugs above. This is the only thing
       that keeps `utilities/` honest given it is outside the ruff/mypy gates.
 
@@ -875,7 +875,7 @@ exception test must fail. SHA-256-verified.
 
 ---
 
-### C7 `[ ]` — Surface key-regeneration consequences; back up the old key `[audit M17]`
+### C7 `[x]` — Surface key-regeneration consequences; back up the old key `[audit M17]`
 
 **Priority:** P1 | **Effort:** 0.3 day | **Risk:** Low
 
@@ -889,17 +889,17 @@ warning. The encrypted config silently becomes unreadable.
 
 **Scope:**
 
-- [ ] Before overwriting an existing-but-unreadable key file, copy it to
+- [x] Before overwriting an existing-but-unreadable key file, copy it to
       `<key_file>.bak` (one-time, alongside the existing `.key` gitignore
       pattern) and log a WARNING naming the consequence.
-- [ ] Surface the consequence: when a key is regenerated because an existing
+- [x] Surface the consequence: when a key is regenerated because an existing
       file was invalid, log that previously-encrypted values (e.g. the Fanart
       `app_key`/`client_key`) will need re-entry.
-- [ ] `:143-146` — on write failure, do not silently return an ephemeral key;
+- [x] `:143-146` - on write failure, do not silently return an ephemeral key;
       log an ERROR stating the key will not survive restart. Read the caller's
       expectations first (it returns bytes), so keep the signature and only
       change the logging severity/message.
-- [ ] The `.bak` must be added to `.gitignore` (keys are secret-class; never
+- [x] The `.bak` must be added to `.gitignore` (keys are secret-class; never
       `git add -f`). Confirm the existing `*.key` ignore rule and extend it to
       `*.key.bak`.
 
@@ -1695,8 +1695,8 @@ and any **deviation** from the plan's stated scope, with justification.
 | C3 | 1 | | | |
 | C4 | 1 | | | |
 | C5 | 1 | | | |
-| C6 | 1 | | | |
-| C7 | 1 | | | |
+| C6 | 1 | 2026-10-04 | compileall 0 · `ruff check .` clean · `ruff format --check .` clean · `mypy .` 0 issues · targeted `pytest utilities/tests` 54 passed · full bare `pytest -q` + coverage re-run at C8 (see C8 row) · secret scan clean | Commit `ffe8382`. **Audit premise corrected empirically:** on the locked mutagen **1.47.0**, `VorbisComment`/`MP4Tags` have **no** `.add` (the `VCFLACDict`/`MP4Tags` mapping API exposes it, the tag objects do not), so `hasattr(audio.tags, "add")` never captured FLAC/MP4 and the `elif` branches were already reachable - the stated defect does not exist as written. The **real** live bug found while testing that branch was `Picture.description` vs mutagen's `Picture.desc`, which raised `AttributeError` on every FLAC with embedded art. Fixed both: narrowed to `isinstance(audio, MP3)` so intent is explicit, and corrected the field name. **Deliberate decision:** narrow on `isinstance(audio, MP3)` rather than "has `.add`" because mutagen *does* expose `.add` on AIFF's `_tags`/ID3 path, so a duck-type check would keep capturing AIFF and silently skip its `pictures`; the explicit class keeps AIFF on the ID3/APIC branch. Options chosen per the item's recommendation: **docstring corrected** (local `_sha256` is the reproduced value) and **caller catches `AudioSuiteError`** (covers future `AudioIOError` variants). `undo.py` uses `argparse.SUPPRESS` for the subcommand `--db` so a before/after position is honoured and the parent value is inherited when unspecified. Guide audit: `user_guides/reference/CLI_Commands_Reference.md` documented `--db` as non-functional - updated. **Negative controls (SHA-256-verified):** four reverts each failed the expected test. Note `utilities/` remains outside ruff/mypy `exclude`, so its coverage is not in the coverage table. |
+| C7 | 1 | 2026-10-04 | compileall 0 · `ruff check .` clean · `ruff format --check .` 787 files formatted · `mypy .` 0 issues / 460 files · bandit 0 High / 0 Medium / 41 Low pre-existing · bare `pytest -q` **8257 passed, 3 skipped, 30 deselected** · coverage **88.13%** ≥ 75 (28 261 statements / 3 354 missed) · secret scan clean | Commit `d1b7aa2`. `_backup_existing_key` copies the bytes about to be replaced to `<key_file>.key.bak` **before** the new key is written, and never clobbers an existing backup (the first backup is the only useful one - later ones would capture already-broken keys). Messages distinguish the two cases: a **recoverable** copy ("the previous key is preserved at ..." - the user can restore it) from a **diagnostic** one ("kept for inspection"), and both state the re-entry consequence. `_key_regenerated` records that the session's key no longer matches what earlier sessions used. `decrypt_string`'s failure message names the concrete cause instead of a bare "could not decrypt". **Plan premise corrected:** there was **no** existing `*.key` gitignore glob (only `album_art_sync/*/album_art_config.json` and friends), so `*.key.bak` was added alongside the existing `.key` pattern - "extend the existing rule" was not literally possible. Guide audit: `user_guides/Security_Guide.md` documents the backup/recovery behaviour. **Negative controls (SHA-256-verified, restore from backup copy):** four reverts - backup suppressed, WARNING text weakened, consequence sentence dropped, decrypt message reverted - each failed the expected test; all restores SHA-identical. |
 | C8 | 1 | 2026-10-04 | compileall 0 · `ruff check .` clean · `ruff format --check .` 788 files formatted · `mypy .` 0 issues / 460 files · bandit 0 High / 0 Medium / 41 Low (pre-existing) · bare `pytest -q` **8266 passed, 3 skipped, 30 deselected**, 245.43s · coverage **88.13%** ≥ 75 · secret scan clean (0 hits across the 41 staged files) | **Deviation (maintainer-approved):** the item names 13 modules; the source scan found **27** real `logging.getLogger(__name__)` call sites plus a deprecated function-local alias and two textual references. The maintainer chose "convert all 30 + fix cross-refs" over the strict 13, so 14 further modules were converted rather than left in the defect the item exists to remove. **Deviation:** the four `tag_helper_*` modules deliberately share one literal logger (`"audio_suite_shared.tag_helper_base"`, pinned by caplog); it became `"audio_suite.audio_suite_shared.tag_helper_base"` — the shared-subsystem grouping is preserved, and the pin constant was updated in lockstep. Also fixed: `tag_helper_writer.py`'s function-local `import logging as _log` (misleading — it was the module, not a logger) and `error_logger.py`'s docstring, which *recommended* the banned pattern. Five lockstep test pins updated (`test_dsp_chain`, `test_launcher`, `test_preflight`, `test_key_manager`, `test_tag_helper_base`) plus `silence_trimmer/tests/test_silence_trimmer.py`. **Finding:** `test_preflight.py`/`test_launcher.py` **cannot** detect a logger-name regression — they assert only `caplog.text` and caplog's handler sits on the *root* logger, so an ERROR record is captured whatever the module logger is named (their `logger=` argument only sets a level). The new AST invariant is the effective global lock; the old tests' name pins were cosmetic. **Negative controls (SHA-256-verified, restore from backup copy):** `secure_subprocess.py` → bare `getLogger(__name__)` fails 3 tests (AST invariant, import-time name, live capture); `tag_helper_mp3.py` → old shared literal fails `test_tag_helper_base`; `preflight.py` → bare fails the AST invariant. All restores SHA-identical. Guide audit: no guide or doc references `audio_suite.log` or the logger namespace, so no guide update was required. |
 | C9 | 1 | | | |
 | C10 | 1 | | | |
