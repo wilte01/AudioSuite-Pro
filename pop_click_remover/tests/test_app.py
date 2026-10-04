@@ -189,6 +189,39 @@ class TestOnComplete:
             _audition_caption(app.root) == "No supported audio file found for audition."
         )
 
+    def test_auto_end_schedules_root_destroy(self, app: PopClickRemoverApp) -> None:
+        """The driver's ``--end`` must close the window once work completes.
+
+        Positive contract: the destroy is what has to be *scheduled*. Asserting
+        "nothing was scheduled" instead would pass forever against the inert
+        ``--end`` this test exists to pin.
+        """
+        app.auto_end_var.set(True)
+        app._on_complete(
+            total=1, succeeded=1, skipped=0, errors=0, duration_secs=1.0, log_entries=[]
+        )
+        app.root.after.assert_any_call(2000, app.root.destroy)
+
+    def test_auto_end_schedules_destroy_after_the_audition_state(
+        self, app: PopClickRemoverApp
+    ) -> None:
+        """The close is scheduled *after* the audition caption is written.
+
+        Destroying first would tear the window down before the results tab is
+        populated, so the ordering is part of the contract, not incidental.
+        """
+        app.auto_end_var.set(True)
+        app._audition_original = Path("track_orig.mp3")
+        app._audition_result = Path("track.mp3")
+        app._on_complete(
+            total=1, succeeded=1, skipped=0, errors=0, duration_secs=1.0, log_entries=[]
+        )
+        assert _audition_caption(app.root).startswith("Audition ready")
+        assert any(
+            call_.args[0] == 2000 and call_.args[1] is app.root.destroy
+            for call_ in app.root.after.call_args_list
+        )
+
 
 class TestCollectSettings:
     """_collect_settings() reads Tk variable values into a dict."""

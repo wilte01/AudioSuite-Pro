@@ -424,6 +424,9 @@ class NoiseReductionApp(UIHelperMixin, AuditionMixin):
                 None, None, "No supported audio file found for audition."
             )
 
+        if self.auto_end_var.get():
+            self.root.after(2000, self.root.destroy)
+
     def _on_error(self, message: str) -> None:
         messagebox.showerror("Noise Reduction", message)
         self.start_btn.config(state="normal")
