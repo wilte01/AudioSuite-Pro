@@ -120,10 +120,13 @@ def configure_logging(program_name: str) -> None:
 
     log_file = logs_dir / "audio_suite.log"
 
-    root_logger = logging.getLogger("audio_suite")
-    root_logger.setLevel(logging.DEBUG)
+    # Named for what it is: the suite's own namespace logger, NOT the root
+    # logger. Every first-party module logger is a descendant of this name
+    # (iteration-8 C8), which is how their records reach this file handler.
+    suite_logger = logging.getLogger("audio_suite")
+    suite_logger.setLevel(logging.DEBUG)
 
-    if not root_logger.handlers:
+    if not suite_logger.handlers:
         handler = logging.handlers.RotatingFileHandler(
             log_file,
             maxBytes=2 * 1024 * 1024,
@@ -136,9 +139,9 @@ def configure_logging(program_name: str) -> None:
                 datefmt="%Y-%m-%d %H:%M:%S",
             )
         )
-        root_logger.addHandler(handler)
+        suite_logger.addHandler(handler)
 
-    root_logger.info("=== %s started ===", program_name)
+    suite_logger.info("=== %s started ===", program_name)
     _install_excepthooks()
 
 

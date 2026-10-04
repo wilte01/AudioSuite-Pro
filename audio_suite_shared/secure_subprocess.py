@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 from audio_suite_shared.subprocess_utils import creation_flags, get_startupinfo
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 # Allowed executable patterns for security
 ALLOWED_EXECUTABLES = {

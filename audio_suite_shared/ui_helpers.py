@@ -19,7 +19,7 @@ from audio_suite_shared.exceptions import map_to_audio_error, user_message_for
 
 from . import platform_utils, suite_config
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 
 def show_error_from_exception(exc: Exception, title: str = "Error") -> None:

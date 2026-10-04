@@ -19,7 +19,7 @@ from .secure_subprocess import SubprocessSecurityError, run_secure_subprocess
 
 __all__ = ["messagebox", "open_help", "open_path", "setup_window"]
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 # os.startfile is the only remaining os.* usage — keep import minimal
 import os  # noqa: E402

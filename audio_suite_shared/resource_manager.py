@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 
 @dataclass

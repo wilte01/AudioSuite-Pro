@@ -16,7 +16,7 @@ from typing import Any
 from audio_suite_shared.exceptions import AudioProcessingError
 from audio_suite_shared.secure_subprocess import run_secure_subprocess
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 # Try to import cryptography, provide fallback if not available
 try:

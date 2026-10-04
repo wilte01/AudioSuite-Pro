@@ -23,7 +23,7 @@ from audio_suite_shared.exceptions import (
 )
 from audio_suite_shared.secure_subprocess import run_secure_subprocess
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 _ILLEGAL_FILENAME_CHARS = re.compile(r'[\\/*?:"<>|]')
 # Characters DANGEROUS_CHARS + shell-metacharacters the subprocess validator

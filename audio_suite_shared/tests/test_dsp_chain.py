@@ -21,7 +21,7 @@ from audio_suite_shared.dsp_chain import (
     post_chain_clip_check,
 )
 
-LOGGER_NAME = "audio_suite_shared.dsp_chain"
+LOGGER_NAME = "audio_suite.audio_suite_shared.dsp_chain"
 
 
 def _chain_params() -> SimpleNamespace:

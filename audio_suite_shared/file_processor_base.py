@@ -52,7 +52,7 @@ from .resource_manager import (
     track_thread,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 _T = TypeVar("_T")
 

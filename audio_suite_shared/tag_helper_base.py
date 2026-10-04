@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     """Union type covering all mutagen audio objects handled by the tag helpers."""
 
 # Initialize logger for shared component
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 EDITABLE_FIELDS: tuple[str, ...] = (
     "title",

@@ -14,7 +14,7 @@ from typing import Any, Callable, Optional, TypeVar
 
 from audio_suite_shared.exceptions import map_to_audio_error
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 _T = TypeVar("_T")
 

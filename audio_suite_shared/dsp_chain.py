@@ -19,7 +19,7 @@ import numpy.typing as npt
 if TYPE_CHECKING:
     from pedalboard import Pedalboard
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 
 def build_enhancement_chain(params: Any) -> Pedalboard:

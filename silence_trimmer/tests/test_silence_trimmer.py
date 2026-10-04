@@ -776,7 +776,10 @@ class TestRunTrimming:
                 "process_single_file",
                 side_effect=RuntimeError("worker boom"),
             ),
-            caplog.at_level("ERROR", logger="audio_suite_shared.file_processor_base"),
+            caplog.at_level(
+                "ERROR",
+                logger="audio_suite.audio_suite_shared.file_processor_base",
+            ),
         ):
             file_processor.run_trimming(
                 dir_path=str(tmp_path),

@@ -89,7 +89,7 @@ from typing import BinaryIO, Callable
 from audio_suite_shared.batch_undo import record_tag_edit_snapshot
 from audio_suite_shared.exceptions import AudioFormatError
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 # ── Constants ────────────────────────────────────────────────────────────────
 

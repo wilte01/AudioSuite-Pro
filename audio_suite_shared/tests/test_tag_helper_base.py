@@ -50,7 +50,9 @@ from audio_suite_shared.tag_helper_base import (
     VorbisHandler,
 )
 
-_MODULE_LOGGER = "audio_suite_shared.tag_helper_base"
+# The tag-helper subsystem logger, as named by the four format modules and by
+# tag_helper_base itself (iteration-8 C8 re-parented it under "audio_suite").
+_MODULE_LOGGER = "audio_suite.audio_suite_shared.tag_helper_base"
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

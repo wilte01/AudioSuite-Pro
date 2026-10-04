@@ -20,7 +20,7 @@ from typing import Optional
 from audio_suite_shared.exceptions import map_to_audio_error, user_message_for
 
 # Module-level logger — instantiated once, not inside each method.
-_logger = logging.getLogger(__name__)
+_logger = logging.getLogger(f"audio_suite.{__name__}")
 
 
 class SecureErrorHandler:

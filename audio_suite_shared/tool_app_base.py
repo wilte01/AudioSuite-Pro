@@ -36,7 +36,7 @@ from audio_suite_shared.exceptions import map_to_audio_error
 from audio_suite_shared.thread_safe_slot_var import ThreadSafeSlotVar
 from audio_suite_shared.ui_helpers import UIHelperMixin
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 
 class AnalysisTagToolApp(UIHelperMixin):

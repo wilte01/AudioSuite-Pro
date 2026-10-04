@@ -16,8 +16,11 @@ from .tag_helper_base import BaseTagHandler, LyricsTags
 
 # Emit through the tag-helper subsystem logger: the logger name is part of
 # the module's observable behaviour (pinned by the test suite's caplog
-# filters) and must survive the per-format module split unchanged.
-logger = logging.getLogger("audio_suite_shared.tag_helper_base")
+# filters) and must survive the per-format module split unchanged. The name
+# tracks tag_helper_base's own namespaced logger (iteration-8 C8), so all
+# four format modules keep sharing one logger and their records still reach
+# the RotatingFileHandler attached to the "audio_suite" logger.
+logger = logging.getLogger("audio_suite.audio_suite_shared.tag_helper_base")
 
 
 class MP4Handler(BaseTagHandler):

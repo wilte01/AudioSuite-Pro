@@ -69,7 +69,9 @@ class TestParseCliArgsValidationErrors:
             raise CLIValidationError("Folder path does not exist: /x")
 
         with pytest.raises(SystemExit):
-            with caplog.at_level(logging.ERROR, logger="audio_suite_shared.launcher"):
+            with caplog.at_level(
+                logging.ERROR, logger="audio_suite.audio_suite_shared.launcher"
+            ):
                 parse_cli_args(tool_parse)
         assert "Folder path does not exist: /x" in caplog.text
 
@@ -80,7 +82,9 @@ class TestParseCliArgsValidationErrors:
             raise CLIValidationError("bad scheme")
 
         with pytest.raises(SystemExit):
-            with caplog.at_level(logging.ERROR, logger="audio_suite_shared.launcher"):
+            with caplog.at_level(
+                logging.ERROR, logger="audio_suite.audio_suite_shared.launcher"
+            ):
                 parse_cli_args(tool_parse)
         assert any("bad scheme" in r.message for r in caplog.records)
 
@@ -112,6 +116,8 @@ class TestTempoAnalyzerIntegration:
         from tempo_analyzer.utils.cli_args import parse
 
         with pytest.raises(SystemExit):
-            with caplog.at_level(logging.ERROR, logger="audio_suite_shared.launcher"):
+            with caplog.at_level(
+                logging.ERROR, logger="audio_suite.audio_suite_shared.launcher"
+            ):
                 parse_cli_args(lambda: parse(["prog", "/definitely/not/real/xyz"]))
         assert "does not exist" in caplog.text

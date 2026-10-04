@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 FRAMES_PER_SECOND = 75
 FRAMES_PER_MINUTE = FRAMES_PER_SECOND * 60

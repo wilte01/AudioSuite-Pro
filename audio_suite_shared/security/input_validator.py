@@ -14,7 +14,7 @@ from typing import Optional
 
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 
 class InputValidator:

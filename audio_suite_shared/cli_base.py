@@ -16,7 +16,7 @@ import click
 
 from audio_suite_shared.project_version import declared_version
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 
 # ── tkinter-free shims ────────────────────────────────────────────────────

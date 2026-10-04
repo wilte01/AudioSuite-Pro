@@ -41,7 +41,7 @@ from .batch_undo import (
     revert_batch_by_id,
 )
 
-_log = logging.getLogger(__name__)
+_log = logging.getLogger(f"audio_suite.{__name__}")
 
 _TOOL_DISPLAY_NAMES: dict[str, str] = {
     "album_art_normalizer": "Album Art Normalizer",

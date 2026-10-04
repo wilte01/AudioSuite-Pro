@@ -101,7 +101,9 @@ class TestVerifySuite:
         (suite_root / "my_pkg" / "broken.py").write_text("def f():\n    x = (\n")
         show = MagicMock()
         blocker = MagicMock()
-        with caplog.at_level(logging.ERROR, logger="audio_suite_shared.preflight"):
+        with caplog.at_level(
+            logging.ERROR, logger="audio_suite.audio_suite_shared.preflight"
+        ):
             verify_suite(suite_root, show, exit_fn=blocker)
         assert "broken.py" in caplog.text
 
@@ -183,7 +185,9 @@ class TestReportMissingRequirements:
         monkeypatch.setattr(
             preflight, "find_missing_requirements", lambda: [FFMPEG_REQUIREMENT]
         )
-        with caplog.at_level(logging.WARNING, logger="audio_suite_shared.preflight"):
+        with caplog.at_level(
+            logging.WARNING, logger="audio_suite.audio_suite_shared.preflight"
+        ):
             report_missing_requirements(MagicMock())
         assert "ffmpeg" in caplog.text
 

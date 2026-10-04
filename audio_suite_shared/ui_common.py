@@ -33,7 +33,7 @@ from .secure_subprocess import SubprocessSecurityError, run_secure_subprocess
 from .ui_audition import add_audition_buttons
 from .ui_driver_controls import DriverControlsPanel
 
-_log = logging.getLogger(__name__)
+_log = logging.getLogger(f"audio_suite.{__name__}")
 
 
 def _default_open_log() -> None:

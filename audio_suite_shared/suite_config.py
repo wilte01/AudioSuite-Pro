@@ -41,7 +41,7 @@ class AppState(Protocol):
     font_sizes_vars: dict[str, Any]  # dict[str, tk.IntVar]
 
 
-_logger = logging.getLogger(__name__)
+_logger = logging.getLogger(f"audio_suite.{__name__}")
 
 _SHARED_DIR = Path(__file__).resolve().parent
 _SUITE_ROOT = _SHARED_DIR.parent

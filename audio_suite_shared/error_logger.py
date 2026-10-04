@@ -8,10 +8,13 @@ existing call sites need no changes.
 
 Migration note
 --------------
-New code should use ``logging.getLogger(__name__)`` directly, or where
-standardized error handling is required ``@handle_audio_errors`` from
-``audio_suite_shared.exceptions`` and ``show_error_from_exception`` from
-``audio_suite_shared.ui_helpers``.  Existing call sites using
+New code should use ``logging.getLogger(f"audio_suite.{__name__}")`` directly
+(``__name__`` alone would hang the logger off the *root* logger, whose records
+never reach the RotatingFileHandler that
+``app_bootstrap.configure_logging()`` attaches to the ``audio_suite`` logger),
+or where standardized error handling is required ``@handle_audio_errors``
+from ``audio_suite_shared.exceptions`` and ``show_error_from_exception``
+from ``audio_suite_shared.ui_helpers``.  Existing call sites using
 ``get_logger("program_name")`` continue to work — they receive an
 ErrorLogger instance backed by a stdlib logger in the ``audio_suite.*``
 namespace.  ``log_and_show_error`` is deprecated (logging only; dialogs

@@ -417,7 +417,9 @@ class TestKeyFileErrorPaths:
 # survive the restart. These tests pin the recovery path, the surfaced warning,
 # and the real on-disk outcome.
 
-KEY_MANAGER_LOGGER = "audio_suite_shared.security.key_manager"
+# key_manager's own logger, as named by the module (iteration-8 C8 re-parented
+# it under "audio_suite" so its records reach the suite's file handler).
+KEY_MANAGER_LOGGER = "audio_suite.audio_suite_shared.security.key_manager"
 
 
 def _corrupt_key_file(directory):

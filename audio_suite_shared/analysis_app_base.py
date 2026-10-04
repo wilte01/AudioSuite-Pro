@@ -36,7 +36,7 @@ from .exceptions import map_to_audio_error
 from .thread_safe_slot_var import ThreadSafeSlotVar
 from .ui_helpers import UIHelperMixin
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 WORKER_SLOT_COUNT = 4
 

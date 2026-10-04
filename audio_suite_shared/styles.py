@@ -7,7 +7,7 @@ import sys
 import tkinter as tk
 from tkinter import ttk
 
-_log = logging.getLogger(__name__)
+_log = logging.getLogger(f"audio_suite.{__name__}")
 
 try:
     import winaccent

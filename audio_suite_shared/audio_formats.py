@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 # Standard audio file extensions supported across the suite
 SUPPORTED_EXTENSIONS: tuple[str, ...] = (

@@ -22,7 +22,7 @@ from typing import Any
 
 from audio_suite_shared.exceptions import AudioSuiteError
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 _MSF_RE = re.compile(r"^(\d{1,3}):(\d{1,2}):(\d{1,2})$", re.ASCII)
 

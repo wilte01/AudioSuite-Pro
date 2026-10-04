@@ -35,7 +35,7 @@ import numpy.typing as npt
 
 from .exceptions import AudioSuiteError, handle_audio_errors, map_to_audio_error
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 # Lazy import so tests that never touch the device don't require sounddevice
 # to be importable.  The dependency is declared in pyproject.toml; this guard

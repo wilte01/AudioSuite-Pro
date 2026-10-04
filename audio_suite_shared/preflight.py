@@ -39,7 +39,7 @@ from audio_suite_shared.system_requirements import (
     format_requirement_report,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 #: Title of the blocking dialog shown when the compile gate fails.
 BLOCKED_TITLE = "Audio Suite — Startup Blocked"

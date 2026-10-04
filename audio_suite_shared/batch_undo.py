@@ -70,7 +70,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 # Global lock shared by every BatchUndoLog instance: SQLite only permits one
 # writer at a time, and separate instances must not step on each other.

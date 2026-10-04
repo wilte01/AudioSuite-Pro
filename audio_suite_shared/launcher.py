@@ -15,7 +15,7 @@ from typing import Any, Callable
 
 from audio_suite_shared.cli_dataclasses import CLIValidationError
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 
 def parse_cli_args(tool_parse: Callable[..., Any]) -> Any:

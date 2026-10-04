@@ -214,9 +214,9 @@ def write_tags_raw(path: str, tags: Any, record_snapshot: bool = True) -> None:
     try:
         TagHandlerFactory.get_handler(path).set_raw_tags(tags)
     except Exception as exc:
-        import logging as _log
+        import logging as _logging_module
 
-        _log.getLogger(__name__).warning(
+        _logging_module.getLogger(f"audio_suite.{__name__}").warning(
             "Could not write raw tags to %s: %s", path, exc, exc_info=True
         )
         raise AudioTagError(

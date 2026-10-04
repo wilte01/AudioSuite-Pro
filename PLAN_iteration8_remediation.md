@@ -914,7 +914,7 @@ rule — never a real key).
 
 ---
 
-### C8 `[ ]` — Re-parent the 13 foundation loggers under `audio_suite.*` `[audit M18]`
+### C8 `[x]` — Re-parent the 13 foundation loggers under `audio_suite.*` `[audit M18]`
 
 **Priority:** P1 | **Effort:** 0.3 day | **Risk:** Low
 
@@ -942,19 +942,21 @@ are not durably recorded in a normal GUI run.
 
 **Scope:**
 
-- [ ] For each of the 13 modules, change
+- [x] For each of the 13 modules, change
       `logging.getLogger(__name__)` → `logging.getLogger(f"audio_suite.{__name__}")`,
       matching the pattern already used in `exceptions.py:46`. One line each.
-- [ ] Fix the misleading local name `root_logger` at `app_bootstrap.py:123` →
+      *(Scope widened by maintainer approval to all 27 real call sites — see the
+      Completion Log's deviation note.)*
+- [x] Fix the misleading local name `root_logger` at `app_bootstrap.py:123` →
       `suite_logger` (it is not the root logger).
-- [ ] AST/grep-lock: add a test asserting every module in
+- [x] AST/grep-lock: add a test asserting every module in
       `audio_suite_shared` that calls `getLogger` uses the `audio_suite.` prefix
       (i.e. every module logger is a descendant of `audio_suite`). Non-vacuity:
       assert the check found ≥ 13 call sites.
 
 **Tests (lockstep):**
 
-- [ ] `audio_suite_shared/tests/test_logging_namespacing.py` — the AST scan
+- [x] `audio_suite_shared/tests/test_logging_namespacing.py` — the AST scan
       above, plus a live capture test: attach a handler to `audio_suite`, emit a
       WARNING from one of the converted modules (e.g. `secure_subprocess`), assert
       the record **arrives**. Positive contract.
@@ -1695,7 +1697,7 @@ and any **deviation** from the plan's stated scope, with justification.
 | C5 | 1 | | | |
 | C6 | 1 | | | |
 | C7 | 1 | | | |
-| C8 | 1 | | | |
+| C8 | 1 | 2026-10-04 | compileall 0 · `ruff check .` clean · `ruff format --check .` 788 files formatted · `mypy .` 0 issues / 460 files · bandit 0 High / 0 Medium / 41 Low (pre-existing) · bare `pytest -q` **8266 passed, 3 skipped, 30 deselected**, 245.43s · coverage **88.13%** ≥ 75 · secret scan clean (0 hits across the 41 staged files) | **Deviation (maintainer-approved):** the item names 13 modules; the source scan found **27** real `logging.getLogger(__name__)` call sites plus a deprecated function-local alias and two textual references. The maintainer chose "convert all 30 + fix cross-refs" over the strict 13, so 14 further modules were converted rather than left in the defect the item exists to remove. **Deviation:** the four `tag_helper_*` modules deliberately share one literal logger (`"audio_suite_shared.tag_helper_base"`, pinned by caplog); it became `"audio_suite.audio_suite_shared.tag_helper_base"` — the shared-subsystem grouping is preserved, and the pin constant was updated in lockstep. Also fixed: `tag_helper_writer.py`'s function-local `import logging as _log` (misleading — it was the module, not a logger) and `error_logger.py`'s docstring, which *recommended* the banned pattern. Five lockstep test pins updated (`test_dsp_chain`, `test_launcher`, `test_preflight`, `test_key_manager`, `test_tag_helper_base`) plus `silence_trimmer/tests/test_silence_trimmer.py`. **Finding:** `test_preflight.py`/`test_launcher.py` **cannot** detect a logger-name regression — they assert only `caplog.text` and caplog's handler sits on the *root* logger, so an ERROR record is captured whatever the module logger is named (their `logger=` argument only sets a level). The new AST invariant is the effective global lock; the old tests' name pins were cosmetic. **Negative controls (SHA-256-verified, restore from backup copy):** `secure_subprocess.py` → bare `getLogger(__name__)` fails 3 tests (AST invariant, import-time name, live capture); `tag_helper_mp3.py` → old shared literal fails `test_tag_helper_base`; `preflight.py` → bare fails the AST invariant. All restores SHA-identical. Guide audit: no guide or doc references `audio_suite.log` or the logger namespace, so no guide update was required. |
 | C9 | 1 | | | |
 | C10 | 1 | | | |
 | E1 | 2 | | | |
