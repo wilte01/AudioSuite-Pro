@@ -552,7 +552,7 @@ Sprint 1   C1..C10   contract + data integrity   -> independent; no dependency
 
 ---
 
-### C1 `[ ]` — One extension set; make or delete the symlink branch `[audit M2, M3]`
+### C1 `[x]` — One extension set; make or delete the symlink branch `[audit M2, M3]`
 
 **Priority:** P1 | **Effort:** 0.3 day | **Risk:** Low
 
@@ -578,11 +578,11 @@ gate the subprocess launchers consult.
 
 **Scope:**
 
-- [ ] M3: replace the hardcoded set with an import of
+- [x] M3: replace the hardcoded set with an import of
       `audio_suite_shared.audio_formats.SUPPORTED_EXTENSIONS`. Read that module
       first to get the exact name and any separate read-only vs. writable
       distinction — do not assume the two sets are semantically identical.
-- [ ] M2: resolve the intent. **Recommendation:** make the branch real by
+- [x] M2: resolve the intent. **Recommendation:** make the branch real by
       comparing the *unresolved* path against the resolved one, so a symlink is
       actually detected:
       `resolved != Path(dir_path)` (or `declared.absolute()`), which is a
@@ -590,20 +590,20 @@ gate the subprocess launchers consult.
       warn-but-allow policy and its safe-roots check. If a maintainer prefers to
       drop the control instead, that is a **decision J** — but the docstring
       paragraph must then be deleted in the same change.
-- [ ] Grep for other `input_validator` docstrings/claims that assert behaviour
+- [x] Grep for other `input_validator` docstrings/claims that assert behaviour
       the code does not implement (the M2 class) and correct them in this change.
 
 **Tests (lockstep):**
 
-- [ ] `audio_suite_shared/tests/test_input_validator.py` — a test asserting the
+- [x] `audio_suite_shared/tests/test_input_validator.py` — a test asserting the
       validator's accepted extension set **equals** `SUPPORTED_EXTENSIONS`, so
       the next format addition cannot drift. Include the `.mp4`/`.opus` accept
       and `.wma` reject cases explicitly (positive and negative).
-- [ ] A symlink test: create a real symlink to a temp dir (skip on Windows
+- [x] A symlink test: create a real symlink to a temp dir (skip on Windows
       without privileges via `pytest.mark.skipif`, per the platform-gate
       precedent) and assert the validator now **logs the warning and returns
       True** for an out-of-safe-root target — i.e. the branch is reachable.
-- [ ] Non-vacuity: assert the warning logger was called (positive), not that
+- [x] Non-vacuity: assert the warning logger was called (positive), not that
       "no error was raised" (negative).
 
 **Acceptance:** the extension-set equality test passes; the symlink test
@@ -615,7 +615,7 @@ fail. SHA-256-verified.
 
 ---
 
-### C2 `[ ]` — Write the `[Unreleased]` changelog `[audit M4]`
+### C2 `[x]` — Write the `[Unreleased]` changelog `[audit M4]`
 
 **Priority:** P1 | **Effort:** 0.2 day | **Risk:** None
 
@@ -630,19 +630,19 @@ file's bytes**.
 
 **Scope:**
 
-- [ ] Write `[Unreleased]` entries grouped Keep-a-Changelog style (`### Added`,
+- [x] Write `[Unreleased]` entries grouped Keep-a-Changelog style (`### Added`,
       `### Changed`, `### Fixed`) for the items above. Read
       `PLAN_iteration7_remediation.md`'s Completion Log for the exact
       user-visible wording of each so the changelog matches shipped behaviour.
-- [ ] E1 gets a `### Changed` note with migration advice (re-run undo-aware
+- [x] E1 gets a `### Changed` note with migration advice (re-run undo-aware
       workflows; output bytes changed) and the `--no-dither` escape hatch named.
-- [ ] Add this item's **own** Sprint-0 findings (A1–A4) as `### Fixed` entries,
+- [x] Add this item's **own** Sprint-0 findings (A1–A4) as `### Fixed` entries,
       since they are user-visible correctness fixes landing in the same window.
-- [ ] Do **not** invent version numbers or dates; `[Unreleased]` is the target.
+- [x] Do **not** invent version numbers or dates; `[Unreleased]` is the target.
 
 **Tests (lockstep):**
 
-- [ ] `audio_suite_shared/tests/test_user_guide_hygiene.py` (the existing
+- [x] `audio_suite_shared/tests/test_user_guide_hygiene.py` (the existing
       changelog/docs hygiene home) — a test that `[Unreleased]` is either
       non-empty **or** explicitly marked as a placeholder, with a non-vacuity
       guard so it cannot pass by matching nothing.
@@ -652,7 +652,7 @@ test passes; bare full suite green.
 
 ---
 
-### C3 `[ ]` — Report skipped and not-found steps honestly `[audit M7, M8]`
+### C3 `[x]` — Report skipped and not-found steps honestly `[audit M7, M8]`
 
 **Priority:** P1 | **Effort:** 0.3 day | **Risk:** Low
 
@@ -678,7 +678,7 @@ what a batch does.
 
 **Scope:**
 
-- [ ] M7: do **not** add skipped standalone steps to `completed` /
+- [x] M7: do **not** add skipped standalone steps to `completed` /
       `completed_count`. Keep `skipped_count` meaningful — surface it in the
       batch summary and/or the status line. Read `_collect_deps` and the summary
       formatting before editing so the two modes' reports read consistently;
@@ -686,19 +686,19 @@ what a batch does.
       **also** run standalone tools the way sequential does, or genuinely skip
       them and say so. **Recommendation:** skip and report as "skipped" — the
       current comment says skip, so honour it and make the report truthful.
-- [ ] M8: append the not-found tool to `failed_steps` (read the exact structure
+- [x] M8: append the not-found tool to `failed_steps` (read the exact structure
       at `:213-221`) and emit its status line, so the index-based mapping at
       `:358-368` cannot label it "completed".
-- [ ] Both fixes must not change the *execution* of found, non-standalone steps.
+- [x] Both fixes must not change the *execution* of found, non-standalone steps.
 
 **Tests (lockstep):**
 
-- [ ] `master_driver/tests/test_batch_orchestrator.py` — a parallel-mode test
+- [x] `master_driver/tests/test_batch_orchestrator.py` — a parallel-mode test
       with a `standalone` step asserting the **positive** contract: the step's
       reported status is `SKIPPED` and the completed summary does **not** count
       it as completed (assert the completed list excludes it — a positive
       statement about the list, not "nothing happened").
-- [ ] `master_driver/tests/test_module_runner.py` — a not-found-module test
+- [x] `master_driver/tests/test_module_runner.py` — a not-found-module test
       asserting it lands in `failed_steps` and its status line reads
       "failed"/"not found", **not** "completed".
 
@@ -710,7 +710,7 @@ removing the `failed_steps` append must fail the M8 test. SHA-256-verified.
 
 ---
 
-### C4 `[ ]` — Registry completeness test for `DEPENDENCY_GRAPH` `[audit M11]`
+### C4 `[x]` — Registry completeness test for `DEPENDENCY_GRAPH` `[audit M11]`
 
 **Priority:** P1 | **Effort:** 0.2 day | **Risk:** Low
 
@@ -724,10 +724,10 @@ correct as tools are added.
 
 **Scope:**
 
-- [ ] Add the three missing ids with their correct dependencies (read each
+- [x] Add the three missing ids with their correct dependencies (read each
       tool's actual pipeline: `noise_reduction` is a utility with no deps;
       `mood_analyzer`/`tag_field_updater` likewise unless a real dep exists).
-- [ ] Add a registry test (in `master_driver/tests/`) asserting
+- [x] Add a registry test (in `master_driver/tests/`) asserting
       `set(manifest ids) ⊆ set(DEPENDENCY_GRAPH keys ∪ EXCLUDED)`, with an
       explicit, named `EXCLUDED` allowlist so a deliberate exclusion is visible.
       This is the same "agreement point" pattern `tool_plugin.py` already
@@ -742,7 +742,7 @@ a future tool is added without a graph entry; bare full suite green.
 
 ---
 
-### C5 `[ ]` — Refinery select-all, display flags, and the silent stage fallback `[audit M12, M13]`
+### C5 `[x]` — Refinery select-all, display flags, and the silent stage fallback `[audit M12, M13]`
 
 **Priority:** P1 | **Effort:** 0.3 day | **Risk:** Low
 
@@ -769,28 +769,28 @@ surprise ships.
 
 **Scope:**
 
-- [ ] M12a: derive `_toggle_all`'s stage list from the **same source** the arg
+- [x] M12a: derive `_toggle_all`'s stage list from the **same source** the arg
       builder uses (`arg_builder.stage_map` at `:377-383`) rather than a
       duplicated literal — single source of truth, so the next stage cannot drift.
-- [ ] M12b: change `arg_builder.py:445` to read `state.clear_logs_var` (the
+- [x] M12b: change `arg_builder.py:445` to read `state.clear_logs_var` (the
       refine tab's binding), not `util_clear_logs_var`.
-- [ ] M13: replace the silent fallback with an explicit contract. **Since
+- [x] M13: replace the silent fallback with an explicit contract. **Since
       `launch_refinery` already blocks no-stages, delete the dead fallback** and
       raise/return an empty stage list — do not silently re-enable. If a
       maintainer wants the fallback, that is a decision; the audit's
       recommendation is deletion.
-- [ ] Also note (audit M12): the refine tab hides the parallel checkbox
+- [x] Also note (audit M12): the refine tab hides the parallel checkbox
       (`app.py:387-391`) while `--parallel-run/--no-parallel-run` is still
       emitted — decide whether to emit or hide, and make them agree. Fold into
       this item.
 
 **Tests (lockstep):**
 
-- [ ] `master_driver/tests/test_runner.py` — the emitted `--stages` string for a
+- [x] `master_driver/tests/test_runner.py` — the emitted `--stages` string for a
       refinery run with all toggles off is **empty/absent** (positive: the
       fallback no longer rewrites it), and select-all sets **all five** stage
       vars including `reduce_noise`.
-- [ ] A test asserting the refine tab's `--clear-logs` flag tracks
+- [x] A test asserting the refine tab's `--clear-logs` flag tracks
       `clear_logs_var`, not `util_clear_logs_var` (set them differently and
       assert the flag follows the refine var).
 
@@ -1692,11 +1692,11 @@ and any **deviation** from the plan's stated scope, with justification.
 | A2 | 0 | 2026-10-03 | compileall 0 · ruff clean · `mypy .` 0 issues · targeted `pytest cd_ripper/tests + test_cue_generator.py` 373 passed, 30 deselected · full bare suite + coverage re-run after A4 (see A4 row) | Guide audit: no incorrect single-image claim in `user_guides/individual_programs/cd_ripper/` (the "single-file image" wording describes Split CUE Image), so no guide regeneration. `cue_generator.py` itself needed no change — the defect was the single `CueFileSpec` the ripper built. **Negative controls:** the original one-spec form fails 3 tests; the loop-leaked-path form fails 3 tests; restore verified SHA-256 `e8ebe41ad5c64a20a0869297ffb011132e1dcd8b264e499b439269db9da5b800`. |
 | A3 | 0 | 2026-10-03 | compileall 0 · ruff clean · `mypy .` 0 issues / 460 files · `album_art_sync/tests` 279 passed · `album_genre_tagger/tests` 124 passed · full bare suite + coverage after A4 | `module_runner`-style scheduling tests run against real widgets on per-test withdrawn `Toplevel`s; the bare suite did not hang. **Negative controls (SHA-256-verified):** genre `root.after` removed → 1 failure; album-art worker set back to `daemon=False` → 1 failure; `_add_log` writing the Listbox off-thread → 1 failure. Restored SHAs `d5a16f60…6103c` (genre) / `819c5bc1…b52f8` (album art). Both apps keep `daemon=True`. |
 | A4 | 0 | 2026-10-03 | compileall 0 · `ruff check .` clean · `ruff format --check .` 785 files formatted · `mypy .` 0 issues / 460 files · bandit 0 High / 0 Medium (41 Low pre-existing) · bare `pytest -q` **8179 passed, 3 skipped, 30 deselected**, 224.96s · coverage **88.08%** ≥ 75 · secret scan clean | The full six-command gate ran in one block at the end of Sprint 0 and re-validates A1–A3 unchanged. `build_*_args` output is byte-identical (`TestBuildEnrichArgs` `[path, mode, start, end]` kept green, unedited); only the toggle element of the spec tuple changed from a Tk var to a resolved `bool`. **Negative control:** restoring `master_driver/tool_launcher.py` to HEAD (argv built inside the thread) fails all 4 `TestArgvBuiltOnMainThread` tests; restore SHA-256 `358d4f4c1717acedc3003dddfe69d12db6675a5dc6c135c3660a9dd7515d9108`. Deviation: the argv tests live in `test_tool_launcher.py`, not `test_runner.py`, because the thread boundary is owned by `tool_launcher.py`. |
-| C1 | 1 | | | |
-| C2 | 1 | | | |
-| C3 | 1 | | | |
-| C4 | 1 | | | |
-| C5 | 1 | | | |
+| C1 | 1 | 2026-10-04 | compileall 0 · `ruff check .` clean · `ruff format --check .` 785 files formatted · `mypy .` 0 issues / 460 files · bandit 0 High / 0 Medium / 41 Low · bare `pytest -q` **8193 passed, 3 skipped, 30 deselected**, 214.00s · coverage **88.10%** · **re-verified at HEAD `def9a5c`**: `tests/security/test_input_validator.py` 44 passed | Closes M2 and M3 under decision **J1 = "make it real"**. **M3:** the hardcoded `{mp3, flac, wav, ogg, m4a, aiff, aif, wma}` set was replaced by `InputValidator.AUDIO_EXTENSIONS`, derived from `audio_suite_shared.audio_formats.SUPPORTED_EXTENSIONS`, so the next format addition cannot drift out of the security gate; verified at HEAD as exactly `[.aif .aiff .flac .m4a .mp3 .mp4 .ogg .opus .wav]` — `.mp4`/`.opus` accepted, `.wma`/`.aac`/`.webm` rejected. **M2:** the branch compared `resolved != declared.resolve(strict=False)`, but `resolve()` already defaults to `strict=False`, so both sides were the identical computation and the condition was **always False** — the docstring's `logger.warning` was unreachable. `_traverses_symlink` now compares the filesystem-resolved path against the **lexically** normalised absolute path (`os.path.normpath(os.path.abspath(...))`), which differ only when a link was traversed; both sides go through `os.path.normcase` so a real directory whose declared casing differs from on-disk casing is not misreported on Windows. The warn-but-allow policy and its safe-roots check are unchanged. Two further docstrings in the same file claimed unimplemented behaviour (`validate_tag_value` claimed to reject control characters while permitting C1 U+0080-U+009F) and were corrected. **Tests pinned the defects and were replaced with positive contracts:** `test_all_allowed_extensions` had listed `.wma` as accepted (now derives from `SUPPORTED_EXTENSIONS` and asserts `.wma` is rejected); `test_symlink_outside_safe_root_logs_warning` patched a non-existent logger `"audio_suite.security"` and asserted only `result is True` — i.e. "nothing bad happened" — and now asserts the warning is emitted and names the resolved target; new `TestSymlinkDetection` drives the detector directly and through a simulated link so the assertion holds where symlink creation needs Windows privileges. **Negative controls (SHA-256-verified restores):** restoring the exact pre-fix line `resolved != declared.resolve(strict=False)` fails 2 tests — a *paraphrase* of the defect does not, so the control had to be the original expression; re-adding `.wma` fails 3 tests. **Recorded, not changed (out of scope):** `validate_audio_file_path` still has no production callers (only `validate_directory_path` is called from `master_driver`), so the audit's "the gate the subprocess launchers consult" framing overstates its reach; wiring new callers would exceed this item's scope. |
+| C2 | 1 | 2026-10-04 | compileall 0 · `ruff check .` clean · `ruff format --check .` 785 files formatted · `mypy .` 0 issues / 460 files · bandit 0 High / 0 Medium / 41 Low · bare `pytest -q` **8196 passed, 3 skipped, 30 deselected**, 214.12s · coverage **88.10%** · secret scan clean (PEM pattern matches only the AGENTS.md/CONTRIBUTING.md scan recipes) · **re-verified at HEAD `def9a5c`**: `tests/test_user_guide_hygiene.py` 11 passed | Closes M4. `CHANGELOG.md` declares Keep-a-Changelog + SemVer compliance, yet `[Unreleased]` was empty while the tree had gained a release-sized iteration since 1.0.0. The section is now populated under `### Added` / `### Changed` / `### Fixed` / `### Removed` (6278 chars, all four sections verified present at HEAD), worded against behaviour that actually shipped rather than the plans' prose — every claim was checked against the code or a prior item's recorded gate evidence: Added = MusicBrainz identifier writing (opt-in, `--write-mbids`, refused without `--write-tags`, `audio_fingerprinter/cli.py:113`), Cover Art Archive as first art source (chain string matches `core/pipeline.py:200`), recursive mixed-format conversion, read-side MB tag helpers; Changed = always-on TPDF dither + `soxr` with `--no-dither` **including the migration advice the plan asked for** (output bytes changed; re-run undo-aware workflows from the pre-conversion originals) and the exact GUI opt-out label from `music_format_converter/ui/setup_tab.py:398`, generator-only user-guide tree, shared GUI/CLI scaffolding; Fixed = this plan's Sprint-0 items A1-A4 (`--dry` wrote tags anyway, one `FILE` per cue sheet, off-thread Tk in two apps, driver argv built on the launcher thread) plus iteration 7's `artnormalize` TypeError, the swallowed errors that now leave a log witness, and the stdout-only JSON contract test; Removed = the superseded per-tool logging guides and tracked `.bak` guide backups. **No version numbers or dates were invented** — `[Unreleased]` is the target, per the item's explicit constraint. **Deviation:** the item names `audio_suite_shared/tests/test_user_guide_hygiene.py`, which does not exist; the repo-root `tests/test_user_guide_hygiene.py` is the real hygiene home and already owns the guide generator/backup/registration locks, so the changelog lock is the fifth member of that family (its module docstring records this). **Anti-vacuity:** section extraction is bounded by the next `## ` heading and **raises if no boundary is found**, so the "non-empty" assertion cannot pass by matching nothing; two further locks assert the version headings are well formed (bracketed, dated) and that the Keep-a-Changelog/SemVer citations the lock relies on are present; an explicitly-worded "nothing yet" placeholder satisfies the lock while a bare heading does not. **Negative control:** emptying `[Unreleased]` back to a bare heading fails `test_unreleased_section_is_populated_or_explicitly_empty`; restore SHA `641cc02bd3a5a72caf69d7e85fb80ec9d045302b7308e705b8e1fe26e22126eb` verified. |
+| C3 | 1 | 2026-10-04 | `python -m compileall -q -f .` exit 0 · `ruff check .` / `ruff format --check .` all checks passed, 785 files formatted · `mypy .` no issues in 460 source files · `bandit -r . -x ./.venv -c pyproject.toml` 0 High / 0 Medium / 41 Low · bare `pytest` **8203 passed, 3 skipped, 30 deselected** · coverage **88.10%** (28 239 statements / 3 361 missed), gate 75% — all captured in the same command block as the coverage table · **re-verified at HEAD `def9a5c`**: `test_batch_orchestrator.py` 62 passed, `test_runner.py` 175 passed | Closes M7 and M8. **M7:** `_run_parallel` pre-marked every standalone step `SKIPPED` **and then also** did `completed.add(s.tool_id)` + `completed_count += 1`, so `BatchReport.completed` included tools that were never launched and `skipped` came out zero — the report claimed a tool ran when it did not. The `completed` set doubles as the dependency-satisfaction set, so simply dropping skipped ids would have changed *execution*, not just reporting; a separate `skipped_ids` set keeps the concerns apart (the pool loop terminates on `len(completed) + len(skipped_ids)`, `_can_run` excludes skipped ids). No `DEPENDENCY_GRAPH` edge points at a standalone tool, so the dependency-satisfaction change is inert today. The dead `skipped_count` local became an INFO log naming the skipped tools. Verified at HEAD: the standalone skip branch adds **only** to `skipped_ids`. **M8:** the not-found branch in `_run_modules_sequential` called `on_error` then bare-`continue`d without appending to `failed_steps`, so `_emit_progress`'s index-based mapping (`i < completed_steps`) fell through to the "finished prefix" arm once a *later* step advanced `executed`, painting the missing module green — and with only that step in the batch, nothing was emitted at all. The branch now records the tool in `failed_steps`, appends its elapsed time so the ETA average is not skewed by an unmeasured step, and emits its own status line. **Test-suite defect correction:** `test_standalone_skipped_in_parallel` asserted `report.completed == 2` for a two-step batch where one step never ran — it **pinned the M7 defect** and would have kept the suite green through it; replaced with the positive contract (completed == 1, skipped == 1, per-step statuses) plus a note recording that it had pinned a bug. **New regression coverage (+7):** the skipped step is never handed to the executor; the skip is logged with the tool names; the UI progress line reads "skipped"; an all-standalone parallel batch terminates instead of spinning; and for M8 the not-found step's own status line, its absence from the "completed" set, and its emission when no other step runs. **Negative controls (exact pre-fix expressions, each reverted after firing):** re-adding `completed.add(...)` + `completed_count += 1` fails 4 tests; restoring the bare `continue` fails 3 tests with `assert 'completed' == 'failed'`. **Deviation:** the item names `master_driver/tests/test_module_runner.py`, which does not exist — the not-found-module tests went into the existing `master_driver/tests/test_runner.py`, which is where the module-runner tests actually live. **Carried forward (recorded, not fixed — out of C3 scope):** `_emit_progress`'s `i < completed_steps` mapping remains index-based and still renders a step that finishes at index ≥ `completed_steps` as "running" in its own final event when an earlier step failed; that is a separate pre-existing defect, and C3 only ensures the not-found step cannot be mislabelled. |
+| C4 | 1 | 2026-10-04 | `python -m compileall -q -f .` exit 0 · `ruff check .` / `ruff format --check .` all checks passed, 785 files formatted · `mypy .` no issues in 460 source files · `bandit -r . -x ./.venv -c pyproject.toml` 0 High / 0 Medium / 41 Low · bare `pytest` **8209 passed, 3 skipped, 30 deselected** · coverage **88.10%** (28 239 statements / 3 360 missed), gate 75% · **re-verified at HEAD `def9a5c`**: the six registry tests pass, `DEPENDENCY_GRAPH` has 26 keys and `set(manifest ids) == set(DEPENDENCY_GRAPH) \| EXCLUDED` holds | Closes M11. `audio_suite_shared/tool_plugin.py:155-158` designates `batch_orchestrator.DEPENDENCY_GRAPH` as an agreement point every tool id must appear in, but nothing enforced it: the graph listed **23** ids against a **27**-tool registry, and `_collect_deps` defaults a missing id to `[]`, so newcomers ran in parallel silently — the exact failure mode the agreement point exists to prevent. Verified at HEAD: the graph now has **26** keys, and the three added ids are present with `[]` (`mood_analyzer`, `noise_reduction`, `tag_field_updater`), each confirmed against its arg-builder signature as consuming only `path` + mode/start/end + its own parameters, so none reads another tool's output. **Plan discrepancy found and resolved empirically — the registry had FOUR missing ids, not three.** The plan and audit both name `mood_analyzer`, `noise_reduction`, `tag_field_updater`; `undo_tag_edits` is absent too, and that is **not** a graph omission: it is the only manifest with `cli_command is None`, it has no arg-builder entry, both builders end in `builders.get(tool_id)` and return `[]`, so the Master Driver cannot construct a launch for it — a GUI-only undo utility, not a batch tool. **Finding worth recording:** the `EXCLUDED` allowlist is declared **in the test** (`master_driver/tests/test_batch_orchestrator.py:533`, `frozenset({"undo_tag_edits"})`) and **no `EXCLUDED` symbol exists in production code** — so the *reason* `undo_tag_edits` is absent is documented only in a test constant. This is not drift-prone in practice, because `test_excluded_matches_the_batch_ineligible_rule` pins the allowlist to the **derivable** rule "registered tools with no CLI command": if `undo_tag_edits` ever gains a CLI it automatically demands a graph entry, and a new CLI-less tool is reported there instead of passing unnoticed. That is what turns the item's "explicit, named EXCLUDED allowlist" from a hand-typed list into a checked invariant — but a future reader looking for a production declaration of the exclusion will not find one. **Test-suite defect correction:** `test_all_registered_tools_have_entry` — the only test in this area — was **vacuous**: it computed `missing = registered_ids - graph_ids` and then asserted `isinstance(DEPENDENCY_GRAPH.get(tid, []), list)` for each miss, which is trivially true for the `[]` default. It asserted the fallback behaviour rather than the contract and would have stayed green through exactly the omission it appeared to cover; replaced with the real completeness assertion, which names the offending ids in its failure message. **New registry contract (+6 net):** the agreement point; the derivable EXCLUDED rule above; an excluded id must genuinely be unschedulable (empty args from both builders); no stale ids in the graph; the plan's required non-vacuity guard `len(DEPENDENCY_GRAPH) >= len(manifest ids) - len(EXCLUDED)` so an empty or gutted graph cannot pass; and every dependency must be a graph key, since a dep naming an unregistered id can never be satisfied. **Negative control:** deleting the `noise_reduction` entry fails 3 tests with `missing from DEPENDENCY_GRAPH: ['noise_reduction']` naming the offender; reverted after firing. |
+| C5 | 1 | 2026-10-04 | `python -m compileall -q -f .` exit 0 · `ruff check .` / `ruff format --check .` all checks passed, 785 files formatted · `mypy .` no issues in 460 source files · `bandit -r . -x ./.venv -c pyproject.toml` 0 High / 0 Medium / 41 Low · bare `pytest` **8214 passed, 3 skipped, 30 deselected** · coverage **88.13%** (28 239 statements / 3 353 missed), gate 75% · **re-verified at HEAD `def9a5c`**: `test_runner.py` 175 passed, `test_app.py` 26 passed, `REFINERY_STAGES` verified as the five real `StageConfig` fields | Closes M12a, M12b, M13 and the hidden-parallel-flag agreement gap. **M12a:** the Refine tab's `_toggle_all` iterated the hand-typed list `["declick", "trim", "enhance", "normalise"]` while the arg builder's stage map and the pipeline have **five** stages, so Select-All silently never enabled Noise Reduction — and the user guide *already documented* the correct contract ("SELECT ALL changes all five stage selections together"), i.e. code-vs-guide drift. The stage list is now a single source of truth, `arg_builder.REFINERY_STAGES` (StageConfig field ↔ `--stages` name pairs), which `build_refinery_args` emits and `_toggle_all` iterates; verified at HEAD as `(declick, trim, enhance, normalise, reduce_noise)` — so a new stage cannot appear in one place and not the other. **M12b:** `build_refinery_args` emitted `_driver_display_flags(state.util_clear_logs_var, state.parallel_var)` while the Refine tab binds `state.clear_logs_var`, so the child's inert Run Controls panel displayed the **Utility** tab's Clear Logs state; the flag now reads the Refine tab's own binding (verified: `util_clear_logs_var` no longer appears in the function). **Hidden parallel flags (maintainer decision):** the Refine tab hides its Parallel checkbox (`app.py` hides `_parallel_btn` when `parallel_var is None` on that tab), so emitting `--parallel-run`/`--no-parallel-run` published a state the user could neither see nor change; the driver no longer emits either flag for Refinery and the child keeps its own default. The child's parser still accepts the flags, unchanged, for any other invocation path. **M13:** `build_refinery_args` rewrote an empty stage selection to the full default chain, so a user who turned every stage off got all of them re-enabled; `launch_refinery` already blocks a no-stages run *before* the args are built, so the branch was dead code carrying a surprising contract. Deleted — an all-off selection now emits `--stages ""`. **Test-suite defect correction:** `test_all_stages_default_when_none_enabled` asserted the silent fallback verbatim and so **pinned the M13 defect**; replaced with the positive contract plus a docstring recording that it had pinned a bug. **New regression coverage (+5 net):** the M13 all-off contract; a drift guard asserting every `REFINERY_STAGES` entry pairs a real boolean `StageConfig` field with its CLI name and that the set is exactly the five stages; a M12b test with both tabs' vars set to opposite values; the no-parallel-flags test with `parallel_var` both True and False; and `TestRefinerySelectAll` in `test_app.py` (+2) driving the real `_switch_tab("refine")` → captured select-all command to prove behaviourally that all five stage vars are set on select and cleared on deselect, `reduce_noise` included. **Negative controls (exact pre-fix expressions, each reverted after firing):** restoring the four-stage literal fails both select-all tests with `select-all missed stage 'reduce_noise'`; restoring the fallback fails with `assert 'declick,trim,...,normalise' == ''`; restoring `util_clear_logs_var` fails the follows-refine-var test; restoring `_driver_display_flags(...)` fails the no-parallel test. **Guide audit:** `user_guides/individual_programs/master_driver/generate_guide.py` already documents Select-All as covering all five stages and lists Clear Logs among the Refine tab's controls — the guide described the intended behaviour and the code had drifted from it, so no guide update was required and the `.docx` was not regenerated (no documented behaviour changed). **Out-of-scope observation (not changed here):** `tool_launcher.launch_refinery`'s no-stages guard also lists the five stage flags by hand; it is currently correct but is the same drift class, noted for a future item rather than expanding this diff. |
 | C6 | 1 | 2026-10-04 | compileall 0 · `ruff check .` clean · `ruff format --check .` clean · `mypy .` 0 issues · targeted `pytest utilities/tests` 54 passed · full bare `pytest -q` + coverage re-run at C8 (see C8 row) · secret scan clean | Commit `ffe8382`. **Audit premise corrected empirically:** on the locked mutagen **1.47.0**, `VorbisComment`/`MP4Tags` have **no** `.add` (the `VCFLACDict`/`MP4Tags` mapping API exposes it, the tag objects do not), so `hasattr(audio.tags, "add")` never captured FLAC/MP4 and the `elif` branches were already reachable - the stated defect does not exist as written. The **real** live bug found while testing that branch was `Picture.description` vs mutagen's `Picture.desc`, which raised `AttributeError` on every FLAC with embedded art. Fixed both: narrowed to `isinstance(audio, MP3)` so intent is explicit, and corrected the field name. **Deliberate decision:** narrow on `isinstance(audio, MP3)` rather than "has `.add`" because mutagen *does* expose `.add` on AIFF's `_tags`/ID3 path, so a duck-type check would keep capturing AIFF and silently skip its `pictures`; the explicit class keeps AIFF on the ID3/APIC branch. Options chosen per the item's recommendation: **docstring corrected** (local `_sha256` is the reproduced value) and **caller catches `AudioSuiteError`** (covers future `AudioIOError` variants). `undo.py` uses `argparse.SUPPRESS` for the subcommand `--db` so a before/after position is honoured and the parent value is inherited when unspecified. Guide audit: `user_guides/reference/CLI_Commands_Reference.md` documented `--db` as non-functional - updated. **Negative controls (SHA-256-verified):** four reverts each failed the expected test. Note `utilities/` remains outside ruff/mypy `exclude`, so its coverage is not in the coverage table. |
 | C7 | 1 | 2026-10-04 | compileall 0 · `ruff check .` clean · `ruff format --check .` 787 files formatted · `mypy .` 0 issues / 460 files · bandit 0 High / 0 Medium / 41 Low pre-existing · bare `pytest -q` **8257 passed, 3 skipped, 30 deselected** · coverage **88.13%** ≥ 75 (28 261 statements / 3 354 missed) · secret scan clean | Commit `d1b7aa2`. `_backup_existing_key` copies the bytes about to be replaced to `<key_file>.key.bak` **before** the new key is written, and never clobbers an existing backup (the first backup is the only useful one - later ones would capture already-broken keys). Messages distinguish the two cases: a **recoverable** copy ("the previous key is preserved at ..." - the user can restore it) from a **diagnostic** one ("kept for inspection"), and both state the re-entry consequence. `_key_regenerated` records that the session's key no longer matches what earlier sessions used. `decrypt_string`'s failure message names the concrete cause instead of a bare "could not decrypt". **Plan premise corrected:** there was **no** existing `*.key` gitignore glob (only `album_art_sync/*/album_art_config.json` and friends), so `*.key.bak` was added alongside the existing `.key` pattern - "extend the existing rule" was not literally possible. Guide audit: `user_guides/Security_Guide.md` documents the backup/recovery behaviour. **Negative controls (SHA-256-verified, restore from backup copy):** four reverts - backup suppressed, WARNING text weakened, consequence sentence dropped, decrypt message reverted - each failed the expected test; all restores SHA-identical. |
 | C8 | 1 | 2026-10-04 | compileall 0 · `ruff check .` clean · `ruff format --check .` 788 files formatted · `mypy .` 0 issues / 460 files · bandit 0 High / 0 Medium / 41 Low (pre-existing) · bare `pytest -q` **8266 passed, 3 skipped, 30 deselected**, 245.43s · coverage **88.13%** ≥ 75 · secret scan clean (0 hits across the 41 staged files) | **Deviation (maintainer-approved):** the item names 13 modules; the source scan found **27** real `logging.getLogger(__name__)` call sites plus a deprecated function-local alias and two textual references. The maintainer chose "convert all 30 + fix cross-refs" over the strict 13, so 14 further modules were converted rather than left in the defect the item exists to remove. **Deviation:** the four `tag_helper_*` modules deliberately share one literal logger (`"audio_suite_shared.tag_helper_base"`, pinned by caplog); it became `"audio_suite.audio_suite_shared.tag_helper_base"` — the shared-subsystem grouping is preserved, and the pin constant was updated in lockstep. Also fixed: `tag_helper_writer.py`'s function-local `import logging as _log` (misleading — it was the module, not a logger) and `error_logger.py`'s docstring, which *recommended* the banned pattern. Five lockstep test pins updated (`test_dsp_chain`, `test_launcher`, `test_preflight`, `test_key_manager`, `test_tag_helper_base`) plus `silence_trimmer/tests/test_silence_trimmer.py`. **Finding:** `test_preflight.py`/`test_launcher.py` **cannot** detect a logger-name regression — they assert only `caplog.text` and caplog's handler sits on the *root* logger, so an ERROR record is captured whatever the module logger is named (their `logger=` argument only sets a level). The new AST invariant is the effective global lock; the old tests' name pins were cosmetic. **Negative controls (SHA-256-verified, restore from backup copy):** `secure_subprocess.py` → bare `getLogger(__name__)` fails 3 tests (AST invariant, import-time name, live capture); `tag_helper_mp3.py` → old shared literal fails `test_tag_helper_base`; `preflight.py` → bare fails the AST invariant. All restores SHA-identical. Guide audit: no guide or doc references `audio_suite.log` or the logger namespace, so no guide update was required. |
