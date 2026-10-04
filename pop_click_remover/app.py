@@ -1,19 +1,6 @@
 """
 app.py
 PopClickRemoverApp — thin orchestrator.
-
-Thread-safety
--------------
-All worker callbacks (_on_progress, _on_complete, _on_error) are invoked
-from a daemon thread.  Every one of them marshals its UI mutations back
-onto the Tkinter main thread using self.root.after(0, fn) so that no
-widget is ever touched from a background thread.
-
-Slot pool
----------
-DEFAULT_MAX_WORKERS is imported from the shared constants module so that
-the slot-pool size and the ThreadPoolExecutor max_workers are always
-identical — changing one constant updates both.
 """
 
 from __future__ import annotations
@@ -50,6 +37,8 @@ class PopClickRemoverApp(UIHelperMixin, AuditionMixin):
 
     HELP_GUIDE = "Pop_Click_Remover_User_Guide.docx"
 
+    RESULTS_LABEL = "Succeeded"
+
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.error_logger, self.style = bootstrap_tool_app(
@@ -59,7 +48,7 @@ class PopClickRemoverApp(UIHelperMixin, AuditionMixin):
             TOOL_ID,
         )
 
-        # ── Tk variables ──────────────────────────────────────────────────────
+        # ── Tk variables ────────────────────────────────────────────────
         self.folder_path = tk.StringVar()
         self.run_mode = tk.StringVar(value="Dry Run")
         self.sensitivity = tk.DoubleVar(value=0.31)
@@ -72,13 +61,13 @@ class PopClickRemoverApp(UIHelperMixin, AuditionMixin):
         self.parallel_var: tk.BooleanVar = tk.BooleanVar(value=False)
         self._launched_from_driver: bool = cli_args.was_launched_from_driver()
 
-        # ── State ─────────────────────────────────────────────────────────────
+        # ── State ───────────────────────────────────────────────────────
         self._log_path: str = ""
         self._run_was_dry_run: bool = False
         self._preset_combo: ttk.Combobox | None = None
         self._refresh_preset_list: Any = None
 
-        # ── Worker slot pool ──────────────────────────────────────────────────
+        # ── Worker slot pool ────────────────────────────────────────────
         self.slot_vars = [
             tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
         ]
@@ -87,19 +76,19 @@ class PopClickRemoverApp(UIHelperMixin, AuditionMixin):
         for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)
 
-        # ── Build UI ──────────────────────────────────────────────────────────
+        # ── Build UI ────────────────────────────────────────────────────
         self._build_ui()
 
-        # ── Apply CLI arguments ───────────────────────────────────────────────
+        # ── Apply CLI arguments ─────────────────────────────────────────
         self._apply_cli_args()
 
-        # ── Restore last-used directory (if not set by CLI) ───────────────────
+        # ── Restore last-used directory (if not set by CLI) ───────────────
         if not self.folder_path.get():
             last = suite_config.load_last_directory()
             if last:
                 self.folder_path.set(last)
 
-    # ── UI construction ───────────────────────────────────────────────────────
+    # ── UI construction ─────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
         help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
@@ -149,10 +138,10 @@ class PopClickRemoverApp(UIHelperMixin, AuditionMixin):
         self._preset_combo = cast(ttk.Combobox, setup_widgets["preset_combo"])
 
         proc_widgets = processing_tab.build(tab_processing, self.slot_vars)
-        self.overall_status = cast(tk.StringVar, proc_widgets["overall_status"])
-        self.progress = cast(ttk.Progressbar, proc_widgets["progress"])
-        self.stats_label = cast(tk.Label, proc_widgets["stats_label"])
-        self.file_listbox = cast(tk.Listbox, proc_widgets["file_listbox"])
+        self.overall_status = proc_widgets["overall_status"]
+        self.progress = proc_widgets["progress"]
+        self.stats_label = proc_widgets["stats_label"]
+        self.file_listbox = proc_widgets["file_listbox"]
 
         res_widgets = results_tab.build(
             tab_results,
@@ -161,16 +150,16 @@ class PopClickRemoverApp(UIHelperMixin, AuditionMixin):
             on_play_original=self._play_original,
             on_play_result=self._play_result,
         )
-        self.completion_label = cast(tk.Label, res_widgets["completion_label"])
-        self.summary_label = cast(tk.Label, res_widgets["summary_label"])
-        self.time_label = cast(tk.Label, res_widgets["time_label"])
+        self.completion_label = res_widgets["completion_label"]
+        self.summary_label = res_widgets["summary_label"]
+        self.time_label = res_widgets["time_label"]
         self.setup_audition(res_widgets)
 
         self._tab_setup = tab_setup
         self._tab_processing = tab_processing
         self._tab_results = tab_results
 
-    # ── Presets ───────────────────────────────────────────────────────────────
+    # ── Presets ─────────────────────────────────────────────────────────
 
     def _collect_settings(self) -> dict[str, Any]:
         return {
@@ -200,7 +189,7 @@ class PopClickRemoverApp(UIHelperMixin, AuditionMixin):
         suite_config.delete_preset(TOOL_ID, name)
         self._refresh_preset_list(suite_config.list_presets(TOOL_ID))
 
-    # ── CLI handling ──────────────────────────────────────────────────────────
+    # ── CLI handling ────────────────────────────────────────────────────
 
     def _apply_cli_args(self) -> None:
         parsed = cli_args.parse()
@@ -230,7 +219,7 @@ class PopClickRemoverApp(UIHelperMixin, AuditionMixin):
             self.auto_start_var.set(True)
             self.root.after(500, self._on_start)
 
-    # ── User actions ──────────────────────────────────────────────────────────
+    # ── User actions ────────────────────────────────────────────────────
 
     def _on_browse(self) -> None:
         self._browse_folder_standard(
@@ -354,7 +343,7 @@ class PopClickRemoverApp(UIHelperMixin, AuditionMixin):
         self.summary_label.config(
             text=(
                 f"Total: {total} files\n"
-                f"Succeeded: {succeeded}\n"
+                f"{self.RESULTS_LABEL}: {succeeded}\n"
                 f"Skipped: {skipped}\n"
                 f"Errors: {errors}"
             )
