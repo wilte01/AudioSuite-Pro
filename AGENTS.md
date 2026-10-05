@@ -477,3 +477,11 @@ Verification: a per-package `pytest <pkg>/tests` is NOT sufficient proof —
 integration tests in `master_driver/tests/` and `audio_suite_shared/tests/`
 catch registration mistakes a package's own tests cannot see. The final gate
 MUST be a bare full-suite `pytest` run.
+
+## Sprint 2 (Iteration 8) lessons learned
+
+- **UI builder signatures are the source of truth.** When tab builders have specific parameter orders/types (e.g. results_tab.build(parent, on_open_log, on_open_folder, on_play_original=None, on_play_result=None); processing_tab.build(parent, slot_vars=None)), never infer extra args (e.g. _select_tab_setup or slot_vars into results builder). Mismatched positional args cause AttributeError/arg-type in real-app construction tests; read the target UI module signature and mirror it exactly.
+- **Fix signatures before adding casts.** If introducing mypy casts, ensure call chains are correct first; casts can mask runtime construction failures.
+- **Unused scaffold must not remain.** If a shared base has 0 production references and integration is incomplete, either integrate properly or remove it (minimal scope). Leaving unused scaffold adds dead code.
+- **AST lock for deleted public APIs.** When deleting a subsystem with public names, add an AST-based test asserting those names are absent to prevent accidental reintroduction.
+- **Clean up alongside deletion.** Removing dead code should also remove orphaned type aliases/docstrings in the same change scope.
