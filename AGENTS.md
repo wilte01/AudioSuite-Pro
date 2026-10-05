@@ -384,6 +384,20 @@ Follow them or the "passing" run is misleading.
   gate alone. (Second scripted-edit regression after the P5
   parenthesized-import insertion.)
 
+- **A scripted edit that reads with the platform default encoding and writes
+  UTF-8 silently mangles every non-ASCII byte it touched.** On Windows
+  `open(path)` decodes as cp1252, so an em dash read as three characters
+  (`â€”`) and re-emitted as UTF-8 was a *different* three characters; the
+  result compiled, passed ruff/mypy, and broke six display tests that read as
+  logic errors (iteration-8 E3). The same mechanism ate `` `a `` as `\x07`
+  (BEL) inside `CHANGELOG.md`, committing an invisible control character into
+  the docs. Always pass `encoding="utf-8"` on **both** the read and the write,
+  and after any scripted edit assert the file is control-character clean
+  (`[c for c in text if ord(c) < 32 and c not in "\r\n\t"]` is empty) before
+  running the gates. This is the encoding sibling of the `ruff format`
+  `line-ending = "auto"` rule in the global §5: both are byte-level damage
+  that no content-level gate reports.
+
 - **A scan reusing an opposite-purpose exclusion set silently scans zero
   files and passes vacuously.** Iteration-5 G1's skip-attribution walk
   reused `_EXCLUDED_DIRS` (which contains `tests`) while needing the exact
@@ -426,6 +440,27 @@ Follow them or the "passing" run is misleading.
   assert the neutral contract (status=error, non-empty message, batch
   completes) at the consumer, and pin each branch text in the loader's own
   tests instead.
+
+- **A `str`-mixin enum renders as `Enum.MEMBER` in an f-string, so a
+  "typing-only" enum refactor silently rewrites every display string.**
+  `class FingerprintStatus(str, Enum)` makes `status == "MATCHED"`,
+  `status in {...}` and `json.dumps(status)` all behave as the plain string,
+  while `f"{status}"` / `str(status)` / `format(status)` produce
+  `"FingerprintStatus.MATCHED"` (verified on 3.14: only `StrEnum` and the
+  `__format__` fix restore value formatting). The breakage is confined to
+  *interpolation sites*, and they live outside the refactored module —
+  iteration-8 E3 replaced eight status literals in
+  `audio_fingerprinter/core/file_processor.py` while
+  `audio_fingerprinter/app.py` was still doing
+  `f"[{result.status}] {result.filename}"` into the results listbox, which
+  would have shipped `FingerprintStatus.MATCHED` to the UI. Rule: when a
+  string-valued field becomes an enum, (a) `grep` every interpolation of that
+  field **across the whole package**, not just the edited module; (b) route
+  each display through one `.value`-returning helper (`models.status_text()`)
+  and serialise dict/JSON payloads through it too; (c) keep the member values
+  byte-identical to the strings they replace, and pin that with a test
+  asserting the rendered line for *every* member — the existing
+  display-string tests pin only the members they happened to cover.
 
 ## Master Driver Card Naming (Mandatory Convention)
 
