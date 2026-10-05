@@ -40,7 +40,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import pop_click_remover.app as pcr_mod
+from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
+from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from pop_click_remover.app import PopClickRemoverApp
 
 
@@ -302,12 +303,12 @@ class TestOnError:
         return app
 
     def test_calls_showerror(self, app: PopClickRemoverApp) -> None:
-        with patch("pop_click_remover.app.messagebox.showerror") as mock_err:
+        with patch("audio_suite_shared.tool_app_base.messagebox.showerror") as mock_err:
             app._on_error("Something broke")
             mock_err.assert_called_once_with("Pop & Click Remover", "Something broke")
 
     def test_re_enables_start_button(self, app: PopClickRemoverApp) -> None:
-        with patch("pop_click_remover.app.messagebox.showerror"):
+        with patch("audio_suite_shared.tool_app_base.messagebox.showerror"):
             app._on_error("fail")
         app.start_btn.config.assert_called_once_with(state="normal")
 
@@ -390,6 +391,17 @@ class TestMainEntryPoint:
         app_cls.assert_called_once_with(root)
         root.mainloop.assert_called_once_with()
 
+    def test_inherits_from_noise_pop_base(self) -> None:
+        from audio_suite_shared.tool_app_base import NoisePopToolApp
+
+        assert issubclass(PopClickRemoverApp, NoisePopToolApp)
+
+    def test_help_guide_value(self) -> None:
+        assert PopClickRemoverApp.HELP_GUIDE == "Pop_Click_Remover_User_Guide.docx"
+
+    def test_results_label_value(self) -> None:
+        assert PopClickRemoverApp.RESULTS_LABEL == "Succeeded"
+
 
 @pytest.fixture()
 def app_root(root: tk.Tk) -> Any:
@@ -404,7 +416,7 @@ def app_root(root: tk.Tk) -> Any:
 @pytest.fixture()
 def real_app(app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(
-        "pop_click_remover.app.suite_config.load_last_directory", lambda: ""
+        "audio_suite_shared.suite_config.load_last_directory", lambda: ""
     )
     monkeypatch.setattr(sys, "argv", ["pop_click_remover"])
     return PopClickRemoverApp(app_root)
@@ -425,7 +437,7 @@ class TestRealAppConstructionD3:
                 drained.append(real_app.slot_queue.get_nowait())
             except Exception:
                 break
-        assert drained == list(range(pcr_mod.DEFAULT_MAX_WORKERS))
+        assert drained == list(range(DEFAULT_MAX_WORKERS))
 
 
 class TestStartGuardsD3:
@@ -450,7 +462,7 @@ class TestStartGuardsD3:
     def test_missing_folder_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
         app = self._shell()
         dialogs = MagicMock()
-        monkeypatch.setattr("pop_click_remover.app.messagebox", dialogs)
+        monkeypatch.setattr("audio_suite_shared.tool_app_base.messagebox", dialogs)
         app.folder_path.get.return_value = ""
 
         app._on_start()
@@ -462,7 +474,7 @@ class TestStartGuardsD3:
     ) -> None:
         app = self._shell()
         dialogs = MagicMock()
-        monkeypatch.setattr("pop_click_remover.app.messagebox", dialogs)
+        monkeypatch.setattr("audio_suite_shared.tool_app_base.messagebox", dialogs)
         app.folder_path.get.return_value = "D:/no_such_dir_xyz"
 
         app._on_start()
@@ -473,10 +485,12 @@ class TestStartGuardsD3:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         fake_threading = MagicMock()
-        monkeypatch.setattr("pop_click_remover.app.threading", fake_threading)
-        monkeypatch.setattr("pop_click_remover.app.messagebox", MagicMock())
         monkeypatch.setattr(
-            "pop_click_remover.app.suite_config.save_last_directory", MagicMock()
+            "audio_suite_shared.tool_app_base.threading", fake_threading
+        )
+        monkeypatch.setattr("audio_suite_shared.tool_app_base.messagebox", MagicMock())
+        monkeypatch.setattr(
+            "audio_suite_shared.suite_config.save_last_directory", MagicMock()
         )
         declick_calls: list[tuple[Any, ...]] = []
 
@@ -494,11 +508,11 @@ class TestStartGuardsD3:
         app._on_start()
 
         thread = fake_threading.Thread.call_args
-        assert thread.kwargs["target"].__name__ == "_run_declicking_with_undo"
+        assert thread.kwargs["target"].__name__ == "_run_with_undo"
         app.run_mode.get.return_value = "Dry Run"
         assert app._run_was_dry_run is True
         app.prepare_in_place_audition.assert_called_once_with(
-            str(tmp_path), pcr_mod.SUPPORTED_EXTENSIONS
+            str(tmp_path), SUPPORTED_EXTENSIONS
         )
 
 
@@ -530,7 +544,7 @@ class TestProgressAndErrorD3:
         app = object.__new__(PopClickRemoverApp)
         app.start_btn = MagicMock()
         dialogs = MagicMock()
-        monkeypatch.setattr("pop_click_remover.app.messagebox", dialogs)
+        monkeypatch.setattr("audio_suite_shared.tool_app_base.messagebox", dialogs)
 
         app._on_error("boom")
 

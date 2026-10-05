@@ -37,7 +37,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import noise_reduction.app as nr_mod
+from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
+from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from noise_reduction.app import NoiseReductionApp
 
 _SETTINGS_KEYS = (
@@ -328,12 +329,12 @@ class TestOnError:
         return app
 
     def test_calls_showerror(self, app: NoiseReductionApp) -> None:
-        with patch("noise_reduction.app.messagebox.showerror") as mock_err:
+        with patch("audio_suite_shared.tool_app_base.messagebox.showerror") as mock_err:
             app._on_error("Something broke")
             mock_err.assert_called_once_with("Noise Reduction", "Something broke")
 
     def test_re_enables_start_button(self, app: NoiseReductionApp) -> None:
-        with patch("noise_reduction.app.messagebox.showerror"):
+        with patch("audio_suite_shared.tool_app_base.messagebox.showerror"):
             app._on_error("fail")
         app.start_btn.config.assert_called_once_with(state="normal")
 
@@ -403,7 +404,7 @@ def app_root(root: tk.Tk) -> Any:
 @pytest.fixture()
 def real_app(app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(
-        "noise_reduction.app.suite_config.load_last_directory", lambda: ""
+        "audio_suite_shared.suite_config.load_last_directory", lambda: ""
     )
     monkeypatch.setattr(sys, "argv", ["noise_reduction"])
     return NoiseReductionApp(app_root)
@@ -431,7 +432,7 @@ class TestRealAppConstructionD3:
                 drained.append(real_app.slot_queue.get_nowait())
             except Exception:
                 break
-        assert drained == list(range(nr_mod.DEFAULT_MAX_WORKERS))
+        assert drained == list(range(DEFAULT_MAX_WORKERS))
 
 
 class TestStartGuardsD3:
@@ -462,7 +463,7 @@ class TestStartGuardsD3:
     def test_missing_folder_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
         app = self._shell()
         dialogs = MagicMock()
-        monkeypatch.setattr("noise_reduction.app.messagebox", dialogs)
+        monkeypatch.setattr("audio_suite_shared.tool_app_base.messagebox", dialogs)
         app.folder_path.get.return_value = ""
 
         app._on_start()
@@ -474,7 +475,7 @@ class TestStartGuardsD3:
     ) -> None:
         app = self._shell()
         dialogs = MagicMock()
-        monkeypatch.setattr("noise_reduction.app.messagebox", dialogs)
+        monkeypatch.setattr("audio_suite_shared.tool_app_base.messagebox", dialogs)
         app.folder_path.get.return_value = "D:/definitely_missing_dir"
 
         app._on_start()
@@ -486,7 +487,7 @@ class TestStartGuardsD3:
     ) -> None:
         app = self._shell()
         dialogs = MagicMock()
-        monkeypatch.setattr("noise_reduction.app.messagebox", dialogs)
+        monkeypatch.setattr("audio_suite_shared.tool_app_base.messagebox", dialogs)
         app.folder_path.get.return_value = str(tmp_path)
         app.reduce_hum.get.return_value = False
         app.reduce_broadband.get.return_value = False
@@ -499,10 +500,12 @@ class TestStartGuardsD3:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         fake_threading = MagicMock()
-        monkeypatch.setattr("noise_reduction.app.threading", fake_threading)
-        monkeypatch.setattr("noise_reduction.app.messagebox", MagicMock())
         monkeypatch.setattr(
-            "noise_reduction.app.suite_config.save_last_directory", MagicMock()
+            "audio_suite_shared.tool_app_base.threading", fake_threading
+        )
+        monkeypatch.setattr("audio_suite_shared.tool_app_base.messagebox", MagicMock())
+        monkeypatch.setattr(
+            "audio_suite_shared.suite_config.save_last_directory", MagicMock()
         )
         built: dict[str, Any] = {}
 
@@ -528,15 +531,18 @@ class TestStartGuardsD3:
 
         app._on_start()
 
+        # Params are now built inside the background thread; invoke the
+        # thread target directly to capture them.
+        thread_target = fake_threading.Thread.call_args.kwargs["target"]
+        thread_target(str(tmp_path), False)
+
         assert built["dry_run"] is False
         assert built["reduce_hum"] is True
         assert built["gate_threshold_db"] == 3.0
-        # The target is a nested closure (not a bound method): compare name.
-        assert fake_threading.Thread.call_args.kwargs["target"].__name__ == (
-            "_run_noise_reduction_with_undo"
+        assert thread_target.__name__ == "_run_with_undo"
+        app.prepare_in_place_audition.assert_called_once_with(
+            str(tmp_path), SUPPORTED_EXTENSIONS
         )
-        app_prepare = app.prepare_in_place_audition
-        app_prepare.assert_called_once_with(str(tmp_path), nr_mod.SUPPORTED_EXTENSIONS)
 
 
 class TestProgressUIAndErrorsD3:
@@ -570,9 +576,42 @@ class TestProgressUIAndErrorsD3:
         app = object.__new__(NoiseReductionApp)
         app.start_btn = MagicMock()
         dialogs = MagicMock()
-        monkeypatch.setattr("noise_reduction.app.messagebox", dialogs)
+        monkeypatch.setattr("audio_suite_shared.tool_app_base.messagebox", dialogs)
 
         app._on_error("boom")
 
         dialogs.showerror.assert_called_once()
         app.start_btn.config.assert_called_once_with(state="normal")
+
+
+class TestRegistrationAndBaseClass:
+    """Lock: class identity, base class, and tool-specific attributes."""
+
+    def test_main_is_importable(self) -> None:
+        from noise_reduction.app import main
+
+        assert callable(main)
+
+    def test_main_creates_root_and_enters_mainloop(self) -> None:
+        root = MagicMock()
+        with (
+            patch("noise_reduction.app.tk.Tk", return_value=root),
+            patch("noise_reduction.app.NoiseReductionApp") as app_cls,
+        ):
+            from noise_reduction.app import main
+
+            main()
+
+        app_cls.assert_called_once_with(root)
+        root.mainloop.assert_called_once_with()
+
+    def test_inherits_from_noise_pop_base(self) -> None:
+        from audio_suite_shared.tool_app_base import NoisePopToolApp
+
+        assert issubclass(NoiseReductionApp, NoisePopToolApp)
+
+    def test_help_guide_value(self) -> None:
+        assert NoiseReductionApp.HELP_GUIDE == "Noise_Reduction_User_Guide.docx"
+
+    def test_results_label_value(self) -> None:
+        assert NoiseReductionApp.RESULTS_LABEL == "Reduced"

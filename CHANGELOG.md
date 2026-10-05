@@ -119,6 +119,17 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
   toggles, auto-start) had no production caller; it is deleted along with the
   orphaned type aliases and its tests. Every tool's live CLI handling
   (`UniversalCLIHandler` and the per-tool handlers) is untouched.
+- **Noise Reduction and Pop & Click Remover share a common GUI scaffold.**
+  `NoisePopToolApp` in `tool_app_base.py` inherits from `UIHelperMixin` and
+  `AuditionMixin` and carries the constructor skeleton, the notebook/tab
+  layout, preset CRUD, the progress/complete/error plumbing, the CLI
+  handshake, and the browse/help/log/folder actions. Each tool's `app.py`
+  subclasses it with tool-specific Tk variables, setup controls, validation,
+  engine call, CLI flags, and the `RESULTS_LABEL` / `COMPLETION_LABEL`
+  class attributes. **No displayed byte or user-visible behaviour change** —
+  every pre-existing app test passes unedited through the extraction, and
+  the shared-line count between the two `app.py` files dropped from 345 to
+  96 (acceptance threshold < 100).
 
 ### Removed
 
