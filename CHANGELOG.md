@@ -9,7 +9,6 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-- [Iteration 8/Sprint 2] Removed dead argparse subsystem from udio_suite_shared/cli_helpers.py (~300 lines) and dropped unused scaffold NoiseReductionToolApp; tests/quality gates restored to green state.
 
 Everything below landed after `1.0.0` and is not yet versioned. The items are
 grouped Keep-a-Changelog style and worded against the behaviour actually
@@ -104,12 +103,32 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
 - The portable-core CLI test reads its JSON payload from stdout only, so the
   `audiosuite --json` contract (payload on stdout, diagnostics on stderr) is now
   pinned by the suite.
+- **Audio Fingerprinter status strings are now a typed enum, and the tag-write
+  step is written once.** The eight per-file outcomes (`ERROR`,
+  `LOOKUP SKIPPED`, `ANALYSED`, `NO MATCH`, `MATCHED`, `TAGGED`,
+  `TAG WRITE FAILED`, `ALBUM AMBIGUOUS`) are declared once as
+  `FingerprintStatus` instead of being retyped as loose literals across the
+  display, worker, summary, album-phase and log code, and the duplicated
+  "write AcoustID tags → write MBIDs → build the result" tail shared by
+  per-file and album matching is now a single helper. **No displayed byte
+  changes** — the progress lines, the log file and the CLI summary are
+  unchanged, which the existing display-pinning tests and the real-file
+  tag-writing tests verify.
+- **Dead code removed from `audio_suite_shared/cli_helpers.py`.** The unused
+  argparse-based argument-parsing subsystem (source/output paths, stage
+  toggles, auto-start) had no production caller; it is deleted along with the
+  orphaned type aliases and its tests. Every tool's live CLI handling
+  (`UniversalCLIHandler` and the per-tool handlers) is untouched.
 
 ### Removed
 
 - Per-tool `*_Logging_Guide.docx` files and `generate_logging_guide.py`
   (superseded — see *Changed*).
 - The tracked `*.bak` guide backups (regenerate from the generator instead).
+- The production-dead argparse subsystem in
+  `audio_suite_shared/cli_helpers.py` (~300 lines) and its tests — every tool
+  parses its live arguments through `UniversalCLIHandler` and the per-tool
+  `utils/cli_args.py` modules.
 
 ## [1.0.0] - 2026-09-26
 

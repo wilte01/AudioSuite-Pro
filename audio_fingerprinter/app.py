@@ -29,7 +29,11 @@ from audio_suite_shared.ui_helpers import UIHelperMixin
 
 from .core import file_processor
 from .core.fingerprinter import DEFAULT_MAX_LENGTH, FPCALC_ENV_VAR, resolve_fpcalc
-from .core.models import FingerprintFileResult, FingerprintParams
+from .core.models import (
+    FingerprintFileResult,
+    FingerprintParams,
+    status_text,
+)
 from .ui import processing_tab, results_tab, setup_tab
 from .utils import api_key as api_key_store
 from .utils import cli_args
@@ -527,7 +531,9 @@ class FingerprinterApp(UIHelperMixin):
 
         self.file_listbox.delete(0, tk.END)
         for result in sorted(results, key=lambda r: r.file_path):
-            self.file_listbox.insert(tk.END, f"[{result.status}] {result.filename}")
+            self.file_listbox.insert(
+                tk.END, f"[{status_text(result.status)}] {result.filename}"
+            )
 
         self.notebook.select(self._tab_results)
         self.start_btn.config(state="normal")

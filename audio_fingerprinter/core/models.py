@@ -6,7 +6,59 @@ share one serialisation path.
 """
 
 from dataclasses import asdict, dataclass, field
+from enum import Enum
 from typing import Any
+
+
+class FingerprintStatus(str, Enum):
+    """Per-file outcome of a fingerprinting run.
+
+    The member values are the exact strings the Processing tab, the log file
+    and the CLI summary display — this enum types the vocabulary, it does not
+    change a single displayed byte.
+
+    Attributes:
+        ERROR: The file could not be processed (missing, unreadable, or the
+            lookup failed).
+        LOOKUP SKIPPED: Fingerprinted, but no lookup was attempted (lookup
+            disabled, no API key, or no client).
+        ANALYSED: Album mode only — the fingerprint is ready and the album
+            phase has not decided yet.
+        NO MATCH: No AcoustID candidate cleared the score threshold.
+        MATCHED: A candidate was identified; any tag write is reported
+            separately as TAGGED or TAG WRITE FAILED.
+        TAGGED: The AcoustID tags were written to disk.
+        TAG WRITE FAILED: The AcoustID tag write failed; the file is
+            reported as an error and left untagged.
+        ALBUM AMBIGUOUS: Album mode only — the folder's cluster tied and the
+            file was left untagged.
+    """
+
+    ERROR = "ERROR"
+    LOOKUP_SKIPPED = "LOOKUP SKIPPED"
+    ANALYSED = "ANALYSED"
+    NO_MATCH = "NO MATCH"
+    MATCHED = "MATCHED"
+    TAGGED = "TAGGED"
+    TAG_WRITE_FAILED = "TAG WRITE FAILED"
+    ALBUM_AMBIGUOUS = "ALBUM AMBIGUOUS"
+
+
+def status_text(status: FingerprintStatus | str) -> str:
+    """Return the display string for a result status.
+
+    ``FingerprintStatus`` derives from ``str``, so a member *is* its value for
+    every comparison — but its ``__str__`` is the enum repr, so interpolating
+    one directly would print ``FingerprintStatus.MATCHED`` instead of
+    ``MATCHED``. Every display site routes through this helper.
+
+    Args:
+        status: An enum member, or a plain status string.
+
+    Returns:
+        The exact text to display, byte-identical to the pre-enum strings.
+    """
+    return status.value if isinstance(status, FingerprintStatus) else status
 
 
 @dataclass(frozen=True)
@@ -198,11 +250,13 @@ class FingerprintFileResult:
     Attributes:
         file_path: Absolute path of the processed file.
         filename: Basename used in the progress listbox.
-        status: One of ``"IDENTIFIED"``, ``"MATCHED"``, ``"NO MATCH"``,
+        status: One of the ``FingerprintStatus`` values — ``"ERROR"``,
             ``"LOOKUP SKIPPED"``, ``"ANALYSED"`` (album mode: fingerprint
-            ready, awaiting the album decision), ``"ALBUM AMBIGUOUS"``
-            (album mode: cluster tie, left untagged), ``"TAGGED"``,
-            ``"TAG WRITE FAILED"``, or ``"ERROR"``.
+            ready, awaiting the album decision), ``"NO MATCH"``,
+            ``"MATCHED"``, ``"TAGGED"``, ``"TAG WRITE FAILED"``, or
+            ``"ALBUM AMBIGUOUS"`` (album mode: cluster tie, left untagged).
+            Producers pass the enum member; use :func:`status_text` to
+            display it.
         message: Short human-readable detail (e.g. the error text, or the
             matched artist / title with its AcoustID score).
         duration: fpcalc-reported file duration.
@@ -225,7 +279,7 @@ class FingerprintFileResult:
         return {
             "file_path": self.file_path,
             "filename": self.filename,
-            "status": self.status,
+            "status": status_text(self.status),
             "message": self.message,
             "duration": self.duration,
             "fingerprint": self.fingerprint,

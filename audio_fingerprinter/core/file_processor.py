@@ -16,7 +16,7 @@ import os
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from queue import Queue
 from typing import Any
 
@@ -47,6 +47,8 @@ from .models import (
     Fingerprint,
     FingerprintFileResult,
     FingerprintParams,
+    FingerprintStatus,
+    status_text,
 )
 from .tag_writer import write_acoustid_tags
 
@@ -73,15 +75,25 @@ class _FingerprintJob:
     processor: "FingerprintProcessor"
 
 
+#: Statuses whose display line carries the detail message after the filename.
+_MESSAGE_STATUSES: frozenset[FingerprintStatus] = frozenset(
+    {
+        FingerprintStatus.MATCHED,
+        FingerprintStatus.TAGGED,
+        FingerprintStatus.TAG_WRITE_FAILED,
+        FingerprintStatus.ALBUM_AMBIGUOUS,
+    }
+)
+
+
 def _result_display(result: FingerprintFileResult) -> str:
     """Build the one-line status text streamed to the Processing tab / CLI."""
-    if result.status == "ERROR":
-        return f"[ERROR] {result.filename}: {result.message}"
-    if result.status in {"MATCHED", "TAGGED", "TAG WRITE FAILED"}:
-        return f"[{result.status}] {result.filename} — {result.message}"
-    if result.status == "ALBUM AMBIGUOUS":
-        return f"[ALBUM AMBIGUOUS] {result.filename} — {result.message}"
-    return f"[{result.status}] {result.filename}"
+    label = status_text(result.status)
+    if result.status == FingerprintStatus.ERROR:
+        return f"[{label}] {result.filename}: {result.message}"
+    if result.status in _MESSAGE_STATUSES:
+        return f"[{label}] {result.filename} — {result.message}"
+    return f"[{label}] {result.filename}"
 
 
 def _match_message(
@@ -118,7 +130,7 @@ def _fingerprint_worker(job: _FingerprintJob) -> None:
         with job.lock:
             job.results.append(result)
         job.on_progress(
-            n_errors=1 if result.status == "ERROR" else 0,
+            n_errors=1 if result.status == FingerprintStatus.ERROR else 0,
             display_text=_result_display(result),
         )
 
@@ -132,7 +144,7 @@ def _fingerprint_worker(job: _FingerprintJob) -> None:
                     FingerprintFileResult(
                         file_path=full_path,
                         filename=job.filename,
-                        status="ERROR",
+                        status=FingerprintStatus.ERROR,
                         message="File no longer exists.",
                     )
                 )
@@ -146,7 +158,7 @@ def _fingerprint_worker(job: _FingerprintJob) -> None:
             FingerprintFileResult(
                 file_path=full_path,
                 filename=job.filename,
-                status="ERROR",
+                status=FingerprintStatus.ERROR,
                 message=user_message_for(exc),
             )
         )
@@ -162,7 +174,7 @@ def _fingerprint_worker(job: _FingerprintJob) -> None:
             FingerprintFileResult(
                 file_path=full_path,
                 filename=job.filename,
-                status="ERROR",
+                status=FingerprintStatus.ERROR,
                 message=user_message_for(mapped),
             )
         )
@@ -212,6 +224,56 @@ def _write_mbids_for(
     return msg
 
 
+def _commit_match_tags(
+    matched: FingerprintFileResult,
+    recording: AcoustidRecording,
+    params: FingerprintParams,
+    undo_batch: str | None,
+) -> FingerprintFileResult:
+    """Write the AcoustID tags (and optional MBIDs) for one matched file.
+
+    The single write path shared by per-file matching and album matching: both
+    build a ``MATCHED`` result first, then hand it here so the undo batch
+    scope, the MBID enrichment and the TAGGED / TAG WRITE FAILED outcomes are
+    defined exactly once.
+
+    Args:
+        matched: The ``MATCHED`` result carrying the file's path,
+            fingerprint, message and candidate list.
+        recording: The matched AcoustID candidate.
+        params: Runtime parameters, for the MBID opt-in and region preference.
+        undo_batch: Active undo batch id for the tag snapshot.
+
+    Returns:
+        A copy of ``matched`` with status ``TAGGED`` on success (and
+        ``tag_written`` set), or ``TAG WRITE FAILED`` with the writer's
+        message appended when the AcoustID write fails.
+    """
+    message = matched.message
+    with use_batch(undo_batch):
+        ok, msg = write_acoustid_tags(
+            matched.file_path, matched.fingerprint, recording.acoustid_id
+        )
+        if ok and params.write_mbids:
+            mbids = _write_mbids_for(params, recording, matched.file_path)
+            if mbids:
+                message = f"{message} — {mbids}"
+
+    if not ok:
+        return replace(
+            matched,
+            status=FingerprintStatus.TAG_WRITE_FAILED,
+            message=f"{message} — {msg}",
+        )
+
+    return replace(
+        matched,
+        status=FingerprintStatus.TAGGED,
+        message=message,
+        tag_written=True,
+    )
+
+
 def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult:
     """Fingerprint one file and optionally look it up / tag it.
 
@@ -234,7 +296,7 @@ def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult
             filename=job.filename,
             duration=fingerprint.duration,
             fingerprint=fingerprint.fingerprint,
-            status="LOOKUP SKIPPED",
+            status=FingerprintStatus.LOOKUP_SKIPPED,
             message="Lookup disabled or no API key.",
         )
 
@@ -245,7 +307,7 @@ def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult
             filename=job.filename,
             duration=fingerprint.duration,
             fingerprint=fingerprint.fingerprint,
-            status="LOOKUP SKIPPED",
+            status=FingerprintStatus.LOOKUP_SKIPPED,
             message="Lookup disabled.",
         )
 
@@ -258,7 +320,7 @@ def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult
             filename=job.filename,
             duration=fingerprint.duration,
             fingerprint=fingerprint.fingerprint,
-            status="ANALYSED",
+            status=FingerprintStatus.ANALYSED,
             message="Fingerprint ready for album matching.",
         )
 
@@ -269,7 +331,7 @@ def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult
             filename=job.filename,
             duration=fingerprint.duration,
             fingerprint=fingerprint.fingerprint,
-            status="ERROR",
+            status=FingerprintStatus.ERROR,
             message=lookup.error or "AcoustID lookup failed.",
         )
 
@@ -286,57 +348,25 @@ def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult
             filename=job.filename,
             duration=fingerprint.duration,
             fingerprint=fingerprint.fingerprint,
-            status="NO MATCH",
+            status=FingerprintStatus.NO_MATCH,
             message="No candidate above the score threshold.",
         )
 
-    message = _match_message(best, ambiguous, tag_resolved, lookup.recordings)
-    result = FingerprintFileResult(
+    matched = FingerprintFileResult(
         file_path=full_path,
         filename=job.filename,
         duration=fingerprint.duration,
         fingerprint=fingerprint.fingerprint,
-        status="MATCHED",
-        message=message,
+        status=FingerprintStatus.MATCHED,
+        message=_match_message(best, ambiguous, tag_resolved, lookup.recordings),
         acoustid_id=best.acoustid_id,
         recordings=lookup.recordings,
     )
 
     if not (job.params.write_tags and not job.params.is_dry_run):
-        return result
+        return matched
 
-    with use_batch(job.undo_batch):
-        ok, msg = write_acoustid_tags(
-            full_path, fingerprint.fingerprint, best.acoustid_id
-        )
-        if ok and job.params.write_mbids:
-            mbids = _write_mbids_for(job.params, best, full_path)
-            if mbids:
-                message = f"{message} — {mbids}"
-
-    if not ok:
-        return FingerprintFileResult(
-            file_path=full_path,
-            filename=job.filename,
-            duration=fingerprint.duration,
-            fingerprint=fingerprint.fingerprint,
-            status="TAG WRITE FAILED",
-            message=f"{message} — {msg}",
-            acoustid_id=best.acoustid_id,
-            recordings=lookup.recordings,
-        )
-
-    return FingerprintFileResult(
-        file_path=full_path,
-        filename=job.filename,
-        duration=fingerprint.duration,
-        fingerprint=fingerprint.fingerprint,
-        status="TAGGED",
-        message=message,
-        acoustid_id=best.acoustid_id,
-        recordings=lookup.recordings,
-        tag_written=True,
-    )
+    return _commit_match_tags(matched, best, job.params, job.undo_batch)
 
 
 class FingerprintProcessor(BaseFileProcessor):
@@ -359,20 +389,21 @@ def _summarise_results(
         "errors": 0,
     }
     for result in results:
-        if result.status == "ERROR":
+        if result.status in {
+            FingerprintStatus.ERROR,
+            FingerprintStatus.TAG_WRITE_FAILED,
+        }:
             counts["errors"] += 1
-        elif result.status == "TAG WRITE FAILED":
-            counts["errors"] += 1
-        elif result.status == "TAGGED":
+        elif result.status == FingerprintStatus.TAGGED:
             counts["tagged"] += 1
             counts["identified"] += 1
-        elif result.status in {"MATCHED", "IDENTIFIED"}:
+        elif result.status == FingerprintStatus.MATCHED:
             counts["identified"] += 1
-        elif result.status == "NO MATCH":
+        elif result.status == FingerprintStatus.NO_MATCH:
             counts["no_match"] += 1
-        elif result.status == "LOOKUP SKIPPED":
+        elif result.status == FingerprintStatus.LOOKUP_SKIPPED:
             counts["lookup_skipped"] += 1
-        elif result.status == "ALBUM AMBIGUOUS":
+        elif result.status == FingerprintStatus.ALBUM_AMBIGUOUS:
             counts["album_ambiguous"] += 1
     return counts
 
@@ -380,7 +411,7 @@ def _summarise_results(
 def _finalize_album_file(
     result: FingerprintFileResult,
     best: AcoustidRecording | None,
-    unmatched_status: str,
+    unmatched_status: FingerprintStatus,
     message: str,
     recordings: tuple[AcoustidRecording, ...],
     write_enabled: bool,
@@ -394,7 +425,8 @@ def _finalize_album_file(
         best: The cluster-chosen candidate (``None`` leaves the file
             untagged with ``unmatched_status``).
         unmatched_status: Status for the ``best is None`` case
-            (``"NO MATCH"`` or ``"ALBUM AMBIGUOUS"``).
+            (``FingerprintStatus.NO_MATCH`` or
+            ``FingerprintStatus.ALBUM_AMBIGUOUS``).
         message: Final per-file status message.
         recordings: The file's full filtered candidate list.
         write_enabled: Whether tags should be written (live + enabled).
@@ -416,54 +448,27 @@ def _finalize_album_file(
             recordings=recordings,
         )
 
-    if not write_enabled:
-        return FingerprintFileResult(
-            file_path=result.file_path,
-            filename=result.filename,
-            duration=result.duration,
-            fingerprint=result.fingerprint,
-            status="MATCHED",
-            message=message,
-            acoustid_id=best.acoustid_id,
-            recordings=recordings,
-        )
-
-    with use_batch(undo_batch):
-        ok, msg = write_acoustid_tags(
-            result.file_path, result.fingerprint, best.acoustid_id
-        )
-        if ok and params.write_mbids:
-            mbids = _write_mbids_for(params, best, result.file_path)
-            if mbids:
-                message = f"{message} — {mbids}"
-    if not ok:
-        return FingerprintFileResult(
-            file_path=result.file_path,
-            filename=result.filename,
-            duration=result.duration,
-            fingerprint=result.fingerprint,
-            status="TAG WRITE FAILED",
-            message=f"{message} — {msg}",
-            acoustid_id=best.acoustid_id,
-            recordings=recordings,
-        )
-    return FingerprintFileResult(
+    matched = FingerprintFileResult(
         file_path=result.file_path,
         filename=result.filename,
         duration=result.duration,
         fingerprint=result.fingerprint,
-        status="TAGGED",
+        status=FingerprintStatus.MATCHED,
         message=message,
         acoustid_id=best.acoustid_id,
         recordings=recordings,
-        tag_written=True,
     )
+
+    if not write_enabled:
+        return matched
+
+    return _commit_match_tags(matched, best, params, undo_batch)
 
 
 def _apply_album_decision(
     file: AlbumFile,
     decision: AlbumFileDecision,
-) -> tuple[str, AcoustidRecording | None, str]:
+) -> tuple[FingerprintStatus, AcoustidRecording | None, str]:
     """Map one album decision to a result status, candidate, and message.
 
     Args:
@@ -476,13 +481,13 @@ def _apply_album_decision(
     """
     if decision.outcome == "ambiguous":
         return (
-            "ALBUM AMBIGUOUS",
+            FingerprintStatus.ALBUM_AMBIGUOUS,
             None,
             f"album ambiguous — {decision.cluster_title}; left untagged",
         )
     if decision.outcome == "fallback" and decision.best is None:
         return (
-            "NO MATCH",
+            FingerprintStatus.NO_MATCH,
             None,
             "No candidate above the score threshold.",
         )
@@ -495,7 +500,7 @@ def _apply_album_decision(
             file.file_path,
         )
         return (
-            "NO MATCH",
+            FingerprintStatus.NO_MATCH,
             None,
             "No candidate above the score threshold.",
         )
@@ -511,7 +516,7 @@ def _apply_album_decision(
             decision.tag_resolved,
             file.recordings,
         )
-    return "MATCHED", decision.best, message
+    return FingerprintStatus.MATCHED, decision.best, message
 
 
 def _run_album_phase(
@@ -550,7 +555,7 @@ def _run_album_phase(
         the caller must abort); ``report_lines`` carries the per-album
         cluster summary for the run report.
     """
-    pending = [r for r in results if r.status == "ANALYSED"]
+    pending = [r for r in results if r.status == FingerprintStatus.ANALYSED]
     if not pending:
         return True, []
 
@@ -588,7 +593,7 @@ def _run_album_phase(
                 filename=result.filename,
                 duration=result.duration,
                 fingerprint=result.fingerprint,
-                status="ERROR",
+                status=FingerprintStatus.ERROR,
                 message=lookup.error or "AcoustID lookup failed.",
             )
             continue
@@ -787,18 +792,22 @@ def run_fingerprinting(
     for line in report_lines:
         log_entries.append(f"{line}\n")
     for result in sorted(results, key=lambda r: r.file_path):
-        if result.status == "ERROR":
-            log_entries.append(f"[ERROR] {result.filename}\n    {result.message}\n")
-        elif result.status == "LOOKUP SKIPPED":
-            log_entries.append(f"[LOOKUP SKIPPED] {result.filename}\n")
+        if result.status == FingerprintStatus.ERROR:
+            log_entries.append(
+                f"[{status_text(result.status)}] {result.filename}\n"
+                f"    {result.message}\n"
+            )
+        elif result.status == FingerprintStatus.LOOKUP_SKIPPED:
+            log_entries.append(f"[{status_text(result.status)}] {result.filename}\n")
         elif result.status in {
-            "MATCHED",
-            "TAGGED",
-            "TAG WRITE FAILED",
-            "ALBUM AMBIGUOUS",
+            FingerprintStatus.MATCHED,
+            FingerprintStatus.TAGGED,
+            FingerprintStatus.TAG_WRITE_FAILED,
+            FingerprintStatus.ALBUM_AMBIGUOUS,
         }:
             log_entries.append(
-                f"[{result.status}] {result.filename}\n    {result.message}\n"
+                f"[{status_text(result.status)}] {result.filename}\n"
+                f"    {result.message}\n"
             )
 
     counts = _summarise_results(results)

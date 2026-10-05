@@ -5,10 +5,55 @@ from audio_fingerprinter.core.models import (
     Fingerprint,
     FingerprintFileResult,
     FingerprintParams,
+    FingerprintStatus,
     LookupResult,
     Release,
     ReleaseGroup,
+    status_text,
 )
+
+
+class TestFingerprintStatus:
+    """The status vocabulary every producer and display site shares."""
+
+    def test_covers_every_emitted_status(self):
+        # Non-vacuity: the enum is the closed vocabulary of per-file
+        # outcomes, so a dropped member silently mislabels a file.
+        assert len(FingerprintStatus) == 8
+        assert {member.value for member in FingerprintStatus} == {
+            "ERROR",
+            "LOOKUP SKIPPED",
+            "ANALYSED",
+            "NO MATCH",
+            "MATCHED",
+            "TAGGED",
+            "TAG WRITE FAILED",
+            "ALBUM AMBIGUOUS",
+        }
+
+    def test_member_compares_equal_to_its_display_string(self):
+        for member in FingerprintStatus:
+            assert member == member.value
+
+    def test_display_string_is_never_the_enum_repr(self):
+        # The footgun status_text() exists for: a str-mixin enum's __str__
+        # is "FingerprintStatus.MATCHED", which would reach the UI/log.
+        assert str(FingerprintStatus.MATCHED) != "MATCHED"
+        for member in FingerprintStatus:
+            assert status_text(member) == member.value
+
+    def test_status_text_accepts_a_plain_string(self):
+        assert status_text("MATCHED") == "MATCHED"
+
+    def test_to_dict_serialises_the_plain_display_string(self):
+        result = FingerprintFileResult(
+            file_path="/x/a.mp3",
+            filename="a.mp3",
+            status=FingerprintStatus.TAG_WRITE_FAILED,
+        )
+        payload = result.to_dict()
+        assert payload["status"] == "TAG WRITE FAILED"
+        assert type(payload["status"]) is str
 
 
 class TestFingerprint:

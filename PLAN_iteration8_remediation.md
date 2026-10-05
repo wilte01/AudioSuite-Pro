@@ -110,7 +110,7 @@ Every audit finding the report marks for resolution appears exactly once.
 | audit M11 — three manifest ids absent from `DEPENDENCY_GRAPH` | Medium | Registry contract | 1 | `[ ]` C4 |
 | audit M12 — refinery select-all omits `reduce_noise`; display flags read the util tab's vars | Medium | Correctness (UI) | 1 | `[ ]` C5 |
 | audit M13 — `build_refinery_args` silently re-enables all stages when none are selected | Medium | Dead code / contract | 1 | `[ ]` C5 |
-| audit M14 — fingerprinter's loose status strings + duplicated tag-write block | Medium | Maintainability | 2 | `[ ]` E3 |
+| audit M14 — fingerprinter's loose status strings + duplicated tag-write block | Medium | Maintainability | 2 | `[x]` E3 |
 | audit M15 — dead code shipped in production paths (7 classes) | Medium | Dead code | 2 | `[ ]` E4 |
 | audit M16 — `utilities/`: stale `_sha256` docstring, exception mismatch, FLAC/MP4 misroute, `--db` shadowing, silent pass | Medium | Correctness | 1 | `[ ]` C6 |
 | audit M17 — key regeneration silently orphans encrypted config values | Medium | Data integrity | 1 | `[ ]` C7 |
@@ -1175,7 +1175,7 @@ than trying variations.
 
 ---
 
-### E3 `[ ]` — Fingerprinter: enum statuses + deduplicate the tag-write block `[audit M14]`
+### E3 `[x]` — Fingerprinter: enum statuses + deduplicate the tag-write block `[audit M14]`
 
 **Priority:** P2 | **Effort:** 0.5 day | **Risk:** Low
 
@@ -1190,14 +1190,14 @@ write-acoustid-tags + write-MBIDs + result-construction blocks.
 
 **Scope:**
 
-- [ ] Introduce a `FingerprintStatus` enum (mirroring `cd_ripper`'s
+- [x] Introduce a `FingerprintStatus` enum (mirroring `cd_ripper`'s
       `VerificationStatus`; read it for the exact pattern) and replace the eight
       bare strings at the four sites. Keep the **display strings identical** —
       the enum is a typing/refactor change, not a UI change.
-- [ ] Extract the shared "write acoustid tags → write MBIDs → build result" tail
+- [x] Extract the shared "write acoustid tags → write MBIDs → build result" tail
       from `_process_file` (`:305-339`) and `_finalize_album_file` (`:419-460`)
       into one helper, parameterised only by what genuinely differs.
-- [ ] Per the `AGENTS.md` "display-name-keyed dict" and branch-message rules, the
+- [x] Per the `AGENTS.md` "display-name-keyed dict" and branch-message rules, the
       enum's `.value` must equal the current string exactly (no case/format
       change), so no pinned display test breaks.
 
@@ -1207,6 +1207,39 @@ runner can emit (non-vacuity: `len(enum) == 8`).
 
 **Acceptance:** zero bare status literals remain in the four functions; the
 display strings are byte-identical pre/post; bare full suite green.
+
+**Completion log.** `FingerprintStatus(str, Enum)` lives in `core/models.py`
+beside the record it classifies (the eight members the runner can actually
+emit), plus a `status_text()` helper. Two findings beyond the audit's four
+sites, both required to avoid a functional regression:
+
+- `app.py:530` interpolated `result.status` straight into the results
+  listbox. A `str`-mixin enum's `__str__` is `FingerprintStatus.MATCHED`, so
+  the UI would have displayed the enum repr; every display site (processor,
+  log writer, app) now routes through `status_text()`, and `to_dict()`
+  serialises the plain string.
+- `_summarise_results` also matched `"IDENTIFIED"`, a value with **no producer
+  anywhere** in the repo (AST scan: 1 comparison, 0 writes, 0 tests) though
+  `models.py` documented it. The dead branch and the stale docstring entry
+  were removed together.
+
+`_commit_match_tags(matched, recording, params, undo_batch)` is the single
+write path: both call sites now build the `MATCHED` result first and hand it
+over, and it returns `replace(...)` copies (one `write_acoustid_tags` call
+site in the module, down from two). `_apply_album_decision` and
+`_finalize_album_file`'s `unmatched_status` are typed `FingerprintStatus`.
+
+**Locks (all four proven to fire by break-and-restore, SHA-256-verified
+restore):** no bare status literal anywhere in `core/file_processor.py`; the
+`FingerprintStatus.*` names referenced equal the enum's full membership
+(two-way, so no member is dead and no producer invents a status); exactly one
+`write_acoustid_tags` call site; both match paths call `_commit_match_tags`.
+
+**Evidence:** existing fingerprinter suite green unedited (the decode-and-measure
+`TestMbidRealOutcome` / `TestAlbumModeRealOutcome` real-file tests are what
+prove the extraction did not change the written tags); 11 new tests; bare full
+suite `8263 passed, 3 skipped`; ruff/format clean; `mypy .` clean (460 files);
+bandit 0 High / 0 Medium.
 
 ---
 

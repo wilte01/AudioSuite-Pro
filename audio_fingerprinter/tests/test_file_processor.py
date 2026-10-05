@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+import inspect
 import os
 import threading
 from queue import Queue
@@ -10,8 +12,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from audio_fingerprinter.core import file_processor as file_processor_module
 from audio_fingerprinter.core.file_processor import (
     FingerprintProcessor,
+    _commit_match_tags,
     _fingerprint_worker,
     _FingerprintJob,
     _process_file,
@@ -24,6 +28,7 @@ from audio_fingerprinter.core.models import (
     Fingerprint,
     FingerprintFileResult,
     FingerprintParams,
+    FingerprintStatus,
     LookupResult,
     ReleaseGroup,
 )
@@ -1079,3 +1084,191 @@ class TestMbidRealOutcome:
             assert tags["MUSICBRAINZ_TRACKID"] == self.TRACK_ID
             assert tags["MUSICBRAINZ_ARTISTID"] == self.ARTIST_ID
             assert tags["MUSICBRAINZ_ALBUMID"] == f"rel-{name}"
+
+
+def _processor_tree() -> ast.Module:
+    """Parse the production module so the locks below read real source."""
+    source = inspect.getsourcefile(file_processor_module)
+    assert source is not None
+    with open(source, encoding="utf-8") as handle:
+        return ast.parse(handle.read(), filename=source)
+
+
+def _enum_members_used(tree: ast.Module) -> set[str]:
+    """Every ``FingerprintStatus.<NAME>`` attribute referenced in the module."""
+    return {
+        node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "FingerprintStatus"
+    }
+
+
+class TestStatusEnumIsTheSingleSource:
+    """E3: the status vocabulary lives in one enum, and the tag-write tail
+    is written once."""
+
+    def test_no_bare_status_literal_survives_in_the_processor(self):
+        values = {member.value for member in FingerprintStatus}
+        bare = [
+            (node.lineno, node.value)
+            for node in ast.walk(_processor_tree())
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value in values
+        ]
+        assert bare == []
+
+    def test_every_status_member_is_actually_produced(self):
+        # Two-way lock: no member is dead, and no producer invents a status
+        # outside the enum. A scan that matched nothing would pass the first
+        # assertion above vacuously, hence the exact-set comparison.
+        assert _enum_members_used(_processor_tree()) == {
+            member.name for member in FingerprintStatus
+        }
+
+    def test_acoustid_tag_write_has_exactly_one_call_site(self):
+        calls = [
+            node
+            for node in ast.walk(_processor_tree())
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "write_acoustid_tags"
+        ]
+        assert len(calls) == 1
+
+    def test_both_match_paths_share_the_extracted_write_helper(self):
+        tree = _processor_tree()
+        functions = {
+            node.name: node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef)
+        }
+        for name in ("_process_file", "_finalize_album_file", "_commit_match_tags"):
+            assert name in functions
+        for caller in ("_process_file", "_finalize_album_file"):
+            called = {
+                node.func.id
+                for node in ast.walk(functions[caller])
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            }
+            assert "_commit_match_tags" in called
+
+
+class TestCommitMatchTags:
+    """The shared write tail used by per-file and album matching."""
+
+    @staticmethod
+    def _matched() -> FingerprintFileResult:
+        return FingerprintFileResult(
+            file_path="/x/a.mp3",
+            filename="a.mp3",
+            duration=61.0,
+            fingerprint="FP123",
+            status=FingerprintStatus.MATCHED,
+            message="Song (score 0.90)",
+            acoustid_id="a1",
+        )
+
+    def test_success_reports_tagged_and_keeps_the_match_fields(self):
+        matched = self._matched()
+        recording = _make_recording()
+        with patch(
+            "audio_fingerprinter.core.file_processor.write_acoustid_tags",
+            return_value=(True, "AcoustID tags written"),
+        ) as mock_write:
+            result = _commit_match_tags(
+                matched, recording, FingerprintParams(), undo_batch="batch-1"
+            )
+        mock_write.assert_called_once_with("/x/a.mp3", "FP123", "a1")
+        assert result.status == FingerprintStatus.TAGGED
+        assert result.tag_written is True
+        assert result.message == "Song (score 0.90)"
+        assert result.acoustid_id == "a1"
+        assert result.fingerprint == "FP123"
+        assert result.duration == 61.0
+
+    def test_failed_write_reports_tag_write_failed_with_the_writer_message(self):
+        matched = self._matched()
+        with patch(
+            "audio_fingerprinter.core.file_processor.write_acoustid_tags",
+            return_value=(False, "file is read-only"),
+        ):
+            result = _commit_match_tags(
+                matched, _make_recording(), FingerprintParams(), undo_batch=None
+            )
+        assert result.status == FingerprintStatus.TAG_WRITE_FAILED
+        assert result.tag_written is False
+        assert result.message == "Song (score 0.90) — file is read-only"
+
+    def test_mbid_note_is_appended_when_the_opt_in_is_on(self):
+        matched = self._matched()
+        params = FingerprintParams(write_mbids=True, mbid_region="GB")
+        with (
+            patch(
+                "audio_fingerprinter.core.file_processor.write_acoustid_tags",
+                return_value=(True, "written"),
+            ),
+            patch(
+                "audio_fingerprinter.core.file_processor._write_mbids_for",
+                return_value="MBID track id written",
+            ) as mock_mbids,
+        ):
+            result = _commit_match_tags(matched, _make_recording(), params, None)
+        mock_mbids.assert_called_once()
+        assert result.status == FingerprintStatus.TAGGED
+        assert result.message == "Song (score 0.90) — MBID track id written"
+
+    def test_mbids_are_skipped_when_the_acoustid_write_failed(self):
+        matched = self._matched()
+        params = FingerprintParams(write_mbids=True)
+        with (
+            patch(
+                "audio_fingerprinter.core.file_processor.write_acoustid_tags",
+                return_value=(False, "boom"),
+            ),
+            patch(
+                "audio_fingerprinter.core.file_processor._write_mbids_for",
+                return_value="MBID track id written",
+            ) as mock_mbids,
+        ):
+            _commit_match_tags(matched, _make_recording(), params, None)
+        assert mock_mbids.call_count == 0
+
+    def test_mbids_are_skipped_when_the_opt_in_is_off(self):
+        matched = self._matched()
+        with (
+            patch(
+                "audio_fingerprinter.core.file_processor.write_acoustid_tags",
+                return_value=(True, "written"),
+            ),
+            patch(
+                "audio_fingerprinter.core.file_processor._write_mbids_for",
+                return_value="MBID track id written",
+            ) as mock_mbids,
+        ):
+            _commit_match_tags(matched, _make_recording(), FingerprintParams(), None)
+        assert mock_mbids.call_count == 0
+
+
+class TestResultDisplayCoversEveryStatus:
+    """Byte-identical display for every enum member."""
+
+    def test_each_member_renders_its_own_value(self):
+        for member in FingerprintStatus:
+            result = FingerprintFileResult(
+                file_path="/x/a.mp3", filename="a.mp3", status=member
+            )
+            line = _result_display(result)
+            assert line.startswith(f"[{member.value}] a.mp3")
+            assert "FingerprintStatus" not in line
+
+    def test_analysed_status_keeps_the_bare_filename_form(self):
+        result = FingerprintFileResult(
+            file_path="/x/a.mp3",
+            filename="a.mp3",
+            status=FingerprintStatus.ANALYSED,
+            message="Fingerprint ready for album matching.",
+        )
+        assert _result_display(result) == "[ANALYSED] a.mp3"
