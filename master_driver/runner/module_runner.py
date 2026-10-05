@@ -1,28 +1,23 @@
 """
-module_runner.py — Sequential subprocess execution and log clearing.
+module_runner.py — Subprocess execution and log clearing.
 
 Input is a list of (enabled, ToolManifest, args) tuples produced by
 arg_builder.py and resolved by the launcher on the Tk main thread.  The
 manifest replaces the old sentinel-string approach: manifest.standalone
 controls whether the tool is launched as a standalone window or as a
 blocking subprocess.
+
+Both sequential and parallel execution delegate to
+:class:`~master_driver.batch_orchestrator.BatchOrchestrator`.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import subprocess
-import time
 from collections.abc import Sequence
 from typing import Any, Callable, Optional
 
-from audio_suite_shared.exceptions import map_to_audio_error, user_message_for
-from audio_suite_shared.secure_subprocess import (
-    SubprocessSecurityError,
-    run_python_script,
-    start_python_script,
-)
 from audio_suite_shared.tool_plugin import ToolManifest
 
 from ..batch_orchestrator import (
@@ -30,6 +25,7 @@ from ..batch_orchestrator import (
     BatchProgress,
     BatchStep,
     StepStatus,
+    _launch_standalone,  # noqa: F401 — re-exported for identity test
 )
 
 logger = logging.getLogger(__name__)
@@ -126,7 +122,7 @@ def run_modules(
         specs.append((manifest, args, enabled))
 
     # ═══════════════════════════════════════════════════════════════════════
-    # Dispatch: parallel (orchestrator) or sequential (legacy loop).
+    # Dispatch: both modes delegate to BatchOrchestrator.
     # ═══════════════════════════════════════════════════════════════════════
 
     if parallel:
@@ -163,123 +159,41 @@ def _run_modules_sequential(
     *,
     progress_callback: Optional[Callable[[BatchProgress], None]] = None,
 ) -> None:
-    """Sequential execution — identical to the original legacy loop,
-    with optional progress events."""
-    executed = 0
-    total = len(specs)
-    failed_steps: list[str] = []
-    batch_start = time.monotonic()
-    step_times: list[float] = []
-    all_step_identities: list[tuple[str, str]] = [(m.id, m.name) for m, _a, _t in specs]
+    """Sequential execution — delegates to :class:`BatchOrchestrator`.
 
-    for idx, (manifest, args, _toggle) in enumerate(specs):
-        tool_id = manifest.id
-        step_start = time.monotonic()
-
-        _emit_progress(
-            callback=progress_callback,
-            total_steps=total,
-            completed_steps=executed,
-            current_step=tool_id,
-            failed=failed_steps,
-            batch_start=batch_start,
-            step_times=step_times,
-            all_step_identities=all_step_identities,
+    Error reporting and log-clearing are handled here; the orchestrator
+    owns the execution loop, retry logic, and progress emission.
+    """
+    steps: list[BatchStep] = []
+    for manifest, args, _toggle in specs:
+        step = BatchStep.from_spec(
+            tool_id=manifest.id,
+            manifest=manifest,
+            args=args,
+            suite_root=root,
         )
+        steps.append(step)
 
-        script = manifest.pyw_filename
-        if not os.path.isabs(script):
-            full_path = os.path.join(root, script)
-        else:
-            full_path = script
+    orchestrator = BatchOrchestrator(steps)
+    report = orchestrator.run(progress_callback=progress_callback)
 
-        if not os.path.exists(full_path):
-            if on_error:
-                on_error(
-                    "Module Not Found",
-                    f"Module not found:\n{full_path}\n\n"
-                    f"Please ensure all Audio Suite modules are present "
-                    f"in the suite root folder.",
-                )
-            # Record the tool as failed and emit its status line before
-            # continuing. Without both, `_emit_progress`'s index-based mapping
-            # (`i < completed_steps`) later renders this step as "completed"
-            # once a *later* step finishes, because `executed` never advanced
-            # for it and it was in neither `failed` nor the finished prefix.
-            failed_steps.append(tool_id)
-            step_times.append(time.monotonic() - step_start)
-            _emit_progress(
-                callback=progress_callback,
-                total_steps=total,
-                completed_steps=executed,
-                current_step=tool_id,
-                failed=failed_steps,
-                batch_start=batch_start,
-                step_times=step_times,
-                all_step_identities=all_step_identities,
-            )
-            continue
-
-        if manifest.standalone:
-            if _launch_standalone(full_path, args, manifest.name, on_error=on_error):
-                executed += 1
-            else:
-                failed_steps.append(tool_id)
-        else:
-            try:
-                result = run_python_script(full_path, args)
-                if result.returncode == 0:
-                    executed += 1
-                else:
-                    logger.warning(
-                        "Module exited with non-zero code %d: %s",
-                        result.returncode,
-                        manifest.name,
-                    )
-                    if on_error:
-                        on_error(
-                            "Module Error",
-                            f"Module exited with error code {result.returncode}:\n"
-                            f"{manifest.name}",
-                        )
-                    failed_steps.append(tool_id)
-            except SubprocessSecurityError as exc:
-                if on_error:
+    if on_error:
+        for step in report.steps:
+            if step.status == StepStatus.FAILED:
+                if not os.path.exists(step.script_path):
                     on_error(
-                        "Security Error",
-                        f"Cannot run module due to security restrictions:\n"
-                        f"{manifest.name}\n\n{exc}",
+                        "Module Not Found",
+                        f"Module not found:\n{step.script_path}\n\n"
+                        f"Please ensure all Audio Suite modules are present "
+                        f"in the suite root folder.",
                     )
-                failed_steps.append(tool_id)
-            except subprocess.CalledProcessError as exc:
-                if on_error:
+                else:
                     on_error(
                         "Module Error",
-                        f"Module exited with error code {exc.returncode}:\n"
-                        f"{manifest.name}",
+                        f"Module failed: {step.manifest.name}",
                     )
-                failed_steps.append(tool_id)
-            except (PermissionError, FileNotFoundError, OSError) as exc:
-                if on_error:
-                    on_error(
-                        "Execution Error",
-                        f"Cannot run module:\n{manifest.name}\n\n{exc}",
-                    )
-                failed_steps.append(tool_id)
 
-        step_times.append(time.monotonic() - step_start)
-        _emit_progress(
-            callback=progress_callback,
-            total_steps=total,
-            completed_steps=executed,
-            current_step=tool_id,
-            failed=failed_steps,
-            batch_start=batch_start,
-            step_times=step_times,
-            all_step_identities=all_step_identities,
-        )
-
-    _finalise(executed, clear_logs, dir_path, on_complete, on_error)
+    _finalise(report.completed, clear_logs, dir_path, on_complete, on_error)
 
 
 def _run_modules_parallel(
@@ -329,59 +243,6 @@ def _run_modules_parallel(
     _finalise(report.completed, clear_logs, dir_path, on_complete, on_error)
 
 
-def _emit_progress(
-    callback: Optional[Callable[[BatchProgress], None]],
-    total_steps: int,
-    completed_steps: int,
-    current_step: str,
-    failed: list[str],
-    *,
-    batch_start: float = 0.0,
-    step_times: list[float] | None = None,
-    all_step_identities: list[tuple[str, str]] | None = None,
-) -> None:
-    """Build and send a BatchProgress snapshot if a callback is registered."""
-    if callback is None:
-        return
-    from datetime import timedelta
-
-    elapsed_secs = time.monotonic() - batch_start if batch_start else 0.0
-    elapsed = timedelta(seconds=int(elapsed_secs))
-
-    remaining = total_steps - completed_steps
-    estimated_remaining_secs = 0.0
-    if step_times and remaining > 0:
-        avg = sum(step_times) / len(step_times)
-        estimated_remaining_secs = avg * remaining
-    estimated_remaining = timedelta(seconds=int(estimated_remaining_secs))
-
-    # Build per-step status list for the UI
-    steps_list: list[tuple[str, str, str]] = []
-    for i, (tid, name) in enumerate(all_step_identities or []):
-        if tid in failed:
-            steps_list.append((tid, name, "failed"))
-        elif i < completed_steps:
-            steps_list.append((tid, name, "completed"))
-        elif tid == current_step:
-            steps_list.append((tid, name, "running"))
-        else:
-            steps_list.append((tid, name, "pending"))
-
-    progress = BatchProgress(
-        total_steps=total_steps,
-        completed_steps=completed_steps,
-        current_step=current_step,
-        current_progress=(completed_steps / total_steps if total_steps > 0 else 0.0),
-        elapsed=elapsed,
-        estimated_remaining=estimated_remaining,
-        failed_steps=list(failed),
-        running_steps=[],
-        pending_steps=[],
-        steps=steps_list,
-    )
-    callback(progress)
-
-
 def _finalise(
     executed: int,
     clear_logs: bool,
@@ -393,55 +254,3 @@ def _finalise(
     if clear_logs and dir_path:
         _clear_logs(dir_path, on_error=on_error)
     on_complete(executed)
-
-
-def _launch_standalone(
-    script: str,
-    args: list[str],
-    label: str,
-    on_error: Optional[Callable[[str, str], None]] = None,
-) -> bool:
-    """Launch a standalone .pyw script and wait for it to close.
-
-    Returns True if the script was found and launched successfully,
-    False otherwise.
-    """
-
-    def _err(title: str, msg: str) -> None:
-        if on_error:
-            on_error(title, msg)
-
-    if not os.path.exists(script):
-        _err(
-            f"{label} — Not Found",
-            f"Could not launch {label}.\n\n"
-            f"Expected location:\n{script}\n\n"
-            f"Please ensure all Audio Suite modules are present "
-            f"in the suite root folder.",
-        )
-        return False
-
-    try:
-        process = start_python_script(script, args)
-        process.wait()
-        if process.returncode != 0:
-            _err(
-                f"{label} — Error",
-                f"{label} exited with error code {process.returncode}.",
-            )
-            return False
-        return True
-    except SubprocessSecurityError as exc:
-        _err(
-            f"{label} — Security Error",
-            f"Security restrictions prevented launching {label}:\n\n{exc}",
-        )
-        return False
-    except Exception as exc:
-        mapped = map_to_audio_error(exc)
-        logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
-        _err(
-            f"{label} — Launch Error",
-            f"An error occurred while launching {label}:\n\n{user_message_for(mapped)}",
-        )
-        return False

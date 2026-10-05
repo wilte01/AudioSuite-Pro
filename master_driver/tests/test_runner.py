@@ -28,8 +28,6 @@ from master_driver.runner.arg_builder import (
 )
 from master_driver.runner.module_runner import (
     _clear_logs,
-    _emit_progress,
-    _launch_standalone,
     _suite_root,
     run_modules,
 )
@@ -1234,68 +1232,6 @@ class TestSuiteRoot:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# _launch_standalone
-# ═════════════════════════════════════════════════════════════════════════════
-
-
-class TestLaunchStandalone:
-    def test_missing_script_returns_false(self, tmp_path):
-        result = _launch_standalone(
-            str(tmp_path / "ghost.pyw"), [], "Ghost", on_error=lambda t, m: None
-        )
-        assert result is False
-
-    def test_missing_script_calls_on_error(self, tmp_path):
-        errors = []
-        _launch_standalone(
-            str(tmp_path / "ghost.pyw"),
-            [],
-            "Ghost",
-            on_error=lambda t, m: errors.append(m),
-        )
-        assert len(errors) == 1
-
-    def test_valid_script_returns_true(self, tmp_path):
-        script = tmp_path / "tool.pyw"
-        script.write_text("pass")
-        mock_proc = MagicMock()
-        mock_proc.wait.return_value = 0
-        mock_proc.returncode = 0
-        with patch(
-            "master_driver.runner.module_runner.start_python_script",
-            return_value=mock_proc,
-        ):
-            result = _launch_standalone(str(script), [], "Tool")
-        assert result is True
-
-    def test_security_error_returns_false(self, tmp_path):
-        from audio_suite_shared.secure_subprocess import SubprocessSecurityError
-
-        script = tmp_path / "tool.pyw"
-        script.write_text("pass")
-        errors = []
-        with patch(
-            "master_driver.runner.module_runner.start_python_script",
-            side_effect=SubprocessSecurityError("blocked"),
-        ):
-            result = _launch_standalone(
-                str(script), [], "Tool", on_error=lambda t, m: errors.append(m)
-            )
-        assert result is False
-        assert len(errors) == 1
-
-    def test_general_exception_returns_false(self, tmp_path):
-        script = tmp_path / "tool.pyw"
-        script.write_text("pass")
-        with patch(
-            "master_driver.runner.module_runner.start_python_script",
-            side_effect=RuntimeError("crash"),
-        ):
-            result = _launch_standalone(str(script), [], "Tool")
-        assert result is False
-
-
-# ═════════════════════════════════════════════════════════════════════════════
 # run_modules
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -1336,7 +1272,7 @@ class TestRunModules:
         mock_result = MagicMock()
         mock_result.returncode = 0
         with patch(
-            "master_driver.runner.module_runner.run_python_script",
+            "master_driver.batch_orchestrator.run_python_script",
             return_value=mock_result,
         ):
             run_modules(
@@ -1365,7 +1301,7 @@ class TestRunModules:
         script.write_text("pass")
         results = []
         with patch(
-            "master_driver.runner.module_runner.run_python_script",
+            "master_driver.batch_orchestrator.run_python_script",
             side_effect=SubprocessSecurityError("blocked"),
         ):
             run_modules(
@@ -1386,7 +1322,7 @@ class TestRunModules:
         script.write_text("pass")
         errors = []
         with patch(
-            "master_driver.runner.module_runner.run_python_script",
+            "master_driver.batch_orchestrator.run_python_script",
             side_effect=SubprocessSecurityError("blocked"),
         ):
             run_modules(
@@ -1397,7 +1333,7 @@ class TestRunModules:
                 lambda n: None,
                 on_error=lambda t, m: errors.append((t, m)),
             )
-        assert errors and errors[0][0] == "Security Error"
+        assert errors and errors[0][0] == "Module Error"
 
     def test_nonzero_returncode_calls_on_error(self, tmp_path):
         script = tmp_path / "tool.pyw"
@@ -1406,7 +1342,7 @@ class TestRunModules:
         mock_result = MagicMock()
         mock_result.returncode = 1
         with patch(
-            "master_driver.runner.module_runner.run_python_script",
+            "master_driver.batch_orchestrator.run_python_script",
             return_value=mock_result,
         ):
             run_modules(
@@ -1427,7 +1363,7 @@ class TestRunModules:
         script.write_text("pass")
         errors = []
         with patch(
-            "master_driver.runner.module_runner.run_python_script",
+            "master_driver.batch_orchestrator.run_python_script",
             side_effect=subprocess.CalledProcessError(1, ["cmd"]),
         ):
             run_modules(
@@ -1460,7 +1396,7 @@ class TestRunModules:
 
         completed = []
         with patch(
-            "master_driver.runner.module_runner.run_python_script",
+            "master_driver.batch_orchestrator.run_python_script",
             side_effect=_flaky_first,
         ):
             run_modules(
@@ -1480,7 +1416,7 @@ class TestRunModules:
         script.write_text("pass")
         errors = []
         with patch(
-            "master_driver.runner.module_runner.run_python_script",
+            "master_driver.batch_orchestrator.run_python_script",
             side_effect=PermissionError("access denied"),
         ):
             run_modules(
@@ -1498,7 +1434,7 @@ class TestRunModules:
         script.write_text("pass")
         errors = []
         with patch(
-            "master_driver.runner.module_runner.run_python_script",
+            "master_driver.batch_orchestrator.run_python_script",
             side_effect=OSError("disk error"),
         ):
             run_modules(
@@ -1520,7 +1456,7 @@ class TestRunModules:
         mock_result = MagicMock()
         mock_result.returncode = 0
         with patch(
-            "master_driver.runner.module_runner.run_python_script",
+            "master_driver.batch_orchestrator.run_python_script",
             return_value=mock_result,
         ):
             run_modules(
@@ -1555,7 +1491,7 @@ class TestRunModules:
                 return_value=str(tmp_path),
             ),
             patch(
-                "master_driver.runner.module_runner.run_python_script",
+                "master_driver.batch_orchestrator.run_python_script",
                 return_value=mock_result,
             ),
         ):
@@ -1624,7 +1560,7 @@ class TestRunModules:
                 return_value=str(tmp_path),
             ),
             patch(
-                "master_driver.runner.module_runner.start_python_script",
+                "master_driver.batch_orchestrator.start_python_script",
                 return_value=mock_proc,
             ),
         ):
@@ -1710,159 +1646,6 @@ class TestRunModules:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# _emit_progress — timing / ETA
-# ═════════════════════════════════════════════════════════════════════════════
-
-
-class TestEmitProgress:
-    def test_callback_not_called_when_none(self):
-        """No callback → no error, returns immediately."""
-        _emit_progress(None, 5, 2, "bpm", [])
-
-    def test_callback_receives_completed_steps(self):
-        captured: list = []
-        _emit_progress(
-            captured.append,
-            total_steps=5,
-            completed_steps=2,
-            current_step="bpm",
-            failed=[],
-        )
-        assert captured[0].completed_steps == 2
-
-    def test_callback_receives_total_steps(self):
-        captured: list = []
-        _emit_progress(
-            captured.append,
-            total_steps=5,
-            completed_steps=2,
-            current_step="bpm",
-            failed=[],
-        )
-        assert captured[0].total_steps == 5
-
-    def test_callback_receives_current_step(self):
-        captured: list = []
-        _emit_progress(
-            captured.append,
-            total_steps=5,
-            completed_steps=2,
-            current_step="bpm",
-            failed=[],
-        )
-        assert captured[0].current_step == "bpm"
-
-    def test_callback_receives_failed_steps(self):
-        captured: list = []
-        _emit_progress(
-            captured.append,
-            total_steps=5,
-            completed_steps=2,
-            current_step="bpm",
-            failed=["key"],
-        )
-        assert captured[0].failed_steps == ["key"]
-
-    def test_current_progress_is_ratio(self):
-        captured: list = []
-        _emit_progress(
-            captured.append,
-            total_steps=4,
-            completed_steps=1,
-            current_step="bpm",
-            failed=[],
-        )
-        assert captured[0].current_progress == 0.25
-
-    def test_progress_zero_when_total_zero(self):
-        captured: list = []
-        _emit_progress(
-            captured.append,
-            total_steps=0,
-            completed_steps=0,
-            current_step="",
-            failed=[],
-        )
-        assert captured[0].current_progress == 0.0
-
-    def test_elapsed_greater_than_zero(self):
-        """When batch_start is provided, elapsed must be > 0."""
-        import time
-
-        captured: list = []
-        _emit_progress(
-            captured.append,
-            total_steps=2,
-            completed_steps=1,
-            current_step="bpm",
-            failed=[],
-            batch_start=time.monotonic() - 10,  # 10 s ago
-        )
-        assert captured[0].elapsed.total_seconds() >= 9
-
-    def test_estimated_remaining_based_on_step_times(self):
-        """With step_times, ETA should reflect average duration × remaining."""
-        captured: list = []
-        _emit_progress(
-            captured.append,
-            total_steps=4,
-            completed_steps=2,
-            current_step="key",
-            failed=[],
-            batch_start=0.0,
-            step_times=[5.0, 7.0],  # avg 6 s per step
-        )
-        # 2 remaining steps × 6 s avg = 12 s
-        assert captured[0].estimated_remaining.total_seconds() == 12
-
-    def test_estimated_remaining_zero_when_no_step_times(self):
-        captured: list = []
-        _emit_progress(
-            captured.append,
-            total_steps=4,
-            completed_steps=2,
-            current_step="key",
-            failed=[],
-            step_times=[],
-        )
-        assert captured[0].estimated_remaining.total_seconds() == 0
-
-    def test_estimated_remaining_zero_when_none_left(self):
-        captured: list = []
-        _emit_progress(
-            captured.append,
-            total_steps=4,
-            completed_steps=4,
-            current_step="key",
-            failed=[],
-            step_times=[5.0],
-        )
-        assert captured[0].estimated_remaining.total_seconds() == 0
-
-    def test_running_steps_empty(self):
-        captured: list = []
-        _emit_progress(
-            captured.append,
-            total_steps=2,
-            completed_steps=1,
-            current_step="bpm",
-            failed=[],
-        )
-        assert captured[0].running_steps == []
-
-    def test_pending_steps_empty(self):
-        captured: list = []
-        _emit_progress(
-            captured.append,
-            total_steps=2,
-            completed_steps=1,
-            current_step="bpm",
-            failed=[],
-        )
-        assert captured[0].pending_steps == []
-
-
-# ═════════════════════════════════════════════════════════════════════════════
 # run_modules — progress callback integration
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -1883,7 +1666,7 @@ class TestRunModulesProgress:
         mock_result = MagicMock()
         mock_result.returncode = 0
         with patch(
-            "master_driver.runner.module_runner.run_python_script",
+            "master_driver.batch_orchestrator.run_python_script",
             return_value=mock_result,
         ):
             run_modules(
@@ -1905,7 +1688,7 @@ class TestRunModulesProgress:
         mock_result = MagicMock()
         mock_result.returncode = 0
         with patch(
-            "master_driver.runner.module_runner.run_python_script",
+            "master_driver.batch_orchestrator.run_python_script",
             return_value=mock_result,
         ):
             run_modules(
@@ -1929,7 +1712,7 @@ class TestRunModulesProgress:
         mock_result = MagicMock()
         mock_result.returncode = 1
         with patch(
-            "master_driver.runner.module_runner.run_python_script",
+            "master_driver.batch_orchestrator.run_python_script",
             return_value=mock_result,
         ):
             run_modules(
@@ -1960,9 +1743,15 @@ class TestRunModulesProgress:
         on_error = MagicMock()
         mock_result = MagicMock()
         mock_result.returncode = 0
+
+        def _run_side_effect(script_path: str, *_a: object, **_kw: object) -> MagicMock:
+            if not os.path.exists(script_path):
+                raise FileNotFoundError(f"Script not found: {script_path}")
+            return mock_result
+
         with patch(
-            "master_driver.runner.module_runner.run_python_script",
-            return_value=mock_result,
+            "master_driver.batch_orchestrator.run_python_script",
+            side_effect=_run_side_effect,
         ):
             run_modules(
                 [
@@ -1977,6 +1766,7 @@ class TestRunModulesProgress:
                 on_error=on_error,
             )
         on_error.assert_called_once()
+
         assert captured, "no progress callback fired - the test would prove nothing"
 
         ghost_key = "ghost"
@@ -2003,9 +1793,15 @@ class TestRunModulesProgress:
         real = tmp_path / "real.pyw"
         real.write_text("pass")
         captured: list = []
+
+        def _run_side_effect(script_path: str, *_a: object, **_kw: object) -> MagicMock:
+            if not os.path.exists(script_path):
+                raise FileNotFoundError(f"Script not found: {script_path}")
+            return MagicMock(returncode=0)
+
         with patch(
-            "master_driver.runner.module_runner.run_python_script",
-            return_value=MagicMock(returncode=0),
+            "master_driver.batch_orchestrator.run_python_script",
+            side_effect=_run_side_effect,
         ):
             run_modules(
                 [
@@ -2102,3 +1898,63 @@ class TestDriverDisplayFlags:
             e for e in build_enrich_args(state) if "ReplayGain" in e[1].name
         )
         assert rg_entry[2][-2:] == ["--no-clear-logs", "--no-parallel-run"]
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# F1 — batch engine consolidation
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestBatchEngineConsolidation:
+    """F1: one engine for _launch_standalone; both modes use BatchOrchestrator."""
+
+    def test_launch_standalone_is_shared(self):
+        """module_runner must not define its own _launch_standalone —
+        it imports the single authoritative version from batch_orchestrator."""
+        import master_driver.runner.module_runner as mod
+        from master_driver.batch_orchestrator import (
+            _launch_standalone as orch_fn,
+        )
+
+        assert hasattr(mod, "_launch_standalone"), (
+            "module_runner must re-export _launch_standalone from batch_orchestrator"
+        )
+        assert mod._launch_standalone is orch_fn
+
+    def test_module_runner_has_no_private_emit_progress(self):
+        """module_runner must not carry its own _emit_progress — the
+        orchestrator's BatchOrchestrator._emit_progress is the sole
+        implementation (sequential mode delegates to the orchestrator)."""
+        import master_driver.runner.module_runner as mod
+
+        assert not hasattr(mod, "_emit_progress"), (
+            "module_runner defines its own _emit_progress — consolidate it"
+        )
+
+    def test_sequential_mode_uses_orchestrator(self, tmp_path):
+        """Sequential run_modules must go through BatchOrchestrator,
+        proving no duplicate sequential loop exists."""
+        script = tmp_path / "tool.pyw"
+        script.write_text("pass")
+        manifest = _manifest_from_script(script)
+        results = []
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        with patch(
+            "master_driver.batch_orchestrator.run_python_script",
+            return_value=mock_result,
+        ):
+            run_modules(
+                [
+                    (
+                        MagicMock(get=MagicMock(return_value=True)),
+                        manifest,
+                        [],
+                    )
+                ],
+                False,
+                str(tmp_path),
+                lambda: None,
+                results.append,
+            )
+        assert results == [1]

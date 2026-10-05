@@ -18,7 +18,7 @@ from datetime import timedelta
 from enum import Enum
 
 from audio_suite_shared.error_recovery import RetryConfig, retry_with_backoff
-from audio_suite_shared.exceptions import map_to_audio_error
+from audio_suite_shared.exceptions import map_to_audio_error, user_message_for
 from audio_suite_shared.secure_subprocess import (
     SubprocessSecurityError,
     run_python_script,
@@ -184,6 +184,74 @@ def _collect_deps(
             collected.add(dep)
             _collect_deps(dep, collected, available, visited, _stack)
     _stack.discard(tool_id)
+
+
+# ---------------------------------------------------------------------------
+# Shared standalone launcher
+# ---------------------------------------------------------------------------
+
+
+def _launch_standalone(
+    script_path: str,
+    args: list[str],
+    label: str,
+    *,
+    on_error: Callable[[str, str], None] | None = None,
+) -> bool:
+    """Launch a standalone .pyw script and wait for it to close.
+
+    This is the single authoritative implementation used by both
+    :class:`BatchOrchestrator` and :func:`module_runner.run_modules`.
+
+    Returns ``True`` if the script was found, launched, and exited with
+    code 0.  Returns ``False`` otherwise.
+    """
+
+    def _err(title: str, msg: str) -> None:
+        if on_error:
+            on_error(title, msg)
+
+    if not os.path.exists(script_path):
+        logger.warning("Script not found: %s", script_path)
+        _err(
+            f"{label} — Not Found",
+            f"Could not launch {label}.\n\n"
+            f"Expected location:\n{script_path}\n\n"
+            f"Please ensure all Audio Suite modules are present "
+            f"in the suite root folder.",
+        )
+        return False
+
+    try:
+        process = start_python_script(script_path, args)
+        process.wait()
+        if process.returncode != 0:
+            logger.warning(
+                "Standalone %s exited with code %d",
+                label,
+                process.returncode,
+            )
+            _err(
+                f"{label} — Error",
+                f"{label} exited with error code {process.returncode}.",
+            )
+            return False
+        return True
+    except SubprocessSecurityError as exc:
+        logger.warning("Security error for %s: %s", label, exc)
+        _err(
+            f"{label} — Security Error",
+            f"Security restrictions prevented launching {label}:\n\n{exc}",
+        )
+        return False
+    except Exception as exc:
+        mapped = map_to_audio_error(exc)
+        logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
+        _err(
+            f"{label} — Launch Error",
+            f"An error occurred while launching {label}:\n\n{user_message_for(mapped)}",
+        )
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -445,22 +513,8 @@ class BatchOrchestrator:
             return False
 
     def _launch_standalone(self, step: BatchStep) -> bool:
-        """Launch a standalone .pyw script and wait for it to close."""
-        if not os.path.exists(step.script_path):
-            logger.warning("Script not found: %s", step.script_path)
-            return False
-        try:
-            process = start_python_script(step.script_path, step.args)
-            process.wait()
-            step.exit_code = process.returncode
-            return True
-        except SubprocessSecurityError as exc:
-            logger.warning("Security error for %s: %s", step.tool_id, exc)
-            return False
-        except Exception as exc:
-            mapped = map_to_audio_error(exc)
-            logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
-            return False
+        """Launch standalone — delegates to module-level ``_launch_standalone``."""
+        return _launch_standalone(step.script_path, step.args, step.tool_id)
 
     def _emit_progress(
         self,
