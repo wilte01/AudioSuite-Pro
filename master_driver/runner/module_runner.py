@@ -23,7 +23,7 @@ from audio_suite_shared.secure_subprocess import (
     run_python_script,
     start_python_script,
 )
-from audio_suite_shared.tool_plugin import ToolManifest, get_registry
+from audio_suite_shared.tool_plugin import ToolManifest
 
 from ..batch_orchestrator import (
     BatchOrchestrator,
@@ -69,7 +69,7 @@ def _suite_root() -> str:
 
 
 def run_modules(
-    module_specs: Sequence[tuple[Any, ToolManifest | str, list[str]]],
+    module_specs: Sequence[tuple[Any, ToolManifest, list[str]]],
     clear_logs: bool,
     dir_path: str,
     on_start: Callable[[], None],
@@ -111,38 +111,14 @@ def run_modules(
         if not (enabled if isinstance(enabled, bool) else bool(enabled.get())):
             continue
 
-        # Accept both ToolManifest and legacy str filename
+        # Accept ToolManifest specs (legacy str specs were removed in E4)
         if isinstance(spec, ToolManifest):
             manifest = spec
-        elif isinstance(spec, str):
-            # Legacy sentinel → real pyw_filename mapping
-            _SENTINEL_MAP: dict[str, str] = {
-                "__cd_ripper__": "CD_Ripper.pyw",
-                "__library_stats__": "Library_Stats.pyw",
-                "__audio_refinery__": "Audio_Refinery.pyw",
-            }
-            resolved = _SENTINEL_MAP.get(spec, spec)
-            registry = get_registry()
-            found = next(
-                (m for m in registry.all if m.pyw_filename == resolved),
-                None,
-            )
-            if found is None:
-                manifest = ToolManifest(
-                    id=resolved,
-                    name=resolved,
-                    category="",
-                    pyw_filename=resolved,
-                    standalone=resolved != spec,
-                    description="",
-                )
-            else:
-                manifest = found
         else:
             if on_error:
                 on_error(
                     "Plugin Error",
-                    f"Invalid module spec: expected ToolManifest or str, "
+                    f"Invalid module spec: expected ToolManifest, "
                     f"got {type(spec).__name__}",
                 )
             continue

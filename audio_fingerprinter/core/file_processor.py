@@ -72,7 +72,6 @@ class _FingerprintJob:
     on_progress: Callable[..., None]
     results: list[FingerprintFileResult]
     undo_batch: str | None
-    processor: "FingerprintProcessor"
 
 
 #: Statuses whose display line carries the detail message after the filename.
@@ -765,7 +764,6 @@ def run_fingerprinting(
             on_progress=_on_file_progress,
             results=results,
             undo_batch=undo_batch,
-            processor=processor,
         )
         for folder_path, audio_files in all_work
         for i, name in enumerate(audio_files)

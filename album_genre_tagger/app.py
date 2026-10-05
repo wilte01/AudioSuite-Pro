@@ -41,7 +41,7 @@ class GenreConsolidatorApp(UIHelperMixin):
         # Pre-parsed args supplied by entry point to avoid a second parse.
         self._cli_args_parsed = cli_args_parsed
 
-        self.error_logger, self.style = bootstrap_tool_app(
+        self.error_logger, _ = bootstrap_tool_app(
             self.root,
             "Album Genre Tagger",
             "album_genre_tagger_window",

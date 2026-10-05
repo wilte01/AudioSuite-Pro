@@ -53,7 +53,7 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.error_logger, self.style = bootstrap_tool_app(
+        self.error_logger, _ = bootstrap_tool_app(
             self.root,
             _TOOL_TITLE,
             "mood_analysis_batch_tagger_window",

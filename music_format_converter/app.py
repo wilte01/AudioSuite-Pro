@@ -46,7 +46,7 @@ class MusicFormatConverterApp(UIHelperMixin):
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.error_logger, self.style = bootstrap_tool_app(
+        self.error_logger, _ = bootstrap_tool_app(
             self.root,
             "Music Format Converter",
             "music_format_converter_window",
@@ -78,7 +78,6 @@ class MusicFormatConverterApp(UIHelperMixin):
 
         # ── State ─────────────────────────────────────────────────────────────
         self._log_path: str = ""
-        self._output_dir_final: str = ""
         self._out_dir: str = ""
         self._available_formats: list[Any] = list(ALL_FORMATS)
         self.ffmpeg_available: bool = check_ffmpeg()
@@ -341,13 +340,6 @@ class MusicFormatConverterApp(UIHelperMixin):
     def _open_output_folder(self) -> None:
         self._open_folder_standard()
 
-    def _reset_ui(self) -> None:
-        self.notebook.select(self._tab_setup)
-        self.file_listbox.delete(0, tk.END)
-        self.progress["value"] = 0
-        for var in self.slot_vars:
-            var.set("IDLE")
-
     def start_processing(self) -> None:
         """Start processing with enhanced validation and error handling."""
         try:
@@ -562,7 +554,6 @@ class MusicFormatConverterApp(UIHelperMixin):
     ) -> None:
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)
-        self._output_dir_final = output_dir
         self._out_dir = output_dir
 
         summary: list[str] = [

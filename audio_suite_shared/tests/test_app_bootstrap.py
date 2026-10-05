@@ -351,7 +351,7 @@ class TestBaseSuiteApp:
         assert app.help_guide == "guide.docx"
         assert app.num_workers == 4
         assert app.error_logger is not None
-        assert app.style is not None
+        assert not hasattr(app, "style")
         assert app.auto_end is False
         assert app.auto_start is False
         assert len(app.slot_vars) == 4

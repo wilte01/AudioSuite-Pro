@@ -121,8 +121,8 @@ def launch_refinery(
 
 
 def _resolved_specs(
-    specs: Sequence[tuple[Any, ToolManifest | str, list[str]]],
-) -> list[tuple[bool, ToolManifest | str, list[str]]]:
+    specs: Sequence[tuple[Any, ToolManifest, list[str]]],
+) -> list[tuple[bool, ToolManifest, list[str]]]:
     """Replace each toggle variable with its current value.
 
     Called on the main thread so the worker's spec list holds no Tk variable:
@@ -132,7 +132,7 @@ def _resolved_specs(
 
 
 def _run_refinery(
-    specs: Sequence[tuple[bool, ToolManifest | str, list[str]]],
+    specs: Sequence[tuple[bool, ToolManifest, list[str]]],
     refine_btn: tk.Button,
     root: tk.Tk,
     *,
@@ -224,7 +224,7 @@ def launch_enrich(
 
 
 def _run_enrich(
-    specs: Sequence[tuple[bool, ToolManifest | str, list[str]]],
+    specs: Sequence[tuple[bool, ToolManifest, list[str]]],
     run_btn: tk.Button,
     root: tk.Tk,
     *,
@@ -346,7 +346,7 @@ def launch_utility(
 
 
 def _run_utility_modules(
-    specs: Sequence[tuple[bool, ToolManifest | str, list[str]]],
+    specs: Sequence[tuple[bool, ToolManifest, list[str]]],
     util_run_btn: tk.Button,
     root: tk.Tk,
     *,

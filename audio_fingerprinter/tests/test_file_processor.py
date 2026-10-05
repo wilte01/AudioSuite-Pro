@@ -342,7 +342,6 @@ class TestFingerprintWorker:
             on_progress=MagicMock(),
             results=results,
             undo_batch=None,
-            processor=MagicMock(),
         )
         with patch(
             "audio_fingerprinter.core.file_processor._process_file",

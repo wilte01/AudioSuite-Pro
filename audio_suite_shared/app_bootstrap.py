@@ -248,9 +248,7 @@ class BaseSuiteApp(UIHelperMixin):
         self.num_workers = num_workers
 
         # 1. Standard Initialisation (Theming, Logging, Window)
-        self.error_logger, self.style = bootstrap_tool_app(
-            root, title, window_key, logger_name
-        )
+        self.error_logger, _ = bootstrap_tool_app(root, title, window_key, logger_name)
 
         # 2. Standard Processing State
         self._log_path: str = ""

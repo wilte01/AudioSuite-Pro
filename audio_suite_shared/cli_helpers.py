@@ -350,10 +350,6 @@ class UniversalCLIHandler:
         if hasattr(args, "tolerance") and hasattr(self.app, "tolerance"):
             self.app.tolerance.set(args.tolerance)
 
-        # Tempo Analyzer specific
-        if hasattr(args, "scheme") and hasattr(self.app, "scheme"):
-            self.app.scheme.set(args.scheme)
-
         # Album Genre Tagger specific
         if hasattr(args, "min_coverage") and hasattr(self.app, "min_coverage"):
             self.app.min_coverage.set(args.min_coverage)

@@ -47,7 +47,7 @@ class AudioSuiteV6(UIHelperMixin):
 
     def __init__(self, root: tk.Tk, pre_parsed: cli_args.ArtArgs | None = None) -> None:
         self.root = root
-        self.error_logger, self.style = bootstrap_tool_app(
+        self.error_logger, _ = bootstrap_tool_app(
             self.root,
             "Album Art Synchronizer v6.0 (Optimized)",
             "album_art_sync_window",

@@ -675,7 +675,6 @@ class TestUniversalCLIHandler:
         for attr in (
             "target_lufs",
             "tolerance",
-            "scheme",
             "min_coverage",
             "embed_size",
             "purge",
@@ -698,7 +697,6 @@ class TestUniversalCLIHandler:
         args = argparse.Namespace(
             target_lufs=-14.0,
             tolerance=2.0,
-            scheme="Italian",
             min_coverage=60,
             embed_size=1000,
             purge=True,
@@ -717,7 +715,6 @@ class TestUniversalCLIHandler:
         )
         handler._apply_app_specific_args(args)
 
-        mock_app.scheme.set.assert_called_once_with("Italian")
         mock_app.min_coverage.set.assert_called_once_with(60)
         mock_app.embed_size.set.assert_called_once_with(1000)
         mock_app.purge.set.assert_called_once_with(True)

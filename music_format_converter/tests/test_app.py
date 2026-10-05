@@ -3,10 +3,9 @@ Tests for music_format_converter.app (MusicFormatConverterApp orchestrator)
 
 Scope: regression coverage for the "Open Output Folder" bug. The Results-tab
 button is wired to UIHelperMixin._open_folder_standard(), which reads
-self._out_dir (see audio_suite_shared.ui_helpers). app.py historically only
-set self._output_dir_final, so the button always reported the folder as
-unavailable. These tests exercise MusicFormatConverterApp._on_complete()
-directly against a minimal stub, without requiring a real Tk root.
+self._out_dir (see audio_suite_shared.ui_helpers). These tests exercise
+MusicFormatConverterApp._on_complete() directly against a minimal stub,
+without requiring a real Tk root.
 """
 
 import os
@@ -75,7 +74,6 @@ def _make_app_stub(tmp_path):
     """
     stub = MagicMock()
     stub._log_path = str(tmp_path / "conversion_live_log_mp3.txt")
-    stub._output_dir_final = ""
     stub._out_dir = ""
     stub.time_label = MagicMock()
     stub.summary_label = MagicMock()
@@ -104,30 +102,20 @@ def _call_on_complete(stub, output_dir, **overrides):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# _out_dir / _output_dir_final sync (regression for "Open Output Folder")
+# _out_dir sync (regression for "Open Output Folder")
 # ═════════════════════════════════════════════════════════════════════════════
 
 
 class TestOnCompleteOutputDirSync:
-    def test_sets_output_dir_final(self, tmp_path):
-        stub = _make_app_stub(tmp_path)
-        _call_on_complete(stub, str(tmp_path))
-        assert stub._output_dir_final == str(tmp_path)
-
     def test_sets_out_dir_to_same_value(self, tmp_path):
         """
-        UIHelperMixin._open_folder_standard() reads self._out_dir, not
-        self._output_dir_final. Both must end up holding the completed
-        run's output directory, or "Open Output Folder" silently fails.
+        UIHelperMixin._open_folder_standard() reads self._out_dir.
+        The completed run's output directory must be stored there,
+        or "Open Output Folder" silently fails.
         """
         stub = _make_app_stub(tmp_path)
         _call_on_complete(stub, str(tmp_path))
         assert stub._out_dir == str(tmp_path)
-
-    def test_out_dir_matches_output_dir_final(self, tmp_path):
-        stub = _make_app_stub(tmp_path)
-        _call_on_complete(stub, str(tmp_path))
-        assert stub._out_dir == stub._output_dir_final
 
     def test_out_dir_updates_on_each_run(self, tmp_path):
         """A second conversion to a different folder must update _out_dir too,

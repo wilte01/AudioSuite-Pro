@@ -16,6 +16,7 @@ already exists.
 
 import os
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from audio_suite_shared.tool_plugin import ToolManifest
@@ -219,6 +220,22 @@ def _make_manifest(tool_id: str = "bpm", standalone: bool = False) -> ToolManife
         pyw_filename=f"{tool_id}.pyw",
         description="",
         standalone=standalone,
+    )
+
+
+def _manifest_from_script(script: Path) -> ToolManifest:
+    """Build a ToolManifest whose pyw_filename is the script's full path.
+
+    The tests create scripts in tmp_path (an absolute path), so
+    pyw_filename must be absolute so run_modules resolves it correctly
+    (it uses the path as-is when os.path.isabs is True).
+    """
+    return ToolManifest(
+        id=script.stem,
+        name=script.stem,
+        category="",
+        pyw_filename=str(script),
+        description="",
     )
 
 
@@ -1301,13 +1318,14 @@ class TestRunModules:
 
     def test_disabled_toggle_skipped(self, tmp_path):
         results = []
-        specs = [(self._toggle(False), "SomeModule.pyw", [])]
+        specs = [(self._toggle(False), _make_manifest("inactive"), [])]
         run_modules(specs, False, str(tmp_path), lambda: None, results.append)
         assert results == [0]
 
     def test_missing_script_not_counted(self, tmp_path):
         results = []
-        specs = [(self._toggle(True), str(tmp_path / "ghost.pyw"), [])]
+        ghost = tmp_path / "ghost.pyw"
+        specs = [(self._toggle(True), _manifest_from_script(ghost), [])]
         run_modules(specs, False, str(tmp_path), lambda: None, results.append)
         assert results == [0]
 
@@ -1322,59 +1340,7 @@ class TestRunModules:
             return_value=mock_result,
         ):
             run_modules(
-                [(self._toggle(True), str(script), [])],
-                False,
-                str(tmp_path),
-                lambda: None,
-                results.append,
-            )
-        assert results == [1]
-
-    def test_cd_ripper_sentinel_launches_standalone(self, tmp_path):
-        script = tmp_path / "CD_Ripper.pyw"
-        script.write_text("pass")
-        results = []
-        mock_proc = MagicMock()
-        mock_proc.wait.return_value = 0
-        mock_proc.returncode = 0
-        with (
-            patch(
-                "master_driver.runner.module_runner._suite_root",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "master_driver.runner.module_runner.start_python_script",
-                return_value=mock_proc,
-            ),
-        ):
-            run_modules(
-                [(self._toggle(True), "__cd_ripper__", [])],
-                False,
-                str(tmp_path),
-                lambda: None,
-                results.append,
-            )
-        assert results == [1]
-
-    def test_audio_refinery_sentinel_launches_standalone(self, tmp_path):
-        script = tmp_path / "Audio_Refinery.pyw"
-        script.write_text("pass")
-        results = []
-        mock_proc = MagicMock()
-        mock_proc.wait.return_value = 0
-        mock_proc.returncode = 0
-        with (
-            patch(
-                "master_driver.runner.module_runner._suite_root",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "master_driver.runner.module_runner.start_python_script",
-                return_value=mock_proc,
-            ),
-        ):
-            run_modules(
-                [(self._toggle(True), "__audio_refinery__", ["--dry"])],
+                [(self._toggle(True), _manifest_from_script(script), [])],
                 False,
                 str(tmp_path),
                 lambda: None,
@@ -1403,7 +1369,7 @@ class TestRunModules:
             side_effect=SubprocessSecurityError("blocked"),
         ):
             run_modules(
-                [(self._toggle(True), str(script), [])],
+                [(self._toggle(True), _manifest_from_script(script), [])],
                 False,
                 str(tmp_path),
                 lambda: None,
@@ -1424,7 +1390,7 @@ class TestRunModules:
             side_effect=SubprocessSecurityError("blocked"),
         ):
             run_modules(
-                [(self._toggle(True), str(script), [])],
+                [(self._toggle(True), _manifest_from_script(script), [])],
                 False,
                 str(tmp_path),
                 lambda: None,
@@ -1444,7 +1410,7 @@ class TestRunModules:
             return_value=mock_result,
         ):
             run_modules(
-                [(self._toggle(True), str(script), [])],
+                [(self._toggle(True), _manifest_from_script(script), [])],
                 False,
                 str(tmp_path),
                 lambda: None,
@@ -1465,7 +1431,7 @@ class TestRunModules:
             side_effect=subprocess.CalledProcessError(1, ["cmd"]),
         ):
             run_modules(
-                [(self._toggle(True), str(script), [])],
+                [(self._toggle(True), _manifest_from_script(script), [])],
                 False,
                 str(tmp_path),
                 lambda: None,
@@ -1499,8 +1465,8 @@ class TestRunModules:
         ):
             run_modules(
                 [
-                    (self._toggle(True), str(script1), []),
-                    (self._toggle(True), str(script2), []),
+                    (self._toggle(True), _manifest_from_script(script1), []),
+                    (self._toggle(True), _manifest_from_script(script2), []),
                 ],
                 False,
                 str(tmp_path),
@@ -1518,7 +1484,7 @@ class TestRunModules:
             side_effect=PermissionError("access denied"),
         ):
             run_modules(
-                [(self._toggle(True), str(script), [])],
+                [(self._toggle(True), _manifest_from_script(script), [])],
                 False,
                 str(tmp_path),
                 lambda: None,
@@ -1536,7 +1502,7 @@ class TestRunModules:
             side_effect=OSError("disk error"),
         ):
             run_modules(
-                [(self._toggle(True), str(script), [])],
+                [(self._toggle(True), _manifest_from_script(script), [])],
                 False,
                 str(tmp_path),
                 lambda: None,
@@ -1559,9 +1525,13 @@ class TestRunModules:
         ):
             run_modules(
                 [
-                    (self._toggle(True), str(script1), []),
-                    (self._toggle(False), str(script2), []),  # disabled
-                    (self._toggle(True), str(script1), []),
+                    (self._toggle(True), _manifest_from_script(script1), []),
+                    (
+                        self._toggle(False),
+                        _manifest_from_script(script2),
+                        [],
+                    ),  # disabled
+                    (self._toggle(True), _manifest_from_script(script1), []),
                 ],
                 False,
                 str(tmp_path),
@@ -1620,8 +1590,15 @@ class TestRunModules:
         'Module Not Found' (not just silently skip)."""
         errors = []
         results = []
+        manifest = ToolManifest(
+            id="ghost",
+            name="Ghost",
+            category="",
+            pyw_filename="ghost.pyw",
+            description="",
+        )
         run_modules(
-            [(self._toggle(True), str(tmp_path / "ghost.pyw"), [])],
+            [(self._toggle(True), manifest, [])],
             False,
             str(tmp_path),
             lambda: None,
@@ -1910,7 +1887,7 @@ class TestRunModulesProgress:
             return_value=mock_result,
         ):
             run_modules(
-                [(self._toggle(True), str(script), [])],
+                [(self._toggle(True), _manifest_from_script(script), [])],
                 False,
                 str(tmp_path),
                 lambda: None,
@@ -1933,8 +1910,8 @@ class TestRunModulesProgress:
         ):
             run_modules(
                 [
-                    (self._toggle(True), str(script1), []),
-                    (self._toggle(True), str(script2), []),
+                    (self._toggle(True), _manifest_from_script(script1), []),
+                    (self._toggle(True), _manifest_from_script(script2), []),
                 ],
                 False,
                 str(tmp_path),
@@ -1956,7 +1933,7 @@ class TestRunModulesProgress:
             return_value=mock_result,
         ):
             run_modules(
-                [(self._toggle(True), str(script), [])],
+                [(self._toggle(True), _manifest_from_script(script), [])],
                 False,
                 str(tmp_path),
                 lambda: None,
@@ -1989,8 +1966,8 @@ class TestRunModulesProgress:
         ):
             run_modules(
                 [
-                    (self._toggle(True), str(ghost), []),
-                    (self._toggle(True), str(real), []),
+                    (self._toggle(True), _manifest_from_script(ghost), []),
+                    (self._toggle(True), _manifest_from_script(real), []),
                 ],
                 False,
                 str(tmp_path),
@@ -2002,7 +1979,7 @@ class TestRunModulesProgress:
         on_error.assert_called_once()
         assert captured, "no progress callback fired - the test would prove nothing"
 
-        ghost_key = str(ghost)
+        ghost_key = "ghost"
         ghost_lines = [
             p for p in captured if any(t == ghost_key for t, _, _ in p.steps)
         ]
@@ -2032,8 +2009,8 @@ class TestRunModulesProgress:
         ):
             run_modules(
                 [
-                    (self._toggle(True), str(ghost), []),
-                    (self._toggle(True), str(real), []),
+                    (self._toggle(True), _manifest_from_script(ghost), []),
+                    (self._toggle(True), _manifest_from_script(real), []),
                 ],
                 False,
                 str(tmp_path),
@@ -2042,13 +2019,13 @@ class TestRunModulesProgress:
                 progress_callback=captured.append,
                 on_error=MagicMock(),
             )
-        ghost_key = str(ghost)
+        ghost_key = "ghost"
         ghost_statuses = [
             dict((t, s) for t, _n, s in p.steps).get(ghost_key) for p in captured
         ]
         assert "completed" not in ghost_statuses, ghost_statuses
         assert ghost_statuses[-1] == "failed"
-        assert str(ghost) in captured[-1].failed_steps
+        assert "ghost" in captured[-1].failed_steps
 
     def test_missing_module_status_line_fires_when_no_other_step_runs(self, tmp_path):
         """The not-found branch emits its own progress event (no successor).
@@ -2059,7 +2036,7 @@ class TestRunModulesProgress:
         ghost = tmp_path / "ghost.pyw"
         captured: list = []
         run_modules(
-            [(self._toggle(True), str(ghost), [])],
+            [(self._toggle(True), _manifest_from_script(ghost), [])],
             False,
             str(tmp_path),
             lambda: None,
@@ -2068,8 +2045,8 @@ class TestRunModulesProgress:
             on_error=MagicMock(),
         )
         assert len(captured) == 2, captured
-        assert captured[-1].steps == [(str(ghost), str(ghost), "failed")]
-        assert captured[-1].failed_steps == [str(ghost)]
+        assert captured[-1].steps == [("ghost", "ghost", "failed")]
+        assert captured[-1].failed_steps == ["ghost"]
 
 
 # ═════════════════════════════════════════════════════════════════════════════

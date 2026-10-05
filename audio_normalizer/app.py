@@ -47,7 +47,7 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.error_logger, self.style = bootstrap_tool_app(
+        self.error_logger, _ = bootstrap_tool_app(
             self.root,
             "Audio Normalizer - Optimized",
             "audio_normalizer_window",

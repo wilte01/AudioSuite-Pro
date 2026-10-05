@@ -34,55 +34,6 @@ from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 
 _MODE_VAR_IDS = itertools.count()
 
-# ── Preset values for the Enhancer (mirrors audio_enhancer/core/models.py) ────
-_ENHANCE_PRESETS = {
-    "Mild": dict(
-        noise_gate_threshold_db=-70,
-        compressor_threshold_db=-18,
-        compressor_ratio=2.5,
-        compressor_attack_ms=10,
-        compressor_release_ms=150,
-        low_shelf_gain_db=1.5,
-        low_shelf_freq_hz=120,
-        presence_gain_db=1.5,
-        presence_freq_hz=3000,
-        high_shelf_gain_db=2.0,
-        high_shelf_freq_hz=8000,
-        output_gain_db=2.0,
-        limiter_threshold_db=-1.0,
-    ),
-    "Moderate": dict(
-        noise_gate_threshold_db=-65,
-        compressor_threshold_db=-22,
-        compressor_ratio=3.5,
-        compressor_attack_ms=8,
-        compressor_release_ms=120,
-        low_shelf_gain_db=2.5,
-        low_shelf_freq_hz=100,
-        presence_gain_db=2.5,
-        presence_freq_hz=3500,
-        high_shelf_gain_db=4.0,
-        high_shelf_freq_hz=7000,
-        output_gain_db=4.0,
-        limiter_threshold_db=-0.5,
-    ),
-    "Aggressive": dict(
-        noise_gate_threshold_db=-60,
-        compressor_threshold_db=-26,
-        compressor_ratio=5.0,
-        compressor_attack_ms=5,
-        compressor_release_ms=80,
-        low_shelf_gain_db=3.5,
-        low_shelf_freq_hz=80,
-        presence_gain_db=3.5,
-        presence_freq_hz=4000,
-        high_shelf_gain_db=6.0,
-        high_shelf_freq_hz=6000,
-        output_gain_db=6.0,
-        limiter_threshold_db=-0.3,
-    ),
-}
-
 
 def build(
     parent: tk.Frame,
@@ -383,10 +334,6 @@ def _build_declick_panel(
 ) -> None:
     p = config.declick_params
     run_mode: tk.StringVar | None = tk.StringVar(value="Live Update")
-
-    def _sync(*_args: Any) -> None:
-        p.sensitivity = tk.DoubleVar(value=p.sensitivity).get()
-        p.max_width_ms = tk.IntVar(value=p.max_width_ms).get()
 
     if embedded:
         run_mode = None

@@ -30,50 +30,11 @@ from audio_suite_shared.file_processor_base import BaseFileProcessor
 from audio_suite_shared.resource_manager import cleanup_expired_resources
 from audio_suite_shared.tag_helper import SUPPORTED_EXTENSIONS
 
-from .integrity import IntegrityResult, validate_file
 from .models import FileResult, FileStatus, StageConfig
 from .pipeline import process_file
 from .registry import CompletionRegistry
 
 logger = logging.getLogger(__name__)
-
-
-def check_integrity_batch(
-    files: list[Path],
-    on_progress: Callable[..., Any] | None = None,
-) -> tuple[list[Path], list[IntegrityResult]]:
-    """
-    Run integrity checks on a batch of files before processing.
-
-    Parameters
-    ----------
-    files : List of audio file paths to validate.
-    on_progress : Optional callback(current, total, filename, status).
-
-    Returns
-    -------
-    Tuple of (valid_paths, failed_results) where valid_paths contains
-    files that passed all checks and failed_results contains IntegrityResult
-    objects for files that failed.
-    """
-    valid_paths: list[Path] = []
-    failed_results: list[IntegrityResult] = []
-
-    for idx, path in enumerate(files):
-        if on_progress:
-            on_progress(idx + 1, len(files), path.name, "checking")
-
-        result = validate_file(path)
-        if result.is_valid:
-            valid_paths.append(path)
-        else:
-            failed_results.append(result)
-            logger.warning("[Integrity] Skipping %s: %s", path.name, result.summary)
-
-    if on_progress:
-        on_progress(len(files), len(files), "", "complete")
-
-    return valid_paths, failed_results
 
 
 class AudioRefineryProcessor(BaseFileProcessor):

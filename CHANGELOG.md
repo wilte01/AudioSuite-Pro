@@ -130,6 +130,18 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
   every pre-existing app test passes unedited through the extraction, and
   the shared-line count between the two `app.py` files dropped from 345 to
   96 (acceptance threshold < 100).
+- **`show_message` decomposed** (`audio_suite_shared/ui_common.py`). The
+  107-line god function is now three focused helpers (`_build_header`,
+  `_build_content`, `_build_action_row`) plus a thin orchestrator. The
+  `threading` import is hoisted to module level, the commented-out
+  `overrideredirect` line is removed, the "Could not restore dialog geometry"
+  log message is corrected to "Could not centre dialog", and the function has
+  a full Google-style docstring. **No user-visible behaviour change** — all
+  68 existing `show_message` tests pass unedited.
+- **Dead `self.style` attribute removed from 16 tool apps and 2 base
+  classes.** The `ttk.Style` object returned by `bootstrap_tool_app()` was
+  only read by `master_driver/app.py`; all other apps stored it on `self`
+  but never read it. The assignment is now `self.error_logger, _ = ...`.
 
 ### Removed
 
@@ -140,6 +152,15 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
   `audio_suite_shared/cli_helpers.py` (~300 lines) and its tests — every tool
   parses its live arguments through `UniversalCLIHandler` and the per-tool
   `utils/cli_args.py` modules.
+- Dead code confirmed by AST scan and removed (E4 M15): `_ENHANCE_PRESETS`
+  (47-line unused preset dict in `audio_refinery/ui/setup_tab.py`),
+  `check_integrity_batch` (zero callers in `audio_refinery/core/file_processor.py`),
+  `_FingerprintJob.processor` field (the worker re-derives the slot from the
+  queue), the legacy str-spec path in `master_driver/runner/module_runner.py`
+  (35 lines — no production caller passes str specs), the dead
+  `hasattr(self.app, "scheme")` branch in `cli_helpers.py` (`TempoAnalyzerApp`
+  uses `tempo_scheme`), and the write-only `_output_dir_final` and `_reset_ui`
+  in `music_format_converter/app.py`.
 
 ## [1.0.0] - 2026-09-26
 
