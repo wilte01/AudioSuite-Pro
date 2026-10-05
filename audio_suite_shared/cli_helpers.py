@@ -3,9 +3,6 @@ cli_helpers.py — Shared CLI argument parsing and application
 logic for Audio Suite applications.
 
 Provides standardized implementations for common CLI operations:
-- Argument parsing for source/output paths
-- Stage toggles and parameters
-- Auto-start functionality
 - Common CLI patterns
 - The Master Driver display-flag handshake segment shared by every tool
 
@@ -15,11 +12,8 @@ This reduces code duplication across all Audio Suite applications.
 from __future__ import annotations
 
 import sys
-from typing import Any, Callable, Optional
+from typing import Any
 
-# Type aliases for common patterns
-TkinterVar = Any  # tkinter variable types (StringVar, IntVar, etc.)
-AutoStartFunc = Optional[Callable[[], None]]
 # Parsed CLI arguments: argparse.Namespace or a per-tool args dataclass.
 # UniversalCLIHandler discovers supported fields via hasattr/getattr, so any
 # attribute object is accepted here; per-tool dataclasses cannot share one

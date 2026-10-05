@@ -9,6 +9,8 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+- [Iteration 8/Sprint 2] Removed dead argparse subsystem from udio_suite_shared/cli_helpers.py (~300 lines) and dropped unused scaffold NoiseReductionToolApp; tests/quality gates restored to green state.
+
 Everything below landed after `1.0.0` and is not yet versioned. The items are
 grouped Keep-a-Changelog style and worded against the behaviour actually
 shipped; the per-item evidence lives in `PLAN_iteration7_remediation.md` (the

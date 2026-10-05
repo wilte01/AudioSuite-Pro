@@ -151,21 +151,21 @@ class NoiseReductionApp(UIHelperMixin, AuditionMixin):
         self._preset_combo = cast(ttk.Combobox, setup_widgets["preset_combo"])
 
         proc_widgets = processing_tab.build(tab_processing, self.slot_vars)
-        self.overall_status = proc_widgets["overall_status"]
-        self.progress = proc_widgets["progress"]
-        self.stats_label = proc_widgets["stats_label"]
-        self.file_listbox = proc_widgets["file_listbox"]
+        self.overall_status = cast(tk.StringVar, proc_widgets["overall_status"])
+        self.progress = cast(ttk.Progressbar, proc_widgets["progress"])
+        self.stats_label = cast(tk.Label, proc_widgets["stats_label"])
+        self.file_listbox = cast(tk.Listbox, proc_widgets["file_listbox"])
 
         res_widgets = results_tab.build(
             tab_results,
-            on_open_log=self._open_log,
-            on_open_folder=self._open_folder,
+            self._open_log,
+            self._open_folder,
             on_play_original=self._play_original,
             on_play_result=self._play_result,
         )
-        self.completion_label = res_widgets["completion_label"]
-        self.summary_label = res_widgets["summary_label"]
-        self.time_label = res_widgets["time_label"]
+        self.completion_label = cast(tk.Label, res_widgets["completion_label"])
+        self.summary_label = cast(tk.Label, res_widgets["summary_label"])
+        self.time_label = cast(tk.Label, res_widgets["time_label"])
         self.setup_audition(res_widgets)
 
         self._tab_setup = tab_setup
