@@ -13,6 +13,7 @@ from typing import TypeAlias
 
 from .base import LyricProvider, LyricProviderError
 from .lrclib import LRCLIBProvider
+from .sidecar import SidecarProvider
 
 ProviderFactory: TypeAlias = type[LyricProvider]
 
@@ -61,3 +62,4 @@ def get_provider_names() -> list[str]:
 
 
 register_provider(LRCLIBProvider)
+register_provider(SidecarProvider)

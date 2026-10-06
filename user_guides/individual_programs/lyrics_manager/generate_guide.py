@@ -26,10 +26,10 @@ doc.add_paragraph(
 doc.add_heading("Overview", level=1)
 doc.add_paragraph(
     "Lyrics Manager scans a directory of audio files, fetches synced lyrics from "
-    "a remote source, and embeds them straight into each file's tags, so lyrics "
-    "travel with the file to any player or device that supports them. Files are "
-    "matched to the lyric source by their artist and title tags; files whose tags "
-    'are missing or contain "Unknown" are skipped.'
+    "a remote source or a local sidecar file, and embeds them straight into each "
+    "file's tags, so lyrics travel with the file to any player or device that "
+    "supports them. Files are matched to the lyric source by their artist and "
+    "title tags; files whose tags are missing or contain \"Unknown\" are skipped."
 )
 doc.add_paragraph(
     "Lyrics can be synced (timestamped lines, so a player highlights the words in "
@@ -85,7 +85,9 @@ bullet(
 bullet(
     doc,
     "Provider: ",
-    "The lyric source used for every lookup. The default is lrclib.",
+    "The lyric source used for every lookup. Two providers are available: lrclib "
+    "(default, queries the public LRCLIB API over the network) and sidecar "
+    "(reads a local .lrc file next to each audio file \u2014 no network required).",
 )
 bullet(
     doc,
@@ -164,6 +166,29 @@ doc.add_paragraph(
     "fallback target for a file being processed."
 )
 
+doc.add_heading("Providers", level=2)
+doc.add_paragraph(
+    "Lyrics Manager ships two lyric sources. The provider is chosen in the Setup "
+    "tab or via the --provider CLI flag."
+)
+bullet(
+    doc,
+    "lrclib (default): ",
+    "Queries the public LRCLIB API (https://lrclib.net) by artist and title. "
+    "Requires an internet connection. Returns synced and plain lyrics when "
+    "available. Transient HTTP errors (429, 500, 502, 503) are retried "
+    "automatically up to three times.",
+)
+bullet(
+    doc,
+    "sidecar: ",
+    "Reads a local .lrc file sitting next to the audio file. The sidecar must "
+    "have the same filename as the audio file but with a .lrc extension (for "
+    "example, Track01.mp3 looks for Track01.lrc in the same directory). No "
+    "network access is needed. The .lrc file can contain standard LRC timestamps "
+    "[mm:ss.xx] and optional meta tags ([ti:], [ar:], [al:], [by:]).",
+)
+
 # ── Dry Run and Live Update ──
 doc.add_heading("Dry Run and Live Update", level=1)
 bullet(
@@ -206,7 +231,9 @@ doc.add_paragraph(
 doc.add_paragraph(
     '"Could not reach provider" / request timeout errors: '
     "The lyric source was unreachable or too slow past the Request timeout. "
-    "Check your connection and retry; finished files are skipped on the re-run."
+    "Check your connection and retry; finished files are skipped on the re-run. "
+    "If you prefer to avoid network lookups entirely, switch to the sidecar "
+    "provider and place .lrc files alongside your audio files."
 )
 doc.add_paragraph(
     "Lyrics embed but a player shows nothing: "
@@ -222,13 +249,15 @@ doc.add_paragraph(
 doc.add_paragraph(
     "audiosuite lyrics MUSIC_DIR --dry\n"
     "audiosuite lyrics MUSIC_DIR --live --parallel --workers 8\n"
+    "audiosuite lyrics MUSIC_DIR --provider sidecar --live\n"
     "audiosuite lyrics MUSIC_DIR --json"
 )
 doc.add_paragraph(
-    "Options mirror the Setup tab: --provider, --request-timeout, "
-    "--skip-existing/--no-skip-existing, --plain-fallback/--no-plain-fallback, "
-    "--parallel/--no-parallel and --workers. Runs record an undo batch so tags "
-    "can be reverted with the undo utility."
+    "Options mirror the Setup tab: --provider (lrclib or sidecar), "
+    "--request-timeout, --skip-existing/--no-skip-existing, "
+    "--plain-fallback/--no-plain-fallback, --parallel/--no-parallel and "
+    "--workers. Runs record an undo batch so tags can be reverted with the "
+    "undo utility."
 )
 
 # ── Save ──

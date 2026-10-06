@@ -8,6 +8,7 @@ per batch, so worker threads never share provider state.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 import threading
@@ -137,9 +138,13 @@ def process_single_file(
             return
 
     try:
-        result: LyricResult | None = provider.search(
-            artist, title, timeout=request_timeout
-        )
+        search_kwargs: dict[str, Any] = {
+            "timeout": request_timeout,
+        }
+        sig = inspect.signature(provider.search)
+        if "file_path" in sig.parameters:
+            search_kwargs["file_path"] = full_path
+        result: LyricResult | None = provider.search(artist, title, **search_kwargs)
     except LyricProviderError as exc:
         logger.error(
             "[LyricProviderError] lookup failed for '%s': %s",
