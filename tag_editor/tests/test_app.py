@@ -424,3 +424,140 @@ class TestMainEntryPoint:
             root, directory=str(tmp_path), live_mode=True
         )
         root.mainloop.assert_called_once()
+
+
+class TestBrowseDirectory:
+    def test_browse_directory_sets_path_when_selected(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        with patch(
+            "tag_editor.ui.app.filedialog.askdirectory",
+            return_value=str(tmp_path),
+        ):
+            app._browse_directory()
+        app.directory.set.assert_called_once_with(str(tmp_path))
+
+    def test_browse_directory_does_nothing_when_cancelled(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        with patch(
+            "tag_editor.ui.app.filedialog.askdirectory",
+            return_value="",
+        ):
+            app._browse_directory()
+        app.directory.set.assert_not_called()
+
+
+class TestOnTreeSelect:
+    def test_on_tree_select_populates_value_and_clears_flag(
+        self, tmp_path: Path
+    ) -> None:
+        app = _app(tmp_path)
+        path = tmp_path / "track.mp3"
+        app.tree.selection.return_value = [str(path)]
+        app._rows[str(path)] = (path, {"title": "My Title"})
+        app.field_var.get.return_value = "title"
+
+        with patch("tag_editor.ui.app.normalize_field", return_value="title"):
+            app._on_tree_select(None)
+
+        app.value_var.set.assert_called_once_with("My Title")
+        app.clear_var.set.assert_called_once_with(False)
+
+    def test_on_tree_select_no_selection_returns_early(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        app.tree.selection.return_value = []
+
+        app._on_tree_select(None)
+
+        app.value_var.set.assert_not_called()
+        app.clear_var.set.assert_not_called()
+
+    def test_on_tree_select_multiple_selections_returns_early(
+        self, tmp_path: Path
+    ) -> None:
+        app = _app(tmp_path)
+        app.tree.selection.return_value = ["a.mp3", "b.mp3"]
+
+        app._on_tree_select(None)
+
+        app.value_var.set.assert_not_called()
+        app.clear_var.set.assert_not_called()
+
+    def test_on_tree_select_unknown_iid_returns_early(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        app.tree.selection.return_value = ["unknown_iid"]
+
+        app._on_tree_select(None)
+
+        app.value_var.set.assert_not_called()
+        app.clear_var.set.assert_not_called()
+
+
+class TestLoadLibraryAudioSuiteError:
+    def test_load_library_shows_error_on_generic_audio_suite_error(
+        self, tmp_path: Path
+    ) -> None:
+        app = _app(tmp_path)
+        app.directory.get.return_value = str(tmp_path)
+        app.processor.scan_directory.side_effect = AudioSuiteError("corrupt database")
+        with patch("tag_editor.ui.app.messagebox") as messagebox:
+            assert app.load_library() is False
+        messagebox.showerror.assert_called_once()
+        assert "corrupt database" in messagebox.showerror.call_args.args[1]
+
+
+class TestApplySelectionErrors:
+    def test_apply_selection_normalize_field_error(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        path = tmp_path / "track.mp3"
+        app.tree.selection.return_value = [str(path)]
+        app._rows[str(path)] = (path, {})
+        app.field_var.get.return_value = "invalid_field"
+        app.clear_var.get.return_value = False
+
+        with (
+            patch(
+                "tag_editor.ui.app.normalize_field",
+                side_effect=AudioSuiteError("Unsupported tag field: invalid_field"),
+            ),
+            patch("tag_editor.ui.app.messagebox") as messagebox,
+        ):
+            app.apply_selection()
+
+        messagebox.showerror.assert_called_once()
+        assert "Unsupported tag field" in messagebox.showerror.call_args.args[1]
+        app.processor.apply_edits.assert_not_called()
+
+    def test_apply_selection_apply_edits_error(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        path = tmp_path / "track.mp3"
+        app.tree.selection.return_value = [str(path)]
+        app._rows[str(path)] = (path, {"title": "Old"})
+        app.field_var.get.return_value = "title"
+        app.value_var.get.return_value = "New"
+        app.clear_var.get.return_value = False
+        app.dry_run.get.return_value = False
+        app.processor.apply_edits.side_effect = AudioSuiteError("disk full")
+
+        with (
+            patch("tag_editor.ui.app.normalize_field", return_value="title"),
+            patch("tag_editor.ui.app.messagebox") as messagebox,
+        ):
+            app.apply_selection()
+
+        messagebox.showerror.assert_called_once()
+        assert "disk full" in messagebox.showerror.call_args.args[1]
+
+
+class TestUpdateRowIidGuard:
+    def test_update_row_skips_unknown_iid(self, tmp_path: Path) -> None:
+        app = _app(tmp_path)
+        result = EditResult(
+            path=tmp_path / "missing.mp3",
+            field="title",
+            old_value=None,
+            new_value="New",
+            changed=True,
+            written=True,
+        )
+        app._update_row(result)
+        app.tree.set.assert_not_called()

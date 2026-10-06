@@ -36,7 +36,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from audio_enhancer.app import AudioEnhancerApp
-from audio_enhancer.core.models import JobStatus, ProcessingResult
+from audio_enhancer.core.models import EnhancementParams, JobStatus, ProcessingResult
+from audio_enhancer.utils.cli_args import CliArgs
 
 # ── _on_complete log-formatting tests ─────────────────────────────────────
 
@@ -429,3 +430,455 @@ class TestStartProcessingOutputResolution:
             with patch("audio_enhancer.app.messagebox.showwarning"):
                 app.start_processing()
         mock_start.assert_not_called()
+
+
+# ── Preset CRUD tests ────────────────────────────────────────────────────
+
+
+class TestPresetCRUD:
+    """Preset collect/apply/select/save/delete operations."""
+
+    @staticmethod
+    @pytest.fixture
+    def app() -> AudioEnhancerApp:
+        root = MagicMock()
+        scheduled: list = []
+        root.after.side_effect = lambda delay, fn, *a: scheduled.append(fn)
+
+        app = object.__new__(AudioEnhancerApp)
+        app.root = root
+        app.source_path = MagicMock()
+        app.source_path.get.return_value = "/music/src"
+        app.output_path = MagicMock()
+        app.output_path.get.return_value = "/music/out"
+        app.preset_name = MagicMock()
+        app.preset_name.get.return_value = "Moderate"
+        app._param_values = {
+            "noise_gate_threshold_db": -65.0,
+            "compressor_threshold_db": -22.0,
+            "compressor_ratio": 3.5,
+            "compressor_attack_ms": 8.0,
+            "compressor_release_ms": 120.0,
+            "low_shelf_gain_db": 2.5,
+            "low_shelf_freq_hz": 100.0,
+            "presence_gain_db": 2.5,
+            "presence_freq_hz": 3500.0,
+            "high_shelf_gain_db": 4.0,
+            "high_shelf_freq_hz": 7000.0,
+            "output_gain_db": 4.0,
+            "limiter_threshold_db": -0.5,
+        }
+        app.params = EnhancementParams()
+        app._refresh_preset_list = MagicMock()
+        app._preset_combo = MagicMock()
+        app._scheduled = scheduled
+        return app
+
+    # ── _collect_settings ──────────────────────────────────────────────────
+
+    def test_collect_settings_returns_source_output_preset(
+        self, app: AudioEnhancerApp
+    ) -> None:
+        settings = app._collect_settings()
+        assert settings["source_path"] == "/music/src"
+        assert settings["output_path"] == "/music/out"
+        assert settings["preset_name"] == "Moderate"
+
+    def test_collect_settings_includes_param_values(
+        self, app: AudioEnhancerApp
+    ) -> None:
+        settings = app._collect_settings()
+        assert settings["compressor_ratio"] == 3.5
+        assert settings["output_gain_db"] == 4.0
+        assert settings["limiter_threshold_db"] == -0.5
+
+    # ── _apply_preset ─────────────────────────────────────────────────────
+
+    def test_apply_preset_sets_source_output_preset(
+        self, app: AudioEnhancerApp
+    ) -> None:
+        app._apply_preset(
+            {
+                "source_path": "/new/src",
+                "output_path": "/new/out",
+                "preset_name": "Mild",
+            }
+        )
+        app.source_path.set.assert_any_call("/new/src")
+        app.output_path.set.assert_any_call("/new/out")
+        app.preset_name.set.assert_any_call("Mild")
+
+    def test_apply_preset_overrides_params(self, app: AudioEnhancerApp) -> None:
+        app._apply_preset({"compressor_ratio": 5.0, "output_gain_db": 6.0})
+        assert app.params.compressor_ratio == 5.0
+        assert app.params.output_gain_db == 6.0
+        # Unchanged fields remain at default
+        assert app.params.noise_gate_threshold_db == -65.0
+
+    def test_apply_preset_no_overrides_keeps_original_params(
+        self, app: AudioEnhancerApp
+    ) -> None:
+        original = app.params
+        app._apply_preset({"source_path": "/only/src"})
+        # params object should be the same (no replace called)
+        assert app.params is original
+
+    def test_apply_preset_ignores_unknown_keys(self, app: AudioEnhancerApp) -> None:
+        original = app.params
+        app._apply_preset({"unknown_key": 999})
+        # No dataclass field matches, so no replace
+        assert app.params is original
+
+    # ── _on_preset_selected ───────────────────────────────────────────────
+
+    def test_on_preset_selected_applies_when_settings_found(
+        self, app: AudioEnhancerApp
+    ) -> None:
+        with patch("audio_suite_shared.suite_config.load_preset") as mock_load:
+            mock_load.return_value = {
+                "compressor_ratio": 2.5,
+                "output_gain_db": 2.0,
+            }
+            app._on_preset_selected("Mild")
+        mock_load.assert_called_once_with("audio_enhancer", "Mild")
+        assert app.params.compressor_ratio == 2.5
+        assert app.params.output_gain_db == 2.0
+
+    def test_on_preset_selected_does_nothing_when_empty(
+        self, app: AudioEnhancerApp
+    ) -> None:
+        original = app.params
+        with patch("audio_suite_shared.suite_config.load_preset") as mock_load:
+            mock_load.return_value = {}
+            app._on_preset_selected("Unknown")
+        assert app.params is original
+
+    def test_on_preset_selected_does_nothing_when_none(
+        self, app: AudioEnhancerApp
+    ) -> None:
+        original = app.params
+        with patch("audio_suite_shared.suite_config.load_preset") as mock_load:
+            mock_load.return_value = None
+            app._on_preset_selected("Nonexistent")
+        assert app.params is original
+
+    # ── _save_current_as_preset ───────────────────────────────────────────
+
+    def test_save_current_as_preset_calls_suite_config(
+        self, app: AudioEnhancerApp
+    ) -> None:
+        with patch("audio_suite_shared.suite_config.save_preset") as mock_save:
+            with patch(
+                "audio_suite_shared.suite_config.list_presets",
+                return_value=["Custom"],
+            ):
+                app._save_current_as_preset("Custom")
+        mock_save.assert_called_once()
+        call_args = mock_save.call_args
+        assert call_args[0][0] == "audio_enhancer"
+        assert call_args[0][1] == "Custom"
+        assert isinstance(call_args[0][2], dict)
+
+    def test_save_current_as_preset_refreshes_list(self, app: AudioEnhancerApp) -> None:
+        with patch("audio_suite_shared.suite_config.save_preset"):
+            with patch(
+                "audio_suite_shared.suite_config.list_presets",
+                return_value=["Custom", "Mild"],
+            ):
+                app._save_current_as_preset("Custom")
+        app._refresh_preset_list.assert_called_once_with(["Custom", "Mild"])
+
+    def test_save_current_as_preset_skips_refresh_when_no_callback(
+        self, app: AudioEnhancerApp
+    ) -> None:
+        app._refresh_preset_list = None
+        with patch("audio_suite_shared.suite_config.save_preset"):
+            with patch(
+                "audio_suite_shared.suite_config.list_presets",
+                return_value=["Custom"],
+            ):
+                # Should not raise
+                app._save_current_as_preset("Custom")
+
+    # ── _delete_preset ────────────────────────────────────────────────────
+
+    def test_delete_preset_calls_suite_config(self, app: AudioEnhancerApp) -> None:
+        with patch("audio_suite_shared.suite_config.delete_preset") as mock_del:
+            with patch(
+                "audio_suite_shared.suite_config.list_presets",
+                return_value=[],
+            ):
+                app._delete_preset("Old")
+        mock_del.assert_called_once_with("audio_enhancer", "Old")
+
+    def test_delete_preset_refreshes_list(self, app: AudioEnhancerApp) -> None:
+        with patch("audio_suite_shared.suite_config.delete_preset"):
+            with patch(
+                "audio_suite_shared.suite_config.list_presets",
+                return_value=["Mild"],
+            ):
+                app._delete_preset("Old")
+        app._refresh_preset_list.assert_called_once_with(["Mild"])
+
+    def test_delete_preset_skips_refresh_when_no_callback(
+        self, app: AudioEnhancerApp
+    ) -> None:
+        app._refresh_preset_list = None
+        with patch("audio_suite_shared.suite_config.delete_preset"):
+            with patch(
+                "audio_suite_shared.suite_config.list_presets",
+                return_value=[],
+            ):
+                app._delete_preset("Old")
+
+
+# ── CLI args tests ───────────────────────────────────────────────────────
+
+
+class TestApplyCliArgs:
+    """_apply_cli_args parses CLI and applies settings."""
+
+    @staticmethod
+    @pytest.fixture
+    def app() -> AudioEnhancerApp:
+        root = MagicMock()
+        scheduled: list = []
+        root.after.side_effect = lambda delay, fn, *a: scheduled.append(fn)
+
+        app = object.__new__(AudioEnhancerApp)
+        app.root = root
+        app.source_path = MagicMock()
+        app.output_path = MagicMock()
+        app.preset_name = MagicMock()
+        app.run_mode = MagicMock()
+        app.auto_start_var = MagicMock()
+        app.auto_end_var = MagicMock()
+        app.clear_logs_var = MagicMock()
+        app.parallel_var = MagicMock()
+        app.auto_end = False
+        app._driver_locked = False
+        app.start_processing = MagicMock()
+        app._scheduled = scheduled
+        return app
+
+    def test_cli_args_sets_source(self, app: AudioEnhancerApp) -> None:
+        args = CliArgs(source="/music/src")
+        with patch("audio_enhancer.app.parse_cli", return_value=args):
+            app._apply_cli_args()
+        app.source_path.set.assert_called_with("/music/src")
+
+    def test_cli_args_sets_preset(self, app: AudioEnhancerApp) -> None:
+        args = CliArgs(preset="Aggressive")
+        with patch("audio_enhancer.app.parse_cli", return_value=args):
+            app._apply_cli_args()
+        app.preset_name.set.assert_called_with("Aggressive")
+
+    def test_cli_args_sets_run_mode_dry(self, app: AudioEnhancerApp) -> None:
+        args = CliArgs(live_mode=False)
+        with patch("audio_enhancer.app.parse_cli", return_value=args):
+            app._apply_cli_args()
+        app.run_mode.set.assert_called_with("Dry Run")
+
+    def test_cli_args_sets_run_mode_live(self, app: AudioEnhancerApp) -> None:
+        args = CliArgs(live_mode=True)
+        with patch("audio_enhancer.app.parse_cli", return_value=args):
+            app._apply_cli_args()
+        app.run_mode.set.assert_called_with("Live Update")
+
+    def test_cli_args_live_mode_none_does_not_set_run_mode(
+        self, app: AudioEnhancerApp
+    ) -> None:
+        args = CliArgs(live_mode=None)
+        with patch("audio_enhancer.app.parse_cli", return_value=args):
+            app._apply_cli_args()
+        app.run_mode.set.assert_not_called()
+
+    def test_cli_args_sets_auto_end(self, app: AudioEnhancerApp) -> None:
+        args = CliArgs(auto_end=True)
+        with patch("audio_enhancer.app.parse_cli", return_value=args):
+            app._apply_cli_args()
+        assert app.auto_end is True
+        app.auto_end_var.set.assert_called_with(True)
+
+    def test_cli_args_sets_clear_logs_and_parallel(self, app: AudioEnhancerApp) -> None:
+        args = CliArgs(clear_logs=True, parallel_run=True)
+        with patch("audio_enhancer.app.parse_cli", return_value=args):
+            app._apply_cli_args()
+        app.clear_logs_var.set.assert_called_with(True)
+        app.parallel_var.set.assert_called_with(True)
+
+    def test_cli_args_auto_start_schedules_processing(
+        self, app: AudioEnhancerApp
+    ) -> None:
+        args = CliArgs(source="/music/src", auto_start=True)
+        with patch("audio_enhancer.app.parse_cli", return_value=args):
+            app._apply_cli_args()
+        # root.after(1500, start_processing) should have been called
+        app.root.after.assert_called_with(1500, app.start_processing)
+
+    def test_cli_args_no_auto_start_does_not_schedule(
+        self, app: AudioEnhancerApp
+    ) -> None:
+        args = CliArgs(auto_start=False)
+        with patch("audio_enhancer.app.parse_cli", return_value=args):
+            app._apply_cli_args()
+        # No root.after(1500, ...) call
+        for call in app.root.after.call_args_list:
+            if call[0] and call[0][0] == 1500:
+                pytest.fail("Should not schedule auto-start")
+
+
+# ── _on_progress tests ───────────────────────────────────────────────────
+
+
+class TestOnProgress:
+    """_on_progress schedules a UI update on the main thread."""
+
+    @staticmethod
+    @pytest.fixture
+    def app() -> AudioEnhancerApp:
+        root = MagicMock()
+        scheduled: list = []
+        root.after.side_effect = lambda delay, fn, *a: scheduled.append(fn)
+
+        app = object.__new__(AudioEnhancerApp)
+        app.root = root
+        app.progress = MagicMock()
+        app.stats_label = MagicMock()
+        app.file_listbox = MagicMock()
+        app._scheduled = scheduled
+        return app
+
+    def _run_progress(
+        self,
+        app: AudioEnhancerApp,
+        processed: int = 1,
+        total: int = 5,
+        done: int = 1,
+        errors: int = 0,
+        display_text: str = "[DONE] track.mp3",
+    ) -> None:
+        result = ProcessingResult()
+        app._on_progress(processed, total, done, errors, result, display_text)
+        if app._scheduled:
+            app._scheduled[-1]()
+
+    def test_progress_sets_maximum(self, app: AudioEnhancerApp) -> None:
+        self._run_progress(app, total=10)
+        calls = app.progress.__setitem__.call_args_list
+        assert any(c == (("maximum", 10),) for c in calls)
+
+    def test_progress_sets_value(self, app: AudioEnhancerApp) -> None:
+        self._run_progress(app, processed=3)
+        calls = app.progress.__setitem__.call_args_list
+        assert any(c == (("value", 3),) for c in calls)
+
+    def test_progress_updates_stats_label(self, app: AudioEnhancerApp) -> None:
+        self._run_progress(app, processed=2, total=5, done=1, errors=1)
+        app.stats_label.config.assert_called_with(
+            text="Processed: 2/5  |  Enhanced: 1  |  Errors: 1"
+        )
+
+    def test_progress_inserts_into_listbox(self, app: AudioEnhancerApp) -> None:
+        self._run_progress(app, display_text="[DONE] track.mp3 +6 dB")
+        app.file_listbox.insert.assert_called_with("end", "[DONE] track.mp3 +6 dB")
+
+    def test_progress_scrolls_listbox_to_end(self, app: AudioEnhancerApp) -> None:
+        self._run_progress(app)
+        app.file_listbox.see.assert_called_with("end")
+
+
+# ── _on_error tests ──────────────────────────────────────────────────────
+
+
+class TestOnError:
+    """_on_error schedules a messagebox and re-enables the start button."""
+
+    @staticmethod
+    @pytest.fixture
+    def app() -> AudioEnhancerApp:
+        root = MagicMock()
+        scheduled: list = []
+        root.after.side_effect = lambda delay, fn, *a: scheduled.append(fn)
+
+        app = object.__new__(AudioEnhancerApp)
+        app.root = root
+        app.start_btn = MagicMock()
+        app._scheduled = scheduled
+        return app
+
+    def test_on_error_shows_messagebox(self, app: AudioEnhancerApp) -> None:
+        with patch("audio_enhancer.app.messagebox.showerror") as mock_err:
+            app._on_error("Something went wrong")
+            app._scheduled[-1]()
+        mock_err.assert_called_once_with("Error", "Something went wrong")
+
+    def test_on_error_re_enables_start_button(self, app: AudioEnhancerApp) -> None:
+        with patch("audio_enhancer.app.messagebox.showerror"):
+            app._on_error("fail")
+            app._scheduled[-1]()
+        app.start_btn.config.assert_called_with(state="normal")
+
+
+# ── Dry-run audition tests ───────────────────────────────────────────────
+
+
+class TestDryRunAudition:
+    """When _run_was_dry_run is True, the audition caption is set accordingly."""
+
+    @staticmethod
+    @pytest.fixture
+    def app(tmp_path: Path) -> AudioEnhancerApp:
+        root = MagicMock()
+        scheduled: list = []
+        root.after.side_effect = lambda delay, fn, *a: scheduled.append(fn)
+
+        app = object.__new__(AudioEnhancerApp)
+        app.root = root
+        app._log_path = str(tmp_path / "enhancement_log.txt")
+        app._in_place = False
+        app._audition_original = None
+        app._audition_result = None
+        app.time_label = MagicMock()
+        app.summary_label = MagicMock()
+        app.completion_label = MagicMock()
+        app.notebook = MagicMock()
+        app._tab_results = MagicMock()
+        app.start_btn = MagicMock()
+        app._run_was_dry_run = True
+        app.auto_end_var = MagicMock()
+        app.auto_end_var.get.return_value = False
+        app._scheduled = scheduled
+        return app
+
+    def test_dry_run_sets_dry_run_caption(self, app: AudioEnhancerApp) -> None:
+        results = [
+            ProcessingResult(
+                source=Path("track.mp3"),
+                status=JobStatus.DONE,
+                rms_before_db=-20.0,
+                rms_after_db=-14.0,
+                tags_copied=5,
+            )
+        ]
+        app._on_complete(total=1, done=1, errors=0, duration_secs=1.0, results=results)
+        # Invoke the scheduled update
+        app._scheduled[-1]()
+        caption = _audition_caption(app.root)
+        assert caption == "Dry Run — nothing written. Play Result is unavailable."
+
+    def test_dry_run_completion_label_says_dry_run(self, app: AudioEnhancerApp) -> None:
+        results = [
+            ProcessingResult(
+                source=Path("track.mp3"),
+                status=JobStatus.DONE,
+                rms_before_db=-20.0,
+                rms_after_db=-14.0,
+                tags_copied=1,
+            )
+        ]
+        app._on_complete(total=1, done=1, errors=0, duration_secs=1.0, results=results)
+        app._scheduled[-1]()
+        app.completion_label.config.assert_called_with(
+            text="Enhancement Dry Run Complete!"
+        )

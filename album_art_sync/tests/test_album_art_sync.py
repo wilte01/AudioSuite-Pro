@@ -3023,3 +3023,528 @@ class TestRealWidgetMarshalling:
             assert app._log_entries == ["scheduled from a worker\n"]
         finally:
             top.destroy()
+
+
+class TestAppGuiMethods:
+    """Tests for AudioSuiteV6 GUI helper methods: CLI arg application,
+    presets, user actions, and _maybe_auto_end.
+
+    Uses the same _make_bare_app() / _import_app_class() pattern as
+    TestAppRunLogic -- __init__ is bypassed; only the attributes each
+    method actually touches are set.
+    """
+
+    def _import_app_class(self) -> Any:
+        self._saved_tkinter = sys.modules.get("tkinter")
+        _build_full_tk_stub()
+
+        # Add askyesno to messagebox stub so _on_delete_preset can call it
+        messagebox_mod = sys.modules.get("tkinter.messagebox")
+        if messagebox_mod is not None:
+            messagebox_mod.askyesno = Mock()
+
+        # Add simpledialog stub so _on_save_preset's local import works
+        if "tkinter.simpledialog" not in sys.modules:
+            simpledialog_mod = types.ModuleType("tkinter.simpledialog")
+            simpledialog_mod.askstring = Mock()
+            sys.modules["tkinter.simpledialog"] = simpledialog_mod
+            tk_stub = sys.modules.get("tkinter")
+            if tk_stub is not None:
+                tk_stub.simpledialog = simpledialog_mod
+
+        pil_mod = sys.modules.get("PIL")
+        if pil_mod is None:
+            pil_mod = types.ModuleType("PIL")
+            sys.modules["PIL"] = pil_mod
+        imagetk_mod = types.ModuleType("PIL.ImageTk")
+        imagetk_mod.PhotoImage = MagicMock
+        sys.modules["PIL.ImageTk"] = imagetk_mod
+        pil_mod.ImageTk = imagetk_mod
+
+        _ensure_app_shared_stubs_available()
+
+        for mod_name in list(sys.modules.keys()):
+            if mod_name == "album_art_sync.app" or mod_name.startswith(
+                "album_art_sync.ui"
+            ):
+                del sys.modules[mod_name]
+
+        from album_art_sync.app import AudioSuiteV6
+
+        return AudioSuiteV6
+
+    def _make_bare_app(
+        self, audio_suite_v6_cls: Any, folder: Path, mode: str = "Dry Run"
+    ) -> Any:
+        app = object.__new__(audio_suite_v6_cls)
+        app.root = MagicMock()
+        app.root.after.side_effect = lambda delay, func, *args: func(*args)
+        app.folder_path = Mock()
+        app.folder_path.get = Mock(return_value=str(folder))
+        app.folder_path.set = Mock()
+        app.run_mode = Mock()
+        app.run_mode.get = Mock(return_value=mode)
+        app.run_mode.set = Mock()
+        app.size_var = Mock()
+        app.size_var.get = Mock(return_value="800")
+        app.size_var.set = Mock()
+        app.purge_var = Mock()
+        app.purge_var.get = Mock(return_value=True)
+        app.purge_var.set = Mock()
+        app._log_entries = []
+        app._cancel_requested = False
+        app.auto_end = False
+        app._app_config = {"fanart": {}}
+        app.status_txt = Mock()
+        app.progress = Mock()
+        app.log_list = Mock()
+        app.res_msg = Mock()
+        app.notebook = Mock()
+        app.start_btn = Mock()
+        app.cancel_btn = Mock()
+        app._tab_processing = Mock()
+        app._tab_results = Mock()
+        app._preset_combo = Mock()
+        app._refresh_preset_list = Mock()
+        app._pre_parsed_cli = None
+        # CLI-related attributes for _apply_cli_args
+        app.auto_start_var = Mock()
+        app.auto_end_var = Mock()
+        app.clear_logs_var = Mock()
+        app.parallel_var = Mock()
+        app.start_thread = Mock()
+        return app
+
+    def teardown_method(self, method) -> None:
+        if hasattr(self, "_saved_tkinter"):
+            if self._saved_tkinter is not None:
+                sys.modules["tkinter"] = self._saved_tkinter
+            else:
+                sys.modules.pop("tkinter", None)
+        for name in (
+            "tkinter.ttk",
+            "tkinter.messagebox",
+            "tkinter.filedialog",
+            "tkinter.simpledialog",
+        ):
+            sys.modules.pop(name, None)
+
+    # ---- _apply_cli_args ----------------------------------------------------
+
+    def test_apply_cli_args_sets_run_mode_live(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        parsed = Mock()
+        parsed.folder_path = str(tmp_path)
+        parsed.live_mode = True
+        parsed.auto_start = False
+        parsed.auto_end = False
+        parsed.clear_logs = False
+        parsed.parallel_run = False
+        app._pre_parsed_cli = parsed
+
+        with patch("album_art_sync.app.UniversalCLIHandler") as mock_handler_cls:
+            mock_handler = MagicMock()
+            mock_handler.apply_cli_args.return_value = False
+            mock_handler_cls.return_value = mock_handler
+            app._apply_cli_args()
+
+        app.run_mode.set.assert_called_once_with("Live Update")
+
+    def test_apply_cli_args_sets_run_mode_dry(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        parsed = Mock()
+        parsed.folder_path = str(tmp_path)
+        parsed.live_mode = False
+        parsed.auto_start = False
+        parsed.auto_end = False
+        parsed.clear_logs = True
+        parsed.parallel_run = True
+        app._pre_parsed_cli = parsed
+
+        with patch("album_art_sync.app.UniversalCLIHandler") as mock_handler_cls:
+            mock_handler = MagicMock()
+            mock_handler.apply_cli_args.return_value = False
+            mock_handler_cls.return_value = mock_handler
+            app._apply_cli_args()
+
+        app.run_mode.set.assert_called_once_with("Dry Run")
+        app.clear_logs_var.set.assert_called_once_with(True)
+        app.parallel_var.set.assert_called_once_with(True)
+
+    def test_apply_cli_args_returns_early_when_no_folder(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        parsed = Mock()
+        parsed.folder_path = ""
+        app._pre_parsed_cli = parsed
+
+        with patch("album_art_sync.app.UniversalCLIHandler") as mock_handler_cls:
+            app._apply_cli_args()
+
+        mock_handler_cls.assert_not_called()
+        app.run_mode.set.assert_not_called()
+
+    def test_apply_cli_args_auto_starts_when_flag_set(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        parsed = Mock()
+        parsed.folder_path = str(tmp_path)
+        parsed.live_mode = False
+        parsed.auto_start = True
+        parsed.auto_end = False
+        parsed.clear_logs = False
+        parsed.parallel_run = False
+        app._pre_parsed_cli = parsed
+
+        with patch("album_art_sync.app.UniversalCLIHandler") as mock_handler_cls:
+            mock_handler = MagicMock()
+            mock_handler.apply_cli_args.return_value = False
+            mock_handler_cls.return_value = mock_handler
+            app._apply_cli_args()
+
+        app.root.after.assert_any_call(0, app.start_thread)
+
+    def test_apply_cli_args_passes_handler_params(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        parsed = Mock()
+        parsed.folder_path = str(tmp_path)
+        parsed.live_mode = False
+        parsed.auto_start = False
+        parsed.auto_end = False
+        parsed.clear_logs = False
+        parsed.parallel_run = False
+        app._pre_parsed_cli = parsed
+
+        with patch("album_art_sync.app.UniversalCLIHandler") as mock_handler_cls:
+            mock_handler = MagicMock()
+            mock_handler.apply_cli_args.return_value = False
+            mock_handler_cls.return_value = mock_handler
+            app._apply_cli_args()
+
+        mock_handler_cls.assert_called_once_with(app)
+        mock_handler.apply_cli_args.assert_called_once_with(
+            parsed, folder_var=app.folder_path, auto_start_func=app.start_thread
+        )
+
+    # ---- _collect_settings / _apply_preset ----------------------------------
+
+    def test_collect_settings_returns_dict(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path, mode="Live Update")
+        app.size_var.get.return_value = "1000"
+        app.purge_var.get.return_value = False
+
+        result = app._collect_settings()
+
+        assert result == {
+            "execution_mode": "Live Update",
+            "embedded_resolution": "1000",
+            "purge_hidden": False,
+        }
+
+    def test_apply_preset_sets_all_vars(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+
+        app._apply_preset(
+            {
+                "execution_mode": "Live Update",
+                "embedded_resolution": "1200",
+                "purge_hidden": False,
+            }
+        )
+
+        app.run_mode.set.assert_called_once_with("Live Update")
+        app.size_var.set.assert_called_once_with("1200")
+        app.purge_var.set.assert_called_once_with(False)
+
+    def test_apply_preset_ignores_missing_keys(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+
+        app._apply_preset({"execution_mode": "Dry Run"})
+
+        app.run_mode.set.assert_called_once_with("Dry Run")
+        app.size_var.set.assert_not_called()
+        app.purge_var.set.assert_not_called()
+
+    def test_apply_preset_handles_empty_dict(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+
+        app._apply_preset({})
+
+        app.run_mode.set.assert_not_called()
+        app.size_var.set.assert_not_called()
+        app.purge_var.set.assert_not_called()
+
+    # ---- _on_preset_selected ------------------------------------------------
+
+    def test_on_preset_selected_applies_existing_preset(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        presets = {
+            "My Preset": {
+                "execution_mode": "Live Update",
+                "embedded_resolution": "1200",
+                "purge_hidden": False,
+            }
+        }
+
+        with patch.object(app, "_load_presets", return_value=presets):
+            app._on_preset_selected("My Preset")
+
+        app.run_mode.set.assert_called_once_with("Live Update")
+        app.size_var.set.assert_called_once_with("1200")
+        app.purge_var.set.assert_called_once_with(False)
+
+    def test_on_preset_selected_unknown_name_is_noop(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+
+        with patch.object(app, "_load_presets", return_value={}):
+            app._on_preset_selected("Nonexistent")
+
+        app.run_mode.set.assert_not_called()
+
+    # ---- _on_save_preset ----------------------------------------------------
+
+    def test_on_save_preset_prompts_and_saves(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app.run_mode.get.return_value = "Dry Run"
+        app.size_var.get.return_value = "800"
+        app.purge_var.get.return_value = True
+
+        with (
+            patch("tkinter.simpledialog.askstring", return_value="My Preset"),
+            patch.object(app, "_load_presets", return_value={}),
+            patch.object(app, "_save_presets") as mock_save,
+        ):
+            app._on_save_preset()
+
+        mock_save.assert_called_once()
+        saved = mock_save.call_args[0][0]
+        assert "My Preset" in saved
+        assert saved["My Preset"]["execution_mode"] == "Dry Run"
+        app._refresh_preset_list.assert_called_once()
+
+    def test_on_save_preset_empty_name_is_cancelled(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+
+        with (
+            patch("tkinter.simpledialog.askstring", return_value=""),
+            patch.object(app, "_save_presets") as mock_save,
+        ):
+            app._on_save_preset()
+
+        mock_save.assert_not_called()
+
+    def test_on_save_preset_whitespace_name_is_cancelled(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+
+        with (
+            patch("tkinter.simpledialog.askstring", return_value="   "),
+            patch.object(app, "_save_presets") as mock_save,
+        ):
+            app._on_save_preset()
+
+        mock_save.assert_not_called()
+
+    def test_on_save_preset_none_is_cancelled(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+
+        with (
+            patch("tkinter.simpledialog.askstring", return_value=None),
+            patch.object(app, "_save_presets") as mock_save,
+        ):
+            app._on_save_preset()
+
+        mock_save.assert_not_called()
+
+    # ---- _on_delete_preset --------------------------------------------------
+
+    def test_on_delete_preset_confirms_and_deletes(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app._preset_combo.get.return_value = "Old Preset"
+        presets = {"Old Preset": {"execution_mode": "Dry Run"}}
+
+        with (
+            patch("album_art_sync.app.messagebox.askyesno", return_value=True),
+            patch.object(app, "_load_presets", return_value=presets),
+            patch.object(app, "_save_presets") as mock_save,
+        ):
+            app._on_delete_preset()
+
+        mock_save.assert_called_once()
+        saved = mock_save.call_args[0][0]
+        assert "Old Preset" not in saved
+        app._refresh_preset_list.assert_called_once()
+
+    def test_on_delete_preset_decline_is_noop(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app._preset_combo.get.return_value = "Old Preset"
+        presets = {"Old Preset": {"execution_mode": "Dry Run"}}
+
+        with (
+            patch("album_art_sync.app.messagebox.askyesno", return_value=False),
+            patch.object(app, "_load_presets", return_value=presets),
+            patch.object(app, "_save_presets") as mock_save,
+        ):
+            app._on_delete_preset()
+
+        mock_save.assert_not_called()
+
+    def test_on_delete_preset_no_combo_is_noop(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app._preset_combo = None
+
+        app._on_delete_preset()
+        # No error, no save call
+
+    def test_on_delete_preset_empty_name_is_noop(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app._preset_combo.get.return_value = ""
+
+        with patch.object(app, "_save_presets") as mock_save:
+            app._on_delete_preset()
+
+        mock_save.assert_not_called()
+
+    def test_on_delete_preset_preset_not_in_store(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app._preset_combo.get.return_value = "Ghost"
+
+        with (
+            patch.object(app, "_load_presets", return_value={}),
+            patch.object(app, "_save_presets") as mock_save,
+        ):
+            app._on_delete_preset()
+
+        mock_save.assert_not_called()
+
+    # ---- _browse_folder -----------------------------------------------------
+
+    def test_browse_folder_delegates_to_standard(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+
+        with patch.object(app, "_browse_folder_standard") as mock_browse:
+            app._browse_folder()
+
+        mock_browse.assert_called_once_with(
+            title="Select Music Directory",
+            path_variable=app.folder_path,
+            save_last_dir=True,
+        )
+
+    # ---- _open_help ---------------------------------------------------------
+
+    def test_open_help_delegates_to_standard(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+
+        with patch.object(app, "_open_help_standard") as mock_help:
+            app._open_help()
+
+        mock_help.assert_called_once_with(AudioSuiteV6.HELP_GUIDE)
+
+    # ---- _open_folder -------------------------------------------------------
+
+    def test_open_folder_opens_existing_path(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app.folder_path.get.return_value = str(tmp_path)
+
+        with patch("album_art_sync.app.platform_utils.open_path") as mock_open:
+            app._open_folder()
+
+        mock_open.assert_called_once_with(str(tmp_path))
+
+    def test_open_folder_shows_info_for_empty_path(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app.folder_path.get.return_value = ""
+
+        with patch("album_art_sync.app.messagebox.showinfo") as mock_info:
+            app._open_folder()
+
+        mock_info.assert_called_once()
+        assert "not available" in mock_info.call_args[0][1]
+
+    def test_open_folder_shows_info_for_missing_path(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path / "nonexistent")
+
+        with patch("album_art_sync.app.messagebox.showinfo") as mock_info:
+            app._open_folder()
+
+        mock_info.assert_called_once()
+
+    # ---- _open_log ----------------------------------------------------------
+
+    def test_open_log_opens_log_file(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app.folder_path.get.return_value = str(tmp_path)
+
+        with patch("album_art_sync.app.platform_utils.open_path") as mock_open:
+            app._open_log()
+
+        expected = str(tmp_path / "art_sync_log.txt")
+        mock_open.assert_called_once_with(expected)
+
+    # ---- _maybe_auto_end ----------------------------------------------------
+
+    def test_maybe_auto_end_schedules_destroy_when_enabled(
+        self, tmp_path: Path
+    ) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app.auto_end = True
+
+        app._maybe_auto_end(delay=3000)
+
+        # _add_log also calls root.after(0, ...) for the log line, so
+        # use assert_any_call for the destroy scheduling.
+        app.root.after.assert_any_call(3000, app.root.destroy)
+
+    def test_maybe_auto_end_does_nothing_when_disabled(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app.auto_end = False
+
+        app._maybe_auto_end()
+
+        app.root.after.assert_not_called()
+
+    def test_maybe_auto_end_logs_message(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app.auto_end = True
+
+        app._maybe_auto_end(delay=2000)
+
+        log_text = "".join(app._log_entries)
+        assert "Auto End" in log_text
+        assert "2 seconds" in log_text
+
+    def test_maybe_auto_end_default_delay_is_2000(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        app.auto_end = True
+
+        app._maybe_auto_end()
+
+        app.root.after.assert_any_call(2000, app.root.destroy)
