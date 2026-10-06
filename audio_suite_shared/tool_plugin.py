@@ -56,7 +56,6 @@ class ToolManifest:
         has no CLI equivalent.
     order : int
         Display order within each category (lower = first).
-        Convention: multiples of 10 to leave gaps for later insertions.
     """
 
     id: str
@@ -156,8 +155,8 @@ _REGISTRY: ToolRegistry | None = None
 # key every other registration point must agree with: the card module filename
 # (``master_driver.ui.cards.{id}_card``), the CLI command, the arg-builder
 # entry, the batch-orchestrator dependency graph, the AppState toggle key and
-# the user-guide registry.  Declaration order below is load-bearing: it drives
-# the Master Driver's tool listing.
+# the user-guide registry.  Listing order is driven by the sorted
+# ``(category, order, name)`` key at :meth:`ToolRegistry.get_manifests`.
 
 _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
     # ── Enrich tools (tag / metadata) ────────────────────────────────────

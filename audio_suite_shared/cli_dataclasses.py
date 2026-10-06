@@ -125,23 +125,9 @@ def validate_source_output_paths(source: str, output: str) -> list[str]:
         List of validation error messages (empty if valid)
     """
     errors: list[str] = []
-
-    # Validate source
-    if source:
-        p = Path(source)
-        if not p.exists():
-            errors.append(f"Source directory does not exist: {source}")
-        elif not p.is_dir():
-            errors.append(f"Source path is not a directory: {source}")
-
-    # Validate output
-    if output:
-        p = Path(output)
-        if not p.exists():
-            errors.append(f"Output directory does not exist: {output}")
-        elif not p.is_dir():
-            errors.append(f"Output path is not a directory: {output}")
-
+    for label, path in [("Source", source), ("Output", output)]:
+        for msg in validate_folder_path(path):
+            errors.append(msg.replace("Folder", label))
     return errors
 
 

@@ -326,7 +326,6 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
             output_dir = Path(out_raw)
         else:
             # No output folder specified — in-place replacement.
-            # Pop-up confirmation removed per request.
             base = source_path if source_path.is_dir() else source_path.parent
             output_dir = base
 

@@ -38,8 +38,6 @@ from .utils import cli_args
 logger = logging.getLogger(__name__)
 TOOL_ID = "tempo_analyzer"
 
-# Locate suite root (app.py → tempo_analyzer/ → tool_root/ → suite_root/)
-
 
 class TempoAnalyzerApp(UIHelperMixin):
     """Tempo Analyzer application GUI."""

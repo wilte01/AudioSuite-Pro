@@ -57,7 +57,6 @@ class EnhanceParams:
     presence_freq_hz: float = 3500.0
     high_shelf_gain_db: float = 4.0
     high_shelf_freq_hz: float = 7000.0
-    # output_gain_db intentionally omitted — suppressed when normaliser is active
     output_gain_db: float = 0.0
     limiter_threshold_db: float = -0.5
 

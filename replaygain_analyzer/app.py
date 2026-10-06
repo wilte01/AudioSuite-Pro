@@ -342,7 +342,6 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
     # ── Callbacks (called from background thread — all UI via root.after) ─────
 
     def _on_file_progress(self, processed: int, total: int, errors: int) -> None:
-        # Fix #3: route all widget mutations through root.after
         def _update_progress(
             p: int = processed, t: int = total, e: int = errors
         ) -> None:
@@ -399,7 +398,6 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
             f"Time: {minutes:02d}:{seconds:02d}\n",
         ]
 
-        # Fix #15: single consolidated log write; auto_end line appended before write
         all_entries = header + log_entries + summary
         if self.auto_end:
             all_entries.append("\n[Auto End enabled - closing in 2 seconds...]\n")
@@ -416,7 +414,6 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
 
             self.root.after(0, _show_log_error)
 
-        # Fix #3: all widget mutations via root.after
         def _update_ui() -> None:
             self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")
             self.summary_label.config(

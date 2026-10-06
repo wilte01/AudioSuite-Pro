@@ -233,10 +233,11 @@ class UniversalCLIHandler:
     Universal CLI argument handler that automatically detects
     and handles different CLI patterns.
 
-    Supports three main patterns:
-    1. Source/Output pattern (6 apps) - uses 'source' and 'output' arguments
-    2. Folder Path pattern (13 apps) - uses 'folder_path' and app-specific arguments
-    3. No Arguments pattern (3 apps) - no CLI arguments
+    Supports four patterns:
+    1. Source/Output pattern (4 apps) - uses 'source' and 'output' arguments
+    2. Folder Path pattern (12 apps) - uses 'folder_path' and app-specific arguments
+    3. Directory pattern (1 app) - uses 'directory' argument (ASX Extractor)
+    4. No Arguments pattern (2 apps) - no CLI arguments
 
     This provides a single source of truth for CLI handling
     across all Audio Suite applications.
@@ -268,10 +269,10 @@ class UniversalCLIHandler:
 
     def _apply_source_pattern(self, args: ParsedCliArgs, **kwargs: Any) -> bool:
         """
-        Handle source/output pattern used by 5 applications.
+        Handle source/output pattern used by 4 applications.
 
         Apps: Audio Enhancer, Audio Refinery, Music Format Converter,
-              ASX Extractor, CD Ripper
+              CD Ripper
         """
         should_auto_start = False
 

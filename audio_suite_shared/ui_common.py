@@ -307,7 +307,7 @@ def discrete_slider_row(
             display and for the string written back into var.
 
     Raises:
-        ValueError: If values is empty.
+        AudioConfigurationError: If values is empty.
     """
     if not values:
         raise AudioConfigurationError("discrete_slider_row: values must not be empty")

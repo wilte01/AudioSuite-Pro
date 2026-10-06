@@ -145,11 +145,6 @@ def configure_logging(program_name: str) -> None:
     _install_excepthooks()
 
 
-# ---------------------------------------------------------------------------
-# Everything below is the original file — unchanged
-# ---------------------------------------------------------------------------
-
-
 def bootstrap_tool_app(
     root: tk.Tk,
     title: str,
