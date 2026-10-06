@@ -78,9 +78,10 @@ class TestConstants:
 class TestGetTempoMarkingItalian:
     """Italian scheme — comprehensive boundary values."""
 
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def scheme(self):
-        self.markings = TEMPO_SCHEMES["Italian"]
+    def markings():
+        return TEMPO_SCHEMES["Italian"]
 
     @pytest.mark.parametrize(
         "bpm,expected",
@@ -110,22 +111,23 @@ class TestGetTempoMarkingItalian:
             (999, "Prestissimo"),
         ],
     )
-    def test_exact_boundaries(self, bpm, expected):
-        assert get_tempo_marking(bpm, self.markings) == expected
+    def test_exact_boundaries(self, bpm, expected, markings):
+        assert get_tempo_marking(bpm, markings) == expected
 
-    def test_typical_house_bpm(self):
-        assert get_tempo_marking(128, self.markings) == "Allegro"
+    def test_typical_house_bpm(self, markings):
+        assert get_tempo_marking(128, markings) == "Allegro"
 
-    def test_typical_dnb_bpm(self):
-        assert get_tempo_marking(174, self.markings) == "Vivace"
+    def test_typical_dnb_bpm(self, markings):
+        assert get_tempo_marking(174, markings) == "Vivace"
 
 
 class TestGetTempoMarkingEnglish:
     """English scheme — all boundary values."""
 
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def scheme(self):
-        self.markings = TEMPO_SCHEMES["English"]
+    def markings():
+        return TEMPO_SCHEMES["English"]
 
     @pytest.mark.parametrize(
         "bpm,expected",
@@ -145,16 +147,17 @@ class TestGetTempoMarkingEnglish:
             (999, "Extremely Fast"),
         ],
     )
-    def test_exact_boundaries(self, bpm, expected):
-        assert get_tempo_marking(bpm, self.markings) == expected
+    def test_exact_boundaries(self, bpm, expected, markings):
+        assert get_tempo_marking(bpm, markings) == expected
 
 
 class TestGetTempoMarkingDescriptive:
     """Descriptive scheme — all boundary values."""
 
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def scheme(self):
-        self.markings = TEMPO_SCHEMES["Descriptive"]
+    def markings():
+        return TEMPO_SCHEMES["Descriptive"]
 
     @pytest.mark.parametrize(
         "bpm,expected",
@@ -176,16 +179,17 @@ class TestGetTempoMarkingDescriptive:
             (999, "Frantic"),
         ],
     )
-    def test_exact_boundaries(self, bpm, expected):
-        assert get_tempo_marking(bpm, self.markings) == expected
+    def test_exact_boundaries(self, bpm, expected, markings):
+        assert get_tempo_marking(bpm, markings) == expected
 
 
 class TestGetTempoMarkingNumeric:
     """Numeric scheme — all boundary values."""
 
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def scheme(self):
-        self.markings = TEMPO_SCHEMES["Numeric"]
+    def markings():
+        return TEMPO_SCHEMES["Numeric"]
 
     @pytest.mark.parametrize(
         "bpm,expected",
@@ -211,16 +215,17 @@ class TestGetTempoMarkingNumeric:
             (999, "200+ BPM"),
         ],
     )
-    def test_exact_boundaries(self, bpm, expected):
-        assert get_tempo_marking(bpm, self.markings) == expected
+    def test_exact_boundaries(self, bpm, expected, markings):
+        assert get_tempo_marking(bpm, markings) == expected
 
 
 class TestGetTempoMarkingSimplified:
     """Simplified scheme — all boundary values."""
 
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def scheme(self):
-        self.markings = TEMPO_SCHEMES["Simplified"]
+    def markings():
+        return TEMPO_SCHEMES["Simplified"]
 
     @pytest.mark.parametrize(
         "bpm,expected",
@@ -235,16 +240,17 @@ class TestGetTempoMarkingSimplified:
             (300, "Very Fast"),
         ],
     )
-    def test_simplified_labels(self, bpm, expected):
-        assert get_tempo_marking(bpm, self.markings) == expected
+    def test_simplified_labels(self, bpm, expected, markings):
+        assert get_tempo_marking(bpm, markings) == expected
 
 
 class TestGetTempoMarkingDance:
     """Dance scheme — all boundary values."""
 
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def scheme(self):
-        self.markings = TEMPO_SCHEMES["Dance"]
+    def markings():
+        return TEMPO_SCHEMES["Dance"]
 
     @pytest.mark.parametrize(
         "bpm,expected",
@@ -264,16 +270,17 @@ class TestGetTempoMarkingDance:
             (999, "Hardcore"),
         ],
     )
-    def test_exact_boundaries(self, bpm, expected):
-        assert get_tempo_marking(bpm, self.markings) == expected
+    def test_exact_boundaries(self, bpm, expected, markings):
+        assert get_tempo_marking(bpm, markings) == expected
 
 
 class TestGetTempoMarkingRunning:
     """Running scheme — all boundary values."""
 
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def scheme(self):
-        self.markings = TEMPO_SCHEMES["Running"]
+    def markings():
+        return TEMPO_SCHEMES["Running"]
 
     @pytest.mark.parametrize(
         "bpm,expected",
@@ -291,53 +298,54 @@ class TestGetTempoMarkingRunning:
             (999, "Sprint"),
         ],
     )
-    def test_exact_boundaries(self, bpm, expected):
-        assert get_tempo_marking(bpm, self.markings) == expected
+    def test_exact_boundaries(self, bpm, expected, markings):
+        assert get_tempo_marking(bpm, markings) == expected
 
 
 class TestGetTempoMarkingEdgeCases:
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def scheme(self):
-        self.markings = TEMPO_SCHEMES["Italian"]
+    def markings():
+        return TEMPO_SCHEMES["Italian"]
 
-    def test_zero_bpm_returns_unknown(self):
-        assert get_tempo_marking(0, self.markings) == "Unknown"
+    def test_zero_bpm_returns_unknown(self, markings):
+        assert get_tempo_marking(0, markings) == "Unknown"
 
-    def test_negative_bpm_returns_unknown(self):
-        assert get_tempo_marking(-1, self.markings) == "Unknown"
+    def test_negative_bpm_returns_unknown(self, markings):
+        assert get_tempo_marking(-1, markings) == "Unknown"
 
-    def test_negative_large_returns_unknown(self):
-        assert get_tempo_marking(-999, self.markings) == "Unknown"
+    def test_negative_large_returns_unknown(self, markings):
+        assert get_tempo_marking(-999, markings) == "Unknown"
 
-    def test_bpm_1000_resolves_to_top_band(self):
-        assert get_tempo_marking(1000, self.markings) == "Prestissimo"
+    def test_bpm_1000_resolves_to_top_band(self, markings):
+        assert get_tempo_marking(1000, markings) == "Prestissimo"
 
-    def test_extreme_bpm_resolves_to_top_band(self):
-        assert get_tempo_marking(50_000, self.markings) == "Prestissimo"
+    def test_extreme_bpm_resolves_to_top_band(self, markings):
+        assert get_tempo_marking(50_000, markings) == "Prestissimo"
 
-    def test_all_schemes_have_no_upper_limit(self):
+    def test_all_schemes_have_no_upper_limit(self, markings):
         for name, markings in TEMPO_SCHEMES.items():
             result = get_tempo_marking(100_000, markings)
             assert result != "Unknown", f"{name} returned Unknown for BPM 100,000"
 
-    def test_returns_string(self):
-        result = get_tempo_marking(120, self.markings)
+    def test_returns_string(self, markings):
+        result = get_tempo_marking(120, markings)
         assert isinstance(result, str)
 
-    def test_empty_markings_returns_unknown(self):
+    def test_empty_markings_returns_unknown(self, markings):
         assert get_tempo_marking(120, []) == "Unknown"
 
-    def test_all_schemes_cover_bpm_120(self):
+    def test_all_schemes_cover_bpm_120(self, markings):
         for name, markings in TEMPO_SCHEMES.items():
             result = get_tempo_marking(120, markings)
             assert result != "Unknown", f"{name} returned Unknown for BPM 120"
 
-    def test_all_schemes_cover_bpm_1(self):
+    def test_all_schemes_cover_bpm_1(self, markings):
         for name, markings in TEMPO_SCHEMES.items():
             result = get_tempo_marking(1, markings)
             assert result != "Unknown", f"{name} returned Unknown for BPM 1"
 
-    def test_all_schemes_cover_bpm_999(self):
+    def test_all_schemes_cover_bpm_999(self, markings):
         for name, markings in TEMPO_SCHEMES.items():
             result = get_tempo_marking(999, markings)
             assert result != "Unknown", f"{name} returned Unknown for BPM 999"

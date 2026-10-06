@@ -711,7 +711,8 @@ class TestSecureErrorHandlerProductionMode:
     """All handle_* methods in production mode (no debug flag)."""
 
     @pytest.fixture(autouse=True)
-    def _prod_mode(self):
+    @staticmethod
+    def _prod_mode():
         """Ensure debug mode is off for this class."""
         SecureErrorHandler.set_debug_mode(False)
         yield
@@ -809,7 +810,8 @@ class TestSecureErrorHandlerDebugMode:
     """Same methods, but with debug mode on — raw details must be exposed."""
 
     @pytest.fixture(autouse=True)
-    def _debug_mode(self):
+    @staticmethod
+    def _debug_mode():
         SecureErrorHandler.set_debug_mode(True)
         yield
         SecureErrorHandler.set_debug_mode(False)
@@ -857,7 +859,8 @@ class TestRetryWithBackoff:
     """retry_with_backoff() — success, retry exhaustion, non-retryable."""
 
     @pytest.fixture
-    def retry_cfg(self):
+    @staticmethod
+    def retry_cfg():
         return RetryConfig(
             max_retries=3,
             retry_delay=0.001,

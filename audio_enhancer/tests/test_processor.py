@@ -630,8 +630,9 @@ class TestCopyTags:
 class TestBuildDspSliders:
     """Tests for ui/setup_tab.py: build_dsp_sliders()."""
 
+    @staticmethod
     @pytest.fixture(scope="module")
-    def tk_root(self):
+    def tk_root():
         """Create a single Tk root for the entire test class to avoid repeated
         Tcl interpreter creation/destruction (which has been observed to fail
         on Windows with certain tk 8.6 installations)."""
@@ -645,8 +646,9 @@ class TestBuildDspSliders:
         yield root
         root.destroy()
 
+    @staticmethod
     @pytest.fixture(scope="module")
-    def parent(self, tk_root) -> tk.Frame:
+    def parent(tk_root) -> tk.Frame:
         import tkinter as tk
 
         return tk.Frame(tk_root)

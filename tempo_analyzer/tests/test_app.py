@@ -42,8 +42,9 @@ from tempo_analyzer.core.tempo_schemes import TEMPO_SCHEMES
 class TestOnComplete:
     """_on_complete() writes log files and schedules UI updates."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self, tmp_path: Path) -> TempoAnalyzerApp:
+    def app(tmp_path: Path) -> TempoAnalyzerApp:
         root = MagicMock()
         scheduled: list = []
         root.after.side_effect = lambda delay, fn, *a, **kw: scheduled.append((fn, a))
@@ -150,8 +151,9 @@ class TestOnComplete:
 class TestCollectSettings:
     """_collect_settings() reads Tk variable values into a dict."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> TempoAnalyzerApp:
+    def app() -> TempoAnalyzerApp:
         app = object.__new__(TempoAnalyzerApp)
         app.tempo_scheme = MagicMock()
         app.tempo_scheme.get.return_value = "Italian"
@@ -180,8 +182,9 @@ class TestCollectSettings:
 class TestApplyPreset:
     """_apply_preset() writes preset values back to Tk variables."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> TempoAnalyzerApp:
+    def app() -> TempoAnalyzerApp:
         app = object.__new__(TempoAnalyzerApp)
         app.tempo_scheme = MagicMock()
         app.run_mode = MagicMock()
@@ -211,8 +214,9 @@ class TestApplyPreset:
 class TestOnSchemeChange:
     """_on_scheme_change() updates markings, persists, and refreshes reference."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> TempoAnalyzerApp:
+    def app() -> TempoAnalyzerApp:
         root = MagicMock()
         app = object.__new__(TempoAnalyzerApp)
         app.root = root

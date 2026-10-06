@@ -112,13 +112,15 @@ def _audition_caption(root: Any) -> str:
 class TestAuditionOnComplete:
     """_on_complete() drives the shared audition state machine."""
 
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def _patch_messagebox(self) -> None:
+    def _patch_messagebox() -> None:
         with patch("audio_refinery.app.messagebox"):
             yield
 
+    @staticmethod
     @pytest.fixture
-    def app(self, tmp_path: Path) -> AudioRefineryApp:
+    def app(tmp_path: Path) -> AudioRefineryApp:
         root = MagicMock()
         app = object.__new__(AudioRefineryApp)
         app.root = root
@@ -177,8 +179,9 @@ class TestAuditionOnComplete:
 class TestStartProcessingStageValidation:
     """Regression: reduce_noise alone must satisfy the no-stage check."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self, tmp_path: Path) -> AudioRefineryApp:
+    def app(tmp_path: Path) -> AudioRefineryApp:
         app = object.__new__(AudioRefineryApp)
         app.root = MagicMock()
         app.source_path = tk.StringVar(value=str(tmp_path))
@@ -194,8 +197,9 @@ class TestStartProcessingStageValidation:
         app.overall_status = MagicMock()
         return app
 
+    @staticmethod
     @pytest.fixture
-    def audio_dir(self, tmp_path: Path) -> Path:
+    def audio_dir(tmp_path: Path) -> Path:
         (tmp_path / "song.mp3").write_bytes(b"")
         return tmp_path
 

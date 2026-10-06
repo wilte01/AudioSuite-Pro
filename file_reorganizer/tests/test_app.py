@@ -37,8 +37,9 @@ from file_reorganizer.app import FileReorganizerApp
 class TestSeedSourceFromLastDirectory:
     """_seed_source_from_last_directory() restores the Master Driver hand-off."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> FileReorganizerApp:
+    def app() -> FileReorganizerApp:
         app = object.__new__(FileReorganizerApp)
         app.source_dir = MagicMock()
         app.dest_dir = MagicMock()
@@ -87,8 +88,9 @@ class TestSeedSourceFromLastDirectory:
 class TestBrowseDirectories:
     """_browse_source/_browse_dest mirror the sibling-tool save-back pattern."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> FileReorganizerApp:
+    def app() -> FileReorganizerApp:
         app = object.__new__(FileReorganizerApp)
         app.source_dir = MagicMock()
         app.dest_dir = MagicMock()
@@ -132,8 +134,9 @@ class TestBrowseDirectories:
 class TestSettingsPersistence:
     """Settings delegate to the shared suite config — never the legacy file."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> FileReorganizerApp:
+    def app() -> FileReorganizerApp:
         app = object.__new__(FileReorganizerApp)
         app.source_dir = MagicMock()
         app.dest_dir = MagicMock()

@@ -62,8 +62,9 @@ class TestResourceInfo:
 class TestResourceManagerRegistration:
     """Tests for register_resource and unregister_resource."""
 
+    @staticmethod
     @pytest.fixture()
-    def mgr(self) -> ResourceManager:
+    def mgr() -> ResourceManager:
         return ResourceManager()
 
     def test_register_adds_resource(self, mgr: ResourceManager) -> None:
@@ -100,8 +101,9 @@ class TestResourceManagerRegistration:
 class TestCleanupResource:
     """Tests for cleanup_resource and _default_cleanup."""
 
+    @staticmethod
     @pytest.fixture()
-    def mgr(self) -> ResourceManager:
+    def mgr() -> ResourceManager:
         return ResourceManager()
 
     def test_cleanup_missing_resource_returns_false(self, mgr: ResourceManager) -> None:
@@ -150,8 +152,9 @@ class TestCleanupResource:
 class TestBulkCleanup:
     """Tests for bulk cleanup operations."""
 
+    @staticmethod
     @pytest.fixture()
-    def mgr(self) -> ResourceManager:
+    def mgr() -> ResourceManager:
         return ResourceManager()
 
     def test_cleanup_all_calls_auto_cleanup_resources(
@@ -198,8 +201,9 @@ class TestBulkCleanup:
 class TestContextManagers:
     """Tests for temporary_file, temporary_directory, and tracked_resource."""
 
+    @staticmethod
     @pytest.fixture()
-    def mgr(self) -> ResourceManager:
+    def mgr() -> ResourceManager:
         return ResourceManager()
 
     def test_temporary_file_exists_during_context(self, mgr: ResourceManager) -> None:
@@ -274,8 +278,9 @@ class TestModuleLevelConvenience:
 class TestSubprocessCleanup:
     """Tests for _default_cleanup with subprocess resource type."""
 
+    @staticmethod
     @pytest.fixture()
-    def mgr(self) -> ResourceManager:
+    def mgr() -> ResourceManager:
         return ResourceManager()
 
     def test_subprocess_cleanup_returns_true_even_without_process_attr(

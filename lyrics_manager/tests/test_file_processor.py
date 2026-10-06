@@ -277,8 +277,9 @@ class TestProcessSingleFile:
 
 
 class TestRunFetch:
+    @staticmethod
     @pytest.fixture()
-    def registered_fake(self):
+    def registered_fake():
         class _Fake(LyricProvider):
             name = "fake_runfetch_provider"
 

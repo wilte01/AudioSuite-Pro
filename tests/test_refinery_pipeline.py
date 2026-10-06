@@ -179,8 +179,9 @@ class TestStageMetrics:
 
 
 class TestProcessFile:
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def _valid_integrity(self):
+    def _valid_integrity():
         """Unit tests use placeholder bytes with pydub mocked at the module
         boundary, so the real integrity checker would reject them.  Patch the
         integrity pre-flight to a passing result for these synthetic inputs."""
@@ -197,14 +198,16 @@ class TestProcessFile:
         ):
             yield
 
+    @staticmethod
     @pytest.fixture()
-    def audio_file(self, tmp_path: Path) -> Path:
+    def audio_file(tmp_path: Path) -> Path:
         p = tmp_path / "test_track.wav"
         p.write_bytes(b"dummy audio content")
         return p
 
+    @staticmethod
     @pytest.fixture()
-    def output_file(self, tmp_path: Path) -> Path:
+    def output_file(tmp_path: Path) -> Path:
         return tmp_path / "output_track.wav"
 
     def _mock_segment(self) -> MagicMock:
@@ -315,15 +318,17 @@ class TestProcessFile:
 
 @pytest.mark.integration
 class TestProcessFileIntegration:
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def require_ffmpeg(self):
+    def require_ffmpeg():
         import shutil
 
         if not shutil.which("ffmpeg"):
             pytest.skip("ffmpeg not found on PATH — skipping integration test")
 
+    @staticmethod
     @pytest.fixture()
-    def real_wav(self, tmp_path: Path) -> Path:
+    def real_wav(tmp_path: Path) -> Path:
         import struct
         import wave
 
@@ -420,8 +425,9 @@ def _decode_wav(path: Path) -> tuple[dict[str, float], dict[str, float]]:
 class TestProcessFileOutcomes:
     """Real-audio decode-and-measure locks for the pipeline stages."""
 
+    @staticmethod
     @pytest.fixture()
-    def tone_wav(self, tmp_path: Path) -> Path:
+    def tone_wav(tmp_path: Path) -> Path:
         p = tmp_path / "tone.wav"
         _write_wav(p, [(2.0, 0.25)])
         return p
@@ -498,8 +504,9 @@ class TestProcessFileOutcomes:
         for gain in gains:
             assert 3.2 <= gain <= 4.4, gain
 
+    @staticmethod
     @pytest.fixture()
-    def quiet_flac(self, tmp_path: Path) -> Path:
+    def quiet_flac(tmp_path: Path) -> Path:
         """A FLAC source at ≈ -30 dBFS (the normaliser refuses .wav by design)."""
         from pydub import AudioSegment
 

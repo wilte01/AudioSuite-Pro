@@ -233,8 +233,9 @@ class TestLauncherSourcesHaveNoSilentHandler:
     a *new* launcher copying the old boilerplate is caught here instead.
     """
 
+    @staticmethod
     @pytest.fixture(scope="class")
-    def all_launchers(self) -> tuple[tuple[Path, str], ...]:
+    def all_launchers() -> tuple[tuple[Path, str], ...]:
         """Every root ``.pyw`` launcher with its source text."""
         sources = tuple(
             (path, path.read_text(encoding="utf-8"))

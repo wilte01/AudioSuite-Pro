@@ -338,42 +338,43 @@ def _find_widgets_by_class(widget, cls) -> list:
 
 
 class TestAlbumGenreCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import album_genre_card
 
-        self.card = album_genre_card
+        return album_genre_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_album_genre_toggle(self, parent, root):
+    def test_checkbutton_uses_album_genre_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         toggle_name = str(state.module_toggles["album_genre"])
         assert any(toggle_name in v for v in variables)
 
-    def test_coverage_entry_wired_to_state(self, parent, root):
+    def test_coverage_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.album_genre_coverage) in v for v in var_names)
 
-    def test_expand_button_present(self, parent, root):
+    def test_expand_button_present(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         assert len(_find_buttons_with_textvariable(parent)) >= 1
 
-    def test_build_idempotent(self, root):
+    def test_build_idempotent(self, root, _import):
         state = _make_state(root)
         p1 = tk.Frame(root)
         p2 = tk.Frame(root)
-        self.card.build(p1, state)
-        self.card.build(p2, state)
+        _import.build(p1, state)
+        _import.build(p2, state)
         p1.destroy()
         p2.destroy()
 
@@ -384,32 +385,33 @@ class TestAlbumGenreCard:
 
 
 class TestReplayGainCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import replaygain_card
 
-        self.card = replaygain_card
+        return replaygain_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_replaygain_toggle(self, parent, root):
+    def test_checkbutton_uses_replaygain_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         toggle_name = str(state.module_toggles["replaygain"])
         assert any(toggle_name in v for v in variables)
 
-    def test_expand_button_present(self, parent, root):
+    def test_expand_button_present(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         assert len(_find_buttons_with_textvariable(parent)) >= 1
 
-    def test_slider_and_readout_present(self, parent, root):
+    def test_slider_and_readout_present(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         # Find Scale widgets
         scales = _find_widgets_by_class(parent, tk.Scale)
         assert len(scales) >= 1
@@ -418,10 +420,10 @@ class TestReplayGainCard:
         var_names = [str(label.cget("textvariable")) for label in labels]
         assert any(str(state.rg_lufs) in v for v in var_names)
 
-    def test_slider_movement_updates_rg_lufs(self, parent, root):
+    def test_slider_movement_updates_rg_lufs(self, parent, root, _import):
         """Moving the Scale slider updates state.rg_lufs via LUFS_OPTIONS."""
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         scales = _find_widgets_by_class(parent, tk.Scale)
         assert len(scales) >= 1
         scale = scales[0]
@@ -438,47 +440,48 @@ class TestReplayGainCard:
 
 
 class TestBpmCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import bpm_card
 
-        self.card = bpm_card
+        return bpm_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_bpm_toggle(self, parent, root):
+    def test_checkbutton_uses_bpm_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.module_toggles["bpm"]) in v for v in variables)
 
-    def test_range_entries_present(self, parent, root):
+    def test_range_entries_present(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         # Min, max, duration = 3 entries expected
         assert len(entries) >= 3
 
-    def test_min_entry_wired_to_state(self, parent, root):
+    def test_min_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.bpm_range_min) in v for v in var_names)
 
-    def test_max_entry_wired_to_state(self, parent, root):
+    def test_max_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.bpm_range_max) in v for v in var_names)
 
-    def test_duration_entry_wired_to_state(self, parent, root):
+    def test_duration_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.bpm_duration) in v for v in var_names)
@@ -490,35 +493,36 @@ class TestBpmCard:
 
 
 class TestArtCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import art_card
 
-        self.card = art_card
+        return art_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_art_toggle(self, parent, root):
+    def test_checkbutton_uses_art_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.module_toggles["art"]) in v for v in variables)
 
-    def test_purge_checkbutton_wired_to_state(self, parent, root):
+    def test_purge_checkbutton_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.art_purge) in v for v in variables)
 
-    def test_resolution_combobox_wired_to_art_res(self, parent, root):
+    def test_resolution_combobox_wired_to_art_res(self, parent, root, _import):
         from tkinter import ttk
 
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         combos = []
 
         def _collect(w):
@@ -538,19 +542,20 @@ class TestArtCard:
 
 
 class TestGenreSyncCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import genre_sync_card
 
-        self.card = genre_sync_card
+        return genre_sync_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_genre_sync_toggle(self, parent, root):
+    def test_checkbutton_uses_genre_sync_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.module_toggles["genre_sync"]) in v for v in variables)
@@ -562,26 +567,27 @@ class TestGenreSyncCard:
 
 
 class TestKeyCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import key_card
 
-        self.card = key_card
+        return key_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_key_toggle(self, parent, root):
+    def test_checkbutton_uses_key_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.module_toggles["key"]) in v for v in variables)
 
-    def test_duration_entry_wired_to_state(self, parent, root):
+    def test_duration_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.key_duration) in v for v in var_names)
@@ -593,33 +599,34 @@ class TestKeyCard:
 
 
 class TestMoodAnalyzerCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import mood_analyzer_card
 
-        self.card = mood_analyzer_card
+        return mood_analyzer_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_mood_toggle(self, parent, root):
+    def test_checkbutton_uses_mood_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.module_toggles["mood_analyzer"]) in v for v in variables)
 
-    def test_duration_and_workers_wired_to_state(self, parent, root):
+    def test_duration_and_workers_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         var_names = [str(e.cget("textvariable")) for e in _find_entries(parent)]
         assert any(str(state.mood_duration) in v for v in var_names)
         assert any(str(state.mood_workers) in v for v in var_names)
 
-    def test_parallel_checkbutton_wired_to_state(self, parent, root):
+    def test_parallel_checkbutton_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.mood_parallel) in v for v in variables)
@@ -631,19 +638,20 @@ class TestMoodAnalyzerCard:
 
 
 class TestTempoCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import tempo_card
 
-        self.card = tempo_card
+        return tempo_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_tempo_toggle(self, parent, root):
+    def test_checkbutton_uses_tempo_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.module_toggles["tempo"]) in v for v in variables)
@@ -655,19 +663,20 @@ class TestTempoCard:
 
 
 class TestAsxCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import asx_card
 
-        self.card = asx_card
+        return asx_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_asx_toggle(self, parent, root):
+    def test_checkbutton_uses_asx_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.asx_extractor_toggle) in v for v in variables)
@@ -679,41 +688,42 @@ class TestAsxCard:
 
 
 class TestAudioEnhancerCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import audio_enhancer_card
 
-        self.card = audio_enhancer_card
+        return audio_enhancer_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_enhancer_toggle(self, parent, root):
+    def test_checkbutton_uses_enhancer_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.module_toggles["audio_enhancer"]) in v for v in variables)
 
-    def test_output_dir_entry_wired_to_state(self, parent, root):
+    def test_output_dir_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.enhancer_output_dir) in v for v in var_names)
 
-    def test_expand_button_present(self, parent, root):
+    def test_expand_button_present(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         assert len(_find_buttons_with_textvariable(parent)) >= 1
 
-    def test_build_idempotent(self, root):
+    def test_build_idempotent(self, root, _import):
         state = _make_state(root)
         p1 = tk.Frame(root)
         p2 = tk.Frame(root)
-        self.card.build(p1, state)
-        self.card.build(p2, state)
+        _import.build(p1, state)
+        _import.build(p2, state)
         p1.destroy()
         p2.destroy()
 
@@ -724,30 +734,31 @@ class TestAudioEnhancerCard:
 
 
 class TestAudioNormalizerCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import audio_normalizer_card
 
-        self.card = audio_normalizer_card
+        return audio_normalizer_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_normalizer_toggle(self, parent, root):
+    def test_checkbutton_uses_normalizer_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(
             str(state.module_toggles["audio_normalizer"]) in v for v in variables
         )
 
-    def test_lufs_combobox_wired_to_state(self, parent, root):
+    def test_lufs_combobox_wired_to_state(self, parent, root, _import):
         from tkinter import ttk
 
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         combos = []
 
         def _collect(w):
@@ -760,19 +771,19 @@ class TestAudioNormalizerCard:
         combo_var_names = [str(c.cget("textvariable")) for c in combos]
         assert any(str(state.normalizer_target_lufs) in v for v in combo_var_names)
 
-    def test_tolerance_entry_wired_to_state(self, parent, root):
+    def test_tolerance_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.normalizer_tolerance) in v for v in var_names)
 
-    def test_build_idempotent(self, root):
+    def test_build_idempotent(self, root, _import):
         state = _make_state(root)
         p1 = tk.Frame(root)
         p2 = tk.Frame(root)
-        self.card.build(p1, state)
-        self.card.build(p2, state)
+        _import.build(p1, state)
+        _import.build(p2, state)
         p1.destroy()
         p2.destroy()
 
@@ -783,45 +794,46 @@ class TestAudioNormalizerCard:
 
 
 class TestPopClickRemoverCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import pop_click_remover_card
 
-        self.card = pop_click_remover_card
+        return pop_click_remover_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_declick_toggle(self, parent, root):
+    def test_checkbutton_uses_declick_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(
             str(state.module_toggles["pop_click_remover"]) in v for v in variables
         )
 
-    def test_sensitivity_entry_wired_to_state(self, parent, root):
+    def test_sensitivity_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.declick_sensitivity) in v for v in var_names)
 
-    def test_width_entry_wired_to_state(self, parent, root):
+    def test_width_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.declick_max_width) in v for v in var_names)
 
-    def test_build_idempotent(self, root):
+    def test_build_idempotent(self, root, _import):
         state = _make_state(root)
         p1 = tk.Frame(root)
         p2 = tk.Frame(root)
-        self.card.build(p1, state)
-        self.card.build(p2, state)
+        _import.build(p1, state)
+        _import.build(p2, state)
         p1.destroy()
         p2.destroy()
 
@@ -832,43 +844,44 @@ class TestPopClickRemoverCard:
 
 
 class TestSilenceTrimmerCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import silence_trimmer_card
 
-        self.card = silence_trimmer_card
+        return silence_trimmer_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_trimmer_toggle(self, parent, root):
+    def test_checkbutton_uses_trimmer_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.module_toggles["silence_trimmer"]) in v for v in variables)
 
-    def test_threshold_entry_wired_to_state(self, parent, root):
+    def test_threshold_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.trimmer_threshold) in v for v in var_names)
 
-    def test_apply_fade_checkbutton_wired_to_state(self, parent, root):
+    def test_apply_fade_checkbutton_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.trimmer_apply_fade) in v for v in variables)
 
-    def test_build_idempotent(self, root):
+    def test_build_idempotent(self, root, _import):
         state = _make_state(root)
         p1 = tk.Frame(root)
         p2 = tk.Frame(root)
-        self.card.build(p1, state)
-        self.card.build(p2, state)
+        _import.build(p1, state)
+        _import.build(p2, state)
         p1.destroy()
         p2.destroy()
 
@@ -879,19 +892,20 @@ class TestSilenceTrimmerCard:
 
 
 class TestCdRipperCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import cd_ripper_card
 
-        self.card = cd_ripper_card
+        return cd_ripper_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_cd_ripper_toggle(self, parent, root):
+    def test_checkbutton_uses_cd_ripper_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.cd_ripper_toggle) in v for v in variables)
@@ -903,69 +917,71 @@ class TestCdRipperCard:
 
 
 class TestTagFieldUpdaterCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import tag_field_updater_card
 
-        self.card = tag_field_updater_card
+        return tag_field_updater_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_tag_field_updater_toggle(self, parent, root):
+    def test_checkbutton_uses_tag_field_updater_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(
             str(state.module_toggles["tag_field_updater"]) in v for v in variables
         )
 
-    def test_expand_button_present(self, parent, root):
+    def test_expand_button_present(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         assert len(_find_buttons_with_textvariable(parent)) >= 1
 
-    def test_build_idempotent(self, root):
+    def test_build_idempotent(self, root, _import):
         state = _make_state(root)
         p1 = tk.Frame(root)
         p2 = tk.Frame(root)
-        self.card.build(p1, state)
-        self.card.build(p2, state)
+        _import.build(p1, state)
+        _import.build(p2, state)
         p1.destroy()
         p2.destroy()
 
 
 class TestTagEditorCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import tag_editor_card
 
-        self.card = tag_editor_card
+        return tag_editor_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_tag_editor_toggle(self, parent, root):
+    def test_checkbutton_uses_tag_editor_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.module_toggles["tag_editor"]) in v for v in variables)
 
-    def test_expand_button_present(self, parent, root):
+    def test_expand_button_present(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         assert len(_find_buttons_with_textvariable(parent)) >= 1
 
-    def test_build_idempotent(self, root):
+    def test_build_idempotent(self, root, _import):
         state = _make_state(root)
         p1 = tk.Frame(root)
         p2 = tk.Frame(root)
-        self.card.build(p1, state)
-        self.card.build(p2, state)
+        _import.build(p1, state)
+        _import.build(p2, state)
         p1.destroy()
         p2.destroy()
 
@@ -976,48 +992,49 @@ class TestTagEditorCard:
 
 
 class TestScrubberCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import scrubber_card
 
-        self.card = scrubber_card
+        return scrubber_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_scrubber_toggle(self, parent, root):
+    def test_checkbutton_uses_scrubber_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.module_toggles["scrubber"]) in v for v in variables)
 
-    def test_preserve_lyrics_checkbutton_wired(self, parent, root):
+    def test_preserve_lyrics_checkbutton_wired(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.scrubber_preserve_lyrics) in v for v in variables)
 
-    def test_preserve_album_artist_checkbutton_wired(self, parent, root):
+    def test_preserve_album_artist_checkbutton_wired(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.scrubber_preserve_album_artist) in v for v in variables)
 
-    def test_preserve_embedded_art_checkbutton_wired(self, parent, root):
+    def test_preserve_embedded_art_checkbutton_wired(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.scrubber_preserve_embedded_art) in v for v in variables)
 
-    def test_expand_button_can_be_invoked(self, parent, root):
+    def test_expand_button_can_be_invoked(self, parent, root, _import):
         """The expand/collapse button invokes without error."""
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         expand_btns = _find_buttons_with_textvariable(parent)
         assert len(expand_btns) >= 1
         for _ in range(3):
@@ -1030,58 +1047,59 @@ class TestScrubberCard:
 
 
 class TestConverterCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import converter_card
 
-        self.card = converter_card
+        return converter_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state, on_browse_output=lambda: None)
+        _import.build(parent, state, on_browse_output=lambda: None)
 
-    def test_build_with_on_toggle_does_not_raise(self, parent, root):
+    def test_build_with_on_toggle_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(
+        _import.build(
             parent, state, on_browse_output=lambda: None, on_toggle=lambda: None
         )
 
-    def test_converter_checkbutton_wired_to_toggle(self, parent, root):
+    def test_converter_checkbutton_wired_to_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state, on_browse_output=lambda: None)
+        _import.build(parent, state, on_browse_output=lambda: None)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.converter_toggle) in v for v in variables)
 
-    def test_delete_originals_checkbutton_wired(self, parent, root):
+    def test_delete_originals_checkbutton_wired(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state, on_browse_output=lambda: None)
+        _import.build(parent, state, on_browse_output=lambda: None)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.converter_delete_originals) in v for v in variables)
 
-    def test_output_dir_entry_wired_to_state(self, parent, root):
+    def test_output_dir_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state, on_browse_output=lambda: None)
+        _import.build(parent, state, on_browse_output=lambda: None)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.converter_output_dir) in v for v in var_names)
 
-    def test_detected_label_attached_to_state(self, parent, root):
+    def test_detected_label_attached_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state, on_browse_output=lambda: None)
+        _import.build(parent, state, on_browse_output=lambda: None)
         assert hasattr(state, "_converter_detected_label")
 
-    def test_format_menu_attached_to_state(self, parent, root):
+    def test_format_menu_attached_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state, on_browse_output=lambda: None)
+        _import.build(parent, state, on_browse_output=lambda: None)
         assert hasattr(state, "_converter_format_menu")
 
-    def test_quality_combobox_wired_to_converter_quality(self, parent, root):
+    def test_quality_combobox_wired_to_converter_quality(self, parent, root, _import):
         from tkinter import ttk
 
         state = _make_state(root)
-        self.card.build(parent, state, on_browse_output=lambda: None)
+        _import.build(parent, state, on_browse_output=lambda: None)
         combos = []
 
         def _collect(w):
@@ -1095,7 +1113,7 @@ class TestConverterCard:
         assert any(str(state.converter_quality) in v for v in combo_var_names)
 
     def test_delete_originals_and_output_dir_both_remain_independently_settable(
-        self, parent, root, tmp_path
+        self, parent, root, _import, tmp_path
     ):
         """
         Regression: this card previously disabled/cleared one field when
@@ -1106,7 +1124,7 @@ class TestConverterCard:
         must not impose a restriction the tool itself doesn't have.
         """
         state = _make_state(root)
-        self.card.build(parent, state, on_browse_output=lambda: None)
+        _import.build(parent, state, on_browse_output=lambda: None)
         state.converter_output_dir.set(str(tmp_path))
         state.converter_delete_originals.set(True)
         assert state.converter_output_dir.get() == str(tmp_path)
@@ -1119,17 +1137,18 @@ class TestConverterCard:
 
 
 class TestUndoTagEditsCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import undo_tag_edits_card
 
-        self.card = undo_tag_edits_card
+        return undo_tag_edits_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state, on_open=lambda: None)
+        _import.build(parent, state, on_open=lambda: None)
 
-    def test_open_button_triggered(self, parent, root):
+    def test_open_button_triggered(self, parent, root, _import):
         """The Open Undo button must invoke the supplied callback."""
         state = _make_state(root)
         clicked = {"count": 0}
@@ -1137,7 +1156,7 @@ class TestUndoTagEditsCard:
         def on_open():
             clicked["count"] += 1
 
-        self.card.build(parent, state, on_open=on_open)
+        _import.build(parent, state, on_open=on_open)
 
         buttons = []
 
@@ -1152,18 +1171,18 @@ class TestUndoTagEditsCard:
         open_btn.invoke()
         assert clicked["count"] == 1
 
-    def test_no_checkbutton_rendered(self, parent, root):
+    def test_no_checkbutton_rendered(self, parent, root, _import):
         """Undo is opened on demand, never as part of a batch run."""
         state = _make_state(root)
-        self.card.build(parent, state, on_open=lambda: None)
+        _import.build(parent, state, on_open=lambda: None)
         assert _find_checkbuttons(parent) == []
 
-    def test_build_idempotent(self, root):
+    def test_build_idempotent(self, root, _import):
         state = _make_state(root)
         p1 = tk.Frame(root)
         p2 = tk.Frame(root)
-        self.card.build(p1, state, on_open=lambda: None)
-        self.card.build(p2, state, on_open=lambda: None)
+        _import.build(p1, state, on_open=lambda: None)
+        _import.build(p2, state, on_open=lambda: None)
         p1.destroy()
         p2.destroy()
 
@@ -1174,59 +1193,60 @@ class TestUndoTagEditsCard:
 
 
 class TestLyricsManagerCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import lyrics_manager_card
 
-        self.card = lyrics_manager_card
+        return lyrics_manager_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_lyrics_toggle(self, parent, root):
+    def test_checkbutton_uses_lyrics_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.module_toggles["lyrics_manager"]) in v for v in variables)
 
-    def test_provider_entry_wired_to_state(self, parent, root):
+    def test_provider_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.lyrics_provider) in v for v in var_names)
 
-    def test_timeout_entry_wired_to_state(self, parent, root):
+    def test_timeout_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.lyrics_request_timeout) in v for v in var_names)
 
-    def test_checkbuttons_include_lyrics_options(self, parent, root):
+    def test_checkbuttons_include_lyrics_options(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.lyrics_skip_existing) in v for v in variables)
         assert any(str(state.lyrics_plain_fallback) in v for v in variables)
         assert any(str(state.lyrics_parallel) in v for v in variables)
 
-    def test_workers_entry_wired_to_state(self, parent, root):
+    def test_workers_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.lyrics_workers) in v for v in var_names)
 
-    def test_build_idempotent(self, root):
+    def test_build_idempotent(self, root, _import):
         state = _make_state(root)
         p1 = tk.Frame(root)
         p2 = tk.Frame(root)
-        self.card.build(p1, state)
-        self.card.build(p2, state)
+        _import.build(p1, state)
+        _import.build(p2, state)
         p1.destroy()
         p2.destroy()
 
@@ -1237,19 +1257,20 @@ class TestLyricsManagerCard:
 
 
 class TestThemeCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import theme_card
 
-        self.card = theme_card
+        return theme_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_three_radio_options_created(self, parent, root):
+    def test_three_radio_options_created(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         radios = []
 
         def _collect(w):
@@ -1261,9 +1282,9 @@ class TestThemeCard:
         _collect(parent)
         assert len(radios) == 3
 
-    def test_radio_values_are_light_dark_system(self, parent, root):
+    def test_radio_values_are_light_dark_system(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         radios = []
 
         def _collect(w):
@@ -1283,19 +1304,20 @@ class TestThemeCard:
 
 
 class TestPaletteCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import palette_card
 
-        self.card = palette_card
+        return palette_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_radio_buttons_use_palette_var(self, parent, root):
+    def test_radio_buttons_use_palette_var(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         radios = []
 
         def _collect(w):
@@ -1310,11 +1332,11 @@ class TestPaletteCard:
         for rb in radios:
             assert palette_var_name in str(rb.cget("variable"))
 
-    def test_radio_count_matches_palettes(self, parent, root):
+    def test_radio_count_matches_palettes(self, parent, root, _import):
         from audio_suite_shared.styles import PALETTES
 
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         radios = []
 
         def _collect(w):
@@ -1327,7 +1349,7 @@ class TestPaletteCard:
         assert len(radios) == len(PALETTES)
 
     def test_windows_accent_row_builds_when_winaccent_is_missing(
-        self, parent, root, monkeypatch: pytest.MonkeyPatch
+        self, parent, root, _import, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The.function-level winaccent fallback runs instead of being excluded.
 
@@ -1341,7 +1363,7 @@ class TestPaletteCard:
         monkeypatch.setitem(sys.modules, "winaccent", None)
         state = _make_state(root)
         state.palette_var.set("Windows Accent")
-        self.card.build(parent, state)
+        _import.build(parent, state)
         radios = []
 
         def _collect(w):
@@ -1360,21 +1382,22 @@ class TestPaletteCard:
 
 
 class TestTypographyCard:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import typography_card
 
-        self.card = typography_card
+        return typography_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_nine_spinboxes_created(self, parent, root):
+    def test_nine_spinboxes_created(self, parent, root, _import):
         from tkinter import ttk
 
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         spinboxes = []
 
         def _collect(w):
@@ -1386,11 +1409,11 @@ class TestTypographyCard:
         _collect(parent)
         assert len(spinboxes) == 9
 
-    def test_font_combo_wired_to_font_family_var(self, parent, root):
+    def test_font_combo_wired_to_font_family_var(self, parent, root, _import):
         from tkinter import ttk
 
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         combos = []
 
         def _collect(w):
@@ -1413,73 +1436,76 @@ class TestTypographyCard:
 
 
 class TestNoiseReductionCardExecuted:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import noise_reduction_card
 
-        self.card = noise_reduction_card
+        return noise_reduction_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def checkbutton_refuses_toggle_key_or_attr_name(self, parent, root):
+    def checkbutton_refuses_toggle_key_or_attr_name(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.module_toggles["noise_reduction"]) in v for v in variables)
 
-    def test_build_idempotent(self, root):
+    def test_build_idempotent(self, root, _import):
         state = _make_state(root)
         p1 = tk.Frame(root)
         p2 = tk.Frame(root)
-        self.card.build(p1, state)
-        self.card.build(p2, state)
+        _import.build(p1, state)
+        _import.build(p2, state)
         p1.destroy()
         p2.destroy()
 
 
 class TestLibraryStatsCardExecuted:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import library_stats_card
 
-        self.card = library_stats_card
+        return library_stats_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_library_stats_toggle(self, parent, root):
+    def test_checkbutton_uses_library_stats_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.library_stats_toggle) in v for v in variables)
 
 
 class TestFingerprinterCardExecuted:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import fingerprinter_card
 
-        self.card = fingerprinter_card
+        return fingerprinter_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_fingerprinter_toggle(self, parent, root):
+    def test_checkbutton_uses_fingerprinter_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.module_toggles["fingerprinter"]) in v for v in variables)
 
-    def test_lookup_and_threshold_wired(self, parent, root):
+    def test_lookup_and_threshold_wired(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.fingerprinter_lookup) in v for v in variables)
@@ -1489,56 +1515,58 @@ class TestFingerprinterCardExecuted:
 
 
 class TestFileReorganizerCardExecuted:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import file_reorganizer_card
 
-        self.card = file_reorganizer_card
+        return file_reorganizer_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_file_reorganizer_toggle(self, parent, root):
+    def test_checkbutton_uses_file_reorganizer_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(
             str(state.module_toggles["file_reorganizer"]) in v for v in variables
         )
 
-    def test_output_dir_entry_wired_to_state(self, parent, root):
+    def test_output_dir_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.file_reorg_output_dir) in v for v in var_names)
 
 
 class TestMoodAnalysisBatchCardExecuted:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import mood_analysis_batch_card
 
-        self.card = mood_analysis_batch_card
+        return mood_analysis_batch_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_mood_batch_toggle(self, parent, root):
+    def test_checkbutton_uses_mood_batch_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(
             str(state.module_toggles["mood_analysis_batch"]) in v for v in variables
         )
 
-    def test_duration_and_workers_wired_to_state(self, parent, root):
+    def test_duration_and_workers_wired_to_state(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         entries = _find_entries(parent)
         var_names = [str(e.cget("textvariable")) for e in entries]
         assert any(str(state.mood_analysis_batch_duration) in v for v in var_names)
@@ -1546,30 +1574,31 @@ class TestMoodAnalysisBatchCardExecuted:
 
 
 class TestAlbumArtNormalizerCardExecuted:
-    @pytest.fixture(autouse=True)
-    def _import(self):
+    @staticmethod
+    @pytest.fixture()
+    def _import():
         from master_driver.ui.cards import album_art_normalizer_card
 
-        self.card = album_art_normalizer_card
+        return album_art_normalizer_card
 
-    def test_build_does_not_raise(self, parent, root):
+    def test_build_does_not_raise(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
 
-    def test_checkbutton_uses_album_art_normalizer_toggle(self, parent, root):
+    def test_checkbutton_uses_album_art_normalizer_toggle(self, parent, root, _import):
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(
             str(state.module_toggles["album_art_normalizer"]) in v for v in variables
         )
 
-    def test_size_combobox_wired_to_state(self, parent, root):
+    def test_size_combobox_wired_to_state(self, parent, root, _import):
         from tkinter import ttk
 
         state = _make_state(root)
-        self.card.build(parent, state)
+        _import.build(parent, state)
         combos = []
 
         def _collect(w):

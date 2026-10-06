@@ -67,8 +67,9 @@ def _audition_caption(root: Any) -> str:
 class TestOnComplete:
     """_on_complete() updates UI labels, time, and switches to Results tab."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> NoiseReductionApp:
+    def app() -> NoiseReductionApp:
         root = MagicMock()
         app = object.__new__(NoiseReductionApp)
         app.root = root
@@ -234,8 +235,9 @@ class TestOnComplete:
 class TestCollectSettings:
     """_collect_settings() reads Tk variable values into a dict."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> NoiseReductionApp:
+    def app() -> NoiseReductionApp:
         app = object.__new__(NoiseReductionApp)
         for key in _SETTINGS_KEYS:
             setattr(app, key, MagicMock())
@@ -276,8 +278,9 @@ class TestCollectSettings:
 class TestApplyPreset:
     """_apply_preset() writes preset values back to Tk variables."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> NoiseReductionApp:
+    def app() -> NoiseReductionApp:
         app = object.__new__(NoiseReductionApp)
         for key in _SETTINGS_KEYS:
             setattr(app, key, MagicMock())
@@ -322,8 +325,9 @@ class TestApplyPreset:
 class TestOnError:
     """_on_error() shows error dialog and re-enables start button."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> NoiseReductionApp:
+    def app() -> NoiseReductionApp:
         app = object.__new__(NoiseReductionApp)
         app.start_btn = MagicMock()
         return app

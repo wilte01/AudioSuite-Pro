@@ -88,8 +88,9 @@ class TestInspect:
 
 
 class TestEnrichMp3:
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def _mp3_mocks(self):
+    def _mp3_mocks():
         """Patch the mutagen symbols that inspect/_enrich_mp3 import
         lazily so a .mp3 path can be processed without real files.  A real
         ID3NoHeaderError is used for the no-header path."""

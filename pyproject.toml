@@ -226,6 +226,18 @@ filterwarnings = [
     # only by __pycache__. Scoped to pydub so first-party warnings stay
     # visible; remove once upstream fixes the regexes.
     "ignore::SyntaxWarning:pydub.*",
+    # librosa emits benign warnings when analysing very short audio fixtures
+    # (n_fft too large for the signal length, empty pitch estimation set, and
+    # the deprecated audioread backend fallback).  All three fire only from
+    # short synthetic test clips and do not indicate a real problem.
+    "ignore::FutureWarning:librosa.*",
+    "ignore:PySoundFile failed.*:UserWarning",
+    "ignore:.*n_fft.*is too large.*:UserWarning",
+    "ignore:.*estimate tuning from empty.*:UserWarning",
+    # audioread (transitive via librosa) imports removed stdlib modules on
+    # Python >= 3.13; the installed 'standard-aifc'/'standard-sunau' backports
+    # work fine — suppress until upstream patches.
+    "ignore::DeprecationWarning:audioread.*",
 ]
 
 [tool.coverage.run]

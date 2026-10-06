@@ -376,13 +376,15 @@ def _audition_caption(root: Any) -> str:
 class TestAuditionOnComplete:
     """_on_complete() drives the shared audition state machine."""
 
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def _patch_messagebox(self) -> None:
+    def _patch_messagebox() -> None:
         with patch("audio_normalizer.app.messagebox"):
             yield
 
+    @staticmethod
     @pytest.fixture
-    def app(self, tmp_path: Path) -> AudioNormalizerApp:
+    def app(tmp_path: Path) -> AudioNormalizerApp:
         root = MagicMock()
         app = object.__new__(AudioNormalizerApp)
         app.root = root

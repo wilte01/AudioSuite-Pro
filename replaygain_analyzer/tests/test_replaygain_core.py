@@ -118,14 +118,16 @@ class TestCalculateAlbumGain:
 
 
 class TestWriteReplaygainTags:
+    @staticmethod
     @pytest.fixture
-    def mp3_file(self, tmp_path):
+    def mp3_file(tmp_path):
         path = tmp_path / "track.mp3"
         AudioSegment.silent(duration=100).export(str(path), format="mp3")
         return str(path)
 
+    @staticmethod
     @pytest.fixture
-    def flac_file(self, tmp_path):
+    def flac_file(tmp_path):
         path = tmp_path / "track.flac"
         AudioSegment.silent(duration=100).export(str(path), format="flac")
         return str(path)
@@ -189,14 +191,16 @@ class TestWriteReplaygainTags:
     # only explicit TXXX frames work. These tests exist because the
     # original implementation silently failed on every WAV/AIFF file.
 
+    @staticmethod
     @pytest.fixture
-    def wav_file(self, tmp_path):
+    def wav_file(tmp_path):
         path = tmp_path / "track.wav"
         AudioSegment.silent(duration=100).export(str(path), format="wav")
         return str(path)
 
+    @staticmethod
     @pytest.fixture
-    def aiff_file(self, tmp_path):
+    def aiff_file(tmp_path):
         path = tmp_path / "track.aiff"
         AudioSegment.silent(duration=100).export(str(path), format="aiff")
         return str(path)
@@ -244,8 +248,9 @@ class TestWriteReplaygainTags:
     # player recognizes. Tags must use the iTunes freeform-atom convention
     # ("----:com.apple.iTunes:<NAME>") to be readable.
 
+    @staticmethod
     @pytest.fixture
-    def m4a_file(self, tmp_path):
+    def m4a_file(tmp_path):
         path = tmp_path / "track.m4a"
         AudioSegment.silent(duration=100).export(str(path), format="ipod")
         return str(path)

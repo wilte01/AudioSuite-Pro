@@ -176,8 +176,9 @@ def _load_generator(name: str) -> ModuleType:
 class TestEnumerationLock:
     """The declaration is an exact bijection with the code."""
 
+    @staticmethod
     @pytest.fixture(scope="class")
-    def scanned(self) -> Counter[tuple[str, str]]:
+    def scanned() -> Counter[tuple[str, str]]:
         return scan_tree()
 
     def test_every_platform_branch_in_the_tree_is_declared(

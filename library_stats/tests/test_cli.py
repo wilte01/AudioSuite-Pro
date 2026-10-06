@@ -109,8 +109,9 @@ class TestEchoCompleteness:
 
 
 class TestStatsCompletenessCommand:
+    @staticmethod
     @pytest.fixture
-    def music_dir(self, tmp_path: Path) -> str:
+    def music_dir(tmp_path: Path) -> str:
         (tmp_path / "a.mp3").write_bytes(b"fake")
         (tmp_path / "b.flac").write_bytes(b"fake")
         return str(tmp_path)
@@ -171,8 +172,9 @@ class TestStatsCompletenessCommand:
 
 
 class TestStatsCommandErrorHandling:
+    @staticmethod
     @pytest.fixture
-    def music_dir(self, tmp_path: Path) -> str:
+    def music_dir(tmp_path: Path) -> str:
         (tmp_path / "a.mp3").write_bytes(b"fake")
         return str(tmp_path)
 

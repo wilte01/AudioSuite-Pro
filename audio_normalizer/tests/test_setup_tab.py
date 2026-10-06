@@ -84,28 +84,29 @@ class TestTargetLufsSlider:
     """Tests for the Target LUFS slider built by build_config_panel."""
 
     @pytest.fixture(autouse=True)
-    def setup_tk(self):
+    @staticmethod
+    def setup_tk():
         try:
-            self.root = tk.Tk()
+            root = tk.Tk()
         except tk.TclError as exc:
             pytest.skip(f"tkinter not available: {exc}")
-        self.root.withdraw()
-        yield
+        root.withdraw()
+        yield root
         try:
-            self.root.destroy()
+            root.destroy()
         except tk.TclError:
             pass
 
-    def test_does_not_raise_with_valid_args(self) -> None:
-        parent = tk.Frame(self.root)
+    def test_does_not_raise_with_valid_args(self, setup_tk) -> None:
+        parent = tk.Frame(setup_tk)
         target_lufs = tk.DoubleVar(value=-16.0)
         tolerance = tk.DoubleVar(value=0.5)
         build_config_panel(
             parent, tk.StringVar(value="Dry Run"), target_lufs, tolerance
         )
 
-    def test_initial_index_matches_preset_of_starting_value(self) -> None:
-        parent = tk.Frame(self.root)
+    def test_initial_index_matches_preset_of_starting_value(self, setup_tk) -> None:
+        parent = tk.Frame(setup_tk)
         target_lufs = tk.DoubleVar(value=-18.0)
         tolerance = tk.DoubleVar(value=0.5)
         build_config_panel(
@@ -127,8 +128,10 @@ class TestTargetLufsSlider:
         assert float(lufs_scale.cget("to")) == len(VALID_TARGET_LUFS_VALUES) - 1
         assert float(lufs_scale.cget("resolution")) == 1
 
-    def test_moving_slider_updates_target_lufs_to_permitted_preset(self) -> None:
-        parent = tk.Frame(self.root)
+    def test_moving_slider_updates_target_lufs_to_permitted_preset(
+        self, setup_tk
+    ) -> None:
+        parent = tk.Frame(setup_tk)
         target_lufs = tk.DoubleVar(value=-16.0)
         tolerance = tk.DoubleVar(value=0.5)
         build_config_panel(
@@ -148,7 +151,7 @@ class TestTargetLufsSlider:
         # free-form or interpolated value).
         for index in range(len(VALID_TARGET_LUFS_VALUES)):
             lufs_scale.set(index)
-            self.root.update_idletasks()
+            setup_tk.update_idletasks()
             try:
                 assert target_lufs.get() == VALID_TARGET_LUFS_VALUES[index]
             except AssertionError:
@@ -158,9 +161,9 @@ class TestTargetLufsSlider:
                 pytest.skip("Slider update failed — broken Tcl/Tk environment")
                 return
 
-    def test_embedded_mode_with_run_mode_none_does_not_raise(self) -> None:
+    def test_embedded_mode_with_run_mode_none_does_not_raise(self, setup_tk) -> None:
         # Audio Refinery embeds this panel with run_mode=None.
-        parent = tk.Frame(self.root)
+        parent = tk.Frame(setup_tk)
         target_lufs = tk.DoubleVar(value=-23.0)
         tolerance = tk.DoubleVar(value=0.5)
         build_config_panel(parent, None, target_lufs, tolerance)
@@ -172,15 +175,16 @@ class TestSharedControlsPanel:
     Source/Mode row), with the normalizer's three-way mode labels."""
 
     @pytest.fixture(autouse=True)
-    def setup_tk(self):
+    @staticmethod
+    def setup_tk():
         try:
-            self.root = tk.Tk()
+            root = tk.Tk()
         except tk.TclError as exc:
             pytest.skip(f"tkinter not available: {exc}")
-        self.root.withdraw()
-        yield
+        root.withdraw()
+        yield root
         try:
-            self.root.destroy()
+            root.destroy()
         except tk.TclError:
             pass
 
@@ -190,20 +194,20 @@ class TestSharedControlsPanel:
             combos.extend(self._all_combos(child))
         return combos
 
-    def test_build_wires_shared_panel_with_three_way_modes(self) -> None:
-        parent = tk.Frame(self.root)
+    def test_build_wires_shared_panel_with_three_way_modes(self, setup_tk) -> None:
+        parent = tk.Frame(setup_tk)
         # Bind the vars to the fixture root explicitly: after test_app.py's
         # shared root exists, tk._default_root no longer points at this
         # fixture's Tk, so masterless variables land in a different
         # interpreter and the Source bar would show stale/empty values.
-        folder_path = tk.StringVar(master=self.root, value="/music")
-        run_mode = tk.StringVar(master=self.root, value="Dry Run")
-        target_lufs = tk.DoubleVar(master=self.root, value=-16.0)
-        tolerance = tk.DoubleVar(master=self.root, value=0.5)
-        auto_start_var = tk.BooleanVar(master=self.root, value=False)
-        auto_end_var = tk.BooleanVar(master=self.root, value=False)
-        clear_logs_var = tk.BooleanVar(master=self.root, value=False)
-        parallel_var = tk.BooleanVar(master=self.root, value=False)
+        folder_path = tk.StringVar(master=setup_tk, value="/music")
+        run_mode = tk.StringVar(master=setup_tk, value="Dry Run")
+        target_lufs = tk.DoubleVar(master=setup_tk, value=-16.0)
+        tolerance = tk.DoubleVar(master=setup_tk, value=0.5)
+        auto_start_var = tk.BooleanVar(master=setup_tk, value=False)
+        auto_end_var = tk.BooleanVar(master=setup_tk, value=False)
+        clear_logs_var = tk.BooleanVar(master=setup_tk, value=False)
+        parallel_var = tk.BooleanVar(master=setup_tk, value=False)
         build(
             parent,
             folder_path=folder_path,

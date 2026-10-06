@@ -58,13 +58,15 @@ def _audition_caption(root: Any) -> str:
 class TestOnComplete:
     """_on_complete() updates UI labels, time, and switches to Results tab."""
 
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def _patch_messagebox(self) -> None:
+    def _patch_messagebox() -> None:
         with patch("silence_trimmer.app.messagebox"):
             yield
 
+    @staticmethod
     @pytest.fixture
-    def app(self, tmp_path: Path) -> SilenceTrimmerApp:
+    def app(tmp_path: Path) -> SilenceTrimmerApp:
         root = MagicMock()
         app = object.__new__(SilenceTrimmerApp)
         app.root = root
@@ -272,8 +274,9 @@ class TestOnComplete:
 class TestCollectSettings:
     """_collect_settings() reads Tk variable values into a dict."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> SilenceTrimmerApp:
+    def app() -> SilenceTrimmerApp:
         app = object.__new__(SilenceTrimmerApp)
         app.threshold = MagicMock()
         app.threshold.get.return_value = -50
@@ -312,8 +315,9 @@ class TestCollectSettings:
 class TestApplyPreset:
     """_apply_preset() writes preset values back to Tk variables."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> SilenceTrimmerApp:
+    def app() -> SilenceTrimmerApp:
         app = object.__new__(SilenceTrimmerApp)
         app.threshold = MagicMock()
         app.fade_var = MagicMock()
@@ -359,8 +363,9 @@ class TestApplyPreset:
 class TestOnError:
     """_on_error() shows error dialog and re-enables start button."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> SilenceTrimmerApp:
+    def app() -> SilenceTrimmerApp:
         app = object.__new__(SilenceTrimmerApp)
         app.start_btn = MagicMock()
         return app

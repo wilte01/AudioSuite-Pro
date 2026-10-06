@@ -41,23 +41,24 @@ class TestPresetRow:
     the subclass-set callbacks with its own None defaults, so the row was
     never created in the real window)."""
 
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def setup_tk(self, tk_root: tk.Tk) -> None:
-        self.root = tk_root
+    def setup_tk(tk_root: tk.Tk) -> tk.Tk:
+        return tk_root
 
-    def test_row_renders_with_zero_arg_handlers(self) -> None:
-        widgets = _build_tab(self.root)
+    def test_row_renders_with_zero_arg_handlers(self, setup_tk: tk.Tk) -> None:
+        widgets = _build_tab(setup_tk)
         assert widgets["preset_combo"] is not None
         assert "refresh_preset_list" in widgets
 
-    def test_row_hidden_without_save_handler(self) -> None:
-        widgets = _build_tab(self.root, on_save_preset=None)
+    def test_row_hidden_without_save_handler(self, setup_tk: tk.Tk) -> None:
+        widgets = _build_tab(setup_tk, on_save_preset=None)
         assert "preset_combo" not in widgets
         assert "refresh_preset_list" not in widgets
 
-    def test_save_button_invokes_zero_arg_callback(self) -> None:
+    def test_save_button_invokes_zero_arg_callback(self, setup_tk: tk.Tk) -> None:
         save = MagicMock()
-        widgets = _build_tab(self.root, on_save_preset=save)
+        widgets = _build_tab(setup_tk, on_save_preset=save)
         combo = widgets["preset_combo"]
         assert combo is not None
         buttons = [
@@ -71,9 +72,9 @@ class TestPresetRow:
         save_button.invoke()
         save.assert_called_once_with()
 
-    def test_delete_button_invokes_zero_arg_callback(self) -> None:
+    def test_delete_button_invokes_zero_arg_callback(self, setup_tk: tk.Tk) -> None:
         delete = MagicMock()
-        widgets = _build_tab(self.root, on_delete_preset=delete)
+        widgets = _build_tab(setup_tk, on_delete_preset=delete)
         combo = widgets["preset_combo"]
         assert combo is not None
         buttons = [
@@ -87,8 +88,8 @@ class TestPresetRow:
         delete_button.invoke()
         delete.assert_called_once_with()
 
-    def test_refresh_seeds_preset_values(self) -> None:
-        widgets = _build_tab(self.root)
+    def test_refresh_seeds_preset_values(self, setup_tk: tk.Tk) -> None:
+        widgets = _build_tab(setup_tk)
         refresh = widgets["refresh_preset_list"]
         assert callable(refresh)
         refresh(["A", "B"])

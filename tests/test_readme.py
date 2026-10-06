@@ -224,12 +224,13 @@ class TestEngineeringStandards:
     _CONTRIBUTING = "CONTRIBUTING.md"
 
     @pytest.fixture(scope="class")
-    def standards_section(self, readme_text: str) -> str:
-        start = readme_text.find(self._HEADING)
+    @staticmethod
+    def standards_section(readme_text: str) -> str:
+        start = readme_text.find("## Engineering standards")
         assert start != -1, (
-            f"README.md is missing the {self._HEADING!r} section (item A4)"
+            "README.md is missing the '## Engineering standards' section (item A4)"
         )
-        remainder = readme_text[start + len(self._HEADING) :]
+        remainder = readme_text[start + len("## Engineering standards") :]
         end = remainder.find("\n## ")
         section = remainder[:end] if end != -1 else remainder
         assert len(section.split()) > 40, (
@@ -239,9 +240,10 @@ class TestEngineeringStandards:
         return section
 
     @pytest.fixture(scope="class")
-    def gate_commands(self) -> list[str]:
+    @staticmethod
+    def gate_commands() -> list[str]:
         """The six gate command lines, as written in CONTRIBUTING.md."""
-        contributing = (REPO_ROOT / self._CONTRIBUTING).read_text(encoding="utf-8")
+        contributing = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
         gate_start = contributing.find("## The mandatory Phase Gate")
         assert gate_start != -1, "CONTRIBUTING.md lost its Phase Gate heading"
         block_start = contributing.find("```pwsh", gate_start)

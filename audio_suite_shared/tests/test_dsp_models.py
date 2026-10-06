@@ -55,8 +55,9 @@ class TestPresetNameEnum:
 class TestEnhancementParamsDefaults:
     """Tests for EnhancementParams default values and DSP invariants."""
 
+    @staticmethod
     @pytest.fixture()
-    def default_params(self) -> EnhancementParams:
+    def default_params() -> EnhancementParams:
         """Return a default EnhancementParams instance."""
         return EnhancementParams()
 

@@ -313,7 +313,8 @@ class TestWindowsAccentIsNotWrittenBackIntoPalettes:
     """
 
     @pytest.fixture(autouse=True)
-    def _restore_palette_state(self):
+    @staticmethod
+    def _restore_palette_state():
         """Snapshot and restore the module state these tests mutate.
 
         Snapshot/restore, never importlib.reload: reload rebuilds PALETTES
@@ -459,8 +460,9 @@ class TestBootstrapTheme:
     """Tests for styles.bootstrap_theme."""
 
     @pytest.fixture(autouse=True)
-    def setup_tk(self, tk_root) -> None:
-        self.root = tk_root
+    @staticmethod
+    def setup_tk(tk_root):
+        return tk_root
 
     def test_sets_theme_to_clam(self) -> None:
         from tkinter import ttk
@@ -475,8 +477,9 @@ class TestApplyStyles:
     """Tests for styles.apply_styles."""
 
     @pytest.fixture(autouse=True)
-    def setup_tk(self, tk_root) -> None:
-        self.root = tk_root
+    @staticmethod
+    def setup_tk(tk_root):
+        return tk_root
 
     def test_does_not_raise(self) -> None:
         from tkinter import ttk

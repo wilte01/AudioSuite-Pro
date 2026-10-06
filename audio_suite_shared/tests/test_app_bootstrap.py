@@ -250,35 +250,36 @@ class TestBootstrapToolApp:
     """Tests for the full bootstrap_tool_app function."""
 
     @pytest.fixture(autouse=True)
-    def setup_tk(self, tk_root) -> None:
-        self.root = tk_root
+    @staticmethod
+    def setup_tk(tk_root):
+        return tk_root
 
-    def test_returns_expected_tuple(self) -> None:
+    def test_returns_expected_tuple(self, setup_tk) -> None:
         from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 
         result = bootstrap_tool_app(
-            self.root, "Test App", "test_window_key", "test_logger"
+            setup_tk, "Test App", "test_window_key", "test_logger"
         )
         assert isinstance(result, tuple)
         assert len(result) == 2
 
-    def test_returns_error_logger_and_style(self) -> None:
+    def test_returns_error_logger_and_style(self, setup_tk) -> None:
         from audio_suite_shared.app_bootstrap import bootstrap_tool_app
         from audio_suite_shared.error_logger import ErrorLogger
 
         error_logger, style = bootstrap_tool_app(
-            self.root, "Test App", "test_window_key", "test_logger"
+            setup_tk, "Test App", "test_window_key", "test_logger"
         )
         assert isinstance(error_logger, ErrorLogger)
         from tkinter import ttk
 
         assert isinstance(style, ttk.Style)
 
-    def test_returns_none_style_when_apply_ttk_styles_false(self) -> None:
+    def test_returns_none_style_when_apply_ttk_styles_false(self, setup_tk) -> None:
         from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 
         _, style = bootstrap_tool_app(
-            self.root,
+            setup_tk,
             "Test App",
             "test_window_key",
             "test_logger",
@@ -286,11 +287,11 @@ class TestBootstrapToolApp:
         )
         assert style is None
 
-    def test_custom_dimensions(self) -> None:
+    def test_custom_dimensions(self, setup_tk) -> None:
         from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 
         error_logger, style = bootstrap_tool_app(
-            self.root,
+            setup_tk,
             "Size Test",
             "size_test_key",
             "size_logger",
@@ -299,16 +300,16 @@ class TestBootstrapToolApp:
         )
         assert error_logger is not None
 
-    def test_root_title_set(self) -> None:
+    def test_root_title_set(self, setup_tk) -> None:
         from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 
-        bootstrap_tool_app(self.root, "My Custom Title", "title_key", "title_logger")
-        assert self.root.title() == "My Custom Title"
+        bootstrap_tool_app(setup_tk, "My Custom Title", "title_key", "title_logger")
+        assert setup_tk.title() == "My Custom Title"
 
-    def test_tk_callback_exception_logged_with_traceback(self) -> None:
+    def test_tk_callback_exception_logged_with_traceback(self, setup_tk) -> None:
         from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 
-        bootstrap_tool_app(self.root, "TkHook", "tkhook_key", "tkhook_logger")
+        bootstrap_tool_app(setup_tk, "TkHook", "tkhook_key", "tkhook_logger")
 
         handler = _ListHandler()
         lg = logging.getLogger("audio_suite")
@@ -317,8 +318,8 @@ class TestBootstrapToolApp:
             try:
                 raise ZeroDivisionError("tk_boom_sentinel")
             except ZeroDivisionError:
-                assert callable(self.root.report_callback_exception)
-                self.root.report_callback_exception(*sys.exc_info())  # type: ignore[misc]
+                assert callable(setup_tk.report_callback_exception)
+                setup_tk.report_callback_exception(*sys.exc_info())  # type: ignore[misc]
         finally:
             lg.removeHandler(handler)
 
@@ -338,16 +339,17 @@ class TestBaseSuiteApp:
     """Tests for the BaseSuiteApp class."""
 
     @pytest.fixture(autouse=True)
-    def setup_tk(self, tk_root) -> None:
-        self.root = tk_root
+    @staticmethod
+    def setup_tk(tk_root):
+        return tk_root
 
-    def test_initialization(self) -> None:
+    def test_initialization(self, setup_tk) -> None:
         from audio_suite_shared.app_bootstrap import BaseSuiteApp
 
         app = BaseSuiteApp(
-            self.root, "Suite App", "suite_key", "suite_logger", help_guide="guide.docx"
+            setup_tk, "Suite App", "suite_key", "suite_logger", help_guide="guide.docx"
         )
-        assert app.root is self.root
+        assert app.root is setup_tk
         assert app.help_guide == "guide.docx"
         assert app.num_workers == 4
         assert app.error_logger is not None
@@ -357,11 +359,11 @@ class TestBaseSuiteApp:
         assert len(app.slot_vars) == 4
         assert app.cli_handler is not None
 
-    def test_custom_worker_count(self) -> None:
+    def test_custom_worker_count(self, setup_tk) -> None:
         from audio_suite_shared.app_bootstrap import BaseSuiteApp
 
         app = BaseSuiteApp(
-            self.root,
+            setup_tk,
             "Workers Test",
             "workers_key",
             "workers_logger",
@@ -370,11 +372,11 @@ class TestBaseSuiteApp:
         assert app.num_workers == 8
         assert len(app.slot_vars) == 8
 
-    def test_slot_queue_initialized(self) -> None:
+    def test_slot_queue_initialized(self, setup_tk) -> None:
         from audio_suite_shared.app_bootstrap import BaseSuiteApp
 
         app = BaseSuiteApp(
-            self.root,
+            setup_tk,
             "Queue Test",
             "queue_key",
             "queue_logger",
@@ -384,20 +386,20 @@ class TestBaseSuiteApp:
         for i in range(3):
             assert app.slot_queue.get() == i
 
-    def test_open_help_no_guide_does_not_raise(self) -> None:
+    def test_open_help_no_guide_does_not_raise(self, setup_tk) -> None:
         from audio_suite_shared.app_bootstrap import BaseSuiteApp
 
         app = BaseSuiteApp(
-            self.root, "NoHelp", "nohelp_key", "nohelp_logger", help_guide=""
+            setup_tk, "NoHelp", "nohelp_key", "nohelp_logger", help_guide=""
         )
         # Must not raise
         app._open_help()
 
-    def test_open_log_does_not_raise(self, monkeypatch) -> None:
+    def test_open_log_does_not_raise(self, setup_tk, monkeypatch) -> None:
         from audio_suite_shared.app_bootstrap import BaseSuiteApp
 
         app = BaseSuiteApp(
-            self.root, "LogTest", "log_key", "log_logger", help_guide="guide.docx"
+            setup_tk, "LogTest", "log_key", "log_logger", help_guide="guide.docx"
         )
         monkeypatch.setattr(
             "audio_suite_shared.ui_helpers.messagebox.showinfo", lambda *a, **kw: None

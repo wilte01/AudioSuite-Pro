@@ -111,7 +111,8 @@ class TestStandalonePanelState:
     """Standalone: Mode/Auto End editable, Auto Start + driver-only inert."""
 
     @pytest.fixture
-    def panel(self, root):
+    @staticmethod
+    def panel(root):
         _, controls, _ = _build(root, driver_locked=False)
         return controls["controls_panel"]
 
@@ -137,7 +138,8 @@ class TestDrivenPanelState:
     """Driver launch: inherited values visible but fully locked."""
 
     @pytest.fixture
-    def panel(self, root):
+    @staticmethod
+    def panel(root):
         _, controls, _ = _build(root, driver_locked=True)
         return controls["controls_panel"]
 

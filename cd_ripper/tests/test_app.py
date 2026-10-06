@@ -11,8 +11,9 @@ class TestAppConstructionAndTabFlowD3:
     """Stage 3 / D3 (audit A4): the full CD Ripper window builds; the two
     notebook-unlocking callbacks execute against the real tabs."""
 
+    @staticmethod
     @pytest.fixture()
-    def app_root(self, root: tk.Tk) -> Any:
+    def app_root(root: tk.Tk) -> Any:
         top = tk.Toplevel(root)
         top.withdraw()
         try:

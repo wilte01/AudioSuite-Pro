@@ -33,8 +33,9 @@ from audio_suite_shared.security.error_handler import SecureErrorHandler
 
 
 class TestSecureErrorHandler:
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def reset_debug(self):
+    def reset_debug():
         original = SecureErrorHandler._show_details
         yield
         SecureErrorHandler._show_details = original
@@ -332,8 +333,9 @@ class TestGetRecoveryAction:
 
 
 class TestResourceManager:
+    @staticmethod
     @pytest.fixture
-    def mgr(self):
+    def mgr():
         return ResourceManager()
 
     # ── register / unregister ─────────────────────────────────────────────────

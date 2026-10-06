@@ -44,8 +44,9 @@ from audio_enhancer.core.models import JobStatus, ProcessingResult
 class TestOnCompleteLogFormatting:
     """_on_complete() constructs correct log lines and updates UI."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self, tmp_path: Path) -> AudioEnhancerApp:
+    def app(tmp_path: Path) -> AudioEnhancerApp:
         """Create an AudioEnhancerApp with mocked Tk root for test isolation."""
         root = MagicMock()
         scheduled: list = []
@@ -327,8 +328,9 @@ def _audition_caption(root: Any) -> str:
 class TestStartProcessingOutputResolution:
     """start_processing() resolves the output directory correctly."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> AudioEnhancerApp:
+    def app() -> AudioEnhancerApp:
         app = object.__new__(AudioEnhancerApp)
         app.root = MagicMock()
         app.source_path = MagicMock()

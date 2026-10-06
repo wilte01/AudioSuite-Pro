@@ -58,8 +58,9 @@ def _audition_caption(root: Any) -> str:
 class TestOnComplete:
     """_on_complete() updates UI labels, time, and switches to Results tab."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> PopClickRemoverApp:
+    def app() -> PopClickRemoverApp:
         root = MagicMock()
         app = object.__new__(PopClickRemoverApp)
         app.root = root
@@ -227,8 +228,9 @@ class TestOnComplete:
 class TestCollectSettings:
     """_collect_settings() reads Tk variable values into a dict."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> PopClickRemoverApp:
+    def app() -> PopClickRemoverApp:
         app = object.__new__(PopClickRemoverApp)
         app.sensitivity = MagicMock()
         app.sensitivity.get.return_value = 0.31
@@ -260,8 +262,9 @@ class TestCollectSettings:
 class TestApplyPreset:
     """_apply_preset() writes preset values back to Tk variables."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> PopClickRemoverApp:
+    def app() -> PopClickRemoverApp:
         app = object.__new__(PopClickRemoverApp)
         app.sensitivity = MagicMock()
         app.max_width = MagicMock()
@@ -296,8 +299,9 @@ class TestApplyPreset:
 class TestOnError:
     """_on_error() shows error dialog and re-enables start button."""
 
+    @staticmethod
     @pytest.fixture
-    def app(self) -> PopClickRemoverApp:
+    def app() -> PopClickRemoverApp:
         app = object.__new__(PopClickRemoverApp)
         app.start_btn = MagicMock()
         return app
