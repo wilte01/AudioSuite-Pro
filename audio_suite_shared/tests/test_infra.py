@@ -36,19 +36,22 @@ class TestSecureErrorHandler:
     @staticmethod
     @pytest.fixture(autouse=True)
     def reset_debug():
-        original = SecureErrorHandler._show_details
+        original = os.environ.get("AUDIOSUITE_DEBUG", "")
         yield
-        SecureErrorHandler._show_details = original
+        if original:
+            os.environ["AUDIOSUITE_DEBUG"] = original
+        else:
+            os.environ.pop("AUDIOSUITE_DEBUG", None)
 
     # ── set_debug_mode ────────────────────────────────────────────────────────
 
     def test_set_debug_true_enables_details(self):
         SecureErrorHandler.set_debug_mode(True)
-        assert SecureErrorHandler._show_details is True
+        assert SecureErrorHandler._is_debug() is True
 
     def test_set_debug_false_disables_details(self):
         SecureErrorHandler.set_debug_mode(False)
-        assert SecureErrorHandler._show_details is False
+        assert SecureErrorHandler._is_debug() is False
 
     def test_set_debug_updates_env_var(self):
         SecureErrorHandler.set_debug_mode(True)

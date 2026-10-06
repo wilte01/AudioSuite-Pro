@@ -155,11 +155,6 @@ def _build_enrich_tool_args(
                 if state.fingerprinter_mbid_region.get()
                 else []
             )
-            + (
-                ["--api-key", state.fingerprinter_api_key.get()]
-                if state.fingerprinter_api_key.get()
-                else []
-            )
         ),
         "mood_analyzer": lambda: _build_mood_analyzer_args(
             path, mode_flag, start_flag, end_flag, state
@@ -687,3 +682,19 @@ def _build_cd_ripper_args(state: AppState) -> list[str]:
         args.append("--cue")
     args += _driver_display_flags(state.util_clear_logs_var, state.parallel_var)
     return args
+
+
+def get_fingerprinter_api_key_env(state: AppState) -> dict[str, dict[str, str]]:
+    """Return the AcoustID API key as a tool_id→env-var mapping.
+
+    The API key is passed to the fingerprinter subprocess via the
+    ``ACOUSTID_API_KEY`` environment variable rather than a ``--api-key``
+    command-line argument, so it is not exposed to local process listing
+    (``GetCommandLine``).  The fingerprinter CLI resolves
+    ``ACOUSTID_API_KEY`` via ``load_api_key()`` before falling back to
+    the stored config value.
+    """
+    key = state.fingerprinter_api_key.get()
+    if key:
+        return {"fingerprinter": {"ACOUSTID_API_KEY": key}}
+    return {}

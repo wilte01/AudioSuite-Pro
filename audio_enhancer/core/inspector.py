@@ -10,11 +10,8 @@ from pathlib import Path
 
 try:
     from mutagen import MutagenError
-    # mutagen is a declared hard dependency (pyproject [project.dependencies]);
-    # this fallback exists only to keep the module importable in an incomplete
-    # env, so it cannot run in a correctly installed suite (plan D2).
 except ImportError:  # pragma: no cover
-    MutagenError = Exception  # type: ignore[misc,assignment]
+    from audio_suite_shared.exceptions import MutagenError  # type: ignore[assignment]
 
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 

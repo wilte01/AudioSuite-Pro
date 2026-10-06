@@ -8,6 +8,7 @@ Tab layout:
   SETTINGS — Settings
 """
 
+import logging
 import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -31,6 +32,8 @@ from .tool_launcher import (
 )
 from .ui import enrich_tab, refinery_tab, settings_tab, utilities_window
 from .ui_panels import build_control_strip, build_header, build_sidebar
+
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 _ACCENT_POLL_MS = 2000
 
@@ -140,7 +143,13 @@ class AudioSuiteDriver(UIHelperMixin):
                             if isinstance(child, tk.Label):
                                 child.configure(bg=main_col)
                 except tk.TclError:
-                    pass
+                    # Some widgets (e.g. ttk separators, themed frames) don't
+                    # support background colour — log at DEBUG so the skip is
+                    # visible when investigating theme issues, but never warn.
+                    logger.debug(
+                        "Widget %s does not support bg configuration",
+                        type(widget).__name__,
+                    )
 
         tab = self._active_tab
         self._btn_refine.config(

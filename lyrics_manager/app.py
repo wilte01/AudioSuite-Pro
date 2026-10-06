@@ -24,6 +24,7 @@ from audio_suite_shared.cli_helpers import (
     UniversalCLIHandler as UniversalCLIHandler,
 )
 from audio_suite_shared.exceptions import (
+    AudioConfigurationError,
     handle_audio_errors,
     map_to_audio_error,
     user_message_for,
@@ -115,7 +116,11 @@ class LyricsManagerApp(AnalysisTagToolApp):
 
         # ── Build UI ──────────────────────────────────────────────────────────
         self._build_ui()
-        assert self._refresh_preset_list is not None
+        if self._refresh_preset_list is None:
+            raise AudioConfigurationError(
+                "Lyrics Manager UI initialisation failed: "
+                "_refresh_preset_list was not wired by _build_ui()"
+            )
         self._refresh_preset_list()
 
         # ── Apply CLI arguments ───────────────────────────────────────────────

@@ -31,13 +31,20 @@ class SecureErrorHandler:
     module logger.  When ``AUDIOSUITE_DEBUG=1`` is set in the environment the raw
     exception detail is returned instead of the sanitised message, which is
     useful during development.
+
+    The debug-mode flag is evaluated per-call (not at import time) so that
+    ``set_debug_mode()`` or environment changes are picked up immediately,
+    matching ``exceptions.user_message_for()``'s behaviour.
     """
 
-    _show_details: bool = os.environ.get("AUDIOSUITE_DEBUG", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
+    @classmethod
+    def _is_debug(cls) -> bool:
+        """Return True if debug mode is active (per-call env check)."""
+        return os.environ.get("AUDIOSUITE_DEBUG", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
 
     @classmethod
     def handle_error(
@@ -60,7 +67,7 @@ class SecureErrorHandler:
         _logger.error("Error in %s: %s", context, error, exc_info=True)
 
         if show_details is None:
-            show_details = cls._show_details
+            show_details = cls._is_debug()
         if show_details:
             return f"Error in {context}: {str(error)}"
 
@@ -81,7 +88,7 @@ class SecureErrorHandler:
         """
         _logger.error("File error with %s: %s", file_path, error, exc_info=True)
 
-        if cls._show_details:
+        if cls._is_debug():
             return f"File error with {os.path.basename(file_path)}: {str(error)}"
 
         mapped = map_to_audio_error(error, context={"path": file_path})
@@ -102,7 +109,7 @@ class SecureErrorHandler:
         """
         _logger.error("Network error with %s: %s", service, error, exc_info=True)
 
-        if cls._show_details:
+        if cls._is_debug():
             return f"Network error with {service}: {str(error)}"
 
         if service:
@@ -128,7 +135,7 @@ class SecureErrorHandler:
         """
         _logger.error("API error with %s: %s", api_name, error, exc_info=True)
 
-        if cls._show_details:
+        if cls._is_debug():
             return f"API error with {api_name}: {str(error)}"
 
         error_str = str(error)
@@ -157,7 +164,7 @@ class SecureErrorHandler:
         """
         _logger.error("Processing error with %s: %s", file_name, error, exc_info=True)
 
-        if cls._show_details:
+        if cls._is_debug():
             return f"Processing error with {file_name}: {str(error)}"
 
         mapped = map_to_audio_error(error, context={"file": file_name})
@@ -176,7 +183,7 @@ class SecureErrorHandler:
         """
         _logger.error("Config error with %s: %s", config_file, error, exc_info=True)
 
-        if cls._show_details:
+        if cls._is_debug():
             return f"Configuration error in {config_file}: {str(error)}"
 
         mapped = map_to_audio_error(error, context={"config_file": config_file})
@@ -186,11 +193,11 @@ class SecureErrorHandler:
     def set_debug_mode(cls, debug: bool) -> None:
         """Toggle debug mode, controlling whether raw error detail is exposed.
 
-        Also sets the ``AUDIOSUITE_DEBUG`` environment variable so that
-        sub-processes and ``user_message_for()`` inherit the same setting.
+        Sets the ``AUDIOSUITE_DEBUG`` environment variable so that
+        ``_is_debug()`` and ``user_message_for()`` pick up the change
+        on the next call (no import-time evaluation).
 
         Args:
             debug: ``True`` to enable raw error output; ``False`` to sanitise.
         """
-        cls._show_details = debug
         os.environ["AUDIOSUITE_DEBUG"] = "1" if debug else "0"

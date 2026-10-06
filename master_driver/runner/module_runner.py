@@ -65,7 +65,7 @@ def _suite_root() -> str:
 
 
 def run_modules(
-    module_specs: Sequence[tuple[Any, ToolManifest, list[str]]],
+    module_specs: Sequence[tuple[Any, ToolManifest, list[str], dict[str, str] | None]],
     clear_logs: bool,
     dir_path: str,
     on_start: Callable[[], None],
@@ -96,11 +96,12 @@ def run_modules(
     root = _suite_root()
 
     # ── Extract the active specs into a flat list ──────────────────────────
-    specs: list[tuple[ToolManifest, list[str], Any]] = []
+    specs: list[tuple[ToolManifest, list[str], Any, dict[str, str] | None]] = []
     for item in module_specs:
         enabled = item[0]
         spec = item[1]
         args = item[2] if len(item) > 2 else []
+        env = item[3] if len(item) > 3 else None
 
         # The launcher resolved every toggle on the main thread, so the common
         # path is a plain bool. A Tk variable is accepted for direct callers.
@@ -119,7 +120,7 @@ def run_modules(
                 )
             continue
 
-        specs.append((manifest, args, enabled))
+        specs.append((manifest, args, enabled, env))
 
     # ═══════════════════════════════════════════════════════════════════════
     # Dispatch: both modes delegate to BatchOrchestrator.
@@ -150,7 +151,7 @@ def run_modules(
 
 
 def _run_modules_sequential(
-    specs: list[tuple[ToolManifest, list[str], object]],
+    specs: list[tuple[ToolManifest, list[str], object, dict[str, str] | None]],
     root: str,
     on_error: Optional[Callable[[str, str], None]],
     on_complete: Callable[[int], None],
@@ -165,13 +166,14 @@ def _run_modules_sequential(
     owns the execution loop, retry logic, and progress emission.
     """
     steps: list[BatchStep] = []
-    for manifest, args, _toggle in specs:
+    for manifest, args, _toggle, env in specs:
         step = BatchStep.from_spec(
             tool_id=manifest.id,
             manifest=manifest,
             args=args,
             suite_root=root,
         )
+        step.env = env
         steps.append(step)
 
     orchestrator = BatchOrchestrator(steps)
@@ -197,7 +199,7 @@ def _run_modules_sequential(
 
 
 def _run_modules_parallel(
-    specs: list[tuple[ToolManifest, list[str], object]],
+    specs: list[tuple[ToolManifest, list[str], object, dict[str, str] | None]],
     root: str,
     on_error: Optional[Callable[[str, str], None]],
     on_complete: Callable[[int], None],
@@ -209,13 +211,14 @@ def _run_modules_parallel(
 ) -> None:
     """Parallel execution via BatchOrchestrator with dependency graph."""
     steps: list[BatchStep] = []
-    for manifest, args, _toggle in specs:
+    for manifest, args, _toggle, env in specs:
         step = BatchStep.from_spec(
             tool_id=manifest.id,
             manifest=manifest,
             args=args,
             suite_root=root,
         )
+        step.env = env
         steps.append(step)
 
     orchestrator = BatchOrchestrator(steps)

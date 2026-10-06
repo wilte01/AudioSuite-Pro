@@ -402,7 +402,7 @@ class TestArgvBuiltOnMainThread:
 
     @staticmethod
     def _argv_of(specs) -> list[list[str]]:
-        return [list(args) for _, _, args in specs]
+        return [list(args) for _, _, args, *_ in specs]
 
     def test_enrich_argv_survives_state_edit_before_thread_start(
         self, state, launch_mocks, tmp_path
@@ -485,9 +485,9 @@ class TestArgvBuiltOnMainThread:
 
         specs = run_m.call_args.kwargs["module_specs"]
         assert specs, "build_utility_args returned no specs for the enabled registry"
-        assert all(type(enabled) is bool for enabled, _, _ in specs)
+        assert all(type(enabled) is bool for enabled, *_ in specs)
         converter = next(
-            args for _, manifest, args in specs if manifest.id == "converter"
+            args for _, manifest, args, *_ in specs if manifest.id == "converter"
         )
         assert converter, "the enabled converter tool contributed no argv"
         assert not any(type(arg) is tk.Variable for arg in converter)

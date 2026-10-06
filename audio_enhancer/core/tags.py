@@ -23,7 +23,8 @@ try:
     from mutagen import MutagenError
     from mutagen.id3 import ID3
 except ImportError:
-    MutagenError = Exception  # type: ignore[misc,assignment]
+    from audio_suite_shared.exceptions import MutagenError  # type: ignore[assignment]
+
     ID3 = None  # type: ignore[misc,assignment]
 
 logger = logging.getLogger(__name__)

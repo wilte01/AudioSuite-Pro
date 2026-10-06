@@ -266,6 +266,19 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
         ),
     ),
     PlatformBranch(
+        module="audio_suite_shared/suite_config.py",
+        source='if os.name == "nt":',
+        tier=WINDOWS_ONLY,
+        subsystem="Config file cross-process lock",
+        behaviour=(
+            "Windows uses msvcrt.locking for exclusive file locks; "
+            "every other platform uses fcntl.flock. Both arms are "
+            "implemented; the capability is available on all platforms."
+        ),
+        evidence="audio_suite_shared/tests/test_i1_robustness.py",
+        occurrences=2,
+    ),
+    PlatformBranch(
         module="audio_suite_shared/styles.py",
         source='if sys.platform != "win32":',
         tier=UNVERIFIED,

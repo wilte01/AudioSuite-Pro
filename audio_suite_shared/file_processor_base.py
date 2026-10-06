@@ -250,7 +250,28 @@ class BaseFileProcessor:
                 for name in files
             ]
             for f in futures:
-                f.result(timeout=WORKER_TIMEOUT_SECS)
+                try:
+                    f.result(timeout=WORKER_TIMEOUT_SECS)
+                except TimeoutError:
+                    logger.error(
+                        "Worker timed out after %ss in %s",
+                        WORKER_TIMEOUT_SECS,
+                        self.operation_type,
+                        exc_info=True,
+                    )
+                    with lock:
+                        _on_progress(
+                            n_skipped=0,
+                            n_errors=1,
+                            display_text=(
+                                f"[TIMEOUT] Worker timed out after"
+                                f" {WORKER_TIMEOUT_SECS}s"
+                            ),
+                            log_text=(
+                                f"[TIMEOUT] Worker timed out after"
+                                f" {WORKER_TIMEOUT_SECS}s\n"
+                            ),
+                        )
 
         on_complete(
             total=len(files),

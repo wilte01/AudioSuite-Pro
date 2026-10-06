@@ -101,7 +101,10 @@ def launch_refinery(
     # widget state, and an edit made while the batch is launching must not
     # change the run already in flight (audit H4). The thread receives the
     # finished spec list, not `state`.
-    specs = _resolved_specs(arg_builder.build_refinery_args(state, config))
+    specs = _resolved_specs(
+        arg_builder.build_refinery_args(state, config),
+        tool_env=arg_builder.get_fingerprinter_api_key_env(state),
+    )
 
     # Persist settings so standalone app stays in sync
     from .ui import refinery_tab
@@ -122,17 +125,29 @@ def launch_refinery(
 
 def _resolved_specs(
     specs: Sequence[tuple[Any, ToolManifest, list[str]]],
-) -> list[tuple[bool, ToolManifest, list[str]]]:
+    tool_env: dict[str, dict[str, str]] | None = None,
+) -> list[tuple[bool, ToolManifest, list[str], dict[str, str] | None]]:
     """Replace each toggle variable with its current value.
 
     Called on the main thread so the worker's spec list holds no Tk variable:
     ``run_modules`` then never calls ``.get()`` off-thread.
+
+    Args:
+        specs: Raw specs from the arg builder (toggle, manifest, args).
+        tool_env: Optional mapping of tool_id → env dict for subprocess
+            environment variables (e.g. the AcoustID API key).
+
+    Returns:
+        Resolved specs as (enabled, manifest, args, env) tuples.
     """
-    return [(bool(toggle.get()), manifest, args) for toggle, manifest, args in specs]
+    return [
+        (bool(toggle.get()), manifest, args, (tool_env or {}).get(manifest.id))
+        for toggle, manifest, args in specs
+    ]
 
 
 def _run_refinery(
-    specs: Sequence[tuple[bool, ToolManifest, list[str]]],
+    specs: Sequence[tuple[bool, ToolManifest, list[str], dict[str, str] | None]],
     refine_btn: tk.Button,
     root: tk.Tk,
     *,
@@ -205,7 +220,10 @@ def launch_enrich(
     snapshot_parallel = state.parallel_var.get()
 
     # Built on the main thread; the thread receives the finished list.
-    specs = _resolved_specs(arg_builder.build_enrich_args(state))
+    specs = _resolved_specs(
+        arg_builder.build_enrich_args(state),
+        tool_env=arg_builder.get_fingerprinter_api_key_env(state),
+    )
 
     _suite_config.save_last_directory(snapshot_dir)
     threading.Thread(
@@ -224,7 +242,7 @@ def launch_enrich(
 
 
 def _run_enrich(
-    specs: Sequence[tuple[bool, ToolManifest, list[str]]],
+    specs: Sequence[tuple[bool, ToolManifest, list[str], dict[str, str] | None]],
     run_btn: tk.Button,
     root: tk.Tk,
     *,
@@ -346,7 +364,7 @@ def launch_utility(
 
 
 def _run_utility_modules(
-    specs: Sequence[tuple[bool, ToolManifest, list[str]]],
+    specs: Sequence[tuple[bool, ToolManifest, list[str], dict[str, str] | None]],
     util_run_btn: tk.Button,
     root: tk.Tk,
     *,

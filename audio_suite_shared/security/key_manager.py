@@ -354,21 +354,35 @@ class KeyManager:
 
     def is_encrypted_value(self, value: Any) -> bool:
         """
-        Check if a value appears to be encrypted.
+        Check if a value appears to be a Fernet-encrypted token.
+
+        ``encrypt_string`` stores ``base64(fernet_token)`` where the Fernet
+        token itself is URL-safe base64 starting with ``'g'`` (the base64
+        encoding of version byte 0x80).  A plain base64 string (e.g. a raw
+        API key) will fail this check even if it is ≥44 bytes, preventing
+        the false positive that previously caused ``decrypt_string`` to
+        attempt decryption of plaintext and raise.
 
         Args:
             value: Value to check
 
         Returns:
-            bool: True if value appears to be encrypted
+            bool: True if value appears to be a Fernet-encrypted token
         """
         if not isinstance(value, str) or not value:
             return False
 
         try:
-            # Try to decode as base64 and check if it looks like encrypted data
             decoded = base64.b64decode(value.encode("utf-8"))
-            # Fernet encrypted data is typically at least 44 bytes long
-            return len(decoded) >= 44
+            # The outer base64 decode yields the Fernet token bytes, which
+            # are themselves URL-safe base64 starting with 'g' (version
+            # byte 0x80).  Verify both the prefix and a minimum length
+            # (1 version + 8 timestamp + 16 IV + 16 min ciphertext +
+            # 32 HMAC = 73 raw bytes, base64 to ≥96 chars).
+            if len(decoded) < 96 or decoded[0:1] != b"g":
+                return False
+            # Confirm the inner base64 decodes to a valid Fernet structure.
+            inner = base64.urlsafe_b64decode(decoded)
+            return len(inner) >= 73 and inner[0] == 0x80
         except (binascii.Error, ValueError):
             return False

@@ -560,6 +560,9 @@ class BatchUndoLog:
             A ``RevertResult`` summarising successes and failures.
         """
         conn = self._connect()
+        # Read outside self._lock: WAL mode allows concurrent reads while a
+        # writer holds the lock, so the SELECT sees the last committed state.
+        # The revert itself acquires self._lock for any writes it performs.
         rows = conn.execute(
             "SELECT record_id, file_path, operation, old_tags_snapshot, "
             "source_path, dest_path, file_action "
@@ -706,6 +709,9 @@ class BatchUndoLog:
             List of ``BatchInfo`` dataclasses.
         """
         conn = self._connect()
+        # Read outside self._lock: WAL mode allows concurrent reads while a
+        # writer holds the lock.  The ORDER BY rowid ensures newest-first
+        # without relying on datetime resolution (see _cleanup_old_batches).
         rows = conn.execute(
             "SELECT b.batch_id, b.tool_name, b.operation_type, b.created_at, "
             "COUNT(r.record_id) AS record_count "
@@ -737,6 +743,8 @@ class BatchUndoLog:
             List of ``UndoRecord`` dataclasses.
         """
         conn = self._connect()
+        # Read outside self._lock: WAL mode allows concurrent reads while a
+        # writer holds the lock, so the SELECT sees the last committed state.
         rows = conn.execute(
             "SELECT record_id, batch_id, file_path, operation, "
             "old_tags_snapshot, source_path, dest_path, file_action "

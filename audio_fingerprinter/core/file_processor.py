@@ -746,7 +746,7 @@ def run_fingerprinting(
             display_text=display_text,
         )
 
-    start = time.time()
+    start = time.monotonic()
     undo_batch = get_active_batch_id()
 
     jobs = [
@@ -814,7 +814,7 @@ def run_fingerprinting(
         processed=processed[0],
         skipped=counts["lookup_skipped"],
         errors=errors[0],
-        duration_secs=time.time() - start,
+        duration_secs=time.monotonic() - start,
         log_entries=log_entries,
         results=results,
         counts=counts,

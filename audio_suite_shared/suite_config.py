@@ -20,10 +20,12 @@ Keys currently used:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
 import threading
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -51,6 +53,49 @@ CONFIG_PATH = _SUITE_ROOT / "audio_suite_config.json"
 # per tool startup (one per load_* / save_* call).
 _config_cache: dict[str, Any] | None = None
 _cache_lock = threading.Lock()
+
+# Cross-process lock file path — sits next to the config file so it is
+# always on the same filesystem (required for reliable locking).
+_LOCK_PATH = CONFIG_PATH.with_suffix(".json.lock")
+
+
+@contextlib.contextmanager
+def _file_lock() -> Iterator[None]:
+    """Acquire an exclusive cross-process file lock around the config file.
+
+    Prevents the lost-update race when two tools launch simultaneously and
+    both do load→mutate→save.  Uses ``msvcrt.locking`` on Windows and
+    ``fcntl.flock`` on Unix.  The lock is released automatically when the
+    context manager exits (including on exceptions).
+    """
+    lock_fd: int | None = None
+    try:
+        # Open (or create) the lock file.  OOM / permission errors propagate
+        # to the caller so they don't silently lose the lock.
+        lock_fd = os.open(str(_LOCK_PATH), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(lock_fd, msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)  # type: ignore[attr-defined]
+        yield
+    finally:
+        if lock_fd is not None:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(lock_fd, msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)  # type: ignore[attr-defined]
+            except OSError:
+                pass
+            os.close(lock_fd)
 
 
 def _invalidate_cache() -> None:
@@ -187,9 +232,10 @@ def load_last_directory() -> str:
 
 def save_last_directory(path: str) -> None:
     """Persist the last-used directory, preserving other keys."""
-    data = _load()
-    data["last_directory"] = path
-    _save(data)
+    with _file_lock():
+        data = _load()
+        data["last_directory"] = path
+        _save(data)
 
 
 def load_palette() -> str:
@@ -199,9 +245,10 @@ def load_palette() -> str:
 
 def save_palette(name: str) -> None:
     """Persist the chosen palette name, preserving other keys."""
-    data = _load()
-    data["palette"] = name
-    _save(data)
+    with _file_lock():
+        data = _load()
+        data["palette"] = name
+        _save(data)
 
 
 def load_theme_mode() -> str:
@@ -211,9 +258,10 @@ def load_theme_mode() -> str:
 
 def save_theme_mode(mode: str) -> None:
     """Persist the chosen theme mode, preserving other keys."""
-    data = _load()
-    data["theme_mode"] = mode
-    _save(data)
+    with _file_lock():
+        data = _load()
+        data["theme_mode"] = mode
+        _save(data)
 
 
 def load_font_family() -> str:
@@ -223,9 +271,10 @@ def load_font_family() -> str:
 
 def save_font_family(family: str) -> None:
     """Persist the chosen font family name, preserving other keys."""
-    data = _load()
-    data["font_family"] = family
-    _save(data)
+    with _file_lock():
+        data = _load()
+        data["font_family"] = family
+        _save(data)
 
 
 def load_font_sizes() -> dict[str, int]:
@@ -249,9 +298,10 @@ def load_font_sizes() -> dict[str, int]:
 
 
 def save_font_sizes(sizes: dict[str, int]) -> None:
-    data = _load()
-    data["font_sizes"] = sizes
-    _save(data)
+    with _file_lock():
+        data = _load()
+        data["font_sizes"] = sizes
+        _save(data)
 
 
 def load_value(key: str, default: object = None) -> object:
@@ -261,9 +311,10 @@ def load_value(key: str, default: object = None) -> object:
 
 def save_value(key: str, value: object) -> None:
     """Persist an arbitrary value under key, preserving other keys."""
-    data = _load()
-    data[key] = value
-    _save(data)
+    with _file_lock():
+        data = _load()
+        data[key] = value
+        _save(data)
 
 
 # ── Presets ──────────────────────────────────────────────────────────────────
@@ -277,11 +328,12 @@ def save_value(key: str, value: object) -> None:
 
 def save_preset(tool_id: str, name: str, settings: dict[str, Any]) -> None:
     """Save a named preset for a tool, preserving other presets."""
-    data = _load()
-    presets: dict[str, Any] = data.setdefault("presets", {})
-    tool_presets: dict[str, Any] = presets.setdefault(tool_id, {})
-    tool_presets[name] = settings
-    _save(data)
+    with _file_lock():
+        data = _load()
+        presets: dict[str, Any] = data.setdefault("presets", {})
+        tool_presets: dict[str, Any] = presets.setdefault(tool_id, {})
+        tool_presets[name] = settings
+        _save(data)
 
 
 def load_preset(tool_id: str, name: str) -> dict[str, Any] | None:
@@ -302,11 +354,12 @@ def list_presets(tool_id: str) -> list[str]:
 
 def delete_preset(tool_id: str, name: str) -> None:
     """Delete a named preset for a tool."""
-    data = _load()
-    presets: dict[str, Any] = data.get("presets", {})
-    tool_presets: dict[str, Any] = presets.get(tool_id, {})
-    tool_presets.pop(name, None)
-    _save(data)
+    with _file_lock():
+        data = _load()
+        presets: dict[str, Any] = data.get("presets", {})
+        tool_presets: dict[str, Any] = presets.get(tool_id, {})
+        tool_presets.pop(name, None)
+        _save(data)
 
 
 def load_window_geometry(tool_id: str) -> str:
@@ -328,14 +381,15 @@ def save_window_geometry(tool_id: str, geometry: str) -> None:
 
 def save_tool_duration(tool_id: str, duration_seconds: float) -> None:
     """Append a run duration for a tool, keeping at most 10 entries."""
-    data = _load()
-    durations: dict[str, Any] = data.setdefault("tool_durations", {})
-    history: list[float] = durations.setdefault(tool_id, [])
-    history.append(duration_seconds)
-    # Keep only the last N runs
-    if len(history) > MAX_DURATION_HISTORY:
-        history[:] = history[-MAX_DURATION_HISTORY:]
-    _save(data)
+    with _file_lock():
+        data = _load()
+        durations: dict[str, Any] = data.setdefault("tool_durations", {})
+        history: list[float] = durations.setdefault(tool_id, [])
+        history.append(duration_seconds)
+        # Keep only the last N runs
+        if len(history) > MAX_DURATION_HISTORY:
+            history[:] = history[-MAX_DURATION_HISTORY:]
+        _save(data)
 
 
 def load_tool_durations(tool_id: str) -> list[float]:
@@ -399,28 +453,29 @@ def save_app_state(state: AppState) -> None:
     Saves last_directory, palette, theme_mode, font_family, and font_sizes
     from AppState without dropping keys managed by other tools.
     """
-    data = _load()
-    try:
-        data["last_directory"] = getattr(state, "dir_path").get()
-    except AttributeError as exc:
-        _logger.debug("save_app_state: dir_path not available: %s", exc)
-    try:
-        data["palette"] = getattr(state, "palette_var").get()
-    except AttributeError as exc:
-        _logger.debug("save_app_state: palette_var not available: %s", exc)
-    try:
-        data["font_family"] = getattr(state, "font_family_var").get()
-    except AttributeError as exc:
-        _logger.debug("save_app_state: font_family_var not available: %s", exc)
-    try:
-        data["theme_mode"] = getattr(state, "theme_mode_var").get()
-    except AttributeError as exc:
-        _logger.debug("save_app_state: theme_mode_var not available: %s", exc)
-    try:
-        saved_sizes: dict[str, int] = {}
-        for k, var in getattr(state, "font_sizes_vars").items():
-            saved_sizes[k] = var.get()
-        data["font_sizes"] = saved_sizes
-    except AttributeError as exc:
-        _logger.debug("save_app_state: font_sizes_vars not available: %s", exc)
-    _save(data)
+    with _file_lock():
+        data = _load()
+        try:
+            data["last_directory"] = getattr(state, "dir_path").get()
+        except AttributeError as exc:
+            _logger.debug("save_app_state: dir_path not available: %s", exc)
+        try:
+            data["palette"] = getattr(state, "palette_var").get()
+        except AttributeError as exc:
+            _logger.debug("save_app_state: palette_var not available: %s", exc)
+        try:
+            data["font_family"] = getattr(state, "font_family_var").get()
+        except AttributeError as exc:
+            _logger.debug("save_app_state: font_family_var not available: %s", exc)
+        try:
+            data["theme_mode"] = getattr(state, "theme_mode_var").get()
+        except AttributeError as exc:
+            _logger.debug("save_app_state: theme_mode_var not available: %s", exc)
+        try:
+            saved_sizes: dict[str, int] = {}
+            for k, var in getattr(state, "font_sizes_vars").items():
+                saved_sizes[k] = var.get()
+            data["font_sizes"] = saved_sizes
+        except AttributeError as exc:
+            _logger.debug("save_app_state: font_sizes_vars not available: %s", exc)
+        _save(data)

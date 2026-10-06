@@ -124,11 +124,17 @@ class TestEncryptDecryptString:
             km2.decrypt_string(encrypted)
 
     def test_corrupt_base64_raises(self, km):
-        """Corrupt data that decodes but isn't valid Fernet should raise."""
-        # Manufacture something that looks like base64 but isn't valid Fernet
-        fake = base64.b64encode(b"x" * 50).decode("utf-8")
+        """Corrupt data that looks like Fernet but isn't valid should raise."""
+        from cryptography.fernet import Fernet as _Fernet
+
+        # Create a valid-looking Fernet token with a *different* key, then
+        # double-base64 encode it (matching encrypt_string's format).
+        other_key = _Fernet.generate_key()
+        other_fernet = _Fernet(other_key)
+        valid_token = other_fernet.encrypt(b"data")
+        double_encoded = base64.b64encode(valid_token).decode("utf-8")
         with pytest.raises(AudioProcessingError, match="Failed to decrypt"):
-            km.decrypt_string(fake)
+            km.decrypt_string(double_encoded)
 
 
 # ── encrypt_config / decrypt_config ──────────────────────────────────────────
@@ -209,9 +215,10 @@ class TestIsEncryptedValue:
         short_b64 = base64.b64encode(b"x" * 43).decode()
         assert km.is_encrypted_value(short_b64) is False
 
-    def test_long_base64_returns_true(self, km):
+    def test_long_base64_returns_false(self, km):
+        """Plain base64 (not a Fernet token) must NOT be detected as encrypted."""
         long_b64 = base64.b64encode(b"x" * 100).decode()
-        assert km.is_encrypted_value(long_b64) is True
+        assert km.is_encrypted_value(long_b64) is False
 
 
 # ── Corrupt key file recovery ─────────────────────────────────────────────────
@@ -575,9 +582,16 @@ class TestUnrecoverableValuesAreExplained:
 
     def test_decrypt_message_is_unchanged_without_regeneration(self, km):
         """The added context must not appear on an ordinary bad-value error."""
+        from cryptography.fernet import Fernet as _Fernet
+
         km._key_regenerated = False
+        # Create a valid-looking token encrypted with a different key.
+        other_key = _Fernet.generate_key()
+        other_fernet = _Fernet(other_key)
+        valid_token = other_fernet.encrypt(b"data")
+        double_encoded = base64.b64encode(valid_token).decode("ascii")
         with pytest.raises(AudioProcessingError) as exc:
-            km.decrypt_string(base64.b64encode(b"x" * 80).decode("ascii"))
+            km.decrypt_string(double_encoded)
         assert str(exc.value) == "Failed to decrypt configuration value"
 
     def test_unreadable_key_file_still_surfaces_the_consequence(self, tmp_path, caplog):

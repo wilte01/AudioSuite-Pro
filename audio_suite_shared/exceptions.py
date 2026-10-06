@@ -219,6 +219,18 @@ class AudioAnalysisError(AudioProcessingError):
     """
 
 
+class MutagenError(AudioProcessingError):
+    """Fallback ``MutagenError`` for environments without mutagen.
+
+    When mutagen is installed the real ``mutagen.MutagenError`` is used
+    directly; this class exists only so that ``except MutagenError`` in
+    modules that define a local fallback never degrades to
+    ``except Exception``.  It subclasses :class:`AudioProcessingError`
+    so the suite's error-handling hierarchy is maintained regardless of
+    whether mutagen is present.
+    """
+
+
 # ── 1c. Configuration Errors ─────────────────────────────────────────────────
 
 

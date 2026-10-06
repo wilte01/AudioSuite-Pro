@@ -10,10 +10,12 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Optional
 
+from audio_suite_shared.exceptions import AudioSuiteError
 from audio_suite_shared.subprocess_utils import creation_flags, get_startupinfo
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
@@ -61,7 +63,7 @@ ALLOWED_SCRIPT_EXTENSIONS = {".py", ".pyw"}
 DANGEROUS_CHARS = {";", "|", "`", "<", ">", '"'}
 
 
-class SubprocessSecurityError(Exception):
+class SubprocessSecurityError(AudioSuiteError):
     """Raised when subprocess security validation fails."""
 
 
@@ -386,6 +388,7 @@ def run_python_script(
     *,
     line_callback: Callable[[str], None] | None = None,
     timeout: int | None = None,
+    env: dict[str, str] | None = None,
     **kwargs: Any,
 ) -> subprocess.CompletedProcess[str]:
     """
@@ -402,6 +405,8 @@ def run_python_script(
         args: Arguments to pass to the script
         line_callback: Optional callback invoked for each output line
         timeout: Optional timeout in seconds
+        env: Optional extra environment variables.  Merged with the current
+            process environment (caller's values take precedence).
         **kwargs: Additional arguments for run_secure_subprocess
 
     Returns:
@@ -409,8 +414,16 @@ def run_python_script(
         via ``returncode`` rather than raised, so callers can render per-module
         error dialogs; pass ``check=True`` explicitly to restore raising.
     """
+    # Merge caller-provided env with the current process environment so that
+    # secrets (e.g. the AcoustID API key) are not exposed on the command line.
+    merged_env: dict[str, str] | None = None
+    if env is not None:
+        merged_env = {**os.environ, **env}
+
     if line_callback is None:
         kwargs.setdefault("check", False)
+        if merged_env is not None:
+            kwargs["env"] = merged_env
         return run_secure_subprocess(
             sys.executable, [script_path] + args, timeout=timeout, **kwargs
         )
@@ -423,6 +436,7 @@ def run_python_script(
     logger.info("Executing (line callback): %s ... (args: %d)", script_path, len(args))
 
     stdout_lines: list[str] = []
+    timed_out = False
 
     try:
         with subprocess.Popen(
@@ -432,15 +446,42 @@ def run_python_script(
             text=True,
             bufsize=1,
             creationflags=creation_flags(),
+            env=merged_env,
         ) as proc:
-            if proc.stdout is not None:
-                for line in proc.stdout:
-                    stripped = line.rstrip("\n\r")
-                    stdout_lines.append(stripped)
-                    if line_callback is not None:
-                        line_callback(stripped)
+            # Start a background timer that kills the process if the
+            # timeout expires.  This is necessary because the line-by-line
+            # read loop blocks on I/O — a silent child that never writes
+            # would block the caller indefinitely without the timer.
+            timer: threading.Timer | None = None
+            if timeout is not None:
 
-            proc.wait(timeout=timeout)
+                def _kill() -> None:
+                    nonlocal timed_out
+                    timed_out = True
+                    proc.kill()
+
+                timer = threading.Timer(timeout, _kill)
+                timer.daemon = True
+                timer.start()
+
+            try:
+                if proc.stdout is not None:
+                    for line in proc.stdout:
+                        stripped = line.rstrip("\n\r")
+                        stdout_lines.append(stripped)
+                        if line_callback is not None:
+                            line_callback(stripped)
+
+                proc.wait(timeout=timeout)
+            finally:
+                if timer is not None:
+                    timer.cancel()
+
+            if timed_out:
+                assert timeout is not None
+                raise subprocess.TimeoutExpired(
+                    cmd, timeout, output="\n".join(stdout_lines)
+                )
 
         combined = "\n".join(stdout_lines)
         completed = subprocess.CompletedProcess(

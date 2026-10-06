@@ -55,6 +55,7 @@ class BatchStep:
     manifest: ToolManifest
     script_path: str
     args: list[str]
+    env: dict[str, str] | None = None
     status: StepStatus = StepStatus.PENDING
     start_time: float | None = None
     end_time: float | None = None
@@ -471,6 +472,7 @@ class BatchOrchestrator:
                 result = run_python_script(
                     step.script_path,
                     step.args,
+                    env=step.env,
                 )
                 step.exit_code = result.returncode
                 if result.returncode == 0:

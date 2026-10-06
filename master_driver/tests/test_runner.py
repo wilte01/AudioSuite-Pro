@@ -25,6 +25,7 @@ from master_driver.runner.arg_builder import (
     build_enrich_args,
     build_refinery_args,
     build_utility_args,
+    get_fingerprinter_api_key_env,
 )
 from master_driver.runner.module_runner import (
     _clear_logs,
@@ -507,8 +508,11 @@ class TestBuildEnrichArgs:
         fp_entry = next(e for e in args_list if "Audio Fingerprinter" in e[1].name)
         assert "--fpcalc" in fp_entry[2]
         assert "/opt/bin/fpcalc" in fp_entry[2]
-        assert "--api-key" in fp_entry[2]
-        assert "test-key" in fp_entry[2]
+        # --api-key must NOT be in argv (exposes the key to process listing).
+        # Instead, the key is passed via ACOUSTID_API_KEY env var.
+        assert "--api-key" not in fp_entry[2]
+        env = get_fingerprinter_api_key_env(state)
+        assert env["fingerprinter"]["ACOUSTID_API_KEY"] == "test-key"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
