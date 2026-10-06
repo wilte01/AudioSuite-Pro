@@ -460,6 +460,13 @@ def build_refinery_args(
     return [(always_on, manifest, args)]
 
 
+def _base_tokens(
+    path: str, mode_flag: str, start_flag: str, end_flag: str
+) -> list[str]:
+    """Return the positional prefix shared by most enrich/utility tools."""
+    return [path, "0", mode_flag, start_flag, end_flag]
+
+
 def _build_bpm_args(
     path: str,
     mode_flag: str,
@@ -467,19 +474,17 @@ def _build_bpm_args(
     end_flag: str,
     state: AppState,
 ) -> list[str]:
-    args = [
-        path,
-        "0",
-        mode_flag,
-        start_flag,
-        end_flag,
-        "--bpm-min",
-        state.bpm_range_min.get(),
-        "--bpm-max",
-        state.bpm_range_max.get(),
-        "--duration",
-        state.bpm_duration.get(),
-    ]
+    args = _base_tokens(path, mode_flag, start_flag, end_flag)
+    args.extend(
+        [
+            "--bpm-min",
+            state.bpm_range_min.get(),
+            "--bpm-max",
+            state.bpm_range_max.get(),
+            "--duration",
+            state.bpm_duration.get(),
+        ]
+    )
     if state.bpm_parallel.get():
         args.append("--parallel")
     else:
@@ -495,21 +500,21 @@ def _build_lyrics_args(
     end_flag: str,
     state: AppState,
 ) -> list[str]:
-    args = [
-        path,
-        "0",
-        mode_flag,
-        start_flag,
-        end_flag,
-        "--provider",
-        state.lyrics_provider.get(),
-        "--request-timeout",
-        state.lyrics_request_timeout.get(),
-        "--skip-existing" if state.lyrics_skip_existing.get() else "--no-skip-existing",
-        "--plain-fallback"
-        if state.lyrics_plain_fallback.get()
-        else "--no-plain-fallback",
-    ]
+    args = _base_tokens(path, mode_flag, start_flag, end_flag)
+    args.extend(
+        [
+            "--provider",
+            state.lyrics_provider.get(),
+            "--request-timeout",
+            state.lyrics_request_timeout.get(),
+            "--skip-existing"
+            if state.lyrics_skip_existing.get()
+            else "--no-skip-existing",
+            "--plain-fallback"
+            if state.lyrics_plain_fallback.get()
+            else "--no-plain-fallback",
+        ]
+    )
     if state.lyrics_parallel.get():
         args.append("--parallel")
     else:
@@ -525,15 +530,13 @@ def _build_key_args(
     end_flag: str,
     state: AppState,
 ) -> list[str]:
-    args = [
-        path,
-        "0",
-        mode_flag,
-        start_flag,
-        end_flag,
-        "--duration",
-        state.key_duration.get(),
-    ]
+    args = _base_tokens(path, mode_flag, start_flag, end_flag)
+    args.extend(
+        [
+            "--duration",
+            state.key_duration.get(),
+        ]
+    )
     if state.key_parallel.get():
         args.append("--parallel")
     else:
@@ -549,15 +552,13 @@ def _build_mood_analyzer_args(
     end_flag: str,
     state: AppState,
 ) -> list[str]:
-    args = [
-        path,
-        "0",
-        mode_flag,
-        start_flag,
-        end_flag,
-        "--duration",
-        state.mood_duration.get(),
-    ]
+    args = _base_tokens(path, mode_flag, start_flag, end_flag)
+    args.extend(
+        [
+            "--duration",
+            state.mood_duration.get(),
+        ]
+    )
     if state.mood_parallel.get():
         args.append("--parallel")
     else:
@@ -657,14 +658,13 @@ def _build_mood_analysis_batch_args(
     end_flag: str,
     state: AppState,
 ) -> list[str]:
-    args = [
-        path,
-        mode_flag,
-        start_flag,
-        end_flag,
-        "--duration",
-        state.mood_analysis_batch_duration.get(),
-    ]
+    args = _base_tokens(path, mode_flag, start_flag, end_flag)
+    args.extend(
+        [
+            "--duration",
+            state.mood_analysis_batch_duration.get(),
+        ]
+    )
     if state.mood_analysis_batch_parallel.get():
         args.append("--parallel")
     else:

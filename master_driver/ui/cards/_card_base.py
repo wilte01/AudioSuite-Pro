@@ -9,14 +9,15 @@ toggle Checkbutton and the title, a collapsible body, and the
 files are specs over one ``build_simple_card()`` implementation
 (iteration-7 B2, audit A3 family 2).
 
-Setting-heavy cards keep their bespoke code — only the shell they share
-with the simple cards may route through :func:`build_card_shell` when a
-defect surfaces.
+Cards whose body content does not fit the declarative row types use
+:func:`build_card_shell`, which renders the shared outer/header/expand
+shell and delegates the body to a caller-supplied builder callback.
 """
 
 from __future__ import annotations
 
 import tkinter as tk
+from collections.abc import Callable
 from dataclasses import dataclass
 from tkinter import ttk
 from typing import TYPE_CHECKING, Any
@@ -286,3 +287,75 @@ def _pack_plain_label(frame: tk.Frame, text: str) -> None:
         bg=styles.BG_WHITE,
         fg=styles.FG_MAIN,
     ).pack(side=tk.LEFT)
+
+
+def build_card_shell(
+    parent: tk.Frame,
+    title: str,
+    toggle_var: tk.BooleanVar,
+    body_builder: "Callable[[tk.Frame], None]",
+) -> None:
+    """Render the shared collapsible card shell and delegate body content.
+
+    Every tool card shares an identical outer frame, header (Checkbutton +
+    title Label), and ``▶/▼  Settings`` expand button.  The card-specific
+    body content is supplied by *body_builder*, which receives the body
+    frame and packs its widgets into it.
+
+    Args:
+        parent: Parent frame for the card's outer frame.
+        title:  Header title text.
+        toggle_var: The ``tk.BooleanVar`` bound to the header Checkbutton.
+        body_builder: Callback that populates the collapsible body frame.
+    """
+    outer = tk.Frame(
+        parent,
+        bg=styles.BG_LIGHT,
+        highlightbackground=styles.FG_SUB,
+        highlightthickness=1,
+    )
+    outer.pack(fill="x", pady=4, padx=2)
+
+    header = tk.Frame(outer, bg=styles.BG_LIGHT)
+    header.pack(fill="x", padx=8, pady=4)
+
+    tk.Checkbutton(
+        header,
+        variable=toggle_var,
+        bg=styles.BG_LIGHT,
+        activebackground=styles.BG_LIGHT,
+    ).pack(side=tk.LEFT)
+
+    tk.Label(
+        header,
+        text=title,
+        font=styles.FONT_BODY,
+        bg=styles.BG_LIGHT,
+        fg=styles.FG_MAIN,
+    ).pack(side=tk.LEFT, expand=True, fill="x")
+
+    expand_var = tk.StringVar(value=_COLLAPSE_LABEL)
+    expanded = [False]
+    body = tk.Frame(outer, bg=styles.BG_WHITE, padx=12, pady=8)
+
+    body_builder(body)
+
+    def _toggle() -> None:
+        if expanded[0]:
+            body.pack_forget()
+            expand_var.set(_COLLAPSE_LABEL)
+        else:
+            body.pack(fill="x", padx=4, pady=(0, 4))
+            expand_var.set(_EXPAND_LABEL)
+        expanded[0] = not expanded[0]
+
+    tk.Button(
+        header,
+        textvariable=expand_var,
+        font=styles.FONT_CAPTION,
+        bg=styles.BG_LIGHT,
+        fg=styles.FG_SUB,
+        relief=tk.FLAT,
+        cursor="hand2",
+        command=_toggle,
+    ).pack(side=tk.RIGHT)
