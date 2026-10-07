@@ -142,6 +142,24 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
   classes.** The `ttk.Style` object returned by `bootstrap_tool_app()` was
   only read by `master_driver/app.py`; all other apps stored it on `self`
   but never read it. The assignment is now `self.error_logger, _ = ...`.
+- **Suite-config saves could silently overwrite another tool's save.**
+  `save_value` ran its read-modify-write from a process-local snapshot taken
+  *before* the cross-process lock was acquired, so two tools starting
+  together could clobber each other's write (reproduced with two processes).
+  The cache is now dropped the moment the lock is acquired, so every locked
+  read-modify-write starts from the file on disk.
+- **`--target-lufs` was accepted unvalidated by the `normalise`, `refine`
+  and `replaygain` CLIs.** An out-of-range target (e.g. `999`) passed
+  argument parsing and reached the loudness pipeline unchecked. All three
+  commands now validate at parse time and reject with
+  `Target LUFS must be one of: -12, -14, -16, -18, -23`, and each option's
+  help names the permitted values.
+- **LUFS defaults disagreed with the interfaces and docs they drive.**
+  The normalizer's argument record defaulted to −16 LUFS while its click
+  option, GUI and user guide all say −14 — applying CLI arguments silently
+  rewrote the GUI's −14 back to −16 — and the ReplayGain CLI defaulted to
+  −14 while its GUI, argparse path and examples use −16. Defaults now match
+  their surfaces: normalizer −14, ReplayGain −16, Refinery −16 (unchanged).
 
 ### Removed
 

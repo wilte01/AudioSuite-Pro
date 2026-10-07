@@ -242,8 +242,9 @@ class TestProcessSingleFileDryRun:
         return results, mock_write
 
     def test_dry_run_does_not_write(self, tmp_path):
-        _, mock_write = self._call(tmp_path)
+        results, mock_write = self._call(tmp_path)
         mock_write.assert_not_called()
+        assert "DRY RUN" in results[0]["display_text"]
 
     def test_dry_run_display_contains_dry_run(self, tmp_path):
         results, _ = self._call(tmp_path)

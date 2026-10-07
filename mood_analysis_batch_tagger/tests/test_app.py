@@ -167,6 +167,10 @@ class TestApplyPreset:
         app.parallel_mode.set.assert_not_called()
         app.max_workers.set.assert_not_called()
 
+        app._apply_preset({"run_mode": "Dry Run"})
+
+        app.run_mode.set.assert_called_once_with("Dry Run")
+
     def test_extra_keys_ignored(self) -> None:
         app = _make_app()
         app._apply_preset({"run_mode": "Live Update", "unknown": 42})
@@ -386,13 +390,16 @@ class TestApplyCliArgs:
         assert app.auto_end is True
         app.root.after.assert_not_called()
 
-    def test_no_folder_path_is_noop(self) -> None:
+    def test_no_folder_path_is_noop(self, tmp_path) -> None:
         app = _make_app()
         with patch(f"{APP}.cli_args.parse") as mock_parse:
             mock_parse.return_value.folder_path = ""
             app._apply_cli_args()
-        app.root_path.set.assert_not_called()
-        app.root.after.assert_not_called()
+            app.root_path.set.assert_not_called()
+            app.root.after.assert_not_called()
+            mock_parse.return_value.folder_path = str(tmp_path)
+            app._apply_cli_args()
+        app.root_path.set.assert_called_once_with(str(tmp_path))
 
     def test_auto_start_schedules_start(self, tmp_path) -> None:
         from mood_analysis_batch_tagger.utils.cli_args import (
@@ -419,7 +426,10 @@ class TestOnDurationChange:
         with patch(f"{APP}.suite_config") as mock_config:
             mock_config.load_value.return_value = "junk"
             app._on_duration_change()
-        app.analysis_duration.set.assert_not_called()
+            app.analysis_duration.set.assert_not_called()
+        mock_config.load_value.assert_called_once_with(
+            "mood_analysis_batch_duration", 90
+        )
 
 
 class TestOpenLogAndFolder:

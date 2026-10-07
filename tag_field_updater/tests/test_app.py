@@ -209,6 +209,7 @@ class TestBrowseDirectory:
 
         app.browse_directory()
 
+        filedialog.askdirectory.assert_called_once()
         app.directory.set.assert_not_called()
 
 

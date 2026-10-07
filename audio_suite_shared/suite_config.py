@@ -81,6 +81,10 @@ def _file_lock() -> Iterator[None]:
             import fcntl
 
             fcntl.flock(lock_fd, fcntl.LOCK_EX)  # type: ignore[attr-defined]
+        # Drop any snapshot loaded before the lock was acquired: the
+        # read-modify-write below must see other processes' saves, or this
+        # process writes its stale cache back over them (audit H2).
+        _invalidate_cache()
         yield
     finally:
         if lock_fd is not None:

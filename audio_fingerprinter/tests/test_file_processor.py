@@ -1226,13 +1226,15 @@ class TestCommitMatchTags:
             patch(
                 "audio_fingerprinter.core.file_processor.write_acoustid_tags",
                 return_value=(False, "boom"),
-            ),
+            ) as mock_write,
             patch(
                 "audio_fingerprinter.core.file_processor._write_mbids_for",
                 return_value="MBID track id written",
             ) as mock_mbids,
         ):
-            _commit_match_tags(matched, _make_recording(), params, None)
+            result = _commit_match_tags(matched, _make_recording(), params, None)
+        mock_write.assert_called_once()
+        assert result.status == FingerprintStatus.TAG_WRITE_FAILED
         assert mock_mbids.call_count == 0
 
     def test_mbids_are_skipped_when_the_opt_in_is_off(self):
@@ -1241,13 +1243,17 @@ class TestCommitMatchTags:
             patch(
                 "audio_fingerprinter.core.file_processor.write_acoustid_tags",
                 return_value=(True, "written"),
-            ),
+            ) as mock_write,
             patch(
                 "audio_fingerprinter.core.file_processor._write_mbids_for",
                 return_value="MBID track id written",
             ) as mock_mbids,
         ):
-            _commit_match_tags(matched, _make_recording(), FingerprintParams(), None)
+            result = _commit_match_tags(
+                matched, _make_recording(), FingerprintParams(), None
+            )
+        mock_write.assert_called_once()
+        assert result.status == FingerprintStatus.TAGGED
         assert mock_mbids.call_count == 0
 
 

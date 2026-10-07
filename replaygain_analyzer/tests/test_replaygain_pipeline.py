@@ -495,6 +495,7 @@ class TestApplyReplaygainTags:
     def test_dry_run_does_not_call_write_replaygain_tags(self, tmp_path) -> None:
         """Verify that tag_writer.write_replaygain_tags is NEVER called in dry-run."""
         files_data = self._make_files_data(tmp_path, 2)
+        on_complete = MagicMock()
         with patch(
             "replaygain_analyzer.core.file_processor.write_replaygain_tags"
         ) as mock_write:
@@ -503,9 +504,12 @@ class TestApplyReplaygainTags:
                 files_data=files_data,
                 target_lufs=-16.0,
                 is_dry_run=True,
-                on_folder_complete=lambda **kw: None,
+                on_folder_complete=on_complete,
                 lock=threading.Lock(),
             )
+        on_complete.assert_called_once()
+        statuses = [r[1] for r in on_complete.call_args.kwargs["tag_results"]]
+        assert all(s == "DRY RUN" for s in statuses)
         mock_write.assert_not_called()
 
     def test_live_mode_does_call_write_replaygain_tags(self, tmp_path) -> None:
@@ -740,9 +744,14 @@ class TestApplyReplaygainTagsLosslessGain:
 
     def test_apply_not_called_when_flag_false(self, tmp_path) -> None:
         files_data = self._make_files_data(tmp_path)
-        with patch(
-            "replaygain_analyzer.core.file_processor.apply_track_gain"
-        ) as mock_apply:
+        with (
+            patch(
+                "replaygain_analyzer.core.file_processor.write_replaygain_tags"
+            ) as mock_write_tags,
+            patch(
+                "replaygain_analyzer.core.file_processor.apply_track_gain"
+            ) as mock_apply,
+        ):
             apply_replaygain_tags(
                 folder_path=str(tmp_path),
                 files_data=files_data,
@@ -752,6 +761,7 @@ class TestApplyReplaygainTagsLosslessGain:
                 lock=threading.Lock(),
                 apply_lossless_gain=False,
             )
+        mock_write_tags.assert_called()
         mock_apply.assert_not_called()
 
     def test_apply_receives_track_gain_value(self, tmp_path) -> None:

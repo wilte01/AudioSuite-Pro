@@ -518,8 +518,9 @@ class TestNormalizerProcessSingleFile:
 
     def test_dry_run_does_not_apply(self, tmp_path):
         _make_audio(tmp_path, "t.mp3")
-        _, mock_apply = self._call(tmp_path, "t.mp3", is_dry_run=True)
+        results, mock_apply = self._call(tmp_path, "t.mp3", is_dry_run=True)
         mock_apply.assert_not_called()
+        assert "DRY RUN" in results[-1]["display_text"]
 
     def test_dry_run_display_contains_dry_run(self, tmp_path):
         _make_audio(tmp_path, "t.mp3")
@@ -759,11 +760,12 @@ class TestNormalizerLosslessRouting:
         mock_track.assert_not_called()
 
     def test_lossless_dry_run_calls_nothing(self, tmp_path):
-        _, mock_loudnorm, mock_track = self._apply_file(
+        results, mock_loudnorm, mock_track = self._apply_file(
             tmp_path, "t.mp3", "lossless", is_dry_run=True
         )
         mock_loudnorm.assert_not_called()
         mock_track.assert_not_called()
+        assert "DRY RUN" in results[-1]["display_text"]
 
 
 # ═════════════════════════════════════════════════════════════════════════════

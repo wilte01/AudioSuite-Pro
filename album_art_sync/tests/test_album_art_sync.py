@@ -1499,6 +1499,7 @@ class TestArtworkApplier:
     def test_embed_artwork_not_called_in_dry_run(
         self, tmp_path: Path, square_jpeg_bytes: bytes
     ) -> None:
+        dry_log = Mock()
         with patch("album_art_sync.core.artwork_applier.embed_artwork") as mock_embed:
             artwork_applier.apply(
                 path=str(tmp_path),
@@ -1507,11 +1508,12 @@ class TestArtworkApplier:
                 mode="Dry Run",
                 embed_size=800,
                 purge=False,
-                log=Mock(),
+                log=dry_log,
                 cancel_flag=Mock(return_value=False),
                 on_file_progress=Mock(),
             )
         mock_embed.assert_not_called()
+        dry_log.assert_any_call("  [Dry Run] Would embed artwork in 1 files")
 
     def test_folder_jpg_created_in_live_mode(
         self, tmp_path: Path, square_jpeg_bytes: bytes
@@ -2894,6 +2896,7 @@ class TestAppRunLogic:
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
         app.folder_path.get = Mock(return_value="")
         app.start_thread()
+        app.folder_path.get.assert_called_once_with()
         app.log_list.delete.assert_not_called()
         app.cancel_btn.config.assert_not_called()
         app.notebook.select.assert_not_called()
@@ -3182,9 +3185,12 @@ class TestAppGuiMethods:
 
         with patch("album_art_sync.app.UniversalCLIHandler") as mock_handler_cls:
             app._apply_cli_args()
+            mock_handler_cls.assert_not_called()
+            app.run_mode.set.assert_not_called()
+            parsed.folder_path = str(tmp_path)
+            app._apply_cli_args()
 
-        mock_handler_cls.assert_not_called()
-        app.run_mode.set.assert_not_called()
+        mock_handler_cls.assert_called_once_with(app)
 
     def test_apply_cli_args_auto_starts_when_flag_set(self, tmp_path: Path) -> None:
         AudioSuiteV6 = self._import_app_class()
@@ -3281,6 +3287,10 @@ class TestAppGuiMethods:
         app.size_var.set.assert_not_called()
         app.purge_var.set.assert_not_called()
 
+        app._apply_preset({"execution_mode": "Dry Run"})
+
+        app.run_mode.set.assert_called_once_with("Dry Run")
+
     # ---- _on_preset_selected ------------------------------------------------
 
     def test_on_preset_selected_applies_existing_preset(self, tmp_path: Path) -> None:
@@ -3305,9 +3315,10 @@ class TestAppGuiMethods:
         AudioSuiteV6 = self._import_app_class()
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
 
-        with patch.object(app, "_load_presets", return_value={}):
+        with patch.object(app, "_load_presets", return_value={}) as mock_load:
             app._on_preset_selected("Nonexistent")
 
+        mock_load.assert_called_once_with()
         app.run_mode.set.assert_not_called()
 
     # ---- _on_save_preset ----------------------------------------------------
@@ -3337,11 +3348,14 @@ class TestAppGuiMethods:
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
 
         with (
-            patch("tkinter.simpledialog.askstring", return_value=""),
+            patch("tkinter.simpledialog.askstring", return_value="") as mock_askstring,
             patch.object(app, "_save_presets") as mock_save,
         ):
             app._on_save_preset()
 
+        mock_askstring.assert_called_once_with(
+            "Save Preset", "Enter preset name:", parent=app.root
+        )
         mock_save.assert_not_called()
 
     def test_on_save_preset_whitespace_name_is_cancelled(self, tmp_path: Path) -> None:
@@ -3349,11 +3363,16 @@ class TestAppGuiMethods:
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
 
         with (
-            patch("tkinter.simpledialog.askstring", return_value="   "),
+            patch(
+                "tkinter.simpledialog.askstring", return_value="   "
+            ) as mock_askstring,
             patch.object(app, "_save_presets") as mock_save,
         ):
             app._on_save_preset()
 
+        mock_askstring.assert_called_once_with(
+            "Save Preset", "Enter preset name:", parent=app.root
+        )
         mock_save.assert_not_called()
 
     def test_on_save_preset_none_is_cancelled(self, tmp_path: Path) -> None:
@@ -3361,11 +3380,16 @@ class TestAppGuiMethods:
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
 
         with (
-            patch("tkinter.simpledialog.askstring", return_value=None),
+            patch(
+                "tkinter.simpledialog.askstring", return_value=None
+            ) as mock_askstring,
             patch.object(app, "_save_presets") as mock_save,
         ):
             app._on_save_preset()
 
+        mock_askstring.assert_called_once_with(
+            "Save Preset", "Enter preset name:", parent=app.root
+        )
         mock_save.assert_not_called()
 
     # ---- _on_delete_preset --------------------------------------------------
@@ -3395,12 +3419,17 @@ class TestAppGuiMethods:
         presets = {"Old Preset": {"execution_mode": "Dry Run"}}
 
         with (
-            patch("album_art_sync.app.messagebox.askyesno", return_value=False),
+            patch(
+                "album_art_sync.app.messagebox.askyesno", return_value=False
+            ) as mock_askyesno,
             patch.object(app, "_load_presets", return_value=presets),
             patch.object(app, "_save_presets") as mock_save,
         ):
             app._on_delete_preset()
 
+        mock_askyesno.assert_called_once_with(
+            "Delete Preset", "Delete preset 'Old Preset'?", parent=app.root
+        )
         mock_save.assert_not_called()
 
     def test_on_delete_preset_no_combo_is_noop(self, tmp_path: Path) -> None:
@@ -3419,6 +3448,7 @@ class TestAppGuiMethods:
         with patch.object(app, "_save_presets") as mock_save:
             app._on_delete_preset()
 
+        app._preset_combo.get.assert_called_once_with()
         mock_save.assert_not_called()
 
     def test_on_delete_preset_preset_not_in_store(self, tmp_path: Path) -> None:
@@ -3427,11 +3457,12 @@ class TestAppGuiMethods:
         app._preset_combo.get.return_value = "Ghost"
 
         with (
-            patch.object(app, "_load_presets", return_value={}),
+            patch.object(app, "_load_presets", return_value={}) as mock_load,
             patch.object(app, "_save_presets") as mock_save,
         ):
             app._on_delete_preset()
 
+        mock_load.assert_called_once_with()
         mock_save.assert_not_called()
 
     # ---- _browse_folder -----------------------------------------------------
@@ -3528,6 +3559,11 @@ class TestAppGuiMethods:
         app._maybe_auto_end()
 
         app.root.after.assert_not_called()
+
+        app.auto_end = True
+        app._maybe_auto_end()
+
+        app.root.after.assert_any_call(2000, app.root.destroy)
 
     def test_maybe_auto_end_logs_message(self, tmp_path: Path) -> None:
         AudioSuiteV6 = self._import_app_class()

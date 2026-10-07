@@ -295,6 +295,10 @@ class TestApplyPreset:
         app.max_width.set.assert_not_called()
         app.run_mode.set.assert_not_called()
 
+        app._apply_preset({"sensitivity": 0.6})
+
+        app.sensitivity.set.assert_called_once_with(0.6)
+
 
 class TestOnError:
     """_on_error() shows error dialog and re-enables start button."""

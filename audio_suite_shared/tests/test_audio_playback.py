@@ -148,6 +148,7 @@ class TestStopPlayback:
         previous.is_alive.return_value = False
         audio_playback._play_thread = previous
         stop_playback()
+        previous.is_alive.assert_called_once()
         previous.join.assert_not_called()
 
     def test_never_raises_when_idle(self) -> None:
@@ -168,6 +169,7 @@ class TestPlayWav:
         stop.set()
         with patch.object(audio_playback, "_sd", device):
             audio_playback._play_wav(wav, None, stop)
+        device.OutputStream.assert_called_once()
         output = device.OutputStream.return_value.__enter__.return_value
         output.write.assert_not_called()
 
@@ -192,8 +194,14 @@ class TestPlayWav:
         wav = tmp_path / "s.wav"
         _write_wav(wav, channels=1, width=2, rate=8000, payload=b"")
         device = MagicMock()
-        with patch.object(audio_playback, "_sd", device):
+        with (
+            patch.object(audio_playback, "_sd", device),
+            patch.object(
+                audio_playback, "_read_wav", wraps=audio_playback._read_wav
+            ) as mock_read,
+        ):
             audio_playback._play_wav(wav, None, threading.Event())
+        mock_read.assert_called_once_with(wav)
         device.OutputStream.assert_not_called()
 
 

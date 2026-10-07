@@ -161,6 +161,7 @@ class TestApplyCliArgsStandalone:
             patch("lyrics_manager.app.UniversalCLIHandler", handler_cls),
         ):
             app._apply_cli_args()
+        app.run_mode.set.assert_called_once_with("Dry Run")
         handler.apply_cli_args.assert_not_called()
         app.root.after.assert_not_called()
 

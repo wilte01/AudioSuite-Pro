@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from audio_normalizer.app import AudioNormalizerApp
-from audio_normalizer.utils.cli_args import NormalizerArgs
+from audio_normalizer.utils.cli_args import NormalizerArgs, parse
 
 # Module-level Tk root — created once, shared by all tests, never destroyed
 # mid-session.  The per-test fixture below patches it out after constructing
@@ -83,15 +83,16 @@ class TestAppApplyCliArgs:
 
     def test_returns_early_when_no_folder_path(self) -> None:
         app, _root = _make_app()
+        args = NormalizerArgs(folder_path="")
         with (
-            patch(
-                "audio_normalizer.app.cli_args.parse",
-                return_value=NormalizerArgs(folder_path=""),
-            ),
+            patch("audio_normalizer.app.cli_args.parse", return_value=args),
             patch("audio_normalizer.app.UniversalCLIHandler") as mock_cls,
         ):
             app._apply_cli_args()
             mock_cls.assert_not_called()
+            args.folder_path = "/music"
+            app._apply_cli_args()
+        mock_cls.assert_called_once_with(app)
 
     def test_sets_target_lufs_and_tolerance(self, tmp_path: os.PathLike) -> None:
         app, _root = _make_app()
@@ -210,6 +211,35 @@ class TestAppApplyCliArgs:
             assert app.auto_end_var.get() is True
             assert app.clear_logs_var.get() is True
             assert app.parallel_var.get() is True
+
+    def test_cli_arg_defaults_leave_gui_target_lufs_at_minus_14(
+        self, tmp_path: os.PathLike
+    ) -> None:
+        """D4 (iteration 9): argv with a folder but no explicit LUFS flag.
+
+        Applying the parser's own defaults must not rewrite the GUI's -14
+        (the guide documents "The app default is -14.0"); pre-fix the
+        argparse default of -16.0 overwrote it on every CLI/Driver launch.
+        """
+        app, _root = _make_app()
+        assert app.target_lufs.get() == -14.0
+
+        default_args = parse(["prog", str(tmp_path)])
+        assert default_args.target_lufs == -14.0
+
+        with (
+            patch(
+                "audio_normalizer.app.cli_args.parse",
+                return_value=default_args,
+            ),
+            patch("audio_normalizer.app.UniversalCLIHandler") as mock_cls,
+        ):
+            mock_handler = MagicMock()
+            mock_handler.apply_cli_args.return_value = False
+            mock_cls.return_value = mock_handler
+            app._apply_cli_args()
+
+        assert app.target_lufs.get() == -14.0
 
 
 # ═════════════════════════════════════════════════════════════════════════════

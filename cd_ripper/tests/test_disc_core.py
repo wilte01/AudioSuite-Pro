@@ -560,8 +560,9 @@ class TestReadDisc:
             patch("cd_ripper.core.disc._mb_lookup") as mock_mb,
         ):
             mock_discid.read.side_effect = OSError("disc read fail")
-            read_disc("D:")
+            info = read_disc("D:")
 
+        assert info.error is not None
         mock_mb.assert_not_called()
 
     def test_drive_field_set_correctly(self):

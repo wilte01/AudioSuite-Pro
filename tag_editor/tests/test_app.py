@@ -313,8 +313,11 @@ class TestTagEditorAppCsv:
     def test_import_csv_cancelled_dialog_does_nothing(self, tmp_path: Path) -> None:
         app = _app(tmp_path)
         app.directory.get.return_value = str(tmp_path)
-        with patch("tag_editor.ui.app.filedialog.askopenfilename", return_value=""):
+        with patch(
+            "tag_editor.ui.app.filedialog.askopenfilename", return_value=""
+        ) as mock_dialog:
             app.import_csv()
+        mock_dialog.assert_called_once()
         app.processor.apply_edits.assert_not_called()
 
     def test_import_csv_reports_validation_error(self, tmp_path: Path) -> None:
@@ -386,10 +389,13 @@ class TestTagEditorAppCsv:
         app = _app(tmp_path)
         app._rows[str(tmp_path / "a.mp3")] = (tmp_path / "a.mp3", {})
         with (
-            patch("tag_editor.ui.app.filedialog.asksaveasfilename", return_value=""),
+            patch(
+                "tag_editor.ui.app.filedialog.asksaveasfilename", return_value=""
+            ) as mock_dialog,
             patch("tag_editor.ui.app.export_csv") as exporter,
         ):
             app.export_csv()
+        mock_dialog.assert_called_once()
         exporter.assert_not_called()
 
     def test_export_csv_reports_write_error(self, tmp_path: Path) -> None:
@@ -441,8 +447,9 @@ class TestBrowseDirectory:
         with patch(
             "tag_editor.ui.app.filedialog.askdirectory",
             return_value="",
-        ):
+        ) as mock_dialog:
             app._browse_directory()
+        mock_dialog.assert_called_once()
         app.directory.set.assert_not_called()
 
 
@@ -468,6 +475,7 @@ class TestOnTreeSelect:
 
         app._on_tree_select(None)
 
+        app.tree.selection.assert_called_once_with()
         app.value_var.set.assert_not_called()
         app.clear_var.set.assert_not_called()
 
@@ -479,6 +487,7 @@ class TestOnTreeSelect:
 
         app._on_tree_select(None)
 
+        app.tree.selection.assert_called_once_with()
         app.value_var.set.assert_not_called()
         app.clear_var.set.assert_not_called()
 
@@ -488,6 +497,7 @@ class TestOnTreeSelect:
 
         app._on_tree_select(None)
 
+        app.tree.selection.assert_called_once_with()
         app.value_var.set.assert_not_called()
         app.clear_var.set.assert_not_called()
 
@@ -561,3 +571,17 @@ class TestUpdateRowIidGuard:
         )
         app._update_row(result)
         app.tree.set.assert_not_called()
+
+        known = tmp_path / "known.mp3"
+        app._rows[str(known)] = (known, {"title": "Old"})
+        app._update_row(
+            EditResult(
+                path=known,
+                field="title",
+                old_value="Old",
+                new_value="New",
+                changed=True,
+                written=True,
+            )
+        )
+        app.tree.set.assert_called_once_with(str(known), "title", "New")

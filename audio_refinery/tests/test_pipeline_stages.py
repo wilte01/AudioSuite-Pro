@@ -275,12 +275,14 @@ class TestProcessFile:
             patch(
                 "audio_refinery.core.pipeline.read_tags_raw",
                 side_effect=RuntimeError("decode exploded"),
-            ),
+            ) as mock_read,
             patch("audio_refinery.core.pipeline.os.replace") as mock_replace,
         ):
             process_file(src, src, _config_all_off(), on_progress=_noop_emit)
 
+        mock_read.assert_called_once()
         mock_replace.assert_not_called()
+        assert src.read_bytes() == b"\xde\xad\xbe\xef"
 
     # ── progress callback ─────────────────────────────────────────────────────
 
@@ -1342,11 +1344,12 @@ class TestRunNormalise:
             patch(
                 "audio_normalizer.core.loudness.measure",
                 return_value={"input_i": -16.2},
-            ),
+            ) as mock_measure,
             patch("audio_normalizer.core.normalizer.apply") as mock_apply,
         ):
             _run_normalise(fake_file, config, _noop_emit)
 
+        mock_measure.assert_called_once()
         mock_apply.assert_not_called()
 
     # ── normalisation applied ─────────────────────────────────────────────────

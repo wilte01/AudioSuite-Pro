@@ -539,8 +539,9 @@ class TestPresets:
         with patch(
             "audio_suite_shared.analysis_app_base._suite_config.load_preset",
             return_value=None,
-        ):
+        ) as mock_load:
             app._on_preset_selected("nope")
+        mock_load.assert_called_once_with("fake_tool", "nope")
         app.folder_path.set.assert_not_called()
 
     def test_selecting_a_saved_preset_applies_it(self):

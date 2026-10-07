@@ -36,7 +36,7 @@ VALID_NORMALIZATION_MODES: tuple[str, ...] = ("normalise", "lossless")
 class NormalizerArgs(BaseCLIArgs):
     """CLI arguments for Audio Normalizer."""
 
-    target_lufs: float = -16.0
+    target_lufs: float = -14.0
     tolerance: float = 0.5
     normalization_mode: str = "normalise"
     clear_logs: bool = False

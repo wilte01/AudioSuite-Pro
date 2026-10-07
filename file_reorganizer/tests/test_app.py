@@ -74,6 +74,7 @@ class TestSeedSourceFromLastDirectory:
         with patch("file_reorganizer.app.suite_config") as mock_config:
             mock_config.load_last_directory.return_value = ""
             app._seed_source_from_last_directory()
+        mock_config.load_last_directory.assert_called_once()
         app.source_dir.set.assert_not_called()
 
     def test_destination_is_never_seeded(self, app: FileReorganizerApp) -> None:
@@ -82,6 +83,7 @@ class TestSeedSourceFromLastDirectory:
         with patch("file_reorganizer.app.suite_config") as mock_config:
             mock_config.load_last_directory.return_value = "/music/from/driver"
             app._seed_source_from_last_directory()
+        app.source_dir.set.assert_called_once_with("/music/from/driver")
         app.dest_dir.set.assert_not_called()
 
 
@@ -115,6 +117,7 @@ class TestBrowseDirectories:
         ):
             mock_dialog.askdirectory.return_value = ""
             app._browse_source()
+            mock_dialog.askdirectory.assert_called_once()
         app.source_dir.set.assert_not_called()
         mock_config.save_last_directory.assert_not_called()
 

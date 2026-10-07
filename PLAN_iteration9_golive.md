@@ -1018,10 +1018,10 @@ Format mirrors `PLAN_iteration8_remediation.md`:
 | Item | prio | date | gate evidence | notes |
 |---|---|---|---|---|
 | G1.1–G1.3 | 1 | 2026-10-06 | `utilities\run_gate.ps1` → `[OK] compileall`, `[OK] ruff check` (All checks passed), `[OK] ruff format --check` (794 files already formatted), `[OK] mypy` (0 issues / 461 source files), `[OK] bandit` (severity 0 High / 0 Medium / 41 Low), `[OK] pytest` (8493 passed, 3 skipped, 30 deselected, 8 warnings, 6m22s; coverage 89.39% ≥ 75), `[DONE] Phase Gate passed`, exit 0 | G1.2: dated correction appended to the I4 row of PLAN_iteration8_remediation.md. Bandit's step 5 command exits 1 whenever any finding survives its default LOW/LOW filter (verified, bandit 1.9.4), so the wrapper judges step 5 by the AGENTS 0 High / 0 Medium severity block, not the raw exit code; exit 2 (tool error) and an unparseable severity section fail loudly (controls: severity 0/0/41 parsed, confidence 23/18 not read, injected High=1/Medium=2 detected, missing section → fail). CI `security` job aligned to the same severity-block verdict, verified by running the block extracted verbatim from ci.yml under `bash -eo pipefail` (exit 0) — see D12. Guide/CHANGELOG updates: none (internal process change). |
-| G2.1 | 1 | | | |
-| G2.2 | 1 | | | |
-| G2.3 | 1 | | | |
-| G2.4 | 1 | | | |
+| G2.1 | 1 | 2026-10-07 | Fix: `audio_suite_shared/suite_config.py::_file_lock` now calls `_invalidate_cache()` after the lock is acquired, before the `yield` (:87) — single insertion; `_save()` untouched (no deadlock), its own post-write invalidation unchanged. New `TestLostUpdateStaleCache` in `audio_suite_shared/tests/test_suite_config.py`; `pytest audio_suite_shared/tests -q` → 87 passed. **Negative control (plan-required, SHA-verified):** fix line removed via backup-copy round trip (SHA-256 `ED4F8EB843E1B95244F223839DB5F0C771DEBFD823EB6CCE0A57701318D40FA6` identical before/after) → `test_concurrent_process_save_survives_locked_read` FAILED with `lost-update: locked read clobbered a concurrent save: {'last_directory': 'ORIG', 'theme_mode': 'Dark'}` (the child process's `palette` write clobbered) while `test_single_process_roundtrip_still_works` passed → restored from the backup copy, SHA re-verified identical, re-run → 2 passed. Full S2 gate: `python -m compileall -q -f .` exit 0 (pydub SyntaxWarnings only); `ruff check .` All checks passed; `ruff format --check .` 797 files already formatted; `mypy .` 0 issues / 461 source files; bandit severity block 0 High / 0 Medium / 41 Low (exit 1 = any Low finding survives — verdict is the severity block per D12); bare `python -m pytest -q` → 8507 passed, 3 skipped, 30 deselected, 8 warnings, 384.13s; coverage 89.45% ≥ 75 | H2 closed. I1-era `_file_lock` tests (`test_i1_robustness.py:161,190`) unchanged and green in the full-suite run. CHANGELOG Fixed bullet added (stale-cache race). |
+| G2.2 | 1 | 2026-10-07 | `_validate_lufs` click callback + permitted-values help added to `audio_normalizer/cli.py`, `audio_refinery/cli.py`, `replaygain_analyzer/cli.py` — none of the three imported `validate_target_lufs` at HEAD (the audit named two, the third found at planning; D4). New `test_cli.py` in each package (none existed; no `CliRunner` usage in any of the three at HEAD): `--target-lufs 999` → exit 2 + `Target LUFS must be one of`, permitted `-14` → exit 0 with no LUFS error, plus the default-preset check → `pytest audio_normalizer/tests/test_cli.py audio_refinery/tests/test_cli.py replaygain_analyzer/tests/test_cli.py -q` → 10 passed. Full gate green (same run as the G2.1 row) | M4 closed. All three option help strings now name the permitted values (`-12, -14, -16, -18, -23`). CHANGELOG Fixed bullet added (`--target-lufs` validation). |
+| G2.3 | 1 | 2026-10-07 | D4 alignment: `audio_normalizer/utils/cli_args.py:39` `NormalizerArgs.target_lufs -16.0 → -14.0`; `replaygain_analyzer/cli.py` click `default=-14.0 → -16.0` (help `(default -16)`); `audio_refinery/utils/cli_args.py:73` re-verified `-16.0` — no change. Lockstep tests: `test_default_target_lufs_is_valid_preset` now pins `-14.0`, new `test_cli_arg_defaults_leave_gui_target_lufs_at_minus_14`, new `replaygain_analyzer/tests/test_cli.py::test_click_target_lufs_default_is_minus_16` (reads the option's `default` off the Command object). `pytest audio_normalizer/tests audio_refinery/tests replaygain_analyzer/tests -q` → 708 passed, 1 skipped; `git grep -n target_lufs` reviewed — every `-14`/`-16` occurrence is an explicit test input, a docstring example, or a verified-correct default (normalizer GUI var / arg record / click = −14; replaygain GUI var / arg record / click = −16; refinery = −16). Full gate green (same run as the G2.1 row) | D4 closed. **Guide audit (Sprint-S2 header): no generator edits needed** — `audio_normalizer/generate_guide.py:148` "The app default is -14.0." now true; refinery guide −16 correct; `CLI_Commands_Reference.md:116` (refine default −16.0) correct. CHANGELOG Fixed bullet added (LUFS default alignment). |
+| G2.4 | 1 | 2026-10-07 | **G2.4a:** `metadata_scrubber/tests/test_app.py::test_live_completion_saves_tag_prefs` asserts `save_kept_tags.assert_called_once_with(_PACKAGE_DIR, ["BPM"])` (imported, not hardcoded) + completion label `Metadata Scrubbing Complete!`; `pytest metadata_scrubber/tests -q` → 201 passed; full-run coverage line `metadata_scrubber\app.py 180 35 81% — missing 78-79, 167-169, 172-173, 176-177, 208-225, 228-233, 241-242, 360-363, 386-395` (line 369 no longer missing — recorded per plan). **G2.4b:** AST sweep over 234 files / 7381 test functions → 202 flagged (76 ONLY_NEG + 4 OTHER_ALL_NEG + 122 KEEPS); after the edits 132 remain flagged with an **empty fix set**: 70 no longer flagged, 8 ONLY_NEG→KEEPS, 122 KEEPS→KEEPS, and only 2 flagged functions survive — both dispositioned keeps (`metadata_scrubber/tests/test_app.py:362` plan-excused negative contract with its positive sibling; `cd_ripper/tests/test_cli.py:428` reclassified KEEPS — `result.exit_code == 0` is a positive outcome). Totals **78 fixed / 124 keeps = 202**; full disposition table below. `master_driver/tests/test_app.py::test_poll_inert_for_fixed_palette` extended with the positive phase (palette → Windows Accent → `_accent_poll_active is True`, `root.after.assert_called_once()`); `pytest master_driver/tests/test_app.py -q` → 33 passed. Bare full-suite run green: 8507 passed, 3 skipped, coverage 89.45% (full gate tuple in the G2.1 row) | M5 closed. CHANGELOG: exactly 3 Fixed bullets added per plan (H2 race, `--target-lufs` validation, LUFS default alignment); G2.4b is test-only work → no bullet. Guide generators audited — no change needed (see G2.3 row). |
 | G3.1 | 1 | | | |
 | G3.2 | 2 | | | |
 | G3.3 | 2 | | | |
@@ -1040,6 +1040,221 @@ Format mirrors `PLAN_iteration8_remediation.md`:
 | G8.3 | 3 | | | |
 | G8.4 | 3 | | | |
 | G9.1–G9.5 | 1 | | | |
+
+### G2.4b disposition table — 202 originally-flagged functions
+
+Triage basis: AST sweep of `*/tests/test_*.py` — 234 files,
+7381 test functions, 202 flagged (76 `ONLY_NEG`, 4 `OTHER_ALL_NEG`,
+122 `KEEPS`). Post-edit re-triage: 70 no longer flagged, 8
+`ONLY_NEG → KEEPS`, 122 `KEEPS → KEEPS`, 1 `ONLY_NEG →
+ONLY_NEG` (dispositioned), 1 `OTHER_ALL_NEG → OTHER_ALL_NEG`
+(dispositioned); totals **78 fixed / 124 keeps = 202**. Format:
+`file:line:function || disposition`.
+
+```text
+album_art_normalizer/tests/test_album_art_normalizer.py:860:test_flac_dry_run_previews_without_embedding || keeps: positive outcome assertion (assert: path.read_bytes() == before | assert: "dry run" in result | assert: "saved" not in result)
+album_art_normalizer/tests/test_album_art_normalizer.py:883:test_generic_dry_run_previews_without_embedding || keeps: positive outcome assertion (assert: path.read_bytes() == before | assert: "dry run" in result | assert: "saved" not in result)
+album_art_normalizer/tests/test_album_art_normalizer.py:835:test_mp3_dry_run_previews_without_embedding || keeps: positive outcome assertion (assert: path.read_bytes() == before | assert: "would be resized to 800×800" in result | assert: "dry run" in result | assert: "saved" not in result)
+album_art_normalizer/tests/test_art_writer.py:57:test_unsupported_extension_raises_format_error || keeps: positive outcome assertion (pytest.raises(...))
+album_art_sync/tests/test_album_art_sync.py:3176:test_apply_cli_args_returns_early_when_no_folder || fixed: added positive assertion assert_called_once_with: mock_handler_cls.assert_called_once_with(app)
+album_art_sync/tests/test_album_art_sync.py:3274:test_apply_preset_handles_empty_dict || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Dry Run")
+album_art_sync/tests/test_album_art_sync.py:2570:test_directory_does_not_exist_logs_error_and_returns || keeps: positive outcome assertion (assert: "Directory does not exist" in "".join(app._log_entries))
+album_art_sync/tests/test_album_art_sync.py:1499:test_embed_artwork_not_called_in_dry_run || fixed: added positive assertion assert_any_call: dry_log.assert_any_call(" [Dry Run] Would embed artwork in 1 files")
+album_art_sync/tests/test_album_art_sync.py:1685:test_empty_files_list_returns_true_without_progress_calls || keeps: positive outcome assertion (assert: result is True)
+album_art_sync/tests/test_album_art_sync.py:1089:test_falls_through_to_deezer_when_fanart_fails || keeps: positive outcome assertion (assert: img == b"DEEZER" | assert: source == "Deezer")
+album_art_sync/tests/test_album_art_sync.py:1107:test_falls_through_to_itunes_as_last_resort || keeps: positive outcome assertion (assert: img == b"ITUNES" | assert: source == "iTunes Store")
+album_art_sync/tests/test_album_art_sync.py:3523:test_maybe_auto_end_does_nothing_when_disabled || fixed: added positive assertion assert_any_call: app.root.after.assert_any_call(2000, app.root.destroy)
+album_art_sync/tests/test_album_art_sync.py:2589:test_metadata_read_failure_logs_error_and_returns || keeps: positive outcome assertion (assert: "Error reading file metadata" in "".join(app._log_entries))
+album_art_sync/tests/test_album_art_sync.py:1398:test_no_caa_lookup_without_a_release_id_or_mb_ids || keeps: positive outcome assertion (assert: img is None | assert: source is None)
+album_art_sync/tests/test_album_art_sync.py:2580:test_no_supported_files_logs_error_and_returns || keeps: positive outcome assertion (assert: "No supported audio files found" in "".join(app._log_entries))
+album_art_sync/tests/test_album_art_sync.py:3391:test_on_delete_preset_decline_is_noop || fixed: added positive assertion assert_called_once_with: mock_askyesno.assert_called_once_with( "Delete Preset", "Delete preset 'Old Preset'?", parent=app.root )
+album_art_sync/tests/test_album_art_sync.py:3414:test_on_delete_preset_empty_name_is_noop || fixed: added positive assertion assert_called_once_with: app._preset_combo.get.assert_called_once_with()
+album_art_sync/tests/test_album_art_sync.py:3424:test_on_delete_preset_preset_not_in_store || fixed: added positive assertion assert_called_once_with: mock_load.assert_called_once_with()
+album_art_sync/tests/test_album_art_sync.py:3304:test_on_preset_selected_unknown_name_is_noop || fixed: added positive assertion assert_called_once_with: mock_load.assert_called_once_with()
+album_art_sync/tests/test_album_art_sync.py:3335:test_on_save_preset_empty_name_is_cancelled || fixed: added positive assertion assert_called_once_with: mock_askstring.assert_called_once_with( "Save Preset", "Enter preset name:", parent=app.root )
+album_art_sync/tests/test_album_art_sync.py:3359:test_on_save_preset_none_is_cancelled || fixed: added positive assertion assert_called_once_with: mock_askstring.assert_called_once_with( "Save Preset", "Enter preset name:", parent=app.root )
+album_art_sync/tests/test_album_art_sync.py:3347:test_on_save_preset_whitespace_name_is_cancelled || fixed: added positive assertion assert_called_once_with: mock_askstring.assert_called_once_with( "Save Preset", "Enter preset name:", parent=app.root )
+album_art_sync/tests/test_album_art_sync.py:1143:test_returns_none_immediately_when_cancelled_after_mb || keeps: positive outcome assertion (assert: img is None | assert: source is None)
+album_art_sync/tests/test_album_art_sync.py:998:test_returns_none_on_generic_request_exception || keeps: positive outcome assertion (assert: result is None)
+album_art_sync/tests/test_album_art_sync.py:670:test_returns_none_on_timeout || keeps: positive outcome assertion (assert: result is None)
+album_art_sync/tests/test_album_art_sync.py:1022:test_returns_none_on_unexpected_exception || keeps: positive outcome assertion (assert: result is None)
+album_art_sync/tests/test_album_art_sync.py:764:test_returns_none_when_empty_results || keeps: positive outcome assertion (assert: result is None)
+album_art_sync/tests/test_album_art_sync.py:660:test_returns_none_when_no_results || keeps: positive outcome assertion (assert: result is None)
+album_art_sync/tests/test_album_art_sync.py:887:test_returns_none_with_empty_mb_ids || keeps: positive outcome assertion (assert: result is None)
+album_art_sync/tests/test_album_art_sync.py:871:test_returns_none_with_no_api_key || keeps: positive outcome assertion (assert: result is None)
+album_art_sync/tests/test_album_art_sync.py:1162:test_skips_fanart_and_caa_when_no_mb_ids || keeps: positive outcome assertion (assert: source == "Deezer")
+album_art_sync/tests/test_album_art_sync.py:2892:test_start_thread_noop_when_no_folder_selected || fixed: added positive assertion assert_called_once_with: app.folder_path.get.assert_called_once_with()
+album_art_sync/tests/test_album_art_sync.py:2907:test_worker_ui_writes_are_scheduled_on_main_thread || keeps: positive outcome assertion (assert: app._append_log_line in callbacks | assert: app._apply_status in callbacks | assert: app._apply_progress in callbacks | assert: app._apply_result in callbacks | assert: app._apply_controls in callbacks | assert: any( entry[1] == app._apply_status and entry[2] == "Searching for artwork..." for entry in | assert: any( entry[1] == app._apply_result and entry[2] == "Sync Complete via Deezer" for entry in)
+album_art_sync/tests/test_caa.py:291:test_404_on_every_lookup_returns_none_and_never_offers_a_pick || keeps: positive outcome assertion (assert: result is None | assert: mock_http.get.call_count == 2)
+album_art_sync/tests/test_caa.py:340:test_images_without_a_url_are_not_offered_as_candidates || keeps: positive outcome assertion (assert: result is None)
+album_art_sync/tests/test_caa.py:668:test_malformed_json_is_a_miss_not_a_crash || keeps: positive outcome assertion (assert: result is None)
+album_art_sync/tests/test_caa.py:269:test_no_ids_returns_none_without_any_request || keeps: positive outcome assertion (assert: result is None | assert: any( "no MusicBrainz ids" in call.args[0] for call in noop_log.call_args_list ))
+album_art_sync/tests/test_caa.py:620:test_transport_errors_fall_through || keeps: positive outcome assertion (assert: result is None)
+album_art_sync/tests/test_caa.py:582:test_undersized_front_is_rejected_by_the_real_filter || keeps: positive outcome assertion (assert: result is None)
+album_art_sync/tests/test_caa.py:367:test_whitespace_only_mbid_is_skipped_without_a_request || keeps: positive outcome assertion (assert: result is None)
+album_art_sync/tests/test_pipeline.py:456:test_caa_release_hit_short_circuits_every_other_source || keeps: positive outcome assertion (assert: report.success is True | assert: report.source == "Cover Art Archive" | assert: mock_caa.call_args.kwargs["release_mbid"] == self.RELEASE_MBID | assert: mock_caa.call_args.kwargs["mb_rg_ids"] == [])
+album_genre_tagger/tests/test_app.py:371:test_empty_dict_does_nothing || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Dry Run")
+album_genre_tagger/tests/test_app.py:245:test_every_callback_schedules_its_main_thread_helper || keeps: positive outcome assertion (assert: callbacks == [ app._update_phase1_ui, app._append_phase2_text, app._show_coverage_fail, ap | assert: zero_delay[0][2:] == (1, 3, 1, 0, "display") | assert: zero_delay[1][2:] == ("display2",) | assert: zero_delay[4][2:] == ("boom",))
+album_genre_tagger/tests/test_app.py:121:test_no_handler_or_scheduling_without_folder || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Dry Run")
+album_genre_tagger/tests/test_app.py:419:test_none_return_does_not_apply || fixed: added positive assertion assert_called_once_with: mock_sc.load_preset.assert_called_once_with( "album_genre_tagger", "Missing Preset" )
+album_genre_tagger/tests/test_app.py:225:test_run_schedules_its_header_instead_of_writing_widgets || keeps: positive outcome assertion (assert: self._scheduled(app) == [(0, app._reset_progress_ui)])
+album_genre_tagger/tests/test_app.py:989:test_writes_log_entries_to_file || keeps: positive outcome assertion (assert: log_file.read_text(encoding="utf-8") == "line 1\nline 2\n")
+asx_extractor/tests/test_app.py:90:test_does_nothing_when_run_mode_absent || fixed: added positive assertion assert_called_once_with: tool.asx_action_mode.set.assert_called_once_with( "Execute Extraction (Permanent)" )
+asx_extractor/tests/test_app.py:95:test_empty_dict_is_a_noop || fixed: added positive assertion assert_called_once_with: tool.asx_action_mode.set.assert_called_once_with( "Execute Extraction (Permanent)" )
+asx_extractor/tests/test_app.py:329:test_log_write_success_does_not_show_error || fixed: added positive assertion assert_called_once: mock_log.assert_called_once()
+asx_extractor/tests/test_app_run.py:118:test_copy_failure_prevents_asx_removal_and_is_logged_as_failure || keeps: positive outcome assertion (assert: "SUCCESSFUL EXTRACTIONS (0)" in log_text | assert: "FAILURES (1)" in log_text | assert: "COPY FAILED" in log_text | assert: asx.exists())
+asx_extractor/tests/test_app_run.py:249:test_dry_run_never_calls_copy_or_remove || keeps: positive outcome assertion (assert: "SUCCESSFUL EXTRACTIONS (1)" in log_text)
+asx_extractor/tests/test_cli_run.py:92:test_copy_failure_records_copy_failed || keeps: positive outcome assertion (assert: calls["errors"] == 1 | assert: calls["failures"] == 1)
+asx_extractor/tests/test_cli_run.py:154:test_dry_run_skips_copy_and_remove || keeps: positive outcome assertion (assert: "Dry Run" in mode)
+audio_enhancer/tests/test_app.py:688:test_cli_args_live_mode_none_does_not_set_run_mode || fixed: added positive assertion assert_called_with: app.run_mode.set.assert_called_with("Dry Run")
+audio_enhancer/tests/test_app.py:426:test_thread_not_started_for_invalid_source || fixed: added positive assertion assert_called_once: mock_warn.assert_called_once()
+audio_fingerprinter/tests/test_acoustid_client.py:696:test_empty_input_returns_empty || keeps: positive outcome assertion (assert: results == [])
+audio_fingerprinter/tests/test_file_processor.py:524:test_album_mode_defers_lookup_to_cluster_phase || keeps: positive outcome assertion (assert: result.status == "ANALYSED" | assert: "album matching" in result.message)
+audio_fingerprinter/tests/test_file_processor.py:1055:test_album_mode_opt_in_writes_real_mbid_tags || keeps: positive outcome assertion (assert: complete.call_args.kwargs["counts"]["tagged"] == 3 | assert: tags["MUSICBRAINZ_TRACKID"] == self.TRACK_ID | assert: tags["MUSICBRAINZ_ARTISTID"] == self.ARTIST_ID | assert: tags["MUSICBRAINZ_ALBUMID"] == f"rel-{name}")
+audio_fingerprinter/tests/test_file_processor.py:788:test_album_tag_tie_break_decides_and_writes_real_tags || keeps: positive outcome assertion (assert: complete.call_args.kwargs["counts"]["tagged"] == 3 | assert: "album-tag match among 2 clusters tied at 2.70" in log_text | assert: tags["Acoustid Id"] == f"ac-mb-{name}")
+audio_fingerprinter/tests/test_file_processor.py:615:test_ambiguous_album_leaves_files_untagged_with_runner_up || keeps: positive outcome assertion (assert: all(r.status == "ALBUM AMBIGUOUS" for r in kwargs["results"]) | assert: kwargs["counts"]["album_ambiguous"] == 6 | assert: any( "ambiguous" in line and "left untagged" in line for line in kwargs["log_entries"] if  | assert: "album ambiguous — The Album vs Other Album" in result.message | assert: result.tag_written is False)
+audio_fingerprinter/tests/test_file_processor.py:855:test_ambiguous_album_writes_no_tags || keeps: positive outcome assertion (assert: "Acoustid Id" not in self._acoustid_tags(folder / name))
+audio_fingerprinter/tests/test_file_processor.py:651:test_below_minimum_falls_back_to_per_file_matching || keeps: positive outcome assertion (assert: len(kwargs["results"]) == 2 | assert: any( "3-file minimum" in line for line in kwargs["log_entries"] if line.startswith("[ALBUM | assert: result.status == "MATCHED" | assert: "album consensus" not in result.message | assert: "(score 0.90)" in result.message)
+audio_fingerprinter/tests/test_file_processor.py:766:test_decided_cluster_writes_real_tags || keeps: positive outcome assertion (assert: kwargs["counts"]["tagged"] == 3 | assert: tags["Acoustid Id"] == f"ac-mb-{name}" | assert: tags["Acoustid Fingerprint"] == f"fp-{name}")
+audio_fingerprinter/tests/test_file_processor.py:838:test_dry_run_writes_no_tags || keeps: positive outcome assertion (assert: "Acoustid Id" not in self._acoustid_tags(folder / name))
+audio_fingerprinter/tests/test_file_processor.py:388:test_error_flags_an_error_in_log_entries || keeps: positive outcome assertion (assert: any(t and t.startswith("[ERROR]") for t in texts))
+audio_fingerprinter/tests/test_file_processor.py:1222:test_mbids_are_skipped_when_the_acoustid_write_failed || fixed: added positive assertion assert: result.status == FingerprintStatus.TAG_WRITE_FAILED
+audio_fingerprinter/tests/test_file_processor.py:1238:test_mbids_are_skipped_when_the_opt_in_is_off || fixed: added positive assertion assert: result.status == FingerprintStatus.TAGGED
+audio_fingerprinter/tests/test_file_processor.py:682:test_per_file_lookup_error_counts_as_error || keeps: positive outcome assertion (assert: by_name["b.mp3"].status == "ERROR" | assert: "HTTP 500" in by_name["b.mp3"].message | assert: by_name["a.mp3"].status == "MATCHED" | assert: kwargs["errors"] == 1)
+audio_fingerprinter/tests/test_fingerprinter_app.py:77:test_no_display_text_skips_listbox || fixed: added positive assertion assert_any_call: app.progress.__setitem__.assert_any_call("value", 2)
+audio_fingerprinter/tests/test_mbid_writer.py:264:test_empty_tags_write_nothing || keeps: positive outcome assertion (assert: ok is True | assert: "No MusicBrainz identifiers" in msg)
+audio_normalizer/tests/test_app.py:84:test_returns_early_when_no_folder_path || fixed: added positive assertion assert_called_once_with: mock_cls.assert_called_once_with(app)
+audio_normalizer/tests/test_normalizer_core.py:428:test_apply_unsupported_format_rejected_before_ffmpeg || keeps: positive outcome assertion (assert: f.read_bytes() == b"wav data" | pytest.raises(...))
+audio_normalizer/tests/test_normalizer_core.py:519:test_dry_run_does_not_apply || fixed: added positive assertion assert: "DRY RUN" in results[-1]["display_text"]
+audio_normalizer/tests/test_normalizer_core.py:573:test_exactly_at_tolerance_boundary_skips || keeps: positive outcome assertion (assert: "SKIPPED" in results[-1]["display_text"])
+audio_normalizer/tests/test_normalizer_core.py:761:test_lossless_dry_run_calls_nothing || fixed: added positive assertion assert: "DRY RUN" in results[-1]["display_text"]
+audio_normalizer/tests/test_normalizer_core.py:411:test_read_tags_raw_failure_propagates || keeps: positive outcome assertion (pytest.raises(...))
+audio_normalizer/tests/test_normalizer_core.py:679:test_tolerance_zero_only_skips_exact_match || keeps: positive outcome assertion (assert: "SKIPPED" in results[-1]["display_text"])
+audio_normalizer/tests/test_normalizer_core.py:545:test_within_tolerance_skips_dry_run || keeps: positive outcome assertion (assert: "SKIPPED" in results[-1]["display_text"])
+audio_normalizer/tests/test_normalizer_core.py:555:test_within_tolerance_skips_live || keeps: positive outcome assertion (assert: "SKIPPED" in results[-1]["display_text"])
+audio_refinery/tests/test_app.py:237:test_all_stages_disabled_shows_no_stages_selected || keeps: positive outcome assertion (assert: "No Stages Selected" in titles)
+audio_refinery/tests/test_integrity.py:388:test_decode_failure_short_circuits || keeps: positive outcome assertion (assert: result.status == IntegrityStatus.FAIL)
+audio_refinery/tests/test_pipeline_stages.py:1332:test_apply_not_called_when_within_tolerance || fixed: added positive assertion assert_called_once: mock_measure.assert_called_once()
+audio_refinery/tests/test_pipeline_stages.py:266:test_original_file_not_overwritten_on_failure || fixed: added positive assertion assert: src.read_bytes() == b"\xde\xad\xbe\xef"
+audio_suite_shared/tests/test_analysis_app_base.py:537:test_selecting_a_missing_preset_is_a_no_op || fixed: added positive assertion assert_called_once_with: mock_load.assert_called_once_with("fake_tool", "nope")
+audio_suite_shared/tests/test_audio_playback.py:146:test_does_not_join_dead_thread || fixed: added positive assertion assert_called_once: previous.is_alive.assert_called_once()
+audio_suite_shared/tests/test_audio_playback.py:191:test_empty_wav_never_opens_stream || fixed: added positive assertion assert_called_once_with: mock_read.assert_called_once_with(wav)
+audio_suite_shared/tests/test_audio_playback.py:309:test_preparation_failure_is_logged_and_swallowed || keeps: positive outcome assertion (assert: result is True | assert: "Audition playback failed" in caplog.text)
+audio_suite_shared/tests/test_audio_playback.py:163:test_stops_early_when_event_set || fixed: added positive assertion assert_called_once: device.OutputStream.assert_called_once()
+audio_suite_shared/tests/test_batch_undo.py:1052:test_overwrite_payload_is_not_unpickled_as_tags || keeps: positive outcome assertion (assert: result.reverted == 1)
+audio_suite_shared/tests/test_file_processor_base.py:1149:test_dry_run_reports_found_without_writing || keeps: positive outcome assertion (assert: progress[0]["status"] == "FOUND" | assert: progress[0]["display_text"] == "[FOUND] a.wav → Fixed 1 thing" | assert: audio_file.read_bytes() == digest)
+audio_suite_shared/tests/test_key_manager.py:375:test_icacls_skipped_when_username_missing || keeps: positive outcome assertion (assert: km._fernet is not None)
+audio_suite_shared/tests/test_preflight.py:133:test_all_present_emits_no_warning || keeps: positive outcome assertion (assert: report_missing_requirements(show) == [])
+audio_suite_shared/tests/test_preflight.py:93:test_clean_suite_returns_true_and_does_not_exit || keeps: positive outcome assertion (assert: verify_suite(suite_root, show, exit_fn=blocker) is True)
+audio_suite_shared/tests/test_preflight.py:266:test_propagates_a_blocked_compile_gate || keeps: positive outcome assertion (assert: guard_or_exit(suite_root) is False)
+audio_suite_shared/tests/test_ui_audition.py:280:test_play_original_missing_path || keeps: positive outcome assertion (assert: _last_caption(app) == "Original not available.")
+audio_suite_shared/tests/test_ui_audition.py:289:test_play_original_none || keeps: positive outcome assertion (assert: _last_caption(app) == "Original not available.")
+audio_suite_shared/tests/test_ui_audition.py:328:test_play_result_missing_path || keeps: positive outcome assertion (assert: _last_caption(app) == "Result not available.")
+audio_suite_shared/tests/test_ui_common.py:936:test_blank_name_does_not_invoke_on_save || keeps: positive outcome assertion (assert: combo.get() == "")
+audio_suite_shared/tests/test_ui_common.py:976:test_cancel_does_not_delete || keeps: positive outcome assertion (assert: combo.get() == "Preset A")
+audio_suite_shared/tests/test_ui_common.py:987:test_no_selection_skips_prompt || fixed: added positive assertion assert: combo.get() == ""
+audio_suite_shared/tests/test_ui_helpers.py:99:test_save_last_dir_false_skips_save || fixed: added positive assertion assert_called_once: mock_ask.assert_called_once()
+bpm_analyzer/tests/test_app.py:121:test_no_handler_or_scheduling_without_folder || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Dry Run")
+bpm_analyzer/tests/test_file_processor.py:128:test_write_bpm_not_called_in_dry_run || fixed: added positive assertion assert_called_once: mock_detect.assert_called_once()
+cd_ripper/tests/test_cli.py:215:test_all_invalid_tracks_aborts || keeps: positive outcome assertion (assert: "No valid track numbers" in result.output)
+cd_ripper/tests/test_cli.py:53:test_dry_run_prints_settings_and_skips_rip || keeps: positive outcome assertion (assert: "DRY RUN" in result.output | assert: "Drive" in result.output)
+cd_ripper/tests/test_cli.py:267:test_invalid_choice_is_rejected || keeps: positive outcome assertion (assert: result.exit_code == 2)
+cd_ripper/tests/test_cli.py:345:test_missing_output_dir_on_rip_path_is_usage_error || keeps: positive outcome assertion (assert: result.exit_code == 2 | assert: "--output-dir" in result.output)
+cd_ripper/tests/test_cli.py:428:test_rip_session_not_started_for_detection || keeps: positive outcome assertion (assert: result.exit_code == 0)
+cd_ripper/tests/test_disc_core.py:612:test_ffprobe_failure_with_mbz_skips_lookup || keeps: positive outcome assertion (assert: info.error is not None)
+cd_ripper/tests/test_disc_core.py:555:test_mbz_not_called_when_error_present || fixed: added positive assertion assert: info.error is not None
+cd_ripper/tests/test_offset_detect.py:309:test_inconclusive_sweep_raises_and_persists_nothing || keeps: positive outcome assertion (pytest.raises(...))
+cd_ripper/tests/test_offset_detect.py:294:test_lookup_failure_raises_and_persists_nothing || keeps: positive outcome assertion (pytest.raises(...))
+cd_ripper/tests/test_ripper_core.py:2991:test_empty_toc_skips_database_lookup || keeps: positive outcome assertion (assert: plan.mode is RipVerificationMode.ACCURATERIP | assert: plan.lookup is None | assert: plan.toc == ())
+cd_ripper/tests/test_ripper_core.py:2518:test_mismatched_payload_length_reports_mismatch_without_reread || keeps: positive outcome assertion (assert: status.value == "MISMATCH" | assert: "expected" in detail)
+cd_ripper/tests/test_ripper_core.py:2831:test_off_mode_skips_verification_entirely || keeps: positive outcome assertion (assert: ok is True | assert: err == "")
+cd_ripper/tests/test_ripper_core.py:2868:test_read_wav_failure_blocks_encode || keeps: positive outcome assertion (assert: ok is False | assert: "Verification failed" in err)
+cd_ripper/tests/test_ripper_core.py:2902:test_verify_value_error_blocks_encode || keeps: positive outcome assertion (assert: ok is False | assert: "Verification failed" in err)
+file_reorganizer/tests/test_app.py:109:test_browse_source_cancelled_saves_nothing || fixed: added positive assertion assert_called_once: mock_dialog.askdirectory.assert_called_once()
+file_reorganizer/tests/test_app.py:79:test_destination_is_never_seeded || fixed: added positive assertion assert_called_once_with: app.source_dir.set.assert_called_once_with("/music/from/driver")
+file_reorganizer/tests/test_app.py:70:test_empty_last_directory_leaves_value_untouched || fixed: added positive assertion assert_called_once: mock_config.load_last_directory.assert_called_once()
+genre_sync/tests/test_app.py:450:test_no_handler_or_scheduling_without_folder || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Dry Run")
+genre_sync/tests/test_file_processor.py:125:test_already_correct_no_write || fixed: added positive assertion assert: results[0]["n_skipped"] == 1
+genre_sync/tests/test_file_processor.py:145:test_dry_run_does_not_write || fixed: added positive assertion assert: results[0]["n_updated"] == 1 | assert: "Jazz" in results[0]["display_text"]
+genre_sync/tests/test_file_processor.py:104:test_no_genre_does_not_call_write || fixed: added positive assertion assert: results[0]["n_no_genre"] == 1
+key_detector/tests/test_app.py:123:test_no_auto_start_no_scheduling || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Dry Run")
+key_detector/tests/test_app.py:108:test_no_folder_path_returns_before_mirroring || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Live Update")
+key_detector/tests/test_file_processor.py:342:test_dry_run_with_existing_key_skips || keeps: positive outcome assertion (assert: call_kwargs["n_skipped"] == 1 | assert: "Already has key: Am" in call_kwargs["display_text"])
+key_detector/tests/test_file_processor.py:117:test_get_samplerate_no_longer_called || fixed: added positive assertion assert_called_once: mock_detect_key.assert_called_once()
+key_detector/tests/test_file_processor.py:188:test_parallel_mode_skips_legacy_path || fixed: added positive assertion assert_called_once: mock_processor.run_cpu_bound_processing.assert_called_once()
+library_stats/tests/test_app.py:630:test_bar_colour_boundaries_and_unmapped_canvas || keeps: positive outcome assertion (assert: app._colour_for_pct(85.0) == "#22c55e" | assert: app._colour_for_pct(80.0) == "#f59e0b" | assert: app._colour_for_pct(49.9) == "#ef4444" | assert: canvas.create_rectangle.call_count == 1)
+library_stats/tests/test_app.py:614:test_cancelled_save_does_nothing || fixed: added positive assertion assert: filedialog.asksaveasfilename.call_count == 2
+library_stats/tests/test_library_stats.py:582:test_cache_removes_orphans || keeps: positive outcome assertion (assert: cache.row_count(str(tmp_path)) == 2 | assert: report.total_files == 1 | assert: cache.row_count(str(tmp_path)) == 1)
+library_stats/tests/test_library_stats.py:435:test_incremental_scan || keeps: positive outcome assertion (assert: report1.total_files == 1 | assert: cache.row_count(str(tmp_path)) == 1 | assert: report2.total_files == 1)
+lyrics_manager/tests/test_app.py:155:test_no_handler_or_scheduling_without_folder || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Dry Run")
+lyrics_manager/tests/test_sidecar_provider.py:251:test_integration_with_process_single_file_no_network || keeps: positive outcome assertion (assert: tags.synced is not None | assert: "Hello world" in tags.synced)
+lyrics_manager/tests/test_sidecar_provider.py:236:test_search_never_touches_network || keeps: positive outcome assertion (assert: result is not None | assert: result.has_lyrics)
+master_driver/tests/test_app.py:346:test_poll_inert_for_fixed_palette || fixed: added positive assertion assert: drv._accent_poll_active is True
+master_driver/tests/test_app.py:380:test_poll_reschedules_with_unchanged_accent || keeps: positive outcome assertion (assert: call is not None | assert: call.args[0] == _ACCENT_POLL_MS | assert_bound: assert_bound(call.args[1], "_poll_accent", drv))
+master_driver/tests/test_batch_orchestrator.py:372:test_all_standalone_parallel_batch_terminates || keeps: positive outcome assertion (assert: report.skipped == 2)
+master_driver/tests/test_batch_orchestrator.py:312:test_standalone_step_is_never_submitted_to_the_pool || keeps: positive outcome assertion (assert: [call.args[0] for call in run_script.call_args_list] == [ steps[0].script_path ])
+master_driver/tests/test_tool_launcher.py:156:test_enrich_nonexistent_dir_shows_directory_not_found || keeps: positive outcome assertion (assert: launch_mocks.show_message.call_args.args[1] == "Directory Not Found")
+master_driver/tests/test_tool_launcher.py:97:test_folder_tool_without_dir_shows_no_directory || keeps: positive outcome assertion (assert: state.dir_path.get() == "" | assert: launch_mocks.show_message.call_args.args[1] == "No Directory")
+master_driver/tests/test_tool_launcher.py:218:test_no_active_stages_shows_message || keeps: positive outcome assertion (assert: launch_mocks.show_message.call_args.args[1] == "No Stages Selected")
+master_driver/tests/test_tool_launcher.py:257:test_no_directory_shows_message || keeps: positive outcome assertion (assert: launch_mocks.show_message.call_args.args[1] == "No Directory")
+master_driver/tests/test_tool_launcher.py:88:test_no_selection_shows_nothing_selected || keeps: positive outcome assertion (assert: launch_mocks.show_message.call_args.args[1] == "Nothing Selected")
+master_driver/tests/test_tool_launcher.py:212:test_no_source_shows_message || keeps: positive outcome assertion (assert: launch_mocks.show_message.call_args.args[1] == "No Source Folder")
+master_driver/tests/test_tool_launcher.py:176:test_refinery_nonexistent_source_shows_directory_not_found || keeps: positive outcome assertion (assert: launch_mocks.show_message.call_args.args[1] == "Directory Not Found")
+master_driver/tests/test_tool_launcher.py:145:test_utility_nonexistent_dir_shows_directory_not_found || keeps: positive outcome assertion (assert: launch_mocks.show_message.call_args.args[1] == "Directory Not Found")
+metadata_scrubber/tests/test_app.py:362:test_dry_run_completion_never_saves_tag_prefs || keeps: negative contract required by plan G2.4a; behaviour covered by test_live_completion_saves_tag_prefs
+metadata_scrubber/tests/test_app.py:155:test_no_handler_or_scheduling_without_folder || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Dry Run")
+mood_analysis_batch_tagger/tests/test_app.py:161:test_ignores_missing_key || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Dry Run")
+mood_analysis_batch_tagger/tests/test_app.py:417:test_ignores_non_int_saved_value || fixed: added positive assertion assert_called_once_with: mock_config.load_value.assert_called_once_with( "mood_analysis_batch_duration", 90 )
+mood_analysis_batch_tagger/tests/test_app.py:389:test_no_folder_path_is_noop || fixed: added positive assertion assert_called_once_with: app.root_path.set.assert_called_once_with(str(tmp_path))
+mood_analyzer/tests/test_app.py:123:test_no_auto_start_no_scheduling || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Dry Run")
+mood_analyzer/tests/test_app.py:108:test_no_folder_path_returns_before_mirroring || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Live Update")
+mood_analyzer/tests/test_file_processor.py:61:test_dry_run_detects_without_writing || keeps: positive outcome assertion (assert: "[DETECTED]" in call_kwargs["display_text"] | assert: "Energetic;Bright;Confident" in call_kwargs["display_text"])
+mood_analyzer/tests/test_file_processor.py:221:test_ok_dry_run_skips_writes || fixed: added positive assertion assert: "[DETECTED]" in call_kwargs["display_text"]
+mood_analyzer/tests/test_file_processor.py:309:test_parallel_mode_skips_legacy_path || fixed: added positive assertion assert_called_once: mock_processor.run_cpu_bound_processing.assert_called_once()
+mood_analyzer/tests/test_file_processor.py:106:test_undecodable_file_reported_as_skip || keeps: positive outcome assertion (assert: call_kwargs["n_skipped"] == 1 | assert: "[SKIP]" in call_kwargs["display_text"])
+music_format_converter/tests/test_file_processor.py:538:test_wav_params_auto_still_reads_config_override || keeps: positive outcome assertion (assert: kwargs == {"wav_depth": "24"})
+music_format_converter/tests/test_file_processor.py:522:test_wav_params_explicit_bit_depth_wins || keeps: positive outcome assertion (assert: kwargs == {"wav_depth": "16"})
+music_format_converter/tests/test_file_processor.py:511:test_wav_params_lossy_source_keeps_16_bit_default || keeps: positive outcome assertion (assert: kwargs == {} | assert: "pcm_s16le" in cmd)
+music_format_converter/tests/test_file_processor.py:553:test_wav_params_override_beats_lossy_short_circuit || keeps: positive outcome assertion (assert: kwargs == {"wav_depth": "24"})
+noise_reduction/tests/test_app.py:319:test_empty_preset_does_nothing || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Dry Run")
+noise_reduction/tests/test_file_processor.py:280:test_live_run_records_single_real_path_snapshot_under_batch || keeps: positive outcome assertion (assert: len(batches) == 1 | assert: len(records) == 1 | assert: records[0].file_path == str(audio_file) | assert: records[0].operation == "noise_reduce_edit")
+pop_click_remover/tests/test_app.py:292:test_empty_preset_does_nothing || fixed: added positive assertion assert_called_once_with: app.sensitivity.set.assert_called_once_with(0.6)
+replaygain_analyzer/tests/test_app.py:328:test_no_handler_or_scheduling_without_folder || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Dry Run")
+replaygain_analyzer/tests/test_replaygain_pipeline.py:741:test_apply_not_called_when_flag_false || fixed: added positive assertion assert_called: mock_write_tags.assert_called()
+replaygain_analyzer/tests/test_replaygain_pipeline.py:495:test_dry_run_does_not_call_write_replaygain_tags || fixed: added positive assertion assert: all(s == "DRY RUN" for s in statuses)
+replaygain_analyzer/tests/test_replaygain_pipeline.py:774:test_tag_write_failure_skips_gain_application || keeps: positive outcome assertion (assert: completions[0]["tag_results"][0][1] == "ERROR")
+silence_trimmer/tests/test_app.py:357:test_empty_preset_does_nothing || fixed: added positive assertion assert_called_once_with: app.threshold.set.assert_called_once_with(-60)
+tag_editor/tests/test_app.py:66:test_apply_selection_passes_clear_value || keeps: positive outcome assertion (assert: edit.path == path | assert: edit.field == "title" | assert: edit.value is None | assert: app.processor.apply_edits.call_args.kwargs["dry_run"] is False)
+tag_editor/tests/test_app.py:439:test_browse_directory_does_nothing_when_cancelled || fixed: added positive assertion assert_called_once: mock_dialog.assert_called_once()
+tag_editor/tests/test_app.py:385:test_export_csv_cancelled_dialog_does_nothing || fixed: added positive assertion assert_called_once: mock_dialog.assert_called_once()
+tag_editor/tests/test_app.py:275:test_import_csv_applies_plan_edits || keeps: positive outcome assertion (assert: app.processor.apply_edits.call_args.kwargs["dry_run"] is True | assert: app._rows[str(path)][1]["title"] == "New")
+tag_editor/tests/test_app.py:313:test_import_csv_cancelled_dialog_does_nothing || fixed: added positive assertion assert_called_once: mock_dialog.assert_called_once()
+tag_editor/tests/test_app.py:474:test_on_tree_select_multiple_selections_returns_early || fixed: added positive assertion assert_called_once_with: app.tree.selection.assert_called_once_with()
+tag_editor/tests/test_app.py:465:test_on_tree_select_no_selection_returns_early || fixed: added positive assertion assert_called_once_with: app.tree.selection.assert_called_once_with()
+tag_editor/tests/test_app.py:485:test_on_tree_select_unknown_iid_returns_early || fixed: added positive assertion assert_called_once_with: app.tree.selection.assert_called_once_with()
+tag_editor/tests/test_app.py:552:test_update_row_skips_unknown_iid || fixed: added positive assertion assert_called_once_with: app.tree.set.assert_called_once_with(str(known), "title", "New")
+tag_editor/tests/test_processor.py:254:test_dry_run_compares_without_writing || keeps: positive outcome assertion (assert: results[0].changed is True | assert: results[0].written is False | assert: summarize_results(results).changed == 1)
+tag_editor/tests/test_processor.py:301:test_invalid_value_raises_before_writes || keeps: positive outcome assertion (pytest.raises(...))
+tag_editor/tests/test_processor.py:286:test_unchanged_value_is_not_written || keeps: positive outcome assertion (assert: results[0].changed is False)
+tag_field_updater/tests/test_app.py:205:test_cancelled_picker_leaves_directory || fixed: added positive assertion assert_called_once: filedialog.askdirectory.assert_called_once()
+tag_field_updater/tests/test_processor.py:549:test_process_flac_no_matching_tags || keeps: positive outcome assertion (assert: result.updated is False)
+tag_field_updater/tests/test_processor.py:575:test_process_flac_value_no_slash_no_update || keeps: positive outcome assertion (assert: result.updated is False | assert: result.tags_updated == ())
+tag_field_updater/tests/test_processor.py:468:test_process_mp3_no_matching_tags || keeps: positive outcome assertion (assert: result.updated is False)
+tag_field_updater/tests/test_processor.py:606:test_process_mp4_no_matching_tags || keeps: positive outcome assertion (assert: result.updated is False)
+tag_field_updater/tests/test_processor.py:632:test_process_mp4_value_no_slash_no_update || keeps: positive outcome assertion (assert: result.updated is False | assert: result.tags_updated == ())
+tag_field_updater/tests/test_processor.py:663:test_process_ogg_no_matching_tags || keeps: positive outcome assertion (assert: result.updated is False)
+tag_field_updater/tests/test_processor.py:690:test_process_ogg_value_no_slash_no_update || keeps: positive outcome assertion (assert: result.updated is False | assert: result.tags_updated == ())
+tag_field_updater/tests/test_processor.py:778:test_process_opus_no_matching_tags || keeps: positive outcome assertion (assert: result.updated is False)
+tag_field_updater/tests/test_processor.py:805:test_process_opus_value_no_slash_no_update || keeps: positive outcome assertion (assert: result.updated is False | assert: result.tags_updated == ())
+tag_field_updater/tests/test_processor.py:721:test_process_wma_no_matching_tags || keeps: positive outcome assertion (assert: result.updated is False)
+tag_field_updater/tests/test_processor.py:747:test_process_wma_value_no_slash_no_update || keeps: positive outcome assertion (assert: result.updated is False | assert: result.tags_updated == ())
+tempo_analyzer/tests/test_app.py:208:test_empty_preset_does_nothing || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Dry Run")
+tempo_analyzer/tests/test_app.py:244:test_ignores_unknown_scheme || keeps: positive outcome assertion (assert: app._active_markings is original)
+tempo_analyzer/tests/test_app.py:355:test_no_folder_path_returns_before_mirroring || fixed: added positive assertion assert_called_once_with: app.run_mode.set.assert_called_once_with("Live Update")
+tempo_analyzer/tests/test_app.py:409:test_on_preset_selected_empty_preset_does_nothing || fixed: added positive assertion assert_called_once_with: mock_cfg.load_preset.assert_called_once_with("tempo_analyzer", "empty_preset")
+tempo_analyzer/tests/test_app.py:418:test_on_preset_selected_none_does_nothing || fixed: added positive assertion assert_called_once_with: mock_cfg.load_preset.assert_called_once_with("tempo_analyzer", "missing")
+tempo_analyzer/tests/test_file_processor.py:244:test_dry_run_does_not_write || fixed: added positive assertion assert: "DRY RUN" in results[0]["display_text"]
+```
 
 ---
 

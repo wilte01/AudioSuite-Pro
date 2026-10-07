@@ -128,11 +128,12 @@ class TestSampleRatePassedToDetectKey:
             patch(f"{MODULE}.write_key"),
             patch(f"{MODULE}.librosa.load", return_value=(fake_audio, 22050)),
             patch(f"{MODULE}.librosa.get_samplerate") as mock_native_sr,
-            patch(f"{MODULE}.detect_key", return_value="C"),
+            patch(f"{MODULE}.detect_key", return_value="C") as mock_detect_key,
         ):
             process_single_file(**args)
 
             mock_native_sr.assert_not_called()
+            mock_detect_key.assert_called_once()
 
 
 class TestRunAnalysisParallelMode:
@@ -205,6 +206,7 @@ class TestRunAnalysisParallelMode:
                 parallel_mode=True,
             )
 
+        mock_processor.run_cpu_bound_processing.assert_called_once()
         mock_processor.discover_audio_files.assert_not_called()
         mock_processor.process_batch.assert_not_called()
 

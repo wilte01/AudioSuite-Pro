@@ -210,6 +210,10 @@ class TestApplyPreset:
         app.tempo_scheme.set.assert_not_called()
         app.run_mode.set.assert_not_called()
 
+        app._apply_preset({"run_mode": "Dry Run"})
+
+        app.run_mode.set.assert_called_once_with("Dry Run")
+
 
 class TestOnSchemeChange:
     """_on_scheme_change() updates markings, persists, and refreshes reference."""
@@ -355,10 +359,17 @@ class TestApplyCliArgsStandalone:
     def test_no_folder_path_returns_before_mirroring(self):
         parsed = MagicMock(folder_path="", live_mode=True)
         app = _make_cli_app(parsed)
-        with patch("tempo_analyzer.utils.cli_args.parse", return_value=parsed):
+        with (
+            patch("tempo_analyzer.utils.cli_args.parse", return_value=parsed),
+            patch("tempo_analyzer.app.UniversalCLIHandler") as handler_cls,
+        ):
+            handler_cls.return_value.apply_cli_args.return_value = False
             app._apply_cli_args()
-        app.run_mode.set.assert_not_called()
-        app.clear_logs_var.set.assert_not_called()
+            app.run_mode.set.assert_not_called()
+            app.clear_logs_var.set.assert_not_called()
+            parsed.folder_path = "C:/music"
+            app._apply_cli_args()
+        app.run_mode.set.assert_called_once_with("Live Update")
 
     def test_dry_run_mode_string(self):
         parsed = MagicMock(
@@ -412,6 +423,7 @@ class TestPresetCRUD:
         with patch("tempo_analyzer.app.suite_config") as mock_cfg:
             mock_cfg.load_preset.return_value = {}
             app._on_preset_selected("empty_preset")
+        mock_cfg.load_preset.assert_called_once_with("tempo_analyzer", "empty_preset")
         app.tempo_scheme.set.assert_not_called()
         app.run_mode.set.assert_not_called()
 
@@ -419,6 +431,7 @@ class TestPresetCRUD:
         with patch("tempo_analyzer.app.suite_config") as mock_cfg:
             mock_cfg.load_preset.return_value = None
             app._on_preset_selected("missing")
+        mock_cfg.load_preset.assert_called_once_with("tempo_analyzer", "missing")
         app.tempo_scheme.set.assert_not_called()
 
     def test_save_current_as_preset_calls_suite_config(

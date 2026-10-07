@@ -623,6 +623,7 @@ class TestCompletenessExports:
         app._export_completeness_csv()
         app._export_completeness_json()
 
+        assert filedialog.asksaveasfilename.call_count == 2
         messagebox.showwarning.assert_not_called()
 
 

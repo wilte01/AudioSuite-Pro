@@ -102,8 +102,9 @@ class TestProcessSingleFileUnit:
         assert results[0]["n_no_genre"] == 1
 
     def test_no_genre_does_not_call_write(self, tmp_path):
-        _, mock_write = self._call(tmp_path, _fields())
+        results, mock_write = self._call(tmp_path, _fields())
         mock_write.assert_not_called()
+        assert results[0]["n_no_genre"] == 1
 
     def test_no_genre_log_entry_populated(self, tmp_path):
         results, _ = self._call(tmp_path, _fields())
@@ -123,10 +124,11 @@ class TestProcessSingleFileUnit:
         assert results[0]["n_skipped"] == 1
 
     def test_already_correct_no_write(self, tmp_path):
-        _, mock_write = self._call(
+        results, mock_write = self._call(
             tmp_path, _fields(titlegenre="Rock"), current_genre="Rock"
         )
         mock_write.assert_not_called()
+        assert results[0]["n_skipped"] == 1
 
     def test_skipped_log_entry_contains_filename(self, tmp_path):
         results, _ = self._call(
@@ -143,10 +145,12 @@ class TestProcessSingleFileUnit:
         assert results[0]["n_updated"] == 1
 
     def test_dry_run_does_not_write(self, tmp_path):
-        _, mock_write = self._call(
+        results, mock_write = self._call(
             tmp_path, _fields(titlegenre="Jazz"), current_genre="Rock", is_dry_run=True
         )
         mock_write.assert_not_called()
+        assert results[0]["n_updated"] == 1
+        assert "Jazz" in results[0]["display_text"]
 
     def test_dry_run_display_contains_dry_run(self, tmp_path):
         results, _ = self._call(

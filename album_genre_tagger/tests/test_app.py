@@ -124,6 +124,7 @@ class TestApplyCliArgsStandalone:
         app, handler, handler_cls = _make_shell_app(GenreTaggerArgs())
         _run_apply(app, handler_cls)
 
+        app.run_mode.set.assert_called_once_with("Dry Run")
         handler.apply_cli_args.assert_not_called()
         app.root.after.assert_not_called()
 
@@ -376,6 +377,10 @@ class TestApplyPreset:
         app.run_mode.set.assert_not_called()
         app.min_coverage.set.assert_not_called()
 
+        app._apply_preset({"run_mode": "Dry Run"})
+
+        app.run_mode.set.assert_called_once_with("Dry Run")
+
     def test_unknown_keys_ignored(self):
         app, _, _ = _make_shell_app(None)
 
@@ -422,6 +427,9 @@ class TestOnPresetSelected:
 
         app._on_preset_selected("Missing Preset")
 
+        mock_sc.load_preset.assert_called_once_with(
+            "album_genre_tagger", "Missing Preset"
+        )
         app.run_mode.set.assert_not_called()
         app.min_coverage.set.assert_not_called()
 

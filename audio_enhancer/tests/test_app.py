@@ -427,8 +427,9 @@ class TestStartProcessingOutputResolution:
         """No worker thread should be spawned when source is invalid."""
         app.source_path.get.return_value = ""
         with patch.object(threading.Thread, "start") as mock_start:
-            with patch("audio_enhancer.app.messagebox.showwarning"):
+            with patch("audio_enhancer.app.messagebox.showwarning") as mock_warn:
                 app.start_processing()
+        mock_warn.assert_called_once()
         mock_start.assert_not_called()
 
 
@@ -692,6 +693,12 @@ class TestApplyCliArgs:
         with patch("audio_enhancer.app.parse_cli", return_value=args):
             app._apply_cli_args()
         app.run_mode.set.assert_not_called()
+
+        with patch(
+            "audio_enhancer.app.parse_cli", return_value=CliArgs(live_mode=False)
+        ):
+            app._apply_cli_args()
+        app.run_mode.set.assert_called_with("Dry Run")
 
     def test_cli_args_sets_auto_end(self, app: AudioEnhancerApp) -> None:
         args = CliArgs(auto_end=True)

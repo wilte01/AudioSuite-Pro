@@ -126,7 +126,9 @@ class TestProcessSingleFileDryRun:
         assert "DRY RUN" in progress_calls[0]["display_text"]
 
     def test_write_bpm_not_called_in_dry_run(self, lock, on_progress, slot_vars):
-        with patch("bpm_analyzer.core.file_processor.detect_bpm", return_value=128):
+        with patch(
+            "bpm_analyzer.core.file_processor.detect_bpm", return_value=128
+        ) as mock_detect:
             with patch("bpm_analyzer.core.file_processor.write_bpm") as mock_write:
                 process_single_file(
                     name="track.mp3",
@@ -140,6 +142,7 @@ class TestProcessSingleFileDryRun:
                     on_progress=on_progress,
                     slot_vars=slot_vars,
                 )
+        mock_detect.assert_called_once()
         mock_write.assert_not_called()
 
 

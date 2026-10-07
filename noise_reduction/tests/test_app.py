@@ -321,6 +321,10 @@ class TestApplyPreset:
         for key in _SETTINGS_KEYS:
             getattr(app, key).set.assert_not_called()
 
+        app._apply_preset({"run_mode": "Dry Run"})
+
+        app.run_mode.set.assert_called_once_with("Dry Run")
+
 
 class TestOnError:
     """_on_error() shows error dialog and re-enables start button."""

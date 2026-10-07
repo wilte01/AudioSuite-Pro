@@ -101,12 +101,13 @@ class TestBrowseFolderDialog:
             patch(
                 "audio_suite_shared.ui_helpers.filedialog.askdirectory",
                 return_value=str(tmp_path),
-            ),
+            ) as mock_ask,
             patch(
                 "audio_suite_shared.ui_helpers.suite_config.save_last_directory"
             ) as mock_save,
         ):
             ui_helpers.browse_folder_dialog("Pick", save_last_dir=False)
+            mock_ask.assert_called_once()
             mock_save.assert_not_called()
 
     def test_exception_shows_error_and_returns_none(self) -> None:

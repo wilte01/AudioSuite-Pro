@@ -348,6 +348,10 @@ class TestAccentPoll:
         drv._start_accent_poll()
         assert not getattr(drv, "_accent_poll_active", False)
         drv.root.after.assert_not_called()
+        drv.state.palette_var.set("Windows Accent")
+        drv._start_accent_poll()
+        assert drv._accent_poll_active is True
+        drv.root.after.assert_called_once()
 
     def test_poll_starts_for_windows_accent(self, monkeypatch):
         drv = self._shell_driver("Windows Accent")

@@ -110,8 +110,11 @@ class TestApplyCliArgsStandalone:
         app = _make_cli_app()
         with patch("mood_analyzer.utils.cli_args.parse", return_value=parsed):
             app._apply_cli_args()
-        app.run_mode.set.assert_not_called()
-        app.clear_logs_var.set.assert_not_called()
+            app.run_mode.set.assert_not_called()
+            app.clear_logs_var.set.assert_not_called()
+            parsed.folder_path = "C:/music"
+            app._apply_cli_args()
+        app.run_mode.set.assert_called_once_with("Live Update")
 
     def test_dry_run_mode_string(self):
         parsed = _make_parsed()
@@ -125,6 +128,7 @@ class TestApplyCliArgsStandalone:
         app = _make_cli_app()
         with patch("mood_analyzer.utils.cli_args.parse", return_value=parsed):
             app._apply_cli_args()
+        app.run_mode.set.assert_called_once_with("Dry Run")
         app.root.after.assert_not_called()
 
 

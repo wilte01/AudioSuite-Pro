@@ -249,6 +249,10 @@ class TestHandleMoodResult:
         mock_write.assert_not_called()
         mock_write_conf.assert_not_called()
         mock_write_energy.assert_not_called()
+        on_progress.assert_called_once()
+        call_kwargs = on_progress.call_args[1]
+        assert call_kwargs["n_errors"] == 0
+        assert "[DETECTED]" in call_kwargs["display_text"]
 
     def test_error_reported(self) -> None:
         from mood_analyzer.core.file_processor import _handle_mood_result
@@ -310,6 +314,7 @@ class TestRunAnalysisParallelMode:
         mock_processor = MagicMock()
         with patch(f"{MODULE}.MoodAnalyzerProcessor", return_value=mock_processor):
             self._run(parallel_mode=True)
+        mock_processor.run_cpu_bound_processing.assert_called_once()
         mock_processor.discover_audio_files.assert_not_called()
         mock_processor.process_batch.assert_not_called()
 

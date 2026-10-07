@@ -77,6 +77,8 @@ class TestOnProgress:
     def test_no_display_text_skips_listbox(self):
         app = self._make_app()
         app._on_progress(2, 5, 0)
+        app.progress.__setitem__.assert_any_call("value", 2)
+        app.stats_label.config.assert_called_once()
         app.file_listbox.insert.assert_not_called()
         app.file_listbox.see.assert_not_called()
 

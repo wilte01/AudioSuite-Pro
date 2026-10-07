@@ -359,6 +359,10 @@ class TestApplyPreset:
         app.threshold.set.assert_not_called()
         app.fade_var.set.assert_not_called()
 
+        app._apply_preset({"threshold": -60})
+
+        app.threshold.set.assert_called_once_with(-60)
+
 
 class TestOnError:
     """_on_error() shows error dialog and re-enables start button."""

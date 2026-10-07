@@ -166,6 +166,7 @@ class TestApplyCliArgsStandalone:
         ):
             app._apply_cli_args()
 
+        app.run_mode.set.assert_called_once_with("Dry Run")
         app.cli_handler.apply_cli_args.assert_not_called()
         app.root.after.assert_not_called()
 
@@ -323,6 +324,41 @@ class TestProgressAndCompleteD3:
         assert "Total files: 10" in log_text
         assert str(app.completion_label.cget("text")) == "Analysis Complete!"
         assert str(app.summary_label.cget("text")).startswith("Total: 10")
+
+    def test_live_completion_saves_tag_prefs(
+        self, app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The live branch (app.py ``if is_live:`` → ``save_kept_tags``) is
+        the side effect users depend on: the ticked set is persisted to
+        tag_prefs.json.  Audit M5 found only the dry-run negative existed,
+        so deleting the save would have left the suite green."""
+        import metadata_scrubber.app as app_mod
+
+        save_kept = MagicMock()
+        monkeypatch.setattr(
+            "metadata_scrubber.utils.tag_prefs.save_kept_tags", save_kept
+        )
+        app = _pinned_app(app_root, monkeypatch)
+        app._log_path = str(tmp_path / "live_log.txt")
+        app.auto_end = False
+        monkeypatch.setattr(app_mod, "messagebox", MagicMock())
+
+        app._on_complete(
+            header=["REPORT\n"],
+            is_live=True,
+            preserve_list=["BPM"],
+            total=10,
+            processed=8,
+            skipped=1,
+            errors=1,
+            duration_secs=65.4,
+            log_entries=["entry\n"],
+        )
+
+        save_kept.assert_called_once_with(app_mod._PACKAGE_DIR, ["BPM"])
+        assert str(app.completion_label.cget("text")) == "Metadata Scrubbing Complete!"
+        log_text = Path(app._log_path).read_text(encoding="utf-8")
+        assert "Total files: 10" in log_text
 
     def test_dry_run_completion_never_saves_tag_prefs(
         self, app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

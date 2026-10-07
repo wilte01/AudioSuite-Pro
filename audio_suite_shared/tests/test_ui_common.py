@@ -994,6 +994,14 @@ class TestDeletePresetAction:
         ask.assert_not_called()
         on_delete.assert_not_called()
 
+        combo.configure(values=["Preset A"])
+        combo.set("Preset A")
+        with patch("tkinter.messagebox.askyesno", return_value=True) as ask:
+            delete_preset_action(combo, on_delete)
+        ask.assert_called_once()
+        on_delete.assert_called_once_with("Preset A")
+        assert combo.get() == ""
+
     def test_on_delete_none_still_confirms_and_clears(self, setup_tk: tk.Tk) -> None:
         from audio_suite_shared.ui_common import delete_preset_action
 

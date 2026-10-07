@@ -92,10 +92,22 @@ class TestApplyPreset:
         tool._apply_preset({"other_key": "value"})
         tool.asx_action_mode.set.assert_not_called()
 
+        tool._apply_preset({"run_mode": "Execute Extraction (Permanent)"})
+
+        tool.asx_action_mode.set.assert_called_once_with(
+            "Execute Extraction (Permanent)"
+        )
+
     def test_empty_dict_is_a_noop(self) -> None:
         tool = _make_tool()
         tool._apply_preset({})
         tool.asx_action_mode.set.assert_not_called()
+
+        tool._apply_preset({"run_mode": "Execute Extraction (Permanent)"})
+
+        tool.asx_action_mode.set.assert_called_once_with(
+            "Execute Extraction (Permanent)"
+        )
 
 
 class TestOnPresetSelected:
@@ -334,11 +346,12 @@ class TestRunLogWriteFailure:
             patch(
                 "asx_extractor.app.file_ops.write_extraction_log",
                 return_value=True,
-            ),
+            ) as mock_log,
             patch("asx_extractor.app.messagebox") as mock_mb,
         ):
             tool._run()
 
+        mock_log.assert_called_once()
         mock_mb.showerror.assert_not_called()
 
 

@@ -7,6 +7,8 @@ real suite root. Each test gets an isolated directory.
 """
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -481,3 +483,73 @@ class TestAppStateBridges:
         state.font_family_var.set.assert_called_once_with("Verdana")
         state.theme_mode_var.set.assert_called_once_with("Dark")
         state.font_sizes_vars["Header"].set.assert_called_once_with(18)
+
+
+# ── H2: lost-update regression (audit 2026-10-06) ────────────────────────────
+
+
+class TestLostUpdateStaleCache:
+    """A save must read fresh disk state inside the lock (audit finding H2).
+
+    ``_load()`` returns the process-local cache whenever one exists, so a
+    process that loaded at startup used to take the lock and write its
+    stale snapshot back over a concurrent tool's save.  The cache is
+    invalidated on lock acquisition (``_file_lock``), which is the only
+    place the read-modify-write cycle is serialised.
+    """
+
+    def test_concurrent_process_save_survives_locked_read(self, isolated_config):
+        """Two real processes: the parent loads (populating its cache), a
+        child process saves one key, then the parent saves another key.
+        The raw JSON must contain all three keys — pre-fix the child's key
+        was clobbered by the parent's stale locked read.
+        """
+        isolated_config.write_text(
+            json.dumps({"last_directory": "ORIG"}), encoding="utf-8"
+        )
+
+        # Parent populates its process-local cache from disk.
+        assert sc.load_value("last_directory") == "ORIG"
+        assert sc._config_cache is not None
+
+        # Child process: its cache is fresh, so its save reads ORIG from
+        # disk and adds 'palette'.  _save/_load read the CONFIG_PATH module
+        # global at call time, so rebinding it before the call is enough.
+        child_script = (
+            "import sys\n"
+            "from pathlib import Path\n"
+            "import audio_suite_shared.suite_config as sc\n"
+            "sc.CONFIG_PATH = Path(sys.argv[1])\n"
+            "sc.save_value('palette', 'Purple')\n"
+        )
+        repo_root = Path(__file__).resolve().parents[2]
+        proc = subprocess.run(
+            [sys.executable, "-c", child_script, str(isolated_config)],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+
+        # The parent still holds its now-stale cache and saves under the
+        # lock: the locked read must not use that stale snapshot.
+        sc.save_value("theme_mode", "Dark")
+
+        raw = json.loads(isolated_config.read_text(encoding="utf-8"))
+        assert raw == {
+            "last_directory": "ORIG",
+            "palette": "Purple",
+            "theme_mode": "Dark",
+        }, f"lost-update: locked read clobbered a concurrent save: {raw}"
+
+    def test_single_process_roundtrip_still_works(self, isolated_config):
+        """Positive control: a save still round-trips and the cache is
+        refreshed from the file the save just wrote."""
+        sc.save_value("theme_mode", "Dark")
+        assert sc._config_cache is None  # _save's post-write invalidation
+
+        assert sc.load_value("theme_mode") == "Dark"
+        assert sc._config_cache is not None
+        assert sc._config_cache["theme_mode"] == "Dark"

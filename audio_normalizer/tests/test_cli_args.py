@@ -92,6 +92,9 @@ class TestNormalizerParse:
     def test_default_target_lufs_is_valid_preset(self) -> None:
         result = parse(["prog"])
         assert result.target_lufs in VALID_TARGET_LUFS_VALUES
+        # D4 (iteration 9): the argparse default must match the GUI default
+        # (-14.0), or applying CLI args silently rewrites the GUI's -14.
+        assert result.target_lufs == -14.0
 
     def test_live_flag_sets_live_mode_true(self, tmp_path: Path) -> None:
         result = parse(["prog", str(tmp_path), str(VALID_LUFS[0]), "--live"])
