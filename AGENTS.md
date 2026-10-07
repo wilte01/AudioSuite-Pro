@@ -340,9 +340,16 @@ Follow them or the "passing" run is misleading.
   variables (double any inner single quote as `''`), or split the `["']`
   class into separate double-quote and single-quote greps. After
   `git add -A`, prefer `git grep --cached -n -i -E -I -e '<pattern>'` over
-  `rg` — it scans exactly the files about to be committed, the precise
-  "blocker" gate. This is what caught and excluded the live Fanart.tv keys in
-  P1 (`PLAN_audit_priority_actions.md`, Decision D11).
+  `rg` — it scans the index, i.e. exactly the tree the next commit will
+  create, so it gates the full content being pushed without needing `rg`.
+  It is NOT scoped to the diff: hits also surface pre-existing committed
+  content (e.g. `album_art_sync/api/fanart.py`'s
+  `params={"api_key": app_key, ...}`), which is expected noise rather than
+  a new leak — append `-- <staged files>` pathspecs when the question is
+  specifically "does *this* change introduce a secret" (an unscoped scan
+  run against a seven-file commit once flagged five untouched files before
+  that distinction was checked). This is what caught and excluded the live
+  Fanart.tv keys in P1 (`PLAN_audit_priority_actions.md`, Decision D11).
 
 - **pwsh has no heredoc: long commit messages need `git commit -F <file>`.**
   `git commit -F - <<'MSG'` is bash-only and dies with `ParserError: Missing
