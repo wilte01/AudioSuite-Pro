@@ -43,6 +43,10 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
 - **Read-side MusicBrainz tag helpers.** `read_musicbrainz_ids` and
   `read_disc_number` let other tools consume the identifiers the writer produces
   across MP3, FLAC/Vorbis, MP4 and IFF-ID3.
+- **Local `.lrc` sidecar lyrics** (Lyrics Manager). A new `sidecar` provider
+  reads the `.lrc` file co-located with each audio track (same stem, `.lrc`
+  extension) — no network access. Selectable with `--provider sidecar` on
+  the CLI or in the GUI provider list.
 
 ### Changed
 
@@ -72,6 +76,16 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
   cards are now shell-identical and their option labels, help text and button
   captions are generated from one declaration each. No user-facing option,
   caption or shortcut changed.
+- **CLI reference defaults corrected against introspected click behaviour.**
+  The `--dry`/`--live` default for Album Genre Tagger, Album Art Sync,
+  ASX Playlist Extractor, and Lyrics Manager was documented as "dry" when
+  every command's actual default is live; the `--stages` default for Audio
+  Refinery was documented as "all five" when the click option defaults to
+  `declick,trim,enhance,normalise`. A lock test now introspects every
+  documented default against the live click commands.
+- **README verification metric reworded.** The "over 452 files" phrasing
+  was replaced with non-numeric wording so the statement cannot drift as
+  modules are added or removed.
 
 ### Fixed
 
@@ -160,6 +174,10 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
   rewrote the GUI's −14 back to −16 — and the ReplayGain CLI defaulted to
   −14 while its GUI, argparse path and examples use −16. Defaults now match
   their surfaces: normalizer −14, ReplayGain −16, Refinery −16 (unchanged).
+- **`--end` / auto-close is now honoured in Noise Reduction and Pop &
+  Click Remover.** Both previously logged an 'ignored' warning and stayed
+  open when the Master Driver requested auto-close on completion (decision
+  J2).
 
 ### Removed
 

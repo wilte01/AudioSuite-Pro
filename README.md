@@ -222,7 +222,7 @@ inherits the same guarantees the existing tools have rather than discovering
 them through review. Two properties are measured and enforced on every change:
 
 * **Typing** — 99.5% of production definitions are fully annotated (99.9% of
-  parameters) and `mypy` runs in `--strict` mode over 452 files with no
+  parameters) and `mypy` runs in `--strict` mode across the whole suite with no
   errors. Every public module, class and function carries a docstring; function
   signatures are explicitly typed end to end.
 * **Audio correctness** — this suite transforms users' audio, so any change

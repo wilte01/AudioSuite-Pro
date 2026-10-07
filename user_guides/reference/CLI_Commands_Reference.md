@@ -15,7 +15,7 @@ audiosuite album-genre <directory> [--dry] [--json] [--coverage N]
 ```
 
 **Options:**
-- `--dry` / `--live` — Analyse only, do not write tags (default: dry)
+- `--dry` / `--live` — Analyse only, do not write tags (default: live)
 - `--json` / `--text` — Output results as JSON (default: text)
 - `--coverage N` — Minimum coverage percentage 0–100 before writing (default: 50)
 
@@ -37,7 +37,7 @@ audiosuite album-art <directory> [--embed-size N] [--purge/--no-purge] [--dry] [
 **Options:**
 - `--embed-size N` — Embedded resolution in pixels (default: 800)
 - `--purge` / `--no-purge` — Purge hidden thumbnail files (default: purge)
-- `--dry` / `--live` — Analyse only, do not write tags (default: dry)
+- `--dry` / `--live` — Analyse only, do not write tags (default: live)
 - `--json` / `--text` — Output results as JSON (default: text)
 
 **Examples:**
@@ -55,7 +55,7 @@ audiosuite asx-extract <directory> [--dry] [--json]
 ```
 
 **Options:**
-- `--dry` / `--live` — Analyse only, do not copy or remove files (default: dry)
+- `--dry` / `--live` — Analyse only, do not copy or remove files (default: live)
 - `--json` / `--text` — Output results as JSON (default: text)
 
 **Examples:**
@@ -100,7 +100,7 @@ audiosuite refine <directory> [--stages LIST] [OPTIONS]
 ```
 
 **Options:**
-- `--stages LIST` — Comma-separated stages to run: `declick`, `trim`, `reduce_noise`, `enhance`, `normalise` (default: all five)
+- `--stages LIST` — Comma-separated stages to run: `declick`, `trim`, `reduce_noise`, `enhance`, `normalise` (default: declick,trim,enhance,normalise)
 - `--reduce-hum` — Enable hum removal via notch filtering
 - `--hum-frequency [50|60]` — Mains frequency in Hz (default: 60)
 - `--hum-harmonics N` — Harmonics to filter, 1–20 (default: 8)
@@ -234,7 +234,7 @@ audiosuite lyrics <directory> [--dry] [--json] [--parallel] [--workers N]
 ```
 
 **Options:**
-- `--dry` / `--live` — Analyse only, do not write tags (default: dry)
+- `--dry` / `--live` — Analyse only, do not write tags (default: live)
 - `--json` / `--text` — Output results as JSON (default: text)
 - `--parallel` / `--no-parallel` — Process files in parallel (default: off)
 - `--workers N` — Parallel worker count (default: 4)
