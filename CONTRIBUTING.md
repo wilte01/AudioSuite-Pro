@@ -49,6 +49,8 @@ git grep --cached -n -E -I -e '"[A-Za-z0-9+/]{44,}={0,2}"'
 git grep --cached -n -E -I -e "-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----"
 ```
 
+Run all six in one shot with `utilities\run_gate.ps1`.
+
 Zero failures, zero "fix later". A failing test is never deleted, skipped,
 or `xfail`ed to make a gate green — resolve the cause. The coverage gate
 (`fail_under = 75`) is enforced on the bare full-suite run only.

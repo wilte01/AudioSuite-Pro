@@ -43,7 +43,31 @@ jobs:
       - name: Bandit (full tree)
         env:
           PYTHONUTF8: "1"
-        run: bandit -r . -x ./.venv -c pyproject.toml
+        # bandit exits 1 whenever ANY finding survives its default LOW/LOW
+        # filter, so the raw exit code cannot express this project's gate.
+        # The verdict is bandit's severity block: 0 High / 0 Medium (AGENTS.md),
+        # the same rule utilities/run_gate.ps1 applies locally (plan D12).
+        # Exit >= 2 (tool error) and a missing severity block fail loudly.
+        run: |
+          set +e
+          bandit -r . -x ./.venv -c pyproject.toml > bandit-out.txt 2>&1
+          code=$?
+          set -e
+          cat bandit-out.txt
+          sev=$(sed -n '/Total issues (by severity):/,/Total issues (by confidence):/p' bandit-out.txt)
+          if [ -z "$sev" ]; then
+            echo "bandit severity block not found - failing loudly" >&2
+            exit 2
+          fi
+          if printf '%s\n' "$sev" | grep -qE '^[[:space:]]*(High|Medium):[[:space:]]*[1-9]'; then
+            echo "gate fail: severity block has High/Medium > 0" >&2
+            exit 1
+          fi
+          if [ "$code" -ge 2 ]; then
+            echo "bandit tool error (exit $code)" >&2
+            exit "$code"
+          fi
+          echo "bandit gate pass: 0 High / 0 Medium (exit $code; Low findings accepted)"
 
   compile:
     name: Compile / Pre-flight gate

@@ -29,7 +29,7 @@ doc.add_paragraph(
     "a remote source or a local sidecar file, and embeds them straight into each "
     "file's tags, so lyrics travel with the file to any player or device that "
     "supports them. Files are matched to the lyric source by their artist and "
-    "title tags; files whose tags are missing or contain \"Unknown\" are skipped."
+    'title tags; files whose tags are missing or contain "Unknown" are skipped.'
 )
 doc.add_paragraph(
     "Lyrics can be synced (timestamped lines, so a player highlights the words in "
