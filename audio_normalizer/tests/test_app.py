@@ -87,6 +87,7 @@ class TestAppApplyCliArgs:
         with (
             patch("audio_normalizer.app.cli_args.parse", return_value=args),
             patch("audio_normalizer.app.UniversalCLIHandler") as mock_cls,
+            patch.object(app.root, "after"),
         ):
             app._apply_cli_args()
             mock_cls.assert_not_called()
