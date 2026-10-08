@@ -556,8 +556,8 @@ class TestHandleAudioErrorsDecorator:
 
     def test_error_record_reaches_audio_suite_logger(self):
         """Regression: decorator-captured errors must propagate to handlers
-        attached to the "audio_suite" logger (logs/audio_suite.log). A plain
-        getLogger(__name__) hangs off the root logger and never gets there."""
+        attached to the "audio_suite" logger (logs/audio_suite.log) — the
+        namespace the shared exception machinery writes under."""
 
         class _Capture(logging.Handler):
             def __init__(self):

@@ -3,11 +3,16 @@
 ``app_bootstrap.configure_logging()`` attaches the suite's RotatingFileHandler
 to the ``audio_suite`` logger. A module that calls ``logging.getLogger(__name__)``
 produces records under ``audio_suite_shared.*``, which is a *sibling* branch:
-those records propagate to the **root** logger, not to ``audio_suite``. Under a
-GUI launch there is no root handler, and under ``pythonw`` logging's
-``lastResort`` stderr path is discarded, so WARNING+ records vanish - including
-the subprocess audit trail (``secure_subprocess``) and the undo INFO records
-(``batch_undo``).
+those records propagate to the **root** logger, not to ``audio_suite``. Before
+iteration-9 G4.2 there was no root handler under a GUI launch, and under
+``pythonw`` logging's ``lastResort`` stderr path is discarded, so WARNING+
+records vanished - including the subprocess audit trail (``secure_subprocess``)
+and the undo INFO records (``batch_undo``).
+
+Since G4.2 the same file handler is also attached to each first-party package
+logger, so a package-root record reaches the file either way. This lock is
+unchanged: ``audio_suite.*`` stays the enforced namespace for shared modules,
+because one searchable logger name beats a per-package exception list.
 
 Verified empirically before the fix: with a handler attached to ``audio_suite``,
 a WARNING emitted through ``audio_suite_shared.secure_subprocess`` produced an
@@ -40,7 +45,13 @@ NAMESPACE = "audio_suite"
 # Modules whose logger name is chosen at runtime rather than from __name__.
 # get_logger(program_name) in error_logger builds f"audio_suite.{program_name}",
 # so it is compliant by construction and has no literal to inspect.
-_RUNTIME_NAMED_MODULES = frozenset({"error_logger.py"})
+# logging_setup (iteration-9 G4.2) calls getLogger(<package dir name>) to
+# attach the suite file handler to each first-party tool package: those names
+# ("bpm_analyzer", "noise_reduction", ...) are deliberately *outside* the
+# audio_suite namespace, because they are the packages' own logger roots, not
+# audio_suite.* modules. Its other call, getLogger("audio_suite"), is
+# compliant by construction.
+_RUNTIME_NAMED_MODULES = frozenset({"error_logger.py", "logging_setup.py"})
 
 
 def _iter_source_files() -> list[Path]:

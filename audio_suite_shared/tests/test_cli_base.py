@@ -7,7 +7,10 @@ collector, and the _run_tool orchestration with terminal callbacks.
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock
+
+import pytest
 
 from audio_suite_shared.cli_base import (
     _make_slot_queue,
@@ -102,3 +105,40 @@ class TestRunTool:
 
         result = _run_tool("test_tool", run_fn, on_error=on_error)
         assert result.errors == 0
+
+
+class TestCliSuiteLogging:
+    """cli() must hand the parsed --log-level to the suite file logger (G4.3).
+
+    Audit M1: the CLI only ran ``logging.basicConfig`` (stderr), so
+    first-party records never reached ``logs/audio_suite.log`` under a CLI
+    run either.  This pins the wiring at the call site — patching the
+    ``cli_base`` binding (the namespace ``cli()`` resolves at call time) and
+    driving the real group through real click parsing, so a future change
+    that drops the ``min_level=`` keyword fails here rather than silently
+    reverting to the DEBUG default.
+    """
+
+    def test_cli_invocation_wires_suite_logging(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from click.testing import CliRunner
+
+        from audio_suite_shared import cli_app, cli_base
+
+        # cli_app registers the tool subcommands onto cli_base.cli, which is
+        # how "stats" exists; without it the group would reject the command
+        # before the callback (and this assertion) could run.
+        assert cli_app.cli is cli_base.cli
+
+        configure = MagicMock()
+        monkeypatch.setattr(cli_base, "configure_logging", configure)
+
+        result = CliRunner().invoke(
+            cli_base.cli, ["--log-level", "INFO", "stats", "--help"]
+        )
+
+        assert result.exit_code == 0, result.output
+        configure.assert_called_once()
+        assert configure.call_args.args == ("audiosuite_cli",)
+        assert configure.call_args.kwargs["min_level"] == logging.INFO

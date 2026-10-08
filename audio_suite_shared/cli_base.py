@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 import click
 
+from audio_suite_shared.logging_setup import configure_logging as configure_logging
 from audio_suite_shared.project_version import declared_version
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
@@ -245,7 +246,12 @@ class GroupedHelpGroup(click.Group):
 @click.version_option(version=declared_version(), prog_name="audiosuite")
 def cli(log_level: str) -> None:
     """AudioSuite-Pro — headless audio processing toolkit."""
+    level = getattr(logging, log_level.upper(), logging.WARNING)
     logging.basicConfig(
-        level=getattr(logging, log_level.upper(), logging.WARNING),
+        level=level,
         format="%(levelname)s [%(name)s] %(message)s",
     )
+    # Also route first-party tool-package records to the suite log file;
+    # min_level mirrors the console level so --log-level still governs what
+    # is emitted (plan iteration-9 G4.3).
+    configure_logging("audiosuite_cli", min_level=level)

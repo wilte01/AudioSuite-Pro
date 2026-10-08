@@ -2,19 +2,21 @@
 error_logger.py — Compatibility shim for audio_suite_shared.
 
 All logging is now handled by stdlib logging configured once at startup
-via app_bootstrap.configure_logging().  This module retains the original
-public API (ErrorLogger class, get_logger(), cleanup_logs()) so that
-existing call sites need no changes.
+via logging_setup.configure_logging() (re-exported as
+app_bootstrap.configure_logging for the .pyw launchers).  This module
+retains the original public API (ErrorLogger class, get_logger(),
+cleanup_logs()) so that existing call sites need no changes.
 
 Migration note
 --------------
-New code should use ``logging.getLogger(f"audio_suite.{__name__}")`` directly
-(``__name__`` alone would hang the logger off the *root* logger, whose records
-never reach the RotatingFileHandler that
-``app_bootstrap.configure_logging()`` attaches to the ``audio_suite`` logger),
-or where standardized error handling is required ``@handle_audio_errors``
-from ``audio_suite_shared.exceptions`` and ``show_error_from_exception``
-from ``audio_suite_shared.ui_helpers``.  Existing call sites using
+New code should use ``logging.getLogger(__name__)`` directly: since
+iteration-9 G4.2 the suite's RotatingFileHandler is attached to every
+first-party package logger as well as to the ``audio_suite`` tree, so a
+package-module logger reaches the file either way (third-party loggers
+are deliberately left alone).  Where standardized error handling is
+required use ``@handle_audio_errors`` from
+``audio_suite_shared.exceptions`` and ``show_error_from_exception`` from
+``audio_suite_shared.ui_helpers``.  Existing call sites using
 ``get_logger("program_name")`` continue to work — they receive an
 ErrorLogger instance backed by a stdlib logger in the ``audio_suite.*``
 namespace.  ``log_and_show_error`` is deprecated (logging only; dialogs
@@ -176,7 +178,7 @@ class ErrorLogger:
 
         The original implementation parsed log files manually.  File
         parsing is no longer needed — RotatingFileHandler in
-        app_bootstrap handles all rotation.  Returns a safe empty
+        logging_setup handles all rotation.  Returns a safe empty
         structure for any call sites that consume the return value.
         """
         return {"total": 0, "by_type": {}, "log_files": []}
@@ -205,7 +207,7 @@ def cleanup_logs(
     max_age_days: int = 30,  # kept for API compatibility
 ) -> None:
     """
-    No-op.  Log rotation is handled by RotatingFileHandler in app_bootstrap.
+    No-op.  Log rotation is handled by RotatingFileHandler in logging_setup.
 
     Parameters are retained so any existing call sites continue to work.
     """

@@ -178,6 +178,15 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
   Click Remover.** Both previously logged an 'ignored' warning and stayed
   open when the Master Driver requested auto-close on completion (decision
   J2).
+- **Tool-package and CLI records now reach the suite log file.** Only the
+  `audio_suite.*` logger tree was attached to `logs/audio_suite.log`, so
+  `getLogger(__name__)` calls in the first-party tools and every CLI run —
+  which configured only a stderr handler — wrote nothing to the file.
+  `configure_logging` now lives in the Tk-free
+  `audio_suite_shared/logging_setup` (re-exported from `app_bootstrap`), and
+  attaches the same rotating handler to every first-party package logger;
+  the CLI passes its `--log-level` as the package level so verbosity still
+  follows the console setting.
 
 ### Removed
 

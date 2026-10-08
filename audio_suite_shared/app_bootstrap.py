@@ -5,18 +5,15 @@ Provides a single helper that applies the window setup, theme, palette,
 error logger, and ttk style initialisation shared by every tool in the
 suite.  Tools remain free to override or skip steps via keyword arguments.
 
-configure_logging() is the only addition to the original file.
-It has no tkinter dependency and is safe to call before tk.Tk() exists.
+configure_logging() lives in audio_suite_shared.logging_setup, which is
+Tk-free so the headless CLI can configure the same suite logging without
+importing tkinter; it is re-exported here so the .pyw launchers keep
+their original import path.
 """
 
 import logging
-import logging.handlers
 import os
-import sys
-import tempfile
-import threading
 import tkinter as tk
-from pathlib import Path
 from queue import Queue
 from tkinter import messagebox, ttk
 from types import TracebackType
@@ -24,125 +21,9 @@ from types import TracebackType
 from . import platform_utils, styles, suite_config
 from .cli_helpers import UniversalCLIHandler
 from .error_logger import ErrorLogger, get_logger
+from .logging_setup import _log_uncaught
+from .logging_setup import configure_logging as configure_logging
 from .ui_helpers import UIHelperMixin
-
-# ---------------------------------------------------------------------------
-# configure_logging — the only addition to the original file
-# ---------------------------------------------------------------------------
-
-_HOOK_MARKER = "_audio_suite_hook"
-
-
-def _log_uncaught(
-    level: int,
-    message: str,
-    exc_type: type[BaseException],
-    exc_value: BaseException | None,
-    exc_tb: TracebackType | None,
-) -> None:
-    """Write an uncaught exception (with traceback) to the audio_suite log."""
-    logger = logging.getLogger("audio_suite")
-    if exc_value is None:
-        logger.log(level, "%s: %s", message, exc_type.__name__)
-        return
-    logger.log(level, message, exc_info=(exc_type, exc_value, exc_tb))
-
-
-def _log_fatal_exception(
-    exc_type: type[BaseException],
-    exc_value: BaseException,
-    exc_tb: TracebackType | None,
-) -> None:
-    """Route an uncaught exception into the audio_suite log.
-
-    Installed as ``sys.excepthook`` so crashes are captured in
-    audio_suite.log even when running under pythonw (no console).
-    """
-    if issubclass(exc_type, KeyboardInterrupt):
-        sys.__excepthook__(exc_type, exc_value, exc_tb)
-        return
-    _log_uncaught(logging.CRITICAL, "Uncaught exception", exc_type, exc_value, exc_tb)
-
-
-_log_fatal_exception._audio_suite_hook = True  # type: ignore[attr-defined]
-
-
-def _log_thread_exception(args: threading.ExceptHookArgs) -> None:
-    """Route an uncaught worker-thread exception into the audio_suite log."""
-    thread_name = args.thread.name if args.thread is not None else "unknown"
-    _log_uncaught(
-        logging.CRITICAL,
-        f"Uncaught exception in thread {thread_name}",
-        args.exc_type,
-        args.exc_value,
-        args.exc_traceback,
-    )
-
-
-_log_thread_exception._audio_suite_hook = True  # type: ignore[attr-defined]
-
-
-def _install_excepthooks() -> None:
-    """Install fatal-exception hooks once (idempotent via marker attribute)."""
-    if getattr(sys.excepthook, _HOOK_MARKER, False) is not True:
-        sys.excepthook = _log_fatal_exception
-    if getattr(threading.excepthook, _HOOK_MARKER, False) is not True:
-        threading.excepthook = _log_thread_exception
-
-
-def configure_logging(program_name: str) -> None:
-    """
-    Configure the root audio_suite logger for the current process.
-
-    Call this once, early in each .pyw launcher, after setup_sys_path()
-    but before import tkinter.  Subsequent calls are safe but do nothing
-    (the handler guard prevents duplicate handlers being registered).
-
-    Writes to <suite_root>/logs/audio_suite.log with rotation:
-    2 MB per file, 5 backup files (10 MB total on disk).
-
-    Also installs sys.excepthook / threading.excepthook so uncaught
-    exceptions (including their tracebacks) are written to the log —
-    without this they only reach stderr, which is lost under pythonw.
-
-    Args:
-        program_name: Short identifier for the startup log entry,
-                      e.g. "bpm_analyzer".
-    """
-    suite_root = Path(__file__).parent.parent
-    logs_dir = suite_root / "logs"
-
-    try:
-        logs_dir.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        logs_dir = Path(tempfile.gettempdir()) / "audio_suite_logs"
-        logs_dir.mkdir(parents=True, exist_ok=True)
-
-    log_file = logs_dir / "audio_suite.log"
-
-    # Named for what it is: the suite's own namespace logger, NOT the root
-    # logger. Every first-party module logger is a descendant of this name
-    # (iteration-8 C8), which is how their records reach this file handler.
-    suite_logger = logging.getLogger("audio_suite")
-    suite_logger.setLevel(logging.DEBUG)
-
-    if not suite_logger.handlers:
-        handler = logging.handlers.RotatingFileHandler(
-            log_file,
-            maxBytes=2 * 1024 * 1024,
-            backupCount=5,
-            encoding="utf-8",
-        )
-        handler.setFormatter(
-            logging.Formatter(
-                fmt="%(asctime)s  %(name)-40s  %(levelname)-8s  %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
-        )
-        suite_logger.addHandler(handler)
-
-    suite_logger.info("=== %s started ===", program_name)
-    _install_excepthooks()
 
 
 def bootstrap_tool_app(

@@ -18,9 +18,15 @@ Names are grouped by what the tree should guarantee:
   name collision this item resolved was two modules defining it, so exactly
   one defining module must remain and nothing may import it from
   ``cli_helpers``.
-* ``configure_logging`` -- survives, but only in ``app_bootstrap``; it was
-  in the original lock's dead-name set and only passed because the scan was
-  scoped to ``cli_helpers``.
+* ``configure_logging`` -- survives, but only in ``logging_setup`` since
+  iteration-9 G4.1.  It was moved out of ``app_bootstrap`` (which imports
+  tkinter at module level, so the headless CLI could not reach it) and
+  bootstrap now holds exactly one explicit import-alias.  Two modules
+  defining it -- or bootstrap silently re-growing a ``def`` -- would strand
+  the CLI back on stderr-only ``logging.basicConfig``, which is audit
+  finding M1.  ``cli_helpers``/``cli_base`` must not define it either:
+  ``cli_base`` *imports* it so its own test can patch
+  ``audio_suite_shared.cli_base.configure_logging`` by attribute.
 """
 
 from __future__ import annotations
@@ -55,7 +61,9 @@ _LAUNCHER_MODULE = "audio_suite_shared.launcher"
 _LAUNCHER_ENTRY_POINT = "parse_cli_args"
 _LAUNCHER_OWNER = "audio_suite_shared/launcher.py"
 _RELOCATED_OWNER = "configure_logging"
-_RELOCATED_MODULE = "audio_suite_shared/app_bootstrap.py"
+_RELOCATED_MODULE = "audio_suite_shared/logging_setup.py"
+#: The module that must re-export it: exactly one import-alias, no ``def``.
+_BOOTSTRAP_MODULE = "audio_suite_shared/app_bootstrap.py"
 
 #: A live name the same scanner must find -- proves the scan is not vacuous.
 _POSITIVE_CONTROL = "UniversalCLIHandler"
@@ -226,11 +234,53 @@ class TestCliHelpersArgparseCleanup:
             f"found {sorted(sources)}"
         )
 
-    def test_configure_logging_lives_only_in_app_bootstrap(
+    def test_configure_logging_is_defined_only_in_logging_setup(
         self, definitions: dict[str, list[str]]
     ) -> None:
-        """`configure_logging` is live in app_bootstrap, not dead code."""
+        """The single definition lives in the Tk-free module (G4.1).
+
+        ``app_bootstrap`` imports tkinter at module level, so a ``def`` there
+        would put the headless CLI — and any other Tk-free caller — back on
+        stderr-only ``logging.basicConfig`` (audit M1).  The same assertion
+        also proves ``cli_helpers`` and ``cli_base`` do not *define* it:
+        ``cli_base`` imports it precisely so its test can patch the
+        attribute on that module.
+        """
         assert definitions.get(_RELOCATED_OWNER) == [_RELOCATED_MODULE], (
             f"{_RELOCATED_OWNER} must be defined only by {_RELOCATED_MODULE}; "
             f"found {definitions.get(_RELOCATED_OWNER)}"
+        )
+
+    def test_app_bootstrap_reexports_configure_logging_without_redefining(
+        self,
+        production_modules: list[tuple[str, ast.Module]],
+        definitions: dict[str, list[str]],
+    ) -> None:
+        """Bootstrap holds exactly one import-alias and no ``def``.
+
+        The redundant-alias form (``import configure_logging as
+        configure_logging``) is what ``mypy --strict`` accepts as an
+        explicit re-export; a bare import would fail ``attr-defined`` at
+        every ``app_bootstrap.configure_logging`` call site.  Exactly one
+        binding keeps the monkeypatch seam in
+        ``tests/test_package_entry_stubs.py`` pointing at one object.
+        """
+        assert _BOOTSTRAP_MODULE not in definitions.get(_RELOCATED_OWNER, []), (
+            f"{_BOOTSTRAP_MODULE} must not define {_RELOCATED_OWNER}"
+        )
+
+        bindings: list[str | None] = []
+        for rel, tree in production_modules:
+            if rel != _BOOTSTRAP_MODULE:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ImportFrom):
+                    continue
+                for alias in node.names:
+                    if alias.name == _RELOCATED_OWNER:
+                        bindings.append(alias.asname)
+        assert bindings == [_RELOCATED_OWNER], (
+            f"{_BOOTSTRAP_MODULE} must hold exactly one "
+            f"`{_RELOCATED_OWNER} as {_RELOCATED_OWNER}` import-alias "
+            f"(mypy --strict explicit re-export); found bindings {bindings}"
         )

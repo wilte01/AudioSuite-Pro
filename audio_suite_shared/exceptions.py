@@ -38,10 +38,12 @@ from typing import Any, Callable, Optional, TypeVar
 _F = TypeVar("_F", bound=Callable[..., Any])
 
 # ---------------------------------------------------------------------------
-# Module logger — namespaced under "audio_suite" so records propagate to the
-# RotatingFileHandler that app_bootstrap.configure_logging() attaches there.
-# A plain getLogger(__name__) would hang off the root logger and never reach
-# logs/audio_suite.log.
+# Module logger — namespaced under "audio_suite" (iteration-8 C8) so records
+# propagate to the RotatingFileHandler that
+# logging_setup.configure_logging() attaches to the audio_suite logger and
+# share one searchable namespace with the rest of the shared infrastructure.
+# (Since iteration-9 G4.2 a first-party package logger reaches that handler
+# as well, but audio_suite.* remains the convention for shared modules.)
 # ---------------------------------------------------------------------------
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
