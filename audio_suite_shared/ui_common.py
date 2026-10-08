@@ -20,6 +20,7 @@ Usage in a tool's processing_tab.py:
         return build_processing_tab(parent, slot_vars)
 """
 
+import json
 import logging
 import os
 import sys
@@ -648,6 +649,23 @@ def show_message(
 
 
 # ── Preset helpers ────────────────────────────────────────────────────────────
+
+
+def load_preset_names(list_key: str) -> list[str]:
+    """Load stored preset names from the shared config.
+
+    Args:
+    list_key: The ``suite_config`` key holding the JSON-serialised
+    list of preset names (e.g. ``"bpm_presets_list"``).
+
+    Returns:
+    The deserialised name list, or an empty list when no entry exists.
+    """
+    from audio_suite_shared import suite_config
+
+    raw = suite_config.load_value(list_key, None)
+    names_json: str | None = raw if isinstance(raw, str) else None
+    return json.loads(names_json) if names_json else []
 
 
 def save_preset_dialog(

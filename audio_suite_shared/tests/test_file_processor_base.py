@@ -27,6 +27,8 @@ from audio_suite_shared.file_processor_base import (
     InplaceDspFn,
     InplaceDspResult,
     ProgressCallback,
+    _emit_completion,
+    _preflight_discover,
 )
 
 
@@ -1455,3 +1457,189 @@ class TestRunInplaceDspBatch:
 
         assert len(seen) == 1
         assert not os.path.exists(seen[0])
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Shared pre-flight / completion helpers (G7.1)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_EMPTY_VARIANTS = pytest.mark.parametrize(
+    "empty_message",
+    [
+        pytest.param(
+            "No supported audio files found in selected directory.",
+            id="parallel/cpu",
+        ),
+        pytest.param(
+            "No supported audio files found in the selected directory.",
+            id="inplace/analysis",
+        ),
+    ],
+)
+
+
+class TestPreflightDiscover:
+    """Tests for the shared _preflight_discover helper."""
+
+    @_EMPTY_VARIANTS
+    def test_empty_directory_calls_on_error_with_exact_message(
+        self,
+        mock_processor: BaseFileProcessor,
+        tmp_path: Path,
+        empty_message: str,
+    ) -> None:
+        on_error = MagicMock()
+        result = _preflight_discover(
+            mock_processor,
+            str(tmp_path),
+            None,
+            on_error,
+            empty_message=empty_message,
+        )
+        assert result is None
+        on_error.assert_called_once_with(empty_message)
+
+    def test_discovery_failure_calls_on_error(
+        self, mock_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        on_error = MagicMock()
+        with patch.object(
+            mock_processor,
+            "discover_audio_files",
+            side_effect=AudioSuiteError("scan broke"),
+        ):
+            result = _preflight_discover(
+                mock_processor,
+                str(tmp_path),
+                None,
+                on_error,
+            )
+        assert result is None
+        on_error.assert_called_once()
+        # The message is the sanitised user_message_for() output, not the
+        # raw exception text.
+        assert "unexpected error" in on_error.call_args[0][0].lower()
+
+    def test_successful_discovery_returns_file_list(
+        self,
+        mock_processor: BaseFileProcessor,
+        sample_audio_files: Path,
+    ) -> None:
+        on_error = MagicMock()
+        result = _preflight_discover(
+            mock_processor,
+            str(sample_audio_files),
+            None,
+            on_error,
+        )
+        assert result is not None
+        assert len(result) > 0
+        on_error.assert_not_called()
+
+    def test_sort_parameter_orders_results(
+        self, mock_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        for name in ("c.mp3", "a.mp3", "b.mp3"):
+            (tmp_path / name).write_bytes(b"data")
+        on_error = MagicMock()
+        result = _preflight_discover(
+            mock_processor,
+            str(tmp_path),
+            None,
+            on_error,
+            sort=True,
+        )
+        assert result == ["a.mp3", "b.mp3", "c.mp3"]
+
+
+class TestEmitCompletion:
+    """Tests for the shared _emit_completion helper."""
+
+    def test_calls_on_complete_with_standard_kwargs(self) -> None:
+        on_complete = MagicMock()
+        _emit_completion(
+            on_complete,
+            total=10,
+            processed=8,
+            skipped=1,
+            errors=1,
+            start_time=1000.0,
+            log_entries=["entry1"],
+        )
+        on_complete.assert_called_once()
+        kw = on_complete.call_args[1]
+        assert kw["total"] == 10
+        assert kw["processed"] == 8
+        assert kw["skipped"] == 1
+        assert kw["errors"] == 1
+        assert kw["log_entries"] == ["entry1"]
+        assert "duration_secs" in kw
+
+    def test_duration_is_non_negative(self) -> None:
+        on_complete = MagicMock()
+        _emit_completion(on_complete, 1, 1, 0, 0, 0.0, [])
+        kw = on_complete.call_args[1]
+        assert kw["duration_secs"] >= 0.0
+
+
+class TestAllEntryPointsSharePreFlightAndCompletion:
+    """Structural test: all four entry points route empty directories through
+    the shared helper and produce identical on_error messages per variant."""
+
+    def test_run_parallel_processing_empty_reports_shared_message(
+        self,
+        mock_processor: BaseFileProcessor,
+        mock_callbacks: dict,
+    ) -> None:
+        with patch.object(
+            mock_processor,
+            "discover_audio_files",
+            return_value=[],
+        ):
+            mock_processor.run_parallel_processing(
+                dir_path="/empty",
+                processor_func=MagicMock(),
+                on_progress=mock_callbacks["on_progress"],
+                on_complete=mock_callbacks["on_complete"],
+                on_error=mock_callbacks["on_error"],
+            )
+        mock_callbacks["on_error"].assert_called_once_with(
+            "No supported audio files found in selected directory."
+        )
+
+    def test_run_cpu_bound_processing_empty_reports_shared_message(
+        self,
+        mock_processor: BaseFileProcessor,
+        mock_callbacks: dict,
+    ) -> None:
+        with patch.object(
+            mock_processor,
+            "discover_audio_files",
+            return_value=[],
+        ):
+            mock_processor.run_cpu_bound_processing(
+                dir_path="/empty",
+                cpu_worker=MagicMock(),
+                result_handler=MagicMock(),
+                on_progress=mock_callbacks["on_progress"],
+                on_complete=mock_callbacks["on_complete"],
+                on_error=mock_callbacks["on_error"],
+            )
+        mock_callbacks["on_error"].assert_called_once_with(
+            "No supported audio files found in selected directory."
+        )
+
+    def test_run_inplace_dsp_batch_empty_reports_shared_message(
+        self,
+        inplace_processor: BaseFileProcessor,
+        tmp_path: Path,
+    ) -> None:
+        errors: list[str] = []
+        inplace_processor.run_inplace_dsp_batch(
+            str(tmp_path),
+            make_worker=lambda *_: MagicMock(),
+            on_progress=lambda **kw: None,
+            on_complete=lambda **kw: None,
+            on_error=errors.append,
+        )
+        assert errors == ["No supported audio files found in the selected directory."]

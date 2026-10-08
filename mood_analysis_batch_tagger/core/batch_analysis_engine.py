@@ -83,6 +83,132 @@ class BatchResult:
     log_path: str
 
 
+@dataclass
+class _BatchCallbacks:
+    """Shared state and callbacks for a batch mood-analysis run.
+
+    Encapsulates the counter lists, log accumulator, and the per-file /
+    per-error / per-folder callbacks that ``_run_thread_pool`` and
+    ``_run_process_pool`` consume.
+    """
+
+    lock: threading.Lock
+    tagged_count: list[int]
+    skipped_count: list[int]
+    error_count: list[int]
+    processed_count: list[int]
+    log_lines: list[str]
+    total: int
+    out_queue: "Queue[tuple[Any, ...]]"
+    root: str
+    _current_folder: list[str | None]
+
+    def on_file_result(
+        self,
+        filepath: str,
+        success: bool,
+        detail: str,
+        log_text: str,
+    ) -> None:
+        with self.lock:
+            self.processed_count[0] += 1
+            if success:
+                self.tagged_count[0] += 1
+            else:
+                self.skipped_count[0] += 1
+            self.log_lines.extend(
+                log_text if isinstance(log_text, list) else [log_text]
+            )
+        self.out_queue.put(
+            ("result", filepath, os.path.basename(filepath), success, detail)
+        )
+        self.out_queue.put(
+            (
+                "progress",
+                self.processed_count[0],
+                self.total,
+                os.path.basename(filepath),
+            )
+        )
+
+    def on_error_result(
+        self,
+        filepath: str,
+        detail: str,
+        log_text: str,
+    ) -> None:
+        with self.lock:
+            self.processed_count[0] += 1
+            self.error_count[0] += 1
+            self.log_lines.extend(
+                log_text if isinstance(log_text, list) else [log_text]
+            )
+        self.out_queue.put(
+            ("result", filepath, os.path.basename(filepath), False, detail)
+        )
+        self.out_queue.put(
+            (
+                "progress",
+                self.processed_count[0],
+                self.total,
+                os.path.basename(filepath),
+            )
+        )
+
+    def log_folder(self, filepath: str) -> None:
+        folder = os.path.dirname(filepath)
+        if folder != self._current_folder[0]:
+            self._current_folder[0] = folder
+            rel_folder = os.path.relpath(folder, self.root)
+            with self.lock:
+                self.log_lines.append(f"\n{'-' * 70}")
+                self.log_lines.append(f"  Folder: {rel_folder}")
+                self.log_lines.append(f"{'-' * 70}")
+
+
+def _emit_footer(
+    log_lines: list[str],
+    folder_count: int,
+    cb: _BatchCallbacks,
+    root: str,
+) -> BatchResult:
+    """Write the batch log footer, emit the ``done`` queue entry, and return
+    the :class:`BatchResult` summary."""
+    log_lines.append(f"\n{'=' * 70}")
+    log_lines.append(f"  Folders scanned: {folder_count}")
+    log_lines.append(f"  Files tagged:    {cb.tagged_count[0]}")
+    log_lines.append(f"  Files skipped:   {cb.skipped_count[0]}")
+    log_lines.append(f"  Errors:          {cb.error_count[0]}")
+    log_lines.append(f"{'=' * 70}")
+
+    log_path = os.path.join(root, "mood_analysis_batch_log.txt")
+    try:
+        with open(log_path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(log_lines))
+    except OSError as exc:
+        logger.warning("Could not write batch analysis log: %s", exc, exc_info=True)
+        log_path = ""
+
+    cb.out_queue.put(
+        (
+            "done",
+            cb.tagged_count[0],
+            cb.skipped_count[0],
+            cb.error_count[0],
+            folder_count,
+            log_path,
+        )
+    )
+    return BatchResult(
+        total=cb.total,
+        tagged=cb.tagged_count[0],
+        skipped=cb.skipped_count[0],
+        errors=cb.error_count[0],
+        folders=folder_count,
+        log_path=log_path,
+    )
+
+
 class _WorkerSlotTracker:
     """Thread-safe pool of reusable worker slot indices.
 
@@ -305,72 +431,18 @@ def run_batch(
     for rel_folder, count in folder_plan:
         out_queue.put(("folder", rel_folder, count, folder_count))
 
-    lock = threading.Lock()
-    tagged_count: list[int] = [0]
-    skipped_count: list[int] = [0]
-    error_count: list[int] = [0]
-    processed_count: list[int] = [0]
-
-    current_folder: str | None = None
-
-    def _on_file_result(
-        filepath: str,
-        success: bool,
-        detail: str,
-        log_text: str,
-    ) -> None:
-        with lock:
-            processed_count[0] += 1
-            if success:
-                tagged_count[0] += 1
-            else:
-                skipped_count[0] += 1
-            log_lines.extend(log_text if isinstance(log_text, list) else [log_text])
-        out_queue.put(
-            (
-                "result",
-                filepath,
-                os.path.basename(filepath),
-                success,
-                detail,
-            )
-        )
-        out_queue.put(
-            ("progress", processed_count[0], total, os.path.basename(filepath))
-        )
-
-    def _on_error_result(
-        filepath: str,
-        detail: str,
-        log_text: str,
-    ) -> None:
-        with lock:
-            processed_count[0] += 1
-            error_count[0] += 1
-            log_lines.extend(log_text if isinstance(log_text, list) else [log_text])
-        out_queue.put(
-            (
-                "result",
-                filepath,
-                os.path.basename(filepath),
-                False,
-                detail,
-            )
-        )
-        out_queue.put(
-            ("progress", processed_count[0], total, os.path.basename(filepath))
-        )
-
-    def _log_folder(filepath: str) -> None:
-        nonlocal current_folder
-        folder = os.path.dirname(filepath)
-        if folder != current_folder:
-            current_folder = folder
-            rel_folder = os.path.relpath(folder, root)
-            with lock:
-                log_lines.append(f"\n{'-' * 70}")
-                log_lines.append(f"  Folder: {rel_folder}")
-                log_lines.append(f"{'-' * 70}")
+    cb = _BatchCallbacks(
+        lock=threading.Lock(),
+        tagged_count=[0],
+        skipped_count=[0],
+        error_count=[0],
+        processed_count=[0],
+        log_lines=log_lines,
+        total=total,
+        out_queue=out_queue,
+        root=root,
+        _current_folder=[None],
+    )
 
     processor = _BatchAnalysisProcessor(
         max_workers=max_workers,
@@ -385,10 +457,10 @@ def run_batch(
             stop_event=stop_event,
             live=live,
             analysis_duration=analysis_duration,
-            on_file_result=_on_file_result,
-            on_error_result=_on_error_result,
-            log_folder=_log_folder,
-            processed_count=processed_count,
+            on_file_result=cb.on_file_result,
+            on_error_result=cb.on_error_result,
+            log_folder=cb.log_folder,
+            processed_count=cb.processed_count,
             on_worker_status=on_worker_status,
             undo_batch=undo_batch,
         )
@@ -400,47 +472,15 @@ def run_batch(
             stop_event=stop_event,
             live=live,
             analysis_duration=analysis_duration,
-            on_file_result=_on_file_result,
-            on_error_result=_on_error_result,
-            log_folder=_log_folder,
-            processed_count=processed_count,
+            on_file_result=cb.on_file_result,
+            on_error_result=cb.on_error_result,
+            log_folder=cb.log_folder,
+            processed_count=cb.processed_count,
             on_worker_status=on_worker_status,
             undo_batch=undo_batch,
         )
 
-    log_lines.append(f"\n{'=' * 70}")
-    log_lines.append(f"  Folders scanned: {folder_count}")
-    log_lines.append(f"  Files tagged:    {tagged_count[0]}")
-    log_lines.append(f"  Files skipped:   {skipped_count[0]}")
-    log_lines.append(f"  Errors:          {error_count[0]}")
-    log_lines.append(f"{'=' * 70}")
-
-    log_path = os.path.join(root, "mood_analysis_batch_log.txt")
-    try:
-        with open(log_path, "w", encoding="utf-8") as fh:
-            fh.write("\n".join(log_lines))
-    except OSError as exc:
-        logger.warning("Could not write batch analysis log: %s", exc, exc_info=True)
-        log_path = ""
-
-    out_queue.put(
-        (
-            "done",
-            tagged_count[0],
-            skipped_count[0],
-            error_count[0],
-            folder_count,
-            log_path,
-        )
-    )
-    return BatchResult(
-        total=total,
-        tagged=tagged_count[0],
-        skipped=skipped_count[0],
-        errors=error_count[0],
-        folders=folder_count,
-        log_path=log_path,
-    )
+    return _emit_footer(log_lines, folder_count, cb, root)
 
 
 def _run_thread_pool(

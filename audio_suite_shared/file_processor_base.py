@@ -207,18 +207,8 @@ class BaseFileProcessor:
         on_error() receives a sanitised user_message_for() string — never
         a raw str(exc) with internal path or traceback details.
         """
-        # Discover files
-        try:
-            files = self.discover_audio_files(dir_path, extensions)
-        except AudioSuiteError as exc:
-            logger.error(
-                "File discovery failed for %s: %s", dir_path, exc, exc_info=True
-            )
-            on_error(user_message_for(exc))
-            return
-
-        if not files:
-            on_error("No supported audio files found in selected directory.")
+        files = _preflight_discover(self, dir_path, extensions, on_error)
+        if files is None:
             return
 
         processed, skipped, errors, log_entries, _on_progress = (
@@ -235,6 +225,9 @@ class BaseFileProcessor:
         main_thread = threading.current_thread()
         track_thread(main_thread, f"{self.operation_type}_main")
 
+        # KEEP-IN-SYNC: run_cpu_bound_processing, run_inplace_dsp_batch,
+        # run_analysis_workflow — the executor loops are intentionally
+        # ununified (D5) because each uses a different pool/process model.
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = [
                 executor.submit(
@@ -273,16 +266,15 @@ class BaseFileProcessor:
                             ),
                         )
 
-        on_complete(
-            total=len(files),
-            processed=processed[0],
-            skipped=skipped[0],
-            errors=errors[0],
-            duration_secs=time.time() - start_time,
-            log_entries=log_entries,
+        _emit_completion(
+            on_complete,
+            len(files),
+            processed[0],
+            skipped[0],
+            errors[0],
+            start_time,
+            log_entries,
         )
-
-        cleanup_expired_resources(max_age_hours=1)
 
     @handle_audio_errors(reraise=False, context="run_cpu_bound_processing")
     def run_cpu_bound_processing(
@@ -322,17 +314,8 @@ class BaseFileProcessor:
                 ``self.max_workers``.
             **worker_kwargs: Forwarded to both cpu_worker and result_handler.
         """
-        try:
-            files = self.discover_audio_files(dir_path, extensions)
-        except AudioSuiteError as exc:
-            logger.error(
-                "File discovery failed for %s: %s", dir_path, exc, exc_info=True
-            )
-            on_error(user_message_for(exc))
-            return
-
-        if not files:
-            on_error("No supported audio files found in selected directory.")
+        files = _preflight_discover(self, dir_path, extensions, on_error)
+        if files is None:
             return
 
         processed, skipped, errors, log_entries, _on_progress = (
@@ -386,6 +369,9 @@ class BaseFileProcessor:
         }
 
         slot_counter = 0
+        # KEEP-IN-SYNC: run_parallel_processing, run_inplace_dsp_batch,
+        # run_analysis_workflow — the executor loops are intentionally
+        # ununified (D5) because each uses a different pool/process model.
         with ProcessPoolExecutor(max_workers=effective_workers) as executor:
             future_to_file = {
                 executor.submit(
@@ -428,16 +414,15 @@ class BaseFileProcessor:
                 else:
                     _safe_result_handler(filename, result, slot_idx)
 
-        on_complete(
-            total=len(files),
-            processed=processed[0],
-            skipped=skipped[0],
-            errors=errors[0],
-            duration_secs=time.time() - start_time,
-            log_entries=log_entries,
+        _emit_completion(
+            on_complete,
+            len(files),
+            processed[0],
+            skipped[0],
+            errors[0],
+            start_time,
+            log_entries,
         )
-
-        cleanup_expired_resources(max_age_hours=1)
 
     def _process_with_recovery(
         self,
@@ -796,17 +781,15 @@ class BaseFileProcessor:
             extensions: Extensions to discover.  Defaults to
                 ``SUPPORTED_EXTENSIONS``.
         """
-        try:
-            files = sorted(self.discover_audio_files(dir_path, extensions))
-        except AudioSuiteError as exc:
-            logger.error(
-                "File discovery failed for %s: %s", dir_path, exc, exc_info=True
-            )
-            on_error(user_message_for(exc))
-            return
-
-        if not files:
-            on_error("No supported audio files found in the selected directory.")
+        files = _preflight_discover(
+            self,
+            dir_path,
+            extensions,
+            on_error,
+            sort=True,
+            empty_message="No supported audio files found in the selected directory.",
+        )
+        if files is None:
             return
 
         lock = threading.Lock()
@@ -845,6 +828,9 @@ class BaseFileProcessor:
             with use_batch(undo_batch):
                 worker(name)
 
+        # KEEP-IN-SYNC: run_parallel_processing, run_cpu_bound_processing,
+        # run_analysis_workflow — the executor loops are intentionally
+        # ununified (D5) because each uses a different pool/process model.
         try:
             self.process_batch(files, _worker, max_workers=self.max_workers)
         finally:
@@ -859,6 +845,87 @@ class BaseFileProcessor:
             duration_secs=time.monotonic() - start,
             log_entries=log_entries,
         )
+
+
+def _preflight_discover(
+    processor: BaseFileProcessor,
+    dir_path: str,
+    extensions: tuple[str, ...] | None,
+    on_error: ErrorCallback,
+    *,
+    sort: bool = False,
+    empty_message: str = "No supported audio files found in selected directory.",
+) -> list[str] | None:
+    """Shared pre-flight: discover audio files, report errors or empty.
+
+    Returns the discovered file list on success, or ``None`` after calling
+    *on_error* for a fatal discovery failure or an empty directory.
+
+    Args:
+        processor: The ``BaseFileProcessor`` whose ``discover_audio_files``
+            method performs the scan.
+        dir_path: Directory to scan.
+        extensions: Optional extension filter (``None`` uses the default set).
+        on_error: Called with a sanitised ``user_message_for()`` string when
+            discovery fails or the directory is empty.
+        sort: When ``True``, sort the discovered file list (used by the
+            in-place DSP entry point so workers process files in a stable
+            order).
+        empty_message: The exact string passed to *on_error* when discovery
+            returns an empty list.  Two variants exist across the four entry
+            points; callers pass the variant that preserves the historical
+            message.
+
+    Returns:
+        The discovered (and optionally sorted) file list, or ``None``.
+    """
+    try:
+        files = processor.discover_audio_files(dir_path, extensions)
+    except Exception as exc:
+        mapped = map_to_audio_error(exc)
+        logger.error(
+            "File discovery failed for %s: %s", dir_path, mapped, exc_info=True
+        )
+        on_error(user_message_for(mapped))
+        return None
+
+    if sort:
+        files = sorted(files)
+
+    if not files:
+        on_error(empty_message)
+        return None
+
+    return files
+
+
+def _emit_completion(
+    on_complete: CompleteCallback,
+    total: int,
+    processed: int,
+    skipped: int,
+    errors: int,
+    start_time: float,
+    log_entries: list[str],
+) -> None:
+    """Shared completion: invoke *on_complete* and release expired resources.
+
+    Used by :meth:`BaseFileProcessor.run_parallel_processing`,
+    :meth:`BaseFileProcessor.run_cpu_bound_processing`, and
+    :func:`run_analysis_workflow`.  The in-place DSP entry point
+    (:meth:`BaseFileProcessor.run_inplace_dsp_batch`) uses its own
+    completion call because it carries an extra ``succeeded`` counter and
+    uses ``time.monotonic()``.
+    """
+    on_complete(
+        total=total,
+        processed=processed,
+        skipped=skipped,
+        errors=errors,
+        duration_secs=time.time() - start_time,
+        log_entries=log_entries,
+    )
+    cleanup_expired_resources(max_age_hours=1)
 
 
 def run_analysis_workflow(
@@ -937,16 +1004,14 @@ def run_analysis_workflow(
         )
         return
 
-    try:
-        files = processor.discover_audio_files(dir_path, extensions=extensions)
-    except Exception as exc:
-        mapped = map_to_audio_error(exc)
-        logger.error("Directory scan failed: %s", mapped, exc_info=True)
-        on_error(user_message_for(mapped))
-        return
-
-    if not files:
-        on_error("No supported audio files found in the selected directory.")
+    files = _preflight_discover(
+        processor,
+        dir_path,
+        extensions,
+        on_error,
+        empty_message="No supported audio files found in the selected directory.",
+    )
+    if files is None:
         return
 
     processed, skipped, errors, log_entries, _on_progress = (
@@ -986,19 +1051,21 @@ def run_analysis_workflow(
             slot_vars[slot_idx].set("IDLE")
             slot_queue.put(slot_idx)
 
+    # KEEP-IN-SYNC: run_parallel_processing, run_cpu_bound_processing,
+    # run_inplace_dsp_batch — the executor loops are intentionally
+    # ununified (D5) because each uses a different pool/process model.
     processor.process_batch(
         files,
         _worker,
         max_workers=processor.max_workers,
     )
 
-    on_complete(
-        total=len(files),
-        processed=processed[0],
-        skipped=skipped[0],
-        errors=errors[0],
-        duration_secs=time.time() - start,
-        log_entries=log_entries,
+    _emit_completion(
+        on_complete,
+        len(files),
+        processed[0],
+        skipped[0],
+        errors[0],
+        start,
+        log_entries,
     )
-
-    cleanup_expired_resources(max_age_hours=1)

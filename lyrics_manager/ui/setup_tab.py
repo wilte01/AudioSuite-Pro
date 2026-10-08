@@ -6,22 +6,14 @@ Receives parent frame and tk variables; returns a dict of widgets.
 
 from __future__ import annotations
 
-import json
 import tkinter as tk
 from tkinter import ttk
 from typing import Any, Callable
 
-from audio_suite_shared import styles, suite_config
-from audio_suite_shared.ui_common import BaseSetupFrame
+from audio_suite_shared import styles
+from audio_suite_shared.ui_common import BaseSetupFrame, load_preset_names
 
 from ..core.providers import get_provider_names
-
-
-def _load_preset_names() -> list[str]:
-    """Load the stored Lyrics Manager preset names from the shared config."""
-    raw = suite_config.load_value("lyrics_presets_list", None)
-    names_json: str | None = raw if isinstance(raw, str) else None
-    return json.loads(names_json) if names_json else []
 
 
 def build(
@@ -41,9 +33,9 @@ def build(
     driver_locked: bool = False,
     parallel_mode: tk.BooleanVar | None = None,
     max_workers: tk.IntVar | None = None,
-    on_preset_selected: Callable[[object], None] | None = None,
-    on_save_preset: Callable[[], None] | None = None,
-    on_delete_preset: Callable[[], None] | None = None,
+    on_preset_selected: Callable[[str], None] | None = None,
+    on_save_preset: Callable[[str], None] | None = None,
+    on_delete_preset: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """
     Populate the Setup tab.
@@ -69,9 +61,9 @@ def build(
         parallel_mode:     BooleanVar for the tool-specific parallel
                            processing toggle (functional worker setting).
         max_workers:       IntVar for worker count.
-        on_preset_selected: Callback for preset combobox selection.
-        on_save_preset:    Callback for Save Preset button.
-        on_delete_preset:  Callback for Delete Preset button.
+        on_preset_selected: Name-taking callback for preset selection.
+        on_save_preset:    Name-taking callback for Save Preset button.
+        on_delete_preset:  Name-taking callback for Delete Preset button.
 
     Returns:
         Dict with keys: start_btn (tk.Button), preset_combo (ttk.Combobox),
@@ -90,16 +82,16 @@ def build(
         parallel_var=parallel_var,
         on_browse=on_browse,
         driver_locked=driver_locked,
-        preset_loader=_load_preset_names,
+        preset_loader=lambda: load_preset_names("lyrics_presets_list"),
+        on_preset_selected=on_preset_selected,
+        on_save_preset=on_save_preset,
+        on_delete_preset=on_delete_preset,
         provider=provider,
         request_timeout=request_timeout,
         skip_existing=skip_existing,
         plain_fallback=plain_fallback,
         parallel_mode=parallel_mode,
         max_workers=max_workers,
-        on_preset_selected=on_preset_selected,
-        on_save_preset=on_save_preset,
-        on_delete_preset=on_delete_preset,
     )
     return frame.get_widgets()
 
@@ -117,9 +109,6 @@ class _SetupFrame(BaseSetupFrame):
         plain_fallback: tk.BooleanVar,
         parallel_mode: tk.BooleanVar | None = None,
         max_workers: tk.IntVar | None = None,
-        on_preset_selected: Callable[[object], None] | None = None,
-        on_save_preset: Callable[[], None] | None = None,
-        on_delete_preset: Callable[[], None] | None = None,
         **kwargs: Any,
     ) -> None:
         # Tool-specific option state must be bound before super().__init__,
@@ -130,69 +119,7 @@ class _SetupFrame(BaseSetupFrame):
         self._plain_fallback = plain_fallback
         self._parallel_mode = parallel_mode
         self._max_workers = max_workers
-        self._lyrics_on_preset_selected = on_preset_selected
-        self._lyrics_on_save_preset = on_save_preset
-        self._lyrics_on_delete_preset = on_delete_preset
         super().__init__(parent, **kwargs)
-
-    def _add_preset_row(self) -> None:
-        # Lyrics Manager renders its preset row with Save/Delete buttons that
-        # invoke its zero-argument app callbacks (simpledialog prompts); this
-        # cannot be expressed through the base's shared dialog, so replicate
-        # the row verbatim. The callbacks are stored under _lyrics_* names so
-        # the base __init__ (which assigns its own optional defaults to
-        # _on_save_preset/_on_delete_preset/_on_preset_selected) cannot
-        # clobber them before _layout() dispatches this override. Refresh
-        # uses the base loader.
-        if self._lyrics_on_save_preset is None:
-            self.preset_combo = None
-            return
-
-        preset_frame = tk.Frame(self, bg=styles.BG_WHITE)
-        preset_frame.pack(fill="x", pady=(0, 15))
-        tk.Label(
-            preset_frame,
-            text="Preset:",
-            font=styles.FONT_BODY,
-            fg=styles.FG_MAIN,
-            bg=styles.BG_WHITE,
-        ).pack(side=tk.LEFT, padx=(0, 5))
-        combo = ttk.Combobox(
-            preset_frame,
-            state="readonly",
-            font=styles.FONT_BODY,
-            width=25,
-        )
-        combo.pack(side=tk.LEFT, padx=(0, 5))
-        self.preset_combo = combo
-
-        if self._lyrics_on_preset_selected is not None:
-            combo.bind("<<ComboboxSelected>>", self._lyrics_on_preset_selected)
-
-        def _do_save() -> None:
-            if self._lyrics_on_save_preset is not None:
-                self._lyrics_on_save_preset()
-
-        def _do_delete() -> None:
-            if self._lyrics_on_delete_preset is not None:
-                self._lyrics_on_delete_preset()
-
-        tk.Button(
-            preset_frame,
-            text="Save",
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BUTTON,
-            command=_do_save,
-        ).pack(side=tk.LEFT, padx=(0, 3))
-        tk.Button(
-            preset_frame,
-            text="Delete",
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BUTTON,
-            command=_do_delete,
-        ).pack(side=tk.LEFT)
 
     def _build_options(self) -> None:
         # --- Lyric source (provider) ---

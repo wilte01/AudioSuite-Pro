@@ -534,41 +534,33 @@ class TestPresets:
 
     def test_preset_selected_loads_config(self):
         app = _make_shell_app()
-        app._preset_combo = MagicMock()
-        app._preset_combo.get.return_value = "My Preset"
         app._apply_preset = MagicMock()
         payload = _json.dumps({"provider": "lrclib", "max_workers": 4})
         with patch(
             "lyrics_manager.app._suite_config.load_value", return_value=payload
         ) as load:
-            app._on_preset_selected()
+            app._on_preset_selected("My Preset")
         load.assert_called_once_with("lyrics_preset_My Preset", None)
         app._apply_preset.assert_called_once()
 
     def test_preset_selected_ignores_garbage(self):
         app = _make_shell_app()
-        app._preset_combo = MagicMock()
-        app._preset_combo.get.return_value = "Broken"
         with patch(
             "lyrics_manager.app._suite_config.load_value", return_value="not json"
         ):
-            app._on_preset_selected()  # must not raise
+            app._on_preset_selected("Broken")  # must not raise
 
-    def test_save_current_as_preset_prompts_for_name(self):
+    def test_save_current_as_preset_saves_settings(self):
         app = _make_shell_app()
         app._collect_settings = MagicMock(
             return_value={"provider": "lrclib", "max_workers": 4}
         )
         app._refresh_preset_list = MagicMock()
         with (
-            patch(
-                "tkinter.simpledialog.askstring", return_value="Night Mix"
-            ) as askstring,
             patch("lyrics_manager.app._suite_config.save_value") as save,
             patch("lyrics_manager.app._suite_config.load_value", return_value=None),
         ):
-            app._save_current_as_preset()
-        askstring.assert_called_once()
+            app._save_current_as_preset("Night Mix")
         save.assert_any_call(
             "lyrics_preset_Night Mix",
             _json.dumps({"provider": "lrclib", "max_workers": 4}),
@@ -576,20 +568,17 @@ class TestPresets:
         save.assert_any_call("lyrics_presets_list", _json.dumps(["Night Mix"]))
         app._refresh_preset_list.assert_called_once()
 
-    def test_delete_preset_confirms(self):
+    def test_delete_preset_removes_from_list(self):
         app = _make_shell_app()
-        app._preset_combo = MagicMock()
-        app._preset_combo.get.return_value = "Old"
         app._refresh_preset_list = MagicMock()
         with (
-            patch("lyrics_manager.app.messagebox.askyesno", return_value=True),
             patch(
                 "lyrics_manager.app._suite_config.load_value",
                 return_value=_json.dumps(["Old", "Keep"]),
             ),
             patch("lyrics_manager.app._suite_config.save_value") as save,
         ):
-            app._delete_preset()
+            app._delete_preset("Old")
         save.assert_any_call("lyrics_presets_list", _json.dumps(["Keep"]))
         app._refresh_preset_list.assert_called_once()
 
@@ -736,44 +725,49 @@ class TestStartProcessingPermissionAndFallthrough:
 
 
 class TestPresetEdgeCases:
-    def test_preset_selected_with_empty_name_loads_nothing(self):
+    def test_preset_selected_unknown_name_does_nothing(self):
         app = _make_shell_app()
-        app._preset_combo = MagicMock()
-        app._preset_combo.get.return_value = ""
-        with patch("lyrics_manager.app._suite_config.load_value") as load:
-            app._on_preset_selected()
-        load.assert_not_called()
+        app._apply_preset = MagicMock()
+        with patch(
+            "lyrics_manager.app._suite_config.load_value", return_value=None
+        ) as load:
+            app._on_preset_selected("Unknown")
+        load.assert_called_once_with("lyrics_preset_Unknown", None)
+        app._apply_preset.assert_not_called()
 
-    def test_save_preset_with_blank_name_persists_nothing(self):
+    def test_save_preset_adds_to_names_list(self):
+        app = _make_shell_app()
+        app._collect_settings = MagicMock(return_value={"provider": "lrclib"})
+        app._refresh_preset_list = MagicMock()
+        existing = _json.dumps(["Existing"])
+        with (
+            patch("lyrics_manager.app._suite_config.save_value") as save,
+            patch("lyrics_manager.app._suite_config.load_value", return_value=existing),
+        ):
+            app._save_current_as_preset("New")
+        save.assert_any_call("lyrics_presets_list", _json.dumps(["Existing", "New"]))
+
+    def test_save_preset_does_not_duplicate_name(self):
+        app = _make_shell_app()
+        app._collect_settings = MagicMock(return_value={"provider": "lrclib"})
+        app._refresh_preset_list = MagicMock()
+        existing = _json.dumps(["Existing"])
+        with (
+            patch("lyrics_manager.app._suite_config.save_value") as save,
+            patch("lyrics_manager.app._suite_config.load_value", return_value=existing),
+        ):
+            app._save_current_as_preset("Existing")
+        save.assert_any_call("lyrics_presets_list", _json.dumps(["Existing"]))
+
+    def test_delete_preset_removes_from_names_list(self):
         app = _make_shell_app()
         app._refresh_preset_list = MagicMock()
         with (
-            patch("tkinter.simpledialog.askstring", return_value="   ") as askstring,
+            patch(
+                "lyrics_manager.app._suite_config.load_value",
+                return_value=_json.dumps(["A", "B", "C"]),
+            ),
             patch("lyrics_manager.app._suite_config.save_value") as save,
         ):
-            app._save_current_as_preset()
-        askstring.assert_called_once()
-        save.assert_not_called()
-        app._refresh_preset_list.assert_not_called()
-
-    def test_delete_preset_with_empty_name_prompts_nothing(self):
-        app = _make_shell_app()
-        app._preset_combo = MagicMock()
-        app._preset_combo.get.return_value = ""
-        with patch("lyrics_manager.app.messagebox.askyesno") as ask:
-            app._delete_preset()
-        ask.assert_not_called()
-
-    def test_delete_preset_declined_keeps_presets(self):
-        app = _make_shell_app()
-        app._preset_combo = MagicMock()
-        app._preset_combo.get.return_value = "Old"
-        with (
-            patch("lyrics_manager.app.messagebox.askyesno", return_value=False) as ask,
-            patch("lyrics_manager.app._suite_config.load_value") as load,
-            patch("lyrics_manager.app._suite_config.save_value") as save,
-        ):
-            app._delete_preset()
-        ask.assert_called_once()
-        load.assert_not_called()
-        save.assert_not_called()
+            app._delete_preset("B")
+        save.assert_any_call("lyrics_presets_list", _json.dumps(["A", "C"]))

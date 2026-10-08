@@ -184,6 +184,160 @@ def _measure_lufs(file_path: str) -> float | None:
     return None if math.isinf(val) or math.isnan(val) else val
 
 
+def _dry_run_report(
+    filename: str,
+    output_name: str,
+    input_format: str,
+    output_format: str,
+    input_size: float,
+    lossy_formats: list[str],
+    delete_original: bool,
+    normalize_mp3: bool,
+    target_lufs: float,
+    slot_vars: list[ThreadSafeSlotVar],
+    slot_idx: int,
+    lock: threading.Lock,
+    on_progress: Callable[..., Any],
+) -> None:
+    """Build and report the dry-run preview strings."""
+    slot_vars[slot_idx].set(f"Simulating: {filename[:25]}...")
+    output_size = (
+        input_size * 3.5 if output_format not in lossy_formats else input_size * 0.8
+    )
+    display = (
+        f"[DRY RUN] {filename} \u2192 {output_name} "
+        f"(est. {input_size:.1f}MB \u2192 {output_size:.1f}MB)"
+    )
+    log = (
+        f"[DRY RUN] {filename} | "
+        f"{input_format.upper()} \u2192 {output_format.upper()} | "
+        f"Est. Size: {input_size:.2f}MB \u2192 {output_size:.2f}MB"
+    )
+    if delete_original:
+        display += " [WOULD DELETE ORIGINAL]"
+        log += " | Would delete original"
+    if normalize_mp3 and output_format == "mp3":
+        display += " [WOULD NORMALIZE MP3]"
+        log += f" | Would normalize to {target_lufs:.1f} LUFS"
+    with lock:
+        on_progress(
+            n_converted=1,
+            n_skipped=0,
+            n_errors=0,
+            display_text=display,
+            log_text=log + "\n",
+        )
+
+
+def _convert_and_verify(
+    input_path: str,
+    output_path: str,
+    output_format: str,
+    quality: str,
+    sample_rate: str,
+    dither: bool,
+    bit_depth: str,
+    input_format: str,
+    base_name: str,
+    processor: MusicFormatConverterProcessor | None,
+    slot_vars: list[ThreadSafeSlotVar],
+    slot_idx: int,
+) -> float:
+    """Run ffmpeg conversion and return the output file size in MB."""
+    output_subdir = os.path.dirname(output_path)
+    if output_subdir:
+        os.makedirs(output_subdir, exist_ok=True)
+
+    slot_vars[slot_idx].set(f"Converting: {base_name[:25]}...")
+    cmd = get_ffmpeg_params(
+        input_path,
+        output_path,
+        output_format,
+        quality,
+        sample_rate=sample_rate,
+        dither=dither,
+        **_wav_params_for(input_path, input_format, output_format, bit_depth),
+    )
+
+    def _run_ffmpeg() -> subprocess.CompletedProcess[str]:
+        return run_secure_subprocess(
+            cmd[0],
+            cmd[1:],
+            capture_output=True,
+            timeout=WORKER_TIMEOUT_SECS,
+            check=False,
+        )
+
+    if processor:
+        result = processor.run_with_retry(
+            _run_ffmpeg,
+            max_retries=3,
+            label=f"convert_{base_name}",
+        )
+    else:
+        result = _run_ffmpeg()
+
+    if result.returncode != 0 or not os.path.exists(output_path):
+        error_lines = [
+            line
+            for line in result.stderr.split("\n")
+            if any(kw in line.lower() for kw in ("error", "invalid", "failed"))
+        ]
+        err_msg = error_lines[0] if error_lines else result.stderr[-200:]
+        raise AudioExternalToolError(f"Conversion failed: {err_msg}", tool="ffmpeg")
+
+    return os.path.getsize(output_path) / (1024 * 1024)
+
+
+def _apply_post_gain(
+    output_path: str,
+    normalize_mp3: bool,
+    output_format: str,
+    target_lufs: float,
+) -> str:
+    """Apply MP3 loudness normalisation and return the gain status string."""
+    if not (normalize_mp3 and output_format == "mp3"):
+        return ""
+    try:
+        measured = _measure_lufs(output_path)
+        if measured is None:
+            return " [GAIN FAILED: measurement unavailable]"
+        gain_needed = target_lufs - measured
+        if abs(gain_needed) <= _NORMALIZE_TOLERANCE_DB:
+            return f" [ALREADY AT {measured:.1f} LUFS]"
+        apply_track_gain(output_path, gain_needed)
+        return f" [GAIN APPLIED: {gain_needed:+.2f} dB]"
+    except (AudioFormatError, OSError, SubprocessSecurityError) as exc:
+        mapped = map_to_audio_error(exc)
+        logger.warning(
+            "Lossless-gain failed after conversion: %s", mapped, exc_info=True
+        )
+        return f" [GAIN FAILED: {user_message_for(mapped)[:30]}]"
+
+
+def _delete_original(
+    input_path: str,
+    output_path: str,
+    delete_original: bool,
+) -> tuple[bool, str]:
+    """Delete the source file after successful conversion.
+
+    Returns ``(deleted, status_string)``.
+    """
+    if not (delete_original and os.path.exists(output_path)):
+        return False, ""
+    try:
+        with open(input_path, "rb") as fh:
+            original_bytes = fh.read()
+        os.remove(input_path)
+        record_file_delete_snapshot(input_path, original_bytes)
+        return True, " [ORIGINAL DELETED]"
+    except (OSError, ValueError) as exc:
+        mapped = map_to_audio_error(exc)
+        logger.warning("Delete failed during conversion: %s", mapped, exc_info=True)
+        return False, f" [DELETE FAILED: {user_message_for(mapped)[:30]}]"
+
+
 def process_single_file(
     filename: str,
     input_dir: str,
@@ -209,14 +363,12 @@ def process_single_file(
     input_path = os.path.join(input_dir, filename)
 
     try:
-        # ── Validate input format ─────────────────────────────────────────────
         input_format = detect_format(filename)
         if not input_format:
             raise AudioFormatError("Unsupported or unknown format")
 
         slot_vars[slot_idx].set(f"Checking: {filename[:25]}...")
 
-        # ── Skip: invalid conversion ──────────────────────────────────────────
         ok, reason = can_convert(input_format, output_format)
         if not ok:
             display = f"[SKIPPED] {filename} - {reason}"
@@ -231,131 +383,56 @@ def process_single_file(
                 )
             return
 
-        # ── Build output path ─────────────────────────────────────────────────
-        # filename may be a relative path ("CD2/track.flac"); keeping it
-        # intact mirrors the input tree and prevents basename collisions.
         base_name = os.path.splitext(filename)[0]
         output_name = f"{base_name}.{output_format}"
         output_path = os.path.join(output_dir, output_name)
         input_size = os.path.getsize(input_path) / (1024 * 1024)
 
-        # ── Dry run ───────────────────────────────────────────────────────────
         if is_dry_run:
-            slot_vars[slot_idx].set(f"Simulating: {filename[:25]}...")
-            output_size = (
-                input_size * 3.5
-                if output_format not in lossy_formats
-                else input_size * 0.8
+            _dry_run_report(
+                filename,
+                output_name,
+                input_format,
+                output_format,
+                input_size,
+                lossy_formats,
+                delete_original,
+                normalize_mp3,
+                target_lufs,
+                slot_vars,
+                slot_idx,
+                lock,
+                on_progress,
             )
-            display = (
-                f"[DRY RUN] {filename} \u2192 {output_name} "
-                f"(est. {input_size:.1f}MB \u2192 {output_size:.1f}MB)"
-            )
-            log = (
-                f"[DRY RUN] {filename} | "
-                f"{input_format.upper()} \u2192 {output_format.upper()} | "
-                f"Est. Size: {input_size:.2f}MB \u2192 {output_size:.2f}MB"
-            )
-            if delete_original:
-                display += " [WOULD DELETE ORIGINAL]"
-                log += " | Would delete original"
-            if normalize_mp3 and output_format == "mp3":
-                display += " [WOULD NORMALIZE MP3]"
-                log += f" | Would normalize to {target_lufs:.1f} LUFS"
-            with lock:
-                on_progress(
-                    n_converted=1,
-                    n_skipped=0,
-                    n_errors=0,
-                    display_text=display,
-                    log_text=log + "\n",
-                )
             return
 
-        # ── Live conversion ───────────────────────────────────────────────────
-        # Mirror the input's relative subdirectory before ffmpeg writes.
-        output_subdir = os.path.dirname(output_path)
-        if output_subdir:
-            os.makedirs(output_subdir, exist_ok=True)
-
-        slot_vars[slot_idx].set(f"Converting: {filename[:25]}...")
-        cmd = get_ffmpeg_params(
+        output_size = _convert_and_verify(
             input_path,
             output_path,
             output_format,
             quality,
-            sample_rate=sample_rate,
-            dither=dither,
-            **_wav_params_for(input_path, input_format, output_format, bit_depth),
+            sample_rate,
+            dither,
+            bit_depth,
+            input_format,
+            base_name,
+            processor,
+            slot_vars,
+            slot_idx,
         )
 
-        def _run_ffmpeg() -> subprocess.CompletedProcess[str]:
-            return run_secure_subprocess(
-                cmd[0],
-                cmd[1:],
-                capture_output=True,
-                timeout=WORKER_TIMEOUT_SECS,
-                check=False,
-            )
+        gain_status = _apply_post_gain(
+            output_path,
+            normalize_mp3,
+            output_format,
+            target_lufs,
+        )
 
-        if processor:
-            result = processor.run_with_retry(
-                _run_ffmpeg,
-                max_retries=3,
-                label=f"convert_{base_name}",
-            )
-        else:
-            result = _run_ffmpeg()
-
-        if result.returncode != 0 or not os.path.exists(output_path):
-            error_lines = [
-                line
-                for line in result.stderr.split("\n")
-                if any(kw in line.lower() for kw in ("error", "invalid", "failed"))
-            ]
-            err_msg = error_lines[0] if error_lines else result.stderr[-200:]
-            raise AudioExternalToolError(f"Conversion failed: {err_msg}", tool="ffmpeg")
-
-        output_size = os.path.getsize(output_path) / (1024 * 1024)
-        gain_status = ""
-        if normalize_mp3 and output_format == "mp3" and not is_dry_run:
-            try:
-                measured = _measure_lufs(output_path)
-                if measured is None:
-                    gain_status = " [GAIN FAILED: measurement unavailable]"
-                else:
-                    gain_needed = target_lufs - measured
-                    if abs(gain_needed) <= _NORMALIZE_TOLERANCE_DB:
-                        gain_status = f" [ALREADY AT {measured:.1f} LUFS]"
-                    else:
-                        apply_track_gain(output_path, gain_needed)
-                        gain_status = f" [GAIN APPLIED: {gain_needed:+.2f} dB]"
-            except (AudioFormatError, OSError, SubprocessSecurityError) as exc:
-                mapped_del = map_to_audio_error(exc)
-                logger.warning(
-                    "Lossless-gain failed after conversion: %s",
-                    mapped_del,
-                    exc_info=True,
-                )
-                gain_status = f" [GAIN FAILED: {user_message_for(mapped_del)[:30]}]"
-
-        delete_status = ""
-        deleted = False
-
-        if delete_original and os.path.exists(output_path):
-            try:
-                with open(input_path, "rb") as fh:
-                    original_bytes = fh.read()
-                os.remove(input_path)
-                record_file_delete_snapshot(input_path, original_bytes)
-                deleted = True
-                delete_status = " [ORIGINAL DELETED]"
-            except (OSError, ValueError) as exc:
-                mapped_del = map_to_audio_error(exc)
-                logger.warning(
-                    "Delete failed during conversion: %s", mapped_del, exc_info=True
-                )
-                delete_status = f" [DELETE FAILED: {user_message_for(mapped_del)[:30]}]"
+        deleted, delete_status = _delete_original(
+            input_path,
+            output_path,
+            delete_original,
+        )
 
         display = (
             f"[CONVERTED] {filename} \u2192 {output_name} "

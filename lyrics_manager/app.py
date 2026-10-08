@@ -6,7 +6,6 @@ Contains no business logic itself; it only coordinates.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import threading
@@ -51,6 +50,8 @@ class LyricsManagerApp(AnalysisTagToolApp):
     TAGGED_LABEL: str = "Tagged/Updated"
     DRY_COMPLETE_LABEL: str = "Lyric Lookup Complete!"
     LIVE_COMPLETE_LABEL: str = "Lyrics Tagging Complete!"
+
+    PRESET_KEY_PREFIX = "lyrics"
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -466,59 +467,3 @@ class LyricsManagerApp(AnalysisTagToolApp):
         self.parallel_mode.set(bool(settings.get("parallel_mode", False)))
         self.max_workers.set(int(settings.get("max_workers", 4)))
         self.run_mode.set(str(settings.get("run_mode", "Dry Run")))
-
-    def _on_preset_selected(self, event: object = None) -> None:
-        """Handle preset combobox selection change."""
-        name: str = self._preset_combo.get() if self._preset_combo else ""
-        if not name:
-            return
-        data: str | None = cast(
-            str | None, _suite_config.load_value(f"lyrics_preset_{name}", None)
-        )
-        if data is not None:
-            try:
-                settings: dict[str, int | bool | str] = json.loads(data)
-                self._apply_preset(settings)
-            except (json.JSONDecodeError, TypeError, ValueError) as exc:
-                logger.error("Failed to load preset '%s': %s", name, exc)
-
-    def _save_current_as_preset(self) -> None:
-        """Prompt for a name and save the current settings as a preset."""
-        from tkinter.simpledialog import askstring
-
-        name: str | None = askstring("Save Preset", "Preset name:", parent=self.root)
-        if not name or not name.strip():
-            return
-        name = name.strip()
-        settings: dict[str, int | bool | str] = self._collect_settings()
-        _suite_config.save_value(f"lyrics_preset_{name}", json.dumps(settings))
-        # Update the preset names list
-        names_json: str | None = cast(
-            str | None, _suite_config.load_value("lyrics_presets_list", None)
-        )
-        names: list[str] = json.loads(names_json) if names_json else []
-        if name not in names:
-            names.append(name)
-        _suite_config.save_value("lyrics_presets_list", json.dumps(names))
-        self._refresh_preset_list()
-
-    def _delete_preset(self) -> None:
-        """Delete the currently selected preset."""
-        name: str = self._preset_combo.get() if self._preset_combo else ""
-        if not name:
-            return
-        confirm: bool = messagebox.askyesno(
-            "Delete Preset",
-            f"Delete preset '{name}'?",
-        )
-        if not confirm:
-            return
-        # Remove from the preset names list
-        names_json: str | None = cast(
-            str | None, _suite_config.load_value("lyrics_presets_list", None)
-        )
-        names: list[str] = json.loads(names_json) if names_json else []
-        if name in names:
-            names.remove(name)
-        _suite_config.save_value("lyrics_presets_list", json.dumps(names))
-        self._refresh_preset_list()

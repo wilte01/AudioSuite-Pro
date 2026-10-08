@@ -16,13 +16,14 @@ error plumbing and the completion log write — lives here once.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
 import tkinter as tk
 from queue import Queue
 from tkinter import messagebox, ttk
-from typing import Any, cast
+from typing import Any, Callable, ClassVar, cast
 
 from audio_suite_shared import platform_utils, styles, suite_config
 from audio_suite_shared.app_bootstrap import bootstrap_tool_app
@@ -67,6 +68,8 @@ class AnalysisTagToolApp(UIHelperMixin):
     auto_end: bool
     slot_queue: "Queue[int]"
     _safe_slot_vars: "list[ThreadSafeSlotVar]"
+    _preset_combo: ttk.Combobox | None
+    _refresh_preset_list: "Callable[..., None] | None"
 
     def start_processing(self) -> None:
         """Subclass hook: validate inputs then launch the analysis thread."""
@@ -83,6 +86,11 @@ class AnalysisTagToolApp(UIHelperMixin):
     #: Results-tab completion captions.
     DRY_COMPLETE_LABEL: str = "Analysis Complete!"
     LIVE_COMPLETE_LABEL: str = "Tagging Complete!"
+
+    #: Config-key prefix for preset storage (``"bpm"`` / ``"lyrics"``).
+    #: Subclasses set this so the shared preset methods build the correct
+    #: ``suite_config`` keys (e.g. ``bpm_preset_MyPreset``).
+    PRESET_KEY_PREFIX: ClassVar[str] = ""
 
     def _apply_tool_cli_options(self, parsed: Any) -> None:
         """Hook: mirror tool-specific driver options before the early return.
@@ -170,6 +178,66 @@ class AnalysisTagToolApp(UIHelperMixin):
             platform_utils.open_path(folder_path)
         else:
             messagebox.showinfo("Folder", "Source folder not available.")
+
+    # ── Presets ─────────────────────────────────────────────────────────
+
+    def _collect_settings(self) -> dict[str, int | bool | str]:
+        """Hook: collect current UI settings into a serialisable dict.
+
+        Used by ``_save_current_as_preset``.
+        """
+        raise NotImplementedError
+
+    def _apply_preset(self, settings: dict[str, int | bool | str]) -> None:
+        """Hook: apply a preset dict onto the tool's Tk variables."""
+        raise NotImplementedError
+
+    def _on_preset_selected(self, name: str) -> None:
+        """Load a named preset and apply its settings."""
+        data: str | None = cast(
+            str | None,
+            suite_config.load_value(f"{self.PRESET_KEY_PREFIX}_preset_{name}", None),
+        )
+        if data is not None:
+            try:
+                settings: dict[str, int | bool | str] = json.loads(data)
+                self._apply_preset(settings)
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                logger.error("Failed to load preset '%s': %s", name, exc)
+
+    def _save_current_as_preset(self, name: str) -> None:
+        """Save the current settings as a named preset."""
+        settings: dict[str, int | bool | str] = self._collect_settings()
+        suite_config.save_value(
+            f"{self.PRESET_KEY_PREFIX}_preset_{name}", json.dumps(settings)
+        )
+        names_json: str | None = cast(
+            str | None,
+            suite_config.load_value(f"{self.PRESET_KEY_PREFIX}_presets_list", None),
+        )
+        names: list[str] = json.loads(names_json) if names_json else []
+        if name not in names:
+            names.append(name)
+        suite_config.save_value(
+            f"{self.PRESET_KEY_PREFIX}_presets_list", json.dumps(names)
+        )
+        if self._refresh_preset_list is not None:
+            self._refresh_preset_list()
+
+    def _delete_preset(self, name: str) -> None:
+        """Delete a named preset."""
+        names_json: str | None = cast(
+            str | None,
+            suite_config.load_value(f"{self.PRESET_KEY_PREFIX}_presets_list", None),
+        )
+        names: list[str] = json.loads(names_json) if names_json else []
+        if name in names:
+            names.remove(name)
+        suite_config.save_value(
+            f"{self.PRESET_KEY_PREFIX}_presets_list", json.dumps(names)
+        )
+        if self._refresh_preset_list is not None:
+            self._refresh_preset_list()
 
     # ── Progress plumbing ────────────────────────────────────────────────────
 
@@ -367,7 +435,7 @@ class NoisePopToolApp(UIHelperMixin, AuditionMixin):
     _log_path: str
     _run_was_dry_run: bool
     _preset_combo: ttk.Combobox | None
-    _refresh_preset_list: Any
+    _refresh_preset_list: "Callable[..., None] | None"
     progress: ttk.Progressbar
     stats_label: tk.Label
     file_listbox: tk.Listbox
@@ -614,12 +682,14 @@ class NoisePopToolApp(UIHelperMixin, AuditionMixin):
     def _save_current_as_preset(self, name: str) -> None:
         """Save the current settings as a named preset."""
         suite_config.save_preset(self.TOOL_ID, name, self._collect_settings())
-        self._refresh_preset_list(suite_config.list_presets(self.TOOL_ID))
+        if self._refresh_preset_list is not None:
+            self._refresh_preset_list(suite_config.list_presets(self.TOOL_ID))
 
     def _delete_preset(self, name: str) -> None:
         """Delete a named preset."""
         suite_config.delete_preset(self.TOOL_ID, name)
-        self._refresh_preset_list(suite_config.list_presets(self.TOOL_ID))
+        if self._refresh_preset_list is not None:
+            self._refresh_preset_list(suite_config.list_presets(self.TOOL_ID))
 
     # ── CLI handling ──────────────────────────────────────────────────────
 
