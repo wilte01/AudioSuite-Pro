@@ -1016,8 +1016,8 @@ def run_analysis_workflow(
 
     processed, skipped, errors, log_entries, _on_progress = (
         processor.create_progress_tracker(
-            lambda processed_, total, skipped_, errors_, display_text: on_progress(
-                processed_, total, skipped_, errors_, display_text
+            lambda processed, total, skipped, errors, display_text: on_progress(
+                processed, total, skipped, errors, display_text
             ),
             len(files),
         )
