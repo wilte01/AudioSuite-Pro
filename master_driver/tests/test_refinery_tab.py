@@ -11,8 +11,12 @@ from __future__ import annotations
 
 import tkinter as tk
 from collections.abc import Callable
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+from audio_refinery.core.models import StageConfig
+from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from master_driver.state.app_state import AppState
 from master_driver.ui import refinery_tab
 from master_driver.ui.refinery_tab import _inject_select_all
@@ -74,6 +78,21 @@ def _find_label(widget: tk.Widget, text: str) -> tk.Label | None:
             except tk.TclError:
                 pass
         found = _find_label(child, text)
+        if found is not None:
+            return found
+    return None
+
+
+def _find_button(widget: tk.Widget, text: str) -> tk.Button | None:
+    """The first descendant Button whose ``text`` equals *text*."""
+    for child in widget.winfo_children():
+        if isinstance(child, tk.Button):
+            try:
+                if str(child.cget("text")) == text:
+                    return child
+            except tk.TclError:
+                pass
+        found = _find_button(child, text)
         if found is not None:
             return found
     return None
@@ -324,3 +343,180 @@ class TestDriverOwnedControlsEnabled:
         state = AppState(master=root)
         _activate_driver_run_controls({}, state)  # must not raise
         assert state.refinery_auto_start.get() is False
+
+
+class TestRefineBrowseActions:
+    """Browse callbacks feed the driver state vars through the security gate."""
+
+    def _invoke_browse(self, panel: DriverControlsPanel) -> None:
+        assert panel.browse_btn is not None
+        panel.browse_btn.invoke()
+
+    def test_browse_src_sets_valid_path(
+        self,
+        root: tk.Tk,
+        monkeypatch: Any,
+        tmp_path: Path,
+    ) -> None:
+        _parent, state, result = _build(root)
+        panel = result[2]["controls_panel"]
+        monkeypatch.setattr(
+            refinery_tab.filedialog,
+            "askdirectory",
+            lambda **_kw: str(tmp_path),
+        )
+        self._invoke_browse(panel)
+        assert state.refinery_source.get() == str(tmp_path)
+
+    def test_browse_src_warns_on_invalid_path(
+        self, root: tk.Tk, monkeypatch: Any
+    ) -> None:
+        _parent, state, result = _build(root)
+        panel = result[2]["controls_panel"]
+        warned: list[str] = []
+        monkeypatch.setattr(
+            refinery_tab.filedialog,
+            "askdirectory",
+            lambda **_kw: r"C:\Music\..\Rock",  # directory traversal -> unsafe
+        )
+        monkeypatch.setattr(
+            refinery_tab.messagebox,
+            "showwarning",
+            lambda title, _msg: warned.append(title),
+        )
+        self._invoke_browse(panel)
+        assert warned == ["Invalid Path"]
+        assert state.refinery_source.get() == ""
+
+    def test_browse_output_sets_valid_path(
+        self,
+        root: tk.Tk,
+        monkeypatch: Any,
+        tmp_path: Path,
+    ) -> None:
+        parent, state, result = _build(root)
+        # The injected output picker's button is the bare "Browse"; the
+        # Run Controls panel's source picker is "Browse...".
+        output_btn = _find_button(parent, "Browse")
+        assert output_btn is not None
+        assert _find_button(parent, "Browse...") is not None
+        monkeypatch.setattr(
+            refinery_tab.filedialog,
+            "askdirectory",
+            lambda **_kw: str(tmp_path),
+        )
+        output_btn.invoke()
+        assert state.refinery_output.get() == str(tmp_path)
+
+
+class TestResetProgress:
+    """Reset Progress must gate on a source folder and confirmation."""
+
+    def test_no_source_folder_shows_info(self, root: tk.Tk, monkeypatch: Any) -> None:
+        _parent, _state, result = _build(root)
+        infos: list[str] = []
+        monkeypatch.setattr(
+            refinery_tab.messagebox,
+            "showinfo",
+            lambda title, _msg: infos.append(title),
+        )
+        result[2]["reset_btn"].invoke()
+        assert infos == ["Reset Progress"]
+
+    def test_confirmed_reset_clears_completion_record(
+        self,
+        root: tk.Tk,
+        monkeypatch: Any,
+        tmp_path: Path,
+    ) -> None:
+        _parent, state, result = _build(root)
+        state.refinery_source.set(str(tmp_path))
+        calls: list[object] = []
+
+        def _fake_registry(src: Path) -> "SimpleNamespace":
+            calls.append(src)
+            return SimpleNamespace(reset=lambda: calls.append("reset"))
+
+        monkeypatch.setattr(
+            "audio_refinery.core.registry.CompletionRegistry", _fake_registry
+        )
+        monkeypatch.setattr(
+            refinery_tab.messagebox, "askyesno", lambda *_a, **_kw: True
+        )
+        result[2]["reset_btn"].invoke()
+        assert calls == [tmp_path, "reset"]
+
+    def test_declined_reset_never_touches_registry(
+        self,
+        root: tk.Tk,
+        monkeypatch: Any,
+        tmp_path: Path,
+    ) -> None:
+        _parent, state, result = _build(root)
+        state.refinery_source.set(str(tmp_path))
+        created: list[Path] = []
+
+        def _fake_registry(src: Path) -> "SimpleNamespace":
+            created.append(src)
+            return SimpleNamespace(reset=lambda: None)
+
+        monkeypatch.setattr(
+            "audio_refinery.core.registry.CompletionRegistry", _fake_registry
+        )
+        monkeypatch.setattr(
+            refinery_tab.messagebox, "askyesno", lambda *_a, **_kw: False
+        )
+        result[2]["reset_btn"].invoke()
+        assert created == []
+        assert state.refinery_source.get() == str(tmp_path)
+
+
+class TestSelectAllGridGuard:
+    """A non-gridded strip child must not block the SELECT ALL merge."""
+
+    def test_packed_child_is_skipped(self, root: tk.Tk) -> None:
+        panel = DriverControlsPanel(
+            tk.Frame(root),
+            source_var=tk.StringVar(root),
+            mode_var=tk.StringVar(root, value="Dry Run"),
+            auto_start_var=tk.BooleanVar(root),
+            auto_end_var=tk.BooleanVar(root),
+            clear_logs_var=tk.BooleanVar(root),
+            parallel_var=tk.BooleanVar(root),
+            on_browse=lambda: None,
+        )
+        hidden = tk.Label(panel.control_strip, text="hidden")
+        hidden.grid(row=0, column=99)
+        hidden.grid_remove()  # no longer grid-managed -> grid_info() empty
+        state = AppState(master=root)
+        _inject_select_all({"controls_panel": panel}, state, StageConfig())
+        assert getattr(panel, "refine_select_all_cb", None) is not None
+
+
+class TestRunControlsGuardRails:
+    """_activate_driver_run_controls must skip non-Checkbutton attributes."""
+
+    def test_non_checkbutton_attrs_are_skipped(self, root: tk.Tk) -> None:
+        from master_driver.ui.refinery_tab import _activate_driver_run_controls
+
+        panel = SimpleNamespace(
+            auto_start_btn=tk.Label(root),
+            auto_end_btn=tk.Label(root),
+            clear_logs_btn=tk.Label(root),
+        )
+        state = AppState(master=root)
+        _activate_driver_run_controls({"controls_panel": panel}, state)
+        assert state.refinery_auto_start.get() is False
+
+
+class TestSaveSettings:
+    """save_settings delegates to the shared settings writer."""
+
+    def test_delegates_config(self, monkeypatch: Any) -> None:
+        config = StageConfig()
+        saved: list[StageConfig] = []
+        monkeypatch.setattr(
+            refinery_tab, "_save_settings", lambda cfg: saved.append(cfg)
+        )
+        refinery_tab.save_settings(config)
+        assert saved == [config]

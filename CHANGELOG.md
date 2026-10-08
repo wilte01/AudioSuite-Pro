@@ -89,6 +89,10 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
 
 ### Fixed
 
+- **CD ripper C2 diagnostic button crashed on `AudioIOError`.** `_run_c2_diagnostic`
+  caught `(OSError, RuntimeError)` but `AudioIOError` inherits `AudioSuiteError`
+  which inherits `Exception`, so an `AudioIOError` from the drive handler escaped
+  the except and crashed the UI. The tuple now includes `AudioSuiteError`.
 - **`tag_field_updater --dry` wrote tags anyway.** The flag was accepted and
   displayed but the write site was not gated on it, so a Dry Run silently
   modified files. Tag writes are now genuinely withheld in Dry Run.

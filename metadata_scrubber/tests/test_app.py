@@ -36,6 +36,20 @@ def _pinned_app(app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch) -> Any:
     return MetadataScrubberApp(app_root)
 
 
+def _pinned_app_with_last_dir(
+    app_root: tk.Toplevel,
+    monkeypatch: pytest.MonkeyPatch,
+    last_dir: Path,
+) -> Any:
+    """Real app whose restored last-directory triggers an auto scan."""
+    monkeypatch.setattr(
+        "metadata_scrubber.app.suite_config.load_last_directory",
+        lambda: str(last_dir),
+    )
+    monkeypatch.setattr(sys, "argv", ["metadata_scrubber"])
+    return MetadataScrubberApp(app_root)
+
+
 def _make_app() -> MetadataScrubberApp:
     """Build a shell app instance with mock attributes (no real Tk)."""
     app = object.__new__(MetadataScrubberApp)
@@ -186,6 +200,15 @@ class TestRealAppConstructionD3:
         assert app.folder_path.get() == ""
         assert app.run_mode.get() in {"Dry Run", "Live Update"}
 
+    def test_restored_last_directory_prefills_and_schedules_scan(
+        self, app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A saved last directory is pre-filled (and an auto scan scheduled);
+        the empty-string path (asserted in ``test_full_ui_builds_and_wires_vars``)
+        covers the no-restore branch."""
+        app = _pinned_app_with_last_dir(app_root, monkeypatch, tmp_path)
+        assert app.folder_path.get() == str(tmp_path)
+
     def test_settings_collect_and_apply_roundtrip(
         self, app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -234,6 +257,20 @@ class TestStartProcessingD3:
         app.start_processing()
 
         dialogs.showwarning.assert_called_once()
+
+    def test_non_directory_path_errors(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = self._shell()
+        dialogs = MagicMock()
+        monkeypatch.setattr("metadata_scrubber.app.messagebox", dialogs)
+        app.folder_path.get.return_value = str(tmp_path / "not_a_directory")
+
+        app.start_processing()
+
+        dialogs.showerror.assert_called_once_with(
+            "Error", "Selected path is not a valid directory."
+        )
 
     def test_start_threads_scrubbing_with_mode_flags(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -384,3 +421,275 @@ class TestProgressAndCompleteD3:
         )
 
         save_kept.assert_not_called()  # dry runs never update the rolling prefs
+
+
+class TestDoScan:
+    """_do_scan drives tag discovery + prefs restore + optional auto start."""
+
+    def _shell(self) -> Any:
+        app = object.__new__(MetadataScrubberApp)
+        app.root = MagicMock()
+        app.folder_path = MagicMock(spec=tk.StringVar)
+        app.auto_start = False
+        app._setup_tab = MagicMock()
+        app.start_processing = MagicMock()
+        return app
+
+    def test_empty_folder_does_not_scan(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        app = self._shell()
+        app.folder_path.get.return_value = ""
+        scanner = MagicMock()
+        monkeypatch.setattr(
+            "metadata_scrubber.app.tag_scanner.scan_custom_tags", scanner
+        )
+
+        app._do_scan()
+
+        scanner.assert_not_called()
+        app._setup_tab.populate_tags.assert_not_called()
+
+    def test_scan_populates_tags_with_saved_prefs(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = self._shell()
+        app.folder_path.get.return_value = str(tmp_path)
+        monkeypatch.setattr(
+            "metadata_scrubber.app.tag_scanner.scan_custom_tags",
+            lambda _folder, sample_size=100, on_error=None: {"BPM", "Genre"},
+        )
+        monkeypatch.setattr(
+            "metadata_scrubber.app.tag_prefs.load_kept_tags",
+            lambda _pkg_dir: {"BPM"},
+        )
+
+        app._do_scan()
+
+        app._setup_tab.populate_tags.assert_called_once_with(
+            {"BPM", "Genre"}, previously_kept={"BPM"}
+        )
+        app.root.after.assert_not_called()
+
+    def test_scan_error_is_reported(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = self._shell()
+        app.folder_path.get.return_value = str(tmp_path)
+        dialogs = MagicMock()
+        monkeypatch.setattr("metadata_scrubber.app.messagebox", dialogs)
+
+        def _scan_with_error(
+            _folder: str, sample_size: int = 100, on_error: Any = None
+        ) -> set[str]:
+            assert on_error is not None
+            on_error("boom")
+            return set()
+
+        monkeypatch.setattr(
+            "metadata_scrubber.app.tag_scanner.scan_custom_tags", _scan_with_error
+        )
+        monkeypatch.setattr(
+            "metadata_scrubber.app.tag_prefs.load_kept_tags", lambda _pkg_dir: set()
+        )
+
+        app._do_scan()
+
+        dialogs.showerror.assert_called_once_with("Error", "boom")
+
+    def test_auto_start_schedules_processing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = self._shell()
+        app.auto_start = True
+        app.folder_path.get.return_value = str(tmp_path)
+        monkeypatch.setattr(
+            "metadata_scrubber.app.tag_scanner.scan_custom_tags",
+            lambda _folder, sample_size=100, on_error=None: set(),
+        )
+        monkeypatch.setattr(
+            "metadata_scrubber.app.tag_prefs.load_kept_tags", lambda _pkg_dir: set()
+        )
+
+        app._do_scan()
+
+        app.root.after.assert_called_once_with(500, app.start_processing)
+
+
+class TestBrowseAndScan:
+    """_browse_and_scan pairs a folder dialog with an immediate scan."""
+
+    def test_browses_then_scans(self) -> None:
+        app = object.__new__(MetadataScrubberApp)
+        app._browse_folder_standard = MagicMock()
+        app.folder_path = MagicMock(spec=tk.StringVar)
+        app._do_scan = MagicMock()
+
+        app._browse_and_scan()
+
+        app._browse_folder_standard.assert_called_once_with(
+            title="Select Music Directory",
+            path_variable=app.folder_path,
+            save_last_dir=True,
+        )
+        app._do_scan.assert_called_once()
+
+
+class TestPresetHandlers:
+    """Preset save/delete/select round-trip through suite_config."""
+
+    def test_preset_selected_applies_settings(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = object.__new__(MetadataScrubberApp)
+        app._apply_preset = MagicMock()
+        monkeypatch.setattr(
+            "metadata_scrubber.app.suite_config.load_preset",
+            lambda _tool, _name: {"run_mode": "Live Update"},
+        )
+
+        app._on_preset_selected("My Preset")
+
+        app._apply_preset.assert_called_once_with({"run_mode": "Live Update"})
+
+    def test_save_current_as_preset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        app = object.__new__(MetadataScrubberApp)
+        app._refresh_preset_list = MagicMock()
+        app._collect_settings = MagicMock(return_value={"run_mode": "Dry Run"})
+        save = MagicMock()
+        monkeypatch.setattr("metadata_scrubber.app.suite_config.save_preset", save)
+        monkeypatch.setattr(
+            "metadata_scrubber.app.suite_config.list_presets",
+            lambda _tool: ["Saved"],
+        )
+
+        app._save_current_as_preset("Saved")
+
+        save.assert_called_once_with(
+            "metadata_scrubber", "Saved", {"run_mode": "Dry Run"}
+        )
+        app._refresh_preset_list.assert_called_once_with(["Saved"])
+
+    def test_delete_preset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        app = object.__new__(MetadataScrubberApp)
+        app._refresh_preset_list = MagicMock()
+        delete = MagicMock()
+        monkeypatch.setattr("metadata_scrubber.app.suite_config.delete_preset", delete)
+        monkeypatch.setattr(
+            "metadata_scrubber.app.suite_config.list_presets", lambda _tool: []
+        )
+
+        app._delete_preset("Old")
+
+        delete.assert_called_once_with("metadata_scrubber", "Old")
+        app._refresh_preset_list.assert_called_once_with([])
+
+
+class TestOnCompleteLogWrite:
+    """_on_complete log-write failure and auto-end branches."""
+
+    def _shell(self) -> Any:
+        app = object.__new__(MetadataScrubberApp)
+        app.time_label = MagicMock()
+        app.summary_label = MagicMock()
+        app.completion_label = MagicMock()
+        app.notebook = MagicMock()
+        app.start_btn = MagicMock()
+        app._tab_results = MagicMock()
+        return app
+
+    def test_log_write_failure_shows_error(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = self._shell()
+        app._log_path = str(tmp_path / "log.txt")
+        app.auto_end = False
+        dialogs = MagicMock()
+        monkeypatch.setattr("metadata_scrubber.app.messagebox", dialogs)
+        monkeypatch.setattr("metadata_scrubber.app.map_to_audio_error", lambda exc: exc)
+        monkeypatch.setattr(
+            "metadata_scrubber.app.user_message_for", lambda _exc: "disk boom"
+        )
+        logger = MagicMock()
+        monkeypatch.setattr("metadata_scrubber.app.logger", logger)
+
+        def _raising_open(*_args: Any, **_kw: Any) -> None:
+            raise OSError("denied")
+
+        monkeypatch.setattr("builtins.open", _raising_open)
+
+        app._on_complete(
+            header=["R\n"],
+            is_live=False,
+            preserve_list=[],
+            total=1,
+            processed=1,
+            skipped=0,
+            errors=0,
+            duration_secs=1.0,
+            log_entries=[],
+        )
+
+        dialogs.showerror.assert_called_once_with(
+            "Error", "Could not write log file:\ndisk boom"
+        )
+        logger.error.assert_called_once()
+
+    def test_auto_end_appends_line_and_schedules_destroy(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = self._shell()
+        app._log_path = str(tmp_path / "log.txt")
+        app.auto_end = True
+        app.root = MagicMock()
+
+        app._on_complete(
+            header=["R\n"],
+            is_live=False,
+            preserve_list=[],
+            total=1,
+            processed=1,
+            skipped=0,
+            errors=0,
+            duration_secs=1.0,
+            log_entries=["entry\n"],
+        )
+
+        text = Path(app._log_path).read_text(encoding="utf-8")
+        assert "[Auto End enabled - closing in 2 seconds...]" in text
+        app.root.update_idletasks.assert_called_once()
+        app.root.after.assert_called_once_with(2000, app.root.destroy)
+
+    def test_auto_end_rewrite_failure_warns(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = self._shell()
+        app._log_path = str(tmp_path / "log.txt")
+        app.auto_end = True
+        app.root = MagicMock()
+        logger = MagicMock()
+        monkeypatch.setattr("metadata_scrubber.app.logger", logger)
+        real_open = open
+        count = {"n": 0}
+
+        def _flaky_open(file: Any, *args: Any, **kwargs: Any) -> Any:
+            # First write succeeds; the auto-end rewrite fails.
+            count["n"] += 1
+            if count["n"] <= 1:
+                return real_open(file, *args, **kwargs)
+            raise OSError("rewrite denied")
+
+        monkeypatch.setattr("builtins.open", _flaky_open)
+
+        app._on_complete(
+            header=["R\n"],
+            is_live=False,
+            preserve_list=[],
+            total=1,
+            processed=1,
+            skipped=0,
+            errors=0,
+            duration_secs=1.0,
+            log_entries=[],
+        )
+
+        logger.warning.assert_called_once()
+        app.root.after.assert_called_once_with(2000, app.root.destroy)

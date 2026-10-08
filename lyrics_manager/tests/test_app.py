@@ -609,3 +609,171 @@ class TestErrorPaths:
             app._show_error_dialog("boom")
         showerror.assert_called_once()
         app.start_btn.config.assert_called_once_with(state="normal")
+
+
+class TestConstruction:
+    """__init__ + _build_ui wired together on a real (hidden) Tk root.
+
+    Every external touchpoint (bootstrap, CLI handshake, config file) is
+    isolated; the UI tabs themselves are built for real so wiring mistakes
+    surface here instead of only at launch.
+    """
+
+    @staticmethod
+    def _build(root, *, last_dir: str = ""):
+        from contextlib import ExitStack
+
+        before = set(root.winfo_children())
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "lyrics_manager.app.bootstrap_tool_app",
+                    return_value=(MagicMock(), None),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "lyrics_manager.utils.cli_args.was_launched_from_driver",
+                    return_value=False,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "lyrics_manager.utils.cli_args.parse",
+                    return_value=LyricsArgs(),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "lyrics_manager.app._suite_config.load_value",
+                    side_effect=lambda key, default=None: default,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "lyrics_manager.app._suite_config.load_last_directory",
+                    return_value=last_dir,
+                )
+            )
+            app = LyricsManagerApp(root)
+        return app, before
+
+    def test_variables_initialised_from_config_defaults(self, root):
+        app, before = self._build(root)
+        try:
+            assert app.provider.get() == "lrclib"
+            assert app.parallel_mode.get() is False
+            assert app.max_workers.get() == 4
+            assert app.skip_existing.get() is True
+            assert app.plain_fallback.get() is True
+            assert app.run_mode.get() == "Dry Run"
+        finally:
+            for w in set(root.winfo_children()) - before:
+                w.destroy()
+
+    def test_slot_pool_and_preset_wiring(self, root):
+        app, before = self._build(root)
+        try:
+            assert app.slot_queue.qsize() == 4
+            assert [v.get() for v in app.slot_vars] == ["IDLE"] * 4
+            assert app._refresh_preset_list is not None
+            assert app._preset_combo is not None
+            assert app.start_btn is not None
+            assert app.overall_status is not None
+            assert app.notebook.index("end") == 3
+        finally:
+            for w in set(root.winfo_children()) - before:
+                w.destroy()
+
+    def test_no_cli_folder_restores_last_used_directory(self, root):
+        app, before = self._build(root, last_dir="D:/Music")
+        try:
+            assert app.folder_path.get() == "D:/Music"
+        finally:
+            for w in set(root.winfo_children()) - before:
+                w.destroy()
+
+    def test_standalone_launch_is_not_driver_locked(self, root):
+        app, before = self._build(root)
+        try:
+            assert app._launched_from_driver is False
+        finally:
+            for w in set(root.winfo_children()) - before:
+                w.destroy()
+
+
+class TestStartProcessingPermissionAndFallthrough:
+    def test_permission_error_reading_folder_shows_access_denied(self, tmp_path: Path):
+        (tmp_path / "track.mp3").touch()
+        app = _make_shell_app()
+        app.folder_path.get.return_value = str(tmp_path)
+        with (
+            patch(
+                "lyrics_manager.app.os.listdir",
+                side_effect=PermissionError("no permission"),
+            ),
+            patch("lyrics_manager.app.messagebox.showerror") as showerror,
+        ):
+            app.start_processing()
+        assert "Access Denied" in str(showerror.call_args)
+        showerror.assert_called_once()
+
+    def test_unexpected_error_falls_through_to_validation_dialog(self, tmp_path: Path):
+        (tmp_path / "track.mp3").touch()
+        app = _make_shell_app()
+        app.folder_path.get.return_value = str(tmp_path)
+        with (
+            patch(
+                "lyrics_manager.app.os.listdir",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch("lyrics_manager.app.messagebox.showerror") as showerror,
+            patch("lyrics_manager.app.logger"),
+        ):
+            app.start_processing()
+        assert "Validation Error" in str(showerror.call_args)
+        showerror.assert_called_once()
+
+
+class TestPresetEdgeCases:
+    def test_preset_selected_with_empty_name_loads_nothing(self):
+        app = _make_shell_app()
+        app._preset_combo = MagicMock()
+        app._preset_combo.get.return_value = ""
+        with patch("lyrics_manager.app._suite_config.load_value") as load:
+            app._on_preset_selected()
+        load.assert_not_called()
+
+    def test_save_preset_with_blank_name_persists_nothing(self):
+        app = _make_shell_app()
+        app._refresh_preset_list = MagicMock()
+        with (
+            patch("tkinter.simpledialog.askstring", return_value="   ") as askstring,
+            patch("lyrics_manager.app._suite_config.save_value") as save,
+        ):
+            app._save_current_as_preset()
+        askstring.assert_called_once()
+        save.assert_not_called()
+        app._refresh_preset_list.assert_not_called()
+
+    def test_delete_preset_with_empty_name_prompts_nothing(self):
+        app = _make_shell_app()
+        app._preset_combo = MagicMock()
+        app._preset_combo.get.return_value = ""
+        with patch("lyrics_manager.app.messagebox.askyesno") as ask:
+            app._delete_preset()
+        ask.assert_not_called()
+
+    def test_delete_preset_declined_keeps_presets(self):
+        app = _make_shell_app()
+        app._preset_combo = MagicMock()
+        app._preset_combo.get.return_value = "Old"
+        with (
+            patch("lyrics_manager.app.messagebox.askyesno", return_value=False) as ask,
+            patch("lyrics_manager.app._suite_config.load_value") as load,
+            patch("lyrics_manager.app._suite_config.save_value") as save,
+        ):
+            app._delete_preset()
+        ask.assert_called_once()
+        load.assert_not_called()
+        save.assert_not_called()

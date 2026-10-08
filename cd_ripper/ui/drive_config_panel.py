@@ -8,7 +8,7 @@ from tkinter import messagebox, ttk
 from typing import Any
 
 from audio_suite_shared import styles
-from audio_suite_shared.exceptions import AudioIOError
+from audio_suite_shared.exceptions import AudioIOError, AudioSuiteError
 from cd_ripper.core.cd_ripper_config import get_log_path
 from cd_ripper.core.disc import (
     DiscInfo,
@@ -194,7 +194,7 @@ class DriveConfigPanel:
             result = diagnose_c2_reliability(
                 drive_letter, test_lba, write_log_line, sectors=8
             )
-        except (OSError, RuntimeError) as e:
+        except (AudioSuiteError, OSError, RuntimeError) as e:
             error_message = str(e)
             self.frame.after(
                 0, lambda: self._on_c2_diagnostic_done(None, error_message)
