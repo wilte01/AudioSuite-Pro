@@ -28,6 +28,8 @@ from unittest.mock import patch
 
 import pytest
 
+from audio_suite_shared import logging_setup
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -46,9 +48,37 @@ requires_display = pytest.mark.skipif(
 
 
 def _clear_audio_suite_handlers() -> None:
-    """Strip all handlers from the audio_suite logger between tests."""
-    lg = logging.getLogger("audio_suite")
-    lg.handlers.clear()
+    """Strip and close every suite file handler, on every logger holding it.
+
+    The suite's RotatingFileHandler is shared: ``configure_logging`` (G4.2)
+    attaches the same object to the ``audio_suite`` logger *and* to every
+    first-party package logger.  Clearing only the suite logger's list
+    would leave the old stream open on the package loggers, and the next
+    ``configure_logging`` call — seeing an empty suite logger — would create
+    a *second* handler on the same ``logs/audio_suite.log``.  On Windows the
+    rename inside ``doRollover()`` then fails with PermissionError once the
+    file crosses ``maxBytes``, and the handler's ``handleError`` writes a
+    ``--- Logging error ---`` traceback to stderr, which Click's CliRunner
+    mixes into command output (intermittent JSON/traceback test failures).
+    """
+    suite_logger = logging.getLogger("audio_suite")
+    loggers = [suite_logger] + [
+        logging.getLogger(name) for name in logging_setup._first_party_package_names()
+    ]
+
+    file_handlers = {
+        handler
+        for logger in loggers
+        for handler in logger.handlers
+        if isinstance(handler, lh.RotatingFileHandler)
+    }
+    for logger in loggers:
+        for handler in file_handlers:
+            logger.removeHandler(handler)
+    for handler in file_handlers:
+        handler.close()
+
+    suite_logger.handlers.clear()
 
 
 class _ListHandler(logging.Handler):
@@ -145,6 +175,69 @@ class TestConfigureLogging:
         # Verify the fallback path was attempted
         assert any("audio_suite_logs" in p for p in mkdir_calls), (
             "Fallback to tempdir/audio_suite_logs must have been attempted"
+        )
+
+
+class TestClearAudioSuiteHandlers:
+    """The between-tests reset must leave no open suite file handler anywhere.
+
+    Regression (found while tracing G5.3): clearing only the ``audio_suite``
+    logger's handler list — the pre-G4.2 behaviour — left the shared
+    RotatingFileHandler attached to the package loggers, so the next
+    ``configure_logging`` created a *second* open handle on
+    ``logs/audio_suite.log``; the first rollover then failed with a Windows
+    rename PermissionError and polluted CLI output with ``--- Logging
+    error ---`` tracebacks (3 intermittent failures across full-suite runs).
+    """
+
+    def test_clear_detaches_and_closes_the_shared_handler(self) -> None:
+        from audio_suite_shared.app_bootstrap import configure_logging
+
+        configure_logging("clear_probe")
+        suite_logger = logging.getLogger("audio_suite")
+        shared = [
+            handler
+            for handler in suite_logger.handlers
+            if isinstance(handler, lh.RotatingFileHandler)
+        ]
+        assert len(shared) == 1, shared
+        file_handler = shared[0]
+        package_loggers = [
+            logging.getLogger(name)
+            for name in logging_setup._first_party_package_names()
+        ]
+        attached = [lg for lg in package_loggers if file_handler in lg.handlers]
+        assert attached, "G4.2 shares the suite handler with package loggers"
+
+        _clear_audio_suite_handlers()
+
+        assert file_handler.stream is None, "the cleared handler must be closed"
+        assert all(
+            file_handler not in logger.handlers
+            for logger in [suite_logger, *package_loggers]
+        )
+        assert not any(
+            isinstance(handler, lh.RotatingFileHandler)
+            for handler in suite_logger.handlers
+        )
+
+        # Positive contract: the next call creates exactly one fresh shared
+        # handler, so no package logger ever holds two handles on the file.
+        configure_logging("clear_probe_again")
+        fresh = [
+            handler
+            for handler in suite_logger.handlers
+            if isinstance(handler, lh.RotatingFileHandler)
+        ]
+        assert len(fresh) == 1, fresh
+        assert fresh[0] is not file_handler
+        assert all(
+            sum(
+                isinstance(handler, lh.RotatingFileHandler)
+                for handler in logger.handlers
+            )
+            <= 1
+            for logger in package_loggers
         )
 
 

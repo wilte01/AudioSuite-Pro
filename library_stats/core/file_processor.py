@@ -743,11 +743,20 @@ def scan_directory(
     report = StatsReport(scan_path=dir_path)
 
     if use_cache:
-        if cache is None:
+        owns_cache = cache is None
+        if owns_cache:
             from library_stats.library_cache import LibraryCache
 
             cache = LibraryCache()
-        _scan_directory_cached(dir_path, report, cache, refresh=refresh_cache)
+        try:
+            _scan_directory_cached(dir_path, report, cache, refresh=refresh_cache)
+        finally:
+            # A cache created here belongs to this call: close it or its
+            # SQLite connection leaks until GC (ResourceWarning in the suite,
+            # an open handle in production). A caller-supplied cache stays
+            # open — it belongs to the caller.
+            if owns_cache:
+                cache.close()
     else:
         _scan_directory_full(dir_path, report)
 

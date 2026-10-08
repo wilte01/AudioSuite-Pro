@@ -170,6 +170,28 @@ class TestStatsCompletenessCommand:
         assert result.exit_code != 0
         assert "Invalid value" in result.output
 
+    def test_incremental_run_closes_the_cache_it_created(
+        self, runner: CliRunner, music_dir: str
+    ) -> None:
+        """The CLI owns its cache: it must be closed before the command ends."""
+        from library_stats.library_cache import LibraryCache
+
+        closed: list[LibraryCache] = []
+
+        class _SpyCache(LibraryCache):
+            def __init__(self) -> None:
+                super().__init__(str(Path(music_dir) / "cli_cache.db"))
+
+            def close(self) -> None:
+                closed.append(self)
+                super().close()
+
+        with patch("library_stats.cli.LibraryCache", _SpyCache):
+            result = self._invoke(runner, music_dir, "--incremental")
+        assert result.exit_code == 0, result.output
+        assert len(closed) == 1, "the CLI-created cache was never closed"
+        assert closed[0]._conn is None, "close() must drop the connection"
+
 
 class TestStatsCommandErrorHandling:
     @staticmethod

@@ -103,7 +103,8 @@ class TestCoverageExclusionLock:
 
     @staticmethod
     def _coverage_field(name: str) -> object:
-        pyproject = tomllib.load(open(PYPROJECT, "rb"))
+        with PYPROJECT.open("rb") as fh:
+            pyproject = tomllib.load(fh)
         tool = pyproject["tool"]
         assert isinstance(tool, dict)
         coverage_config = tool["coverage"]
@@ -144,7 +145,8 @@ class TestConfigLock:
 
     @staticmethod
     def _marker_description(name: str) -> str:
-        pyproject = tomllib.load(open(PYPROJECT, "rb"))
+        with PYPROJECT.open("rb") as fh:
+            pyproject = tomllib.load(fh)
         tool = pyproject["tool"]
         assert isinstance(tool, dict)
         pytest_options = tool["pytest"]
@@ -160,7 +162,8 @@ class TestConfigLock:
 
     @staticmethod
     def _addopts() -> str:
-        pyproject = tomllib.load(open(PYPROJECT, "rb"))
+        with PYPROJECT.open("rb") as fh:
+            pyproject = tomllib.load(fh)
         tool = pyproject["tool"]
         assert isinstance(tool, dict)
         pytest_options = tool["pytest"]
@@ -228,7 +231,8 @@ class TestPackagingMetadataLock:
 
     @staticmethod
     def _project_section() -> dict[str, object]:
-        pyproject = tomllib.load(open(PYPROJECT, "rb"))
+        with PYPROJECT.open("rb") as fh:
+            pyproject = tomllib.load(fh)
         project = pyproject["project"]
         assert isinstance(project, dict)
         return project

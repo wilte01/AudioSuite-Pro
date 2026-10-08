@@ -370,10 +370,17 @@ class TestRealEngineIntegration:
             log.record_tag_edit(batch_id, "C:\\Music\\c.mp3", "write_bpm", None)
 
         app = _app()
-        app._load_batches = lambda: BatchUndoLog(db_path=db_path).list_batches()
-        app._load_records = lambda bid: BatchUndoLog(db_path=db_path).get_batch_records(
-            bid
-        )
+
+        def _load_batches() -> list:
+            with BatchUndoLog(db_path=db_path) as opened:
+                return opened.list_batches()
+
+        def _load_records(bid: str) -> list:
+            with BatchUndoLog(db_path=db_path) as opened:
+                return opened.get_batch_records(bid)
+
+        app._load_batches = _load_batches
+        app._load_records = _load_records
 
         app.refresh()
 
@@ -392,9 +399,12 @@ class TestRealEngineIntegration:
 
     def test_no_history_shows_empty_state(self, tmp_path) -> None:
         app = _app()
-        app._load_batches = lambda: BatchUndoLog(
-            db_path=tmp_path / "empty.db"
-        ).list_batches()
+
+        def _load_batches() -> list:
+            with BatchUndoLog(db_path=tmp_path / "empty.db") as opened:
+                return opened.list_batches()
+
+        app._load_batches = _load_batches
         app.refresh()
         assert app._batches == []
         assert "no saved undo history" in app.preview_selected()

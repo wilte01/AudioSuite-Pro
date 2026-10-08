@@ -112,7 +112,8 @@ class TestMetadataLock:
     def test_pyproject_ships_the_readme_and_27_tool_rows(self) -> None:
         from audio_suite_shared.tool_plugin import get_registry
 
-        pyproject = tomllib.load(open(REPO_ROOT / "pyproject.toml", "rb"))
+        with (REPO_ROOT / "pyproject.toml").open("rb") as fh:
+            pyproject = tomllib.load(fh)
         project = pyproject["project"]
         assert isinstance(project, dict)
         declared_readme = project.get("readme")

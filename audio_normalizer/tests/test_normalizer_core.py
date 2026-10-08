@@ -972,7 +972,8 @@ class TestUndoBatchRecording:
         batches = list_recent_batches(limit=5, db_path=undo_db)
         assert len(batches) == 1
         assert batches[0].record_count == 1
-        records = BatchUndoLog(db_path=undo_db).get_batch_records(batches[0].batch_id)
+        with BatchUndoLog(db_path=undo_db) as opened:
+            records = opened.get_batch_records(batches[0].batch_id)
         assert len(records) == 1
         assert records[0].file_path == f
         assert records[0].operation == "write_normalise"

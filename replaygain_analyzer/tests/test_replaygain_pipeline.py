@@ -1081,7 +1081,8 @@ class TestUndoBatchRecording:
 
         batches = list_recent_batches(limit=10, db_path=undo_db)
         assert len(batches) == 1
-        records = BatchUndoLog(db_path=undo_db).get_batch_records(batches[0].batch_id)
+        with BatchUndoLog(db_path=undo_db) as opened:
+            records = opened.get_batch_records(batches[0].batch_id)
         baked = [r for r in records if r.file_path.endswith("t1.mp3")]
         assert baked, "baked file has no undo record"
         assert all(r.has_snapshot for r in baked)

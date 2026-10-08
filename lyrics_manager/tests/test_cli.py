@@ -254,5 +254,6 @@ class TestUndoBatchIsolation:
         batches = list_recent_batches()
         target = [b for b in batches if b.tool_name == "lyrics_manager"]
         assert target, "live run produced no undo batch in the default DB"
-        records = BatchUndoLog().get_batch_records(target[0].batch_id)
+        with BatchUndoLog() as opened:
+            records = opened.get_batch_records(target[0].batch_id)
         assert [str(r.file_path) for r in records] == [str(audio)]

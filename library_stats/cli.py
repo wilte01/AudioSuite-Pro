@@ -99,6 +99,7 @@ def stats(
         err=True,
     )
     start = time.monotonic()
+    cache_info = ""
     try:
         report = scan_directory(
             directory,
@@ -109,16 +110,17 @@ def stats(
         completeness_report = (
             analyse_completeness(directory) if want_completeness else None
         )
+        elapsed = time.monotonic() - start
+        if cache is not None:
+            cache_info = f" | {cache.row_count(directory)} cached"
     except (OSError, ValueError, sqlite3.Error, AudioSuiteError) as exc:
         click.echo(f"  FATAL: {exc}", err=True)
         sys.exit(1)
-
-    elapsed = time.monotonic() - start
-
-    cache_info = ""
-    if cache is not None:
-        cached_count = cache.row_count(directory)
-        cache_info = f" | {cached_count} cached"
+    finally:
+        # The CLI owns the cache it created: close it or its SQLite
+        # connection stays open for the lifetime of the process.
+        if cache is not None:
+            cache.close()
 
     if json:
         import json as _json
