@@ -1045,10 +1045,10 @@ Format mirrors `PLAN_iteration8_remediation.md`:
 | G7.2 | 2 | | | |
 | G7.3 | 3 | | | |
 | G7.4 | 3 | | | |
-| G8.1 | 2 | | | |
-| G8.2 | 2 | | | |
-| G8.3 | 3 | | | |
-| G8.4 | 3 | | | |
+| G8.1 | 2 | 2026-10-09 | **M10 code fix:** `audio_suite_shared/undo_gui.py` `_TOOL_DISPLAY_NAMES` — added `audio_fingerprinter`→"Audio Fingerprinter", `lyrics_manager`→"Lyrics Manager", `silence_trimmer`→"Silence Trimmer", `tag_editor`→"Tag Editor" (manifest-exact); corrected `asx_extractor` "ASX Extractor"→"ASX Playlist Extractor", `file_reorganizer` "File Reorganizer"→"Tag-Based File Reorganizer". New `TestToolDisplayNamesMatchesManifest` in `audio_suite_shared/tests/test_undo_gui.py` (AST scan of production files only: literal first args of `active_batch`/`set_active_batch` + `TOOL_ID`/`_TOOL_ID`/`TOOL_NAME` on `Assign` **and** `AnnAssign`; asserts every collected id ∈ map, non-vacuity ≥22 plus the four new ids, manifest agreement; `audio_enhancer` EXEMPT — suite_config preset namespace, never passed to `active_batch`). Collected-id list (24) in the subsection below. Full gate `utilities\run_gate.ps1` (exit 0): `[OK] compileall`; `[OK] ruff check` (All checks passed); `[OK] ruff format --check` (803 files already formatted); `[OK] mypy` (Success: no issues found in **469 source files** — was 462; +7 utilities scripts now type-checked); `[OK] bandit` (severity 0 High / 0 Medium / 41 Low); `[OK] pytest` (8694 passed, 3 skipped, 30 deselected, 1 warning in 280.26s; coverage 90.43% ≥ 88.0); `[DONE] Phase Gate passed`, exit 0 | M10 closed. `friendly_tool_name` keeps its `.get(..., ...)` fallback (unknown ids such as "mystery_tool"). Empirical sweep of the other 17 pre-existing keys vs the manifest `name`: all already matched — no further mismatch. The single pytest warning is a pre-existing Tk `Variable.__del__` GC race (see note after the S8 subsections), not introduced by this item. |
+| G8.2 | 2 | 2026-10-09 | `git grep -n 'ASX Extractor\|File Reorganizer' user_guides/` audited hit-by-hit (disposition table in the subsection below). Only `suite_overview/generate_presentation.py:1929` was a stale tool name in a name list → set to "Tag-Based File Reorganizer" and regenerated `AudioSuite-Pro_New_User_Presentation.pptx` (24 slides; slide 18 re-read from the artifact and verified to show "Tag-Based File Reorganizer", no bare "File Reorganizer" remains). `master_driver/generate_guide.py:118` and `undo_tag_edits/generate_guide.py:51` already read the manifest name — grep matched only the tail fragment of a name split across adjacent string literals; no edit. `file_reorganizer/generate_guide.py` title/self-refs kept per plan (D-scope); `README.md`, `asx_extractor/generate_guide.py`, `CLI_Commands_Reference.md` already manifest-exact → audited, left as-is. `pytest tests/test_user_guide_hygiene.py -q` → 11 passed; `git status --short user_guides/` → only the presentation and its generator. | M10 guide audit closed. **Blocker resolved under user decision:** `generate_presentation.py` imports `pptx`, but `python-pptx` was undeclared (only `python-docx` is a declared dev dep). To regenerate the artifact it was first installed into `.venv`; then, on the user's explicit instruction, **declared** as `python-pptx>=1.0.0` in the `dev` optional-dependency and `uv.lock` regenerated (see G8.4) — the generator's import is now backed by a declared dependency rather than an ad-hoc install. |
+| G8.3 | 3 | 2026-10-09 | Inspected `audio_suite_shared/suite_config.py`: `_LOCK_PATH = CONFIG_PATH.with_suffix(".json.lock")` (`:59`) and `_save` writes `CONFIG_PATH.with_suffix(f".json.tmp.{os.getpid()}")` (`:178`) then `os.replace` — both sidecars are real (singleton lock + PID-scoped atomic-write temp). `.gitignore` "Project-specific" gained exactly `audio_suite_config.json.lock` and `audio_suite_config.json.tmp.*` (verified via `git grep -n lock -- .gitignore`). Stray root `audio_suite_config.json.lock` deleted; after the full gate (which exercises config saves and recreated it) `git status --short` shows **neither** the lock nor any `.json.tmp*` entry. | L2 closed. No `.tmp` pattern invented — both patterns match the code paths exactly. |
+| G8.4 | 3 | 2026-10-09 | `pyproject.toml` — three L4 edits **plus one user-authorized addition** (full diff in the subsection below): removed `"^utilities/",` from `[tool.mypy] exclude`; removed `"utilities/*",` from `[tool.coverage.run] omit`; added `"utilities",` to `source`; and, per the user's explicit decision, added `"python-pptx>=1.0.0"` to the `dev` optional-dependency with `uv.lock` regenerated (+python-pptx 1.0.2, +xlsxwriter 3.2.9) — so `generate_presentation.py`'s `pptx` import is declared. Real annotations added to the seven scripts (no `# type: ignore`, no re-exclusion, no new third-party override). `mypy .` → 0 issues in **469 source files** (was 462). Post-L4 `utilities/*.py` coverage measured from the bare full run (`COVERAGE_FILE=.coverage.s8`): `generate_readme_platform_matrix.py` 46%→**100%**, `generate_readme_tool_index.py` 58%→**100%**, `strip_bom.py` 42%→**100%**, `verify_refinery_log.py` 0%→**98%** (3 miss: 293-294, 385); unchanged `rebuild_refinery_log.py` 86%, `undo.py` 80%, `resize_music_recursive.py` 60% (not below the 60% threshold → no tests added, per plan). Four test files added/edited; `utilities/tests` 54→**110 passed**. Total coverage **90.43%** ≥ 88.0 (S1 baseline 89.39; newly measured utilities diluted then lifted it above the floor). | L4 closed. Tests added only for scripts below 60% (platform-matrix 46%, tool-index 58%, strip-bom 42%, verify-refinery-log 0%). The `if __name__ == "__main__":` bodies stay unmeasured via the existing `exclude_lines`. **Acceptance deviation (authorized):** `git diff pyproject.toml` shows **four** edits, not the planned three — the three L4 edits are present as planned plus the user-requested `python-pptx` dev-extra declaration (and `uv.lock`); this was an explicit user decision, recorded here rather than retro-editing the acceptance text above. |
 | G9.1–G9.5 | 1 | | | |
 
 ### G2.4b disposition table — 202 originally-flagged functions
@@ -1265,6 +1265,109 @@ tempo_analyzer/tests/test_app.py:409:test_on_preset_selected_empty_preset_does_n
 tempo_analyzer/tests/test_app.py:418:test_on_preset_selected_none_does_nothing || fixed: added positive assertion assert_called_once_with: mock_cfg.load_preset.assert_called_once_with("tempo_analyzer", "missing")
 tempo_analyzer/tests/test_file_processor.py:244:test_dry_run_does_not_write || fixed: added positive assertion assert: "DRY RUN" in results[0]["display_text"]
 ```
+
+### G8.1 collected-id list (AST scan of production files)
+
+24 ids collected; `audio_enhancer` is exempt (suite_config preset namespace, never
+passed to `active_batch`). All 23 non-exempt ids are keys of
+`_TOOL_DISPLAY_NAMES` (19 pre-existing + the 4 added = 23).
+
+```text
+album_art_normalizer, album_art_sync, album_genre_tagger, asx_extractor,
+audio_enhancer (EXEMPT), audio_fingerprinter, audio_normalizer, audio_refinery,
+bpm_analyzer, file_reorganizer, genre_sync, key_detector, lyrics_manager,
+metadata_scrubber, mood_analysis_batch_tagger, mood_analyzer,
+music_format_converter, noise_reduction, pop_click_remover, replaygain_analyzer,
+silence_trimmer, tag_editor, tag_field_updater, tempo_analyzer
+```
+
+### G8.2 disposition table — every `user_guides/` grep hit
+
+| Hit | Context | Disposition |
+|---|---|---|
+| `suite_overview/generate_presentation.py:1929` | utility name list | **changed** → "Tag-Based File Reorganizer"; `.pptx` regenerated |
+| `suite_overview/generate_presentation.py:474,547,1865` | tool name lists | already "ASX Playlist Extractor" → audited, left as-is |
+| `master_driver/generate_guide.py:118` | `"…Tag-Based"` + `" File Reorganizer,"` prose list | already manifest-exact (split literal) → audited, left as-is |
+| `master_driver/generate_guide.py:255,295` | tool name lists | already "ASX Playlist Extractor" / "Tag-Based File Reorganizer" → left as-is |
+| `undo_tag_edits/generate_guide.py:51` | `"…the Tag-Based"` + `"File Reorganizer."` prose | already manifest-exact (split literal) → audited, left as-is |
+| `file_reorganizer/generate_guide.py:1,19,21,26` | owner-guide title / subtitle / self-refs | **kept** — self-referential short name of the program (plan D-scope) |
+| `file_reorganizer/generate_guide.py:232` | `"…select Tag-Based File Reorganizer"` | already manifest-exact → left as-is |
+| `README.md:51` | feature list | already "ASX Playlist Extractor" → left as-is |
+| `asx_extractor/generate_guide.py:1,19,22,28` | owner-guide title / self-refs | already "ASX Playlist Extractor" → left as-is |
+| `reference/CLI_Commands_Reference.md:49,266,281` | command / section headers | already manifest-exact → left as-is |
+
+### G8.4 `git diff pyproject.toml` (three L4 edits + the authorized `python-pptx` declaration)
+
+```diff
+@@ dev extra (user-authorized addition)
+     "bandit[toml]>=1.7.0",
+     "python-docx>=1.1.0",
++    "python-pptx>=1.0.0",
+     "types-requests>=2.28.0",
+ ]
+
+exclude = [
+     "^tests/",
+-    "^utilities/",
+     "^user_guides/",
+     "/tests/",
+ ]
+@@
+     "tempo_analyzer",
++    "utilities",
+ ]
+ omit = [
+     "*/tests/*",
+     "*/__pycache__/*",
+-    "utilities/*",
+ ]
+```
+
+### S8 note — the one pre-existing Tk warning (not an S8 defect)
+
+The S8 gate run reports `1 warning` (S6/S7 gate runs reported `0`):
+`PytestUnraisableExceptionWarning` from
+`noise_reduction/tests/test_file_processor.py::TestNoiseReductionOutcome::test_hum_floor_drops_and_tone_survives`
+— a `tkinter.Variable.__del__` finalizer raising `RuntimeError: main thread is
+not in main loop` when GC runs on a worker thread during that audio-processing
+test. It passes cleanly in isolation (verified), and no S8 change touches Tk, so
+it is a pre-existing, timing-dependent GC race of `Variable`s created on the
+shared session `root` — not caused by M10/L2/L4. S8's acceptance is "green" (met:
+exit 0, 8694 passed); recorded here so G9.1's stricter **0-warning** requirement
+is not surprised.
+
+**Remediation (landed, 2026-10-09 — ahead of G9.1, which needs 0 warnings).**
+Chosen approach: a session-root-level, function-scoped autouse fixture
+`_collect_tk_garbage_on_main_thread` in `conftest.py` that runs a `gc.collect()`
+**on the main thread** in teardown, so any `Variable` a UI test dropped is
+finalized while the main thread is in the loop (no `__del__` on a worker). The
+`Variable.__del__` patch approach was rejected as more invasive (it changes
+tkinter semantics globally).
+
+The collection is **scoped by `requires_display(request.node)`** — the exact
+bounded predicate that drives the headless skip — so it only runs after the
+display-dependent subset (the only tests that can create a `Variable`), not after
+all ~8700 tests. This scoping is load-bearing, not an optimisation: the first
+implementation collected after *every* test and turned the ~280 s gate into a
+15-min+ crawl (full-heap GC on every one of ~8700 tests, costlier as the session
+heap grew; the run was still at 68 % when killed at the 900 s timeout). Scoped,
+the gate is `8697 passed, 3 skipped, 30 deselected, **0 warnings** in 401.56s`
+(exit 0; coverage 90.43 %; mypy 0/469; bandit 0 High / 0 Medium / 41 Low). The
+~2 min premium over the pre-fix 280 s run is the full collection after each of
+the GUI tests; the 0-warning guarantee for G9.1 is worth it.
+
+Regression coverage in `tests/test_conftest.py::TestTkGarbageCollection`:
+`test_an_autouse_fixture_collects_garbage_on_the_main_thread` (AST structural
+lock: the autouse fixture calls `gc.collect()`), `test_main_thread_collection_
+prevents_the_off_thread_finalizer` (in-process: a dropped `Variable` in a cycle
+is finalised with no unraisable warning), and
+`test_the_seam_keeps_the_session_free_of_the_warning` (pytester subprocess: the
+real conftest proves the warning is gone end-to-end; display-guarded). A
+throwaway negative control confirmed the end-to-end test is load-bearing: with
+the seam neutralized, the same child run reports `1 warning` /
+`main thread is not in main loop`.
+
+No CHANGELOG bullet: the fix is test-infrastructure, invisible to users.
 
 ---
 

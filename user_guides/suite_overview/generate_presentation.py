@@ -1926,7 +1926,7 @@ def slide_maintenance(prs: Presentation, number: int) -> None:
         1.25,
         6.0,
         2.55,
-        "File Reorganizer",
+        "Tag-Based File Reorganizer",
         [
             Line(
                 "Moves/copies files into a user-defined tag-based folder hierarchy",

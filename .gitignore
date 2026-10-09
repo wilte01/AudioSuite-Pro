@@ -32,6 +32,9 @@ Thumbs.db
 # Project-specific
 audio_suite_config.json
 audio_suite_config.key
+# suite_config sidecars: cross-process lock + PID-scoped atomic-write temp files
+audio_suite_config.json.lock
+audio_suite_config.json.tmp.*
 # album_art_sync API-key files (live Fanart.tv keys — never commit; template lives on disk)
 album_art_config.json
 album_art_config.key

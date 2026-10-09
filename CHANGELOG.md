@@ -89,6 +89,12 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
 
 ### Fixed
 
+- **The undo history dialog showed wrong tool names.** Its hardcoded
+  id-to-name table had drifted from the tool manifest: `asx_extractor` and
+  `file_reorganizer` used short names that no longer matched the registry, and
+  `audio_fingerprinter`, `lyrics_manager`, `silence_trimmer` and `tag_editor`
+  were missing entirely (so their ids rendered raw). The four entries were
+  added and the two stale names corrected to the manifest names.
 - **CD ripper C2 diagnostic button crashed on `AudioIOError`.** `_run_c2_diagnostic`
   caught `(OSError, RuntimeError)` but `AudioIOError` inherits `AudioSuiteError`
   which inherits `Exception`, so an `AudioIOError` from the drive handler escaped

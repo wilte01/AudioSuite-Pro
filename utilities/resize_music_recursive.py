@@ -35,7 +35,7 @@ except ImportError:
 def resize_image_bytes(image_bytes: bytes, target_size: int) -> bytes | None:
     """Resizes image bytes to a square target size while preserving aspect ratio."""
     try:
-        img = Image.open(io.BytesIO(image_bytes))
+        img: Image.Image = Image.open(io.BytesIO(image_bytes))
         if img.mode not in ("RGB", "RGBA"):
             img = img.convert("RGB")
 
@@ -73,19 +73,21 @@ def extract_embedded_art_bytes(
         if isinstance(audio.tags, ID3):
             for key in audio.tags.keys():
                 if key.startswith("APIC"):
-                    return audio.tags[key].data
+                    apic_data: bytes = audio.tags[key].data
+                    return apic_data
 
         # FLAC Files
         elif isinstance(audio, FLAC) and audio.pictures:
-            return audio.pictures[0].data
+            picture_data: bytes = audio.pictures[0].data
+            return picture_data
 
         # MP4 / M4A / AAC Files
         elif isinstance(audio, MP4) and "covr" in audio.tags:
             covers = audio.tags["covr"]
             if covers:
-                return covers[
-                    0
-                ]  # Returns bytes or MP4Cover object (which behaves like bytes)
+                # bytes or MP4Cover object (which subclasses bytes)
+                cover_data: bytes = covers[0]
+                return cover_data
 
     except (OSError, ValueError) as e:
         click.echo(

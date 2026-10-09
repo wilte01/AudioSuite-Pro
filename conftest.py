@@ -42,6 +42,7 @@ D1 (Stage 3) completes the marker contract on the same principle:
 
 from __future__ import annotations
 
+import gc
 import os
 import tkinter as tk
 import warnings
@@ -301,6 +302,33 @@ def tk_root() -> tk.Tk:
     tk_root = _root
     assert tk_root is not None, "No display available — Tk root was not created"
     return tk_root
+
+
+@pytest.fixture(autouse=True)
+def _collect_tk_garbage_on_main_thread(
+    request: pytest.FixtureRequest,
+) -> Generator[None, None, None]:
+    """Finalize dropped Tk objects on the main thread after UI tests.
+
+    ``tkinter.Variable.__del__`` calls back into the Tcl interpreter, which
+    raises ``RuntimeError: main thread is not in main loop`` when the finalizer
+    runs off the main thread.  Tests that process audio spawn worker threads,
+    and a GC cycle triggered by one of those threads can finalize a ``Variable``
+    dropped by an earlier UI test — surfacing as a ``PytestUnraisableException``
+    warning and a non-zero warning count for an otherwise-green run (it appeared
+    as ``noise_reduction``'s audio test finalizing a Variable another package
+    dropped).
+
+    Only display-dependent tests can create such a ``Variable`` (against the
+    shared root or a self-built Tk), so the collection is scoped to them: a full
+    ``gc.collect()`` after *every* test is needlessly expensive once the session
+    heap grows, whereas the UI subset is small.  ``requires_display`` is the same
+    bounded predicate that drives the headless skip, so the two cannot disagree.
+    """
+    collect_after = requires_display(request.node)
+    yield
+    if collect_after:
+        gc.collect()
 
 
 @pytest.fixture(scope="session", autouse=True)

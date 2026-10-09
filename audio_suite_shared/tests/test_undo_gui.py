@@ -10,6 +10,8 @@ construction is exercised.
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from audio_suite_shared.batch_undo import (
@@ -18,7 +20,9 @@ from audio_suite_shared.batch_undo import (
     RevertResult,
     UndoRecord,
 )
+from audio_suite_shared.tool_plugin import get_registry
 from audio_suite_shared.undo_gui import (
+    _TOOL_DISPLAY_NAMES,
     UndoTagEditsApp,
     build_preview,
     describe_revert_result,
@@ -102,6 +106,117 @@ class TestFriendlyToolName:
         """
         assert friendly_tool_name("noise_reduction") == "Noise Reduction"
         assert friendly_tool_name("pop_click_remover") == "Pop & Click Remover"
+
+
+class TestToolDisplayNamesMatchesManifest:
+    """Lock the undo-history display map to the tool manifest.
+
+    ``_TOOL_DISPLAY_NAMES`` is a second source of truth for tool display names;
+    the manifest in ``tool_plugin.py`` is the first (M10).  This scans the
+    production tree — never the tests — for every identifier that can reach the
+    undo log, then asserts the map covers them and agrees with the manifest
+    wherever the two share an id.
+    """
+
+    # ``audio_enhancer``'s ``_TOOL_ID`` names a suite_config preset namespace
+    # and is never passed to ``active_batch``/``set_active_batch``, so it never
+    # reaches the undo log and needs no display name.
+    EXEMPT: dict[str, str] = {
+        "audio_enhancer": "suite_config preset namespace, not an undo-log tool id",
+    }
+
+    _TOOL_ID_NAMES = frozenset({"TOOL_ID", "_TOOL_ID", "TOOL_NAME"})
+    _BATCH_CALLS = frozenset({"active_batch", "set_active_batch"})
+
+    @staticmethod
+    def _production_py_files() -> list[Path]:
+        root = Path(__file__).resolve().parents[2]
+        files: list[Path] = []
+        for path in root.rglob("*.py"):
+            parts = path.parts
+            if any(part in {".venv", ".git", "__pycache__"} for part in parts):
+                continue
+            if "tests" in parts:
+                continue
+            files.append(path)
+        return files
+
+    @classmethod
+    def _string_literal(cls, node: ast.expr | None) -> str | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value or None
+        return None
+
+    @classmethod
+    def _collected_ids(cls) -> set[str]:
+        collected: set[str] = set()
+        for path in cls._production_py_files():
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and node.args:
+                    func = node.func
+                    name = (
+                        func.id
+                        if isinstance(func, ast.Name)
+                        else func.attr
+                        if isinstance(func, ast.Attribute)
+                        else None
+                    )
+                    if name in cls._BATCH_CALLS:
+                        value = cls._string_literal(node.args[0])
+                        if value is not None:
+                            collected.add(value)
+                elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                    targets = (
+                        node.targets if isinstance(node, ast.Assign) else [node.target]
+                    )
+                    for target in targets:
+                        if (
+                            isinstance(target, ast.Name)
+                            and target.id in cls._TOOL_ID_NAMES
+                        ):
+                            value = cls._string_literal(node.value)
+                            if value is not None:
+                                collected.add(value)
+        return collected
+
+    def test_every_reaching_id_has_a_display_name(self) -> None:
+        collected = self._collected_ids()
+        assert len(collected) >= 22, sorted(collected)
+        missing = sorted(
+            tool_id
+            for tool_id in collected
+            if tool_id not in self.EXEMPT and tool_id not in _TOOL_DISPLAY_NAMES
+        )
+        assert missing == [], f"undo-log tool ids without a display name: {missing}"
+
+    def test_four_newly_covered_ids_are_collected(self) -> None:
+        collected = self._collected_ids()
+        for tool_id in (
+            "audio_fingerprinter",
+            "lyrics_manager",
+            "silence_trimmer",
+            "tag_editor",
+        ):
+            assert tool_id in collected
+            assert tool_id in _TOOL_DISPLAY_NAMES
+
+    def test_display_values_match_manifest(self) -> None:
+        registry = get_registry()
+        checked = 0
+        for tool_id in sorted(self._collected_ids()):
+            if tool_id in self.EXEMPT:
+                continue
+            manifest = registry.get(tool_id)
+            if manifest is None:
+                continue
+            assert _TOOL_DISPLAY_NAMES[tool_id] == manifest.name, (
+                f"{tool_id!r}: display name "
+                f"{_TOOL_DISPLAY_NAMES[tool_id]!r} != manifest "
+                f"{manifest.name!r}"
+            )
+            checked += 1
+        assert checked >= 10, checked
 
 
 class TestFriendlyBatchDescription:

@@ -15,10 +15,13 @@ be re-entered inside a live session.
 from __future__ import annotations
 
 import ast
+import gc
 import importlib
 import importlib.util
 import os
 import shutil
+import sys
+import threading
 import tkinter as tk
 from pathlib import Path
 from types import ModuleType
@@ -68,6 +71,33 @@ class TestClassLevelMarker:
     @pytest.mark.gui
     def test_inherits_the_class_marker(self):
         raise AssertionError("a gui-marked class must never run headless")
+"""
+
+#: Reproduces the Tk ``Variable.__del__`` warning end-to-end.  Test A drops a
+#: ``Variable`` into a reference cycle (so it is reachable only from the cycle
+#: and is collectable only by the GC); test B then forces a GC cycle from a
+#: worker thread.  Without the root conftest's main-thread collection between
+#: tests, the Variable's finalizer runs on that worker thread and raises
+#: ``RuntimeError: main thread is not in main loop`` as an unraisable exception
+#: (verified with a one-off script: 1 unraisable on the worker, 0 after a
+#: main-thread ``gc.collect()`).
+TK_GC_TESTS = """\
+import gc
+import threading
+import tkinter
+
+
+def test_a_drops_a_variable_into_an_unreachable_cycle(root):
+    variable = tkinter.Variable(master=root)
+    cycle = [variable]
+    cycle.append(cycle)
+    del variable, cycle
+
+
+def test_b_collects_from_a_worker_thread():
+    thread = threading.Thread(target=gc.collect)
+    thread.start()
+    thread.join()
 """
 
 #: Mirrors the real ``[tool.pytest.ini_options]`` closely enough to prove the
@@ -466,3 +496,128 @@ def _dotted_name(func: ast.expr) -> str:
     else:
         return ""
     return ".".join(reversed(parts))
+
+
+def _is_autouse_fixture(node: ast.FunctionDef) -> bool:
+    """Return True when *node* is decorated ``@pytest.fixture(autouse=True)``.
+
+    Args:
+        node: A function definition from the root conftest's AST.
+
+    Returns:
+        True for an autouse fixture decorator, False otherwise.
+    """
+    for decorator in node.decorator_list:
+        if not isinstance(decorator, ast.Call):
+            continue
+        if _dotted_name(decorator.func) != "pytest.fixture":
+            continue
+        for keyword in decorator.keywords:
+            if keyword.arg == "autouse" and keyword.value.value is True:
+                return True
+    return False
+
+
+def _calls_gc_collect(node: ast.AST) -> bool:
+    """Return True when *node*'s body calls ``gc.collect()``."""
+    return any(
+        isinstance(child, ast.Call) and _dotted_name(child.func) == "gc.collect"
+        for child in ast.walk(node)
+    )
+
+
+@pytest.fixture()
+def tk_gc_run(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch):
+    """Run the drop-a-Variable-then-collect-on-a-worker simulation.
+
+    Args:
+        pytester:   The pytester fixture (a tmp dir + subprocess runner).
+        monkeypatch: Used to expose the simulated-run plugin on ``PYTHONPATH``.
+
+    Yields:
+        The ``pytester`` instance and the recorded run outcomes.
+    """
+    shutil.copyfile(REPO_ROOT / "conftest.py", pytester.path / "conftest.py")
+    (pytester.path / "pytest.ini").write_text(PYTEST_INI, encoding="utf-8")
+    (pytester.path / "test_tk_gc.py").write_text(TK_GC_TESTS, encoding="utf-8")
+    monkeypatch.setenv("PYTHONPATH", str(pytester.path))
+    monkeypatch.setenv("PYTHONUTF8", "1")
+    monkeypatch.setenv("PYTHONIOENCODING", "utf-8")
+    outcomes = pytester.runpytest_subprocess("-p", "no:cacheprovider", "-v")
+    yield pytester, outcomes
+
+
+class TestTkGarbageCollection:
+    """Main-thread GC between tests keeps Tk finalizers off worker threads.
+
+    ``tkinter.Variable.__del__`` calls back into the interpreter, which raises
+    ``RuntimeError: main thread is not in main loop`` if the finalizer runs on a
+    worker thread.  The root conftest collects dropped Tk objects on the main
+    thread after every test so a later worker-threaded test cannot finalize one.
+    """
+
+    def test_an_autouse_fixture_collects_garbage_on_the_main_thread(self) -> None:
+        """Structural lock: the seam the fix relies on must stay autouse.
+
+        Without an autouse fixture every test's dropped ``Variable`` stays
+        collectable until an arbitrary later GC cycle — which, for a
+        worker-threaded audio test, is where the finalizer runs off the main
+        thread.
+        """
+        tree = ast.parse((REPO_ROOT / "conftest.py").read_text(encoding="utf-8"))
+        seams = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef)
+            and _is_autouse_fixture(node)
+            and _calls_gc_collect(node)
+        ]
+        assert seams, "conftest.py must keep an autouse fixture calling gc.collect()"
+
+    def test_main_thread_collection_prevents_the_off_thread_finalizer(
+        self, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mechanism lock: collecting on the main thread is what prevents it.
+
+        Reproduces the exact failure in-process — a ``Variable`` dropped into a
+        reference cycle, then a GC cycle run from a worker thread — and asserts
+        the main-thread collection leaves nothing for the worker to finalize.
+        """
+        root = request.getfixturevalue("root")
+        captured: list[object] = []
+        monkeypatch.setattr(sys, "unraisablehook", captured.append)
+
+        variable = tk.Variable(master=root)
+        cycle: list[object] = [variable]
+        cycle.append(cycle)
+        del variable, cycle
+
+        gc.collect()  # the seam under test: finalize on the main thread
+        thread = threading.Thread(target=gc.collect)
+        thread.start()
+        thread.join()
+
+        assert captured == [], (
+            "a Tk Variable was finalized off the main thread: "
+            f"{[getattr(u, 'exc_value', u) for u in captured]}"
+        )
+
+    @pytest.mark.skipif(
+        not _display_present(),
+        reason=(
+            "The end-to-end reproduction needs a real Tk root in the child "
+            "process; the shared-root fixture is display-dependent."
+        ),
+    )
+    def test_the_seam_keeps_the_session_free_of_the_warning(self, tk_gc_run) -> None:
+        """End-to-end: the shared conftest prevents the warning entirely.
+
+        The child drops a ``Variable`` in one test and forces a worker-thread GC
+        in the next; with the seam active the run must report no
+        ``PytestUnraisableExceptionWarning``.
+        """
+        _pytester, outcomes = tk_gc_run
+        outcomes.assert_outcomes(passed=2, errors=0, failed=0)
+        combined = outcomes.stdout.str() + outcomes.stderr.str()
+        assert "PytestUnraisableExceptionWarning" not in combined
+        assert "main thread is not in main loop" not in combined

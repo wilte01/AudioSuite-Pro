@@ -61,6 +61,7 @@ dev = [
     "mypy>=1.0.0",
     "bandit[toml]>=1.7.0",
     "python-docx>=1.1.0",
+    "python-pptx>=1.0.0",
     "types-requests>=2.28.0",
 ]
 
@@ -102,7 +103,6 @@ untyped_calls_exclude = [
 ]
 exclude = [
     "^tests/",
-    "^utilities/",
     "^user_guides/",
     "/tests/",
 ]
@@ -270,11 +270,11 @@ source = [
     "tag_editor",
     "tag_field_updater",
     "tempo_analyzer",
+    "utilities",
 ]
 omit = [
     "*/tests/*",
     "*/__pycache__/*",
-    "utilities/*",
 ]
 
 [tool.coverage.report]

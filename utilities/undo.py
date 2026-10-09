@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 
 from audio_suite_shared.batch_undo import (
+    BatchInfo,
     BatchUndoLog,
     RevertResult,
     list_recent_batches,
@@ -30,7 +31,7 @@ from audio_suite_shared.batch_undo import (
 )
 
 
-def _print_batches(batches: list) -> None:
+def _print_batches(batches: list[BatchInfo]) -> None:
     """Print recent undo batches, newest first.
 
     Args:

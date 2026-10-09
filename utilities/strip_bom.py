@@ -33,13 +33,14 @@ import logging
 import os
 import sys
 import tempfile
+from collections.abc import Iterator
 
 UTF8_BOM = b"\xef\xbb\xbf"
 
 logger = logging.getLogger(__name__)
 
 
-def find_target_files(root, extensions):
+def find_target_files(root: str, extensions: set[str]) -> Iterator[str]:
     """Yield file paths under root whose suffix is in extensions."""
     for dirpath, _dirnames, filenames in os.walk(root):
         for name in filenames:
@@ -47,7 +48,7 @@ def find_target_files(root, extensions):
                 yield os.path.join(dirpath, name)
 
 
-def strip_bom_from_file(path, dry_run=False):
+def strip_bom_from_file(path: str, dry_run: bool = False) -> tuple[str, str]:
     """
     Inspect a single file. If it starts with a UTF-8 BOM, strip it and
     rewrite in place.
@@ -80,6 +81,7 @@ def strip_bom_from_file(path, dry_run=False):
         return "modified", "BOM found (dry-run, not written)"
 
     dir_name = os.path.dirname(path) or "."
+    tmp_path: str | None = None
     try:
         fd, tmp_path = tempfile.mkstemp(dir=dir_name, prefix=".bom_strip_")
         with os.fdopen(fd, "wb") as tmp_f:
@@ -95,7 +97,7 @@ def strip_bom_from_file(path, dry_run=False):
     return "modified", "BOM stripped"
 
 
-def _cleanup(tmp_path):
+def _cleanup(tmp_path: str | None) -> None:
     try:
         if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -111,7 +113,7 @@ def _cleanup(tmp_path):
         )
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Recursively strip UTF-8 BOMs from files."
     )
