@@ -125,6 +125,30 @@ All `utilities/*.py` CLI scripts must use ASCII-only status markers in
 square brackets: `[OK]`, `[ERROR]`, `[INFO]`, `[DONE]`, `[START]`, etc.
 No emoji or Unicode symbols — Windows `cmd.exe` cannot render them.
 
+## User-Guide Regeneration Diffs
+
+Regenerating `user_guides/**/*.docx` / `.pptx` is **content-stable but never
+byte-stable**: python-docx/pptx rebuild the zip container and every entry's
+local-header mtime changes, so `git status` reports all artifacts modified
+even when no text moved. Triage a regeneration change-set by comparing **zip
+entry data**, not the file hash or `git diff`:
+
+- every entry's compressed data byte-identical to HEAD → the diff is
+  timestamp-only → `git restore` it (minimal-diff rule);
+- an entry's data differs → investigate before keeping it. A committed
+  artifact re-saved by an external editor is external-tool drift, not
+  generator drift: LibreOffice rewrites `docProps/app.xml`'s `Application`
+  field, adds `docProps/custom.xml`, and drops
+  `thumbnail.jpeg`/`stylesWithEffects.xml`/`webSettings.xml`. The generator's
+  fresh output is the source of truth (global "generator is the source of
+  truth" rule); when the text is byte-identical, keeping the regenerated file
+  restores it.
+
+Run the generators with the interpreter that carries the dev extras
+(`python-docx`/`python-pptx`): `python` on PATH may be a system interpreter
+without them, while `generate_presentation.py` needs `python-pptx` from
+`.venv`. Verify with `pytest tests/test_user_guide_hygiene.py`.
+
 ## Verification Tooling (Windows-specific invocations)
 
 These gotchas were hit empirically during the DSP normalization Phase 9 gate.
