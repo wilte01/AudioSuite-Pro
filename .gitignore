@@ -18,6 +18,10 @@ venv/
 *.swp
 *.swo
 *~
+# Office/LibreOffice lock + owner files (created when a .docx/.pptx is opened
+# or regenerated; must never be committed)
+~$*
+*.~lock.*#
 
 # Cache
 .ruff_cache/

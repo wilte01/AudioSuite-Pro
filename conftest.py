@@ -356,3 +356,31 @@ def _isolated_undo_db(
             os.environ.pop("AUDIOSUITE_UNDO_DB", None)
         else:
             os.environ["AUDIOSUITE_UNDO_DB"] = previous
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_log_dir(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Generator[None, None, None]:
+    """Point the suite's file logging at a scratch directory for the session.
+
+    ``logging_setup.configure_logging`` writes ``logs/audio_suite.log`` and
+    ``logs/<program>.log`` relative to the suite root.  Any test that drives
+    a real entry point (the CLI's ``configure_logging`` call, a bootstrap
+    helper, an app constructed without a stubbed logger) would otherwise
+    write DEBUG/INFO processing records and many
+    ``=== <program> started ===`` lines straight into the shipped
+    ``logs/`` tree — the pollution that made the real suite log 10,000+
+    lines of test artifacts.  ``AUDIOSUITE_LOG_DIR`` redirects every write
+    to the session's temp directory, so no test can touch production logs.
+    """
+    path = tmp_path_factory.mktemp("logs")
+    previous = os.environ.get("AUDIOSUITE_LOG_DIR")
+    os.environ["AUDIOSUITE_LOG_DIR"] = str(path)
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("AUDIOSUITE_LOG_DIR", None)
+        else:
+            os.environ["AUDIOSUITE_LOG_DIR"] = previous

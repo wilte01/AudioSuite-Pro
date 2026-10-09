@@ -1,9 +1,10 @@
 """Generate the suite-wide Logging System Guide from the current implementation.
 
 The source of truth for everything described here is
-``audio_suite_shared/logging_setup.py`` (file location, rotation parameters,
-formatter, package attachment) and ``audio_suite_shared/cli_base.py``
-(``--log-level``).  Edit those modules first, then re-run this script.
+``audio_suite_shared/logging_setup.py`` (file locations, rotation parameters,
+formatter, package attachment, the administrator filter) and
+``audio_suite_shared/cli_base.py`` (``--log-level``).  Edit those modules
+first, then re-run this script.
 
 Output is written next to this file, relative to ``__file__`` - no
 machine-specific path is baked into the generator.
@@ -43,27 +44,51 @@ subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
 doc.add_heading("Overview", level=1)
 doc.add_paragraph(
-    "Every program in the suite writes to one shared, rotating log file. "
+    "Every program in the suite writes to two rotating log files. "
     "A single call to configure_logging(program_name), made at startup by "
     "each .pyw launcher, the Master Driver, the lyrics_manager entry "
-    "point and the command-line interface, creates the file handler, "
-    "attaches it to the loggers listed in this guide, and records the "
-    "program's start line. There are no per-program log files."
+    "point and the command-line interface, creates both handlers, attaches "
+    "them to the loggers listed in this guide, and records the program's "
+    "start line."
 )
-
-doc.add_heading("Where the Log File Lives", level=1)
 bullet(
     doc,
-    "Active file: ",
+    "The suite log (logs/audio_suite.log) is the administrator's record. ",
+    "It carries the startup lifecycle line plus every WARNING, ERROR and "
+    "CRITICAL record from any first-party logger. DEBUG and normal-running "
+    "INFO are deliberately excluded, so the file stays small enough to spot "
+    "failures at a glance.",
+)
+bullet(
+    doc,
+    "The per-program log (logs/<program_name>.log) is the diagnostic record. ",
+    "It preserves the per-file processing detail (tag fallbacks, subprocess "
+    "audit trail, per-file successes) that the suite log filters out. One "
+    "process runs one program, so a session writes exactly one per-program "
+    "file.",
+)
+
+doc.add_heading("Where the Log Files Live", level=1)
+bullet(
+    doc,
+    "Suite log: ",
     "logs/audio_suite.log inside the AudioSuite-Pro folder.",
+)
+bullet(
+    doc,
+    "Per-program log: ",
+    "logs/<program_name>.log - for example logs/bpm_analyzer.log, "
+    "logs/master_driver.log, or logs/audiosuite_cli.log for a command-line "
+    "run. The name matches the program identifier passed to "
+    "configure_logging.",
 )
 bullet(
     doc,
     "Fallback: ",
     "if logs/ cannot be created (typically a permissions problem), the "
-    "file is written to the system temporary folder under "
-    "audio_suite_logs instead. Check both locations when a log seems "
-    "missing - the switch happens silently.",
+    "files are written to the system temporary folder under audio_suite_logs "
+    "instead. Check both locations when a log seems missing - the switch "
+    "happens silently.",
 )
 bullet(
     doc,
@@ -80,20 +105,17 @@ bullet(
 doc.add_heading("Rotation", level=1)
 bullet(
     doc,
-    "Trigger: ",
-    "the active file reaches 2 MB (2,097,152 bytes) and then rolls over.",
+    "Suite log: ",
+    "the active file reaches 2 MB (2,097,152 bytes) and then rolls over "
+    "into audio_suite.log.1 through audio_suite.log.5 - up to six files, "
+    "about 12 MB.",
 )
 bullet(
     doc,
-    "Backups: ",
-    "audio_suite.log.1 through audio_suite.log.5, each older than the "
-    "last; .1 is the most recent backup and .5 is deleted when .4 rolls "
-    "into it.",
-)
-bullet(
-    doc,
-    "Total capacity: ",
-    "the active file plus five backups - up to six files, about 12 MB.",
+    "Per-program logs: ",
+    "the active file reaches 1 MB and then rolls over into "
+    "<program>.log.1 through <program>.log.3 - up to four files, about "
+    "4 MB per program.",
 )
 bullet(
     doc,
@@ -103,29 +125,46 @@ bullet(
 )
 doc.add_paragraph(
     "AudioSuite-Pro/logs/\n"
-    "|-- audio_suite.log        active file (newest records)\n"
-    "|-- audio_suite.log.1      most recent backup\n"
-    "|-- audio_suite.log.2\n"
-    "|-- audio_suite.log.3\n"
-    "|-- audio_suite.log.4\n"
-    "`-- audio_suite.log.5      oldest backup"
+    "|-- audio_suite.log        suite log, newest records\n"
+    "|-- audio_suite.log.1      most recent suite-log backup\n"
+    "|-- audio_suite.log.2 ... audio_suite.log.5\n"
+    "|-- bpm_analyzer.log       per-program log for bpm_analyzer\n"
+    "|-- bpm_analyzer.log.1 ... bpm_analyzer.log.3\n"
+    "`-- <other programs>.log   one set per program that has run"
 )
 
-doc.add_heading("Which Records Reach the File", level=1)
+doc.add_heading("Which Records Reach Which File", level=1)
 bullet(
     doc,
-    "Shared infrastructure (audio_suite.*): ",
-    "the exception hierarchy and @handle_audio_errors, the secure "
-    "subprocess audit trail, batch undo, and every ErrorLogger / "
-    "get_logger call site.",
+    "Suite log - lifecycle and failures: ",
+    'the INFO startup line "=== <program_name> started ===" written by the '
+    "audio_suite logger, plus every WARNING, ERROR and CRITICAL record from "
+    "any first-party logger (shared infrastructure and tool packages "
+    "alike). This is the file to read when checking whether a run failed.",
+)
+bullet(
+    doc,
+    "Suite log - excluded: ",
+    "DEBUG records and normal-running INFO records (per-file progress, tag "
+    "fallbacks, subprocess commands that succeeded) are filtered out by the "
+    "administrator filter. They are not lost - they go to the per-program "
+    "log instead.",
+)
+bullet(
+    doc,
+    "Per-program log - full detail: ",
+    "every record the running program and its shared infrastructure emit at "
+    "or above the program's level. A GUI launch uses DEBUG, so every detail "
+    "is preserved; a CLI run uses its --log-level, so the file matches the "
+    "console verbosity you asked for.",
 )
 bullet(
     doc,
     "First-party tool packages: ",
     "every logging.getLogger(__name__) call in a first-party module, "
-    "because configure_logging attaches the same file handler to each "
-    "tool package logger (bpm_analyzer, noise_reduction, tempo_analyzer "
-    "and the rest). This holds for GUI launches and CLI runs alike.",
+    "because configure_logging attaches both file handlers to each tool "
+    "package logger (bpm_analyzer, noise_reduction, tempo_analyzer and the "
+    "rest). This holds for GUI launches and CLI runs alike.",
 )
 bullet(
     doc,
@@ -136,15 +175,9 @@ bullet(
 )
 bullet(
     doc,
-    "Startup line: ",
-    'INFO record of the form "=== <program_name> started ===" written by '
-    "the audio_suite logger.",
-)
-bullet(
-    doc,
     "Deliberately excluded: ",
     "third-party library loggers (urllib3 and friends) are never handed "
-    "the suite handler, and the root logger is left untouched so console "
+    "the suite handlers, and the root logger is left untouched so console "
     "output is written exactly once.",
 )
 
@@ -161,13 +194,13 @@ doc.add_paragraph(
     "\n".join(
         (
             example_line(
-                "2026-10-08 09:15:04",
-                "audio_suite.bpm_analyzer",
+                "2026-10-09 09:15:04",
+                "audio_suite",
                 "INFO",
                 "=== bpm_analyzer started ===",
             ),
             example_line(
-                "2026-10-08 09:15:06",
+                "2026-10-09 09:15:06",
                 "bpm_analyzer.core.file_processor",
                 "WARNING",
                 "Skipping unreadable file: track9.mp3",
@@ -175,19 +208,25 @@ doc.add_paragraph(
         )
     )
 )
+doc.add_paragraph(
+    "The first example appears in both files; the second appears only in "
+    "the suite log and logs/bpm_analyzer.log, because a WARNING is "
+    "administrator-relevant. A per-file INFO record appears only in "
+    "logs/bpm_analyzer.log."
+)
 
 doc.add_heading("Log Levels", level=1)
 bullet(doc, "DEBUG: ", "verbose detail used when diagnosing a problem.")
-bullet(doc, "INFO: ", "normal lifecycle events, including start lines.")
+bullet(doc, "INFO: ", "normal lifecycle and progress events.")
 bullet(doc, "WARNING: ", "something unexpected that was worked around.")
 bullet(doc, "ERROR: ", "an operation failed; the program usually continues.")
 bullet(doc, "CRITICAL: ", "an uncaught exception ended the operation.")
 doc.add_paragraph(
-    "A GUI launch pins both the audio_suite logger and every first-party "
-    "package logger to DEBUG, so every first-party record reaches the "
-    "file. The CLI passes its own --log-level instead, so its verbosity "
-    "choice governs the console and the package loggers together; the "
-    "shared audio_suite records still go to the file at DEBUG."
+    "A GUI launch pins every first-party package logger to DEBUG, so every "
+    "first-party record reaches the per-program file. The CLI passes its "
+    "own --log-level instead, so its verbosity choice governs the console "
+    "and the per-program file together. In both cases the suite log shows "
+    "only the lifecycle line and WARNING-and-above records."
 )
 
 doc.add_heading("Command Line", level=1)
@@ -204,22 +243,28 @@ doc.add_paragraph(
 doc.add_paragraph(
     "The CLI also writes to the terminal via logging.basicConfig, in the "
     "form 'LEVEL [logger.name] message'. That console path exists only "
-    "for CLI runs; a GUI program has no console, which is why the file "
-    "is the record of a GUI session."
+    "for CLI runs; a GUI program has no console, which is why the files "
+    "are the record of a GUI session."
 )
 
-doc.add_heading("Reading the Log", level=1)
+doc.add_heading("Reading the Logs", level=1)
 bullet(
     doc,
-    "Newest records: ",
-    "open logs/audio_suite.log. The numbered .1 through .5 files are "
-    "older generations, with .1 the freshest backup.",
+    "Did a run fail? ",
+    "open logs/audio_suite.log and search for ERROR or WARNING. The suite "
+    "log is scoped to exactly this question.",
+)
+bullet(
+    doc,
+    "Why did one file fail? ",
+    "open logs/<program_name>.log (for example logs/music_format_converter"
+    ".log) - the per-file DEBUG/INFO detail lives there.",
 )
 bullet(
     doc,
     "By program or module: ",
-    'findstr /C:"bpm_analyzer" logs\\audio_suite.log  (Windows) or  '
-    'grep "bpm_analyzer" logs/audio_suite.log',
+    'findstr /C:"bpm_analyzer" logs\\bpm_analyzer.log  (Windows) or  '
+    'grep "bpm_analyzer" logs/bpm_analyzer.log',
 )
 bullet(
     doc,
@@ -229,13 +274,13 @@ bullet(
 bullet(
     doc,
     "By date: ",
-    'findstr /C:"2026-10-08" logs\\audio_suite.log  or  grep '
-    '"2026-10-08" logs/audio_suite.log',
+    'findstr /C:"2026-10-09" logs\\audio_suite.log  or  grep '
+    '"2026-10-09" logs/audio_suite.log',
 )
 bullet(
     doc,
     "Across generations: ",
-    "search logs\\audio_suite.log.1 as well when the record you need is "
+    "search the numbered .1 files as well when the record you need is "
     "older than the current file.",
 )
 
@@ -250,20 +295,21 @@ bullet(
 bullet(
     doc,
     "What to delete: ",
-    "any or all of logs\\audio_suite.log and logs\\audio_suite.log.1 through .5.",
+    "any or all of logs\\audio_suite.log, its .1 through .5 backups, and "
+    "the per-program <program>.log files with their .1 through .3 backups.",
 )
 bullet(
     doc,
     "Afterwards: ",
-    "the folder and the active file are recreated on the next start and "
+    "the folder and the active files are recreated on the next start and "
     "rotation resumes from an empty file. The directory is never "
     "required to exist in advance.",
 )
 bullet(
     doc,
     "No automatic pruning: ",
-    "retention is bounded by rotation (about 12 MB), not by age, so "
-    "trim the files yourself if you want them gone sooner.",
+    "retention is bounded by rotation, not by age, so trim the files "
+    "yourself if you want them gone sooner.",
 )
 
 doc.add_heading("Compatibility API", level=1)
@@ -289,7 +335,7 @@ bullet(
     doc,
     "GUI dialogs: ",
     "showing an error messagebox is the caller's responsibility; the "
-    "corresponding record still reaches this file.",
+    "corresponding record still reaches the suite log.",
 )
 
 doc.add_heading("Troubleshooting", level=1)
@@ -301,10 +347,16 @@ bullet(
 )
 bullet(
     doc,
-    "Expected messages missing during a CLI run: ",
-    "raise --log-level; first-party package loggers follow it, so a "
-    "WARNING run drops their INFO and DEBUG records from both the "
-    "console and the file.",
+    "Expected detail missing from the suite log: ",
+    "by design - the suite log keeps only the lifecycle line and "
+    "WARNING-and-above. Look in logs/<program_name>.log for DEBUG/INFO "
+    "processing detail.",
+)
+bullet(
+    doc,
+    "Per-program log missing for a CLI run: ",
+    "raise --log-level; a WARNING run drops DEBUG/INFO detail from the "
+    "per-program file as well as the console.",
 )
 bullet(
     doc,
@@ -317,21 +369,31 @@ bullet(
     doc,
     "Records from a third-party library are absent: ",
     "that is by design - only first-party loggers and the audio_suite "
-    "tree are routed to this file.",
+    "tree are routed to these files.",
 )
 bullet(
     doc,
     "Rotation seems to have stopped: ",
-    "the active file is simply under 2 MB; rollover happens at the "
-    "limit, not on a schedule.",
+    "the active file is simply under its size limit; rollover happens at "
+    "the limit, not on a schedule (2 MB for the suite log, 1 MB for each "
+    "per-program log).",
 )
 
 doc.add_heading("Quick Reference", level=1)
-bullet(doc, "File: ", "logs/audio_suite.log (fallback: temp audio_suite_logs).")
 bullet(
     doc,
-    "Rotation: ",
-    "2 MB active file, five backups, UTF-8, automatic.",
+    "Suite log: ",
+    "logs/audio_suite.log - lifecycle + WARNING and above; 2 MB, five backups.",
+)
+bullet(
+    doc,
+    "Per-program log: ",
+    "logs/<program_name>.log - full diagnostic detail; 1 MB, three backups.",
+)
+bullet(
+    doc,
+    "Fallback: ",
+    "temp audio_suite_logs when logs/ is not writable.",
 )
 bullet(
     doc,

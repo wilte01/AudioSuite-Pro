@@ -50,14 +50,15 @@ requires_display = pytest.mark.skipif(
 def _clear_audio_suite_handlers() -> None:
     """Strip and close every suite file handler, on every logger holding it.
 
-    The suite's RotatingFileHandler is shared: ``configure_logging`` (G4.2)
-    attaches the same object to the ``audio_suite`` logger *and* to every
-    first-party package logger.  Clearing only the suite logger's list
-    would leave the old stream open on the package loggers, and the next
-    ``configure_logging`` call — seeing an empty suite logger — would create
-    a *second* handler on the same ``logs/audio_suite.log``.  On Windows the
-    rename inside ``doRollover()`` then fails with PermissionError once the
-    file crosses ``maxBytes``, and the handler's ``handleError`` writes a
+    ``configure_logging`` installs two shared RotatingFileHandlers — the
+    administrator suite log and the per-program detail log — on the
+    ``audio_suite`` logger *and* on every first-party package logger.
+    Clearing only the suite logger's list would leave the old streams open
+    on the package loggers, and the next ``configure_logging`` call —
+    seeing an empty suite logger — would create a *second* handler on the
+    same ``logs/audio_suite.log``.  On Windows the rename inside
+    ``doRollover()`` then fails with PermissionError once the file crosses
+    ``maxBytes``, and the handler's ``handleError`` writes a
     ``--- Logging error ---`` traceback to stderr, which Click's CliRunner
     mixes into command output (intermittent JSON/traceback test failures).
     """
@@ -199,6 +200,7 @@ class TestClearAudioSuiteHandlers:
             handler
             for handler in suite_logger.handlers
             if isinstance(handler, lh.RotatingFileHandler)
+            and Path(handler.baseFilename).name == "audio_suite.log"
         ]
         assert len(shared) == 1, shared
         file_handler = shared[0]
@@ -221,24 +223,26 @@ class TestClearAudioSuiteHandlers:
             for handler in suite_logger.handlers
         )
 
-        # Positive contract: the next call creates exactly one fresh shared
-        # handler, so no package logger ever holds two handles on the file.
+        # Positive contract: the next call creates exactly one fresh admin
+        # handler, so no package logger ever holds two handles on one file.
         configure_logging("clear_probe_again")
         fresh = [
             handler
             for handler in suite_logger.handlers
             if isinstance(handler, lh.RotatingFileHandler)
+            and Path(handler.baseFilename).name == "audio_suite.log"
         ]
         assert len(fresh) == 1, fresh
         assert fresh[0] is not file_handler
-        assert all(
-            sum(
-                isinstance(handler, lh.RotatingFileHandler)
+        for logger in package_loggers:
+            filenames = [
+                handler.baseFilename
                 for handler in logger.handlers
+                if isinstance(handler, lh.RotatingFileHandler)
+            ]
+            assert len(filenames) == len(set(filenames)), (
+                f"{logger.name} holds two handles on the same file: {filenames}"
             )
-            <= 1
-            for logger in package_loggers
-        )
 
 
 # ---------------------------------------------------------------------------

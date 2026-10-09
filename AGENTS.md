@@ -469,6 +469,22 @@ Follow them or the "passing" run is misleading.
   asserting the rendered line for *every* member — the existing
   display-string tests pin only the members they happened to cover.
 
+- **A shared log file serving two audiences — administrator failure-triage
+  and per-file processing detail — serves neither.** `logs/audio_suite.log`
+  held 10,000+ lines dominated by DEBUG/INFO (per-file tag fallbacks,
+  successful subprocess calls, per-file progress), so spot-the-failure was
+  impossible. Split by audience/level: the admin suite log keeps the
+  lifecycle line plus WARNING and above, while each program's full detail
+  goes to `logs/<program>.log` (unfiltered, bounded only by the program's
+  level). Redirect tests away from the shipped log with an env-var override
+  (a session-autouse `conftest.py` fixture pointing `AUDIOSUITE_LOG_DIR` at a
+  temp dir) and prove isolation **empirically** by the shipped file's
+  `LastWriteTime` after the full run, not by trusting the fixture alone.
+  When a logger intentionally gains a second handler, update the tests that
+  selected "the" handler: select by filename, never by count, or the
+  once-correct `handlers[0]` / `len(handlers) == 1` assertion silently
+  targets the wrong file.
+
 ## Master Driver Card Naming (Mandatory Convention)
 
 `enrich_tab.py` and `utilities_window.py` lazy-import each tool's card as

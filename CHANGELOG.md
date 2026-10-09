@@ -89,6 +89,14 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
 
 ### Fixed
 
+- **The suite log was flooded with per-file processing noise, burying real
+  failures.** `logs/audio_suite.log` held every DEBUG/INFO record from every
+  first-party logger — per-file tag fallbacks, successful subprocess calls,
+  per-file progress — so a 10,000+ line file made spotting a WARNING or ERROR
+  impractical. File logging is now two-tier: the suite log keeps the startup
+  lifecycle line plus WARNING and above, while each program's full diagnostic
+  detail moves to `logs/<program_name>.log`. Test runs are redirected to a
+  scratch directory, so they no longer write into the shipped `logs/` tree.
 - **The undo history dialog showed wrong tool names.** Its hardcoded
   id-to-name table had drifted from the tool manifest: `asx_extractor` and
   `file_reorganizer` used short names that no longer matched the registry, and
