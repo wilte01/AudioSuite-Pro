@@ -64,6 +64,7 @@ _EXCLUDED_DIRS = {
     ".ruff_cache",
     ".idea",
     ".github",
+    "runtime",
 }
 
 
