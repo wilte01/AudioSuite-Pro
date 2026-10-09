@@ -1,6 +1,6 @@
 # PLAN: Standardize DSP Pipelines on Normalized float32 with Clipping Protection
 
-> **Status**: Approved — Ready for Implementation
+> **Status**: COMPLETE — all 9 phases verified shipped in-tree (header corrected 2026-10-09; the work landed before the 2026-09-22 initial commit and this marker was never updated)
 > **Created**: 2026-09-05
 > **Scope**: audio_suite_shared, audio_refinery, noise_reduction, pop_click_remover, audio_enhancer
 

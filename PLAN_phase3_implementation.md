@@ -1,6 +1,6 @@
 # Phase 3 — Noise / Hum Reduction Tool: Implementation Plan
 
-**Status:** Ready for execution  
+**Status:** COMPLETE — shipped and verified in-repo 2026-09-04 (recorded in `PLAN_gap_analysis.md` progress log, item 3.1; header corrected 2026-10-09 — the original "Ready for execution" marker was stale)  
 **Scope:** 3.1 from `PLAN_gap_analysis.md`  
 **Dependencies:** Phases 1, 2, 4.2 all completed  
 
