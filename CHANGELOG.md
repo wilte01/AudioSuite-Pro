@@ -12,8 +12,8 @@ Versions of the tools are released together with the suite (the single
 
 Everything below landed after `1.0.0` and is not yet versioned. The items are
 grouped Keep-a-Changelog style and worded against the behaviour actually
-shipped; the per-item evidence lives in `PLAN_iteration7_remediation.md` (the
-bulk of the work) and `PLAN_iteration8_remediation.md`.
+shipped; the per-item evidence lives in `PLAN_iteration5_remediation.md`
+through `PLAN_iteration9_golive.md`.
 
 ### Added
 
@@ -47,6 +47,16 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
   reads the `.lrc` file co-located with each audio track (same stem, `.lrc`
   extension) — no network access. Selectable with `--provider sidecar` on
   the CLI or in the GUI provider list.
+- **Project documentation baseline.** A packaged `README.md` (quick start, a
+  27-tool index drift-locked to the tool manifest, architecture overview,
+  ffmpeg install instructions and an explicit platform-support matrix), the
+  GPL-3.0 `LICENSE` with PEP 639 SPDX package metadata, and `CONTRIBUTING.md` /
+  `SECURITY.md`. Each ffmpeg-dependent tool's generated guide also gains a
+  "System Requirements" section with per-platform install hints, worded from a
+  machine-readable source and locked by test.
+- **Key Detector `analyze_key()`.** A richer analysis entry point returning
+  `KeyAnalysis` — key, confidence, winner/runner-up correlations and a
+  low-confidence flag — alongside the unchanged `detect_key`.
 
 ### Changed
 
@@ -86,6 +96,23 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
 - **README verification metric reworded.** The "over 452 files" phrasing
   was replaced with non-numeric wording so the statement cannot drift as
   modules are added or removed.
+- **Key detection now defaults to cosine correlation** (Key Detector). The
+  engine gained a measured low-confidence threshold (0.25) and reports
+  `Unknown` for atonal/noise material instead of fabricating a confident key;
+  Pearson is retained but documented as compatibility-only.
+  `detect_key_with_strength`'s second element is redefined as *confidence*
+  (the Mood Analyzer's valence weighting was made self-neutralising).
+  *Opt-out:* `correlation="pearson"` still selects the old engine.
+- **Low-confidence key results are no longer written to `KEY` tags.** The
+  status reports `DETECTED (not tagged)`, an existing `KEY` tag is never
+  overwritten, and `KEY="Unknown"` can no longer poison a later Dry Run.
+- **Python 3.10 support dropped; the floor is now 3.11** (breaking). The
+  3.10-only lock resolved a stale numpy/scipy stack nobody developed or
+  shipped against; CI now runs 3.11 / 3.12 / 3.14. 3.10 users must upgrade.
+- **`audiosuite --help` groups subcommands by function** (Analysis, Tagging,
+  Repair, Utilities) and **`--version` reads the version from
+  `pyproject.toml`**, so a source checkout no longer reports a wrong or
+  missing installed-distribution version.
 
 ### Fixed
 
@@ -205,6 +232,26 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
   attaches the same rotating handler to every first-party package logger;
   the CLI passes its `--log-level` as the package level so verbosity still
   follows the console setting.
+- **Undo now restores whole-file bytes, not just tags.** An in-place repair
+  (Noise Reduction, Pop & Click Remover, and anything routed through the
+  shared in-place write site) can be reverted byte-for-byte to the original
+  file; previously only tag payloads round-tripped and the audio stayed
+  modified. *Migration:* the undo budget is unchanged (50 entries / 1 GiB)
+  but whole files now count against it, so oversized batches prune
+  oldest-first as whole batches — keep your own backups for large runs.
+- **Noise Reduction Dry Run reports repairable files honestly.** A file that
+  would be repaired now reports `FOUND` instead of `SKIP ("Clean")`, matching
+  Pop & Click Remover's semantics and what the user guide already documented;
+  writes are still withheld at the write site.
+- **A missing or fake `ffmpeg`/`ffprobe` is diagnosed at launch and by the
+  finder.** Every `.pyw` launcher warns at startup (with install hints) when
+  the binary is absent instead of dying with an opaque error on the first
+  file, and the finder no longer accepts a *directory* named `ffmpeg(.exe)`
+  as the executable.
+- **A corrupt file decoding to an empty array no longer crashes the analysis
+  tools.** The shared "too short to analyse" check raised `ZeroDivisionError`
+  on a zero sample rate; Key/BPM/Tempo/Mood now return the typed
+  `AudioAnalysisError` / batch error result.
 
 ### Removed
 
@@ -228,7 +275,15 @@ bulk of the work) and `PLAN_iteration8_remediation.md`.
 ## [1.0.0] - 2026-09-26
 
 First recorded baseline. Package metadata, releases, and this changelog start
-here; earlier history is in the repository's `PLAN_*.md` audit records.
+here; this section also records the notable changes *contained* in the
+baseline, which were delivered by the pre-release plan set —
+`PLAN_audit_remediation.md`, `PLAN_audit_priority_actions.md`,
+`PLAN_iteration2_remediation.md` … `PLAN_iteration4_remediation.md`,
+`PLAN_dsp_normalization.md`, `PLAN_basesetupframe_refactor.md`,
+`PLAN_format_support_expansion.md`, `PLAN_graceful_dir_validation.md`,
+`PLAN_quality_baselines.md`, `PLAN_phase3_implementation.md` and
+`PLAN_gap_analysis.md` — with per-item evidence and gate records in those
+files.
 
 ### Added
 
@@ -239,4 +294,133 @@ here; earlier history is in the repository's `PLAN_*.md` audit records.
   coverage 78.26%, `ruff` clean, `mypy --strict` clean, bandit 0 High /
   0 Medium. That audit is recorded in `PLAN_iteration5_remediation.md`, and
   its findings are remediated across that plan's staged, evidence-recorded
-  work (starting with this changelog's next entries).
+  work in the *Unreleased* section above.
+- **Audio Fingerprinter** (new tool). AcoustID/Chromaprint identification of
+  unknown tracks via the bundled `fpcalc` binary and the AcoustID API: GUI,
+  Master Driver card, `audiosuite fingerprint` CLI, encrypted API-key
+  storage, rate limiting, and tag-aware near-tie resolution for ambiguous
+  scores. Album mode (`--album-mode`) groups candidates by MusicBrainz
+  release group so album consensus decides remix-vs-original near-ties.
+- **Lyrics Manager** (new tool). Batch synced-lyrics fetch-and-embed from
+  LRCLIB with per-format embedding (ID3 SYLT, Vorbis `SYNCEDLYRICS`, plain
+  `USLT`/`LYRICS`/`©lyr` fallbacks), a three-tab GUI, Master Driver card and
+  `audiosuite lyrics` CLI (`--skip-existing` on by default).
+- **Tag Editor** (new tool). Freeform batch tag editing over an editable
+  library grid — bulk set/clear/swap/case-convert operations under one undo
+  batch, plus CSV import/export (`tag-edit PATH --csv FILE --dry`), written
+  as lossless tag-frame edits.
+- **Sample-rate and bit-depth conversion** (Music Format Converter).
+  Presets from 44.1 kHz to 192 kHz plus a `source` passthrough, WAV/AIFF
+  bit-depth selection, and `--sample-rate` / `--bit-depth` CLI flags.
+- **Lossless MP3 volume adjustment** (Audio Normalizer `--mode lossless`,
+  ReplayGain `--apply-gain`, Format Converter `--normalize-mp3`). A pure-
+  Python MP3Gain-style `global_gain` rewrite — no re-encode, file size
+  unchanged — validated by decode-and-measure tests across MPEG-1/2/2.5,
+  mono to joint-stereo, CBR and VBR.
+- **CD rip verification and read-offset correction** (CD Ripper).
+  `--verify off|twice|accuraterip` (default `twice`) re-reads and
+  cross-checks every track; a MISMATCH blocks the track write so a corrupt
+  rip is never silently saved. Per-drive read-offset detection
+  (`--detect-read-offset`) aligns both the verification windows and the
+  extracted audio for drives whose raw stream runs off the sector grid.
+- **CUE sheet support** (shared + CD Ripper + CLI). Strict CUE
+  parse/generate/split (`audiosuite cue ...`), one `.cue` per ripped album,
+  and a "Split CUE..." action that splits single-file images into tracks.
+- **Noise Reduction** (new tool) and a fifth Audio Refinery stage. 50/60 Hz
+  hum removal with harmonic notch filtering plus broadband spectral gating
+  from a user-selected noise-print region; `audiosuite reduce` CLI, GUI,
+  Master Driver card, and `--reduce-noise` pipeline stage (off by default).
+- **A/B audition** (Audio Enhancer, Refinery, Normalizer, Pop & Click
+  Remover, Silence Trimmer). "Play Original" / "Play Result" buttons on
+  every Results tab so before/after can be heard before committing.
+- **Tag Completeness Dashboard** (Library Stats). A colour-coded per-tag
+  coverage tab with a missing-files viewer and CSV/JSON export;
+  `audiosuite stats --completeness` on the CLI.
+- **Broader format support.** MP4 (AAC 192/256/320 kbps) as a conversion
+  target and AIFF/AIF as lossless targets; Album Genre Tagger, Album Art
+  Normalizer, Metadata Scrubber and Tag Field Updater all extended from
+  MP3-centric handling to the suite's nine canonical formats; WAV added to
+  the CD Ripper's GUI output list.
+- **Four orphan DSP tools registered in the Master Driver** (Audio
+  Enhancer, Audio Normalizer, Pop & Click Remover, Silence Trimmer). They
+  previously existed only as standalone launchers and now work as full
+  Driver cards in batch runs.
+- **Audio Refinery file-integrity gate.** Corrupt, truncated or implausible
+  files are rejected up front with a clear message instead of failing
+  mid-chain.
+
+### Changed
+
+- **WAV output is depth-preserving by default** (Music Format Converter). A
+  24/32-bit or float source is no longer silently reduced to 16-bit; an
+  explicit 16/24/32-bit/float override remains available. *Migration:*
+  users who want 16-bit WAV must select the override.
+- **Unknown extensions are rejected, not silently re-encoded** (Audio
+  Normalizer). Unmapped files were re-encoded to MP3 while keeping their
+  original extension — a quality-corruption path; they now fail with a
+  clear error.
+- **Master Driver refuses a non-existent folder up front** and surfaces a
+  failing module as a readable "Module Error" dialog while the batch
+  continues, instead of a silent thread death that left Run stuck on
+  "PROCESSING…". Ten tools' CLIs likewise print a tool-prefixed reason to
+  stderr for invalid folder paths.
+- **Deleted-file undo storage is bounded by size as well as count**
+  (`undo_max_bytes` suite-config key, default 1 GiB). *Migration:* automatic
+  — legacy undo databases convert once on first connect.
+- **Tool preferences moved to the shared `audio_suite_config.json`**
+  (File Reorganizer, CD Ripper), with a guarded one-time migration that
+  retires the legacy tool-local files.
+- **All DSP converts at the boundary through one clipping-protected
+  normalized-float path** (`audio_suite_shared/audio_conversion.py`), with
+  clip-event warnings logged and a post-chain peak warning in the Refinery
+  Enhance stage.
+- **Suite-wide engineering gates established:** `mypy --strict` clean,
+  coverage with `fail_under = 75` enforced, measured golden-vector tests for
+  the Key/BPM/Tempo/Mood analyzers, and contract locks on CLI/launcher/
+  guide/card registration.
+
+### Fixed
+
+- **Lossless MP3 gain applied wrong, asymmetric gain to stereo files**
+  (headline). A requested +6 dB produced −0.28 dB left / −2.20 dB right due
+  to incorrect side-info bit offsets and updating only one of four
+  `global_gain` fields per stereo frame; low-sample-rate (MPEG-2/2.5) files
+  were only half-gained by a frame-walker skip. CRC-protected and
+  free-format MP3s are now rejected with a clear error instead of having
+  their gain fields silently corrupted, and failed files no longer record a
+  phantom undo row.
+- **Audio Enhancer Dry Run overwrote source files.** The flag never reached
+  the write site; an "in-place Dry Run" rewrote the user's originals. Writes
+  and tag copies are now genuinely withheld, with measurements still
+  reported.
+- **CD Ripper's CLI crashed on every `--format` value.** Lowercase click
+  choices were looked up in a display-name-keyed table; resolution is now
+  case-insensitive at both ends.
+- **Tag Editor correctness:** undo of newly created tags on previously
+  tagless files now removes them; clearing the last tag frame persists
+  again (`is not None` save guards); the Vorbis handler creates tags on
+  tagless FLAC/OGG/Opus; successful rows no longer report "Unknown error";
+  and CSV import paths are contained to the chosen library root instead of
+  allowing `../..` traversal to retag any file on the machine.
+- **Library Stats concurrent scans raised "database is locked."** SQLite
+  access is now serialised with a shared lock and proper busy timeouts.
+- **`Pop_Click_Remover.pyw` never worked standalone** (missing entry point).
+- **A hung per-file conversion no longer stalls the whole batch** (Music
+  Format Converter); it fails that file with a mapped timeout error. The
+  same per-file error containment was applied to crashing workers in Genre
+  Sync, Silence Trimmer, Noise Reduction, Pop & Click Remover and Metadata
+  Scrubber, and Genre Sync's completion totals are now accurate.
+- **Broken Help buttons** (Mood Analyzer, Album Art Sync and others) and a
+  suite of swallowed-error paths (launchers, key-file ACL hardening, legacy
+  undo rows) now report properly.
+
+### Removed
+
+- `.wma` from Metadata Scrubber discovery — it was advertised but every
+  `.wma` failed to load.
+- Legacy tool-local config files (`tempo_config.json`,
+  `reorganizer_config.json`), consumed by the shared-config migration.
+- Six hand-rolled thread-pool batch loops, six duplicate
+  `subprocess`/`STARTUPINFO` helpers, and assorted dead constants — all
+  consolidated onto the shared `process_batch` /
+  `run_secure_subprocess` / `get_startupinfo` scaffolds.
