@@ -13,6 +13,8 @@ Covers:
   - dry_run not creating directories
   - progress_callback called for all code branches
   - stop() interruption
+
+Changed in 1.0.1: adds existing-destination collision regression tests (M5).
 """
 
 from __future__ import annotations
@@ -944,3 +946,132 @@ class TestReadAllTagsIntegration:
         result = _read_all_tags(str(bad))
         if result:
             assert all(isinstance(v, str) for v in result.values())
+
+
+# ── M5: existing-destination collision never overwrites (skip-and-warn) ───────
+
+
+class TestPerformActionCollision:
+    def test_copy_skips_existing_target(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        dst = tmp_path / "dst"
+        src.mkdir()
+        dst.mkdir()
+        source_file = src / "song.mp3"
+        source_file.write_bytes(b"new audio")
+        target = dst / "song.mp3"
+        target.write_bytes(b"existing audio")
+
+        reorg = FileReorganizer("album", "album", str(dst), action="copy")
+        with patch(
+            "audio_suite_shared.batch_undo.record_file_reorg_snapshot"
+        ) as mock_record:
+            performed = reorg._perform_action(str(source_file), str(target))
+
+        assert performed is False
+        # The pre-existing destination is byte-identical, and no undo record
+        # (which cannot restore destination bytes) was taken.
+        assert target.read_bytes() == b"existing audio"
+        assert source_file.read_bytes() == b"new audio"
+        mock_record.assert_not_called()
+
+    def test_move_skips_existing_target(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        dst = tmp_path / "dst"
+        src.mkdir()
+        dst.mkdir()
+        source_file = src / "song.mp3"
+        source_file.write_bytes(b"new audio")
+        target = dst / "song.mp3"
+        target.write_bytes(b"existing audio")
+
+        reorg = FileReorganizer("album", "album", str(dst), action="move")
+        performed = reorg._perform_action(str(source_file), str(target))
+
+        assert performed is False
+        assert target.read_bytes() == b"existing audio"
+        assert source_file.exists()
+
+    def test_missing_target_is_copied(self, tmp_path: Path) -> None:
+        """Positive control: a fresh destination is still copied normally."""
+        src = tmp_path / "src"
+        dst = tmp_path / "dst"
+        src.mkdir()
+        dst.mkdir()
+        source_file = src / "song.mp3"
+        source_file.write_bytes(b"new audio")
+        target = dst / "song.mp3"
+
+        reorg = FileReorganizer("album", "album", str(dst), action="copy")
+        performed = reorg._perform_action(str(source_file), str(target))
+
+        assert performed is True
+        assert target.read_bytes() == b"new audio"
+
+
+class TestEngineCollisionIntegration:
+    def test_preexisting_destination_is_preserved(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        track = src / "a.flac"
+        _make_flac(track)
+        _tag_flac(track, {"title": "Song"})
+
+        dst = tmp_path / "dst"
+        dst.mkdir()
+        target = dst / "Song.flac"
+        target.write_bytes(b"PRECIOUS-EXISTING-CONTENT")
+
+        calls: list[str] = []
+        reorg = FileReorganizer("%title%", "%title%", str(dst), action="copy")
+        stats = reorg.run(str(src), progress_callback=lambda p, s: calls.append(p))
+
+        assert stats.files_scanned == 1
+        assert stats.files_processed == 0
+        assert stats.files_skipped == 1
+        assert target.read_bytes() == b"PRECIOUS-EXISTING-CONTENT"
+        assert any("exists" in c.lower() for c in calls)
+
+    def test_two_sources_same_target_second_skipped_copy(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        first = src / "a.flac"
+        _make_flac(first)
+        _tag_flac(first, {"title": "Song"})
+        second = src / "b.flac"
+        _make_flac(second)
+        _tag_flac(second, {"title": "Song"})
+
+        dst = tmp_path / "dst"
+        calls: list[str] = []
+        reorg = FileReorganizer("%title%", "%title%", str(dst), action="copy")
+        stats = reorg.run(str(src), progress_callback=lambda p, s: calls.append(p))
+
+        assert stats.files_scanned == 2
+        assert stats.files_processed == 1
+        assert stats.files_skipped == 1
+        assert (dst / "Song.flac").is_file()
+        # Copy keeps both sources; the collision is reported.
+        assert first.exists() and second.exists()
+        assert any("exists" in c.lower() for c in calls)
+
+    def test_two_sources_same_target_second_skipped_move(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        first = src / "a.flac"
+        _make_flac(first)
+        _tag_flac(first, {"title": "Song"})
+        second = src / "b.flac"
+        _make_flac(second)
+        _tag_flac(second, {"title": "Song"})
+
+        dst = tmp_path / "dst"
+        reorg = FileReorganizer("%title%", "%title%", str(dst), action="move")
+        stats = reorg.run(str(src), progress_callback=lambda *_: None)
+
+        assert stats.files_processed == 1
+        assert stats.files_skipped == 1
+        assert (dst / "Song.flac").is_file()
+        # Exactly one source was consumed by the move; the colliding one stays.
+        remaining = [p for p in (first, second) if p.exists()]
+        assert len(remaining) == 1

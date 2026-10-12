@@ -654,6 +654,62 @@ class TestApplyReplaygainTags:
 # ═════════════════════════════════════════════════════════════════════════════
 
 
+class TestReplaygainPeakTagOutcome:
+    """H1 outcome: written REPLAYGAIN_*_PEAK tags carry linear amplitude.
+
+    These read the tags back off a real file so the assertion measures the
+    transformed outcome, not the internal value the code just formatted.
+    """
+
+    def _make_file(self, tmp_path, name: str, peak_dbfs: float) -> dict:
+        path = _make_audio(tmp_path, name)
+        return {
+            "name": name,
+            "path": path,
+            "lufs": -18.0,
+            "peak": peak_dbfs,
+            "track_gain": 2.0,
+        }
+
+    @staticmethod
+    def _read_peaks(path: str) -> dict[str, str]:
+        import mutagen
+        from mutagen.id3 import TXXX
+
+        audio = mutagen.File(path)
+        return {f.desc: f.text[0] for f in audio.tags.values() if isinstance(f, TXXX)}
+
+    def test_track_peak_written_as_linear_amplitude(self, tmp_path) -> None:
+        files_data = [self._make_file(tmp_path, "a.mp3", -6.0)]
+        apply_replaygain_tags(
+            folder_path=str(tmp_path),
+            files_data=files_data,
+            target_lufs=-16.0,
+            is_dry_run=False,
+            on_folder_complete=lambda **kw: None,
+            lock=threading.Lock(),
+        )
+        tags = self._read_peaks(str(tmp_path / "a.mp3"))
+        assert round(float(tags["REPLAYGAIN_TRACK_PEAK"]), 6) == 0.501187
+        assert round(float(tags["REPLAYGAIN_ALBUM_PEAK"]), 6) == 0.501187
+
+    def test_album_peak_is_loudest_linear_peak(self, tmp_path) -> None:
+        files_data = [
+            self._make_file(tmp_path, "a.mp3", -6.0),
+            self._make_file(tmp_path, "b.mp3", -0.5),
+        ]
+        apply_replaygain_tags(
+            folder_path=str(tmp_path),
+            files_data=files_data,
+            target_lufs=-16.0,
+            is_dry_run=False,
+            on_folder_complete=lambda **kw: None,
+            lock=threading.Lock(),
+        )
+        tags = self._read_peaks(str(tmp_path / "b.mp3"))
+        assert round(float(tags["REPLAYGAIN_ALBUM_PEAK"]), 6) == 0.944061
+
+
 class TestApplyReplaygainTagsLosslessGain:
     """apply_lossless_gain flag: bake track gain into MP3 files after tagging."""
 

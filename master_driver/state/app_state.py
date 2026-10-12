@@ -177,8 +177,6 @@ class AppState:
         self.library_stats_refresh = tk.BooleanVar(master, value=False)
         self.library_stats_export_csv = tk.StringVar(master, value="")
         self.library_stats_export_json = tk.StringVar(master, value="")
-        self.library_stats_completeness = tk.BooleanVar(master, value=False)
-        self.library_stats_detail = tk.StringVar(master, value="")
 
         # ── File Reorganizer controls ─────────────────────────────────────────
         self.file_reorg_output_dir = tk.StringVar(master, value="")

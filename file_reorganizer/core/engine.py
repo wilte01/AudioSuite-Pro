@@ -3,6 +3,10 @@ Engine for reorganising audio files based on tag patterns.
 
 Reads tags from each audio file, evaluates the user-defined pattern,
 and copies or moves the file to the resolved target path.
+
+Changed in 1.0.1: a copy/move whose resolved destination already exists is
+skipped with a warning instead of silently overwriting the existing file,
+whose bytes the undo record cannot restore.
 """
 
 from __future__ import annotations
@@ -268,7 +272,14 @@ class FileReorganizer:
                     target_rel += entry.suffix
 
                 target_path = os.path.join(self.base_dir, target_rel)
-                self._perform_action(file_path, target_path)
+                if not self._perform_action(file_path, target_path):
+                    self.stats.files_skipped += 1
+                    if progress_callback:
+                        progress_callback(
+                            f"SKIPPED (destination exists): {target_rel}",
+                            self.stats,
+                        )
+                    continue
 
                 self.stats.files_processed += 1
                 if progress_callback:
@@ -291,10 +302,27 @@ class FileReorganizer:
 
         return self.stats
 
-    def _perform_action(self, source: str, target: str) -> None:
+    def _perform_action(self, source: str, target: str) -> bool:
+        """Copy or move *source* to *target*, refusing to overwrite.
+
+        A pre-existing destination is left untouched and reported as a skip:
+        the undo record stores only the source/destination paths, so an
+        overwritten file's bytes could not be restored.
+
+        Returns:
+            True when the action ran (or a dry run would have run it), or
+            False when it was skipped because *target* already exists and is
+            not *source*.
+        """
+        source_key = os.path.normcase(os.path.abspath(source))
+        target_key = os.path.normcase(os.path.abspath(target))
+        if os.path.exists(target) and source_key != target_key:
+            logger.warning("Skipped %s: destination already exists: %s", source, target)
+            return False
+
         if self.dry_run:
             logger.info("[DRY-RUN] %s -> %s", source, target)
-            return
+            return True
         from audio_suite_shared.batch_undo import record_file_reorg_snapshot
 
         record_file_reorg_snapshot(source, target, self.action)
@@ -305,3 +333,4 @@ class FileReorganizer:
         elif self.action == "move":
             shutil.move(source, target)
             logger.debug("Moved %s -> %s", source, target)
+        return True

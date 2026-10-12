@@ -116,6 +116,35 @@ through `PLAN_iteration9_golive.md`.
 
 ### Fixed
 
+- **ReplayGain peak tags were written in dBFS instead of linear amplitude.**
+  `REPLAYGAIN_TRACK_PEAK` / `REPLAYGAIN_ALBUM_PEAK` carried the raw ffmpeg
+  `Peak: <x> dBFS` measurement (e.g. `-0.500000`) while the ReplayGain
+  convention — and the tag writer's own contract — requires a linear sample
+  value in `0.0–1.0`. The peak is now converted at the tag-string boundary
+  (`10 ** (peak_dbfs / 20)`, so −6 dBFS becomes `0.501187`), and the album
+  peak is the maximum of the *linear* peaks rather than the largest dBFS
+  value.
+- **A fully silent source file was emptied by Silence Trimmer.** Leading plus
+  trailing silence covered the entire file, so trimming produced an empty
+  segment that the processor exported over the original — truncating it to a
+  few dozen bytes and destroying its content. Wholly silent files are now
+  reported as a non-destructive `SKIP` ("Entire file is silence - skipped")
+  and left byte-identical, in both Dry Run and Live Update.
+- **Five standalone tools silently ignored every Master Driver argument.**
+  `File Reorganizer`, `Tag Field Updater`, `Library Statistics`, `CD Ripper`,
+  and `Album Art Normalizer` received the driver's CLI argv (output dir,
+  format, mode, etc.) but never parsed it — every pre-fill was lost. Each
+  tool now has a `utils/cli_args.py` parser and consumes its driver argv:
+  File Reorganizer pre-fills source/destination/action/patterns; Tag Field
+  Updater pre-fills directory and gains a visible Dry Run checkbox; Library
+  Statistics pre-fills directory/incremental/refresh/exports; CD Ripper
+  pre-fills output-dir/format/cue and filters the rip list by `--tracks`;
+  Album Art Normalizer maps `--size <pixels>` to the resolution combobox.
+- **Library Statistics' Master Driver card showed two non-functional controls.**
+  The "Show tag completeness analysis" checkbox and "Detail Category" combobox
+  had no matching GUI behavior — the driver passed `--completeness`/`--detail`
+  to a tool that ignored them. Both controls and their driver arguments have
+  been removed.
 - **The suite log was flooded with per-file processing noise, burying real
   failures.** `logs/audio_suite.log` held every DEBUG/INFO record from every
   first-party logger — per-file tag fallbacks, successful subprocess calls,
@@ -252,6 +281,21 @@ through `PLAN_iteration9_golive.md`.
   tools.** The shared "too short to analyse" check raised `ZeroDivisionError`
   on a zero sample rate; Key/BPM/Tempo/Mood now return the typed
   `AudioAnalysisError` / batch error result.
+- **Music Format Converter overwrote one output when two sources mapped to the
+  same name.** Two same-stem files with different extensions in one folder
+  (e.g. `song.flac` + `song.wav` → `song.mp3`) both converted to the same
+  output path, so the second silently replaced the first and the run still
+  reported both as converted. Each computed output path is now claimed before
+  conversion: the first source wins and the colliding source is reported as a
+  `SKIPPED` "already produced from another source" line, with its original
+  left intact under `--delete-originals`.
+- **File Reorganizer silently overwrote an existing destination file.** A
+  copy/move whose resolved target path already existed (a pre-existing file, or
+  two sources whose tags resolved to the same name) replaced it with no
+  warning — and the undo record stores only the paths, so the overwritten
+  bytes were unrecoverable. The action now skips such targets, reports
+  `SKIPPED (destination exists): <target>` and counts them in the skipped
+  total instead of the processed total.
 
 ### Removed
 

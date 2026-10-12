@@ -41,11 +41,5 @@ if __name__ == "__main__":
                     exc_info=True,
                 )
 
-    import tkinter as tk
-    from audio_suite_shared.styles import bootstrap_theme
-    from cd_ripper.app import CDRipperApp
-
-    root = tk.Tk()
-    bootstrap_theme()
-    CDRipperApp(root)
-    root.mainloop()
+    from cd_ripper.app import main
+    main()

@@ -42,6 +42,7 @@ def _make_shell_app() -> Any:
     app = object.__new__(_ui_app_module().TagFieldUpdaterApp)
     app.root = MagicMock()
     app.directory = MagicMock()
+    app.dry_run = MagicMock()
     app.scanning = MagicMock()
     app.current_file = MagicMock()
     app.processed_count = MagicMock()
@@ -286,7 +287,7 @@ class TestScanThread:
         app = _make_shell_app()
         app.scanning.get.return_value = True
 
-        app._scan_thread(str(tmp_path))
+        app._scan_thread(str(tmp_path), dry_run=False)
 
         call = app.root.after.call_args
         assert call is not None
@@ -307,7 +308,7 @@ class TestScanThread:
         monkeypatch.setattr(app.processor, "scan_directory", _boom)
 
         with caplog.at_level(logging.ERROR, logger="tag_field_updater.ui.app"):
-            app._scan_thread(str(Path("D:/whatever")))
+            app._scan_thread(str(Path("D:/whatever")), dry_run=False)
 
         assert failures["count"] == 1
         assert any(
@@ -390,9 +391,12 @@ class TestRunAndMain:
         fake_thread,
     ) -> None:
         """main() builds the app, skips the auto-start, and enters the loop."""
+        import sys
+
         main = _ui_app_module().main
         app_cls = _ui_app_module().TagFieldUpdaterApp
         monkeypatch.setattr(tkinter, "Tk", lambda: app_root)
+        monkeypatch.setattr(sys, "argv", ["tag_field_updater"])
         app_tracker: dict[str, Any] = {}
 
         real_init = app_cls.__init__

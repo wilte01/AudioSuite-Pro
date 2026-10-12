@@ -7,6 +7,9 @@ Phase 2 (per folder, serial):  Calculate album gain, write all tags.
 
 Slot-release is handled exclusively in finally — never manually —
 preventing double-put / over-concurrency in the slot queue.
+
+Changed in 1.0.1: the per-track peak tag value is converted from the
+ffmpeg dBFS measurement to the linear amplitude ReplayGain defines.
 """
 
 from __future__ import annotations
@@ -38,7 +41,7 @@ except ImportError:  # pragma: no cover
     from audio_suite_shared.exceptions import MutagenError  # type: ignore[assignment]
 
 from .ffmpeg_metrics import get_metrics
-from .gain_calculator import calculate_album_gain
+from .gain_calculator import calculate_album_gain, dbfs_to_linear
 from .tag_writer import write_replaygain_tags
 
 logger = logging.getLogger(__name__)
@@ -173,7 +176,7 @@ def _write_worker(job: _WriteJob) -> None:
 
             try:
                 track_gain_str = f"{target_gain:+.2f} dB"
-                track_peak_str = f"{file_data['peak']:.6f}"
+                track_peak_str = f"{dbfs_to_linear(file_data['peak']):.6f}"
 
                 if job.is_dry_run:
                     tag_results.append(

@@ -3,6 +3,11 @@ file_processor.py
 Per-file conversion worker orchestrated via BaseFileProcessor.process_batch.
 
 No tkinter imports. All UI interaction via injected callbacks.
+
+Changed in 1.0.1: two same-stem sources with different extensions in one
+folder (e.g. song.flac + song.wav) both target song.<ext>; only the first
+is converted and the collision is reported as a skip instead of silently
+overwriting the first output.
 """
 
 from __future__ import annotations
@@ -51,6 +56,44 @@ from .formats import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _claim_output_path(
+    output_path: str,
+    produced_outputs: set[str] | None,
+    lock: threading.Lock,
+) -> bool:
+    """Reserve *output_path* for this run, atomically.
+
+    Two same-stem sources with different extensions in one folder (e.g.
+    ``song.flac`` and ``song.wav``) map to the same output path.  Only the
+    first worker to claim it may convert; later workers skip so a completed
+    conversion is never overwritten.  ``produced_outputs is None`` disables
+    the guard, preserving the single-call API.
+
+    Returns:
+        True when the caller owns *output_path*; False when another worker
+        already claimed it in this run.
+    """
+    if produced_outputs is None:
+        return True
+    with lock:
+        if output_path in produced_outputs:
+            return False
+        produced_outputs.add(output_path)
+        return True
+
+
+def _release_output_path(
+    output_path: str | None,
+    produced_outputs: set[str] | None,
+    lock: threading.Lock,
+) -> None:
+    """Release a claim from :func:`_claim_output_path` after a failed convert."""
+    if produced_outputs is None or output_path is None:
+        return
+    with lock:
+        produced_outputs.discard(output_path)
 
 
 class MusicFormatConverterProcessor(BaseFileProcessor):
@@ -357,10 +400,17 @@ def process_single_file(
     normalize_mp3: bool = False,
     target_lufs: float = -16.0,
     dither: bool = True,
+    produced_outputs: set[str] | None = None,
 ) -> None:
-    """Acquire a slot, convert one audio file, release the slot."""
+    """Acquire a slot, convert one audio file, release the slot.
+
+    When *produced_outputs* is supplied (a live batch), the computed output
+    path is claimed before conversion: a second source resolving to the same
+    path is skipped rather than overwriting the first output.
+    """
     slot_idx = slot_queue.get()
     input_path = os.path.join(input_dir, filename)
+    claimed_output: str | None = None
 
     try:
         input_format = detect_format(filename)
@@ -405,6 +455,22 @@ def process_single_file(
                 on_progress,
             )
             return
+
+        if not _claim_output_path(output_path, produced_outputs, lock):
+            display = (
+                f"[SKIPPED] {filename} - output {output_name} already "
+                "produced from another source in this run"
+            )
+            with lock:
+                on_progress(
+                    n_converted=0,
+                    n_skipped=1,
+                    n_errors=0,
+                    display_text=display,
+                    log_text=display + "\n",
+                )
+            return
+        claimed_output = output_path
 
         output_size = _convert_and_verify(
             input_path,
@@ -459,6 +525,7 @@ def process_single_file(
             )
 
     except subprocess.TimeoutExpired:
+        _release_output_path(claimed_output, produced_outputs, lock)
         display = f"[ERROR] {filename}: Conversion timeout"
         with lock:
             on_progress(
@@ -477,6 +544,7 @@ def process_single_file(
         AudioFormatError,
         AudioExternalToolError,
     ) as exc:
+        _release_output_path(claimed_output, produced_outputs, lock)
         mapped = map_to_audio_error(exc)
         logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
         action = get_recovery_action(exc, "format_conversion")
@@ -559,6 +627,7 @@ def run_conversion(
         os.makedirs(output_dir, exist_ok=True)
 
     lock = threading.Lock()
+    produced_outputs: set[str] = set()
     processed = [0]
     converted = [0]
     skipped = [0]
@@ -630,6 +699,7 @@ def run_conversion(
                 normalize_mp3=norm_mp3,
                 target_lufs=tgt_lufs,
                 dither=dith,
+                produced_outputs=produced_outputs,
             )
 
     def _worker(name: str) -> object:

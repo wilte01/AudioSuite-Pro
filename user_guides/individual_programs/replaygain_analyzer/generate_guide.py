@@ -133,8 +133,18 @@ bullet(
     "Album Gain: ",
     "The folder-level gain derived from the mean integrated LUFS of that folder.",
 )
-bullet(doc, "Track Peak: ", "The measured true-peak value for the file.")
-bullet(doc, "Album Peak: ", "The highest true peak measured among files in the folder.")
+bullet(
+    doc,
+    "Track Peak: ",
+    "The measured true-peak value for the file, converted from dBFS to the "
+    "linear amplitude (0.0–1.0) ReplayGain peak tags use.",
+)
+bullet(
+    doc,
+    "Album Peak: ",
+    "The highest true peak measured among files in the folder (the loudest "
+    "linear amplitude, not the largest dBFS), in the same linear form.",
+)
 doc.add_paragraph(
     "The shared tag writer stores REPLAYGAIN_TRACK_GAIN, "
     "REPLAYGAIN_ALBUM_GAIN, "

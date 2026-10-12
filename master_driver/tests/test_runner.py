@@ -134,8 +134,6 @@ def _make_state(
     state.library_stats_refresh = _bool_var(False)
     state.library_stats_export_csv = _str_var("")
     state.library_stats_export_json = _str_var("")
-    state.library_stats_completeness = _bool_var(False)
-    state.library_stats_detail = _str_var("")
     state.file_reorg_output_dir = _str_var("")
     state.file_reorg_action = _str_var("copy")
     state.file_reorg_specific_pattern = _str_var("")
@@ -691,20 +689,6 @@ class TestBuildUtilityArgs:
         args_list = build_utility_args(state)
         stats_entry = next(e for e in args_list if "Library Statistics" in e[1].name)
         assert "--refresh" in stats_entry[2]
-
-    def test_library_stats_completeness_flag(self):
-        state = _make_state()
-        state.library_stats_completeness = _bool_var(True)
-        args_list = build_utility_args(state)
-        stats_entry = next(e for e in args_list if "Library Statistics" in e[1].name)
-        assert "--completeness" in stats_entry[2]
-
-    def test_library_stats_detail_when_set(self):
-        state = _make_state()
-        state.library_stats_detail = _str_var("genre")
-        args_list = build_utility_args(state)
-        stats_entry = next(e for e in args_list if "Library Statistics" in e[1].name)
-        assert "--detail" in stats_entry[2]
 
     def test_library_stats_exports_when_set(self):
         state = _make_state()

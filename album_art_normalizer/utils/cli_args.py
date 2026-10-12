@@ -49,6 +49,7 @@ ACCEPTED_HANDSHAKE = frozenset(
 class AlbumArtNormalizerArgs(BaseCLIArgs):
     """CLI arguments for Album Art Normalizer."""
 
+    size: str = ""  # --size <pixel-dim> from the Master Driver
     clear_logs: bool = False  # Display only — driver-owned orchestration flag
     parallel_run: bool = False  # Display only — driver-owned orchestration flag
 
@@ -74,7 +75,17 @@ def parse(argv: list[str] | None = None) -> AlbumArtNormalizerArgs:
 
     args.folder_path = argv[1]
 
-    apply_handshake_segment(argv[2:], args, accepted=ACCEPTED_HANDSHAKE)
+    # Scan for --size <value> before the handshake segment.
+    tail = argv[2:]
+    index = 0
+    while index < len(tail):
+        if tail[index] == "--size" and index + 1 < len(tail):
+            args.size = tail[index + 1]
+            index += 2
+            continue
+        index += 1
+
+    apply_handshake_segment(tail, args, accepted=ACCEPTED_HANDSHAKE)
 
     errors = validate_folder_path(args.folder_path)
     if errors:

@@ -14,8 +14,30 @@ from unittest.mock import patch
 import pytest
 from pydub import AudioSegment
 
-from replaygain_analyzer.core.gain_calculator import calculate_album_gain
+from replaygain_analyzer.core.gain_calculator import (
+    calculate_album_gain,
+    dbfs_to_linear,
+)
 from replaygain_analyzer.core.tag_writer import write_replaygain_tags
+
+# ── dbfs_to_linear ────────────────────────────────────────────────────────────
+
+
+class TestDbfsToLinear:
+    def test_full_scale_is_one(self) -> None:
+        assert abs(dbfs_to_linear(0.0) - 1.0) < 1e-12
+
+    def test_minus_six_dbfs_is_half_amplitude(self) -> None:
+        """-6 dBFS is half the full-scale amplitude (10 ** -0.3)."""
+        assert round(dbfs_to_linear(-6.0), 6) == 0.501187
+
+    def test_minus_half_dbfs(self) -> None:
+        assert round(dbfs_to_linear(-0.5), 6) == 0.944061
+
+    def test_positive_true_peak_exceeds_one(self) -> None:
+        """Inter-sample true peaks above 0 dBFS map above 1.0 linear."""
+        assert dbfs_to_linear(1.0) > 1.0
+
 
 # ── calculate_album_gain ──────────────────────────────────────────────────────
 
@@ -55,7 +77,21 @@ class TestCalculateAlbumGain:
 
     def test_album_peak_is_max_of_peaks(self) -> None:
         _, peak, _, _ = calculate_album_gain(-16.0, [-18.0, -20.0], [-0.3, -0.1, -0.5])
-        assert abs(peak - (-0.1)) < 1e-9
+        assert abs(peak - dbfs_to_linear(-0.1)) < 1e-9
+
+    def test_album_peak_is_linear_not_dbfs(self) -> None:
+        """The album peak tag must carry the linear amplitude, not dBFS.
+
+        A single -6.0 dBFS measurement (half amplitude) must yield
+        0.501187, and the album maximum must be the loudest *linear* peak
+        (the -0.5 dBFS file), not the largest dBFS value.
+        """
+        _, peak, _, peak_str = calculate_album_gain(-16.0, [-18.0], [-6.0])
+        assert round(peak, 6) == 0.501187
+        assert peak_str == "0.501187"
+
+        _, peak, _, _ = calculate_album_gain(-16.0, [-18.0, -18.0], [-6.0, -0.5])
+        assert abs(peak - dbfs_to_linear(-0.5)) < 1e-9
 
     def test_gain_str_format_two_decimal_places(self) -> None:
         _, _, gain_str, _ = calculate_album_gain(-16.0, [-18.123], [-1.0])
@@ -83,14 +119,14 @@ class TestCalculateAlbumGain:
     def test_single_track_album(self) -> None:
         gain, peak, _, _ = calculate_album_gain(-16.0, [-18.0], [-0.5])
         assert abs(gain - 2.0) < 1e-9
-        assert abs(peak - (-0.5)) < 1e-9
+        assert abs(peak - dbfs_to_linear(-0.5)) < 1e-9
 
     def test_large_track_list(self) -> None:
         lufs = [-18.0] * 50
         peaks = [-0.5] * 50
         gain, peak, _, _ = calculate_album_gain(-16.0, lufs, peaks)
         assert abs(gain - 2.0) < 1e-6
-        assert abs(peak - (-0.5)) < 1e-9
+        assert abs(peak - dbfs_to_linear(-0.5)) < 1e-9
 
     # ── New: empty-list guard tests (finding #20) ─────────────────────────────
 

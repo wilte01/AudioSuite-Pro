@@ -153,3 +153,36 @@ class TestFolderValidation:
         captured = capsys.readouterr()
         assert result.folder_path == ""
         assert captured.err == ""
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# parse / --size (G2.5)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestParseSize:
+    """G2.5: the driver's ``--size <n>`` must be consumed by the parser."""
+
+    def test_size_parsed_from_driver_argv(self, tmp_path):
+        args = parse(
+            [
+                "prog",
+                str(tmp_path),
+                "0",
+                "--live",
+                "--start",
+                "--end",
+                "--size",
+                "800",
+            ]
+        )
+        assert args.size == "800"
+        assert args.folder_path == str(tmp_path)
+
+    def test_size_absent_by_default(self, tmp_path):
+        args = parse(["prog", str(tmp_path)])
+        assert args.size == ""
+
+    def test_size_without_value_is_ignored(self, tmp_path):
+        args = parse(["prog", str(tmp_path), "--size"])
+        assert args.size == ""

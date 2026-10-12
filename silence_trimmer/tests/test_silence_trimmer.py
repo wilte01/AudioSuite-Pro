@@ -260,11 +260,18 @@ from silence_trimmer.utils.cli_args import (  # noqa: E402
 
 
 def _make_audio(duration_ms: int = 2000, silence_ms: int = 300) -> "AudioSegment":
-    """Return an AudioSegment with silence_ms of leading and trailing silence."""
+    """Return an AudioSegment with silence_ms of leading/trailing silence
+    around duration_ms of audible tone.
+
+    The body must be audible: an all-silent fixture would exercise the
+    wholly-silent SKIP path (H2) rather than trimming, so "silence at the
+    ends" tests built on it would silently assert the wrong outcome.
+    """
     from pydub import AudioSegment
+    from pydub.generators import Sine
 
     silence_seg = AudioSegment.silent(duration=silence_ms)
-    tone = AudioSegment.silent(duration=duration_ms)  # all-silent body for determinism
+    tone = Sine(440).to_audio_segment(duration=duration_ms)
     return silence_seg + tone + silence_seg
 
 
@@ -567,12 +574,10 @@ class TestTrimAndFadeWithSilence:
         expected_len = len(audio) - result.start_trim_ms - result.end_trim_ms
         assert abs(len(result.trimmed) - expected_len) <= 5
 
-    def test_fade_on_fully_silent_audio_does_not_raise(self) -> None:
-        """Regression test: when the entire input is silence, the trimmed
-        segment is zero-length. Clamping fade_in_ms/fade_out_ms to that
-        length yields 0, and pydub's fade() treats duration=0 as falsy,
-        raising TypeError instead of being a no-op. Fades of 0 must be
-        skipped rather than passed through to pydub."""
+    def test_fully_silent_audio_is_skipped_not_emptied(self) -> None:
+        """H2: a wholly silent source must not yield an empty trimmed segment
+        that callers would export over the original. It returns trimmed=None
+        with a non-destructive SKIP status, even when fades are requested."""
         audio = _make_pure_silent(duration_ms=500)
         result = trim_and_fade(
             audio,
@@ -582,9 +587,20 @@ class TestTrimAndFadeWithSilence:
             fade_in_ms=500,
             fade_out_ms=1000,
         )
-        assert result.status == "TRIMMED"
-        assert result.trimmed is not None
-        assert len(result.trimmed) == 0
+        assert result.status == "SKIP"
+        assert result.trimmed is None
+        assert result.has_silence is True
+        assert "silence" in result.action.lower()
+
+    def test_fully_silent_audio_is_skipped_in_dry_run_too(self) -> None:
+        """The wholly-silent source is non-destructive in dry-run as well, so
+        the reported action stays truthful instead of promising a trim that
+        would delete the whole file."""
+        audio = _make_pure_silent(duration_ms=500)
+        result = trim_and_fade(audio, threshold=-10, is_dry_run=True, apply_fade=True)
+        assert result.status == "SKIP"
+        assert result.trimmed is None
+        assert result.has_silence is True
 
     def test_no_fade_action_does_not_contain_fades_string(self) -> None:
         """When apply_fade=False, action must not mention fades."""
@@ -1226,6 +1242,47 @@ class TestProcessSingleFile:
         assert file_path.read_bytes() == original_bytes
         call_kwargs = on_progress.call_args.kwargs
         assert call_kwargs.get("n_skipped") == 1
+
+    def test_live_run_fully_silent_file_skipped_and_preserved(self, tmp_path) -> None:
+        """H2 outcome: a wholly silent source is left byte-identical, no
+        trim_edit undo snapshot is recorded, and the reported status is skip.
+
+        Before the fix the empty trimmed segment was exported over the
+        original file, truncating it to a few dozen bytes.
+        """
+        from pydub import AudioSegment
+
+        file_path = tmp_path / "silent.wav"
+        AudioSegment.silent(duration=1000).export(str(file_path), format="wav")
+        original_bytes = file_path.read_bytes()
+
+        slot_vars, slot_queue, lock, on_progress = _make_slot_deps()
+        temp_dir_obj = tempfile.mkdtemp()
+        with patch.object(file_processor, "record_tag_edit_snapshot") as mock_snapshot:
+            try:
+                file_processor.process_single_file(
+                    name="silent.wav",
+                    dir_path=str(tmp_path),
+                    is_dry_run=False,
+                    threshold=-50,
+                    apply_fade=False,
+                    fade_in_ms=500,
+                    fade_out_ms=1000,
+                    temp_dir=temp_dir_obj,
+                    slot_vars=slot_vars,
+                    slot_queue=slot_queue,
+                    lock=lock,
+                    on_progress=on_progress,
+                )
+            finally:
+                shutil.rmtree(temp_dir_obj, ignore_errors=True)
+
+        assert file_path.read_bytes() == original_bytes
+        mock_snapshot.assert_not_called()
+        call_kwargs = on_progress.call_args.kwargs
+        assert call_kwargs.get("n_skipped") == 1
+        assert call_kwargs.get("n_errors") == 0
+        assert "SKIP" in call_kwargs.get("display_text", "")
 
     def test_slot_returned_to_queue_after_processing(self, tmp_path) -> None:
         """Slot must be put back in the queue when processing completes."""

@@ -1,4 +1,9 @@
-"""Generate a fresh Music Format Converter guide from current code."""
+"""Generate a fresh Music Format Converter guide from current code.
+
+Changed in 1.0.1: documented in Troubleshooting that when two sources share a
+stem but differ in extension, only the first is converted and the other is
+reported as skipped rather than overwriting the first output.
+"""
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -311,6 +316,14 @@ bullet(
     "Some files skipped in a mixed run: ",
     "Files already in the target format, and lossy files targeted at a "
     "lossless format, are skipped per file — the rest still convert.",
+)
+bullet(
+    doc,
+    "Two sources produced the same output name: ",
+    "When two files in one folder share a stem but differ in extension "
+    "(for example song.flac and song.wav both targeting song.mp3), only the "
+    "first is converted; the other is reported as skipped rather than "
+    "overwriting the first output.",
 )
 bullet(
     doc,

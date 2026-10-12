@@ -9,10 +9,12 @@ from typing import Any
 
 from audio_suite_shared import styles
 from audio_suite_shared.app_bootstrap import bootstrap_tool_app
+from audio_suite_shared.launcher import parse_cli_args
 from audio_suite_shared.ui_helpers import UIHelperMixin
 from cd_ripper.ui.results_tab import ResultsTab
 from cd_ripper.ui.rip_tab import RipTab
 from cd_ripper.ui.setup_tab import SetupTab
+from cd_ripper.utils import cli_args
 
 
 class CDRipperApp(UIHelperMixin):
@@ -20,7 +22,15 @@ class CDRipperApp(UIHelperMixin):
 
     HELP_GUIDE = "CD_Ripper_User_Guide.docx"
 
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(
+        self,
+        root: tk.Tk,
+        *,
+        output_dir: str = "",
+        format: str = "",
+        tracks: str = "",
+        cue: bool = False,
+    ) -> None:
         self.root = root
         self.error_logger, _ = bootstrap_tool_app(
             self.root,
@@ -34,6 +44,12 @@ class CDRipperApp(UIHelperMixin):
         self.root.minsize(860, 950)
         self._apply_styles()
         self._build_ui()
+        self._apply_cli_args(
+            output_dir=output_dir,
+            format=format,
+            tracks=tracks,
+            cue=cue,
+        )
 
     def _apply_styles(self) -> None:
         style = ttk.Style(self.root)
@@ -102,6 +118,52 @@ class CDRipperApp(UIHelperMixin):
         self.notebook.select(2)
         self.results_tab.refresh()
 
+    def _apply_cli_args(
+        self,
+        *,
+        output_dir: str,
+        format: str,
+        tracks: str,
+        cue: bool,
+    ) -> None:
+        """Pre-fill widgets from the Master Driver / CLI arguments.
+
+        Args:
+            output_dir: Output directory from ``--output-dir``.
+            format: Lowercase format name from ``--format``.
+            tracks: Comma-separated track selection from ``--tracks``.
+            cue: Whether to write a CUE sheet (``--cue``).
+        """
+        self.setup_tab.apply_cli_settings(
+            output_dir=output_dir,
+            format_label=cli_args.FORMAT_DISPLAY.get(format.strip().lower(), ""),
+            cue=cue,
+        )
+        selection = cli_args.parse_track_selection(tracks)
+        if selection:
+            self.state["cli_track_filter"] = selection
+
     def _open_help(self) -> None:
         """Open help file with enhanced error handling."""
         self._open_help_standard(self.HELP_GUIDE)
+
+
+def main() -> None:
+    """Main entry point for the CD Ripper.
+
+    Parses the Master-Driver / CLI argv, pre-fills the GUI, and enters
+    the mainloop.
+    """
+    from audio_suite_shared.styles import bootstrap_theme
+
+    args = parse_cli_args(cli_args.parse)
+    root = tk.Tk()
+    bootstrap_theme()
+    CDRipperApp(
+        root,
+        output_dir=args.output_dir,
+        format=args.format,
+        tracks=args.tracks,
+        cue=args.cue,
+    )
+    root.mainloop()

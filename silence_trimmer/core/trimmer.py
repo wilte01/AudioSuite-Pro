@@ -5,6 +5,10 @@ Silence detection, trimming, and optional fade application using pydub.
 Pure function — no tkinter, no file I/O, no temp-file management.
 Accepts a loaded AudioSegment and returns the result so the caller
 controls all file operations.
+
+Changed in 1.0.1: a wholly silent source now returns trimmed=None with a
+SKIP status instead of an empty AudioSegment that callers exported over
+the original file.
 """
 
 from __future__ import annotations
@@ -81,6 +85,21 @@ def trim_and_fade(
             action="No silence detected",
         )
 
+    # A source whose leading plus trailing silence covers its whole length has
+    # no audible content to keep: slicing would yield an empty segment, which
+    # callers would then export over the original file (H2). Report it as a
+    # non-destructive SKIP in both dry-run and live modes.
+    if start_trim + end_trim >= len(audio):
+        return TrimResult(
+            start_trim_ms=start_trim,
+            end_trim_ms=end_trim,
+            total_trim_ms=total_trim,
+            has_silence=True,
+            trimmed=None,
+            status="SKIP",
+            action="Entire file is silence - skipped",
+        )
+
     if is_dry_run:
         return TrimResult(
             start_trim_ms=start_trim,
@@ -93,16 +112,15 @@ def trim_and_fade(
         )
 
     trimmed: AudioSegment = audio[start_trim : len(audio) - end_trim]  # noqa: E203
-    if apply_fade and len(trimmed) > 0:
+    if apply_fade:
         # Clamp fade durations to the trimmed segment's own length. pydub's
         # fade() does not clip a fade that is longer than the segment — it
         # computes a negative internal start offset instead, which produces
         # extra (corrupted/duplicated) audio and silently lengthens the
         # output. Clamping avoids that without changing fade behaviour for
-        # any fade duration that already fits within the trimmed audio.
-        # A clamped value of exactly 0 (fully-silent trimmed segment) is
-        # skipped outright: pydub's fade() treats duration=0 as falsy and
-        # raises TypeError rather than being a no-op fade.
+        # any fade duration that already fits within the trimmed audio. The
+        # slice is guaranteed non-empty here (the wholly silent case returns
+        # above), so a clamped duration is always at least 1ms.
         clamped_fade_in_ms: int = min(fade_in_ms, len(trimmed))
         clamped_fade_out_ms: int = min(fade_out_ms, len(trimmed))
         if clamped_fade_in_ms > 0:

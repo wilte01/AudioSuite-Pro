@@ -123,6 +123,12 @@ doc.add_paragraph(
 bullet(doc, "No silence: ", "The file is marked SKIP and is not rewritten.")
 bullet(
     doc,
+    "Entire file is silence: ",
+    "The file is marked SKIP and left untouched - a fully silent source is "
+    "never replaced with an empty file.",
+)
+bullet(
+    doc,
     "Dry Run: ",
     "The file is marked DRY_RUN with the total milliseconds that would be removed.",
 )

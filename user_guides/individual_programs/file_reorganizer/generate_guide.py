@@ -1,4 +1,9 @@
-"""Generate a fresh File Reorganizer guide from the current implementation."""
+"""Generate a fresh File Reorganizer guide from the current implementation.
+
+Changed in 1.0.1: documented that a copy/move whose destination path already
+exists is skipped rather than overwritten, and listed destination-exists as a
+skip cause in the progress counters.
+"""
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -193,18 +198,19 @@ bullet(
 bullet(
     doc,
     "Conflict behavior: ",
-    "The engine delegates destination handling "
-    "to the underlying copy/move operation; "
-    "review the Preview and keep backups before Move runs.",
+    "A copy or move whose destination path already exists is skipped and "
+    "reported in the Skipped counter; the existing file is never overwritten. "
+    "Review the Preview and resolve conflicts before Execute.",
 )
 
 doc.add_heading("Progress and Statistics", level=1)
 doc.add_paragraph(
     "The GUI reports the current file and four counters: "
     "Scanned, Processed, Skipped, and Errors. "
-    "Skips include files with no usable album/title tags and files whose pattern "
+    "Skips include files with no usable album/title tags, files whose pattern "
     "resolves to an empty "
-    "path. Pattern parsing failures and operating-system/value errors increment Errors."
+    "path, and files whose destination path already exists. Pattern parsing "
+    "failures and operating-system/value errors increment Errors."
 )
 
 doc.add_heading("Command Line", level=1)
@@ -241,8 +247,9 @@ doc.add_heading("Troubleshooting", level=1)
 bullet(
     doc,
     "Files are skipped: ",
-    "Confirm that the file has usable album/title metadata and that the pattern "
-    "produces a non-empty path.",
+    "Confirm that the file has usable album/title metadata, that the pattern "
+    "produces a non-empty path, and that the destination file does not already "
+    "exist.",
 )
 bullet(
     doc,

@@ -16,6 +16,7 @@ from tkinter import filedialog, messagebox, ttk
 from audio_suite_shared import styles, suite_config
 from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.exceptions import AudioSuiteError, handle_audio_errors
+from audio_suite_shared.launcher import parse_cli_args
 from audio_suite_shared.ui_helpers import UIHelperMixin, show_error_from_exception
 from library_stats.core.completeness import (
     CompletenessReport,
@@ -27,6 +28,7 @@ from library_stats.core.completeness import (
 from library_stats.library_cache import LibraryCache
 
 from .library_stats import StatsReport, export_csv, export_json, scan_directory
+from .utils import cli_args
 
 try:
     import matplotlib
@@ -45,7 +47,16 @@ class LibraryStatsApp(UIHelperMixin):
 
     HELP_GUIDE = "Library_Stats_User_Guide.docx"
 
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(
+        self,
+        root: tk.Tk,
+        *,
+        directory: str = "",
+        incremental: bool = False,
+        refresh: bool = False,
+        export_csv: str = "",
+        export_json: str = "",
+    ) -> None:
         self.root = root
         self.error_logger, _ = bootstrap_tool_app(
             self.root,
@@ -63,7 +74,48 @@ class LibraryStatsApp(UIHelperMixin):
         self._use_cache = tk.BooleanVar(value=True)
         self._cache: LibraryCache = LibraryCache()
 
+        self._cli_refresh = False
+        self._cli_export_csv = ""
+        self._cli_export_json = ""
+
+        self._apply_cli_args(
+            directory=directory,
+            incremental=incremental,
+            refresh=refresh,
+            export_csv=export_csv,
+            export_json=export_json,
+        )
         self._build_ui()
+
+    def _apply_cli_args(
+        self,
+        *,
+        directory: str,
+        incremental: bool,
+        refresh: bool,
+        export_csv: str,
+        export_json: str,
+    ) -> None:
+        """Pre-fill application state from the Master Driver / CLI arguments.
+
+        Must run before ``_build_ui`` so that the auto-scan at the end of
+        ``_build_ui`` sees the correct folder path, cache mode, and refresh
+        flag.
+
+        Args:
+            directory: Music directory from argv[1].
+            incremental: Use the cache (``--incremental``).
+            refresh: Force a full re-scan (``--refresh``).
+            export_csv: Path for CSV export.
+            export_json: Path for JSON export.
+        """
+        if directory:
+            self.folder_path.set(directory)
+        if incremental:
+            self._use_cache.set(True)
+        self._cli_refresh = refresh
+        self._cli_export_csv = export_csv
+        self._cli_export_json = export_json
 
     def _build_ui(self) -> None:
         self.root.title("Library Statistics Dashboard")
@@ -185,7 +237,10 @@ class LibraryStatsApp(UIHelperMixin):
 
         # Auto-scan if directory already set
         if self.folder_path.get():
-            self.root.after(500, self._start_scan)
+            if self._cli_refresh:
+                self.root.after(500, self._start_refresh)
+            else:
+                self.root.after(500, self._start_scan)
 
     # ── Summary tab ──────────────────────────────────────────────────────────
 
@@ -510,6 +565,7 @@ class LibraryStatsApp(UIHelperMixin):
         self._update_missing(report)
         self._update_charts(report)
         self._update_completeness(completeness)
+        self._apply_cli_exports(report)
 
     def _on_scan_error(self, exc: Exception) -> None:
         self._scanning = False
@@ -517,6 +573,29 @@ class LibraryStatsApp(UIHelperMixin):
         self._refresh_btn.config(state="normal")
         self._status_var.set("Scan failed. See error dialog for details.")
         show_error_from_exception(exc, title="Scan Error")
+
+    def _apply_cli_exports(self, report: StatsReport) -> None:
+        """Auto-export to CSV/JSON if CLI flags requested it.
+
+        Args:
+            report: The completed statistics report.
+        """
+        if self._cli_export_csv:
+            try:
+                export_csv(report, self._cli_export_csv)
+                self._status_var.set(
+                    f"Exported CSV to {os.path.basename(self._cli_export_csv)}"
+                )
+            except (AudioSuiteError, OSError, ValueError) as exc:
+                show_error_from_exception(exc, title="Export Error")
+        if self._cli_export_json:
+            try:
+                export_json(report, self._cli_export_json)
+                self._status_var.set(
+                    f"Exported JSON to {os.path.basename(self._cli_export_json)}"
+                )
+            except (AudioSuiteError, OSError, ValueError) as exc:
+                show_error_from_exception(exc, title="Export Error")
 
     def _export(self) -> None:
         report = self._report
@@ -808,3 +887,25 @@ class LibraryStatsApp(UIHelperMixin):
             fill=self._colour_for_pct(tc.pct_complete),
             outline="",
         )
+
+
+def main() -> None:
+    """Main entry point for the Library Statistics Dashboard.
+
+    Parses the Master-Driver / CLI argv when no explicit directory is
+    supplied, pre-fills the GUI, and enters the mainloop.
+    """
+    from audio_suite_shared.styles import bootstrap_theme
+
+    args = parse_cli_args(cli_args.parse)
+    root = tk.Tk()
+    bootstrap_theme()
+    LibraryStatsApp(
+        root,
+        directory=args.folder_path,
+        incremental=args.incremental,
+        refresh=args.refresh,
+        export_csv=args.export_csv,
+        export_json=args.export_json,
+    )
+    root.mainloop()

@@ -11,6 +11,10 @@ Owns the temp-directory lifecycle:
 No tkinter imports. All UI interaction via injected callbacks.
 
 Supports: MP3, FLAC, OGG, M4A, Opus, WAV, AIFF
+
+Changed in 1.0.1: an export requires a non-empty trimmed segment, so a
+wholly silent source is left untouched rather than replaced with an empty
+file.
 """
 
 # ── Standard library imports ─────────────────────────────────────────────────
@@ -135,7 +139,12 @@ def process_single_file(
             fade_out_ms=fade_out_ms,
         )
 
-        if not is_dry_run and result.has_silence and result.trimmed is not None:
+        if (
+            not is_dry_run
+            and result.has_silence
+            and result.trimmed is not None
+            and len(result.trimmed) > 0
+        ):
             slot_vars[slot_idx].set(f"Exporting: {name[:25]}...")
             fmt, params = get_export_args(ext)
             result.trimmed.export(temp_output, format=fmt, parameters=params)

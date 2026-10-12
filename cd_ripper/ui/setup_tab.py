@@ -124,8 +124,39 @@ class SetupTab:
 
     # ── Proceed ───────────────────────────────────────────────────────────────
 
+    def apply_cli_settings(
+        self,
+        *,
+        output_dir: str = "",
+        format_label: str = "",
+        cue: bool = False,
+    ) -> None:
+        """Pre-fill the format panel from the Master Driver / CLI arguments.
+
+        The update path for each widget mirrors what the user's interaction
+        triggers, satisfying the project AGENTS pre-fill rule.
+
+        Args:
+            output_dir: Output directory from ``--output-dir``.
+            format_label: GUI display name (e.g. ``"FLAC"``) from ``--format``.
+            cue: Whether to write a CUE sheet (``--cue``).
+        """
+        if output_dir:
+            self._fmt_panel.out_var.set(output_dir)
+            self._fmt_panel.on_out_dir_changed()
+        if format_label:
+            self._fmt_panel.fmt_var.set(format_label)
+            self._fmt_panel.on_fmt_changed()
+        if cue:
+            self._fmt_panel.cue_var.set(True)
+
     def _proceed(self) -> None:
-        if not self.state.get("tracks"):
+        tracks = self.state.get("tracks", [])
+        cli_filter = self.state.get("cli_track_filter")
+        if cli_filter:
+            tracks = [t for t in tracks if t["number"] in cli_filter]
+            self.state["tracks"] = tracks
+        if not tracks:
             ui_common.show_message(
                 self.frame,
                 "No Tracks",

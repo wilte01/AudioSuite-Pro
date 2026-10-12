@@ -252,12 +252,6 @@ def _build_utility_tool_args(
                 if state.library_stats_export_json.get()
                 else []
             )
-            + (["--completeness"] if state.library_stats_completeness.get() else [])
-            + (
-                ["--detail", state.library_stats_detail.get()]
-                if state.library_stats_detail.get()
-                else []
-            )
         ),
         "file_reorganizer": lambda: (
             [

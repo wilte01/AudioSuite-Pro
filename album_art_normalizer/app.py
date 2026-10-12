@@ -34,6 +34,27 @@ logger = logging.getLogger(__name__)
 
 TOOL_ID = "album_art_normalizer"
 
+_RESOLUTION_CHAR = "\u00d7"  # multiplication sign ×
+
+
+def _size_to_resolution(size: str) -> str:
+    """Map a pixel-dimension string from the driver to a ``RESOLUTION_MAP`` key.
+
+    Args:
+        size: A pixel dimension like ``"800"``.
+
+    Returns:
+        The matching ``RESOLUTION_MAP`` key (e.g. ``"800×800"``), or
+        an empty string when *size* is not a valid dimension.
+    """
+    dim = size.strip()
+    if not dim.isdigit():
+        return ""
+    key = f"{dim}{_RESOLUTION_CHAR}{dim}"
+    from .core.art_processor import RESOLUTION_MAP
+
+    return key if key in RESOLUTION_MAP else ""
+
 
 class ArtNormalizerApp(BaseSuiteApp):
     """Album Art Normalizer application GUI."""
@@ -144,6 +165,10 @@ class ArtNormalizerApp(BaseSuiteApp):
     def _apply_cli_args(self) -> None:
         """Parse and apply any command-line arguments."""
         parsed = cli_args.parse()
+        if parsed.size:
+            key = _size_to_resolution(parsed.size)
+            if key:
+                self.resolution.set(key)
         if not parsed.folder_path:
             return
 

@@ -19,10 +19,12 @@ from audio_suite_shared import styles, suite_config, ui_common
 from audio_suite_shared.app_bootstrap import BaseSuiteApp
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.exceptions import AudioSuiteError, handle_audio_errors
+from audio_suite_shared.launcher import parse_cli_args
 from audio_suite_shared.ui_helpers import show_error_from_exception
 
 from .core.defaults import DEFAULT_SPECIFIC, DEFAULT_VARIOUS
 from .core.engine import FileReorganizer, ReorganizerStats
+from .utils import cli_args
 from .utils.config import load_settings, save_settings
 
 
@@ -31,7 +33,16 @@ class FileReorganizerApp(BaseSuiteApp):
 
     _TOOL_ID = "file_reorganizer"
 
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(
+        self,
+        root: tk.Tk,
+        *,
+        directory: str = "",
+        output_dir: str = "",
+        action: str = "",
+        specific_pattern: str = "",
+        various_pattern: str = "",
+    ) -> None:
         super().__init__(
             root,
             "Tag-Based File Reorganizer",
@@ -58,6 +69,13 @@ class FileReorganizerApp(BaseSuiteApp):
         self.setup_ui()
         self._load_settings()
         self._seed_source_from_last_directory()
+        self._apply_cli_args(
+            directory=directory,
+            output_dir=output_dir,
+            action=action,
+            specific_pattern=specific_pattern,
+            various_pattern=various_pattern,
+        )
         self._reorganizer: FileReorganizer | None = None
         self._thread: threading.Thread | None = None
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -449,6 +467,41 @@ class FileReorganizerApp(BaseSuiteApp):
         if last:
             self.source_dir.set(last)
 
+    def _apply_cli_args(
+        self,
+        *,
+        directory: str,
+        output_dir: str,
+        action: str,
+        specific_pattern: str,
+        various_pattern: str,
+    ) -> None:
+        """Pre-fill widgets from the Master Driver / CLI arguments.
+
+        The driver's source directory wins over the suite-wide last-used
+        directory seeded just before this call, matching sibling-tool
+        behaviour.
+
+        Args:
+            directory: Source music directory from argv[1].
+            output_dir: Destination directory from ``--output-dir``.
+            action: ``copy`` or ``move`` from ``--action``.
+            specific_pattern: Pattern template from ``--specific-pattern``.
+            various_pattern: Pattern template from ``--various-pattern``.
+        """
+        if directory:
+            self.source_dir.set(directory)
+        if output_dir:
+            self.dest_dir.set(output_dir)
+        if action in ("copy", "move"):
+            self.action.set(action)
+        if specific_pattern:
+            self.specific_text.delete("1.0", tk.END)
+            self.specific_text.insert("1.0", specific_pattern)
+        if various_pattern:
+            self.various_text.delete("1.0", tk.END)
+            self.various_text.insert("1.0", various_pattern)
+
     def _browse_source(self) -> None:
         d = filedialog.askdirectory(title="Select Source Directory")
         if d:
@@ -642,6 +695,14 @@ class FileReorganizerApp(BaseSuiteApp):
 
 
 def main() -> None:
+    args = parse_cli_args(cli_args.parse)
     root = tk.Tk()
-    app = FileReorganizerApp(root)
+    app = FileReorganizerApp(
+        root,
+        directory=args.folder_path,
+        output_dir=args.output_dir,
+        action=args.action,
+        specific_pattern=args.specific_pattern,
+        various_pattern=args.various_pattern,
+    )
     app.run()

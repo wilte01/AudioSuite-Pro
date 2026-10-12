@@ -16,8 +16,10 @@ from tkinter import filedialog, messagebox, ttk
 from audio_suite_shared.app_bootstrap import BaseSuiteApp
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.exceptions import map_to_audio_error, user_message_for
+from audio_suite_shared.launcher import parse_cli_args
 
 from ..core.processor import ProcessingStats, TagProcessor
+from ..utils import cli_args
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,7 @@ class TagFieldUpdaterApp(BaseSuiteApp):
 
         # Variables
         self.directory = tk.StringVar()
+        self.dry_run = tk.BooleanVar(value=False)
         self.scanning = tk.BooleanVar(value=False)
         self.current_file = tk.StringVar()
         self.processed_count = tk.IntVar(value=0)
@@ -68,6 +71,11 @@ class TagFieldUpdaterApp(BaseSuiteApp):
         ttk.Button(dir_frame, text="Browse...", command=self.browse_directory).grid(
             row=0, column=1
         )
+        ttk.Checkbutton(
+            dir_frame,
+            text="Dry Run (no changes written)",
+            variable=self.dry_run,
+        ).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
 
         # Info frame
         info_frame = ttk.LabelFrame(
@@ -217,20 +225,23 @@ Rules:
         self.stop_button.config(state=tk.NORMAL)
         self.status_var.set("Scanning...")
 
-        thread = threading.Thread(target=self._scan_thread, args=(directory,))
+        dry_run = self.dry_run.get()
+        thread = threading.Thread(target=self._scan_thread, args=(directory, dry_run))
         thread.daemon = True
         thread.start()
 
-    def _scan_thread(self, directory: str) -> None:
+    def _scan_thread(self, directory: str, dry_run: bool) -> None:
         """Worker thread: runs the directory scan and schedules finish on completion.
 
         Args:
             directory: Root directory path passed to :class:`TagProcessor`.
+            dry_run: When True, compute the rewrites and report them but
+                persist nothing to disk.
         """
         try:
             with active_batch("tag_field_updater", "tag_edit"):
                 self.processor.scan_directory(
-                    directory, progress_callback=self._on_progress
+                    directory, dry_run=dry_run, progress_callback=self._on_progress
                 )
         except Exception as exc:
             mapped = map_to_audio_error(exc, context={"directory": directory})
@@ -291,9 +302,19 @@ def main(directory: str | None = None) -> None:
 
     Args:
         directory: Optional path to pre-populate the directory field and
-            start scanning immediately on launch.
+            start scanning immediately on launch.  When ``None``, the
+            Master-Driver / CLI argv is parsed instead (mirror
+            ``Tag_Editor.pyw``).
     """
+    if directory is None:
+        args = parse_cli_args(cli_args.parse)
+        directory = args.folder_path or None
+        dry_run = not args.live_mode
+    else:
+        dry_run = False
+
     app = TagFieldUpdaterApp(tk.Tk())
+    app.dry_run.set(dry_run)
 
     if directory:
         if not os.path.exists(directory):

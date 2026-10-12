@@ -193,6 +193,15 @@ doc.add_paragraph(
     "folder chooser dialog. This is the root directory for the recursive scan."
 )
 
+doc.add_heading("Dry Run", level=2)
+doc.add_paragraph(
+    "The 'Dry Run (no changes written)' checkbox controls whether the scan "
+    "writes tag changes to disk. When checked (the default when launched from "
+    "the Master Driver in Dry Run mode), the tool computes and reports every "
+    "rewrite but persists nothing: no file is saved and no undo record is "
+    "created. Uncheck it to enable live tag writing."
+)
+
 doc.add_heading("Tag Fields to Update", level=2)
 doc.add_paragraph(
     "A read-only information panel listing all target tag fields and the "

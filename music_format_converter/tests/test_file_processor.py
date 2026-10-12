@@ -1,6 +1,8 @@
 """
 Tests for music_format_converter.core.ffmpeg_params (G-29 params matrix)
          music_format_converter.core.file_processor (G-29 pipeline)
+
+Changed in 1.0.1: adds same-stem output-collision regression tests (M4).
 """
 
 import array
@@ -1780,3 +1782,85 @@ class TestRecursiveMixedConversion:
         assert len(errors) == 1
         assert complete == []
         assert not out.exists()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# M4 — same-stem / different-extension output collision (skip-and-warn)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestSameStemCollision:
+    """Two sources mapping to one output path must not overwrite each other.
+
+    ``song.flac`` and ``song.wav`` in one folder both resolve to
+    ``<out>/song.mp3``.  Only the first to claim the path converts; the other
+    is reported as a skip, so a completed output is never silently replaced.
+    """
+
+    def _run(self, in_dir, out_dir, output_format="mp3", delete_originals=False):
+        slot_vars, slot_queue = _make_slot_fixtures(4)
+        progress, complete, errors = [], [], []
+        run_conversion(
+            input_dir=str(in_dir),
+            output_dir=str(out_dir),
+            output_format=output_format,
+            quality="highest",
+            delete_originals=delete_originals,
+            is_dry_run=False,
+            lossy_formats=LOSSY_FORMATS,
+            slot_vars=slot_vars,
+            slot_queue=slot_queue,
+            on_progress=lambda **kw: progress.append(kw),
+            on_complete=lambda **kw: complete.append(kw),
+            on_error=lambda msg: errors.append(msg),
+        )
+        return progress, complete, errors
+
+    def test_same_stem_two_extensions_convert_once_and_skip_the_other(self, tmp_path):
+        a = _make_tone(tmp_path, "song.flac", freq=440)
+        b = _make_tone(tmp_path, "song.wav", freq=880)
+        out = tmp_path / "out"
+
+        progress, complete, errors = self._run(tmp_path, out)
+
+        assert errors == []
+        assert complete[0]["converted"] == 1
+        assert complete[0]["skipped"] == 1
+        assert complete[0]["errors"] == 0
+        # Exactly one output survives; it was not overwritten by the second.
+        assert len(list(out.glob("song.mp3"))) == 1
+        # Copy semantics: neither source is touched.
+        assert os.path.exists(a) and os.path.exists(b)
+        assert (out / "song.mp3").stat().st_size > 0
+        # The collision is surfaced, not silent.
+        assert any("already produced" in kw.get("display_text", "") for kw in progress)
+
+    def test_distinct_stems_both_convert(self, tmp_path):
+        """Positive control: the guard must not touch unrelated outputs."""
+        _make_tone(tmp_path, "one.flac", freq=440)
+        _make_tone(tmp_path, "two.wav", freq=880)
+        out = tmp_path / "out"
+
+        _, complete, errors = self._run(tmp_path, out)
+
+        assert errors == []
+        assert complete[0]["converted"] == 2
+        assert complete[0]["skipped"] == 0
+        assert (out / "one.mp3").exists()
+        assert (out / "two.mp3").exists()
+
+    def test_delete_originals_keeps_the_colliding_source(self, tmp_path):
+        """The skipped source must not be deleted with ``--delete-originals``."""
+        a = _make_tone(tmp_path, "song.flac", freq=440)
+        b = _make_tone(tmp_path, "song.wav", freq=880)
+        out = tmp_path / "out"
+
+        _, complete, errors = self._run(tmp_path, out, delete_originals=True)
+
+        assert errors == []
+        assert complete[0]["converted"] == 1
+        assert complete[0]["skipped"] == 1
+        # Exactly one original was consumed; the colliding source is preserved.
+        remaining = [p for p in (a, b) if os.path.exists(p)]
+        assert len(remaining) == 1
+        assert (out / "song.mp3").exists()

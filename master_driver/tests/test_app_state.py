@@ -310,12 +310,6 @@ class TestAppStateAttributeExistence:
     def test_library_stats_export_json_exists(self, state):
         assert hasattr(state, "library_stats_export_json")
 
-    def test_library_stats_completeness_exists(self, state):
-        assert hasattr(state, "library_stats_completeness")
-
-    def test_library_stats_detail_exists(self, state):
-        assert hasattr(state, "library_stats_detail")
-
     # ── File Reorganizer ───────────────────────────────────────────────────
 
     def test_file_reorg_output_dir_exists(self, state):
@@ -592,12 +586,6 @@ class TestAppStateDefaults:
 
     def test_library_stats_export_json_default_empty(self, state):
         assert state.library_stats_export_json.get() == ""
-
-    def test_library_stats_completeness_default_false(self, state):
-        assert state.library_stats_completeness.get() is False
-
-    def test_library_stats_detail_default_empty(self, state):
-        assert state.library_stats_detail.get() == ""
 
     def test_file_reorg_output_dir_default_empty(self, state):
         assert state.file_reorg_output_dir.get() == ""

@@ -288,8 +288,7 @@ for name, description in (
         "Reads existing tags and presents read-only library "
         "statistics. Card options select "
         "a full or incremental scan, cache refresh, "
-        "tag-completeness analysis with a detail"
-        " category, and CSV/JSON export paths.",
+        "and CSV/JSON export paths.",
     ),
     (
         "Tag-Based File Reorganizer",

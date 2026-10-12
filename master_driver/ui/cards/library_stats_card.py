@@ -56,48 +56,6 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             activebackground=styles.BG_WHITE,
         ).pack(side=tk.LEFT)
 
-        r2 = tk.Frame(body, bg=styles.BG_WHITE)
-        r2.pack(fill="x", pady=1)
-        tk.Checkbutton(
-            r2,
-            text="Show tag completeness analysis",
-            variable=state.library_stats_completeness,
-            font=styles.FONT_CAPTION,
-            bg=styles.BG_WHITE,
-            fg=styles.FG_MAIN,
-            selectcolor=styles.BG_WHITE,
-            activebackground=styles.BG_WHITE,
-        ).pack(side=tk.LEFT)
-
-        r3 = tk.Frame(body, bg=styles.BG_WHITE)
-        r3.pack(fill="x", pady=1)
-        tk.Label(
-            r3,
-            text="Detail Category:",
-            font=styles.FONT_CAPTION,
-            bg=styles.BG_WHITE,
-            fg=styles.FG_MAIN,
-            width=26,
-            anchor="w",
-        ).pack(side=tk.LEFT)
-        ttk.Combobox(
-            r3,
-            textvariable=state.library_stats_detail,
-            state="readonly",
-            width=16,
-            font=styles.FONT_BODY,
-            values=(
-                "",
-                "bpm",
-                "key",
-                "genre",
-                "mood",
-                "tempo_marking",
-                "album_art",
-                "replaygain",
-            ),
-        ).pack(side=tk.LEFT, padx=6)
-
         r4 = tk.Frame(body, bg=styles.BG_WHITE)
         r4.pack(fill="x", pady=1)
         tk.Label(

@@ -155,8 +155,6 @@ def _make_state(root_widget):
     state.library_stats_refresh = tk.BooleanVar(root_widget, value=False)
     state.library_stats_export_csv = tk.StringVar(root_widget, value="")
     state.library_stats_export_json = tk.StringVar(root_widget, value="")
-    state.library_stats_completeness = tk.BooleanVar(root_widget, value=False)
-    state.library_stats_detail = tk.StringVar(root_widget, value="")
 
     state.file_reorg_output_dir = tk.StringVar(root_widget, value="")
     state.file_reorg_action = tk.StringVar(root_widget, value="move")

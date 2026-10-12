@@ -21,6 +21,10 @@ _browse_source / _browse_dest
 _save_settings / _load_settings
   * Persist dest/action/patterns only — never source_dir, whose single
     source of truth is the suite-wide last-used directory
+
+Changed in 1.0.1: TestExecuteFlow::test_execute_thread_runs_in_undo_batch_and_finishes
+stubs ui_common.show_message — _finish() opens the completion modal, and with a
+MagicMock root the real modal builds tk.Toplevel(MagicMock) and loops forever.
 """
 
 from __future__ import annotations
@@ -176,6 +180,42 @@ class TestSettingsPersistence:
         app.various_text.insert.assert_called_once_with("1.0", "va")
 
 
+class TestMainLaunchWiring:
+    def test_main_parses_argv_and_builds_app(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """main() must run the driver argv through parse_cli_args into the app."""
+        import file_reorganizer.app as app_mod
+
+        out = tmp_path / "out"
+        argv = [
+            "file_reorganizer",
+            str(tmp_path),
+            "--output-dir",
+            str(out),
+            "--action",
+            "move",
+        ]
+        captured: dict[str, Any] = {}
+        fake_root = MagicMock()
+
+        def _fake_app(root: Any, **kwargs: Any) -> Any:
+            captured["root"] = root
+            captured.update(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(app_mod.tk, "Tk", lambda: fake_root)
+        monkeypatch.setattr(app_mod, "FileReorganizerApp", _fake_app)
+        monkeypatch.setattr(app_mod, "parse_cli_args", lambda parse_fn: parse_fn(argv))
+
+        app_mod.main()
+
+        assert captured["root"] is fake_root
+        assert captured["directory"] == str(tmp_path)
+        assert captured["output_dir"] == str(out)
+        assert captured["action"] == "move"
+
+
 # ---------------------------------------------------------------------------
 # Stage 3 / item D3 (audit A4): the full app is constructed on a withdrawn
 # Toplevel of the shared hidden root (setup_ui, presets, settings, seeds), and
@@ -262,6 +302,42 @@ class TestRealAppConstruction:
         assert app.specific_text.get("1.0", "end-1c") == "{artist}/{album}"
         assert app.various_text.get("1.0", "end-1c") == "Various/{album}"
 
+    def test_driver_argv_pre_fills_the_widgets(self, app_root, monkeypatch, tmp_path):
+        """G2.1 acceptance: the driver's exact argv pre-fills the app."""
+        from file_reorganizer.app import FileReorganizerApp
+        from file_reorganizer.utils.cli_args import parse
+
+        monkeypatch.setattr(
+            "file_reorganizer.app.suite_config.load_last_directory", lambda: ""
+        )
+        out = tmp_path / "out"
+        argv = [
+            "file_reorganizer",
+            str(tmp_path),
+            "--output-dir",
+            str(out),
+            "--action",
+            "move",
+            "--specific-pattern",
+            "{artist}/{album}",
+            "--various-pattern",
+            "Various/{album}",
+        ]
+        args = parse(argv)
+        app = FileReorganizerApp(
+            app_root,
+            directory=args.folder_path,
+            output_dir=args.output_dir,
+            action=args.action,
+            specific_pattern=args.specific_pattern,
+            various_pattern=args.various_pattern,
+        )
+        assert app.source_dir.get() == str(tmp_path)
+        assert app.dest_dir.get() == str(out)
+        assert app.action.get() == "move"
+        assert app.specific_text.get("1.0", "end-1c") == "{artist}/{album}"
+        assert app.various_text.get("1.0", "end-1c") == "Various/{album}"
+
 
 class TestValidationGuards:
     def _guard_app(self, source: str, dest: str) -> Any:
@@ -282,7 +358,7 @@ class TestValidationGuards:
 
         app = self._guard_app("  ", "anything")
         shown = MagicMock()
-        app_mod.ui_common.show_message = shown  # type: ignore[attr-defined]
+        monkeypatch.setattr(app_mod.ui_common, "show_message", shown)
         monkeypatch.setattr(app_mod, "threading", MagicMock())
 
         app._preview()
@@ -296,7 +372,7 @@ class TestValidationGuards:
 
         app = self._guard_app(str(tmp_path), "")
         shown = MagicMock()
-        app_mod.ui_common.show_message = shown  # type: ignore[attr-defined]
+        monkeypatch.setattr(app_mod.ui_common, "show_message", shown)
         monkeypatch.setattr(app_mod, "threading", MagicMock())
 
         app._preview()
@@ -374,10 +450,19 @@ class TestExecuteFlow:
     def test_execute_thread_runs_in_undo_batch_and_finishes(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path
     ) -> None:
+        import file_reorganizer.app as app_mod
 
         app = _shell_app()
         engine_cls = MagicMock()
         monkeypatch.setattr("file_reorganizer.app.FileReorganizer", engine_cls)
+        # _finish() opens the completion modal. The shell root is a MagicMock,
+        # so the real show_message would build tk.Toplevel(MagicMock) and spin
+        # forever resolving the root window (BaseWidget._root walks .master,
+        # and every attribute access on the mock yields another truthy mock).
+        # Stub the modal; its own behaviour is covered by
+        # audio_suite_shared's show_message tests. This test previously passed
+        # only because a sibling test leaked a global show_message mock.
+        monkeypatch.setattr(app_mod.ui_common, "show_message", MagicMock())
         app.action.get.return_value = "move"
         app.dry_run.get.return_value = False
 

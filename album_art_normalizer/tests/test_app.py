@@ -154,3 +154,58 @@ class TestRunNormalizationD3:
         assert calls["target_size"] == (800, 800)
         assert app._log_entries, "the live session opened its log"
         assert "Embedded target: 800\u00d7800" in app._log_entries[3]
+
+
+# ── G2.5: --size pre-fills resolution ─────────────────────────────────────
+
+
+class TestSizePreFill:
+    """G2.5: the driver's ``--size`` arg must pre-fill the resolution widget."""
+
+    def test_size_1000_sets_1000x1000(self, app_root, monkeypatch, tmp_path):
+        import sys
+
+        from album_art_normalizer.app import ArtNormalizerApp
+
+        monkeypatch.setattr(
+            "album_art_normalizer.app.suite_config.load_last_directory", lambda: ""
+        )
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "album_art_normalizer",
+                str(tmp_path),
+                "0",
+                "--live",
+                "--start",
+                "--end",
+                "--size",
+                "1000",
+            ],
+        )
+        app = ArtNormalizerApp(app_root)
+        assert app.resolution.get() == "1000\u00d71000"
+
+    def test_size_with_bare_launch(self, app_root, monkeypatch):
+        import sys
+
+        from album_art_normalizer.app import ArtNormalizerApp
+
+        monkeypatch.setattr(
+            "album_art_normalizer.app.suite_config.load_last_directory", lambda: ""
+        )
+        monkeypatch.setattr(sys, "argv", ["album_art_normalizer"])
+        app = ArtNormalizerApp(app_root)
+        # Default resolution when no --size is 800×800 (the constructor default).
+        assert app.resolution.get() == "800\u00d7800"
+
+    def test_size_to_resolution_helper(self):
+        from album_art_normalizer.app import _size_to_resolution
+
+        assert _size_to_resolution("800") == "800\u00d7800"
+        assert _size_to_resolution("600") == "600\u00d7600"
+        assert _size_to_resolution("1200") == "1200\u00d71200"
+        assert _size_to_resolution("999") == ""
+        assert _size_to_resolution("abc") == ""
+        assert _size_to_resolution("") == ""
