@@ -12,6 +12,8 @@ Covers:
   - Display-notation overrides (conventional flat spelling)
   - Edge parameters: very short signal, very high sample rate
   - Constant (DC) signal: non-zero but zero-energy in CQT bins
+  - F3 tonality gate: a clearly tonal centre is named even when the modal
+    vote is ambiguous (the real-music calibration that triggered F3)
   - NaN input: must not propagate silently
   - Tie-breaking: major preferred on equal correlation
   - Stereo input: multi-channel array handling
@@ -32,6 +34,7 @@ from audio_suite_shared.analysis_loader import (
 )
 from audio_suite_shared.exceptions import AudioAnalysisError
 from key_detector.core.key_engine import (
+    CLARITY_FLOOR,
     UNKNOWN_KEY,
     analyze_key,
     detect_key,
@@ -151,6 +154,23 @@ def _minor_chord(
 def _white_noise(seed: int) -> npt.NDArray[np.float64]:
     """Seeded unit-variance broadband noise: the atonal F2 negative vector."""
     return np.random.default_rng(seed).normal(0.0, 1.0, N_SAMPLES).astype(np.float64)
+
+
+def _noisy_triad(
+    root_midi: int, noise_amp: float = 0.8, seed: int = 42
+) -> npt.NDArray[np.float64]:
+    """A major triad buried in seeded broadband noise.
+
+    The F3 regression vector (2026-10): a clearly tonal chord whose vote is
+    made ambiguous by the noise, so the margin confidence lands near 0.08 —
+    far below the 0.25 threshold — while the tonal clarity stays well above
+    :data:`CLARITY_FLOOR`. That is the profile the F3 report measured on
+    real recordings (seven of twelve tracks at margins of 0.001-0.015 with
+    clear tonal centres), and it is exactly the case a margin-only fallback
+    gate could never name — the defect F3 fixed.
+    """
+    noisy = _major_chord(root_midi) + noise_amp * _white_noise(seed)
+    return (noisy / np.max(np.abs(noisy))).astype(np.float64)
 
 
 def _write_wav(path: Path, y: npt.NDArray[np.float64], sr: int = SR) -> None:
@@ -570,13 +590,14 @@ class TestRealMaterialBeforeAfter:
         ignores overall magnitude, which Pearson folds in), which is why the
         two methods need different :data:`_MARGIN_SCALE` constants.
 
-        Broadband noise, same decode path — the case F2 exists to fix:
+        Broadband noise, same decode path — the case F2 exists to fix
+        (re-measured under the F3 DC centring):
 
         ==========  =============  ==============  ==================
         path        margin         confidence      result
         ==========  =============  ==============  ==================
-        pearson     0.0462         0.2311          'Unknown'
-        cosine      0.0015         0.0190          'Unknown'
+        pearson     0.0459         0.2293          'Unknown'
+        cosine      0.0015         0.0188          'Unknown'
         ==========  =============  ==============  ==================
 
         Pearson clears the fallback on the decoded path, but only by 0.019,
@@ -629,15 +650,17 @@ class TestRealMaterialBeforeAfter:
         to and read back from the same real WAV path must yield the
         documented fallback, not a fabricated key.
 
-        Measured: pearson margin 0.0462 / confidence 0.2311; cosine margin
-        0.0015 / confidence 0.0190. Both fall back here, but see the margin
+        Re-measured under the F3 centring: the 16-bit WAV carries a tiny
+        quantization DC residual, which the centring removes before the
+        transform. Pearson margin 0.0459 / confidence 0.2293; cosine margin
+        0.0015 / confidence 0.0188. Both fall back here, but see the margin
         comparison in the before/after test above for why only the cosine
         number can be relied on to stay put across noise seeds.
         """
         path = tmp_path / "reference_noise.wav"
         _write_wav(path, _white_noise(12345))
         y, sr = load_analysis_audio(str(path))
-        measured = {"pearson": 0.2311, "cosine": 0.0190}
+        measured = {"pearson": 0.2293, "cosine": 0.0188}
         for correlation, expected_confidence in measured.items():
             analysis = analyze_key(y, sr, correlation=correlation)
             assert analysis.key == UNKNOWN_KEY, correlation
@@ -913,15 +936,81 @@ class TestLowConfidenceFallback:
             assert 0.25 <= analysis.confidence < 0.35
 
     def test_threshold_is_honoured_as_an_explicit_parameter(self) -> None:
-        """The threshold is a documented parameter, not a buried constant."""
+        """The margin threshold is a documented parameter — and since F3 it
+        is one of two gates, not the whole decision.
+
+        The fallback fires only when the margin is below the threshold AND
+        the material has no clear tonal centre (:data:`CLARITY_FLOOR`). A
+        threshold of 0.0 disables the margin gate (every vote is
+        'decisive'); on tonally clear material even a threshold of 1.0
+        cannot force the fallback because the clarity gate names the key;
+        and on tonally empty material the threshold still governs whether
+        the (pseudo-random) vote is accepted.
+        """
         signal = _major_chord(60)
         assert analyze_key(signal, SR, low_confidence_threshold=0.0).key == "C"
-        forced = analyze_key(signal, SR, low_confidence_threshold=1.0)
-        assert forced.key == UNKNOWN_KEY
-        assert forced.is_low_confidence
-        assert forced.confidence == pytest.approx(
+        # A triad is tonally decisive (clarity ~0.24, far above the floor),
+        # so raising the margin threshold alone cannot force the fallback.
+        tonal = analyze_key(signal, SR, low_confidence_threshold=1.0)
+        assert tonal.key == "C"
+        assert not tonal.is_low_confidence
+        assert tonal.confidence == pytest.approx(
             analyze_key(signal, SR).confidence, abs=1.0e-12
         )
+        # The threshold still governs material with no tonal centre: noise at
+        # the default threshold falls back, and a threshold below its margin
+        # accepts the vote.
+        noise = _white_noise(12345)
+        assert analyze_key(noise, SR).key == UNKNOWN_KEY
+        named = analyze_key(noise, SR, low_confidence_threshold=0.001)
+        assert named.key != UNKNOWN_KEY
+        assert not named.is_low_confidence
+
+
+class TestTonalityGate:
+    """F3 (2026-10): real music with an ambiguous modal vote is still named.
+
+    The report that triggered F3: seven of twelve tracks in a real album
+    were 'Detected: Unknown' despite having a clear tonal centre, because
+    their winner-to-runner-up margins were 0.001-0.015 and the old gate made
+    the fallback fire on the margin alone. The noisy-triad vector below is
+    the synthetic stand-in for that profile — the suite never ships
+    commercial audio (F1 constraint) — so the defect is pinned to a
+    behavior-lock test, not to the specific album.
+    """
+
+    def test_tonally_clear_material_with_an_ambiguous_vote_is_named(self) -> None:
+        """A triad buried in noise: margin confidence ~0.08, so the old gate
+        alone would have named it Unknown; tonal clarity ~0.08, well above
+        the floor. The new rule names C major while leaving the reported
+        confidence low, so consumers keep weighting it honestly."""
+        analysis = analyze_key(_noisy_triad(60), SR)
+        assert analysis.key == "C"
+        assert not analysis.is_low_confidence
+        assert analysis.clarity >= CLARITY_FLOOR
+        assert analysis.confidence < 0.25
+
+    def test_broadband_noise_has_no_tonal_centre(self) -> None:
+        """The tonality gate measures what the margin cannot: pure broadband
+        noise has no key standing out from the average, so its clarity sits
+        far below the floor and every seed falls back."""
+        for seed in (12345, 2, 7, 99):
+            analysis = analyze_key(_white_noise(seed), SR)
+            assert analysis.clarity < CLARITY_FLOOR, seed
+            assert analysis.is_low_confidence, seed
+            assert analysis.key == UNKNOWN_KEY, seed
+
+    def test_dc_offset_is_centred_away_before_the_transform(self) -> None:
+        """A pure DC offset previously scored a margin confidence of 0.180 —
+        above six of the twelve real tracks in the F3 report. Centring makes
+        it exactly zero-energy in the chroma domain, so the fallback is
+        reported with a zero confidence and no tonal centre at all rather
+        than a fabricated key."""
+        analysis = analyze_key(np.ones(N_SAMPLES, dtype=np.float64), SR)
+        assert analysis.key == UNKNOWN_KEY
+        assert analysis.is_low_confidence
+        assert analysis.confidence == 0.0
+        assert analysis.clarity == 0.0
 
 
 class TestScoringParameters:

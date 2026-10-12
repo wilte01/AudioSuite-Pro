@@ -33,13 +33,31 @@ Two knobs are exposed so the algorithm can be tuned without editing it:
 * ``weighting`` — how frames are collapsed into the 12-bin pitch-class
   profile (``"uniform"`` = flat mean, ``"energy"`` = energy-weighted).
 
-One consequence to be aware of: when the vote is not decisive
+One consequence to be aware of: when the vote is not defensible
 :func:`detect_key` returns :data:`UNKNOWN_KEY`, and
 ``key_detector.core.file_processor`` deliberately does **not** write that to a
 file's KEY tag (iteration-6 B3). The file's existing tags are left exactly as
 they are and the run reports ``[DETECTED (not tagged)]``. Material with no
 defensible key is therefore reported rather than tagged, instead of receiving
 a fabricated key or a permanent ``"Unknown"`` in the library.
+
+Since the 2026-10 F3 calibration, "defensible" is the *conjunction* of two
+independent gates rather than a single margin threshold, and the signal is
+centred first:
+
+* The signal is de-meaned before the constant-Q transform. A pure DC offset
+  carries no pitch information but leaks into the lowest CQT bins and can
+  masquerade as a tonal centre: the ``np.ones`` fixture scored a margin
+  confidence of 0.180 — above six of the twelve tracks in the real-music
+  report that triggered F3. Centring is a no-op for real audio (already
+  zero-mean) and reproduces every pinned fixture to the 4th decimal.
+* The fallback fires only when the margin confidence is below the threshold
+  **and** there is no clear tonal centre, where the tonal centre is the
+  winning key's lead over the *average* key rather than the runner-up. Real
+  music with an ambiguous modal vote (winner over runner-up near zero) is
+  therefore named instead of dropped, which is what the reported directory
+  exposed: seven of twelve tracks had real tonal centres but margins of only
+  0.001-0.015, so a margin-only gate could never name them.
 """
 
 import logging
@@ -125,13 +143,31 @@ DEFAULT_CORRELATION: CorrelationMethod = "cosine"
 DEFAULT_WEIGHTING: Weighting = "uniform"
 
 #: Confidence at or above this is reported as a real key; below it the
-#: fallback is reported instead. 0.25 sits in the gap between the highest
-#: measured atonal case (a DC offset, confidence 0.180) and the lowest
-#: measured genuine one (a bare monophone, confidence 0.286). It deliberately
-#: leans toward the tonal side — declining to name a key when the material
-#: really has one is the worse failure for a key detector than reporting a
-#: low-confidence guess.
+#: fallback is reported instead — but only when the tonality gate
+#: (:data:`CLARITY_FLOOR`) is also unsatisfied. 0.25 sits in the gap between
+#: the highest measured atonal case under the old margin-only rule (a DC
+#: offset, confidence 0.180) and the lowest measured genuine one (a bare
+#: monophone, confidence 0.286). It deliberately leans toward the tonal
+#: side — declining to name a key when the material really has one is the
+#: worse failure for a key detector than reporting a low-confidence guess.
 DEFAULT_LOW_CONFIDENCE_THRESHOLD: float = 0.25
+
+#: Lowest acceptable tonal clarity for material whose key vote is ambiguous.
+#: Clarity is the winning key's correlation minus the *average* correlation
+#: across all 24 rotations — how far one key stands out from a split vote.
+#: It is computed from the cosine scores regardless of the selected
+#: correlation method, because Pearson's noise scores are documented as
+#: unstable (see :data:`DEFAULT_CORRELATION`) and would otherwise make the
+#: tonality gate as unreliable as the margin it backstops.
+#:
+#: The floor sits between the measured atonal band and the real-music band
+#: (measured cosine clarity, 3 s fixtures and 90 s real tracks): broadband
+#: noise ranges 0.009-0.017 and every other atonal family tested (impulse,
+#: brown and band-limited noise, a sweep) stays below 0.028, while real
+#: music with a genuine (if ambiguous) key measures 0.047-0.145. A synthetic
+#: DC offset measures 0.044 in the raw signal, which is why the signal is
+#: de-meaned first — after centring it measures exactly 0.0.
+CLARITY_FLOOR: float = 0.035
 
 #: Correlation margin treated as a fully decisive vote, per method. These are
 #: round numbers deliberately set ABOVE the measured margin band of real
@@ -151,13 +187,18 @@ class KeyAnalysis:
 
     Attributes:
         key: Detected key in display notation, or :data:`UNKNOWN_KEY` when
-            the confidence fell below the low-confidence threshold.
+            the fallback was reported.
         confidence: Strength of the winning vote in ``[0, 1]``, derived from
             the winning correlation's margin over the runner-up. Low for
             ambiguous material by construction.
         winner_correlation: Correlation of the winning key's profile.
         runner_up_correlation: Correlation of the best *other* key across
             all 24 rotations — the value the margin is measured against.
+        clarity: The winning key's lead over the *average* correlation,
+            i.e. how far one key stands out from a split vote. Computed from
+            the cosine scores (method-independent). The tonality gate: a key
+            with clarity below :data:`CLARITY_FLOOR` is not named even when
+            the margin confidence clears the threshold.
         is_low_confidence: Whether the fallback was reported.
     """
 
@@ -165,6 +206,7 @@ class KeyAnalysis:
     confidence: float
     winner_correlation: float
     runner_up_correlation: float
+    clarity: float
     is_low_confidence: bool
 
 
@@ -258,6 +300,27 @@ def _analyse(
             "for silent audio."
         )
 
+    # Remove any DC offset before the constant-Q transform. A constant (or
+    # near-constant) offset carries no pitch information but leaks into the
+    # lowest CQT bins, where it can masquerade as a tonal centre (the F3
+    # np.ones fixture scored a margin confidence of 0.180 — above six of the
+    # twelve real tracks in the report). De-meaning is a no-op for real
+    # audio (already zero-mean) and is how the benchmark fixtures keep their
+    # pinned values to the 4th decimal.
+    y_f64 = y_f64 - float(np.mean(y_f64))
+
+    # A pure DC offset is now exactly zero: no spectral content, hence no
+    # defensible key. Short-circuit rather than sending zeroes into the CQT.
+    if not np.any(y_f64):
+        return KeyAnalysis(
+            key=UNKNOWN_KEY,
+            confidence=0.0,
+            winner_correlation=0.0,
+            runner_up_correlation=0.0,
+            clarity=0.0,
+            is_low_confidence=True,
+        )
+
     chroma: npt.NDArray[np.float64] = librosa.feature.chroma_cqt(y=y_f64, sr=sr).astype(
         np.float64
     )
@@ -272,6 +335,19 @@ def _analyse(
     runner_up: float = float(scores[int(order[1])])
     winner: float = float(scores[winner_index])
 
+    # Tonal clarity: how far the winning key stands out from the *average*
+    # key. This is the tonality gate (see :data:`CLARITY_FLOOR`) and it must
+    # not be derived from the selected scoring method, because Pearson's
+    # noise scores are documented as unstable — measured across four noise
+    # seeds Pearson's winner-minus-mean for pure broadband noise is 0.53,
+    # high enough to name noise as tonal. Cosine gives 0.012 for the same
+    # material, so clarity always comes from the cosine scores.
+    if correlation == "cosine":
+        tonality_scores: npt.NDArray[np.float64] = scores
+    else:
+        tonality_scores = _all_correlations(profile, "cosine")
+    clarity: float = float(np.max(tonality_scores) - np.mean(tonality_scores))
+
     is_major: bool = winner_index < 12
     tonic_index: int = winner_index if is_major else winner_index - 12
     key: str = _display_name(tonic_index, is_major)
@@ -280,12 +356,22 @@ def _analyse(
     margin: float = winner - runner_up
     confidence: float = float(np.clip(margin / scale, 0.0, 1.0))
 
-    is_low_confidence: bool = confidence < low_confidence_threshold
+    # Fallback requires BOTH gates to fail: the vote is ambiguous (margin
+    # below the threshold) AND the material has no clear tonal centre
+    # (clarity below the floor). Either gate alone is enough to name the
+    # key — that is the F3 fix, which exists because real music with a
+    # genuine but ambiguous modal vote (winner over runner-up near zero)
+    # was being dropped by the margin threshold alone.
+    is_low_confidence: bool = (
+        confidence < low_confidence_threshold and clarity < CLARITY_FLOOR
+    )
     if is_low_confidence:
         logger.debug(
-            "key: low confidence %.3f (margin %.4f, threshold %.3f); reporting %s",
+            "key: low confidence %.3f (margin %.4f, tone clarity %.4f, "
+            "threshold %.3f); reporting %s",
             confidence,
             margin,
+            clarity,
             low_confidence_threshold,
             UNKNOWN_KEY,
         )
@@ -296,6 +382,7 @@ def _analyse(
         confidence=confidence,
         winner_correlation=winner,
         runner_up_correlation=runner_up,
+        clarity=clarity,
         is_low_confidence=is_low_confidence,
     )
 
@@ -314,12 +401,14 @@ def analyze_key(
     """Detect the key of a signal and report how defensible that answer is.
 
     Algorithm:
-        1. Build a chromagram via constant-Q transform.
+        1. Centre the signal (DC-offset removal) and build a chromagram via
+           constant-Q transform.
         2. Collapse it to a 12-element pitch-class profile using *weighting*.
         3. Correlate that profile against all 24 key templates (12 major +
-           12 minor rotations of the K-S profiles) using *correlation*.
+          12 minor rotations of the K-S profiles) using *correlation*.
         4. Report the best rotation, with a confidence taken from its margin
-           over the runner-up.
+           over the runner-up and a tonal clarity taken from its lead over
+           the average key.
 
     Args:
         y:   Audio time-series (mono, float64).  A zero-energy signal
@@ -328,8 +417,11 @@ def analyze_key(
         correlation: ``"cosine"`` (default) or ``"pearson"``. See
             :data:`DEFAULT_CORRELATION` for why cosine is the default.
         weighting: ``"uniform"`` (default flat mean) or ``"energy"``.
-        low_confidence_threshold: Confidence at or above which a real key is
-            reported; below it :data:`UNKNOWN_KEY` is reported instead.
+        low_confidence_threshold: Below this margin confidence the vote is
+            ambiguous — but the fallback is only reported when the signal
+            also lacks a clear tonal centre (:data:`CLARITY_FLOOR`).
+            Material that is ambiguous on margin but tonally clear (e.g.
+            real music whose strongest two keys split the vote) is named.
 
     Returns:
         A :class:`KeyAnalysis`.
@@ -359,11 +451,14 @@ def detect_key(
         sr:  Sample rate in Hz.
         correlation: ``"cosine"`` (default) or ``"pearson"``.
         weighting: ``"uniform"`` (default) or ``"energy"``.
-        low_confidence_threshold: Below this confidence, :data:`UNKNOWN_KEY`
-            is returned instead of a fabricated key.  Callers must not treat
-            :data:`UNKNOWN_KEY` as a taggable value: it means "no vote",
-            not a key.  ``key_detector.core.file_processor`` therefore leaves
-            the file's tags untouched and reports the detection only.
+        low_confidence_threshold: Below this *margin* confidence the vote is
+            ambiguous. The fallback is reported only when the material also
+            lacks a clear tonal centre (:data:`CLARITY_FLOOR`); tonally
+            clear material is named even when its margin is small. Callers
+            must not treat :data:`UNKNOWN_KEY` as a taggable value: it means
+            "no vote", not a key.  ``key_detector.core.file_processor``
+            therefore leaves the file's tags untouched and reports the
+            detection only.
 
     Returns:
         Key string in standard notation, e.g. 'Am', 'F#', 'Eb', or
@@ -408,12 +503,16 @@ def detect_key_with_strength(
     Returns:
         Two-tuple ``(key, strength)``:
         * *key* — the same display string :func:`detect_key` returns, or
-          :data:`UNKNOWN_KEY` for material with no defensible key.
+          :data:`UNKNOWN_KEY` for material with neither a decisive vote nor
+          a clear tonal centre.
         * *strength* — the confidence in ``[0, 1]``: how far the winning
           correlation leads the runner-up, saturated at a fully decisive
           margin. Ambiguous material scores near 0, decisive material near
           1. Callers that weight a decision by this value therefore
-          automatically down-weight an ``"Unknown"`` result.
+          automatically down-weight an ``"Unknown"`` result. Note that a
+          named key can still carry a low strength: real music whose modal
+          vote is ambiguous but whose tonal centre is clear is named by the
+          clarity gate while the strength reflects the split vote.
 
     Raises:
         AudioAnalysisError: If *y* contains no energy (all-zero / silence).
