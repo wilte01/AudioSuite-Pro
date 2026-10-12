@@ -296,6 +296,18 @@ through `PLAN_iteration9_golive.md`.
   bytes were unrecoverable. The action now skips such targets, reports
   `SKIPPED (destination exists): <target>` and counts them in the skipped
   total instead of the processed total.
+- **An internal error crashed the Album Art Sync CLI with `AttributeError`.**
+  `resolve_and_apply` could return `None` on an unexpected error while its
+  callers assumed a report object existed, so the run ended with
+  `FATAL: 'NoneType' object has no attribute 'total_files'` and no usable
+  summary. It now returns a `success=False` report with a readable
+  `Error: ...` line, and the detailed traceback is kept in the log file.
+- **One un-embeddable file aborted an entire Album Art Sync batch.** The
+  per-file embed step caught only `OSError`/`ValueError`, but a corrupt or
+  invalid file raises `AudioSuiteError`, which escaped the per-file handler and
+  stopped the whole album mid-run. The handler now includes `AudioSuiteError`,
+  so the offending file is reported as a skipped warning and the remaining
+  files are still processed.
 
 ### Removed
 

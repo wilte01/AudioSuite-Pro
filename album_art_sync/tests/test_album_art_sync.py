@@ -32,6 +32,9 @@ Coverage:
 
 All external I/O (network, filesystem, tkinter, audio tags, shared-library
 functions) is mocked.  The suite is headless and requires no display.
+
+Changed in 1.0.1: added an L3 regression asserting a per-file AudioSuiteError
+from embed_artwork does not abort the album batch.
 """
 
 from __future__ import annotations
@@ -1636,6 +1639,40 @@ class TestArtworkApplier:
             )
         assert result is True
         assert call_count == 3  # All files attempted despite first failure
+
+    def test_audiosuite_error_for_one_file_does_not_abort_others(
+        self, tmp_path: Path, square_jpeg_bytes: bytes
+    ) -> None:
+        """L3 (G4.2): embed_artwork raises AudioSuiteError (via
+        ``handle_audio_errors(reraise=True)``), which is neither OSError nor
+        ValueError — the per-file catch must include it or one bad file aborts
+        the whole album."""
+        from audio_suite_shared.exceptions import AudioTagError
+
+        attempted: list[str] = []
+
+        def embed_side_effect(path: str, data: bytes) -> None:
+            attempted.append(Path(path).name)
+            if Path(path).name == "a.mp3":
+                raise AudioTagError("corrupt tags")
+
+        with patch(
+            "album_art_sync.core.artwork_applier.embed_artwork",
+            side_effect=embed_side_effect,
+        ):
+            result = artwork_applier.apply(
+                path=str(tmp_path),
+                files=["a.mp3", "b.mp3", "c.mp3"],
+                img_raw=square_jpeg_bytes,
+                mode="Update Artwork",
+                embed_size=800,
+                purge=False,
+                log=Mock(),
+                cancel_flag=Mock(return_value=False),
+                on_file_progress=Mock(),
+            )
+        assert result is True
+        assert attempted == ["a.mp3", "b.mp3", "c.mp3"]
 
     def test_progress_callback_called_on_batch_boundaries(
         self, tmp_path: Path, square_jpeg_bytes: bytes

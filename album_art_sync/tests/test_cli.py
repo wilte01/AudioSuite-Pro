@@ -1,4 +1,8 @@
-"""Tests for album_art_sync CLI commands."""
+"""Tests for album_art_sync CLI commands.
+
+Changed in 1.0.1: added an M1 regression asserting an internal pipeline error
+prints a clean error line and never a 'NoneType' AttributeError traceback.
+"""
 
 from __future__ import annotations
 
@@ -108,3 +112,39 @@ class TestAlbumArtUndoBatch:
         assert result.exit_code == 0
         mock_active_batch.assert_called_once_with("album_art_sync", "tag_edit")
         mock_resolve.assert_called_once()
+
+
+class TestAlbumArtErrorContract:
+    """M1 (G4.1): an internal pipeline error must not surface as a crash.
+
+    Pre-fix, ``resolve_and_apply`` returned ``None`` and ``run_cli_art_sync``
+    read ``report.total_files``, so ``_run_tool`` reported
+    ``FATAL: 'NoneType' object has no attribute 'total_files'``.  Post-fix the
+    failure report reaches ``on_complete`` and the run prints a clean
+    "Error: ..." line.
+    """
+
+    def test_internal_error_prints_clean_line_not_traceback(
+        self, runner: CliRunner, audio_dir: Path
+    ):
+        (audio_dir / "track.mp3").write_bytes(b"fake mp3 content")
+        with (
+            patch(
+                "album_art_sync.core.pipeline.source_resolver.resolve",
+                side_effect=RuntimeError("resolver exploded"),
+            ),
+            patch(
+                "album_art_sync.core.pipeline.read_artist_album",
+                return_value=("Artist", "Album"),
+            ),
+            patch("album_art_sync.core.pipeline.read_album_artist", return_value=""),
+            patch("album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}),
+            patch("album_art_sync.config.settings.load_config", return_value={}),
+        ):
+            result = runner.invoke(cli, ["album-art", str(audio_dir), "--live"])
+
+        assert result.exit_code == 0
+        assert "Error: Audio analysis failed" in result.output
+        assert "AttributeError" not in result.output
+        assert "NoneType" not in result.output
+        assert "FATAL" not in result.output

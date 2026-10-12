@@ -1,4 +1,8 @@
-"""Tests for album_art_sync.core.pipeline — resolve_and_apply()."""
+"""Tests for album_art_sync.core.pipeline — resolve_and_apply().
+
+Changed in 1.0.1: added an M1 regression suite asserting an unexpected error
+yields a readable failure ArtSyncReport instead of None.
+"""
 
 from __future__ import annotations
 
@@ -499,3 +503,84 @@ class TestAlbumMbidForwarding:
         mock_fanart.assert_not_called()
         mock_deezer.assert_not_called()
         mock_itunes.assert_not_called()
+
+
+class TestResolveAndApplyErrorContract:
+    """M1 (G4.1): an unexpected error must yield a failure report, never None.
+
+    The function is annotated ``-> ArtSyncReport``; the previous
+    ``@handle_audio_errors(reraise=False)`` swallow returned ``None`` and the CLI
+    then raised ``AttributeError: 'NoneType' object has no attribute
+    'total_files'``.  These tests pin the replacement contract: every field of
+    the returned report is readable.
+    """
+
+    def test_resolver_exception_returns_readable_failure_report(
+        self, mp3_file: Path, log_cb: mock.Mock
+    ) -> None:
+        with (
+            mock.patch(
+                "album_art_sync.core.pipeline.source_resolver.resolve",
+                side_effect=RuntimeError("resolver exploded"),
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_artist_album",
+                return_value=("Artist", "Album"),
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_album_artist", return_value=""
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}
+            ),
+            mock.patch("album_art_sync.config.settings.load_config", return_value={}),
+        ):
+            report = resolve_and_apply(
+                str(mp3_file.parent),
+                auto_select=True,
+                dry_run=False,
+                log_callback=log_cb,
+            )
+
+        assert report is not None
+        assert report.success is False
+        assert report.errors == 1
+        assert report.total_files == 0
+        assert report.processed == 0
+        assert any("Error:" in entry for entry in report.log_entries)
+
+    def test_apply_exception_returns_readable_failure_report(
+        self, mp3_file: Path, log_cb: mock.Mock
+    ) -> None:
+        with (
+            mock.patch(
+                "album_art_sync.core.pipeline.source_resolver.resolve",
+                return_value=(b"image_bytes", "Fanart.tv"),
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.apply_artwork",
+                side_effect=RuntimeError("apply exploded"),
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_artist_album",
+                return_value=("Artist", "Album"),
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_album_artist", return_value=""
+            ),
+            mock.patch(
+                "album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}
+            ),
+            mock.patch("album_art_sync.config.settings.load_config", return_value={}),
+        ):
+            report = resolve_and_apply(
+                str(mp3_file.parent),
+                auto_select=True,
+                dry_run=False,
+                log_callback=log_cb,
+            )
+
+        assert report.success is False
+        assert report.errors == 1
+        assert report.total_files == 0
+        assert any("Error:" in entry for entry in report.log_entries)

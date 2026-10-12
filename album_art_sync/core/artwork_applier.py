@@ -3,6 +3,10 @@ artwork_applier.py — Image processing and multi-format tag embedding.
 No tkinter imports; progress reported via callback.
 
 Supports: MP3, FLAC, OGG, M4A, Opus
+
+Changed in 1.0.1: the per-file and outer catches now include AudioSuiteError,
+which embed_artwork raises (via handle_audio_errors(reraise=True)), so one
+un-embeddable file no longer aborts the rest of the album.
 """
 
 # ── Standard library imports ─────────────────────────────────────────────────
@@ -16,6 +20,7 @@ from PIL import Image
 
 # ── Shared-library imports ───────────────────────────────────────────────────
 from audio_suite_shared.exceptions import (
+    AudioSuiteError,
     map_to_audio_error,
     user_message_for,
 )
@@ -97,7 +102,7 @@ def apply(
                     return False
                 try:
                     embed_artwork(os.path.join(path, f), tag_bytes)
-                except (OSError, ValueError) as exc:
+                except (OSError, ValueError, AudioSuiteError) as exc:
                     mapped = map_to_audio_error(exc, context={"file": f})
                     logger.warning(
                         "Artwork embed failed for %s: %s", f, mapped, exc_info=True
@@ -116,7 +121,7 @@ def apply(
 
         return True
 
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, AudioSuiteError) as exc:
         mapped = map_to_audio_error(exc, context={"operation": "artwork_apply"})
         logger.error("Artwork apply failed: %s", mapped, exc_info=True)
         log(f"  ✗ Error applying artwork: {user_message_for(mapped)}")

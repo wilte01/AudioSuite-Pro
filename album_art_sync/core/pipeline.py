@@ -1,4 +1,9 @@
-"""Non-interactive pipeline — resolve artwork and apply to all files in a directory."""
+"""Non-interactive pipeline — resolve artwork and apply to all files in a directory.
+
+Changed in 1.0.1: when an unexpected error escapes, resolve_and_apply now
+returns a failure ArtSyncReport instead of None, honouring its -> ArtSyncReport
+contract so the CLI can no longer crash with an AttributeError.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +17,6 @@ import requests
 
 from audio_suite_shared.exceptions import (
     AudioConfigurationError,
-    handle_audio_errors,
     map_to_audio_error,
     user_message_for,
 )
@@ -85,7 +89,6 @@ def _download_image(url: str) -> bytes | None:
         return None
 
 
-@handle_audio_errors(reraise=False, context="art_sync_resolve_and_apply")
 def resolve_and_apply(
     directory: str | os.PathLike[str],
     *,
@@ -125,7 +128,9 @@ def resolve_and_apply(
     Returns
     -------
     ArtSyncReport
-        Summary of the operation including audit trail.
+        Summary of the operation including audit trail.  An unexpected error
+        yields a ``success=False`` report (never ``None``) so callers can read
+        every field safely.
     """
     if progress_callback is None:
         progress_callback = _no_op
@@ -145,129 +150,154 @@ def resolve_and_apply(
         selection_audit_lines.append(msg)
         _log(msg)
 
-    if not os.path.isdir(path):
-        _log(f"Error: directory does not exist: {path}")
-        return ArtSyncReport(
-            success=False,
-            source=None,
-            total_files=0,
-            processed=0,
-            skipped=0,
-            errors=1,
-            duration_secs=time.monotonic() - start,
-            log_entries=log_entries,
-        )
-
-    files = [
-        f for f in os.listdir(path) if f.lower().endswith(tuple(SUPPORTED_EXTENSIONS))
-    ]
-    if not files:
-        _log("Error: no supported audio files found in directory")
-        return ArtSyncReport(
-            success=False,
-            source=None,
-            total_files=0,
-            processed=0,
-            skipped=0,
-            errors=1,
-            duration_secs=time.monotonic() - start,
-            log_entries=log_entries,
-        )
-
-    first_file = os.path.join(path, files[0])
     try:
-        artist, album = read_artist_album(first_file)
-        album_artist = read_album_artist(first_file)
+        if not os.path.isdir(path):
+            _log(f"Error: directory does not exist: {path}")
+            return ArtSyncReport(
+                success=False,
+                source=None,
+                total_files=0,
+                processed=0,
+                skipped=0,
+                errors=1,
+                duration_secs=time.monotonic() - start,
+                log_entries=log_entries,
+            )
+
+        files = [
+            f
+            for f in os.listdir(path)
+            if f.lower().endswith(tuple(SUPPORTED_EXTENSIONS))
+        ]
+        if not files:
+            _log("Error: no supported audio files found in directory")
+            return ArtSyncReport(
+                success=False,
+                source=None,
+                total_files=0,
+                processed=0,
+                skipped=0,
+                errors=1,
+                duration_secs=time.monotonic() - start,
+                log_entries=log_entries,
+            )
+
+        first_file = os.path.join(path, files[0])
+        try:
+            artist, album = read_artist_album(first_file)
+            album_artist = read_album_artist(first_file)
+        except Exception as exc:
+            mapped = map_to_audio_error(exc)
+            _log(f"Error reading file metadata: {user_message_for(mapped)}")
+            return ArtSyncReport(
+                success=False,
+                source=None,
+                total_files=len(files),
+                processed=0,
+                skipped=0,
+                errors=1,
+                duration_secs=time.monotonic() - start,
+                log_entries=log_entries,
+            )
+
+        lookup_artist = album_artist if album_artist else artist
+        # Never raises: an unreadable/untagged file yields an empty dict.
+        album_mbid = read_musicbrainz_ids(first_file).get("MUSICBRAINZ_ALBUMID", "")
+        _audit(f'Artist: "{lookup_artist}"  Album: "{album}"')
+        _audit(
+            "Sources queried: Cover Art Archive → MusicBrainz → "
+            "Fanart.tv → Deezer → iTunes"
+        )
+        if album_mbid:
+            _audit(f'MusicBrainz release ID from tags: "{album_mbid}"')
+        _audit("")
+        _log(f"Files: {len(files)} audio file(s)")
+
+        app_config = load_config(__file__)
+        on_pick: Callable[..., Any]
+        if auto_select:
+            on_pick = _auto_select_pick
+        else:
+            raise AudioConfigurationError(
+                "Non-auto-select mode requires a custom on_pick callback; "
+                "use source_resolver.resolve() directly for interactive use."
+            )
+
+        img_raw, source_used = source_resolver.resolve(
+            artist=lookup_artist,
+            album=album,
+            fanart_config=app_config.get("fanart", {}),
+            log=_log,
+            cancel_flag=lambda: False,
+            on_pick=on_pick,
+            min_art_dimension=min_art_dimension,
+            album_match_threshold=album_match_threshold,
+            album_mbid=album_mbid,
+        )
+
+        if img_raw and source_used:
+            _audit(f"✓ Selected from {source_used}")
+            _log("")
+
+            if dry_run:
+                _log(f"[Dry Run] Would apply artwork from {source_used}")
+                _log(f"[Dry Run] Would embed at {embed_size}×{embed_size}")
+                _log(f"[Dry Run] Purge={'yes' if purge else 'no'}")
+                processed = len(files)
+            else:
+                _log(f"Artwork retrieved from {source_used}")
+                mode = "Update Artwork"
+                success_flag = apply_artwork(
+                    path=path,
+                    files=files,
+                    img_raw=img_raw,
+                    mode=mode,
+                    embed_size=embed_size,
+                    purge=purge,
+                    log=_log,
+                    cancel_flag=lambda: False,
+                    on_file_progress=lambda i: progress_callback(
+                        processed=i,
+                        total=len(files),
+                        display_text=f"Processed {i}/{len(files)} files",
+                    ),
+                )
+                processed = len(files) if success_flag else 0
+        else:
+            source_used = None
+            _audit("✗ No artwork found from any source")
+            processed = 0
+
+        elapsed = time.monotonic() - start
+        return ArtSyncReport(
+            success=img_raw is not None,
+            source=source_used,
+            total_files=len(files),
+            processed=processed,
+            skipped=0,
+            errors=0,
+            duration_secs=elapsed,
+            log_entries=log_entries,
+            selection_audit="\n".join(selection_audit_lines),
+        )
     except Exception as exc:
-        mapped = map_to_audio_error(exc)
-        _log(f"Error reading file metadata: {user_message_for(mapped)}")
+        mapped = map_to_audio_error(
+            exc, context={"operation": "art_sync_resolve_and_apply"}
+        )
+        logger.error(
+            "[%s] art_sync_resolve_and_apply: %s",
+            type(mapped).__name__,
+            mapped.message,
+        )
+        logger.debug("Artwork pipeline failure detail", exc_info=True)
+        _log(f"Error: {user_message_for(mapped)}")
         return ArtSyncReport(
             success=False,
             source=None,
-            total_files=len(files),
+            total_files=0,
             processed=0,
             skipped=0,
             errors=1,
             duration_secs=time.monotonic() - start,
             log_entries=log_entries,
         )
-
-    lookup_artist = album_artist if album_artist else artist
-    # Never raises: an unreadable/untagged file yields an empty dict.
-    album_mbid = read_musicbrainz_ids(first_file).get("MUSICBRAINZ_ALBUMID", "")
-    _audit(f'Artist: "{lookup_artist}"  Album: "{album}"')
-    _audit(
-        "Sources queried: Cover Art Archive → MusicBrainz → Fanart.tv → Deezer → iTunes"
-    )
-    if album_mbid:
-        _audit(f'MusicBrainz release ID from tags: "{album_mbid}"')
-    _audit("")
-    _log(f"Files: {len(files)} audio file(s)")
-
-    app_config = load_config(__file__)
-    on_pick: Callable[..., Any]
-    if auto_select:
-        on_pick = _auto_select_pick
-    else:
-        raise AudioConfigurationError(
-            "Non-auto-select mode requires a custom on_pick callback; "
-            "use source_resolver.resolve() directly for interactive use."
-        )
-
-    img_raw, source_used = source_resolver.resolve(
-        artist=lookup_artist,
-        album=album,
-        fanart_config=app_config.get("fanart", {}),
-        log=_log,
-        cancel_flag=lambda: False,
-        on_pick=on_pick,
-        min_art_dimension=min_art_dimension,
-        album_match_threshold=album_match_threshold,
-        album_mbid=album_mbid,
-    )
-
-    if img_raw and source_used:
-        _audit(f"✓ Selected from {source_used}")
-        _log("")
-
-        if dry_run:
-            _log(f"[Dry Run] Would apply artwork from {source_used}")
-            _log(f"[Dry Run] Would embed at {embed_size}×{embed_size}")
-            _log(f"[Dry Run] Purge={'yes' if purge else 'no'}")
-            processed = len(files)
-        else:
-            _log(f"Artwork retrieved from {source_used}")
-            mode = "Update Artwork"
-            success_flag = apply_artwork(
-                path=path,
-                files=files,
-                img_raw=img_raw,
-                mode=mode,
-                embed_size=embed_size,
-                purge=purge,
-                log=_log,
-                cancel_flag=lambda: False,
-                on_file_progress=lambda i: progress_callback(
-                    processed=i,
-                    total=len(files),
-                    display_text=f"Processed {i}/{len(files)} files",
-                ),
-            )
-            processed = len(files) if success_flag else 0
-    else:
-        source_used = None
-        _audit("✗ No artwork found from any source")
-        processed = 0
-
-    elapsed = time.monotonic() - start
-    return ArtSyncReport(
-        success=img_raw is not None,
-        source=source_used,
-        total_files=len(files),
-        processed=processed,
-        skipped=0,
-        errors=0,
-        duration_secs=elapsed,
-        log_entries=log_entries,
-        selection_audit="\n".join(selection_audit_lines),
-    )
