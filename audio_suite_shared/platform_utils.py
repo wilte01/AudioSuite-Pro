@@ -3,9 +3,14 @@ platform_utils.py — Cross-platform helpers for the Audio Suite.
 
 Provides OS-aware file/folder opening, user-guide launching, and
 window placement/persistence, used identically across all suite tools.
+
+Changed in 1.0.1: restore saved window geometry on monitors with negative
+X/Y coordinates (Tk's ``WxH-X-Y`` form is now parsed instead of split on
+``+``, which dropped any signed coordinate).
 """
 
 import logging
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -198,6 +203,33 @@ def open_help(guide_filename: str) -> None:
         )
 
 
+_GEOMETRY_RE = re.compile(r"^=?(?P<w>\d+)x(?P<h>\d+)(?P<x>[+-]\d+)(?P<y>[+-]\d+)$")
+
+
+def _parse_geometry_origin(geometry: str) -> tuple[int, int] | None:
+    """Extract the signed ``(x, y)`` origin from a Tk geometry string.
+
+    Tk renders a window geometry as ``WxH±X±Y`` where **each** coordinate
+    carries its own sign, so a window on a monitor to the left of the primary
+    is ``800x600-1920+40`` — not ``800x600+-1920+40``.  Splitting such a
+    string on ``"+"`` drops the negative coordinate, so the origin must be
+    parsed as a signed pair.  An optional leading ``=`` is accepted and
+    ignored.
+
+    Args:
+        geometry: The geometry string as returned by ``root.geometry()``.
+
+    Returns:
+        The ``(x, y)`` screen offset, or ``None`` when the string is not a
+        well-formed ``WxH+X+Y`` / ``WxH-X-Y`` geometry so the caller can fall
+        back to centering.
+    """
+    match = _GEOMETRY_RE.match(geometry)
+    if match is None:
+        return None
+    return int(match.group("x")), int(match.group("y"))
+
+
 def setup_window(
     root: Any, width: int, height: int, config_module: Any, config_key: str
 ) -> None:
@@ -260,21 +292,12 @@ def setup_window(
     try:
         saved = config_module.load_value(config_key)
         if saved:
-            # geometry string is typically "WxH+X+Y" (X/Y may be negative)
-            try:
-                # Avoid regex to keep dependencies minimal.
-                # Examples: "1250x950+10+20", "800x600+-1920+40"
-                parts = saved.split("+")
-                if len(parts) >= 3:
-                    x_str = parts[1]
-                    y_str = parts[2]
-                    x, y = int(x_str), int(y_str)
-                    if _is_on_screen(x, y):
-                        root.geometry(saved)
-                        restored = True
-            except (ValueError, IndexError):
-                # Handle malformed geometry string
-                restored = False
+            # geometry string is "WxH±X±Y" — X/Y carry their own sign, so
+            # "800x600-1920+40" must parse without splitting on "+".
+            origin = _parse_geometry_origin(saved)
+            if origin is not None and _is_on_screen(*origin):
+                root.geometry(saved)
+                restored = True
     except (OSError, subprocess.CalledProcessError) as _exc:
         logger.debug(
             "Could not restore window geometry from config: %s", _exc, exc_info=True

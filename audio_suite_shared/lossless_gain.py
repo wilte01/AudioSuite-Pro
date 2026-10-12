@@ -76,6 +76,10 @@ Limitations
   **rejected** with ``AudioFormatError``: the frame size cannot be
   derived from the header, so the walker cannot advance frame-by-frame.
 - Files with no valid MPEG frames raise ``AudioFormatError``.
+
+Changed in 1.0.1: a valid MP3 whose ``global_gain`` fields are already all
+at a clamp bound is now reported as "no change" (returns 0) instead of the
+misleading ``AudioFormatError`` "No valid MPEG Layer III frames found".
 """
 
 from __future__ import annotations
@@ -324,13 +328,21 @@ def apply_track_gain(path: str, gain_delta_db: float) -> int:
         return 0
 
     with open(path, "r+b") as fh:
-        modified = _modify_mp3_gains(fh, delta)
+        frames_seen, modified = _modify_mp3_gains(fh, delta)
 
-    if modified == 0:
+    if frames_seen == 0:
         raise AudioFormatError(
             f"No valid MPEG Layer III frames found in: {path}",
             context={"file": path},
         )
+    # Frames were walked but none changed: every field is already at the clamp
+    # bound.  This is a valid "no change" outcome, not an unreadable file.
+    if modified == 0:
+        logger.info(
+            "No gain change required for %s (already at the gain limit)",
+            path,
+        )
+        return 0
     # Snapshot only after the walk validated the frames — an invalid or
     # rejected file must never leave an undo row for a file that did not
     # change.
@@ -368,12 +380,21 @@ def apply_album_gain(file_paths: list[str], album_gain_db: float) -> dict[str, i
     results: dict[str, int] = {}
     for path in file_paths:
         with open(path, "r+b") as fh:
-            count = _modify_mp3_gains(fh, delta)
-        if count == 0:
+            frames_seen, count = _modify_mp3_gains(fh, delta)
+        if frames_seen == 0:
             raise AudioFormatError(
                 f"No valid MPEG Layer III frames found in: {path}",
                 context={"file": path},
             )
+        # Frames were walked but none changed: the file is already at the
+        # gain limit.  Record a zero-change result, not a failure.
+        if count == 0:
+            logger.info(
+                "No gain change required for %s (already at the gain limit)",
+                path,
+            )
+            results[path] = 0
+            continue
         # Snapshot only after the walk validated the frames (P3 ordering).
         record_tag_edit_snapshot(path, "lossless_gain_album")
         results[path] = count
@@ -525,7 +546,7 @@ def _is_xing_or_info_header(data: bytearray, sync_offset: int, header: int) -> b
 def _walk_frames(
     data: bytearray,
     callback: Callable[[int, int, int, list[int]], None] | None = None,
-) -> None:
+) -> int:
     """Walk all valid MPEG Layer III frames in *data*.
 
     For each frame, calls ``callback(frame_offset, header, frame_size,
@@ -542,9 +563,15 @@ def _walk_frames(
     Args:
         data: Full file contents as a byte array.
         callback: Optional callable receiving frame metadata.
+
+    Returns:
+        Number of audio frames walked (Xing/Info/VBRI header frames and
+        non-frame bytes are not counted).  Zero means the file carries no
+        valid MPEG Layer III audio frames.
     """
     length = len(data)
     pos = 0
+    frames_walked = 0
 
     while pos < length - 4:
         if data[pos] != 0xFF or (data[pos + 1] & 0xE0) != 0xE0:
@@ -583,11 +610,14 @@ def _walk_frames(
 
         if callback is not None:
             callback(pos, header, size if size > 0 else 0, gg_bit_offs)
+        frames_walked += 1
 
         pos += size if size > 0 else 4
 
+    return frames_walked
 
-def _modify_mp3_gains(fh: BinaryIO, delta: int) -> int:
+
+def _modify_mp3_gains(fh: BinaryIO, delta: int) -> tuple[int, int]:
     """Modify every global_gain field in every frame by *delta*, in-place.
 
     Each frame carries multiple global_gain fields (2 granules × n channels
@@ -599,7 +629,12 @@ def _modify_mp3_gains(fh: BinaryIO, delta: int) -> int:
         delta: Integer gain delta to add to each frame's global_gain fields.
 
     Returns:
-        Number of frames in which at least one field was modified.
+        ``(frames_seen, modified)`` where ``frames_seen`` is the number of
+        valid audio frames walked and ``modified`` is the number of frames
+        in which at least one field actually changed.  ``frames_seen == 0``
+        means the file carries no valid MPEG Layer III audio frames;
+        ``frames_seen > 0 and modified == 0`` means the file is already at
+        the gain clamp bound (a no-op, not an error).
     """
     fh.seek(0)
     data = bytearray(fh.read())
@@ -622,10 +657,10 @@ def _modify_mp3_gains(fh: BinaryIO, delta: int) -> int:
         if frame_changed:
             modified += 1
 
-    _walk_frames(data, _modify)
+    frames_seen = _walk_frames(data, _modify)
 
     if modified > 0:
         fh.seek(0)
         fh.write(bytes(data))
 
-    return modified
+    return frames_seen, modified

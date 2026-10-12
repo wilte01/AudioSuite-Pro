@@ -308,6 +308,13 @@ through `PLAN_iteration9_golive.md`.
   stopped the whole album mid-run. The handler now includes `AudioSuiteError`,
   so the offending file is reported as a skipped warning and the remaining
   files are still processed.
+- **A valid, gain-saturated MP3 was reported as "no valid frames".** When every
+  `global_gain` field of an MP3 already sat at the `0`–`255` clamp bound, a gain
+  that changed nothing was counted as "zero frames found", so a batch marked a
+  perfectly good file as errored with `No valid MPEG Layer III frames found`.
+  The frame walk now distinguishes frames *seen* from frames *changed*: an
+  already-saturated file is a silent no-change success, and the error is raised
+  only for a genuinely frame-less file.
 
 ### Removed
 

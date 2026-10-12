@@ -13,6 +13,10 @@ Covers:
     • open_help: unknown guide name triggers showwarning (mocked)
     • open_help: known guide without file triggers showwarning (mocked)
     • setup_window: _is_on_screen helper, geometry saving, protocol registration
+    • setup_window: signed (±X/±Y) geometry restore (M3 regression)
+
+Changed in 1.0.1: added signed-geometry restore tests covering Tk's
+``WxH-X-Y`` forms that previously fell through to centering.
 """
 
 from __future__ import annotations
@@ -684,3 +688,84 @@ class TestSetupWindowAdditional:
         close_cb()
         cfg.save_value.assert_called()
         root.destroy.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# M3 regression: signed (±X/±Y) window geometry must restore
+# ---------------------------------------------------------------------------
+
+
+class TestSignedGeometryRestore:
+    """Tk emits ``WxH±X±Y``; a signed X or Y must restore, not centre (M3)."""
+
+    def _run(self, saved: str) -> MagicMock:
+        from audio_suite_shared import platform_utils
+
+        root = MagicMock()
+        root.winfo_screenwidth.return_value = 1920
+        root.winfo_screenheight.return_value = 1080
+        cfg = MagicMock()
+        cfg.load_value.return_value = saved
+        with patch.object(sys, "platform", "linux"):
+            platform_utils.setup_window(root, 800, 600, cfg, "signed_geom")
+        return root
+
+    @pytest.mark.parametrize(
+        "saved",
+        [
+            "800x600+100+200",  # +X +Y (already worked)
+            "800x600-400+200",  # -X +Y (left monitor)
+            "800x600+100-300",  # +X -Y (upper monitor)
+            "800x600-400-300",  # -X -Y
+        ],
+    )
+    def test_signed_geometry_restores_saved_string(self, saved: str) -> None:
+        root = self._run(saved)
+        root.geometry.assert_any_call(saved)
+
+    def test_optional_equals_prefix_restores(self) -> None:
+        saved = "=800x600-400+200"
+        root = self._run(saved)
+        root.geometry.assert_any_call(saved)
+
+    @pytest.mark.parametrize(
+        "saved",
+        [
+            "NOTVALID",
+            "800x600",
+            "800x600+100",
+            "800x600+abc+def",
+            "800x600++1+2",
+        ],
+    )
+    def test_malformed_geometry_centres(self, saved: str) -> None:
+        root = self._run(saved)
+        root.geometry.assert_called()
+        assert root.geometry.call_args.args[0] != saved
+
+    def test_parsed_but_off_screen_geometry_centres(self) -> None:
+        """A signed origin off every screen must still fall back to centering."""
+        saved = "800x600-5000+40"
+        root = self._run(saved)
+        root.geometry.assert_called()
+        assert root.geometry.call_args.args[0] != saved
+
+    @pytest.mark.parametrize(
+        ("saved", "expected"),
+        [
+            ("800x600+100+200", (100, 200)),
+            ("800x600-1920+40", (-1920, 40)),
+            ("800x600+100-200", (100, -200)),
+            ("800x600-1920-200", (-1920, -200)),
+            ("=800x600-1920+40", (-1920, 40)),
+            ("NOTVALID", None),
+            ("800x600+100", None),
+            ("800x600+abc+def", None),
+        ],
+    )
+    def test_parse_geometry_origin(
+        self, saved: str, expected: tuple[int, int] | None
+    ) -> None:
+        from audio_suite_shared.platform_utils import _parse_geometry_origin
+
+        assert _parse_geometry_origin(saved) == expected

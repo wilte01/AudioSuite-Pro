@@ -7,6 +7,9 @@ application, clamping, edge cases (no frames, non-MP3, empty file), undo
 snapshot recording, and decode-based regression tests that measure the actual
 per-channel output change of every frame type (stereo, joint stereo, mono,
 MPEG-2 LSF).
+
+Changed in 1.0.1: added a regression class asserting a valid MP3 already at a
+gain clamp bound is a zero-change success (not "No valid MPEG frames").
 """
 
 from __future__ import annotations
@@ -817,6 +820,66 @@ class TestDecodeBasedIntegrity:
         assert len(before) == len(after) > 0
         for b, a in zip(before, after):
             assert a - b == delta
+
+
+class TestGainSaturatedNoChange:
+    """M6: a valid MP3 already at a clamp bound is a no-op, not a failure."""
+
+    def _make_saturated(self, path: Path, db: float) -> Path:
+        path = Path(_make_tone_mp3(path, channels=2, sample_rate=44100, bitrate="192k"))
+        with patch("audio_suite_shared.lossless_gain.record_tag_edit_snapshot"):
+            apply_track_gain(str(path), db)
+        return path
+
+    def test_track_gain_at_upper_clamp_returns_zero(self, tmp_path: Path) -> None:
+        path = self._make_saturated(tmp_path / "sat_hi.mp3", +1000.0)
+        assert all(g == 255 for g in read_mp3_global_gains(str(path)))
+
+        with patch(
+            "audio_suite_shared.lossless_gain.record_tag_edit_snapshot"
+        ) as mock_snap:
+            result = apply_track_gain(str(path), +6.0)
+
+        assert result == 0
+        # A no-op must not leave an undo row for a file that did not change.
+        mock_snap.assert_not_called()
+
+    def test_track_gain_at_lower_clamp_returns_zero(self, tmp_path: Path) -> None:
+        path = self._make_saturated(tmp_path / "sat_lo.mp3", -1000.0)
+        assert all(g == 0 for g in read_mp3_global_gains(str(path)))
+
+        with patch(
+            "audio_suite_shared.lossless_gain.record_tag_edit_snapshot"
+        ) as mock_snap:
+            result = apply_track_gain(str(path), -6.0)
+
+        assert result == 0
+        mock_snap.assert_not_called()
+
+    def test_album_gain_saturated_file_returns_zero(self, tmp_path: Path) -> None:
+        path = self._make_saturated(tmp_path / "sat_album.mp3", +1000.0)
+        with patch(
+            "audio_suite_shared.lossless_gain.record_tag_edit_snapshot"
+        ) as mock_snap:
+            results = apply_album_gain([str(path)], +6.0)
+
+        assert results == {str(path): 0}
+        mock_snap.assert_not_called()
+
+    def test_frameless_file_still_raises(self, tmp_path: Path) -> None:
+        """The fix must narrow the error, not remove it: zero frames still raise."""
+        path = tmp_path / "empty.mp3"
+        path.write_bytes(b"")
+        with pytest.raises(AudioFormatError, match="No valid MPEG"):
+            apply_track_gain(str(path), +6.0)
+
+    def test_album_gain_frameless_file_still_raises(self, tmp_path: Path) -> None:
+        good = _make_mp3(tmp_path / "good.mp3")
+        empty = tmp_path / "empty.mp3"
+        empty.write_bytes(b"")
+        with patch("audio_suite_shared.lossless_gain.record_tag_edit_snapshot"):
+            with pytest.raises(AudioFormatError, match="No valid MPEG"):
+                apply_album_gain([good, str(empty)], +6.0)
 
 
 # ── P1: CRC protection bit ───────────────────────────────────────────────────
