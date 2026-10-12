@@ -305,6 +305,40 @@ class TestRunTool:
         assert result.skipped == 2
         assert result.errors == 1
 
+    def test_progress_callback_accepts_the_positional_contract(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Regression (2026-10): the real analysis workflow calls
+        ``on_progress`` with five *positional* args — ``run_analysis_workflow``
+        wraps the callback in a positional lambda
+        (``file_processor_base.py``), unlike ``run_parallel_processing`` which
+        passes it straight through (keyword call). A ``**kwargs``-only
+        callback rejected the positional form, so every ``audiosuite <tool>``
+        run crashed on the first file; the keyword-only tests above never
+        exercised that form. Assert the positional contract is accepted and
+        its display line reaches stderr.
+        """
+
+        def dummy_run(**kwargs: object) -> None:
+            cb = kwargs.get("on_progress")
+            if cb:
+                cb(1, 2, 0, 0, "[DETECTED] a.mp3 -> C")
+            cb2 = kwargs.get("on_complete")
+            if cb2:
+                cb2(
+                    total=2,
+                    processed=1,
+                    skipped=0,
+                    errors=0,
+                    duration_secs=0.5,
+                    log_entries=[],
+                )
+
+        result = _run_tool("test", dummy_run)
+        assert result.processed == 1
+        assert result.errors == 0
+        assert "[DETECTED] a.mp3 -> C" in capsys.readouterr().err
+
     def test_run_tool_error_callback(self) -> None:
 
         def dummy_run(**kwargs: object) -> None:

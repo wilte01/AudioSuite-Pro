@@ -79,12 +79,23 @@ def _run_tool(
     slot_queue = _make_slot_queue()
     error_msg: list[str] = []
 
-    def on_progress(**cb_kwargs: Any) -> None:
-        processed = cb_kwargs.get("processed", 0)
-        total = cb_kwargs.get("total", 0)
-        display = cb_kwargs.get("display_text", "")
-        if display:
-            click.echo(f"  {display}", err=True)
+    def on_progress(
+        processed: int = 0,
+        total: int = 0,
+        skipped: int = 0,
+        errors: int = 0,
+        display_text: str = "",
+    ) -> None:
+        # The documented ProgressCallback contract is
+        # ``(processed, total, skipped, errors, display_text)`` and two call
+        # styles reach this callback: ``run_parallel_processing`` passes it
+        # straight to ``create_progress_tracker`` (keyword call), while
+        # ``run_analysis_workflow`` wraps it in a positional lambda.  A
+        # positional-or-keyword signature satisfies both; a ``**kwargs``-only
+        # signature silently rejected the positional form and crashed every
+        # CLI run on the first file.
+        if display_text:
+            click.echo(f"  {display_text}", err=True)
         elif total:
             click.echo(f"  [{processed}/{total}]", err=True)
 
