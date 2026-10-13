@@ -3,6 +3,9 @@ Tests for master_driver.batch_orchestrator
 
 Strategy — mock run_python_script / start_python_script to simulate tool
 execution with controlled durations and exit codes.
+
+Changed in 1.0.1: adds a regression asserting a missing script fails the
+step immediately (no retries) instead of being retried as a generic OSError.
 """
 
 from __future__ import annotations
@@ -457,6 +460,45 @@ class TestRetryBehaviour:
             report = orch.run()
         assert report.failed == 1
         assert step.status == StepStatus.FAILED
+
+    def test_missing_script_is_not_retried(self, tmp_path, caplog, monkeypatch):
+        """A missing script fails once, never retried.
+
+        FileNotFoundError is a subclass of OSError, so pre-fix the
+        ``(PermissionError, OSError)`` arm caught it first, re-raised it, and
+        ``retry_with_backoff`` retried it twice before logging
+        'failed after retries'. Post-fix the ``FileNotFoundError`` arm is
+        reachable and returns False with a 'Script not found' warning.
+        """
+        step = BatchStep(
+            tool_id="bpm",
+            manifest=_make_manifest("bpm"),
+            script_path=str(tmp_path / "ghost.pyw"),
+            args=[],
+        )
+        call_count: list[int] = []
+
+        def _raise_missing(*_args, **_kwargs):
+            call_count.append(1)
+            raise FileNotFoundError(f"Script not found: {step.script_path}")
+
+        monkeypatch.setattr(
+            "audio_suite_shared.error_recovery.time.sleep",
+            lambda _seconds: None,
+        )
+        orch = BatchOrchestrator([step])
+        with (
+            patch(
+                "master_driver.batch_orchestrator.run_python_script",
+                side_effect=_raise_missing,
+            ),
+            caplog.at_level(logging.WARNING, logger="master_driver.batch_orchestrator"),
+        ):
+            report = orch.run()
+        assert report.failed == 1
+        assert step.status == StepStatus.FAILED
+        assert len(call_count) == 1  # initial attempt only — no retries
+        assert "Script not found for bpm" in caplog.text
 
 
 # ═════════════════════════════════════════════════════════════════════════════

@@ -31,6 +31,11 @@ Concurrency:
     ``PRAGMA busy_timeout``) for a competing writer rather than raising
     ``OperationalError: database is locked`` — the pattern documented in
     AGENTS.md and used by ``audio_suite_shared.batch_undo``.
+
+Changed in 1.0.1: the cache database is created (or one-time converted on
+connect) with ``auto_vacuum=FULL``, so delete-heavy operations
+(``remove_orphans``/``clear_dir``/``clear_all``/``INSERT OR REPLACE``) return
+freed pages to the OS instead of leaving the file permanently grown.
 """
 
 from __future__ import annotations
@@ -71,6 +76,10 @@ CREATE TABLE IF NOT EXISTS files (
 CREATE INDEX IF NOT EXISTS idx_files_dir ON files(dir_path);
 """
 
+# SQLite auto_vacuum mode meaning FULL (deleted pages are returned to the OS
+# at commit, so delete-heavy caches never leave free-page bloat behind).
+_AUTO_VACUUM_FULL = 1
+
 
 def _path_hash(filepath: str) -> str:
     return hashlib.sha256(os.path.normpath(filepath).encode("utf-8")).hexdigest()
@@ -110,7 +119,26 @@ class LibraryCache:
                     self._conn.execute("PRAGMA journal_mode=WAL")
                     self._conn.execute("PRAGMA busy_timeout=30000")
                     self._conn.executescript(_SCHEMA_SQL)
+                    self._enable_auto_vacuum(self._conn)
         return self._conn
+
+    def _enable_auto_vacuum(self, conn: sqlite3.Connection) -> None:
+        """Ensure the cache reclaims freed pages automatically.
+
+        Sets the persistent ``auto_vacuum=FULL`` file flag so every prune
+        (``remove_orphans``/``clear_dir``/``clear_all``/``INSERT OR REPLACE``)
+        returns freed pages to the operating system at commit instead of
+        leaving them inside a permanently growing database file.  Files that
+        predate the flag are converted in place with a one-time ``VACUUM``;
+        once the flag is set, later connects only read it and skip.  Must be
+        called under ``_DB_LOCK`` with no open transaction.
+        """
+        row = conn.execute("PRAGMA auto_vacuum").fetchone()
+        if row is not None and int(row[0]) == _AUTO_VACUUM_FULL:
+            return
+        conn.execute("PRAGMA auto_vacuum = FULL")
+        conn.commit()
+        conn.execute("VACUUM")
 
     def close(self) -> None:
         if self._conn is not None:

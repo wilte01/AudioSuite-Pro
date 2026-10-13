@@ -4,6 +4,10 @@ dependency-aware parallel execution, and per-step retry.
 
 Replaces the simple sequential loop in module_runner.py with a proper
 orchestrator that emits progress callbacks for live UI updates.
+
+Changed in 1.0.1: a step whose script is missing (FileNotFoundError) now
+fails immediately with a "Script not found" warning instead of being
+retried as a generic OSError and logged as "failed after retries".
 """
 
 from __future__ import annotations
@@ -459,6 +463,9 @@ class BatchOrchestrator:
         Exceptions from retryable errors (OSError, PermissionError) are
         propagated so that ``retry_with_backoff`` can catch and retry them.
         Non-retryable or final failures are caught and return False.
+        ``FileNotFoundError`` is caught before the ``OSError`` arm (it is a
+        subclass): a missing script is a deterministic configuration error,
+        so it is not retried.
         """
 
         def _run() -> bool:
@@ -486,15 +493,15 @@ class BatchOrchestrator:
             except SubprocessSecurityError:
                 logger.warning("Security error for %s", step.tool_id)
                 return False
+            except FileNotFoundError:
+                logger.warning("Script not found for %s", step.tool_id)
+                return False
             except (PermissionError, OSError):
                 logger.warning(
                     "Retryable error for %s",
                     step.tool_id,
                 )
                 raise
-            except FileNotFoundError:
-                logger.warning("Script not found for %s", step.tool_id)
-                return False
 
         retry_cfg = RetryConfig(
             max_retries=2,

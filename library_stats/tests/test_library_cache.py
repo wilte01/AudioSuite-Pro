@@ -1,4 +1,9 @@
-"""Tests for library_stats.library_cache — SQLite cache CRUD and helpers."""
+"""Tests for library_stats.library_cache — SQLite cache CRUD and helpers.
+
+Changed in 1.0.1: adds auto_vacuum regression tests asserting new cache
+databases are born with the FULL flag and legacy files are converted on
+connect so delete-heavy prunes never leave free-page bloat behind.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from library_stats.library_cache import (
+    _SCHEMA_SQL,
     LibraryCache,
     _bpm_bin,
     _classify_key_mode,
@@ -88,6 +94,71 @@ class TestLifecycle:
             conn1 = c._connect()
             conn2 = c._connect()
             assert conn1 is conn2
+
+
+# ── LibraryCache: auto_vacuum (L2 regression) ────────────────────────────────
+
+
+class TestAutoVacuum:
+    """L2: delete-heavy cache operations must reclaim freed pages.
+
+    ``remove_orphans``/``clear_dir``/``clear_all``/``INSERT OR REPLACE`` all
+    free pages; without ``auto_vacuum=FULL`` they stay inside the database
+    file and it grows without bound.  New databases must be born with the
+    flag, and legacy files must be converted on first connect.
+    """
+
+    def test_new_database_has_full_auto_vacuum(self, tmp_path: Path) -> None:
+        db = tmp_path / "fresh.db"
+        with LibraryCache(db) as cache:
+            row = cache._connect().execute("PRAGMA auto_vacuum").fetchone()
+            assert row is not None
+            assert int(row[0]) == 1  # FULL
+
+    def test_existing_connection_is_not_revacuumed(self, tmp_path: Path) -> None:
+        db = tmp_path / "persist.db"
+        with LibraryCache(db) as cache:
+            first = cache._connect().execute("PRAGMA auto_vacuum").fetchone()
+        with LibraryCache(db) as cache:
+            second = cache._connect().execute("PRAGMA auto_vacuum").fetchone()
+        assert first == second
+        assert int(first[0]) == 1
+
+    def test_delete_heavy_legacy_database_is_converted(self, tmp_path: Path) -> None:
+        """A cache without the flag keeps free pages; connecting converts it."""
+        db = tmp_path / "legacy.db"
+        raw = sqlite3.connect(str(db), timeout=30)
+        try:
+            raw.executescript(_SCHEMA_SQL)
+            raw.execute("PRAGMA auto_vacuum = NONE")
+            for i in range(1500):
+                path = str(tmp_path / f"t{i}.mp3")
+                raw.execute(
+                    "INSERT OR REPLACE INTO files "
+                    "(path_hash, path, dir_path, mtime, size, format) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    [_path_hash(path), path, str(tmp_path), float(i), 10, ".mp3"],
+                )
+            raw.commit()
+            # Deleting every row leaves free pages inside the file (legacy bloat).
+            raw.execute("DELETE FROM files")
+            raw.commit()
+            free_before = int(raw.execute("PRAGMA freelist_count").fetchone()[0])
+            assert free_before > 0
+        finally:
+            raw.close()
+
+        with LibraryCache(db):
+            pass
+
+        conn = sqlite3.connect(str(db), timeout=30)
+        try:
+            auto_vacuum = int(conn.execute("PRAGMA auto_vacuum").fetchone()[0])
+            free_after = int(conn.execute("PRAGMA freelist_count").fetchone()[0])
+        finally:
+            conn.close()
+        assert auto_vacuum == 1  # FULL
+        assert free_after == 0  # VACUUM reclaimed the free pages
 
 
 # ── LibraryCache: concurrency (P3 regression) ────────────────────────────────
