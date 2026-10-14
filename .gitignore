@@ -52,7 +52,6 @@ album_art_config.key
 htmlcov/
 logs/
 *.log
-*.dll
 *.lnk
 .env
 .env.*
