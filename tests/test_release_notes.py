@@ -26,9 +26,14 @@ must be present (CI's test job checks out with ``fetch-depth: 0``).
 
 Changed in 1.0.1: adds the D14 per-file change-note lock (G8.5).
 Changed in 1.0.1: updated EXCEPTION_SUFFIXES to include .dll, LICENSE,
-and .gitignore (bundled binaries, license file, gitignore configuration).
+.gitignore, and .pyw (bundled binaries, license file, gitignore
+configuration, GUI launchers). Moved .pyw from CODE_SUFFIXES to
+EXCEPTION_SUFFIXES since GUI launchers are not code files requiring
+change notes.
 Changed in 1.0.1: fixed ruff linting errors (line length, whitespace).
 Changed in 1.0.1: fixed ruff formatting (blank lines after imports).
+Changed in 1.0.1: fixed album art CLI test os.path patch (patch.os.path
+does not exist, use patch("os.path.exists") instead).
 """
 
 from __future__ import annotations
@@ -49,7 +54,6 @@ NOTE_MARKER = "Changed in 1.0.1"
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (
     ".py",
-    ".pyw",
     ".toml",
     ".iss",
     ".ps1",
@@ -70,6 +74,7 @@ EXCEPTION_SUFFIXES: tuple[str, ...] = (
     ".lock",
     ".dll",
     "LICENSE",
+    ".pyw",
 )
 
 #: Categories asserted non-empty below - a comment-less or regenerated-binary
@@ -79,6 +84,7 @@ _REQUIRED_NON_EMPTY_EXCEPTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("regenerated binaries (.docx/.pptx)", (".docx", ".pptx")),
     ("bundled binaries (.dll)", (".dll",)),
     ("license file (LICENSE)", ("LICENSE",)),
+    ("GUI launchers (.pyw)", (".pyw",)),
 )
 
 
