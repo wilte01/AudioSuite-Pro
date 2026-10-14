@@ -3,6 +3,10 @@ file_processor_base.py — Base file processor class for Audio Suite application
 
 Provides common infrastructure for parallel file processing, eliminating duplication
 across multiple applications while preserving all existing functionality.
+
+Changed in 1.0.1: the in-place error path now reports
+``user_message_for(map_to_audio_error(exc))`` instead of the raw ``str(exc)``,
+so internal paths/details no longer leak into the display and log callbacks.
 """
 
 from __future__ import annotations
@@ -734,8 +738,12 @@ class BaseFileProcessor:
         except Exception as exc:
             mapped = map_to_audio_error(exc)
             logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
-            display = f"[ERROR] {name}: {str(exc)[:80]}"
-            log = f"[ERROR] {name}: {exc}\n"
+            # Report the sanitised message, not raw str(exc): the raw text can
+            # carry internal paths/details meant only for the log file.  This
+            # mirrors run_parallel_processing's on_error handling.
+            message = user_message_for(mapped)
+            display = f"[ERROR] {name}: {message[:80]}"
+            log = f"[ERROR] {name}: {message}\n"
             with lock:
                 on_progress(status="ERROR", display_text=display, log_text=log)
 

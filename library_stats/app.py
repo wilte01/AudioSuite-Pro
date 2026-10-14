@@ -4,6 +4,9 @@ app.py — LibraryStatsApp GUI dashboard.
 Opens a tkinter window with matplotlib charts showing library statistics
 derived from existing audio tags.  All data is read-only — no analysis or
 tag writing is performed.
+
+Changed in 1.0.1: parses the driver's argv and pre-fills directory, incremental/refresh
+and the CSV/JSON exports.
 """
 
 from __future__ import annotations

@@ -3,6 +3,10 @@ Tests for BaseFileProcessor class.
 
 Comprehensive test coverage for file discovery, progress
 tracking, and parallel processing.
+
+Changed in 1.0.1: adds an in-place error-path test asserting the display and
+log callbacks carry the sanitised ``user_message_for`` text, never raw
+``str(exc)``.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydub import AudioSegment
 
-from audio_suite_shared.exceptions import AudioSuiteError
+from audio_suite_shared.exceptions import AudioFileNotFoundError, AudioSuiteError
 from audio_suite_shared.file_processor_base import (
     BaseFileProcessor,
     InplaceDspFn,
@@ -1228,6 +1232,32 @@ class TestProcessAudioFileInplace:
         assert progress[0]["log_text"].startswith("[ERROR] bad.wav: ")
         assert slot_queue.qsize() == inplace_processor.max_workers
         slot_vars[0].set.assert_called_with("IDLE")
+
+    def test_error_display_is_sanitised_not_raw_exception(
+        self,
+        inplace_processor: BaseFileProcessor,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The user-facing error is the sanitised message, never ``str(exc)``.
+
+        A raw exception can embed internal absolute paths; those must not leak
+        into the display/log callbacks (the log *file* keeps the detail).
+        """
+        monkeypatch.delenv("AUDIOSUITE_DEBUG", raising=False)
+        audio_file = tmp_path / "a.wav"
+        _write_wav(audio_file)
+        secret = "C:/internal/secret/location.wav"
+
+        def _leaky_dsp(_audio: AudioSegment) -> InplaceDspResult:
+            raise AudioFileNotFoundError(secret)
+
+        progress = self._process(inplace_processor, audio_file, _leaky_dsp)
+
+        assert progress[0]["status"] == "ERROR"
+        assert secret not in progress[0]["display_text"]
+        assert secret not in progress[0]["log_text"]
+        assert "could not be found" in progress[0]["display_text"]
 
     def test_slot_var_shows_dsp_label_then_returns_to_idle(
         self, inplace_processor: BaseFileProcessor, tmp_path: Path

@@ -35,7 +35,10 @@ Concurrency:
 Changed in 1.0.1: the cache database is created (or one-time converted on
 connect) with ``auto_vacuum=FULL``, so delete-heavy operations
 (``remove_orphans``/``clear_dir``/``clear_all``/``INSERT OR REPLACE``) return
-freed pages to the OS instead of leaving the file permanently grown.
+freed pages to the OS instead of leaving the file permanently grown. Also in
+1.0.1: ``query_aggregate``'s docstring now lists exactly the keys it returns
+(``scan_path`` and ``key_mode_distribution`` included; ``bpm_distribution``
+is built by the cached-scan report path, not here).
 """
 
 from __future__ import annotations
@@ -313,10 +316,16 @@ class LibraryCache:
         The returned dict is compatible with ``StatsReport(**d)`` and
         includes::
 
-            total_files, total_albums, total_artists,
+            scan_path, total_files, total_albums, total_artists,
             format_breakdown, genre_distribution, key_distribution,
-            mood_distribution, tempo_marking_distribution, year_distribution,
+            key_mode_distribution, mood_distribution,
+            tempo_marking_distribution, year_distribution,
             top_artists, top_genres, missing_data
+
+        Note it does **not** populate ``bpm_distribution`` (the cached-scan
+        report path builds that separately in
+        ``library_stats.core.file_processor``); ``StatsReport`` defaults it
+        to an empty dict, so ``StatsReport(**d)`` still succeeds.
         """
         conn = self._connect()
         prefix = self._path_prefix(dir_path)

@@ -4,6 +4,10 @@ encoding_pipeline.py  –  Per-track CD rip orchestration.
 RipTask coordinates the two-stage extraction/encode pipeline for a single
 audio CD track: first raw sector reads via SCSI Pass-Through (delegated to
 extract_track_scsi), then FFmpeg encoding with metadata.
+
+Changed in 1.0.1: a failed or interrupted encode now removes any partial
+output file in the finally block, so an incomplete track is never left on
+disk looking finished.
 """
 
 import logging as _logging
@@ -100,6 +104,8 @@ class RipTask:
 
         self.progress_cb(num, 0, "Starting\u2026")
         tmp_wav = None
+        succeeded = False
+        encode_started = False
         try:
             tmp_fd, tmp_wav = tempfile.mkstemp(
                 suffix=".wav", prefix=f"cd_rip_{num:02d}_"
@@ -168,6 +174,7 @@ class RipTask:
 
             # Stage 2: encode
             self.progress_cb(num, 92, "Encoding\u2026")
+            encode_started = True
             encode_args = (
                 ["-i", tmp_wav]
                 + self.codec_args
@@ -191,6 +198,7 @@ class RipTask:
 
             if rc == 0:
                 self.progress_cb(num, 100, "Done")
+                succeeded = True
                 self.done_cb(num, True, out_path, self.verification_label)
             else:
                 err_lines = [
@@ -216,6 +224,15 @@ class RipTask:
             )
             self.done_cb(num, False, "", f"Unexpected error: {e}")
         finally:
+            if encode_started and not succeeded and os.path.exists(out_path):
+                # A failed/mismatched encode can leave a partial (or empty)
+                # output file behind; never present it as a finished track.
+                try:
+                    os.remove(out_path)
+                except OSError:
+                    _logging.getLogger(__name__).debug(
+                        "Could not remove partial output %s", out_path, exc_info=True
+                    )
             if tmp_wav and os.path.exists(tmp_wav):
                 try:
                     os.remove(tmp_wav)

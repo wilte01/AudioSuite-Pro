@@ -3,6 +3,8 @@
 Covers the G2.1 contract: ``File_Reorganizer.pyw`` (via
 ``file_reorganizer.app.main``) must parse the Master Driver's argv and
 pre-fill the GUI widgets instead of silently ignoring every argument.
+
+Changed in 1.0.1: adds parser tests for the driver handshake.
 """
 
 from __future__ import annotations

@@ -10,6 +10,10 @@ All tag readers are patched on their module-level bindings
 (library_stats.core.file_processor), matching the pattern in
 test_library_stats.py; the SQLite cache uses a tmp_path database.
 
+Changed in 1.0.1: adds the valid-JSON-non-list ``artist_album`` cache-row
+regression (a value that decodes but is not a 2-element list must be ignored,
+not raise a TypeError).
+
 Run with:
     pytest tests/test_file_processor.py -v
 """
@@ -217,6 +221,30 @@ class TestCachedScan:
         cache.close()
         # Corrupt row contributes no album/track-artist, but the intact
         # album_artist column still counts the artist.
+        assert second.total_albums == 0
+        assert second.total_track_artists == 0
+        assert second.total_artists == 1
+
+    def test_valid_json_non_list_cached_artist_album_ignored(
+        self, tmp_path: Path
+    ) -> None:
+        """A cache row holding valid JSON that is not a 2-element list must
+        not abort the scan with an uncaught TypeError (G7.3)."""
+        (tmp_path / "a.mp3").write_bytes(b"x")
+        cache = LibraryCache(tmp_path / "cache.db")
+        with _reader_mocks() as r:
+            r["read_artist_album"].return_value = ("Artist", "Album")
+            r["read_album_artist"].return_value = "Artist"
+            scan_directory(str(tmp_path), use_cache=True, cache=cache)
+
+        # Valid JSON, but neither a list nor a 2-element list: len() would
+        # raise TypeError pre-fix.
+        conn = cache._connect()
+        conn.execute("UPDATE files SET artist_album = '5'")
+        conn.commit()
+        second = scan_directory(str(tmp_path), use_cache=True, cache=cache)
+        cache.close()
+
         assert second.total_albums == 0
         assert second.total_track_artists == 0
         assert second.total_artists == 1

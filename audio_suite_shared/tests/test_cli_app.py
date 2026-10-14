@@ -1,4 +1,7 @@
-"""Tests for audio_suite_shared.cli_app — unified Click CLI."""
+"""Tests for audio_suite_shared.cli_app — unified Click CLI.
+
+Changed in 1.0.1: adds the positional ``on_progress`` regression.
+"""
 
 from __future__ import annotations
 

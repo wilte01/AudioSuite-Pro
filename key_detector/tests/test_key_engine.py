@@ -17,6 +17,8 @@ Covers:
   - NaN input: must not propagate silently
   - Tie-breaking: major preferred on equal correlation
   - Stereo input: multi-channel array handling
+
+Changed in 1.0.1: adds coverage for the recalibrated keyless fallback.
 """
 
 import re

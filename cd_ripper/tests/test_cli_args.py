@@ -2,6 +2,8 @@
 
 Covers the G2.4 contract: ``CD_Ripper.pyw`` (via ``cd_ripper.app.main``)
 must parse the Master Driver's argv and pre-fill the GUI widgets.
+
+Changed in 1.0.1: adds parser tests for the driver handshake.
 """
 
 from __future__ import annotations

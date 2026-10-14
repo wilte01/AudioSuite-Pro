@@ -29,6 +29,9 @@ suite_config (load_app_state / save_app_state / save_palette)
   • save_palette() persists palette, preserving other keys
   • save_palette() on a missing file creates the file
   • font_sizes round-trip
+
+Changed in 1.0.1: updates the expected key set after the completeness/detail keys were
+removed.
 """
 
 import json

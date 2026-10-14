@@ -3,6 +3,9 @@ app_state.py — Single container for all Master Driver tk variables.
 
 Passing this object as a dependency instead of 'self' makes each UI card
 and runner function explicit about what state it touches.
+
+Changed in 1.0.1: removes the unused ``library_stats_completeness``/``_detail`` toggle
+keys.
 """
 
 from __future__ import annotations

@@ -3,6 +3,9 @@ Tests for music_format_converter.core.ffmpeg_params (G-29 params matrix)
          music_format_converter.core.file_processor (G-29 pipeline)
 
 Changed in 1.0.1: adds same-stem output-collision regression tests (M4).
+Also in 1.0.1: adds delete-snapshot-ordering regression tests (the undo
+snapshot must be taken while the source still exists, and a snapshot
+failure must abort the delete).
 """
 
 import array
@@ -10,6 +13,7 @@ import contextlib
 import json
 import math
 import os
+import sqlite3
 import subprocess
 import threading
 from queue import Queue
@@ -750,6 +754,90 @@ class TestProcessSingleFile:
                 on_progress=lambda **kw: results.append(kw),
             )
 
+        assert any("DELETE FAILED" in r.get("display_text", "") for r in results)
+
+    def test_delete_snapshot_taken_before_source_removed(self, tmp_path):
+        """The undo snapshot must be recorded while the source still exists.
+
+        The snapshot has to precede ``os.remove``: taking it afterwards (the
+        G7.4 delete-before-snapshot defect) leaves a deleted file with no undo
+        record whenever the snapshot write fails.
+        """
+        (tmp_path / "out").mkdir()
+        _make_audio(tmp_path, "track.flac")
+        src_path = os.path.join(str(tmp_path), "track.flac")
+        results = []
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+
+        def fake_run(executable, args, **kw):
+            open([executable, *args][-1], "wb").close()
+            return mock_result
+
+        source_existed_at_snapshot = []
+
+        def fake_snapshot(path, data):
+            source_existed_at_snapshot.append(os.path.exists(path))
+
+        with (
+            patch(
+                "music_format_converter.core.file_processor.run_secure_subprocess",
+                fake_run,
+            ),
+            patch(
+                "music_format_converter.core.file_processor.record_file_delete_snapshot",
+                side_effect=fake_snapshot,
+            ),
+        ):
+            self._call(
+                tmp_path,
+                "track.flac",
+                output_format="mp3",
+                is_dry_run=False,
+                delete_original=True,
+                on_progress=lambda **kw: results.append(kw),
+            )
+
+        assert source_existed_at_snapshot == [True]
+        assert not os.path.exists(src_path)
+
+    def test_delete_aborted_when_snapshot_fails(self, tmp_path):
+        """A snapshot failure aborts the delete: the source stays on disk.
+
+        With the snapshot recorded first, a failure to persist it must not
+        proceed to delete the only copy of the source.
+        """
+        (tmp_path / "out").mkdir()
+        _make_audio(tmp_path, "track.flac")
+        src_path = os.path.join(str(tmp_path), "track.flac")
+        results = []
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+
+        def fake_run(executable, args, **kw):
+            open([executable, *args][-1], "wb").close()
+            return mock_result
+
+        with (
+            patch(
+                "music_format_converter.core.file_processor.run_secure_subprocess",
+                fake_run,
+            ),
+            patch(
+                "music_format_converter.core.file_processor.record_file_delete_snapshot",
+                side_effect=sqlite3.OperationalError("database is locked"),
+            ),
+        ):
+            self._call(
+                tmp_path,
+                "track.flac",
+                output_format="mp3",
+                is_dry_run=False,
+                delete_original=True,
+                on_progress=lambda **kw: results.append(kw),
+            )
+
+        assert os.path.exists(src_path)
         assert any("DELETE FAILED" in r.get("display_text", "") for r in results)
 
     def test_recovery_action_skip_on_error(self, tmp_path):

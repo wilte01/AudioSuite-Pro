@@ -9,6 +9,8 @@ Changes vs original:
   - TestReplaygainRunAnalysis: adds dry-run propagation test (#14)
   - TestCliArgs: new class testing auto_end parsing (#16)
   - TestReplaygainProcessSingleFile: adds slot double-put regression test
+
+Changed in 1.0.1: updates the peak/probe assertions for the linear (not dBFS) peak.
 """
 
 import os

@@ -1,4 +1,7 @@
-"""Library Statistics card for Master Driver UI."""
+"""Library Statistics card for Master Driver UI.
+
+Changed in 1.0.1: removes the dead completeness/detail widgets from the card.
+"""
 
 import tkinter as tk
 from tkinter import ttk

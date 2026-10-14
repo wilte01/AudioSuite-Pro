@@ -4,6 +4,9 @@ arg_builder.py — Constructs the CLI argument list for each child module.
 Returns a list of (toggle_var, manifest, args) tuples that run_modules()
 iterates over.  Adding a new module means adding a manifest entry to
 the registry (tool_plugin.py) and registering a builder function below.
+
+Changed in 1.0.1: drops the non-functional ``--completeness``/``--detail`` args for
+Library Statistics.
 """
 
 from __future__ import annotations

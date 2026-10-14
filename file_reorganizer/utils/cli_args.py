@@ -14,6 +14,8 @@ Master Driver handshake layout:
                             --parallel-run|--no-parallel-run
 
 BaseCLIArgs provides: folder_path, live_mode, auto_start, auto_end.
+
+Changed in 1.0.1: adds the driver argv parser.
 """
 
 from __future__ import annotations

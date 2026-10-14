@@ -2,6 +2,9 @@
 
 Houses the click Group, shared options, the _Result collector, and the
 _run_tool helper that every tool CLI handler uses.
+
+Changed in 1.0.1: fixes ``_run_tool``'s ``on_progress`` to accept the positional call
+form the analysis workflow uses.
 """
 
 from __future__ import annotations

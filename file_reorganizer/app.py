@@ -5,6 +5,9 @@ Provides two pattern fields (Specific Artists / Various Artists),
 source and destination directory selection, action radio buttons,
 and a Preview/Execute workflow.  Styled to match AudioSuite-Pro
 look and feel.
+
+Changed in 1.0.1: accepts the driver's argv as kwargs and pre-fills the source,
+destination, action and pattern widgets.
 """
 
 from __future__ import annotations

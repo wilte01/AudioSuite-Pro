@@ -13,6 +13,8 @@ into ``sys.modules`` and silently change
 ``tests/test_pyw_launchers.py::TestGenericStartupFailureIsWitnessed
 [Tag_Field_Updater.pyw-tag_field_updater]``, which requires that import to
 fail while its launcher-stub contract is exercised. Keep it lazy.
+
+Changed in 1.0.1: adds the Dry Run checkbox coverage.
 """
 
 from __future__ import annotations

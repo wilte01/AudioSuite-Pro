@@ -3,6 +3,9 @@ CD_Ripper.pyw — Launcher for CD Ripper.
 
 Pre-loads ``discid.dll`` on Windows so that the ``discid`` package
 can find it without path configuration.
+
+Changed in 1.0.1: routes the launcher through ``cd_ripper.app.main`` so the driver's
+argv is parsed.
 """
 
 import sys

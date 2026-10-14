@@ -1,4 +1,8 @@
-"""Generate the Master Driver user guide from the current application code."""
+"""Generate the Master Driver user guide from the current application code.
+
+Changed in 1.0.1: documents that the four standalone tools now consume the driver's
+argv.
+"""
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH

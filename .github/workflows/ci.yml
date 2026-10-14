@@ -1,3 +1,8 @@
+# AudioSuite-Pro continuous integration.
+#
+# Changed in 1.0.1: the test job checks out with fetch-depth: 0 so that
+# tests/test_release_notes.py can enumerate the release's changed files via
+# `git diff --name-only 0349d06`.
 name: CI
 
 on:
@@ -93,7 +98,12 @@ jobs:
         # tested rather than assumed.
         python-version: ["3.11", "3.12", "3.14"]
     steps:
+      # fetch-depth: 0 is required by tests/test_release_notes.py, which runs
+      # `git diff --name-only 0349d06` to enumerate the release's changed files;
+      # the default shallow checkout has no history and would fail the lock.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}

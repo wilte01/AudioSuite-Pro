@@ -2,6 +2,8 @@
 Tests for album_art_normalizer.utils.cli_args
 Covers: parse(), AlbumArtNormalizerArgs dataclass,
 was_launched_from_driver() and the display-only driver flags.
+
+Changed in 1.0.1: adds parser tests for the ``--size`` argument.
 """
 
 import pytest

@@ -1,4 +1,7 @@
-"""Generate a fresh Silence Trimmer guide from current code."""
+"""Generate a fresh Silence Trimmer guide from current code.
+
+Changed in 1.0.1: documents the all-silent skip behaviour.
+"""
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH

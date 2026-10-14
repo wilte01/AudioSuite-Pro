@@ -28,6 +28,25 @@ full Definition-of-Done gate runs against the state after each commit.
 - Defects found in working code during any session → fix in the same change +
   regression test + record in the governing plan's decision log (§7).
 
+## Bug-Hunt Triage Discipline
+
+When triaging a batch of unverified leads (e.g. a report's "not independently
+re-verified" list), the task is **bounded reproduction, not innocence proof**:
+
+- **Read the candidate's existing tests first.** They encode the intended
+  contract (e.g. `library_stats/tests/test_library_cache.py` settles cached-vs-
+  full-scan behaviour) and usually reach a verdict faster than hand-built
+  fixtures. A suite that already passes is strong disconfirming evidence.
+- **Timebox each candidate to ~15 minutes.** Reproduce once through the real
+  entry point; if it does not reproduce after 2-3 representative cases, record
+  "no repro under <cases tried>; package tests green" and move on.
+- **Write the probe to a file, not a shell one-liner** (`repro_<item>.py`),
+  keeping all cases in one script — see the global lesson on pwsh quoting.
+- **Record the disconfirming evidence**, never silently drop a lead; a closed
+  non-defect and a fixed defect are both valid outcomes.
+- **Do not leave scratch artefacts** (`pytest_*.txt`, `repro_*.py`) in the
+  tree; evidence belongs in the plan's completion log.
+
 ## Test File Naming
 
 All test files live in `<package>/tests/` and follow the standard pytest

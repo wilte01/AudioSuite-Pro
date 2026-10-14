@@ -1,3 +1,8 @@
+"""Tests for album_art_normalizer.app.
+
+Changed in 1.0.1: adds ``--size``-to-resolution pre-fill tests.
+"""
+
 import sys
 import tkinter as tk
 from pathlib import Path

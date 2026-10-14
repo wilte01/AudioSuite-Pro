@@ -1,7 +1,16 @@
-"""Generate the Undo Tag Edits User Guide .docx."""
+"""Generate the Undo Tag Edits User Guide .docx.
+
+Changed in 1.0.1: the version subtitle now renders the suite version from
+``declared_version()`` and the generation month dynamically, instead of the
+stale hardcoded ``Version 1.0 — September 2026``.
+"""
+
+from datetime import date
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+from audio_suite_shared.project_version import declared_version
 
 doc = Document()
 
@@ -9,7 +18,7 @@ doc = Document()
 h = doc.add_heading("Undo Tag Edits \u2014 User Guide", level=0)
 h.alignment = WD_ALIGN_PARAGRAPH.CENTER
 doc.add_paragraph(
-    "Version 1.0 \u2014 September 2026"
+    f"Version {declared_version()} \u2014 {date.today().strftime('%B %Y')}"
 ).alignment = WD_ALIGN_PARAGRAPH.CENTER
 
 # ── Overview ──

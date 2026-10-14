@@ -7,7 +7,9 @@ No tkinter imports. All UI interaction via injected callbacks.
 Changed in 1.0.1: two same-stem sources with different extensions in one
 folder (e.g. song.flac + song.wav) both target song.<ext>; only the first
 is converted and the collision is reported as a skip instead of silently
-overwriting the first output.
+overwriting the first output. Also in 1.0.1: the source delete records its
+undo snapshot *before* removing the file, so a snapshot failure aborts the
+delete rather than losing the original.
 """
 
 from __future__ import annotations
@@ -154,8 +156,10 @@ def _wav_params_for(
     Resolution order:
         1. An explicit ``bit_depth`` override ('16'/'24'/'32'/'float')
            wins unconditionally.
-        2. A shared config override from the ``wav_bit_depth`` key wins
-           next, unless the caller explicitly chose 'auto'.
+        2. Otherwise the shared config override from the ``wav_bit_depth``
+           key wins next.  This applies to the default ``'auto'`` too: an
+           ``'auto'`` caller still honours a configured depth (the legacy
+           behaviour pinned by ``test_wav_params_auto_still_reads_config_override``).
         3. Lossy sources have no meaningful source depth, so they keep the
            historical 16-bit WAV behaviour (no probe).
         4. Lossless sources are probed so the WAV keeps the source depth
@@ -365,6 +369,10 @@ def _delete_original(
 ) -> tuple[bool, str]:
     """Delete the source file after successful conversion.
 
+    The undo snapshot is recorded *before* the source is removed: if the
+    snapshot cannot be persisted the file is still on disk (the delete is
+    reported as failed) rather than gone with no way to undo it.
+
     Returns ``(deleted, status_string)``.
     """
     if not (delete_original and os.path.exists(output_path)):
@@ -372,10 +380,12 @@ def _delete_original(
     try:
         with open(input_path, "rb") as fh:
             original_bytes = fh.read()
-        os.remove(input_path)
+        # Snapshot first: a snapshot failure must abort the delete, not
+        # follow it, so the source stays recoverable.
         record_file_delete_snapshot(input_path, original_bytes)
+        os.remove(input_path)
         return True, " [ORIGINAL DELETED]"
-    except (OSError, ValueError) as exc:
+    except Exception as exc:
         mapped = map_to_audio_error(exc)
         logger.warning("Delete failed during conversion: %s", mapped, exc_info=True)
         return False, f" [DELETE FAILED: {user_message_for(mapped)[:30]}]"

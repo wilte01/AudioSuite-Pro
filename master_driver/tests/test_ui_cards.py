@@ -21,6 +21,8 @@ What is verified for each card
 Because cards are pure UI composition (no business logic), these tests focus
 on *construction correctness and widget-variable binding*, not on visual
 appearance.
+
+Changed in 1.0.1: updates the Library Statistics card fixture.
 """
 
 import sys

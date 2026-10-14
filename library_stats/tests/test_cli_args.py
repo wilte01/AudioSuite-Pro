@@ -3,6 +3,8 @@
 Covers the G2.3 contract: ``Library_Stats.pyw`` (via
 ``library_stats.app.main``) must parse the Master Driver's argv and
 pre-fill the GUI widgets.
+
+Changed in 1.0.1: adds parser tests for the driver handshake.
 """
 
 from __future__ import annotations

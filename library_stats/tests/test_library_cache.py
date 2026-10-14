@@ -2,7 +2,9 @@
 
 Changed in 1.0.1: adds auto_vacuum regression tests asserting new cache
 databases are born with the FULL flag and legacy files are converted on
-connect so delete-heavy prunes never leave free-page bloat behind.
+connect so delete-heavy prunes never leave free-page bloat behind. Also in
+1.0.1: pins ``query_aggregate``'s exact returned key set against its
+docstring.
 """
 
 from __future__ import annotations
@@ -570,6 +572,53 @@ class TestQueryAggregate:
         assert agg["total_files"] == 3
         assert cache.row_count(str(tmp_path)) == 3
         assert cache.row_count(str(sub)) == 3
+
+    def test_key_set_matches_documented_contract(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        """Pin the exact aggregate key set consumed by ``StatsReport(**d)``.
+
+        G7.2: the docstring previously listed fields that are never produced
+        and omitted ones that are, so the returned keys are pinned here to
+        stop the docstring and the mapping drifting apart again.
+        """
+        p = tmp_path / "t.mp3"
+        p.write_bytes(b"x")
+        m = os.path.getmtime(str(p))
+        cache.upsert_file(
+            str(p),
+            mtime=m,
+            size=10,
+            format_ext=".mp3",
+            bpm=120,
+            key="C",
+            genre="Rock",
+            mood="Happy",
+            tempo_marking="Allegro",
+            album_artist="A",
+            artist_album=("A", "Album"),
+            year=2000,
+        )
+        agg = cache.query_aggregate(str(tmp_path))
+        assert agg is not None
+        assert set(agg) == {
+            "scan_path",
+            "total_files",
+            "total_albums",
+            "total_artists",
+            "format_breakdown",
+            "genre_distribution",
+            "key_distribution",
+            "key_mode_distribution",
+            "mood_distribution",
+            "tempo_marking_distribution",
+            "year_distribution",
+            "top_artists",
+            "top_genres",
+            "missing_data",
+        }
+        # bpm_distribution is built by the cached-scan report path, not here.
+        assert "bpm_distribution" not in agg
 
 
 # ── _classify_key_mode ────────────────────────────────────────────────────────

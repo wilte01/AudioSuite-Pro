@@ -13,6 +13,9 @@ Master Driver layout (no positional folder — CD Ripper has no directory arg):
                          --parallel-run|--no-parallel-run
 
 BaseCLIArgs provides: folder_path (unused), live_mode, auto_start, auto_end.
+
+Changed in 1.0.1: adds the driver argv parser
+(``--output-dir``/``--format``/``--tracks``/``--cue``).
 """
 
 from __future__ import annotations

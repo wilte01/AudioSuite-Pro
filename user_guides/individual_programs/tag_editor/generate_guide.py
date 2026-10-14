@@ -1,9 +1,17 @@
-"""Generate the Tag Editor User Guide .docx."""
+"""Generate the Tag Editor User Guide .docx.
 
+Changed in 1.0.1: the version subtitle now renders the suite version from
+``declared_version()`` and the generation month dynamically, instead of the
+stale hardcoded ``Version 1.0 — September 2026``.
+"""
+
+from datetime import date
 from pathlib import Path
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+from audio_suite_shared.project_version import declared_version
 
 OUTPUT = Path(__file__).resolve().parent / "Tag_Editor_User_Guide.docx"
 
@@ -11,7 +19,9 @@ doc = Document()
 
 heading = doc.add_heading("Tag Editor — User Guide", level=0)
 heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
-doc.add_paragraph("Version 1.0 — September 2026").alignment = WD_ALIGN_PARAGRAPH.CENTER
+doc.add_paragraph(
+    f"Version {declared_version()} — {date.today().strftime('%B %Y')}"
+).alignment = WD_ALIGN_PARAGRAPH.CENTER
 
 doc.add_heading("Overview", level=1)
 doc.add_paragraph(

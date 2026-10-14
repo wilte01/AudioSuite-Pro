@@ -1,6 +1,9 @@
 """
 cd_ripper/app.py — Main application window for CD Ripper.
 Palette-aware, matches Music Format Converter style.
+
+Changed in 1.0.1: parses the driver's argv and pre-fills the rip output, format, tracks
+and cue settings.
 """
 
 import tkinter as tk

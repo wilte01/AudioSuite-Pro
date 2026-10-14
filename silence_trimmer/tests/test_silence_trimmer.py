@@ -6,6 +6,8 @@ Covers:
   - trimmer.py: TrimResult frozen dataclass, trim_and_fade() correctness
   - file_processor.py: _export_args(), run_trimming() orchestration
   - cli_args.py: parse(), validate_args() including edge cases
+
+Changed in 1.0.1: adds the all-silent skip regression and a non-silent control.
 """
 
 from __future__ import annotations

@@ -9,6 +9,10 @@ scanning: only re-reads tags for files whose mtime has changed.
 
 All statistics are derived from tags already written by suite tools.
 No re-analysis is performed.
+
+Changed in 1.0.1: the cached-scan path guards the decoded ``artist_album``
+value with ``isinstance(..., list)`` so a cache row holding valid JSON that
+is not a two-element list cannot abort the scan with a ``TypeError``.
 """
 
 from __future__ import annotations
@@ -536,7 +540,11 @@ def _build_report_from_cache(
         if artist_album_json:
             try:
                 aa = json.loads(artist_album_json)
-                if len(aa) == 2:
+                # A cache row can hold valid JSON that is not a 2-element
+                # list (an externally edited or corrupted DB); len() on such
+                # a value raises TypeError, so guard the type as well as the
+                # decode error or one bad row aborts the whole scan.
+                if isinstance(aa, list) and len(aa) == 2:
                     track_artist_set.add(aa[0])
                     track_artist = aa[0]
                     album_name = aa[1]

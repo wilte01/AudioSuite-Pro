@@ -201,6 +201,35 @@ Listed for follow-up; treat as unconfirmed:
 - `audio_suite_shared/logging_setup`: admin-filter re-apply guard.
 - `audio_suite_shared/process_audio_file_inplace`: raw `str(exc)` propagation.
 
+## Correction (2026-10-14) — S7 triage of the nine candidates above (append-only)
+
+Each "not independently re-verified" candidate was reproduced (or disproven)
+through the real entry point; verdicts are recorded in
+`PLAN_bughunt_remediation.md` (S7 completion log). Summary:
+
+- **Confirmed defects, fixed with lockstep regression tests:** JSON payload
+  lacking an `isinstance` guard (valid-JSON-non-list cache row raised an
+  uncaught `TypeError`); delete-before-snapshot ordering (source removed
+  before the undo snapshot, so a snapshot failure lost the file); partial
+  output left after a failed `cd_ripper` encode; raw `str(exc)` propagation
+  in `process_audio_file_inplace` (internal paths leaked to the display);
+  plus two docstring-vs-behaviour corrections (`query_aggregate` field list,
+  `_wav_params_for` "auto" wording).
+- **Disproven (closed as non-defects, not fixed):**
+  - `library_stats` cached-scan vs full-scan `total_files` "disagree" — a
+    real-data probe gives `full == cached` (2==2, 1==1); real tag readers
+    degrade gracefully (return None tags) so `_read_file_tags` does not
+    raise, and the divergence is reachable only by mocking a raise.
+  - `cd_ripper` AccurateRip last-track window — already corrected before
+    this report: `pad_tail_shortfall` runs before hashing
+    (`track_processor.py`) and the length gate accounts for
+    `tail_shortfall_bytes` (landed in commit `f65d923`).
+  - `logging_setup` admin-filter re-apply guard — the guard works (filter
+    present after the first configure; count stays 1 on re-configure;
+    restored after clear). The only gap requires injecting a foreign filter,
+    which is unreachable in production (`addFilter` is called only from
+    logging setup).
+
 ## Suggested priority
 1. H1 (peak units), H2 (fully-silent overwrite), H3 (ignored driver argv).
 2. M1 (None return), M2 (`--size`), M4/M5 (overwrite collisions).

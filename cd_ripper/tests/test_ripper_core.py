@@ -14,6 +14,9 @@ allow targeted exclusion in environments that want to skip OS-layer tests.
 RipSession.start() launches a background thread; integration-style tests that
 exercise the full session are kept under the ``integration`` marker and avoid
 real ffmpeg/SCSI calls.
+
+Changed in 1.0.1: adds ``TestRipTask`` regression tests asserting a failed or
+interrupted encode removes any partial output file.
 """
 
 import ctypes
@@ -631,6 +634,87 @@ class TestRipTask:
         num, ok, path, err = done[0]
         assert ok is False
         assert "Encode failed" in err or err
+
+    def test_partial_output_removed_on_encode_failure(self, tmp_path):
+        """A non-zero ffmpeg exit must not leave a partial output on disk."""
+        task, _, done = self._make_task(tmp_path)
+        out_wav = str(tmp_path / "track.wav")
+        Path(out_wav).write_bytes(b"RIFF" + b"\x00" * 44)
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.stderr = iter(["Error: invalid codec\n"])
+        mock_proc.wait.return_value = 1
+
+        removed_files = []
+        captured_args = []
+
+        def fake_popen(ffmpeg, args, **kw):
+            captured_args.extend(args)
+            return mock_proc
+
+        with (
+            patch("cd_ripper.core.encoding_pipeline.extract_track_scsi"),
+            patch(
+                "cd_ripper.core.encoding_pipeline.tempfile.mkstemp",
+                return_value=(0, out_wav),
+            ),
+            patch("os.close"),
+            patch("os.path.exists", return_value=True),
+            patch("os.path.getsize", return_value=1000),
+            patch(
+                "cd_ripper.core.metadata_resolver.run_secure_popen",
+                side_effect=fake_popen,
+            ),
+            patch("os.makedirs"),
+            patch("os.remove", side_effect=lambda p: removed_files.append(p)),
+        ):
+            task.run()
+
+        num, ok, path, err = done[0]
+        assert ok is False
+        out_path = captured_args[-1]
+        assert out_path in removed_files, (
+            f"partial output {out_path!r} was not removed; removed={removed_files}"
+        )
+
+    def test_partial_output_removed_on_encode_exception(self, tmp_path):
+        """An exception during encode must also clean up any partial output."""
+        task, _, done = self._make_task(tmp_path)
+        out_wav = str(tmp_path / "track.wav")
+        Path(out_wav).write_bytes(b"RIFF" + b"\x00" * 44)
+
+        removed_files = []
+        captured_args = []
+
+        def fake_stream(ffmpeg, args, **kw):
+            captured_args.extend(args)
+            raise OSError("ffmpeg vanished")
+
+        with (
+            patch("cd_ripper.core.encoding_pipeline.extract_track_scsi"),
+            patch(
+                "cd_ripper.core.encoding_pipeline.tempfile.mkstemp",
+                return_value=(0, out_wav),
+            ),
+            patch("os.close"),
+            patch("os.path.exists", return_value=True),
+            patch("os.path.getsize", return_value=1000),
+            patch(
+                "cd_ripper.core.encoding_pipeline._run_ffmpeg_streaming",
+                side_effect=fake_stream,
+            ),
+            patch("os.makedirs"),
+            patch("os.remove", side_effect=lambda p: removed_files.append(p)),
+        ):
+            task.run()
+
+        num, ok, path, err = done[0]
+        assert ok is False
+        out_path = captured_args[-1]
+        assert out_path in removed_files, (
+            f"partial output {out_path!r} was not removed; removed={removed_files}"
+        )
 
     def test_runtime_error_from_scsi_handled(self, tmp_path):
         task, _, done = self._make_task(tmp_path)

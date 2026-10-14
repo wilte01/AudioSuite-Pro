@@ -9,11 +9,14 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
 
-Everything below landed after `1.0.0` and is not yet versioned. The items are
-grouped Keep-a-Changelog style and worded against the behaviour actually
-shipped; the per-item evidence lives in `PLAN_iteration5_remediation.md`
-through `PLAN_iteration9_golive.md`.
+## [1.0.1] - 2026-10-14
+
+Everything below landed after `1.0.0`. The items are grouped Keep-a-Changelog
+style and worded against the behaviour actually shipped; the per-item evidence
+lives in `PLAN_iteration5_remediation.md` through `PLAN_iteration9_golive.md`
+and in `PLAN_bughunt_remediation.md`.
 
 ### Added
 
@@ -315,6 +318,12 @@ through `PLAN_iteration9_golive.md`.
   The frame walk now distinguishes frames *seen* from frames *changed*: an
   already-saturated file is a silent no-change success, and the error is raised
   only for a genuinely frame-less file.
+- **Music Format Converter could delete a source file with no undo record.**
+  With `--delete-originals`, the source was removed *before* its undo snapshot
+  was written, so a failure to record the snapshot left the file gone with
+  nothing to restore it. The snapshot is now taken first, and a snapshot
+  failure aborts the delete (reported as `DELETE FAILED`) so the original stays
+  on disk.
 
 ### Removed
 

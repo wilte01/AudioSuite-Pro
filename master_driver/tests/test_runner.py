@@ -12,6 +12,9 @@ build_refinery_args' internal tk.BooleanVar(value=True) call (see
 TestBuildRefineryArgs.test_toggle_always_truthy below) — that now constructs
 a genuine tkinter BooleanVar, which works normally because the shared root
 already exists.
+
+Changed in 1.0.1: drops the arg-builder assertions for the removed completeness/detail
+flags.
 """
 
 import os

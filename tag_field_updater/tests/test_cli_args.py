@@ -3,6 +3,8 @@
 Covers the G2.2 contract: ``Tag_Field_Updater.pyw`` (via
 ``tag_field_updater.ui.app.main``) must parse the Master Driver's argv and
 pre-fill the directory and dry-run mode.
+
+Changed in 1.0.1: adds parser tests for the driver handshake.
 """
 
 from __future__ import annotations

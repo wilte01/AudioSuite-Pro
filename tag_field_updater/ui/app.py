@@ -2,6 +2,9 @@
 Tkinter UI for Tag Field Updater.
 
 Provides the graphical user interface for scanning and updating tag fields.
+
+Changed in 1.0.1: parses the driver's argv and adds a Dry Run checkbox wired to the CLI
+mode.
 """
 
 from __future__ import annotations

@@ -1,6 +1,9 @@
 """
 app.py — Album Art Normalizer: thin orchestrator that wires UI, core logic,
 and utilities together. Contains no business logic itself; it only coordinates.
+
+Changed in 1.0.1: consumes the driver's ``--size`` argument and maps it onto the
+resolution setting.
 """
 
 from __future__ import annotations

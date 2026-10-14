@@ -1,4 +1,7 @@
-"""Generate a fresh ReplayGain Analyzer guide from current code."""
+"""Generate a fresh ReplayGain Analyzer guide from current code.
+
+Changed in 1.0.1: documents the linear peak values.
+"""
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH

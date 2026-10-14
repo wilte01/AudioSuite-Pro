@@ -58,6 +58,9 @@ centred first:
   therefore named instead of dropped, which is what the reported directory
   exposed: seven of twelve tracks had real tonal centres but margins of only
   0.001-0.015, so a margin-only gate could never name them.
+
+Changed in 1.0.1: recalibrates the keyless low-confidence fallback on a key-clarity
+statistic.
 """
 
 import logging

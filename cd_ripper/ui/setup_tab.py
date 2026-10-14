@@ -1,5 +1,8 @@
 """
 cd_ripper/ui/setup_tab.py — Setup tab container (decomposed).
+
+Changed in 1.0.1: pre-fills the setup widgets from argv and filters the rip list by
+``--tracks``.
 """
 
 import os

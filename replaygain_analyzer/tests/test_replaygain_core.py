@@ -7,6 +7,8 @@ New vs original:
   - TestCalculateAlbumGain: adds empty-list guard tests (#20)
   - TestWriteReplaygainTags: adds dry-run status test (validates tag_writer
     is NOT invoked when is_dry_run=True — exercised via apply_replaygain_tags)
+
+Changed in 1.0.1: updates the tag assertions for the linear (not dBFS) peak.
 """
 
 from unittest.mock import patch

@@ -23,10 +23,16 @@ invariant so the tree cannot silently rot again:
    ``[Unreleased]`` is a silent lie: a release-sized iteration lands with
    nothing recorded. An explicit "nothing yet" line satisfies the lock; a bare
    heading does not.
+6. *Guide-version lock* - any guide showing a version must render it from
+   ``audio_suite_shared.project_version.declared_version()`` (plan D15), not a
+   literal, so a release bump never leaves a stale label behind.
 
 The tracked-file set is read through ``git ls-files`` so the locks assert on
 what is actually *committed*, not on what merely exists in a working tree -
 an untracked stray file cannot fail CI, and a tracked one must.
+
+Changed in 1.0.1: adds lock (6), which pins every guide's version subtitle to
+``declared_version()`` (plan D15).
 """
 
 from __future__ import annotations
@@ -342,4 +348,55 @@ class TestChangelogHygiene:
         )
         assert "semver.org" in text.lower(), (
             f"{CHANGELOG.name} must cite SemVer for the versioning the lock enforces"
+        )
+
+
+#: Every guide version subtitle opens with this literal (D15 shape).
+_VERSION_PREFIX = "Version "
+
+
+class TestGuideVersionLabels:
+    """Any guide that displays a version must source it dynamically (plan D15)."""
+
+    def test_version_labels_track_the_declared_version(
+        self, tracked: list[str]
+    ) -> None:
+        """A version subtitle reads ``Version <declared_version()> — <Month Year>``.
+
+        The subtitle is discovered by scanning each tracked guide's paragraphs,
+        so a guide that hardcodes a version fails here instead of silently
+        drifting. The generation month varies, so only the version is locked.
+        """
+        from docx import Document
+
+        from audio_suite_shared.project_version import declared_version
+
+        expected = f"Version {declared_version()} \u2014 "
+        guides = [
+            path
+            for path in _under(tracked, GUIDE_ROOT)
+            if path.endswith("_User_Guide.docx")
+        ]
+        assert guides, "no committed user guides found - the lock would pass vacuously"
+
+        labelled = 0
+        offenders: list[str] = []
+        for guide in guides:
+            document = Document(str(REPO_ROOT / guide))
+            for paragraph in document.paragraphs:
+                text = paragraph.text.strip()
+                if not text.startswith(_VERSION_PREFIX):
+                    continue
+                labelled += 1
+                if not text.startswith(expected):
+                    offenders.append(f"{guide}: {text!r}")
+                break
+
+        assert labelled, (
+            "no guide carries a version subtitle - the lock would pass vacuously"
+        )
+        assert not offenders, (
+            "guide version subtitles must be sourced dynamically "
+            f"({expected!r}); found hardcoded/stale labels:\n  "
+            + "\n  ".join(offenders)
         )
