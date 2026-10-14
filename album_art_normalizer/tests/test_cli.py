@@ -250,6 +250,8 @@ class TestGuiRunModeIsHonoured:
         app.run_mode.get.return_value = mode
         with (
             patch.object(app_mod.messagebox, "showerror") as showerror,
+            patch.object(app_mod, "os.path", "exists", return_value=True),
+            patch.object(app_mod, "os.path", "isdir", return_value=True),
             patch.object(app_mod, "threading") as threading,
         ):
             threading.Thread.return_value.start = MagicMock()

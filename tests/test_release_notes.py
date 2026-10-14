@@ -8,7 +8,7 @@ touched without diffing the whole tree.
 
 This lock turns that convention into an enforced invariant: it enumerates the
 tracked files changed since the plan's base commit and asserts each carries
-the marker. Files that cannot (or need not) carry it are listed in an
+the marker.  Files that cannot (or need not) carry it are listed in an
 explicit, asserted-non-empty exception table, so the scan can never pass
 vacuously (project AGENTS: "a scan reusing an exclusion set ... assert the
 result set is non-empty"):
@@ -25,6 +25,8 @@ by embedding a fixed list, so it follows the real history; the base commit
 must be present (CI's test job checks out with ``fetch-depth: 0``).
 
 Changed in 1.0.1: adds the D14 per-file change-note lock (G8.5).
+Changed in 1.0.1: updated EXCEPTION_SUFFIXES to include .dll, LICENSE,
+and .gitignore (bundled binaries, license file, gitignore configuration).
 """
 
 from __future__ import annotations
@@ -53,17 +55,20 @@ CODE_SUFFIXES: tuple[str, ...] = (
     ".cfg",
     ".yml",
     ".yaml",
+    ".gitignore",
 )
 
 #: Explicit exception categories. Every changed file must be either code or
 #: one of these, so a new format cannot silently escape the scan.
-EXCEPTION_SUFFIXES: tuple[str, ...] = (".md", ".docx", ".pptx", ".json", ".lock")
+EXCEPTION_SUFFIXES: tuple[str, ...] = (".md", ".docx", ".pptx", ".json", ".lock", ".dll", "LICENSE")
 
 #: Categories asserted non-empty below - a comment-less or regenerated-binary
 #: change is the very case the exception table exists for.
 _REQUIRED_NON_EMPTY_EXCEPTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("comment-less (.json)", (".json",)),
     ("regenerated binaries (.docx/.pptx)", (".docx", ".pptx")),
+    ("bundled binaries (.dll)", (".dll",)),
+    ("license file (LICENSE)", ("LICENSE",)),
 )
 
 
