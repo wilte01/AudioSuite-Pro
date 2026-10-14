@@ -139,7 +139,7 @@ class MetadataConfigPanel:
                 ),
             )
 
-    def _on_track_double_click(self, event: tk.Event[ttk.Treeview]) -> None:
+    def _on_track_double_click(self, event: tk.Event) -> None:
         item = self._tree.identify_row(event.y)
         col = self._tree.identify_column(event.x)
         if not item or col not in ("#2", "#3"):

@@ -111,7 +111,7 @@ class FileReorganizerApp(BaseSuiteApp):
 
         self._refresh_preset_list = _refresh_preset_list
 
-        def _on_preset_select(_event: tk.Event[ttk.Combobox] | None = None) -> None:
+        def _on_preset_select(_event: tk.Event | None = None) -> None:
             assert self._preset_combo is not None
             name = self._preset_combo.get()
             if name:

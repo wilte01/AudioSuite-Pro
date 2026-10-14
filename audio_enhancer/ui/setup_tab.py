@@ -160,7 +160,7 @@ class _SetupFrame(BaseSetupFrame):
         self._param_values = _param_values
 
         def _on_preset_change(
-            _event: tk.Event[ttk.Combobox] | None = None,
+            _event: tk.Event | None = None,
         ) -> None:
             selected = PresetName(self._preset_name.get())
             if selected == PresetName.CUSTOM:
