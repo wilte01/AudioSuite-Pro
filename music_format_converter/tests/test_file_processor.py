@@ -1550,7 +1550,8 @@ class TestResamplerMeasuredOutcome:
         return 10 * math.log10((alias + 1e-30) / (ref + 1e-30))
 
     def test_shipped_chain_suppresses_the_aliased_partial(self, tmp_path):
-        """Requires soxr-enabled ffmpeg. Skipped on CI where soxr may not be available."""
+        """Requires soxr-enabled ffmpeg. Skipped on CI where soxr may not be
+        available."""
         import os
         # Skip on CI where ffmpeg may not have soxr resampler enabled
         if os.environ.get("CI"):
@@ -1573,7 +1574,7 @@ class TestResamplerMeasuredOutcome:
 
     def test_run_conversion_reaches_44k_output(self, tmp_path):
         """The sample-rate plumbing must actually take effect end to end.
-        
+
         Skipped on CI where ffmpeg path configuration may differ from local.
         """
         import os

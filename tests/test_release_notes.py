@@ -27,6 +27,7 @@ must be present (CI's test job checks out with ``fetch-depth: 0``).
 Changed in 1.0.1: adds the D14 per-file change-note lock (G8.5).
 Changed in 1.0.1: updated EXCEPTION_SUFFIXES to include .dll, LICENSE,
 and .gitignore (bundled binaries, license file, gitignore configuration).
+Changed in 1.0.1: fixed ruff linting errors (line length, whitespace).
 """
 
 from __future__ import annotations
@@ -60,7 +61,15 @@ CODE_SUFFIXES: tuple[str, ...] = (
 
 #: Explicit exception categories. Every changed file must be either code or
 #: one of these, so a new format cannot silently escape the scan.
-EXCEPTION_SUFFIXES: tuple[str, ...] = (".md", ".docx", ".pptx", ".json", ".lock", ".dll", "LICENSE")
+EXCEPTION_SUFFIXES: tuple[str, ...] = (
+    ".md",
+    ".docx",
+    ".pptx",
+    ".json",
+    ".lock",
+    ".dll",
+    "LICENSE",
+)
 
 #: Categories asserted non-empty below - a comment-less or regenerated-binary
 #: change is the very case the exception table exists for.
