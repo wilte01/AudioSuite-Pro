@@ -9,6 +9,11 @@ Dependencies (pip install --break-system-packages):
 If discid is unavailable we fall back to a FFmpeg-based TOC read which gives us
 track count and durations but no cryptographic disc ID, so MusicBrainz lookup
 uses a text search on the first track rather than an exact disc-id query.
+
+Changed in 1.0.1: the optional-``discid`` import guard now also catches
+``OSError`` (incl. ``FileNotFoundError``), because the wheel can import while
+the native ``libdiscid`` shared library is absent; the guard previously let
+that abort the whole ``cd_ripper`` package import.
 """
 
 import logging as _logging
@@ -32,7 +37,16 @@ try:
     # down-select (HAS_DISCID / HAS_MBZ) is exercised by tests patching those
     # flags (tests/test_disc_core.py), so only the import-time guards and
     # their env-conditional assignments are excluded (plan D2).
-except ImportError:  # pragma: no cover
+    #
+    # discid is a pure-Python wrapper around a C library, so `import discid`
+    # can succeed (the wheel is installed) while the native lib is absent —
+    # the loader then raises OSError (Linux/Win32) or FileNotFoundError (its
+    # OSError subclass). The guard must catch both, or a machine without
+    # libdiscid crashes the whole `cd_ripper` package import (CI run
+    # 38548380226: exit code 4 on every test leg). `discid` is bound to None
+    # so the module attribute still resolves for tests patching it.
+except (ImportError, OSError):  # pragma: no cover
+    discid = None
     HAS_DISCID = False
 
 try:

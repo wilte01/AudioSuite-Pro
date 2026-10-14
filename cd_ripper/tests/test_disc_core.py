@@ -16,6 +16,10 @@ Coverage strategy
 
 Hardware-dependent:
 - Real discid.read() and MusicBrainz HTTP → ``@pytest.mark.hardware``
+
+Changed in 1.0.1: adds ``TestDiscidImportGuard`` (the optional-``discid`` guard
+must survive an ``OSError`` from a missing native library, not just
+``ImportError``).
 """
 
 import sys
@@ -676,3 +680,52 @@ class TestListCdDrives:
             result = list_cd_drives()
 
         assert "D:" in result
+
+
+# ===========================================================================
+# Import guard — discid wheel present but native lib missing
+# ===========================================================================
+
+
+class TestDiscidImportGuard:
+    def test_oserror_from_discid_import_is_handled(self):
+        """
+        ``import discid`` can succeed at the wheel level while the native C
+        library is absent, in which case the loader raises OSError (or its
+        FileNotFoundError subclass) — not ImportError.  The module guard must
+        catch both and bind ``discid`` to None so the rest of the package
+        still imports and the name resolves for patches.
+
+        Regression: CI run 38548380226 — every test leg aborted at collection
+        with exit code 4 because the ImportError-only guard let the OSError
+        escape the ``cd_ripper`` package import.
+        """
+        import importlib.util
+
+        import cd_ripper.core.disc as real_disc
+
+        class _RaisingDiscidFinder:
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname == "discid":
+                    raise OSError("libdiscid.so.0: cannot open shared object file")
+                return None
+
+        finder = _RaisingDiscidFinder()
+        # The discid stub is registered in sys.modules at module import, so it
+        # must be absent for the meta_path finder to be consulted.
+        saved_discid = sys.modules.pop("discid", None)
+        sys.meta_path.insert(0, finder)
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "_disc_guard_probe", real_disc.__file__
+            )
+            assert spec is not None and spec.loader is not None
+            probe = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(probe)
+
+            assert probe.HAS_DISCID is False
+            assert probe.discid is None
+        finally:
+            sys.meta_path.remove(finder)
+            if saved_discid is not None:
+                sys.modules["discid"] = saved_discid

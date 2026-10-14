@@ -9,7 +9,15 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **CD Ripper import crash when `discid` is installed without its native
+  library.** `cd_ripper` guarded `import discid` against `ImportError` only, so
+  a machine carrying the Python wheel but not the `libdiscid` shared library
+  (Linux `libdiscid.so.0`, Windows `discid.dll`) aborted the entire package
+  import with `OSError`/`FileNotFoundError` - taking the CD Ripper down before
+  it could fall back to the FFmpeg TOC path. The guard now catches `OSError` as
+  well.
 
 ## [1.0.1] - 2026-10-14
 

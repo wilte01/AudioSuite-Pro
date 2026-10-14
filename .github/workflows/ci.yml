@@ -26,7 +26,14 @@ jobs:
 
   typecheck:
     name: Type Check
-    runs-on: ubuntu-latest
+    # This project targets Windows: mypy's platform selection follows the
+    # runner OS, and the suite legitimately uses Windows-only stdlib members
+    # (ctypes.windll, os.startfile, subprocess.CREATE_NO_WINDOW, msvcrt,
+    # ctypes.wintypes, winaccent). On ubuntu-latest typeshed offers none of
+    # them and reports ~35 false attr-defined errors (CI run 38548380226);
+    # on the Windows dev host the same bare `mypy .` is clean. Run it where
+    # the code is actually deployed.
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
