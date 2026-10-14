@@ -1,8 +1,10 @@
-"""
+r"""
 input_validator.py — Secure input validation and sanitisation utilities.
 
 Changed in 1.0.1: added tilde (~) to SAFE_PATH_PATTERN to allow Windows
 short username paths (e.g., C:\Users\RUNNER~1\AppData\Local\Temp).
+Changed in 1.0.1: changed docstring to raw string (r"") to avoid unicode
+escape error with backslashes in Windows path example.
 
 Provides validation for file paths, user inputs, and other potentially
 dangerous data to prevent injection attacks and security vulnerabilities.

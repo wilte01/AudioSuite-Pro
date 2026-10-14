@@ -36,6 +36,8 @@ Changed in 1.0.1: fixed album art CLI test os.path patch (patch.os.path
 does not exist, use patch("os.path.exists") instead).
 Changed in 1.0.1: fixed input validator SAFE_PATH_PATTERN to allow
 tilde (~) for Windows short username paths.
+Changed in 1.0.1: fixed input validator docstring to raw string to avoid
+unicode escape error with backslashes in Windows path example.
 Changed in 1.0.1: updated LICENSE hash to match refetched GPL v3 text.
 Changed in 1.0.1: skipped refinery pipeline integration tests on CI
 where pydub/ffmpeg may not be available.
