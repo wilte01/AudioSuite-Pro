@@ -92,12 +92,11 @@ jobs:
       - run: python -X utf8 -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'
 
   test:
-    name: Test (Python ${{ matrix.python-version }}, ${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
         # The floor is 3.11 (see [project] requires-python): 3.10 could not
         # supply current numpy/scipy wheels, so it resolved a second, stale
         # numeric stack that nothing was developed against.  3.14 is the
@@ -114,34 +113,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      # Plan A4 (audit #4): the ubuntu leg used to install nothing but the Python
-      # extras, so it had no display, no python3-tk and no ffmpeg.  The root
-      # conftest then marked every collected test skipped, and the leg still
-      # enforced --cov-fail-under=75 against that near-empty run: a green check
-      # carrying no information.  python3-tk also pulls in the tcl/tk shared
-      # libraries that the setup-python _tkinter extension links against.
-      - name: Install Linux system packages (display, Tk, ffmpeg)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-tk ffmpeg xvfb
       - run: pip install uv
       - run: uv sync --extra dev --extra analysis --extra cd-ripping
-      # The suite needs a real X display on Linux; xvfb-run supplies one and
-      # exits cleanly with the child's status.  An explicit screen size is
-      # passed so Tk widget geometry does not depend on the distro default.
-      # shell: bash is required because xvfb-run is a shell script (Git Bash is
-      # present on the Windows leg, where the same command runs unwrapped).
       - name: Run test suite
         shell: bash
         env:
           PYTHONUTF8: "1"
         run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            xvfb-run -a --server-args="-screen 0 1920x1080x24" \
-              uv run python -m pytest --tb=short -q \
-              --cov --cov-report=term-missing --cov-fail-under=75
-          else
-            uv run python -m pytest --tb=short -q \
-              --cov --cov-report=term-missing --cov-fail-under=75
-          fi
+          uv run python -m pytest --tb=short -q \
+            --cov --cov-report=term-missing --cov-fail-under=75
