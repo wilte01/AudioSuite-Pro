@@ -28,6 +28,7 @@ Changed in 1.0.1: adds the D14 per-file change-note lock (G8.5).
 Changed in 1.0.1: updated EXCEPTION_SUFFIXES to include .dll, LICENSE,
 and .gitignore (bundled binaries, license file, gitignore configuration).
 Changed in 1.0.1: fixed ruff linting errors (line length, whitespace).
+Changed in 1.0.1: fixed ruff formatting (blank lines after imports).
 """
 
 from __future__ import annotations

@@ -1553,6 +1553,7 @@ class TestResamplerMeasuredOutcome:
         """Requires soxr-enabled ffmpeg. Skipped on CI where soxr may not be
         available."""
         import os
+
         # Skip on CI where ffmpeg may not have soxr resampler enabled
         if os.environ.get("CI"):
             pytest.skip("soxr resampler may not be available in CI ffmpeg build")
@@ -1578,6 +1579,7 @@ class TestResamplerMeasuredOutcome:
         Skipped on CI where ffmpeg path configuration may differ from local.
         """
         import os
+
         # Skip on CI where ffmpeg may not be on PATH correctly
         if os.environ.get("CI"):
             pytest.skip("ffmpeg PATH configuration may differ in CI")
