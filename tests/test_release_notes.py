@@ -50,6 +50,8 @@ Changed in 1.0.1: added "Changed in 1.0.1" notes to all CI fix files
 (audio_enhancer/ui/setup_tab.py, cd_ripper/core/disc.py,
 cd_ripper/ui/metadata_config_panel.py, file_reorganizer/app.py,
 cd_ripper/tests/test_disc_core.py).
+Changed in 1.0.1: split skipif decorators across multiple lines in
+refinery pipeline tests to satisfy ruff line length limit.
 """
 
 from __future__ import annotations
