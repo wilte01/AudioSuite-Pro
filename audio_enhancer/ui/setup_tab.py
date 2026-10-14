@@ -2,6 +2,9 @@
 ui/setup_tab.py
 Setup tab for Audio Enhancer.
 
+Changed in 1.0.1: fixed type annotation from tk.Event[ttk.Combobox] to
+tk.Event for Python 3.11 compatibility (Event is not subscriptable in 3.11).
+
 Matches the suite's established UI conventions:
   - tk.LabelFrame for configuration groups
   - ttk.Combobox (readonly) for enumerated choices

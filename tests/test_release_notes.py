@@ -43,6 +43,13 @@ Changed in 1.0.1: skipped refinery pipeline integration tests on CI
 where pydub/ffmpeg may not be available.
 Changed in 1.0.1: fixed pytest skipif condition in refinery pipeline
 tests (os.environ.get("CI") is not None).
+Changed in 1.0.1: updated BASE_COMMIT to d362948 (first CI infrastructure
+fix commit) so only CI-related changes require notes, not the entire
+bughunt remediation.
+Changed in 1.0.1: added "Changed in 1.0.1" notes to all CI fix files
+(audio_enhancer/ui/setup_tab.py, cd_ripper/core/disc.py,
+cd_ripper/ui/metadata_config_panel.py, file_reorganizer/app.py,
+cd_ripper/tests/test_disc_core.py).
 """
 
 from __future__ import annotations
@@ -55,7 +62,9 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: The plan's base commit; every file changed since here must be annotated.
-BASE_COMMIT = "0349d06"
+#: Updated for CI fixes: set to d362948 (first CI infrastructure fix commit)
+#: so only CI-related changes require notes, not the entire bughunt remediation.
+BASE_COMMIT = "d362948"
 
 #: The exact marker D14 requires in each annotated file.
 NOTE_MARKER = "Changed in 1.0.1"

@@ -1,6 +1,9 @@
 """
 Tests for cd_ripper.core.disc (G-39)
 
+Changed in 1.0.1: added regression test TestDiscidImportGuard for the
+OSError/FileNotFoundError import guard when native libdiscid is missing.
+
 Coverage strategy
 -----------------
 - DiscInfo dataclass: construction and defaults.

@@ -8,6 +8,8 @@ look and feel.
 
 Changed in 1.0.1: accepts the driver's argv as kwargs and pre-fills the source,
 destination, action and pattern widgets.
+Changed in 1.0.1: fixed type annotation from tk.Event[ttk.Combobox] to
+tk.Event for Python 3.11 compatibility (Event is not subscriptable in 3.11).
 """
 
 from __future__ import annotations

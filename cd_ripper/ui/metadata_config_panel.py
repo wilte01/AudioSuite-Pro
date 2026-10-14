@@ -1,5 +1,8 @@
 """
 cd_ripper/ui/metadata_config_panel.py — Album metadata and track list editing.
+
+Changed in 1.0.1: fixed type annotation from tk.Event[ttk.Treeview] to
+tk.Event for Python 3.11 compatibility (Event is not subscriptable in 3.11).
 """
 
 import tkinter as tk

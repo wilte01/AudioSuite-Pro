@@ -1,6 +1,9 @@
 """
 core/disc.py  –  CD drive detection, TOC reading via FFmpeg, MusicBrainz lookup.
 
+Changed in 1.0.1: fixed discid import guard to catch OSError/FileNotFoundError
+when native libdiscid is missing (discid wheel present but DLL absent).
+
 Dependencies (pip install --break-system-packages):
     musicbrainzngs   – MusicBrainz Web Service client
     discid           – reads disc TOC / calculates MusicBrainz disc ID
