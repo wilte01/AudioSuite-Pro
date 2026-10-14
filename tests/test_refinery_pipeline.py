@@ -5,6 +5,8 @@ Unit and integration tests for audio_refinery.core.pipeline.
 
 Changed in 1.0.1: skipped test_normalise_reaches_target_lufs and
 test_full_chain_all_stages on CI where pydub/ffmpeg may not be available.
+Changed in 1.0.1: fixed pytest skipif condition from os.environ.get("CI")
+to os.environ.get("CI") is not None to avoid NameError.
 
 Moved from tests/audio_refinery/ to tests/ to avoid pytest treating
 the tests/audio_refinery directory as a package that shadows the real
@@ -520,7 +522,7 @@ class TestProcessFileOutcomes:
         AudioSegment.from_wav(str(wav)).export(str(flac), format="flac")
         return flac
 
-    @pytest.mark.skipif(os.environ.get("CI"), reason="pydub requires ffmpeg, not guaranteed in CI")
+    @pytest.mark.skipif(os.environ.get("CI") is not None, reason="pydub requires ffmpeg, not guaranteed in CI")
     def test_normalise_reaches_target_lufs(
         self, quiet_flac: Path, tmp_path: Path
     ) -> None:
@@ -549,7 +551,7 @@ class TestProcessFileOutcomes:
         duration = AudioSegment.from_file(str(out)).duration_seconds
         assert duration == pytest.approx(2.0, abs=0.05)
 
-    @pytest.mark.skipif(os.environ.get("CI"), reason="pydub requires ffmpeg, not guaranteed in CI")
+    @pytest.mark.skipif(os.environ.get("CI") is not None, reason="pydub requires ffmpeg, not guaranteed in CI")
     def test_full_chain_all_stages(self, tmp_path: Path) -> None:
         from pydub import AudioSegment
 

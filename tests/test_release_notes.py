@@ -41,6 +41,8 @@ unicode escape error with backslashes in Windows path example.
 Changed in 1.0.1: updated LICENSE hash to match refetched GPL v3 text.
 Changed in 1.0.1: skipped refinery pipeline integration tests on CI
 where pydub/ffmpeg may not be available.
+Changed in 1.0.1: fixed pytest skipif condition in refinery pipeline
+tests (os.environ.get("CI") is not None).
 """
 
 from __future__ import annotations
