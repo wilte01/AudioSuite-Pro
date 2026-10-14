@@ -3,6 +3,9 @@
 # Changed in 1.0.1: the test job checks out with fetch-depth: 0 so that
 # tests/test_release_notes.py can enumerate the release's changed files via
 # `git diff --name-only 0349d06`.
+#
+# Changed in 1.0.1: test job now runs on windows-latest only (Windows-only
+# software) and installs ffmpeg via choco for pydub audio export in tests.
 name: CI
 
 on:
@@ -115,6 +118,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install uv
       - run: uv sync --extra dev --extra analysis --extra cd-ripping
+      - name: Install ffmpeg (Windows)
+        run: choco install ffmpeg -y
       - name: Run test suite
         shell: bash
         env:
