@@ -13,7 +13,10 @@ uses a text search on the first track rather than an exact disc-id query.
 Changed in 1.0.1: the optional-``discid`` import guard now also catches
 ``OSError`` (incl. ``FileNotFoundError``), because the wheel can import while
 the native ``libdiscid`` shared library is absent; the guard previously let
-that abort the whole ``cd_ripper`` package import.
+that abort the whole ``cd_ripper`` package import. The guarded name is also
+pre-declared ``Any`` via an aliased import, because discid 1.4.2 ships
+``py.typed`` and a Module-typed ``discid`` could not be rebound to ``None``
+under ``mypy --strict`` once the extra is installed.
 """
 
 import logging as _logging
@@ -27,9 +30,18 @@ from audio_suite_shared.secure_subprocess import (
 )
 
 # ── optional imports ────────────────────────────────────────────────────────────
+# `discid` is pre-declared Any rather than left to the import's Module type so
+# the except path can keep it bound to None without an assignment error under
+# mypy --strict: discid 1.4.2 ships py.typed, so with the cd-ripping extra
+# installed (CI run 38552791651's typecheck leg) `import discid` resolves to a
+# typed Module and a bare `discid = None` failed "Incompatible types in
+# assignment". The aliased import keeps the public name a plain Any-typed
+# module attribute that tests can patch while the real module is still loaded.
+discid: Any = None
 try:
-    import discid
+    import discid as _discid
 
+    discid = _discid
     HAS_DISCID = True
     # discid/musicbrainzngs are declared OPTIONAL extras ([project]
     # optional-dependencies "cd-ripping"), installed when that extra is
@@ -43,10 +55,10 @@ try:
     # the loader then raises OSError (Linux/Win32) or FileNotFoundError (its
     # OSError subclass). The guard must catch both, or a machine without
     # libdiscid crashes the whole `cd_ripper` package import (CI run
-    # 38548380226: exit code 4 on every test leg). `discid` is bound to None
-    # so the module attribute still resolves for tests patching it.
+    # 38548380226: exit code 4 on every test leg). On that failure the name
+    # stays bound to the None pre-declared above, so the module attribute
+    # still resolves for tests patching it.
 except (ImportError, OSError):  # pragma: no cover
-    discid = None
     HAS_DISCID = False
 
 try:
