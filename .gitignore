@@ -1,3 +1,4 @@
+# Changed in 1.0.1: removed *.dll to allow discid.dll to be committed for CD Ripper.
 # Python
 __pycache__/
 *.py[cod]

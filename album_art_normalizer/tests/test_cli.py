@@ -1,5 +1,8 @@
 """Tests for album_art_normalizer/cli.py — the ``audiosuite artnormalize`` command.
 
+Changed in 1.0.1: fixed os.path patch in TestGuiRunModeIsHonoured._start() to use
+patch("os.path.exists") instead of patch.object(app_mod, "os.path", ...).
+
 Audit A1 (iteration 7, Stage 0) recorded two halves of one user-visible lie:
 
 1. The unified usage in ``audio_suite_shared/cli_app.py`` advertised

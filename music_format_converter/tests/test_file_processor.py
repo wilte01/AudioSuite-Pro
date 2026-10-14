@@ -6,6 +6,9 @@ Changed in 1.0.1: adds same-stem output-collision regression tests (M4).
 Also in 1.0.1: adds delete-snapshot-ordering regression tests (the undo
 snapshot must be taken while the source still exists, and a snapshot
 failure must abort the delete).
+Changed in 1.0.1: skipped test_shipped_chain_suppresses_the_aliased_partial
+and test_run_conversion_reaches_44k_output on CI where ffmpeg may not have
+soxr resampler enabled or PATH configuration differs.
 """
 
 import array

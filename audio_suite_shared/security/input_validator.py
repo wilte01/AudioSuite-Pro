@@ -1,6 +1,9 @@
 """
 input_validator.py — Secure input validation and sanitisation utilities.
 
+Changed in 1.0.1: added tilde (~) to SAFE_PATH_PATTERN to allow Windows
+short username paths (e.g., C:\Users\RUNNER~1\AppData\Local\Temp).
+
 Provides validation for file paths, user inputs, and other potentially
 dangerous data to prevent injection attacks and security vulnerabilities.
 """
@@ -21,7 +24,7 @@ class InputValidator:
     """Validates and sanitises user inputs for security."""
 
     # Allowed characters for file paths.
-    SAFE_PATH_PATTERN = re.compile(r"^[a-zA-Z0-9_\-./\\: ,\'&!+()#]+$")
+    SAFE_PATH_PATTERN = re.compile(r"^[a-zA-Z0-9_\-./\\: ,\'&!+()#~]+$")
 
     # The audio extensions this validator accepts. Derived from the suite's
     # single declared source of truth (audio_suite_shared.audio_formats) so a

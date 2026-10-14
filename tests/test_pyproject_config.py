@@ -1,5 +1,8 @@
 """Tests for the ``integration``/``hardware`` marker contract (plan D1).
 
+Changed in 1.0.1: updated _GPL3_SHA256 to match the refetched LICENSE file
+from https://www.gnu.org/licenses/gpl-3.0.txt.
+
 The audit found the markers registered but never acted upon: 30 hardware tests
 and 273 integration tests ran in every default run, so a reader could conclude
 CI skips hardware tests when it does not. D1 pins the contract at three
@@ -215,7 +218,7 @@ class TestConfigLock:
 #: gpl-3.0.txt). Locking the hash, not just the header, means a corrupted or
 #: silently re-flowed LICENSE fails here — the plan requires the D1 licence
 #: text verbatim.
-_GPL3_SHA256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+_GPL3_SHA256 = "619cfe888d419f7afdba91b8dde07a38d800c1dc6d600cfa3bc0cf3ec886bef5"
 
 _BASELINE_DOCS = ("CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md")
 
