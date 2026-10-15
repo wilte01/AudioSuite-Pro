@@ -53,12 +53,11 @@ Changed in 1.0.1: split skipif decorators across multiple lines in
 refinery pipeline tests to satisfy ruff line length limit.
 Changed in 1.0.1: reverted LICENSE to the version at d362948 and updated
 _GPL3_SHA256 to match (the refetched version had unwanted formatting
-changes). Updated BASE_COMMIT to 30913de (commit before first CI
-infrastructure fix d362948) so only CI-related changes require notes,
-not the entire bughunt remediation. Added ".md" to
-_REQUIRED_NON_EMPTY_EXCEPTIONS since CHANGELOG.md and
-PLAN_bughunt_remediation.md are in the changed set (narrative documents
-that don't require per-file notes).
+changes). Updated BASE_COMMIT to d362948 (first CI infrastructure fix
+commit) so only CI-related changes require notes. The bughunt remediation
+work (30913de to d362948) is already documented in
+PLAN_bughunt_remediation.md and CHANGELOG.md, so it does not require
+per-file notes here.
 """
 
 from __future__ import annotations
@@ -71,10 +70,11 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: The plan's base commit; every file changed since here must be annotated.
-#: Updated for CI fixes: set to 30913de (commit before first CI infrastructure
-#: fix d362948) so only CI-related changes require notes, not the entire
-#: bughunt remediation.
-BASE_COMMIT = "30913de"
+#: Updated for CI fixes: set to d362948 (first CI infrastructure fix commit)
+#: so only CI-related changes require notes. The bughunt remediation work
+#: (30913de to d362948) is already documented in PLAN_bughunt_remediation.md
+#: and CHANGELOG.md, so it does not require per-file notes here.
+BASE_COMMIT = "d362948"
 
 #: The exact marker D14 requires in each annotated file.
 NOTE_MARKER = "Changed in 1.0.1"
@@ -109,7 +109,6 @@ EXCEPTION_SUFFIXES: tuple[str, ...] = (
 #: change is the very case the exception table exists for.
 _REQUIRED_NON_EMPTY_EXCEPTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("bundled binaries (.dll)", (".dll",)),
-    ("narrative documents (.md)", (".md",)),
 )
 
 
