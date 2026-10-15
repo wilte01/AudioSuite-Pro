@@ -53,9 +53,10 @@ Changed in 1.0.1: split skipif decorators across multiple lines in
 refinery pipeline tests to satisfy ruff line length limit.
 Changed in 1.0.1: reverted LICENSE to the version at d362948 and updated
 _GPL3_SHA256 to match (the refetched version had unwanted formatting
-changes). Updated BASE_COMMIT to 8173cf5 (last commit before LICENSE
-revert) so LICENSE does not require a note. Removed LICENSE from
-_REQUIRED_NON_EMPTY_EXCEPTIONS since it's no longer in the changed set.
+changes). Added LICENSE back to _REQUIRED_NON_EMPTY_EXCEPTIONS since
+the changed set now includes LICENSE again (it was reverted from a later
+commit). Updated BASE_COMMIT back to d362948 (first CI infrastructure
+fix commit) so the full CI fix history is checked.
 """
 
 from __future__ import annotations
@@ -68,9 +69,9 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: The plan's base commit; every file changed since here must be annotated.
-#: Updated for CI fixes: set to 8173cf5 (last commit before LICENSE revert)
-#: so LICENSE does not require a note (reverted to original version).
-BASE_COMMIT = "8173cf5"
+#: Updated for CI fixes: set to d362948 (first CI infrastructure fix commit)
+#: so only CI-related changes require notes, not the entire bughunt remediation.
+BASE_COMMIT = "d362948"
 
 #: The exact marker D14 requires in each annotated file.
 NOTE_MARKER = "Changed in 1.0.1"
@@ -107,6 +108,7 @@ _REQUIRED_NON_EMPTY_EXCEPTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("comment-less (.json)", (".json",)),
     ("regenerated binaries (.docx/.pptx)", (".docx", ".pptx")),
     ("bundled binaries (.dll)", (".dll",)),
+    ("license file (LICENSE)", ("LICENSE",)),
     ("GUI launchers (.pyw)", (".pyw",)),
 )
 

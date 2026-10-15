@@ -1,11 +1,10 @@
 # AudioSuite-Pro continuous integration.
 #
-# Changed in 1.0.1: the test job checks out with fetch-depth: 0 so that
-# tests/test_release_notes.py can enumerate the release's changed files via
-# `git diff --name-only 0349d06`.
-#
 # Changed in 1.0.1: test job now runs on windows-latest only (Windows-only
-# software) and installs ffmpeg via choco for pydub audio export in tests.
+# software), installs ffmpeg via choco for pydub audio export in tests,
+# and checks out with fetch-depth: 0 for release notes enumeration.
+# Removed ubuntu-latest from test matrix and Linux-specific system
+# package installation steps.
 name: CI
 
 on:
