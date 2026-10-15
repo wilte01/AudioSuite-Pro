@@ -5,6 +5,9 @@
 # and checks out with fetch-depth: 0 for release notes enumeration.
 # Removed ubuntu-latest from test matrix and Linux-specific system
 # package installation steps.
+# Changed in 1.0.1: simplified workflow header comments.
+# Changed in 1.0.1: moved typecheck job to windows-latest (Windows-specific
+# code uses Windows-only APIs and types).
 name: CI
 
 on:

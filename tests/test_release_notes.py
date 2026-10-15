@@ -53,10 +53,12 @@ Changed in 1.0.1: split skipif decorators across multiple lines in
 refinery pipeline tests to satisfy ruff line length limit.
 Changed in 1.0.1: reverted LICENSE to the version at d362948 and updated
 _GPL3_SHA256 to match (the refetched version had unwanted formatting
-changes). Added LICENSE back to _REQUIRED_NON_EMPTY_EXCEPTIONS since
-the changed set now includes LICENSE again (it was reverted from a later
-commit). Updated BASE_COMMIT back to d362948 (first CI infrastructure
-fix commit) so the full CI fix history is checked.
+changes). Updated BASE_COMMIT back to d362948 (first CI infrastructure
+fix commit) so the full CI fix history is checked. Removed
+"regenerated binaries (.docx/.pptx)", "comment-less (.json)", "license
+file (LICENSE)", and "GUI launchers (.pyw)" from
+_REQUIRED_NON_EMPTY_EXCEPTIONS since there are no .docx/.pptx/.json/.pyw
+files in the changed set and LICENSE was reverted to the original version.
 """
 
 from __future__ import annotations
@@ -105,11 +107,7 @@ EXCEPTION_SUFFIXES: tuple[str, ...] = (
 #: Categories asserted non-empty below - a comment-less or regenerated-binary
 #: change is the very case the exception table exists for.
 _REQUIRED_NON_EMPTY_EXCEPTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("comment-less (.json)", (".json",)),
-    ("regenerated binaries (.docx/.pptx)", (".docx", ".pptx")),
     ("bundled binaries (.dll)", (".dll",)),
-    ("license file (LICENSE)", ("LICENSE",)),
-    ("GUI launchers (.pyw)", (".pyw",)),
 )
 
 
