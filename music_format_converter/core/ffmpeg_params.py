@@ -8,6 +8,8 @@ The caller is responsible for running the returned command.
 Bit-depth reduction and sample-rate conversion both go through FFmpeg's
 ``aresample`` filter (plan E1, decision D1): TPDF dither on every depth
 reduction, and the SoX resampler whenever a rate conversion is requested.
+
+Changed in 1.1.0: added the Ogg Speex (.spx) libspeex codec branch.
 """
 
 # ── Sample-rate presets ──────────────────────────────────────────────────────
@@ -274,11 +276,15 @@ def get_ffmpeg_params(
         # WavPack is lossless; there is no bitrate/quality tier to set.
         cmd.extend(["-codec:a", "wavpack"])
 
+    elif output_format == "spx":
+        # Ogg Speex is a speech codec; quality 8 (~15 kbps) is its top tier.
+        cmd.extend(["-codec:a", "libspeex", "-q:a", "8"])
+
     else:
-        # Passthrough for any unknown/unhandled format. Note: "ape" is
-        # deliberately NOT routed here — it is rejected upstream by
-        # formats.can_convert()/available_output_formats() before this
-        # function is ever called, because FFmpeg has no APE encoder.
+        # Passthrough for any unknown/unhandled format. Note: "ape"/"mpc"/
+        # "dsf" are deliberately NOT routed here — they are rejected upstream
+        # by formats.can_convert()/available_output_formats() before this
+        # function is ever called, because FFmpeg has no encoder/muxer for them.
         cmd.extend(["-codec:a", "copy"])
         stream_copied = True
 

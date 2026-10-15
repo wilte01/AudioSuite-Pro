@@ -1,11 +1,17 @@
 """
-tag_helper_vorbis.py — FLAC / Ogg Vorbis / Opus tag handler.
+tag_helper_vorbis.py — FLAC / Ogg Vorbis / Opus / Speex tag handler.
 
 The ``VorbisHandler`` implementation, relocated verbatim from
 ``tag_helper_base.py`` by iteration-7 C2 (plan-governed god-file split).
+Speex (``.spx``) support was added by Sprint 1 of
+``PLAN_feature_expansion.md`` item 1.1 (D15): ``mutagen.oggspeex.OggSpeex``
+exposes the same Vorbis-comment tag surface as ``OggVorbis`` (verified in
+D20), so it shares this handler with only a new ``load()`` branch.
 Import the public surface through ``audio_suite_shared.tag_helper_base``:
 this module participates in the facade import cycle and must not be the
 first tag-helper module imported in a fresh interpreter.
+
+Changed in 1.1.0: adds an Ogg Speex (.spx) load branch to the Vorbis handler.
 """
 
 import logging
@@ -25,7 +31,7 @@ logger = logging.getLogger("audio_suite.audio_suite_shared.tag_helper_base")
 
 
 class VorbisHandler(BaseTagHandler):
-    """Handler for Vorbis-comment files: FLAC, OGG, and Opus."""
+    """Handler for Vorbis-comment files: FLAC, OGG, Opus, and Speex."""
 
     def load(self) -> None:
         """Load the audio file and its Vorbis comment tags."""
@@ -38,6 +44,10 @@ class VorbisHandler(BaseTagHandler):
             from mutagen.oggopus import OggOpus
 
             self._audio = OggOpus(self.path)
+        elif ext == ".spx":
+            from mutagen.oggspeex import OggSpeex
+
+            self._audio = OggSpeex(self.path)
         else:
             from mutagen.oggvorbis import OggVorbis
 

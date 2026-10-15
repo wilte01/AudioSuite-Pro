@@ -20,6 +20,8 @@ Covers:
 
 All heavy dependencies (load_analysis_audio, analyze_mood, tag writes) are
 mocked so the suite runs quickly and standalone.
+
+Changed in 1.1.0: extended the test extension set to the five new formats.
 """
 
 from __future__ import annotations
@@ -68,6 +70,11 @@ _TEST_EXTENSIONS = (
     ".aif",
     ".opus",
     ".mp4",
+    ".spx",
+    ".wv",
+    ".ape",
+    ".mpc",
+    ".dsf",
 )
 
 

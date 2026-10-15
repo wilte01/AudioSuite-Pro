@@ -3,6 +3,9 @@ audio_formats.py — Standardized audio format definitions for Audio Suite.
 
 Provides consistent audio file extension constants across all applications,
 eliminating scattered definitions and ensuring format compatibility.
+
+Changed in 1.1.0: widened SUPPORTED_EXTENSIONS with .wv/.ape/.mpc/.spx/.dsf and added
+READ_ONLY_EXTENSIONS plus is_read_only_extension().
 """
 
 from __future__ import annotations
@@ -22,16 +25,45 @@ SUPPORTED_EXTENSIONS: tuple[str, ...] = (
     ".wav",  # Waveform Audio File Format
     ".aiff",  # Audio Interchange File Format
     ".aif",  # Audio Interchange File Format (short extension)
+    ".wv",  # WavPack (decode + encode — ffmpeg wavpack encoder)
+    ".ape",  # Monkey's Audio (decode only — no ffmpeg encoder/muxer)
+    ".mpc",  # Musepack (decode only — no ffmpeg encoder/muxer)
+    ".spx",  # Speex in Ogg (decode + encode — ffmpeg libspeex encoder)
+    ".dsf",  # DSD Store (decode only — DSD->PCM via ffmpeg dsd2pcm)
 )
 
+# Extensions that may be read/converted *from* but never written in place or
+# converted *to*: ffmpeg has no encoder and no muxer for these containers, so
+# any same-ext write would silently fall through get_export_args()'s MP3
+# fallback and corrupt the file (see get_export_args below).
+READ_ONLY_EXTENSIONS: tuple[str, ...] = (".ape", ".mpc", ".dsf")
+
 # Lossless audio formats
-LOSSLESS_EXTENSIONS: tuple[str, ...] = (".flac", ".wav", ".aiff", ".aif")
+LOSSLESS_EXTENSIONS: tuple[str, ...] = (
+    ".flac",
+    ".wav",
+    ".aiff",
+    ".aif",
+    ".wv",
+    ".ape",
+    ".mpc",
+    ".dsf",
+)
 
 # Compressed/lossy audio formats
-COMPRESSED_EXTENSIONS: tuple[str, ...] = (".mp3", ".ogg", ".m4a", ".mp4", ".opus")
+COMPRESSED_EXTENSIONS: tuple[str, ...] = (
+    ".mp3",
+    ".ogg",
+    ".m4a",
+    ".mp4",
+    ".opus",
+    ".spx",
+)
 
 # pydub export format string + ffmpeg quality params per extension.
 # WAV and AIFF are uncompressed PCM containers; no bitrate/quality params apply.
+# Read-only extensions (.ape/.mpc/.dsf) are deliberately absent — see
+# READ_ONLY_EXTENSIONS above.
 PYDUB_FORMAT: dict[str, tuple[str, list[str]]] = {
     ".mp3": ("mp3", ["-q:a", "0"]),
     ".flac": ("flac", ["-compression_level", "8"]),
@@ -42,7 +74,25 @@ PYDUB_FORMAT: dict[str, tuple[str, list[str]]] = {
     ".wav": ("wav", []),
     ".aiff": ("aiff", []),
     ".aif": ("aiff", []),
+    ".wv": ("wv", []),
+    ".spx": ("spx", ["-c:a", "libspeex", "-q:a", "8"]),
 }
+
+
+def is_read_only_extension(filename: str) -> bool:
+    """
+    Check if a filename has a read-only audio extension (ape/mpc/dsf).
+
+    These containers have no ffmpeg encoder or muxer: they may be read and
+    converted *from*, but must never be written in place or converted *to*.
+
+    Args:
+        filename: Name of file to check
+
+    Returns:
+        True if file has a read-only extension, False otherwise
+    """
+    return filename.lower().endswith(READ_ONLY_EXTENSIONS)
 
 
 def is_supported_format(filename: str) -> bool:

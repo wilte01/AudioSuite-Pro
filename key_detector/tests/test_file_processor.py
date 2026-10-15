@@ -9,6 +9,8 @@ Covers:
     separately, which returns the native rate -- not the rate of the
     array that librosa.load() produced -- silently corrupting chroma_cqt's
     frequency-bin mapping for any file not natively at 22050 Hz.)
+
+Changed in 1.1.0: retargeted the librosa patch points to the shared helper.
 """
 
 import threading
@@ -67,10 +69,8 @@ class TestSampleRatePassedToDetectKey:
         with (
             patch(f"{MODULE}.read_key", return_value=None),
             patch(f"{MODULE}.write_key"),
-            patch(
-                f"{MODULE}.librosa.load", return_value=(fake_audio, loaded_sr)
-            ) as mock_load,
-            patch(f"{MODULE}.librosa.get_samplerate", return_value=native_sr),
+            patch("librosa.load", return_value=(fake_audio, loaded_sr)) as mock_load,
+            patch("librosa.get_samplerate", return_value=native_sr),
             patch(f"{MODULE}.detect_key", return_value="C") as mock_detect_key,
         ):
             process_single_file(**args)
@@ -105,8 +105,8 @@ class TestSampleRatePassedToDetectKey:
         with (
             patch(f"{MODULE}.read_key", return_value=None),
             patch(f"{MODULE}.write_key"),
-            patch(f"{MODULE}.librosa.load", return_value=(fake_audio, 22050)),
-            patch(f"{MODULE}.librosa.get_samplerate", return_value=22050),
+            patch("librosa.load", return_value=(fake_audio, 22050)),
+            patch("librosa.get_samplerate", return_value=22050),
             patch(f"{MODULE}.detect_key", return_value="C") as mock_detect_key,
         ):
             process_single_file(**args)
@@ -126,8 +126,8 @@ class TestSampleRatePassedToDetectKey:
         with (
             patch(f"{MODULE}.read_key", return_value=None),
             patch(f"{MODULE}.write_key"),
-            patch(f"{MODULE}.librosa.load", return_value=(fake_audio, 22050)),
-            patch(f"{MODULE}.librosa.get_samplerate") as mock_native_sr,
+            patch("librosa.load", return_value=(fake_audio, 22050)),
+            patch("librosa.get_samplerate") as mock_native_sr,
             patch(f"{MODULE}.detect_key", return_value="C") as mock_detect_key,
         ):
             process_single_file(**args)
@@ -217,7 +217,7 @@ class TestDetectKeyCpu:
 
         fake_audio = np.zeros(1000, dtype=np.float32)
         with (
-            patch(f"{MODULE}.librosa.load", return_value=(fake_audio, 22050)),
+            patch("librosa.load", return_value=(fake_audio, 22050)),
             patch(f"{MODULE}.detect_key", return_value="C"),
         ):
             result = _detect_key_cpu(
@@ -230,7 +230,7 @@ class TestDetectKeyCpu:
     def test_returns_error_on_exception(self):
         from key_detector.core.file_processor import _detect_key_cpu
 
-        with patch(f"{MODULE}.librosa.load", side_effect=ValueError("corrupt")):
+        with patch("librosa.load", side_effect=ValueError("corrupt")):
             result = _detect_key_cpu(
                 file_path="/music/bad.mp3",
                 analysis_duration=30,
@@ -347,7 +347,7 @@ class TestProcessSingleFileBranches:
         args = _make_call_args(is_dry_run=True)
         with (
             patch(f"{MODULE}.read_key", return_value="Am"),
-            patch(f"{MODULE}.librosa.load") as mock_load,
+            patch("librosa.load") as mock_load,
         ):
             process_single_file(**args)
         mock_load.assert_not_called()
@@ -362,7 +362,7 @@ class TestProcessSingleFileBranches:
         args = _make_call_args(is_dry_run=False)
         with (
             patch(f"{MODULE}.read_key", return_value=None),
-            patch(f"{MODULE}.librosa.load", return_value=(fake_audio, 22050)),
+            patch("librosa.load", return_value=(fake_audio, 22050)),
             patch(f"{MODULE}.detect_key", return_value="C"),
             patch(f"{MODULE}.write_key") as mock_write,
         ):
@@ -379,7 +379,7 @@ class TestProcessSingleFileBranches:
         args = _make_call_args(is_dry_run=False)
         with (
             patch(f"{MODULE}.read_key", return_value="Am"),
-            patch(f"{MODULE}.librosa.load", return_value=(fake_audio, 22050)),
+            patch("librosa.load", return_value=(fake_audio, 22050)),
             patch(f"{MODULE}.detect_key", return_value="C"),
             patch(f"{MODULE}.write_key"),
         ):
@@ -527,7 +527,7 @@ class TestUndoBatchRecording:
 
         with (
             patch(f"{MODULE}.detect_key", return_value="C"),
-            patch(f"{MODULE}.librosa.load", return_value=(fake_audio, 22050)),
+            patch("librosa.load", return_value=(fake_audio, 22050)),
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
             patch("audio_suite_shared.file_processor_base.track_thread"),
             patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
@@ -713,7 +713,7 @@ class TestRealFileUndoRoundTrip:
         with (
             patch(f"{MODULE}.detect_key", return_value="C"),
             patch(
-                f"{MODULE}.librosa.load",
+                "librosa.load",
                 return_value=(np.zeros(_SR, dtype=np.float32), _SR),
             ),
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),

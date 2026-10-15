@@ -5,6 +5,9 @@ Multi-threaded pipeline orchestrator for Audio Refinery.
 Discovers audio files, checks the completion registry, dispatches
 workers, and aggregates results.  All UI interaction is via injected
 callbacks so this module has no tkinter dependency.
+
+Changed in 1.1.0: read-only formats (APE/MPC/DSF) are skipped with a clear message
+instead of being rewritten in place.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from pathlib import Path
 from queue import Queue
 from typing import Any
 
+from audio_suite_shared.audio_formats import READ_ONLY_EXTENSIONS
 from audio_suite_shared.batch_undo import get_active_batch_id, use_batch
 from audio_suite_shared.error_recovery import RecoveryAction, get_recovery_action
 from audio_suite_shared.exceptions import (
@@ -63,6 +67,20 @@ def _worker_process(
 
     def _process_one() -> None:
         with use_batch(undo_batch):
+            ext = path.suffix.lower()
+            if ext in READ_ONLY_EXTENSIONS:
+                result = FileResult(
+                    path=path,
+                    status=FileStatus.SKIPPED,
+                    error=(
+                        f"read-only format ({ext}); no encoder exists - "
+                        "convert from it instead"
+                    ),
+                )
+                with lock:
+                    on_file_done(result)
+                return
+
             slot_vars[slot_idx].set(f"Hashing: {path.name[:22]}...")
 
             source_hash = registry.hash_file(path)
@@ -171,8 +189,9 @@ def run_pipeline(
         processed[0] += 1
         if result.status == FileStatus.SKIPPED:
             skipped[0] += 1
-            display = f"[SKIP] {result.path.name} -- already processed"
-            log = f"[SKIP] {result.path.name} | Already in completion registry\n"
+            reason = result.error or "Already in completion registry"
+            display = f"[SKIP] {result.path.name} -- {reason.lower()}"
+            log = f"[SKIP] {result.path.name} | {reason}\n"
         elif result.status == FileStatus.ERROR:
             errors[0] += 1
             error_msg = result.error[:80] if result.error else "Unknown error"

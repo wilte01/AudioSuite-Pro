@@ -4,12 +4,17 @@ tag_helper_base.py — Object-Oriented, format-aware audio tag read/write utilit
 Part of audio_suite_shared. Single canonical copy used by all suite tools.
 Refactored to use OO patterns for better maintainability and extensibility.
 
-Supports: MP3, FLAC, OGG (Vorbis), M4A/MP4, Opus, WAV, AIFF
+Supports: MP3, FLAC, OGG (Vorbis), M4A/MP4, Opus, WAV, AIFF, WavPack,
+Monkey's Audio, Musepack, Speex, DSF
 
 Each format handler lives in its own module (``tag_helper_mp3.py``,
-``tag_helper_iffid3.py``, ``tag_helper_vorbis.py``, ``tag_helper_mp4.py``);
-this module keeps the shared base and the factory and re-exports the
-handler classes so every existing importer keeps working unchanged.
+``tag_helper_iffid3.py``, ``tag_helper_vorbis.py``, ``tag_helper_mp4.py``,
+``tag_helper_apev2.py``, ``tag_helper_dsf.py``); this module keeps the
+shared base and the factory and re-exports the handler classes so every
+existing importer keeps working unchanged.
+
+Changed in 1.1.0: registers the APEv2 (.wv/.ape/.mpc), DSF (.dsf) and Ogg Speex (.spx)
+tag handlers.
 """
 
 import abc
@@ -428,6 +433,8 @@ class BaseTagHandler(abc.ABC):
 # cluster must be tag_helper_base (or any module that reaches it), never
 # a handler module directly — direct-first-entry would find the handler
 # module only partially initialised.
+from .tag_helper_apev2 import APEv2Handler as APEv2Handler  # noqa: E402
+from .tag_helper_dsf import DSFID3Handler as DSFID3Handler  # noqa: E402
 from .tag_helper_iffid3 import IFFID3Handler as IFFID3Handler  # noqa: E402
 from .tag_helper_mp3 import MP3Handler as MP3Handler  # noqa: E402
 from .tag_helper_mp4 import MP4Handler as MP4Handler  # noqa: E402
@@ -442,11 +449,16 @@ class TagHandlerFactory:
         ".flac": VorbisHandler,
         ".ogg": VorbisHandler,
         ".opus": VorbisHandler,
+        ".spx": VorbisHandler,
         ".m4a": MP4Handler,
         ".mp4": MP4Handler,
         ".wav": IFFID3Handler,
         ".aiff": IFFID3Handler,
         ".aif": IFFID3Handler,
+        ".wv": APEv2Handler,
+        ".ape": APEv2Handler,
+        ".mpc": APEv2Handler,
+        ".dsf": DSFID3Handler,
     }
 
     @classmethod

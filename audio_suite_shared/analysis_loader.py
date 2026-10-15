@@ -12,16 +12,24 @@ signal at ``sr == 0``, which the guard below rejects — librosa >= 1.0 removed
 that fallback and raises the soundfile error instead). Samples are always
 upcast to ``numpy.float64`` to avoid quantisation noise accumulation during
 feature extraction.
+
+Changed in 1.1.0: added librosa_load_with_fallback() with an ffmpeg transcode fallback
+so the new containers can be analysed.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import shutil
+import tempfile
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 
 from .exceptions import AudioAnalysisError, AudioCodecError, map_to_audio_error
+from .secure_subprocess import run_secure_subprocess
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
@@ -31,6 +39,128 @@ MIN_ANALYSIS_SECONDS = 0.5
 
 # Fraction of full-scale that counts as "effectively silent" (~ -60 dBFS).
 SILENCE_RMS_THRESHOLD = 1.0e-3
+
+
+def librosa_load_with_fallback(
+    file_path: str,
+    *,
+    duration: int = 0,
+    mono: bool = True,
+    sr: int | None = None,
+) -> tuple[npt.NDArray[np.float32], int]:
+    """Decode audio with librosa, transcoding via FFmpeg for formats it cannot read.
+
+    ``librosa`` decodes through ``libsndfile``, which reads none of the
+    lossless/lossy formats added in Sprint 1 (WavPack, Monkey's Audio,
+    Musepack, Speex, DSF). When the direct decode raises, the file is
+    transcoded to a temporary WAV with FFmpeg and re-read, so every analysis
+    tool keeps working on the widened ``SUPPORTED_EXTENSIONS`` set instead of
+    failing per file. The fallback is best-effort: if FFmpeg is unavailable
+    or the transcode also fails, the original librosa exception is re-raised
+    unchanged, so callers' existing error contracts are preserved.
+
+    Args:
+        file_path: Path to the audio file.
+        duration:  Maximum seconds to decode (``0`` disables the cap).
+        mono:      Downmix to a single channel when True.
+        sr:        Target sample rate, or None to keep the native rate.
+
+    Returns:
+        Two-tuple ``(y, sr)`` where *y* is a mono float32 array and *sr* is
+        the sample rate in Hz.
+
+    Raises:
+        Exception: The original librosa decode error when no fallback is
+            possible.
+    """
+    import librosa
+
+    try:
+        y_f32, out_sr = _librosa_load(librosa, file_path, duration, mono, sr)
+    except Exception:
+        # A non-existent path can never be rescued by FFmpeg; surface the
+        # original error rather than spawning a doomed transcode.
+        if not os.path.isfile(file_path):
+            raise
+        transcoded = _transcode_via_ffmpeg(
+            file_path, duration=duration, mono=mono, sr=sr
+        )
+        if transcoded is None:
+            raise
+        return transcoded
+    return y_f32, int(out_sr)
+
+
+def _librosa_load(
+    librosa_module: Any,
+    file_path: str,
+    duration: int,
+    mono: bool,
+    sr: int | None,
+) -> tuple[Any, Any]:
+    """Call ``librosa.load`` with optional duration capping.
+
+    Args:
+        librosa_module: The imported librosa module (injectable for tests).
+        file_path:      Path to the audio file.
+        duration:       Maximum seconds to decode (``0`` disables the cap).
+        mono:           Downmix to a single channel when True.
+        sr:             Target sample rate, or None to keep the native rate.
+
+    Returns:
+        The raw ``(y_f32, sr)`` pair returned by ``librosa.load``.
+    """
+    if duration and duration > 0:
+        capped: tuple[Any, Any] = librosa_module.load(
+            file_path, duration=duration, mono=mono, sr=sr
+        )
+        return capped
+    loaded: tuple[Any, Any] = librosa_module.load(file_path, mono=mono, sr=sr)
+    return loaded
+
+
+def _transcode_via_ffmpeg(
+    file_path: str,
+    *,
+    duration: int = 0,
+    mono: bool = True,
+    sr: int | None = None,
+) -> tuple[npt.NDArray[np.float32], int] | None:
+    """Transcode *file_path* to a temporary WAV with FFmpeg and read it back.
+
+    Args:
+        file_path: Path to the audio file.
+        duration:  Maximum seconds to transcode (``0`` disables the cap).
+        mono:      Downmix to a single channel when True.
+        sr:        Target sample rate, or None to keep the native rate.
+
+    Returns:
+        Two-tuple ``(y, sr)`` on success, or None when FFmpeg is unavailable
+        or the transcode/decode fails (the caller keeps the original error).
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        logger.debug("FFmpeg not found; no decode fallback for %s", file_path)
+        return None
+
+    import librosa
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="audiosuite_analysis_") as temp_dir:
+            wav_path = os.path.join(temp_dir, "transcoded.wav")
+            args = ["-v", "error", "-y", "-i", file_path]
+            if duration and duration > 0:
+                args += ["-t", str(duration)]
+            args += ["-ac", "1" if mono else "2", "-f", "wav", wav_path]
+            run_secure_subprocess(ffmpeg, args, capture_output=True, check=True)
+            y_f32, out_sr = _librosa_load(librosa, wav_path, 0, mono, sr)
+            decoded: npt.NDArray[np.float32] = y_f32
+            return decoded, int(out_sr)
+    except Exception:
+        logger.debug(
+            "FFmpeg transcode fallback failed for %s", file_path, exc_info=True
+        )
+        return None
 
 
 def load_analysis_audio(
@@ -55,17 +185,10 @@ def load_analysis_audio(
                            corrupted container).
         AudioAnalysisError: The decoded signal is shorter than *min_seconds*.
     """
-    import librosa
-
     try:
-        if max_duration > 0:
-            y_f32: npt.NDArray[np.float32]
-            sample_rate: int | float
-            y_f32, sample_rate = librosa.load(
-                file_path, duration=max_duration, mono=True, sr=None
-            )
-        else:
-            y_f32, sample_rate = librosa.load(file_path, mono=True, sr=None)
+        y_f32, sample_rate = librosa_load_with_fallback(
+            file_path, duration=max_duration, mono=True, sr=None
+        )
     except Exception as exc:
         mapped = map_to_audio_error(
             exc, context={"file": file_path, "operation": "load_analysis_audio"}

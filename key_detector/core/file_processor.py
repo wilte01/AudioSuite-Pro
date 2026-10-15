@@ -10,6 +10,9 @@ inside the skip branch, meaning a crash there would leak the slot
 permanently.  Here the finally block is always responsible for release.
 
 Supports: MP3, FLAC, OGG, M4A, MP4, Opus, WAV, AIFF
+
+Changed in 1.1.0: uses librosa_load_with_fallback() so the new formats are analysed via
+an ffmpeg transcode.
 """
 
 import logging
@@ -20,10 +23,10 @@ from functools import partial
 from queue import Queue
 from typing import Any
 
-import librosa
 import numpy as np
 import numpy.typing as npt
 
+from audio_suite_shared.analysis_loader import librosa_load_with_fallback
 from audio_suite_shared.error_recovery import RecoveryAction, get_recovery_action
 from audio_suite_shared.exceptions import (
     handle_audio_errors,
@@ -131,7 +134,7 @@ def process_single_file(
 
         slot_vars[slot_idx].set(f"Analyzing: {name[:25]}...")
         y_raw: npt.NDArray[np.float32]
-        y_raw, _sr = librosa.load(file_path, duration=analysis_duration)
+        y_raw, _sr = librosa_load_with_fallback(file_path, duration=analysis_duration)
         loaded_sr: int = int(_sr)
         y: npt.NDArray[np.float64] = y_raw.astype(np.float64)
         detected_key: str = detect_key(y, loaded_sr)
@@ -199,7 +202,7 @@ def _detect_key_cpu(
     """
     try:
         y_raw: npt.NDArray[np.float32]
-        y_raw, _sr = librosa.load(file_path, duration=analysis_duration)
+        y_raw, _sr = librosa_load_with_fallback(file_path, duration=analysis_duration)
         loaded_sr: int = int(_sr)
         y: npt.NDArray[np.float64] = y_raw.astype(np.float64)
         detected_key: str = detect_key(y, loaded_sr)

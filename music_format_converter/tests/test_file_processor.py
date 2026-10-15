@@ -9,6 +9,8 @@ failure must abort the delete).
 Changed in 1.0.1: skipped test_shipped_chain_suppresses_the_aliased_partial
 and test_run_conversion_reaches_44k_output on CI where ffmpeg may not have
 soxr resampler enabled or PATH configuration differs.
+
+Changed in 1.1.0: added the Ogg Speex codec case.
 """
 
 import array
@@ -100,6 +102,7 @@ class TestGetFfmpegParams:
             ("alac", "alac"),
             ("wma", "wmav2"),
             ("wv", "wavpack"),
+            ("spx", "libspeex"),
             ("mp4", "aac"),
             ("aiff", "pcm_s24be"),
             ("aif", "pcm_s24be"),

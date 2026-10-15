@@ -10,11 +10,15 @@ Owns the temp-directory lifecycle:
 
 No tkinter imports. All UI interaction via injected callbacks.
 
-Supports: MP3, FLAC, OGG, M4A, Opus, WAV, AIFF
+Supports: MP3, FLAC, OGG, M4A, Opus, WAV, AIFF, WavPack, Speex.
+Read-only formats (APE, MPC, DSF) are skipped with a clear message.
 
 Changed in 1.0.1: an export requires a non-empty trimmed segment, so a
 wholly silent source is left untouched rather than replaced with an empty
 file.
+
+Changed in 1.1.0: read-only formats (APE/MPC/DSF) are skipped with a clear message
+instead of being rewritten in place.
 """
 
 # ── Standard library imports ─────────────────────────────────────────────────
@@ -32,7 +36,7 @@ from typing import Any
 from pydub import AudioSegment
 
 # ── First-party imports ──────────────────────────────────────────────────────
-from audio_suite_shared.audio_formats import get_export_args
+from audio_suite_shared.audio_formats import get_export_args, is_read_only_extension
 from audio_suite_shared.batch_undo import (
     get_active_batch_id,
     record_tag_edit_snapshot,
@@ -113,6 +117,19 @@ def process_single_file(
     slot_idx: int = slot_queue.get()
     full_path: str = os.path.join(dir_path, name)
     ext: str = os.path.splitext(name)[1].lower()
+
+    if is_read_only_extension(name):
+        skip_reason = f"read-only format ({ext}); cannot rewrite in place"
+        with lock:
+            on_progress(
+                n_skipped=1,
+                n_errors=0,
+                display_text=f"[SKIP] {name}: {skip_reason}",
+                log_text=f"[SKIP] {name} | {skip_reason}\n",
+            )
+        slot_vars[slot_idx].set("IDLE")
+        slot_queue.put(slot_idx)
+        return
 
     worker_temp: str = tempfile.mkdtemp(dir=temp_dir)
     temp_input: str = os.path.join(worker_temp, f"in{ext}")

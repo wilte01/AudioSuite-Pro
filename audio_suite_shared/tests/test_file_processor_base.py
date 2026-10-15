@@ -7,6 +7,8 @@ tracking, and parallel processing.
 Changed in 1.0.1: adds an in-place error-path test asserting the display and
 log callbacks carry the sanitised ``user_message_for`` text, never raw
 ``str(exc)``.
+
+Changed in 1.1.0: added a regression test that read-only formats never reach the DSP.
 """
 
 from __future__ import annotations
@@ -1121,6 +1123,29 @@ class TestProcessAudioFileInplace:
         finally:
             shutil.rmtree(batch_temp, ignore_errors=True)
         return progress
+
+    @pytest.mark.parametrize("ext", [".ape", ".mpc", ".dsf"])
+    def test_read_only_extension_is_skipped_before_any_dsp(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path, ext: str
+    ) -> None:
+        """APE/MPC/DSF cannot be re-encoded in place, so the shared workflow
+        must report a read-only skip and never hand the file to the DSP."""
+        audio_file = tmp_path / f"a{ext}"
+        audio_file.write_bytes(b"opaque container bytes")
+        before = audio_file.read_bytes()
+        dsp_calls: list[AudioSegment] = []
+
+        def _spy_dsp(audio: AudioSegment) -> InplaceDspResult:
+            dsp_calls.append(audio)
+            return _clean_dsp(audio)
+
+        progress = self._process(inplace_processor, audio_file, _spy_dsp)
+
+        assert dsp_calls == []
+        assert len(progress) == 1
+        assert progress[0]["status"] == "SKIP"
+        assert "read-only" in progress[0]["display_text"]
+        assert audio_file.read_bytes() == before
 
     def test_clean_file_reports_skip(
         self, inplace_processor: BaseFileProcessor, tmp_path: Path

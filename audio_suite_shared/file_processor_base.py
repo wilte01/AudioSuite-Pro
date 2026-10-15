@@ -7,6 +7,9 @@ across multiple applications while preserving all existing functionality.
 Changed in 1.0.1: the in-place error path now reports
 ``user_message_for(map_to_audio_error(exc))`` instead of the raw ``str(exc)``,
 so internal paths/details no longer leak into the display and log callbacks.
+
+Changed in 1.1.0: the shared in-place DSP workflow now skips read-only formats before
+any decode or write.
 """
 
 from __future__ import annotations
@@ -25,7 +28,11 @@ from typing import Any, TypeVar
 
 from pydub import AudioSegment
 
-from .audio_formats import SUPPORTED_EXTENSIONS, get_export_args
+from .audio_formats import (
+    SUPPORTED_EXTENSIONS,
+    get_export_args,
+    is_read_only_extension,
+)
 from .batch_undo import (
     get_active_batch_id,
     record_audio_overwrite_snapshot,
@@ -691,6 +698,17 @@ class BaseFileProcessor:
         slot_idx = slot_queue.get()
         full_path = os.path.join(dir_path, name)
         ext = os.path.splitext(name)[1].lower()
+
+        if is_read_only_extension(name):
+            display = (
+                f"[SKIP] {name} → read-only format ({ext}); cannot rewrite in place"
+            )
+            log = f"[SKIP] {name} | read-only format ({ext}); cannot rewrite in place\n"
+            slot_vars[slot_idx].set("IDLE")
+            slot_queue.put(slot_idx)
+            with lock:
+                on_progress(status="SKIP", display_text=display, log_text=log)
+            return
 
         worker_temp = tempfile.mkdtemp(dir=temp_dir)
         temp_input = os.path.join(worker_temp, f"in{ext}")

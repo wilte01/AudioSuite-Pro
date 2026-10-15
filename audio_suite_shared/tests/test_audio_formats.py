@@ -2,6 +2,9 @@
 Tests for audio_suite_shared.audio_formats
 Gap G-01: is_supported_format, is_lossless_extension,
 is_compressed_extension, get_format_type
+
+Changed in 1.1.0: added coverage for the five new formats and the read-only extension
+set.
 """
 
 import pytest
@@ -9,10 +12,12 @@ import pytest
 from audio_suite_shared.audio_formats import (
     COMPRESSED_EXTENSIONS,
     LOSSLESS_EXTENSIONS,
+    READ_ONLY_EXTENSIONS,
     SUPPORTED_EXTENSIONS,
     get_format_type,
     is_compressed_extension,
     is_lossless_extension,
+    is_read_only_extension,
     is_supported_format,
 )
 
@@ -42,6 +47,52 @@ class TestConstants:
             assert ext in all_classified, (
                 f"{ext} is supported but neither lossless nor compressed"
             )
+
+
+# ── Sprint-1 widened format set (D5/B1/B2) ────────────────────────────────────
+
+
+class TestSprint1Formats:
+    @pytest.mark.parametrize(
+        "filename",
+        ["a.wv", "a.ape", "a.mpc", "a.spx", "a.dsf", "A.WV", "A.DSF"],
+    )
+    def test_new_formats_are_supported(self, filename):
+        assert is_supported_format(filename) is True
+
+    @pytest.mark.parametrize("ext", [".wv", ".ape", ".mpc", ".dsf"])
+    def test_new_lossless_formats_classified_lossless(self, ext):
+        assert ext in LOSSLESS_EXTENSIONS
+        assert is_lossless_extension(f"a{ext}") is True
+
+    def test_spx_is_compressed(self):
+        assert ".spx" in COMPRESSED_EXTENSIONS
+        assert is_compressed_extension("a.spx") is True
+
+    @pytest.mark.parametrize("ext", [".wv", ".ape", ".mpc", ".spx", ".dsf"])
+    def test_new_formats_have_a_format_type(self, ext):
+        assert get_format_type(f"a{ext}") in {"lossless", "compressed"}
+
+
+class TestReadOnlyExtensions:
+    """READ_ONLY_EXTENSIONS = containers with no FFmpeg encoder/muxer."""
+
+    def test_set_is_exactly_ape_mpc_dsf(self):
+        assert set(READ_ONLY_EXTENSIONS) == {".ape", ".mpc", ".dsf"}
+
+    @pytest.mark.parametrize("filename", ["a.ape", "a.mpc", "a.dsf", "A.APE"])
+    def test_read_only_matches(self, filename):
+        assert is_read_only_extension(filename) is True
+
+    @pytest.mark.parametrize(
+        "filename", ["a.wv", "a.spx", "a.mp3", "a.flac", "a.wav", "a.txt"]
+    )
+    def test_writable_and_foreign_are_not_read_only(self, filename):
+        assert is_read_only_extension(filename) is False
+
+    def test_read_only_extensions_are_supported(self):
+        for ext in READ_ONLY_EXTENSIONS:
+            assert ext in SUPPORTED_EXTENSIONS
 
 
 # ── is_supported_format ───────────────────────────────────────────────────────

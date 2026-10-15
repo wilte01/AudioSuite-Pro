@@ -3,6 +3,8 @@ Tests for music_format_converter.core.formats
 Gap G-05: format_info, is_lossy, detect_format, can_convert,
           available_output_formats, available_output_formats_for,
           discover_input_files, scan_input_directory, ScanResult
+
+Changed in 1.1.0: made the lossless-input test skip every unsupported output format.
 """
 
 import os
@@ -291,7 +293,7 @@ class TestAvailableOutputFormats:
         outputs = available_output_formats("flac")
         assert "flac" not in outputs
         for fmt in ALL_FORMATS:
-            if fmt in ("flac", "ape"):
+            if fmt == "flac" or fmt in UNSUPPORTED_OUTPUT_FORMATS:
                 continue
             assert fmt in outputs
 

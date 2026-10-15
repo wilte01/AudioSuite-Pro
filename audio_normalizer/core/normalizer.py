@@ -5,7 +5,10 @@ audio file in-place, preserving all original tags.
 
 Pure function: no tkinter imports, no global state.
 
-Supports: MP3, FLAC, OGG, M4A, Opus
+Supports: MP3, FLAC, OGG, M4A, Opus, WavPack, Speex
+
+Changed in 1.1.0: the normalizer codec map now covers seven formats, adding WavPack
+(.wv) and Ogg Speex (.spx); read-only APE/MPC/DSF keep the clear reject path.
 """
 
 import os
@@ -21,6 +24,9 @@ from ..utils.ffmpeg_finder import FFMPEG_PATH
 # ── Format → FFmpeg codec + quality args ─────────────────────────────────────
 # Each entry: (codec, extra_args)
 # extra_args are appended after "-c:a codec" to control quality/bitrate.
+# APE/MPC/DSF are deliberately absent: no ffmpeg encoder exists for them
+# (READ_ONLY_EXTENSIONS in audio_suite_shared.audio_formats), so they take
+# the clear AudioFormatError reject path below.
 
 _FORMAT_CODEC = {
     ".mp3": ("libmp3lame", ["-q:a", "0"]),  # VBR best quality
@@ -28,6 +34,8 @@ _FORMAT_CODEC = {
     ".ogg": ("libvorbis", ["-q:a", "6"]),  # ~192 kbps
     ".m4a": ("aac", ["-b:a", "256k"]),
     ".opus": ("libopus", ["-b:a", "192k"]),
+    ".wv": ("wavpack", []),
+    ".spx": ("libspeex", ["-q:a", "8"]),
 }
 
 
@@ -51,7 +59,7 @@ def _codec_args(file_path: str) -> tuple[str, list[str]]:
     if ext not in _FORMAT_CODEC:
         raise AudioFormatError(
             f"Unsupported audio format for normalisation: '{ext or file_path}'. "
-            "Supported formats: MP3, FLAC, OGG, M4A, Opus.",
+            "Supported formats: MP3, FLAC, OGG, M4A, Opus, WavPack, Speex.",
             context={"file": file_path, "extension": ext or None},
         )
     return _FORMAT_CODEC[ext]

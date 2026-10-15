@@ -17,6 +17,9 @@ real mutagen containers or small fakes — no ffmpeg required:
 
 Run with:
     pytest tests/test_tag_helper_base.py -v
+
+Changed in 1.1.0: updated the factory registry and public-name locks for the new tag
+handlers.
 """
 
 from __future__ import annotations
@@ -706,15 +709,17 @@ class TestMP4HandlerRaw:
 
 
 class TestFacadeSurface:
-    """The facade re-exports the full pre-split public name set unchanged."""
+    """The facade re-exports the full public handler/factory surface."""
 
     _PRE_SPLIT_PUBLIC_NAMES: frozenset[str] = frozenset(
         {
+            "APEv2Handler",
             "Any",
             "AudioFormatError",
             "AudioTagError",
             "BaseTagHandler",
             "Callable",
+            "DSFID3Handler",
             "EDITABLE_FIELDS",
             "IFFID3Handler",
             "LyricsTags",
@@ -733,7 +738,7 @@ class TestFacadeSurface:
     )
 
     def test_public_name_set_is_preserved(self) -> None:
-        """Every pre-split public name is still importable from the facade."""
+        """Every public name (pre-split + Sprint-1 handlers) is importable."""
         import audio_suite_shared.tag_helper_base as facade
 
         names = {n for n in dir(facade) if not n.startswith("_")}
@@ -764,7 +769,7 @@ class TestFacadeSurface:
             assert issubclass(handler_cls, facade.BaseTagHandler)
 
     def test_factory_registry_maps_every_supported_extension(self) -> None:
-        """The factory still registers exactly the pre-split extension set."""
+        """The factory registers every extension in SUPPORTED_EXTENSIONS."""
         from audio_suite_shared.tag_helper_base import TagHandlerFactory
 
         assert set(TagHandlerFactory._handlers) == {
@@ -777,4 +782,9 @@ class TestFacadeSurface:
             ".wav",
             ".aiff",
             ".aif",
+            ".spx",
+            ".wv",
+            ".ape",
+            ".mpc",
+            ".dsf",
         }

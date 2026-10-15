@@ -4,6 +4,8 @@ tag_helper.py — Backward-compatible re-export stub.
 All public API is now in sub-modules (tag_helper_base, tag_helper_reader,
 tag_helper_writer, tag_helper_art). This stub preserves every import path
 that existing callers rely on.
+
+Changed in 1.1.0: re-exports the new APEv2 and DSF tag handlers.
 """
 
 from __future__ import annotations
@@ -19,7 +21,9 @@ from .audio_formats import SUPPORTED_EXTENSIONS
 from .tag_helper_art import embed_artwork
 from .tag_helper_base import (
     EDITABLE_FIELDS,
+    APEv2Handler,
     BaseTagHandler,
+    DSFID3Handler,
     IFFID3Handler,
     MP3Handler,
     MP4Handler,
@@ -85,7 +89,9 @@ def read_tag_text(audio: "ID3", frame_key: str) -> str | None:
 
 __all__ = [
     "AudioTagError",
+    "APEv2Handler",
     "BaseTagHandler",
+    "DSFID3Handler",
     "EDITABLE_FIELDS",
     "IFFID3Handler",
     "MP3Handler",

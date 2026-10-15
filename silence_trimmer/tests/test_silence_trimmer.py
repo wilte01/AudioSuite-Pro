@@ -8,6 +8,9 @@ Covers:
   - cli_args.py: parse(), validate_args() including edge cases
 
 Changed in 1.0.1: adds the all-silent skip regression and a non-silent control.
+
+Changed in 1.1.0: exempted read-only formats from the export-mapping check and added a
+behavioural skip test.
 """
 
 from __future__ import annotations
@@ -709,16 +712,66 @@ class TestExportArgs:
         pydub export mapping here — not the silent mp3 fallback. This is the
         exact gap that let WAV/AIFF files get mis-exported as MP3 data while
         keeping their original extension.
+
+        Read-only extensions (APE/MPC/DSF) have no FFmpeg encoder and are
+        exempt: the per-file guard skips them before export, so they can never
+        reach the mp3 fallback (asserted separately below).
         """
-        from audio_suite_shared.audio_formats import get_export_args
+        from audio_suite_shared.audio_formats import (
+            READ_ONLY_EXTENSIONS,
+            get_export_args,
+        )
         from audio_suite_shared.tag_helper import SUPPORTED_EXTENSIONS
 
         for ext in SUPPORTED_EXTENSIONS:
+            if ext in READ_ONLY_EXTENSIONS:
+                continue
             fmt, _ = get_export_args(ext)
             assert (ext, fmt) != (ext, "mp3") or ext == ".mp3", (
                 f"{ext} has no explicit export mapping and silently "
                 f"falls back to mp3 — this will corrupt the file."
             )
+
+    def test_read_only_extension_is_skipped_before_any_export(self, tmp_path) -> None:
+        """APE/MPC/DSF have no FFmpeg encoder, so process_single_file must
+        report a skip (never an error) and leave the file byte-identical —
+        proving the mp3-export fallback is unreachable for them."""
+        import shutil
+        import tempfile
+
+        from audio_suite_shared.audio_formats import READ_ONLY_EXTENSIONS
+
+        for ext in READ_ONLY_EXTENSIONS:
+            path = tmp_path / f"track{ext}"
+            path.write_bytes(b"not really audio")
+            before = path.read_bytes()
+
+            slot_vars, slot_queue, lock, on_progress = _make_slot_deps()
+            temp_dir_obj = tempfile.mkdtemp()
+            try:
+                file_processor.process_single_file(
+                    name=f"track{ext}",
+                    dir_path=str(tmp_path),
+                    is_dry_run=False,
+                    threshold=-50,
+                    apply_fade=False,
+                    fade_in_ms=500,
+                    fade_out_ms=1000,
+                    temp_dir=temp_dir_obj,
+                    slot_vars=slot_vars,
+                    slot_queue=slot_queue,
+                    lock=lock,
+                    on_progress=on_progress,
+                )
+            finally:
+                shutil.rmtree(temp_dir_obj, ignore_errors=True)
+
+            assert path.read_bytes() == before, f"{ext} file was modified"
+            on_progress.assert_called_once()
+            kwargs = on_progress.call_args.kwargs
+            assert kwargs["n_skipped"] == 1
+            assert kwargs["n_errors"] == 0
+            assert "read-only" in kwargs["display_text"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

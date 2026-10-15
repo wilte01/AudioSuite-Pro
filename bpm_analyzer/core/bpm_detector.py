@@ -2,6 +2,9 @@
 bpm_detector.py
 Pure audio analysis logic — no tkinter dependencies.
 Accepts plain Python values; returns plain Python values.
+
+Changed in 1.1.0: uses librosa_load_with_fallback() so the new formats are analysed via
+an ffmpeg transcode.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ import librosa
 import numpy as np
 import numpy.typing as npt
 
+from audio_suite_shared.analysis_loader import librosa_load_with_fallback
 from audio_suite_shared.exceptions import map_to_audio_error
 
 logger = logging.getLogger(__name__)
@@ -51,7 +55,9 @@ def detect_bpm(
     try:
         # Load as float32 (librosa default) then upcast to float64 for DSP precision.
         y_f32: npt.NDArray[np.float32]
-        y_f32, sr = librosa.load(file_path, duration=max_duration, mono=True)
+        y_f32, sr = librosa_load_with_fallback(
+            file_path, duration=max_duration, mono=True
+        )
         y: npt.NDArray[np.float64] = y_f32.astype(np.float64)
 
         logger.debug(

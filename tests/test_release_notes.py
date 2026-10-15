@@ -58,6 +58,12 @@ commit) so only CI-related changes require notes. The bughunt remediation
 work (30913de to d362948) is already documented in
 PLAN_bughunt_remediation.md and CHANGELOG.md, so it does not require
 per-file notes here.
+Changed in 1.1.0: re-baselined the lock for the Sprint 1 feature release
+(PLAN_feature_expansion.md). BASE_COMMIT is now c5803b1 (the 1.0.1 release
+tip) and NOTE_MARKER is ``Changed in 1.1.0``, so only the 1.1.0 change set
+requires notes; the 1.0.1 notes remain as the files' own history. The fetched
+mutagen audio fixtures under ``tests/data/`` (.wv/.ape/.mpc/.spx/.dsf) are a
+declared exception format and are the asserted-non-empty exception category.
 """
 
 from __future__ import annotations
@@ -70,14 +76,14 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: The plan's base commit; every file changed since here must be annotated.
-#: Updated for CI fixes: set to d362948 (first CI infrastructure fix commit)
-#: so only CI-related changes require notes. The bughunt remediation work
-#: (30913de to d362948) is already documented in PLAN_bughunt_remediation.md
-#: and CHANGELOG.md, so it does not require per-file notes here.
-BASE_COMMIT = "d362948"
+#: Updated for the 1.1.0 feature release: set to c5803b1 (the 1.0.1 release
+#: tip) so only the 1.1.0 change set requires notes. The 1.0.1 work
+#: (d362948 to c5803b1) is documented in PLAN_bughunt_remediation.md and
+#: CHANGELOG.md, so it does not require per-file notes here.
+BASE_COMMIT = "c5803b1"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 1.0.1"
+NOTE_MARKER = "Changed in 1.1.0"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (
@@ -103,12 +109,22 @@ EXCEPTION_SUFFIXES: tuple[str, ...] = (
     ".dll",
     "LICENSE",
     ".pyw",
+    # 1.1.0 fetched audio fixtures (mutagen tests/data) - binary containers
+    # with no comment syntax; provenance recorded in tests/data/ATTRIBUTION.md.
+    ".wv",
+    ".ape",
+    ".mpc",
+    ".spx",
+    ".dsf",
 )
 
 #: Categories asserted non-empty below - a comment-less or regenerated-binary
 #: change is the very case the exception table exists for.
 _REQUIRED_NON_EMPTY_EXCEPTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("bundled binaries (.dll)", (".dll",)),
+    (
+        "fetched audio fixtures (.wv/.ape/.mpc/.spx/.dsf)",
+        (".wv", ".ape", ".mpc", ".spx", ".dsf"),
+    ),
 )
 
 

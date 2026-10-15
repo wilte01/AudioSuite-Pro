@@ -19,11 +19,17 @@ amplitude) rather than merely that a call happened.
 Decoder-dependent behaviour is pinned by feeding the loader the exact array the
 real decoder was observed to return, rather than by hoping a particular audio
 backend fails in a particular way on a particular host.
+
+Changed in 1.1.0: added fallback/decode and ffmpeg-transcode tests for
+librosa_load_with_fallback().
 """
 
 from __future__ import annotations
 
+import shutil
 import wave
+from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -34,6 +40,7 @@ from audio_suite_shared.analysis_loader import (
     SILENCE_RMS_THRESHOLD,
     check_min_duration,
     is_effectively_silent,
+    librosa_load_with_fallback,
     load_analysis_audio,
     rms_energy_db,
 )
@@ -180,9 +187,16 @@ class TestLoadAnalysisAudioFailures:
         with pytest.raises(AudioCodecError):
             load_analysis_audio(str(tmp_path / "does_not_exist.wav"))
 
-    def test_empty_file_raises_audio_codec_error(self, tmp_path) -> None:
+    def test_empty_file_raises_audio_codec_error(self, tmp_path, monkeypatch) -> None:
         path = str(tmp_path / "empty.wav")
         open(path, "wb").close()
+        # The empty file exists, so the FFmpeg fallback would otherwise run a
+        # real transcode (host-dependent, slow). Stub it away to keep this a
+        # pure unit test; the outcome (AudioCodecError) is unchanged because a
+        # failed/absent transcode re-raises the original decode error.
+        monkeypatch.setattr(
+            analysis_loader, "_transcode_via_ffmpeg", lambda *a, **k: None
+        )
         with pytest.raises(AudioCodecError):
             load_analysis_audio(path)
 
@@ -255,6 +269,148 @@ class TestLoadAnalysisAudioFailures:
 
         assert AudioCodecError in _SKIPPABLE_ANALYSIS_ERRORS
         assert AudioAnalysisError in _SKIPPABLE_ANALYSIS_ERRORS
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# librosa_load_with_fallback — FFmpeg decode fallback (Sprint 1 / D11)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestLibrosaLoadWithFallback:
+    """The fallback must fire *only* when the direct decode raises.
+
+    librosa (libsndfile) cannot read the Sprint-1 formats (WavPack, Monkey's
+    Audio, Musepack, Speex, DSF), so those tools decode through a temporary
+    FFmpeg-transcoded WAV instead of failing per file. The tricky contracts
+    are the *negative* ones — never transcode a path that does not exist, and
+    never let a failed/absent transcode mask the original decode error.
+    """
+
+    def test_direct_decode_is_used_when_librosa_succeeds(self, monkeypatch) -> None:
+        import librosa
+
+        expected = np.ones(1000, dtype=np.float32)
+        monkeypatch.setattr(librosa, "load", lambda *a, **k: (expected, 22050))
+
+        def _fail_fallback(*a: object, **k: object):
+            raise AssertionError("fallback ran despite a successful direct decode")
+
+        monkeypatch.setattr(analysis_loader, "_transcode_via_ffmpeg", _fail_fallback)
+
+        y, sr = librosa_load_with_fallback("any.mp3", duration=5, mono=True)
+        assert sr == 22050
+        assert np.array_equal(y, expected)
+
+    def test_falls_back_to_transcode_when_direct_decode_raises(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        import librosa
+
+        path = str(tmp_path / "song.wv")
+        Path(path).write_bytes(b"not really wavpack")
+
+        def _boom(*a: object, **k: object):
+            raise RuntimeError("nope")
+
+        monkeypatch.setattr(librosa, "load", _boom)
+        transcoded = (np.ones(2000, dtype=np.float32), 48000)
+        monkeypatch.setattr(
+            analysis_loader, "_transcode_via_ffmpeg", lambda *a, **k: transcoded
+        )
+
+        y, sr = librosa_load_with_fallback(path)
+        assert sr == 48000
+        assert np.array_equal(y, transcoded[0])
+
+    def test_missing_file_reraises_without_transcoding(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        import librosa
+
+        def _boom(*a: object, **k: object):
+            raise FileNotFoundError("gone")
+
+        monkeypatch.setattr(librosa, "load", _boom)
+
+        def _fail_fallback(*a: object, **k: object):
+            raise AssertionError("fallback ran for a non-existent path")
+
+        monkeypatch.setattr(analysis_loader, "_transcode_via_ffmpeg", _fail_fallback)
+
+        with pytest.raises(FileNotFoundError):
+            librosa_load_with_fallback(str(tmp_path / "missing.wv"))
+
+    def test_reraises_original_when_transcode_unavailable(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        import librosa
+
+        path = str(tmp_path / "song.wv")
+        Path(path).write_bytes(b"not really wavpack")
+
+        def _boom(*a: object, **k: object):
+            raise RuntimeError("codec")
+
+        monkeypatch.setattr(librosa, "load", _boom)
+        monkeypatch.setattr(
+            analysis_loader, "_transcode_via_ffmpeg", lambda *a, **k: None
+        )
+
+        with pytest.raises(RuntimeError, match="codec"):
+            librosa_load_with_fallback(path)
+
+
+class TestTranscodeViaFFmpeg:
+    def test_returns_none_when_ffmpeg_is_absent(self, monkeypatch) -> None:
+        monkeypatch.setattr(analysis_loader.shutil, "which", lambda _name: None)
+        assert analysis_loader._transcode_via_ffmpeg("song.wv") is None
+
+    def test_builds_the_expected_ffmpeg_command_and_decodes(self, monkeypatch) -> None:
+        import librosa
+
+        monkeypatch.setattr(analysis_loader.shutil, "which", lambda _name: "ffmpeg")
+        recorded: dict[str, object] = {}
+
+        def _fake_run(executable: str, args: list[str], **kwargs: object):
+            recorded["exe"] = executable
+            recorded["args"] = args
+            return MagicMock()
+
+        monkeypatch.setattr(analysis_loader, "run_secure_subprocess", _fake_run)
+        expected = np.ones(500, dtype=np.float32)
+        monkeypatch.setattr(librosa, "load", lambda *a, **k: (expected, 22050))
+
+        result = analysis_loader._transcode_via_ffmpeg("in.wv", duration=3, mono=True)
+
+        assert recorded["exe"] == "ffmpeg"
+        args = recorded["args"]
+        assert isinstance(args, list)
+        assert args[:2] == ["-v", "error"]
+        assert "-i" in args and "in.wv" in args
+        # duration cap present only when positive
+        assert args[args.index("-t") + 1] == "3"
+        assert args[args.index("-ac") + 1] == "1"
+        assert args[args.index("-f") + 1] == "wav"
+        assert result is not None
+        assert result[1] == 22050
+        assert np.array_equal(result[0], expected)
+
+    @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
+    def test_real_decode_of_a_format_librosa_cannot_read(self) -> None:
+        """End-to-end: a WavPack file that libsndfile rejects is still decoded."""
+        fixture = (
+            Path(__file__).resolve().parents[2] / "tests" / "data" / "silence-44-s.wv"
+        )
+        if not fixture.is_file():
+            pytest.skip("WavPack fixture not present")
+        # libsndfile cannot read WavPack, so this can only succeed via FFmpeg.
+        y, sr = librosa_load_with_fallback(str(fixture))
+        assert len(y) > 0
+        assert sr > 0
+        # load_analysis_audio enforces the >=0.5s minimum internally.
+        y2, sr2 = load_analysis_audio(str(fixture))
+        assert len(y2) > 0
+        assert sr2 == sr
 
 
 # ═════════════════════════════════════════════════════════════════════════════

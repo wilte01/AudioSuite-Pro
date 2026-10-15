@@ -5,6 +5,9 @@ directory scanning.
 
 Pure module — no tkinter, no subprocess, no FFmpeg.
 All business rules for which conversions are allowed live here.
+
+Changed in 1.1.0: classified the new formats (spx lossy; wv/ape/mpc/dsf lossless) and
+added the unsupported-output set.
 """
 
 import logging
@@ -18,17 +21,28 @@ logger = logging.getLogger(__name__)
 
 # ── Format lists ──────────────────────────────────────────────────────────────
 
-LOSSY_FORMATS: list[str] = ["mp3", "aac", "m4a", "ogg", "opus", "mp4", "wma"]
-LOSSLESS_FORMATS: list[str] = ["flac", "wav", "alac", "ape", "aiff", "aif", "wv"]
+LOSSY_FORMATS: list[str] = ["mp3", "aac", "m4a", "ogg", "opus", "mp4", "wma", "spx"]
+LOSSLESS_FORMATS: list[str] = [
+    "flac",
+    "wav",
+    "alac",
+    "ape",
+    "aiff",
+    "aif",
+    "wv",
+    "mpc",
+    "dsf",
+]
 ALL_FORMATS: list[str] = LOSSY_FORMATS + LOSSLESS_FORMATS
 
 # Formats that can be detected/read as input but cannot be correctly
-# *produced* as output by this tool. FFmpeg has no Monkey's Audio (APE)
-# encoder (decode-only), so an "ape" output target would silently fall
-# back to stream-copy and mislabel the source codec as APE. Excluded
-# from every output-format list below; left in LOSSLESS_FORMATS so APE
-# files are still correctly detected and read as input.
-UNSUPPORTED_OUTPUT_FORMATS: list[str] = ["ape"]
+# *produced* as output by this tool. FFmpeg has no encoder and no muxer
+# for Monkey's Audio (APE), Musepack (MPC), or DSD Store (DSF), so an
+# output target in this set would silently fall back to stream-copy (or
+# worse, the MP3 fallback of shared get_export_args) and mislabel the
+# source codec. Excluded from every output-format list below; left in
+# the LOSSY/LOSSLESS lists so their files are still detected as input.
+UNSUPPORTED_OUTPUT_FORMATS: list[str] = ["ape", "mpc", "dsf"]
 
 # All formats minus those that cannot be produced as output (see above).
 # Used as the "no input scanned yet / no files detected" fallback.

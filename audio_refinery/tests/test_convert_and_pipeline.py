@@ -1,6 +1,9 @@
 """
 Tests for audio_refinery.core.convert (G-36 convert)
          audio_refinery.core.file_processor (G-36 pipeline)
+
+Changed in 1.1.0: added a regression test proving read-only formats are skipped and
+process_file is never called.
 """
 
 from queue import Queue
@@ -324,6 +327,28 @@ class TestRunPipeline:
             _make_audio(tmp_path, f"t{i}.mp3")
         progress, _, _, _ = self._run(tmp_path)
         assert len(progress) == 4
+
+    def test_read_only_formats_are_skipped_not_processed(self, tmp_path):
+        """APE/MPC/DSF have no encoder, so the refinery must report a read-only
+        skip and never invoke the processing stage on them."""
+        from audio_refinery.core.models import FileResult, FileStatus
+        from audio_suite_shared.audio_formats import READ_ONLY_EXTENSIONS
+
+        for ext in READ_ONLY_EXTENSIONS:
+            (tmp_path / f"t{ext}").write_bytes(b"opaque container bytes")
+
+        process_calls = []
+
+        def _tracking_result(source_path, output_path, config, on_progress):
+            process_calls.append(source_path)
+            return FileResult(path=source_path, status=FileStatus.DONE)
+
+        _, complete, _, _ = self._run(tmp_path, mock_process_result=_tracking_result)
+
+        assert process_calls == []
+        assert complete[0]["total"] == len(READ_ONLY_EXTENSIONS)
+        assert complete[0]["skipped"] == len(READ_ONLY_EXTENSIONS)
+        assert complete[0]["succeeded"] == 0
 
     def test_completed_file_skipped_on_second_run(self, tmp_path):
         _make_audio(tmp_path, "t.mp3")

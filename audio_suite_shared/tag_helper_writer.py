@@ -8,6 +8,9 @@ When an active undo batch exists for the current thread (set via
 ``batch_undo.set_active_batch``), each write function automatically
 snapshots the file's current tags before modification so the operation
 can be reverted later.
+
+Changed in 1.1.0: treats .dsf as ID3-backed so tag writes route through the ID3 frame
+path.
 """
 
 import os
@@ -18,7 +21,7 @@ from audio_suite_shared.exceptions import AudioTagError, handle_audio_errors
 from .batch_undo import record_tag_edit_snapshot
 from .tag_helper_base import TagHandlerFactory
 
-_ID3_BACKED_EXTENSIONS: tuple[str, ...] = (".mp3", ".wav", ".aiff", ".aif")
+_ID3_BACKED_EXTENSIONS: tuple[str, ...] = (".mp3", ".wav", ".aiff", ".aif", ".dsf")
 _MP4_BACKED_EXTENSIONS: tuple[str, ...] = (".m4a", ".mp4")
 
 
