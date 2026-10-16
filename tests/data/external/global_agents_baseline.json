@@ -1,0 +1,36 @@
+{
+  "_comment": "Recorded baseline of the user-global instruction file that AGENTS.md defers to for precedence. It is not versioned with this repository, so no CI runner has a copy: this record is what the in-repo half of the contract is checked against, and where no real baseline exists the live-file checks run against one materialized from it, so it must stay complete enough to build. Regenerate it deliberately (see RECORD_COMMAND) after an intended change to the baseline, and re-run the lock - the headings and markers recorded here are the contract, so one that disappears is drift.",
+  "_recorded": "2026-10-16",
+  "_source": "%USERPROFILE%\\.config\\opencode\\AGENTS.md",
+  "_twin": "%USERPROFILE%\\.config\\kilo\\AGENTS.md",
+  "provenance": {
+    "sha256": "ae1590fe4c018d40450cc606b93bec2fc522905de76a87f0aac31d0b6607479a",
+    "bytes": 50804
+  },
+  "headings": {
+    "2": [
+      "1. Core Operating Mode & Persona",
+      "2. Scope Control & Anti-Creep Rules",
+      "3. Zero-Assumption & Communication Protocol",
+      "4. Environment, Security & Dependency Rules",
+      "5. Code Quality & Standards",
+      "6. Verification Tooling Pipeline",
+      "7. Test-Driven & Continuous Testing Rules",
+      "8. Documentation & User Guide Maintenance",
+      "9. Troubleshooting & Loop Prevention",
+      "10. Workflow Execution Checklist",
+      "11. Session Wrap-Up & Continuous Improvement"
+    ],
+    "3": [
+      "Style, Readability & Modern Web (PEP 8 & PEP 20)",
+      "Static Analysis, Type Safety & Architecture"
+    ]
+  },
+  "markers": [
+    "single home of this rule",
+    "never on a cross-project rule"
+  ],
+  "extra": {
+    "rule": "Instruction Precedence"
+  }
+}

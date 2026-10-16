@@ -1,97 +1,215 @@
 # AGENTS.md — AudioSuite-Pro Project Conventions
 
-## Repository / Version Control
+## Scope & Authority
 
-The tree is a git repository on `main` (initialised in audit P1). Treat it as
-such: each remediation item lands as one or more reviewable commits, and the
-full Definition-of-Done gate runs against the state after each commit.
+This file is the repo-local instruction set for AudioSuite-Pro and is
+**self-contained for repo-local rules**: every repo-local rule is stated in
+full here, so nobody has to find another document to act on it. It is not
+self-contained for cross-project rules — the user-global baseline at
+`%USERPROFILE%\.config\opencode\AGENTS.md` applies in this repo as it does
+everywhere else, and *which file wins on what* is decided in exactly one
+place: that file's **Instruction Precedence** rule (its §1). Nothing here
+restates or overrides it. Read this file as *rules first*; the evidence behind
+a rule lives in the `PLAN_*.md` decision logs, and each rule points there.
 
-- `uv.lock` is committed — it pins the resolved dependency graph consumed by CI's `uv sync`. Do not re-ignore it.
-- `fpcalc.exe` is committed — a small (~4 MB) native runtime binary the
-  Fingerprinter needs out-of-the-box.
+- **Legacy `§N` citations.** Older plans and `AUDIT_2026-10-06_suite_report.md`
+  cite the *user-global* instruction file by number. It lives at
+  `%USERPROFILE%\.config\opencode\AGENTS.md` and is shared by the `opencode` and
+  `kilo` harnesses (those two paths are one hardlink, so editing either edits
+  both). It is not in this repository and is not versioned with it. Its sections
+  are: **`§2` Scope Control**, **`§3` Zero-Assumption & Communication**, **`§4`
+  Environment, Security & Dependencies**, **`§5` Code Quality & Standards** (the one
+  that owns the SQLite/`auto_vacuum` lesson), **`§6` Verification Tooling Pipeline**
+  (`§6.9` owns line endings/encoding; SHA-256-verified restores are also `§6`),
+  **`§7` Test-Driven & Continuous Testing**, **`§8` Documentation**, **`§9`
+  Troubleshooting & Loop Prevention**. The plans cite `§5` loosely: "§5" for
+  SHA-256 restores or for file encoding is mis-numbered (both are `§6`), and the
+  global `§7` defect rule is *this* file's "Defects and failing checks" as well —
+  where the two differ, that file's **Instruction Precedence** rule (its §1)
+  decides. Cite this file by section name from now on, never by number.
+- **The `PLAN_*.md` files are the decision record, not instructions.** A plan
+  whose items are all COMPLETE/DONE is a *historical record*: add follow-on work
+  to it only as a clearly-labelled decision-log/supersession entry (with user
+  approval) or as a new plan.
+
+## The Gate — run before marking anything done
+
+Four checks, in this order. Anything short of all four green is not done.
+
+0. **Compile** — `python -m compileall -q -f .`
+1. **Lint & format** — `ruff check .` and `ruff format --check .`
+2. **Types** — bare `python -m mypy .` (see *Bare `mypy .` is the gate*)
+3. **Security** — `bandit -r . -x ./.venv -c pyproject.toml`, expecting
+   **0 High / 0 Medium**
+4. **Tests** — bare `pytest`, so the configured `testpaths` apply (CI adds
+   `--cov-fail-under=75`)
+
+Windows shell note: items 1–3 are usually run in PowerShell. This repository is
+also driven from Git Bash, where the equivalents are `ruff check .`,
+`python -m mypy .` and
+`PYTHONUTF8=1 python -X utf8 -m bandit -r . -x ./.venv -c pyproject.toml`.
+Pick the dialect that matches the shell you are actually in; the *flags* above
+are the contract.
+
+### Defects and failing checks
+
+- **Failing tests must be resolved — never shipped.** A red suite is silently
+  ignored and masks real regressions. Do not delete, skip, `xfail`, or add
+  `# type: ignore` to make a failure go away; fix the cause. If a test or check
+  is genuinely wrong, fix it in lockstep with the code and update the gotchas
+  here so the mistake is not repeated.
+- **Defects are fixed when discovered — never deferred.** A bug found during
+  development, review, an audit or a test run is resolved in the same change
+  that found it, with a regression test in lockstep. Deferral is acceptable only
+  for new-feature backlog items, never for defects in working code. Record it in
+  the governing plan's `## Decision Log`.
+- **Audio correctness is release-blocking.** Any defect that could corrupt,
+  mis-normalize, mis-tag or wrongly convert audio (global-gain rewrites, LUFS
+  normalization, sample-rate/bit-depth conversion, analysis, tag writes) is the
+  highest-priority fix class. Its test must verify the **actual audio outcome** —
+  decode the result and measure per-channel RMS/loudness — never read back the
+  same internal state the code just wrote. Self-consistent field read-back cannot
+  detect corruption (see the lossless_gain stereo-offset bug, iterations 1–2 in
+  `PLAN_audit_remediation.md` and `PLAN_iteration2_remediation.md`).
+- **Trace mode flags to the write site.** A mode the app computes and passes
+  (`is_dry_run=is_dry_run` into `run_enhancement`) does nothing if any layer of
+  the chain lacks the parameter or ignores it — the processor keeps writing and
+  an "in-place Dry Run" rewrites the source files. mypy's `Unexpected keyword
+  argument` on the call site is the canary. Thread the flag through **every**
+  signature and add a regression test asserting the real outcome on a temp file
+  (no output file, no write call, no tag copy, DONE with measurements) — not
+  merely that the flag arrived.
+- **A verification harness that cannot fail is worse than none.** Type array
+  arguments `[string[]]` in PowerShell (a `[string]` annotation collapses the
+  array and pytest receives a single character); key break-and-restore verdicts
+  on a `FAILED`/`ERROR` **test** line, never on the literal word appearing
+  anywhere in the output; confirm the summary shows tests actually ran; and
+  SHA-256-verify every restore so the harness cannot leave a mutated file behind.
+- **A dependency's version can change which branch runs.** Do not pin one
+  version's branch message at a consumer boundary. Iteration-5 B1's corrupt-file
+  pool test pinned the empty-decode branch's "too short" message at the batch
+  level, but `uv.lock` resolves librosa 1.0 on py≥3.12 (which removed the
+  audioread fallback), so the same container took the decoder-raised branch and
+  the test failed at HEAD. Assert the neutral contract (status=error, non-empty
+  message, batch completes) at the consumer, and pin each branch text in the
+  loader's own tests.
+
+### The Python floor must honour its lockfile
+
+`requires-python` is only honest if the committed `uv.lock` honours it. When the
+floor or a heavy dependency moves, audit the lock's per-interpreter markers: if
+the oldest leg resolves older wheels than the interpreter the suite is actually
+developed on, raise the floor or accept the split knowingly. `3.10` once let the
+lock resolve a second stale numeric stack (numpy 2.2.6 / scipy 1.15.3) behind
+`python_full_version < '3.11'` markers while 3.12+ got numpy 2.5.2 / scipy
+1.18.0 — and the dev host (3.14.7) had no CI leg at all, so the green 3.10 leg
+certified a graph nobody shipped against. 2026-09-28: floor raised to 3.11, CI
+matrix `["3.11", "3.12", "3.14"]`, and the 3.10-only pins fell out of the lock by
+themselves. Never discover this through a broken `tomllib` import two floors up.
+
+## Repository & Version Control
+
+The tree is a git repository on `main` (initialised in audit P1). Each
+remediation item lands as one or more reviewable commits, and the gate runs
+against the state after each commit.
+
+- `uv.lock` is committed — it pins the graph CI's `uv sync` consumes. Do not
+  re-ignore it.
+- `fpcalc.exe` is committed (~4 MB) — the Fingerprinter needs it out of the box.
 - Runtime config and API-key files are intentionally gitignored
-  (`audio_suite_config.json`/`.key`, `album_art_config.json`/`.key` in
-  `album_art_sync`). Never `git add -f` them; a live Fanart.tv key was caught
-  inline during P1 and staged, then reverted.
+  (`audio_suite_config.json`/`.key`, `album_art_config.json`/`.key`). Never
+  `git add -f` them: a live Fanart.tv key was caught inline during P1, staged,
+  then reverted (`PLAN_audit_priority_actions.md` D11).
 
 ## Plan Governance
 
-- At session start, confirm and state the **governing plan** from the user's
-  instruction; if the brief is silent, ask before plan-anchored commits.
-- A mechanism-name grep picks *reference code*, never authority — the governing
+- At session start, state the **governing plan** from the user's instruction; if
+  the brief is silent, ask before making plan-anchored commits.
+- A mechanism-name grep picks *reference code*, never authority. The governing
   plan is the one that **owns the modules/tools being touched** (four orphan DSP
   tools → `PLAN_audit_priority_actions.md` P6, not the completed
   `PLAN_basesetupframe_refactor.md`).
-- A plan whose items are all marked COMPLETE/DONE is a **historical record**:
-  add follow-on work only as a clearly-labelled decision-log/supersession entry
-  (with user approval) or a new plan.
-- Defects found in working code during any session → fix in the same change +
-  regression test + record in the governing plan's decision log (§7).
+- Defects found during any session are handled per *Defects and failing checks*
+  and recorded in the governing plan's `## Decision Log`.
 
 ## Bug-Hunt Triage Discipline
 
-When triaging a batch of unverified leads (e.g. a report's "not independently
-re-verified" list), the task is **bounded reproduction, not innocence proof**:
+For a batch of unverified leads (e.g. a report's "not independently re-verified"
+list) the task is **bounded reproduction, not innocence proof**:
 
 - **Read the candidate's existing tests first.** They encode the intended
   contract (e.g. `library_stats/tests/test_library_cache.py` settles cached-vs-
-  full-scan behaviour) and usually reach a verdict faster than hand-built
-  fixtures. A suite that already passes is strong disconfirming evidence.
+  full-scan behaviour) and reach a verdict faster than hand-built fixtures. A
+  suite that already passes is strong disconfirming evidence.
 - **Timebox each candidate to ~15 minutes.** Reproduce once through the real
-  entry point; if it does not reproduce after 2-3 representative cases, record
+  entry point; if it does not reproduce after 2–3 representative cases, record
   "no repro under <cases tried>; package tests green" and move on.
-- **Write the probe to a file, not a shell one-liner** (`repro_<item>.py`),
-  keeping all cases in one script — see the global lesson on pwsh quoting.
-- **Record the disconfirming evidence**, never silently drop a lead; a closed
+- **Write the probe as a file, not a shell one-liner** (`repro_<item>.py`, all
+  cases in one script) — shell quoting on Windows silently mangles patterns (see
+  *Shell quoting*). Then **delete it**: evidence belongs in the plan's decision
+  log, and scratch artefacts (`repro_*.py`, `pytest_*.txt`) must not be committed
+  or left in the tree.
+- **Record the disconfirming evidence.** Never silently drop a lead — a closed
   non-defect and a fixed defect are both valid outcomes.
-- **Do not leave scratch artefacts** (`pytest_*.txt`, `repro_*.py`) in the
-  tree; evidence belongs in the plan's completion log.
 
 ## Test File Naming
 
-All test files live in `<package>/tests/` and follow the standard pytest
-convention: **one test file per source module**, named `test_<module>.py`.
+New test files live in `<package>/tests/` and are named `test_<module>.py` for the module under test:
+`metadata_scrubber/core/scrubber.py` → `metadata_scrubber/tests/test_scrubber.py`. Do not use compound names
+(`test_app_audio_detection.py`); put the specific test class inside
+`test_app.py`. Do not add a suffix like `_core` unless the source module itself
+ends in `_core`.
 
-| Source Module | Test File |
+| Source module | Test file |
 |---|---|
-| `core/scrubber.py` | `tests/test_scrubber.py` |
-| `core/pipeline.py` | `tests/test_pipeline.py` |
-| `app.py` | `tests/test_app.py` |
-| `cli.py` | `tests/test_cli.py` |
-| `utils/cli_args.py` | `tests/test_cli_args.py` |
-| `core/file_processor.py` | `tests/test_file_processor.py` |
+| `metadata_scrubber/core/scrubber.py` | `metadata_scrubber/tests/test_scrubber.py` |
+| `audio_fingerprinter/core/file_processor.py` | `audio_fingerprinter/tests/test_file_processor.py` |
+| `tempo_analyzer/app.py` | `tempo_analyzer/tests/test_app.py` |
+| `album_art_sync/utils/cli_args.py` | `album_art_sync/tests/test_cli_args.py` |
 
-Rules:
-- Test file names mirror the source module name they test.
-- Do **not** add suffixes like `_core` unless the source module itself ends in `_core`.
-- Do **not** use descriptive/compound names like `test_app_audio_detection.py`.
-  Use `test_app.py` and put the specific test class inside.
-- One exception: composite test files that intentionally test multiple tightly
-  coupled modules (e.g. `test_tag_io.py` for `tag_reader.py` + `tag_writer.py`)
-  are acceptable when a clear single-module name does not exist.
+**The enforcement is the arbiter, not this table.** `tests/test_test_file_naming.py`
+derives the rule from the tree and is the authority on exceptions:
+
+- root `tests/` is **exempt by scope** (its files are cross-cutting by design),
+  and so is `utilities/tests` (that package has no `__init__.py`);
+- everything else must mirror, *or* appear in that file's frozen `ALLOWLIST` of
+  deliberate composites/contract locks (30 entries, length asserted).
+
+So "there is one exception" is wrong: there are two blanket exemptions plus a
+frozen allowlist. To add a legitimate exception, add it to `ALLOWLIST` with a
+reason — do not widen this section.
 
 ## Shared Config Pattern
 
-Tool-specific preferences that are simple key-value pairs **must** be stored
-in the shared `audio_suite_config.json` via `audio_suite_shared.suite_config`,
-not in tool-local JSON files.
+Simple key-value preferences **must** live in the shared
+`audio_suite_config.json` via `audio_suite_shared.suite_config` —
+`suite_config.load_value(key, default)` and `suite_config.save_value(key, value)`. New tools must not
+create tool-local JSON files.
 
-Use `suite_config.load_value(key, default)` and `suite_config.save_value(key, value)`.
-
-Tool-local config files (e.g. `mood_batch_config.json`, `tempo_config.json`)
-are deprecated. New tools must not create them. Existing ones should be
-migrated following the pattern in `tempo_analyzer/utils/config.py` or
+The former offenders are migrated: `mood_batch_config.json` and
+`tempo_config.json` no longer exist. The migration patterns to copy are
+`tempo_analyzer/utils/config.py` and
 `mood_analysis_batch_tagger/utils/config.py`.
 
-Exceptions where tool-local files are acceptable:
-- API keys or secrets (`album_art_config.json`)
-- Complex nested pipeline settings (`refinery_settings.json`)
-- Domain-specific lists too structured for flat key-value (`tag_prefs.json`)
+Tool-local files remain acceptable only for:
 
-## Tkinter GUI Testing
+- API keys or secrets (`album_art_config.json`),
+- complex nested pipeline settings (`refinery_settings.json`),
+- domain-specific lists too structured for flat key-value (`tag_prefs.json`).
 
-GUI `app.py` modules must be testable without a real display. Use the
-`object.__new__` + `MagicMock` pattern:
+**Resolve key files to one canonical directory.** `album_art_sync` currently
+derives `album_art_config.json` from the *calling module's* `__file__`
+(`album_art_sync/config/settings.py` `load_config(script_file=__file__)`), and two copies exist
+on a live install (`album_art_sync/album_art_config.json` and
+`album_art_sync/core/album_art_config.json`). Two key files means a key set in
+one place can be missing in the other, and — because these files are gitignored —
+the split is invisible in review. New key-file code must resolve one canonical
+directory for the tool, not the caller's location.
+
+## GUI (Tkinter) Testing
+
+GUI `app.py` modules must be testable without a real display, using
+`object.__new__` + `MagicMock`:
 
 ```python
 app = object.__new__(MyApp)
@@ -100,182 +218,204 @@ app.some_var = MagicMock()
 app.some_var.get.return_value = "expected"
 ```
 
-Never instantiate the real `tk.Tk` or `tk.Tk()` in tests unless using the
-session-scoped hidden root from `conftest.py`.
+Never instantiate `tk.Tk()` in tests except through the session-scoped hidden
+root in `conftest.py`.
 
-- **A widget's construction-time default is what the user sees whenever its
-  update path never runs — and every programmatic pre-fill bypasses the widget
-  events that would have run it.** A `readonly` Combobox seeded in `build()`
-  with `values = ALL_FORMATS` is narrowed only by the handler bound to the
-  source widget's `<FocusOut>`/`<Return>`. None of those fire when the value was
-  set in Python instead of typed: the Master Driver/CLI arg
-  (`runner/arg_builder.py` passes the shared directory positionally), a
-  `--flag`-parsed value, or a restored `suite_config.load_last_directory()`.
-  The tool then launches showing every option — in
-  `music_format_converter` the mp3-only folder kept `mp3` *and* every lossless
-  target selectable, and a dry run skipped 10/10 files as same-format. Rule:
-  any variable written outside a widget edit must route through the **same**
-  update function the edit handler calls (schedule it, don't duplicate the
-  logic), and every pre-fill route needs a test asserting the *narrowed* state.
-  Audit all of them together — Driver argv, CLI flags, restored config — since
-  a single missed route reproduces the whole bug.
+**A widget's construction-time default is what the user sees whenever its update
+path never runs — and every programmatic pre-fill bypasses the widget events
+that would have run it.** A `readonly` Combobox seeded in `build()` with
+`values = ALL_FORMATS` is narrowed only by the handler bound to the source
+widget's `<FocusOut>`/`<Return>`, and none of those fire when the value is set in
+Python instead of typed: Master Driver argv (`master_driver/runner/arg_builder.py` passes the
+shared directory positionally), a `--flag`-parsed value, or a restored
+`suite_config.load_last_directory()`. The tool then launches showing every option
+— in `music_format_converter` the mp3-only folder kept `mp3` *and* every lossless
+target selectable, and a dry run skipped 10/10 files as same-format. Rule: any
+variable written outside a widget edit must route through the **same** update
+function the edit handler calls (schedule it, don't duplicate the logic); audit
+all pre-fill routes together (Driver argv, CLI flags, restored config); and every
+pre-fill route needs a test asserting the **narrowed** state.
 
 ## Startup Pre-Flight Guard (Do Not Disable)
 
-`Master_Driver.pyw` (and the pattern it establishes) runs
-`audio_suite_shared.preflight.guard_or_exit()` before importing any tool
-module. This byte-compiles every first-party source file so a
-syntax/indentation error or a missing module in the import chain blocks
-launch with a clear dialog instead of an opaque log traceback.
+**Every** top-level `<Tool>.pyw` launcher must call
+`audio_suite_shared.preflight.guard_or_exit(root: Path) -> bool` **before
+importing any tool module**:
+
+```python
+import os
+
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+
+from audio_suite_shared.preflight import guard_or_exit
+guard_or_exit(_script_dir)
+
+from audio_suite_shared.app_bootstrap import configure_logging
+configure_logging("<program_name>")
+
+from <tool>.app import main
+```
+
+The guard byte-compiles every first-party source file so a syntax/indentation
+error or a missing module in the import chain blocks launch with a clear dialog
+instead of an opaque log traceback. `compileall` runs with `force=False`, so
+repeat launches are incremental and cheap.
 
 Rules:
-- Never bypass, weaken, skip, or comment out the guard to "get things
-  working" — that is what let broken imports ship previously.
+
+- This is **mandatory, not optional** — the "optional guard" wording that once
+  appeared in the new-tool checklist was wrong, and 24 of 28 launchers shipped
+  without it. It is now locked by
+  `tests/test_pyw_launchers.py::TestEveryLauncherRunsThePreflightGuard`.
+- Never bypass, weaken, skip, or comment out the guard to "get things working" —
+  that is what let broken imports ship previously.
 - Keep the guard pure (no Tk side effects) and unit-tested in
   `audio_suite_shared/tests/test_preflight.py`.
-- After ANY edit to a module in the import chain, re-run the required
-  compile gate (`python -m compileall -q -f .`) before marking work done.
-- When adding a new `.pyw` launcher, add the same `guard_or_exit()` call at
-  the top, before the tool's app import.
+- Adding a tool import *above* the guard reintroduces the original bug; the lock
+  test asserts the ordering, so this fails loudly rather than silently.
 
-## Utility Script Markers
+## Byte-level Safety
 
-All `utilities/*.py` CLI scripts must use ASCII-only status markers in
-square brackets: `[OK]`, `[ERROR]`, `[INFO]`, `[DONE]`, `[START]`, etc.
-No emoji or Unicode symbols — Windows `cmd.exe` cannot render them.
+Two failure classes damage bytes that no content-level gate reports: the compile
+gate, ruff, mypy and the suite all stay green while the file on disk is wrong.
 
-## User-Guide Regeneration Diffs
+- **Scripted edits must pass `encoding="utf-8"` on both read and write.** On
+  Windows `open(path)` decodes as cp1252, so an em dash read as `â€”` and
+  re-emitted as UTF-8 becomes three *different* characters; it compiled, passed
+  ruff/mypy, and broke six display tests that read as logic errors, and the same
+  mechanism committed a BEL character into `CHANGELOG.md` (evidence:
+  `PLAN_iteration8_remediation.md` E3). After any scripted edit, assert the text
+  is control-character clean
+  (`[c for c in text if ord(c) < 32 and c not in "\r\n\t"]` is empty) **and**
+  preserve each file's existing line endings (`\r\n` vs `\n`) rather than
+  normalising them — a line-ending flip turns a 6-line change into a whole-file
+  rewrite.
+- **`ruff format` must never format Markdown.** `[tool.ruff.format] exclude =
+  ["*.md"]` in `pyproject.toml` keeps the completed `PLAN_*.md` records out of the
+  project-wide format gate; it must stay a `format.exclude` entry and **not** the
+  CLI form `--exclude "*.md"`, because the CLI form *replaces* Ruff's built-in
+  exclusions instead of adding to them and re-admits `.venv` (ruff 0.15.22). This
+  repo sets no `ruff format` `line-ending` override, so the old "global §5"
+  line-ending half is inert here; the `.md` exclusion is not.
 
-Regenerating `user_guides/**/*.docx` / `.pptx` is **content-stable but never
-byte-stable**: python-docx/pptx rebuild the zip container and every entry's
-local-header mtime changes, so `git status` reports all artifacts modified
-even when no text moved. Triage a regeneration change-set by comparing **zip
-entry data**, not the file hash or `git diff`:
+## Never Lose a Rule to a Scripted Edit
 
-- every entry's compressed data byte-identical to HEAD → the diff is
-  timestamp-only → `git restore` it (minimal-diff rule);
-- an entry's data differs → investigate before keeping it. A committed
-  artifact re-saved by an external editor is external-tool drift, not
-  generator drift: LibreOffice rewrites `docProps/app.xml`'s `Application`
-  field, adds `docProps/custom.xml`, and drops
-  `thumbnail.jpeg`/`stylesWithEffects.xml`/`webSettings.xml`. The generator's
-  fresh output is the source of truth (global "generator is the source of
-  truth" rule); when the text is byte-identical, keeping the regenerated file
-  restores it.
+A bulk edit that moves code between indentation levels produces
+**valid-Python-wrong code** and the compile gate cannot catch it: iteration-5
+C2's extraction script de-indented the tail of an inherited `process_batch()`
+(the `results.append`/progress block slipped out of the `for f in futures:`
+loop) and only four pre-existing behaviour tests caught it (a 3-file batch
+asserting `len(results) == 1`), and a scripted re-export later landed *inside* an
+existing parenthesized `from … import (…)` block (P5). Evidence:
+`PLAN_iteration5_remediation.md` C2, `PLAN_audit_priority_actions.md` P5.
 
-Run the generators with the interpreter that carries the dev extras
-(`python-docx`/`python-pptx`): `python` on PATH may be a system interpreter
-without them, while `generate_presentation.py` needs `python-pptx` from
-`.venv`. Verify with `pytest tests/test_user_guide_hygiene.py`.
+After **any** scripted edit: re-diff the touched lines by eye, assert the
+resulting set is non-empty, and rely on behaviour-lock tests — never on the
+compile gate alone. A scan that reuses an opposite-purpose exclusion set is the
+same trap in reverse: iteration-5 G1's walk reused `_EXCLUDED_DIRS` (which
+contains `tests`) while needing the exact opposite, so every candidate was
+dropped before matching and it would have passed vacuously forever. **Assert the
+result set is non-empty so an empty scan fails loudly.** Evidence:
+`PLAN_iteration5_remediation.md` G1.
 
-## Verification Tooling (Windows-specific invocations)
+## Domain Correctness Traps
 
-These gotchas were hit empirically during the DSP normalization Phase 9 gate.
-Follow them or the "passing" run is misleading.
+- **Mutagen FLAC: rebinding `.tags` never persists — mutate in place.** mutagen's
+  `FLAC` serialises the Vorbis comment dict captured into `metadata_blocks` at
+  load time, so `audio.tags = other_tags` followed by `audio.save()` silently
+  writes the *stale* block: the incoming tags vanish on disk with no error. The
+  classic trap is `delete()` + `save()` to wipe a file, then restoring a
+  different loaded tags dict (scrubber undo-restore). OGG/MP4 are unaffected
+  (they serialise `self.tags` directly). `VorbisHandler.set_raw_tags` must
+  `clear()` + `update()` the handler's own loaded dict, never rebind. Regression
+  tests must round-trip through a real FLAC file (pydub export), not fakes, and
+  ideally erase the file first.
+- **AcoustID near-ties: score rank is NOT decisive within ~0.10 — resolve with
+  the file's existing tags.** Distinct recordings built from the same underlying
+  audio (an original and a remix/radio edit that reuses the recording) can both
+  score 0.95+ against the same fingerprint, and because their durations agree the
+  duration guard cannot separate them; AcoustID's own database can rank the
+  *wrong* one first, so trusting `recordings[0]` ships a false positive. When the
+  score gap is below 0.10, prefer the candidate whose artist/title match the
+  file's ID3/Vorbis/MP4 tags (normalise case and punctuation — MusicBrainz
+  "Don't" uses a curly quote against the file's ASCII apostrophe). Implemented in
+  `audio_fingerprinter.core.acoustid_client.resolve_best_match` (shared
+  `read_artist_title`); any future AcoustID tool must apply the same tie-break.
+  When no candidate matches the tags, keep rank order and surface the ambiguity
+  with the runner-up in the message. Evidence: `PLAN_audit_priority_actions.md`
+  P7 §7b, D22.
+- **A `str`-mixin enum renders as `Enum.MEMBER` in an f-string**, so a
+  "typing-only" enum refactor silently rewrites every display string.
+  `class FingerprintStatus(str, Enum)` makes `status == "MATCHED"`,
+  `status in {...}` and `json.dumps(status)` behave as the plain string, while
+  `f"{status}"` / `str(status)` / `format(status)` produce
+  `"FingerprintStatus.MATCHED"` (on 3.14 only `StrEnum` or a `__format__` fix
+  restores value formatting). The breakage lives in *interpolation sites*, which
+  are usually outside the refactored module: replacing the status literals in
+  `audio_fingerprinter/core/file_processor.py` left
+  `f"[{result.status}] {result.filename}"` in `app.py` one step from shipping
+  `FingerprintStatus.MATCHED` to the UI (evidence:
+  `PLAN_iteration8_remediation.md` E3). When a string-valued field becomes an
+  enum: (a) grep every interpolation of that field **across the whole package**,
+  not just the edited module; (b) route every display through one `.value`-
+  returning helper (`models.status_text()`) and serialise dict/JSON payloads
+  through it too; (c) keep member values byte-identical to the strings they
+  replace and pin the rendered line for **every** member in a test.
+- **Logs are split by audience.** A single log file serving both administrator
+  failure-triage and per-file processing detail serves neither:
+  `logs/audio_suite.log` dominated by DEBUG/INFO makes spot-the-failure
+  impossible. Keep the admin suite log to the lifecycle line plus WARNING and
+  above, and send each program's full detail to `logs/<program>.log` (unfiltered,
+  bounded only by that program's level). Redirect tests away from the shipped log
+  with the `AUDIOSUITE_LOG_DIR` env override (session-autouse `conftest.py`
+  fixture) and prove isolation **empirically** by the shipped file's
+  `LastWriteTime` after the full run — not by trusting the fixture. When a logger
+  intentionally gains a second handler, select "the" handler **by filename, never
+  by count**: a once-correct `handlers[0]` / `len(handlers) == 1` assertion
+  silently targets the wrong file.
 
-- **Failing tests must be resolved — never shipped.** "Tests that fail are
-  worse than no tests": a red suite is silently ignored and masks real
-  regressions, so every tool in the pipeline (`pytest`, `ruff`, `mypy`
-  (strict via `[tool.mypy] strict = true`), `bandit`) must pass 100% before
-  work is marked complete. Do not
-  delete, skip, `xfail`, or add `# type: ignore` to make a failure go away —
-  resolve the underlying cause. If a test or check is genuinely wrong, fix
-  the test/check itself in lockstep with the code, and update the relevant
-  AGENTS.md gotchas so the mistake is not repeated.
+## Verification Tooling Traps
 
-- **Defects are fixed when discovered — never deferred.** A bug found during
-  development, review, an audit, or a test run must be resolved in the same
-  change that found it, with a regression test in lockstep. Deferral to a
-  later phase or a "ticket" is only acceptable for new-feature backlog items —
-  never for defects in working code.
+- **Bare `mypy .` is the gate.** Per-file invocations (`mypy pkg/x.py
+  pkg/tests/test_y.py`) drop `pyproject.toml`'s `[tool.mypy] exclude` context, so
+  test files get re-checked with no per-module overrides applied — in practice
+  dozens of false `no-untyped-def`/`type-arg` errors on files the bare gate
+  passes clean, plus `untyped_calls_exclude` gaps tripping `no-untyped-call`.
+  Never "fix" code or add `# type: ignore` to satisfy a per-file run; use
+  targeted mypy only for debugging, with the bare run as arbiter.
+- **mypy override globs `X.*` do NOT match the bare module `X`.**
+  `module = ["mutagen.*"]` covers `mutagen.aiff` but not `from mutagen import
+  File`, and `module = ["mutagen.id3.*"]` does not cover `from mutagen.id3 import
+  TXXX`. List each bare package/subpackage name alongside the glob.
+- **A restrictive `__all__` needs `implicit_reexport = true`.** mutagen ships
+  `py.typed` but `mutagen.id3.__all__` lists only
+  `['ID3', 'ID3FileType', 'Frames', 'Open', 'delete']`, so every frame class
+  (`APIC`, `TXXX`, `TCON`, …) and error (`ID3NoHeaderError`, `MutagenError`,
+  `File`) fails `--strict` with "does not explicitly export attribute". Set
+  `implicit_reexport = true` in the overrides block (with bare module names per
+  the previous rule), then delete the now-stale per-import
+  `# type: ignore[attr-defined]` comments that mypy reports as `unused-ignore`.
+  This also un-types the symbols, so cascading errors like `"APIC" has no
+  attribute "data"` disappear.
+- **`# noqa: F401` on a re-export is a ruff-only fix — mypy still fails on the
+  importing module.** A `from audio_suite_shared.cli_helpers import
+  was_launched_from_driver  # noqa: F401` passes ruff but makes every call site
+  fail `--strict` with `Module "…utils.cli_args" does not explicitly export
+  attribute "was_launched_from_driver" [attr-defined]`. The redundant-alias form
+  is the canonical marker mypy accepts (and ruff treats as a re-export, so no
+  `noqa`):
 
-- **Audio correctness is release-blocking.** This suite manipulates audio
-  data: any defect that could corrupt, mis-normalize, mis-tag, or incorrectly
-  convert audio (global_gain rewrites, LUFS normalization,
-  sample-rate/bit-depth conversion, analysis, tag writes) is the
-  highest-priority fix class. Validating such fixes requires tests that
-  verify the **actual audio outcome** — decode the result and measure
-  per-channel RMS/loudness — not tests that read back the same internal state
-  the code just wrote. Self-consistent field read-back cannot detect
-  corruption (see the lossless_gain stereo-offset bug, iterations 1–2 in
-  `PLAN_audit_remediation.md` / `PLAN_iteration2_remediation.md`).
-
-- **A `requires-python` floor is only honest if the committed lockfile honours
-  it.** `>=3.10` let `uv.lock` resolve a second, stale numeric stack for the
-  oldest leg (numpy 2.2.6 / scipy 1.15.3 behind `python_full_version < '3.11'`
-  markers) while 3.12+ got numpy 2.5.2 / scipy 1.18.0 — and the dev host
-  (3.14.7) had no CI leg at all, so the green 3.10 leg certified a dependency
-  graph nobody developed or shipped against. Whenever the floor or a heavy
-  dependency moves, audit the lock's per-interpreter markers: if the oldest
-  leg resolves older wheels than the interpreter the suite is actually
-  developed on, raise the floor or accept the split knowingly — never discover
-  it through a broken `tomllib` import two floors up. (2026-09-28: floor raised
-  to 3.11; CI matrix `["3.11", "3.12", "3.14"]`; the 3.10-only pins — numpy
-  2.2.6, scipy 1.15.3, exceptiongroup 1.3.1, scikit-learn 1.7.2 — fell out of
-  the lock by themselves, and the `tomllib` guards that existed only for 3.10
-  were deleted, not maintained.)
-
-- **GUI Dry Run / mode flags must be traced end-to-end to the write site.**
-  A mode the app computes and passes (e.g. `is_dry_run=is_dry_run` into
-  `run_enhancement`) silently does nothing if any layer of the chain lacks
-  the parameter or ignores it — the processor keeps writing, and an
-  "in-place Dry Run" rewrites the source files. mypy's `Unexpected keyword
-  argument` on the call site is the canary. When threading a dry-run/mode
-  flag, add it to every signature in the chain and add a regression test
-  asserting the **real outcome** on a temp file: no output file created, no
-  write call, no tag copy, DONE status with measurements — not merely that
-  the flag value arrived (see the enhancer `is_dry_run` fix).
-
-- **mypy per-file invocations bypass pyproject's module excludes — the gate**
-  **is always the bare `mypy .`.** Passing explicit paths
-  (`mypy audio_suite_shared/x.py pkg/tests/test_y.py`) drops the
-  `[tool.mypy] exclude = ["^tests/", ..., "/tests/"]` filtering
-  context, so test files get re-checked with no per-module overrides applied
-  (empirically: 89 false `no-untyped-def`/`type-arg` errors on test files the
-  bare gate passes clean, plus `untyped_calls_exclude` gaps tripping
-  `no-untyped-call`). Do not "fix" code or add `# type: ignore` to satisfy a
-  per-file run; run `python -m mypy .` — that is the gate — and use targeted
-  mypy only for debugging with the bare-run result as the arbiter.
-
-- **Bandit must be run with `-c pyproject.toml` and UTF-8 enabled.**
-  Plain `bandit -r <dirs>` does NOT auto-load `[tool.bandit]` from
-  pyproject.toml, so it ignores `skips = ["B404", "B101"]` and
-  `exclude_dirs = ["tests"]` — it then floods the report with hundreds of
-  test-file `assert` (B101) findings and a few `/tmp` mocks (B108) that are
-  out of scope. Additionally, on Windows the report crashes with
-  `UnicodeEncodeError: 'charmap' codec` when a path contains a `→` character
-  (e.g. any docstring arrow). Correct invocation:
+  ```python
+  from audio_suite_shared.cli_helpers import (
+      was_launched_from_driver as was_launched_from_driver,
+  )
   ```
-  $env:PYTHONUTF8='1'; <python> -X utf8 -m bandit -r <dirs> -c pyproject.toml
-  ```
-  (`.github/workflows/ci.yml` already uses `bandit -r ... -c pyproject.toml` —
-  mirror that.) A healthy result is 0 High / 0 Medium; the remaining Low
-  subprocess findings (B603/B606/B607) are the documented first-party call
-  sites routed through `run_secure_subprocess()`, and B404/B101 are skipped
-  by policy.
 
-- **`bandit -r .` scans `.venv` — always pass `-x ./.venv` (or scope to the
-  first-party packages).** A bare `bandit -r .` descends into the virtual
-  environment (~1.4M LOC of third-party `site-packages`) and reports hundreds
-  of out-of-scope High/Medium findings, burying the 0-High/0-Medium gate.
-  First-party invocation:
-  ```
-  $env:PYTHONUTF8='1'; <python> -X utf8 -m bandit -r . -x ./.venv -c pyproject.toml
-  ```
+- **mypy numpy `Any`-return trap.** Under `ignore_missing_imports` + the
+  `numpy.*` override, numpy ufuncs/`astype`/`tobytes` return `Any`, and returning
+  one from a function declared to return an `NDArray` fails `--strict` with
+  `no-any-return`. Bind to an explicitly-typed local first:
 
-- **Bandit B310 fires on any first-party `urllib.request.urlopen`** and breaks
-  the 0-medium gate. The suite standard is to use the already-declared
-  `requests` dependency for HTTP (album_art_sync, the acoustid client, and
-  the lyrics LRCLIB provider all follow it) rather than suppressing with
-  `# nosec`. Also: `bandit -f json` prints its `Working...` progress line on
-  stdout ahead of the JSON payload — slice to the first `{` before
-  `json.loads`.
-
-- **mypy numpy `Any`-return trap.** Under the project's `ignore_missing_imports`
-  + `numpy.*` override, numpy ufuncs/`astype`/`tobytes` return `Any`. Returning
-  one directly from a function declared to return an `NDArray` fails
-  `--strict` with `no-any-return`. Fix by binding to an explicitly-typed local
-  first:
   ```python
   clipped: npt.NDArray[np.floating[Any]] = np.clip(audio, -1.0, 1.0).astype(
       audio.dtype, copy=True
@@ -283,306 +423,205 @@ Follow them or the "passing" run is misleading.
   return clipped
   ```
 
-- **mypy override module globs `X.*` do NOT match the bare module `X`.**
-  An override `module = ["mutagen.*"]` covers `mutagen.aiff` but not
-  `from mutagen import File`, and `module = ["mutagen.id3.*"]` does not cover
-  `from mutagen.id3 import TXXX`. List each bare package/subpackage name
-  (`"mutagen"`, `"mutagen.id3"`, …) alongside the glob, or the import stays
-  untyped/`attr-defined`.
+- **Bandit needs `-c pyproject.toml`, UTF-8, and `-x ./.venv`.** Plain
+  `bandit -r <dirs>` does not auto-load `[tool.bandit]`, so it ignores
+  `skips = ["B404", "B101"]` and `exclude_dirs = ["tests"]` and floods the report
+  with hundreds of out-of-scope test-file `assert` (B101) and `/tmp` mock (B108)
+  findings, while a bare `bandit -r .` descends into `.venv` and buries the 0/0
+  gate. On Windows the report crashes with
+  `UnicodeEncodeError: 'charmap' codec` when a path contains `→`, hence
+  `-X utf8` with `PYTHONUTF8=1`. A healthy result is 0 High / 0 Medium; the
+  remaining Low subprocess findings (B603/B606/B607) are the documented
+  first-party call sites routed through `run_secure_subprocess()`, and B404/B101
+  are skipped by policy. `bandit -f json` prints a `Working...` progress line on
+  stdout ahead of the payload — slice to the first `{` before `json.loads`.
+- **Bandit B310 fires on any first-party `urllib.request.urlopen`** and breaks
+  the 0-medium gate. Use the already-declared `requests` dependency for HTTP (as
+  `album_art_sync`, the acoustid client and the lyrics LRCLIB provider do) rather
+  than suppressing with `# nosec`.
+- **Bare `pytest` — not `pytest tests/`.** `pytest tests/ -v` runs only the root
+  `tests/` directory and silently skips every per-package `<package>/tests/`
+  suite, so run bare `pytest` (or the affected packages) and let `testpaths`
+  apply.
+- **Every new package needs `__init__.py`.** If `<pkg>/tests/__init__.py` exists
+  but `<pkg>/__init__.py` is missing, pytest maps the new test modules to the
+  top-level package name `tests` (inserting `<pkg>/` on `sys.path`), which
+  collides with the repo-root `tests` package: depending on import order you get
+  `ModuleNotFoundError: No module named 'tests.<x>'` for either the new package's
+  files or the unrelated root ones. Package-scoped runs and the shared/master_driver
+  suites all pass green while the bare full-suite run fails at collection — so the
+  final gate MUST be a bare full-suite `pytest` run. The same shadowing produces
+  mypy "Source file found twice under different module names" collisions; confirm
+  the package resolves as a regular package (`__file__` points at
+  `<pkg>/__init__.py`, not a namespace path).
+- **Pre-flight import checks need a Tk root.** Do not call
+  `preflight.guard_or_exit()` bare: its single parameter is a `Path` (the suite
+  root to scan), from which it builds the failure dialog. For a non-GUI import
+  sanity check use a direct package import (`python -c "import <pkg>.<mod>"`) or
+  the compile gate (`python -m compileall -q -f .`).
+- **`compileall -x '(^|/)(\.venv|\.git)/'` does not exclude `.venv` on Windows** —
+  the `-x` regexp uses forward-slash separators while Windows paths use `\`, so
+  the exclusion silently fails and third-party `site-packages` modules get
+  byte-compiled (harmless pre-existing `SyntaxWarning`s, e.g. pydub). Keep the
+  documented command as-is; the warnings are noise, not failures.
+- **A verification harness that cannot fail is worse than none** — see
+  *Defects and failing checks*.
+- **`importlib.reload()` does not undo in-place mutations of module-level
+  dicts.** `set_active_palette()` mutates the module-level `PALETTES` dict in
+  place, so a test's reload-based "restore" silently did not restore and the pair
+  became order-dependent, surfacing only on the *second* full-suite run. Never
+  rely on reload to restore state another test mutates in place: capture expected
+  state before any test can pollute it, and add a deterministic pollution
+  regression when a test mutates module-level globals. Evidence:
+  `PLAN_iteration5_remediation.md` Stage 5.
+- **Simulate platforms by patching `sys.platform` only — never `os.name`.** The
+  declared platform branches key on `sys.platform`; patching `os.name` instead
+  makes `pathlib.Path()` construct a `PosixPath` on a Windows host, so the test
+  measures a Windows/POSIX hybrid that exists on no real system. Pin the
+  distinction via the `PosixPath` consequence, not by asserting the patch target.
 
-- **Packages with a restrictive `__all__` need `implicit_reexport = true`.**
-  mutagen ships `py.typed` but `mutagen.id3.__all__` only lists
-  `['ID3', 'ID3FileType', 'Frames', 'Open', 'delete']`, so every frame class
-  (`APIC`, `TXXX`, `TCON`, …) and error (`ID3NoHeaderError`,
-  `MutagenError`, `File`) fails `--strict` with "does not explicitly export
-  attribute". Fix in the overrides block with `implicit_reexport = true`
-  (and add bare module names per the previous bullet), then delete the now
-  stale per-import `# type: ignore[attr-defined]` comments — mypy flags them
-  as `unused-ignore`. This also un-types the symbols, so cascading errors
-  like `"APIC" has no attribute "data"` disappear.
+## Shell Quoting (PowerShell)
 
-- **mypy `--strict` re-export discipline: `# noqa: F401` on a re-export is a**
-  **ruff-only fix — mypy still fails on the importing module.** A
-  `from audio_suite_shared.cli_helpers import was_launched_from_driver  # noqa: F401`
-  in a tool's `utils/cli_args.py` passes ruff but makes every call site
-  (`app.py` → `cli_args.was_launched_from_driver()`) fail `--strict` with
-  `Module "…utils.cli_args" does not explicitly export attribute
-  "was_launched_from_driver" [attr-defined]`. The redundant-alias form is the
-  canonical explicit-reexport marker mypy accepts (and ruff treats as intention
-  to re-export, so no `noqa`):
-  ```python
-  from audio_suite_shared.cli_helpers import (
-      was_launched_from_driver as was_launched_from_driver,
-  )
-  ```
-  If running a scripted bulk edit that inserts a re-export line, a
-  parenthesized `from … import (…)` block is not a safe insertion point — the
-  new import can land nested inside the existing parentheses (`tempo_analyzer` /
-  `replaygain_analyzer` ships exactly this during P5 and had to be repaired by
-  hand). Always re-run the compile gate and eyeball a diff of the touched lines.
+PowerShell only honours backtick escapes, so `\"` does **not** escape a quote
+inside a double-quoted string: any pattern containing `["']` or a bare `\"` is a
+`ParserError` and the command never runs. Build patterns in **single-quoted**
+variables (doubling any inner single quote as `''`), or split a `["']` class into
+separate double-quote and single-quote greps. There is also no heredoc —
+`git commit -F - <<'MSG'` dies with "Missing file specification after
+redirection operator"; write the message to a file and use
+`git commit -F "<path>"`, then delete the scratch file. (In Git Bash a heredoc
+works; match the dialect you are actually in.)
 
-- **Mutagen FLAC: rebinding `.tags` never persists — mutate in place.**
-  mutagen's `FLAC` serializes the Vorbis comment dict captured into
-  `metadata_blocks` at load time, so `audio.tags = other_tags` followed by
-  `audio.save()` silently writes the *stale* block: the incoming tags vanish
-  on disk with no error. Classic trap: `delete()` + `save()` to wipe a file,
-  then restoring a different loaded tags dict (scrubber undo-restore).
-  OGG/MP4 are unaffected (they serialize `self.tags` directly).
-  `VorbisHandler.set_raw_tags` must `clear()` + `update()` the handler's own
-  loaded dict, never rebind. Regression tests must round-trip through a real
-  FLAC file (pydub export), not fakes, and ideally erase the file first.
+## Secret Scanning
 
-- **AcoustID near-ties: score rank is NOT decisive when the top two
-  candidates are within ~0.10 — resolve with the file's existing tags.**
-  Distinct recordings built from the same underlying audio (an original and a
-  remix/radio edit that reuses the recording) can both score 0.95+ against
-  the same fingerprint: empirically `1-03 Johnny, Don't Do It.mp3` returned
-  10cc "Johnny, Don't Do It" at 0.947 *and* Rosenstolz "Ich geh in Flammen
-  auf (Full Vox Radio Edit)" at 0.984 — same ~218 s length, inseparable in the
-  120 s fpcalc window. The duration guard cannot separate them (durations
-  agree), and AcoustID's own database ranks the *wrong* one first, so blindly
-  trusting `recordings[0]` ships a false positive. When the score gap is
-  below 0.10, prefer the candidate whose artist/title match the file's ID3/
-  Vorbis/MP4 tags (normalize case and punctuation — MusicBrainz "Don't" uses
-  a curly quote vs the file's ASCII apostrophe). Implemented in
-  `audio_fingerprinter.core.acoustid_client.resolve_best_match` (shared
-  `read_artist_title`); any future AcoustID tool must apply the same
-  tag-aware tie-break. When no candidate matches the tags, keep rank order
-  and surface the ambiguity with the runner-up in the message.
+After `git add -A`, scan the **index** — it is exactly the tree the next commit
+will create — with `git grep --cached -n -i -E -I -e '<pattern>'` rather than
+`rg` (which may not be installed).
 
-- **pytest should run the full configured `testpaths`, not `tests/`.**
-  `pytest tests/ -v` only runs the root `tests/` directory and silently skips
-  every per-package `<package>/tests/` suite. Run bare `pytest` (or the
-  affected packages) so `pyproject.toml` testpaths apply. CI runs bare
-  `pytest --cov-fail-under=75`.
-- **Every new package needs `__init__.py`, or full-suite collection breaks
-  with a shadowed top-level `tests` package.** If `<pkg>/tests/__init__.py`
-  exists but `<pkg>/__init__.py` is missing, pytest maps the new test modules
-  to the top-level package name `tests` (inserting `<pkg>/` on `sys.path`),
-  which collides with the repo-root `tests` package. Depending on import
-  order you get `ModuleNotFoundError: No module named 'tests.<x>'` for either
-  the new package's files or the unrelated root `tests/` files.
-  Package-scoped runs (`pytest <pkg>/tests`) and the shared/master_driver
-  suites all pass green while the bare full-suite run fails at collection, so
-  the final gate MUST be a bare full-suite `pytest` run. The same shadowing
-  also produces mypy "Source file found twice under different module names"
-  collisions; verify the package resolves as a regular package (it imports
-  with `__file__` pointing at `<pkg>/__init__.py`, not a namespace path).
+- The scan is **not scoped to the diff**: hits also surface pre-existing
+  committed content (e.g. `album_art_sync/api/fanart.py`'s
+  `params={"api_key": app_key, ...}`), which is expected noise rather than a new
+  leak. When the question is specifically "does *this* change introduce a
+  secret", append `-- <staged files>` pathspecs. This is what caught and excluded
+  the live Fanart.tv keys in P1 (`PLAN_audit_priority_actions.md` D11).
+- **A scan is only as good as its alternation.** Match `*_key`/`*_secret`
+  suffixes, 32-hex literals and 44+-char base64 — not just
+  `api[_-]?key|secret|passwd|password|token`. The audit regex sailed past
+  `album_art_sync/*/album_art_config.json`'s `"app_key"`/`"client_key"` Fanart.tv
+  keys because neither token is in the alternation and a 32-hex value is not
+  matched. Supplemental scans that caught them:
 
-- **Pre-flight import check needs a Tk root.** Do not call
-  `preflight.guard_or_exit()` bare — it requires a `root` positional argument
-  for the dialog. For a non-GUI import sanity check use a direct package
-  import (`python -c "import <pkg>.<mod>"`) or the compile gate
-  (`python -m compileall -q -f .`).
-
-- **pwsh: `\"` is not an escape inside double-quoted strings — and `rg` may
-  not be installed; run secret scans as `git grep --cached`.** Any pattern
-  containing `["']` or a bare `\"` is a ParserError in a PS double-quoted
-  string (PowerShell only honours backtick escapes, so the quote *terminates*
-  the string and the scan never runs). Build patterns in single-quoted
-  variables (double any inner single quote as `''`), or split the `["']`
-  class into separate double-quote and single-quote greps. After
-  `git add -A`, prefer `git grep --cached -n -i -E -I -e '<pattern>'` over
-  `rg` — it scans the index, i.e. exactly the tree the next commit will
-  create, so it gates the full content being pushed without needing `rg`.
-  It is NOT scoped to the diff: hits also surface pre-existing committed
-  content (e.g. `album_art_sync/api/fanart.py`'s
-  `params={"api_key": app_key, ...}`), which is expected noise rather than
-  a new leak — append `-- <staged files>` pathspecs when the question is
-  specifically "does *this* change introduce a secret" (an unscoped scan
-  run against a seven-file commit once flagged five untouched files before
-  that distinction was checked). This is what caught and excluded the live
-  Fanart.tv keys in P1 (`PLAN_audit_priority_actions.md`, Decision D11).
-
-- **pwsh has no heredoc: long commit messages need `git commit -F <file>`.**
-  `git commit -F - <<'MSG'` is bash-only and dies with `ParserError: Missing
-  file specification after redirection operator`, wasting a round trip on a
-  message this repo's style expects to be long (every audit item records a
-  multi-paragraph body). Write the message to a file with the write tool, then
-  `git commit -F "<path>"`, and delete the scratch file afterwards.
-
-- **A secret scan is only as good as its alternation: match `*_key`/`*_secret`
-  suffixes, 32-hex literals and 44+-char base64, not just
-  `api[_-]?key|secret|passwd|password|token`.** The audit regex sailed past
-  `album_art_sync/*/album_art_config.json`'s `"app_key"`/`"client_key"`
-  Fanart.tv keys — neither token is in the alternation and a 32-hex value is
-  not matched. Supplemental scans that caught them:
   ```
   git grep --cached -n -i -E -I -e '[-_](key|secret|token|password|passwd|client)[^ ]*[=:][^A-Za-z0-9_][A-Za-z0-9+/=_-]{10,}'
   git grep --cached -n -i -E -I -e '"[a-f0-9]{32}"'
   git grep --cached -n -E -I -e '"[A-Za-z0-9+/]{44,}={0,2}"'
   git grep --cached -n -E -I -e '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----'
   ```
-  The PEM pattern must be passed with `-e` (it starts with `-`). Files named
-  `*_config.json`/`.key` siblings belong in `.gitignore` before any commit.
 
-- **`compileall -x '(^|/)(\.venv|\.git)/'` does not exclude `.venv` on
-  Windows.** The `-x` regexp uses forward-slash separators but Windows paths
-  use `\`, so the exclusion silently fails and third-party `site-packages`
-  modules get byte-compiled (harmless pre-existing `SyntaxWarning`s, e.g.
-  pydub). Keep the documented command as-is; the warnings are noise, not
-  failures.
+  The PEM pattern must be passed with `-e` because it starts with `-`. Files
+  named `*_config.json`/`.key` belong in `.gitignore` before any commit.
 
-- **A scripted bulk edit that moves code between indentation levels produces
-  valid-Python-wrong code — the compile gate cannot catch it.** Iteration-5
-  C2's extraction script de-indented the tail of the inherited
-  `process_batch()` (the `results.append`/progress block slipped out of the
-  `for f in futures:` loop) while compile/ruff/mypy all stayed green; only
-  four pre-existing `TestProcessBatch` behaviour tests caught it
-  (`len(results) == 1` for a 3-file batch). After any scripted edit, re-diff
-  the touched lines and rely on behaviour-lock tests — never on the compile
-  gate alone. (Second scripted-edit regression after the P5
-  parenthesized-import insertion.)
+## Utility Script Markers
 
-- **A scripted edit that reads with the platform default encoding and writes
-  UTF-8 silently mangles every non-ASCII byte it touched.** On Windows
-  `open(path)` decodes as cp1252, so an em dash read as three characters
-  (`â€”`) and re-emitted as UTF-8 was a *different* three characters; the
-  result compiled, passed ruff/mypy, and broke six display tests that read as
-  logic errors (iteration-8 E3). The same mechanism ate `` `a `` as `\x07`
-  (BEL) inside `CHANGELOG.md`, committing an invisible control character into
-  the docs. Always pass `encoding="utf-8"` on **both** the read and the write,
-  and after any scripted edit assert the file is control-character clean
-  (`[c for c in text if ord(c) < 32 and c not in "\r\n\t"]` is empty) before
-  running the gates. This is the encoding sibling of the `ruff format`
-  `line-ending = "auto"` rule in the global §5: both are byte-level damage
-  that no content-level gate reports.
+All `utilities/*.py` CLI scripts must use ASCII-only status markers in square
+brackets (`[OK]`, `[ERROR]`, `[INFO]`, `[DONE]`, `[START]`). No emoji or Unicode
+symbols — Windows `cmd.exe` cannot render them.
 
-- **A scan reusing an opposite-purpose exclusion set silently scans zero
-  files and passes vacuously.** Iteration-5 G1's skip-attribution walk
-  reused `_EXCLUDED_DIRS` (which contains `tests`) while needing the exact
-  opposite, so every candidate was dropped before matching — it would have
-  passed vacuously forever. When a scan reuses a shared exclusion list,
-  assert the result set is non-empty so the empty scan fails loudly.
-
-- **Simulate platforms by patching `sys.platform` only — never `os.name`.**
-  The declared platform branches key on `sys.platform`; patching `os.name`
-  instead (iteration-5 G1) makes `pathlib.Path()` construct a `PosixPath` on
-  a Windows host, so the test measures a Windows/POSIX hybrid that exists on
-  no real system. The distinction is pinned by regression test via the
-  `PosixPath` consequence, not by assertion on the patch target.
-
-- **A verification harness that cannot fail is worse than none.** Iteration-5
-  G2's break-and-restore scratch check typed its pytest argument `[string]`
-  in PowerShell, so the array collapsed and pytest received a single
-  character; the usage message's `ERROR` line then matched the verdict
-  predicate and reported "LOCK FIRED" for a run that executed no test. Type
-  array arguments `[string[]]`, key break-and-restore verdicts on a
-  `FAILED`/`ERROR` *test* line (never on the literal word in any output),
-  confirm the summary line shows tests actually ran, and SHA-256-verify
-  every restore so the harness cannot leave a mutated file behind.
-
-- **`importlib.reload()` does not undo in-place mutations of module-level
-  dicts.** `set_active_palette()` mutates the module-level `PALETTES` dict in
-  place, so a test's reload-based "restore" silently did not restore and the
-  pair became order-dependent — surfacing only on the *second* full-suite
-  run (iteration-5 Stage 5). Never rely on reload to restore state another
-  test mutates in place: capture expected state before any test can pollute
-  it, and add a deterministic pollution regression when a test mutates
-  module-level globals.
-
-- **Do not pin one dependency version's branch message at a consumer
-  boundary.** Iteration-5 B1's corrupt-file pool test pinned the
-  empty-decode branch's "too short" message at the batch level; uv.lock
-  resolves librosa 1.0 on py≥3.12 (which removed the audioread fallback), so
-  the same corrupt container took the decoder-raised branch and the test
-  failed at HEAD. Where a dependency's version changes which branch runs,
-  assert the neutral contract (status=error, non-empty message, batch
-  completes) at the consumer, and pin each branch text in the loader's own
-  tests instead.
-
-- **A `str`-mixin enum renders as `Enum.MEMBER` in an f-string, so a
-  "typing-only" enum refactor silently rewrites every display string.**
-  `class FingerprintStatus(str, Enum)` makes `status == "MATCHED"`,
-  `status in {...}` and `json.dumps(status)` all behave as the plain string,
-  while `f"{status}"` / `str(status)` / `format(status)` produce
-  `"FingerprintStatus.MATCHED"` (verified on 3.14: only `StrEnum` and the
-  `__format__` fix restore value formatting). The breakage is confined to
-  *interpolation sites*, and they live outside the refactored module —
-  iteration-8 E3 replaced eight status literals in
-  `audio_fingerprinter/core/file_processor.py` while
-  `audio_fingerprinter/app.py` was still doing
-  `f"[{result.status}] {result.filename}"` into the results listbox, which
-  would have shipped `FingerprintStatus.MATCHED` to the UI. Rule: when a
-  string-valued field becomes an enum, (a) `grep` every interpolation of that
-  field **across the whole package**, not just the edited module; (b) route
-  each display through one `.value`-returning helper (`models.status_text()`)
-  and serialise dict/JSON payloads through it too; (c) keep the member values
-  byte-identical to the strings they replace, and pin that with a test
-  asserting the rendered line for *every* member — the existing
-  display-string tests pin only the members they happened to cover.
-
-- **A shared log file serving two audiences — administrator failure-triage
-  and per-file processing detail — serves neither.** `logs/audio_suite.log`
-  held 10,000+ lines dominated by DEBUG/INFO (per-file tag fallbacks,
-  successful subprocess calls, per-file progress), so spot-the-failure was
-  impossible. Split by audience/level: the admin suite log keeps the
-  lifecycle line plus WARNING and above, while each program's full detail
-  goes to `logs/<program>.log` (unfiltered, bounded only by the program's
-  level). Redirect tests away from the shipped log with an env-var override
-  (a session-autouse `conftest.py` fixture pointing `AUDIOSUITE_LOG_DIR` at a
-  temp dir) and prove isolation **empirically** by the shipped file's
-  `LastWriteTime` after the full run, not by trusting the fixture alone.
-  When a logger intentionally gains a second handler, update the tests that
-  selected "the" handler: select by filename, never by count, or the
-  once-correct `handlers[0]` / `len(handlers) == 1` assertion silently
-  targets the wrong file.
-
-## Master Driver Card Naming (Mandatory Convention)
+## Master Driver Card Naming
 
 `enrich_tab.py` and `utilities_window.py` lazy-import each tool's card as
-`importlib.import_module(f"master_driver.ui.cards.{tool_id}_card")` and call
-`build(parent, state)`. The card file name MUST be exactly `{tool_id}_card.py`
-matching the tool's registered `id` in `audio_suite_shared/tool_plugin.py`.
+`master_driver.ui.cards.{tool_id}_card` and call `build(parent, state)`, where
+`tool_id` is the manifest `id` in `audio_suite_shared/tool_plugin.py`. Name the
+file exactly `{tool_id}_card.py` (e.g. `fingerprinter_card.py` for id
+`fingerprinter`).
 
-A file whose name merely *resembles* the id (e.g. `fingerprint_card.py` for
-id `fingerprinter`) is silently never found — the only symptom is a
-`No card UI for tool '<id>'` warning in the console. Verify the card file
-name against the manifest id before creating it.
+- `utilities_window.py` has `_CARD_MODULE_OVERRIDES` for the one documented
+  exception (`{"asx_extractor": "asx_card"}`); `enrich_tab.py` has **no**
+  override map, so an enrich tool must follow the convention exactly or add a map
+  there too.
+- A file whose name merely *resembles* the id is silently never found — the only
+  symptom is a `No card UI for tool '<id>'` warning in the console. Verify the
+  card file name against the manifest id before creating it.
 
 ## Registering a New Tool (Checklist)
 
 Every new tool must be wired into ALL of the following before it is complete.
-Missing any one produces a silent runtime degradation (a missing card only
-logs; a broken Help button warns):
+Missing any one produces a silent runtime degradation (a missing card only logs;
+a broken Help button warns):
 
 1. **Tool manifest** — `audio_suite_shared/tool_plugin.py`: `ToolManifest`
-   entry.
-   The `id` is the single source of truth used everywhere below.
-2. **Master Driver card** — `master_driver/ui/cards/{tool_id}_card.py` named
-   exactly `{tool_id}_card.py` (see "Master Driver Card Naming" above).
-3. **CLI command** — tool's `click` command + import in
-   `audio_suite_shared/cli_app.py` (verify flag names against the CLI, not
-   an assumed design).
-4. **Arg builder** — `master_driver/runner/arg_builder.py`: entry per tool.
+   entry. Its `id` is the single source of truth used everywhere below.
+2. **Master Driver card** — `master_driver/ui/cards/{tool_id}_card.py`, named
+   exactly per the section above.
+3. **CLI command** — the tool's `click` command plus its import in
+   `audio_suite_shared/cli_app.py`. Verify flag names against the CLI, never an
+   assumed design; decide the GUI grammar by launching the tool, not by reading
+   the click CLI.
+4. **Arg builder** — `master_driver/runner/arg_builder.py`: one entry per tool.
    Enrich tools MUST emit `[path, mode_flag, start_flag, end_flag]` —
-   `test_runner.py` `TestBuildEnrichArgs` asserts it for EVERY enrich entry.
+   `test_runner.py`'s `TestBuildEnrichArgs` asserts it for every enrich entry.
    `lambda: []` breaks those tests; fix the builder, never weaken the tests.
 5. **Batch orchestration** — `master_driver/batch_orchestrator.py`
    `DEPENDENCY_GRAPH` ordering.
-6. **Driver state** — `master_driver/state/app_state.py` module toggle key
-   (+ `master_driver/tests/test_app_state.py` expected keys).
-7. **Pyw launcher** — top-level `<Tool_Name>.pyw` with the optional pre-flight
-   guard call.
-8. **User guide** — generator in
+6. **Driver state** — a module toggle key in `master_driver/state/app_state.py`,
+   plus `master_driver/tests/test_app_state.py`'s expected keys.
+7. **Pyw launcher** — a top-level `<Tool_Name>.pyw` calling the pre-flight guard
+   (mandatory — see *Startup Pre-Flight Guard*).
+8. **User guide** — a generator in
    `user_guides/individual_programs/<module_dir>/generate_guide.py`, run to
-   produce the `.docx`, and register the filename → folder in
-   `audio_suite_shared/platform_utils.py` `guide_to_program`.
-9. **Test registration** — `pyproject.toml`: `<module>/tests` in `testpaths`
-   + package in coverage `source`; unique test-dir basename or `__init__.py`
-   (see the "Every new package needs `__init__.py`" gotcha).
-10. **Tests** — new `<module>/tests/` suite; update expected-set tests
-    (`test_tool_plugin.py`, `test_app_state.py`, `test_runner.py`) in lockstep.
+   produce the `.docx`, and the filename → folder registration in
+   `audio_suite_shared/platform_utils.py`'s `guide_to_program`.
+9. **Test registration** — `pyproject.toml`: `<module>/tests` in `testpaths` plus
+   the package in coverage `source`; unique test-dir basename or `__init__.py`.
+10. **Tests** — a new `<module>/tests/` suite, and update the expected-set tests
+    in lockstep (`test_tool_plugin.py`, `test_app_state.py`, `test_runner.py`).
 
-Verification: a per-package `pytest <pkg>/tests` is NOT sufficient proof —
-integration tests in `master_driver/tests/` and `audio_suite_shared/tests/`
-catch registration mistakes a package's own tests cannot see. The final gate
-MUST be a bare full-suite `pytest` run.
+**Verification:** a per-package `pytest <pkg>/tests` is NOT sufficient proof —
+the integration tests in `master_driver/tests/` and `audio_suite_shared/tests/`
+catch registration mistakes a package's own tests cannot see. The final gate MUST
+be a bare full-suite `pytest` run.
 
-## Sprint 2 (Iteration 8) lessons learned
+## User-Guide Regeneration Diffs
 
-- **UI builder signatures are the source of truth.** When tab builders have specific parameter orders/types (e.g. results_tab.build(parent, on_open_log, on_open_folder, on_play_original=None, on_play_result=None); processing_tab.build(parent, slot_vars=None)), never infer extra args (e.g. _select_tab_setup or slot_vars into results builder). Mismatched positional args cause AttributeError/arg-type in real-app construction tests; read the target UI module signature and mirror it exactly.
-- **Fix signatures before adding casts.** If introducing mypy casts, ensure call chains are correct first; casts can mask runtime construction failures.
-- **Unused scaffold must not remain.** If a shared base has 0 production references and integration is incomplete, either integrate properly or remove it (minimal scope). Leaving unused scaffold adds dead code.
-- **AST lock for deleted public APIs.** When deleting a subsystem with public names, add an AST-based test asserting those names are absent to prevent accidental reintroduction.
-- **Clean up alongside deletion.** Removing dead code should also remove orphaned type aliases/docstrings in the same change scope.
+Regenerating `user_guides/**/*.docx` / `.pptx` is **content-stable but never
+byte-stable**: python-docx/pptx rebuild the zip container and every entry's
+local-header mtime changes, so `git status` reports all artifacts modified even
+when no text moved. Triage a regeneration change-set by comparing **zip entry
+data**, not the file hash or `git diff`:
+
+- every entry's compressed data byte-identical to HEAD → timestamp-only diff →
+  `git restore` it (minimal-diff rule);
+- an entry's data differs → investigate before keeping it.
+
+**The generator's fresh output is the source of truth.** A committed artifact
+re-saved by an external editor is external-tool drift, not generator drift:
+LibreOffice rewrites `docProps/app.xml`'s `Application` field, adds
+`docProps/custom.xml`, and drops
+`thumbnail.jpeg`/`stylesWithEffects.xml`/`webSettings.xml`. When the text is
+byte-identical, keeping the regenerated file restores it.
+
+Run the generators with the interpreter that carries the dev extras
+(`python-docx`/`python-pptx`): `python` on PATH may be a system interpreter
+without them, while `generate_presentation.py` needs `python-pptx` from `.venv`.
+Verify with `pytest tests/test_user_guide_hygiene.py`.
+
+## Refactor Safety
+
+- **Signatures before casts.** Fix a call chain's signatures/argument order first;
+  a mypy cast can mask a runtime construction failure that the real-app tests
+  would have caught.
+- **UI builder signatures are the source of truth.** When tab builders have
+  specific parameter orders/types (`results_tab.build(parent, on_open_log,
+  on_open_folder, on_play_original=None, on_play_result=None)`,
+  `processing_tab.build(parent, slot_vars=None)`), never infer extra args from a
+  sibling builder — read the target module and mirror it exactly. Mismatched
+  positional args raise `AttributeError`/arg-type errors in real-app construction
+  tests.
+- **Unused scaffold must not remain.** A shared base with zero production
+  references and incomplete integration must be integrated properly or removed
+  (minimal scope); leaving it is dead code.
+- **Lock deleted public APIs with an AST test.** When deleting a subsystem that
+  exposed public names, add an AST-based test asserting those names are absent, so
+  they cannot be reintroduced by accident.
+- **Clean up alongside deletion.** Removing dead code also removes the orphaned
+  type aliases and docstrings in the same change scope.

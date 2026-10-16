@@ -9,7 +9,20 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Instruction locks now cover files this repository cannot version.** The
+  precedence verdict `AGENTS.md` defers to lives in a user-global instruction
+  file that is not in this repository, so a CI runner had no copy of it and the
+  in-repo half of that contract could not be checked there. Committed *records*
+  under `tests/data/external/` (one JSON per external file) now capture what the
+  repository asserts about such a file — its path template, its twin, the
+  provenance of the recorded bytes, and the headings and markers the claims
+  rest on — and `tests/external_records.py` materializes a baseline fixture from
+  the record, so the live-file checks (headings, verdict markers, the
+  hardlinked twin) run on every host instead of skipping for a missing file.
+  The record is the contract: a heading or marker that disappears without a
+  deliberate re-record is drift, and a change to the record belongs in review.
 
 ## [1.1.0] - 2026-10-16
 
