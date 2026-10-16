@@ -20,10 +20,16 @@ Locks:
 3. Both handler branches are exercised: the generic-exception branch in both
    launchers, and the ``ImportError`` branch that only
    ``File_Reorganizer.pyw`` has.
+4. Every root ``.pyw`` runs the pre-flight guard before its first tool import
+   (AGENTS.md "Startup Pre-Flight Guard (Do Not Disable)").
+
+Changed in 1.1.0: added ``TestEveryLauncherRunsThePreflightGuard``, the lock for
+that mandatory guard, after 24 of 28 launchers were found to be missing it.
 """
 
 from __future__ import annotations
 
+import ast
 import logging
 import sys
 import types
@@ -287,4 +293,115 @@ class TestLauncherSourcesHaveNoSilentHandler:
         assert "logger.debug(" in source, "the preload failure must be witnessed"
         assert not any(line.strip() == "pass" for line in source.splitlines()), (
             "CD_Ripper.pyw went back to a silent pass"
+        )
+
+
+#: Modules a launcher may import *before* the guard: the standard library, plus
+#: the shared namespace the guard itself is imported from.
+_PRE_GUARD_ALLOWED: frozenset[str] = frozenset(sys.stdlib_module_names) | {
+    "audio_suite_shared"
+}
+
+
+def _root_module(node: ast.Import | ast.ImportFrom) -> str:
+    """Return the top-level module name an import statement pulls in."""
+    if isinstance(node, ast.Import):
+        return node.names[0].name.split(".")[0]
+    return (node.module or "").split(".")[0]
+
+
+def _guard_call_line(tree: ast.Module) -> int | None:
+    """Line of the first ``guard_or_exit(...)`` call, or ``None``."""
+    lines = [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "guard_or_exit"
+    ]
+    return min(lines) if lines else None
+
+
+def _first_tool_import_line(tree: ast.Module) -> int | None:
+    """Line of the first import that is neither stdlib nor shared, or ``None``.
+
+    A tool import is what the guard has to run *before*: importing a tool's
+    own package on a syntax error is exactly the opaque-traceback failure the
+    guard exists to prevent.
+    """
+    lines = [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        and _root_module(node) not in _PRE_GUARD_ALLOWED
+    ]
+    return min(lines) if lines else None
+
+
+class TestEveryLauncherRunsThePreflightGuard:
+    """AGENTS.md "Startup Pre-Flight Guard (Do Not Disable)".
+
+    Static (AST) rather than behavioural on purpose: executing 28 shipped
+    launchers would build 28 real GUIs.  The ordering rule is the substance -
+    a guard that fires after the tool import cannot catch a broken import
+    chain - so it is asserted directly instead of by side effect.
+    """
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def launcher_trees() -> tuple[tuple[Path, ast.Module], ...]:
+        """Every root ``.pyw`` launcher with its parsed syntax tree."""
+        trees = tuple(
+            (
+                path,
+                ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
+            )
+            for path in sorted(REPO_ROOT.glob("*.pyw"))
+        )
+        # Non-vacuity: a glob that matched nothing would pass silently.
+        assert len(trees) >= 20, (
+            f"expected the full launcher set, found only {len(trees)}; "
+            "the guard sweep would pass vacuously"
+        )
+        return trees
+
+    def test_guard_runs_before_the_first_tool_import(
+        self, launcher_trees: tuple[tuple[Path, ast.Module], ...]
+    ) -> None:
+        """Every launcher calls the guard before it imports any tool module."""
+        violations: list[str] = []
+        for path, tree in launcher_trees:
+            guard_line = _guard_call_line(tree)
+            if guard_line is None:
+                violations.append(f"{path.name}: no guard_or_exit(...) call")
+                continue
+            tool_line = _first_tool_import_line(tree)
+            if tool_line is not None and tool_line < guard_line:
+                violations.append(
+                    f"{path.name}: tool import on line {tool_line} precedes the "
+                    f"guard on line {guard_line}"
+                )
+        assert not violations, (
+            "launchers missing (or mis-ordering) the pre-flight guard: "
+            + "; ".join(violations)
+        )
+
+    def test_guard_comes_from_the_shared_preflight_module(
+        self, launcher_trees: tuple[tuple[Path, ast.Module], ...]
+    ) -> None:
+        """The guard is the shared one, not a re-implementation."""
+        violations: list[str] = []
+        for path, tree in launcher_trees:
+            imported = any(
+                isinstance(node, ast.ImportFrom)
+                and node.module == "audio_suite_shared.preflight"
+                and any(alias.name == "guard_or_exit" for alias in node.names)
+                for node in ast.walk(tree)
+            )
+            if not imported:
+                violations.append(path.name)
+        assert not violations, (
+            "launchers importing the guard from somewhere else: "
+            + ", ".join(violations)
         )

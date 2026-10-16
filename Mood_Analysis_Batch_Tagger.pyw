@@ -2,7 +2,13 @@
 Mood_Analysis_Batch_Tagger.pyw — Launcher for Mood Analysis Batch Tagger.
 """
 
+import os
 import tkinter as tk
+
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+
+from audio_suite_shared.preflight import guard_or_exit
+guard_or_exit(_script_dir)
 
 from audio_suite_shared.app_bootstrap import configure_logging
 configure_logging("mood_analysis_batch_tagger")

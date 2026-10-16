@@ -2,6 +2,13 @@
 Music_Format_Converter.pyw — Launcher for Music Format Converter.
 """
 
+import os
+
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+
+from audio_suite_shared.preflight import guard_or_exit
+guard_or_exit(_script_dir)
+
 from audio_suite_shared.app_bootstrap import configure_logging
 configure_logging("music_format_converter")
 

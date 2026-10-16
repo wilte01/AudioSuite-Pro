@@ -6,6 +6,12 @@ Imports directly from the tag_field_updater package.
 """
 
 import logging
+import os
+
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+
+from audio_suite_shared.preflight import guard_or_exit
+guard_or_exit(_script_dir)
 
 from audio_suite_shared.app_bootstrap import configure_logging
 

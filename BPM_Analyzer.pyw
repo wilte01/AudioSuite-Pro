@@ -6,6 +6,13 @@ the ``clam`` theme is locked in before any ttk widgets are created,
 preventing the Windows ``vista`` theme from taking over.
 """
 
+import os
+
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+
+from audio_suite_shared.preflight import guard_or_exit
+guard_or_exit(_script_dir)
+
 from audio_suite_shared.app_bootstrap import configure_logging
 configure_logging("bpm_analyzer")
 

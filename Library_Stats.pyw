@@ -8,6 +8,13 @@ Changed in 1.0.1: routes the launcher through ``library_stats.app.main`` so the 
 argv is parsed.
 """
 
+import os
+
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+
+from audio_suite_shared.preflight import guard_or_exit
+guard_or_exit(_script_dir)
+
 from audio_suite_shared.app_bootstrap import configure_logging
 configure_logging("library_stats")
 
