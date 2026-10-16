@@ -1,4 +1,8 @@
-"""Generate a fresh Audio Normalizer guide from the current implementation."""
+"""Generate a fresh Audio Normalizer guide from the current implementation.
+
+Changed in 1.1.0: documented the widened supported-format list (WavPack .wv
+and Speex .spx) and updated the "why only seven formats normalise" explanation.
+"""
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -46,16 +50,17 @@ doc.add_paragraph(
     "audio extensions in the selected "
     "directory. The FFmpeg normalization path has "
     "configured codecs for MP3, FLAC, OGG, "
-    "M4A, and Opus. Unsupported extensions are "
+    "M4A, Opus, WavPack (.wv), and Speex (.spx). "
+    "Unsupported extensions are "
     "rejected rather than being silently "
     "written with the wrong codec."
 )
 
-doc.add_heading("Why Only Five Formats Normalise", level=1)
+doc.add_heading("Why Only Seven Formats Normalise", level=1)
 doc.add_paragraph(
     "This is a deliberate design decision, not a gap. Normalisation "
     "re-encodes the audio stream, and the suite only configures an FFmpeg "
-    "codec and quality setting for the five formats listed above. A file "
+    "codec and quality setting for the seven formats listed above. A file "
     "whose extension has no configured codec is therefore rejected with an "
     "unsupported-format error instead of being processed anyway."
 )
@@ -72,7 +77,7 @@ bullet(
     doc,
     "What you see: ",
     "Each unsupported file is reported as an error naming its extension and "
-    "listing the five supported formats. Other files in the same run "
+    "listing the seven supported formats. Other files in the same run "
     "continue; one unsupported file never aborts the batch.",
 )
 bullet(
@@ -294,8 +299,8 @@ bullet(
     doc,
     "Lossless mode re-encoded a file: ",
     "Lossless global_gain adjustment applies only "
-    "to MP3. FLAC, OGG, M4A, and Opus use the "
-    "FFmpeg loudnorm path.",
+    "to MP3. FLAC, OGG, M4A, Opus, WavPack, and "
+    "Speex use the FFmpeg loudnorm path.",
 )
 bullet(
     doc,

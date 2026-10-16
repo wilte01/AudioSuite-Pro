@@ -9,8 +9,38 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+### Added
+
+- **Wider input-format support across the suite.** The shared audio-extension
+  list now recognises WavPack (`.wv`), Speex (`.spx`), Monkey's Audio (`.ape`),
+  Musepack (`.mpc`) and DSD (`.dsf`) alongside the existing formats, so every
+  tool discovers them. The Music Format Converter classifies SPX as lossy and
+  WV/MPC/DSF as lossless, and documents APE, MPC and DSF as detect-only inputs
+  with no available encoder. The Audio Normalizer handles WavPack and Speex via
+  the FFmpeg loudnorm path, and the Audio Enhancer reports the five formats its
+  DSP engine cannot re-encode as a clean skip instead of a decode error.
+- **Optional DSP effects** (Audio Enhancer, and Audio Refinery under the Custom
+  enhancement preset): Reverse audio, Karaoke (mid/side centre-vocal removal
+  with a 0.0-1.0 strength), Phaser, Flanger and Chorus. All default to off, so
+  output is byte-identical to 1.0.1 unless an effect is enabled. Available in
+  both GUIs and on the CLI (`--reverse`, `--karaoke/--no-karaoke`,
+  `--karaoke-strength`, `--phaser`, `--flanger`, `--chorus`). A dry run never
+  applies effects.
+
 ### Fixed
 
+- **Audio Enhancer: unreadable formats no longer masquerade as corruption.**
+  Files in the wider input set that the enhancer cannot decode (`.wv`, `.spx`,
+  `.ape`, `.mpc`, `.dsf`) were reported as "The file format is invalid or
+  corrupted."; they are now a clean skip naming the format.
+- **Audio Enhancer: a loaded preset is now applied.** Applying a saved preset
+  updated the displayed parameters but not the values the worker actually ran
+  with, so a saved preset had no audible effect. The run parameters now carry
+  the loaded preset.
+- **Audio Refinery: enhancement sliders and effect toggles now persist.** The
+  enhance panel's sliders wrote to a discarded local dict rather than the run
+  configuration, so slider changes were lost on start; they now write back to
+  the config, and the new effect toggles are wired the same way.
 - **CD Ripper import crash when `discid` is installed without its native
   library.** `cd_ripper` guarded `import discid` against `ImportError` only, so
   a machine carrying the Python wheel but not the `libdiscid` shared library

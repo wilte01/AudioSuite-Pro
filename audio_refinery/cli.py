@@ -1,4 +1,7 @@
-"""CLI command for Audio Refinery pipeline."""
+"""CLI command for Audio Refinery pipeline.
+Changed in 1.1.0: added the six Sprint 1 effect flags; effect fields
+are carried on the CLI-provided enhancement params.
+"""
 
 from __future__ import annotations
 
@@ -103,6 +106,21 @@ def _validate_lufs(ctx: click.Context, param: click.Parameter, value: float) -> 
     help="Enhancement preset (Mild, Moderate, Aggressive, Custom).",
 )
 @click.option(
+    "--karaoke/--no-karaoke",
+    default=False,
+    help="Remove centre-panned content (lead vocals).",
+)
+@click.option(
+    "--karaoke-strength",
+    default=1.0,
+    type=click.FloatRange(0.0, 1.0),
+    help="Karaoke removal strength 0.0-1.0 (default 1.0).",
+)
+@click.option("--reverse", is_flag=True, default=False, help="Reverse the audio.")
+@click.option("--phaser", is_flag=True, default=False, help="Apply a phaser effect.")
+@click.option("--flanger", is_flag=True, default=False, help="Apply a flanger effect.")
+@click.option("--chorus", is_flag=True, default=False, help="Apply a chorus effect.")
+@click.option(
     "--target-lufs",
     default=-16.0,
     type=float,
@@ -136,6 +154,12 @@ def refine(
     noise_end: int,
     gate_threshold: float,
     preset: str,
+    karaoke: bool,
+    karaoke_strength: float,
+    reverse: bool,
+    phaser: bool,
+    flanger: bool,
+    chorus: bool,
     target_lufs: float,
     tolerance: float,
 ) -> None:
@@ -168,7 +192,15 @@ def refine(
             fade_in_ms=fade_in,
             fade_out_ms=fade_out,
         ),
-        enhance_params=EnhanceParams(preset=preset),
+        enhance_params=EnhanceParams(
+            preset=preset,
+            reverse=reverse,
+            karaoke=karaoke,
+            karaoke_strength=karaoke_strength,
+            phaser=phaser,
+            flanger=flanger,
+            chorus=chorus,
+        ),
         normalise_params=NormaliseParams(target_lufs=target_lufs, tolerance=tolerance),
         noise_reduction_params=NoiseReductionParams(
             reduce_hum=reduce_hum,

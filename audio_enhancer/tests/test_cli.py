@@ -22,6 +22,9 @@ Two things are pinned here, and the second is the one that matters:
    the run still reports DONE with measurements.  A control run of the same
    fixture in Live mode does write, so the dry-run assertion is a real
    difference rather than a vacuous pass.
+
+Changed in 1.1.0: added TestEffectFlagsReachParams covering the six
+Sprint 1 effect CLI flags.
 """
 
 from __future__ import annotations
@@ -187,3 +190,104 @@ class TestDryRunRealOutcome:
         written = list(out.iterdir())
         assert written, "a live run must write the enhanced file"
         assert written[0].stat().st_size > 0
+
+
+# ── Sprint 1 effect flags (D12/D13) ──────────────────────────────────────────
+
+
+class TestEffectFlagsReachParams:
+    """Each Sprint 1 ``--effect`` flag must reach run_enhancement's params."""
+
+    @staticmethod
+    def _params(runner: CliRunner, music_dir: Path, out: Path, *extra: str) -> object:
+        from audio_enhancer.core import file_processor
+
+        with patch.object(file_processor, "run_enhancement") as mock_run:
+            result = runner.invoke(
+                cli,
+                ["enhance", str(music_dir), "--output-dir", str(out), *extra],
+            )
+        assert mock_run.call_count == 1, (
+            f"run_enhancement was called {mock_run.call_count} times: {result.output}"
+        )
+        return mock_run.call_args.kwargs["params"]
+
+    def test_effect_flags_set_params(
+        self, runner: CliRunner, music_dir: Path, tmp_path: Path
+    ) -> None:
+        params = self._params(
+            runner,
+            music_dir,
+            tmp_path / "out",
+            "--reverse",
+            "--phaser",
+            "--flanger",
+            "--chorus",
+            "--karaoke",
+            "--karaoke-strength",
+            "0.5",
+        )
+        assert params.reverse is True
+        assert params.phaser is True
+        assert params.flanger is True
+        assert params.chorus is True
+        assert params.karaoke is True
+        assert params.karaoke_strength == pytest.approx(0.5)
+
+    def test_effects_default_off(
+        self, runner: CliRunner, music_dir: Path, tmp_path: Path
+    ) -> None:
+        params = self._params(runner, music_dir, tmp_path / "out")
+        assert params.reverse is False
+        assert params.phaser is False
+        assert params.flanger is False
+        assert params.chorus is False
+        assert params.karaoke is False
+        assert params.karaoke_strength == pytest.approx(1.0)
+
+    def test_no_karaoke_flag_disables_karaoke(
+        self, runner: CliRunner, music_dir: Path, tmp_path: Path
+    ) -> None:
+        params = self._params(runner, music_dir, tmp_path / "out", "--no-karaoke")
+        assert params.karaoke is False
+
+    def test_preset_custom_does_not_raise(
+        self, runner: CliRunner, music_dir: Path, tmp_path: Path
+    ) -> None:
+        """D14a: ``--preset Custom`` has no PRESETS entry; must not KeyError."""
+        from audio_enhancer.core import file_processor
+        from audio_enhancer.core.models import EnhancementParams
+
+        with patch.object(file_processor, "run_enhancement") as mock_run:
+            result = runner.invoke(
+                cli,
+                [
+                    "enhance",
+                    str(music_dir),
+                    "--output-dir",
+                    str(tmp_path / "out"),
+                    "--preset",
+                    "Custom",
+                    "--phaser",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        params = mock_run.call_args.kwargs["params"]
+        assert params.compressor_ratio == EnhancementParams().compressor_ratio
+        assert params.phaser is True
+
+    def test_karaoke_strength_out_of_range_rejected(
+        self, runner: CliRunner, music_dir: Path, tmp_path: Path
+    ) -> None:
+        result = runner.invoke(
+            cli,
+            [
+                "enhance",
+                str(music_dir),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--karaoke-strength",
+                "1.5",
+            ],
+        )
+        assert result.exit_code != 0

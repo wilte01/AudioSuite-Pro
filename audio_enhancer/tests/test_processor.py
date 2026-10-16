@@ -35,6 +35,10 @@ Inspector
 Tags
   * copy_tags: ImportError branch returns (False, 0)
   * copy_tags: ID3NoHeaderError on dst creates fresh ID3 header
+
+Changed in 1.1.0: retargeted the chain mocks to
+apply_enhancement_chain, added the effect-control builder tests and
+live-vs-dry-run effect assertions.
 """
 
 from __future__ import annotations
@@ -56,7 +60,11 @@ from audio_enhancer.core.models import (
     PresetName,
     ProcessingResult,
 )
-from audio_enhancer.core.processor import _resolve_mp3_quality, process_file
+from audio_enhancer.core.processor import (
+    ENHANCER_UNSUPPORTED_FORMATS,
+    _resolve_mp3_quality,
+    process_file,
+)
 from audio_suite_shared.dsp_chain import compute_rms_db as _rms_db
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -655,7 +663,7 @@ class TestBuildDspSliders:
 
     def _build_sliders(
         self, parent: tk.Frame, params: EnhancementParams
-    ) -> tuple[dict[str, tk.DoubleVar], dict[str, float]]:
+    ) -> tuple[dict[str, tk.DoubleVar], dict[str, object]]:
         from audio_enhancer.ui.setup_tab import build_dsp_sliders
         from audio_enhancer.ui.setup_tab import ui_common as _
 
@@ -665,37 +673,41 @@ class TestBuildDspSliders:
     # ── Field mapping ─────────────────────────────────────────────────────
 
     def test_all_fields_present(self, parent: tk.Frame) -> None:
-        """All 13 EnhancementParams fields must have a corresponding slider var."""
+        """Every numeric DSP field must have a corresponding slider var."""
+        from audio_enhancer.ui.setup_tab import NUMERIC_DSP_FIELDS
+
         vars_, _ = self._build_sliders(parent, EnhancementParams())
-        expected = set(EnhancementParams.__dataclass_fields__.keys())
-        assert set(vars_.keys()) == expected
-        assert len(vars_) == len(expected)
+        assert set(vars_.keys()) == set(NUMERIC_DSP_FIELDS)
+        assert len(vars_) == len(NUMERIC_DSP_FIELDS)
 
     def test_no_extra_fields(self, parent: tk.Frame) -> None:
-        """The slider mapping must not contain fields not in EnhancementParams."""
+        """The slider mapping must not contain non-numeric fields (effects)."""
+        from audio_enhancer.ui.setup_tab import NUMERIC_DSP_FIELDS
+
         vars_, _ = self._build_sliders(parent, EnhancementParams())
-        expected = set(EnhancementParams.__dataclass_fields__.keys())
-        assert set(vars_.keys()) == expected  # no extras, no missing
+        assert set(vars_.keys()) == set(NUMERIC_DSP_FIELDS)  # no extras, no missing
 
     # ── Default value synchronisation ─────────────────────────────────────
 
     def test_initial_values_match_params(self, parent: tk.Frame) -> None:
         """Slider initial values must match the EnhancementParams defaults
         (which are the Moderate preset values)."""
+        from audio_enhancer.ui.setup_tab import NUMERIC_DSP_FIELDS
+
         params = EnhancementParams()
         vars_, _ = self._build_sliders(parent, params)
-        for field_name in EnhancementParams.__dataclass_fields__:
+        for field_name in NUMERIC_DSP_FIELDS:
             assert vars_[field_name].get() == pytest.approx(getattr(params, field_name))
 
     def test_initial_values_not_all_zero(self, parent: tk.Frame) -> None:
         """Sanity guard: at least some slider values must be non-zero (if all
         are zero, the defaults were likely not wired through correctly)."""
+        from audio_enhancer.ui.setup_tab import NUMERIC_DSP_FIELDS
+
         params = EnhancementParams()
         vars_, _ = self._build_sliders(parent, params)
-        non_zero = sum(
-            1 for f in EnhancementParams.__dataclass_fields__ if vars_[f].get() != 0.0
-        )
-        assert non_zero >= 10  # at least 10 of 13 fields should be non-zero
+        non_zero = sum(1 for f in NUMERIC_DSP_FIELDS if vars_[f].get() != 0.0)
+        assert non_zero >= 10  # at least 10 of the numeric fields should be non-zero
 
     # ── Trace callback: slider -> params propagation ──────────────────────
 
@@ -713,10 +725,12 @@ class TestBuildDspSliders:
 
     def test_trace_updates_all_params(self, parent: tk.Frame) -> None:
         """Every slider var must have a trace wired that propagates to param_values."""
+        from audio_enhancer.ui.setup_tab import NUMERIC_DSP_FIELDS
+
         params = EnhancementParams()
         vars_, param_values = self._build_sliders(parent, params)
 
-        for field_name in EnhancementParams.__dataclass_fields__:
+        for field_name in NUMERIC_DSP_FIELDS:
             original = getattr(params, field_name)
             # Pick a value that is different from the original
             new_value = original + 5.0 if isinstance(original, (int, float)) else 1
@@ -727,6 +741,8 @@ class TestBuildDspSliders:
 
     def test_trace_does_not_affect_other_fields(self, parent: tk.Frame) -> None:
         """Changing one slider must not alter other fields in param_values."""
+        from audio_enhancer.ui.setup_tab import NUMERIC_DSP_FIELDS
+
         params = EnhancementParams()
         vars_, param_values = self._build_sliders(parent, params)
 
@@ -735,7 +751,7 @@ class TestBuildDspSliders:
 
         vars_["compressor_ratio"].set(8.0)
 
-        for field_name in EnhancementParams.__dataclass_fields__:
+        for field_name in NUMERIC_DSP_FIELDS:
             if field_name == "compressor_ratio":
                 assert param_values[field_name] == 8.0
             else:
@@ -804,6 +820,109 @@ class TestBuildDspSliders:
         assert param_values["high_shelf_gain_db"] == aggressive.high_shelf_gain_db
 
 
+# ── Setup tab: build_effect_controls (Sprint 1 effects, D12/D17) ─────────
+
+
+class TestBuildEffectControls:
+    """Tests for ui/setup_tab.py: build_effect_controls()."""
+
+    @staticmethod
+    @pytest.fixture(scope="module")
+    def tk_root():
+        import tkinter as tk
+
+        try:
+            root = tk.Tk()
+            root.withdraw()
+        except tk.TclError:
+            pytest.skip("Tkinter display not available")
+        yield root
+        root.destroy()
+
+    @staticmethod
+    @pytest.fixture(scope="module")
+    def parent(tk_root) -> tk.Frame:
+        import tkinter as tk
+
+        return tk.Frame(tk_root)
+
+    _EFFECT_FIELDS = (
+        "reverse",
+        "karaoke",
+        "phaser",
+        "flanger",
+        "chorus",
+        "karaoke_strength",
+    )
+
+    def _build(
+        self, parent: tk.Frame, params: EnhancementParams
+    ) -> tuple[dict[str, "tk.Variable"], dict[str, object]]:
+        from audio_enhancer.ui.setup_tab import build_effect_controls
+        from audio_enhancer.ui.setup_tab import ui_common as _
+
+        param_values: dict[str, object] = {}
+        with patch.object(_, "slider_row"):
+            vars_ = build_effect_controls(parent, params, param_values)
+        return vars_, param_values
+
+    def test_all_effect_fields_present(self, parent: tk.Frame) -> None:
+        """All six effect fields must have a control var."""
+        vars_, _ = self._build(parent, EnhancementParams())
+        assert set(vars_.keys()) == set(self._EFFECT_FIELDS)
+
+    def test_initial_values_match_params(self, parent: tk.Frame) -> None:
+        """Controls reflect the params object on construction."""
+        params = EnhancementParams()
+        vars_, param_values = self._build(parent, params)
+        for field_name in self._EFFECT_FIELDS:
+            assert vars_[field_name].get() == getattr(params, field_name)
+            assert param_values[field_name] == getattr(params, field_name)
+
+    def test_defaults_are_effects_off(self, parent: tk.Frame) -> None:
+        """D12: every effect defaults off (karaoke_strength aside)."""
+        vars_, param_values = self._build(parent, EnhancementParams())
+        for field_name in self._EFFECT_FIELDS[:-1]:
+            assert param_values[field_name] is False
+        assert param_values["karaoke_strength"] == 1.0
+
+    def test_toggle_trace_writes_bool(self, parent: tk.Frame) -> None:
+        """Toggling a checkbox updates param_values with a real bool."""
+        vars_, param_values = self._build(parent, EnhancementParams())
+
+        vars_["reverse"].set(True)
+        assert param_values["reverse"] is True
+
+        vars_["phaser"].set(True)
+        assert param_values["phaser"] is True
+        assert param_values["flanger"] is False  # untouched
+
+    def test_strength_trace_updates_param_values(self, parent: tk.Frame) -> None:
+        vars_, param_values = self._build(parent, EnhancementParams())
+        vars_["karaoke_strength"].set(0.5)
+        assert param_values["karaoke_strength"] == pytest.approx(0.5)
+
+    def test_combined_dict_builds_complete_params(self, parent: tk.Frame) -> None:
+        """Sharing one param_values dict across both builders yields a dict
+        that reconstructs all 19 EnhancementParams fields."""
+        from audio_enhancer.ui.setup_tab import (
+            build_dsp_sliders,
+            build_effect_controls,
+        )
+        from audio_enhancer.ui.setup_tab import ui_common as _
+
+        original = EnhancementParams()
+        with patch.object(_, "slider_row"):
+            _, param_values = build_dsp_sliders(parent, original)
+            build_effect_controls(parent, original, param_values)
+
+        assert set(param_values.keys()) == set(
+            EnhancementParams.__dataclass_fields__.keys()
+        )
+        rebuilt = EnhancementParams(**param_values)
+        assert rebuilt == original
+
+
 # ── process_file: orchestration of one file through the DSP chain ────────
 
 
@@ -833,9 +952,9 @@ class TestProcessFile:
 
         with (
             patch(
-                "audio_enhancer.core.processor.build_enhancement_chain",
+                "audio_enhancer.core.processor.apply_enhancement_chain",
                 return_value=MagicMock(),
-            ) as build_chain,
+            ) as apply_chain,
             patch(
                 "audio_enhancer.core.processor.compute_rms_db",
                 side_effect=lambda a: -20.0,
@@ -855,7 +974,8 @@ class TestProcessFile:
                 info, EnhancementParams(), out, on_progress=progress.append
             )
 
-        build_chain.assert_called_once()
+        apply_chain.assert_called_once()
+        assert apply_chain.call_args.kwargs["apply_effects"] is True
         read_audio.assert_called_once_with(info.path)
         write_audio.assert_called_once()
         assert result.status == JobStatus.DONE
@@ -873,7 +993,7 @@ class TestProcessFile:
 
         with (
             patch(
-                "audio_enhancer.core.processor.build_enhancement_chain",
+                "audio_enhancer.core.processor.apply_enhancement_chain",
                 return_value=MagicMock(),
             ),
             patch("audio_enhancer.core.processor.compute_rms_db", return_value=-20.0),
@@ -909,7 +1029,7 @@ class TestProcessFile:
 
         with (
             patch(
-                "audio_enhancer.core.processor.build_enhancement_chain",
+                "audio_enhancer.core.processor.apply_enhancement_chain",
                 return_value=MagicMock(),
             ),
             patch("audio_enhancer.core.processor.compute_rms_db", return_value=-30.0),
@@ -974,7 +1094,7 @@ class TestProcessFile:
 
         with (
             patch(
-                "audio_enhancer.core.processor.build_enhancement_chain",
+                "audio_enhancer.core.processor.apply_enhancement_chain",
                 return_value=MagicMock(),
             ),
             patch("audio_enhancer.core.processor.compute_rms_db", return_value=0.0),
@@ -1005,9 +1125,9 @@ class TestProcessFile:
 
         with (
             patch(
-                "audio_enhancer.core.processor.build_enhancement_chain",
+                "audio_enhancer.core.processor.apply_enhancement_chain",
                 return_value=MagicMock(),
-            ) as build_chain,
+            ) as apply_chain,
             patch(
                 "audio_enhancer.core.processor.compute_rms_db",
                 side_effect=[-30.0, -20.0],
@@ -1033,4 +1153,49 @@ class TestProcessFile:
         assert result.rms_before_db == pytest.approx(-30.0)
         assert result.rms_after_db == pytest.approx(-20.0)
         assert result.gain_db == pytest.approx(10.0)
-        build_chain.assert_called_once()
+        apply_chain.assert_called_once()
+        assert apply_chain.call_args.kwargs["apply_effects"] is False
+
+
+class TestUnsupportedFormatSkip:
+    """The enhancer discovers the shared SUPPORTED_EXTENSIONS but cannot
+    re-encode 5 of those formats (.wv/.spx/.ape/.mpc/.dsf); they must be
+    skipped cleanly with a truthful message rather than decoded (which
+    raises a misleading "invalid or corrupted" error).  Guards against the
+    Item 1.1 format widening surfacing unprocessable files as errors (D6).
+    """
+
+    @pytest.mark.parametrize("ext", sorted(ENHANCER_UNSUPPORTED_FORMATS))
+    def test_unsupported_format_is_skipped_without_processing(
+        self, tmp_path: Path, ext: str
+    ) -> None:
+        src = tmp_path / f"track{ext}"
+        src.write_bytes(b"\x00" * 16)
+        out = tmp_path / "out"
+        info = AudioFileInfo(path=src)
+
+        with patch("audio_enhancer.core.processor.apply_enhancement_chain") as chain:
+            result = process_file(info, EnhancementParams(), out)
+
+        chain.assert_not_called()
+        assert result.status == JobStatus.SKIPPED
+        assert result.display_text.startswith("[SKIP]")
+        assert "unsupported format" in result.display_text
+        assert ext in result.display_text
+        assert not (out / f"track{ext}").exists()
+
+    def test_round_trippable_formats_are_not_in_unsupported_set(self) -> None:
+        """Positive control: every format the enhancer can encode must be
+        outside the skip guard, so the set cannot widen silently."""
+        round_trippable = {
+            ".wav",
+            ".aif",
+            ".aiff",
+            ".flac",
+            ".mp3",
+            ".ogg",
+            ".opus",
+            ".m4a",
+            ".mp4",
+        }
+        assert round_trippable.isdisjoint(ENHANCER_UNSUPPORTED_FORMATS)

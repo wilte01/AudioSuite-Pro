@@ -4,6 +4,9 @@ Tests for audio_suite_shared.dsp_chain.
 Covers the shared enhancement chain builder, RMS measurement on normalized
 float arrays, and the post-DSP clipping detection added by Phase 7 of the
 DSP normalization plan.
+
+Changed in 1.1.0: added the effect-builder and
+apply_enhancement_chain orchestrator tests.
 """
 
 from __future__ import annotations
@@ -16,12 +19,16 @@ import pytest
 from pedalboard import Pedalboard
 
 from audio_suite_shared.dsp_chain import (
+    apply_enhancement_chain,
+    apply_flanger,
+    apply_pre_chain_effects,
     build_enhancement_chain,
     compute_rms_db,
     post_chain_clip_check,
 )
 
 LOGGER_NAME = "audio_suite.audio_suite_shared.dsp_chain"
+SR = 48_000
 
 
 def _chain_params() -> SimpleNamespace:
@@ -46,6 +53,35 @@ def _chain_params() -> SimpleNamespace:
         output_gain_db=0.0,
         limiter_threshold_db=-1.0,
     )
+
+
+def _effect_params(**overrides: object) -> SimpleNamespace:
+    """Base chain params plus the Sprint 1 effect fields (all off by default)."""
+    base = vars(_chain_params())
+    base.update(
+        reverse=False,
+        karaoke=False,
+        karaoke_strength=1.0,
+        phaser=False,
+        flanger=False,
+        chorus=False,
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def _stereo_sine(freq_hz: float = 440.0, n: int = SR) -> np.ndarray:
+    t = np.arange(n, dtype=np.float64) / SR
+    wave = np.sin(2.0 * np.pi * freq_hz * t)
+    return np.tile(wave, (2, 1)).astype(np.float64)
+
+
+def _stereo_centre_and_side(n: int = SR) -> np.ndarray:
+    """L = centre + side, R = centre − side, so L−R recovers the side only."""
+    t = np.arange(n, dtype=np.float64) / SR
+    centre = np.sin(2.0 * np.pi * 440.0 * t)
+    side = np.sin(2.0 * np.pi * 1200.0 * t)
+    return np.stack([centre + side, centre - side]).astype(np.float64)
 
 
 class TestPostChainClipCheck:
@@ -122,3 +158,157 @@ class TestBuildEnhancementChain:
             "Gain",
             "Limiter",
         ]
+
+
+class TestBuildEnhancementChainEffects:
+    """D17: Phaser/Chorus are inserted post-EQ, pre-Gain; flanger is numpy."""
+
+    def test_phaser_inserted_before_gain(self):
+        names = [
+            type(p).__name__
+            for p in build_enhancement_chain(_effect_params(phaser=True))
+        ]
+        assert names == [
+            "NoiseGate",
+            "Compressor",
+            "LowShelfFilter",
+            "PeakFilter",
+            "HighShelfFilter",
+            "Phaser",
+            "Gain",
+            "Limiter",
+        ]
+
+    def test_chorus_inserted_before_gain(self):
+        names = [
+            type(p).__name__
+            for p in build_enhancement_chain(_effect_params(chorus=True))
+        ]
+        assert names[-3:] == ["Chorus", "Gain", "Limiter"]
+
+    def test_phaser_then_chorus_order(self):
+        names = [
+            type(p).__name__
+            for p in build_enhancement_chain(_effect_params(phaser=True, chorus=True))
+        ]
+        assert names[-4:] == ["Phaser", "Chorus", "Gain", "Limiter"]
+
+    def test_missing_effect_attrs_default_off(self):
+        """A params object predating the effects yields the 7-plugin board."""
+        assert len(build_enhancement_chain(_chain_params())) == 7
+
+
+class TestApplyPreChainEffects:
+    def test_no_effects_returns_input_unchanged(self):
+        audio = _stereo_sine()
+        out = apply_pre_chain_effects(audio, _effect_params())
+        np.testing.assert_array_equal(out, audio)
+
+    def test_missing_effect_attrs_is_noop(self):
+        audio = _stereo_sine()
+        out = apply_pre_chain_effects(audio, _chain_params())
+        np.testing.assert_array_equal(out, audio)
+
+    def test_reverse_flips_time_axis(self):
+        audio = np.arange(20, dtype=np.float64).reshape(2, 10)
+        out = apply_pre_chain_effects(audio, _effect_params(reverse=True))
+        assert out.shape == audio.shape
+        np.testing.assert_array_equal(out[:, 0], audio[:, -1])
+        np.testing.assert_array_equal(out[:, -1], audio[:, 0])
+
+    def test_karaoke_full_strength_cancels_centre(self):
+        audio = _stereo_centre_and_side()
+        out = apply_pre_chain_effects(
+            audio, _effect_params(karaoke=True, karaoke_strength=1.0)
+        )
+        # Fully-processed output is the side signal on L and its inverse on R.
+        assert np.max(np.abs(out[0] + out[1])) < 1e-9
+
+    def test_karaoke_zero_strength_is_transparent(self):
+        audio = _stereo_centre_and_side()
+        out = apply_pre_chain_effects(
+            audio, _effect_params(karaoke=True, karaoke_strength=0.0)
+        )
+        np.testing.assert_allclose(out, audio, atol=1e-12)
+
+    def test_karaoke_mono_input_unchanged(self):
+        mono = np.sin(np.arange(64, dtype=np.float64)).reshape(1, 64)
+        out = apply_pre_chain_effects(
+            mono, _effect_params(karaoke=True, karaoke_strength=1.0)
+        )
+        np.testing.assert_array_equal(out, mono)
+
+    def test_reverse_applied_before_karaoke(self):
+        """D17 order: reverse runs first, so karaoke sees reversed samples."""
+        audio = _stereo_centre_and_side()
+        out = apply_pre_chain_effects(
+            audio, _effect_params(reverse=True, karaoke=True, karaoke_strength=1.0)
+        )
+        manual = apply_pre_chain_effects(
+            apply_pre_chain_effects(audio, _effect_params(reverse=True)),
+            _effect_params(karaoke=True, karaoke_strength=1.0),
+        )
+        np.testing.assert_allclose(out, manual, atol=1e-12)
+
+
+class TestApplyFlanger:
+    def test_shape_and_dtype_preserved(self):
+        audio = _stereo_sine()
+        out = apply_flanger(audio, SR)
+        assert out.shape == audio.shape
+        assert out.dtype == audio.dtype
+
+    def test_output_is_finite_and_changed(self):
+        audio = _stereo_sine()
+        out = apply_flanger(audio, SR)
+        assert np.all(np.isfinite(out))
+        assert not np.array_equal(out, audio)
+
+    def test_empty_input_is_safe(self):
+        audio = np.zeros((2, 0), dtype=np.float64)
+        out = apply_flanger(audio, SR)
+        assert out.shape == (2, 0)
+
+    def test_mix_zero_is_transparent(self):
+        audio = _stereo_sine()
+        out = apply_flanger(audio, SR, mix=0.0)
+        np.testing.assert_allclose(out, audio, atol=1e-12)
+
+
+class TestApplyEnhancementChain:
+    def _base(self, params: SimpleNamespace) -> np.ndarray:
+        return build_enhancement_chain(params)(_stereo_sine(), SR)
+
+    def test_dry_run_equals_base_chain(self):
+        params = _effect_params(
+            reverse=True, karaoke=True, phaser=True, flanger=True, chorus=True
+        )
+        audio = _stereo_sine()
+        out = apply_enhancement_chain(audio, SR, params, apply_effects=False)
+        expected = build_enhancement_chain(params)(audio, SR)
+        np.testing.assert_array_equal(out, expected)
+
+    def test_all_effects_off_equals_base_chain(self):
+        params = _effect_params()
+        audio = _stereo_sine()
+        out = apply_enhancement_chain(audio, SR, params)
+        expected = build_enhancement_chain(params)(audio, SR)
+        np.testing.assert_array_equal(out, expected)
+
+    def test_flanger_path_finite(self):
+        params = _effect_params(phaser=True, flanger=True, chorus=True)
+        out = apply_enhancement_chain(_stereo_sine(), SR, params)
+        assert out.shape == (2, SR)
+        assert np.all(np.isfinite(out))
+
+    def test_flanger_path_differs_from_no_flanger(self):
+        audio = _stereo_sine()
+        with_flanger = apply_enhancement_chain(audio, SR, _effect_params(flanger=True))
+        without = apply_enhancement_chain(audio, SR, _effect_params())
+        assert not np.array_equal(with_flanger, without)
+
+    def test_reverse_propagates_through_chain(self):
+        ramp = np.tile(np.arange(SR, dtype=np.float64), (2, 1))
+        out = apply_enhancement_chain(ramp, SR, _effect_params(reverse=True))
+        # A monotonic ramp reversed must be monotonically decreasing.
+        assert out[0, 1] < out[0, 0]

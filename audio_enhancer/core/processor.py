@@ -2,6 +2,12 @@
 core/processor.py
 Builds and applies the pedalboard DSP chain to a single audio file.
 Emits progress via an optional callback so the UI can update in real time.
+
+Changed in 1.1.0: routed enhancement through apply_enhancement_chain(
+..., apply_effects=not is_dry_run) so Dry Run bypasses the new
+Sprint 1 effects.  Also added a clean [SKIP] guard for formats the enhancer
+cannot round-trip (.wv/.spx/.ape/.mpc/.dsf) so the widened shared format set
+does not surface them as misleading decode errors.
 """
 
 from __future__ import annotations
@@ -15,7 +21,7 @@ import numpy.typing as npt
 
 from audio_suite_shared.audio_formats import CBR_BITRATES, VBR_QUALITY_MAP
 from audio_suite_shared.dsp_chain import (
-    build_enhancement_chain,
+    apply_enhancement_chain,
     compute_rms_db,
     post_chain_clip_check,
 )
@@ -25,6 +31,17 @@ from .models import AudioFileInfo, EnhancementParams, JobStatus, ProcessingResul
 from .tags import copy_tags
 
 logger = logging.getLogger(__name__)
+
+# Extensions the enhancer discovers via the shared SUPPORTED_EXTENSIONS but
+# cannot round-trip.  pedalboard writes only {.wav, .aif/.aiff, .flac, .mp3,
+# .ogg} and ffmpeg_io handles {.opus, .m4a, .mp4}; the remaining five have no
+# encoder (WavPack .wv, Speex .spx) or are read-only suite-wide (Monkey's Audio
+# .ape, Musepack .mpc, DSD .dsf - decision D6).  Without this guard the widened
+# supported set surfaces them and the pedalboard decode raises, reporting a
+# misleading "invalid or corrupted" error instead of a clean skip.
+ENHANCER_UNSUPPORTED_FORMATS: frozenset[str] = frozenset(
+    {".wv", ".spx", ".ape", ".mpc", ".dsf"}
+)
 
 ProgressCallback = Callable[[str], None]  # receives a plain-text status message
 
@@ -62,12 +79,20 @@ def process_file(
         if on_progress:
             on_progress(msg)
 
+    suffix = info.path.suffix.lower()
+    if suffix in ENHANCER_UNSUPPORTED_FORMATS:
+        result.status = JobStatus.SKIPPED
+        result.display_text = (
+            f"[SKIP] {info.path.name} \u2192 unsupported format ({suffix}); "
+            "the enhancer cannot re-encode it"
+        )
+        _emit(result.display_text)
+        return result
+
     output_path = output_dir / info.path.name
     result.output = output_path
 
     try:
-        chain = build_enhancement_chain(params)
-
         _emit("Reading audio…")
         if info.path.suffix.lower() in ffmpeg_io.FFMPEG_EXTENSIONS:
             audio, sample_rate = ffmpeg_io.read_audio(info.path)
@@ -99,7 +124,12 @@ def process_file(
         # something fixable in this module. Flagged here rather than fixed
         # silently, per claude.md's bug-fixing protocol — pedalboard is a
         # core dependency and swapping it is a design decision, not a bug fix.
-        enhanced = chain(audio, sample_rate).astype(np.float64)
+        #
+        # Sprint 1 (1.1.0): the Sprint 1 effects are bypassed under dry-run
+        # (D17), so a dry run still measures the base-chain level only.
+        enhanced = apply_enhancement_chain(
+            audio, sample_rate, params, apply_effects=not dry_run
+        ).astype(np.float64)
         post_chain_clip_check(enhanced, stage_name="Enhance")
 
         result.rms_before_db = compute_rms_db(audio)

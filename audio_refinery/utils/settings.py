@@ -12,6 +12,10 @@ File location: <suite_root>/audio_refinery/refinery_settings.json
 On first run the file does not exist and defaults are used.  On every
 successful processing run (or whenever the user changes a setting) the
 file is written so the next launch restores exactly the last-used state.
+
+Changed in 1.1.0: persist the six Sprint 1 effect fields (reverse,
+karaoke, karaoke_strength, phaser, flanger, chorus) so GUI effect toggles
+survive a restart.
 """
 
 from __future__ import annotations
@@ -139,6 +143,12 @@ def load() -> StageConfig:
             high_shelf_freq_hz=d.get("high_shelf_freq_hz", 7000.0),
             output_gain_db=d.get("output_gain_db", 0.0),
             limiter_threshold_db=d.get("limiter_threshold_db", -0.5),
+            reverse=d.get("reverse", False),
+            karaoke=d.get("karaoke", False),
+            karaoke_strength=d.get("karaoke_strength", 1.0),
+            phaser=d.get("phaser", False),
+            flanger=d.get("flanger", False),
+            chorus=d.get("chorus", False),
         )
 
         # Normalise params — validate stored LUFS against permitted presets.
@@ -215,6 +225,12 @@ def save(config: StageConfig) -> None:
                 "high_shelf_freq_hz": p.high_shelf_freq_hz,
                 "output_gain_db": p.output_gain_db,
                 "limiter_threshold_db": p.limiter_threshold_db,
+                "reverse": p.reverse,
+                "karaoke": p.karaoke,
+                "karaoke_strength": p.karaoke_strength,
+                "phaser": p.phaser,
+                "flanger": p.flanger,
+                "chorus": p.chorus,
             },
             "normalise_params": {
                 "target_lufs": n.target_lufs,

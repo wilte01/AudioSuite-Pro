@@ -5,6 +5,10 @@ Data classes for the Audio Refinery pipeline.
 Each stage carries its own parameter dataclass so the pipeline can pass
 exactly the right settings to each tool's processing function without any
 coupling to the individual tools' internal models.
+
+Changed in 1.1.0: extended EnhanceParams with the five Sprint 1
+effect toggles plus karaoke_strength (kept field-parity with the
+shared and enhancer classes).
 """
 
 from __future__ import annotations
@@ -59,6 +63,14 @@ class EnhanceParams:
     high_shelf_freq_hz: float = 7000.0
     output_gain_db: float = 0.0
     limiter_threshold_db: float = -0.5
+    # Effects (Sprint 1, Item 1.2). All default off so presets and the
+    # existing chain output are unchanged unless a caller opts in.
+    reverse: bool = False
+    karaoke: bool = False
+    karaoke_strength: float = 1.0
+    phaser: bool = False
+    flanger: bool = False
+    chorus: bool = False
 
 
 @dataclass

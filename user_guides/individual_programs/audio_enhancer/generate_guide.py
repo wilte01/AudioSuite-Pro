@@ -1,4 +1,9 @@
-"""Generate a fresh Audio Enhancer guide from the current implementation."""
+"""Generate a fresh Audio Enhancer guide from the current implementation.
+
+Changed in 1.1.0: documented the five DSP effects (reverse, karaoke, phaser,
+flanger, chorus), the widened input-format list, and the formats the enhancer
+skips because it cannot re-encode them.
+"""
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -60,6 +65,15 @@ bullet(
     "Formats such as M4A, MP4, Opus, and other configured "
     "formats use the tool's FFmpeg I/O "
     "path when required.",
+)
+bullet(
+    doc,
+    "Formats skipped: ",
+    "The shared Audio Suite format list also includes .wv, .spx, "
+    ".ape, .mpc, and .dsf. The enhancer cannot re-encode these "
+    "(WavPack and Speex have no encoder on this path, and Monkey's "
+    "Audio, Musepack, and DSD are read-only), so such files are "
+    "reported as skipped rather than processed.",
 )
 bullet(
     doc,
@@ -244,6 +258,46 @@ bullet(
     "-0.1 dB.",
 )
 
+doc.add_heading("Effects", level=1)
+doc.add_paragraph(
+    "The Custom view also exposes five optional effects, and the command "
+    "line can enable the same effects through flags. All five default to "
+    "off, so a preset run or an untouched Custom run produces exactly the "
+    "same output as before the effects existed. Applying a preset resets "
+    "only the numeric DSP values; it never changes the effect toggles. "
+    "Reverse and karaoke are applied before the main chain, while the "
+    "phaser, flanger, and chorus run after the EQ shaping. Dry Run disables "
+    "all five effects so it still measures the base chain only."
+)
+bullet(
+    doc,
+    "Reverse: ",
+    "Reverses the audio playback direction.",
+)
+bullet(
+    doc,
+    "Karaoke: ",
+    "Removes centre-panned content (typically lead vocals) by subtracting "
+    "one channel from the other. Karaoke Strength, 0 to 1, blends between "
+    "the original and the fully removed signal. Mono input is returned "
+    "unchanged.",
+)
+bullet(
+    doc,
+    "Phaser: ",
+    "A sweeping phase effect applied after the EQ shaping.",
+)
+bullet(
+    doc,
+    "Flanger: ",
+    "A short modulated delay mixed with the dry signal.",
+)
+bullet(
+    doc,
+    "Chorus: ",
+    "Multiple slightly detuned copies added after the flanger.",
+)
+
 doc.add_heading("Processing Pipeline", level=1)
 for step in (
     "Inspect the source for format, sample rate, channels, "
@@ -251,8 +305,9 @@ for step in (
     "and tag count.",
     "Read audio through pedalboard I/O or the FFmpeg-backed path"
     " for formats that need it.",
-    "Apply the enhancement chain: gate/compression, EQ shaping,"
-    " output gain, and limiting.",
+    "Apply any enabled effects, then the enhancement chain: reverse "
+    "and karaoke first, then gate/compression, EQ shaping, phaser, "
+    "flanger, and chorus, followed by output gain and limiting.",
     "Measure RMS before and after processing and run the post-chain clip check.",
     "Write the enhanced audio to the output path, preserving "
     "the source extension and "
@@ -302,13 +357,20 @@ doc.add_paragraph(
     "aggressive --json"
 )
 doc.add_paragraph(
-    "The CLI accepts Mild, Moderate, or Aggressive presets "
-    "case-insensitively. The "
-    "Custom preset is available in the GUI but is not a CLI "
-    "preset choice. Use --json "
+    "The CLI accepts Mild, Moderate, Aggressive, or Custom presets "
+    "case-insensitively. Custom uses the neutral default DSP values, "
+    "since the CLI has no per-slider options. Use --json "
     "for structured output; normal output reports files, "
     "enhanced count, errors, and "
     "elapsed time."
+)
+doc.add_paragraph(
+    "The effects are available as flags: --reverse, --phaser, "
+    "--flanger, --chorus, and --karaoke (or --no-karaoke to leave it "
+    "off), plus --karaoke-strength with a value from 0.0 to 1.0. "
+    "For example:\n"
+    "python -m audio_suite_shared.cli_app enhance <folder> "
+    "--output-dir <output> --karaoke --karaoke-strength 0.8"
 )
 
 doc.add_heading("Master Driver Use", level=1)

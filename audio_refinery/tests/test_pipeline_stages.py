@@ -14,6 +14,9 @@ pipeline chain and the numbered step comments).
 Synthetic AudioSegments are built with NumPy so no real audio files or
 external binaries are required.  All third-party tool imports that would
 need a full suite installation are patched at the module boundary.
+
+Changed in 1.1.0: added _run_enhance tests asserting the effect
+fields flow from config.enhance_params into the enhancement params.
 """
 
 from __future__ import annotations
@@ -1270,6 +1273,45 @@ class TestRunEnhance:
             f"Expected output_gain_db=0.0 (suppressed),"
             f" got {captured_kwargs[0]['output_gain_db']}"
         )
+
+    def _captured_ep(self, config):
+        """Run _run_enhance with apply_enhancement_chain stubbed, returning
+        the EnhancementParams it was handed."""
+        with patch(
+            "audio_refinery.core.pipeline.apply_enhancement_chain",
+            side_effect=lambda audio_np, sr, ep, **kw: audio_np,
+        ) as mock_apply:
+            from audio_refinery.core.pipeline import _run_enhance
+
+            _run_enhance(_sine(), config, _noop_emit)
+        return mock_apply.call_args.args[2]
+
+    def test_effects_carried_from_enhance_params(self):
+        """D13: effects ride through from the refinery's EnhanceParams."""
+        config = _config_enhance_only()
+        config.enhance_params.reverse = True
+        config.enhance_params.karaoke = True
+        config.enhance_params.karaoke_strength = 0.25
+        config.enhance_params.phaser = True
+        config.enhance_params.flanger = True
+        config.enhance_params.chorus = True
+
+        ep = self._captured_ep(config)
+
+        assert ep.reverse is True
+        assert ep.karaoke is True
+        assert ep.karaoke_strength == 0.25
+        assert ep.phaser is True
+        assert ep.flanger is True
+        assert ep.chorus is True
+
+    def test_effects_default_off(self):
+        ep = self._captured_ep(_config_enhance_only())
+        assert ep.reverse is False
+        assert ep.karaoke is False
+        assert ep.phaser is False
+        assert ep.flanger is False
+        assert ep.chorus is False
 
 
 # ═════════════════════════════════════════════════════════════════════════════

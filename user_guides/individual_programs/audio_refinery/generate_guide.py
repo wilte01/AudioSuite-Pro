@@ -1,4 +1,9 @@
-"""Generate a fresh Audio Refinery guide from the current implementation."""
+"""Generate a fresh Audio Refinery guide from the current implementation.
+
+Changed in 1.1.0: documented the DSP effect controls available under the
+Custom enhancement preset (reverse, karaoke, phaser, flanger, chorus) and the
+matching CLI effect flags.
+"""
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -145,7 +150,9 @@ for step in (
     "and can apply fade-in and fade-out.",
     "Noise Reduction: optionally removes mains hum and/or broadband noise using "
     "its noise profile and gate settings.",
-    "Audio Enhancement: applies the Mild, Moderate, Aggressive, or Custom DSP preset.",
+    "Audio Enhancement: applies the Mild, Moderate, Aggressive, or Custom DSP "
+    "preset; Custom adds per-effect toggles (reverse, karaoke, phaser, flanger, "
+    "chorus).",
     "Export: writes the processed audio once using "
     "format-appropriate encoding settings.",
     "Normalise: optionally measures loudness and applies "
@@ -182,6 +189,14 @@ bullet(
     "Mild, Moderate, Aggressive, or Custom. When "
     "Normalise is active, the refinery suppresses enhancement output gain "
     "so final loudness is controlled by the normalizer.",
+)
+bullet(
+    doc,
+    "Enhancement effects: ",
+    "Relevant to the Custom preset: Reverse audio, Karaoke (centre-vocal "
+    "removal with a 0.0-1.0 strength), Phaser, Flanger, and Chorus. Each is "
+    "off by default, and the built-in Mild, Moderate, and Aggressive presets "
+    "leave them off.",
 )
 bullet(
     doc,
@@ -261,7 +276,9 @@ doc.add_paragraph(
 doc.add_paragraph(
     "CLI options cover output directory, dry run, stages, "
     "declick sensitivity and width, "
-    "trim threshold and fades, hum and broadband reduction, enhancement preset, target "
+    "trim threshold and fades, hum and broadband reduction, enhancement preset, "
+    "the enhancement effect flags (--reverse, --karaoke/--no-karaoke, "
+    "--karaoke-strength, --phaser, --flanger, --chorus), target "
     "LUFS, tolerance, and JSON output. "
     "If --output is omitted, results are written in place."
 )

@@ -14,6 +14,10 @@ Each panel has:
   - Settings identical to those in the standalone program
 
 Output Gain in the Enhancer panel is hidden when the Normaliser is active.
+
+Changed in 1.1.0: added the Sprint 1 effect controls to the enhancer
+panel and fixed the Custom-mode sliders so they write back to
+config.enhance_params (D24).
 """
 
 from __future__ import annotations
@@ -535,7 +539,26 @@ def _build_enhance_panel(
         dsp_frame = tk.Frame(body, bg=styles.BG_WHITE)
         state["dsp_frame"] = dsp_frame
 
-        enhancer_ui.build_dsp_sliders(dsp_frame, cast(EnhancementParams, p))
+        slider_vars, param_values = enhancer_ui.build_dsp_sliders(
+            dsp_frame, cast(EnhancementParams, p)
+        )
+        effect_vars = enhancer_ui.build_effect_controls(
+            dsp_frame, cast(EnhancementParams, p), param_values
+        )
+
+        # Sync every widget back into the live EnhanceParams.  Previously the
+        # sliders only updated a discarded local dict, so dragging them in
+        # Custom mode did nothing (plan D24 defect fix).
+        all_vars: dict[str, tk.Variable] = {**slider_vars, **effect_vars}
+
+        def _make_sync(field_name: str) -> Callable[..., None]:
+            def _cb(*_: Any) -> None:
+                setattr(p, field_name, all_vars[field_name].get())
+
+            return _cb
+
+        for _field, _var in all_vars.items():
+            _var.trace_add("write", _make_sync(_field))
 
         # Capture the output gain row for visibility toggling
         # This is a bit tricky since build_dsp_sliders packs them directly.
@@ -560,13 +583,11 @@ def _build_enhance_panel(
             if selected != "Custom":
                 preset_enum = PresetName(selected)
                 vals = PRESETS[preset_enum]
-                for field in vals.__dataclass_fields__:
-                    setattr(p, field, getattr(vals, field))
-                # Trigger a refresh of the sliders (they are bound to the vars
-                # created in build_dsp_sliders)
-                # However, enhancer_ui.build_dsp_sliders creates its own internal vars.
-                # We need a way to update those vars.
-                # For now, we'll re-build the panel or just accept the data syncs.
+                # A named preset supplies the base 13 fields; Sprint 1 effect
+                # toggles are left as the user set them (D13).
+                for field_name, var in slider_vars.items():
+                    value = getattr(vals, field_name)
+                    var.set(value)  # trace syncs p via _make_sync
                 if state.get("dsp_frame"):
                     state["dsp_frame"].pack_forget()
             else:

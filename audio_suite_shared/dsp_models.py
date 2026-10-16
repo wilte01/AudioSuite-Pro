@@ -1,5 +1,8 @@
 """
 dsp_models.py — Shared DSP parameter models and presets for the Audio Suite.
+
+Changed in 1.1.0: extended EnhancementParams with the five Sprint 1
+effect toggles plus karaoke_strength (validated 0.0-1.0).
 """
 
 from dataclasses import dataclass
@@ -34,6 +37,14 @@ class EnhancementParams:
     high_shelf_freq_hz: float = 7000.0
     output_gain_db: float = 0.0
     limiter_threshold_db: float = -0.5
+    # Effects (Sprint 1, Item 1.2). All default off so presets and the
+    # existing chain output are unchanged unless a caller opts in.
+    reverse: bool = False
+    karaoke: bool = False
+    karaoke_strength: float = 1.0
+    phaser: bool = False
+    flanger: bool = False
+    chorus: bool = False
 
     def __post_init__(self) -> None:
         """Validate critical DSP parameters to prevent runtime errors."""
@@ -64,6 +75,15 @@ class EnhancementParams:
                 context={
                     "field": "limiter_threshold_db",
                     "value": self.limiter_threshold_db,
+                },
+            )
+        if not 0.0 <= self.karaoke_strength <= 1.0:
+            raise AudioConfigValueError(
+                f"karaoke_strength must be within [0.0, 1.0],"
+                f" got {self.karaoke_strength}",
+                context={
+                    "field": "karaoke_strength",
+                    "value": self.karaoke_strength,
                 },
             )
 

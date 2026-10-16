@@ -516,6 +516,22 @@ class TestPresetCRUD:
         # Unchanged fields remain at default
         assert app.params.noise_gate_threshold_db == -65.0
 
+    def test_apply_preset_updates_param_values(self, app: AudioEnhancerApp) -> None:
+        # Changed in 1.1.0: regression for the saved-preset defect — the worker
+        # reads _param_values, so it must be updated, not just self.params.
+        app._apply_preset({"compressor_ratio": 5.0, "output_gain_db": 6.0})
+        assert app._param_values["compressor_ratio"] == 5.0
+        assert app._param_values["output_gain_db"] == 6.0
+        # Untouched keys are preserved
+        assert app._param_values["limiter_threshold_db"] == -0.5
+
+    def test_apply_preset_carries_effect_fields_to_param_values(
+        self, app: AudioEnhancerApp
+    ) -> None:
+        app._apply_preset({"reverse": True, "karaoke_strength": 0.4})
+        assert app._param_values["reverse"] is True
+        assert app._param_values["karaoke_strength"] == 0.4
+
     def test_apply_preset_no_overrides_keeps_original_params(
         self, app: AudioEnhancerApp
     ) -> None:

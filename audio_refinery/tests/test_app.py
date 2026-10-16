@@ -1,4 +1,6 @@
-"""Tests for audio_refinery.app — driver-mirror variable presence and audition."""
+"""Tests for audio_refinery.app — driver-mirror variable presence and audition.
+Changed in 1.1.0: added effect-field settings collect/apply coverage.
+"""
 
 from __future__ import annotations
 
@@ -310,12 +312,49 @@ class TestRealAppConstructionD3:
     def test_preset_collect_and_apply_roundtrip(self, real_app: Any) -> None:
         app = real_app
         app._apply_preset(
-            {"declick": True, "enhance": True, "threshold": -45, "target_lufs": -14}
+            {
+                "declick": True,
+                "enhance": True,
+                "threshold": -45,
+                "target_lufs": -14,
+                "reverse": True,
+                "karaoke": True,
+                "karaoke_strength": 0.4,
+                "phaser": True,
+                "flanger": True,
+                "chorus": True,
+            }
         )
         assert app.config.declick is True
         assert app.config.enhance is True
         assert app.config.trim_params.threshold == -45
         assert app.config.normalise_params.target_lufs == -14
+        assert app.config.enhance_params.reverse is True
+        assert app.config.enhance_params.karaoke is True
+        assert app.config.enhance_params.karaoke_strength == 0.4
+        assert app.config.enhance_params.phaser is True
+        assert app.config.enhance_params.flanger is True
+        assert app.config.enhance_params.chorus is True
+
+    def test_collect_settings_includes_effect_fields(self, real_app: Any) -> None:
+        """Sprint 1: the saved-preset payload must round-trip the effects."""
+        app = real_app
+        ep = app.config.enhance_params
+        ep.reverse = True
+        ep.karaoke = True
+        ep.karaoke_strength = 0.3
+        ep.phaser = True
+        ep.flanger = True
+        ep.chorus = True
+
+        settings = app._collect_settings()
+
+        assert settings["reverse"] is True
+        assert settings["karaoke"] is True
+        assert settings["karaoke_strength"] == 0.3
+        assert settings["phaser"] is True
+        assert settings["flanger"] is True
+        assert settings["chorus"] is True
 
 
 class TestStartGuardsD3:

@@ -4,6 +4,9 @@ AudioRefineryApp — main window orchestrator.
 
 Three-tab suite interface: Setup → Processing → Results.
 Follows the identical conventions used by every other tool in the suite.
+
+Changed in 1.1.0: collect/apply settings now carry the six Sprint 1
+effect fields.
 """
 
 from __future__ import annotations
@@ -297,6 +300,12 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             "high_shelf_freq_hz": p.enhance_params.high_shelf_freq_hz,
             "output_gain_db": p.enhance_params.output_gain_db,
             "limiter_threshold_db": p.enhance_params.limiter_threshold_db,
+            "reverse": p.enhance_params.reverse,
+            "karaoke": p.enhance_params.karaoke,
+            "karaoke_strength": p.enhance_params.karaoke_strength,
+            "phaser": p.enhance_params.phaser,
+            "flanger": p.enhance_params.flanger,
+            "chorus": p.enhance_params.chorus,
             "target_lufs": p.normalise_params.target_lufs,
             "tolerance": p.normalise_params.tolerance,
         }
@@ -355,6 +364,18 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             p.enhance_params.output_gain_db = settings["output_gain_db"]
         if "limiter_threshold_db" in settings:
             p.enhance_params.limiter_threshold_db = settings["limiter_threshold_db"]
+        if "reverse" in settings:
+            p.enhance_params.reverse = settings["reverse"]
+        if "karaoke" in settings:
+            p.enhance_params.karaoke = settings["karaoke"]
+        if "karaoke_strength" in settings:
+            p.enhance_params.karaoke_strength = settings["karaoke_strength"]
+        if "phaser" in settings:
+            p.enhance_params.phaser = settings["phaser"]
+        if "flanger" in settings:
+            p.enhance_params.flanger = settings["flanger"]
+        if "chorus" in settings:
+            p.enhance_params.chorus = settings["chorus"]
         if "target_lufs" in settings:
             p.normalise_params.target_lufs = settings["target_lufs"]
         if "tolerance" in settings:

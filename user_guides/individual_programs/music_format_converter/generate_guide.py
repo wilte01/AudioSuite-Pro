@@ -3,6 +3,10 @@
 Changed in 1.0.1: documented in Troubleshooting that when two sources share a
 stem but differ in extension, only the first is converted and the other is
 reported as skipped rather than overwriting the first output.
+
+Changed in 1.1.0: added the expanded format lists (SPX lossy; MPC/DSF
+lossless), the unsupported APE/MPC/DSF output note, and the WavPack/Speex
+quality entries.
 """
 
 from docx import Document
@@ -73,19 +77,19 @@ doc.add_heading("Supported Formats", level=1)
 bullet(
     doc,
     "Lossy: ",
-    "MP3, AAC, M4A, OGG, Opus, WMA, and MP4 are recognized as lossy formats.",
+    "MP3, AAC, M4A, OGG, Opus, MP4, WMA, and SPX are recognized as lossy formats.",
 )
 bullet(
     doc,
     "Lossless/uncompressed: ",
-    "FLAC, WAV, ALAC, APE, AIFF, AIF, and WV are recognized as lossless "
-    "input categories.",
+    "FLAC, WAV, ALAC, APE, AIFF, AIF, WV, MPC, and DSF are recognized as "
+    "lossless input categories.",
 )
 bullet(
     doc,
-    "APE output: ",
-    "APE can be detected as input but is excluded as an output "
-    "because the converter has no supported encoder.",
+    "Unsupported output: ",
+    "APE, MPC, and DSF can be detected as input but are excluded as outputs "
+    "because the converter has no supported encoder for them.",
 )
 bullet(
     doc,
@@ -141,7 +145,7 @@ bullet(
     doc,
     "Output Format: ",
     "The selected target extension. The menu excludes the detected input format, "
-    "invalid lossy-to-lossless targets, and unsupported APE output.",
+    "invalid lossy-to-lossless targets, and unsupported APE, MPC, and DSF output.",
 )
 bullet(doc, "Quality: ", "Format-specific codec quality or bitrate selection.")
 bullet(
@@ -190,11 +194,14 @@ bullet(
 
 doc.add_heading("Quality Options", level=1)
 bullet(doc, "MP3: ", "VBR V0 (highest), VBR V2 (high), or CBR 192 kbps (medium).")
+bullet(doc, "AAC: ", "AAC at 320, 256, or 192 kbps (same tiers as M4A).")
 bullet(doc, "FLAC: ", "Always compression level 8; no quality tiers apply.")
+bullet(doc, "WV (WavPack): ", "Always lossless; no quality tiers apply.")
 bullet(doc, "OGG: ", "Vorbis quality 10, 8, or 6.")
 bullet(doc, "M4A: ", "AAC at 320, 256, or 192 kbps.")
 bullet(doc, "MP4: ", "AAC at 320, 256, or 192 kbps (same tiers as M4A).")
 bullet(doc, "Opus: ", "256, 192, or 128 kbps.")
+bullet(doc, "ALAC: ", "Always lossless; no quality tiers apply.")
 bullet(
     doc,
     "AIFF / AIF: ",
@@ -203,6 +210,11 @@ bullet(
     "applies to the 16-bit tiers as well.",
 )
 bullet(doc, "WMA: ", "320, 256, or 192 kbps.")
+bullet(
+    doc,
+    "SPX (Speex): ",
+    "Speex quality 8, the codec's top tier (a single fixed tier).",
+)
 
 doc.add_heading("Conversion Behavior", level=1)
 for step in (
@@ -308,8 +320,8 @@ doc.add_heading("Troubleshooting", level=1)
 bullet(
     doc,
     "No output format available: ",
-    "The input may have no supported files, may be APE-only, "
-    "or every valid output may be prohibited by conversion rules.",
+    "The input may have no supported files, may contain only APE, MPC, or DSF "
+    "files, or every valid output may be prohibited by conversion rules.",
 )
 bullet(
     doc,

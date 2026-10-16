@@ -24,6 +24,10 @@ Tags are read once from the original file before processing begins
 and written once to the output file after all stages complete.
 The normaliser's own tag handling is deliberately bypassed within
 the pipeline since we manage tags ourselves.
+
+Changed in 1.1.0: the enhance stage now runs through
+apply_enhancement_chain; the preset supplies the base fields while
+the Sprint 1 effect fields come from the CLI-provided params (D13).
 """
 
 from __future__ import annotations
@@ -41,7 +45,7 @@ from pydub import AudioSegment
 from audio_suite_shared.audio_formats import pydub_export_for_source
 from audio_suite_shared.batch_undo import record_tag_edit_snapshot
 from audio_suite_shared.dsp_chain import (
-    build_enhancement_chain,
+    apply_enhancement_chain,
     compute_rms_db,
     post_chain_clip_check,
 )
@@ -617,6 +621,9 @@ def _run_enhance(
     source = PRESETS[preset_enum] if preset_enum != PresetName.CUSTOM else p
     # Suppress output gain when the normaliser stage will manage final level
     output_gain = 0.0 if config.normalise else source.output_gain_db
+    # Sprint 1 effects always come from the refinery's EnhanceParams (never
+    # from the preset table), so the driver/GUI effect toggles survive a
+    # non-Custom preset selection (D13).
     ep = EnhancementParams(
         noise_gate_threshold_db=source.noise_gate_threshold_db,
         compressor_threshold_db=source.compressor_threshold_db,
@@ -631,9 +638,13 @@ def _run_enhance(
         high_shelf_freq_hz=source.high_shelf_freq_hz,
         output_gain_db=output_gain,
         limiter_threshold_db=source.limiter_threshold_db,
+        reverse=p.reverse,
+        karaoke=p.karaoke,
+        karaoke_strength=p.karaoke_strength,
+        phaser=p.phaser,
+        flanger=p.flanger,
+        chorus=p.chorus,
     )
-
-    chain = build_enhancement_chain(ep)
 
     emit("Enhance", "Converting to numpy…")
     audio_np, sample_rate = segment_to_numpy(audio)
@@ -641,7 +652,7 @@ def _run_enhance(
     rms_before = compute_rms_db(audio_np)
 
     emit("Enhance", "Applying DSP…")
-    enhanced_np = chain(audio_np, sample_rate)
+    enhanced_np = apply_enhancement_chain(audio_np, sample_rate, ep)
     post_chain_clip_check(enhanced_np, stage_name="Enhance")
 
     rms_after = compute_rms_db(enhanced_np)

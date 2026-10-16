@@ -281,12 +281,17 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
         if "preset_name" in settings:
             self.preset_name.set(settings["preset_name"])
         p = self.params
-        overrides: dict[str, float] = {}
+        overrides: dict[str, Any] = {}
         for field_name in EnhancementParams.__dataclass_fields__:
             if field_name in settings:
                 overrides[field_name] = settings[field_name]
         if overrides:
             self.params = replace(p, **overrides)
+            # Changed in 1.1.0: the worker builds EnhancementParams from
+            # _param_values (see _run), so a saved preset must update that dict
+            # too — previously it only updated self.params and the preset's
+            # values were silently discarded.
+            self._param_values.update(overrides)
 
     def _on_preset_selected(self, name: str) -> None:
         settings = suite_config.load_preset(_TOOL_ID, name)
