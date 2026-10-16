@@ -156,6 +156,8 @@ of §1.2–1.3 that conflicts with it.
 
 | D25 | Item 1.2 effect persistence (2026-10-16), user-approved. `audio_refinery/utils/settings.py` `save()` wrote only the 13 base `enhance_params` fields and `load()` read back only those, so the six Sprint 1 effect fields (`reverse`, `karaoke`, `karaoke_strength`, `phaser`, `flanger`, `chorus`) toggled in the GUI were lost on restart even though `audio_refinery/app.py` `_collect_settings`/`_apply_settings` already carry them. Added the six keys to both `save()` and `load()` (defaults off / strength 1.0) plus the `Changed in 1.1.0` module note. Regression: new `audio_refinery/tests/test_settings.py` (`TestEffectPersistence`) round-trips non-default effect values, asserts the saved JSON carries all six keys, and asserts defaults when the keys are absent — every assertion fails pre-fix | AGENTS fix-when-discovered rule; persistence gap found while adding the effect fields (D12/D24) |
 
+| D26 | **Sprint 1 released as 1.1.0 (2026-10-16).** Item 1.1 formats (`26a39d8`) and Item 1.2 DSP effects + defect fixes (`395e844`) both landed with the full DoD gate green (8946 passed / 3 skipped, coverage 90.28%, ruff + mypy + bandit 0 High / 0 Medium). Release commit: `pyproject.toml` + `uv.lock` bumped 1.0.1 → 1.1.0, CHANGELOG `[Unreleased]` promoted to `[1.1.0] - 2026-10-16` with a fresh placeholder, and the four version-labelled user guides (lyrics_manager, tag_editor, tag_field_updater, undo_tag_edits) regenerated so their subtitle renders `declared_version()` | Sprint 1 complete; Sprint 2 (Metadata Integration & CD Ripping, target 1.2.0) begins in a new session |
+
 ---
 
 ## Sprint 2: Metadata Integration & CD Ripping Enhancement

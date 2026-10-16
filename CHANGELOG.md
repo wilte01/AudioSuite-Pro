@@ -9,6 +9,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.1.0] - 2026-10-16
+
 ### Added
 
 - **Wider input-format support across the suite.** The shared audio-extension
