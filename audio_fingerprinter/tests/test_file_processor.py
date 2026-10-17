@@ -1,7 +1,9 @@
 """Tests for audio_fingerprinter.core.file_processor.
 
 Changed in 1.2.0: adds the MusicBrainz enrichment / ISRC real-outcome tests
-(Sprint 2 Item 2.1).
+(Sprint 2 Item 2.1) and the ISRC submission tests, including the lock that a
+dry run's previewed XML is byte-identical to the live POST body
+(Sprint 2 Item 2.3).
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from audio_fingerprinter.core import file_processor as file_processor_module
 from audio_fingerprinter.core.file_processor import (
@@ -24,7 +27,9 @@ from audio_fingerprinter.core.file_processor import (
     _FingerprintJob,
     _process_file,
     _result_display,
+    _run_isrc_submission,
     _summarise_results,
+    collect_isrc_submissions,
     run_fingerprinting,
 )
 from audio_fingerprinter.core.models import (
@@ -35,6 +40,11 @@ from audio_fingerprinter.core.models import (
     FingerprintStatus,
     LookupResult,
     ReleaseGroup,
+)
+from audio_fingerprinter.core.musicbrainz_client import (
+    ISRCSubmitResult,
+    MBAuth,
+    MusicBrainzClient,
 )
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 
@@ -1531,3 +1541,304 @@ class TestIsrcEnrichmentRealOutcome:
         assert result.mb.resolved_ambiguity is True
         assert result.mb.recording_id == self.ALT_ID
         assert self._tsrc(track) == [self.ALT_ISRC]
+
+
+# ── ISRC submission (Item 2.3) ────────────────────────────────────────────
+
+_SUBMIT_REC = "b0f1c1c8-3a4d-4c1b-9d1e-1a2b3c4d5e6f"
+_SUBMIT_OTHER = "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f"
+
+
+def _submit_result(
+    tmp_path: Any,
+    name: str,
+    *,
+    recording_id: str = _SUBMIT_REC,
+    registered: tuple[str, ...] = (),
+) -> FingerprintFileResult:
+    """A matched result whose file exists on disk (tags are patched)."""
+    path = tmp_path / name
+    path.write_bytes(b"")
+    return FingerprintFileResult(
+        file_path=str(path),
+        filename=name,
+        status=FingerprintStatus.MATCHED,
+        recording_id=recording_id,
+        isrcs=registered,
+    )
+
+
+def _patch_tagged(mapping: dict[str, tuple[str, ...]]):
+    """Patch ``read_isrcs`` to answer by basename."""
+    return patch(
+        "audio_fingerprinter.core.file_processor.read_isrcs",
+        side_effect=lambda path: mapping[os.path.basename(path)],
+    )
+
+
+class TestCollectIsrcSubmissions:
+    """What a run offers MusicBrainz: the files' own codes, minus knowns."""
+
+    def test_submits_the_files_tagged_isrcs(self, tmp_path):
+        result = _submit_result(tmp_path, "a.mp3")
+        with _patch_tagged({"a.mp3": ("USRC17607839",)}):
+            submissions, notes = collect_isrc_submissions([result])
+        assert len(submissions) == 1
+        assert submissions[0].recording_id == _SUBMIT_REC
+        assert submissions[0].isrcs == ("USRC17607839",)
+        assert notes == ()
+
+    def test_display_form_is_normalised(self, tmp_path):
+        result = _submit_result(tmp_path, "a.mp3")
+        with _patch_tagged({"a.mp3": ("us-rc1-76-07839",)}):
+            submissions, _notes = collect_isrc_submissions([result])
+        assert submissions[0].isrcs == ("USRC17607839",)
+
+    def test_already_registered_codes_are_dropped_and_reported(self, tmp_path):
+        result = _submit_result(tmp_path, "a.mp3", registered=("USRC17607839",))
+        with _patch_tagged({"a.mp3": ("USRC17607839",)}):
+            submissions, notes = collect_isrc_submissions([result])
+        assert submissions == ()
+        assert any("nothing new to submit" in note for note in notes)
+
+    def test_invalid_code_is_reported_not_submitted(self, tmp_path):
+        result = _submit_result(tmp_path, "a.mp3")
+        with _patch_tagged({"a.mp3": ("NOPE",)}):
+            submissions, notes = collect_isrc_submissions([result])
+        assert submissions == ()
+        assert any("[ISRC SKIPPED] a.mp3" in note for note in notes)
+        assert any("not an ISRC" in note for note in notes)
+
+    def test_two_files_on_one_recording_merge(self, tmp_path):
+        first = _submit_result(tmp_path, "a.mp3")
+        second = _submit_result(tmp_path, "b.mp3")
+        with _patch_tagged(
+            {
+                "a.mp3": ("USRC17607839",),
+                "b.mp3": ("USRC17607839", "GBUM72400001"),
+            }
+        ):
+            submissions, _notes = collect_isrc_submissions([first, second])
+        assert len(submissions) == 1
+        assert submissions[0].isrcs == ("GBUM72400001", "USRC17607839")
+
+    def test_file_without_a_recording_is_reported(self, tmp_path):
+        result = _submit_result(tmp_path, "a.mp3", recording_id="")
+        with _patch_tagged({"a.mp3": ("USRC17607839",)}):
+            submissions, notes = collect_isrc_submissions([result])
+        assert submissions == ()
+        assert any("no MusicBrainz recording" in note for note in notes)
+
+    def test_untagged_file_contributes_nothing(self, tmp_path):
+        result = _submit_result(tmp_path, "a.mp3")
+        with _patch_tagged({"a.mp3": ()}):
+            submissions, notes = collect_isrc_submissions([result])
+        assert submissions == ()
+        assert notes == ()
+
+    def test_unreadable_tags_are_reported(self, tmp_path):
+        result = _submit_result(tmp_path, "a.mp3")
+        with patch(
+            "audio_fingerprinter.core.file_processor.read_isrcs",
+            side_effect=OSError("locked"),
+        ):
+            submissions, notes = collect_isrc_submissions([result])
+        assert submissions == ()
+        assert any("could not read its ISRCs" in note for note in notes)
+
+
+class TestRunIsrcSubmission:
+    """Preview vs post, and the refusals that must not spend an edit."""
+
+    def _client(self, result: ISRCSubmitResult) -> MagicMock:
+        client = MagicMock(spec=MusicBrainzClient)
+        client.submit_isrcs.return_value = result
+        return client
+
+    def test_dry_run_renders_the_payload_and_posts_nothing(self, tmp_path):
+        result = _submit_result(tmp_path, "a.mp3")
+        client = self._client(ISRCSubmitResult(status="ok"))
+        with _patch_tagged({"a.mp3": ("USRC17607839",)}):
+            payload, lines, display = _run_isrc_submission(
+                [result], FingerprintParams(submit_isrc=True), client, None
+            )
+        client.submit_isrcs.assert_not_called()
+        assert payload["mode"] == "preview"
+        assert payload["status"] == "preview"
+        assert payload["isrcs"] == 1
+        assert payload["recordings"] == 1
+        assert 'isrc id="USRC17607839"' in payload["xml"]
+        # The payload keeps the exact wire bytes; the log writes one line per
+        # entry, so the rendered document loses only its final newline.
+        assert payload["xml"].rstrip("\n") in lines
+        assert display.startswith("[ISRC PREVIEW]")
+
+    def test_live_posts_and_reports_a_pending_edit(self, tmp_path):
+        result = _submit_result(tmp_path, "a.mp3")
+        client = self._client(
+            ISRCSubmitResult(
+                status="ok", recordings=1, isrcs=1, url="https://mb/recording"
+            )
+        )
+        with _patch_tagged({"a.mp3": ("USRC17607839",)}):
+            payload, lines, display = _run_isrc_submission(
+                [result],
+                FingerprintParams(submit_isrc=True, is_dry_run=False),
+                client,
+                MBAuth(token="tok"),
+            )
+        client.submit_isrcs.assert_called_once()
+        assert payload["status"] == "ok"
+        assert payload["mode"] == "live"
+        assert any("[ISRC SUBMITTED]" in line for line in lines)
+        assert any("7 days" in line for line in lines)
+        assert display.startswith("[ISRC SUBMITTED]")
+
+    def test_nothing_to_submit_makes_no_request(self, tmp_path):
+        result = _submit_result(tmp_path, "a.mp3")
+        client = self._client(ISRCSubmitResult(status="ok"))
+        with _patch_tagged({"a.mp3": ()}):
+            payload, _lines, display = _run_isrc_submission(
+                [result],
+                FingerprintParams(submit_isrc=True, is_dry_run=False),
+                client,
+                MBAuth(token="tok"),
+            )
+        client.submit_isrcs.assert_not_called()
+        assert payload["status"] == "nothing to submit"
+        assert payload["xml"] == ""
+        assert "Nothing new to submit" in display
+
+
+class TestIsrcSubmissionRealOutcome:
+    """A real tagged file, a real client, and the byte-identical lock."""
+
+    ISRC = "USRC17607839"
+
+    @staticmethod
+    def _make_track(folder) -> Any:
+        from pydub import AudioSegment
+
+        from audio_suite_shared.tag_helper_writer import write_isrc
+
+        path = folder / "t.mp3"
+        AudioSegment.silent(duration=300).export(str(path), format="mp3")
+        write_isrc(str(path), [TestIsrcSubmissionRealOutcome.ISRC])
+        return path
+
+    @staticmethod
+    def _recording_json(*, isrcs: tuple[str, ...] = ()) -> dict[str, Any]:
+        return {
+            "id": _SUBMIT_REC,
+            "title": "Song",
+            "length": 60000,
+            "isrcs": list(isrcs),
+            "artist-credit": [
+                {"name": "Artist", "artist": {"id": "art", "name": "Artist"}}
+            ],
+            "releases": [],
+        }
+
+    @classmethod
+    def _session(cls, *, isrcs: tuple[str, ...] = ()) -> MagicMock:
+        session = MagicMock(spec=requests.Session)
+        session.headers = MagicMock()
+        get_resp = MagicMock(spec=requests.Response)
+        get_resp.status_code = 200
+        get_resp.json.return_value = cls._recording_json(isrcs=isrcs)
+        session.get.return_value = get_resp
+        post_resp = MagicMock(spec=requests.Response)
+        post_resp.status_code = 200
+        session.post.return_value = post_resp
+        return session
+
+    def _run(self, folder, *, dry_run: bool, auth: MBAuth | None, isrcs=()):
+        session = self._session(isrcs=isrcs)
+        mb_client = MusicBrainzClient(requests_per_second=1000.0, session=session)
+        acoustid = MagicMock()
+        acoustid.lookup.return_value = LookupResult(
+            status="ok",
+            recordings=(
+                _make_recording(
+                    acoustid_id="a1",
+                    recording_id=_SUBMIT_REC,
+                    title="Song",
+                    artist="Artist",
+                ),
+            ),
+        )
+        progress, complete, error = MagicMock(), MagicMock(), MagicMock()
+        slot_q: Queue[int] = Queue()
+        for i in range(DEFAULT_MAX_WORKERS):
+            slot_q.put(i)
+        with (
+            _patch_fingerprint_by_name(),
+            patch(
+                "audio_fingerprinter.core.file_processor.resolve_fpcalc",
+                return_value="fpcalc",
+            ),
+            patch(
+                "audio_fingerprinter.core.file_processor.AcoustidClient",
+                return_value=acoustid,
+            ),
+            patch(
+                "audio_fingerprinter.core.file_processor.MusicBrainzClient",
+                return_value=mb_client,
+            ),
+        ):
+            run_fingerprinting(
+                dir_path=str(folder),
+                api_key="key",
+                params=FingerprintParams(
+                    musicbrainz=True,
+                    submit_isrc=True,
+                    is_dry_run=dry_run,
+                ),
+                slot_vars=[MagicMock() for _ in range(DEFAULT_MAX_WORKERS)],
+                slot_queue=slot_q,
+                on_progress=progress,
+                on_complete=complete,
+                on_error=error,
+                mb_auth=auth,
+            )
+        return complete, session
+
+    def test_dry_run_preview_is_exactly_what_live_posts(self, tmp_path):
+        self._make_track(tmp_path)
+        dry_complete, dry_session = self._run(tmp_path, dry_run=True, auth=None)
+        dry_payload = dry_complete.call_args.kwargs["isrc_submission"]
+        dry_session.post.assert_not_called()
+        assert dry_payload["mode"] == "preview"
+        assert self.ISRC in dry_payload["xml"]
+
+        live_complete, live_session = self._run(
+            tmp_path, dry_run=False, auth=MBAuth(token="tok")
+        )
+        posted = live_session.post.call_args.kwargs["data"].decode("utf-8")
+        # The preview the user approved is byte-for-byte the request sent.
+        assert posted == dry_payload["xml"]
+        live_payload = live_complete.call_args.kwargs["isrc_submission"]
+        assert live_payload["status"] == "ok"
+        assert any(
+            "[ISRC SUBMITTED]" in line
+            for line in live_complete.call_args.kwargs["log_entries"]
+        )
+
+    def test_already_registered_isrc_is_not_resubmitted(self, tmp_path):
+        self._make_track(tmp_path)
+        complete, session = self._run(
+            tmp_path, dry_run=False, auth=MBAuth(token="tok"), isrcs=(self.ISRC,)
+        )
+        session.post.assert_not_called()
+        payload = complete.call_args.kwargs["isrc_submission"]
+        assert payload["status"] == "nothing to submit"
+
+    def test_missing_token_posts_nothing(self, tmp_path):
+        self._make_track(tmp_path)
+        complete, session = self._run(tmp_path, dry_run=False, auth=MBAuth())
+        session.post.assert_not_called()
+        payload = complete.call_args.kwargs["isrc_submission"]
+        assert payload["status"] == "no auth"
+        assert any(
+            "NO AUTH" in line for line in complete.call_args.kwargs["log_entries"]
+        )

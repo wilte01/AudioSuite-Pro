@@ -84,6 +84,10 @@ class TestStartGuardsD3:
         app.musicbrainz.get.return_value = False
         app.write_isrc = MagicMock()
         app.write_isrc.get.return_value = False
+        app.submit_isrc = MagicMock()
+        app.submit_isrc.get.return_value = False
+        app.mb_token = MagicMock()
+        app.mb_token_status = MagicMock()
         app.album_mode = MagicMock()
         app.api_key = MagicMock()
         app.overall_status = MagicMock()
@@ -290,12 +294,54 @@ class TestRunThreadD3:
         params.album_mode = False
         params.threshold = 0.5
         params.max_length = 120
+        params.submit_isrc = False
 
         app._run(params)
 
         assert calls["dir_path"] == str(tmp_path)
         assert calls["api_key"] == "stored-key"
         assert calls["params"] is params
+        # No submission, so no credential is built or handed over.
+        assert calls["mb_auth"] is None
+
+    def test_run_thread_hands_over_credentials_only_when_submitting(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from audio_fingerprinter.core.musicbrainz_client import MBAuth
+
+        app = object.__new__(FingerprinterApp)
+        app.root = MagicMock()
+        app.folder_path = MagicMock()
+        app.folder_path.get.return_value = str(tmp_path)
+        app.progress = MagicMock()
+        app.file_listbox = MagicMock()
+        app.api_key = MagicMock()
+        app.api_key.get.return_value = ""
+        app._cli_api_key = ""
+        app._safe_slot_vars = MagicMock()
+        app.slot_queue = MagicMock()
+        calls: dict[str, Any] = {}
+
+        import audio_fingerprinter.core.file_processor as core
+
+        monkeypatch.setattr(core, "run_fingerprinting", lambda **kw: calls.update(kw))
+        monkeypatch.setattr(
+            "audio_fingerprinter.app.mb_token_store.build_auth",
+            lambda: MBAuth(token="tok"),
+        )
+        params = MagicMock()
+        params.is_dry_run = False
+        params.submit_isrc = True
+        params.musicbrainz = True
+        params.lookup_enabled = True
+        params.write_tags = False
+        params.album_mode = False
+        params.threshold = 0.5
+        params.max_length = 120
+
+        app._run(params)
+
+        assert calls["mb_auth"].token == "tok"
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +457,10 @@ class TestStartProcessingAlbumMode:
         app.musicbrainz.get.return_value = False
         app.write_isrc = MagicMock()
         app.write_isrc.get.return_value = False
+        app.submit_isrc = MagicMock()
+        app.submit_isrc.get.return_value = False
+        app.mb_token = MagicMock()
+        app.mb_token_status = MagicMock()
         app.album_mode = MagicMock()
         app.threshold = MagicMock()
         app.threshold.get.return_value = "0.5"
@@ -514,6 +564,179 @@ class TestOnCompleteSummary:
             encoding="utf-8"
         )
         assert "Album ambiguous" not in log_text
+
+    def test_isrc_submission_is_recorded_in_the_log(self, tmp_path):
+        app = self._make_app(tmp_path)
+        app._on_complete(
+            header=[],
+            total=1,
+            processed=1,
+            skipped=0,
+            errors=0,
+            duration_secs=1.0,
+            log_entries=[],
+            results=[],
+            counts=self._counts(),
+            isrc_submission={
+                "mode": "live",
+                "status": "no auth",
+                "recordings": 1,
+                "isrcs": 2,
+                "reason": "No MusicBrainz token is configured.",
+            },
+        )
+        log_text = (tmp_path / "fingerprint_dry_run_log.txt").read_text(
+            encoding="utf-8"
+        )
+        assert "ISRC submission: no auth (2 ISRC(s), 1 recording(s))" in log_text
+        assert "No MusicBrainz token is configured." in log_text
+
+
+class TestStartGuardsIsrcSubmission:
+    """Pre-flight: submission needs the lookup, and a live run needs a token."""
+
+    def _shell(self) -> Any:
+        app = TestStartGuardsD3()._shell()
+        app.submit_isrc.get.return_value = True
+        app.musicbrainz.get.return_value = False
+        app.lookup_enabled.get.return_value = False
+        return app
+
+    def test_submission_without_musicbrainz_shows_error(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = self._shell()
+        dialogs = MagicMock()
+        monkeypatch.setattr("audio_fingerprinter.app.messagebox", dialogs)
+        monkeypatch.setattr(
+            "audio_fingerprinter.app.resolve_fpcalc", lambda _p: Path("fpcalc.exe")
+        )
+        app.folder_path.get.return_value = str(tmp_path)
+
+        app.start_processing()
+
+        dialogs.showerror.assert_called_once()
+        assert "MusicBrainz" in dialogs.showerror.call_args.args[1]
+
+    def test_live_submission_without_a_token_shows_error(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from audio_fingerprinter.core.musicbrainz_client import MBAuth
+
+        app = self._shell()
+        app.musicbrainz.get.return_value = True
+        app.run_mode.get.return_value = "Live Update"
+        dialogs = MagicMock()
+        monkeypatch.setattr("audio_fingerprinter.app.messagebox", dialogs)
+        monkeypatch.setattr(
+            "audio_fingerprinter.app.resolve_fpcalc", lambda _p: Path("fpcalc.exe")
+        )
+        monkeypatch.setattr(
+            "audio_fingerprinter.app.mb_token_store.build_auth", lambda: MBAuth()
+        )
+        app.folder_path.get.return_value = str(tmp_path)
+
+        app.start_processing()
+
+        dialogs.showerror.assert_called_once()
+        assert "MUSICBRAINZ_TOKEN" in dialogs.showerror.call_args.args[1]
+
+    def test_dry_run_submission_needs_no_token(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from audio_fingerprinter.core.musicbrainz_client import MBAuth
+
+        fake_threading = MagicMock()
+        monkeypatch.setattr("audio_fingerprinter.app.threading", fake_threading)
+        monkeypatch.setattr("audio_fingerprinter.app.messagebox", MagicMock())
+        monkeypatch.setattr(
+            "audio_fingerprinter.app.resolve_fpcalc", lambda _p: Path("fpcalc.exe")
+        )
+        monkeypatch.setattr(
+            "audio_fingerprinter.app.mb_token_store.build_auth", lambda: MBAuth()
+        )
+        built: dict[str, Any] = {}
+
+        class FakeParams:
+            def __init__(self, **kwargs: Any) -> None:
+                built.update(kwargs)
+
+        monkeypatch.setattr("audio_fingerprinter.app.FingerprintParams", FakeParams)
+        app = self._shell()
+        app.musicbrainz.get.return_value = True
+        app.run_mode.get.return_value = "Dry Run"
+        app.folder_path.get.return_value = str(tmp_path)
+        app.fpcalc_path.get.return_value = ""
+        app.threshold.get.return_value = "0.5"
+        app.max_length.get.return_value = "120"
+
+        app.start_processing()
+
+        assert built["submit_isrc"] is True
+        assert built["is_dry_run"] is True
+        fake_threading.Thread.assert_called_once()
+
+
+class TestMusicBrainzTokenActions:
+    """The Setup tab's token controls must reach the encrypted store."""
+
+    def test_save_stores_the_token_and_clears_the_entry(self, monkeypatch):
+        saved: dict[str, str] = {}
+        monkeypatch.setattr(
+            "audio_fingerprinter.app.mb_token_store.save_token",
+            lambda value: saved.update(value=value),
+        )
+        monkeypatch.setattr(
+            "audio_fingerprinter.app.mb_token_store.describe_source",
+            lambda: "stored",
+        )
+        app = TestStartGuardsD3()._shell()
+        app.mb_token.get.return_value = "  tok  "
+
+        app._save_mb_token()
+
+        assert saved["value"] == "tok"
+        app.mb_token.set.assert_called_once_with("")
+        app.mb_token_status.set.assert_called_once_with("stored")
+
+    def test_empty_token_warns_and_stores_nothing(self, monkeypatch):
+        dialogs = MagicMock()
+        monkeypatch.setattr("audio_fingerprinter.app.messagebox", dialogs)
+        store = MagicMock()
+        monkeypatch.setattr("audio_fingerprinter.app.mb_token_store", store)
+        app = TestStartGuardsD3()._shell()
+        app.mb_token.get.return_value = "   "
+
+        app._save_mb_token()
+
+        dialogs.showwarning.assert_called_once()
+        store.save_token.assert_not_called()
+
+    def test_save_failure_reports_and_keeps_the_entry(self, monkeypatch):
+        dialogs = MagicMock()
+        monkeypatch.setattr("audio_fingerprinter.app.messagebox", dialogs)
+        store = MagicMock()
+        store.save_token.side_effect = OSError("disk full")
+        monkeypatch.setattr("audio_fingerprinter.app.mb_token_store", store)
+        app = TestStartGuardsD3()._shell()
+        app.mb_token.get.return_value = "tok"
+
+        app._save_mb_token()
+
+        dialogs.showerror.assert_called_once()
+        app.mb_token.set.assert_not_called()
+
+    def test_clear_removes_the_stored_token(self, monkeypatch):
+        store = MagicMock()
+        store.describe_source.return_value = "none"
+        monkeypatch.setattr("audio_fingerprinter.app.mb_token_store", store)
+        app = TestStartGuardsD3()._shell()
+
+        app._clear_mb_token()
+
+        store.clear_token.assert_called_once()
+        app.mb_token.set.assert_called_once_with("")
+        app.mb_token_status.set.assert_called_once_with("none")
 
 
 class TestProgressD3:

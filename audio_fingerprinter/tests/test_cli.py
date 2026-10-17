@@ -1,7 +1,8 @@
 """Tests for audio_fingerprinter.cli.
 
 Changed in 1.2.0: adds the ``--musicbrainz`` / ``--write-isrc`` option tests
-(Sprint 2 Item 2.1).
+(Sprint 2 Item 2.1) and the ``--submit-isrc`` tests, including the dry-run
+payload the command prints (Sprint 2 Item 2.3).
 """
 
 from __future__ import annotations
@@ -209,3 +210,179 @@ class TestMusicBrainzFlags:
         assert result.exit_code == 0
         assert "--musicbrainz" in result.output
         assert "--write-isrc" in result.output
+
+
+class TestSubmitIsrcFlags:
+    """``--submit-isrc``: guards, credentials, and the dry-run payload."""
+
+    PREVIEW = (
+        '<metadata xmlns="http://musicbrainz.org/ns/mmd-2.0#">\n'
+        "  <recording-list>\n"
+        "  </recording-list>\n"
+        "</metadata>"
+    )
+
+    def _invoke(
+        self,
+        args: list[str],
+        *,
+        token: str = "tok",
+        submission: dict[str, object] | None = None,
+    ):
+        runner = CliRunner()
+        tool_result = MagicMock(
+            processed=0, errors=0, duration_secs=0.0, extra={"counts": {}}
+        )
+        if submission is not None:
+            tool_result.extra["isrc_submission"] = submission
+        # --json serialises the run summary; a MagicMock would not marshal.
+        tool_result.to_dict.return_value = {}
+        with (
+            patch(
+                "audio_fingerprinter.utils.api_key.load_api_key",
+                return_value="k",
+            ),
+            patch(
+                "audio_fingerprinter.utils.musicbrainz_token.load_token",
+                return_value=token,
+            ),
+            patch(
+                "audio_fingerprinter.cli._run_tool", return_value=tool_result
+            ) as mock_tool,
+            patch("audio_fingerprinter.cli.active_batch"),
+        ):
+            result = runner.invoke(fingerprint, args)
+        kwargs = mock_tool.call_args.kwargs if mock_tool.called else {}
+        return result, kwargs.get("params"), kwargs.get("mb_auth"), tool_result
+
+    def test_off_by_default(self, tmp_path):
+        result, params, auth, _tool = self._invoke([str(tmp_path)])
+        assert result.exit_code == 0
+        assert params is not None
+        assert params.submit_isrc is False
+        assert auth is None
+
+    def test_flag_sets_params_and_passes_credentials(self, tmp_path):
+        result, params, auth, _tool = self._invoke(
+            [str(tmp_path), "--musicbrainz", "--submit-isrc"]
+        )
+        assert result.exit_code == 0
+        assert params is not None
+        assert params.submit_isrc is True
+        assert auth is not None and auth.token == "tok"
+
+    def test_no_submit_flag(self, tmp_path):
+        result, params, _auth, _tool = self._invoke(
+            [str(tmp_path), "--musicbrainz", "--no-submit-isrc"]
+        )
+        assert result.exit_code == 0
+        assert params is not None
+        assert params.submit_isrc is False
+
+    def test_requires_musicbrainz(self, tmp_path):
+        result, _params, _auth, _tool = self._invoke([str(tmp_path), "--submit-isrc"])
+        assert result.exit_code == 1
+        assert "--musicbrainz" in result.output
+
+    def test_live_run_without_a_token_fails_before_processing(self, tmp_path):
+        result, _params, _auth, tool = self._invoke(
+            [str(tmp_path), "--musicbrainz", "--submit-isrc", "--live"],
+            token="",
+        )
+        assert result.exit_code == 1
+        assert "MUSICBRAINZ_TOKEN" in result.output
+        assert not tool.called
+
+    def test_dry_run_without_a_token_still_previews(self, tmp_path):
+        # The preview is the whole point of a dry run; it needs no credential.
+        result, params, _auth, _tool = self._invoke(
+            [str(tmp_path), "--musicbrainz", "--submit-isrc", "--dry"],
+            token="",
+        )
+        assert result.exit_code == 0
+        assert params is not None
+        assert params.submit_isrc is True
+
+    def test_app_token_needs_a_username(self, tmp_path):
+        result, _params, _auth, _tool = self._invoke(
+            [
+                str(tmp_path),
+                "--musicbrainz",
+                "--submit-isrc",
+                "--mb-auth",
+                "app-token",
+            ]
+        )
+        assert result.exit_code == 1
+        assert "--mb-user" in result.output
+
+    def test_app_token_credentials_carry_the_username(self, tmp_path):
+        result, _params, auth, _tool = self._invoke(
+            [
+                str(tmp_path),
+                "--musicbrainz",
+                "--submit-isrc",
+                "--mb-auth",
+                "app-token",
+                "--mb-user",
+                "alice",
+            ]
+        )
+        assert result.exit_code == 0
+        assert auth is not None
+        assert auth.method == "app-token"
+        assert auth.username == "alice"
+
+    def test_dry_run_prints_the_exact_payload(self, tmp_path):
+        result, _params, _auth, _tool = self._invoke(
+            [str(tmp_path), "--musicbrainz", "--submit-isrc", "--dry"],
+            submission={
+                "mode": "preview",
+                "status": "preview",
+                "recordings": 1,
+                "isrcs": 1,
+                "url": "u",
+                "reason": "",
+                "xml": self.PREVIEW,
+                "notes": [],
+            },
+        )
+        assert result.exit_code == 0
+        # Printed unprefixed so it can be captured and compared as-is.
+        assert self.PREVIEW in result.output
+
+    def test_live_reports_the_submission_status(self, tmp_path):
+        result, _params, _auth, _tool = self._invoke(
+            [str(tmp_path), "--musicbrainz", "--submit-isrc", "--live"],
+            submission={
+                "mode": "live",
+                "status": "no auth",
+                "recordings": 1,
+                "isrcs": 1,
+                "url": "u",
+                "reason": "No MusicBrainz token is configured.",
+                "xml": self.PREVIEW,
+                "notes": [],
+            },
+        )
+        assert result.exit_code == 0
+        assert "no auth" in result.output
+        assert "No MusicBrainz token is configured." in result.output
+
+    def test_json_includes_the_submission_record(self, tmp_path):
+        result, _params, _auth, _tool = self._invoke(
+            [str(tmp_path), "--musicbrainz", "--submit-isrc", "--json"],
+            submission={
+                "mode": "live",
+                "status": "ok",
+                "recordings": 1,
+                "isrcs": 1,
+                "url": "u",
+                "reason": "",
+                "xml": self.PREVIEW,
+                "notes": [],
+            },
+        )
+        assert result.exit_code == 0
+        assert '"isrc_submission"' in result.output
+        assert '"status": "ok"' in result.output

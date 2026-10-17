@@ -4,7 +4,8 @@ FingerprinterApp — thin orchestrator.
 Wires UI, core logic, and utilities together. No business logic here.
 
 Changed in 1.2.0: adds the MusicBrainz enrichment and ISRC tag-write
-toggles to the Setup tab and passes them into ``FingerprintParams``.
+toggles to the Setup tab and passes them into ``FingerprintParams``, plus the
+ISRC submission toggle with its encrypted token (Sprint 2 Item 2.3).
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ from .core.models import (
 from .ui import processing_tab, results_tab, setup_tab
 from .utils import api_key as api_key_store
 from .utils import cli_args
+from .utils import musicbrainz_token as mb_token_store
 
 logger = logging.getLogger(__name__)
 
@@ -72,12 +74,15 @@ class FingerprinterApp(UIHelperMixin):
         )
         self.musicbrainz = tk.BooleanVar(value=False)
         self.write_isrc = tk.BooleanVar(value=False)
+        self.submit_isrc = tk.BooleanVar(value=False)
         self.album_mode = tk.BooleanVar(value=False)
         self.threshold = tk.StringVar(value=_DEFAULT_THRESHOLD)
         self.max_length = tk.StringVar(value=str(DEFAULT_MAX_LENGTH))
         self.fpcalc_path = tk.StringVar()
         self.api_key = tk.StringVar()
         self.api_key_status = tk.StringVar()
+        self.mb_token = tk.StringVar()
+        self.mb_token_status = tk.StringVar()
 
         # Driver-mirrored run controls (Clear Logs / Parallel are display-only)
         self.auto_start_var = tk.BooleanVar(value=False)
@@ -113,6 +118,7 @@ class FingerprinterApp(UIHelperMixin):
                 self.folder_path.set(last)
 
         self._refresh_api_key_status()
+        self._refresh_mb_token_status()
         self._update_fpcalc_status()
 
     # ── UI construction ───────────────────────────────────────────────────────
@@ -156,6 +162,7 @@ class FingerprinterApp(UIHelperMixin):
             mbid_region=self.mbid_region,
             musicbrainz=self.musicbrainz,
             write_isrc=self.write_isrc,
+            submit_isrc=self.submit_isrc,
             album_mode=self.album_mode,
             threshold=self.threshold,
             max_length=self.max_length,
@@ -166,6 +173,10 @@ class FingerprinterApp(UIHelperMixin):
             on_browse_fpcalc=self._browse_fpcalc,
             on_save_api_key=self._save_api_key,
             on_clear_api_key=self._clear_api_key,
+            mb_token=self.mb_token,
+            mb_token_status=self.mb_token_status,
+            on_save_mb_token=self._save_mb_token,
+            on_clear_mb_token=self._clear_mb_token,
             on_start=self.start_processing,
             driver_locked=self._launched_from_driver,
         )
@@ -228,6 +239,36 @@ class FingerprinterApp(UIHelperMixin):
         api_key_store.clear_api_key()
         self.api_key.set("")
         self._refresh_api_key_status()
+
+    def _refresh_mb_token_status(self) -> None:
+        """Update the caption describing where the MusicBrainz token resolves."""
+        self.mb_token_status.set(mb_token_store.describe_source())
+
+    def _save_mb_token(self) -> None:
+        """Encrypt and persist the token typed into the entry, then clear it."""
+        value = self.mb_token.get().strip()
+        if not value:
+            messagebox.showwarning(
+                "Empty Token", "Enter the MusicBrainz token before saving it."
+            )
+            return
+        try:
+            mb_token_store.save_token(value)
+        except Exception as exc:
+            mapped = map_to_audio_error(exc)
+            messagebox.showerror(
+                "Save Failed",
+                f"Could not save the MusicBrainz token:\n{user_message_for(mapped)}",
+            )
+            return
+        self.mb_token.set("")
+        self._refresh_mb_token_status()
+
+    def _clear_mb_token(self) -> None:
+        """Remove the stored MusicBrainz token and clear the entry."""
+        mb_token_store.clear_token()
+        self.mb_token.set("")
+        self._refresh_mb_token_status()
 
     def _persist_mbid_region(self) -> None:
         """Remember the MBID region preference in the shared suite config."""
@@ -297,6 +338,7 @@ class FingerprinterApp(UIHelperMixin):
         self.write_mbids.set(parsed.write_mbids)
         self.musicbrainz.set(parsed.musicbrainz)
         self.write_isrc.set(parsed.write_isrc)
+        self.submit_isrc.set(parsed.submit_isrc)
         if parsed.mbid_region:
             self.mbid_region.set(parsed.mbid_region)
         self.threshold.set(str(parsed.threshold))
@@ -391,6 +433,29 @@ class FingerprinterApp(UIHelperMixin):
                 )
                 return
 
+            if self.submit_isrc.get() and not self.musicbrainz.get():
+                messagebox.showerror(
+                    "MusicBrainz Lookup Required",
+                    "ISRC submission needs the MusicBrainz lookup: the recording "
+                    "lookup is what tells the run which ISRCs are already "
+                    "registered, so only new ones are submitted.",
+                )
+                return
+
+            token_problem = (
+                mb_token_store.build_auth().problem
+                if self.submit_isrc.get() and self.run_mode.get() != "Dry Run"
+                else ""
+            )
+            if token_problem:
+                messagebox.showerror(
+                    "MusicBrainz Token Required",
+                    f"{token_problem}\n\n"
+                    "A Dry Run shows the exact payload without submitting; a "
+                    "Live Update needs the token.",
+                )
+                return
+
             threshold = self._parse_threshold()
             max_length = self._parse_max_length()
             self._persist_mbid_region()
@@ -412,6 +477,7 @@ class FingerprinterApp(UIHelperMixin):
                 mbid_region=self.mbid_region.get().strip().upper(),
                 musicbrainz=self.musicbrainz.get(),
                 write_isrc=self.write_isrc.get(),
+                submit_isrc=self.submit_isrc.get(),
             )
             threading.Thread(target=self._run, args=(params,), daemon=True).start()
 
@@ -444,6 +510,7 @@ class FingerprinterApp(UIHelperMixin):
             f"MBID Region: {params.mbid_region or '(none)'}\n",
             f"MusicBrainz Enrichment: {'ON' if params.musicbrainz else 'OFF'}\n",
             f"Write ISRCs: {'ON' if params.write_isrc else 'OFF'}\n",
+            f"Submit ISRCs: {'ON' if params.submit_isrc else 'OFF'}\n",
             f"Album Match: {'ON' if params.album_mode else 'OFF'}\n",
             f"Min Score: {params.threshold}\n",
             f"Max Length: {params.max_length} sec\n",
@@ -462,6 +529,7 @@ class FingerprinterApp(UIHelperMixin):
                 on_complete=lambda **kw: self._on_complete(header=header, **kw),
                 on_error=self._on_error,
                 on_slot_update=self._on_slot_update,
+                mb_auth=(mb_token_store.build_auth() if params.submit_isrc else None),
             )
 
     def _on_slot_update(self, slot_idx: int, text: str) -> None:
@@ -497,6 +565,7 @@ class FingerprinterApp(UIHelperMixin):
         log_entries: list[str],
         results: list[FingerprintFileResult],
         counts: dict[str, int],
+        isrc_submission: dict[str, Any] | None = None,
     ) -> None:
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)
@@ -512,6 +581,14 @@ class FingerprinterApp(UIHelperMixin):
         ]
         if counts.get("album_ambiguous"):
             summary.append(f"Album ambiguous: {counts['album_ambiguous']}\n")
+        if isrc_submission:
+            summary.append(
+                f"ISRC submission: {isrc_submission.get('status', 'unknown')} "
+                f"({isrc_submission.get('isrcs', 0)} ISRC(s), "
+                f"{isrc_submission.get('recordings', 0)} recording(s))\n"
+            )
+            if isrc_submission.get("reason"):
+                summary.append(f"  {isrc_submission['reason']}\n")
         summary.extend(
             [
                 f"Errors: {counts['errors']}\n",

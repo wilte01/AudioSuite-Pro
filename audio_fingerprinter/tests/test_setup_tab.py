@@ -36,6 +36,9 @@ def tk_vars(root: tk.Tk):
         "mbid_region": tk.StringVar(root, value=""),
         "musicbrainz": tk.BooleanVar(root, value=False),
         "write_isrc": tk.BooleanVar(root, value=False),
+        "submit_isrc": tk.BooleanVar(root, value=False),
+        "mb_token": tk.StringVar(root, value=""),
+        "mb_token_status": tk.StringVar(root, value=""),
         "album_mode": tk.BooleanVar(root, value=False),
         "threshold": tk.StringVar(root, value="0.5"),
         "max_length": tk.StringVar(root, value="120"),
@@ -61,6 +64,7 @@ class TestBuild:
             mbid_region=tk_vars["mbid_region"],
             musicbrainz=tk_vars["musicbrainz"],
             write_isrc=tk_vars["write_isrc"],
+            submit_isrc=tk_vars["submit_isrc"],
             album_mode=tk_vars["album_mode"],
             threshold=tk_vars["threshold"],
             max_length=tk_vars["max_length"],
@@ -71,6 +75,10 @@ class TestBuild:
             on_browse_fpcalc=MagicMock(),
             on_save_api_key=MagicMock(),
             on_clear_api_key=MagicMock(),
+            mb_token=tk_vars["mb_token"],
+            mb_token_status=tk_vars["mb_token_status"],
+            on_save_mb_token=MagicMock(),
+            on_clear_mb_token=MagicMock(),
             on_start=MagicMock(),
         )
         assert isinstance(result, dict)
@@ -94,6 +102,7 @@ class TestBuild:
             mbid_region=tk_vars["mbid_region"],
             musicbrainz=tk_vars["musicbrainz"],
             write_isrc=tk_vars["write_isrc"],
+            submit_isrc=tk_vars["submit_isrc"],
             album_mode=tk_vars["album_mode"],
             threshold=tk_vars["threshold"],
             max_length=tk_vars["max_length"],
@@ -104,6 +113,10 @@ class TestBuild:
             on_browse_fpcalc=MagicMock(),
             on_save_api_key=MagicMock(),
             on_clear_api_key=MagicMock(),
+            mb_token=tk_vars["mb_token"],
+            mb_token_status=tk_vars["mb_token_status"],
+            on_save_mb_token=MagicMock(),
+            on_clear_mb_token=MagicMock(),
             on_start=MagicMock(),
         )
         assert result["start_btn"] is not None
@@ -120,6 +133,7 @@ class TestSetupFrameInit:
             mbid_region=tk_vars["mbid_region"],
             musicbrainz=tk_vars["musicbrainz"],
             write_isrc=tk_vars["write_isrc"],
+            submit_isrc=tk_vars["submit_isrc"],
             album_mode=tk_vars["album_mode"],
             threshold=tk_vars["threshold"],
             max_length=tk_vars["max_length"],
@@ -129,6 +143,10 @@ class TestSetupFrameInit:
             on_browse_fpcalc=MagicMock(),
             on_save_api_key=MagicMock(),
             on_clear_api_key=MagicMock(),
+            mb_token=tk_vars["mb_token"],
+            mb_token_status=tk_vars["mb_token_status"],
+            on_save_mb_token=MagicMock(),
+            on_clear_mb_token=MagicMock(),
             title="Audio Fingerprinter",
             start_text="START FINGERPRINTING",
             on_start=MagicMock(),
@@ -149,6 +167,7 @@ class TestSetupFrameInit:
             mbid_region=tk_vars["mbid_region"],
             musicbrainz=tk_vars["musicbrainz"],
             write_isrc=tk_vars["write_isrc"],
+            submit_isrc=tk_vars["submit_isrc"],
             album_mode=tk_vars["album_mode"],
             threshold=tk_vars["threshold"],
             max_length=tk_vars["max_length"],
@@ -158,6 +177,10 @@ class TestSetupFrameInit:
             on_browse_fpcalc=MagicMock(),
             on_save_api_key=MagicMock(),
             on_clear_api_key=MagicMock(),
+            mb_token=tk_vars["mb_token"],
+            mb_token_status=tk_vars["mb_token_status"],
+            on_save_mb_token=MagicMock(),
+            on_clear_mb_token=MagicMock(),
             title="Audio Fingerprinter",
             start_text="START FINGERPRINTING",
             on_start=MagicMock(),
@@ -189,6 +212,7 @@ class TestAlbumModeCheckbox:
             mbid_region=tk_vars["mbid_region"],
             musicbrainz=tk_vars["musicbrainz"],
             write_isrc=tk_vars["write_isrc"],
+            submit_isrc=tk_vars["submit_isrc"],
             album_mode=tk_vars["album_mode"],
             threshold=tk_vars["threshold"],
             max_length=tk_vars["max_length"],
@@ -198,6 +222,10 @@ class TestAlbumModeCheckbox:
             on_browse_fpcalc=MagicMock(),
             on_save_api_key=MagicMock(),
             on_clear_api_key=MagicMock(),
+            mb_token=tk_vars["mb_token"],
+            mb_token_status=tk_vars["mb_token_status"],
+            on_save_mb_token=MagicMock(),
+            on_clear_mb_token=MagicMock(),
             title="Audio Fingerprinter",
             start_text="START FINGERPRINTING",
             on_start=MagicMock(),
@@ -224,6 +252,7 @@ class TestMbidCheckbox:
             mbid_region=tk_vars["mbid_region"],
             musicbrainz=tk_vars["musicbrainz"],
             write_isrc=tk_vars["write_isrc"],
+            submit_isrc=tk_vars["submit_isrc"],
             album_mode=tk_vars["album_mode"],
             threshold=tk_vars["threshold"],
             max_length=tk_vars["max_length"],
@@ -233,6 +262,10 @@ class TestMbidCheckbox:
             on_browse_fpcalc=MagicMock(),
             on_save_api_key=MagicMock(),
             on_clear_api_key=MagicMock(),
+            mb_token=tk_vars["mb_token"],
+            mb_token_status=tk_vars["mb_token_status"],
+            on_save_mb_token=MagicMock(),
+            on_clear_mb_token=MagicMock(),
             title="Audio Fingerprinter",
             start_text="START FINGERPRINTING",
             on_start=MagicMock(),
@@ -251,6 +284,40 @@ class TestMbidCheckbox:
         )
 
 
+def _make_frame(root, tk_vars):
+    """Build the Setup tab frame with the same wiring the app passes in."""
+    return _SetupFrame(
+        root,
+        lookup_enabled=tk_vars["lookup_enabled"],
+        write_tags=tk_vars["write_tags"],
+        write_mbids=tk_vars["write_mbids"],
+        mbid_region=tk_vars["mbid_region"],
+        musicbrainz=tk_vars["musicbrainz"],
+        write_isrc=tk_vars["write_isrc"],
+        submit_isrc=tk_vars["submit_isrc"],
+        album_mode=tk_vars["album_mode"],
+        threshold=tk_vars["threshold"],
+        max_length=tk_vars["max_length"],
+        fpcalc_path=tk_vars["fpcalc_path"],
+        api_key=tk_vars["api_key"],
+        api_key_status=tk_vars["api_key_status"],
+        on_browse_fpcalc=MagicMock(),
+        on_save_api_key=MagicMock(),
+        on_clear_api_key=MagicMock(),
+        mb_token=tk_vars["mb_token"],
+        mb_token_status=tk_vars["mb_token_status"],
+        on_save_mb_token=MagicMock(),
+        on_clear_mb_token=MagicMock(),
+        title="Audio Fingerprinter",
+        start_text="START FINGERPRINTING",
+        on_start=MagicMock(),
+        folder_path=tk_vars["folder_path"],
+        run_mode=tk_vars["run_mode"],
+        auto_start_var=tk_vars["auto_start_var"],
+        auto_end_var=tk_vars["auto_end_var"],
+    )
+
+
 class TestMusicBrainzCheckboxes:
     """The enrichment toggles must bind the vars the app passes in.
 
@@ -259,35 +326,8 @@ class TestMusicBrainzCheckboxes:
     the binding is asserted by variable identity, not by label text alone.
     """
 
-    def _frame(self, root, tk_vars):
-        return _SetupFrame(
-            root,
-            lookup_enabled=tk_vars["lookup_enabled"],
-            write_tags=tk_vars["write_tags"],
-            write_mbids=tk_vars["write_mbids"],
-            mbid_region=tk_vars["mbid_region"],
-            musicbrainz=tk_vars["musicbrainz"],
-            write_isrc=tk_vars["write_isrc"],
-            album_mode=tk_vars["album_mode"],
-            threshold=tk_vars["threshold"],
-            max_length=tk_vars["max_length"],
-            fpcalc_path=tk_vars["fpcalc_path"],
-            api_key=tk_vars["api_key"],
-            api_key_status=tk_vars["api_key_status"],
-            on_browse_fpcalc=MagicMock(),
-            on_save_api_key=MagicMock(),
-            on_clear_api_key=MagicMock(),
-            title="Audio Fingerprinter",
-            start_text="START FINGERPRINTING",
-            on_start=MagicMock(),
-            folder_path=tk_vars["folder_path"],
-            run_mode=tk_vars["run_mode"],
-            auto_start_var=tk_vars["auto_start_var"],
-            auto_end_var=tk_vars["auto_end_var"],
-        )
-
     def test_musicbrainz_checkbutton_bound_to_var(self, root, tk_vars):
-        frame = self._frame(root, tk_vars)
+        frame = _make_frame(root, tk_vars)
         buttons = _find_checkbuttons(frame)
         matched = [
             b for b in buttons if str(b.cget("variable")) == str(tk_vars["musicbrainz"])
@@ -296,7 +336,7 @@ class TestMusicBrainzCheckboxes:
         assert any("MusicBrainz" in str(b.cget("text")) for b in matched)
 
     def test_write_isrc_checkbutton_bound_to_var(self, root, tk_vars):
-        frame = self._frame(root, tk_vars)
+        frame = _make_frame(root, tk_vars)
         buttons = _find_checkbuttons(frame)
         matched = [
             b for b in buttons if str(b.cget("variable")) == str(tk_vars["write_isrc"])
@@ -307,7 +347,7 @@ class TestMusicBrainzCheckboxes:
     def test_checkbox_states_reflect_the_vars(self, root, tk_vars):
         # A pre-fill (CLI flag / restored config) sets the variable, not the
         # widget, so the widget must be drawing the same variable the app sets.
-        frame = self._frame(root, tk_vars)
+        frame = _make_frame(root, tk_vars)
         tk_vars["musicbrainz"].set(True)
         tk_vars["write_isrc"].set(True)
         buttons = _find_checkbuttons(frame)
@@ -315,3 +355,66 @@ class TestMusicBrainzCheckboxes:
         for name in ("musicbrainz", "write_isrc"):
             widget = bound[str(tk_vars[name])]
             assert int(widget.getvar(str(widget.cget("variable")))) == 1
+
+
+def _find_widgets(widget: tk.Widget, kind: type) -> list[tk.Widget]:
+    """Recursively collect every widget of *kind* under a widget."""
+    found: list[tk.Widget] = []
+    for child in widget.winfo_children():
+        if isinstance(child, kind):
+            found.append(child)
+        found.extend(_find_widgets(child, kind))
+    return found
+
+
+class TestSubmitIsrcControls:
+    """The ISRC submission toggle and token controls bind the app's vars.
+
+    The token is deliberately absent from argv, so the Setup tab is the only
+    in-app way to configure it; a control bound to a different variable would
+    look right and never reach the store.
+    """
+
+    def test_submit_checkbutton_binds_var(self, root, tk_vars):
+        frame = _make_frame(root, tk_vars)
+        bound = [
+            b
+            for b in _find_checkbuttons(frame)
+            if str(b.cget("variable")) == str(tk_vars["submit_isrc"])
+        ]
+        assert bound, "Submit ISRCs checkbox must bind the submit_isrc var"
+        assert any("Submit the files' own ISRCs" in str(b.cget("text")) for b in bound)
+
+    def test_submit_checkbox_reflects_prefill(self, root, tk_vars):
+        # A CLI/argv pre-fill sets the variable, never the widget, so the
+        # widget must be drawing the variable the app actually sets.
+        frame = _make_frame(root, tk_vars)
+        tk_vars["submit_isrc"].set(True)
+        bound = {str(b.cget("variable")): b for b in _find_checkbuttons(frame)}[
+            str(tk_vars["submit_isrc"])
+        ]
+        assert int(bound.getvar(str(bound.cget("variable")))) == 1
+
+    def test_token_entry_binds_the_token_var(self, root, tk_vars):
+        frame = _make_frame(root, tk_vars)
+        entries = [
+            w
+            for w in _find_widgets(frame, tk.Entry)
+            if str(w.cget("textvariable")) == str(tk_vars["mb_token"])
+        ]
+        assert entries, "MusicBrainz token entry must bind the mb_token var"
+
+    def test_token_status_label_binds_the_status_var(self, root, tk_vars):
+        frame = _make_frame(root, tk_vars)
+        labels = [
+            w
+            for w in _find_widgets(frame, tk.Label)
+            if str(w.cget("textvariable")) == str(tk_vars["mb_token_status"])
+        ]
+        assert labels, "token status label must bind the mb_token_status var"
+
+    def test_token_buttons_exist(self, root, tk_vars):
+        frame = _make_frame(root, tk_vars)
+        texts = {str(b.cget("text")) for b in _find_widgets(frame, tk.Button)}
+        assert "Save Token" in texts
+        assert "Clear" in texts

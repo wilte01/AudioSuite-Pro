@@ -19,12 +19,17 @@ Conventions deliberately mirror ``acoustid_client`` and the CD Ripper's
   tracks on one release costs one recording request per track plus *one*
   release request, not one per file.
 
-Only reads are implemented here; ISRC submission lives in the same module but
-is added by Item 2.3 of ``PLAN_feature_expansion.md``.
+ISRC submission lives here too: :func:`build_isrc_submission_xml` renders the
+MMD 2.0 document MusicBrainz accepts and :meth:`MusicBrainzClient.submit_isrcs`
+POSTs it to ``/ws/2/recording/?client=…``.  The submission body is XML only —
+MusicBrainz's JSON service is read-only — and needs either an OAuth bearer token
+(scope ``submit_isrc``) or the legacy application token over HTTP Digest.
+Building the payload is a pure function so a dry run can render the exact bytes
+a live run would send without contacting the service.
 
 Changed in 1.2.0: new module — MusicBrainz lookup by MBID, recording ISRCs,
-release-level facts, and the MusicBrainz near-tie tie-break
-(PLAN_feature_expansion.md D28, D31).
+release-level facts, the MusicBrainz near-tie tie-break, and token-based ISRC
+submission (PLAN_feature_expansion.md D28, D31, D27).
 """
 
 from __future__ import annotations
@@ -34,8 +39,10 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypeVar
+from urllib.parse import quote
 
 import requests
+from requests.auth import HTTPDigestAuth
 
 from audio_suite_shared.project_version import declared_version
 
@@ -58,6 +65,24 @@ REQUESTS_PER_SECOND = 1.0
 #: MusicBrainz requires a meaningful User-Agent identifying the application.
 CONTACT_URL = "https://github.com/audio-suite"
 USER_AGENT = f"AudioSuite-Pro/{declared_version()} ( {CONTACT_URL} )"
+#: ``client`` query parameter: the submitting application and its version.
+#: Mandatory on every submission — including OAuth-authenticated ones — and it
+#: belongs in the URL, never in the XML body.
+CLIENT_PARAM = f"audio-suite-pro-{declared_version()}"
+#: Submission endpoint, relative to the WS/2 base.  The trailing slash is part
+#: of the documented URL (``/ws/2/recording/?client=…``).
+SUBMIT_PATH = "recording/"
+#: A successful submission is an *edit*, not a write: MusicBrainz keeps new
+#: edits open for review before they apply.
+EDIT_REVIEW_DAYS = 7
+
+#: ISRCs as MusicBrainz stores them: 12 characters, upper case, no separators.
+#: Two letter country, three character registrant, then seven digits (a two
+#: digit year plus a five digit designation).  This is the service's own
+#: submission validator, so a value that passes here is one it will accept.
+_ISRC_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$")
+#: Separators the display form (``CC-XXX-YY-NNNNN``) may carry.
+_ISRC_SEPARATORS_RE = re.compile(r"[\s-]+")
 
 #: Includes for a recording lookup: ISRCs (the point of the request), the
 #: artist credit, and the releases + release groups used by the tie-break.
@@ -87,6 +112,20 @@ _MBID_RE = re.compile(
 _TIE_BREAK_MAX_CANDIDATES = 2
 
 MBStatus = Literal["ok", "not found", "offline", "invalid id"]
+#: ``ok`` — accepted as a pending edit; ``nothing to submit`` — no codes left
+#: after removing what MusicBrainz already has; ``no auth`` — no usable token,
+#: so no request was made; ``rejected`` — the service refused the payload
+#: (HTTP 400: invalid ISRC or recording MBID); ``not authorised`` — the token
+#: is missing the ``submit_isrc`` scope, was revoked, or the account's email is
+#: unverified; ``offline`` — network, throttle or unexpected HTTP failure.
+ISRCSubmitStatus = Literal[
+    "ok",
+    "nothing to submit",
+    "no auth",
+    "rejected",
+    "not authorised",
+    "offline",
+]
 _T = TypeVar("_T")
 
 
@@ -103,6 +142,68 @@ def is_valid_mbid(value: str) -> bool:
         True for a canonical 36-character UUID string.
     """
     return bool(_MBID_RE.match(value.strip()))
+
+
+def normalize_isrc(value: str) -> str:
+    """Return *value* in the form MusicBrainz stores and accepts.
+
+    Tags frequently carry the display form (``CC-XXX-YY-NNNNN``); the service
+    takes the compact upper-case form only, so hyphens and whitespace are
+    stripped and the code upper-cased.  Nothing else is changed, so a value
+    that is simply wrong stays wrong and :func:`isrc_error` can say why.
+
+    Args:
+        value: A candidate ISRC in either form.
+
+    Returns:
+        The compact, upper-cased candidate (possibly still invalid).
+    """
+    return _ISRC_SEPARATORS_RE.sub("", value.strip()).upper()
+
+
+def is_valid_isrc(value: str) -> bool:
+    """Return whether *value* is an ISRC MusicBrainz would accept.
+
+    Args:
+        value: Candidate ISRC in display or compact form.
+
+    Returns:
+        True for a compact, upper-case 12-character ISRC.
+    """
+    return bool(_ISRC_RE.match(normalize_isrc(value)))
+
+
+def isrc_error(value: str) -> str:
+    """Explain why *value* cannot be submitted as an ISRC, or return ``""``.
+
+    One helper serves both the per-file report and the pre-submission check, so
+    the reason a code is refused is written exactly once.  Validation is local
+    and structural only: it cannot know whether a registrant code is assigned,
+    but it can catch the mistakes tags actually carry (a truncated code, a
+    letter where the designation needs a digit).
+
+    Args:
+        value: Candidate ISRC in display or compact form.
+
+    Returns:
+        An empty string when the code is submittable, otherwise a sentence
+        naming the defect.
+    """
+    cleaned = normalize_isrc(value)
+    if not cleaned:
+        return "the ISRC is empty"
+    if len(cleaned) != 12:
+        return (
+            f"{value.strip()!r} is not an ISRC: expected 12 characters "
+            "(CC-XXX-YY-NNNNN), "
+            f"got {len(cleaned)} after removing separators"
+        )
+    if not _ISRC_RE.match(cleaned):
+        return (
+            f"{value.strip()!r} is not an ISRC: expected two letters, three "
+            "letters or digits, then seven digits (CC-XXX-YY-NNNNN)"
+        )
+    return ""
 
 
 @dataclass(frozen=True)
@@ -145,6 +246,96 @@ class MBTieBreak:
     recording: AcoustidRecording
     resolved: bool = False
     evidence: str = ""
+
+
+@dataclass(frozen=True)
+class ISRCSubmission:
+    """ISRCs one file wants MusicBrainz to attach to a recording.
+
+    Attributes:
+        recording_id: MusicBrainz recording MBID the codes belong to.
+        isrcs: Candidate ISRCs, in any form — they are normalised and
+            validated when the payload is built.  Empty means the file had
+            nothing new to say.
+    """
+
+    recording_id: str
+    isrcs: tuple[str, ...] = ()
+
+
+MBAAuthMethod = Literal["oauth", "app-token"]
+
+
+@dataclass(frozen=True)
+class MBAuth:
+    """Credentials for a MusicBrainz submission.
+
+    Args:
+        token: OAuth access token (scope ``submit_isrc``) or, for
+            ``method="app-token"``, a legacy application token.
+        method: ``"oauth"`` sends ``Authorization: Bearer <token>``;
+            ``"app-token"`` uses HTTP Digest with the account's username and
+            the application token in place of the password.  Digest is
+            deprecated by MusicBrainz (removal announced for 2027-08-01) and
+            remains only for accounts that already generated a token.
+        username: MusicBrainz account name — required by ``app-token`` only.
+    """
+
+    token: str = ""
+    method: MBAAuthMethod = "oauth"
+    username: str = ""
+
+    @property
+    def problem(self) -> str:
+        """Return why these credentials cannot submit, or ``""`` if they can.
+
+        One property feeds the GUI pre-flight, the CLI guard and the client's
+        refusal, so the three can never phrase the same gap differently.
+        """
+        if not self.token.strip():
+            return (
+                "No MusicBrainz token is configured. Set MUSICBRAINZ_TOKEN or "
+                "store an OAuth token with the submit_isrc scope."
+            )
+        if self.method == "app-token" and not self.username.strip():
+            return (
+                "Legacy app-token submission needs the MusicBrainz username "
+                "(--mb-user): digest authentication sends both."
+            )
+        return ""
+
+    @property
+    def describe(self) -> str:
+        """Short label for logs — the method, never the secret."""
+        return (
+            "OAuth bearer token"
+            if self.method == "oauth"
+            else f"application token (digest, user {self.username})"
+        )
+
+
+@dataclass(frozen=True)
+class ISRCSubmitResult:
+    """Outcome of one ISRC submission attempt.
+
+    Attributes:
+        status: See :data:`ISRCSubmitStatus`.
+        recordings: Recordings in the payload (0 when nothing was sent).
+        isrcs: ISRCs in the payload (0 when nothing was sent).
+        url: The POST target, for the log and for reproduction.
+        reason: Human-readable failure text (empty on success).
+    """
+
+    status: ISRCSubmitStatus
+    recordings: int = 0
+    isrcs: int = 0
+    url: str = ""
+    reason: str = ""
+
+    @property
+    def ok(self) -> bool:
+        """Whether the service accepted the submission."""
+        return self.status == "ok"
 
 
 @dataclass(frozen=True)
@@ -399,6 +590,86 @@ def parse_release(payload: Mapping[str, Any]) -> MBReleaseFacts:
     )
 
 
+def _normalise_submissions(
+    submissions: Sequence[ISRCSubmission],
+) -> dict[str, tuple[str, ...]]:
+    """Group submissions by recording, validating and ordering every value.
+
+    The single validation point for a payload: a bad MBID or ISRC raises here,
+    before any bytes reach the wire, and both the dry-run renderer and the live
+    POST go through it.  Grouping merges two files that matched the same
+    recording, which also removes an ISRC two files both carry.
+
+    Args:
+        submissions: One entry per file (or per recording).
+
+    Returns:
+        ``{recording_id: sorted ISRCs}`` sorted by recording id, so the same
+        input always produces the same payload bytes.
+
+    Raises:
+        ValueError: If a recording id is not an MBID, or an ISRC is invalid.
+    """
+    grouped: dict[str, set[str]] = {}
+    for submission in submissions:
+        recording_id = submission.recording_id.strip().lower()
+        if not is_valid_mbid(recording_id):
+            raise ValueError(
+                f"Cannot submit ISRCs: {submission.recording_id!r} is not a "
+                "MusicBrainz recording id (expected a 36-character UUID)."
+            )
+        codes = grouped.setdefault(recording_id, set())
+        for value in submission.isrcs:
+            problem = isrc_error(value)
+            if problem:
+                raise ValueError(f"Cannot submit ISRCs: {problem}.")
+            codes.add(normalize_isrc(value))
+    return {
+        recording_id: tuple(sorted(codes))
+        for recording_id, codes in sorted(grouped.items())
+        if codes
+    }
+
+
+def build_isrc_submission_xml(submissions: Sequence[ISRCSubmission]) -> str:
+    """Render ISRC submissions as the MMD 2.0 document MusicBrainz accepts.
+
+    This is the whole submission body.  It is a pure function of its input, and
+    :meth:`MusicBrainzClient.submit_isrcs` posts exactly this string, so a dry
+    run that shows it is showing the live request byte for byte.
+
+    Ordering is normalised (recordings and their ISRCs sorted), because files
+    are processed in parallel and an unordered payload could not be shown ahead
+    of time and then matched later.
+
+    Args:
+        submissions: One entry per file or recording.
+
+    Returns:
+        The XML body, ending in a newline; ``""`` when nothing is left to
+        submit (an empty document must never be posted).
+
+    Raises:
+        ValueError: If a recording id is not an MBID, or an ISRC is invalid —
+            the service would answer 400, and a local reason is more useful.
+    """
+    groups = _normalise_submissions(submissions)
+    if not groups:
+        return ""
+    lines = ['<metadata xmlns="http://musicbrainz.org/ns/mmd-2.0#">']
+    lines.append("  <recording-list>")
+    for recording_id, isrcs in groups.items():
+        lines.append(f'    <recording id="{recording_id}">')
+        lines.append(f'      <isrc-list count="{len(isrcs)}">')
+        for isrc in isrcs:
+            lines.append(f'        <isrc id="{isrc}"/>')
+        lines.append("      </isrc-list>")
+        lines.append("    </recording>")
+    lines.append("  </recording-list>")
+    lines.append("</metadata>")
+    return "\n".join(lines) + "\n"
+
+
 def parse_artist(payload: Mapping[str, Any]) -> MBArtist:
     """Parse a WS/2 artist lookup body into an :class:`MBArtist`.
 
@@ -435,6 +706,7 @@ class MusicBrainzClient:
         base_url: WS/2 base URL (override for tests).
         user_agent: User-Agent sent with every request.
         session: Optional pre-built ``requests.Session`` (tests inject one).
+        client_param: Value of the mandatory ``client`` query parameter.
 
     Attributes:
         requests_issued: Number of HTTP requests this instance has attempted,
@@ -449,12 +721,17 @@ class MusicBrainzClient:
         base_url: str = MUSICBRAINZ_WS_BASE,
         user_agent: str = USER_AGENT,
         session: requests.Session | None = None,
+        client_param: str = CLIENT_PARAM,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._rate_limiter = RateLimiter(1.0 / max(requests_per_second, 0.01))
         self._session = session or requests.Session()
         self._session.headers.update({"User-Agent": user_agent})
+        self._submit_url = (
+            f"{self._base_url}/{SUBMIT_PATH}"
+            f"?client={quote(client_param.strip(), safe='')}"
+        )
         self._recording_cache: dict[str, MBResult[MBRecording]] = {}
         self._release_cache: dict[str, MBResult[MBReleaseFacts]] = {}
         self._artist_cache: dict[str, MBResult[MBArtist]] = {}
@@ -516,6 +793,136 @@ class MusicBrainzClient:
                 f"artist/{key}", {"inc": " ".join(ARTIST_INCLUDES)}
             ),
             parse_artist,
+        )
+
+    # ── Submission ────────────────────────────────────────────────────────
+
+    def submit_isrcs(
+        self,
+        submissions: Sequence[ISRCSubmission],
+        auth: MBAuth,
+    ) -> ISRCSubmitResult:
+        """Attach ISRCs to their recordings, as a pending MusicBrainz edit.
+
+        The body is :func:`build_isrc_submission_xml` of the same submissions,
+        so a caller that showed a preview showed this request.  A successful
+        response is an *edit* awaiting review — the codes are not on the
+        recording yet.
+
+        Args:
+            submissions: ISRCs to add, one entry per file or recording.
+            auth: OAuth token or legacy application-token credentials.
+
+        Returns:
+            An :class:`ISRCSubmitResult`.  Nothing is sent when every ISRC is
+            already registered (``nothing to submit``) or when no usable token
+            is configured (``no auth``) — neither is an error, and neither
+            spends an edit on a no-op.
+        """
+        groups = _normalise_submissions(submissions)
+        recordings = len(groups)
+        isrcs = sum(len(codes) for codes in groups.values())
+        if not groups:
+            return ISRCSubmitResult(
+                status="nothing to submit",
+                url=self._submit_url,
+                reason="Every ISRC in these files is already registered.",
+            )
+        problem = auth.problem
+        if problem:
+            return ISRCSubmitResult(
+                status="no auth",
+                recordings=recordings,
+                isrcs=isrcs,
+                url=self._submit_url,
+                reason=problem,
+            )
+
+        body = build_isrc_submission_xml(submissions)
+        headers = {
+            "Content-Type": "application/xml; charset=UTF-8",
+            "Accept": "application/xml",
+        }
+        request_kwargs: dict[str, Any] = {
+            "data": body.encode("utf-8"),
+            "timeout": self._timeout,
+            "headers": headers,
+        }
+        if auth.method == "oauth":
+            headers["Authorization"] = f"Bearer {auth.token.strip()}"
+        else:
+            request_kwargs["auth"] = HTTPDigestAuth(
+                auth.username.strip(), auth.token.strip()
+            )
+
+        self.requests_issued += 1
+        self._rate_limiter.wait_for_slot()
+        logger.info(
+            "Submitting %d ISRC(s) for %d recording(s) to MusicBrainz (%s)",
+            isrcs,
+            recordings,
+            auth.describe,
+        )
+        try:
+            response = self._session.post(self._submit_url, **request_kwargs)
+        except requests.RequestException as exc:
+            logger.warning("MusicBrainz ISRC submission failed: %s", exc)
+            return ISRCSubmitResult(
+                status="offline",
+                recordings=recordings,
+                isrcs=isrcs,
+                url=self._submit_url,
+                reason=f"Network error submitting to MusicBrainz: {exc}",
+            )
+
+        status_code = response.status_code
+        if status_code == 200:
+            return ISRCSubmitResult(
+                status="ok",
+                recordings=recordings,
+                isrcs=isrcs,
+                url=self._submit_url,
+            )
+        if status_code in (401, 403):
+            return ISRCSubmitResult(
+                status="not authorised",
+                recordings=recordings,
+                isrcs=isrcs,
+                url=self._submit_url,
+                reason=(
+                    f"MusicBrainz refused the submission (HTTP {status_code}): "
+                    "the token needs the submit_isrc scope, may be expired, and "
+                    "the account's email address must be verified."
+                ),
+            )
+        if status_code == 400:
+            return ISRCSubmitResult(
+                status="rejected",
+                recordings=recordings,
+                isrcs=isrcs,
+                url=self._submit_url,
+                reason=(
+                    "MusicBrainz rejected the submission as invalid (HTTP 400): "
+                    "check the ISRCs and recording ids in the payload."
+                ),
+            )
+        if status_code == 503:
+            return ISRCSubmitResult(
+                status="offline",
+                recordings=recordings,
+                isrcs=isrcs,
+                url=self._submit_url,
+                reason=(
+                    "MusicBrainz asked the client to slow down (HTTP 503); "
+                    "nothing was submitted — retry later."
+                ),
+            )
+        return ISRCSubmitResult(
+            status="offline",
+            recordings=recordings,
+            isrcs=isrcs,
+            url=self._submit_url,
+            reason=f"MusicBrainz returned HTTP {status_code}; nothing was submitted.",
         )
 
     # ── Internals ─────────────────────────────────────────────────────────
@@ -722,8 +1129,15 @@ def resolve_ambiguous_with_mb(
 
 __all__ = [
     "ARTIST_INCLUDES",
+    "CLIENT_PARAM",
     "CONTACT_URL",
     "DEFAULT_TIMEOUT_SECS",
+    "EDIT_REVIEW_DAYS",
+    "ISRCSubmission",
+    "ISRCSubmitResult",
+    "ISRCSubmitStatus",
+    "MBAAuthMethod",
+    "MBAuth",
     "MBResult",
     "MBStatus",
     "MBTieBreak",
@@ -732,8 +1146,13 @@ __all__ = [
     "RECORDING_INCLUDES",
     "RELEASE_INCLUDES",
     "REQUESTS_PER_SECOND",
+    "SUBMIT_PATH",
     "USER_AGENT",
+    "build_isrc_submission_xml",
+    "is_valid_isrc",
     "is_valid_mbid",
+    "isrc_error",
+    "normalize_isrc",
     "parse_artist",
     "parse_recording",
     "parse_release",

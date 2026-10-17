@@ -9,6 +9,8 @@ Positional + named-flag layout heeded by the Master Driver:
     --mbid-region CC      - preferred release country when writing MBIDs
     --musicbrainz         - enrich matches from the MusicBrainz database
     --write-isrc          - also write the retrieved ISRCs (needs both above)
+    --submit-isrc         - submit the files' own ISRCs to MusicBrainz
+    --mb-auth / --mb-user - submission auth method (and username for digest)
     --threshold VALUE     - minimum AcoustID match score (0.0-1.0)
     --max-length VALUE    - fpcalc analysis window in seconds
     --fpcalc PATH         - explicit fpcalc binary path
@@ -20,12 +22,17 @@ Positional + named-flag layout heeded by the Master Driver:
                         --parallel-run|--no-parallel-run
 
 Changed in 1.2.0: parses ``--musicbrainz`` / ``--write-isrc`` into
-``FingerprintArgs`` and ``FingerprintParams``.
+``FingerprintArgs`` and ``FingerprintParams``, and ``--submit-isrc`` /
+``--mb-auth`` / ``--mb-user`` for ISRC submission (Sprint 2 Items 2.1, 2.3).
+
+The submission token itself is not accepted here: it resolves from
+``MUSICBRAINZ_TOKEN`` or the encrypted store, never from argv.
 """
 
 import os
 import sys
 from dataclasses import dataclass
+from typing import cast
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
 from audio_suite_shared.cli_helpers import (
@@ -37,6 +44,7 @@ from audio_suite_shared.cli_helpers import (
 )
 
 from ..core.models import FingerprintParams
+from ..core.musicbrainz_client import MBAAuthMethod
 
 # Byte-exact per-tool handshake subset: the pre-change ladder handled --start
 # but had no --no-start branch (that token skipped the loop), mirrored here so
@@ -70,6 +78,9 @@ class FingerprintArgs(BaseCLIArgs):
     mbid_region: str = ""
     musicbrainz: bool = False
     write_isrc: bool = False
+    submit_isrc: bool = False
+    mb_auth: MBAAuthMethod = "oauth"
+    mb_user: str = ""
     clear_logs: bool = False  # Display only — driver-owned orchestration flag
     parallel_run: bool = False  # Display only — driver-owned orchestration flag
 
@@ -90,6 +101,7 @@ class FingerprintArgs(BaseCLIArgs):
             mbid_region=self.mbid_region,
             musicbrainz=self.musicbrainz,
             write_isrc=self.write_isrc,
+            submit_isrc=self.submit_isrc,
         )
 
 
@@ -159,6 +171,20 @@ def parse(argv: list[str] | None = None) -> FingerprintArgs:
         elif arg == "--no-write-isrc":
             args.write_isrc = False
             i += 1
+        elif arg == "--submit-isrc":
+            args.submit_isrc = True
+            i += 1
+        elif arg == "--no-submit-isrc":
+            args.submit_isrc = False
+            i += 1
+        elif arg == "--mb-auth" and i + 1 < len(argv):
+            auth_method = argv[i + 1].strip().lower()
+            if auth_method in ("oauth", "app-token"):
+                args.mb_auth = cast(MBAAuthMethod, auth_method)
+            i += 2
+        elif arg == "--mb-user" and i + 1 < len(argv):
+            args.mb_user = argv[i + 1]
+            i += 2
         elif arg == "--mbid-region" and i + 1 < len(argv):
             args.mbid_region = argv[i + 1].strip().upper()
             i += 2

@@ -270,7 +270,8 @@ audiosuite fingerprint <directory> [--lookup/--no-lookup]
     [--write-tags/--no-write-tags] [--threshold N] [--max-length N]
     [--album-mode/--no-album-mode] [--album-min N] [--mbid-region CC]
     [--musicbrainz/--no-musicbrainz] [--write-isrc/--no-write-isrc]
-    [--json] [--dry]
+    [--submit-isrc/--no-submit-isrc] [--mb-auth oauth|app-token]
+    [--mb-user USER] [--json] [--dry]
 ```
 
 - `--lookup` (default: on) — query AcoustID for each fingerprint. Without an
@@ -293,12 +294,27 @@ audiosuite fingerprint <directory> [--lookup/--no-lookup]
   native convention (`TSRC` for MP3/WAV/AIFF/DSF, `----:com.apple.iTunes:ISRC`
   for M4A/MP4, an `ISRC` comment/item for FLAC/OGG/Opus/WV/APE/MPC). Requires
   `--musicbrainz`, `--write-tags` and live mode.
+- `--submit-isrc` (default: off) — submit the ISRCs the files' own tags carry
+  to MusicBrainz for their matched recording, skipping codes already
+  registered. Requires `--musicbrainz` (the recording lookup is what identifies
+  the known codes). In dry mode the exact XML payload is printed and nothing is
+  posted; live mode needs a token from `MUSICBRAINZ_TOKEN` or the encrypted
+  store. The token is never accepted as a flag: argv is visible in process
+  listings and shell history.
+- `--mb-auth oauth|app-token` (default: `oauth`) — how the submission is
+  authenticated. `oauth` sends the token as a bearer token (scope
+  `submit_isrc`); `app-token` uses a legacy application token over HTTP Digest,
+  which MusicBrainz has deprecated.
+- `--mb-user USER` — MusicBrainz account name, required only by
+  `--mb-auth app-token` (digest sends both a username and the token).
 
 **Examples:**
 ```bash
 audiosuite fingerprint "D:\Music\Unknown-Arm" --dry
 audiosuite fingerprint "D:\Music\Unknown-Arm" --live --write-tags --musicbrainz
 audiosuite fingerprint "D:\Music\Unknown-Arm" --live --write-tags --musicbrainz --write-isrc --json
+audiosuite fingerprint "D:\Music\Ripped-CD" --musicbrainz --submit-isrc --dry
+audiosuite fingerprint "D:\Music\Ripped-CD" --musicbrainz --submit-isrc --live
 ```
 
 ## All Commands

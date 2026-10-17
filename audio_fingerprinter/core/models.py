@@ -6,8 +6,9 @@ share one serialisation path.
 
 Changed in 1.2.0: adds the MusicBrainz enrichment models (``MBReleaseFacts``,
 ``MBRecording``, ``MBEnrichment``), the ``Release.date`` field, the
-``musicbrainz`` / ``write_isrc`` runtime flags, and the ISRC/enrichment fields
-on ``FingerprintFileResult`` (PLAN_feature_expansion.md D28, D29, D31).
+``musicbrainz`` / ``write_isrc`` / ``submit_isrc`` runtime flags, and the
+ISRC/enrichment fields on ``FingerprintFileResult``
+(PLAN_feature_expansion.md D28, D29, D31, D27).
 """
 
 from dataclasses import asdict, dataclass, field
@@ -373,6 +374,12 @@ class FingerprintParams:
         write_isrc: Write the retrieved ISRCs as tags.  Opt-in, off by default,
             additive to the AcoustID tags and governed by ``write_tags`` and
             ``is_dry_run`` exactly like ``write_mbids``.
+        submit_isrc: Submit the ISRCs the *files' own tags* carry to
+            MusicBrainz, as a pending edit on the matched recording.  Opt-in
+            and off by default; requires ``musicbrainz`` (the recording lookup
+            is what tells the run which codes are already registered).  In a
+            dry run the exact XML payload is rendered and logged instead of
+            posted, so the preview is the live request.
     """
 
     lookup_enabled: bool = True
@@ -388,6 +395,7 @@ class FingerprintParams:
     mbid_region: str = ""
     musicbrainz: bool = False
     write_isrc: bool = False
+    submit_isrc: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -414,6 +422,10 @@ class FingerprintFileResult:
         fingerprint: The generated Chromaprint string.
         acoustid_id: AcoustID id of the best match (empty when unmatched).
         tag_written: Whether the AcoustID tags were written to disk.
+        recording_id: MusicBrainz recording MBID this file matched (empty when
+            unmatched).  The identity ISRC submission attaches codes to, and
+            the one field a result needs besides its own tags to say what is
+            already registered.
         isrcs: ISRCs retrieved for the matched recording (empty when the
             MusicBrainz enrichment is off, unavailable, or reports none).
         mb: MusicBrainz enrichment for this file, or None when enrichment was
@@ -429,6 +441,7 @@ class FingerprintFileResult:
     acoustid_id: str = ""
     recordings: tuple[AcoustidRecording, ...] = field(default_factory=tuple)
     tag_written: bool = False
+    recording_id: str = ""
     isrcs: tuple[str, ...] = ()
     mb: MBEnrichment | None = None
 
@@ -443,6 +456,7 @@ class FingerprintFileResult:
             "acoustid_id": self.acoustid_id,
             "tag_written": self.tag_written,
             "recordings": [r.to_dict() for r in self.recordings],
+            "recording_id": self.recording_id,
             "isrcs": list(self.isrcs),
             "musicbrainz": self.mb.to_dict() if self.mb else None,
         }

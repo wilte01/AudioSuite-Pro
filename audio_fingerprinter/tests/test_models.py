@@ -1,4 +1,8 @@
-"""Tests for audio_fingerprinter.core.models."""
+"""Tests for audio_fingerprinter.core.models.
+
+Changed in 1.2.0: covers the ``recording_id`` result field and the
+``submit_isrc`` runtime flag (Sprint 2 Item 2.3).
+"""
 
 from audio_fingerprinter.core.models import (
     AcoustidRecording,
@@ -212,6 +216,8 @@ class TestFingerprintParams:
         assert p.album_min == 3
         assert p.write_mbids is False
         assert p.mbid_region == ""
+        # Submitting edits to MusicBrainz is opt-in like every other write.
+        assert p.submit_isrc is False
 
     def test_to_dict_roundtrip(self):
         p = FingerprintParams(threshold=0.7, max_length=180)
@@ -251,3 +257,22 @@ class TestFingerprintFileResult:
         assert d["status"] == "MATCHED"
         assert d["acoustid_id"] == "abc123"
         assert isinstance(d["recordings"], list)
+
+    def test_recording_id_defaults_empty_and_serialises(self):
+        # ISRC submission attaches codes to this id, so it has to survive
+        # serialisation rather than being inferred from the candidate list.
+        plain = FingerprintFileResult(
+            file_path="/x/a.mp3", filename="a.mp3", status="MATCHED"
+        )
+        assert plain.recording_id == ""
+        assert plain.to_dict()["recording_id"] == ""
+
+        matched = FingerprintFileResult(
+            file_path="/x/a.mp3",
+            filename="a.mp3",
+            status="MATCHED",
+            recording_id="b0f1c1c8-3a4d-4c1b-9d1e-1a2b3c4d5e6f",
+        )
+        assert (
+            matched.to_dict()["recording_id"] == "b0f1c1c8-3a4d-4c1b-9d1e-1a2b3c4d5e6f"
+        )

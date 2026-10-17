@@ -7,7 +7,8 @@ API key (encrypted persistence), lookup toggle, tag-writing toggle, score
 threshold, fpcalc max-length, and the fpcalc binary path.
 
 Changed in 1.2.0: adds the MusicBrainz enrichment and ISRC tag-write toggles
-(Sprint 2 Item 2.1).
+(Sprint 2 Item 2.1) and the ISRC submission toggle with its encrypted OAuth
+token (Sprint 2 Item 2.3).
 """
 
 import tkinter as tk
@@ -31,6 +32,7 @@ def build(
     mbid_region: tk.StringVar,
     musicbrainz: tk.BooleanVar,
     write_isrc: tk.BooleanVar,
+    submit_isrc: tk.BooleanVar,
     album_mode: tk.BooleanVar,
     threshold: tk.StringVar,
     max_length: tk.StringVar,
@@ -41,6 +43,10 @@ def build(
     on_browse_fpcalc: Callable[[], None] | None,
     on_save_api_key: Callable[[], None] | None,
     on_clear_api_key: Callable[[], None] | None,
+    mb_token: tk.StringVar,
+    mb_token_status: tk.StringVar,
+    on_save_mb_token: Callable[[], None] | None,
+    on_clear_mb_token: Callable[[], None] | None,
     on_start: Callable[..., Any],
     driver_locked: bool = False,
 ) -> dict[str, Any]:
@@ -72,6 +78,7 @@ def build(
         mbid_region=mbid_region,
         musicbrainz=musicbrainz,
         write_isrc=write_isrc,
+        submit_isrc=submit_isrc,
         album_mode=album_mode,
         threshold=threshold,
         max_length=max_length,
@@ -81,6 +88,10 @@ def build(
         on_browse_fpcalc=on_browse_fpcalc,
         on_save_api_key=on_save_api_key,
         on_clear_api_key=on_clear_api_key,
+        mb_token=mb_token,
+        mb_token_status=mb_token_status,
+        on_save_mb_token=on_save_mb_token,
+        on_clear_mb_token=on_clear_mb_token,
     )
     return {
         "start_btn": frame.start_btn,
@@ -102,6 +113,7 @@ class _SetupFrame(BaseSetupFrame):
         mbid_region: tk.StringVar,
         musicbrainz: tk.BooleanVar,
         write_isrc: tk.BooleanVar,
+        submit_isrc: tk.BooleanVar,
         album_mode: tk.BooleanVar,
         threshold: tk.StringVar,
         max_length: tk.StringVar,
@@ -111,6 +123,10 @@ class _SetupFrame(BaseSetupFrame):
         on_browse_fpcalc: Callable[[], None] | None,
         on_save_api_key: Callable[[], None] | None,
         on_clear_api_key: Callable[[], None] | None,
+        mb_token: tk.StringVar,
+        mb_token_status: tk.StringVar,
+        on_save_mb_token: Callable[[], None] | None,
+        on_clear_mb_token: Callable[[], None] | None,
         **kwargs: Any,
     ) -> None:
         self._lookup_enabled_var = lookup_enabled
@@ -119,6 +135,7 @@ class _SetupFrame(BaseSetupFrame):
         self._mbid_region_var = mbid_region
         self._musicbrainz_var = musicbrainz
         self._write_isrc_var = write_isrc
+        self._submit_isrc_var = submit_isrc
         self._album_mode_var = album_mode
         self._threshold_var = threshold
         self._max_length_var = max_length
@@ -128,6 +145,10 @@ class _SetupFrame(BaseSetupFrame):
         self._on_browse_fpcalc = on_browse_fpcalc
         self._on_save_api_key = on_save_api_key
         self._on_clear_api_key = on_clear_api_key
+        self._mb_token_var = mb_token
+        self._mb_token_status_var = mb_token_status
+        self._on_save_mb_token = on_save_mb_token
+        self._on_clear_mb_token = on_clear_mb_token
         super().__init__(parent, **kwargs)
 
     def _build_options(self) -> None:
@@ -302,6 +323,85 @@ class _SetupFrame(BaseSetupFrame):
             wraplength=700,
             justify=tk.LEFT,
         ).pack(anchor="w", pady=2)
+        tk.Checkbutton(
+            self,
+            text=(
+                "Submit the files' own ISRCs to MusicBrainz — needs the "
+                "MusicBrainz lookup above; a Dry Run shows the exact XML "
+                "payload instead of posting it"
+            ),
+            variable=self._submit_isrc_var,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            selectcolor=styles.BG_WHITE,
+            activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
+            font=styles.FONT_BODY,
+            wraplength=700,
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=2)
+
+        # ── MusicBrainz submission token ─────────────────────────────────────
+        tk.Label(
+            self,
+            text="MusicBrainz Token (OAuth, scope submit_isrc):",
+            font=styles.FONT_BODY,
+            fg=styles.FG_MAIN,
+            bg=styles.BG_WHITE,
+        ).pack(anchor="w", pady=(8, 0))
+        token_frame = tk.Frame(self, bg=styles.BG_WHITE)
+        token_frame.pack(fill="x", pady=3)
+        tk.Entry(
+            token_frame,
+            textvariable=self._mb_token_var,
+            show="*",
+            font=styles.FONT_BODY,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            insertbackground=styles.FG_MAIN,
+        ).pack(side=tk.LEFT, fill="x", expand=True, padx=(0, 5))
+        tk.Button(
+            token_frame,
+            text="Save Token",
+            bg=styles.get_main(),
+            fg="white",
+            font=styles.FONT_BUTTON,
+            command=cast("Callable[..., Any]", self._on_save_mb_token),
+        ).pack(side=tk.LEFT, padx=(0, 5))
+        tk.Button(
+            token_frame,
+            text="Clear",
+            bg=styles.get_main(),
+            fg="white",
+            font=styles.FONT_BUTTON,
+            command=cast("Callable[..., Any]", self._on_clear_mb_token),
+        ).pack(side=tk.RIGHT)
+
+        tk.Label(
+            self,
+            textvariable=self._mb_token_status_var,
+            font=styles.FONT_CAPTION,
+            fg=styles.FG_SUB,
+            bg=styles.BG_WHITE,
+            wraplength=700,
+        ).pack(anchor="w")
+        tk.Label(
+            self,
+            text=(
+                "A submission creates a pending edit in your MusicBrainz "
+                "account: new edits stay open for review for 7 days and the "
+                "account's email must be verified. Only ISRCs the files' tags "
+                "already carry are sent, minus those already registered. The "
+                "token is stored encrypted; the MUSICBRAINZ_TOKEN environment "
+                "variable overrides it."
+            ),
+            font=styles.FONT_CAPTION,
+            fg=styles.FG_SUB,
+            bg=styles.BG_WHITE,
+            wraplength=700,
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=(2, 0))
+
         tk.Checkbutton(
             self,
             text=(

@@ -13,6 +13,12 @@ facts, and the MusicBrainz near-tie break — plus the ``--write-isrc`` tag
 write (PLAN_feature_expansion.md D28, D29, D31).  An enrichment failure never
 changes a file's status: the file keeps the status its AcoustID outcome earned
 and the failure is recorded in ``MBEnrichment.note``.
+
+Also in 1.2.0: optional ISRC *submission* (``--submit-isrc``).  After the batch,
+the ISRCs each file's own tags carry are offered to MusicBrainz for its matched
+recording, minus the ones already registered.  A dry run renders the exact XML
+payload instead of posting it, and no submission outcome ever changes a file's
+status — the edit is supplementary and the files are already tagged.
 """
 
 from __future__ import annotations
@@ -21,7 +27,7 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from queue import Queue
 from typing import Any
@@ -36,7 +42,11 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.file_processor_base import BaseFileProcessor
-from audio_suite_shared.tag_helper_reader import read_artist_album, read_artist_title
+from audio_suite_shared.tag_helper_reader import (
+    read_artist_album,
+    read_artist_title,
+    read_isrcs,
+)
 
 from .acoustid_client import AcoustidClient, resolve_best_match
 from .album_cluster import (
@@ -58,7 +68,16 @@ from .models import (
     MBReleaseFacts,
     status_text,
 )
-from .musicbrainz_client import MusicBrainzClient, resolve_ambiguous_with_mb
+from .musicbrainz_client import (
+    EDIT_REVIEW_DAYS,
+    ISRCSubmission,
+    MBAuth,
+    MusicBrainzClient,
+    build_isrc_submission_xml,
+    isrc_error,
+    normalize_isrc,
+    resolve_ambiguous_with_mb,
+)
 from .tag_writer import write_acoustid_tags, write_isrc_tags
 
 logger = logging.getLogger(__name__)
@@ -528,6 +547,7 @@ def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult
         message=_match_message(best, ambiguous, tag_resolved, lookup.recordings),
         acoustid_id=best.acoustid_id,
         recordings=lookup.recordings,
+        recording_id=best.recording_id,
         isrcs=enrichment.isrcs if enrichment is not None else (),
         mb=enrichment,
     )
@@ -626,6 +646,7 @@ def _finalize_album_file(
         message=message,
         acoustid_id=best.acoustid_id,
         recordings=recordings,
+        recording_id=best.recording_id,
     )
 
     if not write_enabled:
@@ -817,6 +838,173 @@ def _run_album_phase(
     return True, report_lines
 
 
+def collect_isrc_submissions(
+    results: Sequence[FingerprintFileResult],
+) -> tuple[tuple[ISRCSubmission, ...], tuple[str, ...]]:
+    """Gather the ISRCs each file's own tags carry, ready to submit.
+
+    The codes come from the *files*, not from MusicBrainz: sending back the
+    codes the service already returned would be a guaranteed no-op.  That makes
+    this the path for ISRCs a CD rip recorded but MusicBrainz has never seen.
+
+    Codes already registered for the recording (``result.isrcs``, retrieved by
+    the enrichment) and codes another file in the batch already contributed are
+    dropped here, so the payload only contains work MusicBrainz can act on.
+
+    Args:
+        results: Finished per-file results for the run.
+
+    Returns:
+        Tuple ``(submissions, notes)``.  ``submissions`` holds one entry per
+        recording with at least one new ISRC; ``notes`` are report lines for
+        the log (invalid codes, unreadable tags, files with nothing new), which
+        are reported rather than silently dropped.
+    """
+    per_recording: dict[str, list[str]] = {}
+    notes: list[str] = []
+
+    for result in sorted(results, key=lambda r: r.file_path):
+        try:
+            tagged = read_isrcs(result.file_path)
+        except (OSError, AudioSuiteError) as exc:
+            notes.append(
+                f"[ISRC SKIPPED] {result.filename}: could not read its ISRCs ({exc})"
+            )
+            continue
+        if not tagged:
+            continue
+        if not result.recording_id:
+            notes.append(
+                f"[ISRC SKIPPED] {result.filename}: {len(tagged)} ISRC(s) found, "
+                "but the file matched no MusicBrainz recording to attach them to"
+            )
+            continue
+
+        recording_id = result.recording_id.strip().lower()
+        registered = {normalize_isrc(value) for value in result.isrcs}
+        bucket = per_recording.setdefault(recording_id, [])
+        known = 0
+        added = 0
+        for value in tagged:
+            problem = isrc_error(value)
+            if problem:
+                notes.append(f"[ISRC SKIPPED] {result.filename}: {problem}")
+                continue
+            code = normalize_isrc(value)
+            if code in registered or code in bucket:
+                known += 1
+                continue
+            bucket.append(code)
+            added += 1
+        if known and not added:
+            notes.append(
+                f"[ISRC] {result.filename}: nothing new to submit — its "
+                f"{known} ISRC(s) are already registered on {recording_id}"
+            )
+
+    submissions = tuple(
+        ISRCSubmission(recording_id=recording_id, isrcs=tuple(sorted(codes)))
+        for recording_id, codes in sorted(per_recording.items())
+        if codes
+    )
+    return submissions, tuple(notes)
+
+
+def _run_isrc_submission(
+    results: Sequence[FingerprintFileResult],
+    params: FingerprintParams,
+    mb_client: MusicBrainzClient | None,
+    auth: MBAuth | None,
+) -> tuple[dict[str, Any], list[str], str]:
+    """Preview or perform the run's one ISRC submission.
+
+    A dry run renders the payload and stops: the XML it logs is exactly the
+    body a live run posts, because both come from
+    :func:`build_isrc_submission_xml` over the same submissions.  A live run
+    needs a usable token; without one nothing is sent and the reason is
+    reported, never swallowed.
+
+    Args:
+        results: Finished per-file results.
+        params: Runtime parameters (``is_dry_run`` decides preview vs post).
+        mb_client: The run's MusicBrainz client, or None when enrichment is off.
+        auth: Credentials for the submission, when the caller resolved any.
+
+    Returns:
+        Tuple ``(payload, log_lines, display_line)``.  ``payload`` is the
+        machine-readable record surfaced in the CLI JSON, including the XML.
+    """
+    submissions, notes = collect_isrc_submissions(results)
+    lines = list(notes)
+    recordings = len(submissions)
+    isrcs = sum(len(submission.isrcs) for submission in submissions)
+    xml = build_isrc_submission_xml(submissions)
+    payload: dict[str, Any] = {
+        "mode": "preview" if params.is_dry_run else "live",
+        "status": "nothing to submit",
+        "recordings": recordings,
+        "isrcs": isrcs,
+        "url": "",
+        "reason": "",
+        "xml": xml,
+        "notes": list(notes),
+    }
+
+    if not xml:
+        lines.append(
+            "[ISRC] Nothing to submit: no file carried an ISRC that "
+            "MusicBrainz does not already have."
+        )
+        return payload, lines, "[ISRC] Nothing new to submit."
+
+    if params.is_dry_run:
+        payload["status"] = "preview"
+        lines.append(
+            f"[ISRC PREVIEW] Dry run — would POST {isrcs} ISRC(s) for "
+            f"{recordings} recording(s) to MusicBrainz. Exact payload:"
+        )
+        lines.append(xml.rstrip("\n"))
+        return (
+            payload,
+            lines,
+            f"[ISRC PREVIEW] {isrcs} ISRC(s) for {recordings} recording(s) — "
+            "not submitted (dry run)",
+        )
+
+    if mb_client is None:
+        payload["status"] = "not attempted"
+        payload["reason"] = "MusicBrainz lookup is off, so no recording was met."
+        lines.append(f"[ISRC NOT SUBMITTED] {payload['reason']}")
+        return payload, lines, "[ISRC] Not submitted — MusicBrainz lookup is off."
+
+    result = mb_client.submit_isrcs(submissions, auth or MBAuth())
+    payload.update(
+        status=result.status,
+        recordings=result.recordings or recordings,
+        isrcs=result.isrcs or isrcs,
+        url=result.url,
+        reason=result.reason,
+    )
+    if result.ok:
+        lines.append(
+            f"[ISRC SUBMITTED] {result.isrcs} ISRC(s) for {result.recordings} "
+            f"recording(s): the edit is pending review — MusicBrainz keeps new "
+            f"edits open for {EDIT_REVIEW_DAYS} days."
+        )
+        return (
+            payload,
+            lines,
+            f"[ISRC SUBMITTED] {result.isrcs} ISRC(s) for "
+            f"{result.recordings} recording(s) — pending edit",
+        )
+
+    lines.append(
+        f"[ISRC {result.status.upper()}] {result.isrcs} ISRC(s) for "
+        f"{result.recordings} recording(s) were not submitted: {result.reason}"
+    )
+    return payload, lines, f"[ISRC {result.status.upper()}] {result.reason}"
+
+
 @handle_audio_errors(reraise=False, context="fingerprint_run")
 def run_fingerprinting(
     dir_path: str,
@@ -828,6 +1016,7 @@ def run_fingerprinting(
     on_complete: Callable[..., None],
     on_error: Callable[[str], None],
     on_slot_update: Callable[[int, str], None] | None = None,
+    mb_auth: MBAuth | None = None,
 ) -> None:
     """Walk the directory tree and fingerprint every audio file.
 
@@ -847,6 +1036,10 @@ def run_fingerprinting(
                             ``FingerprintFileResult``) and ``log_entries``.
         on_error:           Callback(message) on fatal errors.
         on_slot_update:     Optional callback(slot_idx, text) for live status.
+        mb_auth:            Credentials for ``--submit-isrc``.  Never stored on
+                            the params: a token is not part of a run's
+                            description, so it cannot leak into a log or a
+                            JSON dump from there.
 
     Returns:
         None.
@@ -986,17 +1179,34 @@ def run_fingerprinting(
                 f"    {result.message}\n"
             )
 
+    isrc_payload: dict[str, Any] = {}
+    if params.submit_isrc:
+        isrc_payload, isrc_lines, isrc_display = _run_isrc_submission(
+            results, params, mb_client, mb_auth
+        )
+        for line in isrc_lines:
+            log_entries.append(f"{line}\n")
+        on_progress(
+            processed=processed[0],
+            total=total,
+            errors=errors[0],
+            display_text=isrc_display,
+        )
+
     counts = _summarise_results(results)
-    on_complete(
-        total=total,
-        processed=processed[0],
-        skipped=counts["lookup_skipped"],
-        errors=errors[0],
-        duration_secs=time.monotonic() - start,
-        log_entries=log_entries,
-        results=results,
-        counts=counts,
-    )
+    completion: dict[str, Any] = {
+        "total": total,
+        "processed": processed[0],
+        "skipped": counts["lookup_skipped"],
+        "errors": errors[0],
+        "duration_secs": time.monotonic() - start,
+        "log_entries": log_entries,
+        "results": results,
+        "counts": counts,
+    }
+    if isrc_payload:
+        completion["isrc_submission"] = isrc_payload
+    on_complete(**completion)
 
 
 __all__ = [

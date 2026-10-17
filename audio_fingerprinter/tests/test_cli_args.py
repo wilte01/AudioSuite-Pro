@@ -1,4 +1,8 @@
-"""Tests for audio_fingerprinter.utils.cli_args."""
+"""Tests for audio_fingerprinter.utils.cli_args.
+
+Changed in 1.2.0: covers the ``--submit-isrc`` / ``--mb-auth`` / ``--mb-user``
+argv parsing (Sprint 2 Item 2.3).
+"""
 
 from __future__ import annotations
 
@@ -98,6 +102,39 @@ class TestParse:
         args = parse(["prog", str(tmp_path)])
         assert args.mbid_region == ""
 
+    def test_submit_isrc_defaults_off(self, tmp_path):
+        args = parse(["prog", str(tmp_path)])
+        assert args.submit_isrc is False
+        assert args.mb_auth == "oauth"
+        assert args.mb_user == ""
+
+    def test_submit_isrc_flag(self, tmp_path):
+        args = parse(["prog", str(tmp_path), "--submit-isrc"])
+        assert args.submit_isrc is True
+
+    def test_no_submit_isrc_flag(self, tmp_path):
+        args = parse(["prog", str(tmp_path), "--submit-isrc", "--no-submit-isrc"])
+        assert args.submit_isrc is False
+
+    def test_mb_auth_and_user(self, tmp_path):
+        args = parse(
+            [
+                "prog",
+                str(tmp_path),
+                "--submit-isrc",
+                "--mb-auth",
+                "APP-TOKEN",
+                "--mb-user",
+                "alice",
+            ]
+        )
+        assert args.mb_auth == "app-token"
+        assert args.mb_user == "alice"
+
+    def test_unknown_mb_auth_is_ignored(self, tmp_path):
+        args = parse(["prog", str(tmp_path), "--mb-auth", "bogus"])
+        assert args.mb_auth == "oauth"
+
 
 class TestValidateArgs:
     def test_valid_args(self):
@@ -176,3 +213,11 @@ class TestFingerprintArgs:
         params = args.to_params()
         assert params.write_mbids is True
         assert params.mbid_region == "GB"
+
+    def test_to_params_defaults_submission_off(self):
+        params = FingerprintArgs().to_params()
+        assert params.submit_isrc is False
+
+    def test_to_params_threads_submission(self):
+        params = FingerprintArgs(submit_isrc=True).to_params()
+        assert params.submit_isrc is True

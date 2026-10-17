@@ -1,12 +1,14 @@
 """CLI command for Audio Fingerprinter.
 
 Changed in 1.2.0: adds ``--musicbrainz`` and ``--write-isrc`` with their
-dependency guards (Sprint 2 Item 2.1).
+dependency guards (Sprint 2 Item 2.1), and ``--submit-isrc`` with its
+authentication guards (Sprint 2 Item 2.3).
 """
 
 from __future__ import annotations
 
 import json as _json_mod
+from typing import cast
 
 import click
 
@@ -104,6 +106,35 @@ from .core.models import FingerprintParams
         "to one request per second."
     ),
 )
+@click.option(
+    "--submit-isrc/--no-submit-isrc",
+    default=False,
+    help=(
+        "Submit the ISRCs the files' own tags carry to MusicBrainz for their "
+        "matched recording, skipping codes already registered. Needs "
+        "--musicbrainz. A dry run prints the exact XML payload instead of "
+        "posting it; a live run needs MUSICBRAINZ_TOKEN or a stored token."
+    ),
+)
+@click.option(
+    "--mb-auth",
+    default="oauth",
+    type=click.Choice(["oauth", "app-token"]),
+    help=(
+        "Submission authentication: 'oauth' sends the token as a bearer "
+        "token (scope submit_isrc); 'app-token' uses the legacy application "
+        "token over HTTP Digest with --mb-user."
+    ),
+)
+@click.option(
+    "--mb-user",
+    default="",
+    type=str,
+    help=(
+        "MusicBrainz account name, needed only by --mb-auth app-token "
+        "(digest sends both a username and the token)."
+    ),
+)
 def fingerprint(
     directory: str,
     dry_run: bool,
@@ -120,10 +151,15 @@ def fingerprint(
     mbid_region: str,
     write_isrc: bool,
     musicbrainz: bool,
+    submit_isrc: bool,
+    mb_auth: str,
+    mb_user: str,
 ) -> None:
     """Generate Chromaprint fingerprints and identify tracks via AcoustID."""
     from .core.file_processor import run_fingerprinting
+    from .core.musicbrainz_client import MBAAuthMethod
     from .utils.api_key import load_api_key
+    from .utils.musicbrainz_token import build_auth
 
     key = api_key or load_api_key()
     if lookup and not key:
@@ -156,6 +192,30 @@ def fingerprint(
         )
         raise SystemExit(1)
 
+    if submit_isrc and not musicbrainz:
+        click.echo(
+            "--submit-isrc needs --musicbrainz: the recording lookup is what "
+            "tells the run which ISRCs are already registered, so only the new "
+            "ones are submitted.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    if mb_auth == "app-token" and submit_isrc and not mb_user.strip():
+        click.echo(
+            "--mb-auth app-token needs --mb-user: HTTP Digest sends both the "
+            "account name and the application token.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    auth = build_auth(cast(MBAAuthMethod, mb_auth), mb_user) if submit_isrc else None
+    if submit_isrc and not dry_run and auth is not None and auth.problem:
+        # Fail before a long run, not after it: without a usable token a live
+        # submission could only report that nothing was sent.
+        click.echo(auth.problem, err=True)
+        raise SystemExit(1)
+
     params = FingerprintParams(
         lookup_enabled=lookup,
         write_tags=write_tags,
@@ -169,6 +229,7 @@ def fingerprint(
         mbid_region=mbid_region.strip().upper(),
         musicbrainz=musicbrainz,
         write_isrc=write_isrc,
+        submit_isrc=submit_isrc,
     )
 
     with active_batch("audio_fingerprinter", "tag_edit"):
@@ -178,9 +239,11 @@ def fingerprint(
             dir_path=directory,
             api_key=key,
             params=params,
+            mb_auth=auth,
         )
 
     counts = result.extra.get("counts") or {}
+    submission = result.extra.get("isrc_submission") or {}
     if json:
         payload = result.to_dict()
         payload["counts"] = counts
@@ -188,8 +251,23 @@ def fingerprint(
             r.to_dict() if hasattr(r, "to_dict") else r
             for r in (result.extra.get("results") or [])
         ]
+        if submission:
+            payload["isrc_submission"] = submission
         click.echo(_json_mod.dumps(payload, indent=2))
     else:
+        if submission and dry_run:
+            # The preview IS the deliverable of a dry run: print the exact body
+            # a live run would post, unprefixed so it can be captured as-is.
+            click.echo(submission.get("xml", ""))
+        elif submission:
+            click.echo(
+                f"  ISRC submission: {submission.get('status', 'unknown')} "
+                f"({submission.get('isrcs', 0)} ISRC(s), "
+                f"{submission.get('recordings', 0)} recording(s))",
+                err=True,
+            )
+            if submission.get("reason"):
+                click.echo(f"  {submission['reason']}", err=True)
         click.echo(
             f"  Summary: {result.processed} files, "
             f"{counts.get('identified', 0)} identified, "

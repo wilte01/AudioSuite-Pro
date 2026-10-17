@@ -17,9 +17,16 @@ import requests
 
 from audio_fingerprinter.core.models import AcoustidRecording
 from audio_fingerprinter.core.musicbrainz_client import (
+    CLIENT_PARAM,
+    ISRCSubmission,
+    MBAuth,
     MBResult,
     MusicBrainzClient,
+    build_isrc_submission_xml,
+    is_valid_isrc,
     is_valid_mbid,
+    isrc_error,
+    normalize_isrc,
     parse_artist,
     parse_recording,
     parse_release,
@@ -446,3 +453,235 @@ class TestResolveAmbiguousWithMb:
         resolve_ambiguous_with_mb((top, second, third), client)
 
         assert client.requests_issued == 2
+
+
+# ── ISRC submission ───────────────────────────────────────────────────────
+
+
+def _submit_client(status_code: int = 200) -> tuple[MusicBrainzClient, MagicMock]:
+    """Return a client plus the mock session its POST would use."""
+    session = MagicMock(spec=requests.Session)
+    session.headers = MagicMock()
+    session.post.return_value = _response(status_code)
+    client = MusicBrainzClient(requests_per_second=1000.0, session=session)
+    return client, session
+
+
+def _posted_body(session: MagicMock) -> str:
+    """Decode the body handed to ``session.post``."""
+    data = session.post.call_args.kwargs["data"]
+    return data.decode("utf-8")
+
+
+class TestIsrcValidation:
+    """The service's own rules, applied locally before any request."""
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "USRC17607839",
+            "usrc17607839",
+            "US-RC1-76-07839",
+            "  gb-um7-24-00001  ",
+        ],
+    )
+    def test_display_and_compact_forms_normalise(self, raw: str) -> None:
+        # Tags carry whichever form the ripper wrote; the service takes the
+        # compact upper-case one only.
+        assert is_valid_isrc(raw)
+        assert isrc_error(raw) == ""
+
+    def test_normalize_strips_separators_and_uppercases(self) -> None:
+        assert normalize_isrc(" gb-um7-24-00001 ") == "GBUM72400001"
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "",
+            "   ",
+            "USRC1760783",  # 11 characters
+            "USRC176078390",  # 13 characters
+            "USRC17607A39",  # letter in the seven-digit designation tail
+            "1SRC17607839",  # country code must be letters
+            "USRC1760783X",
+        ],
+    )
+    def test_invalid_codes_are_rejected(self, raw: str) -> None:
+        assert not is_valid_isrc(raw)
+        assert isrc_error(raw)
+
+    def test_error_names_the_defect(self) -> None:
+        assert "12 characters" in isrc_error("USRC1760783")
+        assert "two letters" in isrc_error("1SRC17607839")
+        assert "empty" in isrc_error("  ")
+
+
+class TestBuildIsrcSubmissionXml:
+    """The payload is a pure, deterministic MMD 2.0 document."""
+
+    def test_one_recording_one_isrc(self) -> None:
+        xml = build_isrc_submission_xml([ISRCSubmission(REC_ID, ("USRC17607839",))])
+        assert xml == (
+            '<metadata xmlns="http://musicbrainz.org/ns/mmd-2.0#">\n'
+            "  <recording-list>\n"
+            f'    <recording id="{REC_ID}">\n'
+            '      <isrc-list count="1">\n'
+            '        <isrc id="USRC17607839"/>\n'
+            "      </isrc-list>\n"
+            "    </recording>\n"
+            "  </recording-list>\n"
+            "</metadata>\n"
+        )
+
+    def test_count_matches_the_isrcs_listed(self) -> None:
+        xml = build_isrc_submission_xml(
+            [ISRCSubmission(REC_ID, ("USRC17607839", "GBUM72400001"))]
+        )
+        assert 'count="2"' in xml
+        assert xml.count("<isrc id=") == 2
+
+    def test_order_is_normalised_so_the_preview_is_stable(self) -> None:
+        # Files finish in parallel, so anything but a sorted payload could not
+        # be previewed before the run and then matched to what was sent.
+        a = ISRCSubmission(REC_ID, ("USRC17607839", "GBUM72400001"))
+        b = ISRCSubmission(OTHER_ID, ("FRXXX2400001",))
+        assert build_isrc_submission_xml([a, b]) == build_isrc_submission_xml(
+            [b, ISRCSubmission(REC_ID, ("GBUM72400001", "USRC17607839"))]
+        )
+
+    def test_same_recording_in_two_submissions_merges(self) -> None:
+        xml = build_isrc_submission_xml(
+            [
+                ISRCSubmission(REC_ID, ("USRC17607839",)),
+                ISRCSubmission(REC_ID, ("USRC17607839", "GBUM72400001")),
+            ]
+        )
+        assert xml.count(f'<recording id="{REC_ID}"') == 1
+        assert xml.count("<isrc id=") == 2
+
+    def test_nothing_to_submit_renders_nothing(self) -> None:
+        assert build_isrc_submission_xml([]) == ""
+        assert build_isrc_submission_xml([ISRCSubmission(REC_ID, ())]) == ""
+
+    def test_invalid_isrc_raises_before_the_wire(self) -> None:
+        with pytest.raises(ValueError, match="not an ISRC"):
+            build_isrc_submission_xml([ISRCSubmission(REC_ID, ("NOPE",))])
+
+    def test_invalid_recording_id_raises(self) -> None:
+        with pytest.raises(ValueError, match="not a MusicBrainz recording id"):
+            build_isrc_submission_xml(
+                [ISRCSubmission("not-an-mbid", ("USRC17607839",))]
+            )
+
+
+class TestSubmitIsrcs:
+    """The POST: endpoint, headers, auth, and every failure status."""
+
+    def _subs(self) -> list[ISRCSubmission]:
+        return [
+            ISRCSubmission(REC_ID, ("USRC17607839", "GBUM72400001")),
+            ISRCSubmission(OTHER_ID, ("FRXXX2400001",)),
+        ]
+
+    def test_posts_exactly_the_previewed_payload(self) -> None:
+        # The dry run's whole value: the bytes it showed are the bytes sent.
+        subs = self._subs()
+        preview = build_isrc_submission_xml(subs)
+        client, session = _submit_client()
+
+        result = client.submit_isrcs(subs, MBAuth(token="tok"))
+
+        assert result.ok
+        assert _posted_body(session) == preview
+
+    def test_endpoint_carries_the_client_parameter(self) -> None:
+        client, session = _submit_client()
+        client.submit_isrcs(self._subs(), MBAuth(token="tok"))
+        url = session.post.call_args.args[0]
+        assert url.startswith("https://musicbrainz.org/ws/2/recording/?")
+        assert f"client={CLIENT_PARAM}" in url
+
+    def test_headers_declare_xml(self) -> None:
+        client, session = _submit_client()
+        client.submit_isrcs(self._subs(), MBAuth(token="tok"))
+        headers = session.post.call_args.kwargs["headers"]
+        assert headers["Content-Type"] == "application/xml; charset=UTF-8"
+        assert headers["Accept"] == "application/xml"
+
+    def test_oauth_sends_a_bearer_token(self) -> None:
+        client, session = _submit_client()
+        client.submit_isrcs(self._subs(), MBAuth(token="secret-token"))
+        headers = session.post.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer secret-token"
+        assert "auth" not in session.post.call_args.kwargs
+
+    def test_app_token_uses_digest_with_the_username(self) -> None:
+        client, session = _submit_client()
+        client.submit_isrcs(
+            self._subs(),
+            MBAuth(token="app-token", method="app-token", username="alice"),
+        )
+        auth = session.post.call_args.kwargs["auth"]
+        assert auth.username == "alice"
+        assert auth.password == "app-token"
+        assert "Authorization" not in session.post.call_args.kwargs["headers"]
+
+    def test_result_counts_what_was_sent(self) -> None:
+        client, _session = _submit_client()
+        result = client.submit_isrcs(self._subs(), MBAuth(token="tok"))
+        assert result.recordings == 2
+        assert result.isrcs == 3
+        assert client.requests_issued == 1
+
+    def test_missing_token_makes_no_request(self) -> None:
+        client, session = _submit_client()
+        result = client.submit_isrcs(self._subs(), MBAuth())
+        assert result.status == "no auth"
+        assert "MUSICBRAINZ_TOKEN" in result.reason
+        session.post.assert_not_called()
+        assert client.requests_issued == 0
+
+    def test_app_token_without_username_makes_no_request(self) -> None:
+        client, session = _submit_client()
+        result = client.submit_isrcs(
+            self._subs(), MBAuth(token="t", method="app-token")
+        )
+        assert result.status == "no auth"
+        assert "--mb-user" in result.reason
+        session.post.assert_not_called()
+
+    def test_nothing_to_submit_makes_no_request(self) -> None:
+        client, session = _submit_client()
+        result = client.submit_isrcs([ISRCSubmission(REC_ID, ())], MBAuth(token="tok"))
+        assert result.status == "nothing to submit"
+        session.post.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("code", "status"),
+        [
+            (401, "not authorised"),
+            (403, "not authorised"),
+            (400, "rejected"),
+            (503, "offline"),
+            (500, "offline"),
+        ],
+    )
+    def test_http_failures_are_typed(self, code: int, status: str) -> None:
+        client, _session = _submit_client(code)
+        result = client.submit_isrcs(self._subs(), MBAuth(token="tok"))
+        assert result.status == status
+        assert result.reason
+        assert not result.ok
+
+    def test_network_failure_is_offline(self) -> None:
+        client, session = _submit_client()
+        session.post.side_effect = requests.ConnectionError("down")
+        result = client.submit_isrcs(self._subs(), MBAuth(token="tok"))
+        assert result.status == "offline"
+        assert "down" in result.reason
+
+    def test_token_never_appears_in_the_result(self) -> None:
+        client, _session = _submit_client(401)
+        result = client.submit_isrcs(self._subs(), MBAuth(token="secret-token"))
+        assert "secret-token" not in result.reason
+        assert "secret-token" not in result.url
