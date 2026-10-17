@@ -3,6 +3,9 @@ tag_helper_reader.py — Read-only facade functions for audio tag access.
 
 Part of audio_suite_shared. All functions delegate to TagHandlerFactory
 and handle errors uniformly.
+
+Changed in 1.2.0: adds ``read_isrcs``, the reader for the ISRC retrieval added
+by the Audio Fingerprinter's MusicBrainz integration (D29).
 """
 
 from __future__ import annotations
@@ -300,6 +303,25 @@ def read_disc_number(path: str) -> str | None:
         The disc number as a string, or None if absent or unreadable.
     """
     return TagHandlerFactory.get_handler(path).read_disc_number()
+
+
+@handle_audio_errors(reraise=False, return_on_error=(), context="tag_read")
+def read_isrcs(path: str) -> tuple[str, ...]:
+    """Read every ISRC recorded in any supported audio file.
+
+    MP3/WAV/AIFF/DSF read the ID3 ``TSRC`` frame, FLAC/OGG/Opus/Speex the
+    ``ISRC`` Vorbis comment, M4A/MP4 the ``----:com.apple.iTunes:ISRC``
+    freeform atom, and WavPack/APE/Musepack the ``ISRC`` APEv2 item.
+
+    Args:
+        path: Path to the audio file.
+
+    Returns:
+        Every ISRC the file records, in stored order.  An unreadable file or
+        one with no ISRCs yields an empty tuple rather than None or an
+        exception, so a batch can iterate the result unconditionally.
+    """
+    return TagHandlerFactory.get_handler(path).read_isrcs()
 
 
 @handle_audio_errors(reraise=False, return_on_error=None, context="tag_read")

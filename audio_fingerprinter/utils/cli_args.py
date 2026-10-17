@@ -7,6 +7,8 @@ Positional + named-flag layout heeded by the Master Driver:
     --write-tags          - write matched tags after lookup
     --write-mbids         - also write MusicBrainz identifiers on a match
     --mbid-region CC      - preferred release country when writing MBIDs
+    --musicbrainz         - enrich matches from the MusicBrainz database
+    --write-isrc          - also write the retrieved ISRCs (needs both above)
     --threshold VALUE     - minimum AcoustID match score (0.0-1.0)
     --max-length VALUE    - fpcalc analysis window in seconds
     --fpcalc PATH         - explicit fpcalc binary path
@@ -16,6 +18,9 @@ Positional + named-flag layout heeded by the Master Driver:
     --end/--no-end        - auto-end
     display-only flags: --clear-logs|--no-clear-logs,
                         --parallel-run|--no-parallel-run
+
+Changed in 1.2.0: parses ``--musicbrainz`` / ``--write-isrc`` into
+``FingerprintArgs`` and ``FingerprintParams``.
 """
 
 import os
@@ -63,6 +68,8 @@ class FingerprintArgs(BaseCLIArgs):
     api_key: str = ""
     write_mbids: bool = False
     mbid_region: str = ""
+    musicbrainz: bool = False
+    write_isrc: bool = False
     clear_logs: bool = False  # Display only — driver-owned orchestration flag
     parallel_run: bool = False  # Display only — driver-owned orchestration flag
 
@@ -81,6 +88,8 @@ class FingerprintArgs(BaseCLIArgs):
             fpcalc_path=self.fpcalc_path,
             write_mbids=self.write_mbids,
             mbid_region=self.mbid_region,
+            musicbrainz=self.musicbrainz,
+            write_isrc=self.write_isrc,
         )
 
 
@@ -137,6 +146,18 @@ def parse(argv: list[str] | None = None) -> FingerprintArgs:
             i += 1
         elif arg == "--no-write-mbids":
             args.write_mbids = False
+            i += 1
+        elif arg == "--musicbrainz":
+            args.musicbrainz = True
+            i += 1
+        elif arg == "--no-musicbrainz":
+            args.musicbrainz = False
+            i += 1
+        elif arg == "--write-isrc":
+            args.write_isrc = True
+            i += 1
+        elif arg == "--no-write-isrc":
+            args.write_isrc = False
             i += 1
         elif arg == "--mbid-region" and i + 1 < len(argv):
             args.mbid_region = argv[i + 1].strip().upper()

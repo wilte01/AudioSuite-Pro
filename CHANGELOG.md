@@ -11,6 +11,22 @@ Versions of the tools are released together with the suite (the single
 
 ### Added
 
+- **Audio Fingerprinter: MusicBrainz enrichment and ISRC tags.** AcoustID
+  matches can now be enriched from the MusicBrainz database itself: the
+  matched recording's ISRCs and its release's date, label and country are
+  retrieved (`--musicbrainz`, off by default), and the ISRCs can be written in
+  each format's native convention with the new opt-in `--write-isrc` (`TSRC`
+  for MP3/WAV/AIFF/DSF, the `----:com.apple.iTunes:ISRC` freeform atom for
+  M4A/MP4, an `ISRC` comment/item for FLAC/OGG/Opus/WV/APE/MPC). MusicBrainz
+  also settles an AcoustID near-tie the file's own tags could not, but only on
+  evidence that separates the candidates — title+artist, then album, then ISRC
+  presence — and never overrides a tie it cannot resolve. One rate-limited,
+  caching client serves the whole run, so an album costs one request per
+  unique recording plus one per unique release at MusicBrainz's documented one
+  request per second. An unavailable service degrades the file to its
+  AcoustID-only result instead of failing it. The GUI (Setup tab), the Master
+  Driver card and argv builder, and the CLI reference all expose the two new
+  options.
 - **Instruction locks now cover files this repository cannot version.** The
   precedence verdict `AGENTS.md` defers to lives in a user-global instruction
   file that is not in this repository, so a CI runner had no copy of it and the

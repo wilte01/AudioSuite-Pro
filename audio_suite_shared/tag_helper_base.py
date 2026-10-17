@@ -15,6 +15,9 @@ existing importer keeps working unchanged.
 
 Changed in 1.1.0: registers the APEv2 (.wv/.ape/.mpc), DSF (.dsf) and Ogg Speex (.spx)
 tag handlers.
+Changed in 1.2.0: adds ``read_isrcs`` to the handler interface — the ISRC
+retrieval half of the Audio Fingerprinter's MusicBrainz integration
+(PLAN_feature_expansion.md D29).
 """
 
 import abc
@@ -253,6 +256,21 @@ class BaseTagHandler(abc.ABC):
             The field value as a string, or None if absent or unreadable.
         """
         return None
+
+    def read_isrcs(self) -> tuple[str, ...]:
+        """Read every ISRC recorded in the file.
+
+        The base implementation returns an empty tuple; each format handler
+        overrides it with the lookup appropriate to its tag convention (ID3
+        ``TSRC``, the ``ISRC`` Vorbis comment, the iTunes freeform ``ISRC``
+        atom, or the ``ISRC`` APEv2 item).
+
+        Returns:
+            Every ISRC the file records, deduplicated, in stored order. An
+            absent or untaggable ISRC list yields an empty tuple, never None,
+            so callers can iterate unconditionally.
+        """
+        return ()
 
     def read_disc_number(self) -> str | None:
         """Read the disc number tag.

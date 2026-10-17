@@ -1,4 +1,7 @@
-"""Tests for audio_fingerprinter.ui.setup_tab."""
+"""Tests for audio_fingerprinter.ui.setup_tab.
+
+Changed in 1.2.0: covers the MusicBrainz and ISRC checkbuttons.
+"""
 
 from __future__ import annotations
 
@@ -31,6 +34,8 @@ def tk_vars(root: tk.Tk):
         "write_tags": tk.BooleanVar(root, value=False),
         "write_mbids": tk.BooleanVar(root, value=False),
         "mbid_region": tk.StringVar(root, value=""),
+        "musicbrainz": tk.BooleanVar(root, value=False),
+        "write_isrc": tk.BooleanVar(root, value=False),
         "album_mode": tk.BooleanVar(root, value=False),
         "threshold": tk.StringVar(root, value="0.5"),
         "max_length": tk.StringVar(root, value="120"),
@@ -54,6 +59,8 @@ class TestBuild:
             write_tags=tk_vars["write_tags"],
             write_mbids=tk_vars["write_mbids"],
             mbid_region=tk_vars["mbid_region"],
+            musicbrainz=tk_vars["musicbrainz"],
+            write_isrc=tk_vars["write_isrc"],
             album_mode=tk_vars["album_mode"],
             threshold=tk_vars["threshold"],
             max_length=tk_vars["max_length"],
@@ -85,6 +92,8 @@ class TestBuild:
             write_tags=tk_vars["write_tags"],
             write_mbids=tk_vars["write_mbids"],
             mbid_region=tk_vars["mbid_region"],
+            musicbrainz=tk_vars["musicbrainz"],
+            write_isrc=tk_vars["write_isrc"],
             album_mode=tk_vars["album_mode"],
             threshold=tk_vars["threshold"],
             max_length=tk_vars["max_length"],
@@ -109,6 +118,8 @@ class TestSetupFrameInit:
             write_tags=tk_vars["write_tags"],
             write_mbids=tk_vars["write_mbids"],
             mbid_region=tk_vars["mbid_region"],
+            musicbrainz=tk_vars["musicbrainz"],
+            write_isrc=tk_vars["write_isrc"],
             album_mode=tk_vars["album_mode"],
             threshold=tk_vars["threshold"],
             max_length=tk_vars["max_length"],
@@ -136,6 +147,8 @@ class TestSetupFrameInit:
             write_tags=tk_vars["write_tags"],
             write_mbids=tk_vars["write_mbids"],
             mbid_region=tk_vars["mbid_region"],
+            musicbrainz=tk_vars["musicbrainz"],
+            write_isrc=tk_vars["write_isrc"],
             album_mode=tk_vars["album_mode"],
             threshold=tk_vars["threshold"],
             max_length=tk_vars["max_length"],
@@ -174,6 +187,8 @@ class TestAlbumModeCheckbox:
             write_tags=tk_vars["write_tags"],
             write_mbids=tk_vars["write_mbids"],
             mbid_region=tk_vars["mbid_region"],
+            musicbrainz=tk_vars["musicbrainz"],
+            write_isrc=tk_vars["write_isrc"],
             album_mode=tk_vars["album_mode"],
             threshold=tk_vars["threshold"],
             max_length=tk_vars["max_length"],
@@ -207,6 +222,8 @@ class TestMbidCheckbox:
             write_tags=tk_vars["write_tags"],
             write_mbids=tk_vars["write_mbids"],
             mbid_region=tk_vars["mbid_region"],
+            musicbrainz=tk_vars["musicbrainz"],
+            write_isrc=tk_vars["write_isrc"],
             album_mode=tk_vars["album_mode"],
             threshold=tk_vars["threshold"],
             max_length=tk_vars["max_length"],
@@ -232,3 +249,69 @@ class TestMbidCheckbox:
         assert any(
             "MusicBrainz identifiers" in str(b.cget("text")) for b in mbid_buttons
         )
+
+
+class TestMusicBrainzCheckboxes:
+    """The enrichment toggles must bind the vars the app passes in.
+
+    A checkbox built against a *different* variable looks correct and never
+    reaches ``FingerprintParams`` — the pre-fill trap from the GUI rules — so
+    the binding is asserted by variable identity, not by label text alone.
+    """
+
+    def _frame(self, root, tk_vars):
+        return _SetupFrame(
+            root,
+            lookup_enabled=tk_vars["lookup_enabled"],
+            write_tags=tk_vars["write_tags"],
+            write_mbids=tk_vars["write_mbids"],
+            mbid_region=tk_vars["mbid_region"],
+            musicbrainz=tk_vars["musicbrainz"],
+            write_isrc=tk_vars["write_isrc"],
+            album_mode=tk_vars["album_mode"],
+            threshold=tk_vars["threshold"],
+            max_length=tk_vars["max_length"],
+            fpcalc_path=tk_vars["fpcalc_path"],
+            api_key=tk_vars["api_key"],
+            api_key_status=tk_vars["api_key_status"],
+            on_browse_fpcalc=MagicMock(),
+            on_save_api_key=MagicMock(),
+            on_clear_api_key=MagicMock(),
+            title="Audio Fingerprinter",
+            start_text="START FINGERPRINTING",
+            on_start=MagicMock(),
+            folder_path=tk_vars["folder_path"],
+            run_mode=tk_vars["run_mode"],
+            auto_start_var=tk_vars["auto_start_var"],
+            auto_end_var=tk_vars["auto_end_var"],
+        )
+
+    def test_musicbrainz_checkbutton_bound_to_var(self, root, tk_vars):
+        frame = self._frame(root, tk_vars)
+        buttons = _find_checkbuttons(frame)
+        matched = [
+            b for b in buttons if str(b.cget("variable")) == str(tk_vars["musicbrainz"])
+        ]
+        assert matched, "MusicBrainz checkbox must bind the musicbrainz var"
+        assert any("MusicBrainz" in str(b.cget("text")) for b in matched)
+
+    def test_write_isrc_checkbutton_bound_to_var(self, root, tk_vars):
+        frame = self._frame(root, tk_vars)
+        buttons = _find_checkbuttons(frame)
+        matched = [
+            b for b in buttons if str(b.cget("variable")) == str(tk_vars["write_isrc"])
+        ]
+        assert matched, "ISRC checkbox must bind the write_isrc var"
+        assert any("ISRC" in str(b.cget("text")) for b in matched)
+
+    def test_checkbox_states_reflect_the_vars(self, root, tk_vars):
+        # A pre-fill (CLI flag / restored config) sets the variable, not the
+        # widget, so the widget must be drawing the same variable the app sets.
+        frame = self._frame(root, tk_vars)
+        tk_vars["musicbrainz"].set(True)
+        tk_vars["write_isrc"].set(True)
+        buttons = _find_checkbuttons(frame)
+        bound = {str(b.cget("variable")): b for b in buttons}
+        for name in ("musicbrainz", "write_isrc"):
+            widget = bound[str(tk_vars[name])]
+            assert int(widget.getvar(str(widget.cget("variable")))) == 1

@@ -7,6 +7,9 @@ the registry (tool_plugin.py) and registering a builder function below.
 
 Changed in 1.0.1: drops the non-functional ``--completeness``/``--detail`` args for
 Library Statistics.
+
+Changed in 1.2.0: emits the fingerprinter's ``--musicbrainz`` and
+``--write-isrc`` pair.
 """
 
 from __future__ import annotations
@@ -143,6 +146,12 @@ def _build_enrich_tool_args(
                 "--write-mbids"
                 if state.fingerprinter_write_mbids.get()
                 else "--no-write-mbids",
+                "--musicbrainz"
+                if state.fingerprinter_musicbrainz.get()
+                else "--no-musicbrainz",
+                "--write-isrc"
+                if state.fingerprinter_write_isrc.get()
+                else "--no-write-isrc",
                 "--threshold",
                 state.fingerprinter_threshold.get(),
                 "--max-length",

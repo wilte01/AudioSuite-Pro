@@ -15,6 +15,9 @@ already exists.
 
 Changed in 1.0.1: drops the arg-builder assertions for the removed completeness/detail
 flags.
+
+Changed in 1.2.0: covers the fingerprinter ``--musicbrainz`` /
+``--write-isrc`` argv.
 """
 
 import os
@@ -170,6 +173,8 @@ def _make_state(
     state.fingerprinter_write_tags = _bool_var(False)
     state.fingerprinter_write_mbids = _bool_var(False)
     state.fingerprinter_mbid_region = _str_var("")
+    state.fingerprinter_musicbrainz = _bool_var(False)
+    state.fingerprinter_write_isrc = _bool_var(False)
     state.fingerprinter_threshold = _str_var("0.5")
     state.fingerprinter_max_length = _str_var("120")
     state.fingerprinter_fpcalc = _str_var("")
@@ -474,6 +479,29 @@ class TestBuildEnrichArgs:
         args_list = build_enrich_args(state)
         fp_entry = next(e for e in args_list if "Audio Fingerprinter" in e[1].name)
         assert "--no-write-mbids" in fp_entry[2]
+
+    def test_fingerprinter_musicbrainz_flag(self):
+        state = _make_state()
+        state.fingerprinter_musicbrainz = _bool_var(True)
+        args_list = build_enrich_args(state)
+        fp_entry = next(e for e in args_list if "Audio Fingerprinter" in e[1].name)
+        assert "--musicbrainz" in fp_entry[2]
+        assert "--no-musicbrainz" not in fp_entry[2]
+
+    def test_fingerprinter_no_musicbrainz_flag(self):
+        state = _make_state()
+        state.fingerprinter_musicbrainz = _bool_var(False)
+        args_list = build_enrich_args(state)
+        fp_entry = next(e for e in args_list if "Audio Fingerprinter" in e[1].name)
+        assert "--no-musicbrainz" in fp_entry[2]
+
+    def test_fingerprinter_write_isrc_flag(self):
+        state = _make_state()
+        state.fingerprinter_write_isrc = _bool_var(True)
+        args_list = build_enrich_args(state)
+        fp_entry = next(e for e in args_list if "Audio Fingerprinter" in e[1].name)
+        assert "--write-isrc" in fp_entry[2]
+        assert "--no-write-isrc" not in fp_entry[2]
 
     def test_fingerprinter_mbid_region_flag_when_set(self):
         state = _make_state()

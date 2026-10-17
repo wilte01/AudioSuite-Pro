@@ -6,6 +6,9 @@ The ``MP4Handler`` implementation, relocated verbatim from
 Import the public surface through ``audio_suite_shared.tag_helper_base``:
 this module participates in the facade import cycle and must not be the
 first tag-helper module imported in a fresh interpreter.
+
+Changed in 1.2.0: adds ``read_isrcs`` (the iTunes freeform ``ISRC`` atom) for
+the Audio Fingerprinter's ISRC retrieval (PLAN_feature_expansion.md D29).
 """
 
 import logging
@@ -413,6 +416,30 @@ class MP4Handler(BaseTagHandler):
             return str(self._tags[key][0].decode())
         except (IndexError, AttributeError, UnicodeDecodeError):
             return None
+
+    def read_isrcs(self) -> tuple[str, ...]:
+        """Read the ISRCs stored in the iTunes freeform ``ISRC`` atom.
+
+        Picard writes the field as ``----:com.apple.iTunes:ISRC`` with one
+        ``MP4FreeForm`` entry per ISRC, so every entry is decoded and returned.
+
+        Returns:
+            Every non-empty ISRC, deduplicated, in atom order.
+        """
+        if not self._tags:
+            return ()
+        key = "----:com.apple.iTunes:ISRC"
+        if key not in self._tags:
+            return ()
+        found: list[str] = []
+        for value in self._tags[key]:
+            try:
+                text = value.decode().strip()
+            except (AttributeError, UnicodeDecodeError):
+                continue
+            if text and text not in found:
+                found.append(text)
+        return tuple(found)
 
     def read_disc_number(self) -> str | None:
         """Read the disc number from the ``disk`` MP4 atom.

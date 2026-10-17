@@ -2,6 +2,9 @@
 app.py
 FingerprinterApp — thin orchestrator.
 Wires UI, core logic, and utilities together. No business logic here.
+
+Changed in 1.2.0: adds the MusicBrainz enrichment and ISRC tag-write
+toggles to the Setup tab and passes them into ``FingerprintParams``.
 """
 
 from __future__ import annotations
@@ -67,6 +70,8 @@ class FingerprinterApp(UIHelperMixin):
         self.mbid_region = tk.StringVar(
             value=str(suite_config.load_value("mbid_region", ""))
         )
+        self.musicbrainz = tk.BooleanVar(value=False)
+        self.write_isrc = tk.BooleanVar(value=False)
         self.album_mode = tk.BooleanVar(value=False)
         self.threshold = tk.StringVar(value=_DEFAULT_THRESHOLD)
         self.max_length = tk.StringVar(value=str(DEFAULT_MAX_LENGTH))
@@ -149,6 +154,8 @@ class FingerprinterApp(UIHelperMixin):
             write_tags=self.write_tags,
             write_mbids=self.write_mbids,
             mbid_region=self.mbid_region,
+            musicbrainz=self.musicbrainz,
+            write_isrc=self.write_isrc,
             album_mode=self.album_mode,
             threshold=self.threshold,
             max_length=self.max_length,
@@ -288,6 +295,8 @@ class FingerprinterApp(UIHelperMixin):
         self.lookup_enabled.set(parsed.lookup_enabled)
         self.write_tags.set(parsed.write_tags)
         self.write_mbids.set(parsed.write_mbids)
+        self.musicbrainz.set(parsed.musicbrainz)
+        self.write_isrc.set(parsed.write_isrc)
         if parsed.mbid_region:
             self.mbid_region.set(parsed.mbid_region)
         self.threshold.set(str(parsed.threshold))
@@ -401,6 +410,8 @@ class FingerprinterApp(UIHelperMixin):
                 album_mode=self.album_mode.get(),
                 write_mbids=self.write_mbids.get(),
                 mbid_region=self.mbid_region.get().strip().upper(),
+                musicbrainz=self.musicbrainz.get(),
+                write_isrc=self.write_isrc.get(),
             )
             threading.Thread(target=self._run, args=(params,), daemon=True).start()
 
@@ -431,6 +442,8 @@ class FingerprinterApp(UIHelperMixin):
             f"Write Tags: {'ON' if params.write_tags else 'OFF'}\n",
             f"Write MBIDs: {'ON' if params.write_mbids else 'OFF'}\n",
             f"MBID Region: {params.mbid_region or '(none)'}\n",
+            f"MusicBrainz Enrichment: {'ON' if params.musicbrainz else 'OFF'}\n",
+            f"Write ISRCs: {'ON' if params.write_isrc else 'OFF'}\n",
             f"Album Match: {'ON' if params.album_mode else 'OFF'}\n",
             f"Min Score: {params.threshold}\n",
             f"Max Length: {params.max_length} sec\n",

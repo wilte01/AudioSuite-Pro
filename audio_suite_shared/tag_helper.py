@@ -6,6 +6,8 @@ tag_helper_writer, tag_helper_art). This stub preserves every import path
 that existing callers rely on.
 
 Changed in 1.1.0: re-exports the new APEv2 and DSF tag handlers.
+Changed in 1.2.0: re-exports ``read_isrcs`` / ``write_isrc`` (ISRC retrieval
+and storage for the Audio Fingerprinter, D29).
 """
 
 from __future__ import annotations
@@ -41,6 +43,7 @@ from .tag_helper_reader import (
     read_editable_tags,
     read_energy,
     read_genre,
+    read_isrcs,
     read_key,
     read_mood,
     read_replaygain,
@@ -55,6 +58,7 @@ from .tag_helper_writer import (
     write_energy,
     write_genre,
     write_genre_sync_result,
+    write_isrc,
     write_key,
     write_mood,
     write_mood_confidence,
@@ -112,6 +116,7 @@ __all__ = [
     "read_editable_tags",
     "read_energy",
     "read_genre",
+    "read_isrcs",
     "read_key",
     "read_replaygain",
     "read_synced_lyrics",
@@ -124,6 +129,7 @@ __all__ = [
     "write_energy",
     "write_genre",
     "write_genre_sync_result",
+    "write_isrc",
     "write_key",
     "write_mood",
     "write_mood_confidence",

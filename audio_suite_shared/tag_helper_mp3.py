@@ -6,6 +6,9 @@ The ``MP3Handler`` implementation, relocated verbatim from
 Import the public surface through ``audio_suite_shared.tag_helper_base``:
 this module participates in the facade import cycle and must not be the
 first tag-helper module imported in a fresh interpreter.
+
+Changed in 1.2.0: adds ``read_isrcs`` (ID3 ``TSRC``) for the Audio
+Fingerprinter's ISRC retrieval (PLAN_feature_expansion.md D29).
 """
 
 import logging
@@ -414,6 +417,29 @@ class MP3Handler(BaseTagHandler):
             if str(frame.desc).upper() == target and frame.text:
                 return str(frame.text[0])
         return None
+
+    def read_isrcs(self) -> tuple[str, ...]:
+        """Read the ISRCs stored in the ``TSRC`` ID3 frame(s).
+
+        ``TSRC`` is a multi-value text frame, so every value of every frame is
+        returned rather than only the first — a recording can be registered
+        under more than one ISRC, and truncating it would under-report them.
+        Inherited unchanged by the WAV/AIFF and DSF handlers, which are
+        ID3-backed too.
+
+        Returns:
+            Every non-empty ISRC, deduplicated, in frame order.
+        """
+        if not self._tags:
+            return ()
+        found: list[str] = []
+        for frame in self._tags.getall("TSRC"):
+            values = getattr(frame, "text", None) or []
+            for value in values:
+                text = str(value).strip()
+                if text and text not in found:
+                    found.append(text)
+        return tuple(found)
 
     def read_disc_number(self) -> str | None:
         """Read the disc number from the TPOS ID3 frame.

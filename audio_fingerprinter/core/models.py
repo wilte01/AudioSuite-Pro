@@ -3,6 +3,11 @@
 Records are frozen dataclasses carrying only the fields the UI and CLI need.
 Every record exposes ``to_dict()`` so JSON output (CLI ``--json``) and logs
 share one serialisation path.
+
+Changed in 1.2.0: adds the MusicBrainz enrichment models (``MBReleaseFacts``,
+``MBRecording``, ``MBEnrichment``), the ``Release.date`` field, the
+``musicbrainz`` / ``write_isrc`` runtime flags, and the ISRC/enrichment fields
+on ``FingerprintFileResult`` (PLAN_feature_expansion.md D28, D29, D31).
 """
 
 from dataclasses import asdict, dataclass, field
@@ -131,6 +136,7 @@ class Release:
     release_group_id: str = ""
     release_group_title: str = ""
     release_group_type: str = ""
+    date: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -199,6 +205,140 @@ class LookupResult:
 
 
 @dataclass(frozen=True)
+class MBReleaseFacts:
+    """Release-level facts fetched from MusicBrainz for one release MBID.
+
+    Distinct from :class:`Release`, which is a *candidate* the AcoustID lookup
+    returned and that ``mbid_writer`` narrows down.  This record describes a
+    release the tool has already decided on and asked MusicBrainz about
+    directly, so its fields are complete rather than best-effort.
+
+    Attributes:
+        release_id: MusicBrainz release MBID.
+        title: Release title.
+        date: Release date as reported (``YYYY``, ``YYYY-MM`` or
+            ``YYYY-MM-DD``; partial dates are normal on MusicBrainz).
+        countries: Release-event countries, upper-cased and deduplicated.
+        labels: Label names in catalog order (empty when the service
+            reported none).
+        track_count: Track count reported for the release.
+        medium_count: Number of media (discs) in the release.
+        release_group_id: Parent release-group MBID.
+        release_group_type: Release-group primary type.
+    """
+
+    release_id: str
+    title: str = ""
+    date: str = ""
+    countries: tuple[str, ...] = ()
+    labels: tuple[str, ...] = ()
+    track_count: int | None = None
+    medium_count: int | None = None
+    release_group_id: str = ""
+    release_group_type: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class MBRecording:
+    """A recording looked up directly from MusicBrainz by its MBID.
+
+    The AcoustID candidate record (:class:`AcoustidRecording`) is a *scored
+    match*; this is the canonical MusicBrainz entity, which is where ISRCs
+    live (``inc=isrcs``) and which therefore backs both the ISRC retrieval and
+    the near-tie resolution.
+
+    Attributes:
+        recording_id: MusicBrainz recording MBID.
+        title: Recording title.
+        artist: Artist credit rendered with MusicBrainz joinphrases.
+        artist_ids: Artist MBIDs in credit order.
+        length_ms: Recording length in milliseconds, when reported.
+        isrcs: ISRCs registered for this recording (may be empty).
+        releases: Releases the recording appears on, as ``Release``
+            candidates carrying the MusicBrainz date and country fields.
+        release_group_ids: Release-group MBIDs the recording appears on.
+    """
+
+    recording_id: str
+    title: str = ""
+    artist: str = ""
+    artist_ids: tuple[str, ...] = ()
+    length_ms: int | None = None
+    isrcs: tuple[str, ...] = ()
+    releases: tuple[Release, ...] = ()
+    release_group_ids: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class MBArtist:
+    """An artist looked up directly from MusicBrainz by its MBID.
+
+    Attributes:
+        artist_id: MusicBrainz artist MBID.
+        name: Artist name as the service renders it.
+        sort_name: Sort name (``"Bowie, David"``), when reported.
+        country: ISO country code of the artist's area, when reported.
+        artist_type: Artist type (``"Person"``, ``"Group"``, ...).
+        disambiguation: The service's disambiguation comment, when reported —
+            the field that separates same-named artists.
+    """
+
+    artist_id: str
+    name: str = ""
+    sort_name: str = ""
+    country: str = ""
+    artist_type: str = ""
+    disambiguation: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class MBEnrichment:
+    """MusicBrainz enrichment attached to one processed file.
+
+    Carried on :class:`FingerprintFileResult` so the log, the CLI JSON and the
+    GUI all read one record.  An enrichment failure is never a new file
+    status: the file keeps the status its AcoustID outcome earned and the
+    failure is stated in ``note`` (see ``FingerprintStatus``' docstring for why
+    no status member was added).
+
+    Attributes:
+        recording_id: MusicBrainz recording MBID the facts came from.
+        isrcs: ISRCs registered for the recording.
+        release: Facts for the release the tool selected, when one was.
+        resolved_ambiguity: True when MusicBrainz broke an AcoustID near-tie
+            the file's own tags could not.
+        evidence: One-line reason for the ambiguity resolution.
+        note: Enrichment failure text (empty on success).
+    """
+
+    recording_id: str = ""
+    isrcs: tuple[str, ...] = ()
+    release: MBReleaseFacts | None = None
+    resolved_ambiguity: bool = False
+    evidence: str = ""
+    note: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "recording_id": self.recording_id,
+            "isrcs": list(self.isrcs),
+            "release": self.release.to_dict() if self.release else None,
+            "resolved_ambiguity": self.resolved_ambiguity,
+            "evidence": self.evidence,
+            "note": self.note,
+        }
+
+
+@dataclass(frozen=True)
 class FingerprintParams:
     """Runtime parameters for a fingerprinting batch run.
 
@@ -224,6 +364,15 @@ class FingerprintParams:
             ``"GB"``). Empty means no regional preference. Only ever used to
             break a tie between otherwise indistinguishable release
             candidates — it can never select a release on its own.
+        musicbrainz: Query MusicBrainz directly to enrich matches: retrieve the
+            recording's ISRCs, fetch release-level facts (date, label,
+            country), and break AcoustID near-ties the file's tags could not.
+            Off by default — MusicBrainz allows one request per second, so an
+            album run costs one request per unique recording plus one per
+            unique release.
+        write_isrc: Write the retrieved ISRCs as tags.  Opt-in, off by default,
+            additive to the AcoustID tags and governed by ``write_tags`` and
+            ``is_dry_run`` exactly like ``write_mbids``.
     """
 
     lookup_enabled: bool = True
@@ -237,6 +386,8 @@ class FingerprintParams:
     album_min: int = 3
     write_mbids: bool = False
     mbid_region: str = ""
+    musicbrainz: bool = False
+    write_isrc: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -263,6 +414,10 @@ class FingerprintFileResult:
         fingerprint: The generated Chromaprint string.
         acoustid_id: AcoustID id of the best match (empty when unmatched).
         tag_written: Whether the AcoustID tags were written to disk.
+        isrcs: ISRCs retrieved for the matched recording (empty when the
+            MusicBrainz enrichment is off, unavailable, or reports none).
+        mb: MusicBrainz enrichment for this file, or None when enrichment was
+            not requested.
     """
 
     file_path: str
@@ -274,6 +429,8 @@ class FingerprintFileResult:
     acoustid_id: str = ""
     recordings: tuple[AcoustidRecording, ...] = field(default_factory=tuple)
     tag_written: bool = False
+    isrcs: tuple[str, ...] = ()
+    mb: MBEnrichment | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -286,4 +443,6 @@ class FingerprintFileResult:
             "acoustid_id": self.acoustid_id,
             "tag_written": self.tag_written,
             "recordings": [r.to_dict() for r in self.recordings],
+            "isrcs": list(self.isrcs),
+            "musicbrainz": self.mb.to_dict() if self.mb else None,
         }

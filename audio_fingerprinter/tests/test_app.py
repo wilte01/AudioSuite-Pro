@@ -1,3 +1,9 @@
+"""Tests for audio_fingerprinter.app.
+
+Changed in 1.2.0: covers the MusicBrainz / ISRC toggles reaching
+``FingerprintParams``.
+"""
+
 import sys
 import tkinter as tk
 from pathlib import Path
@@ -74,6 +80,10 @@ class TestStartGuardsD3:
         app.write_mbids.get.return_value = False
         app.mbid_region = MagicMock()
         app.mbid_region.get.return_value = ""
+        app.musicbrainz = MagicMock()
+        app.musicbrainz.get.return_value = False
+        app.write_isrc = MagicMock()
+        app.write_isrc.get.return_value = False
         app.album_mode = MagicMock()
         app.api_key = MagicMock()
         app.overall_status = MagicMock()
@@ -397,6 +407,10 @@ class TestStartProcessingAlbumMode:
         app.write_mbids.get.return_value = False
         app.mbid_region = MagicMock()
         app.mbid_region.get.return_value = ""
+        app.musicbrainz = MagicMock()
+        app.musicbrainz.get.return_value = False
+        app.write_isrc = MagicMock()
+        app.write_isrc.get.return_value = False
         app.album_mode = MagicMock()
         app.threshold = MagicMock()
         app.threshold.get.return_value = "0.5"

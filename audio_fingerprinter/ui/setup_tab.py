@@ -5,6 +5,9 @@ Opens with the shared DriverControlsPanel mirroring the Master Driver's
 source bar and control strip, followed by AcoustID-specific options: the
 API key (encrypted persistence), lookup toggle, tag-writing toggle, score
 threshold, fpcalc max-length, and the fpcalc binary path.
+
+Changed in 1.2.0: adds the MusicBrainz enrichment and ISRC tag-write toggles
+(Sprint 2 Item 2.1).
 """
 
 import tkinter as tk
@@ -26,6 +29,8 @@ def build(
     write_tags: tk.BooleanVar,
     write_mbids: tk.BooleanVar,
     mbid_region: tk.StringVar,
+    musicbrainz: tk.BooleanVar,
+    write_isrc: tk.BooleanVar,
     album_mode: tk.BooleanVar,
     threshold: tk.StringVar,
     max_length: tk.StringVar,
@@ -65,6 +70,8 @@ def build(
         write_tags=write_tags,
         write_mbids=write_mbids,
         mbid_region=mbid_region,
+        musicbrainz=musicbrainz,
+        write_isrc=write_isrc,
         album_mode=album_mode,
         threshold=threshold,
         max_length=max_length,
@@ -93,6 +100,8 @@ class _SetupFrame(BaseSetupFrame):
         write_tags: tk.BooleanVar,
         write_mbids: tk.BooleanVar,
         mbid_region: tk.StringVar,
+        musicbrainz: tk.BooleanVar,
+        write_isrc: tk.BooleanVar,
         album_mode: tk.BooleanVar,
         threshold: tk.StringVar,
         max_length: tk.StringVar,
@@ -108,6 +117,8 @@ class _SetupFrame(BaseSetupFrame):
         self._write_tags_var = write_tags
         self._write_mbids_var = write_mbids
         self._mbid_region_var = mbid_region
+        self._musicbrainz_var = musicbrainz
+        self._write_isrc_var = write_isrc
         self._album_mode_var = album_mode
         self._threshold_var = threshold
         self._max_length_var = max_length
@@ -248,6 +259,40 @@ class _SetupFrame(BaseSetupFrame):
                 "ID is written only when one release is unambiguous"
             ),
             variable=self._write_mbids_var,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            selectcolor=styles.BG_WHITE,
+            activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
+            font=styles.FONT_BODY,
+            wraplength=700,
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=2)
+        tk.Checkbutton(
+            self,
+            text=(
+                "Query MusicBrainz directly — retrieve the recording's ISRCs "
+                "and release facts, and let MusicBrainz break an AcoustID "
+                "near-tie the file's own tags could not settle (one request "
+                "per second)"
+            ),
+            variable=self._musicbrainz_var,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            selectcolor=styles.BG_WHITE,
+            activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
+            font=styles.FONT_BODY,
+            wraplength=700,
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=2)
+        tk.Checkbutton(
+            self,
+            text=(
+                "Also write the retrieved ISRCs — needs MusicBrainz lookup and "
+                "tag writing above, and Live Update"
+            ),
+            variable=self._write_isrc_var,
             bg=styles.BG_WHITE,
             fg=styles.FG_MAIN,
             selectcolor=styles.BG_WHITE,

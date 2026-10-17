@@ -11,9 +11,12 @@ can be reverted later.
 
 Changed in 1.1.0: treats .dsf as ID3-backed so tag writes route through the ID3 frame
 path.
+Changed in 1.2.0: adds ``write_isrc`` — the ISRC storage half of the Audio
+Fingerprinter's MusicBrainz integration (PLAN_feature_expansion.md D29).
 """
 
 import os
+from collections.abc import Sequence
 from typing import Any
 
 from audio_suite_shared.exceptions import AudioTagError, handle_audio_errors
@@ -23,6 +26,10 @@ from .tag_helper_base import TagHandlerFactory
 
 _ID3_BACKED_EXTENSIONS: tuple[str, ...] = (".mp3", ".wav", ".aiff", ".aif", ".dsf")
 _MP4_BACKED_EXTENSIONS: tuple[str, ...] = (".m4a", ".mp4")
+#: APEv2 containers: unlike Vorbis comments, an APEv2 item is a single string,
+#: so multiple values are NUL-joined into one item (mutagen splits them back on
+#: read — the D20 pinned semantics).
+_APEV2_BACKED_EXTENSIONS: tuple[str, ...] = (".wv", ".ape", ".mpc")
 
 
 @handle_audio_errors(reraise=True, context="tag_write")
@@ -324,6 +331,64 @@ def write_musicbrainz_ids(path: str, mbids: dict[str, str]) -> None:
             audio.add_tags()
         for desc, value in fields.items():
             audio.tags[desc] = value
+    audio.save()
+
+
+@handle_audio_errors(reraise=True, context="tag_write")
+def write_isrc(path: str, isrcs: Sequence[str]) -> None:
+    """Write ISRCs to an audio file in its native convention.
+
+    Mirrors MusicBrainz Picard: the ID3 ``TSRC`` frame for ID3-backed formats
+    (MP3, WAV, AIFF, DSF), the ``----:com.apple.iTunes:ISRC`` freeform atom for
+    M4A/MP4, and the ``ISRC`` comment/item for FLAC, OGG, Opus, Speex,
+    WavPack, Monkey's Audio and Musepack.  Values are upper-cased
+    (ISO 3901 ISRCs are case-insensitive) and deduplicated in order.
+
+    Args:
+        path: Path to the audio file.
+        isrcs: ISRCs to store.  An empty or all-blank sequence is a no-op, so
+            a lookup that returned nothing never blanks a tag the file
+            already had.
+
+    Raises:
+        AudioTagError: If the file cannot be opened for tagging or the write
+            fails.
+    """
+    values: list[str] = []
+    for candidate in isrcs:
+        text = candidate.strip().upper()
+        if text and text not in values:
+            values.append(text)
+    if not values:
+        return
+
+    record_tag_edit_snapshot(path, "write_isrc")
+    import mutagen
+    from mutagen.id3 import TSRC
+    from mutagen.mp4 import MP4FreeForm
+
+    audio = mutagen.File(path)
+    if audio is None:
+        raise AudioTagError(f"mutagen could not open file for tagging: {path}")
+    ext = os.path.splitext(path)[1].lower()
+    if ext in _ID3_BACKED_EXTENSIONS:
+        if audio.tags is None:
+            audio.add_tags()
+        audio.tags.add(TSRC(encoding=3, text=values))
+    elif ext in _MP4_BACKED_EXTENSIONS:
+        if audio.tags is None:
+            audio.add_tags()
+        audio.tags["----:com.apple.iTunes:ISRC"] = [
+            MP4FreeForm(value.encode("utf-8")) for value in values
+        ]
+    elif ext in _APEV2_BACKED_EXTENSIONS:
+        if audio.tags is None:
+            audio.add_tags()
+        audio.tags["ISRC"] = "\x00".join(values)
+    else:
+        if audio.tags is None:
+            audio.add_tags()
+        audio.tags["ISRC"] = values
     audio.save()
 
 

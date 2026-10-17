@@ -1,5 +1,9 @@
 """Selection of the MusicBrainz identifiers to write, and the tag write itself.
 
+Changed in 1.2.0: adds ``selected_release_id`` so the MusicBrainz enrichment
+fetches facts for the same release the tag writer selects
+(PLAN_feature_expansion.md D31).
+
 E2 decision D2-am1: ``MUSICBRAINZ_TRACKID`` and ``MUSICBRAINZ_ARTISTID`` come
 straight from the AcoustID response.  ``MUSICBRAINZ_ALBUMID`` cannot — a
 recording is typically released many times (one sampled M83 track spans 12
@@ -129,6 +133,32 @@ def select_mbid_tags(
             ALBUMID_TAG,
         )
     return tags
+
+
+def selected_release_id(
+    recording: AcoustidRecording,
+    album_title: str = "",
+    file_path: str = "",
+    region: str = "",
+) -> str:
+    """Return the release MBID this recording's tags would select, if any.
+
+    Public wrapper over the D2-am1 selection so the MusicBrainz enrichment can
+    fetch release-level facts for exactly the release the tag writer would
+    name — the two must never disagree about which edition a file is on.
+
+    Args:
+        recording: The matched AcoustID candidate.
+        album_title: The file's existing album tag, when readable.
+        file_path: Path to the audio file (track/disc count and existing
+            ``MUSICBRAINZ_ALBUMID``).
+        region: Preferred release country, used only as a last-resort tie-break.
+
+    Returns:
+        The single surviving release MBID, or ``""`` when none or several
+        candidates survive.
+    """
+    return _select_release_id(recording, album_title, file_path, region)
 
 
 def _select_release_id(

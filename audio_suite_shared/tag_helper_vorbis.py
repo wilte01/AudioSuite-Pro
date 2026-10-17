@@ -12,6 +12,8 @@ this module participates in the facade import cycle and must not be the
 first tag-helper module imported in a fresh interpreter.
 
 Changed in 1.1.0: adds an Ogg Speex (.spx) load branch to the Vorbis handler.
+Changed in 1.2.0: adds ``read_isrcs`` (the ``ISRC`` Vorbis comment) for the
+Audio Fingerprinter's ISRC retrieval (PLAN_feature_expansion.md D29).
 """
 
 import logging
@@ -388,6 +390,27 @@ class VorbisHandler(BaseTagHandler):
             if values:
                 return str(values[0])
         return None
+
+    def read_isrcs(self) -> tuple[str, ...]:
+        """Read the ISRCs stored in the ``ISRC`` Vorbis comment.
+
+        Vorbis comment keys are matched case-insensitively by mutagen, so the
+        comment is found however the tagging application cased it, and every
+        value of the comment is returned (a recording may carry several).
+
+        Returns:
+            Every non-empty ISRC, deduplicated, in stored order.
+        """
+        if self._audio is None:
+            return ()
+        if "ISRC" not in self._audio:
+            return ()
+        found: list[str] = []
+        for value in self._audio["ISRC"]:
+            text = str(value).strip()
+            if text and text not in found:
+                found.append(text)
+        return tuple(found)
 
     def read_disc_number(self) -> str | None:
         """Read the disc number from the ``discnumber`` Vorbis comment.

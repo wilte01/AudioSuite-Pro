@@ -3,6 +3,10 @@
 Only the ``lookup`` endpoint is used.  The client is thread-safe — worker
 threads share a single instance, and a lock enforces a global request rate
 limit upstream of the socket send.
+
+Changed in 1.2.0: exports ``tied_candidates`` so the near-tie rule has one
+definition shared by the file-tag tie-break here and the MusicBrainz tie-break
+in ``musicbrainz_client`` (PLAN_feature_expansion.md D31).
 """
 
 from __future__ import annotations
@@ -541,14 +545,41 @@ def resolve_best_match(
     file_artist = normalize_title(artist_tag)
     file_title = normalize_title(title_tag)
     if file_artist and file_title:
-        for recording in recordings:
-            if (top.score - recording.score) >= _AMBIGUITY_SCORE_GAP:
-                break
+        for recording in tied_candidates(recordings):
             if normalize_title(recording.artist) == file_artist and (
                 normalize_title(recording.title) == file_title
             ):
                 return recording, True, True
     return top, True, False
+
+
+def tied_candidates(
+    recordings: Sequence[AcoustidRecording],
+) -> tuple[AcoustidRecording, ...]:
+    """Return the leading group of candidates that are within the near-tie gap.
+
+    The single definition of "these scores are indistinguishable": the highest
+    scored candidate plus every following candidate whose score is closer than
+    ``_AMBIGUITY_SCORE_GAP`` to it.  Both the file-tag tie-break in
+    :func:`resolve_best_match` and the MusicBrainz tie-break consult this, so a
+    change to the margin cannot make the two disagree about what a near-tie is.
+
+    Args:
+        recordings: Candidates sorted by score (best first).
+
+    Returns:
+        The tied group, best first.  Empty for an empty input, and a
+        single-element tuple when the top candidate is not tied.
+    """
+    if not recordings:
+        return ()
+    top = recordings[0]
+    tied = [top]
+    for recording in recordings[1:]:
+        if (top.score - recording.score) >= _AMBIGUITY_SCORE_GAP:
+            break
+        tied.append(recording)
+    return tuple(tied)
 
 
 def _duration_consistent(recording_duration: int | None, file_duration: int) -> bool:

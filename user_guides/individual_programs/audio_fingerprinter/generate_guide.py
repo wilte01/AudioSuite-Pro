@@ -1,4 +1,8 @@
-"""Generate a fresh Audio Fingerprinter guide from the current implementation."""
+"""Generate a fresh Audio Fingerprinter guide from the current implementation.
+
+Changed in 1.2.0: documents the MusicBrainz enrichment and ISRC tag-write
+options (Sprint 2 Item 2.1).
+"""
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -113,6 +117,33 @@ bullet(
     "recording is typically released many times, and "
     "the id is written only when exactly one release "
     "survives the selection criteria below.",
+)
+bullet(
+    doc,
+    "MusicBrainz enrichment: ",
+    "Queries MusicBrainz directly for the matched "
+    "recording: its ISRCs and its release's date, "
+    "label and country. Off by default, because "
+    "MusicBrainz allows one request per second and "
+    "an album therefore costs one request per unique "
+    "recording plus one per unique release. A failed "
+    "lookup never fails a file: the file keeps its "
+    "AcoustID result and the message names the "
+    "failure.",
+)
+bullet(
+    doc,
+    "Write ISRCs: ",
+    "Writes the retrieved ISRCs in each format's "
+    "native convention - the ID3 TSRC frame for "
+    "MP3/WAV/AIFF/DSF, the "
+    "----:com.apple.iTunes:ISRC freeform atom for "
+    "M4A/MP4, and an ISRC comment/item for "
+    "FLAC/OGG/Opus/WavPack/APE/Musepack. Needs the "
+    "enrichment option above, Write AcoustID tags, "
+    "and Live Update; disabled by default. A lookup "
+    "that returns no ISRCs never blanks an ISRC the "
+    "file already had.",
 )
 bullet(
     doc,
@@ -231,9 +262,15 @@ bullet(
     doc,
     "Near ties: ",
     "When top scores are within 0.10, existing artist "
-    "and title tags resolve the tie when they agree; "
-    "otherwise the ambiguity and runner-up are "
-    "reported.",
+    "and title tags resolve the tie when they agree. "
+    "With MusicBrainz enrichment on, the remaining "
+    "ambiguity is offered to MusicBrainz: a recording "
+    "whose title and artist match the file's tags "
+    "wins, then one that appears on a release matching "
+    "the file's album tag, then one that has ISRCs "
+    "registered. MusicBrainz never overrides a tie it "
+    "cannot separate - rank order is kept and the "
+    "ambiguity and runner-up are reported.",
 )
 bullet(
     doc,
@@ -306,6 +343,38 @@ doc.add_paragraph(
     "logs."
 )
 
+doc.add_heading("MusicBrainz Enrichment and ISRCs", level=1)
+doc.add_paragraph(
+    "Enrichment is an addition to the AcoustID result, "
+    "never a replacement for it. Each run creates one "
+    "rate-limited MusicBrainz client with a per-entity "
+    "cache, so an album of twelve tracks on one release "
+    "costs twelve recording requests and one release "
+    "request - not twenty-four. Requests are spaced to "
+    "MusicBrainz's documented one per second limit, so "
+    "an album run takes noticeably longer with "
+    "enrichment enabled."
+)
+doc.add_paragraph(
+    "ISRCs are validated and normalised before the "
+    "write: values are upper-cased (ISO 3901 ISRCs are "
+    "case-insensitive) and duplicates dropped. The "
+    "write is additive to the AcoustID tags: it happens "
+    "only after those tags land successfully, only in "
+    "Live Update, and only when Write AcoustID tags and "
+    "Write ISRCs are both enabled. Every write is "
+    "recorded in the batch undo log with the other tag "
+    "edits."
+)
+doc.add_paragraph(
+    "Release-level facts (date, label, country) are "
+    "reported in the run log and the JSON output; they "
+    "are not written as tags in this release. The facts "
+    "and any MUSICBRAINZ_ALBUMID always describe the "
+    "same release, because both use the same selection "
+    "rules."
+)
+
 doc.add_heading("Command Line", level=1)
 doc.add_paragraph("The registered command is fingerprint. Examples:")
 doc.add_paragraph(
@@ -320,6 +389,10 @@ doc.add_paragraph(
     "python -m audio_suite_shared.cli_app fingerprint "
     "<folder> --write-tags --write-mbids --mbid-region GB --live\n"
     "python -m audio_suite_shared.cli_app fingerprint "
+    "<folder> --musicbrainz --write-tags --live\n"
+    "python -m audio_suite_shared.cli_app fingerprint "
+    "<folder> --musicbrainz --write-tags --write-isrc --live\n"
+    "python -m audio_suite_shared.cli_app fingerprint "
     "<folder> --fpcalc <path> --json"
 )
 doc.add_paragraph(
@@ -327,7 +400,10 @@ doc.add_paragraph(
     "--write-tags/--no-write-tags, "
     "--write-mbids/--no-write-mbids (needs "
     "--write-tags), --mbid-region (two-letter release "
-    "country tie-break), --threshold, "
+    "country tie-break), --musicbrainz/--no-musicbrainz "
+    "(enrich matches from the MusicBrainz database), "
+    "--write-isrc/--no-write-isrc (needs --musicbrainz "
+    "and --write-tags), --threshold, "
     "--max-length, --fpcalc, --api-key, "
     "--album-mode/--no-album-mode (cluster each folder "
     "by release group; tag only decided albums), "

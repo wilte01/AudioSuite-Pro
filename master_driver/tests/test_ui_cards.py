@@ -26,6 +26,8 @@ Changed in 1.0.1: updates the Library Statistics card fixture.
 
 Changed in 1.1.0: adds the Audio Enhancer card's preset-vocabulary lock (every
 shared ``PresetName`` member, Custom included, must be selectable there).
+
+Changed in 1.2.0: supplies the new fingerprinter card variables.
 """
 
 import sys
@@ -150,6 +152,10 @@ def _make_state(root_widget):
 
     state.fingerprinter_lookup = tk.BooleanVar(root_widget, value=True)
     state.fingerprinter_write_tags = tk.BooleanVar(root_widget, value=False)
+    state.fingerprinter_write_mbids = tk.BooleanVar(root_widget, value=False)
+    state.fingerprinter_mbid_region = tk.StringVar(root_widget, value="")
+    state.fingerprinter_musicbrainz = tk.BooleanVar(root_widget, value=False)
+    state.fingerprinter_write_isrc = tk.BooleanVar(root_widget, value=False)
     state.fingerprinter_threshold = tk.StringVar(root_widget, value="0.5")
     state.fingerprinter_max_length = tk.StringVar(root_widget, value="120")
     state.fingerprinter_fpcalc = tk.StringVar(root_widget, value="")

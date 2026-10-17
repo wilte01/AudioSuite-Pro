@@ -1,4 +1,8 @@
-"""Audio Fingerprinter card for Master Driver UI."""
+"""Audio Fingerprinter card for Master Driver UI.
+
+Changed in 1.2.0: adds the MusicBrainz enrichment and ISRC tag-write
+toggles.
+"""
 
 import tkinter as tk
 from typing import TYPE_CHECKING
@@ -41,6 +45,32 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             r1,
             text="Write fingerprint tags to files",
             variable=state.fingerprinter_write_tags,
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            selectcolor=styles.BG_WHITE,
+            activebackground=styles.BG_WHITE,
+        ).pack(side=tk.LEFT)
+
+        r1b = tk.Frame(body, bg=styles.BG_WHITE)
+        r1b.pack(fill="x", pady=1)
+        tk.Checkbutton(
+            r1b,
+            text="Enrich matches from MusicBrainz (ISRCs, release facts)",
+            variable=state.fingerprinter_musicbrainz,
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            selectcolor=styles.BG_WHITE,
+            activebackground=styles.BG_WHITE,
+        ).pack(side=tk.LEFT)
+
+        r1c = tk.Frame(body, bg=styles.BG_WHITE)
+        r1c.pack(fill="x", pady=1)
+        tk.Checkbutton(
+            r1c,
+            text="Write ISRC tags (needs MusicBrainz + tags + Live)",
+            variable=state.fingerprinter_write_isrc,
             font=styles.FONT_CAPTION,
             bg=styles.BG_WHITE,
             fg=styles.FG_MAIN,

@@ -7,6 +7,12 @@ Each file is a self-contained job: generate the Chromaprint via fpcalc,
 optionally query AcoustID, optionally write the AcoustID tags.  Worker slot
 release happens only in ``finally`` so the slot queue can never be
 over-emptied.
+
+Changed in 1.2.0: optional MusicBrainz enrichment — ISRC retrieval, release
+facts, and the MusicBrainz near-tie break — plus the ``--write-isrc`` tag
+write (PLAN_feature_expansion.md D28, D29, D31).  An enrichment failure never
+changes a file's status: the file keeps the status its AcoustID outcome earned
+and the failure is recorded in ``MBEnrichment.note``.
 """
 
 from __future__ import annotations
@@ -41,16 +47,19 @@ from .album_cluster import (
 )
 from .exceptions import FingerprintError
 from .fingerprinter import generate_fingerprint, resolve_fpcalc
-from .mbid_writer import select_mbid_tags, write_mbid_tags
+from .mbid_writer import select_mbid_tags, selected_release_id, write_mbid_tags
 from .models import (
     AcoustidRecording,
     Fingerprint,
     FingerprintFileResult,
     FingerprintParams,
     FingerprintStatus,
+    MBEnrichment,
+    MBReleaseFacts,
     status_text,
 )
-from .tag_writer import write_acoustid_tags
+from .musicbrainz_client import MusicBrainzClient, resolve_ambiguous_with_mb
+from .tag_writer import write_acoustid_tags, write_isrc_tags
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +81,7 @@ class _FingerprintJob:
     on_progress: Callable[..., None]
     results: list[FingerprintFileResult]
     undo_batch: str | None
+    mb_client: MusicBrainzClient | None = None
 
 
 #: Statuses whose display line carries the detail message after the filename.
@@ -223,6 +233,136 @@ def _write_mbids_for(
     return msg
 
 
+def _write_isrc_for(isrcs: tuple[str, ...], file_path: str) -> str:
+    """Write the retrieved ISRCs, returning a note for the result message.
+
+    A failed ISRC write does not fail the file, for the same reason a failed
+    MBID write does not: the AcoustID tags are already committed and only the
+    enrichment is missing.  The message says which, rather than reporting a
+    tagged file as untagged.
+
+    Args:
+        isrcs: ISRCs retrieved from MusicBrainz (empty writes nothing).
+        file_path: Absolute path of the file being tagged.
+
+    Returns:
+        A short note for the per-file result message, empty when there was
+        nothing to write.
+    """
+    if not isrcs:
+        return ""
+    ok, msg = write_isrc_tags(file_path, isrcs)
+    if not ok:
+        logger.warning("ISRC tag write failed for %s: %s", file_path, msg)
+        return f"ISRC write failed: {msg}"
+    return msg
+
+
+def _release_facts_for(
+    params: FingerprintParams,
+    mb_client: MusicBrainzClient,
+    best: AcoustidRecording,
+    album_title: str,
+    file_path: str,
+) -> MBReleaseFacts | None:
+    """Fetch release-level facts for the release this file's tags select.
+
+    The release id comes from :func:`selected_release_id`, i.e. the same
+    D2-am1 selection the tag writer uses, so the facts shown and the album id
+    written can never describe different editions.
+
+    Returns:
+        The release's facts, or None when no single release is selected or the
+        lookup failed (release facts are enrichment, never a requirement).
+    """
+    release_id = selected_release_id(
+        best, album_title=album_title, file_path=file_path, region=params.mbid_region
+    )
+    if not release_id:
+        return None
+    result = mb_client.get_release(release_id)
+    if not result.ok or result.value is None:
+        logger.debug(
+            "MusicBrainz release %s unavailable: %s", release_id, result.reason
+        )
+        return None
+    return result.value
+
+
+def _enrich_with_mb(
+    params: FingerprintParams,
+    mb_client: MusicBrainzClient,
+    best: AcoustidRecording,
+    ambiguous: bool,
+    tag_resolved: bool,
+    recordings: tuple[AcoustidRecording, ...],
+    artist_tag: str,
+    title_tag: str,
+    album_tag: str,
+    file_path: str,
+) -> tuple[AcoustidRecording, MBEnrichment]:
+    """Attach MusicBrainz facts to a matched candidate.
+
+    Runs only when enrichment is enabled and a candidate was matched.  Two
+    things happen, in one recording lookup where possible:
+
+    1. an AcoustID near-tie the file's own tags could not settle is offered to
+       MusicBrainz (``resolve_ambiguous_with_mb``), which may replace the
+       rank-order pick;
+    2. the chosen recording's ISRCs and its selected release's facts are
+       retrieved for display, logging and the optional ISRC tag write.
+
+    Args:
+        params: Runtime parameters (the release region preference).
+        mb_client: The run's MusicBrainz client (rate-limited, caching).
+        best: The candidate chosen so far.
+        ambiguous: Whether the AcoustID scores were a near-tie.
+        tag_resolved: Whether the file's tags already settled that near-tie.
+        recordings: The full candidate list (for the tie-break).
+        artist_tag: The file's existing artist tag.
+        title_tag: The file's existing title tag.
+        album_tag: The file's existing album tag.
+        file_path: Absolute path of the file.
+
+    Returns:
+        Tuple ``(candidate, enrichment)``.  The candidate is the MusicBrainz-
+        resolved one when the tie was broken by facts and the rank-order pick
+        otherwise; the enrichment always carries the failure reason in
+        ``note`` when a lookup could not answer.
+    """
+    evidence = ""
+    resolved = False
+    if ambiguous and not tag_resolved:
+        tie = resolve_ambiguous_with_mb(
+            recordings,
+            mb_client,
+            album_tag=album_tag,
+            title_tag=title_tag,
+            artist_tag=artist_tag,
+        )
+        best = tie.recording
+        resolved = tie.resolved
+        evidence = tie.evidence
+
+    result = mb_client.get_recording(best.recording_id)
+    if not result.ok or result.value is None:
+        return best, MBEnrichment(
+            recording_id=best.recording_id,
+            resolved_ambiguity=resolved,
+            evidence=evidence,
+            note=result.reason or f"MusicBrainz lookup {result.status}.",
+        )
+
+    recording = result.value
+    return best, MBEnrichment(
+        recording_id=best.recording_id,
+        isrcs=recording.isrcs,
+        release=_release_facts_for(params, mb_client, best, album_tag, file_path),
+        resolved_ambiguity=resolved,
+        evidence=evidence,
+    )
+
+
 def _commit_match_tags(
     matched: FingerprintFileResult,
     recording: AcoustidRecording,
@@ -249,6 +389,8 @@ def _commit_match_tags(
         message appended when the AcoustID write fails.
     """
     message = matched.message
+    if matched.mb is not None and matched.mb.evidence:
+        message = f"{message}; {matched.mb.evidence}"
     with use_batch(undo_batch):
         ok, msg = write_acoustid_tags(
             matched.file_path, matched.fingerprint, recording.acoustid_id
@@ -257,6 +399,10 @@ def _commit_match_tags(
             mbids = _write_mbids_for(params, recording, matched.file_path)
             if mbids:
                 message = f"{message} — {mbids}"
+        if ok and params.write_isrc and matched.isrcs:
+            isrc_note = _write_isrc_for(matched.isrcs, matched.file_path)
+            if isrc_note:
+                message = f"{message} — {isrc_note}"
 
     if not ok:
         return replace(
@@ -341,6 +487,28 @@ def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult
     best, ambiguous, tag_resolved = resolve_best_match(
         lookup.recordings, artist_tag, title_tag
     )
+
+    enrichment: MBEnrichment | None = None
+    if (
+        best is not None
+        and best.recording_id
+        and job.params.musicbrainz
+        and job.mb_client is not None
+    ):
+        _, album_tag = read_artist_album(full_path)
+        best, enrichment = _enrich_with_mb(
+            job.params,
+            job.mb_client,
+            best,
+            ambiguous,
+            tag_resolved,
+            lookup.recordings,
+            artist_tag,
+            title_tag,
+            album_tag,
+            full_path,
+        )
+
     if best is None or not best.recording_id:
         return FingerprintFileResult(
             file_path=full_path,
@@ -360,6 +528,8 @@ def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult
         message=_match_message(best, ambiguous, tag_resolved, lookup.recordings),
         acoustid_id=best.acoustid_id,
         recordings=lookup.recordings,
+        isrcs=enrichment.isrcs if enrichment is not None else (),
+        mb=enrichment,
     )
 
     if not (job.params.write_tags and not job.params.is_dry_run):
@@ -701,6 +871,13 @@ def run_fingerprinting(
             requests_per_second=params.requests_per_second,
         )
 
+    # One MusicBrainz client for the whole run: its per-entity cache is what
+    # keeps an album to one recording request per unique recording plus one
+    # release request, and its rate limiter is shared by every worker thread.
+    mb_client: MusicBrainzClient | None = None
+    if params.musicbrainz and params.lookup_enabled:
+        mb_client = MusicBrainzClient()
+
     processor = FingerprintProcessor()
 
     all_work: list[tuple[str, list[str]]] = []
@@ -764,6 +941,7 @@ def run_fingerprinting(
             on_progress=_on_file_progress,
             results=results,
             undo_batch=undo_batch,
+            mb_client=mb_client,
         )
         for folder_path, audio_files in all_work
         for i, name in enumerate(audio_files)

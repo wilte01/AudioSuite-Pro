@@ -257,6 +257,50 @@ audiosuite lyrics "D:\Music\Unknown-Arm" --live --parallel --workers 8
 audiosuite lyrics "D:\Music\Unknown-Arm" --json
 ```
 
+## Audio Fingerprinter
+
+Generate a Chromaprint fingerprint for every audio file and identify it
+through AcoustID, optionally enriching the match from the MusicBrainz
+database. `--musicbrainz` costs one MusicBrainz request per unique recording
+(plus one per unique release) at MusicBrainz's documented one request per
+second, so it is off by default.
+
+```bash
+audiosuite fingerprint <directory> [--lookup/--no-lookup]
+    [--write-tags/--no-write-tags] [--threshold N] [--max-length N]
+    [--album-mode/--no-album-mode] [--album-min N] [--mbid-region CC]
+    [--musicbrainz/--no-musicbrainz] [--write-isrc/--no-write-isrc]
+    [--json] [--dry]
+```
+
+- `--lookup` (default: on) — query AcoustID for each fingerprint. Without an
+  API key the command exits instead of silently fingerprinting only.
+- `--write-tags` (default: off) — write the AcoustID fingerprint/id tags.
+  Requires live mode.
+- `--threshold N` — minimum AcoustID score, 0.0-1.0 (default: 0.5).
+- `--max-length N` — seconds of audio passed to `fpcalc` (default: 120).
+- `--album-mode` (default: off) — cluster a folder's lookups by release group
+  and tag only when the album is decided; ambiguous albums stay untagged.
+- `--album-min N` — votes needed to form an album cluster (default: 3).
+- `--mbid-region CC` — preferred release country (ISO 3166-1 alpha-2) used
+  only to break a tie between otherwise identical releases.
+- `--musicbrainz` (default: off) — look the matched recording up in
+  MusicBrainz: retrieve its ISRCs and release facts (date, label, country),
+  and let MusicBrainz break an AcoustID near-tie the file's own tags could
+  not settle. A lookup failure never fails a file; it degrades to the
+  AcoustID-only result and says so in the message.
+- `--write-isrc` (default: off) — write the retrieved ISRCs, in the format's
+  native convention (`TSRC` for MP3/WAV/AIFF/DSF, `----:com.apple.iTunes:ISRC`
+  for M4A/MP4, an `ISRC` comment/item for FLAC/OGG/Opus/WV/APE/MPC). Requires
+  `--musicbrainz`, `--write-tags` and live mode.
+
+**Examples:**
+```bash
+audiosuite fingerprint "D:\Music\Unknown-Arm" --dry
+audiosuite fingerprint "D:\Music\Unknown-Arm" --live --write-tags --musicbrainz
+audiosuite fingerprint "D:\Music\Unknown-Arm" --live --write-tags --musicbrainz --write-isrc --json
+```
+
 ## All Commands
 
 | Command | Tool | Category |
@@ -272,6 +316,7 @@ audiosuite lyrics "D:\Music\Unknown-Arm" --json
 | `cue split` | CUE Sheet Splitter | Utility |
 | `declick` | Pop & Click Remover | Refinery |
 | `enhance` | Audio Enhancer | Refinery |
+| `fingerprint` | Audio Fingerprinter | Enrich (metadata) |
 | `genre-sync` | Genre Sync | Enrich |
 | `key` | Key Detector | Enrich |
 | `lyrics` | Lyrics Manager | Enrich |

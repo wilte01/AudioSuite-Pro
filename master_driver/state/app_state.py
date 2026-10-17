@@ -6,6 +6,8 @@ and runner function explicit about what state it touches.
 
 Changed in 1.0.1: removes the unused ``library_stats_completeness``/``_detail`` toggle
 keys.
+
+Changed in 1.2.0: adds the fingerprinter MusicBrainz / ISRC toggles.
 """
 
 from __future__ import annotations
@@ -151,6 +153,8 @@ class AppState:
         self.fingerprinter_write_tags = tk.BooleanVar(master, value=False)
         self.fingerprinter_write_mbids = tk.BooleanVar(master, value=False)
         self.fingerprinter_mbid_region = tk.StringVar(master, value="")
+        self.fingerprinter_musicbrainz = tk.BooleanVar(master, value=False)
+        self.fingerprinter_write_isrc = tk.BooleanVar(master, value=False)
         self.fingerprinter_threshold = tk.StringVar(master, value="0.5")
         self.fingerprinter_max_length = tk.StringVar(master, value="120")
         self.fingerprinter_fpcalc = tk.StringVar(master, value="")

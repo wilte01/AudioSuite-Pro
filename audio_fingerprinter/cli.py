@@ -1,4 +1,8 @@
-"""CLI command for Audio Fingerprinter."""
+"""CLI command for Audio Fingerprinter.
+
+Changed in 1.2.0: adds ``--musicbrainz`` and ``--write-isrc`` with their
+dependency guards (Sprint 2 Item 2.1).
+"""
 
 from __future__ import annotations
 
@@ -82,6 +86,24 @@ from .core.models import FingerprintParams
         "ties between otherwise identical releases when writing MBIDs."
     ),
 )
+@click.option(
+    "--write-isrc/--no-write-isrc",
+    default=False,
+    help=(
+        "Also write the ISRCs MusicBrainz returns for the matched recording. "
+        "Requires --musicbrainz, --write-tags and live mode."
+    ),
+)
+@click.option(
+    "--musicbrainz/--no-musicbrainz",
+    default=False,
+    help=(
+        "Enrich matches with a direct MusicBrainz lookup: retrieve the "
+        "recording's ISRCs and release facts, and let MusicBrainz break an "
+        "AcoustID near-tie the file's own tags could not settle. Rate-limited "
+        "to one request per second."
+    ),
+)
 def fingerprint(
     directory: str,
     dry_run: bool,
@@ -96,6 +118,8 @@ def fingerprint(
     album_min: int,
     write_mbids: bool,
     mbid_region: str,
+    write_isrc: bool,
+    musicbrainz: bool,
 ) -> None:
     """Generate Chromaprint fingerprints and identify tracks via AcoustID."""
     from .core.file_processor import run_fingerprinting
@@ -117,6 +141,21 @@ def fingerprint(
         )
         raise SystemExit(1)
 
+    if write_isrc and not write_tags:
+        click.echo(
+            "--write-isrc adds to the AcoustID tags; it also needs --write-tags.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    if write_isrc and not musicbrainz:
+        click.echo(
+            "--write-isrc needs --musicbrainz: ISRCs come from the MusicBrainz "
+            "recording lookup, not from AcoustID.",
+            err=True,
+        )
+        raise SystemExit(1)
+
     params = FingerprintParams(
         lookup_enabled=lookup,
         write_tags=write_tags,
@@ -128,6 +167,8 @@ def fingerprint(
         album_min=album_min,
         write_mbids=write_mbids,
         mbid_region=mbid_region.strip().upper(),
+        musicbrainz=musicbrainz,
+        write_isrc=write_isrc,
     )
 
     with active_batch("audio_fingerprinter", "tag_edit"):

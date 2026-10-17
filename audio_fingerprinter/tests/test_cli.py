@@ -1,4 +1,8 @@
-"""Tests for audio_fingerprinter.cli."""
+"""Tests for audio_fingerprinter.cli.
+
+Changed in 1.2.0: adds the ``--musicbrainz`` / ``--write-isrc`` option tests
+(Sprint 2 Item 2.1).
+"""
 
 from __future__ import annotations
 
@@ -137,3 +141,71 @@ class TestMbidFlags:
         assert result.exit_code == 0
         assert params is not None
         assert params.write_mbids is False
+
+
+class TestMusicBrainzFlags:
+    """--musicbrainz / --write-isrc: defaults, dependencies, and params."""
+
+    def _invoke(self, args: list[str]):
+        runner = CliRunner()
+        tool_result = MagicMock(
+            processed=0, errors=0, duration_secs=0.0, extra={"counts": {}}
+        )
+        with (
+            patch(
+                "audio_fingerprinter.utils.api_key.load_api_key",
+                return_value="k",
+            ),
+            patch(
+                "audio_fingerprinter.cli._run_tool", return_value=tool_result
+            ) as mock_tool,
+            patch("audio_fingerprinter.cli.active_batch"),
+        ):
+            result = runner.invoke(fingerprint, args)
+        params = mock_tool.call_args.kwargs.get("params") if mock_tool.called else None
+        return result, params
+
+    def test_enrichment_off_by_default(self, tmp_path):
+        result, params = self._invoke([str(tmp_path)])
+        assert result.exit_code == 0
+        assert params is not None
+        # Off by default: MusicBrainz allows one request per second, so an
+        # album run must not incur it unless the user asked.
+        assert params.musicbrainz is False
+        assert params.write_isrc is False
+
+    def test_musicbrainz_flag_sets_params(self, tmp_path):
+        result, params = self._invoke([str(tmp_path), "--musicbrainz"])
+        assert result.exit_code == 0
+        assert params is not None
+        assert params.musicbrainz is True
+
+    def test_no_musicbrainz_flag(self, tmp_path):
+        result, params = self._invoke([str(tmp_path), "--no-musicbrainz"])
+        assert result.exit_code == 0
+        assert params is not None
+        assert params.musicbrainz is False
+
+    def test_write_isrc_flag_sets_params(self, tmp_path):
+        result, params = self._invoke(
+            [str(tmp_path), "--musicbrainz", "--write-tags", "--write-isrc"]
+        )
+        assert result.exit_code == 0
+        assert params is not None
+        assert params.write_isrc is True
+
+    def test_write_isrc_requires_musicbrainz(self, tmp_path):
+        result, _params = self._invoke([str(tmp_path), "--write-tags", "--write-isrc"])
+        assert result.exit_code == 1
+        assert "--musicbrainz" in result.output
+
+    def test_write_isrc_requires_write_tags(self, tmp_path):
+        result, _params = self._invoke([str(tmp_path), "--musicbrainz", "--write-isrc"])
+        assert result.exit_code == 1
+        assert "--write-tags" in result.output
+
+    def test_help_documents_both_flags(self):
+        result = CliRunner().invoke(fingerprint, ["--help"])
+        assert result.exit_code == 0
+        assert "--musicbrainz" in result.output
+        assert "--write-isrc" in result.output

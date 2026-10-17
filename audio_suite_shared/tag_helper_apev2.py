@@ -19,6 +19,8 @@ APEv2 value semantics (empirically pinned against mutagen 1.48, D20):
 case-insensitively on lookup.
 
 Changed in 1.1.0: new APEv2 tag handler for WavPack/APE/Musepack (.wv/.ape/.mpc).
+Changed in 1.2.0: adds ``read_isrcs`` (the ``ISRC`` APEv2 item) for the Audio
+Fingerprinter's ISRC retrieval (PLAN_feature_expansion.md D29).
 """
 
 import logging
@@ -354,6 +356,35 @@ class APEv2Handler(BaseTagHandler):
             The item's first value as a string, or None if absent.
         """
         return self._read_text(name)
+
+    def read_isrcs(self) -> tuple[str, ...]:
+        """Read the ISRCs stored in the ``ISRC`` APEv2 item.
+
+        An APEv2 item's value is an ``APETextValue`` — a ``str`` subclass whose
+        ``list()`` yields each ``\\x00``-separated value — so multiple ISRCs
+        are written as one item and read back here as a tuple.  Indexing the
+        value directly would yield a single *character* (the pinned D20
+        semantics), which is why this does not use the single-value reader.
+
+        Returns:
+            Every non-empty ISRC, deduplicated, in stored order.
+        """
+        if self._tags is None:
+            return ()
+        for key in self._tags.keys():
+            if key.upper() != "ISRC":
+                continue
+            try:
+                values = list(self._tags[key])
+            except (TypeError, ValueError):
+                return ()
+            found: list[str] = []
+            for value in values:
+                text = str(value).strip()
+                if text and text not in found:
+                    found.append(text)
+            return tuple(found)
+        return ()
 
     def read_disc_number(self) -> str | None:
         """Read the disc number from the ``DISCNUMBER`` APEv2 item.

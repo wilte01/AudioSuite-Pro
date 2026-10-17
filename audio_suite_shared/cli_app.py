@@ -22,7 +22,8 @@ Usage:
     audiosuite mood-analysis-batch /path/to/dir [--duration 90] [--parallel]
                            [--workers 4] [--dry] [--json]
     audiosuite fingerprint /path/to/dir [--write-tags] [--threshold 0.5]
-                           [--max-length 120] [--album-mode] [--dry] [--json]
+                           [--max-length 120] [--album-mode] [--musicbrainz]
+                           [--write-isrc] [--dry] [--json]
     audiosuite normalise /path/to/dir [--target-lufs -14] [--tolerance 0.5]
                            [--mode lossless] [--dry] [--json]
     audiosuite scrub /path/to/dir [--preserve-lyrics] [--preserve-album-artist]
@@ -68,6 +69,9 @@ output format.  ``--log-level`` is a group-level option, so it precedes the
 subcommand (``audiosuite --log-level DEBUG bpm /path/to/dir``).
 
 Commands are registered by importing the corresponding tool's cli module.
+
+Changed in 1.2.0: documents the fingerprint ``--musicbrainz`` and
+``--write-isrc`` flags.
 """
 
 from __future__ import annotations

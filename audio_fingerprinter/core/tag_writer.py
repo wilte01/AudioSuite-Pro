@@ -1,22 +1,51 @@
-"""Tool-level AcoustID tag writing.
+"""Tool-level AcoustID and ISRC tag writing.
 
-Thin delegation to ``audio_suite_shared.tag_helper_writer.write_acoustid`` so
-the tool core stays importable on minimal installs (mutagen is imported only
-inside the shared helper) and errors are already normalised to an
-``AudioTagError`` in the shared layer.
+Thin delegation to ``audio_suite_shared.tag_helper_writer`` so the tool core
+stays importable on minimal installs (mutagen is imported only inside the
+shared helper) and errors are already normalised to an ``AudioTagError`` in the
+shared layer.
+
+Changed in 1.2.0: adds ``write_isrc_tags`` for the MusicBrainz ISRC retrieval
+(PLAN_feature_expansion.md D29).
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
 from audio_suite_shared.exceptions import (
     AudioSuiteError,
     handle_audio_errors,
 )
 from audio_suite_shared.tag_helper_writer import write_acoustid as _write_acoustid
+from audio_suite_shared.tag_helper_writer import write_isrc as _write_isrc
 
 logger = logging.getLogger(__name__)
+
+
+@handle_audio_errors(reraise=False, context="isrc_tag_write")
+def write_isrc_tags(
+    file_path: str,
+    isrcs: Sequence[str],
+) -> tuple[bool, str]:
+    """Write the retrieved ISRCs to a file, returning a success flag.
+
+    Args:
+        file_path: Path to the audio file.
+        isrcs: ISRCs retrieved from MusicBrainz.
+
+    Returns:
+        A ``(ok, message)`` tuple, mirroring :func:`write_acoustid_tags`: the
+        message carries the written count on success and the error text on
+        failure, so the per-file result can name what happened either way.
+    """
+    try:
+        _write_isrc(file_path, isrcs)
+    except AudioSuiteError as exc:
+        logger.warning("ISRC tag write failed for %s: %s", file_path, exc)
+        return False, str(exc)
+    return True, f"ISRC tags written: {len(list(isrcs))}."
 
 
 @handle_audio_errors(reraise=False, context="acoustid_tag_write")
@@ -49,3 +78,6 @@ def write_acoustid_tags(
         logger.warning("AcoustID tag write failed for %s: %s", file_path, exc)
         return False, str(exc)
     return True, "AcoustID tags written."
+
+
+__all__ = ["write_acoustid_tags", "write_isrc_tags"]

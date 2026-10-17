@@ -1,4 +1,8 @@
-"""Tests for audio_fingerprinter.core.file_processor."""
+"""Tests for audio_fingerprinter.core.file_processor.
+
+Changed in 1.2.0: adds the MusicBrainz enrichment / ISRC real-outcome tests
+(Sprint 2 Item 2.1).
+"""
 
 from __future__ import annotations
 
@@ -1277,3 +1281,253 @@ class TestResultDisplayCoversEveryStatus:
             message="Fingerprint ready for album matching.",
         )
         assert _result_display(result) == "[ANALYSED] a.mp3"
+
+
+class TestIsrcEnrichmentRealOutcome:
+    """Sprint 2 Item 2.1 end to end: the enrichment must reach the bytes.
+
+    Every assertion reads the file back through mutagen, never the params
+    object the run was handed, so a flag that is accepted but never threaded
+    to the write site cannot pass.
+    """
+
+    REC_ID = "b0f1c1c8-3a4d-4c1b-9d1e-1a2b3c4d5e6f"
+    ALT_ID = "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f"
+    REL_ID = "d2e3f4a5-b6c7-4d8e-9f0a-1b2c3d4e5f60"
+    ISRC = "GBAYE0601498"
+    ALT_ISRC = "USRC17607839"
+
+    @staticmethod
+    def _make_track(tmp_path):
+        from pydub import AudioSegment
+
+        AudioSegment.silent(duration=300).export(str(tmp_path / "t.mp3"), format="mp3")
+        return tmp_path / "t.mp3"
+
+    @staticmethod
+    def _tsrc(path) -> list[str]:
+        """Return the ID3 TSRC values actually stored on disk."""
+        import mutagen
+
+        audio = mutagen.File(str(path))
+        assert audio is not None and audio.tags is not None
+        return [str(text) for frame in audio.tags.getall("TSRC") for text in frame.text]
+
+    def _recording(self, recording_id: str = "") -> AcoustidRecording:
+        from audio_fingerprinter.core.models import Release
+
+        return AcoustidRecording(
+            acoustid_id="a1",
+            recording_id=recording_id or self.REC_ID,
+            title="Song",
+            artist="Artist",
+            score=0.9,
+            duration=60,
+            releases=(
+                Release(
+                    release_id=self.REL_ID,
+                    title="Sheet Music",
+                    release_group_id=_ALBUM.release_group_id,
+                    release_group_title=_ALBUM.title,
+                    release_group_type="Album",
+                ),
+            ),
+        )
+
+    @classmethod
+    def _mb_client(cls, recordings: dict[str, Any]):
+        """Build a fake MusicBrainzClient keyed by recording MBID."""
+        from audio_fingerprinter.core.models import MBReleaseFacts
+        from audio_fingerprinter.core.musicbrainz_client import MBResult
+
+        client = MagicMock()
+
+        def _get_recording(recording_id: str):
+            value = recordings.get(recording_id)
+            if value is None:
+                return MBResult(status="not found", reason="no such recording")
+            if isinstance(value, MBResult):
+                return value
+            return MBResult(status="ok", value=value)
+
+        client.get_recording.side_effect = _get_recording
+        client.get_release.return_value = MBResult(
+            status="ok",
+            value=MBReleaseFacts(
+                release_id=cls.REL_ID,
+                title="Sheet Music",
+                date="1974-03-01",
+                countries=("GB",),
+                labels=("UK Records",),
+            ),
+        )
+        return client
+
+    def _run(
+        self,
+        folder,
+        recordings: list[AcoustidRecording],
+        mb_client: MagicMock,
+        **params_kwargs: Any,
+    ):
+        client = MagicMock()
+        client.lookup.return_value = LookupResult(
+            status="ok", recordings=tuple(recordings)
+        )
+        complete, error = MagicMock(), MagicMock()
+        slot_q: Queue[int] = Queue()
+        for i in range(DEFAULT_MAX_WORKERS):
+            slot_q.put(i)
+        defaults: dict[str, Any] = {
+            "lookup_enabled": True,
+            "write_tags": True,
+            "is_dry_run": False,
+            "musicbrainz": True,
+            "write_isrc": True,
+        }
+        defaults.update(params_kwargs)
+        with (
+            _patch_fingerprint_by_name(),
+            patch(
+                "audio_fingerprinter.core.file_processor.resolve_fpcalc",
+                return_value="fpcalc",
+            ),
+            patch(
+                "audio_fingerprinter.core.file_processor.AcoustidClient",
+                return_value=client,
+            ),
+            patch(
+                "audio_fingerprinter.core.file_processor.MusicBrainzClient",
+                return_value=mb_client,
+            ),
+        ):
+            run_fingerprinting(
+                dir_path=str(folder),
+                api_key="key",
+                params=FingerprintParams(**defaults),
+                slot_vars=[MagicMock() for _ in range(DEFAULT_MAX_WORKERS)],
+                slot_queue=slot_q,
+                on_progress=MagicMock(),
+                on_complete=complete,
+                on_error=error,
+            )
+        assert not error.called, error.call_args
+        return complete
+
+    def test_isrc_is_written_to_a_real_file(self, tmp_path):
+        from audio_fingerprinter.core.models import MBRecording
+
+        track = self._make_track(tmp_path)
+        complete = self._run(
+            tmp_path,
+            [self._recording()],
+            self._mb_client(
+                {self.REC_ID: MBRecording(recording_id=self.REC_ID, isrcs=(self.ISRC,))}
+            ),
+        )
+
+        assert complete.call_args.kwargs["counts"]["tagged"] == 1
+        assert self._tsrc(track) == [self.ISRC]
+
+    def test_dry_run_writes_no_isrc(self, tmp_path):
+        from audio_fingerprinter.core.models import MBRecording
+
+        track = self._make_track(tmp_path)
+        self._run(
+            tmp_path,
+            [self._recording()],
+            self._mb_client(
+                {self.REC_ID: MBRecording(recording_id=self.REC_ID, isrcs=(self.ISRC,))}
+            ),
+            is_dry_run=True,
+        )
+        assert self._tsrc(track) == []
+
+    def test_write_isrc_off_writes_nothing(self, tmp_path):
+        from audio_fingerprinter.core.models import MBRecording
+
+        track = self._make_track(tmp_path)
+        self._run(
+            tmp_path,
+            [self._recording()],
+            self._mb_client(
+                {self.REC_ID: MBRecording(recording_id=self.REC_ID, isrcs=(self.ISRC,))}
+            ),
+            write_isrc=False,
+        )
+        assert self._tsrc(track) == []
+
+    def test_musicbrainz_off_never_queries_the_service(self, tmp_path):
+        track = self._make_track(tmp_path)
+        client = self._mb_client({})
+        self._run(tmp_path, [self._recording()], client, musicbrainz=False)
+        client.get_recording.assert_not_called()
+        assert self._tsrc(track) == []
+
+    def test_lookup_failure_does_not_fail_the_file(self, tmp_path):
+        from audio_fingerprinter.core.models import FingerprintStatus
+        from audio_fingerprinter.core.musicbrainz_client import MBResult
+
+        track = self._make_track(tmp_path)
+        complete = self._run(
+            tmp_path,
+            [self._recording()],
+            self._mb_client({self.REC_ID: MBResult(status="offline", reason="down")}),
+        )
+
+        results = complete.call_args.kwargs["results"]
+        assert len(results) == 1
+        # The AcoustID outcome still stands; only the enrichment is missing.
+        assert results[0].status == FingerprintStatus.TAGGED
+        assert results[0].mb is not None
+        assert "down" in results[0].mb.note
+        assert results[0].isrcs == ()
+        assert self._tsrc(track) == []
+
+    def test_release_facts_are_retrieved_for_the_selected_release(self, tmp_path):
+        from audio_fingerprinter.core.models import MBRecording
+
+        self._make_track(tmp_path)
+        mb_client = self._mb_client(
+            {self.REC_ID: MBRecording(recording_id=self.REC_ID, isrcs=(self.ISRC,))}
+        )
+        complete = self._run(tmp_path, [self._recording()], mb_client)
+
+        result = complete.call_args.kwargs["results"][0]
+        assert result.mb is not None
+        assert result.mb.release is not None
+        assert result.mb.release.date == "1974-03-01"
+        assert result.mb.release.countries == ("GB",)
+        mb_client.get_release.assert_called_once_with(self.REL_ID)
+
+    def test_near_tie_resolved_by_musicbrainz_writes_its_isrc(self, tmp_path):
+        """The MusicBrainz evidence, not the AcoustID rank, decides the write."""
+        from audio_fingerprinter.core.models import MBRecording
+
+        track = self._make_track(tmp_path)
+        top = self._recording(self.REC_ID)
+        runner_up = AcoustidRecording(
+            acoustid_id="a2",
+            recording_id=self.ALT_ID,
+            title="Song",
+            artist="Artist",
+            score=0.94,
+            duration=60,
+            releases=top.releases,
+        )
+        # The rank-order pick has no ISRCs; only the runner-up has them.
+        mb_client = self._mb_client(
+            {
+                self.REC_ID: MBRecording(recording_id=self.REC_ID),
+                self.ALT_ID: MBRecording(
+                    recording_id=self.ALT_ID, isrcs=(self.ALT_ISRC,)
+                ),
+            }
+        )
+        complete = self._run(tmp_path, [top, runner_up], mb_client)
+
+        result = complete.call_args.kwargs["results"][0]
+        assert result.mb is not None
+        assert result.mb.resolved_ambiguity is True
+        assert result.mb.recording_id == self.ALT_ID
+        assert self._tsrc(track) == [self.ALT_ISRC]

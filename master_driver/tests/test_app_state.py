@@ -32,6 +32,8 @@ suite_config (load_app_state / save_app_state / save_palette)
 
 Changed in 1.0.1: updates the expected key set after the completeness/detail keys were
 removed.
+
+Changed in 1.2.0: covers the new fingerprinter MusicBrainz / ISRC keys.
 """
 
 import json
@@ -241,6 +243,12 @@ class TestAppStateAttributeExistence:
 
     def test_fingerprinter_mbid_region_exists(self, state):
         assert hasattr(state, "fingerprinter_mbid_region")
+
+    def test_fingerprinter_musicbrainz_exists(self, state):
+        assert hasattr(state, "fingerprinter_musicbrainz")
+
+    def test_fingerprinter_write_isrc_exists(self, state):
+        assert hasattr(state, "fingerprinter_write_isrc")
 
     def test_fingerprinter_threshold_exists(self, state):
         assert hasattr(state, "fingerprinter_threshold")
@@ -526,6 +534,12 @@ class TestAppStateDefaults:
 
     def test_fingerprinter_mbid_region_default_empty(self, state):
         assert state.fingerprinter_mbid_region.get() == ""
+
+    def test_fingerprinter_musicbrainz_default_false(self, state):
+        assert state.fingerprinter_musicbrainz.get() is False
+
+    def test_fingerprinter_write_isrc_default_false(self, state):
+        assert state.fingerprinter_write_isrc.get() is False
 
     def test_fingerprinter_threshold_default(self, state):
         assert state.fingerprinter_threshold.get() == "0.5"
