@@ -186,9 +186,12 @@ bullet(
 bullet(
     doc,
     "Enhancement preset: ",
-    "Mild, Moderate, Aggressive, or Custom. When "
-    "Normalise is active, the refinery suppresses enhancement output gain "
-    "so final loudness is controlled by the normalizer.",
+    "Mild, Moderate, Aggressive, or Custom. Selecting Custom shows a "
+    "Configure Custom DSP button that opens the same non-modal editor the "
+    "standalone Audio Enhancer uses, so the stage itself stays compact and "
+    "every control is reachable; changes apply to the run as you make them. "
+    "When Normalise is active, the refinery suppresses enhancement output "
+    "gain so final loudness is controlled by the normalizer.",
 )
 bullet(
     doc,

@@ -19,12 +19,19 @@ written), ``--start``/``--no-start`` and ``--end``/``--no-end`` (auto
 start/end), plus the display-only ``--clear-logs``/``--no-clear-logs`` and
 ``--parallel-run``/``--no-parallel-run`` flags.  The legacy ``--auto-start``
 and ``--auto-end`` spellings remain supported for backward compatibility.
+
+Changed in 1.1.0: the accepted preset vocabulary is read from the shared
+``PresetName`` instead of a local three-name tuple, so ``--preset Custom`` is
+accepted (the Custom DSP editor's values are whatever the tool already has
+loaded) and the list cannot drift from the GUIs' selectors again.
 """
 
 from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+
+from audio_suite_shared.dsp_models import PresetName
 
 
 @dataclass(frozen=True)
@@ -41,7 +48,11 @@ class CliArgs:
     parallel_run: bool = False
 
 
-_VALID_PRESETS: tuple[str, ...] = ("Mild", "Moderate", "Aggressive")
+#: Every preset the tool understands, from the shared definition. Hard-coding
+#: the names here once left the Master Driver's card unable to offer Custom and
+#: made ``--preset Custom`` an argparse error, even though the suite CLI and
+#: both GUIs accepted it.
+_VALID_PRESETS: tuple[str, ...] = tuple(preset.value for preset in PresetName)
 
 
 def _normalize_preset(value: str) -> str:
@@ -91,8 +102,12 @@ def parse() -> CliArgs:
         "--preset",
         default="Moderate",
         type=_normalize_preset,
-        choices=["Mild", "Moderate", "Aggressive"],
-        help="Enhancement preset (default: Moderate). Case-insensitive.",
+        choices=_VALID_PRESETS,
+        help=(
+            "Enhancement preset: "
+            + ", ".join(_VALID_PRESETS)
+            + " (default: Moderate). Case-insensitive."
+        ),
     )
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(

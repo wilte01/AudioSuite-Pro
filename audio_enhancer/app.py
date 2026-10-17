@@ -101,6 +101,7 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
 
         self._preset_combo: ttk.Combobox | None = None
         self._refresh_preset_list: Any = None
+        self._dsp_panel: setup_tab.CustomDspPanel | None = None
 
         # ── Worker slot pool ──────────────────────────────────────────────────
         self.slot_vars = [
@@ -140,6 +141,11 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
         # Apply Audio Enhancer-specific settings
         if args.preset:
             self.preset_name.set(args.preset)
+            # A pre-filled preset is a value written outside a widget edit, so
+            # it must run the same update the combobox handler runs — otherwise
+            # the run keeps the old preset's values while the selector shows the
+            # new one (AGENTS.md pre-fill rule).
+            self._sync_preset_panel(args.preset)
         self.auto_end = args.auto_end
         if args.live_mode is not None:
             self.run_mode.set("Live Update" if args.live_mode else "Dry Run")
@@ -184,7 +190,12 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
         # NOTE: core.models.EnhancementParams and the UI's shared
         # dsp_models.EnhancementParams are field-identical duplicate classes;
         # the setup tab only reads attributes, so a cast is safe at this seam.
-        self.start_btn, self._refresh_preset_list, self._param_values = setup_tab.build(
+        (
+            self.start_btn,
+            self._refresh_preset_list,
+            self._param_values,
+            self._dsp_panel,
+        ) = setup_tab.build(
             tab_setup,
             source_path=self.source_path,
             output_path=self.output_path,
@@ -292,6 +303,39 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
             # too — previously it only updated self.params and the preset's
             # values were silently discarded.
             self._param_values.update(overrides)
+            # Changed in 1.2.0: the Custom DSP controls live in their own
+            # window, so the visible sliders have to be moved as well — before
+            # this, loading a saved preset changed what the run used but left
+            # every on-screen control showing the previous values.
+            if self._dsp_panel is not None:
+                self._dsp_panel.apply_values(overrides)
+
+    def _sync_preset_panel(self, name: str | None = None) -> None:
+        """Apply the selected preset to the UI and the shared values dict.
+
+        The combobox handler in the Setup tab does this for a real click; this
+        is the same update for a preset written in Python — a ``--preset`` CLI
+        flag or a restored value. Custom has no ``PRESETS`` entry (its values
+        are whatever the user has set), so it only syncs the summary row.
+
+        Args:
+            name: Preset being applied. Defaults to the current selector value;
+                callers that just wrote the selector pass it explicitly so the
+                applied name can never lag the widget.
+        """
+        if self._dsp_panel is None:
+            return
+        try:
+            selected = PresetName(name if name is not None else self.preset_name.get())
+        except ValueError:
+            return
+        if selected == PresetName.CUSTOM:
+            self._dsp_panel.sync_preset()
+            return
+        built_in = PRESETS.get(selected)
+        if built_in is not None:
+            # Numeric fields only — effect toggles stay as the user set them.
+            self._dsp_panel.apply_values(setup_tab.preset_values(built_in))
 
     def _on_preset_selected(self, name: str) -> None:
         settings = suite_config.load_preset(_TOOL_ID, name)

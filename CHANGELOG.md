@@ -31,6 +31,51 @@ Versions of the tools are released together with the suite (the single
   and the same file is checked by the suite and the runner, so a lock file
   cannot shrink or double without a deliberate regeneration.
 
+### Changed
+
+- **Audio Enhancer: the Custom DSP controls moved into their own window.** The
+  nineteen Custom controls needed 745 px and pushed the Setup tab to 1274 px
+  against 887 px available at the shipped 880x980 window, so the lower controls
+  could not be reached and the BEGIN ENHANCEMENT button was not drawn at all —
+  maximising did not help, because the tab still needed more than the ~988 px
+  a 1081 px-tall display provides. Selecting Custom now shows a one-line
+  summary with a **Configure Custom DSP…** button that opens a non-modal,
+  scrollable editor; the editor writes into the same values the run reads, so
+  it can stay open while a batch starts. The start button is now packed before
+  the options, so no preset state can clip it.
+
+### Fixed
+
+- **The Master Driver's Audio Enhancer card could not select Custom.** The
+  ENRICH card's preset combobox was a hard-coded three-name tuple, and the
+  standalone GUI's `--preset` parser declared the same three as its only valid
+  choices — so Custom was offered by the tool's own selector and by the suite
+  CLI, but rejected with an argparse error when the driver launched the tool.
+  Both vocabularies are now read from the shared `PresetName`, so the card
+  lists every preset the tool accepts and one edit keeps every entry point in
+  step.
+- **The REFINE tab's Audio Enhancer now uses the same Custom DSP editor as the
+  standalone tool.** Selecting Custom there still expanded all 19 controls
+  inline inside the stage panel (745 px), so the REFINE tab ran past the
+  desktop height and the lower controls could not be reached — the editor fix
+  had only been applied to the standalone window. The stage now shows the same
+  summary row and opens the same non-modal editor, which mirrors its values
+  into the stage config the pipeline reads, and still hides Output Gain while
+  the Normaliser stage owns the final level.
+- **Audio Enhancer: one Preset control instead of two.** The Setup tab showed
+  "Presets:" (saved suite presets) and "Enhancement Preset:" (built-in DSP
+  presets) as two near-identical comboboxes two rows apart that did different
+  things — one only changed DSP values, the other also restored the saved
+  paths. A single selector now lists the built-in presets first, then the
+  saved ones below a display-only divider, with a caption naming the kind and
+  the built-in preset a saved entry carries. Delete is greyed out for built-in
+  presets, and deleting the selected saved preset falls back to the built-in
+  preset still in use instead of leaving the selector blank.
+- **Audio Enhancer: a pre-filled `--preset` now applies that preset's values.**
+  The selector changed but the run kept the previous preset's parameters, so a
+  Master Driver or scripted launch quietly enhanced with the wrong DSP
+  settings. A pre-filled preset now runs the same update a combobox pick runs.
+
 ## [1.1.0] - 2026-10-16
 
 ### Added

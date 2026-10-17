@@ -5,6 +5,11 @@ DriverControlsPanel.  The old duplicate injected bar (SELECT ALL + Mode +
 Auto Start + Auto End + Clear Logs) is gone; only its SELECT ALL cheque
 survives, merged into the front of the Run Controls strip.  The output
 folder picker is retained.
+
+Changed in 1.1.0: added ``TestEnhancerCustomEditor``, which locks the REFINE
+tab's Audio Enhancer stage to the standalone tool's behaviour — selecting
+Custom shows the summary row and opens the shared non-modal DSP editor window
+instead of expanding all 19 controls inline (745 px) inside the stage panel.
 """
 
 from __future__ import annotations
@@ -507,6 +512,90 @@ class TestRunControlsGuardRails:
         state = AppState(master=root)
         _activate_driver_run_controls({"controls_panel": panel}, state)
         assert state.refinery_auto_start.get() is False
+
+
+def _scales(widget: tk.Widget) -> list[tk.Scale]:
+    """Every descendant Scale widget, depth-first."""
+    found: list[tk.Scale] = []
+    for child in widget.winfo_children():
+        if isinstance(child, tk.Scale):
+            found.append(child)
+        found.extend(_scales(child))
+    return found
+
+
+class TestEnhancerCustomEditor:
+    """The REFINE tab's Audio Enhancer stage uses the shared editor window.
+
+    Regression: selecting Custom used to expand all 19 DSP controls inline
+    (745 px), so the REFINE tab ran past the desktop height and the controls
+    could not all be reached — the standalone tool had already moved them into
+    a non-modal editor. Both entry points must now behave the same way.
+    """
+
+    def test_custom_adds_only_the_summary_row(self, root: tk.Tk) -> None:
+        parent, _state, result = _build(root)
+        setup_state = result[2]
+        row = setup_state["dsp_row"]
+        root.update_idletasks()
+        before = parent.winfo_reqheight()
+
+        setup_state["preset_var"].set("Custom")
+        root.update_idletasks()
+
+        assert row.winfo_manager() == "pack"
+        assert parent.winfo_reqheight() - before < 150
+
+    def test_custom_pick_opens_the_editor_window(self, root: tk.Tk) -> None:
+        _parent, _state, result = _build(root)
+        setup_state = result[2]
+        combo = setup_state["enhance_preset_combo"]
+        combo.set("Custom")
+        combo.event_generate("<<ComboboxSelected>>")
+
+        try:
+            assert setup_state["dsp_panel"].is_open()
+            assert setup_state["dsp_panel"].variable("compressor_ratio") is not None
+        finally:
+            setup_state["dsp_panel"].close()
+
+    def test_builtin_pick_never_opens_the_editor(self, root: tk.Tk) -> None:
+        """Only Custom owns the editor — same rule as the standalone tool."""
+        _parent, _state, result = _build(root)
+        setup_state = result[2]
+        combo = setup_state["enhance_preset_combo"]
+        panel = setup_state["dsp_panel"]
+        assert not panel.is_open()
+
+        try:
+            combo.set("Aggressive")
+            combo.event_generate("<<ComboboxSelected>>")
+            assert not panel.is_open()
+            assert setup_state["preset_var"].get() == "Aggressive"
+        finally:
+            panel.close()
+
+    def test_stage_body_embeds_no_dsp_sliders(self, root: tk.Tk) -> None:
+        _parent, _state, result = _build(root)
+        setup_state = result[2]
+        body = setup_state["dsp_row"].master
+        assert _scales(body) == []
+        assert _find_button(body, "Configure Custom DSP\u2026") is not None
+
+    def test_editor_edits_reach_the_run_config(self, root: tk.Tk) -> None:
+        """The panel mirrors into the StageConfig the pipeline reads."""
+        _parent, _state, result = _build(root)
+        setup_state = result[2]
+        config = result[1]
+        panel = setup_state["dsp_panel"]
+        panel.open()
+        try:
+            var = panel.variable("compressor_ratio")
+            assert var is not None
+            var.set(7.0)
+            assert config.enhance_params.compressor_ratio == 7.0
+        finally:
+            panel.close()
 
 
 class TestSaveSettings:

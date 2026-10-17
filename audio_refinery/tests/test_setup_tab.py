@@ -406,40 +406,30 @@ class TestEnhanceParamsFieldParity:
                 assert only is False
 
 
-class TestEnhancePanelSync:
-    """D24 regression: the enhancer panel widgets must write back to config.
+def _walk(widget: tk.Misc, kind: type) -> list[tk.Misc]:
+    """Every descendant of *widget* that is an instance of *kind*."""
+    found: list[tk.Misc] = []
+    for child in widget.winfo_children():
+        if isinstance(child, kind):
+            found.append(child)
+        found.extend(_walk(child, kind))
+    return found
 
-    Before this fix ``_build_enhance_panel`` called ``build_dsp_sliders`` and
-    discarded the returned vars/param_values, so dragging a Custom-mode slider
-    never reached ``config.enhance_params`` — the refine output ignored it.
-    The effect toggles are new in Item 1.2 and must sync the same way.
+
+class TestEnhancePanelSync:
+    """The enhance stage's editor must write back to the run config.
+
+    D24's regression (sliders writing to a discarded dict) now runs through the
+    shared ``CustomDspPanel``: the panel reports every change — widget or
+    preset — and the stage mirrors the full value set into
+    ``config.enhance_params``, which is what the pipeline reads. Before that it
+    synced one variable at a time from the inline sliders.
     """
 
-    def _build_with_spies(
-        self, root: tk.Tk, monkeypatch: object, config: object
-    ) -> dict:
-        from audio_enhancer.ui import setup_tab as enh_ui
+    def _build(self, root: tk.Tk, config: object) -> dict:
         from audio_refinery.ui import setup_tab
 
-        captured: dict = {}
-        real_sliders = enh_ui.build_dsp_sliders
-        real_effects = enh_ui.build_effect_controls
-
-        def spy_sliders(parent, params):  # type: ignore[no-untyped-def]
-            vars_, pv = real_sliders(parent, params)
-            captured["sliders"] = vars_
-            captured["param_values"] = pv
-            return vars_, pv
-
-        def spy_effects(parent, params, param_values):  # type: ignore[no-untyped-def]
-            vars_ = real_effects(parent, params, param_values)
-            captured["effects"] = vars_
-            return vars_
-
-        monkeypatch.setattr(enh_ui, "build_dsp_sliders", spy_sliders)
-        monkeypatch.setattr(enh_ui, "build_effect_controls", spy_effects)
-
-        setup_tab.build(
+        return setup_tab.build(
             parent=tk.Frame(root),
             source_path=tk.StringVar(),
             output_path=None,
@@ -449,39 +439,119 @@ class TestEnhancePanelSync:
             on_start=lambda: None,
             on_reset=lambda: None,
         )
-        return captured
 
-    def test_dsp_slider_writes_back_to_config(
-        self, root: tk.Tk, monkeypatch: object
-    ) -> None:
+    def _open_panel(self, state: dict) -> object:
+        panel = state["dsp_panel"]
+        panel.open()
+        return panel
+
+    def test_slider_edit_writes_back_to_config(self, root: tk.Tk) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
-        captured = self._build_with_spies(root, monkeypatch, config)
-        assert "compressor_ratio" in captured["sliders"]
+        state = self._build(root, config)
+        panel = self._open_panel(state)
 
-        captured["sliders"]["compressor_ratio"].set(9.0)
+        var = panel.variable("compressor_ratio")
+        assert var is not None
+        var.set(9.0)
 
         assert config.enhance_params.compressor_ratio == 9.0
 
-    def test_effect_toggle_writes_back_to_config(
-        self, root: tk.Tk, monkeypatch: object
-    ) -> None:
+    def test_effect_toggle_writes_back_to_config(self, root: tk.Tk) -> None:
         from audio_refinery.core.models import StageConfig
 
         config = StageConfig()
-        captured = self._build_with_spies(root, monkeypatch, config)
-        assert set(captured["effects"]) == {
-            "reverse",
-            "karaoke",
-            "phaser",
-            "flanger",
-            "chorus",
-            "karaoke_strength",
-        }
+        state = self._build(root, config)
+        panel = self._open_panel(state)
 
-        captured["effects"]["reverse"].set(True)
-        captured["effects"]["karaoke_strength"].set(0.4)
+        for field in ("reverse", "karaoke", "phaser", "flanger", "chorus"):
+            var = panel.variable(field)
+            assert var is not None
+            var.set(True)
+        strength = panel.variable("karaoke_strength")
+        assert strength is not None
+        strength.set(0.4)
 
         assert config.enhance_params.reverse is True
         assert config.enhance_params.karaoke_strength == 0.4
+        assert config.enhance_params.chorus is True
+
+    def test_preset_switch_does_not_reset_the_effects(self, root: tk.Tk) -> None:
+        """D13: a named preset supplies the 13 base fields only."""
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        state = self._build(root, config)
+        panel = self._open_panel(state)
+        reverse = panel.variable("reverse")
+        assert reverse is not None
+        reverse.set(True)
+
+        state["preset_var"].set("Mild")
+
+        assert config.enhance_params.reverse is True
+        assert config.enhance_params.preset == "Mild"
+
+    def test_stage_body_holds_no_inline_controls(self, root: tk.Tk) -> None:
+        """The 19 controls must live in the editor, not in the stage body."""
+        from audio_refinery.core.models import StageConfig
+
+        state = self._build(root, StageConfig())
+        body = state["dsp_row"].master
+        assert _walk(body, tk.Scale) == []
+        assert _walk(body, tk.Checkbutton) == []
+        assert state["dsp_panel"].variable("compressor_ratio") is None
+
+    def test_custom_pick_opens_the_shared_editor(self, root: tk.Tk) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        state = self._build(root, StageConfig())
+        combo = state["enhance_preset_combo"]
+        combo.set("Custom")
+        combo.event_generate("<<ComboboxSelected>>")
+
+        assert state["dsp_panel"].is_open()
+
+    def test_custom_mode_adds_only_the_summary_row(self, root: tk.Tk) -> None:
+        """Regression for the REFINE tab overflow: Custom must stay compact."""
+        from audio_refinery.core.models import StageConfig
+
+        state = self._build(root, StageConfig())
+        body = state["dsp_row"].master
+        root.update_idletasks()
+        before = body.winfo_reqheight()
+
+        state["preset_var"].set("Custom")
+        root.update_idletasks()
+
+        # The row appears (summary + button, well under 150 px); the old inline
+        # panel added 745 px here and pushed the tab past the desktop height.
+        assert state["dsp_row"].winfo_manager() == "pack"
+        assert body.winfo_reqheight() - before < 150
+
+    def test_output_gain_row_hidden_while_normaliser_is_enabled(
+        self, root: tk.Tk
+    ) -> None:
+        """The Normaliser owns the final level, so the row is hidden."""
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        config.normalise = True
+        state = self._build(root, config)
+        panel = self._open_panel(state)
+        dialog = panel.open()
+
+        def output_gain_row() -> tk.Misc | None:
+            for label in _walk(dialog, tk.Label):
+                if str(label.cget("text")).startswith("Output Gain"):
+                    return label.master
+            return None
+
+        row = output_gain_row()
+        assert row is not None
+        assert row.winfo_manager() == ""
+
+        config.normalise = False
+        state["normalise_toggle_cb"]()
+        assert row.winfo_manager() == "pack"

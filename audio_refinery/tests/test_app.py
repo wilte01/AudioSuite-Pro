@@ -357,6 +357,30 @@ class TestRealAppConstructionD3:
         assert settings["chorus"] is True
 
 
+class TestApplyPresetRefreshesEnhancerEditor:
+    """A loaded preset must move the Custom DSP editor's live controls.
+
+    The editor's values are the source for every later edit, so a stale copy
+    would rewrite the loaded preset back into the config on the next slider
+    move — and the visible controls would disagree with what the pipeline runs.
+    """
+
+    def test_editor_controls_follow_a_loaded_preset(self, real_app: Any) -> None:
+        app = real_app
+        panel = app._setup_state["dsp_panel"]
+        panel.open()
+        try:
+            app._apply_preset({"preset": "Custom", "compressor_ratio": 8.25})
+
+            var = panel.variable("compressor_ratio")
+            assert var is not None
+            assert var.get() == pytest.approx(8.25)
+            assert app._setup_state["preset_var"].get() == "Custom"
+            assert app.config.enhance_params.compressor_ratio == 8.25
+        finally:
+            panel.close()
+
+
 class TestStartGuardsD3:
     def _shell(self) -> Any:
         app = object.__new__(AudioRefineryApp)

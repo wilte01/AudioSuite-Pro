@@ -117,9 +117,9 @@ for step in (
 doc.add_heading("GUI Tabs", level=1)
 doc.add_heading("Setup", level=2)
 doc.add_paragraph(
-    "Setup contains the source path, output folder, preset "
+    "Setup contains the source path, output folder, the Preset "
     "selector, and the Custom "
-    "DSP controls. Browse for a folder or a single audio file. "
+    "DSP summary row. Browse for a folder or a single audio file. "
     "If the output folder "
     "is blank, the application uses the source directory and "
     "overwrites the source "
@@ -129,15 +129,23 @@ doc.add_paragraph(
 )
 bullet(
     doc,
-    "Enhancement Preset: ",
-    "Mild, Moderate, Aggressive, or Custom. Selecting Custom reveals all DSP sliders.",
+    "Preset: ",
+    "One selector for both kinds of preset. The built-in presets (Mild, "
+    "Moderate, Aggressive, Custom) change DSP values only. Saved presets "
+    "appear below a divider and also restore the source and output paths "
+    "stored with them. The caption under the selector states which kind is "
+    "active and, for a saved preset, names the built-in preset it carries. "
+    "Save stores the current settings under a new name; Delete removes the "
+    "selected saved preset and is greyed out while a built-in preset is "
+    "selected.",
 )
 bullet(
     doc,
-    "Presets: ",
-    "Save, load, and delete named settings through shared "
-    "suite preset storage. Saved "
-    "settings include paths, preset name, and DSP values.",
+    "Custom: ",
+    "Selecting it shows a Configure Custom DSP button and opens the parameter "
+    "editor in its own non-modal window, which stays open while you start a "
+    "run and applies changes immediately. The Setup tab keeps only the summary "
+    "row, so the BEGIN ENHANCEMENT button is always visible.",
 )
 bullet(
     doc,
@@ -207,7 +215,8 @@ bullet(
 bullet(
     doc,
     "Custom: ",
-    "Exposes all sliders and uses the current values for the enhancement pass.",
+    "Opens the Custom DSP editor; its current values are used for the "
+    "enhancement pass.",
 )
 
 doc.add_heading("Custom DSP Controls", level=1)
@@ -260,7 +269,7 @@ bullet(
 
 doc.add_heading("Effects", level=1)
 doc.add_paragraph(
-    "The Custom view also exposes five optional effects, and the command "
+    "The Custom DSP editor also exposes five optional effects, and the command "
     "line can enable the same effects through flags. All five default to "
     "off, so a preset run or an untouched Custom run produces exactly the "
     "same output as before the effects existed. Applying a preset resets "
@@ -375,13 +384,15 @@ doc.add_paragraph(
 
 doc.add_heading("Master Driver Use", level=1)
 doc.add_paragraph(
-    "Audio Enhancer is registered as a standalone Refinery tool."
-    " It can be launched "
-    "from the Master Driver's REFINE workflow, where the driver "
-    "supplies the source, "
-    "stage configuration, output, and inherited orchestration "
-    "settings. Direct launch "
-    "is useful when you need the full Audio Enhancer Setup "
+    "Audio Enhancer is reachable three ways: its own window, the Audio "
+    "Enhancer stage of the Master Driver's REFINE tab, and the Audio "
+    "Enhancer card on the Master Driver's UTIL tab. The UTIL card "
+    "requires an output folder and pre-fills the preset with Mild, "
+    "Moderate, Aggressive, or Custom; Custom starts the tool with the DSP "
+    "values it currently has loaded, because the card has no sliders. "
+    "From the REFINE tab the driver supplies the source, stage "
+    "configuration, output, and inherited orchestration settings. Direct "
+    "launch is useful when you need the full Audio Enhancer Setup "
     "controls and audition view."
 )
 

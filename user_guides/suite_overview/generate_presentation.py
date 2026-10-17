@@ -8,6 +8,9 @@ generator, and the suite Overview Guide.
 
 Usage:
     python user_guides/suite_overview/generate_presentation.py
+
+Changed in 1.1.0: the Audio Enhancer slide now names all four presets and
+describes the Custom DSP editor window instead of the old inline sliders.
 """
 
 from __future__ import annotations
@@ -1108,8 +1111,8 @@ def slide_workhorses(prs: Presentation, number: int) -> None:
                 marker="\u2022",
             ),
             Line(
-                "Three one-click presets (Mild / Moderate / Aggressive) "
-                "or thirteen sliders for full manual control",
+                "Mild / Moderate / Aggressive presets, or Custom with "
+                "thirteen sliders and five effects in a separate editor window",
                 marker="\u2022",
             ),
             Line(

@@ -381,6 +381,26 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         if "tolerance" in settings:
             p.normalise_params.tolerance = settings["tolerance"]
 
+        # Keep the enhancer stage's Custom DSP editor in step with the loaded
+        # preset. The editor's values are the source for every later edit, so a
+        # stale copy would rewrite this preset's values back into the config on
+        # the next slider move; before the editor existed the same load left the
+        # inline sliders showing the previous values.
+        setup_state = getattr(self, "_setup_state", None) or {}
+        preset_var = setup_state.get("preset_var")
+        panel = setup_state.get("dsp_panel")
+        if preset_var is not None and preset_var.get() != p.enhance_params.preset:
+            # Setting the selector runs the panel's preset trace; apply_values
+            # below then restores the values this preset actually stored.
+            preset_var.set(p.enhance_params.preset)
+        if panel is not None:
+            panel.apply_values(
+                {
+                    name: getattr(p.enhance_params, name)
+                    for name in p.enhance_params.__dataclass_fields__
+                }
+            )
+
     def _on_preset_selected(self, name: str) -> None:
         settings = suite_config.load_preset(_TOOL_ID, name)
         if settings:

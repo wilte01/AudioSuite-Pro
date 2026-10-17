@@ -229,13 +229,12 @@ def build(
 
     # Wire up the Output Gain visibility toggle after both panels exist
     def _update_output_gain_visibility(*_args: Any) -> None:
-        row = _state.get("output_gain_row")
-        if row is None:
+        panel = _state.get("dsp_panel")
+        if panel is None:
             return
-        if config.normalise:
-            row.pack_forget()
-        else:
-            row.pack(fill="x", pady=1, before=_state.get("output_gain_anchor"))
+        # The pipeline already zeroes output gain when the Normaliser runs; the
+        # row is hidden so the UI does not offer a control that has no effect.
+        panel.set_field_visible("output_gain_db", not config.normalise)
 
     # Trigger on normalise checkbox change
     _state["normalise_toggle_cb"] = _update_output_gain_visibility
@@ -527,74 +526,64 @@ def _build_enhance_panel(
             bg=styles.BG_WHITE,
             fg=styles.FG_MAIN,
         ).pack(side=tk.LEFT)
-        ttk.Combobox(
+        combo = ttk.Combobox(
             row,
             textvariable=preset_var,
-            values=["Mild", "Moderate", "Aggressive", "Custom"],
+            values=[preset.value for preset in PresetName],
             font=styles.FONT_BODY,
             state="readonly",
             width=12,
-        ).pack(side=tk.LEFT, padx=(6, 0))
-
-        dsp_frame = tk.Frame(body, bg=styles.BG_WHITE)
-        state["dsp_frame"] = dsp_frame
-
-        slider_vars, param_values = enhancer_ui.build_dsp_sliders(
-            dsp_frame, cast(EnhancementParams, p)
         )
-        effect_vars = enhancer_ui.build_effect_controls(
-            dsp_frame, cast(EnhancementParams, p), param_values
+        combo.pack(side=tk.LEFT, padx=(6, 0))
+
+        def _mirror(values: dict[str, Any]) -> None:
+            """Write the editor's values into the run config.
+
+            Done here rather than per-widget because the controls live in the
+            shared editor: the panel reports every change (widget or preset)
+            with a full value set, which is exactly what ``StageConfig``
+            needs — the pipeline runs on it, not on the widget variables.
+            """
+            for name, value in values.items():
+                if hasattr(p, name):
+                    setattr(p, name, value)
+
+        # The same compact row + non-modal editor the standalone Audio
+        # Enhancer shows. The stage body previously embedded all 19 controls
+        # inline (745 px), which pushed the REFINE tab past the desktop height
+        # as soon as Custom was selected — the defect this replaces.
+        panel = enhancer_ui.CustomDspPanel(
+            body, cast(EnhancementParams, p), preset_var, on_change=_mirror
         )
-
-        # Sync every widget back into the live EnhanceParams.  Previously the
-        # sliders only updated a discarded local dict, so dragging them in
-        # Custom mode did nothing (plan D24 defect fix).
-        all_vars: dict[str, tk.Variable] = {**slider_vars, **effect_vars}
-
-        def _make_sync(field_name: str) -> Callable[..., None]:
-            def _cb(*_: Any) -> None:
-                setattr(p, field_name, all_vars[field_name].get())
-
-            return _cb
-
-        for _field, _var in all_vars.items():
-            _var.trace_add("write", _make_sync(_field))
-
-        # Capture the output gain row for visibility toggling
-        # This is a bit tricky since build_dsp_sliders packs them directly.
-        # We'll look for the row that contains "Output Gain"
-        for child in dsp_frame.winfo_children():
-            for grand in child.winfo_children():
-                if (
-                    hasattr(grand, "cget")
-                    and isinstance(grand, tk.Label)
-                    and "Output Gain" in str(grand.cget("text"))
-                ):
-                    state["output_gain_row"] = child
-                    break
-
-        og_anchor = tk.Frame(dsp_frame, bg=styles.BG_WHITE, height=1)
-        og_anchor.pack(fill="x")
-        state["output_gain_anchor"] = og_anchor
+        state["dsp_panel"] = panel
+        state["preset_var"] = preset_var
+        state["enhance_preset_combo"] = combo
+        state["dsp_row"] = panel.build_row(body)
+        panel.sync_preset()
+        panel.set_field_visible("output_gain_db", not config.normalise)
 
         def _on_preset_change(*_args: Any) -> None:
             selected = preset_var.get()
             p.preset = selected
-            if selected != "Custom":
-                preset_enum = PresetName(selected)
-                vals = PRESETS[preset_enum]
-                # A named preset supplies the base 13 fields; Sprint 1 effect
-                # toggles are left as the user set them (D13).
-                for field_name, var in slider_vars.items():
-                    value = getattr(vals, field_name)
-                    var.set(value)  # trace syncs p via _make_sync
-                if state.get("dsp_frame"):
-                    state["dsp_frame"].pack_forget()
-            else:
-                if state.get("dsp_frame"):
-                    state["dsp_frame"].pack(fill="x", pady=(4, 0))
+            if selected == PresetName.CUSTOM.value:
+                panel.sync_preset()
+                return
+            built_in = PRESETS.get(PresetName(selected)) if selected else None
+            # A named preset supplies the base 13 fields; Sprint 1 effect
+            # toggles are left as the user set them (D13).
+            panel.apply_values(
+                {} if built_in is None else enhancer_ui.preset_values(built_in)
+            )
 
         preset_var.trace_add("write", _on_preset_change)
+        # Only a real click opens the editor: a preset restored from settings
+        # at build time must not pop a window.
+        combo.bind(
+            "<<ComboboxSelected>>",
+            lambda _event: (
+                panel.open() if preset_var.get() == PresetName.CUSTOM.value else None
+            ),
+        )
         _on_preset_change()
 
     _stage_panel(

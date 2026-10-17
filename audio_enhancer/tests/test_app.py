@@ -36,7 +36,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from audio_enhancer.app import AudioEnhancerApp
-from audio_enhancer.core.models import EnhancementParams, JobStatus, ProcessingResult
+from audio_enhancer.core.models import (
+    PRESETS,
+    EnhancementParams,
+    JobStatus,
+    PresetName,
+    ProcessingResult,
+)
 from audio_enhancer.utils.cli_args import CliArgs
 
 # ── _on_complete log-formatting tests ─────────────────────────────────────
@@ -472,6 +478,7 @@ class TestPresetCRUD:
         app.params = EnhancementParams()
         app._refresh_preset_list = MagicMock()
         app._preset_combo = MagicMock()
+        app._dsp_panel = MagicMock()
         app._scheduled = scheduled
         return app
 
@@ -531,6 +538,13 @@ class TestPresetCRUD:
         app._apply_preset({"reverse": True, "karaoke_strength": 0.4})
         assert app._param_values["reverse"] is True
         assert app._param_values["karaoke_strength"] == 0.4
+
+    def test_apply_preset_syncs_the_custom_dsp_window(
+        self, app: AudioEnhancerApp
+    ) -> None:
+        """A saved preset must move the visible controls, not just the values."""
+        app._apply_preset({"compressor_ratio": 5.0})
+        app._dsp_panel.apply_values.assert_called_once_with({"compressor_ratio": 5.0})
 
     def test_apply_preset_no_overrides_keeps_original_params(
         self, app: AudioEnhancerApp
@@ -675,6 +689,7 @@ class TestApplyCliArgs:
         app.auto_end = False
         app._driver_locked = False
         app.start_processing = MagicMock()
+        app._dsp_panel = MagicMock()
         app._scheduled = scheduled
         return app
 
@@ -689,6 +704,17 @@ class TestApplyCliArgs:
         with patch("audio_enhancer.app.parse_cli", return_value=args):
             app._apply_cli_args()
         app.preset_name.set.assert_called_with("Aggressive")
+
+    def test_cli_preset_applies_the_preset_values(self, app: AudioEnhancerApp) -> None:
+        """A --preset flag must move the DSP values, not just the combobox."""
+        args = CliArgs(preset="Aggressive")
+        with patch("audio_enhancer.app.parse_cli", return_value=args):
+            app._apply_cli_args()
+        app._dsp_panel.apply_values.assert_called_once()
+        applied = app._dsp_panel.apply_values.call_args.args[0]
+        aggressive = PRESETS[PresetName.AGGRESSIVE]
+        assert applied["compressor_ratio"] == aggressive.compressor_ratio
+        assert applied["high_shelf_gain_db"] == aggressive.high_shelf_gain_db
 
     def test_cli_args_sets_run_mode_dry(self, app: AudioEnhancerApp) -> None:
         args = CliArgs(live_mode=False)

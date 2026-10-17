@@ -2,6 +2,10 @@
 
 Changed in 1.0.1: documents that the four standalone tools now consume the driver's
 argv.
+
+Changed in 1.1.0: documents the Audio Enhancer card (required output folder and
+all four presets, Custom included) and notes that the REFINE tab's enhancer
+stage opens the same Custom DSP editor window as the standalone tool.
 """
 
 from docx import Document
@@ -96,7 +100,10 @@ doc.add_paragraph(
     "completion record for the selected source so files are "
     "eligible for another "
     "run. At least one stage and a valid source directory are "
-    "required."
+    "required. In the Audio Enhancer stage, selecting Custom opens "
+    "the same Custom DSP editor window the standalone Audio "
+    "Enhancer uses, so the stage stays compact and every control "
+    "is reachable."
 )
 
 doc.add_heading("ENRICH", level=2)
@@ -285,6 +292,14 @@ for name, description in (
         "harmonics, notch quality) and "
         "broadband noise reduction (noise profile window and gate"
         " threshold).",
+    ),
+    (
+        "Audio Enhancer",
+        "Enhances each file with the DSP chain. The card requires an "
+        "output folder and offers Mild, Moderate, Aggressive, or "
+        "Custom. Custom runs with the tool's currently loaded DSP "
+        "values, which are tuned in the Audio Enhancer window's "
+        "Custom DSP editor.",
     ),
     ("Tag Field Updater", "Scans and updates tag fields."),
     (

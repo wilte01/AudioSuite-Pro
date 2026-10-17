@@ -23,6 +23,9 @@ on *construction correctness and widget-variable binding*, not on visual
 appearance.
 
 Changed in 1.0.1: updates the Library Statistics card fixture.
+
+Changed in 1.1.0: adds the Audio Enhancer card's preset-vocabulary lock (every
+shared ``PresetName`` member, Custom included, must be selectable there).
 """
 
 import sys
@@ -705,6 +708,23 @@ class TestAudioEnhancerCard:
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.module_toggles["audio_enhancer"]) in v for v in variables)
+
+    def test_preset_selector_lists_every_shared_preset(self, parent, root, _import):
+        """Custom is selectable here too — the card must not under-offer it."""
+        from tkinter import ttk
+
+        from audio_suite_shared.dsp_models import PresetName
+
+        state = _make_state(root)
+        _import.build(parent, state)
+        combos = [
+            combo
+            for combo in _find_widgets_by_class(parent, ttk.Combobox)
+            if str(combo.cget("textvariable")) == str(state.enhancer_preset)
+        ]
+        assert len(combos) == 1
+        assert list(combos[0].cget("values")) == [preset.value for preset in PresetName]
+        assert "Custom" in combos[0].cget("values")
 
     def test_output_dir_entry_wired_to_state(self, parent, root, _import):
         state = _make_state(root)

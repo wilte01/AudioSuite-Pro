@@ -4,6 +4,11 @@ The enhancer needs an output directory before it can run.  When the
 output directory is empty at batch time, arg_builder returns ``[]`` so no
 broken ``--output-dir``/``--output`` flag is ever handed to the tool's
 strict GUI parser — the card's required-field hint is the only guard.
+
+Changed in 1.1.0: the preset selector lists every ``PresetName`` member
+(Custom included) instead of a hard-coded three-name tuple, so the card
+cannot offer fewer presets than the tool accepts; the GUI's ``--preset``
+parser now accepts the same vocabulary.
 """
 
 import tkinter as tk
@@ -14,6 +19,7 @@ if TYPE_CHECKING:
     from ...state.app_state import AppState
 
 from audio_suite_shared import styles
+from audio_suite_shared.dsp_models import PresetName
 from master_driver.ui.cards._card_base import build_card_shell
 
 
@@ -81,7 +87,9 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             state="readonly",
             width=12,
             font=styles.FONT_BODY,
-            values=("Mild", "Moderate", "Aggressive"),
+            # Shared definition, never a local copy: the card must offer exactly
+            # what the tool's own selector and --preset parser accept.
+            values=tuple(preset.value for preset in PresetName),
         ).pack(side=tk.LEFT, padx=6)
 
     build_card_shell(
