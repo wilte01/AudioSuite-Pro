@@ -16,6 +16,9 @@ live in a single non-modal editor window and the tab keeps a summary row.
 
 Uses the session-scoped real Tk root from conftest.py: the tab is built from
 genuine widgets, because a mocked root cannot report mapping or geometry.
+Changed in 1.1.0: new suite covering the Setup tab's single preset control
+and the Custom DSP editor window (the release note was omitted when the file
+landed in 536e327, so the release-note lock flagged its absence).
 """
 
 from __future__ import annotations
