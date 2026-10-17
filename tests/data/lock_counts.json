@@ -1,0 +1,8 @@
+{
+  "_comment": "Collected lock counts for the modules the CI instruction-lock step checks, generated from a passing run - do not edit by hand, run `python -m tests.lock_counts --write` after a deliberate change.",
+  "_generated": "2026-10-17",
+  "modules": {
+    "test_agents_md.py": 21,
+    "test_external_records.py": 43
+  }
+}

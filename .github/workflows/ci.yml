@@ -142,9 +142,11 @@ jobs:
         # Pointing the home directory at an empty directory guarantees that
         # shape on a runner, and the step then asserts the run was skip-free: a
         # skip would mean part of the lock went unverified on the one host class
-        # the fixture exists for. Each module's collected count is checked against
-        # a declared range below, so a lock file cannot lose tests or double them
-        # without a deliberate edit. The precondition check fails loudly if a
+        # the fixture exists for. The collected counts are checked against
+        # tests/data/lock_counts.json - generated from a passing run, not written
+        # here - so a lock file cannot lose tests or double them without a
+        # deliberate regeneration. The suite checks the same file, so this is not
+        # a claim visible only on a runner. The precondition check fails loudly if a
         # baseline is somehow present, because then this step would prove
         # nothing, and `--no-cov` keeps the run out of the coverage data file.
         # The interpreter is invoked directly rather than through `uv run`:
@@ -177,34 +179,10 @@ jobs:
             echo "gate fail: no tests ran" >&2
             exit 1
           }
-          # module=count, where the count is the number of locks the module
-          # shipped carrying. It is checked in both directions, because a floor
-          # alone cannot tell growth from a duplicate: a parametrization that
-          # doubles, or a second module's tests leaking in, would clear any
-          # minimum. A module may grow by up to a fifth before its number counts
-          # as stale; falling below it or rising past the cap needs a deliberate
-          # edit, and that edit is the review signal.
-          for spec in test_agents_md.py=21 test_external_records.py=43; do
-            mod="${spec%%=*}"
-            floor="${spec##*=}"
-            cap=$((floor + (floor + 4) / 5))
-            got="$("$py" -m pytest "tests/$mod" --collect-only -q \
-              -p no:cacheprovider --no-cov 2>&1 | grep -cE '^tests/[^ ]+\.py::')"
-            case "$got" in
-              '' | *[!0-9]*)
-                echo "gate fail: could not count locks in tests/$mod (got '$got')" >&2
-                exit 1
-                ;;
-            esac
-            echo "$mod: $got collected, floor $floor, cap $cap"
-            if [ "$got" -lt "$floor" ]; then
-              echo "gate fail: $mod collected $got locks, below its floor of $floor" >&2
-              exit 1
-            fi
-            if [ "$got" -gt "$cap" ]; then
-              echo "gate fail: $mod collected $got locks, past its cap of $cap" >&2
-              echo "  if that growth is intended, raise its count in this step" >&2
-              exit 1
-            fi
-          done
+          # Both bounds are enforced by the module, which also owns the counts:
+          # a floor, and a cap one fifth above it so a module that doubled fails
+          # while ordinary additions need no edit.
+          if ! "$py" -m tests.lock_counts --check; then
+            exit 1
+          fi
           echo "instruction locks pass on the fixture path"

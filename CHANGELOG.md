@@ -24,10 +24,12 @@ Versions of the tools are released together with the suite (the single
   The record is the contract: a heading or marker that disappears without a
   deliberate re-record is drift, and a change to the record belongs in review.
   CI runs those locks against an empty home directory and fails if any of them
-  skips, or if either module's lock count falls outside the range the step
-  declares, so the runner proves the materialized-fixture path itself rather
-  than inheriting a developer host's real file, and a lock file cannot shrink
-  or double without a deliberate edit.
+  skips, so the runner proves the materialized-fixture path itself rather than
+  inheriting a developer host's real file. The count of locks each module
+  collects is generated from a passing run into `tests/data/lock_counts.json`
+  by `python -m tests.lock_counts --write` rather than typed into the workflow,
+  and the same file is checked by the suite and the runner, so a lock file
+  cannot shrink or double without a deliberate regeneration.
 
 ## [1.1.0] - 2026-10-16
 
