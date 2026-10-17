@@ -13,6 +13,10 @@ compatibility.  See the individual sub-modules for implementation details:
     metadata_resolver  –  Format definitions, FFmpeg probing, metadata
     encoding_pipeline  –  Per-track RipTask orchestration
     accuraterip        –  AccurateRip disc IDs, checksums, database client
+
+Changed in 1.2.0: re-exports the new verification surface
+(``DBMatch``, ``match_track``, ``VerificationMethod``,
+``describe_verification``, ``TrackVerification``).
 """
 
 import dataclasses
@@ -37,6 +41,7 @@ from cd_ripper.core.accuraterip import (  # noqa: F401
     FRAMES_PER_SECTOR,
     AccurateRipClient,
     DBEntry,
+    DBMatch,
     DBTrackEntry,
     DiscIds,
     LookupFound,
@@ -44,9 +49,12 @@ from cd_ripper.core.accuraterip import (  # noqa: F401
     LookupOffline,
     LookupResult,
     TrackChecksums,
+    VerificationMethod,
     VerificationStatus,
     compute_disc_ids,
     compute_track_checksums,
+    describe_verification,
+    match_track,
     parse_db_entry,
     parse_db_payload,
     verify_track,
@@ -108,6 +116,7 @@ from cd_ripper.core.read_offset import (  # noqa: F401
 from cd_ripper.core.track_processor import (  # noqa: F401
     RipVerificationConfig,
     RipVerificationMode,
+    TrackVerification,
     UnresolvedSectorError,
     VerificationPlan,
     _read_verified_chunk,
@@ -123,6 +132,7 @@ __all__ = [
     "ACCURATERIP_URL",
     "C2_FLAG_BYTES_PER_SECTOR",
     "DBEntry",
+    "DBMatch",
     "DBTrackEntry",
     "DEFAULT_TIMEOUT_SECS",
     "DiscIds",
@@ -150,7 +160,9 @@ __all__ = [
     "SECTOR_SIZE",
     "TrackChecksums",
     "TrackReadLayout",
+    "TrackVerification",
     "UnresolvedSectorError",
+    "VerificationMethod",
     "VerificationPlan",
     "VerificationStatus",
     "_CDROM_TOC",
@@ -166,11 +178,13 @@ __all__ = [
     "compute_disc_ids",
     "compute_track_checksums",
     "compute_track_read_layout",
+    "describe_verification",
     "detect_read_offset_frames",
     "diagnose_c2_reliability",
     "extract_track_scsi",
     "get_quality_options",
     "get_read_offset_frames",
+    "match_track",
     "pad_tail_shortfall",
     "parse_db_entry",
     "parse_db_payload",

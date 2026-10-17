@@ -11,6 +11,18 @@ Versions of the tools are released together with the suite (the single
 
 ### Added
 
+- **CD Ripper: AccurateRip confidence and a manual re-rip of flagged tracks.**
+  Every track's verification result now carries the matching database record's
+  confidence — the number of other rips that submitted exactly these track
+  checksums — and is displayed in EXACT Audio Copy's familiar wording:
+  `Accurate (confidence N)`, `Rip-twice verified`, `Not in database`,
+  `Unavailable (offline)` or `Not accurate`. There is deliberately no invented
+  "accurate vs confident" threshold: one agreeing submission is a match and is
+  shown as confidence 1, and when several database records match a track the
+  strongest count is the one reported. A failed track can now be re-ripped on
+  demand from the Results tab; the action runs only the flagged track numbers
+  and replaces their rows, leaving every other result untouched, and nothing is
+  ever retried automatically.
 - **Audio Fingerprinter: MusicBrainz enrichment and ISRC tags.** AcoustID
   matches can now be enriched from the MusicBrainz database itself: the
   matched recording's ISRCs and its release's date, label and country are

@@ -139,7 +139,7 @@ audiosuite cd-rip DRIVE [--output-dir DIR] [--format FMT] [--tracks LIST] [--cue
 - `--tracks LIST` — Comma-separated track numbers to rip (default: all)
 - `--quality TEXT` — Format-specific quality preset string
 - `--cue` / `--no-cue` — Write a CUE sheet alongside the ripped tracks (default: no-cue)
-- `--verify [off|twice|accuraterip]` — Track verification: `twice` re-reads each track and compares, `accuraterip` additionally cross-checks against the AccurateRip database, `off` disables verification (default: twice)
+- `--verify [off|twice|accuraterip]` — Track verification: `twice` re-reads each track and compares, `accuraterip` additionally cross-checks against the AccurateRip database, `off` disables verification (default: twice). Per-track outcomes are reported with EAC's wording — `Accurate (confidence N)` for a database match, `Rip-twice verified` for the local check, `Not in database`, `Unavailable (offline)`, or `Not accurate` (which is never written). A failed track can be re-ripped from the Results tab; nothing is retried automatically
 - `--dry` / `--live` — Show what would be ripped without writing files
 - `--detect-read-offset` — Measure the drive's read offset against the AccurateRip database using the inserted CD and persist it for the drive; applied automatically to future rips. Needs a multi-track disc present in the database and network access; exits non-zero and persists nothing on failure
 - `--json` / `--text` — Output results as JSON

@@ -17,6 +17,9 @@ real ffmpeg/SCSI calls.
 
 Changed in 1.0.1: adds ``TestRipTask`` regression tests asserting a failed or
 interrupted encode removes any partial output file.
+
+Changed in 1.2.0: follows ``verify_extracted_track`` onto the typed
+``TrackVerification`` and pins the confidence/method/label of each outcome.
 """
 
 import ctypes
@@ -102,7 +105,9 @@ from cd_ripper.core.ripper import (  # noqa: E402
     RipTask,
     RipVerificationConfig,
     RipVerificationMode,
+    TrackVerification,
     UnresolvedSectorError,
+    VerificationMethod,
     VerificationPlan,
     VerificationStatus,
     _build_metadata_args,
@@ -2256,7 +2261,7 @@ class TestOffsetAlignedExtraction:
             ),
         ):
             mock_windll.kernel32 = MagicMock()
-            status, detail = verify_extracted_track(
+            return verify_extracted_track(
                 drive_letter="D",
                 toc_entry=toc[index],
                 toc=toc,
@@ -2267,7 +2272,6 @@ class TestOffsetAlignedExtraction:
                 cancelled_fn=lambda: False,
                 log_cb=_noop,
             )
-        return status, detail
 
     def test_verify_with_offset_matches_database(self):
         """The original bug: correct rip, spurious MISMATCH without the fix."""
@@ -2281,14 +2285,17 @@ class TestOffsetAlignedExtraction:
         )
 
         for index in range(len(toc)):
-            status, _ = self._verify(
+            outcome = self._verify(
                 phys,
                 toc,
                 index,
                 RipVerificationConfig(read_offset_frames=_OFFSET_FRAMES),
                 plan,
             )
-            assert status is VerificationStatus.VERIFIED, f"track {index + 1}"
+            assert outcome.status is VerificationStatus.VERIFIED, f"track {index + 1}"
+            # The confidence must survive the offset correction too, not
+            # just the checksum comparison: _offset_db_entries stamps 5.
+            assert outcome.confidence == 5, f"track {index + 1}"
 
     def test_verify_without_offset_mismatches(self):
         """Without the correction the same drive mis-matches every track."""
@@ -2302,11 +2309,10 @@ class TestOffsetAlignedExtraction:
         )
 
         for index in range(len(toc)):
-            status, detail = self._verify(
-                phys, toc, index, RipVerificationConfig(), plan
-            )
-            assert status is VerificationStatus.MISMATCH, f"track {index + 1}"
-            assert "AccurateRip cross-check failed" in detail
+            outcome = self._verify(phys, toc, index, RipVerificationConfig(), plan)
+            assert outcome.status is VerificationStatus.MISMATCH, f"track {index + 1}"
+            assert "AccurateRip cross-check failed" in outcome.detail
+            assert outcome.label == "Not accurate"
 
 
 def test_riptask_surfaces_unresolved_sector_as_track_failure(tmp_path):
@@ -2570,7 +2576,7 @@ class TestVerifyExtractedTrack:
             "cd_ripper.core.track_processor.read_track_pcm",
             return_value=second_pcm,
         ) as mock_read:
-            status, detail = verify_extracted_track(
+            outcome = verify_extracted_track(
                 drive_letter="D",
                 toc_entry=toc[1],
                 toc=toc,
@@ -2581,28 +2587,33 @@ class TestVerifyExtractedTrack:
                 cancelled_fn=cancelled_fn,
                 log_cb=_noop,
             )
-        return status, detail, mock_read
+        return outcome, mock_read
 
     def test_twice_mode_matching_reads_verifies(self):
         pcm = _sectors_pcm(0x11, 10)
         plan = VerificationPlan(mode=RipVerificationMode.TWICE, toc=tuple(self._toc()))
-        status, detail, mock_read = self._verify(pcm, plan)
-        assert status.value == "VERIFIED"
-        assert "rip-twice" in detail
+        outcome, mock_read = self._verify(pcm, plan)
+        assert outcome.status is VerificationStatus.VERIFIED
+        assert outcome.method is VerificationMethod.RIP_TWICE
+        # The local check has no database behind it, so it reports no count.
+        assert outcome.confidence == 0
+        assert outcome.label == "Rip-twice verified"
         mock_read.assert_called_once()
 
     def test_twice_mode_crc_difference_is_mismatch(self):
         plan = VerificationPlan(mode=RipVerificationMode.TWICE, toc=tuple(self._toc()))
-        status, detail, _ = self._verify(
+        outcome, _ = self._verify(
             _sectors_pcm(0x11, 10), plan, second_pcm=_sectors_pcm(0x22, 10)
         )
-        assert status.value == "MISMATCH"
-        assert "rip-twice" in detail
+        assert outcome.status is VerificationStatus.MISMATCH
+        assert "rip-twice" in outcome.detail
+        assert outcome.label == "Not accurate"
+        assert outcome.is_mismatch is True
 
     def test_mismatched_payload_length_reports_mismatch_without_reread(self):
         plan = VerificationPlan(mode=RipVerificationMode.TWICE, toc=tuple(self._toc()))
         with patch("cd_ripper.core.track_processor.read_track_pcm") as mock_read:
-            status, detail = verify_extracted_track(
+            outcome = verify_extracted_track(
                 drive_letter="D",
                 toc_entry=self._toc()[1],
                 toc=self._toc(),
@@ -2613,17 +2624,20 @@ class TestVerifyExtractedTrack:
                 cancelled_fn=lambda: False,
                 log_cb=_noop,
             )
-        assert status.value == "MISMATCH"
-        assert "expected" in detail
+        assert outcome.status is VerificationStatus.MISMATCH
+        assert "expected" in outcome.detail
         mock_read.assert_not_called()
 
     def test_cancelled_during_reread_returns_none(self):
         plan = VerificationPlan(mode=RipVerificationMode.TWICE, toc=tuple(self._toc()))
-        status, detail, _ = self._verify(
+        outcome, _ = self._verify(
             _sectors_pcm(0x11, 10), plan, cancelled_fn=lambda: True
         )
-        assert status is None
-        assert detail == "cancelled"
+        assert outcome.status is None
+        assert outcome.was_cancelled is True
+        assert outcome.detail == "cancelled"
+        # A cancelled check has no label: the row keeps its progress text.
+        assert outcome.label == ""
 
     def test_off_plan_raises(self):
         plan = VerificationPlan(mode=RipVerificationMode.OFF, toc=tuple(self._toc()))
@@ -2659,11 +2673,30 @@ class TestVerifyExtractedTrack:
     def test_accuraterip_track_window_match_verifies_with_single_read(self):
         second = _sectors_pcm(0x33, 10)
         sums = compute_track_checksums(second, track_number=2, track_count=3)
-        plan = self._acqui_plan([_db_entry_with_track(3, 1, sums.crc1, sums.crc2)])
-        status, detail, mock_read = self._verify(second, plan)
-        assert status.value == "VERIFIED"
-        assert "track window" in detail
+        plan = self._acqui_plan(
+            [_db_entry_with_track(3, 1, sums.crc1, sums.crc2, confidence=7)]
+        )
+        outcome, mock_read = self._verify(second, plan)
+        assert outcome.status is VerificationStatus.VERIFIED
+        assert outcome.method is VerificationMethod.ACCURATERIP_TRACK
+        assert outcome.confidence == 7
+        assert outcome.label == "Accurate (confidence 7)"
         mock_read.assert_called_once()
+
+    def test_highest_confidence_record_wins(self):
+        """Several records can match; the strongest confirmation is shown."""
+        second = _sectors_pcm(0x33, 10)
+        sums = compute_track_checksums(second, track_number=2, track_count=3)
+        plan = self._acqui_plan(
+            [
+                _db_entry_with_track(3, 1, sums.crc1, sums.crc2, confidence=3),
+                _db_entry_with_track(3, 1, sums.crc1, sums.crc2, confidence=41),
+                _db_entry_with_track(3, 1, sums.crc1, sums.crc2, confidence=12),
+            ]
+        )
+        outcome, _ = self._verify(second, plan)
+        assert outcome.confidence == 41
+        assert outcome.label == "Accurate (confidence 41)"
 
     def test_accuraterip_with_gap_window_match_verifies_after_edge_rereads(self):
         second = _sectors_pcm(0x44, 10)
@@ -2698,7 +2731,7 @@ class TestVerifyExtractedTrack:
         with patch(
             "cd_ripper.core.track_processor.read_track_pcm", side_effect=_fake_read
         ) as mock_read:
-            status, detail = verify_extracted_track(
+            outcome = verify_extracted_track(
                 drive_letter="D",
                 toc_entry=toc[1],
                 toc=toc,
@@ -2709,8 +2742,10 @@ class TestVerifyExtractedTrack:
                 cancelled_fn=lambda: False,
                 log_cb=_noop,
             )
-        assert status.value == "VERIFIED"
-        assert "with-gap" in detail
+        assert outcome.status is VerificationStatus.VERIFIED
+        assert outcome.method is VerificationMethod.ACCURATERIP_GAP
+        assert outcome.confidence == 20
+        assert "with-gap" in outcome.detail
         assert mock_read.call_count == 3
 
     def test_accuraterip_no_match_is_mismatch(self):
@@ -2745,7 +2780,7 @@ class TestVerifyExtractedTrack:
         with patch(
             "cd_ripper.core.track_processor.read_track_pcm", side_effect=_fake_read
         ) as mock_read:
-            status, detail = verify_extracted_track(
+            outcome = verify_extracted_track(
                 drive_letter="D",
                 toc_entry=toc[1],
                 toc=toc,
@@ -2756,8 +2791,10 @@ class TestVerifyExtractedTrack:
                 cancelled_fn=lambda: False,
                 log_cb=_noop,
             )
-        assert status.value == "MISMATCH"
-        assert "AccurateRip cross-check failed" in detail
+        assert outcome.status is VerificationStatus.MISMATCH
+        assert outcome.label == "Not accurate"
+        assert outcome.confidence == 0
+        assert "AccurateRip cross-check failed" in outcome.detail
         assert mock_read.call_count == 3
 
     def test_accuraterip_not_found_is_no_entry_without_edge_rereads(self):
@@ -2767,9 +2804,10 @@ class TestVerifyExtractedTrack:
             lookup=LookupNotFound(reason="no entry"),
             toc=tuple(self._toc()),
         )
-        status, detail, mock_read = self._verify(second, plan)
-        assert status.value == "NO_ENTRY"
-        assert "no entry" in detail
+        outcome, mock_read = self._verify(second, plan)
+        assert outcome.status is VerificationStatus.NO_ENTRY
+        assert outcome.label == "Not in database"
+        assert outcome.detail == "no entry"
         mock_read.assert_called_once()
 
     def test_accuraterip_offline_degrades_to_offline(self):
@@ -2779,9 +2817,10 @@ class TestVerifyExtractedTrack:
             lookup=LookupOffline(reason="network down"),
             toc=tuple(self._toc()),
         )
-        status, detail, mock_read = self._verify(second, plan)
-        assert status.value == "OFFLINE"
-        assert "network down" in detail
+        outcome, mock_read = self._verify(second, plan)
+        assert outcome.status is VerificationStatus.OFFLINE
+        assert outcome.label == "Unavailable (offline)"
+        assert outcome.detail == "network down"
         mock_read.assert_called_once()
 
 
@@ -2791,7 +2830,7 @@ class TestVerifyExtractedTrack:
 
 
 class TestRipTaskVerificationGating:
-    def _run_with_verify(self, tmp_path, task, plan, status_detail):
+    def _run_with_verify(self, tmp_path, task, plan, outcome):
         out_wav = str(tmp_path / "track.wav")
         Path(out_wav).write_bytes(b"RIFF" + b"\x00" * 44)
 
@@ -2805,7 +2844,6 @@ class TestRipTaskVerificationGating:
             proc.wait.return_value = 0
             return proc
 
-        status, detail = status_detail
         with (
             patch("cd_ripper.core.encoding_pipeline.extract_track_scsi"),
             patch(
@@ -2821,7 +2859,7 @@ class TestRipTaskVerificationGating:
             ),
             patch(
                 "cd_ripper.core.encoding_pipeline.verify_extracted_track",
-                return_value=(status, detail),
+                return_value=outcome,
             ),
             patch(
                 "cd_ripper.core.metadata_resolver.run_secure_popen",
@@ -2862,13 +2900,19 @@ class TestRipTaskVerificationGating:
             tmp_path,
             task,
             plan,
-            (VerificationStatus.MISMATCH, "rip-twice: second read differs"),
+            TrackVerification(
+                VerificationStatus.MISMATCH,
+                "rip-twice: second read differs",
+                method=VerificationMethod.RIP_TWICE,
+            ),
         )
         assert encode_calls == []
         num, ok, path, err = done[0]
         assert ok is False
         assert path == ""
-        assert err.startswith("MISMATCH:")
+        # The user sees EAC's wording, not the internal status constant.
+        assert err.startswith("Not accurate:")
+        assert "MISMATCH" not in err
 
     def test_verified_labels_done_and_encode_proceeds(self, tmp_path):
         plan = VerificationPlan(
@@ -2884,12 +2928,16 @@ class TestRipTaskVerificationGating:
             tmp_path,
             task,
             plan,
-            (VerificationStatus.VERIFIED, "rip-twice check passed"),
+            TrackVerification(
+                VerificationStatus.VERIFIED,
+                "the two reads agree",
+                method=VerificationMethod.RIP_TWICE,
+            ),
         )
         assert len(encode_calls) == 1
         num, ok, path, err = done[0]
         assert ok is True
-        assert err == "VERIFIED"
+        assert err == "Rip-twice verified"
 
     def test_no_entry_label_flows_to_done_when_encode_succeeds(self, tmp_path):
         plan = VerificationPlan(
@@ -2906,11 +2954,42 @@ class TestRipTaskVerificationGating:
             tmp_path,
             task,
             plan,
-            (VerificationStatus.NO_ENTRY, "absent"),
+            TrackVerification(
+                VerificationStatus.NO_ENTRY,
+                "absent",
+                method=VerificationMethod.ACCURATERIP_TRACK,
+            ),
         )
         num, ok, path, err = done[0]
         assert ok is True
-        assert err == "NO_ENTRY"
+        assert err == "Not in database"
+
+    def test_accuraterip_confidence_reaches_the_result_row(self, tmp_path):
+        """D30: the confidence byte is shown, not just "matched"."""
+        plan = VerificationPlan(
+            mode=RipVerificationMode.ACCURATERIP,
+            lookup=LookupFound(entries=(), url="https://x/test.bin"),
+            toc=(_make_toc_entry(),),
+        )
+        task = self._task(tmp_path, plan)
+        done = []
+        task.done_cb = lambda num, ok, path, err: done.append((num, ok, path, err))
+
+        encode_calls = self._run_with_verify(
+            tmp_path,
+            task,
+            plan,
+            TrackVerification(
+                VerificationStatus.VERIFIED,
+                "matched AccurateRip (track window)",
+                confidence=37,
+                method=VerificationMethod.ACCURATERIP_TRACK,
+            ),
+        )
+        assert len(encode_calls) == 1
+        num, ok, path, err = done[0]
+        assert ok is True
+        assert err == "Accurate (confidence 37)"
 
     def test_off_mode_skips_verification_entirely(self, tmp_path):
         plan = VerificationPlan()  # mode OFF

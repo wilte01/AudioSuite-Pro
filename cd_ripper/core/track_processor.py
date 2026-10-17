@@ -4,6 +4,12 @@ track_processor.py  –  Read verification and CD track extraction logic.
 Implements multi-read verification with majority-vote resolution,
 C2 error-pointer diagnostics, and the main extract_track_scsi()
 function that reads raw CDDA sectors and writes a WAV file.
+
+Changed in 1.2.0: ``verify_extracted_track`` returns a typed
+``TrackVerification`` carrying the status, the matching record's confidence,
+the method that produced it and its EAC-style label, instead of a bare
+``(status, detail)`` tuple that discarded the confidence
+(PLAN_feature_expansion.md D30).
 """
 
 import ctypes
@@ -23,9 +29,11 @@ from cd_ripper.core.accuraterip import (
     LookupNotFound,
     LookupOffline,
     LookupResult,
+    VerificationMethod,
     VerificationStatus,
     compute_track_checksums,
-    verify_track,
+    describe_verification,
+    match_track,
     with_gap_window,
 )
 from cd_ripper.core.drive_handler import (
@@ -430,6 +438,42 @@ class VerificationPlan:
     toc: tuple[dict[str, int], ...] = ()
 
 
+@dataclass(frozen=True)
+class TrackVerification:
+    """One track's verification outcome, label included.
+
+    Attributes:
+        status: The outcome, or ``None`` when the check was cut short (the
+            caller then treats the track as neither verified nor failed).
+        detail: Human-readable explanation for the log and the mismatch
+            message.
+        confidence: For an AccurateRip match, the number of rips that
+            submitted the same checksums; 0 for the local rip-twice check,
+            which has no database behind it.
+        method: Which check produced the outcome.
+    """
+
+    status: VerificationStatus | None
+    detail: str = ""
+    confidence: int = 0
+    method: VerificationMethod = VerificationMethod.NONE
+
+    @property
+    def label(self) -> str:
+        """The EAC-style label for the results table and the track row."""
+        return describe_verification(self.status, self.confidence, self.method)
+
+    @property
+    def is_mismatch(self) -> bool:
+        """Whether the track failed and must not be written."""
+        return self.status is VerificationStatus.MISMATCH
+
+    @property
+    def was_cancelled(self) -> bool:
+        """Whether the check stopped early (status is unknown)."""
+        return self.status is None
+
+
 def read_wav_pcm(path: str) -> bytes:
     """Return the raw PCM payload of a PCM16 RIFF/WAVE file.
 
@@ -528,7 +572,7 @@ def verify_extracted_track(
     track_num: int,
     cancelled_fn: Callable[[], bool],
     log_cb: Callable[[str], None],
-) -> tuple[VerificationStatus | None, str]:
+) -> TrackVerification:
     """Verify one freshly extracted track using the plan's strategy.
 
     Pass A is the extracted PCM, pass B is a fresh device read. If both agree
@@ -536,10 +580,11 @@ def verify_extracted_track(
     first; with-gap candidates are checked only when the track window misses,
     re-reading the previous track's tail and next track's head separately.
 
-    Returns a ``VerificationStatus`` plus a human-readable detail for the
-    ``MISMATCH`` / ``NO_ENTRY`` / ``OFFLINE`` cases, or ``(None, "cancelled")``
-    when the pass-B re-reads were cut short. The caller decides how to block
-    on the result; ``MISMATCH`` must never be written.
+    Returns a :class:`TrackVerification` naming the outcome, the method that
+    produced it, the matching record's confidence when there was one, and a
+    human-readable detail. A cancelled check comes back with ``status`` None.
+    The caller decides how to block on the result; a mismatch must never be
+    written.
 
     Raises:
         ValueError: If the re-read produced an unexpected number of sectors
@@ -566,8 +611,9 @@ def verify_extracted_track(
     )
     expected = toc_entry["sectors"] * SECTOR_SIZE - layout.tail_shortfall_bytes
     if len(first_pcm) != expected:
-        return VerificationStatus.MISMATCH, (
-            f"extraction produced {len(first_pcm)} data bytes, expected {expected}"
+        return TrackVerification(
+            VerificationStatus.MISMATCH,
+            f"extraction produced {len(first_pcm)} data bytes, expected {expected}",
         )
 
     log_cb(f"[Verify] Track {track_num:02d}: re-reading for rip-twice comparison")
@@ -582,7 +628,7 @@ def verify_extracted_track(
         is_last_track=is_last_track,
     )
     if cancelled_fn():
-        return None, "cancelled"
+        return TrackVerification(None, "cancelled")
 
     # A short final-track window must be padded to nominal length before
     # any checksum: the skip boundary is derived from the PCM length, and
@@ -596,29 +642,56 @@ def verify_extracted_track(
         first_sums = compute_track_checksums(first_pcm, track_number, track_count)
         second_sums = compute_track_checksums(second_pcm, track_number, track_count)
     except ValueError as exc:
-        return VerificationStatus.MISMATCH, f"invalid PCM for checksum: {exc}"
+        return TrackVerification(
+            VerificationStatus.MISMATCH,
+            f"invalid PCM for checksum: {exc}",
+            method=VerificationMethod.RIP_TWICE,
+        )
 
     if first_sums != second_sums:
-        return VerificationStatus.MISMATCH, (
+        return TrackVerification(
+            VerificationStatus.MISMATCH,
             f"rip-twice: second read differs from first "
-            f"(v1 {first_sums.crc1:08x} vs {second_sums.crc1:08x})"
+            f"(v1 {first_sums.crc1:08x} vs {second_sums.crc1:08x})",
+            method=VerificationMethod.RIP_TWICE,
         )
 
     if plan.mode is RipVerificationMode.TWICE:
-        return VerificationStatus.VERIFIED, "rip-twice check passed"
+        return TrackVerification(
+            VerificationStatus.VERIFIED,
+            "the two reads agree",
+            method=VerificationMethod.RIP_TWICE,
+        )
 
     lookup = plan.lookup
     if not isinstance(lookup, LookupFound):
         if isinstance(lookup, LookupNotFound):
-            return VerificationStatus.NO_ENTRY, lookup.reason
-        if isinstance(lookup, LookupOffline):
-            return VerificationStatus.OFFLINE, lookup.reason
-        return VerificationStatus.OFFLINE, "no AccurateRip lookup performed"
+            return TrackVerification(
+                VerificationStatus.NO_ENTRY,
+                lookup.reason,
+                method=VerificationMethod.ACCURATERIP_TRACK,
+            )
+        reason = (
+            lookup.reason
+            if isinstance(lookup, LookupOffline)
+            else "no AccurateRip lookup performed"
+        )
+        return TrackVerification(
+            VerificationStatus.OFFLINE,
+            reason,
+            method=VerificationMethod.ACCURATERIP_TRACK,
+        )
 
-    if verify_track(second_sums, lookup.entries, index) is VerificationStatus.VERIFIED:
-        return VerificationStatus.VERIFIED, "matched AccurateRip (track window)"
+    track_match = match_track(second_sums, lookup.entries, index)
+    if track_match is not None:
+        return TrackVerification(
+            VerificationStatus.VERIFIED,
+            "matched AccurateRip (track window)",
+            confidence=track_match.confidence,
+            method=VerificationMethod.ACCURATERIP_TRACK,
+        )
     if cancelled_fn():
-        return None, "cancelled"
+        return TrackVerification(None, "cancelled")
 
     prev_entry = toc[index - 1] if index > 0 else None
     next_entry = toc[index + 1] if index + 1 < len(toc) else None
@@ -641,7 +714,7 @@ def verify_extracted_track(
             is_last_track=False,
         )
         if cancelled_fn():
-            return None, "cancelled"
+            return TrackVerification(None, "cancelled")
     if next_entry is not None:
         head_sectors = min(next_entry["sectors"], edge_sectors)
         next_head = read_track_pcm(
@@ -655,14 +728,22 @@ def verify_extracted_track(
             is_last_track=index + 1 == track_count - 1,
         )
         if cancelled_fn():
-            return None, "cancelled"
+            return TrackVerification(None, "cancelled")
 
     gap_pcm = with_gap_window(second_pcm, prev_tail, next_head)
     gap_sums = compute_track_checksums(gap_pcm, track_number, track_count)
-    if verify_track(gap_sums, lookup.entries, index) is VerificationStatus.VERIFIED:
-        return VerificationStatus.VERIFIED, "matched AccurateRip (with-gap window)"
-    return VerificationStatus.MISMATCH, (
+    gap_match = match_track(gap_sums, lookup.entries, index)
+    if gap_match is not None:
+        return TrackVerification(
+            VerificationStatus.VERIFIED,
+            "matched AccurateRip (with-gap window)",
+            confidence=gap_match.confidence,
+            method=VerificationMethod.ACCURATERIP_GAP,
+        )
+    return TrackVerification(
+        VerificationStatus.MISMATCH,
         f"AccurateRip cross-check failed: CRC not found for track "
         f"{track_number}/{track_count} (v1 {second_sums.crc1:08x}, "
-        f"v2 {second_sums.crc2:08x})"
+        f"v2 {second_sums.crc2:08x})",
+        method=VerificationMethod.ACCURATERIP_TRACK,
     )

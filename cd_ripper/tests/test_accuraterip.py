@@ -7,6 +7,9 @@ Disc ID, v1/v2 checksum, ARL payload parsing, HTTP resolver and matching.
 No mocks are used for the checksum/id math: every expected value here is
 either a hand-derived reference or a published TOC vector.
 
+Changed in 1.2.0: adds the ``match_track`` confidence matrix and the EAC-style
+``describe_verification`` wording lock (PLAN_feature_expansion.md D30).
+
 Run with:
     pytest tests/test_accuraterip.py -v
 """
@@ -25,14 +28,18 @@ from cd_ripper.core.accuraterip import (
     FRAMES_PER_SECTOR,
     AccurateRipClient,
     DBEntry,
+    DBMatch,
     DBTrackEntry,
     LookupFound,
     LookupNotFound,
     LookupOffline,
     TrackChecksums,
+    VerificationMethod,
     VerificationStatus,
     compute_disc_ids,
     compute_track_checksums,
+    describe_verification,
+    match_track,
     parse_db_entry,
     parse_db_payload,
     verify_track,
@@ -436,4 +443,137 @@ class TestVerifyTrack:
             "MISMATCH",
             "NO_ENTRY",
             "OFFLINE",
+        ]
+
+
+class TestMatchTrack:
+    """``match_track`` returns the record, not just "matched"."""
+
+    @staticmethod
+    def _entries(*track_lists: list[tuple[int, int, int]]) -> list[DBEntry]:
+        """Build one DBEntry (disc record) per supplied track list."""
+        return [
+            DBEntry(
+                disc_id1=0,
+                disc_id2=0,
+                cddb_id=0,
+                tracks=tuple(
+                    DBTrackEntry(confidence=c, crc1=a, crc2=b) for c, a, b in tracks
+                ),
+            )
+            for tracks in track_lists
+        ]
+
+    def test_v1_match_reports_confidence_and_which_crc(self) -> None:
+        entries = self._entries([(5, 0xAAAA, 0xBBBB)])
+        match = match_track(TrackChecksums(0xAAAA, 0), entries, 0)
+        assert match == DBMatch(confidence=5, crc="v1", entry_index=0)
+
+    def test_v2_match_reports_which_crc(self) -> None:
+        entries = self._entries([(5, 0xAAAA, 0xBBBB)])
+        match = match_track(TrackChecksums(0xCCCC, 0xBBBB), entries, 0)
+        assert match is not None
+        assert match.crc == "v2"
+        assert match.confidence == 5
+
+    def test_no_match_is_none(self) -> None:
+        entries = self._entries([(5, 0xAAAA, 0xBBBB)])
+        assert match_track(TrackChecksums(0x1111, 0x2222), entries, 0) is None
+
+    def test_highest_confidence_wins_across_records(self) -> None:
+        entries = self._entries(
+            [(3, 0xAAAA, 0x1111)],
+            [(41, 0xAAAA, 0x2222)],
+            [(12, 0xAAAA, 0x3333)],
+        )
+        match = match_track(TrackChecksums(0xAAAA, 0), entries, 0)
+        assert match is not None
+        assert match.confidence == 41
+        assert match.entry_index == 1
+
+    def test_track_beyond_a_record_is_skipped_not_fatal(self) -> None:
+        # A record with fewer tracks (a short pressing) must not abort the
+        # search for a later record that does describe this track.
+        entries = self._entries([(9, 0x1111, 0x2222)], [(4, 0xAAAA, 0x3333)])
+        match = match_track(TrackChecksums(0xAAAA, 0), entries, 0)
+        assert match is not None
+        assert match.confidence == 4
+
+    def test_verify_track_remains_a_status_only_view(self) -> None:
+        entries = self._entries([(5, 0xAAAA, 0xBBBB)])
+        assert (
+            verify_track(TrackChecksums(0xAAAA, 0), entries, 0)
+            is VerificationStatus.VERIFIED
+        )
+
+
+class TestDescribeVerification:
+    """The user-facing wording is locked, member by member (D30)."""
+
+    def test_accuraterip_match_shows_the_confidence(self) -> None:
+        assert (
+            describe_verification(
+                VerificationStatus.VERIFIED,
+                confidence=7,
+                method=VerificationMethod.ACCURATERIP_TRACK,
+            )
+            == "Accurate (confidence 7)"
+        )
+
+    def test_with_gap_match_uses_the_same_wording(self) -> None:
+        assert (
+            describe_verification(
+                VerificationStatus.VERIFIED,
+                confidence=1,
+                method=VerificationMethod.ACCURATERIP_GAP,
+            )
+            == "Accurate (confidence 1)"
+        )
+
+    def test_confidence_one_is_still_accurate_not_a_warning(self) -> None:
+        # No invented accurate/confident boundary: one agreeing submission is
+        # a match, so it is reported as accurate with confidence 1.
+        assert (
+            describe_verification(
+                VerificationStatus.VERIFIED,
+                confidence=1,
+                method=VerificationMethod.ACCURATERIP_TRACK,
+            )
+            == "Accurate (confidence 1)"
+        )
+
+    def test_rip_twice_has_its_own_label(self) -> None:
+        assert (
+            describe_verification(
+                VerificationStatus.VERIFIED, method=VerificationMethod.RIP_TWICE
+            )
+            == "Rip-twice verified"
+        )
+
+    def test_mismatch_says_not_accurate(self) -> None:
+        assert (
+            describe_verification(
+                VerificationStatus.MISMATCH,
+                method=VerificationMethod.ACCURATERIP_TRACK,
+            )
+            == "Not accurate"
+        )
+
+    def test_no_entry_says_not_in_database(self) -> None:
+        assert describe_verification(VerificationStatus.NO_ENTRY) == "Not in database"
+
+    def test_offline_says_unavailable(self) -> None:
+        assert (
+            describe_verification(VerificationStatus.OFFLINE) == "Unavailable (offline)"
+        )
+
+    def test_cancelled_outcome_has_no_label(self) -> None:
+        assert describe_verification(None) == ""
+
+    def test_method_values_are_stable_strings(self) -> None:
+        assert [m.value for m in VerificationMethod] == [
+            "none",
+            "rip-twice",
+            "accuraterip-track",
+            "accuraterip-gap",
         ]

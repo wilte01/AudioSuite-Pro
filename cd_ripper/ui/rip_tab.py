@@ -2,6 +2,10 @@
 
 cd_ripper/ui/rip_tab.py — Rip tab.
 Style matches Music Format Converter processing_tab.py.
+
+Changed in 1.2.0: a result row is recorded by track number (so a re-rip
+replaces it instead of appending a duplicate) and ``re_rip`` re-runs only the
+flagged track numbers through a fresh session (PLAN_feature_expansion.md D30).
 """
 
 import os
@@ -93,6 +97,7 @@ class RipTab:
         self._rows: dict[int, _TrackRow] = {}
         self._completed = 0
         self._total = 0
+        self._running = False
         self._build()
 
     def _build(self) -> None:
@@ -242,12 +247,45 @@ class RipTab:
         if not tracks:
             return
 
+        self.state["rip_results"] = []
+        self._run_session(tracks)
+
+    def re_rip(self, numbers: list[int]) -> None:
+        """Re-rip only ``numbers``, replacing their result rows in place.
+
+        Called from the Results tab's "Re-rip flagged tracks" action, so it
+        must leave every other row untouched: the flagged tracks are re-run
+        through a fresh session and overwrite their own entries once they
+        finish. Nothing is retried automatically — this runs only when the
+        user asks for it.
+
+        Args:
+            numbers: Track numbers to re-rip (missing numbers are ignored).
+        """
+        if self._running:
+            return
+        wanted = set(numbers)
+        tracks = [
+            track
+            for track in self.state.get("tracks", [])
+            if track.get("number") in wanted
+        ]
+        if not tracks:
+            return
+        for track in tracks:
+            row = self._rows.get(track["number"])
+            if row:
+                row.set_active()
+        self._run_session(tracks)
+
+    def _run_session(self, tracks: list[dict[str, Any]]) -> None:
+        """Start one rip session over ``tracks`` and wire its callbacks."""
         self._start_btn.configure(state="disabled")
         self._cancel_btn.configure(state="normal")
         self._split_btn.configure(state="disabled")
         self._completed = 0
         self._total = len(tracks)
-        self.state["rip_results"] = []
+        self._running = True
 
         self._session = RipSession(
             drive=self.state.get("drive", ""),
@@ -265,6 +303,10 @@ class RipTab:
         )
         assert self._session is not None
         self._session.start()
+        self._overall_lbl.configure(
+            text=f"0 / {self._total} tracks (verification: "
+            f"{self.state.get('verify_mode', 'twice')})"
+        )
 
     def _cancel(self) -> None:
         if self._session:
@@ -340,24 +382,40 @@ class RipTab:
             if row:
                 row.set_done(success, error)
             self._completed += 1
-            pct = int(self._completed / self._total * 100)
+            pct = int(self._completed / self._total * 100) if self._total else 0
             self._overall_prog["value"] = pct
             self._overall_lbl.configure(
                 text=f"{self._completed} / {self._total} tracks"
             )
-            self.state["rip_results"].append(
-                {
-                    "number": track_num,
-                    "success": success,
-                    "path": out_path,
-                    "error": error,
-                }
-            )
+            self._record_result(track_num, success, out_path, error)
 
         self.frame.after(0, _ui)
 
+    def _record_result(
+        self, track_num: int, success: bool, out_path: str, error: str
+    ) -> None:
+        """Store one track's outcome, replacing any earlier row for it.
+
+        Replacing by track number is what makes a re-rip safe: the flagged
+        track's previous failure disappears and every other track's result is
+        left exactly as it was.
+        """
+        entry = {
+            "number": track_num,
+            "success": success,
+            "path": out_path,
+            "error": error,
+        }
+        results = self.state["rip_results"]
+        for index, existing in enumerate(results):
+            if existing["number"] == track_num:
+                results[index] = entry
+                return
+        results.append(entry)
+
     def _on_session_done(self) -> None:
         def _ui() -> None:
+            self._running = False
             self._cancel_btn.configure(state="disabled")
             self._start_btn.configure(state="disabled")
             self._split_btn.configure(state="normal")

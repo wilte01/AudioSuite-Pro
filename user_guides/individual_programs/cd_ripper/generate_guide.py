@@ -1,4 +1,9 @@
-"""Generate a fresh CD Ripper guide from the current implementation."""
+"""Generate a fresh CD Ripper guide from the current implementation.
+
+Changed in 1.2.0: documents the per-track verification wording (including
+the AccurateRip confidence count) and the manual "Re-rip flagged tracks"
+action (PLAN_feature_expansion.md D30).
+"""
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -243,8 +248,8 @@ doc.add_heading("Rip Verification", level=1)
 doc.add_paragraph(
     "When verification is enabled, each track is checked after extraction "
     "and before encoding. "
-    "A track that fails verification is NOT written to disk; its status reports "
-    "MISMATCH and the session marks the task failed."
+    "A track that fails verification is NOT written to disk; its row reports "
+    "Not accurate and the session marks the task failed."
 )
 bullet(
     doc,
@@ -255,7 +260,7 @@ bullet(
     doc,
     "Twice: ",
     "The track's sectors are read a second time and the two reads "
-    "are compared. Identical reads produce a VERIFIED status. "
+    "are compared. Identical reads report 'Rip-twice verified'. "
     "Twice requires only the local drive and works offline.",
 )
 bullet(
@@ -266,16 +271,28 @@ bullet(
     "the database's main track-window record; if the disc was mastered with "
     "an audio offset, the candidates read adjacent TOC-gap sectors and are "
     "checked again over a wider with-gap window. A cross-check match reports "
-    "VERIFIED. If the internet is unreachable the lookup degrades to the "
-    "local rip-twice check and reports OFFLINE.",
+    "'Accurate' with the number of agreeing submissions. If the internet is "
+    "unreachable the lookup degrades to the local rip-twice check and "
+    "reports 'Unavailable (offline)'.",
 )
 bullet(
     doc,
     "Outcomes: ",
-    "VERIFIED, NO ENTRY (disc absent from the AccurateRip database; "
-    "an unverified rip is still written), OFFLINE (database unreachable; "
-    "degraded to rip-twice), or MISMATCH (reads differ or the database "
-    "checksum disagrees; the track is NOT written).",
+    "'Accurate (confidence N)' for a database match, 'Rip-twice verified' "
+    "for the local check, 'Not in database' when the disc is absent from "
+    "AccurateRip (an unverified rip is still written), 'Unavailable "
+    "(offline)' when the database could not be reached (degraded to "
+    "rip-twice), or 'Not accurate' when the reads differ or the database "
+    "checksum disagrees (the track is NOT written).",
+)
+doc.add_paragraph(
+    "The confidence number is the count of other people whose rips produced "
+    "exactly these track checksums, and it is reported rather than "
+    "interpreted: AccurateRip has no separate 'confident' threshold, so one "
+    "agreeing submission is a match, shown as 'Accurate (confidence 1)'. "
+    "When several database records match a track, the highest count is the "
+    "one shown. Confidence is only available in AccurateRip mode; the local "
+    "rip-twice check has no database behind it and therefore shows no count."
 )
 doc.add_paragraph(
     "Drives with an audio offset master discs with adjacent-track data at "
@@ -301,8 +318,9 @@ doc.add_paragraph(
 doc.add_paragraph(
     "The result of each track's verification is appended to its status, "
     "and the Results summary aggregates the outcomes (for example "
-    "'5 VERIFIED, 1 NO ENTRY, 1 failed'), so a successful track without a "
-    "verification label was ripped with verification disabled."
+    "'5 Accurate (confidence 12), 1 Not in database, 1 failed'), so a "
+    "successful track without a verification label was ripped with "
+    "verification disabled."
 )
 doc.add_paragraph(
     "With AccurateRip mode the app logs the computed disc ID "
@@ -317,6 +335,15 @@ doc.add_paragraph(
     "Open Output Folder opens the destination, "
     "Eject Disc requests an operating-system eject, "
     "and double-clicking a successful row reveals its file in Explorer."
+)
+doc.add_paragraph(
+    "Re-rip flagged tracks re-rips only the tracks whose rows failed and "
+    "replaces those rows in place; every other track keeps its result. "
+    "Nothing is retried automatically — the button is enabled only while at "
+    "least one track has failed, and pressing it is the only way a re-rip "
+    "happens. Re-runs use the verification level currently selected on the "
+    "Setup tab, so a mismatch caused by a mis-measured read offset can be "
+    "retried after Detect Read Offset has corrected it."
 )
 
 doc.add_heading("Command Line", level=1)
@@ -393,19 +420,21 @@ bullet(
     doc,
     "Track was not written: ",
     "A failed extraction, cancellation, missing TOC entry, failed encode, "
-    "or a verification MISMATCH "
+    "or a verification failure "
     "prevents a successful output file.",
 )
 bullet(
     doc,
-    "Verification reports MISMATCH: ",
+    "A track reports Not accurate: ",
     "The re-read differed from the first extraction or the AccurateRip "
-    "checksum disagreed. Try cleaning the disc, re-reading it, or switching "
-    "to Verify Rips = Twice for drives with an audio offset.",
+    "checksum disagreed. Try cleaning the disc, or press Re-rip flagged "
+    "tracks on the Results tab to re-run just that track; switching to "
+    "Verify Rips = Twice is the right choice for drives with an audio "
+    "offset.",
 )
 bullet(
     doc,
-    "Every track reports AccurateRip MISMATCH on a known-good disc: ",
+    "Every track reports Not accurate on a known-good disc: ",
     "The drive probably has an uncorrected read offset. Click Detect Read "
     "Offset on the Setup tab (or run cd-rip <drive> --detect-read-offset) "
     "once with a disc that is in the AccurateRip database; the measured "
@@ -414,14 +443,14 @@ bullet(
 )
 bullet(
     doc,
-    "AccurateRip shows NO ENTRY: ",
+    "A track shows Not in database: ",
     "The disc is not (yet) in the AccurateRip database. "
     "The rip is treated as a single extraction and written anyway; "
     "the label distinguishes this from a verified rip.",
 )
 bullet(
     doc,
-    "AccurateRip shows OFFLINE: ",
+    "A track shows Unavailable (offline): ",
     "The database could not be reached; the mode degraded to the local "
     "rip-twice re-read. Verify the network connection.",
 )

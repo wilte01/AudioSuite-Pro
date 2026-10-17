@@ -1,6 +1,10 @@
 """
 cd_ripper/ui/results_tab.py — Results tab.
 Style matches Music Format Converter results_tab.py.
+
+Changed in 1.2.0: surfaces each track's EAC-style verification label (with
+its AccurateRip confidence) and adds the manual "Re-rip flagged tracks"
+action (PLAN_feature_expansion.md D30).
 """
 
 import os
@@ -78,9 +82,24 @@ class ResultsTab:
             command=self._eject,
         ).pack(side="left", padx=(8, 0))
 
+        self._rerip_btn = tk.Button(
+            btn_row,
+            text="⟲  Re-rip flagged tracks",
+            bg="#4a7a9b",
+            fg="white",
+            font=styles.FONT_LABEL_B,
+            command=self._rerip,
+            state="disabled",
+        )
+        self._rerip_btn.pack(side="left", padx=(8, 0))
+
         tk.Label(
             outer,
-            text="Double-click a row to reveal the file in Explorer.",
+            text=(
+                "Double-click a row to reveal the file in Explorer. "
+                "Re-rip runs only the flagged tracks — nothing is retried "
+                "automatically."
+            ),
             font=styles.FONT_CAPTION,
             fg="gray",
             bg=styles.BG_WHITE,
@@ -112,6 +131,10 @@ class ResultsTab:
         else:
             summary = f"Rip complete  —  {ok} succeeded,  {fail} failed"
 
+        self._rerip_btn.configure(
+            state="normal" if self.flagged_numbers() else "disabled"
+        )
+
         self._summary_lbl.configure(
             text=summary,
             fg=styles.get_main() if fail == 0 else "#cc3333",
@@ -131,6 +154,31 @@ class ResultsTab:
             self._tree.insert(
                 "", "end", iid=str(num), tags=(tag,), values=(num, title, fname, status)
             )
+
+    def flagged_numbers(self) -> list[int]:
+        """The track numbers a re-rip may be offered for, in disc order.
+
+        A failed track is one whose row carries no output file: a failed
+        encode, a read error, or an AccurateRip mismatch (which deliberately
+        never writes a file). Successful rows are never flagged, whatever
+        their verification label says.
+
+        Returns:
+            Ascending track numbers with an unsuccessful result.
+        """
+        return sorted(
+            int(r["number"])
+            for r in self.state.get("rip_results", [])
+            if not r.get("success")
+        )
+
+    def _rerip(self) -> None:
+        """Hand the flagged track numbers to the app's re-rip action."""
+        numbers = self.flagged_numbers()
+        callback = self.state.get("on_rerip")
+        if not numbers or not callable(callback):
+            return
+        callback(numbers)
 
     def _open_folder(self) -> None:
         out_dir = self.state.get("out_dir", "")

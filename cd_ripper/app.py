@@ -4,6 +4,9 @@ Palette-aware, matches Music Format Converter style.
 
 Changed in 1.0.1: parses the driver's argv and pre-fills the rip output, format, tracks
 and cue settings.
+
+Changed in 1.2.0: wires the Results tab's manual "Re-rip flagged tracks" action
+to a re-rip of exactly those tracks (PLAN_feature_expansion.md D30).
 """
 
 import tkinter as tk
@@ -103,6 +106,9 @@ class CDRipperApp(UIHelperMixin):
         self.setup_tab = SetupTab(self.notebook, self.state, self._on_ready_to_rip)
         self.rip_tab = RipTab(self.notebook, self.state, self._on_rip_complete)
         self.results_tab = ResultsTab(self.notebook, self.state)
+        # The Results tab owns the flagged-row list; the app owns the tab
+        # switch, so the callback is handed over rather than the widget.
+        self.state["on_rerip"] = self._on_rerip
 
         self.notebook.add(self.setup_tab.frame, text="  Setup & Lookup  ")
         self.notebook.add(self.rip_tab.frame, text="  Rip  ")
@@ -145,6 +151,17 @@ class CDRipperApp(UIHelperMixin):
         selection = cli_args.parse_track_selection(tracks)
         if selection:
             self.state["cli_track_filter"] = selection
+
+    def _on_rerip(self, numbers: list[int]) -> None:
+        """Re-rip the flagged tracks and show their progress.
+
+        Args:
+            numbers: Ascending track numbers that failed and were selected
+                for a manual re-rip.
+        """
+        self.notebook.tab(1, state="normal")
+        self.notebook.select(1)
+        self.rip_tab.re_rip(numbers)
 
     def _open_help(self) -> None:
         """Open help file with enhanced error handling."""

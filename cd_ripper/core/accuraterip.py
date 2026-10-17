@@ -34,6 +34,11 @@ clean-room client, no reference code is copied):
 Network failures and "no entry" conditions are deliberately first-class
 result types (never an opaque exception), so the ripper can degrade to a
 local-only "rip twice" verification when the database cannot answer.
+
+Changed in 1.2.0: adds ``match_track`` (the matching record and its
+confidence, which ``verify_track`` used to discard),
+``VerificationMethod``, and ``describe_verification`` -- the EAC-style
+per-track wording with the confidence count (PLAN_feature_expansion.md D30).
 """
 
 from __future__ import annotations
@@ -446,6 +451,76 @@ class VerificationStatus(str, Enum):
     OFFLINE = "OFFLINE"
 
 
+class VerificationMethod(str, Enum):
+    """Which check produced a track's outcome (7a of the governing plan)."""
+
+    NONE = "none"
+    RIP_TWICE = "rip-twice"
+    ACCURATERIP_TRACK = "accuraterip-track"
+    ACCURATERIP_GAP = "accuraterip-gap"
+
+
+@dataclass(frozen=True)
+class DBMatch:
+    """The database record a track's checksums matched.
+
+    Attributes:
+        confidence: The matching record's confidence byte -- the number of
+            rips that submitted these same checksums. One or more is a match;
+            there is no separate "accurate" threshold, so the count is
+            reported rather than interpreted.
+        crc: Which checksum matched, ``"v1"`` or ``"v2"``. v1 matches are
+            expected for discs verified before the v2 algorithm existed.
+        entry_index: Index of the matching record within the lookup result, so
+            a multi-pressing disc can name which entry agreed.
+    """
+
+    confidence: int
+    crc: str
+    entry_index: int
+
+
+def match_track(
+    local: TrackChecksums,
+    db_entries: Sequence[DBEntry],
+    track_index: int,
+) -> DBMatch | None:
+    """Match one track's checksums against the database records.
+
+    A disc can carry several records (different pressings of the same
+    tracklist). Every matching record is a confirmation, so the one with the
+    highest confidence is returned: that is the count of submissions agreeing
+    with the rip, and it is the number to show the user.
+
+    Args:
+        local: Checksums computed from the rip.
+        db_entries: All disc records returned for this disc.
+        track_index: 0-based relative track position (track number - 1; the
+            database excludes HTOA, so the TOC track number maps directly).
+
+    Returns:
+        The best matching record, or None when no record matches.
+    """
+    best: DBMatch | None = None
+    for position, entry in enumerate(db_entries):
+        if track_index >= len(entry.tracks):
+            continue
+        db_track = entry.tracks[track_index]
+        if local.crc1 == db_track.crc1:
+            matched_crc = "v1"
+        elif local.crc2 == db_track.crc2:
+            matched_crc = "v2"
+        else:
+            continue
+        if best is None or db_track.confidence > best.confidence:
+            best = DBMatch(
+                confidence=db_track.confidence,
+                crc=matched_crc,
+                entry_index=position,
+            )
+    return best
+
+
 def verify_track(
     local: TrackChecksums,
     db_entries: Sequence[DBEntry],
@@ -461,12 +536,77 @@ def verify_track(
 
     Returns:
         ``VERIFIED`` when any record holds a matching v1 or v2 checksum for
-        this track (with any confidence >= 1), else ``MISMATCH``.
+        this track (with any confidence >= 1), else ``MISMATCH``. Callers that
+        need the confidence use :func:`match_track` directly.
     """
-    for entry in db_entries:
-        if track_index >= len(entry.tracks):
-            continue
-        db_track = entry.tracks[track_index]
-        if local.crc1 == db_track.crc1 or local.crc2 == db_track.crc2:
-            return VerificationStatus.VERIFIED
+    if match_track(local, db_entries, track_index) is not None:
+        return VerificationStatus.VERIFIED
     return VerificationStatus.MISMATCH
+
+
+def describe_verification(
+    status: VerificationStatus | None,
+    confidence: int = 0,
+    method: VerificationMethod = VerificationMethod.NONE,
+) -> str:
+    """Render a track's verification outcome in EAC's familiar wording.
+
+    The wording is deliberately EXACT-Tools-compatible for the cases users
+    already recognise, and it never invents an accurate/confident boundary:
+    a database match is reported as ``Accurate`` with the number of agreeing
+    submissions, whatever that number is.
+
+    Args:
+        status: The outcome, or None when verification was cancelled.
+        confidence: Matching submissions for an AccurateRip result (0 for the
+            local rip-twice check, which has no database behind it).
+        method: Which check produced the outcome.
+
+    Returns:
+        A short label for the results table, the track row and the log; an
+        empty string for a cancelled check.
+    """
+    if status is None:
+        return ""
+    if status is VerificationStatus.VERIFIED:
+        if method in (
+            VerificationMethod.ACCURATERIP_TRACK,
+            VerificationMethod.ACCURATERIP_GAP,
+        ):
+            return f"Accurate (confidence {confidence})"
+        if method is VerificationMethod.RIP_TWICE:
+            return "Rip-twice verified"
+        return "Verified"
+    if status is VerificationStatus.MISMATCH:
+        return "Not accurate"
+    if status is VerificationStatus.NO_ENTRY:
+        return "Not in database"
+    return "Unavailable (offline)"
+
+
+__all__ = [
+    "ACCURATERIP_URL",
+    "DBEntry",
+    "DBMatch",
+    "DBTrackEntry",
+    "DEFAULT_TIMEOUT_SECS",
+    "EDGE_SKIP_FRAMES",
+    "FRAMES_PER_SECTOR",
+    "AccurateRipClient",
+    "DiscIds",
+    "LookupFound",
+    "LookupNotFound",
+    "LookupOffline",
+    "LookupResult",
+    "TrackChecksums",
+    "VerificationMethod",
+    "VerificationStatus",
+    "compute_disc_ids",
+    "compute_track_checksums",
+    "describe_verification",
+    "match_track",
+    "parse_db_entry",
+    "parse_db_payload",
+    "verify_track",
+    "with_gap_window",
+]

@@ -1,3 +1,9 @@
+"""Tests for cd_ripper.app — window construction, tab unlocking and wiring.
+
+Changed in 1.2.0: covers the Results tab's re-rip callback reaching a real
+re-rip of the flagged tracks (PLAN_feature_expansion.md D30).
+"""
+
 import tkinter as tk
 from typing import Any
 from unittest.mock import MagicMock
@@ -49,3 +55,33 @@ class TestAppConstructionAndTabFlowD3:
 
         assert str(app.notebook.tab(2, "state")) == "normal"
         refresh.assert_called_once_with()
+
+
+class TestReRipWiring:
+    """D30: the Results tab's action reaches a real re-rip of those tracks."""
+
+    @staticmethod
+    @pytest.fixture()
+    def app_root(root: tk.Tk) -> Any:
+        top = tk.Toplevel(root)
+        top.withdraw()
+        try:
+            yield top
+        finally:
+            top.destroy()
+
+    def test_state_exposes_the_rerip_callback(self, app_root) -> None:
+        app = CDRipperApp(app_root)
+        assert callable(app.state["on_rerip"])
+
+    def test_rerip_selects_the_rip_tab_and_passes_the_numbers(self, app_root) -> None:
+        app = CDRipperApp(app_root)
+        re_rip = MagicMock()
+        app.rip_tab.re_rip = re_rip  # type: ignore[method-assign]
+        assert str(app.notebook.tab(1, "state")) == "disabled"
+
+        app.state["on_rerip"]([2, 4])
+
+        assert str(app.notebook.tab(1, "state")) == "normal"
+        assert app.notebook.index("current") == 1
+        re_rip.assert_called_once_with([2, 4])

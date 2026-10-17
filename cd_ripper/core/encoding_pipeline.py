@@ -8,6 +8,10 @@ extract_track_scsi), then FFmpeg encoding with metadata.
 Changed in 1.0.1: a failed or interrupted encode now removes any partial
 output file in the finally block, so an incomplete track is never left on
 disk looking finished.
+
+Changed in 1.2.0: consumes the typed ``TrackVerification`` and reports its
+EAC-style label (with the AccurateRip confidence) instead of the bare status
+value (PLAN_feature_expansion.md D30).
 """
 
 import logging as _logging
@@ -17,7 +21,6 @@ import tempfile
 from collections.abc import Callable
 from typing import Any
 
-from cd_ripper.core.accuraterip import VerificationStatus
 from cd_ripper.core.metadata_resolver import (
     FORMAT_OPTIONS,
     _build_metadata_args,
@@ -145,7 +148,7 @@ class RipTask:
                     self.done_cb(num, False, "", f"Verification failed: {exc}")
                     return
                 try:
-                    status, detail = verify_extracted_track(
+                    outcome = verify_extracted_track(
                         drive_letter=drive_letter,
                         toc_entry=self.toc_entry,
                         toc=self.verification.toc,
@@ -162,14 +165,18 @@ class RipTask:
                 if self._cancelled:
                     self.done_cb(num, False, "", "Cancelled")
                     return
-                if status is VerificationStatus.MISMATCH:
-                    self.log_cb(f"[Verify] Track {num:02d}: MISMATCH \u2014 {detail}")
-                    self.done_cb(num, False, "", f"MISMATCH: {detail}")
-                    return
-                if status is not None:
-                    self.verification_label = status.value
+                if outcome.is_mismatch:
                     self.log_cb(
-                        f"[Verify] Track {num:02d}: {status.value} \u2014 {detail}"
+                        f"[Verify] Track {num:02d}: {outcome.label} "
+                        f"\u2014 {outcome.detail}"
+                    )
+                    self.done_cb(num, False, "", f"{outcome.label}: {outcome.detail}")
+                    return
+                if not outcome.was_cancelled:
+                    self.verification_label = outcome.label
+                    self.log_cb(
+                        f"[Verify] Track {num:02d}: {outcome.label} \u2014 "
+                        f"{outcome.detail}"
                     )
 
             # Stage 2: encode

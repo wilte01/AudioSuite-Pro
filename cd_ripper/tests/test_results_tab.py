@@ -7,6 +7,9 @@ Real Tk widgets off the shared hidden root for ``refresh``; shell panels
 ``_on_row_double``. Platform branches are driven by patching ``os.name``
 (repo precedent: test_disc_core.py), with ``startfile``/``CREATE_NO_WINDOW``
 created for cross-platform CI.
+
+Changed in 1.2.0: covers the confidence wording and the manual
+"Re-rip flagged tracks" action.
 """
 
 from __future__ import annotations
@@ -309,3 +312,113 @@ class TestBuild:
         assert tab._summary_lbl.cget("text") == (
             "Rip complete  —  0 succeeded,  0 failed"
         )
+
+
+class TestVerificationLabels:
+    """D30: the row and the summary show the EAC wording, confidence included."""
+
+    def test_confidence_is_visible_in_the_row_and_summary(
+        self, tab: ResultsTab
+    ) -> None:
+        tab.state["rip_results"] = [
+            _result(1, error="Accurate (confidence 12)"),
+            _result(2, error="Accurate (confidence 12)"),
+            _result(3, error="Not accurate"),
+        ]
+
+        tab.refresh()
+
+        assert tab._tree.item("1", "values")[3] == "✓  Accurate (confidence 12)"
+        assert tab._summary_lbl.cget("text") == (
+            "Rip complete  —  3 succeeded "
+            "(2 Accurate (confidence 12), 1 Not accurate),  0 failed"
+        )
+
+    def test_every_outcome_wording_reaches_a_row(self, tab: ResultsTab) -> None:
+        labels = [
+            "Accurate (confidence 1)",
+            "Rip-twice verified",
+            "Not in database",
+            "Unavailable (offline)",
+        ]
+        tab.state["rip_results"] = [
+            _result(number, error=label) for number, label in enumerate(labels, start=1)
+        ]
+
+        tab.refresh()
+
+        shown = [tab._tree.item(str(n), "values")[3] for n in range(1, 5)]
+        assert shown == [f"✓  {label}" for label in labels]
+
+
+class TestReRipAction:
+    """The re-rip action is manual, and only ever names flagged tracks."""
+
+    @staticmethod
+    def _buttons(tab: ResultsTab) -> list[tk.Button]:
+        found: list[tk.Button] = []
+        stack: list[Any] = [tab.frame]
+        while stack:
+            widget = stack.pop()
+            for w in widget.winfo_children():
+                if isinstance(w, tk.Button):
+                    found.append(w)
+                stack.append(w)
+        return found
+
+    def _rerip_button(self, tab: ResultsTab) -> tk.Button:
+        return next(b for b in self._buttons(tab) if "Re-rip flagged" in b.cget("text"))
+
+    def test_flagged_numbers_lists_only_failures_in_disc_order(
+        self, tab: ResultsTab
+    ) -> None:
+        tab.state["rip_results"] = [
+            _result(3, success=False, error="Read failed"),
+            _result(1, path="/out/01.flac", error="Rip-twice verified"),
+            _result(2, success=False, error="Not accurate: CRC not found"),
+        ]
+        assert tab.flagged_numbers() == [2, 3]
+
+    def test_no_failures_leaves_the_button_disabled(self, tab: ResultsTab) -> None:
+        tab.state["rip_results"] = [
+            _result(1, path="/out/01.flac", error="Accurate (confidence 4)")
+        ]
+        tab.refresh()
+        assert str(self._rerip_button(tab).cget("state")) == "disabled"
+
+    def test_a_failure_enables_the_button(self, tab: ResultsTab) -> None:
+        tab.state["on_rerip"] = MagicMock()
+        tab.state["rip_results"] = [
+            _result(1, path="/out/01.flac", error="Accurate (confidence 4)"),
+            _result(2, success=False, error="Not accurate: CRC not found"),
+        ]
+        tab.refresh()
+        assert str(self._rerip_button(tab).cget("state")) == "normal"
+
+    def test_clicking_passes_the_flagged_numbers(self, tab: ResultsTab) -> None:
+        callback = MagicMock()
+        tab.state["on_rerip"] = callback
+        tab.state["rip_results"] = [
+            _result(1, success=False, error="Read failed"),
+            _result(2, path="/out/02.flac", error="OK"),
+            _result(3, success=False, error="Not accurate"),
+        ]
+        tab.refresh()
+
+        self._rerip_button(tab).invoke()
+
+        callback.assert_called_once_with([1, 3])
+
+    def test_click_without_a_callback_is_a_no_op(self, tab: ResultsTab) -> None:
+        tab.state["rip_results"] = [_result(1, success=False, error="Read failed")]
+        tab.refresh()
+        # Must not raise: an un-wired tab is a valid construction order.
+        self._rerip_button(tab).invoke()
+
+    def test_click_with_nothing_flagged_is_a_no_op(self, tab: ResultsTab) -> None:
+        callback = MagicMock()
+        tab.state["on_rerip"] = callback
+        tab.state["rip_results"] = [_result(1, path="/out/01.flac", error="OK")]
+        tab.refresh()
+        self._rerip_button(tab).invoke()
+        callback.assert_not_called()
