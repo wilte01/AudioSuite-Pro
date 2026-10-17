@@ -24,8 +24,10 @@ Versions of the tools are released together with the suite (the single
   The record is the contract: a heading or marker that disappears without a
   deliberate re-record is drift, and a change to the record belongs in review.
   CI runs those locks against an empty home directory and fails if any of them
-  skips, so the runner proves the materialized-fixture path itself rather than
-  inheriting a developer host's real file.
+  skips, or if either module's lock count falls outside the range the step
+  declares, so the runner proves the materialized-fixture path itself rather
+  than inheriting a developer host's real file, and a lock file cannot shrink
+  or double without a deliberate edit.
 
 ## [1.1.0] - 2026-10-16
 

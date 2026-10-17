@@ -142,7 +142,9 @@ jobs:
         # Pointing the home directory at an empty directory guarantees that
         # shape on a runner, and the step then asserts the run was skip-free: a
         # skip would mean part of the lock went unverified on the one host class
-        # the fixture exists for. The precondition check fails loudly if a
+        # the fixture exists for. Each module's collected count is checked against
+        # a declared range below, so a lock file cannot lose tests or double them
+        # without a deliberate edit. The precondition check fails loudly if a
         # baseline is somehow present, because then this step would prove
         # nothing, and `--no-cov` keeps the run out of the coverage data file.
         # The interpreter is invoked directly rather than through `uv run`:
@@ -150,15 +152,16 @@ jobs:
         run: |
           no_baseline="$(mktemp -d)"
           export HOME="$no_baseline" USERPROFILE="$no_baseline"
+          py=.venv/Scripts/python.exe
           # True when no real baseline is reachable, i.e. the fixture path is live.
           absent='import sys; from tests.test_agents_md import GLOBAL_AGENTS;'
           absent="$absent sys.exit(1 if GLOBAL_AGENTS.is_file() else 0)"
-          if ! .venv/Scripts/python.exe -c "$absent"; then
+          if ! "$py" -c "$absent"; then
             echo "gate fail: a baseline is reachable; the fixture path is not live" >&2
             exit 1
           fi
           log="$(mktemp)"
-          .venv/Scripts/python.exe -m pytest tests/test_agents_md.py \
+          "$py" -m pytest tests/test_agents_md.py \
             tests/test_external_records.py --tb=short -q -rs --no-cov \
             -p no:cacheprovider > "$log" 2>&1
           code=$?
@@ -174,4 +177,34 @@ jobs:
             echo "gate fail: no tests ran" >&2
             exit 1
           }
+          # module=count, where the count is the number of locks the module
+          # shipped carrying. It is checked in both directions, because a floor
+          # alone cannot tell growth from a duplicate: a parametrization that
+          # doubles, or a second module's tests leaking in, would clear any
+          # minimum. A module may grow by up to a fifth before its number counts
+          # as stale; falling below it or rising past the cap needs a deliberate
+          # edit, and that edit is the review signal.
+          for spec in test_agents_md.py=21 test_external_records.py=43; do
+            mod="${spec%%=*}"
+            floor="${spec##*=}"
+            cap=$((floor + (floor + 4) / 5))
+            got="$("$py" -m pytest "tests/$mod" --collect-only -q \
+              -p no:cacheprovider --no-cov 2>&1 | grep -cE '^tests/[^ ]+\.py::')"
+            case "$got" in
+              '' | *[!0-9]*)
+                echo "gate fail: could not count locks in tests/$mod (got '$got')" >&2
+                exit 1
+                ;;
+            esac
+            echo "$mod: $got collected, floor $floor, cap $cap"
+            if [ "$got" -lt "$floor" ]; then
+              echo "gate fail: $mod collected $got locks, below its floor of $floor" >&2
+              exit 1
+            fi
+            if [ "$got" -gt "$cap" ]; then
+              echo "gate fail: $mod collected $got locks, past its cap of $cap" >&2
+              echo "  if that growth is intended, raise its count in this step" >&2
+              exit 1
+            fi
+          done
           echo "instruction locks pass on the fixture path"
