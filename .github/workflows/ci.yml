@@ -129,3 +129,49 @@ jobs:
         run: |
           uv run python -m pytest --tb=short -q \
             --cov --cov-report=term-missing --cov-fail-under=75
+      - name: Instruction locks, no user-global baseline (fixture path)
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        # Changed in 1.1.0: added this step, so the runner proves the fixture
+        # path instead of inheriting a developer host's real file.
+        # The precedence contract AGENTS.md defers to rests on a user-global
+        # instruction file that is not versioned here, so the live-file locks in
+        # tests/test_agents_md.py read a fixture materialized from the committed
+        # record in tests/data/external/ wherever no real baseline exists.
+        # Pointing the home directory at an empty directory guarantees that
+        # shape on a runner, and the step then asserts the run was skip-free: a
+        # skip would mean part of the lock went unverified on the one host class
+        # the fixture exists for. The precondition check fails loudly if a
+        # baseline is somehow present, because then this step would prove
+        # nothing, and `--no-cov` keeps the run out of the coverage data file.
+        # The interpreter is invoked directly rather than through `uv run`:
+        # uv keeps its cache under the home directory this step empties.
+        run: |
+          no_baseline="$(mktemp -d)"
+          export HOME="$no_baseline" USERPROFILE="$no_baseline"
+          # True when no real baseline is reachable, i.e. the fixture path is live.
+          absent='import sys; from tests.test_agents_md import GLOBAL_AGENTS;'
+          absent="$absent sys.exit(1 if GLOBAL_AGENTS.is_file() else 0)"
+          if ! .venv/Scripts/python.exe -c "$absent"; then
+            echo "gate fail: a baseline is reachable; the fixture path is not live" >&2
+            exit 1
+          fi
+          log="$(mktemp)"
+          .venv/Scripts/python.exe -m pytest tests/test_agents_md.py \
+            tests/test_external_records.py --tb=short -q -rs --no-cov \
+            -p no:cacheprovider > "$log" 2>&1
+          code=$?
+          cat "$log"
+          if [ "$code" -ne 0 ]; then
+            exit "$code"
+          fi
+          if grep -qE "[0-9]+ skipped" "$log"; then
+            echo "gate fail: a lock skipped without a baseline; the fixture is untested" >&2
+            exit 1
+          fi
+          grep -qE "[0-9]+ passed" "$log" || {
+            echo "gate fail: no tests ran" >&2
+            exit 1
+          }
+          echo "instruction locks pass on the fixture path"

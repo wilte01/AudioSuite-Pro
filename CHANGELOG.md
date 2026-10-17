@@ -23,6 +23,9 @@ Versions of the tools are released together with the suite (the single
   hardlinked twin) run on every host instead of skipping for a missing file.
   The record is the contract: a heading or marker that disappears without a
   deliberate re-record is drift, and a change to the record belongs in review.
+  CI runs those locks against an empty home directory and fails if any of them
+  skips, so the runner proves the materialized-fixture path itself rather than
+  inheriting a developer host's real file.
 
 ## [1.1.0] - 2026-10-16
 
