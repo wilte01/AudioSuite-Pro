@@ -7,6 +7,9 @@ bootstrap is needed.  The machinery this class inherits from
 (audio_suite_shared.analysis_app_base) is covered once, in
 audio_suite_shared/tests/test_analysis_app_base.py; what is asserted here is
 Mood Analyzer's own wiring: its literals and its file_processor call.
+
+Changed in 1.2.0: covers the run note the batch report shows when the run had
+to skip tracks it could not analyse.
 """
 
 import tkinter as tk
@@ -15,6 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from audio_suite_shared.run_outcome import read_outcome
 from mood_analyzer.app import MoodAnalyzerApp
 
 
@@ -524,3 +528,79 @@ class TestRealConstruction:
         app = real_app(load_value=_load)
         assert app.parallel_mode.get() is True
         assert app.max_workers.get() == 8
+
+
+# ---------------------------------------------------------------------------
+# Run note: the batch report's Mood step says how many tracks the run could
+# not analyse, instead of leaving that only in the tool's own log.
+# ---------------------------------------------------------------------------
+
+
+def _make_run_note_app(log_path) -> MoodAnalyzerApp:
+    """Shell with only what the completion path touches."""
+    app = object.__new__(MoodAnalyzerApp)
+    app.root = MagicMock()
+    app._log_path = str(log_path)
+    app.auto_end = False
+    app.auto_end_var = MagicMock(**{"get.return_value": False})
+    return app
+
+
+def _complete(
+    app: MoodAnalyzerApp, *, total: int, skipped: int = 0, errors: int = 0
+) -> None:
+    """Drive the completion callback the analysis actually hands over."""
+    app._on_complete(
+        header=["MOOD DETECTION REPORT\n"],
+        total=total,
+        processed=total,
+        skipped=skipped,
+        errors=errors,
+        duration_secs=1.0,
+        log_entries=["line\n"],
+    )
+
+
+class TestRunNote:
+    """``_on_complete`` records the tracks the run could not analyse."""
+
+    def test_skipped_tracks_are_reported(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "mood_log.txt")
+
+        _complete(app, total=40, skipped=2)
+
+        assert read_outcome("mood_analyzer") == (
+            "2 of 40 tracks had no usable audio (undecodable or silent)"
+        )
+
+    def test_errors_are_reported_alongside_the_skips(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "mood_log.txt")
+
+        _complete(app, total=40, skipped=2, errors=1)
+
+        assert read_outcome("mood_analyzer") == (
+            "2 of 40 tracks had no usable audio (undecodable or silent); "
+            "1 of 40 tracks could not be analyzed"
+        )
+
+    def test_a_clean_run_reports_nothing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "mood_log.txt")
+
+        _complete(app, total=40)
+
+        assert read_outcome("mood_analyzer") == ""
+
+    def test_a_later_clean_run_clears_an_earlier_note(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "mood_log.txt")
+        _complete(app, total=4, skipped=1)
+        assert read_outcome("mood_analyzer") == (
+            "1 of 4 tracks had no usable audio (undecodable or silent)"
+        )
+
+        _complete(app, total=4)
+
+        assert read_outcome("mood_analyzer") == ""

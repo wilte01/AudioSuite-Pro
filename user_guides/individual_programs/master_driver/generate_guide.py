@@ -6,6 +6,9 @@ argv.
 Changed in 1.1.0: documents the Audio Enhancer card (required output folder and
 all four presets, Custom included) and notes that the REFINE tab's enhancer
 stage opens the same Custom DSP editor window as the standalone tool.
+
+Changed in 1.2.0: documents the per-step note a finished tool can leave on its
+batch-report line (and that such a report stays on screen).
 """
 
 from docx import Document
@@ -188,6 +191,17 @@ add_bullet(
     "During a batch run, the driver can show per-step status, "
     "an overall summary, estimated"
     " remaining time, and a progress bar.",
+)
+add_bullet(
+    doc,
+    "Step notes: ",
+    "A step can finish with something the run still owes you - "
+    "CD Ripper tracks that did not rip, files a tag writer "
+    "skipped or could not update, conversions skipped or failed. "
+    "The driver prints that on the step's own line, and keeps the "
+    "report on screen while it carries a note instead of hiding it "
+    "when the batch ends. A note never means the step failed: the "
+    "work it did was done.",
 )
 
 doc.add_heading("Enrich Tools", level=1)

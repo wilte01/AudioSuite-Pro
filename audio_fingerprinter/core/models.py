@@ -9,11 +9,21 @@ Changed in 1.2.0: adds the MusicBrainz enrichment models (``MBReleaseFacts``,
 ``musicbrainz`` / ``write_isrc`` / ``submit_isrc`` runtime flags, and the
 ISRC/enrichment fields on ``FingerprintFileResult``
 (PLAN_feature_expansion.md D28, D29, D31, D27).
+Changed in 1.2.0: adds :func:`isrc_submission_note` / :func:`isrc_submission_problem`
+so the CLI, the Results tab and the Master Driver batch report describe one
+submission outcome with the same words.
 """
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
+
+#: Submission statuses that need no attention from the operator: the payload
+#: was only previewed, was accepted for review, or there was nothing to send.
+#: Any other status (``rejected``, ``not authorised``, ``offline``, ``no auth``,
+#: ``not attempted``, ...) is a refusal the user must be told about.
+_ISRC_STATUSES_WITHOUT_PROBLEM = frozenset({"ok", "preview", "nothing to submit"})
 
 
 class FingerprintStatus(str, Enum):
@@ -65,6 +75,43 @@ def status_text(status: FingerprintStatus | str) -> str:
         The exact text to display, byte-identical to the pre-enum strings.
     """
     return status.value if isinstance(status, FingerprintStatus) else status
+
+
+def isrc_submission_note(payload: Mapping[str, Any]) -> str:
+    """Return the one-line description of an ISRC submission outcome.
+
+    One formatter for every surface that reports the submission — the CLI's
+    stderr line, the Results tab label, the run log's SUMMARY block and the
+    Master Driver batch report — so they cannot drift into four phrasings of
+    the same refusal.
+
+    Args:
+        payload: The ``isrc_submission`` record from a run (``status``,
+            ``isrcs``, ``recordings``; all optional here).
+
+    Returns:
+        ``"ISRC submission: <status> (<n> ISRC(s), <m> recording(s))"``.
+    """
+    status = str(payload.get("status") or "unknown")
+    isrcs = payload.get("isrcs", 0)
+    recordings = payload.get("recordings", 0)
+    return f"ISRC submission: {status} ({isrcs} ISRC(s), {recordings} recording(s))"
+
+
+def isrc_submission_problem(payload: Mapping[str, Any]) -> bool:
+    """Return whether a submission outcome needs the operator's attention.
+
+    Args:
+        payload: The ``isrc_submission`` record from a run.
+
+    Returns:
+        True when the status is anything but a preview, an accepted-for-review
+        submission or "nothing to submit" — i.e. when the codes were *not*
+        handed to MusicBrainz and the reason matters.
+    """
+    return (
+        str(payload.get("status") or "").strip() not in _ISRC_STATUSES_WITHOUT_PROBLEM
+    )
 
 
 @dataclass(frozen=True)

@@ -6,6 +6,10 @@ Tab layout:
   ENRICH  — Tag & metadata tools (uses shared directory bar)
   UTIL    — Utility tools + audio file tools
   SETTINGS — Settings
+
+Changed in 1.2.0: a completed step's line in the batch report carries the note
+the tool recorded (e.g. a rejected ISRC submission), so a caveat is visible
+without opening that tool's run log.
 """
 
 import logging
@@ -42,6 +46,14 @@ class AudioSuiteDriver(UIHelperMixin):
     """Audio Suite Master Driver - orchestrates all tools."""
 
     HELP_GUIDE = "Master_Driver_User_Guide.docx"
+
+    #: Set while the batch report carries at least one per-step note.  The
+    #: report auto-hides half a second after a batch finishes, which would
+    #: flash a caveat (a refused ISRC submission) past the user, so a report
+    #: holding one stays on screen until the next batch replaces it.  A class
+    #: default, not an ``__init__`` assignment, so a driver built in a test
+    #: without ``__init__`` still reads a defined value.
+    _batch_report_has_notes = False
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -491,6 +503,7 @@ class AudioSuiteDriver(UIHelperMixin):
         """Update the per-step status text, overall summary, and progress bar."""
 
         def _update() -> None:
+            self._batch_report_has_notes = bool(progress.notes)
             if progress.total_steps == 0:
                 self._batch_status_text.grid_remove()
                 self._batch_eta_label.grid_remove()
@@ -515,13 +528,20 @@ class AudioSuiteDriver(UIHelperMixin):
             running_count = 0
             for i, (tid, name, st) in enumerate(progress.steps):
                 icon = status_chars.get(st, "?")
+                # A caveat the tool recorded about this run (a refused ISRC
+                # submission, for instance).  It is appended, never substituted
+                # for the status: the step really did complete.
+                note = progress.notes.get(tid, "")
+                suffix = f" — {note}" if note else ""
                 if st == "running":
                     running_count += 1
                     lines.append(
                         f"[{i + 1}/{total}] {name:<25s} {icon} running  ({elapsed_str})"
                     )
                 elif st == "completed":
-                    lines.append(f"[{i + 1}/{total}] {name:<25s} {icon} completed")
+                    lines.append(
+                        f"[{i + 1}/{total}] {name:<25s} {icon} completed{suffix}"
+                    )
                 elif st == "failed":
                     lines.append(f"[{i + 1}/{total}] {name:<25s} {icon} FAILED")
                 elif st == "waiting":
@@ -560,9 +580,17 @@ class AudioSuiteDriver(UIHelperMixin):
         self.root.after(0, _update)
 
     def _hide_batch_progress(self) -> None:
-        """Hide batch progress widgets after completion."""
+        """Hide batch progress widgets after completion.
+
+        A report that carries a step note is kept on screen: it holds a caveat
+        the run recorded (e.g. an ISRC submission MusicBrainz refused), and
+        hiding it half a second later would put that caveat back where it can
+        only be found by reading the tool's log.  The next batch clears it.
+        """
 
         def _hide() -> None:
+            if self._batch_report_has_notes:
+                return
             self._batch_status_text.grid_remove()
             self._batch_eta_label.grid_remove()
             self._batch_progress_bar.grid_remove()

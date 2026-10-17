@@ -6,6 +6,9 @@ Wires UI, core logic, and utilities together. No business logic here.
 Changed in 1.2.0: adds the MusicBrainz enrichment and ISRC tag-write
 toggles to the Setup tab and passes them into ``FingerprintParams``, plus the
 ISRC submission toggle with its encrypted token (Sprint 2 Item 2.3).
+Changed in 1.2.0: shows the ISRC submission outcome on the Results tab and
+records the same line as the run's note, so a refused or offline submission is
+visible in the Master Driver batch report without opening the run log.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
+from audio_suite_shared.run_outcome import record_outcome
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 from audio_suite_shared.ui_helpers import UIHelperMixin
 
@@ -36,6 +40,8 @@ from .core.fingerprinter import DEFAULT_MAX_LENGTH, FPCALC_ENV_VAR, resolve_fpca
 from .core.models import (
     FingerprintFileResult,
     FingerprintParams,
+    isrc_submission_note,
+    isrc_submission_problem,
     status_text,
 )
 from .ui import processing_tab, results_tab, setup_tab
@@ -46,6 +52,13 @@ from .utils import musicbrainz_token as mb_token_store
 logger = logging.getLogger(__name__)
 
 TOOL_ID = "audio_fingerprinter"
+
+#: The Master Driver keys a batch step by the *manifest* id, which is
+#: ``"fingerprinter"`` (``audio_suite_shared.tool_plugin``) and deliberately
+#: differs from ``TOOL_ID`` above (the bootstrap/window key).  The run note must
+#: be recorded under the manifest id or the driver never finds it; a test locks
+#: the two together so a rename fails loudly rather than silently.
+DRIVER_TOOL_ID = "fingerprinter"
 _DEFAULT_THRESHOLD = "0.5"
 
 
@@ -197,6 +210,7 @@ class FingerprinterApp(UIHelperMixin):
         self.completion_label: tk.Label = res_widgets["completion_label"]  # type: ignore[assignment]
         self.summary_label: tk.Label = res_widgets["summary_label"]  # type: ignore[assignment]
         self.time_label: tk.Label = res_widgets["time_label"]  # type: ignore[assignment]
+        self.isrc_label: tk.Label = res_widgets["isrc_label"]  # type: ignore[assignment]
 
         self._tab_setup = tab_setup
         self._tab_processing = tab_processing
@@ -582,11 +596,7 @@ class FingerprinterApp(UIHelperMixin):
         if counts.get("album_ambiguous"):
             summary.append(f"Album ambiguous: {counts['album_ambiguous']}\n")
         if isrc_submission:
-            summary.append(
-                f"ISRC submission: {isrc_submission.get('status', 'unknown')} "
-                f"({isrc_submission.get('isrcs', 0)} ISRC(s), "
-                f"{isrc_submission.get('recordings', 0)} recording(s))\n"
-            )
+            summary.append(f"{isrc_submission_note(isrc_submission)}\n")
             if isrc_submission.get("reason"):
                 summary.append(f"  {isrc_submission['reason']}\n")
         summary.extend(
@@ -618,6 +628,7 @@ class FingerprinterApp(UIHelperMixin):
             summary_text += f"\nAlbum Ambiguous: {counts['album_ambiguous']}"
         self.summary_label.config(text=summary_text)
         self.completion_label.config(text="Fingerprinting Complete!")
+        self._surface_isrc_outcome(isrc_submission)
 
         self.file_listbox.delete(0, tk.END)
         for result in sorted(results, key=lambda r: r.file_path):
@@ -627,6 +638,43 @@ class FingerprinterApp(UIHelperMixin):
 
         self.notebook.select(self._tab_results)
         self.start_btn.config(state="normal")
+
+    def _surface_isrc_outcome(self, submission: dict[str, Any] | None) -> None:
+        """Show the submission outcome, and record it for the Master Driver.
+
+        A refused submission still leaves every file untouched and the run
+        successful, so this is not an error dialog: it is a standing line on
+        the Results tab, coloured red when the codes never reached MusicBrainz
+        and green when they did (or there was nothing to send).  The same text
+        is recorded as the run's note so a driver-launched batch reports it on
+        the step line instead of only in ``fingerprint_*_log.txt``.
+
+        Args:
+            submission: The run's ``isrc_submission`` record, or None when the
+                run did not request a submission.
+        """
+        if not submission:
+            self.isrc_label.config(text="", fg=styles.FG_MAIN)
+            return
+
+        note = isrc_submission_note(submission)
+        reason = str(submission.get("reason") or "").strip()
+        text = f"{note}\n{reason}" if reason else note
+        self.isrc_label.config(
+            text=text,
+            fg=styles.COLOR_ERROR
+            if isrc_submission_problem(submission)
+            else styles.COLOR_SUCCESS,
+        )
+
+        try:
+            record_outcome(
+                DRIVER_TOOL_ID, f"{note} \u2014 {reason}" if reason else note
+            )
+        except (OSError, ValueError) as exc:
+            # The note only feeds the batch report; the outcome is already on
+            # screen and in the run log, so it must never fail a finished run.
+            logger.debug("Could not record the ISRC outcome for the driver: %s", exc)
 
     def _on_error(self, message: str) -> None:
         messagebox.showerror("Error", message)

@@ -38,6 +38,10 @@ running under ``pythonw``.
 ``app_bootstrap`` re-exports ``configure_logging`` so its existing
 importers (the ``.pyw`` launchers, ``lyrics_manager/__main__`` and
 ``undo_gui``) keep working unchanged.
+
+Changed in 1.2.0: exposes :func:`get_logs_dir` so other shared modules (the
+per-tool run-outcome notes) resolve the same directory, including the
+``AUDIOSUITE_LOG_DIR`` override, instead of re-deriving it.
 """
 
 from __future__ import annotations
@@ -193,6 +197,21 @@ def _resolve_logs_dir(suite_root: Path) -> Path:
         return fallback
 
 
+def get_logs_dir() -> Path:
+    """Return the directory this suite writes its logs to.
+
+    The public face of :func:`_resolve_logs_dir` for callers outside this
+    module's logging setup — e.g. the per-tool run-outcome notes
+    (:mod:`audio_suite_shared.run_outcome`) — so the ``AUDIOSUITE_LOG_DIR``
+    override and the read-only-install fallback are implemented once, not
+    re-derived per caller.
+
+    Returns:
+        An existing, writable log directory.
+    """
+    return _resolve_logs_dir(Path(__file__).resolve().parent.parent)
+
+
 def _program_log_path(logs_dir: Path, program_name: str) -> Path:
     """Return the per-program log path for ``program_name``.
 
@@ -284,8 +303,7 @@ def configure_logging(program_name: str, *, min_level: int = logging.DEBUG) -> N
             ``--log-level`` value so records match the console verbosity it
             configured.
     """
-    suite_root = Path(__file__).parent.parent
-    logs_dir = _resolve_logs_dir(suite_root)
+    logs_dir = get_logs_dir()
 
     # Named for what it is: the suite's own namespace logger, NOT the root
     # logger. Every first-party module logger is a descendant of this name

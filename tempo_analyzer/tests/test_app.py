@@ -13,6 +13,7 @@ _on_complete
   * UI update scheduled via root.after
   * OSError during log write does not crash
   * auto_end schedules root.destroy
+  * Records the tracks with no BPM tag as a run note (Changed in 1.2.0)
 
 _collect_settings
   * Returns dict with tempo_scheme and run_mode
@@ -35,6 +36,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from audio_suite_shared.run_outcome import read_outcome
 from tempo_analyzer.app import TempoAnalyzerApp
 from tempo_analyzer.core.tempo_schemes import TEMPO_SCHEMES
 
@@ -724,3 +726,93 @@ class TestProgressCallbacks:
         app._update_progress_ui(1, 1, 0, 0, "done.mp3")
         app.file_listbox.insert.assert_called_once_with("end", "done.mp3")
         app.file_listbox.see.assert_called_once_with("end")
+
+
+# ---------------------------------------------------------------------------
+# Run note: the batch report's Tempo step says how many tracks had nothing to
+# derive a marking from, instead of leaving that only in the tool's own log.
+# ---------------------------------------------------------------------------
+
+
+def _make_run_note_app(log_path: Path) -> TempoAnalyzerApp:
+    """Shell with only what the completion path touches."""
+    app = object.__new__(TempoAnalyzerApp)
+    app.root = MagicMock()
+    app._log_path = str(log_path)
+    app.auto_end = False
+    return app
+
+
+def _complete(
+    app: TempoAnalyzerApp, *, total: int, skipped: int = 0, errors: int = 0
+) -> None:
+    """Drive the completion callback the analysis actually hands over."""
+    app._on_complete(
+        header=["TEMPO ANALYSIS REPORT\n"],
+        total=total,
+        processed=total,
+        skipped=skipped,
+        errors=errors,
+        duration_secs=1.0,
+        log_entries=["line\n"],
+    )
+
+
+class TestRunNote:
+    """``_on_complete`` records the tracks with no BPM tag."""
+
+    def test_tracks_without_a_bpm_tag_are_reported(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "tempo_log.txt")
+
+        _complete(app, total=40, skipped=12)
+
+        assert (
+            read_outcome("tempo")
+            == "12 of 40 tracks had no BPM tag to derive a tempo from"
+        )
+
+    def test_errors_are_reported_alongside_the_skips(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "tempo_log.txt")
+
+        _complete(app, total=40, skipped=12, errors=2)
+
+        assert read_outcome("tempo") == (
+            "12 of 40 tracks had no BPM tag to derive a tempo from; "
+            "2 of 40 tracks could not be analyzed"
+        )
+
+    def test_a_clean_run_reports_nothing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "tempo_log.txt")
+
+        _complete(app, total=40)
+
+        assert read_outcome("tempo") == ""
+
+    def test_a_later_clean_run_clears_an_earlier_note(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "tempo_log.txt")
+        _complete(app, total=40, skipped=1)
+        assert (
+            read_outcome("tempo")
+            == "1 of 40 tracks had no BPM tag to derive a tempo from"
+        )
+
+        _complete(app, total=40)
+
+        assert read_outcome("tempo") == ""
+
+    def test_the_note_lands_under_the_manifest_id(self, tmp_path, monkeypatch):
+        """The window key is not the key the driver reads back."""
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "tempo_log.txt")
+
+        _complete(app, total=4, skipped=1)
+
+        assert (
+            read_outcome("tempo")
+            == "1 of 4 tracks had no BPM tag to derive a tempo from"
+        )
+        assert read_outcome("tempo_analyzer") == ""

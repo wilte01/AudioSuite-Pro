@@ -2,6 +2,11 @@
 app.py
 MusicFormatConverterApp — thin orchestrator.
 Wires UI, core logic, and utilities together. No business logic here.
+
+Changed in 1.2.0: records the files a run skipped (no reachable target, or an
+output another source already produced) and the ones whose conversion failed as
+the run's note, so a Master Driver batch reports them on the Music Format
+Converter step instead of only in the run log.
 """
 
 import logging
@@ -21,6 +26,7 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
+from audio_suite_shared.run_outcome import record_caveats, shortfall
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 from audio_suite_shared.ui_helpers import UIHelperMixin
 
@@ -37,6 +43,11 @@ from .utils.ffmpeg_check import check_ffmpeg
 logger = logging.getLogger(__name__)
 
 TOOL_ID = "music_format_converter"
+
+#: Manifest id the Master Driver keys this tool's batch step by; a note
+#: recorded under any other key is never read.  Locked to the manifest by
+#: ``tests/test_run_outcome_contract.py``.
+DRIVER_TOOL_ID = "converter"
 
 
 class MusicFormatConverterApp(UIHelperMixin):
@@ -608,6 +619,33 @@ class MusicFormatConverterApp(UIHelperMixin):
         self.completion_label.config(text="Conversion Complete!")
         self.notebook.select(self._tab_results)
         self.start_btn.config(state="normal")
+        self._record_run_note(total=total, skipped=skipped, errors=errors)
+
+    def _record_run_note(self, *, total: int, skipped: int, errors: int) -> None:
+        """Record the files this run did not convert.
+
+        The Results tab shows the same two counts; this is the one-line version
+        the Master Driver reads after the window closes.  A run that converted
+        every file records nothing, which clears any earlier note.
+
+        Args:
+            total: Files the run attempted.
+            skipped: Files it deliberately left alone (no reachable target
+                format, or an output another source in the run already made).
+            errors: Files whose conversion failed.
+        """
+        record_caveats(
+            DRIVER_TOOL_ID,
+            shortfall(errors, total, "file", "failed to convert") if errors else "",
+            shortfall(
+                skipped,
+                total,
+                "file",
+                "were skipped (no reachable target or duplicate output)",
+            )
+            if skipped
+            else "",
+        )
 
     def _on_error(self, message: str) -> None:
         messagebox.showerror("Error", message)

@@ -5,6 +5,11 @@ Provides the graphical user interface for scanning and updating tag fields.
 
 Changed in 1.0.1: parses the driver's argv and adds a Dry Run checkbox wired to the CLI
 mode.
+
+Changed in 1.2.0: records the files a scan skipped (unsupported format or no
+readable tags) and the ones it could not update as the run's note, so a Master
+Driver batch reports them on the Tag Field Updater step instead of only in the
+completion dialog and the run log.
 """
 
 from __future__ import annotations
@@ -20,11 +25,17 @@ from audio_suite_shared.app_bootstrap import BaseSuiteApp
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.exceptions import map_to_audio_error, user_message_for
 from audio_suite_shared.launcher import parse_cli_args
+from audio_suite_shared.run_outcome import record_caveats, shortfall
 
 from ..core.processor import ProcessingStats, TagProcessor
 from ..utils import cli_args
 
 logger = logging.getLogger(__name__)
+
+#: Manifest id the Master Driver keys this tool's batch step by; a note
+#: recorded under any other key is never read.  Locked to the manifest by
+#: ``tests/test_run_outcome_contract.py``.
+DRIVER_TOOL_ID = "tag_field_updater"
 
 
 class TagFieldUpdaterApp(BaseSuiteApp):
@@ -271,6 +282,9 @@ Rules:
             self.current_file.set("")
 
             stats = self.processor.stats
+            # Recorded before the dialog: the batch report must not depend on a
+            # Tk dialog succeeding, and the note is the durable half of this.
+            self._record_run_note(stats)
 
             summary = (
                 f"\nScan Complete!\n\n"
@@ -294,6 +308,36 @@ Rules:
 
         except Exception as exc:
             logger.error("Error in finish_scanning: %s", exc, exc_info=True)
+
+    def _record_run_note(self, stats: ProcessingStats) -> None:
+        """Record the files this scan skipped or could not update.
+
+        The completion dialog and the run log carry the same counts; this is
+        the one-line version the Master Driver reads after the window closes.
+        A clean scan records nothing, which clears any earlier note.
+
+        Args:
+            stats: The finished scan's accumulated statistics.
+        """
+        record_caveats(
+            DRIVER_TOOL_ID,
+            shortfall(
+                stats.error_files,
+                stats.total_files,
+                "file",
+                "could not be updated",
+            )
+            if stats.error_files
+            else "",
+            shortfall(
+                stats.skipped_files,
+                stats.total_files,
+                "file",
+                "were skipped (unsupported format or no readable tags)",
+            )
+            if stats.skipped_files
+            else "",
+        )
 
     def run(self) -> None:
         """Enter the Tkinter main event loop."""

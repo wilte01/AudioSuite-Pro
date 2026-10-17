@@ -2,6 +2,9 @@
 Tests for bpm_analyzer.app — BPMAnalyzerApp CLI mirroring and wiring.
 
 Uses the object.__new__ + MagicMock shell pattern (no real display).
+
+Changed in 1.2.0: covers the run note the batch report shows when tracks
+produced no BPM.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS, is_supported_format
+from audio_suite_shared.run_outcome import read_outcome
 
 
 def _make_shell_app():
@@ -404,3 +408,82 @@ class TestPreflightAudioDetectionRegression:
                     f"{ext} is in SUPPORTED_EXTENSIONS but was not detected "
                     "by the pre-flight check"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Run note: the batch report's BPM step says which tracks produced no BPM,
+# instead of leaving that only in the tool's own log.
+# ---------------------------------------------------------------------------
+
+
+def _make_run_note_app(log_path):
+    """Shell with only what the completion path touches."""
+    from bpm_analyzer.app import BPMAnalyzerApp
+
+    app = object.__new__(BPMAnalyzerApp)
+    app.root = MagicMock()
+    app._log_path = str(log_path)
+    return app
+
+
+def _complete(app, *, total, errors=0) -> None:
+    """Drive the completion callback the analysis actually hands over."""
+    app._on_complete(
+        header=["BPM ANALYSIS REPORT\n"],
+        total=total,
+        processed=total,
+        skipped=0,
+        errors=errors,
+        duration_secs=1.0,
+        log_entries=["line\n"],
+    )
+
+
+class TestRunNote:
+    """``_on_complete`` records the tracks whose detection failed."""
+
+    def test_failed_detections_are_reported(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "bpm_log.txt")
+
+        _complete(app, total=12, errors=3)
+
+        assert read_outcome("bpm") == "3 of 12 tracks yielded no BPM"
+
+    def test_a_clean_run_reports_nothing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "bpm_log.txt")
+
+        _complete(app, total=12)
+
+        assert read_outcome("bpm") == ""
+
+    def test_a_later_clean_run_clears_an_earlier_note(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "bpm_log.txt")
+        _complete(app, total=12, errors=1)
+        assert read_outcome("bpm") == "1 of 12 tracks yielded no BPM"
+
+        _complete(app, total=12)
+
+        assert read_outcome("bpm") == ""
+
+    def test_the_note_lands_under_the_manifest_id(self, tmp_path, monkeypatch):
+        """The window key is not the key the driver reads back."""
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "bpm_log.txt")
+
+        _complete(app, total=4, errors=1)
+
+        assert read_outcome("bpm") == "1 of 4 tracks yielded no BPM"
+        assert read_outcome("bpm_analyzer") == ""
+
+    def test_an_unwritable_log_does_not_suppress_the_note(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        # A directory where the report belongs: the base catches the OSError,
+        # and the note must already be on disk before that write is attempted.
+        app = _make_run_note_app(tmp_path)
+
+        _complete(app, total=12, errors=2)
+
+        assert read_outcome("bpm") == "2 of 12 tracks yielded no BPM"

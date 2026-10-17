@@ -3,6 +3,9 @@
 Changed in 1.2.0: adds ``--musicbrainz`` and ``--write-isrc`` with their
 dependency guards (Sprint 2 Item 2.1), and ``--submit-isrc`` with its
 authentication guards (Sprint 2 Item 2.3).
+Changed in 1.2.0: reports the submission through
+:func:`~audio_fingerprinter.core.models.isrc_submission_note`, the same lines
+the Results tab and the Master Driver batch report show.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from audio_suite_shared.cli_base import (
     cli,
 )
 
-from .core.models import FingerprintParams
+from .core.models import FingerprintParams, isrc_submission_note
 
 
 @cli.command()
@@ -260,12 +263,7 @@ def fingerprint(
             # a live run would post, unprefixed so it can be captured as-is.
             click.echo(submission.get("xml", ""))
         elif submission:
-            click.echo(
-                f"  ISRC submission: {submission.get('status', 'unknown')} "
-                f"({submission.get('isrcs', 0)} ISRC(s), "
-                f"{submission.get('recordings', 0)} recording(s))",
-                err=True,
-            )
+            click.echo(f"  {isrc_submission_note(submission)}", err=True)
             if submission.get("reason"):
                 click.echo(f"  {submission['reason']}", err=True)
         click.echo(

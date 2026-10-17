@@ -7,6 +7,9 @@ The scheme-change chain lives here because it touches three layers:
   1. Update self._active_markings  (core)
   2. Save preference to config     (utils)
   3. Redraw reference table        (ui — via injected callable)
+
+Changed in 1.2.0: records tracks with no BPM tag to derive a marking from as
+a run note, so a batch report says so instead of only the tool's own log.
 """
 
 import logging
@@ -27,6 +30,7 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
+from audio_suite_shared.run_outcome import record_caveats, shortfall
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 from audio_suite_shared.ui_helpers import UIHelperMixin
 
@@ -37,6 +41,10 @@ from .utils import cli_args
 
 logger = logging.getLogger(__name__)
 TOOL_ID = "tempo_analyzer"
+
+#: The Master Driver keys this tool's batch step — and therefore its run note
+#: — by the manifest id, which is shorter than the window key above.
+DRIVER_TOOL_ID = "tempo"
 
 
 class TempoAnalyzerApp(UIHelperMixin):
@@ -387,6 +395,8 @@ class TempoAnalyzerApp(UIHelperMixin):
     ) -> None:
         """Called on background thread — file I/O here, then schedule UI on
         main thread."""
+        self._record_run_note(total=total, skipped=skipped, errors=errors)
+
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)
         analysed = processed - skipped - errors
@@ -430,6 +440,28 @@ class TempoAnalyzerApp(UIHelperMixin):
                     "Could not rewrite log after auto-end: %s", _exc, exc_info=True
                 )
             self.root.after(2000, self.root.destroy)
+
+    def _record_run_note(self, *, total: int, skipped: int, errors: int) -> None:
+        """Record the tracks this run could not derive a tempo marking for.
+
+        A track is skipped when it carries no BPM tag (or no tag block at all),
+        so the marking the run exists to compute has nothing to be derived
+        from.  A clean run records nothing, which clears any earlier note.
+
+        Args:
+            total: Files the run attempted.
+            skipped: Files with no BPM tag to derive a marking from.
+            errors: Files whose tags could not be read or written.
+        """
+        record_caveats(
+            DRIVER_TOOL_ID,
+            shortfall(skipped, total, "track", "had no BPM tag to derive a tempo from")
+            if skipped
+            else "",
+            shortfall(errors, total, "track", "could not be analyzed")
+            if errors
+            else "",
+        )
 
     def _update_ui_on_complete(
         self,

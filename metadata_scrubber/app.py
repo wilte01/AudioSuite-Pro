@@ -7,6 +7,10 @@ Tag preference persistence:
     so previously-kept tags are auto-ticked.
   - On completion of a LIVE run: save the ticked set back to tag_prefs.json
     (rolling 'last used' preference; dry runs don't update prefs).
+
+Changed in 1.2.0: records the files a run could not scrub (and any it skipped)
+from the completion counts as the run's note, so a Master Driver batch reports
+them on the Metadata Scrubber step instead of only in the run log.
 """
 
 import logging
@@ -24,6 +28,7 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
+from audio_suite_shared.run_outcome import record_caveats, shortfall
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 
 from .core import scrubber, tag_scanner
@@ -34,6 +39,11 @@ logger = logging.getLogger(__name__)
 
 _PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 TOOL_ID = "metadata_scrubber"
+
+#: Manifest id the Master Driver keys this tool's batch step by; a note
+#: recorded under any other key is never read.  Locked to the manifest by
+#: ``tests/test_run_outcome_contract.py``.
+DRIVER_TOOL_ID = "scrubber"
 
 
 class MetadataScrubberApp(BaseSuiteApp):
@@ -381,6 +391,7 @@ class MetadataScrubberApp(BaseSuiteApp):
         )
         self.notebook.select(self._tab_results)
         self.start_btn.config(state="normal")
+        self._record_run_note(total=total, skipped=skipped, errors=errors)
 
         if self.auto_end:
             all_entries.append("\n[Auto End enabled - closing in 2 seconds...]\n")
@@ -393,3 +404,21 @@ class MetadataScrubberApp(BaseSuiteApp):
                 )
             self.root.update_idletasks()
             self.root.after(2000, self.root.destroy)
+
+    def _record_run_note(self, *, total: int, skipped: int, errors: int) -> None:
+        """Record the files this run did not manage to scrub.
+
+        The Results tab shows the same two counts; this is the one-line version
+        the Master Driver reads after the window closes.  A run that scrubbed
+        every file records nothing, which clears any earlier note.
+
+        Args:
+            total: Files the run attempted.
+            skipped: Files it deliberately left alone.
+            errors: Files it could not process.
+        """
+        record_caveats(
+            DRIVER_TOOL_ID,
+            shortfall(errors, total, "file", "could not be scrubbed") if errors else "",
+            shortfall(skipped, total, "file", "were skipped") if skipped else "",
+        )

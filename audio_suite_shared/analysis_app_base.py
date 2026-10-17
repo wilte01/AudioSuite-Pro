@@ -16,6 +16,10 @@ own ``ui`` tab modules and CLI-argument module, and overrides
 The one thing a subclass cannot inherit is the ``handle_audio_errors`` context
 string on ``_run``: the decorator bakes its argument in at definition time, so
 each tool keeps its own two-line ``_run`` that delegates to ``_run_batch``.
+
+Changed in 1.2.0: adds the ``_record_run_note`` hook, called from the shared
+completion path, so a tool can tell the Master Driver what a finished run could
+not produce without reimplementing ``_on_complete``.
 """
 
 from __future__ import annotations
@@ -361,6 +365,22 @@ class AnalysisAppBase(UIHelperMixin):
             f"{type(self).__name__} must implement _run_analysis()"
         )
 
+    def _record_run_note(self, *, total: int, skipped: int, errors: int) -> None:
+        """Hook: record this run's caveats for the Master Driver's report.
+
+        Default: nothing to report.  A tool whose run can finish successfully
+        while still leaving work undone overrides this — e.g. Mood Analyzer's
+        undecodable or silent files.  Called from the shared ``_on_complete``
+        before the report is written and the Results update is scheduled, so
+        neither can suppress the note the driver reads.
+
+        Args:
+            total: Files the run attempted.
+            skipped: Files the run deliberately left alone.
+            errors: Files it could not process.
+        """
+        del total, skipped, errors
+
     def _run_batch(self) -> None:
         """Set up the run, then hand off to this tool's analysis.
 
@@ -441,6 +461,8 @@ class AnalysisAppBase(UIHelperMixin):
     ) -> None:
         """Called on background thread - file I/O here, then schedule UI on
         main thread."""
+        self._record_run_note(total=total, skipped=skipped, errors=errors)
+
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)
         analysed = processed - skipped - errors

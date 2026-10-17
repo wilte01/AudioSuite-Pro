@@ -15,6 +15,8 @@ into ``sys.modules`` and silently change
 fail while its launcher-stub contract is exercised. Keep it lazy.
 
 Changed in 1.0.1: adds the Dry Run checkbox coverage.
+Changed in 1.2.0: covers the run note a finished scan leaves for the Master
+Driver batch report (the files it skipped and the ones it could not update).
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from audio_suite_shared.run_outcome import read_outcome
 from tag_field_updater.core.processor import ProcessingStats, TagProcessor
 
 
@@ -375,6 +378,69 @@ class TestFinishScanning:
             r.levelno == logging.ERROR and "finish_scanning" in r.getMessage()
             for r in caplog.records
         )
+
+
+class TestRunNote:
+    """A finished scan leaves its skipped and failed files where a batch sees them."""
+
+    @staticmethod
+    def _app(stubbed_dialogs, stats: ProcessingStats) -> Any:
+        app = _make_shell_app()
+        app.processor = MagicMock()
+        app.processor.stats = stats
+        return app
+
+    def test_skipped_and_failed_files_are_reported(
+        self, stubbed_dialogs, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = self._app(
+            stubbed_dialogs,
+            ProcessingStats(
+                total_files=10,
+                processed_files=10,
+                updated_files=6,
+                skipped_files=2,
+                error_files=2,
+            ),
+        )
+
+        app.finish_scanning()
+
+        assert read_outcome("tag_field_updater") == (
+            "2 of 10 files could not be updated; 2 of 10 files were skipped "
+            "(unsupported format or no readable tags)"
+        )
+
+    def test_a_clean_scan_reports_nothing(
+        self, stubbed_dialogs, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = self._app(
+            stubbed_dialogs,
+            ProcessingStats(total_files=5, processed_files=5, updated_files=5),
+        )
+
+        app.finish_scanning()
+
+        assert read_outcome("tag_field_updater") == ""
+
+    def test_a_later_clean_scan_clears_an_earlier_note(
+        self, stubbed_dialogs, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        self._app(
+            stubbed_dialogs,
+            ProcessingStats(total_files=5, processed_files=5, error_files=1),
+        ).finish_scanning()
+        assert read_outcome("tag_field_updater") == "1 of 5 files could not be updated"
+
+        self._app(
+            stubbed_dialogs,
+            ProcessingStats(total_files=5, processed_files=5, updated_files=5),
+        ).finish_scanning()
+
+        assert read_outcome("tag_field_updater") == ""
 
 
 class TestRunAndMain:

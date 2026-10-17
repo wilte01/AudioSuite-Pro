@@ -2,6 +2,9 @@
 app.py
 BPMAnalyzerApp — thin orchestrator that wires UI, core logic, and utilities together.
 Contains no business logic itself; it only coordinates.
+
+Changed in 1.2.0: records tracks that yielded no BPM as a run note, so a
+batch report says so instead of only the tool's own log.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
+from audio_suite_shared.run_outcome import record_caveats, shortfall
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 from audio_suite_shared.tool_app_base import AnalysisTagToolApp
 
@@ -37,6 +41,10 @@ from .utils import cli_args
 logger = logging.getLogger(__name__)
 
 TOOL_ID = "bpm_analyzer"
+
+#: The Master Driver keys this tool's batch step — and therefore its run note
+#: — by the manifest id, which is shorter than the window key above.
+DRIVER_TOOL_ID = "bpm"
 
 
 class BPMAnalyzerApp(AnalysisTagToolApp):
@@ -391,6 +399,51 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
                 parallel_mode=parallel_mode,
                 max_workers=max_workers,
             )
+
+    # ── Completion ────────────────────────────────────────────────────────────
+
+    def _on_complete(
+        self,
+        header: list[str],
+        total: int,
+        processed: int,
+        skipped: int,
+        errors: int,
+        duration_secs: float,
+        log_entries: list[str],
+    ) -> None:
+        """Record what the run could not analyse, then finish as usual.
+
+        Runs on the worker thread before the shared base writes the report and
+        schedules the Results update, so neither a damaged Tk nor an unwritable
+        log can suppress the note the Master Driver reads.
+        """
+        self._record_run_note(total=total, errors=errors)
+        super()._on_complete(
+            header=header,
+            total=total,
+            processed=processed,
+            skipped=skipped,
+            errors=errors,
+            duration_secs=duration_secs,
+            log_entries=log_entries,
+        )
+
+    def _record_run_note(self, *, total: int, errors: int) -> None:
+        """Record the tracks this run could not give a BPM to.
+
+        BPM detection either returns a value or raises, so every file the run
+        cannot analyse is already counted as an error; there is no separate
+        skip path.  A clean run records nothing, which clears any earlier note.
+
+        Args:
+            total: Files the run attempted.
+            errors: Files whose BPM detection failed.
+        """
+        record_caveats(
+            DRIVER_TOOL_ID,
+            shortfall(errors, total, "track", "yielded no BPM") if errors else "",
+        )
 
     # ── Presets ───────────────────────────────────────────────────────────────
 

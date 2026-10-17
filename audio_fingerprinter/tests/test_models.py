@@ -2,7 +2,12 @@
 
 Changed in 1.2.0: covers the ``recording_id`` result field and the
 ``submit_isrc`` runtime flag (Sprint 2 Item 2.3).
+Changed in 1.2.0: covers :func:`isrc_submission_note` /
+:func:`isrc_submission_problem`, the one wording the CLI, the Results tab and
+the Master Driver batch report share.
 """
+
+import pytest
 
 from audio_fingerprinter.core.models import (
     AcoustidRecording,
@@ -13,6 +18,8 @@ from audio_fingerprinter.core.models import (
     LookupResult,
     Release,
     ReleaseGroup,
+    isrc_submission_note,
+    isrc_submission_problem,
     status_text,
 )
 
@@ -276,3 +283,35 @@ class TestFingerprintFileResult:
         assert (
             matched.to_dict()["recording_id"] == "b0f1c1c8-3a4d-4c1b-9d1e-1a2b3c4d5e6f"
         )
+
+
+class TestIsrcSubmissionNote:
+    """The submission's display wording, shared by every reporting surface."""
+
+    def test_note_names_the_status_and_the_work(self):
+        note = isrc_submission_note({"status": "rejected", "isrcs": 2, "recordings": 1})
+
+        assert note == "ISRC submission: rejected (2 ISRC(s), 1 recording(s))"
+
+    def test_note_tolerates_a_partial_record(self):
+        # A payload assembled before the attempt (no counts yet) must still
+        # render a usable line rather than "None ISRC(s)".
+        assert isrc_submission_note({}) == (
+            "ISRC submission: unknown (0 ISRC(s), 0 recording(s))"
+        )
+
+    @pytest.mark.parametrize("status", ["ok", "preview", "nothing to submit"])
+    def test_expected_outcomes_need_no_attention(self, status: str):
+        assert isrc_submission_problem({"status": status}) is False
+
+    @pytest.mark.parametrize(
+        "status",
+        ["rejected", "not authorised", "offline", "no auth", "not attempted"],
+    )
+    def test_refusals_need_attention(self, status: str):
+        assert isrc_submission_problem({"status": status}) is True
+
+    def test_absent_status_is_a_problem(self):
+        # A record without a status describes no submission at all, which the
+        # user must be told about rather than shown as success.
+        assert isrc_submission_problem({}) is True

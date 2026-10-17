@@ -7,11 +7,26 @@ payload the command prints (Sprint 2 Item 2.3).
 
 from __future__ import annotations
 
+import hashlib
+import json
+import wave
+from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs
 
-from click.testing import CliRunner
+import pytest
+import requests
+from click.testing import CliRunner, Result
+from mutagen.id3 import TSRC
+from mutagen.wave import WAVE
 
 from audio_fingerprinter.cli import fingerprint
+from audio_fingerprinter.core.musicbrainz_client import (
+    ISRCSubmission,
+    build_isrc_submission_xml,
+)
+from audio_suite_shared.tag_helper_reader import read_isrcs
 
 
 class TestFingerprintCommand:
@@ -386,3 +401,362 @@ class TestSubmitIsrcFlags:
         assert result.exit_code == 0
         assert '"isrc_submission"' in result.output
         assert '"status": "ok"' in result.output
+
+
+class _StubHTTP:
+    """Answer the run's HTTP from fixtures and record every request.
+
+    Installed as ``HTTPAdapter.send``, the transport both the AcoustID and the
+    MusicBrainz client reach through their own sessions, so nothing about the
+    application's request building is stubbed and no socket is opened.
+    """
+
+    def __init__(
+        self,
+        recording_id: str,
+        artist_id: str,
+        release_group_id: str,
+        *,
+        post_status: int = 200,
+        post_error: requests.RequestException | None = None,
+    ) -> None:
+        self.recording_id = recording_id
+        self.artist_id = artist_id
+        self.release_group_id = release_group_id
+        self.post_status = post_status
+        self.post_error = post_error
+        self.requests: list[requests.PreparedRequest] = []
+
+    def handle(self, request: requests.PreparedRequest) -> requests.Response:
+        """Record the request and answer it, failing the POST when asked to."""
+        self.requests.append(request)
+        if request.method == "POST" and "musicbrainz.org" in str(request.url):
+            if self.post_error is not None:
+                raise self.post_error
+            return self._response(
+                request, {"message": "submission outcome"}, status_code=self.post_status
+            )
+        return self._response(request, self._payload_for(request))
+
+    def posts_to_musicbrainz(self) -> list[requests.PreparedRequest]:
+        """Every request aimed at writing to MusicBrainz, if any."""
+        return [
+            request
+            for request in self.requests
+            if request.method == "POST" and "musicbrainz.org" in str(request.url)
+        ]
+
+    def musicbrainz_lookups(self) -> list[requests.PreparedRequest]:
+        """Every read issued against the MusicBrainz web service."""
+        return [
+            request
+            for request in self.requests
+            if request.method == "GET" and "musicbrainz.org/ws/2/" in str(request.url)
+        ]
+
+    def _payload_for(self, request: requests.PreparedRequest) -> dict[str, Any]:
+        """Return the JSON body the live service would answer with."""
+        if "acoustid.org" in str(request.url):
+            # Echo the duration the client sent: the candidate must be
+            # duration-consistent, and only the request knows the file's.
+            body = request.body if isinstance(request.body, str) else ""
+            duration = int(parse_qs(body).get("duration", ["0"])[0] or 0)
+            return {
+                "status": "ok",
+                "results": [
+                    {
+                        "id": "a1b2c3d4",
+                        "score": 0.97,
+                        "recordings": [
+                            {
+                                "id": self.recording_id,
+                                "title": "Track One",
+                                "duration": duration,
+                                "artists": [
+                                    {
+                                        "id": self.artist_id,
+                                        "name": "The Testers",
+                                        "joinphrase": "",
+                                    }
+                                ],
+                                "releasegroups": [
+                                    {
+                                        "id": self.release_group_id,
+                                        "type": "Album",
+                                        "title": "Test Album",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        # The MusicBrainz recording lookup: no ISRCs registered yet, which is
+        # the only state in which the file's own code is worth submitting.
+        return {
+            "id": self.recording_id,
+            "title": "Track One",
+            "isrcs": [],
+            "artist-credit": [
+                {
+                    "name": "The Testers",
+                    "artist": {"id": self.artist_id, "name": "The Testers"},
+                    "joinphrase": "",
+                }
+            ],
+            "releases": [],
+        }
+
+    @staticmethod
+    def _response(
+        request: requests.PreparedRequest,
+        payload: dict[str, Any],
+        *,
+        status_code: int = 200,
+    ) -> requests.Response:
+        """Wrap a fixture payload in the requests object the clients parse."""
+        response = requests.Response()
+        response.status_code = status_code
+        response.headers["Content-Type"] = "application/json"
+        response._content = json.dumps(payload).encode("utf-8")
+        response.url = str(request.url)
+        response.request = request
+        response.encoding = "utf-8"
+        return response
+
+
+RECORDING_ID = "8f3471b5-7e6a-48da-86a9-c1c07a0f47ae"
+ARTIST_ID = "c5a7f9d2-1b3e-4a6f-9c8d-2e5b7a4c1d3f"
+RELEASE_GROUP_ID = "2f1d6c88-9a4b-4f6e-8d21-0b7c3e5a9d41"
+ISRC = "GBAYE0601498"
+
+
+def _stub_http(
+    *,
+    post_status: int = 200,
+    post_error: requests.RequestException | None = None,
+) -> _StubHTTP:
+    """A transport answering the happy-path fixtures, with POST knobs."""
+    return _StubHTTP(
+        RECORDING_ID,
+        ARTIST_ID,
+        RELEASE_GROUP_ID,
+        post_status=post_status,
+        post_error=post_error,
+    )
+
+
+def _tagged_wav(folder: Path, isrc: str = ISRC) -> Path:
+    """Write a short WAV whose ID3 tags carry the ISRC a rip would."""
+    path = folder / "track one.wav"
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(44100)
+        handle.writeframes(b"\x00\x00" * 44100 * 3)
+    audio = WAVE(str(path))
+    audio.add_tags()
+    assert audio.tags is not None
+    audio.tags.add(TSRC(encoding=3, text=[isrc]))
+    audio.save()
+    return path
+
+
+def _invoke_fingerprint(
+    folder: Path,
+    stub: _StubHTTP,
+    *,
+    live: bool = False,
+    token: str = "",
+) -> tuple[Result, _StubHTTP]:
+    """Run the real command with only the transport and token store stubbed."""
+    fpcalc = Path(__file__).resolve().parents[2] / "fpcalc.exe"
+    assert fpcalc.is_file(), "the shipped fpcalc.exe is what makes this run"
+
+    def send(
+        adapter: requests.adapters.BaseAdapter,
+        request: requests.PreparedRequest,
+        **kwargs: Any,
+    ) -> requests.Response:
+        """Stand in for ``HTTPAdapter.send``; the adapter itself is unused."""
+        return stub.handle(request)
+
+    with (
+        patch.object(requests.adapters.HTTPAdapter, "send", send),
+        patch(
+            "audio_fingerprinter.utils.musicbrainz_token.load_token",
+            return_value=token,
+        ),
+        patch("audio_fingerprinter.cli.active_batch"),
+    ):
+        result = CliRunner().invoke(
+            fingerprint,
+            [
+                str(folder),
+                "--live" if live else "--dry",
+                "--musicbrainz",
+                "--submit-isrc",
+                "--api-key",
+                "stub-key",
+                "--fpcalc",
+                str(fpcalc),
+            ],
+        )
+    return result, stub
+
+
+class TestSubmitIsrcDryRunThroughTheCli:
+    """The dry-run preview driven through the command users actually run.
+
+    Only the transport is stubbed: the file is a real tagged WAV, fpcalc really
+    fingerprints it, and the real AcoustID/MusicBrainz clients build the
+    request.  The printed XML therefore derives from the file's own tag, and a
+    dry run must leave MusicBrainz untouched.
+    """
+
+    def test_previews_the_payload_from_the_files_own_tag(self, tmp_path: Path) -> None:
+        folder = tmp_path / "album"
+        folder.mkdir()
+        _tagged_wav(folder)
+
+        result, stub = _invoke_fingerprint(folder, _stub_http())
+
+        assert result.exit_code == 0, result.output
+        # The code came from the file's TSRC tag and the recording from the
+        # AcoustID match, not from anything the test handed the command.
+        assert f'<isrc id="{ISRC}"/>' in result.output
+        assert f'recording id="{RECORDING_ID}"' in result.output
+        expected = build_isrc_submission_xml(
+            [ISRCSubmission(recording_id=RECORDING_ID, isrcs=(ISRC,))]
+        )
+        assert expected in result.output
+        assert "1 ISRC(s) for 1 recording(s)" in result.output
+        # The enrichment really happened, so the "nothing new" filter ran.
+        assert stub.musicbrainz_lookups(), "no MusicBrainz recording lookup was made"
+
+    def test_dry_run_never_posts_to_musicbrainz(self, tmp_path: Path) -> None:
+        folder = tmp_path / "album"
+        folder.mkdir()
+        _tagged_wav(folder)
+
+        result, stub = _invoke_fingerprint(folder, _stub_http())
+
+        assert result.exit_code == 0, result.output
+        # There was something to send and it was previewed, so the absence of
+        # a POST below is a decision, not an empty payload.
+        assert f'<isrc id="{ISRC}"/>' in result.output
+        assert stub.posts_to_musicbrainz() == []
+        assert len([r for r in stub.requests if "acoustid.org" in str(r.url)]) == 1
+
+    def test_the_wav_tag_survives_the_run(self, tmp_path: Path) -> None:
+        folder = tmp_path / "album"
+        folder.mkdir()
+        path = _tagged_wav(folder)
+
+        result, _stub = _invoke_fingerprint(folder, _stub_http())
+
+        assert result.exit_code == 0, result.output
+        # A dry run must not write tags either; the ISRC is the input here, so
+        # it must still be the file's only ISRC and no AcoustID tag may appear.
+        assert read_isrcs(str(path)) == (ISRC,)
+        tags = WAVE(str(path)).tags
+        assert tags is not None
+        assert not [frame for frame in tags.keys() if "AcoustID" in frame]
+
+    def test_live_posts_exactly_the_previewed_bytes(self, tmp_path: Path) -> None:
+        """The claim the preview makes, checked where it matters: the wire."""
+        folder = tmp_path / "album"
+        folder.mkdir()
+        _tagged_wav(folder)
+
+        dry_result, _dry_stub = _invoke_fingerprint(folder, _stub_http())
+        live_result, live_stub = _invoke_fingerprint(
+            folder, _stub_http(), live=True, token="tok-1"
+        )
+
+        assert dry_result.exit_code == 0, dry_result.output
+        assert live_result.exit_code == 0, live_result.output
+        posts = live_stub.posts_to_musicbrainz()
+        assert len(posts) == 1
+        body = posts[0].body
+        assert isinstance(body, bytes)
+        # Byte for byte: what the dry run printed is what the POST carried.
+        assert body.decode("utf-8") in dry_result.output
+        assert posts[0].headers["Authorization"] == "Bearer tok-1"
+        assert posts[0].headers["Content-Type"].startswith("application/xml")
+        assert "/ws/2/recording/?client=" in str(posts[0].url)
+        assert "ISRC submission: ok" in live_result.output
+
+
+class TestSubmitIsrcFailuresThroughTheCli:
+    """A live submission the service refuses, through the real command.
+
+    Only the transport is stubbed; the payload, the credentials and the file
+    are real.  These runs ask for no tag writes, so a refused submission must
+    report its status and reason and leave every byte of the file alone.
+    """
+
+    def _run(self, tmp_path: Path, stub: _StubHTTP) -> tuple[Result, Path, str]:
+        """Fingerprint one tagged WAV live, digesting the file first."""
+        folder = tmp_path / "album"
+        folder.mkdir()
+        path = _tagged_wav(folder)
+        before = hashlib.sha256(path.read_bytes()).hexdigest()
+        result, _ = _invoke_fingerprint(folder, stub, live=True, token="tok-1")
+        return result, path, before
+
+    @staticmethod
+    def _assert_untouched(path: Path, before: str) -> None:
+        """A refused submission must not rewrite the file it read."""
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+        assert read_isrcs(str(path)) == (ISRC,)
+        tags = WAVE(str(path)).tags
+        assert tags is not None
+        assert not [frame for frame in tags.keys() if "AcoustID" in frame]
+
+    def test_rejected_submission_reports_the_invalid_payload(
+        self, tmp_path: Path
+    ) -> None:
+        stub = _stub_http(post_status=400)
+
+        result, path, before = self._run(tmp_path, stub)
+
+        assert result.exit_code == 0, result.output
+        assert "ISRC submission: rejected" in result.output
+        assert "HTTP 400" in result.output
+        assert "check the ISRCs and recording ids" in result.output
+        # One attempt only: a rejected payload must not be retried.
+        assert len(stub.posts_to_musicbrainz()) == 1
+        assert "Summary: 1 files" in result.output
+        self._assert_untouched(path, before)
+
+    @pytest.mark.parametrize("status_code", [401, 403])
+    def test_unauthorised_submission_names_the_scope(
+        self, tmp_path: Path, status_code: int
+    ) -> None:
+        stub = _stub_http(post_status=status_code)
+
+        result, path, before = self._run(tmp_path, stub)
+
+        assert result.exit_code == 0, result.output
+        assert "ISRC submission: not authorised" in result.output
+        assert f"HTTP {status_code}" in result.output
+        assert "submit_isrc scope" in result.output
+        assert len(stub.posts_to_musicbrainz()) == 1
+        self._assert_untouched(path, before)
+
+    def test_offline_submission_reports_the_network_error(self, tmp_path: Path) -> None:
+        stub = _stub_http(
+            post_error=requests.ConnectionError("connection reset by peer")
+        )
+
+        result, path, before = self._run(tmp_path, stub)
+
+        assert result.exit_code == 0, result.output
+        assert "ISRC submission: offline" in result.output
+        assert "Network error submitting to MusicBrainz" in result.output
+        assert "connection reset by peer" in result.output
+        # The transport failed once; it must not be hammered on the way out.
+        assert len(stub.posts_to_musicbrainz()) == 1
+        assert "Summary: 1 files" in result.output
+        self._assert_untouched(path, before)

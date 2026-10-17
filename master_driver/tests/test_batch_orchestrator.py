@@ -6,15 +6,20 @@ execution with controlled durations and exit codes.
 
 Changed in 1.0.1: adds a regression asserting a missing script fails the
 step immediately (no retries) instead of being retried as a generic OSError.
+Changed in 1.2.0: adds the step-note tests: a caveat the tool records during
+its run reaches ``BatchStep.note`` / ``BatchProgress.notes``, a stale note from
+an earlier batch does not, and a failed step reports none.
 """
 
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
+from audio_suite_shared.run_outcome import record_outcome
 from audio_suite_shared.tool_plugin import ToolManifest
 from master_driver.batch_orchestrator import (
     DEPENDENCY_GRAPH,
@@ -925,3 +930,94 @@ class TestCollectDeps:
         collected: set[str] = set()
         with pytest.raises(ValueError, match="Circular dependency"):
             _collect_deps("A", collected, ["A", "B"])
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Per-step notes (a tool's caveat, e.g. a rejected ISRC submission)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestStepNotes:
+    """The batch report's note channel, end to end against the real store."""
+
+    @pytest.fixture(autouse=True)
+    def _notes_dir(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+        """Keep every note this class writes in a scratch log directory."""
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        return tmp_path
+
+    def test_note_recorded_during_the_run_reaches_the_step(self):
+        """A tool that records a caveat gets it into the report, unchanged."""
+
+        def _run_then_record(*_args, **_kwargs):
+            record_outcome("fingerprinter", "ISRC submission: rejected (1 ISRC(s))")
+            return _mock_result(0)
+
+        step = _make_step("fingerprinter", standalone=True)
+        callbacks: list[BatchProgress] = []
+        orch = BatchOrchestrator([step])
+        with patch(
+            "master_driver.batch_orchestrator._launch_standalone",
+            side_effect=lambda *a, **k: bool(_run_then_record()),
+        ):
+            orch.run(progress_callback=callbacks.append)
+
+        assert step.status == StepStatus.COMPLETED
+        assert step.note == "ISRC submission: rejected (1 ISRC(s))"
+        assert callbacks[-1].notes == {
+            "fingerprinter": "ISRC submission: rejected (1 ISRC(s))"
+        }
+
+    def test_stale_note_from_an_earlier_batch_is_not_reported(self):
+        """A note left by a previous run must not be attributed to this one."""
+        record_outcome("bpm", "ISRC submission: rejected")
+
+        step = _make_step("bpm")
+        callbacks: list[BatchProgress] = []
+        orch = BatchOrchestrator([step])
+        with patch(
+            "master_driver.batch_orchestrator.run_python_script",
+            return_value=_mock_result(0),
+        ):
+            orch.run(progress_callback=callbacks.append)
+
+        assert step.status == StepStatus.COMPLETED
+        assert step.note == ""
+        assert callbacks[-1].notes == {}
+
+    def test_failed_step_reports_no_note(self):
+        """A run that did not finish must not be described by a caveat."""
+
+        def _record_then_fail(*_args, **_kwargs):
+            record_outcome("bpm", "ISRC submission: offline")
+            return _mock_result(1)
+
+        step = _make_step("bpm")
+        callbacks: list[BatchProgress] = []
+        orch = BatchOrchestrator([step])
+        with patch(
+            "master_driver.batch_orchestrator.run_python_script",
+            side_effect=_record_then_fail,
+        ):
+            orch.run(progress_callback=callbacks.append)
+
+        assert step.status == StepStatus.FAILED
+        assert step.note == ""
+        assert callbacks[-1].notes == {}
+
+    def test_note_does_not_change_the_step_count(self):
+        """A caveat is not a failure: completed steps stay completed."""
+
+        def _record(*_args, **_kwargs):
+            record_outcome("fingerprinter", "ISRC submission: not authorised")
+            return _mock_result(0)
+
+        orch = BatchOrchestrator([_make_step("fingerprinter", standalone=True)])
+        with patch(
+            "master_driver.batch_orchestrator._launch_standalone",
+            side_effect=lambda *a, **k: bool(_record()),
+        ):
+            report = orch.run()
+
+        assert report.completed == 1
+        assert report.failed == 0

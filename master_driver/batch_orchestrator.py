@@ -8,6 +8,10 @@ orchestrator that emits progress callbacks for live UI updates.
 Changed in 1.0.1: a step whose script is missing (FileNotFoundError) now
 fails immediately with a "Script not found" warning instead of being
 retried as a generic OSError and logged as "failed after retries".
+Changed in 1.2.0: carries a per-step ``note`` from
+:mod:`audio_suite_shared.run_outcome` into ``BatchProgress``, so a step that
+completed with a caveat (e.g. a rejected ISRC submission) says so in the batch
+report.  The note never changes the step's status.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from enum import Enum
 
 from audio_suite_shared.error_recovery import RetryConfig, retry_with_backoff
 from audio_suite_shared.exceptions import map_to_audio_error, user_message_for
+from audio_suite_shared.run_outcome import clear_outcome, read_outcome
 from audio_suite_shared.secure_subprocess import (
     SubprocessSecurityError,
     run_python_script,
@@ -66,6 +71,12 @@ class BatchStep:
     exit_code: int | None = None
     log_output: str = ""
     retry_count: int = 0
+    note: str = ""
+    """One-line caveat the tool recorded for this run (empty when none).
+
+    Read from :mod:`audio_suite_shared.run_outcome` after a successful step;
+    informational only, so it is never counted as a failure.
+    """
 
     @property
     def duration(self) -> float | None:
@@ -107,6 +118,9 @@ class BatchProgress:
     pending_steps: list[str]
     steps: list[tuple[str, str, str]] = field(default_factory=list)
     """Per-step status list: [(tool_id, name, status_str), ...]"""
+
+    notes: dict[str, str] = field(default_factory=dict)
+    """tool_id to the caveat that step recorded, for steps that recorded one."""
 
 
 @dataclass(frozen=True)
@@ -468,6 +482,14 @@ class BatchOrchestrator:
         so it is not retried.
         """
 
+        # A note from an earlier batch must never be shown against this run, so
+        # it is cleared before the tool can possibly write a new one.  A tool
+        # that records no note therefore reports none.
+        try:
+            clear_outcome(step.tool_id)
+        except ValueError:
+            logger.warning("Unusable tool id for a run note: %r", step.tool_id)
+
         def _run() -> bool:
             if step.manifest.standalone:
                 return self._launch_standalone(step)
@@ -516,10 +538,16 @@ class BatchOrchestrator:
                 retry_cfg,
                 operation_id=step.tool_id,
             )
-            return bool(result)
+            success = bool(result)
         except Exception:
             logger.exception("Step %s failed after retries", step.tool_id)
-            return False
+            success = False
+
+        # Only a completed step reports its caveat: a failed step already shows
+        # as FAILED, and pairing it with a note about a run that did not finish
+        # would describe work this batch never did.
+        step.note = read_outcome(step.tool_id) if success else ""
+        return success
 
     def _launch_standalone(self, step: BatchStep) -> bool:
         """Launch standalone — delegates to module-level ``_launch_standalone``."""
@@ -591,6 +619,7 @@ class BatchOrchestrator:
             running_steps=running_steps,
             pending_steps=pending_steps,
             steps=steps_list,
+            notes={s.tool_id: s.note for s in self._steps if s.note},
         )
         callback(progress)
 

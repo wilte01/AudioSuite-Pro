@@ -3,6 +3,9 @@ Tests for metadata_scrubber.app — Run Controls panel wiring.
 
 Uses the object.__new__ + MagicMock pattern so no real Tk root is
 needed (per AGENTS.md GUI testing rules).
+
+Changed in 1.2.0: covers the run note a finished scrub leaves for the Master
+Driver batch report (the files it could not scrub, and any it skipped).
 """
 
 import sys
@@ -13,6 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from audio_suite_shared.run_outcome import read_outcome
 from metadata_scrubber.app import MetadataScrubberApp
 from metadata_scrubber.utils.cli_args import ScrubberArgs
 
@@ -421,6 +425,70 @@ class TestProgressAndCompleteD3:
         )
 
         save_kept.assert_not_called()  # dry runs never update the rolling prefs
+
+
+class TestRunNote:
+    """A finished scrub leaves its damage where a batch report can see it."""
+
+    def _complete(
+        self,
+        app_root: tk.Toplevel,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        *,
+        total: int,
+        skipped: int,
+        errors: int,
+    ) -> Any:
+        import metadata_scrubber.app as app_mod
+
+        app = _pinned_app(app_root, monkeypatch)
+        app._log_path = str(tmp_path / "scrub_log.txt")
+        app.auto_end = False
+        monkeypatch.setattr(app_mod, "messagebox", MagicMock())
+        app._on_complete(
+            header=["REPORT\n"],
+            is_live=False,
+            preserve_list=[],
+            total=total,
+            processed=total - skipped,
+            skipped=skipped,
+            errors=errors,
+            duration_secs=1.0,
+            log_entries=[],
+        )
+        return app
+
+    def test_unscrubbed_and_skipped_files_are_reported(
+        self, app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+
+        self._complete(app_root, monkeypatch, tmp_path, total=10, skipped=2, errors=1)
+
+        assert read_outcome("scrubber") == (
+            "1 of 10 files could not be scrubbed; 2 of 10 files were skipped"
+        )
+
+    def test_a_clean_run_reports_nothing(
+        self, app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+
+        self._complete(app_root, monkeypatch, tmp_path, total=4, skipped=0, errors=0)
+
+        assert read_outcome("scrubber") == ""
+
+    def test_a_later_clean_run_clears_an_earlier_note(
+        self, app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        self._complete(app_root, monkeypatch, tmp_path, total=4, skipped=0, errors=2)
+        assert read_outcome("scrubber") == "2 of 4 files could not be scrubbed"
+
+        self._complete(app_root, monkeypatch, tmp_path, total=4, skipped=0, errors=0)
+
+        assert read_outcome("scrubber") == ""
 
 
 class TestDoScan:

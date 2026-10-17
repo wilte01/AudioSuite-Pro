@@ -4,6 +4,9 @@ test_app.py — Tests for master_driver/app.py (AudioSuiteDriver).
 Coverage focus: the subprocess launcher wiring that resolves paths relative
 to the suite root.
 
+Changed in 1.2.0: covers the batch report rendering a completed step's recorded
+note (a refused ISRC submission) on that step's own line.
+
 Regression background
 ---------------------
 ``_open_undo_ui()`` and ``_open_refinery_ui()`` originally walked two levels
@@ -519,7 +522,7 @@ class TestBatchProgressUI:
         drv._batch_progress_bar = MagicMock()
         return drv
 
-    def _progress(self, steps, *, failed=(), progress=0.25):
+    def _progress(self, steps, *, failed=(), progress=0.25, notes=None):
         return BatchProgress(
             total_steps=len(steps),
             completed_steps=len(steps) - 1,
@@ -531,6 +534,7 @@ class TestBatchProgressUI:
             running_steps=[tid for tid, _n, st in steps if st == "running"],
             pending_steps=[tid for tid, _n, st in steps if st == "pending"],
             steps=steps,
+            notes=dict(notes or {}),
         )
 
     def test_zero_total_hides_widgets(self):
@@ -593,6 +597,49 @@ class TestBatchProgressUI:
         assert "1 failed" in summary
         assert drv._batch_progress_bar.config.call_args.kwargs["value"] == 25
 
+    def test_completed_step_shows_the_note_the_tool_recorded(self):
+        """A caveat (e.g. a refused ISRC submission) is on the step line itself."""
+        drv = self._shell()
+        progress = self._progress(
+            [
+                ("fingerprinter", "Audio Fingerprinter", "completed"),
+                ("bpm", "BPM Analyzer", "running"),
+            ],
+            notes={
+                "fingerprinter": "ISRC submission: rejected (2 ISRC(s), 1 recording(s))"
+            },
+        )
+
+        drv._update_batch_progress(progress)
+        scheduled = drv.root.after.call_args
+        assert scheduled is not None
+        scheduled.args[1]()
+        inserted = drv._batch_status_text.insert.call_args.args[1]
+
+        expected = (
+            f"[1/2] {'Audio Fingerprinter':<25s} \u2713 completed \u2014 "
+            "ISRC submission: rejected (2 ISRC(s), 1 recording(s))"
+        )
+        assert expected in inserted, inserted
+        # The note belongs to its own step only.
+        bpm_line = next(
+            line for line in inserted.splitlines() if "BPM Analyzer" in line
+        )
+        assert "ISRC submission" not in bpm_line
+
+    def test_completed_step_without_a_note_is_unchanged(self):
+        """A step that reported nothing keeps exactly the old line."""
+        drv = self._shell()
+        progress = self._progress(
+            [("scrubber", "Metadata Scrubber", "completed")],
+        )
+
+        drv._update_batch_progress(progress)
+        drv.root.after.call_args.args[1]()
+        inserted = drv._batch_status_text.insert.call_args.args[1]
+
+        assert inserted == f"[1/1] {'Metadata Scrubber':<25s} \u2713 completed\n"
+
     def test_hide_batch_progress_schedules_after_500(self):
         drv = self._shell()
         drv._hide_batch_progress()
@@ -600,6 +647,39 @@ class TestBatchProgressUI:
         assert call is not None
         assert call.args[0] == 500
         assert call.args[1].__name__ == "_hide"
+
+    def test_a_report_holding_a_note_stays_on_screen(self):
+        """The auto-hide must not flash a caveat past the user."""
+        drv = self._shell()
+        progress = self._progress(
+            [("fingerprinter", "Audio Fingerprinter", "completed")],
+            notes={"fingerprinter": "ISRC submission: offline"},
+        )
+        drv._update_batch_progress(progress)
+        drv.root.after.call_args.args[1]()  # run the scheduled update
+        drv.root.after.reset_mock()
+
+        drv._hide_batch_progress()
+        drv.root.after.call_args.args[1]()
+
+        drv._batch_status_text.grid_remove.assert_not_called()
+        drv._batch_eta_label.grid_remove.assert_not_called()
+        drv._batch_progress_bar.grid_remove.assert_not_called()
+
+    def test_a_report_without_notes_still_hides(self):
+        drv = self._shell()
+        drv._update_batch_progress(
+            self._progress([("bpm", "BPM Analyzer", "completed")])
+        )
+        drv.root.after.call_args.args[1]()  # run the scheduled update
+        drv.root.after.reset_mock()
+
+        drv._hide_batch_progress()
+        drv.root.after.call_args.args[1]()
+
+        drv._batch_status_text.grid_remove.assert_called_once()
+        drv._batch_eta_label.grid_remove.assert_called_once()
+        drv._batch_progress_bar.grid_remove.assert_called_once()
 
 
 def _assert_hidden_widgets(driver):

@@ -2,6 +2,9 @@
 
 Changed in 1.2.0: covers the MusicBrainz / ISRC toggles reaching
 ``FingerprintParams``.
+Changed in 1.2.0: covers the ISRC submission outcome on the Results tab and
+its record for the Master Driver batch report (``_surface_isrc_outcome``),
+including the manifest-id lock the driver's lookup depends on.
 """
 
 import sys
@@ -514,6 +517,7 @@ class TestOnCompleteSummary:
         app.time_label = MagicMock()
         app.summary_label = MagicMock()
         app.completion_label = MagicMock()
+        app.isrc_label = MagicMock()
         app.file_listbox = MagicMock()
         app.notebook = MagicMock()
         app._tab_results = MagicMock()
@@ -590,6 +594,168 @@ class TestOnCompleteSummary:
         )
         assert "ISRC submission: no auth (2 ISRC(s), 1 recording(s))" in log_text
         assert "No MusicBrainz token is configured." in log_text
+
+
+class TestIsrcOutcomeOnTheResultsTab:
+    """A refused submission is visible on the Results tab, not only in the log."""
+
+    @staticmethod
+    def _app(tmp_path: Path) -> Any:
+        app = TestOnCompleteSummary._make_app(tmp_path)
+        return app
+
+    def _complete(self, tmp_path: Path, submission: dict[str, Any] | None) -> Any:
+        app = self._app(tmp_path)
+        app._on_complete(
+            header=[],
+            total=1,
+            processed=1,
+            skipped=0,
+            errors=0,
+            duration_secs=1.0,
+            log_entries=[],
+            results=[],
+            counts=TestOnCompleteSummary._counts(),
+            isrc_submission=submission,
+        )
+        return app
+
+    def test_rejected_submission_is_shown_with_its_reason(self, tmp_path: Path):
+        app = self._complete(
+            tmp_path,
+            {
+                "mode": "live",
+                "status": "rejected",
+                "recordings": 1,
+                "isrcs": 2,
+                "reason": "HTTP 400: the recording id was not accepted",
+            },
+        )
+
+        text = app.isrc_label.config.call_args.kwargs["text"]
+        assert "ISRC submission: rejected (2 ISRC(s), 1 recording(s))" in text
+        assert "HTTP 400: the recording id was not accepted" in text
+        assert app.isrc_label.config.call_args.kwargs["fg"] == fp_mod.styles.COLOR_ERROR
+
+    def test_offline_submission_is_shown_as_a_problem(self, tmp_path: Path):
+        app = self._complete(
+            tmp_path,
+            {
+                "mode": "live",
+                "status": "offline",
+                "recordings": 1,
+                "isrcs": 1,
+                "reason": "Network error submitting to MusicBrainz: timed out",
+            },
+        )
+
+        text = app.isrc_label.config.call_args.kwargs["text"]
+        assert "ISRC submission: offline" in text
+        assert "timed out" in text
+        assert app.isrc_label.config.call_args.kwargs["fg"] == fp_mod.styles.COLOR_ERROR
+
+    def test_accepted_submission_is_shown_without_alarm(self, tmp_path: Path):
+        app = self._complete(
+            tmp_path,
+            {
+                "mode": "live",
+                "status": "ok",
+                "recordings": 1,
+                "isrcs": 2,
+                "reason": "",
+            },
+        )
+
+        text = app.isrc_label.config.call_args.kwargs["text"]
+        assert "ISRC submission: ok (2 ISRC(s), 1 recording(s))" in text
+        assert app.isrc_label.config.call_args.kwargs["fg"] == (
+            fp_mod.styles.COLOR_SUCCESS
+        )
+
+    def test_no_submission_leaves_the_label_empty(self, tmp_path: Path):
+        app = self._complete(tmp_path, None)
+
+        app.isrc_label.config.assert_called_once_with(text="", fg=fp_mod.styles.FG_MAIN)
+
+
+class TestIsrcOutcomeReachesTheDriver:
+    """The run note the Master Driver reads must be keyed by the manifest id."""
+
+    def test_recorded_note_carries_the_status_and_reason(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        recorded: list[tuple[str, str]] = []
+        monkeypatch.setattr(
+            fp_mod,
+            "record_outcome",
+            lambda tool_id, note: recorded.append((tool_id, note)),
+        )
+        app = TestOnCompleteSummary._make_app(tmp_path)
+
+        app._on_complete(
+            header=[],
+            total=1,
+            processed=1,
+            skipped=0,
+            errors=0,
+            duration_secs=1.0,
+            log_entries=[],
+            results=[],
+            counts=TestOnCompleteSummary._counts(),
+            isrc_submission={
+                "mode": "live",
+                "status": "not authorised",
+                "recordings": 1,
+                "isrcs": 1,
+                "reason": "HTTP 403: the token lacks the submit_isrc scope",
+            },
+        )
+
+        assert len(recorded) == 1
+        tool_id, note = recorded[0]
+        assert tool_id == fp_mod.DRIVER_TOOL_ID
+        assert "ISRC submission: not authorised" in note
+        assert "submit_isrc scope" in note
+
+    def test_the_note_is_readable_by_the_driver(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The real write, read back the way the driver reads it."""
+        from audio_suite_shared.run_outcome import read_outcome
+
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = TestOnCompleteSummary._make_app(tmp_path)
+
+        app._on_complete(
+            header=[],
+            total=1,
+            processed=1,
+            skipped=0,
+            errors=0,
+            duration_secs=1.0,
+            log_entries=[],
+            results=[],
+            counts=TestOnCompleteSummary._counts(),
+            isrc_submission={
+                "mode": "live",
+                "status": "rejected",
+                "recordings": 1,
+                "isrcs": 2,
+                "reason": "HTTP 400: the recording id was not accepted",
+            },
+        )
+
+        note = read_outcome(fp_mod.DRIVER_TOOL_ID)
+        assert "ISRC submission: rejected (2 ISRC(s), 1 recording(s))" in note
+        assert "HTTP 400: the recording id was not accepted" in note
+
+    def test_driver_tool_id_is_the_manifest_id(self):
+        """A renamed manifest must fail here, not silently lose the note."""
+        from audio_suite_shared.tool_plugin import get_registry
+
+        manifest_ids = {m.id for m in get_registry().all}
+
+        assert fp_mod.DRIVER_TOOL_ID in manifest_ids
 
 
 class TestStartGuardsIsrcSubmission:

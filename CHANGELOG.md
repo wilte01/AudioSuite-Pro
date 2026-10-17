@@ -26,7 +26,31 @@ Versions of the tools are released together with the suite (the single
   CLI via `--mb-auth app-token --mb-user`). The token is never accepted as a
   command-line argument. A submission is a pending public edit that MusicBrainz
   keeps open for review for seven days, so refusals are reported and never
-  retried, and no submission outcome changes a file's result status.
+  retried, and no submission outcome changes a file's result status. The
+  outcome is reported where the user is already looking, not only in the run
+  log: the Results tab shows the status and, for a refusal, its reason (in the
+  error colour, so a rejected or unauthorised submission is not mistaken for
+  success); the CLI prints the same line to stderr; and a batch started from
+  the Master Driver records it against the Audio Fingerprinter step, whose
+  report stays on screen while it carries such a note instead of auto-hiding
+  half a second after the batch finishes.
+- **Batch reports carry each tool's caveats.** A tool that finishes with
+  something the operator still has to know — CD Ripper tracks that did not rip
+  (including the ones verification rejected), files a tag writer skipped or
+  could not update, conversions skipped or failed — now records one line that
+  the Master Driver shows on that tool's step in the batch report, so a partial
+  outcome is not left behind in a run log nobody opens mid-batch. The enrich
+  analyzers report the tracks they finished without a result for: BPM Analyzer
+  the files whose detection failed, Tempo Analyzer the files carrying no BPM
+  tag to derive a marking from, and Mood Analyzer the files with no usable
+  audio (undecodable or silent) plus any it could not analyse at all. A note
+  never changes a step's status: a refused submission or a skipped file is not
+  a failed run. The report stays on screen while it carries a note instead of
+  auto-hiding when the batch ends, the note is cleared before each step so a
+  previous batch's caveat can never be attributed to a new run, and every tool
+  that records one is locked to its real manifest id by
+  `tests/test_run_outcome_contract.py`, so a note can never be written under a
+  key the driver does not read.
 - **CD Ripper: AccurateRip confidence and a manual re-rip of flagged tracks.**
   Every track's verification result now carries the matching database record's
   confidence — the number of other rips that submitted exactly these track

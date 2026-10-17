@@ -6,14 +6,20 @@ button is wired to UIHelperMixin._open_folder_standard(), which reads
 self._out_dir (see audio_suite_shared.ui_helpers). These tests exercise
 MusicFormatConverterApp._on_complete() directly against a minimal stub,
 without requiring a real Tk root.
+
+Changed in 1.2.0: covers the run note a finished conversion leaves for the
+Master Driver batch report (the files it skipped and the ones that failed).
 """
 
 import os
 import threading
 from pathlib import Path
 from tkinter import messagebox
+from types import MethodType
+from typing import Any
 from unittest.mock import MagicMock
 
+from audio_suite_shared.run_outcome import read_outcome
 from music_format_converter import app as app_module
 from music_format_converter.app import MusicFormatConverterApp
 from music_format_converter.utils.cli_args import ConverterArgs
@@ -104,6 +110,61 @@ def _call_on_complete(stub, output_dir, **overrides):
 # ═════════════════════════════════════════════════════════════════════════════
 # _out_dir sync (regression for "Open Output Folder")
 # ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestRunNote:
+    """A finished conversion leaves what it did not convert where a batch sees it."""
+
+    @staticmethod
+    def _stub(tmp_path, monkeypatch) -> Any:
+        """A stub whose ``_record_run_note`` is the real method, not a mock.
+
+        The stub is a ``MagicMock``, so its attributes are mocks; the real
+        method is bound onto it, otherwise the call site would be exercised
+        against a mock and prove nothing about the note.
+        """
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        stub = _make_app_stub(tmp_path)
+        stub._record_run_note = MethodType(
+            MusicFormatConverterApp._record_run_note, stub
+        )
+        return stub
+
+    def test_failed_and_skipped_files_are_reported(self, tmp_path, monkeypatch):
+        stub = self._stub(tmp_path, monkeypatch)
+
+        _call_on_complete(
+            stub,
+            str(tmp_path),
+            total=4,
+            processed=4,
+            converted=0,
+            skipped=3,
+            errors=1,
+        )
+
+        assert read_outcome("converter") == (
+            "1 of 4 files failed to convert; 3 of 4 files were skipped "
+            "(no reachable target or duplicate output)"
+        )
+
+    def test_a_clean_run_reports_nothing(self, tmp_path, monkeypatch):
+        stub = self._stub(tmp_path, monkeypatch)
+
+        _call_on_complete(stub, str(tmp_path))
+
+        assert read_outcome("converter") == ""
+
+    def test_a_later_clean_run_clears_an_earlier_note(self, tmp_path, monkeypatch):
+        stub = self._stub(tmp_path, monkeypatch)
+        _call_on_complete(
+            stub, str(tmp_path), total=2, processed=2, converted=1, errors=1
+        )
+        assert read_outcome("converter") == "1 of 2 files failed to convert"
+
+        _call_on_complete(stub, str(tmp_path))
+
+        assert read_outcome("converter") == ""
 
 
 class TestOnCompleteOutputDirSync:

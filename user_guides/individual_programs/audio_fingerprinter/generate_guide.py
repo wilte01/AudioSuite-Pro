@@ -444,6 +444,17 @@ doc.add_paragraph(
     "No submission outcome changes a file's result "
     "status, because the files are already tagged."
 )
+doc.add_paragraph(
+    "The outcome is reported wherever you are looking: "
+    "the Results tab shows ISRC submission followed "
+    "by the status and, for a refusal, its reason (red "
+    "when the codes did not reach MusicBrainz, green "
+    "when they did); the CLI prints the same line to "
+    "stderr; a batch started from the Master Driver "
+    "adds it to the Audio Fingerprinter step in the "
+    "batch report. The run log carries the full detail "
+    "and, in a dry run, the preview payload."
+)
 
 doc.add_heading("Command Line", level=1)
 doc.add_paragraph("The registered command is fingerprint. Examples:")
