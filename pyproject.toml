@@ -4,6 +4,9 @@
 # Changed in 1.1.0: bumped [project] version 1.0.1 -> 1.1.0 (Sprint 1 feature
 # release - extended format support + optional DSP effects;
 # PLAN_feature_expansion.md D26).
+# Changed in 1.2.0: bumped [project] version 1.1.0 -> 1.2.0 (Sprint 2 feature
+# release - MusicBrainz integration, AccurateRip confidence/re-rip, ISRC
+# submission; PLAN_feature_expansion.md D36).
 
 [build-system]
 # setuptools >= 77 is required by the PEP 639 metadata below: the SPDX
@@ -15,7 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "audiosuite-pro"
-version = "1.1.0"
+version = "1.2.0"
 readme = "README.md"
 requires-python = ">=3.11"
 # Plan iteration 5 E2 (audit #11), decision D1: GPL-3.0, chosen because the

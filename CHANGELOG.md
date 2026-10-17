@@ -9,6 +9,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.2.0] - 2026-10-17
+
 ### Added
 
 - **Audio Fingerprinter: ISRC submission to MusicBrainz.** The ISRCs a file's
