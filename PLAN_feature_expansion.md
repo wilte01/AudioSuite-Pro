@@ -299,6 +299,31 @@ If Sprint 2 fails gate:
 - Remove ISRC submission
 - Version remains at 1.1.0
 
+### 2.6 Lock-Down Addendum (2026-10-17) — pre-coding decision log
+
+Produced before any Sprint 2 code was written; every claim below was verified
+empirically against the tree at `536e327`, whose baseline gate read: **1 failed**,
+9084 passed, 3 skipped, 30 deselected, coverage 90.30 %, bandit 0 High / 0 Medium,
+`mypy .` clean on 478 files, ruff clean on 825 files. The single failure was this
+plan's own release-notes lock (`tests/test_release_notes.py`), because `536e327`
+created `audio_enhancer/tests/test_setup_tab.py` without its 1.1.0 note; repaired
+in `cfa2837` before any Sprint 2 work so the window starts from a green gate.
+Two probe findings changed the shape of the sprint: **Item 2.2 was already ~85 %
+implemented** (`cd_ripper/core/accuraterip.py` plus its wiring in
+`track_processor`, `encoding_pipeline`, `offset_detect`, the CLI `--verify` flag
+and the "Verify Rips" combobox), and the plan's `audio_fingerprinter/core/matcher.py`
+has **never existed**. This addendum supersedes §2.2–2.3 where they conflict.
+
+| Decision | Rationale / evidence |
+|----------|----------------------|
+| D27 | ISRC submission is **token-based**: `build_isrc_submission_xml()` + `POST /ws/2/recording/?client=<app>` with `Authorization: Bearer` (OAuth) or `HTTPDigestAuth` (legacy application token); dry run prints the exact payload; live submission requires explicit flags and a resolvable token. `musicbrainzngs.submit_isrcs()` is **not** used | MusicBrainz serves submissions as **XML only** (JSON is read-only), and requires OAuth (`submit_isrc`) or digest with an application token; digest is deprecated with removal 2027-08-01, and a submission creates a pending 7-day edit. Library source read in `.venv`: `submit_isrcs` posts via `_do_mb_post(... AUTH_YES ...)`, i.e. HTTP **Basic** user/password, which current docs no longer describe — a latent 401 |
+| D28 | The fingerprinter talks to MusicBrainz through a new `requests`-based JSON client (`audio_fingerprinter/core/musicbrainz_client.py`); `musicbrainzngs` stays in the optional `cd-ripping` extra. Unifying `cd_ripper/core/disc.py` onto the new client is out of scope | The fingerprinter has no such dependency today: `musicbrainzngs` is declared only under `[project.optional-dependencies] cd-ripping` (`pyproject.toml:58`), which CI syncs but a plain install does not, so importing it in the fingerprinter would break the default install; `requests` is already a core dependency and is what `acoustid_client` uses. `musicbrainzngs` 0.7.1 is a 2020 XML-only package |
+| D29 | ISRC storage is a new separate opt-in `--write-isrc/--no-write-isrc` (default off, requires `--write-tags` and live mode), backed by new shared `write_isrc` / `read_isrcs` helpers: ID3 `TSRC` for `.mp3/.wav/.aiff/.aif/.dsf`, `----:com.apple.iTunes:ISRC` for MP4, native `ISRC` comment/item for FLAC/OGG/Opus/WV/APE/MPC | Nothing in `audio_suite_shared/tag_helper*` handles ISRC today (only the CUE parser reads the token), so storage needs a real writer/reader pair; the opt-in shape mirrors `--write-mbids` so MBIDs and ISRCs stay independently selectable |
+| D30 | AccurateRip: per-track **confidence** surfaced with EAC-style wording (`Accurate (confidence N)` / `Not accurate` / `Not in database` / `Unavailable (offline)` / `Rip-twice verified`), plus a manual **"Re-rip flagged tracks"** action that re-runs only the failed numbers and *replaces* their result rows. No auto-retry, and no invented accurate/confident threshold | Item 2.2's core was already implemented (see the probe note above); the only gaps against its acceptance criteria were confidence display and a re-rip path, and `verify_track` discards the DB confidence byte it already parses. Research found no protocol-defined accurate/confident boundary: confidence is a count of matching submissions and 1+ is a match |
+| D31 | Plan-file corrections: `audio_fingerprinter/core/matcher.py` is superseded by the tie-break in `musicbrainz_client.resolve_ambiguous_with_mb`; release-level metadata (date, label, country) is fetched and surfaced in the log/CLI JSON but **not** written as tags this sprint; `--musicbrainz` defaults off | `matcher.py` has never existed (grep), and the AcoustID near-tie break already lives in `acoustid_client.resolve_best_match`, so a second module would duplicate it. No per-format DATE/LABEL writers exist, and tag-write conventions are the sprint's highest audio-correctness risk class. MusicBrainz allows 1 request/second, so an album run with enrichment on adds one request per unique recording plus one per unique release (mitigated by a per-run cache) |
+| D32 | `tests/test_release_notes.py` re-baselined for this window: `BASE_COMMIT = cfa2837` (the repair commit), `NOTE_MARKER = "Changed in 1.2.0"`, and the asserted non-empty exception category moves from the 1.1.0 audio fixtures to narrative `.md` documents | The lock only accepts a commit hash, so the repair had to land first; after re-baselining, no `.wv/.ape/.mpc/.spx/.dsf` file is in the changed set, so that category would have been stale and its "declared exception is stale" assertion would have failed. `.md` is non-empty in every window |
+| D33 | Commit granularity: one commit per implementation item (Item 2.1; Item 2.3; Item 2.2) plus a release commit (1.2.0, CHANGELOG, regenerated guides, plan completion rows), each gated | User instruction, matching the Sprint 1 precedent (D19/D26) |
+
 ---
 
 ## Sprint 3: Visualization & Library Enhancement

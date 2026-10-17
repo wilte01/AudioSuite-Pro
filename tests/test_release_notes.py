@@ -64,6 +64,14 @@ tip) and NOTE_MARKER is ``Changed in 1.1.0``, so only the 1.1.0 change set
 requires notes; the 1.0.1 notes remain as the files' own history. The fetched
 mutagen audio fixtures under ``tests/data/`` (.wv/.ape/.mpc/.spx/.dsf) are a
 declared exception format and are the asserted-non-empty exception category.
+Changed in 1.2.0: re-baselined the lock for the Sprint 2 work window
+(PLAN_feature_expansion.md D32). BASE_COMMIT is now cfa2837 -- the commit that
+restored the 1.1.0 note 536e327 had omitted -- so the Sprint 2 window starts
+from a green gate, and NOTE_MARKER is ``Changed in 1.2.0``. The asserted
+non-empty exception category moves from the 1.1.0 fetched audio fixtures (whose
+window is now closed, so none of them is in the changed set) to the narrative
+``.md`` documents, which every release touches; the fixture extensions remain
+declared exceptions.
 """
 
 from __future__ import annotations
@@ -76,14 +84,14 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: The plan's base commit; every file changed since here must be annotated.
-#: Updated for the 1.1.0 feature release: set to c5803b1 (the 1.0.1 release
-#: tip) so only the 1.1.0 change set requires notes. The 1.0.1 work
-#: (d362948 to c5803b1) is documented in PLAN_bughunt_remediation.md and
+#: Updated for the Sprint 2 work window: set to cfa2837 (the commit that
+#: restored the 1.1.0 note 536e327 had omitted) so only the 1.2.0 change set
+#: requires notes. The 1.0.1 and 1.1.0 work is documented in its own plans and
 #: CHANGELOG.md, so it does not require per-file notes here.
-BASE_COMMIT = "c5803b1"
+BASE_COMMIT = "cfa2837"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 1.1.0"
+NOTE_MARKER = "Changed in 1.2.0"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (
@@ -111,6 +119,8 @@ EXCEPTION_SUFFIXES: tuple[str, ...] = (
     ".pyw",
     # 1.1.0 fetched audio fixtures (mutagen tests/data) - binary containers
     # with no comment syntax; provenance recorded in tests/data/ATTRIBUTION.md.
+    # Still declared exceptions, but no longer the asserted non-empty category:
+    # the 1.2.0 window starts after them (see the 1.2.0 note above).
     ".wv",
     ".ape",
     ".mpc",
@@ -122,8 +132,8 @@ EXCEPTION_SUFFIXES: tuple[str, ...] = (
 #: change is the very case the exception table exists for.
 _REQUIRED_NON_EMPTY_EXCEPTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
-        "fetched audio fixtures (.wv/.ape/.mpc/.spx/.dsf)",
-        (".wv", ".ape", ".mpc", ".spx", ".dsf"),
+        "narrative documents (.md)",
+        (".md",),
     ),
 )
 
