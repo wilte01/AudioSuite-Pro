@@ -22,9 +22,13 @@ from pathlib import Path
 
 import pytest
 
+from library_stats.core.completeness import CompletenessReport, TagCompleteness
 from library_stats.library_cache import (
+    _POPULATE_SCOPE_INDEXED,
     _SCHEMA_SQL,
     _SCHEMA_VERSION,
+    _SCOPE_COUNT_SQL,
+    _SCOPE_RANGE_HIGH,
     LibraryCache,
     _bpm_bin,
     _classify_key_mode,
@@ -734,23 +738,31 @@ class TestScopePredicate:
         _fill(cache, tmp_path / "big", 20)
         _fill(cache, tmp_path / "small", 2)
 
-        sql, params = cache.scope_predicate(str(tmp_path / "small"))
-        assert "path_fold >= ?" in sql
+        small = str(tmp_path / "small")
+        assert cache.scope_plan_kind(small) == "indexed"
+
+        prefix = _path_fold(LibraryCache._path_prefix(small))
         plan = (
             cache._connect()
             .execute(
-                f"EXPLAIN QUERY PLAN SELECT COUNT(*) FROM files WHERE {sql}", params
+                "EXPLAIN QUERY PLAN " + _POPULATE_SCOPE_INDEXED,
+                [prefix, prefix + _SCOPE_RANGE_HIGH],
             )
             .fetchall()
         )
         assert any("idx_files_path_fold" in str(row) for row in plan)
 
-    def test_wide_scope_uses_sequential_predicate(
+        cache.select_scope(small)
+        assert cache._connect().execute(_SCOPE_COUNT_SQL).fetchone()[0] == 2
+
+    def test_wide_scope_uses_sequential_plan(
         self, cache: LibraryCache, tmp_path: Path
     ) -> None:
         _fill(cache, tmp_path, 20)
-        sql, _params = cache.scope_predicate(str(tmp_path))
-        assert "INSTR" in sql
+        assert cache.scope_plan_kind(str(tmp_path)) == "sequential"
+
+        cache.select_scope(str(tmp_path))
+        assert cache._connect().execute(_SCOPE_COUNT_SQL).fetchone()[0] == 20
 
     def test_narrow_scope_sees_only_its_own_rows(
         self, cache: LibraryCache, tmp_path: Path
@@ -777,8 +789,8 @@ class TestScopePredicate:
             _fill(sequential, tmp_path / "small", 2)
 
             small = str(tmp_path / "small")
-            assert "path_fold >=" in indexed.scope_predicate(small)[0]
-            assert "INSTR" in sequential.scope_predicate(small)[0]
+            assert indexed.scope_plan_kind(small) == "indexed"
+            assert sequential.scope_plan_kind(small) == "sequential"
 
             a = indexed.query_aggregate(small)
             b = sequential.query_aggregate(small)
@@ -833,6 +845,123 @@ class TestBatch:
             assert reader.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 4
         finally:
             reader.close()
+
+
+# ── LibraryCache: completeness trend history (3.3) ──────────────────────────
+
+
+def _report(directory: Path, total: int, pct: float) -> CompletenessReport:
+    """Build a minimal completeness report for history tests."""
+    return CompletenessReport(
+        directory=str(directory),
+        total_files=total,
+        tag_results={
+            "bpm": TagCompleteness(
+                field="bpm",
+                total=total,
+                present=int(total * pct / 100),
+                missing=total - int(total * pct / 100),
+                pct_complete=pct,
+            )
+        },
+        overall_pct=pct,
+    )
+
+
+class TestCompletenessHistory:
+    """Trend history lives in the cache DB, deduped and pruned (PLAN D41)."""
+
+    def test_record_and_read_back(self, cache: LibraryCache, tmp_path: Path) -> None:
+        assert cache.record_completeness_snapshot(_report(tmp_path, 10, 75.0)) is True
+
+        history = cache.completeness_history(str(tmp_path))
+        assert len(history) == 1
+        assert history[0]["total_files"] == 10
+        assert history[0]["overall_pct"] == 75.0
+        assert history[0]["tag_pcts"]["bpm"] == 75.0
+        assert history[0]["recorded_at"]
+
+    def test_consecutive_duplicate_is_suppressed(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        assert cache.record_completeness_snapshot(_report(tmp_path, 10, 75.0)) is True
+        assert cache.record_completeness_snapshot(_report(tmp_path, 10, 75.0)) is False
+        assert len(cache.completeness_history(str(tmp_path))) == 1
+
+    def test_a_changed_scan_is_a_new_snapshot(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        cache.record_completeness_snapshot(_report(tmp_path, 10, 75.0))
+        assert cache.record_completeness_snapshot(_report(tmp_path, 10, 80.0)) is True
+        assert len(cache.completeness_history(str(tmp_path))) == 2
+
+    def test_history_is_oldest_first(self, cache: LibraryCache, tmp_path: Path) -> None:
+        for pct in (10.0, 20.0, 30.0):
+            cache.record_completeness_snapshot(_report(tmp_path, 5, pct))
+
+        values = [h["overall_pct"] for h in cache.completeness_history(str(tmp_path))]
+        assert values == [10.0, 20.0, 30.0]
+
+    def test_limit_keeps_the_newest(self, cache: LibraryCache, tmp_path: Path) -> None:
+        for pct in (10.0, 20.0, 30.0, 40.0):
+            cache.record_completeness_snapshot(_report(tmp_path, 5, pct))
+
+        values = [
+            h["overall_pct"] for h in cache.completeness_history(str(tmp_path), limit=2)
+        ]
+        assert values == [30.0, 40.0]
+
+    def test_history_is_per_directory(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        one = tmp_path / "one"
+        two = tmp_path / "two"
+        cache.record_completeness_snapshot(_report(one, 3, 50.0))
+        cache.record_completeness_snapshot(_report(two, 7, 90.0))
+
+        one_history = cache.completeness_history(str(one))
+        two_history = cache.completeness_history(str(two))
+        assert [h["total_files"] for h in one_history] == [3]
+        assert [h["total_files"] for h in two_history] == [7]
+
+    def test_old_snapshots_are_pruned(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        from library_stats.library_cache import _HISTORY_SNAPSHOTS
+
+        for i in range(_HISTORY_SNAPSHOTS + 5):
+            cache.record_completeness_snapshot(
+                _report(tmp_path, 5, float(i % 100) + 0.5)
+            )
+
+        history = cache.completeness_history(str(tmp_path), limit=500)
+        assert len(history) == _HISTORY_SNAPSHOTS
+        # The newest snapshot survives the prune.
+        assert history[-1]["overall_pct"] == float((_HISTORY_SNAPSHOTS + 4) % 100) + 0.5
+
+    def test_clear_one_directory_and_all(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        one = tmp_path / "one"
+        two = tmp_path / "two"
+        cache.record_completeness_snapshot(_report(one, 3, 50.0))
+        cache.record_completeness_snapshot(_report(two, 7, 90.0))
+
+        assert cache.clear_completeness_history(str(one)) == 1
+        assert cache.completeness_history(str(one)) == []
+        assert cache.completeness_history(str(two))
+
+        assert cache.clear_completeness_history() == 1
+        assert cache.completeness_history(str(two)) == []
+
+    def test_history_table_survives_reconnect(self, tmp_path: Path) -> None:
+        db = tmp_path / "persist.db"
+        with LibraryCache(db) as cache:
+            cache.record_completeness_snapshot(_report(tmp_path, 4, 25.0))
+        with LibraryCache(db) as cache:
+            history = cache.completeness_history(str(tmp_path))
+        assert len(history) == 1
+        assert history[0]["total_files"] == 4
 
 
 # ── _classify_key_mode ────────────────────────────────────────────────────────

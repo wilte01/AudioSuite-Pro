@@ -5,6 +5,11 @@ Opens a tkinter window with matplotlib charts showing library statistics
 derived from existing audio tags.  All data is read-only — no analysis or
 tag writing is performed.
 
+Changed in 1.3.0: figure building moved to the Tk-free ``library_stats.ui.charts``
+(so the charts are testable without a window), the Completeness tab embeds the
+missing-tags-by-album heatmap, and the Charts tab gains a completeness trend fed
+by the snapshots each scan records in the cache (PLAN D38/D40/D41).
+
 Changed in 1.0.1: parses the driver's argv and pre-fills directory, incremental/refresh
 and the CSV/JSON exports.
 """
@@ -12,9 +17,11 @@ and the CSV/JSON exports.
 from __future__ import annotations
 
 import os
+import sqlite3
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+from typing import Any
 
 from audio_suite_shared import styles, suite_config
 from audio_suite_shared.app_bootstrap import bootstrap_tool_app
@@ -38,7 +45,11 @@ try:
 
     matplotlib.use("TkAgg")
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-    from matplotlib.figure import Figure
+
+    # The builders are imported after the backend is selected: they own no
+    # figure code any more, but importing them first would resolve a backend
+    # before ``matplotlib.use("TkAgg")``.
+    from library_stats.ui.charts import build_heatmap_figure, build_summary_figure
 
     HAVE_MPL = True
 except ImportError:
@@ -437,6 +448,12 @@ class LibraryStatsApp(UIHelperMixin):
         self._comp_canvas_frame = tk.Frame(cf, bg=styles.BG_WHITE)
         self._comp_canvas_frame.pack(fill="x", padx=20, pady=(12, 6))
 
+        # Missing-tags-by-album heatmap (PLAN D38: inside this tab, not a new
+        # one — the four-tab layout is a locked contract).
+        self._comp_heatmap_frame = tk.Frame(cf, bg=styles.BG_WHITE)
+        self._comp_heatmap_frame.pack(fill="x", padx=20, pady=(0, 6))
+        self._comp_heatmap_canvas: FigureCanvasTkAgg | None = None
+
         self._comp_missing_text = tk.Text(
             cf,
             font=styles.FONT_MONO,
@@ -541,6 +558,12 @@ class LibraryStatsApp(UIHelperMixin):
             cache=self._cache,
         )
         completeness = analyse_completeness(path)
+        # Record the trend point before the UI update, but never let a cache
+        # problem fail a scan that already produced a valid report.
+        try:
+            self._cache.record_completeness_snapshot(completeness)
+        except sqlite3.Error:
+            pass
         self.root.after(0, self._on_scan_complete, report, completeness)
 
     def _on_scan_complete(
@@ -566,7 +589,13 @@ class LibraryStatsApp(UIHelperMixin):
         )
         self._update_summary(report)
         self._update_missing(report)
-        self._update_charts(report)
+        try:
+            history = self._cache.completeness_history(
+                self.folder_path.get().strip(), limit=12
+            )
+        except sqlite3.Error:
+            history = []
+        self._update_charts(report, history)
         self._update_completeness(completeness)
         self._apply_cli_exports(report)
 
@@ -681,7 +710,18 @@ class LibraryStatsApp(UIHelperMixin):
                 "end", f"  {label:<25} {count:>6}  ({pct:5.1f}%)  {bar}\n"
             )
 
-    def _update_charts(self, r: StatsReport) -> None:
+    def _update_charts(
+        self,
+        r: StatsReport,
+        history: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Render the Charts tab (four distributions plus the trend).
+
+        Args:
+            r: The completed statistics report.
+            history: Completeness snapshots, oldest first, for the trend
+                panel.  Empty/None draws the "no history yet" panel.
+        """
         if not HAVE_MPL:
             lbl = tk.Label(
                 self._charts_frame,
@@ -697,70 +737,7 @@ class LibraryStatsApp(UIHelperMixin):
         for w in self._charts_frame.winfo_children():
             w.destroy()
 
-        fig = Figure(figsize=(10, 7), dpi=100, facecolor="#fafafa")
-
-        # Genre pie chart
-        ax1 = fig.add_subplot(2, 2, 1)
-        genres = dict(sorted(r.genre_distribution.items(), key=lambda x: -x[1])[:10])
-        total_others = sum(r.genre_distribution.values()) - sum(genres.values())
-        if total_others > 0:
-            genres["Other"] = total_others
-        if genres:
-            ax1.pie(
-                list(genres.values()),
-                labels=list(genres.keys()),
-                autopct="%1.0f%%",
-                startangle=90,
-                textprops={"fontsize": 7},
-            )
-        ax1.set_title("Top Genres", fontsize=10, fontweight="bold")
-
-        # BPM histogram
-        ax2 = fig.add_subplot(2, 2, 2)
-        bpm_order = [
-            "<60",
-            "60\u201379",
-            "80\u201399",
-            "100\u2013119",
-            "120\u2013139",
-            "140\u2013159",
-            "160\u2013179",
-            "180+",
-        ]
-        bpm_vals = [r.bpm_distribution.get(b, 0) for b in bpm_order]
-        ax2.bar(bpm_order, bpm_vals, color="#6366f1", edgecolor="white")
-        ax2.set_title("BPM Distribution", fontsize=10, fontweight="bold")
-        ax2.tick_params(axis="x", rotation=30, labelsize=7)
-        ax2.tick_params(axis="y", labelsize=7)
-
-        # Key distribution
-        ax3 = fig.add_subplot(2, 2, 3)
-        keys = dict(sorted(r.key_distribution.items(), key=lambda x: -x[1])[:15])
-        if keys:
-            ax3.barh(
-                list(keys.keys()),
-                list(keys.values()),
-                color="#a855f7",
-                edgecolor="white",
-            )
-        ax3.set_title("Top Keys", fontsize=10, fontweight="bold")
-        ax3.tick_params(axis="y", labelsize=7)
-        ax3.tick_params(axis="x", labelsize=7)
-
-        # Year distribution
-        ax4 = fig.add_subplot(2, 2, 4)
-        years = r.year_distribution.copy()
-        years.pop("Unknown", None)
-        if years:
-            sorted_years = sorted(years.items(), key=lambda x: x[0])
-            labels_y = [y[0] for y in sorted_years]
-            vals_y = [y[1] for y in sorted_years]
-            ax4.bar(labels_y, vals_y, color="#22c55e", edgecolor="white")
-        ax4.set_title("Year Distribution", fontsize=10, fontweight="bold")
-        ax4.tick_params(axis="x", rotation=45, labelsize=7)
-        ax4.tick_params(axis="y", labelsize=7)
-
-        fig.tight_layout(pad=3)
+        fig = build_summary_figure(r, history)
 
         canvas = FigureCanvasTkAgg(fig, master=self._charts_frame)
         canvas.draw()
@@ -875,6 +852,22 @@ class LibraryStatsApp(UIHelperMixin):
                 self._comp_missing_text.insert(
                     "end", f"  {tc.label:<15} no missing files\n"
                 )
+
+        self._render_heatmap(r)
+
+    def _render_heatmap(self, r: CompletenessReport) -> None:
+        """Embed the missing-tags-by-album heatmap under the tag bars."""
+        frame = self._comp_heatmap_frame
+        for w in frame.winfo_children():
+            w.destroy()
+        self._comp_heatmap_canvas = None
+        if not HAVE_MPL:
+            return
+        fig = build_heatmap_figure(r)
+        canvas = FigureCanvasTkAgg(fig, master=frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+        self._comp_heatmap_canvas = canvas
 
     def _draw_bar(self, canvas: tk.Canvas, tc: TagCompleteness) -> None:
         width = canvas.winfo_width()

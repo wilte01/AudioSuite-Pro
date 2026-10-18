@@ -1,4 +1,9 @@
-"""Tests for library_stats.cli — stats command completeness reporting."""
+"""Tests for library_stats.cli — stats command completeness reporting.
+
+Changed in 1.3.0: covers the completeness trend (recording, --trend output,
+--history-limit, --no-history) and keeps the CLI's cache in the test's temp
+directory, since a plain --completeness run now records a snapshot.
+"""
 
 from __future__ import annotations
 
@@ -37,6 +42,31 @@ def _sample_report(directory: str) -> CompletenessReport:
             for tag_field in TAG_FIELDS
         },
         overall_pct=50.0,
+        duration_secs=0.5,
+    )
+
+
+def _report_with_pct(directory: str, pct: float) -> CompletenessReport:
+    """Build a report whose per-field percentages are *pct*.
+
+    The snapshot de-duplicator compares the per-field percentages, so a trend
+    fixture has to vary them (a report differing only in ``overall_pct`` is
+    not a distinct scan).
+    """
+    return CompletenessReport(
+        directory=directory,
+        total_files=2,
+        tag_results={
+            tag_field: TagCompleteness(
+                field=tag_field,
+                total=2,
+                present=1,
+                missing=1,
+                pct_complete=pct,
+            )
+            for tag_field in TAG_FIELDS
+        },
+        overall_pct=pct,
         duration_secs=0.5,
     )
 
@@ -116,11 +146,21 @@ class TestStatsCompletenessCommand:
         (tmp_path / "b.flac").write_bytes(b"fake")
         return str(tmp_path)
 
-    def _invoke(self, runner: CliRunner, music_dir: str, *args: str):
-        from audio_suite_shared.cli_app import cli
+    @staticmethod
+    def _cache_path(music_dir: str) -> Path:
+        return Path(music_dir) / "cli_cache.db"
 
-        # file_processor uses module-level imports (patch the binding);
-        # completeness.py still uses function-local imports (patch source).
+    def _invoke(
+        self,
+        runner: CliRunner,
+        music_dir: str,
+        *args: str,
+        cache_factory: object = None,
+    ):
+        from audio_suite_shared.cli_app import cli
+        from library_stats.library_cache import LibraryCache
+
+        # file_processor uses module-level imports (patch the binding).
         scan_stubs = {
             "read_bpm": lambda path: None,
             "read_key": lambda path: None,
@@ -128,16 +168,14 @@ class TestStatsCompletenessCommand:
             "read_mood": lambda path: None,
             "read_tempo_marking": lambda path: None,
         }
-        completeness_stubs = {
-            "has_artwork": lambda path: False,
-            "read_replaygain": lambda path: None,
-            "read_tempo_marking": lambda path: None,
-        }
+        # A plain --completeness run now records a trend snapshot, so the CLI
+        # creates the cache even without --incremental: keep it in the test's
+        # temp directory instead of the user's real ~/.audiosuite cache.
+        cache_path = str(self._cache_path(music_dir))
+        factory = cache_factory or (lambda: LibraryCache(cache_path))
         with (
             patch.multiple("library_stats.core.file_processor", **scan_stubs),
-            patch.multiple(
-                "audio_suite_shared.tag_helper_reader", **completeness_stubs
-            ),
+            patch("library_stats.cli.LibraryCache", factory),
         ):
             return runner.invoke(cli, ["stats", music_dir, *args])
 
@@ -170,6 +208,86 @@ class TestStatsCompletenessCommand:
         assert result.exit_code != 0
         assert "Invalid value" in result.output
 
+    def test_trend_prints_recorded_snapshots(
+        self, runner: CliRunner, music_dir: str
+    ) -> None:
+        from library_stats.library_cache import LibraryCache
+
+        cache = LibraryCache(str(self._cache_path(music_dir)))
+        try:
+            for pct in (40.0, 80.0):
+                cache.record_completeness_snapshot(_report_with_pct(music_dir, pct))
+        finally:
+            cache.close()
+
+        result = self._invoke(runner, music_dir, "--trend", "--no-history")
+        assert result.exit_code == 0, result.output
+        assert "Completeness Trend (last 2 scans)" in result.output
+        assert "40.0% complete" in result.output
+        assert "80.0% complete" in result.output
+
+    def test_trend_limit_keeps_only_the_newest(
+        self, runner: CliRunner, music_dir: str
+    ) -> None:
+        from library_stats.library_cache import LibraryCache
+
+        cache = LibraryCache(str(self._cache_path(music_dir)))
+        try:
+            for pct in (10.0, 20.0, 30.0, 40.0):
+                cache.record_completeness_snapshot(_report_with_pct(music_dir, pct))
+        finally:
+            cache.close()
+
+        result = self._invoke(
+            runner, music_dir, "--trend", "--no-history", "--history-limit", "2"
+        )
+        assert result.exit_code == 0, result.output
+        assert "Completeness Trend (last 2 scans)" in result.output
+        assert "30.0% complete" in result.output
+        assert "40.0% complete" in result.output
+        assert "10.0% complete" not in result.output
+
+    def test_trend_without_history_explains_itself(
+        self, runner: CliRunner, music_dir: str
+    ) -> None:
+        result = self._invoke(runner, music_dir, "--trend", "--no-history")
+        assert result.exit_code == 0, result.output
+        assert "no snapshots recorded yet" in result.output
+
+    def test_completeness_records_a_snapshot(
+        self, runner: CliRunner, music_dir: str
+    ) -> None:
+        result = self._invoke(runner, music_dir, "--completeness", "--no-history")
+        assert result.exit_code == 0, result.output
+
+        result = self._invoke(runner, music_dir, "--completeness")
+        assert result.exit_code == 0, result.output
+
+        from library_stats.library_cache import LibraryCache
+
+        cache = LibraryCache(str(self._cache_path(music_dir)))
+        try:
+            history = cache.completeness_history(music_dir)
+        finally:
+            cache.close()
+        assert len(history) == 1
+        assert history[0]["total_files"] == 2
+
+    def test_no_history_writes_nothing(self, runner: CliRunner, music_dir: str) -> None:
+        result = self._invoke(runner, music_dir, "--completeness", "--no-history")
+        assert result.exit_code == 0, result.output
+        assert not self._cache_path(music_dir).exists()
+
+    def test_json_trend_key_present(self, runner: CliRunner, music_dir: str) -> None:
+        import json
+
+        result = self._invoke(runner, music_dir, "--json", "--trend")
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        # This run recorded its own snapshot before reading the trend back.
+        assert len(payload["trend"]) == 1
+        assert "completeness" in payload
+
     def test_incremental_run_closes_the_cache_it_created(
         self, runner: CliRunner, music_dir: str
     ) -> None:
@@ -186,8 +304,9 @@ class TestStatsCompletenessCommand:
                 closed.append(self)
                 super().close()
 
-        with patch("library_stats.cli.LibraryCache", _SpyCache):
-            result = self._invoke(runner, music_dir, "--incremental")
+        result = self._invoke(
+            runner, music_dir, "--incremental", cache_factory=_SpyCache
+        )
         assert result.exit_code == 0, result.output
         assert len(closed) == 1, "the CLI-created cache was never closed"
         assert closed[0]._conn is None, "close() must drop the connection"

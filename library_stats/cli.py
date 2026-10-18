@@ -1,4 +1,10 @@
-"""CLI command for Library Statistics Dashboard."""
+"""CLI command for Library Statistics Dashboard.
+
+Changed in 1.3.0: completeness covers the five primary fields (title, artist,
+album, track number, year), each completeness run records a trend snapshot in
+``LibraryCache``, and ``--trend`` / ``--history-limit`` / ``--no-history``
+expose the recorded series (PLAN D41).
+"""
 
 from __future__ import annotations
 
@@ -51,9 +57,41 @@ from library_stats.library_cache import LibraryCache
     "--detail",
     default=None,
     type=click.Choice(
-        ["bpm", "key", "genre", "mood", "tempo_marking", "album_art", "replaygain"]
+        [
+            "title",
+            "artist",
+            "album",
+            "track_number",
+            "year",
+            "bpm",
+            "key",
+            "genre",
+            "mood",
+            "tempo_marking",
+            "album_art",
+            "replaygain",
+        ]
     ),
     help="With --completeness, list files missing the given tag.",
+)
+@click.option(
+    "--trend",
+    is_flag=True,
+    default=False,
+    help="Show the recorded completeness trend for this directory.",
+)
+@click.option(
+    "--history-limit",
+    default=12,
+    show_default=True,
+    type=click.IntRange(1, 100),
+    help="Snapshots to show with --trend.",
+)
+@click.option(
+    "--no-history",
+    is_flag=True,
+    default=False,
+    help="Do not record this run's completeness snapshot.",
 )
 def stats(
     directory: str,
@@ -64,6 +102,9 @@ def stats(
     export_json: str | None,
     completeness: bool,
     detail: str | None,
+    trend: bool,
+    history_limit: int,
+    no_history: bool,
 ) -> None:
     """Scan library and show aggregate tag statistics (read-only).
 
@@ -76,6 +117,9 @@ def stats(
 
     Use --completeness to additionally report what percentage of files carry
     each tag.  Add --detail <tag> to list the specific files missing a tag.
+    Each completeness run records a snapshot (used by --trend), unless
+    --no-history is given or --incremental/--refresh already skips no work;
+    --trend prints the newest --history-limit snapshots for this directory.
     """
     from library_stats.core.completeness import (
         analyse_completeness,
@@ -84,10 +128,14 @@ def stats(
     from library_stats.library_stats import export_json as _export_json
     from library_stats.library_stats import scan_directory
 
-    want_completeness = completeness or detail is not None
+    want_completeness = completeness or detail is not None or trend
 
     use_cache = incremental or refresh
-    cache: LibraryCache | None = LibraryCache() if use_cache else None
+    # History needs the cache even without --incremental: reading a trend is
+    # enough reason to open it, and `--no-history` keeps a plain completeness
+    # run free of writes.
+    needs_cache = use_cache or (want_completeness and (not no_history or trend))
+    cache: LibraryCache | None = LibraryCache() if needs_cache else None
 
     if refresh and cache is not None:
         cache.clear_dir(directory)
@@ -110,8 +158,20 @@ def stats(
         completeness_report = (
             analyse_completeness(directory) if want_completeness else None
         )
+        history: list[dict[str, Any]] = []
+        if completeness_report is not None and cache is not None:
+            if not no_history:
+                try:
+                    cache.record_completeness_snapshot(completeness_report)
+                except sqlite3.Error as exc:
+                    click.echo(
+                        f"  Warning: completeness history not recorded: {exc}",
+                        err=True,
+                    )
+            if trend:
+                history = cache.completeness_history(directory, limit=history_limit)
         elapsed = time.monotonic() - start
-        if cache is not None:
+        if cache is not None and use_cache:
             cache_info = f" | {cache.row_count(directory)} cached"
     except (OSError, ValueError, sqlite3.Error, AudioSuiteError) as exc:
         click.echo(f"  FATAL: {exc}", err=True)
@@ -128,6 +188,8 @@ def stats(
         payload = dataclasses.asdict(report)
         if completeness_report is not None:
             payload["completeness"] = completeness_report.to_dict()
+        if trend:
+            payload["trend"] = history
         click.echo(_json.dumps(payload, indent=2, default=str))
         return
 
@@ -159,6 +221,9 @@ def stats(
 
     if completeness_report is not None:
         _echo_completeness(completeness_report, detail)
+
+    if trend:
+        _echo_trend(history)
 
     if export_csv:
         try:
@@ -203,6 +268,23 @@ def _echo_completeness(report: Any, detail: str | None = None) -> None:
         click.echo(f"  Files missing {tc.label} ({tc.missing}):")
         for path in tc.missing_files:
             click.echo(f"    {path}")
+
+
+def _echo_trend(history: list[dict[str, Any]]) -> None:
+    """Print the recorded completeness trend, oldest first."""
+    click.echo("")
+    if not history:
+        click.echo(
+            "  Completeness Trend: no snapshots recorded yet for this directory."
+        )
+        return
+    click.echo(f"  Completeness Trend (last {len(history)} scans):")
+    for snapshot in history:
+        recorded = str(snapshot.get("recorded_at", ""))[:19]
+        click.echo(
+            f"    {recorded:<19} {int(snapshot.get('total_files', 0)):>6} files"
+            f"   {float(snapshot.get('overall_pct', 0.0)):>6.1f}% complete"
+        )
 
 
 def _completeness_status(pct: float) -> str:

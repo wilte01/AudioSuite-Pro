@@ -31,19 +31,33 @@ Versions of the tools are released together with the suite (the single
   files, one bar per key) and that a re-scan replaces the previous canvas
   instead of stacking a new one.
 
+- **Library Statistics: the completeness dashboard shows *where* the gaps are,
+  and whether they are closing.** Completeness now covers the five primary
+  library fields — title, artist, album, track number and year — alongside the
+  analysis tags it already tracked, and it reads each file **once** instead of
+  twelve times (measured 1.5 ms → 0.16 ms per file on MP3), so the wider
+  dashboard is cheaper than the narrow one was. A missing-tags-by-album heatmap sits under the tag
+  bars, worst album first, with files that carry no album grouped honestly as
+  `(no album)` rather than dropped. Each scan records a completeness snapshot in
+  the cache (identical consecutive snapshots are suppressed, the newest 100 per
+  folder are kept) and the Charts tab plots the overall percentage over time;
+  `stats --trend` prints the series, `--history-limit` chooses its length, and
+  `--no-history` keeps a scan from recording anything.
+
 ### Changed
 
 - **Library Statistics: cached scans are orders of magnitude faster, with the
   same numbers.** The cache now commits a scan as one transaction instead of
-  one per file (measured on 20 000 rows: 39.1 s → 0.24 s), reads every cached
-  modification time in a single scoped query instead of one lookup per file
-  (115 ms → 17 ms), and chooses per query whether an indexed path range or the
-  existing sequential predicate is cheaper — an index only pays off for a
-  narrow scope (one album inside a large cache: 6.1 ms → 0.005 ms), while a
-  whole-library scan is faster sequentially, so the decision is made from the
-  real row counts rather than always-on indexing. Existing cache databases are
-  migrated in place on first connect, and every report is asserted identical
-  either way.
+  one per file (measured on 20 000 rows: 39.1 s → 0.24 s) and reads every
+  cached modification time in a single query instead of one lookup per file
+  (113 ms → 17 ms). A report for one album inside a large cache no longer
+  scans the whole cache: its scope resolves through an indexed path range when
+  the scope is a genuinely small slice (0.05 ms against ~17 ms for one
+  sequential pass over 20 000 rows) and falls back to the sequential predicate
+  when it is not, because an index is slower at whole-library selectivity. The
+  decision is made from real row counts, existing cache databases are migrated
+  in place on first connect, and both plans are asserted to return identical
+  aggregates.
 
 ## [1.2.0] - 2026-10-17
 

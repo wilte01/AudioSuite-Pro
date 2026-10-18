@@ -336,6 +336,33 @@ class TestScanFlow:
         assert completeness.total_files == 2
         assert app._comp_overall_var.get().startswith("Overall")
 
+    def test_scan_records_one_trend_snapshot(
+        self,
+        app: app_module.LibraryStatsApp,
+        library: Path,
+        scan_reads: None,
+        isolated_cache: LibraryCache,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The dashboard writes one trend point per distinct scan (D41)."""
+        _patch_after(app, monkeypatch)
+        monkeypatch.setattr(app_module, "threading", MagicMock())
+        app.folder_path.set(str(library))
+
+        app._do_scan(str(library), refresh=False)
+        report, completeness = app.root.after.call_args.args[2:]
+        app._on_scan_complete(report, completeness)
+
+        history = isolated_cache.completeness_history(str(library))
+        assert len(history) == 1
+        assert history[0]["total_files"] == 2
+
+        # Re-scanning unchanged content must not pad the trend series.
+        app._do_scan(str(library), refresh=False)
+        report2, completeness2 = app.root.after.call_args.args[2:]
+        app._on_scan_complete(report2, completeness2)
+        assert len(isolated_cache.completeness_history(str(library))) == 1
+
     def test_uses_cache_when_enabled(
         self,
         app: app_module.LibraryStatsApp,
@@ -683,6 +710,39 @@ class TestCompletenessRendering:
         assert "No audio files found" in app._comp_missing_text.get("1.0", "end")
         assert app._comp_overall_var.get() == ""
 
+    def test_heatmap_is_embedded_in_the_completeness_tab(
+        self,
+        app: app_module.LibraryStatsApp,
+        library: Path,
+        scan_reads: None,
+    ) -> None:
+        """The per-album heatmap goes here, not in a fifth tab (PLAN D38)."""
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+        completeness = analyse_completeness(str(library))
+        app._update_completeness(completeness)
+
+        assert isinstance(app._comp_heatmap_canvas, FigureCanvasTkAgg)
+        heatmap_axes = app._comp_heatmap_canvas.figure.axes[0]
+        assert len(heatmap_axes.images) == 1
+        assert len(heatmap_axes.get_yticks()) == len(completeness.album_results)
+        # Still four tabs: the heatmap must not have widened the layout.
+        assert len(app._notebook.tabs()) == 4
+
+    def test_heatmap_replaces_the_previous_canvas(
+        self,
+        app: app_module.LibraryStatsApp,
+        library: Path,
+        scan_reads: None,
+    ) -> None:
+        completeness = analyse_completeness(str(library))
+        app._update_completeness(completeness)
+        first = app._comp_heatmap_canvas
+        app._update_completeness(completeness)
+
+        assert app._comp_heatmap_canvas is not first
+        assert len(app._comp_heatmap_frame.winfo_children()) == 1
+
 
 class TestChartRendering:
     """The Charts tab against real matplotlib (Sprint 3, PLAN D37)."""
@@ -700,7 +760,7 @@ class TestChartRendering:
             "virtualenv created with 'uv sync --all-extras'"
         )
 
-    def test_scan_renders_four_data_panels(
+    def test_scan_renders_data_panels_and_trend(
         self,
         app: app_module.LibraryStatsApp,
         library: Path,
@@ -720,6 +780,7 @@ class TestChartRendering:
             "BPM Distribution",
             "Top Keys",
             "Year Distribution",
+            "Completeness Trend",
         ]
         # One pie wedge for the single genre ("House").
         assert len(figure.axes[0].patches) == 1
@@ -741,8 +802,46 @@ class TestChartRendering:
 
         assert app._chart_canvas is not None
         figure = app._chart_canvas.figure
-        assert len(figure.axes) == 4
+        assert len(figure.axes) == 5
         assert len(figure.axes[0].patches) == 0
+        # No history yet: the trend panel explains itself instead of being
+        # an empty axis a user would read as a rendering failure.
+        trend = figure.axes[4]
+        assert len(trend.lines) == 0
+        assert any("No history" in text.get_text() for text in trend.texts)
+
+    def test_trend_panel_draws_the_history(
+        self,
+        app: app_module.LibraryStatsApp,
+        library: Path,
+        scan_reads: None,
+    ) -> None:
+        report = scan_directory(str(library), use_cache=False)
+        history = [
+            {
+                "recorded_at": "2026-10-01 10:00:00",
+                "total_files": 2,
+                "overall_pct": 40.0,
+                "tag_pcts": {},
+            },
+            {
+                "recorded_at": "2026-10-02 10:00:00",
+                "total_files": 2,
+                "overall_pct": 80.0,
+                "tag_pcts": {},
+            },
+        ]
+
+        app._update_charts(report, history)
+
+        figure = app._chart_canvas.figure
+        trend = figure.axes[4]
+        assert len(trend.lines) == 1
+        assert list(trend.lines[0].get_ydata()) == [40.0, 80.0]
+        assert [tick.get_text() for tick in trend.get_xticklabels()] == [
+            "2026-10-01",
+            "2026-10-02",
+        ]
 
     def test_second_render_replaces_the_first(
         self,

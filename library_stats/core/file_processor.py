@@ -507,13 +507,12 @@ def _build_report_from_cache(
 
     cache_obj: LibraryCache = cache
 
-    where, params = cache_obj.scope_predicate(dir_path)
+    cache_obj.select_scope(dir_path)
     conn = cache._connect()
     cur = conn.execute(
-        f"""SELECT path, format, bpm, key, genre, mood, tempo_marking,
-                   album_artist, artist_album, year
-            FROM files WHERE {where}""",
-        params,
+        """SELECT path, format, bpm, key, genre, mood, tempo_marking,
+                  album_artist, artist_album, year
+           FROM temp._scope_files"""
     )
     rows = cur.fetchall()
 

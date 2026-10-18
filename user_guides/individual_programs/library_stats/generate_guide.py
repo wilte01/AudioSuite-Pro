@@ -1,4 +1,9 @@
-"""Generate a fresh Library Statistics guide from the current implementation."""
+"""Generate a fresh Library Statistics guide from the current implementation.
+
+Changed in 1.3.0: documents the five primary completeness fields, the
+missing-tags-by-album heatmap and the completeness trend (with its --trend,
+--history-limit and --no-history options); PLAN D41.
+"""
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -143,12 +148,12 @@ doc.add_paragraph(
 doc.add_heading("Completeness Tab", level=1)
 doc.add_paragraph(
     "Completeness separately checks whether each supported field"
-    " is present: BPM, Key, "
-    "Genre, Mood, Tempo Marking, Album Art, and ReplayGain. It "
-    "shows total, present, "
-    "missing, and percentage-complete values for each field, "
-    "plus an overall percentage "
-    "across all fields."
+    " is present: Title, Artist, "
+    "Album, Track Number, Year, BPM, Key, Genre, Mood, Tempo "
+    "Marking, Album Art, and "
+    "ReplayGain. It shows total, present, missing, and "
+    "percentage-complete values for "
+    "each field, plus an overall percentage across all fields."
 )
 bullet(doc, "Green: ", "More than 80 percent complete.")
 bullet(doc, "Amber: ", "50 through 80 percent complete.")
@@ -162,10 +167,34 @@ bullet(
 )
 bullet(
     doc,
+    "Missing tags by album: ",
+    "A heatmap under the tag bars shades every album by the "
+    "percentage of its files missing "
+    "each tag, with the worst albums at the top. Files without "
+    "an album tag are grouped "
+    "together as (no album).",
+)
+bullet(
+    doc,
     "Completeness exports: ",
     "Save CSV writes the per-tag table; Save JSON includes the "
-    "full report and missing-file "
-    "lists.",
+    "full report, the per-album "
+    "tallies, and missing-file lists.",
+)
+
+doc.add_heading("Completeness Trend", level=1)
+doc.add_paragraph(
+    "Each scan records a completeness snapshot in the Library "
+    "Statistics cache, and the "
+    "Charts tab draws the overall percentage over time. A "
+    "snapshot identical to the "
+    "previous one for the same folder is not recorded again, so "
+    "opening the dashboard "
+    "repeatedly does not pad the trend, and only the newest 100 "
+    "snapshots per folder are "
+    "kept. Use --trend on the command line to print the series "
+    "and --no-history to scan "
+    "without recording a snapshot."
 )
 
 doc.add_heading("Statistics and Binning", level=1)
@@ -217,17 +246,21 @@ doc.add_paragraph(
     "python -m audio_suite_shared.cli_app stats <folder> "
     "--completeness --detail bpm\n"
     "python -m audio_suite_shared.cli_app stats <folder> "
+    "--trend --history-limit 24\n"
+    "python -m audio_suite_shared.cli_app stats <folder> "
     "--export-json report.json"
 )
 doc.add_paragraph(
     "Options include --incremental, --refresh, --export-csv, "
     "--export-json, --completeness, "
     "--detail "
-    "bpm|key|genre|mood|tempo_marking|album_art|replaygain, "
-    "and --json. The CLI "
-    "prints aggregate counts, format breakdown, missing-data "
-    "percentages, and optional "
-    "completeness."
+    "title|artist|album|track_number|year|bpm|key|genre|mood|"
+    "tempo_marking|album_art|replaygain, "
+    "--trend, --history-limit, --no-history, and --json. The "
+    "CLI prints aggregate "
+    "counts, format breakdown, missing-data percentages, "
+    "optional completeness, and "
+    "the recorded trend when asked for it."
 )
 
 doc.add_heading("Troubleshooting", level=1)
