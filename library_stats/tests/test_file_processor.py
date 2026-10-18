@@ -10,6 +10,10 @@ All tag readers are patched on their module-level bindings
 (library_stats.core.file_processor), matching the pattern in
 test_library_stats.py; the SQLite cache uses a tmp_path database.
 
+Changed in 1.3.0: pins the cached-scan fast path — an unchanged library reads
+no tags and performs no per-file ``file_is_cached`` lookup — and that a
+backdated mtime re-reads only that file.
+
 Changed in 1.0.1: adds the valid-JSON-non-list ``artist_album`` cache-row
 regression (a value that decodes but is not a 2-element list must be ignored,
 not raise a TypeError).
@@ -189,6 +193,62 @@ class TestCachedScan:
         cache.close()
         assert report.total_files == 1
         assert report.bpm_distribution == {"120\u2013139": 1}
+
+    def test_cache_hit_skips_every_tag_read(self, tmp_path: Path) -> None:
+        """An unchanged file must not be re-read, and no per-file lookup runs.
+
+        3.2 replaced the per-file ``file_is_cached`` query with one scoped
+        ``get_cached_mtimes`` read, so a regression to per-row lookups (or to
+        re-reading tags) fails here rather than only on a 20 000-file
+        library.
+        """
+        (tmp_path / "a.mp3").write_bytes(b"x")
+        (tmp_path / "b.mp3").write_bytes(b"y")
+        cache = LibraryCache(tmp_path / "cache.db")
+        with _reader_mocks() as r:
+            r["read_bpm"].return_value = 128
+            first = scan_directory(str(tmp_path), use_cache=True, cache=cache)
+        assert first.total_files == 2
+        assert len(first.bpm_distribution) == 1
+
+        with (
+            patch.object(
+                cache,
+                "file_is_cached",
+                side_effect=AssertionError(
+                    "cache scan used the per-file file_is_cached() lookup"
+                ),
+            ),
+            _reader_mocks() as r2,
+        ):
+            second = scan_directory(str(tmp_path), use_cache=True, cache=cache)
+        cache.close()
+
+        r2["read_bpm"].assert_not_called()
+        assert second.total_files == 2
+        assert second.bpm_distribution == first.bpm_distribution
+
+    def test_changed_mtime_re_reads_that_file(self, tmp_path: Path) -> None:
+        (tmp_path / "a.mp3").write_bytes(b"x")
+        cache = LibraryCache(tmp_path / "cache.db")
+        with _reader_mocks() as r:
+            r["read_bpm"].return_value = 100
+            scan_directory(str(tmp_path), use_cache=True, cache=cache)
+        stale = cache.get_cached_mtimes(str(tmp_path))
+        assert stale
+
+        # Backdate the cached mtime so the file looks changed.
+        conn = cache._connect()
+        conn.execute("UPDATE files SET mtime = mtime - 10")
+        conn.commit()
+
+        with _reader_mocks() as r2:
+            r2["read_bpm"].return_value = 170
+            second = scan_directory(str(tmp_path), use_cache=True, cache=cache)
+        cache.close()
+
+        r2["read_bpm"].assert_called()
+        assert second.bpm_distribution == {"160\u2013179": 1}
 
     def test_missing_tags_counters_from_cache(self, tmp_path: Path) -> None:
         (tmp_path / "a.mp3").write_bytes(b"x")

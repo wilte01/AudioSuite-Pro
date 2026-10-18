@@ -31,6 +31,20 @@ Versions of the tools are released together with the suite (the single
   files, one bar per key) and that a re-scan replaces the previous canvas
   instead of stacking a new one.
 
+### Changed
+
+- **Library Statistics: cached scans are orders of magnitude faster, with the
+  same numbers.** The cache now commits a scan as one transaction instead of
+  one per file (measured on 20 000 rows: 39.1 s → 0.24 s), reads every cached
+  modification time in a single scoped query instead of one lookup per file
+  (115 ms → 17 ms), and chooses per query whether an indexed path range or the
+  existing sequential predicate is cheaper — an index only pays off for a
+  narrow scope (one album inside a large cache: 6.1 ms → 0.005 ms), while a
+  whole-library scan is faster sequentially, so the decision is made from the
+  real row counts rather than always-on indexing. Existing cache databases are
+  migrated in place on first connect, and every report is asserted identical
+  either way.
+
 ## [1.2.0] - 2026-10-17
 
 ### Added

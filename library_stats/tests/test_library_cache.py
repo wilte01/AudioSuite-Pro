@@ -1,5 +1,10 @@
 """Tests for library_stats.library_cache — SQLite cache CRUD and helpers.
 
+Changed in 1.3.0: adds the ``path_fold`` migration/lookup tests, the
+scope-selectivity rule tests (narrow scope uses ``idx_files_path_fold``, wide
+scope keeps the sequential predicate, both return identical aggregates) and
+the ``batch()`` transaction tests (deferred commit, rollback, nested groups).
+
 Changed in 1.0.1: adds auto_vacuum regression tests asserting new cache
 databases are born with the FULL flag and legacy files are converted on
 connect so delete-heavy prunes never leave free-page bloat behind. Also in
@@ -19,10 +24,12 @@ import pytest
 
 from library_stats.library_cache import (
     _SCHEMA_SQL,
+    _SCHEMA_VERSION,
     LibraryCache,
     _bpm_bin,
     _classify_key_mode,
     _decade_bin,
+    _path_fold,
     _path_hash,
 )
 
@@ -619,6 +626,213 @@ class TestQueryAggregate:
         }
         # bpm_distribution is built by the cached-scan report path, not here.
         assert "bpm_distribution" not in agg
+
+
+# ── LibraryCache: path_fold column, migration & batching (3.2) ───────────────
+
+# Frozen copy of the pre-1.3.0 schema: a cache written by an older build must
+# be migrated in place, so the literal is deliberately not ``_SCHEMA_SQL``.
+_LEGACY_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS files (
+    path_hash TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    dir_path TEXT NOT NULL,
+    mtime REAL NOT NULL,
+    size INTEGER,
+    format TEXT,
+    bpm INTEGER,
+    key TEXT,
+    genre TEXT,
+    mood TEXT,
+    tempo_marking TEXT,
+    album_artist TEXT,
+    artist_album TEXT,
+    year INTEGER,
+    scanned_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_files_dir ON files(dir_path);
+"""
+
+
+def _fill(cache: LibraryCache, root: Path, count: int) -> None:
+    """Upsert *count* synthetic rows beneath *root*."""
+    for i in range(count):
+        cache.upsert_file(
+            str(root / f"t{i}.mp3"), mtime=float(i), size=1, format_ext=".mp3"
+        )
+
+
+class TestPathFold:
+    """The indexed ``path_fold`` column and its one-time migration."""
+
+    def test_upsert_writes_path_fold(
+        self, cache: LibraryCache, sample_file: str
+    ) -> None:
+        cache.upsert_file(sample_file, mtime=1.0, size=1, format_ext=".mp3")
+        row = cache._connect().execute("SELECT path_fold FROM files").fetchone()
+        assert row is not None
+        assert row[0] == _path_fold(sample_file)
+
+    def test_legacy_database_is_migrated_in_place(self, tmp_path: Path) -> None:
+        db = tmp_path / "legacy.db"
+        path = str(tmp_path / "Song.mp3")
+        raw = sqlite3.connect(str(db), timeout=30)
+        try:
+            raw.executescript(_LEGACY_SCHEMA_SQL)
+            assert int(raw.execute("PRAGMA user_version").fetchone()[0]) == 0
+            raw.execute(
+                "INSERT INTO files "
+                "(path_hash, path, dir_path, mtime, size, format) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                [_path_hash(path), path, str(tmp_path), 1.0, 1, ".mp3"],
+            )
+            raw.commit()
+        finally:
+            raw.close()
+
+        with LibraryCache(db) as cache:
+            conn = cache._connect()
+            version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            assert version == _SCHEMA_VERSION
+            row = conn.execute("SELECT path_fold FROM files").fetchone()
+            assert row is not None
+            # Backfilled rows keep every scoped read working.
+            assert row[0] == _path_fold(path)
+            assert cache.row_count(str(tmp_path)) == 1
+            assert list(cache.get_cached_mtimes(str(tmp_path))) == [path]
+            agg = cache.query_aggregate(str(tmp_path))
+            assert agg is not None
+            assert agg["total_files"] == 1
+
+    def test_migration_runs_once(self, tmp_path: Path) -> None:
+        db = tmp_path / "once.db"
+        with LibraryCache(db) as cache:
+            cache.upsert_file(
+                str(tmp_path / "a.mp3"), mtime=1.0, size=1, format_ext=".mp3"
+            )
+        with LibraryCache(db) as cache:
+            conn = cache._connect()
+            assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == (
+                _SCHEMA_VERSION
+            )
+            # Re-running the migration must not duplicate rows or lose data.
+            assert cache.row_count() == 1
+            assert (
+                cache._connect()
+                .execute("SELECT COUNT(*) FROM files WHERE path_fold IS NULL")
+                .fetchone()[0]
+                == 0
+            )
+
+
+class TestScopePredicate:
+    """Index range for narrow scopes, sequential INSTR for wide ones."""
+
+    def test_narrow_scope_uses_index_range(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        _fill(cache, tmp_path / "big", 20)
+        _fill(cache, tmp_path / "small", 2)
+
+        sql, params = cache.scope_predicate(str(tmp_path / "small"))
+        assert "path_fold >= ?" in sql
+        plan = (
+            cache._connect()
+            .execute(
+                f"EXPLAIN QUERY PLAN SELECT COUNT(*) FROM files WHERE {sql}", params
+            )
+            .fetchall()
+        )
+        assert any("idx_files_path_fold" in str(row) for row in plan)
+
+    def test_wide_scope_uses_sequential_predicate(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        _fill(cache, tmp_path, 20)
+        sql, _params = cache.scope_predicate(str(tmp_path))
+        assert "INSTR" in sql
+
+    def test_narrow_scope_sees_only_its_own_rows(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        _fill(cache, tmp_path / "big", 20)
+        _fill(cache, tmp_path / "small", 2)
+        small = str(tmp_path / "small")
+
+        assert cache.row_count(small) == 2
+        mtimes = cache.get_cached_mtimes(small)
+        assert len(mtimes) == 2
+        assert all(os.path.normcase(small) in os.path.normcase(p) for p in mtimes)
+        agg = cache.query_aggregate(small)
+        assert agg is not None
+        assert agg["total_files"] == 2
+
+    def test_index_and_sequential_paths_agree(self, tmp_path: Path) -> None:
+        """The rule chooses a plan, never a different answer."""
+        indexed = LibraryCache(tmp_path / "indexed.db")
+        sequential = LibraryCache(tmp_path / "sequential.db")
+        try:
+            _fill(indexed, tmp_path / "big", 20)
+            _fill(indexed, tmp_path / "small", 2)
+            _fill(sequential, tmp_path / "small", 2)
+
+            small = str(tmp_path / "small")
+            assert "path_fold >=" in indexed.scope_predicate(small)[0]
+            assert "INSTR" in sequential.scope_predicate(small)[0]
+
+            a = indexed.query_aggregate(small)
+            b = sequential.query_aggregate(small)
+            assert a is not None and b is not None
+            a.pop("scan_path")
+            b.pop("scan_path")
+            assert a == b
+        finally:
+            indexed.close()
+            sequential.close()
+
+
+class TestBatch:
+    """``batch()`` groups writes into one transaction (commit-per-row is slow)."""
+
+    def test_commit_deferred_until_block_exits(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        cache._connect()
+        reader = sqlite3.connect(str(cache.db_path), timeout=30)
+        try:
+            with cache.batch():
+                _fill(cache, tmp_path, 5)
+                # A separate connection cannot see uncommitted rows: proof the
+                # block owns the transaction instead of committing per row.
+                assert reader.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 0
+            assert reader.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 5
+        finally:
+            reader.close()
+
+    def test_exception_rolls_the_group_back(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        with pytest.raises(RuntimeError):
+            with cache.batch():
+                _fill(cache, tmp_path, 3)
+                raise RuntimeError("boom")
+        assert cache.row_count() == 0
+
+    def test_nested_batches_commit_once(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        cache._connect()
+        reader = sqlite3.connect(str(cache.db_path), timeout=30)
+        try:
+            with cache.batch():
+                _fill(cache, tmp_path / "outer", 2)
+                with cache.batch():
+                    _fill(cache, tmp_path / "inner", 2)
+                # The inner block must not commit on the outer block's behalf.
+                assert reader.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 0
+            assert reader.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 4
+        finally:
+            reader.close()
 
 
 # ── _classify_key_mode ────────────────────────────────────────────────────────
