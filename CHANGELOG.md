@@ -9,7 +9,16 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Library Statistics: the Charts tab now actually renders.** matplotlib was
+  never a declared dependency, so a fresh install opened the dashboard with a
+  "matplotlib not installed" message where the four charts belong — and the
+  chart code was therefore never exercised by the suite. It is now a declared
+  dependency and the charts are covered by tests that assert the data reaches
+  the artists (one pie wedge per genre, the BPM bucket holding the measured
+  files, one bar per key) and that a re-scan replaces the previous canvas
+  instead of stacking a new one.
 
 ## [1.2.0] - 2026-10-17
 

@@ -7,6 +7,10 @@
 # Changed in 1.2.0: bumped [project] version 1.1.0 -> 1.2.0 (Sprint 2 feature
 # release - MusicBrainz integration, AccurateRip confidence/re-rip, ISRC
 # submission; PLAN_feature_expansion.md D36).
+# Changed in 1.3.0: declares matplotlib as a real dependency (Sprint 3, D37).
+# It was never declared, yet library_stats already imported it for its Charts
+# tab, so every fresh install rendered a "matplotlib not installed" message
+# instead of charts and the chart code was untested.
 
 [build-system]
 # setuptools >= 77 is required by the PEP 639 metadata below: the SPDX
@@ -32,6 +36,7 @@ dependencies = [
     "click>=8.0.0",
     "cryptography>=3.4.8",
     "librosa>=0.10.0",
+    "matplotlib>=3.8",
     "mutagen>=1.46.0",
     "numpy>=1.21.0",
     "pedalboard>=0.9.23",

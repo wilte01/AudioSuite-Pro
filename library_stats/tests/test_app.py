@@ -10,9 +10,16 @@ run for real; only the per-file tag readers are mocked, matching the
 established ``test_file_processor.py`` convention. The constructor runs on a
 withdrawn ``Toplevel`` off the shared hidden Tk root - no real ``tk.Tk()``.
 
-Chart rendering (the ``HAVE_MPL`` block) is not exercised because matplotlib
-is not a declared dependency of this suite; the graceful no-matplotlib branch
-of ``_update_charts`` is covered via the flows instead.
+Chart rendering is exercised for real since Sprint 3 (PLAN_feature_expansion.md
+D37): matplotlib is a declared dependency now, so ``TestChartRendering`` builds
+the four-panel figure through the real ``_update_charts`` and asserts what the
+axes actually contain, rather than trusting that a canvas object exists. A
+separate test asserts ``HAVE_MPL`` is True so a half-installed interpreter fails
+loudly instead of silently taking the fallback branch.
+
+Changed in 1.3.0: adds the real chart-rendering locks and makes the cache-scan
+test build its scan on the main thread (a real worker thread calling
+``root.after`` is a race, not a scenario the suite controls).
 """
 
 from __future__ import annotations
@@ -337,11 +344,16 @@ class TestScanFlow:
         isolated_cache: LibraryCache,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        _patch_after(app, monkeypatch)
+        after = _patch_after(app, monkeypatch)
+        # The worker thread is not what this test is about, and a real thread
+        # calling ``root.after`` races the Tk interpreter ("main thread is not
+        # in main loop"); the scan itself runs below, on the main thread.
+        monkeypatch.setattr(app_module, "threading", MagicMock())
         app.folder_path.set(str(library))
 
         app._start_scan(refresh=False)
         app._do_scan(str(library), refresh=False)
+        assert after.call_args is not None
 
         assert app.root.after.call_args is not None
         report, completeness = app.root.after.call_args.args[2:]
@@ -670,3 +682,81 @@ class TestCompletenessRendering:
 
         assert "No audio files found" in app._comp_missing_text.get("1.0", "end")
         assert app._comp_overall_var.get() == ""
+
+
+class TestChartRendering:
+    """The Charts tab against real matplotlib (Sprint 3, PLAN D37)."""
+
+    def test_matplotlib_is_a_declared_dependency(self) -> None:
+        """A missing matplotlib fails here instead of degrading silently.
+
+        The gate must run from the project virtualenv, which carries every
+        declared dependency; a bare ``python`` on PATH is a partial
+        environment. Without this assertion a run there would quietly take
+        the ``HAVE_MPL`` fallback branch and still look green.
+        """
+        assert app_module.HAVE_MPL is True, (
+            "matplotlib must be importable for the suite: run the gate from a "
+            "virtualenv created with 'uv sync --all-extras'"
+        )
+
+    def test_scan_renders_four_data_panels(
+        self,
+        app: app_module.LibraryStatsApp,
+        library: Path,
+        scan_reads: None,
+    ) -> None:
+        """The fixture library's tags reach the artists, not just the axes."""
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+        report = scan_directory(str(library), use_cache=False)
+
+        app._update_charts(report)
+
+        assert isinstance(app._chart_canvas, FigureCanvasTkAgg)
+        figure = app._chart_canvas.figure
+        assert [ax.get_title() for ax in figure.axes] == [
+            "Top Genres",
+            "BPM Distribution",
+            "Top Keys",
+            "Year Distribution",
+        ]
+        # One pie wedge for the single genre ("House").
+        assert len(figure.axes[0].patches) == 1
+        # Only the tagged file carries BPM 128, so the 120-139 bucket (index
+        # 4 of the ordered bins) holds the single measured file.
+        heights = [patch.get_height() for patch in figure.axes[1].patches]
+        assert sum(heights) == 1
+        assert heights[4] == 1
+        # One horizontal bar for the single key ("Cm").
+        assert len(figure.axes[2].patches) == 1
+        # The canvas widget is embedded in the Charts frame.
+        assert app._charts_frame.winfo_children()
+
+    def test_empty_report_still_renders(self, app: app_module.LibraryStatsApp) -> None:
+        """An empty library renders axes with no artists rather than raising."""
+        from library_stats.core.file_processor import StatsReport
+
+        app._update_charts(StatsReport(scan_path="", total_files=0))
+
+        assert app._chart_canvas is not None
+        figure = app._chart_canvas.figure
+        assert len(figure.axes) == 4
+        assert len(figure.axes[0].patches) == 0
+
+    def test_second_render_replaces_the_first(
+        self,
+        app: app_module.LibraryStatsApp,
+        library: Path,
+        scan_reads: None,
+    ) -> None:
+        """Re-scanning destroys the previous canvas; frames do not accumulate."""
+        report = scan_directory(str(library), use_cache=False)
+
+        app._update_charts(report)
+        first = app._chart_canvas
+        app._update_charts(report)
+
+        assert app._chart_canvas is not first
+        children = app._charts_frame.winfo_children()
+        assert len(children) == 1
