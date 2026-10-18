@@ -9,6 +9,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.3.0] - 2026-10-18
+
 ### Added
 
 - **Spectral Viewer — see what a file actually sounds like.** A new tool renders
