@@ -14,6 +14,9 @@ Covers:
     • configure_logging: sys/threading excepthooks installed and logging
       uncaught exceptions with full tracebacks
     • bootstrap_tool_app: Tkinter report_callback_exception routed to the log
+
+Changed in 1.3.0: covers the deferred What's New offer that bootstrap_tool_app
+schedules for every tool it starts.
 """
 
 from __future__ import annotations
@@ -371,6 +374,31 @@ class TestBootstrapToolApp:
         from tkinter import ttk
 
         assert isinstance(style, ttk.Style)
+
+    def test_schedules_the_release_notes_panel(self, setup_tk, monkeypatch) -> None:
+        """Every tool bootstrapped through this helper offers the panel.
+
+        The offer is deferred with ``after_idle`` so the tool draws first; the
+        panel itself is stubbed here, so this pins the wiring, not the widget.
+        """
+        from audio_suite_shared import app_bootstrap
+
+        offered: list[object] = []
+        monkeypatch.setattr(app_bootstrap, "offer_pending", offered.append)
+        before = len(offered)
+
+        app_bootstrap.bootstrap_tool_app(
+            setup_tk, "Notes App", "notes_window_key", "notes_logger"
+        )
+        setup_tk.update()
+
+        # The shared root may also run idles scheduled by earlier bootstrap
+        # tests, so the assertion is "this call added an offer", not an exact
+        # list.
+        assert len(offered) > before, (
+            "bootstrap_tool_app did not schedule the What's New panel"
+        )
+        assert offered[-1] is setup_tk
 
     def test_returns_none_style_when_apply_ttk_styles_false(self, setup_tk) -> None:
         from audio_suite_shared.app_bootstrap import bootstrap_tool_app

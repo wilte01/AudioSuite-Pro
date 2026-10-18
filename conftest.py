@@ -38,6 +38,11 @@ D1 (Stage 3) completes the marker contract on the same principle:
   consults — and where one is missing, each integration test skips with a
   reason naming the missing binary. The skip is bounded to the marker, so a
   missing ffmpeg can never take the rest of the run with it.
+
+Changed in 1.3.0: the session sets ``AUDIOSUITE_WHATS_NEW=0``, so a test that
+pumps Tk's event loop never pops the release-notes panel or writes
+``last_seen_version`` into the real shared config.  The panel's own suite
+clears the variable and exercises it directly.
 """
 
 from __future__ import annotations
@@ -384,3 +389,25 @@ def _isolated_log_dir(
             os.environ.pop("AUDIOSUITE_LOG_DIR", None)
         else:
             os.environ["AUDIOSUITE_LOG_DIR"] = previous
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _no_release_notes_panel() -> Generator[None, None, None]:
+    """Keep the What's New panel out of every test that builds a real app.
+
+    ``bootstrap_tool_app`` and the Master Driver schedule the panel on idle, so
+    any test that pumps the Tk event loop would otherwise pop a Toplevel and
+    write ``last_seen_version`` into the real ``audio_suite_config.json`` - a
+    click-through dialog is both unwanted and unasserted there.  The panel's
+    own suite clears this variable and calls ``offer_pending``/``show``
+    directly, so the feature is tested rather than disabled.
+    """
+    previous = os.environ.get("AUDIOSUITE_WHATS_NEW")
+    os.environ["AUDIOSUITE_WHATS_NEW"] = "0"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("AUDIOSUITE_WHATS_NEW", None)
+        else:
+            os.environ["AUDIOSUITE_WHATS_NEW"] = previous

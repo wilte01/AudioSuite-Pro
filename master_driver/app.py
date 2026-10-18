@@ -10,6 +10,8 @@ Tab layout:
 Changed in 1.2.0: a completed step's line in the batch report carries the note
 the tool recorded (e.g. a rejected ISRC submission), so a caveat is visible
 without opening that tool's run log.
+Changed in 1.3.0: offers the shared What's New panel after an update (once per
+version) and adds a Help entry to reopen it on demand.
 """
 
 import logging
@@ -19,7 +21,7 @@ from tkinter import filedialog, messagebox, ttk
 from typing import cast
 
 from audio_suite_shared import platform_utils as _shared_platform_utils
-from audio_suite_shared import secure_subprocess, styles, ui_common
+from audio_suite_shared import secure_subprocess, styles, ui_common, whats_new
 from audio_suite_shared import suite_config as _suite_config
 from audio_suite_shared.styles import set_active_palette as _set_palette
 from audio_suite_shared.tool_plugin import get_registry
@@ -94,6 +96,10 @@ class AudioSuiteDriver(UIHelperMixin):
         self.root.configure(bg=styles.BG_APP)
         self._build_ui()
         self._setup_menu()
+
+        # After an update, the hub is the natural place to say what changed.
+        # Deferred so the driver's own window is drawn first.
+        self.root.after_idle(lambda: whats_new.offer_pending(self.root))
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -444,6 +450,7 @@ class AudioSuiteDriver(UIHelperMixin):
         help_menu = tk.Menu(menubar, tearoff=0, font=styles.FONT_BODY)
         menubar.add_cascade(label="Help", menu=help_menu)
         help_menu.add_command(label="User Guide", command=self._open_help)
+        help_menu.add_command(label="What's New", command=self._show_whats_new)
         help_menu.add_separator()
         help_menu.add_command(label="About", command=self._show_about)
 
@@ -465,6 +472,10 @@ class AudioSuiteDriver(UIHelperMixin):
 
     def _open_help(self) -> None:
         self._open_help_standard(self.HELP_GUIDE)
+
+    def _show_whats_new(self) -> None:
+        """Open the release notes for the running version on demand."""
+        whats_new.offer_pending(self.root, force=True)
 
     def _open_refinery_ui(self) -> None:
 

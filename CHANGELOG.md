@@ -9,7 +9,16 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **What's New after an update.** The suite now says what changed instead of
+  leaving you to find the changelog: the first time it starts after an update
+  it shows that version's release notes in a scrollable panel (headings,
+  entries and the bold lead-in on each), and the Master Driver's Help menu can
+  reopen them at any time. The panel appears once per version, tracked in the
+  shared config so it never nags, and it stays out of unattended work: a
+  Master Driver batch launch never opens it, and `AUDIOSUITE_WHATS_NEW=0`
+  disables the automatic panel entirely.
 
 ## [1.3.0] - 2026-10-18
 

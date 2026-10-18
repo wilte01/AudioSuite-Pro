@@ -6,6 +6,8 @@ to the suite root.
 
 Changed in 1.2.0: covers the batch report rendering a completed step's recorded
 note (a refused ISRC submission) on that step's own line.
+Changed in 1.3.0: covers the Help menu's What's New entry and the forced panel
+it opens.
 
 Regression background
 ---------------------
@@ -684,3 +686,41 @@ class TestBatchProgressUI:
 
 def _assert_hidden_widgets(driver):
     return driver._batch_status_text is not None
+
+
+class TestWhatsNew:
+    """The hub offers and reopens the release notes (1.3.0)."""
+
+    def test_help_menu_lists_whats_new(self, driver_app) -> None:
+        menubar = driver_app.root.nametowidget(driver_app.root["menu"])
+        labels = [
+            menubar.entrycget(index, "label")
+            for index in range(menubar.index("end") + 1)
+            if menubar.type(index) == "cascade"
+        ]
+        assert "Help" in labels
+        help_index = labels.index("Help")
+        help_menu = driver_app.root.nametowidget(menubar.entrycget(help_index, "menu"))
+        help_labels = [
+            help_menu.entrycget(index, "label")
+            for index in range(help_menu.index("end") + 1)
+            if help_menu.type(index) == "command"
+        ]
+
+        assert "What's New" in help_labels
+
+    def test_show_whats_new_forces_the_panel(self, driver_app, monkeypatch) -> None:
+        from audio_suite_shared import whats_new
+
+        calls: list[tuple[object, dict[str, object]]] = []
+        monkeypatch.setattr(
+            whats_new,
+            "offer_pending",
+            lambda parent, **kwargs: calls.append((parent, kwargs)),
+        )
+
+        driver_app._show_whats_new()
+
+        assert calls, "the Help entry did not open the release notes"
+        assert calls[0][0] is driver_app.root
+        assert calls[0][1]["force"] is True

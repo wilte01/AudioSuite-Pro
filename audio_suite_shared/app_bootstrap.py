@@ -9,6 +9,9 @@ configure_logging() lives in audio_suite_shared.logging_setup, which is
 Tk-free so the headless CLI can configure the same suite logging without
 importing tkinter; it is re-exported here so the .pyw launchers keep
 their original import path.
+
+Changed in 1.3.0: bootstrap_tool_app schedules the shared What's New panel, so
+every tool offers the release notes for the version it is running.
 """
 
 import logging
@@ -24,6 +27,7 @@ from .error_logger import ErrorLogger, get_logger
 from .logging_setup import _log_uncaught
 from .logging_setup import configure_logging as configure_logging
 from .ui_helpers import UIHelperMixin
+from .whats_new import offer_pending
 
 
 def bootstrap_tool_app(
@@ -100,6 +104,12 @@ def bootstrap_tool_app(
         styles.apply_styles(style)
     else:
         style = None
+
+    # Offered after the tool has drawn its own window, so the release notes
+    # never sit on top of a half-built UI.  ``offer_pending`` is a no-op when
+    # the version was already seen, when the Master Driver launched us, or
+    # when the automatic panel is disabled.
+    root.after_idle(lambda: offer_pending(root))
 
     return error_logger, style
 
