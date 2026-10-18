@@ -13,6 +13,10 @@ Usage:
     registry = get_registry()
     for m in registry.by_category("enrich"):
         print(m.name)
+
+Changed in 1.3.0: registers the ``spectral_viewer`` manifest (Sprint 3, D42),
+the first tool whose manifest is a read-only utility that writes images rather
+than tags.
 """
 
 from __future__ import annotations
@@ -312,6 +316,16 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="stats",
         standalone=True,
         order=50,
+    ),
+    ToolManifest(
+        id="spectral_viewer",
+        name="Spectral Viewer",
+        category="utility",
+        pyw_filename="Spectral_Viewer.pyw",
+        description="Render and export FFT spectrograms",
+        cli_command="spectrogram",
+        standalone=True,
+        order=52,
     ),
     ToolManifest(
         id="file_reorganizer",

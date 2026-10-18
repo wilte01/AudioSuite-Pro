@@ -34,6 +34,8 @@ Changed in 1.0.1: updates the expected key set after the completeness/detail key
 removed.
 
 Changed in 1.2.0: covers the new fingerprinter MusicBrainz / ISRC keys.
+
+Changed in 1.3.0: the expected toggle-key set adds ``spectral_viewer``.
 """
 
 import json
@@ -697,6 +699,7 @@ class TestModuleToggles:
         "audio_normalizer",
         "pop_click_remover",
         "silence_trimmer",
+        "spectral_viewer",
         # Refinery
         "audio_refinery",
     }

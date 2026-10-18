@@ -42,6 +42,10 @@ Usage:
     audiosuite stats /path/to/dir [--full] [--completeness] [--detail album_art]
                            [--export-csv PATH] [--export-json PATH]
                            [--incremental] [--refresh] [--json]
+    audiosuite spectrogram /path/to/dir [--output-dir DIR] [--n-fft 2048]
+                           [--hop-length 512] [--start 0] [--end 0]
+                           [--max-freq 0] [--db-range 80] [--cmap magma]
+                           [--dry] [--json]
     audiosuite convert /path/to/dir [--format flac] [--quality highest]
                            [--sample-rate 44100] [--bit-depth 24]
                            [--output-dir DIR] [--normalize-mp3] [--dry] [--json]
@@ -72,6 +76,7 @@ Commands are registered by importing the corresponding tool's cli module.
 
 Changed in 1.2.0: documents the fingerprint ``--musicbrainz`` and
 ``--write-isrc`` flags.
+Changed in 1.3.0: registers and documents the ``spectrogram`` command.
 """
 
 from __future__ import annotations
@@ -103,6 +108,7 @@ import noise_reduction.cli  # noqa: F401, E402 — reduce
 import pop_click_remover.cli  # noqa: F401, E402  — declick
 import replaygain_analyzer.cli  # noqa: F401, E402  — replaygain
 import silence_trimmer.cli  # noqa: F401, E402  — silence-trim
+import spectral_viewer.cli  # noqa: F401, E402  — spectrogram
 import tag_editor.cli  # noqa: F401, E402  — tag-edit
 import tag_field_updater.cli  # noqa: F401, E402  — tag-update
 import tempo_analyzer.cli  # noqa: F401, E402  — tempo

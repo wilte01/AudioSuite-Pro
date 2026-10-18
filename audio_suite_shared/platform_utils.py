@@ -7,6 +7,8 @@ window placement/persistence, used identically across all suite tools.
 Changed in 1.0.1: restore saved window geometry on monitors with negative
 X/Y coordinates (Tk's ``WxH-X-Y`` form is now parsed instead of split on
 ``+``, which dropped any signed coordinate).
+Changed in 1.3.0: registers the Spectral Viewer's guide filename in
+``guide_to_program`` so its Help button resolves the shipped .docx.
 """
 
 import logging
@@ -127,6 +129,7 @@ def open_help(guide_filename: str) -> None:
         "Pop_Click_Remover_User_Guide.docx": "pop_click_remover",
         "ReplayGain_Analyzer_User_Guide.docx": "replaygain_analyzer",
         "Silence_Trimmer_User_Guide.docx": "silence_trimmer",
+        "Spectral_Viewer_User_Guide.docx": "spectral_viewer",
         "Tag_Field_Updater_User_Guide.docx": "tag_field_updater",
         "Tag_Editor_User_Guide.docx": "tag_editor",
         "Tempo_Analyzer_User_Guide.docx": "tempo_analyzer",

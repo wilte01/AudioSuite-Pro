@@ -63,7 +63,7 @@ The matrix below is **generated from the declared classification** in
 #### Tool tiers
 
 * **Windows-only** — `cd_ripper`. The CD subsystem it drives (Win32 SCSI pass-through, drive enumeration) has no portable implementation; the tool fails fast with a named missing requirement rather than degrading silently.
-* **Portable core** — the other 26 of 27 tools. Each has no platform-conditional code in its own package at all, so its non-Windows CLI path is the same code path as on Windows.
+* **Portable core** — the other 27 of 28 tools. Each has no platform-conditional code in its own package at all, so its non-Windows CLI path is the same code path as on Windows.
 
 #### Branch enumeration
 
@@ -177,6 +177,7 @@ The table below is **generated from the tool manifest**
 | Silence Trimmer | Trim silence and optionally apply fades | `Silence_Trimmer.pyw` | `user_guides/individual_programs/silence_trimmer/Silence_Trimmer_User_Guide.docx` | Portable core |
 | Tag Editor | Edit common tags in an interactive grid | `Tag_Editor.pyw` | `user_guides/individual_programs/tag_editor/Tag_Editor_User_Guide.docx` | Portable core |
 | Library Statistics Dashboard | Read-only tag statistics dashboard | `Library_Stats.pyw` | `user_guides/individual_programs/library_stats/Library_Stats_User_Guide.docx` | Portable core |
+| Spectral Viewer | Render and export FFT spectrograms | `Spectral_Viewer.pyw` | `user_guides/individual_programs/spectral_viewer/Spectral_Viewer_User_Guide.docx` | Portable core |
 | Tag-Based File Reorganizer | Move/copy files into a tag-based folder hierarchy | `File_Reorganizer.pyw` | `user_guides/individual_programs/file_reorganizer/File_Reorganizer_User_Guide.docx` | Portable core |
 | Undo Tag Edits | Restore file tags to the way they were before a batch run | `Undo_Tag_Edits.pyw` | `user_guides/individual_programs/undo_tag_edits/Undo_Tag_Edits_User_Guide.docx` | Portable core |
 

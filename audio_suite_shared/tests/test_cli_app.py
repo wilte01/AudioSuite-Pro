@@ -1,6 +1,8 @@
 """Tests for audio_suite_shared.cli_app — unified Click CLI.
 
 Changed in 1.0.1: adds the positional ``on_progress`` regression.
+Changed in 1.3.0: the ingestibility counts move to 28 tools / 27 CLI commands
+with the Spectral Viewer.
 """
 
 from __future__ import annotations
@@ -467,18 +469,18 @@ class TestDiscoverabilityContract:
     ) -> None:
         """The acceptance criterion, stated without inventing a feature.
 
-        Plan G2 asks that ``--help`` list all 27 tools.  26 of them have a
-        subcommand and so are listed; the 27th (``undo_tag_edits``) is a
+        Plan G2 asks that ``--help`` list every tool.  27 of the 28 have a
+        subcommand and so are listed; the 28th (``undo_tag_edits``) is a
         declared GUI-only gap, and listing it would mean building the CLI
         command the plan explicitly does not ask for.  It is therefore
         covered by ``test_no_undeclared_gap_below`` instead of by help text.
         """
         tools = get_registry().all
-        assert len(tools) == 27
+        assert len(tools) == 28
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         with_subcommand = [m for m in tools if m.cli_command]
-        assert len(with_subcommand) == 26
+        assert len(with_subcommand) == 27
         for manifest in with_subcommand:
             assert manifest.cli_command in result.output, (
                 f"{manifest.id}: '{manifest.cli_command}' is not listed in "
@@ -496,11 +498,11 @@ class TestDiscoverabilityContract:
         with _introspection_context() as context:
             groups = _command_groups(cli, context)
 
-        # A flat alphabetical dump is the failure mode this replaces: with 27
+        # A flat alphabetical dump is the failure mode this replaces: with 28
         # commands and no headings, the reader gets one undifferentiated wall.
         # Require real functional sections, not a decorative one.
         assert len(groups) >= 3, (
-            "top-level help must group 27 commands into functional sections; "
+            "top-level help must group 28 commands into functional sections; "
             f"got {len(groups)}"
         )
         for _category, heading in _CATEGORY_HEADINGS:

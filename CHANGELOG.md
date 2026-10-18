@@ -11,6 +11,17 @@ Versions of the tools are released together with the suite (the single
 
 ### Added
 
+- **Spectral Viewer — see what a file actually sounds like.** A new tool renders
+  an FFT spectrogram for any supported file, in the GUI (`Spectral_Viewer.pyw`,
+  with matplotlib's own zoom/pan toolbar) or as a batch of PNGs from
+  `audiosuite spectrogram <path>`. It reports the codec cut-off, the noise
+  floor, DC offset and clipping at a glance, and it is strictly read-only with
+  respect to audio: the only files it ever writes are images. Every image is
+  normalised to its own peak at a stated dB floor, so a quiet master and a hot
+  one are comparable, and the status line reports the absolute peak in dBFS so
+  the two are still distinguishable. `--dry` prints the exact image paths it
+  would write and writes none of them.
+
 - **Library Statistics: the Charts tab now actually renders.** matplotlib was
   never a declared dependency, so a fresh install opened the dashboard with a
   "matplotlib not installed" message where the four charts belong — and the

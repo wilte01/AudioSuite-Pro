@@ -10,6 +10,10 @@ Library Statistics.
 
 Changed in 1.2.0: emits the fingerprinter's ``--musicbrainz`` and
 ``--write-isrc`` pair.
+
+Changed in 1.3.0: adds the ``spectral_viewer`` entry, which emits
+``[path, mode, start, end]`` plus its optional output directory, FFT size and
+colour range.
 """
 
 from __future__ import annotations
@@ -264,6 +268,25 @@ def _build_utility_tool_args(
                 if state.library_stats_export_json.get()
                 else []
             )
+        ),
+        "spectral_viewer": lambda: (
+            [
+                path,
+                mode_flag,
+                start_flag,
+                end_flag,
+            ]
+            + (
+                ["--output-dir", state.spectral_output_dir.get()]
+                if state.spectral_output_dir.get()
+                else []
+            )
+            + [
+                "--n-fft",
+                state.spectral_n_fft.get(),
+                "--db-range",
+                state.spectral_db_range.get(),
+            ]
         ),
         "file_reorganizer": lambda: (
             [

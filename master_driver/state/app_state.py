@@ -8,6 +8,7 @@ Changed in 1.0.1: removes the unused ``library_stats_completeness``/``_detail`` 
 keys.
 
 Changed in 1.2.0: adds the fingerprinter MusicBrainz / ISRC toggles.
+Changed in 1.3.0: adds the Spectral Viewer option variables (PLAN D42).
 """
 
 from __future__ import annotations
@@ -184,6 +185,11 @@ class AppState:
         self.library_stats_refresh = tk.BooleanVar(master, value=False)
         self.library_stats_export_csv = tk.StringVar(master, value="")
         self.library_stats_export_json = tk.StringVar(master, value="")
+
+        # ── Spectral Viewer controls ──────────────────────────────────────────
+        self.spectral_output_dir = tk.StringVar(master, value="")
+        self.spectral_n_fft = tk.StringVar(master, value="2048")
+        self.spectral_db_range = tk.StringVar(master, value="80")
 
         # ── File Reorganizer controls ─────────────────────────────────────────
         self.file_reorg_output_dir = tk.StringVar(master, value="")

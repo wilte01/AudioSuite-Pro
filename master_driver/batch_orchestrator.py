@@ -12,6 +12,8 @@ Changed in 1.2.0: carries a per-step ``note`` from
 :mod:`audio_suite_shared.run_outcome` into ``BatchProgress``, so a step that
 completed with a caveat (e.g. a rejected ISRC submission) says so in the batch
 report.  The note never changes the step's status.
+Changed in 1.3.0: adds ``spectral_viewer`` to the dependency graph as a leaf
+that runs after analysis, because it only reads what the analyzers wrote.
 """
 
 from __future__ import annotations
@@ -157,6 +159,7 @@ DEPENDENCY_GRAPH: dict[str, list[str]] = {
     "mood_analysis_batch": [],
     "noise_reduction": [],
     "library_stats": [],
+    "spectral_viewer": [],
     "file_reorganizer": [],
     "lyrics_manager": [],
     "audio_refinery": [],

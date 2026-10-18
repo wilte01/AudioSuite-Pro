@@ -3,6 +3,9 @@ Tests for audio_suite_shared.tool_plugin (G-NEW — Plugin System).
 
 Verifies ToolManifest, ToolRegistry construction, and the first-party
 manifest definitions.
+
+Changed in 1.3.0: the expected sets add the ``spectral_viewer`` manifest
+(Sprint 3, D42).
 """
 
 from audio_suite_shared.exceptions import AudioConfigurationError
@@ -162,7 +165,7 @@ class TestDefaultRegistry:
     def test_registry_is_populated(self):
         r = get_registry()
         assert len(r) >= 16  # all first-party tools
-        assert len(r) == 27  # 11 enrich + 15 utility + 1 refinery
+        assert len(r) == 28  # 11 enrich + 16 utility + 1 refinery
 
     def test_has_all_enrich_tools(self):
         r = get_registry()
@@ -201,6 +204,7 @@ class TestDefaultRegistry:
             "audio_normalizer",
             "pop_click_remover",
             "silence_trimmer",
+            "spectral_viewer",
         }
         assert ids == expected
 
@@ -238,6 +242,7 @@ class TestDefaultRegistry:
             "normalise",
             "declick",
             "silence-trim",
+            "spectrogram",
             # Plan G2: the CLI subcommand is `refine`, and the manifest now
             # says so instead of leaving audio_refinery CLI-less by omission.
             "refine",
@@ -262,6 +267,7 @@ class TestDefaultRegistry:
             "audio_normalizer",
             "pop_click_remover",
             "silence_trimmer",
+            "spectral_viewer",
         }
         assert standalone == expected
 
