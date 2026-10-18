@@ -13,7 +13,20 @@ patching only ``exists``.
 AGENTS.md the patching target is the *importing* module's binding
 (``audio_normalizer.utils.ffmpeg_finder.shutil.which``). Note that those
 bindings are the real module objects, so ``monkeypatch`` (auto-restoring) is
-used throughout rather than ``unittest.mock.patch``.
+used throughout rather than ``unittest.mock.patch``.  Because those
+bindings are the shared module objects, every patch must stay inside a
+context that outlives nothing else - see ``TestNoLeakedGlobalPatch``.
+
+Changed in 1.1.0: fixed a leaked patch that left the shared ``shutil.which``
+replaced by a lambda returning ``None`` for the rest of the session (which
+silently disabled ffmpeg discovery for every later test, e.g.
+``analysis_loader``'s real-decode fallback), and added a leak lock.
+Changed in 1.2.0: window marker required by the re-baselined release-note
+lock (PLAN_feature_expansion.md D32).
+Changed in 1.3.0: the patch-leak fix and its leak lock above (authored before
+the Sprint 3 window opened) are committed here so the re-baselined release-note
+lock has no uncommitted file to reject; this note is the window marker, not a
+new edit to the fix.
 """
 
 from __future__ import annotations
@@ -438,8 +451,15 @@ class TestModuleSingletonIsTheCache:
         with _fresh_finder(monkeypatch, _setup) as reloaded:
             assert reloaded.FFMPEG_PATH == BARE_NAME
             # The environment gains a resolvable ffmpeg *after* the import.
-            monkeypatch.setattr(ffmpeg_finder.shutil, "which", lambda name: hit)
-            assert reloaded.FFMPEG_PATH == BARE_NAME
+            # Applied through its own context, never the outer
+            # ``monkeypatch``: the inner context in ``_fresh_finder`` owns
+            # ``shutil.which`` right now, so an outer patch would capture
+            # *its* lambda as the "original" value and the outer undo would
+            # write that lambda back into the shared module - leaking a
+            # permanent ``which() is None`` into every later test.
+            with monkeypatch.context() as post_import:
+                post_import.setattr(ffmpeg_finder.shutil, "which", lambda name: hit)
+                assert reloaded.FFMPEG_PATH == BARE_NAME
         # And the restore-reload left a value that matches a live resolution,
         # so the constant is never stale-but-silently-kept after an import.
         assert ffmpeg_finder.FFMPEG_PATH == ffmpeg_finder._find_ffmpeg()
@@ -494,3 +514,40 @@ class TestGetStartupinfo:
         ):
             result = get_startupinfo()
         assert result is None
+
+
+class TestNoLeakedGlobalPatch:
+    """A patch whose undo is mis-scoped rewrites discovery process-wide.
+
+    ``shutil``, ``os`` and ``os.path`` are the *shared* module objects, so
+    a leaked patch here does not merely upset one test: it silently disables
+    ffmpeg discovery for every later test in the session.  That is exactly
+    how ``analysis_loader``'s real-decode fallback began failing when the
+    full suite ran, while passing in isolation.
+
+    The references are captured in the class body, i.e. at collection time
+    before any test can patch, and compared by identity - not by
+    ``__module__``, which is ``nt`` (not ``os``) for ``os.access`` on
+    Windows.
+    """
+
+    _REAL = {
+        "shutil.which": shutil.which,
+        "os.access": os.access,
+        "os.path.exists": os.path.exists,
+        "os.path.isfile": os.path.isfile,
+    }
+
+    def test_no_global_patch_outlives_this_file(self) -> None:
+        now = {
+            "shutil.which": shutil.which,
+            "os.access": os.access,
+            "os.path.exists": os.path.exists,
+            "os.path.isfile": os.path.isfile,
+        }
+        leaked = [name for name, real in self._REAL.items() if now[name] is not real]
+        assert not leaked, (
+            "a test left these module-level attributes patched, which"
+            " disables ffmpeg discovery for the rest of the session: "
+            + ", ".join(leaked)
+        )
