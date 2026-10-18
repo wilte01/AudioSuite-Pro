@@ -2,7 +2,7 @@
 
 After an update the suite should say what changed, in the application the user
 just opened, instead of leaving them to find ``CHANGELOG.md`` on disk.  This
-module reads the release section for the *running* version and renders it in a
+module reads the release sections the user has not seen and renders them in a
 scrollable Toplevel.
 
 Why the changelog is the source of truth
@@ -16,13 +16,28 @@ changelog actually contains.  A section that cannot be found produces no panel
 at all rather than an empty one - an install without a changelog (or a version
 that was built without its notes) simply has nothing to say.
 
+A skipped update must not lose its notes
+---------------------------------------
+
+Showing only the running version's section loses every release a user skipped:
+someone who jumps 1.2.0 -> 1.4.0 would never see what 1.3.0 changed.  The panel
+therefore renders *every* released section newer than the recorded
+``last_seen_version`` up to and including the running version, newest first,
+each under its own version heading.  Two cases deliberately fall back to the
+running version alone: a first-ever launch (no previous version recorded, so
+showing the whole history would be noise) and a recorded version at or above
+the running one (nothing is pending - the Help menu still needs something to
+show).  Versions are compared numerically from the changelog headings; a
+heading that is not a number (``[Unreleased]``) never counts as pending.
+
 When it is offered
 ------------------
 
 ``offer_pending()`` shows the panel once per version, suite-wide, tracked in
 the shared ``audio_suite_config.json`` under ``last_seen_version`` (the shared
-config pattern, not a tool-local file).  It deliberately stays out of the way
-of unattended work:
+config pattern, not a tool-local file).  Closing the panel records the
+*running* version, which is what makes the whole pending range seen at once.
+It deliberately stays out of the way of unattended work:
 
 * a launch with command-line arguments is a Master Driver launch - the batch
   runs tools itself, and a modal-ish panel no one clicks would block it;
@@ -32,7 +47,8 @@ of unattended work:
   killed with the panel open simply offers it again.
 
 Changed in 1.3.0: new module - the in-app release-notes panel and its
-pending-version rule.
+pending-version rule.  The panel covers every release since the last seen
+version, not just the running one, so a skipped update still reports itself.
 """
 
 from __future__ import annotations
@@ -60,11 +76,16 @@ DISABLE_ENV = "AUDIOSUITE_WHATS_NEW"
 #: Subtitle above the rendered release body.
 PANEL_SUBTITLE = "What's new in this release"
 
+#: Subtitle used when the panel covers more than one release.
+MULTI_SUBTITLE = "What's new since your last update"
+
 #: ASCII-safe bullet glyph (written as an escape so the source stays ASCII).
 BULLET_GLYPH = "\u2022"
 
 _HEADING_PREFIX = "### "
 _BULLET_PREFIXES: tuple[str, str] = ("- ", "* ")
+_SECTION_HEADING = re.compile(r"^## \[([^\]]+)\][^\n]*$", re.MULTILINE)
+_NUMERIC_VERSION = re.compile(r"^v?(\d+(?:\.\d+)*)")
 _LEAD_BOLD = re.compile(r"\*\*(.+?)\*\*\s*(.*)")
 _INLINE_BOLD = re.compile(r"\*\*(.+?)\*\*")
 _LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
@@ -75,7 +96,8 @@ class Block:
     """One rendered paragraph of a release section.
 
     Attributes:
-        style: ``"heading"``, ``"bullet"`` or ``"paragraph"``.
+        style: ``"version"`` (a release label when several are shown),
+            ``"heading"``, ``"bullet"`` or ``"paragraph"``.
         text: The block's text, with Markdown markers removed.
         lead: A bold lead-in run (``**Title.**``), rendered separately so a
             scanning reader gets a heading-like anchor per entry.
@@ -91,12 +113,19 @@ class ReleaseNotes:
     """The notes for one released version.
 
     Attributes:
-        version: The version the notes belong to, e.g. ``"1.3.0"``.
-        blocks: The section's parsed blocks.
+        version: The running version the panel is titled with, e.g.
+            ``"1.3.0"``.
+        blocks: The parsed blocks of every covered release, newest first,
+            each preceded by a ``"version"`` block when more than one
+            release is shown.
+        versions: Every release the blocks cover, newest first.  Empty only
+            for a hand-built instance; :func:`release_notes` and
+            :func:`notes_since` always populate it.
     """
 
     version: str
     blocks: list[Block]
+    versions: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +176,71 @@ def section_body(changelog_text: str, version: str) -> str | None:
     body = rest[: following.start()] if following is not None else rest
     body = body.strip()
     return body or None
+
+
+def version_key(text: str) -> tuple[int, ...] | None:
+    """Return a sortable key for a version string, or ``None`` if it has none.
+
+    Changelog headings are ``1.3.0``-style, but a heading may carry a suffix
+    (``1.3.0-rc1``) and ``[Unreleased]`` carries no number at all.  The key is
+    the leading dotted number run, so a suffixed release sorts with its base
+    version and an unreleased section never counts as a release.
+
+    Args:
+        text: A version string from a changelog heading.
+
+    Returns:
+        The numeric components, e.g. ``(1, 3, 0)``; ``None`` when the text
+        does not start with a number.
+    """
+    match = _NUMERIC_VERSION.match(text.strip())
+    if match is None:
+        return None
+    return tuple(int(part) for part in match.group(1).split("."))
+
+
+def released_versions(changelog_text: str) -> list[str]:
+    """Return every ``## [<version>]`` heading's version in document order.
+
+    Args:
+        changelog_text: The full ``CHANGELOG.md`` source.
+
+    Returns:
+        The heading texts in the order they appear, which for a Keep a
+        Changelog file is newest first.  ``Unreleased`` is included here;
+        callers that need actual releases filter on :func:`version_key`.
+    """
+    return [match.group(1) for match in _SECTION_HEADING.finditer(changelog_text)]
+
+
+def _pending_versions(changelog_text: str, running: str, seen: str) -> list[str]:
+    """Return the versions to show, newest first.
+
+    Args:
+        changelog_text: The full ``CHANGELOG.md`` source.
+        running: The running version.
+        seen: The version whose notes were shown last, or an empty string.
+
+    Returns:
+        Every released version *newer* than *seen* and no newer than
+        *running*, newest first.  Falls back to ``[running]`` when there is no
+        comparable ``seen`` (first launch, unparseable version) or nothing is
+        pending (already seen, or a downgrade).
+    """
+    running_key = version_key(running)
+    seen_key = version_key(seen) if seen else None
+    if running_key is None or seen_key is None or seen_key >= running_key:
+        return [running]
+
+    versions = [
+        version
+        for version in released_versions(changelog_text)
+        if (key := version_key(version)) is not None and seen_key < key <= running_key
+    ]
+    if not versions:
+        return [running]
+    versions.sort(key=lambda version: version_key(version) or (), reverse=True)
+    return versions
 
 
 def _clean_inline(text: str) -> str:
@@ -217,7 +311,53 @@ def release_notes(version: str, changelog: Path | None = None) -> ReleaseNotes |
     if body is None:
         logger.debug("CHANGELOG.md has no release section for %s", version)
         return None
-    return ReleaseNotes(version, parse_blocks(body))
+    return ReleaseNotes(version, parse_blocks(body), (version,))
+
+
+def notes_since(
+    running: str, seen: str = "", changelog: Path | None = None
+) -> ReleaseNotes | None:
+    """Return every release's notes since *seen*, newest first.
+
+    Args:
+        running: The running version; its section must exist, otherwise the
+            panel has nothing to say and ``None`` is returned.
+        seen: The version whose notes were shown last.  Empty (a first
+            launch) or unparseable values fall back to *running* alone.
+        changelog: Changelog path; discovered when omitted.
+
+    Returns:
+        The combined notes, or ``None`` when there is no changelog, no section
+        for *running*, or every pending section is blank.  A blank
+        intermediate section is skipped rather than rendered as a bare
+        version heading.
+    """
+    path = changelog or find_changelog()
+    if path is None:
+        logger.debug("no CHANGELOG.md found; release notes unavailable")
+        return None
+    text = path.read_text(encoding="utf-8")
+    if section_body(text, running) is None:
+        logger.debug("CHANGELOG.md has no release section for %s", running)
+        return None
+
+    sections: list[tuple[str, list[Block]]] = []
+    for version in _pending_versions(text, running, seen):
+        body = section_body(text, version)
+        if body is None:
+            continue
+        blocks = parse_blocks(body)
+        if blocks:
+            sections.append((version, blocks))
+    if not sections:
+        return None
+
+    combined: list[Block] = []
+    for version, blocks in sections:
+        if len(sections) > 1:
+            combined.append(Block("version", version))
+        combined.extend(blocks)
+    return ReleaseNotes(running, combined, tuple(v for v, _ in sections))
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +380,10 @@ def pending_notes(
 ) -> ReleaseNotes | None:
     """Return the notes that still need showing, if any.
 
+    The returned notes cover every release newer than the recorded
+    ``last_seen_version`` (see :func:`notes_since`), so a skipped update still
+    reports what it changed.
+
     Args:
         version: The running version; read from ``pyproject.toml`` when
             omitted.
@@ -247,22 +391,25 @@ def pending_notes(
             Defaults to ``sys.argv`` so production needs no argument.
         changelog: Changelog path; discovered when omitted.
         force: Show even when this version was already seen and even for a
-            driver launch (the Help menu asks for it explicitly).
+            driver launch (the Help menu asks for it explicitly).  The
+            recorded version is still read, so a forced open while notes are
+            pending shows the whole pending range, and a forced open after
+            they were seen shows the running version again.
 
     Returns:
         The notes to show, or ``None`` when the panel should stay closed.
     """
     running = version or declared_version()
+    seen = str(suite_config.load_value(SEEN_VERSION_KEY, ""))
     if not force:
         if _disabled_by_environment():
             return None
         if was_launched_from_driver(argv):
             logger.debug("driver launch; not offering the release notes panel")
             return None
-        seen = str(suite_config.load_value(SEEN_VERSION_KEY, ""))
         if seen == running:
             return None
-    return release_notes(running, changelog)
+    return notes_since(running, seen, changelog)
 
 
 def mark_seen(version: str) -> None:
@@ -282,6 +429,9 @@ def show(
     on_close: object = None,
 ) -> tk.Toplevel:
     """Render *notes* in a scrollable Toplevel.
+
+    When *notes* covers several releases, each is introduced by its version
+    heading so the user can tell which change came from which update.
 
     The panel is intentionally not modal: it is informational, and a grab
     that outlives the user's attention would block the tool behind it.
@@ -314,7 +464,7 @@ def show(
     ).pack(fill="x")
     tk.Label(
         frame,
-        text=PANEL_SUBTITLE,
+        text=PANEL_SUBTITLE if len(notes.versions) <= 1 else MULTI_SUBTITLE,
         font=styles.FONT_LABEL,
         bg=styles.BG_APP,
         fg=styles.FG_SUB,
@@ -341,13 +491,16 @@ def show(
     body.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
 
+    body.tag_configure("version", font=styles.FONT_TITLE, spacing1=14, spacing3=6)
     body.tag_configure("heading", font=styles.FONT_LABEL_B, spacing1=10, spacing3=4)
     body.tag_configure("bullet", lmargin1=18, lmargin2=32, spacing1=4)
     body.tag_configure("lead", font=styles.FONT_BODY_B)
     body.tag_configure("paragraph", spacing1=4)
 
     for block in notes.blocks:
-        if block.style == "heading":
+        if block.style == "version":
+            body.insert("end", f"Version {block.text}\n", "version")
+        elif block.style == "heading":
             body.insert("end", f"{block.text}\n", "heading")
         elif block.style == "bullet":
             body.insert("end", f"{BULLET_GLYPH}  ")

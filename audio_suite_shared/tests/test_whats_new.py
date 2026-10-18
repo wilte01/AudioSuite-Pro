@@ -7,8 +7,11 @@ Three layers are pinned separately, because each has its own failure mode:
 * the **pending rule** must offer the panel once per version, stay silent for
   a Master Driver launch, and never claim to have shown notes it could not
   find;
-* the **panel** must actually render the section (headings, entries, bold
-  lead-ins) and record the version only when it is closed.
+* the **pending range** must cover every release newer than the recorded
+  version, so an update skipped across two releases still reports both, and
+  must not dump the whole history on a first launch;
+* the **panel** must actually render the sections (version labels, headings,
+  entries, bold lead-ins) and record the version only when it is closed.
 
 The end-to-end case uses a temporary changelog rather than the shipped one, so
 it tests the widget rather than the current release; a separate test asserts
@@ -41,6 +44,12 @@ CHANGELOG_TEXT = """\
 ## [Unreleased]
 
 Nothing yet.
+
+## [9.9.2] - 2027-02-01
+
+### Added
+
+- **The middle thing.** It bridges two releases.
 
 ## [9.9.1] - 2027-01-01
 
@@ -270,6 +279,119 @@ class TestPendingRule:
         assert recorded == {whats_new.SEEN_VERSION_KEY: "9.9.1"}
 
 
+class TestVersionOrdering:
+    """Changelog headings are ordered numerically, never by their text."""
+
+    def test_numeric_key_ignores_a_suffix(self) -> None:
+        assert whats_new.version_key("1.3.0") == (1, 3, 0)
+        assert whats_new.version_key("1.3.0-rc1") == (1, 3, 0)
+
+    def test_unreleased_has_no_key(self) -> None:
+        assert whats_new.version_key("Unreleased") is None
+        assert whats_new.version_key("") is None
+
+    def test_sections_are_listed_in_document_order(self) -> None:
+        assert whats_new.released_versions(CHANGELOG_TEXT) == [
+            "Unreleased",
+            "9.9.2",
+            "9.9.1",
+            "9.9.0",
+        ]
+
+
+class TestPendingRange:
+    """Every release since the recorded version is shown, newest first."""
+
+    def test_two_skipped_releases_are_both_included(self, changelog: Path) -> None:
+        notes = whats_new.notes_since("9.9.2", "9.9.0", changelog)
+
+        assert notes is not None
+        assert notes.version == "9.9.2"
+        assert notes.versions == ("9.9.2", "9.9.1")
+        assert notes.blocks[0] == whats_new.Block("version", "9.9.2")
+        assert "The middle thing." in [block.lead for block in notes.blocks]
+        assert "The older thing." not in [block.lead for block in notes.blocks]
+
+    def test_newest_release_comes_first(self, changelog: Path) -> None:
+        notes = whats_new.notes_since("9.9.2", "9.8.0", changelog)
+
+        assert notes is not None
+        assert notes.versions == ("9.9.2", "9.9.1", "9.9.0")
+        headings = [b.text for b in notes.blocks if b.style == "version"]
+        assert headings == ["9.9.2", "9.9.1", "9.9.0"]
+        assert [b.lead for b in notes.blocks if b.style == "bullet"] == [
+            "The middle thing.",
+            "The newest thing.",
+            "A closed defect.",
+            "The older thing.",
+        ]
+
+    def test_first_launch_shows_only_the_running_release(self, changelog: Path) -> None:
+        notes = whats_new.notes_since("9.9.2", "", changelog)
+
+        assert notes is not None
+        assert notes.versions == ("9.9.2",)
+        assert [b.style for b in notes.blocks] == ["heading", "bullet"]
+
+    def test_already_seen_version_shows_the_running_release(
+        self, changelog: Path
+    ) -> None:
+        """The Help menu still has something to reopen after the panel was seen."""
+        notes = whats_new.notes_since("9.9.2", "9.9.2", changelog)
+
+        assert notes is not None
+        assert notes.versions == ("9.9.2",)
+
+    def test_downgrade_shows_only_the_running_release(self, changelog: Path) -> None:
+        notes = whats_new.notes_since("9.9.1", "9.9.2", changelog)
+
+        assert notes is not None
+        assert notes.versions == ("9.9.1",)
+
+    def test_unparseable_seen_version_shows_only_the_running_release(
+        self, changelog: Path
+    ) -> None:
+        notes = whats_new.notes_since("9.9.2", "junk", changelog)
+
+        assert notes is not None
+        assert notes.versions == ("9.9.2",)
+
+    def test_blank_intermediate_section_gets_no_heading(self, tmp_path: Path) -> None:
+        text = (
+            "# Changelog\n\n"
+            "## [9.9.2] - 2027-02-01\n\n- New.\n\n"
+            "## [9.9.1] - 2027-01-01\n\n"
+            "## [9.9.0] - 2027-01-01\n\n- Old.\n"
+        )
+        path = tmp_path / "CHANGELOG.md"
+        path.write_text(text, encoding="utf-8")
+
+        notes = whats_new.notes_since("9.9.2", "9.8.0", path)
+
+        assert notes is not None
+        assert notes.versions == ("9.9.2", "9.9.0")
+
+    def test_running_version_without_a_section_shows_nothing(
+        self, changelog: Path
+    ) -> None:
+        assert whats_new.notes_since("9.9.9", "9.9.0", changelog) is None
+
+    def test_pending_notes_passes_the_recorded_version_through(
+        self, changelog: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv(whats_new.DISABLE_ENV, raising=False)
+        monkeypatch.setattr(
+            whats_new.suite_config,
+            "load_value",
+            lambda key, default=None: "9.9.0",
+        )
+
+        notes = whats_new.pending_notes("9.9.2", argv=["prog"], changelog=changelog)
+
+        assert notes is not None
+        assert notes.versions == ("9.9.2", "9.9.1")
+
+
 class TestShippedChangelog:
     """The panel's usefulness depends on the running version having notes."""
 
@@ -337,6 +459,45 @@ class TestPanel:
 
         assert closed == [True]
         assert recorded == []
+
+    def test_renders_every_pending_release_under_its_own_heading(
+        self, tk_root: tk.Tk, changelog: Path
+    ) -> None:
+        notes = whats_new.notes_since("9.9.2", "9.9.0", changelog)
+        assert notes is not None
+
+        panel = whats_new.show(tk_root, notes)
+
+        try:
+            assert "9.9.2" in panel.title()
+            body = _text_of(panel)
+            assert "Version 9.9.2" in body
+            assert "Version 9.9.1" in body
+            assert "Version 9.9.0" not in body, "an already-seen release leaked in"
+            assert "The middle thing." in body
+            assert "The newest thing." in body
+            assert "The older thing." not in body
+            subtitles = [
+                w.cget("text")
+                for w in _widgets(panel)
+                if isinstance(w, tk.Label)
+                and w.cget("text") == whats_new.MULTI_SUBTITLE
+            ]
+            assert subtitles, "the multi-release panel kept the single-release subtitle"
+        finally:
+            panel.destroy()
+
+    def test_single_release_panel_has_no_version_heading(
+        self, tk_root: tk.Tk, changelog: Path
+    ) -> None:
+        panel = whats_new.show(tk_root, self._notes(changelog, "9.9.2"))
+
+        try:
+            body = _text_of(panel)
+            assert "Version 9.9.2" not in body
+            assert whats_new.MULTI_SUBTITLE not in body
+        finally:
+            panel.destroy()
 
     def test_offer_pending_opens_the_panel(
         self, tk_root: tk.Tk, changelog: Path, monkeypatch: pytest.MonkeyPatch

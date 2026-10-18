@@ -18,7 +18,9 @@ Versions of the tools are released together with the suite (the single
   reopen them at any time. The panel appears once per version, tracked in the
   shared config so it never nags, and it stays out of unattended work: a
   Master Driver batch launch never opens it, and `AUDIOSUITE_WHATS_NEW=0`
-  disables the automatic panel entirely.
+  disables the automatic panel entirely. Skipping a release does not lose its
+  notes: the panel lists every release newer than the last version it showed,
+  newest first, each under its own `Version x.y.z` heading.
 
 ## [1.3.0] - 2026-10-18
 
