@@ -9,6 +9,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.4.0] - 2026-10-19
+
 ### Added
 
 - **Right-click AudioSuite-Pro in Windows Explorer.** `audiosuite shell-install`
