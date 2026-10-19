@@ -1,4 +1,8 @@
-"""Generate a fresh Mood Analyzer guide from current code."""
+"""Generate a fresh Mood Analyzer guide from current code.
+
+Changed in 1.4.0: the Workers description states the machine default
+(one per logical CPU, capped at 8) instead of a fixed 4.
+"""
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -81,7 +85,12 @@ bullet(
     "ProcessPoolExecutor; otherwise the thread-based "
     "path is used.",
 )
-bullet(doc, "Workers: ", "Sets the maximum worker count; the default is 4.")
+bullet(
+    doc,
+    "Workers: ",
+    "Sets the maximum worker count; the default is one "
+    "worker per logical CPU, capped at 8.",
+)
 bullet(
     doc,
     "Presets: ",

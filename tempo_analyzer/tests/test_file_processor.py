@@ -3,8 +3,9 @@ Tests for tempo_analyzer.core.file_processor
 Gap G-33: process_single_file(), run_analysis(), TempoAnalyzerProcessor
 
 Strategy:
-- process_single_file: mock read_bpm / read_tempo_marking / write_tempo_marking
+- process_single_file: mock the one tag-handler load / write_tempo_marking
 - run_analysis: integration via real MP3 fixtures with BPM tags pre-written
+Changed in 1.4.0: patches the single handler load and follows DEFAULT_MAX_WORKERS slots.
 """
 
 import os
@@ -17,6 +18,7 @@ from mutagen.id3 import ID3, TBPM, TIT2
 from mutagen.mp3 import MP3
 from pydub import AudioSegment
 
+from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from tempo_analyzer.core.file_processor import (
     TempoAnalyzerProcessor,
     _file_has_any_tags,
@@ -65,7 +67,7 @@ def _make_mp3_with_tags_no_bpm(tmp_path, name="tagged_no_bpm.mp3"):
     return path
 
 
-def _make_slots(n=4):
+def _make_slots(n=DEFAULT_MAX_WORKERS):
     slot_vars = [MagicMock() for _ in range(n)]
     slot_q = Queue()
     for i in range(n):
@@ -102,8 +104,12 @@ class TestProcessSingleFileSkip:
         results = []
         lock = threading.Lock()
 
+        handler = MagicMock()
+        handler.read_bpm.return_value = bpm_return
+        handler.get_raw_tags.return_value = {"TIT2": "x"}
         with patch(
-            "tempo_analyzer.core.file_processor.read_bpm", return_value=bpm_return
+            "tempo_analyzer.core.file_processor.TagHandlerFactory.get_handler",
+            return_value=handler,
         ):
             process_single_file(
                 name=name,
@@ -219,11 +225,13 @@ class TestProcessSingleFileDryRun:
         slot_vars, _slot_q = _make_slots()
         results = []
 
+        handler = MagicMock()
+        handler.read_bpm.return_value = bpm
+        handler.read_tempo_marking.return_value = existing_tempo
         with (
-            patch("tempo_analyzer.core.file_processor.read_bpm", return_value=bpm),
             patch(
-                "tempo_analyzer.core.file_processor.read_tempo_marking",
-                return_value=existing_tempo,
+                "tempo_analyzer.core.file_processor.TagHandlerFactory.get_handler",
+                return_value=handler,
             ),
             patch(
                 "tempo_analyzer.core.file_processor.write_tempo_marking"
@@ -292,11 +300,13 @@ class TestProcessSingleFileLive:
         slot_vars, slot_q = _make_slots()
         results = []
 
+        handler = MagicMock()
+        handler.read_bpm.return_value = bpm
+        handler.read_tempo_marking.return_value = existing_tempo
         with (
-            patch("tempo_analyzer.core.file_processor.read_bpm", return_value=bpm),
             patch(
-                "tempo_analyzer.core.file_processor.read_tempo_marking",
-                return_value=existing_tempo,
+                "tempo_analyzer.core.file_processor.TagHandlerFactory.get_handler",
+                return_value=handler,
             ),
             patch(
                 "tempo_analyzer.core.file_processor.write_tempo_marking"
@@ -359,13 +369,14 @@ class TestRunAnalysis:
             name = path.split("/")[-1].split("\\")[-1]
             return bpm_map.get(name)
 
+        handler = MagicMock()
+        handler.read_bpm.side_effect = mock_read_bpm
+        handler.read_tempo_marking.return_value = None
+        handler.get_raw_tags.return_value = {"TIT2": "x"}
         with (
             patch(
-                "tempo_analyzer.core.file_processor.read_bpm", side_effect=mock_read_bpm
-            ),
-            patch(
-                "tempo_analyzer.core.file_processor.read_tempo_marking",
-                return_value=None,
+                "tempo_analyzer.core.file_processor.TagHandlerFactory.get_handler",
+                return_value=handler,
             ),
             patch("tempo_analyzer.core.file_processor.write_tempo_marking"),
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
@@ -457,6 +468,9 @@ class TestUndoBatchRecording:
         shared_factory.get_handler.return_value = handler
         with (
             patch(
+                "tempo_analyzer.core.file_processor.TagHandlerFactory", shared_factory
+            ),
+            patch(
                 "audio_suite_shared.tag_helper_base.TagHandlerFactory", shared_factory
             ),
             patch(
@@ -498,6 +512,9 @@ class TestUndoBatchRecording:
         shared_factory = MagicMock()
         shared_factory.get_handler.return_value = MagicMock()
         with (
+            patch(
+                "tempo_analyzer.core.file_processor.TagHandlerFactory", shared_factory
+            ),
             patch(
                 "audio_suite_shared.tag_helper_base.TagHandlerFactory", shared_factory
             ),

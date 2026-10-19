@@ -2,6 +2,7 @@
 test_cli_args.py
 Tests for mood_analysis_batch_tagger.utils.cli_args: parse(), validate_args(),
 MoodAnalysisBatchTaggerArgs and was_launched_from_driver().
+Changed in 1.4.0: the worker default is read from default_max_workers().
 """
 
 import pytest
@@ -15,11 +16,13 @@ from mood_analysis_batch_tagger.utils.cli_args import (
 
 class TestDefaults:
     def test_dataclass_defaults(self) -> None:
+        from audio_suite_shared.constants import default_max_workers
+
         args = MoodAnalysisBatchTaggerArgs()
         assert args.folder_path == ""
         assert args.analysis_duration == 90
         assert args.parallel_mode is False
-        assert args.max_workers == 4
+        assert args.max_workers == default_max_workers()
         assert args.clear_logs is False
         assert args.parallel_run is False
 

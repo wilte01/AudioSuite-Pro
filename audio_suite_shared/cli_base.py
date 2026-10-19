@@ -3,6 +3,14 @@
 Houses the click Group, shared options, the _Result collector, and the
 _run_tool helper that every tool CLI handler uses.
 
+Changed in 1.4.0: the headless slot shims are sized from
+``default_max_workers()``.  They defaulted to a fixed 4 while the worker
+default became the CPU-derived count (PLAN D56), so a CLI run on five or more
+files handed a worker ``slot_idx`` 4 and the shim list raised ``IndexError`` —
+the file was reported as an unexplained error.  They also grow to an explicit
+``--workers`` value above the default, so the count a user asks for always has
+a shim for every index (D66).
+
 Changed in 1.0.1: fixes ``_run_tool``'s ``on_progress`` to accept the positional call
 form the analysis workflow uses.
 """
@@ -17,6 +25,7 @@ from typing import Any, Callable
 
 import click
 
+from audio_suite_shared.constants import default_max_workers
 from audio_suite_shared.logging_setup import configure_logging as configure_logging
 from audio_suite_shared.project_version import declared_version
 
@@ -36,13 +45,22 @@ class _NullStringVar:
         return ""
 
 
-def _make_slot_vars(n: int = 4) -> list[_NullStringVar]:
-    return [_NullStringVar() for _ in range(n)]
+def _make_slot_vars(n: int | None = None) -> list[_NullStringVar]:
+    """Return *n* headless slot variables (default: the worker default).
+
+    The count must cover every ``slot_idx`` a default-sized pool can hand out:
+    processors derive indices from ``range(max_workers)``, so a shorter list is
+    an IndexError waiting for the fifth file.
+    """
+    count = default_max_workers() if n is None else n
+    return [_NullStringVar() for _ in range(count)]
 
 
-def _make_slot_queue(n: int = 4) -> Queue[Any]:
+def _make_slot_queue(n: int | None = None) -> Queue[Any]:
+    """Return a preloaded slot-id queue (default: the worker default)."""
+    count = default_max_workers() if n is None else n
     q: Queue[Any] = Queue()
-    for i in range(n):
+    for i in range(count):
         q.put(i)
     return q
 
@@ -78,8 +96,14 @@ def _run_tool(
 ) -> _Result:
     """Execute a tool's run_* function with terminal callbacks."""
     result = _Result()
-    slot_vars = _make_slot_vars()
-    slot_queue = _make_slot_queue()
+    # An explicit --workers above the suite default must get shims for every
+    # index the pool will hand out, not just the default count (D66).
+    requested_workers = kwargs.get("max_workers")
+    slot_count = default_max_workers()
+    if isinstance(requested_workers, int) and requested_workers > slot_count:
+        slot_count = requested_workers
+    slot_vars = _make_slot_vars(slot_count)
+    slot_queue = _make_slot_queue(slot_count)
     error_msg: list[str] = []
 
     def on_progress(
@@ -165,7 +189,7 @@ _opt_workers = click.option(
     "--workers",
     default=None,
     type=int,
-    help="Number of parallel workers (default: 4).",
+    help=f"Number of parallel workers (default: {default_max_workers()}).",
 )
 _opt_dir = click.argument("directory", type=click.Path(exists=True, file_okay=False))
 

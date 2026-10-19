@@ -18,6 +18,10 @@ Usage in a tool's processing_tab.py:
 
     def build(parent, slot_vars):
         return build_processing_tab(parent, slot_vars)
+
+Changed in 1.4.0: adds ``cap_typed_workers``, the one place a typed Workers
+count above the slot grid is capped and reported to the user (D66); an
+unattended launch logs the clamp instead of showing a dialog (D70).
 """
 
 import json
@@ -26,10 +30,11 @@ import os
 import sys
 import threading
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from typing import Any, Callable, Optional, cast
 
 from . import styles
+from .constants import cap_workers_to_slot_grid
 from .exceptions import AudioConfigurationError
 from .secure_subprocess import SubprocessSecurityError, run_secure_subprocess
 from .ui_audition import add_audition_buttons
@@ -1185,3 +1190,52 @@ class AnalysisSetupFrame(BaseSetupFrame):
                 justify="left",
                 wraplength=self._help_wraplength,
             ).pack(anchor="w")
+
+
+def cap_typed_workers(
+    max_workers: tk.IntVar,
+    slot_vars: object,
+    *,
+    unattended: bool = False,
+) -> int:
+    """Clamp a user-typed worker count to the slot grid and say so.
+
+    The Workers entry is free text, so it can hold a value above the fixed
+    number of slot displays.  The processor would then hand a slot index past
+    the grid to the progress write and report every one of those files as an
+    unexplained per-file error (see :func:`cap_workers_to_slot_grid`).
+
+    Call this on the main thread before the run starts: it caps the value,
+    reports the clamp once, and writes the capped count back into
+    *max_workers* so the persisted setting and the next run agree with what
+    actually ran.
+
+    A modal dialog is right for a person clicking Start, but it blocks an
+    unattended run forever: the Master Driver and ``--start`` launches have
+    nobody to dismiss it.  With *unattended* set the same message goes to the
+    log as a warning instead, and the capped value still wins.
+
+    Args:
+        max_workers: The typed worker-count variable.
+        slot_vars: The slot display list (``_safe_slot_vars`` at run time).
+        unattended: Suppress the modal warning and log it instead.  Set by
+            callers for driver and auto-start launches.
+
+    Returns:
+        The worker count the run will use — never above ``len(slot_vars)``.
+    """
+    requested = max_workers.get()
+    capped = cap_workers_to_slot_grid(requested, slot_vars)
+    if capped == requested:
+        return requested
+
+    message = (
+        f"This run has {capped} worker slots, so it will use {capped} "
+        f"workers instead of {requested}."
+    )
+    if unattended:
+        _log.warning("Workers limited: %s", message)
+    else:
+        messagebox.showwarning("Workers Limited", message)
+    max_workers.set(capped)
+    return capped

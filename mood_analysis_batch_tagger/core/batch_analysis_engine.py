@@ -16,6 +16,9 @@ Workers post progress via a queue consumed by the UI:
     ("result",   filepath, filename, success, detail)  — per-file outcome
     ("slot",     slot_index, label)                    — worker slot busy/IDLE
     ("done",     tagged, skipped, errors, folders, log_path) — batch complete
+
+Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
+when not supplied (PLAN D56).
 """
 
 from __future__ import annotations
@@ -34,7 +37,7 @@ from audio_suite_shared.batch_undo import (
     record_tag_edit_snapshot,
     use_batch,
 )
-from audio_suite_shared.constants import CPU_WORKER_TIMEOUT_SECS
+from audio_suite_shared.constants import CPU_WORKER_TIMEOUT_SECS, default_max_workers
 from audio_suite_shared.error_recovery import RecoveryAction, get_recovery_action
 from audio_suite_shared.exceptions import (
     AudioAnalysisError,
@@ -289,7 +292,9 @@ def _determine_folder_plan(files: list[str]) -> list[tuple[str, int]]:
 class _BatchAnalysisProcessor(BaseFileProcessor):
     """Batch mood-analysis processor using BaseFileProcessor infrastructure."""
 
-    def __init__(self, max_workers: int = 4, parallel_mode: bool = False) -> None:
+    def __init__(
+        self, max_workers: int | None = None, parallel_mode: bool = False
+    ) -> None:
         super().__init__(
             operation_type="mood_analysis_batch",
             max_workers=max_workers,
@@ -363,7 +368,7 @@ def run_batch(
     live: bool = True,
     analysis_duration: int = 90,
     parallel_mode: bool = False,
-    max_workers: int = 4,
+    max_workers: int | None = None,
     on_worker_status: Callable[[int, str], None] | None = None,
 ) -> BatchResult:
     """Recursively analyse mood for all supported audio files under *root*.
@@ -388,7 +393,8 @@ def run_batch(
         analysis_duration:  Maximum seconds of audio to load per file.
         parallel_mode:      When True, use a ProcessPoolExecutor for the
             CPU-bound analysis; otherwise a ThreadPoolExecutor.
-        max_workers:        Number of parallel workers.
+        max_workers:        Number of parallel workers.  Defaults to
+            ``default_max_workers()``.
         on_worker_status:   Optional callback ``(slot_index, label)`` invoked
             when a worker claims or releases a slot.  Used to drive the UI's
             "Active Workers" boxes.
@@ -422,7 +428,8 @@ def run_batch(
         f"  Root folder: {root}",
         f"  Audio files found: {total}",
         f"  Analysis duration: {analysis_duration}s",
-        f"  Parallel: {'Yes' if parallel_mode else 'No'}  Workers: {max_workers}",
+        f"  Parallel: {'Yes' if parallel_mode else 'No'}  "
+        f"Workers: {max_workers or default_max_workers()}",
         "=" * 70,
     ]
 

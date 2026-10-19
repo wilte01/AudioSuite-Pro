@@ -1,11 +1,17 @@
-"""Tests for library_stats.library_stats — scan engine and helpers."""
+"""Tests for library_stats.library_stats — scan engine and helpers.
+
+Changed in 1.4.0: the scan and CSV tests patch the tag-handler factory, so the
+real single-pass ``_read_file_tags`` read stays in the loop (and the load count
+is asserted where it matters), replacing the per-reader patches of the old
+eight-read fan-out (PLAN D55).
+"""
 
 from __future__ import annotations
 
 import os
 from dataclasses import asdict
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -20,6 +26,36 @@ from library_stats.library_stats import (
     export_json,
     scan_directory,
 )
+
+
+@pytest.fixture()
+def tag_handler(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Patch the tag-handler factory so fake files still yield tags.
+
+    ``_read_file_tags`` loads one handler per file, so tests configure that
+    handler's readers instead of patching eight module-level reader functions.
+    Every reader defaults to ``None`` so a test only sets the fields it needs.
+    """
+    handler = MagicMock()
+    raw = MagicMock()
+    raw.get.return_value = None
+    handler.get_raw_tags.return_value = raw
+    for reader in (
+        "read_artist_album",
+        "read_album_artist",
+        "read_bpm",
+        "read_key",
+        "read_genre",
+        "read_mood",
+        "read_tempo_marking",
+    ):
+        getattr(handler, reader).return_value = None
+    monkeypatch.setattr(
+        "library_stats.core.file_processor.TagHandlerFactory.get_handler",
+        lambda path: handler,
+    )
+    return handler
+
 
 # ── _classify_key_mode ────────────────────────────────────────────────────────
 
@@ -190,37 +226,22 @@ class TestScanDirectory:
         assert report.total_files == 0
         assert report.scan_path == "C:\\nonexistent_path_xyz_123"
 
-    @patch("library_stats.core.file_processor.read_artist_album")
-    @patch("library_stats.core.file_processor.read_album_artist")
-    @patch("library_stats.core.file_processor.read_bpm")
-    @patch("library_stats.core.file_processor.read_key")
-    @patch("library_stats.core.file_processor.read_genre")
-    @patch("library_stats.core.file_processor.read_mood")
-    @patch("library_stats.core.file_processor.read_tempo_marking")
-    @patch("library_stats.core.file_processor.read_tags_raw")
     def test_files_with_all_tags(
         self,
-        mock_raw: MagicMock,
-        mock_tempo: MagicMock,
-        mock_mood: MagicMock,
-        mock_genre: MagicMock,
-        mock_key: MagicMock,
-        mock_bpm: MagicMock,
-        mock_album_artist: MagicMock,
-        mock_artist_album: MagicMock,
+        tag_handler: MagicMock,
         tmp_path: pytest.TempPathFactory,
     ) -> None:
-        mock_artist_album.return_value = "Artist / Album"
-        mock_album_artist.return_value = "TestArtist"
-        mock_bpm.return_value = 128
-        mock_key.return_value = "C"
-        mock_genre.return_value = "Rock"
-        mock_mood.return_value = "Energetic"
-        mock_tempo.return_value = "Allegro"
+        tag_handler.read_artist_album.return_value = "Artist / Album"
+        tag_handler.read_album_artist.return_value = "TestArtist"
+        tag_handler.read_bpm.return_value = 128
+        tag_handler.read_key.return_value = "C"
+        tag_handler.read_genre.return_value = "Rock"
+        tag_handler.read_mood.return_value = "Energetic"
+        tag_handler.read_tempo_marking.return_value = "Allegro"
 
         raw_tags = MagicMock()
         raw_tags.get.return_value = None
-        mock_raw.return_value = raw_tags
+        tag_handler.get_raw_tags.return_value = raw_tags
 
         (tmp_path / "track1.mp3").write_bytes(b"fake mp3")
         (tmp_path / "track2.flac").write_bytes(b"fake flac")
@@ -238,34 +259,19 @@ class TestScanDirectory:
         assert report.missing_data["no_key"] == 0
         assert report.missing_data["no_genre"] == 0
 
-    @patch("library_stats.core.file_processor.read_artist_album")
-    @patch("library_stats.core.file_processor.read_album_artist")
-    @patch("library_stats.core.file_processor.read_bpm")
-    @patch("library_stats.core.file_processor.read_key")
-    @patch("library_stats.core.file_processor.read_genre")
-    @patch("library_stats.core.file_processor.read_mood")
-    @patch("library_stats.core.file_processor.read_tempo_marking")
-    @patch("library_stats.core.file_processor.read_tags_raw")
     def test_files_with_missing_tags(
         self,
-        mock_raw: MagicMock,
-        mock_tempo: MagicMock,
-        mock_mood: MagicMock,
-        mock_genre: MagicMock,
-        mock_key: MagicMock,
-        mock_bpm: MagicMock,
-        mock_album_artist: MagicMock,
-        mock_artist_album: MagicMock,
+        tag_handler: MagicMock,
         tmp_path: pytest.TempPathFactory,
     ) -> None:
-        mock_artist_album.return_value = None
-        mock_album_artist.return_value = None
-        mock_bpm.return_value = None
-        mock_key.return_value = None
-        mock_genre.return_value = None
-        mock_mood.return_value = None
-        mock_tempo.return_value = None
-        mock_raw.return_value = None
+        tag_handler.read_artist_album.return_value = None
+        tag_handler.read_album_artist.return_value = None
+        tag_handler.read_bpm.return_value = None
+        tag_handler.read_key.return_value = None
+        tag_handler.read_genre.return_value = None
+        tag_handler.read_mood.return_value = None
+        tag_handler.read_tempo_marking.return_value = None
+        tag_handler.get_raw_tags.return_value = None
 
         (tmp_path / "song.mp3").write_bytes(b"fake mp3")
 
@@ -281,69 +287,32 @@ class TestScanDirectory:
         assert report.missing_data["no_tempo_marking"] == 1
         assert report.bpm_distribution == {"Unknown": 1}
 
-    @patch("library_stats.core.file_processor.read_artist_album")
-    @patch("library_stats.core.file_processor.read_album_artist")
-    @patch("library_stats.core.file_processor.read_bpm")
-    @patch("library_stats.core.file_processor.read_key")
-    @patch("library_stats.core.file_processor.read_genre")
-    @patch("library_stats.core.file_processor.read_mood")
-    @patch("library_stats.core.file_processor.read_tempo_marking")
-    @patch("library_stats.core.file_processor.read_tags_raw")
     def test_mood_semicolon_splitting(
         self,
-        mock_raw: MagicMock,
-        mock_tempo: MagicMock,
-        mock_mood: MagicMock,
-        mock_genre: MagicMock,
-        mock_key: MagicMock,
-        mock_bpm: MagicMock,
-        mock_album_artist: MagicMock,
-        mock_artist_album: MagicMock,
+        tag_handler: MagicMock,
         tmp_path: pytest.TempPathFactory,
     ) -> None:
-        mock_artist_album.return_value = None
-        mock_album_artist.return_value = None
-        mock_bpm.return_value = None
-        mock_key.return_value = None
-        mock_genre.return_value = None
-        mock_tempo.return_value = None
-        mock_raw.return_value = None
-        mock_mood.return_value = "Energetic; Upbeat; Driving"
+        tag_handler.read_artist_album.return_value = None
+        tag_handler.read_album_artist.return_value = None
+        tag_handler.read_bpm.return_value = None
+        tag_handler.read_key.return_value = None
+        tag_handler.read_genre.return_value = None
+        tag_handler.read_tempo_marking.return_value = None
+        tag_handler.get_raw_tags.return_value = None
+        tag_handler.read_mood.return_value = "Energetic; Upbeat; Driving"
 
         (tmp_path / "track.mp3").write_bytes(b"fake")
 
         report = scan_directory(str(tmp_path))
         assert report.mood_distribution == {"Energetic": 1, "Upbeat": 1, "Driving": 1}
 
-    @patch("library_stats.core.file_processor.read_artist_album")
-    @patch("library_stats.core.file_processor.read_album_artist")
-    @patch("library_stats.core.file_processor.read_bpm")
-    @patch("library_stats.core.file_processor.read_key")
-    @patch("library_stats.core.file_processor.read_genre")
-    @patch("library_stats.core.file_processor.read_mood")
-    @patch("library_stats.core.file_processor.read_tempo_marking")
-    @patch("library_stats.core.file_processor.read_tags_raw")
     def test_multiple_artists_and_albums(
         self,
-        mock_raw: MagicMock,
-        mock_tempo: MagicMock,
-        mock_mood: MagicMock,
-        mock_genre: MagicMock,
-        mock_key: MagicMock,
-        mock_bpm: MagicMock,
-        mock_album_artist: MagicMock,
-        mock_artist_album: MagicMock,
         tmp_path: pytest.TempPathFactory,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        mock_raw.return_value = None
-        mock_bpm.return_value = 120
-        mock_key.return_value = "G"
-        mock_genre.return_value = "Jazz"
-        mock_mood.return_value = None
-        mock_tempo.return_value = "Moderato"
-
-        artist_album_map: dict[str, str | None] = {}
-        album_artist_map: dict[str, str | None] = {}
+        artist_album_map: dict[str, str | None] = {"sub": "ArtistA / AlbumX", "": None}
+        album_artist_map: dict[str, str | None] = {"sub": "ArtistA", "": None}
 
         sub = tmp_path / "sub"
         sub.mkdir()
@@ -351,21 +320,26 @@ class TestScanDirectory:
         (sub / "a2.flac").write_bytes(b"x")
         (tmp_path / "b1.mp3").write_bytes(b"x")
 
-        def _artist_album(p: str) -> str | None:
-            parent = os.path.basename(os.path.dirname(p))
-            return artist_album_map.get(parent)
+        def _handler_for(path: str) -> MagicMock:
+            """Return a handler whose album tags depend on the file's folder."""
+            handler = MagicMock()
+            raw = MagicMock()
+            raw.get.return_value = None
+            handler.get_raw_tags.return_value = raw
+            handler.read_bpm.return_value = 120
+            handler.read_key.return_value = "G"
+            handler.read_genre.return_value = "Jazz"
+            handler.read_mood.return_value = None
+            handler.read_tempo_marking.return_value = "Moderato"
+            parent = os.path.basename(os.path.dirname(path))
+            handler.read_artist_album.return_value = artist_album_map.get(parent)
+            handler.read_album_artist.return_value = album_artist_map.get(parent)
+            return handler
 
-        def _album_artist(p: str) -> str | None:
-            parent = os.path.basename(os.path.dirname(p))
-            return album_artist_map.get(parent)
-
-        artist_album_map["sub"] = "ArtistA / AlbumX"
-        album_artist_map["sub"] = "ArtistA"
-        artist_album_map[""] = None
-        album_artist_map[""] = None
-
-        mock_artist_album.side_effect = _artist_album
-        mock_album_artist.side_effect = _album_artist
+        monkeypatch.setattr(
+            "library_stats.core.file_processor.TagHandlerFactory.get_handler",
+            _handler_for,
+        )
 
         report = scan_directory(str(tmp_path))
 
@@ -374,41 +348,32 @@ class TestScanDirectory:
         assert report.total_artists == 1
         assert report.top_artists == [("ArtistA", 2)]
 
-    @patch("library_stats.core.file_processor.read_artist_album")
-    @patch("library_stats.core.file_processor.read_album_artist")
-    @patch("library_stats.core.file_processor.read_bpm")
-    @patch("library_stats.core.file_processor.read_key")
-    @patch("library_stats.core.file_processor.read_genre")
-    @patch("library_stats.core.file_processor.read_mood")
-    @patch("library_stats.core.file_processor.read_tempo_marking")
-    @patch("library_stats.core.file_processor.read_tags_raw")
     def test_key_mode_distribution(
         self,
-        mock_raw: MagicMock,
-        mock_tempo: MagicMock,
-        mock_mood: MagicMock,
-        mock_genre: MagicMock,
-        mock_key: MagicMock,
-        mock_bpm: MagicMock,
-        mock_album_artist: MagicMock,
-        mock_artist_album: MagicMock,
         tmp_path: pytest.TempPathFactory,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        mock_raw.return_value = None
-        mock_bpm.return_value = 100
-        mock_genre.return_value = None
-        mock_mood.return_value = None
-        mock_tempo.return_value = None
-        mock_artist_album.return_value = None
-        mock_album_artist.return_value = None
-
         key_map = {"major1.mp3": "C", "major2.mp3": "G", "minor1.mp3": "Am"}
 
-        def _key_side_effect(path: str) -> str | None:
-            fname = os.path.basename(path)
-            return key_map.get(fname)
+        def _handler_for(path: str) -> MagicMock:
+            """Return a handler whose key depends on the file's name."""
+            handler = MagicMock()
+            raw = MagicMock()
+            raw.get.return_value = None
+            handler.get_raw_tags.return_value = raw
+            handler.read_bpm.return_value = 100
+            handler.read_genre.return_value = None
+            handler.read_mood.return_value = None
+            handler.read_tempo_marking.return_value = None
+            handler.read_artist_album.return_value = None
+            handler.read_album_artist.return_value = None
+            handler.read_key.return_value = key_map.get(os.path.basename(path))
+            return handler
 
-        mock_key.side_effect = _key_side_effect
+        monkeypatch.setattr(
+            "library_stats.core.file_processor.TagHandlerFactory.get_handler",
+            _handler_for,
+        )
 
         for fname in key_map:
             (tmp_path / fname).write_bytes(b"x")
@@ -424,36 +389,21 @@ class TestScanDirectory:
 class TestScanDirectoryWithCache:
     """Tests scan_directory() with use_cache=True and mocked tag readers."""
 
-    @patch("library_stats.core.file_processor.read_artist_album")
-    @patch("library_stats.core.file_processor.read_album_artist")
-    @patch("library_stats.core.file_processor.read_bpm")
-    @patch("library_stats.core.file_processor.read_key")
-    @patch("library_stats.core.file_processor.read_genre")
-    @patch("library_stats.core.file_processor.read_mood")
-    @patch("library_stats.core.file_processor.read_tempo_marking")
-    @patch("library_stats.core.file_processor.read_tags_raw")
     def test_incremental_scan(
         self,
-        mock_raw: MagicMock,
-        mock_tempo: MagicMock,
-        mock_mood: MagicMock,
-        mock_genre: MagicMock,
-        mock_key: MagicMock,
-        mock_bpm: MagicMock,
-        mock_album_artist: MagicMock,
-        mock_artist_album: MagicMock,
+        tag_handler: MagicMock,
         tmp_path: Path,
     ) -> None:
-        mock_artist_album.return_value = ("Artist", "Album")
-        mock_album_artist.return_value = "Artist"
-        mock_bpm.return_value = 120
-        mock_key.return_value = "C"
-        mock_genre.return_value = "Rock"
-        mock_mood.return_value = "Energetic"
-        mock_tempo.return_value = "Allegro"
+        tag_handler.read_artist_album.return_value = ("Artist", "Album")
+        tag_handler.read_album_artist.return_value = "Artist"
+        tag_handler.read_bpm.return_value = 120
+        tag_handler.read_key.return_value = "C"
+        tag_handler.read_genre.return_value = "Rock"
+        tag_handler.read_mood.return_value = "Energetic"
+        tag_handler.read_tempo_marking.return_value = "Allegro"
         raw_tags = MagicMock()
         raw_tags.get.return_value = None
-        mock_raw.return_value = raw_tags
+        tag_handler.get_raw_tags.return_value = raw_tags
 
         db = tmp_path / "test_incremental.db"
         cache = LibraryCache(db)
@@ -466,43 +416,28 @@ class TestScanDirectoryWithCache:
         assert cache.row_count(str(tmp_path)) == 1
 
         # Second scan — uses cache (mtime unchanged), no tag re-reads
-        mock_bpm.reset_mock()
+        tag_handler.read_bpm.reset_mock()
         report2 = scan_directory(str(tmp_path), use_cache=True, cache=cache)
         assert report2.total_files == 1
-        mock_bpm.assert_not_called()
+        tag_handler.read_bpm.assert_not_called()
 
         cache.close()
 
-    @patch("library_stats.core.file_processor.read_artist_album")
-    @patch("library_stats.core.file_processor.read_album_artist")
-    @patch("library_stats.core.file_processor.read_bpm")
-    @patch("library_stats.core.file_processor.read_key")
-    @patch("library_stats.core.file_processor.read_genre")
-    @patch("library_stats.core.file_processor.read_mood")
-    @patch("library_stats.core.file_processor.read_tempo_marking")
-    @patch("library_stats.core.file_processor.read_tags_raw")
     def test_incremental_scan_detects_new_files(
         self,
-        mock_raw: MagicMock,
-        mock_tempo: MagicMock,
-        mock_mood: MagicMock,
-        mock_genre: MagicMock,
-        mock_key: MagicMock,
-        mock_bpm: MagicMock,
-        mock_album_artist: MagicMock,
-        mock_artist_album: MagicMock,
+        tag_handler: MagicMock,
         tmp_path: Path,
     ) -> None:
-        mock_artist_album.return_value = ("Artist", "Album")
-        mock_album_artist.return_value = "Artist"
-        mock_bpm.return_value = 120
-        mock_key.return_value = "C"
-        mock_genre.return_value = "Rock"
-        mock_mood.return_value = "Energetic"
-        mock_tempo.return_value = "Allegro"
+        tag_handler.read_artist_album.return_value = ("Artist", "Album")
+        tag_handler.read_album_artist.return_value = "Artist"
+        tag_handler.read_bpm.return_value = 120
+        tag_handler.read_key.return_value = "C"
+        tag_handler.read_genre.return_value = "Rock"
+        tag_handler.read_mood.return_value = "Energetic"
+        tag_handler.read_tempo_marking.return_value = "Allegro"
         raw_tags = MagicMock()
         raw_tags.get.return_value = None
-        mock_raw.return_value = raw_tags
+        tag_handler.get_raw_tags.return_value = raw_tags
 
         db = tmp_path / "test_new.db"
         cache = LibraryCache(db)
@@ -519,36 +454,21 @@ class TestScanDirectoryWithCache:
 
         cache.close()
 
-    @patch("library_stats.core.file_processor.read_artist_album")
-    @patch("library_stats.core.file_processor.read_album_artist")
-    @patch("library_stats.core.file_processor.read_bpm")
-    @patch("library_stats.core.file_processor.read_key")
-    @patch("library_stats.core.file_processor.read_genre")
-    @patch("library_stats.core.file_processor.read_mood")
-    @patch("library_stats.core.file_processor.read_tempo_marking")
-    @patch("library_stats.core.file_processor.read_tags_raw")
     def test_refresh_clears_cache(
         self,
-        mock_raw: MagicMock,
-        mock_tempo: MagicMock,
-        mock_mood: MagicMock,
-        mock_genre: MagicMock,
-        mock_key: MagicMock,
-        mock_bpm: MagicMock,
-        mock_album_artist: MagicMock,
-        mock_artist_album: MagicMock,
+        tag_handler: MagicMock,
         tmp_path: Path,
     ) -> None:
-        mock_artist_album.return_value = ("Artist", "Album")
-        mock_album_artist.return_value = "Artist"
-        mock_bpm.return_value = 120
-        mock_key.return_value = "C"
-        mock_genre.return_value = "Rock"
-        mock_mood.return_value = "Energetic"
-        mock_tempo.return_value = "Allegro"
+        tag_handler.read_artist_album.return_value = ("Artist", "Album")
+        tag_handler.read_album_artist.return_value = "Artist"
+        tag_handler.read_bpm.return_value = 120
+        tag_handler.read_key.return_value = "C"
+        tag_handler.read_genre.return_value = "Rock"
+        tag_handler.read_mood.return_value = "Energetic"
+        tag_handler.read_tempo_marking.return_value = "Allegro"
         raw_tags = MagicMock()
         raw_tags.get.return_value = None
-        mock_raw.return_value = raw_tags
+        tag_handler.get_raw_tags.return_value = raw_tags
 
         db = tmp_path / "test_refresh.db"
         cache = LibraryCache(db)
@@ -560,47 +480,32 @@ class TestScanDirectoryWithCache:
         assert cache.row_count(str(tmp_path)) == 1
 
         # Refresh scan clears and re-populates
-        mock_bpm.reset_mock()
+        tag_handler.read_bpm.reset_mock()
         report = scan_directory(
             str(tmp_path), use_cache=True, refresh_cache=True, cache=cache
         )
         assert report.total_files == 1
         # With refresh, tags should be re-read even if mtime is same
-        mock_bpm.assert_called_once()
+        tag_handler.read_bpm.assert_called_once()
         assert cache.row_count(str(tmp_path)) == 1
 
         cache.close()
 
-    @patch("library_stats.core.file_processor.read_artist_album")
-    @patch("library_stats.core.file_processor.read_album_artist")
-    @patch("library_stats.core.file_processor.read_bpm")
-    @patch("library_stats.core.file_processor.read_key")
-    @patch("library_stats.core.file_processor.read_genre")
-    @patch("library_stats.core.file_processor.read_mood")
-    @patch("library_stats.core.file_processor.read_tempo_marking")
-    @patch("library_stats.core.file_processor.read_tags_raw")
     def test_cache_removes_orphans(
         self,
-        mock_raw: MagicMock,
-        mock_tempo: MagicMock,
-        mock_mood: MagicMock,
-        mock_genre: MagicMock,
-        mock_key: MagicMock,
-        mock_bpm: MagicMock,
-        mock_album_artist: MagicMock,
-        mock_artist_album: MagicMock,
+        tag_handler: MagicMock,
         tmp_path: Path,
     ) -> None:
-        mock_artist_album.return_value = ("Artist", "Album")
-        mock_album_artist.return_value = "Artist"
-        mock_bpm.return_value = 120
-        mock_key.return_value = "C"
-        mock_genre.return_value = "Rock"
-        mock_mood.return_value = "Energetic"
-        mock_tempo.return_value = "Allegro"
+        tag_handler.read_artist_album.return_value = ("Artist", "Album")
+        tag_handler.read_album_artist.return_value = "Artist"
+        tag_handler.read_bpm.return_value = 120
+        tag_handler.read_key.return_value = "C"
+        tag_handler.read_genre.return_value = "Rock"
+        tag_handler.read_mood.return_value = "Energetic"
+        tag_handler.read_tempo_marking.return_value = "Allegro"
         raw_tags = MagicMock()
         raw_tags.get.return_value = None
-        mock_raw.return_value = raw_tags
+        tag_handler.get_raw_tags.return_value = raw_tags
 
         db = tmp_path / "test_orphan.db"
         cache = LibraryCache(db)
@@ -614,10 +519,10 @@ class TestScanDirectoryWithCache:
         # Delete track2.mp3 and re-scan
         (tmp_path / "track2.mp3").unlink()
         # track1 still has same mtime, so cached read is used
-        mock_bpm.reset_mock()
+        tag_handler.read_bpm.reset_mock()
         report = scan_directory(str(tmp_path), use_cache=True, cache=cache)
         assert report.total_files == 1
-        mock_bpm.assert_not_called()  # No new tag reads for unchanged files
+        tag_handler.read_bpm.assert_not_called()  # No new tag reads for unchanged files
         assert cache.row_count(str(tmp_path)) == 1
 
         cache.close()
@@ -627,37 +532,22 @@ class TestScanDirectoryWithCache:
         report = scan_directory(str(tmp_path), use_cache=False)
         assert report.total_files == 1
 
-    @patch("library_stats.core.file_processor.read_artist_album")
-    @patch("library_stats.core.file_processor.read_album_artist")
-    @patch("library_stats.core.file_processor.read_bpm")
-    @patch("library_stats.core.file_processor.read_key")
-    @patch("library_stats.core.file_processor.read_genre")
-    @patch("library_stats.core.file_processor.read_mood")
-    @patch("library_stats.core.file_processor.read_tempo_marking")
-    @patch("library_stats.core.file_processor.read_tags_raw")
     def test_subdirectory_files_counted_in_parent_scan(
         self,
-        mock_raw: MagicMock,
-        mock_tempo: MagicMock,
-        mock_mood: MagicMock,
-        mock_genre: MagicMock,
-        mock_key: MagicMock,
-        mock_bpm: MagicMock,
-        mock_album_artist: MagicMock,
-        mock_artist_album: MagicMock,
+        tag_handler: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Regression: files in subdirectories must appear in the parent report."""
-        mock_artist_album.return_value = ("Artist", "Album")
-        mock_album_artist.return_value = "Artist"
-        mock_bpm.return_value = 120
-        mock_key.return_value = "C"
-        mock_genre.return_value = "Rock"
-        mock_mood.return_value = "Energetic"
-        mock_tempo.return_value = "Allegro"
+        tag_handler.read_artist_album.return_value = ("Artist", "Album")
+        tag_handler.read_album_artist.return_value = "Artist"
+        tag_handler.read_bpm.return_value = 120
+        tag_handler.read_key.return_value = "C"
+        tag_handler.read_genre.return_value = "Rock"
+        tag_handler.read_mood.return_value = "Energetic"
+        tag_handler.read_tempo_marking.return_value = "Allegro"
         raw_tags = MagicMock()
         raw_tags.get.return_value = None
-        mock_raw.return_value = raw_tags
+        tag_handler.get_raw_tags.return_value = raw_tags
 
         db = tmp_path / "test_subdir.db"
         cache = LibraryCache(db)
@@ -678,7 +568,7 @@ class TestScanDirectoryWithCache:
 
 
 class TestExportCsv:
-    def test_export_csv_basic(self, tmp_path: Path) -> None:
+    def test_export_csv_basic(self, tag_handler: MagicMock, tmp_path: Path) -> None:
         (tmp_path / "track1.mp3").write_bytes(b"fake")
         (tmp_path / "track2.flac").write_bytes(b"fake")
         report = scan_directory(str(tmp_path))
@@ -710,7 +600,7 @@ class TestExportCsv:
         with pytest.raises(AudioFileNotFoundError):
             export_csv(report, "ignored.csv")
 
-    def test_export_utf8_paths(self, tmp_path: Path) -> None:
+    def test_export_utf8_paths(self, tag_handler: MagicMock, tmp_path: Path) -> None:
         sub = tmp_path / "\u00e9l\u00e9vation"
         sub.mkdir()
         (sub / "track.mp3").write_bytes(b"fake")

@@ -4,6 +4,9 @@ file_processor.py - Tempo analysis using BaseFileProcessor.
 Eliminates ~150 lines of duplicated threading and error handling code
 by using shared BaseFileProcessor infrastructure while preserving identical
 functionality.
+
+Changed in 1.4.0: BPM, tag-presence and existing tempo-marking reads share one
+handler load (PLAN D55).
 """
 
 import logging
@@ -18,8 +21,6 @@ from audio_suite_shared.exceptions import handle_audio_errors
 from audio_suite_shared.file_processor_base import BaseFileProcessor
 from audio_suite_shared.tag_helper import (
     TagHandlerFactory,
-    read_bpm,
-    read_tempo_marking,
     write_tempo_marking,
 )
 
@@ -28,7 +29,7 @@ from .tempo_schemes import MarkingList, get_tempo_marking
 logger = logging.getLogger(__name__)
 
 
-def _file_has_any_tags(file_path: str) -> bool:
+def _file_has_any_tags(file_path: str, handler: Any = None) -> bool:
     """
     Determine whether a file has any tag block at all, independent of BPM.
 
@@ -50,7 +51,10 @@ def _file_has_any_tags(file_path: str) -> bool:
         a file has no tags when that's merely unknown.
     """
     try:
-        return bool(TagHandlerFactory.get_handler(file_path).get_raw_tags())
+        loaded = (
+            handler if handler is not None else TagHandlerFactory.get_handler(file_path)
+        )
+        return bool(loaded.get_raw_tags())
     except Exception as exc:
         logger.debug(
             "Could not determine tag presence for %s: %s", file_path, exc, exc_info=True
@@ -100,10 +104,16 @@ def process_single_file(
     slot_vars[slot_idx].set(f"Reading: {name[:25]}...")
 
     file_path = os.path.join(dir_path, name)
-    bpm = read_bpm(file_path)
+    try:
+        handler = TagHandlerFactory.get_handler(file_path)
+        bpm = handler.read_bpm()
+    except Exception as exc:
+        logger.debug("Could not read BPM from %s: %s", file_path, exc, exc_info=True)
+        handler = None
+        bpm = None
 
     if not bpm or bpm <= 0:
-        if _file_has_any_tags(file_path):
+        if _file_has_any_tags(file_path, handler):
             display = f"[SKIP] {name} (No BPM tag)"
             log = f"[SKIP] {name} | No BPM tag found\n"
         else:
@@ -120,7 +130,7 @@ def process_single_file(
     if not is_dry_run:
         slot_vars[slot_idx].set(f"Tagging: {name[:25]}...")
 
-        existing_tempo = read_tempo_marking(file_path)
+        existing_tempo = handler.read_tempo_marking() if handler is not None else None
         write_tempo_marking(file_path, marking)
         status = "TAGGED"
 

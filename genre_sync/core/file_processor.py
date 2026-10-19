@@ -7,6 +7,9 @@ All UI interaction via injected callbacks — no tkinter imports.
 Supports: MP3, FLAC, OGG, M4A, Opus, WAV, AIFF
 (see audio_suite_shared.audio_formats.SUPPORTED_EXTENSIONS for the
 canonical list shared across the suite)
+
+Changed in 1.4.0: the three per-file tag reads share one handler load
+(PLAN D55).
 """
 
 import logging
@@ -27,9 +30,7 @@ from audio_suite_shared.exceptions import (
 from audio_suite_shared.file_processor_base import BaseFileProcessor
 from audio_suite_shared.tag_helper import (
     SUPPORTED_EXTENSIONS,
-    read_album_artist,
-    read_custom_genre_fields,
-    read_genre,
+    TagHandlerFactory,
     write_genre_sync_result,
 )
 
@@ -62,9 +63,10 @@ def process_single_file(
     try:
         slot_vars[slot_idx].set(f"Processing: {name}")
 
-        fields = read_custom_genre_fields(filepath)
-        album_artist = read_album_artist(filepath)
-        current_genre = read_genre(filepath)
+        handler = TagHandlerFactory.get_handler(filepath)
+        fields = handler.read_custom_genre_fields()
+        album_artist = handler.read_album_artist()
+        current_genre = handler.read_genre()
 
         resolution = resolve_genre(
             fields["TITLEGENRE"],

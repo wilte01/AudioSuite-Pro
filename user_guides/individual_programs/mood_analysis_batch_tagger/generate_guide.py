@@ -1,4 +1,8 @@
-"""Generate a fresh Mood Analysis Batch Tagger guide from current code."""
+"""Generate a fresh Mood Analysis Batch Tagger guide from current code.
+
+Changed in 1.4.0: the Workers description states the machine default
+(one per logical CPU, capped at 8) instead of a fixed 4.
+"""
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -77,7 +81,12 @@ bullet(
     "ProcessPoolExecutor to bypass the GIL. When "
     "disabled, a thread pool is used.",
 )
-bullet(doc, "Workers: ", "Sets the maximum worker count; the default is 4.")
+bullet(
+    doc,
+    "Workers: ",
+    "Sets the maximum worker count; the default is one "
+    "worker per logical CPU, capped at 8.",
+)
 bullet(
     doc,
     "Presets: ",

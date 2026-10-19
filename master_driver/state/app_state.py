@@ -9,6 +9,8 @@ keys.
 
 Changed in 1.2.0: adds the fingerprinter MusicBrainz / ISRC toggles.
 Changed in 1.3.0: adds the Spectral Viewer option variables (PLAN D42).
+Changed in 1.4.0: the five worker-count variables default to
+``default_max_workers()`` instead of a literal "4" (PLAN D56).
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+from audio_suite_shared.constants import default_max_workers
 from audio_suite_shared.tool_plugin import get_registry
 from music_format_converter.core.formats import (
     LOSSLESS_FORMATS as CONVERTER_LOSSLESS_FORMATS,
@@ -94,21 +97,22 @@ class AppState:
         self.key_duration = tk.StringVar(master, value="90")
 
         self.bpm_parallel = tk.BooleanVar(master, value=False)
-        self.bpm_workers = tk.StringVar(master, value="4")
+        default_workers = str(default_max_workers())
+        self.bpm_workers = tk.StringVar(master, value=default_workers)
 
         self.lyrics_parallel = tk.BooleanVar(master, value=False)
-        self.lyrics_workers = tk.StringVar(master, value="4")
+        self.lyrics_workers = tk.StringVar(master, value=default_workers)
 
         self.key_parallel = tk.BooleanVar(master, value=False)
-        self.key_workers = tk.StringVar(master, value="4")
+        self.key_workers = tk.StringVar(master, value=default_workers)
 
         self.mood_duration = tk.StringVar(master, value="90")
         self.mood_parallel = tk.BooleanVar(master, value=False)
-        self.mood_workers = tk.StringVar(master, value="4")
+        self.mood_workers = tk.StringVar(master, value=default_workers)
 
         self.mood_analysis_batch_duration = tk.StringVar(master, value="90")
         self.mood_analysis_batch_parallel = tk.BooleanVar(master, value=False)
-        self.mood_analysis_batch_workers = tk.StringVar(master, value="4")
+        self.mood_analysis_batch_workers = tk.StringVar(master, value=default_workers)
 
         self.art_res = tk.StringVar(master, value="800")
         self.art_purge = tk.BooleanVar(master, value=True)

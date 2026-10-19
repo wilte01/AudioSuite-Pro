@@ -3,6 +3,7 @@ tests/test_app.py — unit tests for LyricsManagerApp (GUI orchestrator).
 
 Uses the ``object.__new__`` + ``MagicMock`` shell pattern (no real Tk display).
 Module-level dependencies are patched on the ``lyrics_manager.app`` namespace.
+Changed in 1.4.0: worker defaults are read from the shared function/constant.
 """
 
 from __future__ import annotations
@@ -390,6 +391,66 @@ class TestStartProcessingSuccess:
         app.overall_status.set.assert_called_once_with("Looking up lyrics...")
 
 
+class TestTypedWorkersAboveTheSlotGrid:
+    """A typed count above the grid is capped before it reaches the pool (D66)."""
+
+    def _app_above_the_grid(self, tmp_path: Path):
+        (tmp_path / "track.mp3").touch()
+        app = _make_shell_app()
+        app.folder_path.get.return_value = str(tmp_path)
+        app.run_mode.get.return_value = "Dry Run"
+        app.provider.get.return_value = "lrclib"
+        app.request_timeout.get.return_value = "10"
+        app.skip_existing.get.return_value = True
+        app.plain_fallback.get.return_value = True
+        app.parallel_mode.get.return_value = False
+        app.max_workers.get.return_value = 12
+        app._safe_slot_vars = [MagicMock(), MagicMock()]
+        return app
+
+    def test_start_processing_caps_warns_and_persists(self, tmp_path: Path):
+        from contextlib import ExitStack
+
+        app = self._app_above_the_grid(tmp_path)
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch("lyrics_manager.app.is_supported_format", return_value=True)
+            )
+            stack.enter_context(patch("lyrics_manager.app.get_provider"))
+            save = stack.enter_context(
+                patch("lyrics_manager.app._suite_config.save_value")
+            )
+            stack.enter_context(patch("lyrics_manager.app.threading.Thread"))
+            stack.enter_context(patch("lyrics_manager.app.logger"))
+            dialogs = stack.enter_context(
+                patch("audio_suite_shared.ui_common.messagebox")
+            )
+            app.start_processing()
+
+        dialogs.showwarning.assert_called_once()
+        app.max_workers.set.assert_called_once_with(2)
+        save.assert_any_call("lyrics_max_workers", 2)
+
+    def test_run_fetch_caps_workers_set_outside_start_processing(self, tmp_path: Path):
+        app = _make_shell_app()
+        app.root.after = MagicMock()
+        app._safe_slot_vars = [MagicMock(), MagicMock()]
+        with (
+            patch("lyrics_manager.app.file_processor.run_fetch") as run_fetch,
+            patch("lyrics_manager.app.active_batch"),
+        ):
+            app._run_fetch(
+                dir_path=str(tmp_path),
+                is_dry_run=True,
+                provider_name="lrclib",
+                request_timeout=10.0,
+                skip_existing=True,
+                plain_fallback=True,
+                max_workers=12,
+            )
+        assert run_fetch.call_args.kwargs["max_workers"] == 2
+
+
 class TestRunFetch:
     def test_uses_dry_run_log_name(self, tmp_path: Path):
         app = _make_shell_app()
@@ -652,7 +713,9 @@ class TestConstruction:
         try:
             assert app.provider.get() == "lrclib"
             assert app.parallel_mode.get() is False
-            assert app.max_workers.get() == 4
+            from audio_suite_shared.constants import default_max_workers
+
+            assert app.max_workers.get() == default_max_workers()
             assert app.skip_existing.get() is True
             assert app.plain_fallback.get() is True
             assert app.run_mode.get() == "Dry Run"
@@ -663,8 +726,10 @@ class TestConstruction:
     def test_slot_pool_and_preset_wiring(self, root):
         app, before = self._build(root)
         try:
-            assert app.slot_queue.qsize() == 4
-            assert [v.get() for v in app.slot_vars] == ["IDLE"] * 4
+            from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
+
+            assert app.slot_queue.qsize() == DEFAULT_MAX_WORKERS
+            assert [v.get() for v in app.slot_vars] == ["IDLE"] * DEFAULT_MAX_WORKERS
             assert app._refresh_preset_list is not None
             assert app._preset_combo is not None
             assert app.start_btn is not None

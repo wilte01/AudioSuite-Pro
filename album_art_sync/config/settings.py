@@ -1,5 +1,8 @@
 """
 settings.py — Configuration constants and JSON config file handling.
+
+Changed in 1.4.0: drops the unused fixed ``CONCURRENT_WORKERS`` entry; worker
+counts resolve from ``audio_suite_shared.constants`` (D67).
 """
 
 import json
@@ -17,7 +20,6 @@ CONFIG = {
     "REQUEST_TIMEOUT": 10,
     "MAX_API_RESULTS": 5,
     "FOLDER_IMAGE_SIZE": 1000,
-    "CONCURRENT_WORKERS": 4,
     "PROGRESS_BATCH_SIZE": 10,
 }
 

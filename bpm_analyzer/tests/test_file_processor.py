@@ -10,6 +10,10 @@ Covers:
     detect_bpm always clamps into [min_bpm, max_bpm] in real usage)
   • run_analysis — delegates to BaseFileProcessor.run_parallel_processing
   • Logging output verified via caplog
+  • run_analysis — a typed worker count above the slot grid still finishes
+    every file (D66)
+
+Changed in 1.4.0: adds the slot-grid cap regression for a typed worker count.
 """
 
 from __future__ import annotations
@@ -685,6 +689,52 @@ class TestUndoBatchRecording:
                 )
 
         assert list_recent_batches(limit=10, db_path=undo_db) == []
+
+
+class TestWorkersAboveTheSlotGrid:
+    """A typed count above the grid must still finish every file (D66).
+
+    Regression: the thread path sized its slot queue from the requested count
+    while the display grid stayed fixed, so the surplus files wrote
+    ``slot_vars[slot_idx]`` past the end and were reported as errors.
+    """
+
+    def test_run_analysis_caps_a_typed_count_at_the_grid(self, tmp_path: Path):
+        from bpm_analyzer.core import file_processor as core
+
+        for i in range(6):
+            (tmp_path / f"track{i}.mp3").write_bytes(b"")
+
+        handler = MagicMock()
+        handler.get_raw_tags.return_value = {}
+        handler.read_bpm.return_value = 120
+        factory = MagicMock()
+        factory.get_handler.return_value = handler
+        summary: dict[str, object] = {}
+
+        with (
+            patch.object(core, "detect_bpm", return_value=120),
+            patch("audio_suite_shared.tag_helper_base.TagHandlerFactory", factory),
+            patch("audio_suite_shared.tag_helper_reader.TagHandlerFactory", factory),
+            patch("audio_suite_shared.tag_helper_writer.TagHandlerFactory", factory),
+        ):
+            core.run_analysis(
+                dir_path=str(tmp_path),
+                is_dry_run=True,
+                min_bpm=60,
+                max_bpm=200,
+                analysis_duration=30,
+                slot_vars=[MagicMock(), MagicMock()],
+                slot_queue=MagicMock(),
+                on_progress=MagicMock(),
+                on_complete=lambda **kw: summary.update(kw),
+                on_error=MagicMock(),
+                max_workers=12,
+            )
+
+        assert summary["total"] == 6
+        assert summary["processed"] == 6
+        assert summary["errors"] == 0
 
 
 # ---------------------------------------------------------------------------

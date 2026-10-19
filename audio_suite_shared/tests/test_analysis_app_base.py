@@ -10,13 +10,18 @@ other's tests stay green.
 
 The per-tool wiring (which literals, which ``file_processor``) is asserted in
 each tool's own ``tests/test_app.py``.
+
+Changed in 1.4.0: `start_processing` and `_run_batch` cap a typed worker count
+at the slot grid (D66).
 """
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from audio_suite_shared.analysis_app_base import AnalysisAppBase
+from audio_suite_shared.constants import default_max_workers
 
 CAPTURED: dict = {}
 
@@ -80,9 +85,9 @@ def _make_app(
     app.run_mode = MagicMock(**{"get.return_value": run_mode})
     app.analysis_duration = MagicMock(**{"get.return_value": 45})
     app.parallel_mode = MagicMock(**{"get.return_value": True})
-    app.max_workers = MagicMock(**{"get.return_value": 6})
+    app.max_workers = MagicMock(**{"get.return_value": default_max_workers()})
     app.slot_queue = MagicMock()
-    app._safe_slot_vars = [MagicMock(), MagicMock()]
+    app._safe_slot_vars = [MagicMock() for _ in range(default_max_workers())]
     app.progress = {}
     app.auto_end = auto_end
     app.auto_end_var = MagicMock(**{"get.return_value": False})
@@ -136,7 +141,7 @@ class TestRunBatchWiring:
         assert CAPTURED["is_dry_run"] is True
         assert CAPTURED["analysis_duration"] == 45
         assert CAPTURED["parallel_mode"] is True
-        assert CAPTURED["max_workers"] == 6
+        assert CAPTURED["max_workers"] == default_max_workers()
         assert CAPTURED["slot_vars"] == app._safe_slot_vars
         assert CAPTURED["slot_queue"] is app.slot_queue
         assert CAPTURED["on_progress"] == app._on_progress
@@ -556,6 +561,77 @@ class TestPresets:
         app.analysis_duration.set.assert_called_once_with(11)
 
 
+class TestTypedWorkersAboveTheSlotGrid:
+    """A typed count above the grid is capped, and the run stays error-free.
+
+    Regression (D66): the Workers entry is free text while the slot grid is
+    fixed at construction.  An uncapped pool handed slot indices past the grid
+    to the progress write, so every file past it failed with ``IndexError``.
+    """
+
+    def test_start_processing_caps_and_persists_the_capped_count(self, tmp_path):
+        app = _make_app(folder=str(tmp_path))
+        app._safe_slot_vars = [MagicMock(), MagicMock()]
+        app.max_workers = MagicMock(**{"get.return_value": 12})
+
+        with (
+            patch("audio_suite_shared.analysis_app_base._suite_config") as mock_cfg,
+            patch("audio_suite_shared.analysis_app_base.threading"),
+            patch("audio_suite_shared.ui_common.messagebox") as mock_box,
+        ):
+            app.start_processing()
+
+        mock_box.showwarning.assert_called_once()
+        app.max_workers.set.assert_called_once_with(2)
+        mock_cfg.save_value.assert_any_call("fake_max_workers", 2)
+
+    def test_driver_launch_caps_without_a_dialog(self, tmp_path, caplog):
+        """A Master Driver / auto-start launch must never wait on a dialog."""
+        app = _make_app(folder=str(tmp_path))
+        app._safe_slot_vars = [MagicMock(), MagicMock()]
+        app.max_workers = MagicMock(**{"get.return_value": 12})
+        app._launched_from_driver = True
+
+        with (
+            patch("audio_suite_shared.analysis_app_base._suite_config") as mock_cfg,
+            patch("audio_suite_shared.analysis_app_base.threading"),
+            patch("audio_suite_shared.ui_common.messagebox") as mock_box,
+            caplog.at_level(logging.WARNING),
+        ):
+            app.start_processing()
+
+        mock_box.showwarning.assert_not_called()
+        assert any("Workers limited" in record.message for record in caplog.records)
+        app.max_workers.set.assert_called_once_with(2)
+        mock_cfg.save_value.assert_any_call("fake_max_workers", 2)
+
+    def test_a_fitting_count_is_not_warned_about(self, tmp_path):
+        app = _make_app(folder=str(tmp_path))
+        app._safe_slot_vars = [MagicMock() for _ in range(8)]
+        app.max_workers = MagicMock(**{"get.return_value": 4})
+
+        with (
+            patch("audio_suite_shared.analysis_app_base._suite_config") as mock_cfg,
+            patch("audio_suite_shared.analysis_app_base.threading"),
+            patch("audio_suite_shared.ui_common.messagebox") as mock_box,
+        ):
+            app.start_processing()
+
+        mock_box.showwarning.assert_not_called()
+        app.max_workers.set.assert_not_called()
+        mock_cfg.save_value.assert_any_call("fake_max_workers", 4)
+
+    def test_run_batch_caps_workers_set_outside_start_processing(self):
+        """A preset or CLI value must be capped even without the dialog."""
+        app = _make_app()
+        app._safe_slot_vars = [MagicMock(), MagicMock()]
+        app.max_workers = MagicMock(**{"get.return_value": 9})
+
+        _run_batch(app)
+
+        assert CAPTURED["max_workers"] == 2
+
+
 class TestStartProcessing:
     """Input validation and the hand-off onto the worker thread."""
 
@@ -593,7 +669,7 @@ class TestStartProcessing:
                 app.start_processing()
 
         mock_cfg.save_value.assert_any_call("fake_parallel_mode", True)
-        mock_cfg.save_value.assert_any_call("fake_max_workers", 6)
+        mock_cfg.save_value.assert_any_call("fake_max_workers", default_max_workers())
         threading.Thread.assert_called_once_with(target=app._run, daemon=True)
         threading.Thread.return_value.start.assert_called_once()
 

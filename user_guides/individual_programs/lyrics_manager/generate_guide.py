@@ -3,6 +3,9 @@
 Changed in 1.0.1: the version subtitle now renders the suite version from
 ``declared_version()`` and the generation month dynamically, instead of the
 stale hardcoded ``Version 2.0 — September 2026``.
+
+Changed in 1.4.0: the Workers description states the machine default
+(one per logical CPU, capped at 8) instead of a fixed 4.
 """
 
 from datetime import date
@@ -125,7 +128,8 @@ bullet(
 bullet(
     doc,
     "Workers: ",
-    "Maximum number of concurrent files when Parallel is enabled. The default is 4.",
+    "Maximum number of concurrent files when Parallel is enabled. "
+    "The default is one worker per logical CPU, capped at 8.",
 )
 bullet(
     doc,

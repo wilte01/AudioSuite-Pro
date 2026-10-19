@@ -2,9 +2,13 @@
 Tests for genre_sync.core.file_processor
 Gap G-34: process_single_file(), run_processing()
 
-Strategy: mock read_custom_genre_fields, read_album_artist, read_genre,
-          write_genre_sync_result so no real audio files are needed for
-          unit tests. Integration tests use real MP3 fixtures.
+Strategy: mock the one tag-handler load (read_custom_genre_fields,
+          read_album_artist, read_genre share it) and write_genre_sync_result
+          so no real audio files are needed for unit tests. Integration tests
+          use real MP3 fixtures.
+
+Changed in 1.4.0: tests patch the single handler load instead of the three
+removed facade imports (PLAN D55).
 """
 
 import threading
@@ -15,12 +19,13 @@ from mutagen.id3 import ID3, TXXX
 from mutagen.mp3 import MP3
 from pydub import AudioSegment
 
+from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from genre_sync.core.file_processor import process_single_file, run_processing
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _make_slots(n=4):
+def _make_slots(n=DEFAULT_MAX_WORKERS):
     slot_vars = [MagicMock() for _ in range(n)]
     slot_q = Queue()
     for i in range(n):
@@ -55,6 +60,33 @@ def _fields(titlegenre=None, artistgenre=None, albumgenre=None, albumartistgenre
     }
 
 
+def _mock_handler(fields=None, album_artist=None, current_genre=None):
+    """A handler mock whose three genre reads answer independently."""
+    handler = MagicMock()
+    handler.read_custom_genre_fields.return_value = (
+        fields if fields is not None else _fields()
+    )
+    handler.read_album_artist.return_value = album_artist
+    handler.read_genre.return_value = current_genre
+    return handler
+
+
+def _handler_patch(handler_or_effect):
+    """Patch the one handler load the worker performs.
+
+    Pass an exception instance to make the load itself fail.
+    """
+    if isinstance(handler_or_effect, BaseException):
+        return patch(
+            "genre_sync.core.file_processor.TagHandlerFactory.get_handler",
+            side_effect=handler_or_effect,
+        )
+    return patch(
+        "genre_sync.core.file_processor.TagHandlerFactory.get_handler",
+        return_value=handler_or_effect,
+    )
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # process_single_file — unit (all I/O mocked)
 # ═════════════════════════════════════════════════════════════════════════════
@@ -69,16 +101,12 @@ class TestProcessSingleFileUnit:
         (tmp_path / "track.mp3").write_bytes(b"x")  # file must exist for normpath
 
         with (
-            patch(
-                "genre_sync.core.file_processor.read_custom_genre_fields",
-                return_value=fields,
-            ),
-            patch(
-                "genre_sync.core.file_processor.read_album_artist",
-                return_value=album_artist,
-            ),
-            patch(
-                "genre_sync.core.file_processor.read_genre", return_value=current_genre
+            _handler_patch(
+                _mock_handler(
+                    fields=fields,
+                    album_artist=album_artist,
+                    current_genre=current_genre,
+                )
             ),
             patch(
                 "genre_sync.core.file_processor.write_genre_sync_result"
@@ -96,6 +124,21 @@ class TestProcessSingleFileUnit:
         return results, mock_write
 
     # ── no_genre path ─────────────────────────────────────────────────────────
+
+    def test_one_handler_load_per_file(self, tmp_path):
+        slot_vars, slot_q = _make_slots()
+        (tmp_path / "track.mp3").write_bytes(b"x")
+        with _handler_patch(_mock_handler()) as factory:
+            process_single_file(
+                filename="track.mp3",
+                dir_path=str(tmp_path),
+                is_dry_run=True,
+                slot_vars=slot_vars,
+                slot_queue=slot_q,
+                lock=threading.Lock(),
+                on_progress=lambda **kw: None,
+            )
+        assert factory.call_count == 1
 
     def test_no_genre_fields_reports_no_genre(self, tmp_path):
         results, _ = self._call(tmp_path, _fields())
@@ -205,16 +248,7 @@ class TestProcessSingleFileUnit:
     def test_slot_always_returned(self, tmp_path):
         slot_vars, slot_q = _make_slots(n=1)
         (tmp_path / "t.mp3").write_bytes(b"x")
-        with (
-            patch(
-                "genre_sync.core.file_processor.read_custom_genre_fields",
-                return_value=_fields(),
-            ),
-            patch(
-                "genre_sync.core.file_processor.read_album_artist", return_value=None
-            ),
-            patch("genre_sync.core.file_processor.read_genre", return_value=None),
-        ):
+        with _handler_patch(_mock_handler(fields=_fields())):
             process_single_file(
                 filename="t.mp3",
                 dir_path=str(tmp_path),
@@ -229,10 +263,7 @@ class TestProcessSingleFileUnit:
     def test_slot_returned_even_on_exception(self, tmp_path):
         slot_vars, slot_q = _make_slots(n=1)
         (tmp_path / "t.mp3").write_bytes(b"x")
-        with patch(
-            "genre_sync.core.file_processor.read_custom_genre_fields",
-            side_effect=RuntimeError("read failed"),
-        ):
+        with _handler_patch(RuntimeError("read failed")):
             process_single_file(
                 filename="t.mp3",
                 dir_path=str(tmp_path),
@@ -248,10 +279,7 @@ class TestProcessSingleFileUnit:
         slot_vars, slot_q = _make_slots()
         (tmp_path / "t.mp3").write_bytes(b"x")
         results = []
-        with patch(
-            "genre_sync.core.file_processor.read_custom_genre_fields",
-            side_effect=RuntimeError("bang"),
-        ):
+        with _handler_patch(RuntimeError("bang")):
             process_single_file(
                 filename="t.mp3",
                 dir_path=str(tmp_path),
@@ -291,14 +319,7 @@ class TestProcessSingleFileUnit:
         (tmp_path / long_name).write_bytes(b"x")
         results = []
         with (
-            patch(
-                "genre_sync.core.file_processor.read_custom_genre_fields",
-                return_value=_fields(titlegenre="Rock"),
-            ),
-            patch(
-                "genre_sync.core.file_processor.read_album_artist", return_value=None
-            ),
-            patch("genre_sync.core.file_processor.read_genre", return_value=None),
+            _handler_patch(_mock_handler(fields=_fields(titlegenre="Rock"))),
             patch("genre_sync.core.file_processor.write_genre_sync_result"),
         ):
             process_single_file(
@@ -346,23 +367,18 @@ class TestRunProcessing:
         fields_map = fields_map or {}
         genre_map = genre_map or {}
 
-        def mock_fields(path):
+        def handler_for(path):
             name = path.split("/")[-1].split("\\")[-1]
-            return fields_map.get(name, _fields())
-
-        def mock_genre(path):
-            name = path.split("/")[-1].split("\\")[-1]
-            return genre_map.get(name)
+            return _mock_handler(
+                fields=fields_map.get(name, _fields()),
+                current_genre=genre_map.get(name),
+            )
 
         with (
             patch(
-                "genre_sync.core.file_processor.read_custom_genre_fields",
-                side_effect=mock_fields,
+                "genre_sync.core.file_processor.TagHandlerFactory.get_handler",
+                side_effect=handler_for,
             ),
-            patch(
-                "genre_sync.core.file_processor.read_album_artist", return_value=None
-            ),
-            patch("genre_sync.core.file_processor.read_genre", side_effect=mock_genre),
             patch("genre_sync.core.file_processor.write_genre_sync_result"),
         ):
             run_processing(
@@ -467,27 +483,23 @@ class TestRunProcessing:
         fields_map = {f"t{i}.mp3": _fields(titlegenre="Rock") for i in range(2)}
         genre_map = {f"t{i}.mp3": None for i in range(2)}
 
-        # Make read_custom_genre_fields raise for the second file
-        def mock_fields(path):
+        # Make the handler load fail for the second file
+        def handler_for(path):
             name = path.split("/")[-1].split("\\")[-1]
             if name == "t1.mp3":
                 raise RuntimeError("Simulated failure")
-            return fields_map.get(name, _fields())
+            return _mock_handler(
+                fields=fields_map.get(name, _fields()),
+                current_genre=genre_map.get(name),
+            )
 
         slot_vars, slot_q = _make_slots()
         progress, complete, errors = [], [], []
 
         with (
             patch(
-                "genre_sync.core.file_processor.read_custom_genre_fields",
-                side_effect=mock_fields,
-            ),
-            patch(
-                "genre_sync.core.file_processor.read_album_artist", return_value=None
-            ),
-            patch(
-                "genre_sync.core.file_processor.read_genre",
-                side_effect=lambda p: genre_map.get(p.split("/")[-1].split("\\")[-1]),
+                "genre_sync.core.file_processor.TagHandlerFactory.get_handler",
+                side_effect=handler_for,
             ),
             patch("genre_sync.core.file_processor.write_genre_sync_result"),
         ):
@@ -527,14 +539,7 @@ class TestUndoBatchRecording:
         shared_factory.get_handler.return_value = handler
 
         with (
-            patch(
-                "genre_sync.core.file_processor.read_custom_genre_fields",
-                return_value=_fields(titlegenre="Rock"),
-            ),
-            patch(
-                "genre_sync.core.file_processor.read_album_artist", return_value=None
-            ),
-            patch("genre_sync.core.file_processor.read_genre", return_value=None),
+            _handler_patch(_mock_handler(fields=_fields(titlegenre="Rock"))),
             patch(
                 "audio_suite_shared.tag_helper_base.TagHandlerFactory", shared_factory
             ),

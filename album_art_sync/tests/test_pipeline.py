@@ -2,6 +2,8 @@
 
 Changed in 1.0.1: added an M1 regression suite asserting an unexpected error
 yields a readable failure ArtSyncReport instead of None.
+Changed in 1.4.0: patches the single handler load the pipeline now uses
+(PLAN D55).
 """
 
 from __future__ import annotations
@@ -13,6 +15,29 @@ from typing import Any
 import pytest
 
 from album_art_sync.core.pipeline import resolve_and_apply
+
+
+def _identity_patch(
+    artist_album: tuple[str, str] = ("Artist", "Album"),
+    album_artist: str = "",
+    album_mbid: str | None = None,
+    load_side_effect: BaseException | None = None,
+):
+    """Patch the single handler load that reads an album's identity tags."""
+    handler = mock.MagicMock()
+    handler.read_artist_album.return_value = artist_album
+    handler.read_album_artist.return_value = album_artist
+    handler.read_custom_field.side_effect = lambda name: (
+        album_mbid if name == "MUSICBRAINZ_ALBUMID" else None
+    )
+    kwargs = (
+        {"side_effect": load_side_effect}
+        if load_side_effect
+        else {"return_value": handler}
+    )
+    return mock.patch(
+        "album_art_sync.core.pipeline.TagHandlerFactory.get_handler", **kwargs
+    )
 
 
 @pytest.fixture
@@ -100,16 +125,7 @@ class TestResolveAndApply:
             ),
             mock.patch("album_art_sync.core.pipeline.apply_artwork", return_value=True),
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_artist_album",
-                return_value=("Artist", "Album"),
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_album_artist", return_value=""
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}
-            ),
+            _identity_patch(),
         ):
             mock_fanart.return_value = b"fanart_image"
             report = resolve_and_apply(
@@ -149,16 +165,7 @@ class TestResolveAndApply:
             ),
             mock.patch("album_art_sync.core.pipeline.apply_artwork", return_value=True),
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_artist_album",
-                return_value=("Artist", "Album"),
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_album_artist", return_value=""
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}
-            ),
+            _identity_patch(),
         ):
             mock_deezer.return_value = b"deezer_image"
             report = resolve_and_apply(
@@ -185,13 +192,7 @@ class TestResolveAndApply:
             ),
             mock.patch("album_art_sync.core.pipeline.apply_artwork", return_value=True),
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
-            mock.patch(
-                "audio_suite_shared.tag_helper.read_artist_album",
-                return_value=("Artist", "Album"),
-            ),
-            mock.patch(
-                "audio_suite_shared.tag_helper.read_album_artist", return_value=""
-            ),
+            _identity_patch(),
         ):
             report = resolve_and_apply(
                 str(mp3_file.parent),
@@ -212,13 +213,7 @@ class TestResolveAndApply:
             mock.patch("album_art_sync.api.deezer.query", return_value=None),
             mock.patch("album_art_sync.api.itunes.query", return_value=None),
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
-            mock.patch(
-                "audio_suite_shared.tag_helper.read_artist_album",
-                return_value=("Artist", "Album"),
-            ),
-            mock.patch(
-                "audio_suite_shared.tag_helper.read_album_artist", return_value=""
-            ),
+            _identity_patch(),
         ):
             report = resolve_and_apply(
                 str(mp3_file.parent),
@@ -244,16 +239,7 @@ class TestResolveAndApply:
                 "album_art_sync.core.pipeline._download_image", return_value=b"data"
             ),
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_artist_album",
-                return_value=("Artist", "Album"),
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_album_artist", return_value=""
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}
-            ),
+            _identity_patch(),
         ):
             report = resolve_and_apply(
                 str(mp3_file.parent),
@@ -291,12 +277,7 @@ class TestResolveAndApply:
     def test_metadata_read_failure_returns_error(
         self, mp3_file: Path, log_cb: mock.Mock
     ) -> None:
-        with (
-            mock.patch(
-                "album_art_sync.core.pipeline.read_artist_album",
-                side_effect=ValueError("Corrupt file"),
-            ),
-        ):
+        with _identity_patch(load_side_effect=ValueError("Corrupt file")):
             report = resolve_and_apply(
                 str(mp3_file.parent),
                 auto_select=True,
@@ -320,17 +301,7 @@ class TestResolveAndApply:
                 "album_art_sync.core.pipeline._download_image", return_value=b"data"
             ),
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_artist_album",
-                return_value=("Beatles", "Abbey Road"),
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_album_artist",
-                return_value="",
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}
-            ),
+            _identity_patch(("Beatles", "Abbey Road")),
         ):
             report = resolve_and_apply(
                 str(mp3_file.parent),
@@ -358,16 +329,7 @@ class TestResolveAndApplyConfig:
         with (
             mock.patch("album_art_sync.api.source_resolver.resolve") as mock_resolve,
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_artist_album",
-                return_value=("A", "B"),
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_album_artist", return_value=""
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}
-            ),
+            _identity_patch(("A", "B")),
         ):
             mock_resolve.return_value = (None, None)
             resolve_and_apply(
@@ -399,20 +361,9 @@ class TestAlbumMbidForwarding:
         with (
             mock.patch("album_art_sync.api.source_resolver.resolve") as mock_resolve,
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_artist_album",
-                return_value=("Pink Floyd", "The Wall"),
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_album_artist", return_value=""
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_musicbrainz_ids",
-                return_value={
-                    "MUSICBRAINZ_TRACKID": "track-uuid",
-                    "MUSICBRAINZ_ALBUMID": self.RELEASE_MBID,
-                },
-            ) as mock_read_ids,
+            _identity_patch(
+                ("Pink Floyd", "The Wall"), album_mbid=self.RELEASE_MBID
+            ) as mock_get_handler,
         ):
             mock_resolve.return_value = (None, None)
             report = resolve_and_apply(
@@ -421,8 +372,8 @@ class TestAlbumMbidForwarding:
                 log_callback=log_cb,
             )
 
-        mock_read_ids.assert_called_once()
-        assert mock_read_ids.call_args.args[0].endswith("track.mp3")
+        mock_get_handler.assert_called_once()
+        assert mock_get_handler.call_args.args[0].endswith("track.mp3")
         assert mock_resolve.call_args.kwargs["album_mbid"] == self.RELEASE_MBID
         assert report.selection_audit is not None
         assert self.RELEASE_MBID in report.selection_audit
@@ -434,17 +385,7 @@ class TestAlbumMbidForwarding:
         with (
             mock.patch("album_art_sync.api.source_resolver.resolve") as mock_resolve,
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_artist_album",
-                return_value=("A", "B"),
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_album_artist", return_value=""
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_musicbrainz_ids",
-                return_value={},
-            ),
+            _identity_patch(("A", "B")),
         ):
             mock_resolve.return_value = (None, None)
             report = resolve_and_apply(
@@ -475,17 +416,7 @@ class TestAlbumMbidForwarding:
             ),
             mock.patch("album_art_sync.core.pipeline.apply_artwork", return_value=True),
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_artist_album",
-                return_value=("Pink Floyd", "The Wall"),
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_album_artist", return_value=""
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_musicbrainz_ids",
-                return_value={"MUSICBRAINZ_ALBUMID": self.RELEASE_MBID},
-            ),
+            _identity_patch(("Pink Floyd", "The Wall"), album_mbid=self.RELEASE_MBID),
         ):
             report = resolve_and_apply(
                 str(mp3_file.parent),
@@ -523,16 +454,7 @@ class TestResolveAndApplyErrorContract:
                 "album_art_sync.core.pipeline.source_resolver.resolve",
                 side_effect=RuntimeError("resolver exploded"),
             ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_artist_album",
-                return_value=("Artist", "Album"),
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_album_artist", return_value=""
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}
-            ),
+            _identity_patch(),
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
         ):
             report = resolve_and_apply(
@@ -561,16 +483,7 @@ class TestResolveAndApplyErrorContract:
                 "album_art_sync.core.pipeline.apply_artwork",
                 side_effect=RuntimeError("apply exploded"),
             ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_artist_album",
-                return_value=("Artist", "Album"),
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_album_artist", return_value=""
-            ),
-            mock.patch(
-                "album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}
-            ),
+            _identity_patch(),
             mock.patch("album_art_sync.config.settings.load_config", return_value={}),
         ):
             report = resolve_and_apply(

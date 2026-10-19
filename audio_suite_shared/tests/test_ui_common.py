@@ -19,10 +19,14 @@ Covers:
     • BaseSetupFrame: skeleton layout, set_driven gating, preset row,
       config group / parallel row helpers, ordering override
     • save_preset_dialog / delete_preset_action: preset IO helpers
+    • cap_typed_workers: a typed count above the slot grid
+
+Changed in 1.4.0: adds the `cap_typed_workers` coverage (D66).
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import tkinter as tk
@@ -1010,3 +1014,80 @@ class TestDeletePresetAction:
         with patch("tkinter.messagebox.askyesno", return_value=True):
             delete_preset_action(combo, None)
         assert combo.get() == ""
+
+
+class TestCapTypedWorkers:
+    """A typed Workers value above the slot grid is capped with one warning."""
+
+    def test_caps_the_value_and_writes_it_back(self):
+        from audio_suite_shared.ui_common import cap_typed_workers
+
+        var = MagicMock()
+        var.get.return_value = 12
+        with patch("audio_suite_shared.ui_common.messagebox") as dialogs:
+            assert cap_typed_workers(var, [MagicMock() for _ in range(8)]) == 8
+
+        dialogs.showwarning.assert_called_once()
+        assert "8" in dialogs.showwarning.call_args.args[1]
+        var.set.assert_called_once_with(8)
+
+    def test_a_fitting_count_is_left_alone(self):
+        from audio_suite_shared.ui_common import cap_typed_workers
+
+        var = MagicMock()
+        var.get.return_value = 6
+        with patch("audio_suite_shared.ui_common.messagebox") as dialogs:
+            assert cap_typed_workers(var, [MagicMock() for _ in range(8)]) == 6
+
+        dialogs.showwarning.assert_not_called()
+        var.set.assert_not_called()
+
+    def test_no_grid_means_no_cap(self):
+        from audio_suite_shared.ui_common import cap_typed_workers
+
+        var = MagicMock()
+        var.get.return_value = 12
+        with patch("audio_suite_shared.ui_common.messagebox") as dialogs:
+            assert cap_typed_workers(var, None) == 12
+
+        dialogs.showwarning.assert_not_called()
+        var.set.assert_not_called()
+
+    def test_unattended_caps_and_logs_without_a_dialog(self, caplog):
+        """A driver launch has nobody to dismiss a modal warning."""
+        from audio_suite_shared.ui_common import cap_typed_workers
+
+        var = MagicMock()
+        var.get.return_value = 12
+        with (
+            patch("audio_suite_shared.ui_common.messagebox") as dialogs,
+            caplog.at_level(logging.WARNING),
+        ):
+            capped = cap_typed_workers(
+                var,
+                [MagicMock() for _ in range(8)],
+                unattended=True,
+            )
+
+        assert capped == 8
+        dialogs.showwarning.assert_not_called()
+        var.set.assert_called_once_with(8)
+        assert any("Workers limited" in record.message for record in caplog.records)
+        assert any("8" in record.message for record in caplog.records)
+
+    def test_unattended_with_a_fitting_count_logs_nothing(self, caplog):
+        from audio_suite_shared.ui_common import cap_typed_workers
+
+        var = MagicMock()
+        var.get.return_value = 4
+        with (
+            patch("audio_suite_shared.ui_common.messagebox"),
+            caplog.at_level(logging.WARNING),
+        ):
+            assert (
+                cap_typed_workers(var, [MagicMock() for _ in range(8)], unattended=True)
+                == 4
+            )
+
+        var.set.assert_not_called()
+        assert not any("Workers limited" in record.message for record in caplog.records)

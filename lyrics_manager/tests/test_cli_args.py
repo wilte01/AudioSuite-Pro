@@ -3,6 +3,7 @@ tests/test_cli_args.py — pytest suite for lyrics_manager.utils.cli_args.
 
 Covers defaults, positional slots, named flag pairs, boolean flag pairs,
 display-only driver flags, invalid values, and folder-path validation.
+Changed in 1.4.0: the worker default is read from default_max_workers().
 """
 
 from __future__ import annotations
@@ -156,7 +157,9 @@ class TestParseEdgeCases:
                     "many",
                 ]
             )
-        assert result.max_workers == 4
+        from audio_suite_shared.constants import default_max_workers
+
+        assert result.max_workers == default_max_workers()
         assert any("many" in r.message for r in caplog.records)
 
     def test_unknown_token_skipped(self, tmp_path):

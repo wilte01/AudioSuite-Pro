@@ -20,6 +20,10 @@ loudly instead of silently taking the fallback branch.
 Changed in 1.3.0: adds the real chart-rendering locks and makes the cache-scan
 test build its scan on the main thread (a real worker thread calling
 ``root.after`` is a race, not a scenario the suite controls).
+
+Changed in 1.4.0: the scan and export fixtures patch the tag-handler factory,
+so the real single-pass ``_read_file_tags`` read stays in the loop, and a
+load-count test locks the one-load-per-file contract (PLAN D55).
 """
 
 from __future__ import annotations
@@ -62,8 +66,14 @@ def fake_config(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture()
-def isolated_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> LibraryCache:
-    """Bind the app's default-path cache constructor to a scratch database."""
+def isolated_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> Generator[LibraryCache, None, None]:
+    """Bind the app's default-path cache constructor to a scratch database.
+
+    The database is closed on teardown: the app keeps using the injected
+    instance, so nothing else would ever close its SQLite handle.
+    """
     cache = LibraryCache(str(tmp_path / "library_cache.db"))
 
     def _factory(cache_path: str | Path | None = None) -> LibraryCache:
@@ -71,7 +81,10 @@ def isolated_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> LibraryCa
         return cache
 
     monkeypatch.setattr(app_module, "LibraryCache", _factory)
-    return cache
+    try:
+        yield cache
+    finally:
+        cache.close()
 
 
 def _make_app(
@@ -119,26 +132,56 @@ _EMPTY_TAGS = _FileTags(
 )
 
 
-@pytest.fixture()
-def scan_reads(monkeypatch: pytest.MonkeyPatch, library: Path) -> None:
-    """Canned single-pass reads: one fully tagged file, one untagged."""
-    tags = {str(library / "a.mp3"): _A_TAGS, str(library / "b.mp3"): _EMPTY_TAGS}
+def _handler_for(tags: _FileTags) -> MagicMock:
+    """A tag handler reporting *tags*, shaped like a real loaded handler."""
+    handler = MagicMock()
+    handler.read_artist_album.return_value = tags.artist_album
+    handler.read_album_artist.return_value = tags.album_artist
+    handler.read_bpm.return_value = tags.bpm
+    handler.read_key.return_value = tags.key
+    handler.read_genre.return_value = tags.genre
+    handler.read_mood.return_value = tags.mood
+    handler.read_tempo_marking.return_value = tags.tempo_marking
+    raw: dict[str, str] = {}
+    if tags.year is not None:
+        raw["TDRC"] = str(tags.year)
+    handler.get_raw_tags.return_value = raw
+    return handler
 
+
+@pytest.fixture()
+def scan_reads(monkeypatch: pytest.MonkeyPatch, library: Path) -> MagicMock:
+    """Patch the tag-handler factory: one tagged file, one untagged.
+
+    Stubbing the factory rather than ``_read_file_tags`` keeps the real
+    single-pass reader in the loop, so the scan still exercises the shape the
+    production path uses (PLAN D55). The returned factory records the loads.
+    """
+    handlers = {
+        str(library / "a.mp3"): _handler_for(_A_TAGS),
+        str(library / "b.mp3"): _handler_for(_EMPTY_TAGS),
+    }
+
+    factory = MagicMock(side_effect=lambda path: handlers[str(Path(path))])
     monkeypatch.setattr(
-        "library_stats.core.file_processor._read_file_tags",
-        lambda path: tags[str(Path(path))],
+        "library_stats.core.file_processor.TagHandlerFactory.get_handler", factory
     )
+    return factory
 
 
 @pytest.fixture()
 def export_reads(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Canned per-reader values so real ``export_csv`` writes every row.
+    """Canned tag values so real ``export_csv`` writes every row.
 
-    ``export_csv`` re-reads each file through the named reader methods; on
-    garbage test bytes they would raise and the row would be skipped, so this
-    fixture greys them the same way ``test_file_processor`` does.
+    ``export_csv`` loads one handler per file; on garbage test bytes its
+    readers would raise and the row would be skipped, so this fixture returns
+    a handler whose readers all report "no tag".
     """
-    names = (
+    handler = MagicMock()
+    raw = MagicMock()
+    raw.get.return_value = None
+    handler.get_raw_tags.return_value = raw
+    for reader in (
         "read_artist_album",
         "read_album_artist",
         "read_bpm",
@@ -146,13 +189,12 @@ def export_reads(monkeypatch: pytest.MonkeyPatch) -> None:
         "read_genre",
         "read_mood",
         "read_tempo_marking",
-        "read_tags_raw",
+    ):
+        getattr(handler, reader).return_value = None
+    monkeypatch.setattr(
+        "library_stats.core.file_processor.TagHandlerFactory.get_handler",
+        lambda path: handler,
     )
-    for name in names:
-        monkeypatch.setattr(
-            f"library_stats.core.file_processor.{name}",
-            lambda full: None,
-        )
 
 
 @pytest.fixture()
@@ -289,6 +331,17 @@ class TestScanValidation:
 
 class TestScanFlow:
     """Real engine (walk + aggregation + SQLite cache), mocked tag reads."""
+
+    def test_scan_loads_one_handler_per_file(
+        self, library: Path, scan_reads: MagicMock
+    ) -> None:
+        """D55: a two-file scan parses each file once, not eight times."""
+        report = scan_directory(str(library), use_cache=False)
+
+        assert report.total_files == 2
+        assert scan_reads.call_count == 2
+        loaded = sorted(Path(call.args[0]).name for call in scan_reads.call_args_list)
+        assert loaded == ["a.mp3", "b.mp3"]
 
     def test_full_scan_flow_renders_dashboard(
         self,

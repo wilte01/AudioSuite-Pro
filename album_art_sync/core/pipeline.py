@@ -3,6 +3,8 @@
 Changed in 1.0.1: when an unexpected error escapes, resolve_and_apply now
 returns a failure ArtSyncReport instead of None, honouring its -> ArtSyncReport
 contract so the CLI can no longer crash with an AttributeError.
+Changed in 1.4.0: the album-identity reads (artist/album, album artist and
+MusicBrainz album id) share one handler load (PLAN D55).
 """
 
 from __future__ import annotations
@@ -20,12 +22,7 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
-from audio_suite_shared.tag_helper import (
-    SUPPORTED_EXTENSIONS,
-    read_album_artist,
-    read_artist_album,
-)
-from audio_suite_shared.tag_helper_reader import read_musicbrainz_ids
+from audio_suite_shared.tag_helper import SUPPORTED_EXTENSIONS, TagHandlerFactory
 
 from ..api import source_resolver
 from ..config.settings import CONFIG, load_config
@@ -184,8 +181,9 @@ def resolve_and_apply(
 
         first_file = os.path.join(path, files[0])
         try:
-            artist, album = read_artist_album(first_file)
-            album_artist = read_album_artist(first_file)
+            handler = TagHandlerFactory.get_handler(first_file)
+            artist, album = handler.read_artist_album()
+            album_artist = handler.read_album_artist()
         except Exception as exc:
             mapped = map_to_audio_error(exc)
             _log(f"Error reading file metadata: {user_message_for(mapped)}")
@@ -201,8 +199,7 @@ def resolve_and_apply(
             )
 
         lookup_artist = album_artist if album_artist else artist
-        # Never raises: an unreadable/untagged file yields an empty dict.
-        album_mbid = read_musicbrainz_ids(first_file).get("MUSICBRAINZ_ALBUMID", "")
+        album_mbid = handler.read_custom_field("MUSICBRAINZ_ALBUMID") or ""
         _audit(f'Artist: "{lookup_artist}"  Album: "{album}"')
         _audit(
             "Sources queried: Cover Art Archive → MusicBrainz → "

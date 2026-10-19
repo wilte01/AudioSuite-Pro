@@ -11,6 +11,8 @@ Covers:
     frequency-bin mapping for any file not natively at 22050 Hz.)
 
 Changed in 1.1.0: retargeted the librosa patch points to the shared helper.
+Changed in 1.4.0: the mocked processor carries a real `max_workers` so the
+slot-grid cap has a number to compare (D66).
 """
 
 import threading
@@ -468,6 +470,7 @@ class TestRunAnalysisNonParallel:
         from key_detector.core.file_processor import run_analysis
 
         mock_processor = MagicMock()
+        mock_processor.max_workers = 2
         mock_processor.discover_audio_files.return_value = ["a.mp3", "b.mp3"]
         mock_processor.create_progress_tracker.return_value = (
             [0],

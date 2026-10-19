@@ -36,6 +36,7 @@ removed.
 Changed in 1.2.0: covers the new fingerprinter MusicBrainz / ISRC keys.
 
 Changed in 1.3.0: the expected toggle-key set adds ``spectral_viewer``.
+Changed in 1.4.0: the worker default is read from default_max_workers().
 """
 
 import json
@@ -457,7 +458,9 @@ class TestAppStateDefaults:
         assert state.lyrics_parallel.get() is False
 
     def test_lyrics_workers_default(self, state):
-        assert state.lyrics_workers.get() == "4"
+        from audio_suite_shared.constants import default_max_workers
+
+        assert state.lyrics_workers.get() == str(default_max_workers())
 
     def test_tempo_scheme_default(self, state):
         assert state.tempo_scheme.get() == "Italian"

@@ -3,6 +3,11 @@ test_app.py
 Tests for app.py — MoodAnalysisBatchTaggerApp orchestration logic.
 
 Uses the object.__new__ + MagicMock pattern (no real Tk window).
+
+Changed in 1.4.0: covers the saved worker-count fallback resolving the shared
+default instead of a literal (D67).
+Changed in 1.4.0: covers a typed worker count above the slot grid being
+capped (with a warning) before it is saved (D66).
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ def _make_app() -> MoodAnalysisBatchTaggerApp:
     app.analysis_duration = MagicMock()
     app.parallel_mode = MagicMock()
     app.max_workers = MagicMock()
+    app._safe_slot_vars = []
     app.auto_start_var = MagicMock()
     app.auto_end_var = MagicMock()
     app.clear_logs_var = MagicMock()
@@ -413,6 +419,29 @@ class TestApplyCliArgs:
         app.root.after.assert_called_once_with(1500, app._on_start)
 
 
+class TestSavedWorkerCount:
+    """A corrupt or missing saved worker count falls back to the default."""
+
+    def test_keeps_a_valid_saved_count(self) -> None:
+        from mood_analysis_batch_tagger.app import _saved_worker_count
+
+        assert _saved_worker_count(3) == 3
+
+    def test_corrupt_value_resolves_the_shared_default(self) -> None:
+        from audio_suite_shared.constants import default_max_workers
+        from mood_analysis_batch_tagger.app import _saved_worker_count
+
+        assert _saved_worker_count("junk") == default_max_workers()
+        assert _saved_worker_count(None) == default_max_workers()
+
+    def test_non_positive_or_bool_value_resolves_the_default(self) -> None:
+        from audio_suite_shared.constants import default_max_workers
+        from mood_analysis_batch_tagger.app import _saved_worker_count
+
+        assert _saved_worker_count(0) == default_max_workers()
+        assert _saved_worker_count(True) == default_max_workers()
+
+
 class TestOnDurationChange:
     def test_applies_saved_duration(self) -> None:
         app = _make_app()
@@ -464,3 +493,47 @@ class TestOpenLogAndFolder:
             app._on_open_folder()
         mock_platform.open_path.assert_not_called()
         mock_platform.messagebox.showinfo.assert_called_once()
+
+
+class _WorkerVarStub:
+    """Minimal tk.IntVar stand-in that reflects ``set()`` back into ``get()``."""
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+    def get(self) -> int:
+        return self.value
+
+    def set(self, value: int) -> None:
+        self.value = value
+
+
+class TestTypedWorkersAboveTheSlotGrid:
+    """A typed count above the grid is capped before the run is persisted."""
+
+    def test_caps_and_saves_the_slot_count(self, tmp_path) -> None:
+        app = _make_app()
+        app._safe_slot_vars = [MagicMock() for _ in range(4)]
+        app.max_workers = _WorkerVarStub(12)
+        app.root_path.get.return_value = str(tmp_path)
+        app.run_mode.get.return_value = "Live Update"
+        app.analysis_duration.get.return_value = 30
+        app.parallel_mode.get.return_value = True
+
+        with (
+            patch(f"{APP}.save_run_mode"),
+            patch(f"{APP}.suite_config") as mock_config,
+            patch(f"{APP}.active_batch"),
+            patch(f"{APP}.threading.Thread") as mock_thread,
+            patch(f"{APP}.batch_analysis_engine") as mock_engine,
+            patch("audio_suite_shared.ui_common.messagebox") as warnings,
+        ):
+            app._on_start()
+
+            assert app.max_workers.get() == 4
+            mock_config.save_value.assert_any_call("mood_analysis_batch_max_workers", 4)
+            warnings.showwarning.assert_called_once()
+
+            worker = mock_thread.call_args.kwargs["target"]
+            worker()
+            assert mock_engine.run_batch.call_args.kwargs["max_workers"] == 4

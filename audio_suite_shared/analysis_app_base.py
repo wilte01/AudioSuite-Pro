@@ -20,6 +20,9 @@ each tool keeps its own two-line ``_run`` that delegates to ``_run_batch``.
 Changed in 1.2.0: adds the ``_record_run_note`` hook, called from the shared
 completion path, so a tool can tell the Master Driver what a finished run could
 not produce without reimplementing ``_on_complete``.
+Changed in 1.4.0: the worker slot grid and the saved-config default both derive
+from ``DEFAULT_MAX_WORKERS`` instead of a literal 4 (PLAN D56); a typed count
+above the grid is capped, logged instead of shown when unattended (D70).
 """
 
 from __future__ import annotations
@@ -36,13 +39,20 @@ from . import platform_utils, styles
 from . import suite_config as _suite_config
 from .app_bootstrap import bootstrap_tool_app
 from .batch_undo import active_batch
+from .constants import (
+    DEFAULT_MAX_WORKERS,
+    cap_workers_to_slot_grid,
+    default_max_workers,
+)
 from .exceptions import map_to_audio_error
 from .thread_safe_slot_var import ThreadSafeSlotVar
+from .ui_common import cap_typed_workers
 from .ui_helpers import UIHelperMixin
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
-WORKER_SLOT_COUNT = 4
+WORKER_SLOT_COUNT = DEFAULT_MAX_WORKERS
+"""Slot-grid size; mirrors the worker default so slots match the pool."""
 
 
 class AnalysisAppBase(UIHelperMixin):
@@ -53,6 +63,10 @@ class AnalysisAppBase(UIHelperMixin):
     ``mypy --strict`` catches a tool that forgets one at class-definition time
     instead of at first click.
     """
+
+    #: Set from argv in ``__init__``.  The default keeps an ``object.__new__``
+    #: test shell on the interactive (modal-warning) path.
+    _launched_from_driver: bool = False
 
     # -- Identity ---------------------------------------------------------
     TOOL_ID: ClassVar[str]
@@ -123,8 +137,12 @@ class AnalysisAppBase(UIHelperMixin):
         saved_parallel = bool(
             _suite_config.load_value(self._setting_key("parallel_mode"), False)
         )
-        workers_saved = _suite_config.load_value(self._setting_key("max_workers"), 4)
-        saved_workers = workers_saved if isinstance(workers_saved, int) else 4
+        workers_saved = _suite_config.load_value(
+            self._setting_key("max_workers"), default_max_workers()
+        )
+        saved_workers = (
+            workers_saved if isinstance(workers_saved, int) else default_max_workers()
+        )
         self.parallel_mode = tk.BooleanVar(value=saved_parallel)
         self.max_workers = tk.IntVar(value=saved_workers)
 
@@ -324,13 +342,20 @@ class AnalysisAppBase(UIHelperMixin):
             messagebox.showerror("Error", "Selected path is not a valid directory.")
             return
 
+        # A typed worker count can exceed the fixed slot grid; cap it on the
+        # main thread (with a visible warning) before anything is persisted,
+        # so the saved setting matches the run that actually happens (D66).
+        workers = cap_typed_workers(
+            self.max_workers,
+            self._safe_slot_vars,
+            unattended=self._launched_from_driver,
+        )
+
         # Persist parallel processing settings
         _suite_config.save_value(
             self._setting_key("parallel_mode"), self.parallel_mode.get()
         )
-        _suite_config.save_value(
-            self._setting_key("max_workers"), self.max_workers.get()
-        )
+        _suite_config.save_value(self._setting_key("max_workers"), workers)
 
         self.start_btn.config(state="disabled")
         self.file_listbox.delete(0, tk.END)
@@ -391,7 +416,9 @@ class AnalysisAppBase(UIHelperMixin):
         is_dry_run = self.run_mode.get() == "Dry Run"
         duration = self.analysis_duration.get()
         parallel = self.parallel_mode.get()
-        workers = self.max_workers.get()
+        # Defensive: a preset, a CLI flag or a driver pre-fill can set the
+        # count without going through start_processing's dialog.
+        workers = cap_workers_to_slot_grid(self.max_workers.get(), self._safe_slot_vars)
 
         self._dir_path = dir_path
         self._log_path = os.path.join(

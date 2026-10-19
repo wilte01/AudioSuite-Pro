@@ -5,10 +5,14 @@ Uses the object.__new__ + MagicMock shell pattern (no real display).
 
 Changed in 1.2.0: covers the run note the batch report shows when tracks
 produced no BPM.
+
+Changed in 1.4.0: covers the typed Workers count being capped at the slot grid
+(D66).
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import tempfile
@@ -293,6 +297,102 @@ class TestStartProcessingD3:
         app.start_processing()
 
         dialogs.showerror.assert_called_once()
+
+    def test_typed_workers_above_the_grid_are_capped(self, monkeypatch, tmp_path):
+        """A typed count above the slot grid must never reach the processor.
+
+        Regression (D66): the Workers entry is free text while the grid is
+        fixed, so an uncapped count handed out-of-range slot indices and every
+        affected file failed with an unexplained ``IndexError``.
+        """
+        import bpm_analyzer.app as app_mod
+
+        app = self._shell()
+        fake_threading = MagicMock()
+        monkeypatch.setattr(app_mod, "threading", fake_threading)
+        monkeypatch.setattr("bpm_analyzer.app.messagebox", MagicMock())
+        dialogs = MagicMock()
+        monkeypatch.setattr("audio_suite_shared.ui_common.messagebox", dialogs)
+        src = tmp_path / "music"
+        src.mkdir()
+        (src / "a.mp3").write_bytes(b"\x00" * 8)
+        app.folder_path.get.return_value = str(src)
+        app.bpm_range_min.get.return_value = 60
+        app.bpm_range_max.get.return_value = 200
+        app.analysis_duration.get.return_value = 30
+        app.max_workers.get.return_value = 12
+        app.parallel_mode.get.return_value = False
+        app.run_mode.get.return_value = "Dry Run"
+        app._safe_slot_vars = [MagicMock(), MagicMock()]
+        saves: list[tuple[str, object]] = []
+        monkeypatch.setattr(
+            "bpm_analyzer.app._suite_config.save_value",
+            lambda key, value: saves.append((key, value)),
+        )
+
+        app.start_processing()
+
+        dialogs.showwarning.assert_called_once()
+        app.max_workers.set.assert_called_once_with(2)
+        assert ("bpm_max_workers", 2) in saves
+        thread_args = fake_threading.Thread.call_args.kwargs["args"]
+        assert thread_args[-1] == 2
+
+    def test_driver_launch_caps_without_a_dialog(self, monkeypatch, tmp_path, caplog):
+        """A driver / auto-start launch must not wait for a modal warning."""
+        import bpm_analyzer.app as app_mod
+
+        app = self._shell()
+        app._launched_from_driver = True
+        fake_threading = MagicMock()
+        monkeypatch.setattr(app_mod, "threading", fake_threading)
+        monkeypatch.setattr("bpm_analyzer.app.messagebox", MagicMock())
+        dialogs = MagicMock()
+        monkeypatch.setattr("audio_suite_shared.ui_common.messagebox", dialogs)
+        src = tmp_path / "music"
+        src.mkdir()
+        (src / "a.mp3").write_bytes(b"\x00" * 8)
+        app.folder_path.get.return_value = str(src)
+        app.bpm_range_min.get.return_value = 60
+        app.bpm_range_max.get.return_value = 200
+        app.analysis_duration.get.return_value = 30
+        app.max_workers.get.return_value = 12
+        app.parallel_mode.get.return_value = False
+        app.run_mode.get.return_value = "Dry Run"
+        app._safe_slot_vars = [MagicMock(), MagicMock()]
+        saves: list[tuple[str, object]] = []
+        monkeypatch.setattr(
+            "bpm_analyzer.app._suite_config.save_value",
+            lambda key, value: saves.append((key, value)),
+        )
+
+        with caplog.at_level(logging.WARNING):
+            app.start_processing()
+
+        dialogs.showwarning.assert_not_called()
+        assert any("Workers limited" in record.message for record in caplog.records)
+        app.max_workers.set.assert_called_once_with(2)
+        assert ("bpm_max_workers", 2) in saves
+        thread_args = fake_threading.Thread.call_args.kwargs["args"]
+        assert thread_args[-1] == 2
+
+    def test_run_analysis_caps_workers_at_the_grid(self, monkeypatch, tmp_path):
+        """A preset/CLI value must be capped even without the dialog."""
+        from bpm_analyzer.app import BPMAnalyzerApp
+
+        app = object.__new__(BPMAnalyzerApp)
+        app.root = MagicMock()
+        app._safe_slot_vars = [MagicMock(), MagicMock()]
+        app.slot_queue = MagicMock()
+        calls: dict[str, object] = {}
+
+        import bpm_analyzer.core.file_processor as core
+
+        monkeypatch.setattr(core, "run_analysis", lambda **kw: calls.update(kw))
+
+        app._run_analysis(str(tmp_path), True, 60, 200, 30, False, 12)
+
+        assert calls["max_workers"] == 2
 
     def test_worker_thread_calls_core_entry_with_flags(self, monkeypatch, tmp_path):
         from bpm_analyzer.app import BPMAnalyzerApp

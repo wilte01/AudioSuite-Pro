@@ -20,13 +20,14 @@ not raise a TypeError).
 
 Run with:
     pytest tests/test_file_processor.py -v
+Changed in 1.4.0: the reader mocks patch one handler load (PLAN D55).
 """
 
 from __future__ import annotations
 
 import csv
 import os
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -57,20 +58,25 @@ _READER_NAMES = (
 
 @contextmanager
 def _reader_mocks() -> Any:
-    """Patch all tag readers, defaulting every return to None.
+    """Patch the one tag handler the reader loads, defaulting returns to None.
 
-    Yields a dict of the MagicMock objects keyed by reader name so each
-    test can override only the readers it cares about.
+    Yields a dict keyed by reader name, plus ``_factory`` for the
+    ``TagHandlerFactory.get_handler`` mock, so a test can assert the file was
+    parsed once per file rather than once per field (PLAN D55).
     """
-    with ExitStack() as stack:
-        mocks = {
-            name: stack.enter_context(
-                patch(f"library_stats.core.file_processor.{name}")
-            )
-            for name in _READER_NAMES
-        }
-        for mock in mocks.values():
-            mock.return_value = None
+    handler = MagicMock()
+    mocks: dict[str, Any] = {}
+    for name in _READER_NAMES:
+        attribute = "get_raw_tags" if name == "read_tags_raw" else name
+        mock = getattr(handler, attribute)
+        mock.return_value = None
+        mocks[name] = mock
+
+    with patch(
+        "library_stats.core.file_processor.TagHandlerFactory.get_handler",
+        return_value=handler,
+    ) as factory:
+        mocks["_factory"] = factory
         yield mocks
 
 
@@ -353,7 +359,16 @@ class TestExportCsv:
         (tmp_path / "bad.mp3").write_bytes(b"x")
         out = tmp_path / "out.csv"
         with _reader_mocks() as r:
-            r["read_bpm"].side_effect = _raise_if("bad", OSError("corrupt file"), 120)
+            good = r["_factory"].return_value
+
+            def handler_for(path: str) -> MagicMock:
+                if "bad" in path:
+                    bad_handler = MagicMock()
+                    bad_handler.read_bpm.side_effect = OSError("corrupt file")
+                    return bad_handler
+                return good
+
+            r["_factory"].side_effect = handler_for
             report = StatsReport(scan_path=str(tmp_path))
             export_csv(report, str(out))
 
@@ -499,6 +514,14 @@ class TestReadFileTags:
         assert tags.mood == "Happy; Energetic"
         assert tags.tempo_marking == "Allegro"
         assert tags.year == 2021
+
+    def test_one_handler_load_serves_every_field(self, tmp_path: Path) -> None:
+        """Eight field reads must parse the file once, not eight times."""
+        path = str(tmp_path / "a.mp3")
+        (tmp_path / "a.mp3").write_bytes(b"x")
+        with _reader_mocks() as r:
+            _read_file_tags(path)
+        r["_factory"].assert_called_once_with(path)
 
     def test_missing_tags_default_to_none(self, tmp_path: Path) -> None:
         (tmp_path / "a.mp3").write_bytes(b"x")

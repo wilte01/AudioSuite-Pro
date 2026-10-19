@@ -2,6 +2,11 @@
 app.py
 SilenceTrimmerApp — thin orchestrator.
 Wires UI, core logic, and utilities together. No business logic here.
+
+Changed in 1.4.0: the worker slot grid and saved-config fallback derive from
+``DEFAULT_MAX_WORKERS`` / ``default_max_workers()`` (PLAN D56), and a typed
+count above the grid is capped before it is persisted (D66); the notice is
+logged instead of shown when the launch is unattended (D70).
 """
 
 import logging
@@ -17,6 +22,7 @@ from audio_suite_shared import suite_config as _suite_config
 from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
+from audio_suite_shared.constants import DEFAULT_MAX_WORKERS, default_max_workers
 from audio_suite_shared.exceptions import (
     handle_audio_errors,
     map_to_audio_error,
@@ -24,6 +30,7 @@ from audio_suite_shared.exceptions import (
 )
 from audio_suite_shared.tag_helper import SUPPORTED_EXTENSIONS
 from audio_suite_shared.ui_audition import AuditionMixin
+from audio_suite_shared.ui_common import cap_typed_workers
 from audio_suite_shared.ui_helpers import UIHelperMixin
 
 from .core import file_processor
@@ -53,6 +60,10 @@ class SilenceTrimmerApp(UIHelperMixin, AuditionMixin):
 
     HELP_GUIDE = "Silence_Trimmer_User_Guide.docx"
 
+    #: Set from argv in ``__init__``. The class default keeps an
+    #: ``object.__new__`` test shell on the interactive (warning) path.
+    _launched_from_driver: bool = False
+
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.error_logger, _ = bootstrap_tool_app(
@@ -70,8 +81,12 @@ class SilenceTrimmerApp(UIHelperMixin, AuditionMixin):
         self.fade_in_duration = tk.IntVar(value=500)
         self.fade_out_duration = tk.IntVar(value=1000)
         saved_parallel = bool(_suite_config.load_value("trim_parallel_mode", False))
-        workers_saved = _suite_config.load_value("trim_max_workers", 4)
-        saved_workers = workers_saved if isinstance(workers_saved, int) else 4
+        workers_saved = _suite_config.load_value(
+            "trim_max_workers", default_max_workers()
+        )
+        saved_workers = (
+            workers_saved if isinstance(workers_saved, int) else default_max_workers()
+        )
         self.parallel_mode = tk.BooleanVar(value=saved_parallel)
         self.max_workers = tk.IntVar(value=saved_workers)
 
@@ -87,12 +102,14 @@ class SilenceTrimmerApp(UIHelperMixin, AuditionMixin):
         self._run_was_dry_run: bool = False
 
         # ── Worker slot pool ──────────────────────────────────────────────────
-        self.slot_vars = [tk.StringVar(value="IDLE") for _ in range(4)]
+        self.slot_vars = [
+            tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
+        ]
         self._safe_slot_vars = [
             _ThreadSafeSlotVar(self.root, v) for v in self.slot_vars
         ]
         self.slot_queue: Queue[Any] = Queue()
-        for i in range(4):
+        for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)
 
         self._preset_combo: ttk.Combobox | None = None
@@ -355,9 +372,18 @@ class SilenceTrimmerApp(UIHelperMixin, AuditionMixin):
 
             self._dir_path = folder
 
+            # The Workers field is free text. Cap it on the main thread, with a
+            # warning, before the run is persisted, so the saved value matches
+            # what actually runs and no worker gets an index past the grid (D66).
+            workers = cap_typed_workers(
+                self.max_workers,
+                self._safe_slot_vars,
+                unattended=self._launched_from_driver,
+            )
+
             # Persist parallel processing settings
             _suite_config.save_value("trim_parallel_mode", self.parallel_mode.get())
-            _suite_config.save_value("trim_max_workers", self.max_workers.get())
+            _suite_config.save_value("trim_max_workers", workers)
 
             self.start_btn.config(state="disabled")
             self.file_listbox.delete(0, tk.END)

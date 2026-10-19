@@ -7,6 +7,8 @@ Changed in 1.2.0: records the files a run skipped (no reachable target, or an
 output another source already produced) and the ones whose conversion failed as
 the run's note, so a Master Driver batch reports them on the Music Format
 Converter step instead of only in the run log.
+Changed in 1.4.0: the worker slot grid is sized from ``DEFAULT_MAX_WORKERS``
+instead of a literal 4 (PLAN D56).
 """
 
 import logging
@@ -21,6 +23,7 @@ from audio_suite_shared import styles, suite_config
 from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
+from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from audio_suite_shared.exceptions import (
     handle_audio_errors,
     map_to_audio_error,
@@ -96,10 +99,12 @@ class MusicFormatConverterApp(UIHelperMixin):
         self._refresh_preset_list: Any = None
 
         # ── Worker slot pool ──────────────────────────────────────────────────
-        self.slot_vars = [tk.StringVar(value="IDLE") for _ in range(4)]
+        self.slot_vars = [
+            tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
+        ]
         self._safe_slot_vars = make_safe_slot_vars(self.root, self.slot_vars)
         self.slot_queue: Queue[Any] = Queue()
-        for i in range(4):
+        for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)
 
         # ── Build UI ──────────────────────────────────────────────────────────

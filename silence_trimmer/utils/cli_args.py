@@ -15,11 +15,13 @@ Display-only (master driver handshake, not used by tool):
     '--parallel-run' | '--no-parallel-run'
 
 BaseCLIArgs provides: folder_path, live_mode, auto_start, auto_end.
+
+Changed in 1.4.0: ``max_workers`` defaults to ``default_max_workers()``.
 """
 
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
 from audio_suite_shared.cli_helpers import (
@@ -29,6 +31,7 @@ from audio_suite_shared.cli_helpers import (
 from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
+from audio_suite_shared.constants import default_max_workers
 
 ACCEPTED_HANDSHAKE = frozenset(
     {
@@ -64,7 +67,7 @@ class SilenceTrimmerArgs(BaseCLIArgs):
     fade_in_ms: int | None = None
     fade_out_ms: int | None = None
     parallel_mode: bool = False
-    max_workers: int = 4
+    max_workers: int = field(default_factory=default_max_workers)
     clear_logs: bool = False
     parallel_run: bool = False
 

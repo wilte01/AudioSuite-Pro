@@ -2,6 +2,9 @@
 processing_tab.py
 Processing tab for ReplayGain Analyzer.
 
+Changed in 1.4.0: the slot-panel docstring no longer claims a fixed count; the
+grid follows ``DEFAULT_MAX_WORKERS`` (D67).
+
 Builds the progress bar, per-worker status panel, and the live results
 treeview.  No business logic — purely view.
 """
@@ -18,7 +21,7 @@ def build(parent: tk.Frame, slot_vars: list[tk.StringVar]) -> dict[str, object]:
 
     Args:
         parent:    Container frame provided by the notebook.
-        slot_vars: List of Tk StringVars, one per worker slot (typically 4).
+        slot_vars: List of Tk StringVars, one per worker slot.
 
     Returns:
         Dictionary with keys:

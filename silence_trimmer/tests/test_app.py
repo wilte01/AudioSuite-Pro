@@ -29,10 +29,14 @@ _on_error
 Driver-mirror variables
   * auto_start_var, auto_end_var, clear_logs_var, parallel_var present
   * _launched_from_driver flag present
+
+Changed in 1.4.0: covers a typed worker count above the slot grid being
+capped (with a warning) before it is saved (D66).
 """
 
 from __future__ import annotations
 
+import logging
 import sys
 import tkinter as tk
 from pathlib import Path
@@ -645,3 +649,119 @@ class TestProgressD3:
             "Processed: 4"
         )
         assert app.file_listbox.insert.call_args.args[1] == "song.mp3"
+
+
+class _WorkerVarStub:
+    """Minimal tk.IntVar stand-in that reflects ``set()`` back into ``get()``."""
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+    def get(self) -> int:
+        return self.value
+
+    def set(self, value: int) -> None:
+        self.value = value
+
+
+class TestTypedWorkersAboveTheSlotGrid:
+    """A typed count above the grid is capped before the run is persisted."""
+
+    def _shell(self) -> SilenceTrimmerApp:
+        app = object.__new__(SilenceTrimmerApp)
+        app.root = MagicMock()
+        app.folder_path = MagicMock()
+        app.run_mode = MagicMock()
+        app.threshold = MagicMock()
+        app.fade_var = MagicMock()
+        app.fade_in_duration = MagicMock()
+        app.fade_out_duration = MagicMock()
+        app.parallel_mode = MagicMock()
+        app.max_workers = _WorkerVarStub(12)
+        app.overall_status = MagicMock()
+        app.notebook = MagicMock()
+        app.start_btn = MagicMock()
+        app._tab_processing = MagicMock()
+        app.file_listbox = MagicMock()
+        app.progress = MagicMock()
+        app.slot_queue = MagicMock()
+        app._safe_slot_vars = [MagicMock() for _ in range(4)]
+        return app
+
+    def test_caps_and_saves_the_slot_count(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        fake_threading = MagicMock()
+        monkeypatch.setattr("silence_trimmer.app.threading", fake_threading)
+        monkeypatch.setattr("silence_trimmer.app.messagebox", MagicMock())
+        warnings = MagicMock()
+        monkeypatch.setattr("audio_suite_shared.ui_common.messagebox", warnings)
+        saved: dict[str, Any] = {}
+
+        def fake_save(key: str, value: Any) -> None:
+            saved[key] = value
+
+        monkeypatch.setattr("silence_trimmer.app._suite_config.save_value", fake_save)
+        app = self._shell()
+        app.prepare_in_place_audition = MagicMock()
+        app.folder_path.get.return_value = str(tmp_path)
+        (tmp_path / "a.mp3").write_bytes(b"\x00" * 8)
+        app.threshold.get.return_value = -45
+        app.fade_var.get.return_value = False
+        app.fade_in_duration.get.return_value = 300
+        app.fade_out_duration.get.return_value = 500
+        app.run_mode.get.return_value = "Dry Run"
+
+        app.start_processing()
+
+        assert app.max_workers.get() == 4
+        assert saved["trim_max_workers"] == 4
+        warnings.showwarning.assert_called_once()
+        assert "4" in warnings.showwarning.call_args.args[1]
+
+        # The background run reads the capped value, not the typed 12.
+        app.root = MagicMock()
+        app.slot_queue = MagicMock()
+        calls: dict[str, Any] = {}
+
+        def fake_run_trimming(**kwargs: Any) -> None:
+            calls.update(kwargs)
+
+        import silence_trimmer.core.file_processor as core
+
+        monkeypatch.setattr(core, "run_trimming", fake_run_trimming)
+        app._run()
+        assert calls["max_workers"] == 4
+
+    def test_driver_launch_caps_without_a_dialog(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog
+    ) -> None:
+        """A driver / auto-start launch must not wait for a modal warning."""
+        fake_threading = MagicMock()
+        monkeypatch.setattr("silence_trimmer.app.threading", fake_threading)
+        monkeypatch.setattr("silence_trimmer.app.messagebox", MagicMock())
+        warnings = MagicMock()
+        monkeypatch.setattr("audio_suite_shared.ui_common.messagebox", warnings)
+        saved: dict[str, Any] = {}
+        monkeypatch.setattr(
+            "silence_trimmer.app._suite_config.save_value",
+            lambda key, value: saved.__setitem__(key, value),
+        )
+        app = self._shell()
+        app._launched_from_driver = True
+        app.prepare_in_place_audition = MagicMock()
+        app.folder_path.get.return_value = str(tmp_path)
+        (tmp_path / "a.mp3").write_bytes(b"\x00" * 8)
+        app.threshold.get.return_value = -45
+        app.fade_var.get.return_value = False
+        app.fade_in_duration.get.return_value = 300
+        app.fade_out_duration.get.return_value = 500
+        app.run_mode.get.return_value = "Dry Run"
+
+        with caplog.at_level(logging.WARNING):
+            app.start_processing()
+
+        warnings.showwarning.assert_not_called()
+        assert any("Workers limited" in record.message for record in caplog.records)
+        assert app.max_workers.get() == 4
+        assert saved["trim_max_workers"] == 4

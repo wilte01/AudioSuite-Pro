@@ -19,6 +19,11 @@ scope uses the ``path_fold`` index.
 Changed in 1.0.1: the cached-scan path guards the decoded ``artist_album``
 value with ``isinstance(..., list)`` so a cache row holding valid JSON that
 is not a two-element list cannot abort the scan with a ``TypeError``.
+
+Changed in 1.4.0: ``_read_file_tags`` and the CSV export read every field from
+**one** ``TagHandlerFactory`` load instead of eight facade calls (measured
+174 ms → 23 ms per 100 files, PLAN D55), and the export reuses the shared
+reader so the duplicate-read block cannot drift from the scanner.
 """
 
 from __future__ import annotations
@@ -33,16 +38,7 @@ from typing import Any
 
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.exceptions import AudioFileNotFoundError
-from audio_suite_shared.tag_helper_reader import (
-    read_album_artist,
-    read_artist_album,
-    read_bpm,
-    read_genre,
-    read_key,
-    read_mood,
-    read_tags_raw,
-    read_tempo_marking,
-)
+from audio_suite_shared.tag_helper_base import TagHandlerFactory
 
 logger = logging.getLogger(__name__)
 
@@ -264,8 +260,9 @@ def _read_file_tags(path: str) -> _FileTags:
 
     A year-extraction failure degrades to ``year=None`` rather than
     propagating, so an unparseable year never skips the whole file.
-    File-level read failures (OSError/ValueError) propagate to callers,
-    which skip the file.
+    A handler load or field read failure propagates to callers, which skip
+    the file (the pre-refactor facades swallowed the same failures and
+    returned defaults, so callers already tolerate a corrupt file).
 
     Args:
         path: Absolute path to an audio file.
@@ -274,20 +271,20 @@ def _read_file_tags(path: str) -> _FileTags:
         A populated ``_FileTags``.
 
     Raises:
-        OSError: When a tag read fails at the file level.
-        ValueError: When a tag read returns an unexpected value.
+        Exception: Whatever the handler raises for an unreadable file.
     """
-    artist_album = read_artist_album(path)
-    album_artist = read_album_artist(path)
-    bpm = read_bpm(path)
-    key = read_key(path)
-    genre = read_genre(path)
-    mood = read_mood(path)
-    tempo = read_tempo_marking(path)
+    handler = TagHandlerFactory.get_handler(path)
+    artist_album = handler.read_artist_album()
+    album_artist = handler.read_album_artist()
+    bpm = handler.read_bpm()
+    key = handler.read_key()
+    genre = handler.read_genre()
+    mood = handler.read_mood()
+    tempo = handler.read_tempo_marking()
 
     year: int | None = None
     try:
-        year = _extract_year_from_tags(read_tags_raw(path))
+        year = _extract_year_from_tags(handler.get_raw_tags())
     except (ValueError, TypeError):
         year = None
 
@@ -386,7 +383,9 @@ def _scan_directory_full(dir_path: str, report: StatsReport) -> None:
                     missing_no_tempo += 1
 
                 year_counter[_decade_bin(tags.year)] += 1
-            except (OSError, ValueError):
+            except Exception:
+                # One corrupt file must never abort a library scan; the
+                # pre-refactor per-field facades swallowed the same failures.
                 logger.debug("Skipping unreadable file: %s", name, exc_info=True)
                 continue
 
@@ -486,7 +485,7 @@ def _scan_directory_cached(
                     artist_album=tags.artist_album,
                     year=tags.year,
                 )
-            except (OSError, ValueError):
+            except Exception:
                 logger.debug("Skipping unreadable file: %s", full, exc_info=True)
                 continue
 
@@ -680,50 +679,49 @@ def export_csv(report: StatsReport, output_path: str) -> None:
                 ext = os.path.splitext(name)[1].lower()
 
                 try:
-                    bpm = read_bpm(full)
-                    key = read_key(full)
-                    genre = read_genre(full)
-                    mood = read_mood(full)
-                    tempo_marking = read_tempo_marking(full)
-                    album_artist = read_album_artist(full)
-                    artist_album_val = read_artist_album(full)
-
-                    # Year from raw tags
-                    raw = read_tags_raw(full)
-                    year_int = _extract_year_from_tags(raw)
-                    year_str = str(year_int) if year_int is not None else ""
-
-                    artist_album_display = ""
-                    if artist_album_val and len(artist_album_val) == 2:
-                        artist_album_display = (
-                            f"{artist_album_val[0]} / {artist_album_val[1]}"
-                        )
-
-                    writer.writerow(
-                        {
-                            "path": full,
-                            "format": ext,
-                            "bpm": bpm if bpm is not None else "",
-                            "key": key if key is not None else "",
-                            "genre": genre if genre is not None else "",
-                            "mood": mood if mood is not None else "",
-                            "tempo_marking": tempo_marking
-                            if tempo_marking is not None
-                            else "",
-                            "album_artist": album_artist
-                            if album_artist is not None
-                            else "",
-                            "artist_album": artist_album_display,
-                            "year": year_str,
-                        }
-                    )
-                except (OSError, ValueError):
+                    tags = _read_file_tags(full)
+                except Exception:
                     logger.debug(
                         "Skipping unreadable file during CSV export: %s",
                         full,
                         exc_info=True,
                     )
                     continue
+
+                bpm = tags.bpm
+                key = tags.key
+                genre = tags.genre
+                mood = tags.mood
+                tempo_marking = tags.tempo_marking
+                album_artist = tags.album_artist
+                artist_album_val = tags.artist_album
+
+                year_str = str(tags.year) if tags.year is not None else ""
+
+                artist_album_display = ""
+                if artist_album_val and len(artist_album_val) == 2:
+                    artist_album_display = (
+                        f"{artist_album_val[0]} / {artist_album_val[1]}"
+                    )
+
+                writer.writerow(
+                    {
+                        "path": full,
+                        "format": ext,
+                        "bpm": bpm if bpm is not None else "",
+                        "key": key if key is not None else "",
+                        "genre": genre if genre is not None else "",
+                        "mood": mood if mood is not None else "",
+                        "tempo_marking": tempo_marking
+                        if tempo_marking is not None
+                        else "",
+                        "album_artist": album_artist
+                        if album_artist is not None
+                        else "",
+                        "artist_album": artist_album_display,
+                        "year": year_str,
+                    }
+                )
 
 
 def export_json(report: StatsReport, output_path: str) -> None:

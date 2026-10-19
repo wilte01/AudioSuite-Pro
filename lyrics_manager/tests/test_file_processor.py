@@ -4,6 +4,7 @@ tests/test_file_processor.py — pytest suite for the batch lyric processor.
 ``process_single_file`` is exercised against real audio fixtures built with
 pydub + mutagen; ``run_fetch`` uses a registered fake provider so the suite
 never touches the network.
+Changed in 1.4.0: slot fixtures follow DEFAULT_MAX_WORKERS.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4
 from pydub import AudioSegment
 
+from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from audio_suite_shared.tag_helper_reader import read_lyrics_tags
 from audio_suite_shared.tag_helper_writer import write_synced_lyrics
 from lyrics_manager.core.file_processor import process_single_file, run_fetch
@@ -88,7 +90,7 @@ class _SlotVar:
         return "IDLE"
 
 
-def _slot_vars(n: int = 4):
+def _slot_vars(n: int = DEFAULT_MAX_WORKERS):
     return [_SlotVar() for _ in range(n)]
 
 
@@ -339,6 +341,41 @@ class TestRunFetch:
         # plain lyrics written for the matching file.
         tags = read_lyrics_tags(str(work / "plain.mp3"))
         assert tags.plain == "plain text"
+
+    def test_parallel_pool_is_capped_at_a_small_slot_grid(
+        self, tmp_path, registered_fake
+    ):
+        """A typed count above the grid must not report the extra files as errors.
+
+        Regression (D66): the parallel pool handed out slot indices past the
+        end of ``slot_vars``, so every file after the grid failed with
+        ``IndexError`` instead of being looked up.
+        """
+        for i in range(6):
+            path = tmp_path / f"miss{i}.mp3"
+            AudioSegment.silent(duration=50).export(str(path), format="mp3")
+            _tag_artist_title(str(path), "Artist", f"Not in db {i}")
+
+        counts: dict[str, object] = {}
+        run_fetch(
+            dir_path=str(tmp_path),
+            is_dry_run=True,
+            provider_name="fake_runfetch_provider",
+            request_timeout=5.0,
+            skip_existing=True,
+            plain_fallback=True,
+            slot_vars=[MagicMock(), MagicMock()],
+            slot_queue=Queue(),
+            on_progress=lambda **kw: None,
+            on_complete=lambda **kw: counts.update(kw),
+            on_error=lambda msg: None,
+            parallel_mode=True,
+            max_workers=8,
+        )
+
+        assert counts["total"] == 6
+        assert counts["errors"] == 0
+        assert counts["skipped"] == 6
 
     def test_unknown_provider_does_not_raise(self, tmp_path, registered_fake):
         work = self._make_dir(tmp_path)

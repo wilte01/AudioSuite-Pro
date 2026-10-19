@@ -9,6 +9,9 @@ Per the V1 decision, every supported audio file is analysed in full;
 only undecodable / near-silent files are skipped.
 
 Supports: MP3, FLAC, OGG, M4A, Opus
+
+Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
+when not supplied (PLAN D56).
 """
 
 import logging
@@ -20,6 +23,7 @@ from queue import Queue
 from typing import Any
 
 from audio_suite_shared.analysis_loader import load_analysis_audio
+from audio_suite_shared.constants import default_max_workers
 from audio_suite_shared.error_recovery import RecoveryAction, get_recovery_action
 from audio_suite_shared.exceptions import (
     AudioAnalysisError,
@@ -71,7 +75,9 @@ _SKIPPABLE_ANALYSIS_ERRORS = (
 class MoodAnalyzerProcessor(BaseFileProcessor):
     """Mood analysis file processor using BaseFileProcessor infrastructure."""
 
-    def __init__(self, max_workers: int = 4, parallel_mode: bool = False) -> None:
+    def __init__(
+        self, max_workers: int | None = None, parallel_mode: bool = False
+    ) -> None:
         super().__init__(
             operation_type="mood_analysis",
             max_workers=max_workers,
@@ -279,10 +285,11 @@ def run_analysis(
         on_error:          Called with a human-readable message on fatal errors.
         parallel_mode:     When True, use ProcessPoolExecutor for CPU-bound
             analysis; when False (default), use ThreadPoolExecutor.
-        max_workers:       Number of parallel workers.  Defaults to 4.
+        max_workers:       Number of parallel workers.  Defaults to
+            ``default_max_workers()``.
     """
     processor = MoodAnalyzerProcessor(
-        max_workers=max_workers or 4,
+        max_workers=max_workers or default_max_workers(),
         parallel_mode=parallel_mode,
     )
 

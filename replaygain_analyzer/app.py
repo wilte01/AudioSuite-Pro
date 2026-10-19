@@ -2,6 +2,9 @@
 app.py
 ReplayGainAnalyzerApp — thin orchestrator.
 Wires UI, core logic, and utilities together. No business logic here.
+
+Changed in 1.4.0: the worker slot grid is sized from ``DEFAULT_MAX_WORKERS``
+instead of a literal 4 (PLAN D56).
 """
 
 import argparse
@@ -19,6 +22,7 @@ from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_dataclasses import validate_target_lufs
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
+from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from audio_suite_shared.exceptions import (
     handle_audio_errors,
     map_to_audio_error,
@@ -69,10 +73,12 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
         self.auto_end: bool = False
 
         # ── Worker slot pool ──────────────────────────────────────────────────
-        self.slot_vars = [tk.StringVar(value="IDLE") for _ in range(4)]
+        self.slot_vars = [
+            tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
+        ]
         self._safe_slot_vars = make_safe_slot_vars(self.root, self.slot_vars)
         self.slot_queue: Queue[Any] = Queue()
-        for i in range(4):
+        for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)
 
         # ── Preset UI placeholders ────────────────────────────────────────────

@@ -3,11 +3,18 @@ Tests for audio_suite_shared.cli_base
 
 Covers the tkinter-free shims (_NullStringVar, slot helpers), the _Result
 collector, and the _run_tool orchestration with terminal callbacks.
+
+Changed in 1.4.0: the slot-helper expectations derive from
+``default_max_workers()`` instead of the old fixed 4, and a regression test
+asserts the default shims cover every worker slot index a default-sized pool
+can hand out.
 """
 
 from __future__ import annotations
 
 import logging
+from queue import Queue
+from typing import Any, Callable
 from unittest.mock import MagicMock
 
 import pytest
@@ -19,6 +26,7 @@ from audio_suite_shared.cli_base import (
     _Result,
     _run_tool,
 )
+from audio_suite_shared.constants import default_max_workers
 
 
 class TestNullStringVar:
@@ -37,7 +45,7 @@ class TestNullStringVar:
 class TestSlotHelpers:
     def test_make_slot_vars_creates_null_vars(self) -> None:
         vars_ = _make_slot_vars()
-        assert len(vars_) == 4
+        assert len(vars_) == default_max_workers()
         assert all(isinstance(v, _NullStringVar) for v in vars_)
 
     def test_make_slot_vars_custom_count(self) -> None:
@@ -50,7 +58,73 @@ class TestSlotHelpers:
         assert sorted([q.get(), q.get(), q.get()]) == [0, 1, 2]
 
     def test_make_slot_queue_default_count(self) -> None:
-        assert _make_slot_queue().qsize() == 4
+        assert _make_slot_queue().qsize() == default_max_workers()
+
+    def test_default_slot_shims_cover_every_worker_slot_index(self) -> None:
+        """A default-sized pool indexes every shim, not just the first four.
+
+        Regression: the shims were fixed at 4 while ``default_max_workers()``
+        became CPU-derived, so a CLI run on five or more files raised
+        ``IndexError`` inside the worker and reported the file as an
+        unexplained error.
+        """
+        seen: list[int] = []
+
+        def run_fn(
+            *,
+            slot_vars: list[_NullStringVar],
+            slot_queue: Queue[Any],
+            on_progress: Callable[..., None],
+            on_complete: Callable[..., None],
+            on_error: Callable[[str], None],
+        ) -> None:
+            del slot_queue, on_progress, on_error
+            for idx in range(default_max_workers()):
+                slot_vars[idx].set(f"worker {idx}")
+                seen.append(idx)
+            on_complete(total=default_max_workers())
+
+        result = _run_tool("probe", run_fn)
+
+        assert seen == list(range(default_max_workers()))
+        assert result.total == default_max_workers()
+        assert result.errors == 0
+
+
+class TestExplicitWorkerOverride:
+    """A ``--workers`` value above the default gets a shim for every index."""
+
+    def test_slot_shims_cover_an_explicit_worker_override(self) -> None:
+        """D66: the shims were default-sized while the pool was the override.
+
+        A CLI run with ``--workers 12`` on a 8-worker host handed the ninth
+        worker ``slot_vars[8]`` and reported the file as an unexplained error.
+        """
+        seen: list[int] = []
+
+        def run_fn(
+            *,
+            slot_vars: list[_NullStringVar],
+            slot_queue: Queue[Any],
+            on_progress: Callable[..., None],
+            on_complete: Callable[..., None],
+            on_error: Callable[[str], None],
+            max_workers: int,
+        ) -> None:
+            del slot_queue, on_progress, on_error
+            for idx in range(max_workers):
+                slot_vars[idx].set(f"worker {idx}")
+                seen.append(idx)
+            on_complete(total=len(seen))
+
+        result = _run_tool("probe", run_fn, max_workers=12)
+
+        assert seen == list(range(12))
+        assert result.errors == 0
+        assert result.total == 12
+
+    def test_the_default_count_is_not_enlarged(self) -> None:
+        assert len(_make_slot_vars()) == default_max_workers()
 
 
 class TestResult:

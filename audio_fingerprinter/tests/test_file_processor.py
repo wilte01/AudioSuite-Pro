@@ -4,6 +4,7 @@ Changed in 1.2.0: adds the MusicBrainz enrichment / ISRC real-outcome tests
 (Sprint 2 Item 2.1) and the ISRC submission tests, including the lock that a
 dry run's previewed XML is byte-identical to the live POST body
 (Sprint 2 Item 2.3).
+Changed in 1.4.0: the tag tie-break and album-mode tests patch the single handler load.
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ from audio_fingerprinter.core.musicbrainz_client import (
     MusicBrainzClient,
 )
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
+from audio_suite_shared.tag_helper import TagHandlerFactory as _TagHandlerFactory
 
 
 def _make_job(**overrides: Any) -> MagicMock:
@@ -178,10 +180,13 @@ class TestProcessFileTagTiebreak:
         return MagicMock(status="ok", recordings=recordings, best_match=recordings[0])
 
     @patch("audio_fingerprinter.core.file_processor.generate_fingerprint")
-    @patch("audio_fingerprinter.core.file_processor.read_artist_title")
-    def test_prefers_tag_consistent_candidate(self, mock_tags, mock_fp):
+    @patch("audio_fingerprinter.core.file_processor.TagHandlerFactory.get_handler")
+    def test_prefers_tag_consistent_candidate(self, mock_handler, mock_fp):
         mock_fp.return_value = MagicMock(duration=218.0, fingerprint="ABC")
-        mock_tags.return_value = ("10cc", "Johnny, Don't Do It")
+        mock_handler.return_value.read_artist_title.return_value = (
+            "10cc",
+            "Johnny, Don't Do It",
+        )
         remix = _make_recording(
             acoustid_id="ac-remix",
             recording_id="mb-remix",
@@ -206,10 +211,13 @@ class TestProcessFileTagTiebreak:
         assert result.acoustid_id == "ac-orig"
 
     @patch("audio_fingerprinter.core.file_processor.generate_fingerprint")
-    @patch("audio_fingerprinter.core.file_processor.read_artist_title")
-    def test_unresolved_ambiguity_flags_runner_up(self, mock_tags, mock_fp):
+    @patch("audio_fingerprinter.core.file_processor.TagHandlerFactory.get_handler")
+    def test_unresolved_ambiguity_flags_runner_up(self, mock_handler, mock_fp):
         mock_fp.return_value = MagicMock(duration=218.0, fingerprint="ABC")
-        mock_tags.return_value = ("Unknown", "Unknown")
+        mock_handler.return_value.read_artist_title.return_value = (
+            "Unknown",
+            "Unknown",
+        )
         top = _make_recording(
             acoustid_id="ac-top",
             recording_id="mb-top",
@@ -231,10 +239,10 @@ class TestProcessFileTagTiebreak:
         assert "matched file tags" not in result.message
 
     @patch("audio_fingerprinter.core.file_processor.generate_fingerprint")
-    @patch("audio_fingerprinter.core.file_processor.read_artist_title")
-    def test_clearly_dominant_candidate_not_annotated(self, mock_tags, mock_fp):
+    @patch("audio_fingerprinter.core.file_processor.TagHandlerFactory.get_handler")
+    def test_clearly_dominant_candidate_not_annotated(self, mock_handler, mock_fp):
         mock_fp.return_value = MagicMock(duration=60.0, fingerprint="ABC")
-        mock_tags.return_value = ("10cc", "Dominant")
+        mock_handler.return_value.read_artist_title.return_value = ("10cc", "Dominant")
         top = _make_recording(
             recording_id="mb-top", title="Dominant", artist="10cc", score=0.98
         )
@@ -462,6 +470,25 @@ def _patch_fingerprint_by_name():
     )
 
 
+#: Captured before any test patches the class, so the album mode tests can
+#: still read a real file's tags through the single-load path.
+_REAL_GET_HANDLER = _TagHandlerFactory.get_handler
+
+
+def _album_tag_factory(path: str) -> MagicMock:
+    """A handler whose artist/title are blank but whose album tags are real."""
+    handler = MagicMock(name="TagHandler")
+    handler.read_artist_title.return_value = ("Unknown", "Unknown")
+    try:
+        real = _REAL_GET_HANDLER(path)
+        handler.read_artist_album.return_value = real.read_artist_album()
+        handler.read_custom_field.side_effect = real.read_custom_field
+    except Exception:
+        handler.read_artist_album.return_value = ("Unknown", "Unknown")
+        handler.read_custom_field.return_value = None
+    return handler
+
+
 def _mock_client(responses_by_fp: dict[str, LookupResult]) -> MagicMock:
     """A client stub whose lookup_many answers by fingerprint string."""
     client = MagicMock(name="AcoustidClient")
@@ -483,7 +510,6 @@ def _run_album(
     progress: MagicMock,
     complete: MagicMock,
     error: MagicMock,
-    patch_album_reader: bool = True,
 ):
     from contextlib import ExitStack
 
@@ -491,35 +517,22 @@ def _run_album(
     for i in range(DEFAULT_MAX_WORKERS):
         slot_q.put(i)
     with ExitStack() as stack:
-        for entered in (
-            [
-                _patch_fingerprint_by_name(),
-                patch(
-                    "audio_fingerprinter.core.file_processor.resolve_fpcalc",
-                    return_value="fpcalc",
-                ),
-                patch(
-                    "audio_fingerprinter.core.file_processor.read_artist_title",
-                    return_value=("Unknown", "Unknown"),
-                ),
-            ]
-            + (
-                [
-                    patch(
-                        "audio_fingerprinter.core.file_processor.read_artist_album",
-                        return_value=("Unknown", "Unknown"),
-                    ),
-                ]
-                if patch_album_reader
-                else []
-            )
-            + [
-                patch(
-                    "audio_fingerprinter.core.file_processor.AcoustidClient",
-                    return_value=client,
-                ),
-            ]
-        ):
+        for entered in [
+            _patch_fingerprint_by_name(),
+            patch(
+                "audio_fingerprinter.core.file_processor.resolve_fpcalc",
+                return_value="fpcalc",
+            ),
+            patch(
+                "audio_fingerprinter.core.file_processor.TagHandlerFactory.get_handler",
+                side_effect=_album_tag_factory,
+            ),
+        ] + [
+            patch(
+                "audio_fingerprinter.core.file_processor.AcoustidClient",
+                return_value=client,
+            ),
+        ]:
             stack.enter_context(entered)
         run_fingerprinting(
             dir_path=str(folder),
@@ -837,7 +850,6 @@ class TestAlbumModeRealOutcome:
             progress,
             complete,
             error,
-            patch_album_reader=False,
         )
         error.assert_not_called()
         assert complete.call_args.kwargs["counts"]["tagged"] == 3

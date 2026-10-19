@@ -3,10 +3,15 @@ cli_dataclasses.py — Standardized CLI argument structures for Audio Suite.
 
 Provides common dataclass definitions and validation functions to eliminate
 duplication across multiple applications while maintaining type safety.
+
+Changed in 1.4.0: ``BPMArgs`` and ``LyricsArgs`` default ``max_workers`` to
+``default_max_workers()`` (evaluated per instance) instead of a literal 4.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+from .constants import default_max_workers
 
 
 class CLIValidationError(ValueError):
@@ -58,7 +63,7 @@ class BPMArgs(BaseCLIArgs):
     bpm_max: int = 175
     duration: int = 90
     parallel_mode: bool = False
-    max_workers: int = 4
+    max_workers: int = field(default_factory=default_max_workers)
     clear_logs: bool = False
     parallel_run: bool = False
 
@@ -86,7 +91,7 @@ class LyricsArgs(BaseCLIArgs):
     skip_existing: bool = True
     plain_fallback: bool = True
     parallel_mode: bool = False
-    max_workers: int = 4
+    max_workers: int = field(default_factory=default_max_workers)
     clear_logs: bool = False
     parallel_run: bool = False
 

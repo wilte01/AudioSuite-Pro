@@ -3,12 +3,16 @@
 Changed in 1.3.0: covers the completeness trend (recording, --trend output,
 --history-limit, --no-history) and keeps the CLI's cache in the test's temp
 directory, since a plain --completeness run now records a snapshot.
+
+Changed in 1.4.0: the command patches the tag-handler factory, so the real
+single-pass ``_read_file_tags`` read stays in the loop, replacing the
+per-reader patches of the old eight-read fan-out (PLAN D55).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -160,21 +164,32 @@ class TestStatsCompletenessCommand:
         from audio_suite_shared.cli_app import cli
         from library_stats.library_cache import LibraryCache
 
-        # file_processor uses module-level imports (patch the binding).
-        scan_stubs = {
-            "read_bpm": lambda path: None,
-            "read_key": lambda path: None,
-            "read_genre": lambda path: None,
-            "read_mood": lambda path: None,
-            "read_tempo_marking": lambda path: None,
-        }
+        # ``_read_file_tags`` loads one handler per file, so stub the factory
+        # rather than the (removed) module-level reader functions.
+        handler = MagicMock()
+        raw = MagicMock()
+        raw.get.return_value = None
+        handler.get_raw_tags.return_value = raw
+        for reader in (
+            "read_artist_album",
+            "read_album_artist",
+            "read_bpm",
+            "read_key",
+            "read_genre",
+            "read_mood",
+            "read_tempo_marking",
+        ):
+            getattr(handler, reader).return_value = None
         # A plain --completeness run now records a trend snapshot, so the CLI
         # creates the cache even without --incremental: keep it in the test's
         # temp directory instead of the user's real ~/.audiosuite cache.
         cache_path = str(self._cache_path(music_dir))
         factory = cache_factory or (lambda: LibraryCache(cache_path))
         with (
-            patch.multiple("library_stats.core.file_processor", **scan_stubs),
+            patch(
+                "library_stats.core.file_processor.TagHandlerFactory.get_handler",
+                lambda path: handler,
+            ),
             patch("library_stats.cli.LibraryCache", factory),
         ):
             return runner.invoke(cli, ["stats", music_dir, *args])

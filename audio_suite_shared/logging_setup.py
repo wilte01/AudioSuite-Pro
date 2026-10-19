@@ -31,6 +31,9 @@ logger and on every first-party tool package logger:
 session points it at a scratch directory so a suite run can never write
 into the shipped ``logs/`` tree.
 
+Changed in 1.4.0: every startup records the resolved worker count beside the
+lifecycle line, so a host-dependent default is visible during triage (D67).
+
 The uncaught-exception hooks (``sys.excepthook`` /
 ``threading.excepthook``) keep crash tracebacks in the suite log when
 running under ``pythonw``.
@@ -54,6 +57,8 @@ import tempfile
 import threading
 from pathlib import Path
 from types import TracebackType
+
+from .constants import MAX_WORKERS_CEILING, default_max_workers
 
 _HOOK_MARKER = "_audio_suite_hook"
 
@@ -355,4 +360,14 @@ def configure_logging(program_name: str, *, min_level: int = logging.DEBUG) -> N
                 package_logger.addHandler(handler)
 
     suite_logger.info("=== %s started ===", program_name)
+    # The worker default is host-dependent (one per logical CPU, capped), so
+    # record what this process actually resolved: triage otherwise cannot tell
+    # a slow run on a 4-core host from a miscounted pool.  Emitted on the
+    # suite logger, which is the one INFO line the admin log admits.
+    suite_logger.info(
+        "Workers: %d resolved (cpu_count=%s, ceiling=%d)",
+        default_max_workers(),
+        os.cpu_count(),
+        MAX_WORKERS_CEILING,
+    )
     _install_excepthooks()

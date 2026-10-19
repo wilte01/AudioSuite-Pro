@@ -4,6 +4,10 @@ file_processor.py — batch lyric lookup and embedding for Lyrics Manager.
 Built on the shared :class:`BaseFileProcessor` infrastructure (thread pool,
 progress tracking, error recovery) with a pluggable lyric provider injected
 per batch, so worker threads never share provider state.
+
+Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
+when not supplied (PLAN D56). The artist/title and existing-lyrics reads
+share one handler load instead of two (PLAN D55).
 """
 
 from __future__ import annotations
@@ -18,10 +22,15 @@ from typing import Any, Callable
 
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.batch_undo import get_active_batch_id, use_batch
+from audio_suite_shared.constants import cap_workers_to_slot_grid, default_max_workers
 from audio_suite_shared.exceptions import AudioTagError, handle_audio_errors
 from audio_suite_shared.file_processor_base import BaseFileProcessor
 from audio_suite_shared.lrc_handler import LrcParseError
-from audio_suite_shared.tag_helper_reader import read_artist_title, read_lyrics_tags
+from audio_suite_shared.tag_helper_base import (
+    BaseTagHandler,
+    LyricsTags,
+    TagHandlerFactory,
+)
 from audio_suite_shared.tag_helper_writer import write_plain_lyrics, write_synced_lyrics
 
 from .providers import (
@@ -37,7 +46,9 @@ logger = logging.getLogger(__name__)
 class LyricsProcessor(BaseFileProcessor):
     """Lyric fetch/embed processor using the shared base infrastructure."""
 
-    def __init__(self, max_workers: int = 4, parallel_mode: bool = False) -> None:
+    def __init__(
+        self, max_workers: int | None = None, parallel_mode: bool = False
+    ) -> None:
         super().__init__(
             operation_type="lyrics_lookup",
             max_workers=max_workers,
@@ -110,7 +121,15 @@ def process_single_file(
 
     full_path: str = os.path.join(dir_path, name)
 
-    artist, title = read_artist_title(full_path)
+    handler: BaseTagHandler | None = None
+    try:
+        handler = TagHandlerFactory.get_handler(full_path)
+        artist, title = handler.read_artist_title()
+    except Exception:
+        logger.exception("Could not read tags from %s", full_path)
+        handler = None
+        artist, title = "Unknown", "Unknown"
+
     if artist == "Unknown" or title == "Unknown":
         logger.info("[SKIPPED] %s — no artist/title tags", name)
         _report(
@@ -124,7 +143,7 @@ def process_single_file(
         return
 
     if skip_existing:
-        existing = read_lyrics_tags(full_path)
+        existing = handler.read_lyrics_tags() if handler is not None else LyricsTags()
         if existing.has_any:
             logger.info("[SKIPPED] %s — already has lyrics", name)
             _report(
@@ -276,7 +295,8 @@ def run_fetch(
         on_error: Error callback forwarded to BaseFileProcessor.
         parallel_mode: When True, use the configured worker count; when False
             process serially.
-        max_workers: Number of parallel workers.  Defaults to 4.
+        max_workers: Number of parallel workers.  Defaults to
+            ``default_max_workers()``.
     """
     logger.info(
         "run_fetch: dir=%s dry_run=%s provider=%s timeout=%s "
@@ -292,7 +312,11 @@ def run_fetch(
     )
 
     provider: LyricProvider = get_provider(provider_name)
-    effective_workers = max_workers or 4
+    # A typed count can exceed the caller's slot grid; the worker writes
+    # slot_vars[slot_idx], so cap the pool at the grid (D66).
+    effective_workers = cap_workers_to_slot_grid(
+        max_workers or default_max_workers(), slot_vars
+    )
     processor = LyricsProcessor(
         max_workers=effective_workers if parallel_mode else 1,
         parallel_mode=parallel_mode,

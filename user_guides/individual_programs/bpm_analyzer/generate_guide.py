@@ -1,4 +1,8 @@
-"""Generate a fresh BPM Analyzer guide from the current implementation."""
+"""Generate a fresh BPM Analyzer guide from the current implementation.
+
+Changed in 1.4.0: the Workers description states the machine default
+(one per logical CPU, capped at 8) instead of a fixed 4.
+"""
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -93,7 +97,8 @@ bullet(
 bullet(
     doc,
     "Workers: ",
-    "Controls the maximum worker count and must be at least 1. The default is 4.",
+    "Controls the maximum worker count and must be at least 1. "
+    "The default is one worker per logical CPU, capped at 8.",
 )
 bullet(
     doc,

@@ -9,8 +9,8 @@ part of a usage example.
 
 Usage:
     audiosuite bpm /path/to/dir [--bpm-min 60] [--bpm-max 200] [--duration 30]
-                           [--parallel] [--workers 4] [--dry] [--json]
-    audiosuite key /path/to/dir [--duration 30] [--parallel] [--workers 4]
+                           [--parallel] [--workers N] [--dry] [--json]
+    audiosuite key /path/to/dir [--duration 30] [--parallel] [--workers N]
                            [--dry] [--json]
     audiosuite tempo /path/to/dir [--scheme Italian] [--dry] [--json]
     audiosuite replaygain /path/to/dir [--target-lufs -14] [--apply-gain]
@@ -18,9 +18,9 @@ Usage:
     audiosuite genre-sync /path/to/dir [--dry] [--json]
     audiosuite album-genre /path/to/dir [--coverage 50] [--dry] [--json]
     audiosuite mood-analyzer /path/to/dir [--duration 90] [--parallel]
-                           [--workers 4] [--dry] [--json]
+                           [--workers N] [--dry] [--json]
     audiosuite mood-analysis-batch /path/to/dir [--duration 90] [--parallel]
-                           [--workers 4] [--dry] [--json]
+                           [--workers N] [--dry] [--json]
     audiosuite fingerprint /path/to/dir [--write-tags] [--threshold 0.5]
                            [--max-length 120] [--album-mode] [--musicbrainz]
                            [--write-isrc] [--dry] [--json]
@@ -66,6 +66,8 @@ Usage:
     audiosuite cue parse /path/to/image.cue [--json]
     audiosuite cue generate /path/to/dir [--title "Album"] [--artist "Artist"]
     audiosuite cue split /path/to/image.cue [--output-dir DIR] [--ffmpeg PATH]
+    audiosuite shell-install [--flat] [--dry]
+    audiosuite shell-uninstall [--dry]
 
 The ``--dry/--live`` pair is the shared run-mode option: ``--dry`` analyses and
 reports without writing, ``--live`` writes.  ``--json/--text`` selects the
@@ -77,6 +79,8 @@ Commands are registered by importing the corresponding tool's cli module.
 Changed in 1.2.0: documents the fingerprint ``--musicbrainz`` and
 ``--write-isrc`` flags.
 Changed in 1.3.0: registers and documents the ``spectrogram`` command.
+Changed in 1.4.0: registers and documents ``shell-install`` / ``shell-uninstall``
+(the Windows Explorer right-click integration, PLAN D57).
 """
 
 from __future__ import annotations
@@ -93,6 +97,7 @@ import audio_fingerprinter.cli  # noqa: F401, E402  — fingerprint
 import audio_normalizer.cli  # noqa: F401, E402  — normalise
 import audio_refinery.cli  # noqa: F401, E402  — refine
 import audio_suite_shared.cue_cli  # noqa: F401, E402  — cue (parse/generate/split)
+import audio_suite_shared.shell_cli  # noqa: F401, E402  — shell-install/uninstall
 import bpm_analyzer.cli  # noqa: F401, E402  — bpm
 import cd_ripper.cli  # noqa: F401, E402  — cd-rip
 import file_reorganizer.cli  # noqa: F401, E402  — reorganize

@@ -3,9 +3,12 @@
 Covers presence, value, and type of every named constant and verifies that
 the consumer-facing magic-number constants are actually referenced by their
 consuming modules (import-level assertion).
+Changed in 1.4.0: adds the default_max_workers() ceiling/fallback tests.
 """
 
 from __future__ import annotations
+
+from unittest.mock import patch
 
 import pytest
 
@@ -16,8 +19,11 @@ from audio_suite_shared.constants import (
     DEFAULT_WINDOW_GEOMETRY,
     JPEG_QUALITY,
     MAX_DURATION_HISTORY,
+    MAX_WORKERS_CEILING,
     VARIOUS_ARTISTS_ALIASES,
     WORKER_TIMEOUT_SECS,
+    cap_workers_to_slot_grid,
+    default_max_workers,
 )
 
 
@@ -35,7 +41,8 @@ class TestPresenceAndValues:
     @pytest.mark.parametrize(
         ("name", "expected"),
         [
-            ("DEFAULT_MAX_WORKERS", 4),
+            ("DEFAULT_MAX_WORKERS", default_max_workers()),
+            ("MAX_WORKERS_CEILING", 8),
             ("WORKER_TIMEOUT_SECS", 300),
             ("CPU_WORKER_TIMEOUT_SECS", 600),
             ("JPEG_QUALITY", 92),
@@ -48,6 +55,47 @@ class TestPresenceAndValues:
         self, name: str, expected: object
     ) -> None:
         assert getattr(constants, name) == expected
+
+
+class TestDefaultMaxWorkers:
+    """The worker default follows the host, capped by the ceiling (D56)."""
+
+    def test_uses_logical_cpu_count(self) -> None:
+        with patch("audio_suite_shared.constants.os.cpu_count", return_value=6):
+            assert default_max_workers() == 6
+
+    def test_caps_at_the_ceiling(self) -> None:
+        with patch("audio_suite_shared.constants.os.cpu_count", return_value=64):
+            assert default_max_workers() == MAX_WORKERS_CEILING == 8
+
+    def test_falls_back_when_cpu_count_is_unknown(self) -> None:
+        with patch("audio_suite_shared.constants.os.cpu_count", return_value=None):
+            assert default_max_workers() == 4
+
+    def test_constant_is_an_import_time_snapshot_of_the_function(self) -> None:
+        assert DEFAULT_MAX_WORKERS == default_max_workers()
+
+
+class TestCapWorkersToSlotGrid:
+    """A requested pool size never exceeds the GUI's slot grid (D66)."""
+
+    def test_caps_at_the_grid(self) -> None:
+        assert cap_workers_to_slot_grid(12, [object()] * 8) == 8
+
+    def test_leaves_a_fitting_count_alone(self) -> None:
+        assert cap_workers_to_slot_grid(4, [object()] * 8) == 4
+        assert cap_workers_to_slot_grid(8, [object()] * 8) == 8
+
+    def test_no_grid_returns_the_request(self) -> None:
+        assert cap_workers_to_slot_grid(12, None) == 12
+        assert cap_workers_to_slot_grid(12, object()) == 12
+
+    def test_an_empty_grid_is_not_a_cap_of_zero(self) -> None:
+        assert cap_workers_to_slot_grid(3, []) == 3
+
+    def test_a_non_positive_count_is_left_for_caller_validation(self) -> None:
+        assert cap_workers_to_slot_grid(0, [object()] * 8) == 0
+        assert cap_workers_to_slot_grid(-2, [object()] * 8) == -2
 
 
 class TestTypes:

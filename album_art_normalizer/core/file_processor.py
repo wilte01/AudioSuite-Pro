@@ -3,6 +3,9 @@ file_processor.py — Album Art Normalizer processing using BaseFileProcessor.
 
 Eliminates duplicated threading/error-handling by delegating to shared
 BaseFileProcessor infrastructure while preserving identical behaviour.
+
+Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
+when not supplied (PLAN D56).
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from typing import Any, Optional
 
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.batch_undo import get_active_batch_id, use_batch
+from audio_suite_shared.constants import default_max_workers
 from audio_suite_shared.exceptions import AudioSuiteError, handle_audio_errors
 from audio_suite_shared.file_processor_base import BaseFileProcessor
 
@@ -34,7 +38,7 @@ logger = logging.getLogger(__name__)
 class ArtNormalizerProcessor(BaseFileProcessor):
     """Album artwork normalizer using shared BaseFileProcessor infrastructure."""
 
-    def __init__(self, max_workers: int = 4) -> None:
+    def __init__(self, max_workers: int | None = None) -> None:
         super().__init__(
             operation_type="art_normalization",
             max_workers=max_workers,
@@ -149,7 +153,7 @@ def run_normalization(
     on_progress: Optional[Callable[..., None]] = None,
     on_complete: Optional[Callable[..., None]] = None,
     on_error: Optional[Callable[[str], None]] = None,
-    max_workers: int = 4,
+    max_workers: int | None = None,
     is_dry_run: bool = False,
 ) -> None:
     """Run parallel album artwork normalisation using BaseFileProcessor.
@@ -169,7 +173,8 @@ def run_normalization(
         on_progress: UI progress callback forwarded to BaseFileProcessor.
         on_complete: Completion callback forwarded to BaseFileProcessor.
         on_error: Error callback forwarded to BaseFileProcessor.
-        max_workers: Number of parallel workers (default 4).
+        max_workers: Number of parallel workers (defaults to
+            ``default_max_workers()``).
         is_dry_run: When True, each file's artwork is decoded, measured and
             re-encoded but nothing is embedded, so neither the file nor an
             undo snapshot is written.
@@ -179,7 +184,7 @@ def run_normalization(
         dir_path,
         target_size[0],
         target_size[1],
-        max_workers,
+        max_workers or default_max_workers(),
         is_dry_run,
     )
 

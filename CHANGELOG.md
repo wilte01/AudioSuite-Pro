@@ -11,6 +11,18 @@ Versions of the tools are released together with the suite (the single
 
 ### Added
 
+- **Right-click AudioSuite-Pro in Windows Explorer.** `audiosuite shell-install`
+  adds a per-user context menu for supported audio files with five verbs:
+  *Convert to MP3*, *Convert to FLAC*, *Analyze BPM*, *Analyze Key* and
+  *Analyze Mood*. Each verb acts on the one file you selected, never its
+  folder, and opens a console window so progress and errors are readable. The
+  menu needs no administrator rights (it lives under `HKCU`), refuses to
+  overwrite an existing conversion output, and writes analysis tags inside an
+  undo batch so *Undo Tag Edits* can revert a right-click. `--dry` prints the
+  exact registry keys first, `shell-uninstall` removes them, and
+  `shell-install --flat` writes the five verbs flat for Explorer builds that
+  do not render the cascading submenu.
+
 - **What's New after an update.** The suite now says what changed instead of
   leaving you to find the changelog: the first time it starts after an update
   it shows that version's release notes in a scrollable panel (headings,
@@ -21,6 +33,86 @@ Versions of the tools are released together with the suite (the single
   disables the automatic panel entirely. Skipping a release does not lose its
   notes: the panel lists every release newer than the last version it showed,
   newest first, each under its own `Version x.y.z` heading.
+
+### Changed
+
+- **Parallel work now uses the machine it runs on.** The default worker count
+  is one per logical CPU, capped at 8, instead of a fixed 4 (measured: 24
+  one-minute tracks WAV→MP3 in 2.02 s at 4 workers and 1.17 s at 8). Every
+  tool's worker slot grid, saved setting default and the Master Driver's
+  worker values follow the same default; each analysis tool's *Workers*
+  control still overrides it, and the cap bounds peak memory.
+
+- **Every worker count now comes from one resolver, and startup logs the value
+  it got.** The leftover fixed counts in the audit are gone: the Mood Analysis
+  Batch Tagger fell back to 4 (instead of the machine default) when a saved
+  worker count was corrupt, and the `--workers` help text and module docstrings
+  still advertised a fixed 4 — as did six of the generated user guides. A new
+  lock test fails on any fixed count above one except the two deliberately
+  serial call sites, the grid lock now derives its tool list from the tool
+  manifest, so newly registered tools are covered without editing the test, and
+  the affected guides were regenerated.
+
+- **A new GUI tool cannot omit the typed-worker cap.** The slot-grid lock
+  now finds every GUI that creates a worker-named Tk variable and requires
+  the shared cap — on the main thread and before the workers setting is
+  saved — so registering a tool covers it without editing the test. A worker
+  field created in a UI submodule instead of the entry module is rejected, so
+  it cannot escape the scan.
+
+- **Every worker cap call now declares whether the launch is unattended.**
+  The slot-grid lock requires `unattended=` on each `cap_typed_workers`
+  call, so a new GUI tool cannot reintroduce a dialog that blocks a
+  driver-launched batch.
+
+- **The startup log says which worker count this machine resolved.** Each launch
+  writes one `Workers: 8 resolved (cpu_count=16, ceiling=8)` line at INFO, so a
+  slow batch can be triaged against the host instead of guessed at.
+
+- **Each file's tags are parsed once per pass.** Library Statistics read each
+  file's tags eight times (174 ms per 100 files) and now reads them from a
+  single handler load (23 ms per 100 files); the CSV export reuses the same
+  reader. Genre Sync, Tempo Analyzer, Lyrics Manager, Audio Fingerprinter and
+  Album Art Sync no longer load the same file twice for fields read together.
+
+- **Batch conversion stays per-file after measurement.** One FFmpeg process
+  with many inputs/outputs was measured against the converter's existing
+  per-file workers: 0.14 s versus 0.13 s for 8 × 20 s WAV→FLAC, and a single
+  corrupt input produced 0/6 outputs instead of 5/6. Batching would have
+  traded error isolation, retries and per-file undo for no speed gain, so the
+  converter keeps its per-file path.
+
+### Fixed
+
+- **A Workers value above the slot grid no longer fails the files.** Key
+  Detector, Mood Analyzer, BPM Analyzer and Lyrics Manager let you type any
+  worker count into a *Workers* field, but their progress display has a fixed
+  number of slots. Asking for more workers than slots handed the extra workers
+  a slot index that did not exist, so every file past the grid was reported as
+  an unexplained per-file error (and the batch lost those files). The count is
+  now capped at the number of slots — with one warning, and the capped value is
+  what gets saved — and the processing layer applies the same cap for any
+  caller that supplies a smaller grid, so a preset, a restored setting or a CLI
+  count cannot reintroduce it.
+
+- **A corrupt saved worker count no longer quietly becomes four.** Mood Analysis
+  Batch Tagger's saved value went through a literal-4 fallback, so a hand-edited
+  or truncated setting ran at 4 workers on a machine that should have used its
+  own default. The fallback now asks the shared resolver; non-numeric, boolean
+  and non-positive values all fall back safely.
+
+- **Silence Trimmer and Mood Analysis Batch Tagger saved a worker count they
+  did not run.** Both accepted any typed *Workers* value and stored it
+  verbatim while their processors clamped the run to the progress grid, so
+  the saved value disagreed with what actually happened. Both now cap before
+  saving, with one warning, and the extended lock would have caught the
+  omission.
+
+- **A driver launch no longer waits on the over-grid warning.** The worker
+  cap opened a modal dialog even when the Master Driver or `--start` launched
+  the tool with nobody to dismiss it, so an unattended batch sat blocked
+  before it processed a file. That launch now logs one warning and continues;
+  clicking Start yourself still shows the dialog.
 
 ## [1.3.0] - 2026-10-18
 
@@ -51,8 +143,9 @@ Versions of the tools are released together with the suite (the single
   library fields — title, artist, album, track number and year — alongside the
   analysis tags it already tracked, and it reads each file **once** instead of
   twelve times (measured 1.5 ms → 0.16 ms per file on MP3), so the wider
-  dashboard is cheaper than the narrow one was. A missing-tags-by-album heatmap sits under the tag
-  bars, worst album first, with files that carry no album grouped honestly as
+  dashboard is cheaper than the narrow one was. A missing-tags-by-album heatmap
+  sits under the tag bars, worst album first, with files that carry no album
+  grouped honestly as
   `(no album)` rather than dropped. Each scan records a completeness snapshot in
   the cache (identical consecutive snapshots are suppressed, the newest 100 per
   folder are kept) and the Charts tab plots the overall percentage over time;

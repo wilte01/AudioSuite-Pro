@@ -2,6 +2,7 @@
 
 Changed in 1.0.1: added an M1 regression asserting an internal pipeline error
 prints a clean error line and never a 'NoneType' AttributeError traceback.
+Changed in 1.4.0: patches the pipeline's single handler load (PLAN D55).
 """
 
 from __future__ import annotations
@@ -134,11 +135,13 @@ class TestAlbumArtErrorContract:
                 side_effect=RuntimeError("resolver exploded"),
             ),
             patch(
-                "album_art_sync.core.pipeline.read_artist_album",
-                return_value=("Artist", "Album"),
+                "album_art_sync.core.pipeline.TagHandlerFactory.get_handler",
+                return_value=MagicMock(
+                    read_artist_album=MagicMock(return_value=("Artist", "Album")),
+                    read_album_artist=MagicMock(return_value=""),
+                    read_custom_field=MagicMock(return_value=None),
+                ),
             ),
-            patch("album_art_sync.core.pipeline.read_album_artist", return_value=""),
-            patch("album_art_sync.core.pipeline.read_musicbrainz_ids", return_value={}),
             patch("album_art_sync.config.settings.load_config", return_value={}),
         ):
             result = runner.invoke(cli, ["album-art", str(audio_dir), "--live"])

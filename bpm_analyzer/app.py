@@ -5,6 +5,9 @@ Contains no business logic itself; it only coordinates.
 
 Changed in 1.2.0: records tracks that yielded no BPM as a run note, so a
 batch report says so instead of only the tool's own log.
+Changed in 1.4.0: the saved worker default, slot grid and report header all
+resolve through ``default_max_workers()`` / ``DEFAULT_MAX_WORKERS`` (PLAN D56);
+an over-grid typed count is logged rather than shown when unattended (D70).
 """
 
 from __future__ import annotations
@@ -25,6 +28,11 @@ from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_helpers import (
     UniversalCLIHandler as UniversalCLIHandler,
 )
+from audio_suite_shared.constants import (
+    DEFAULT_MAX_WORKERS,
+    cap_workers_to_slot_grid,
+    default_max_workers,
+)
 from audio_suite_shared.exceptions import (
     handle_audio_errors,
     map_to_audio_error,
@@ -33,6 +41,7 @@ from audio_suite_shared.exceptions import (
 from audio_suite_shared.run_outcome import record_caveats, shortfall
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 from audio_suite_shared.tool_app_base import AnalysisTagToolApp
+from audio_suite_shared.ui_common import cap_typed_workers
 
 from .core import file_processor
 from .ui import processing_tab, results_tab, setup_tab
@@ -78,7 +87,10 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
             bool, _suite_config.load_value("bpm_parallel_mode", False)
         )
         saved_workers: int = int(
-            cast(str, _suite_config.load_value("bpm_max_workers", 4))
+            cast(
+                str,
+                _suite_config.load_value("bpm_max_workers", default_max_workers()),
+            )
         )
         self.parallel_mode: tk.BooleanVar = tk.BooleanVar(value=saved_parallel)
         self.max_workers: tk.IntVar = tk.IntVar(value=saved_workers)
@@ -104,13 +116,13 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
         self._dir_path: str = ""
         self.auto_end: bool = False
 
-        # ── Worker slot pool (4 concurrent workers) ──────────────────────────
+        # ── Worker slot pool ─────────────────────────────────────────────────
         self.slot_vars: list[tk.StringVar] = [
-            tk.StringVar(value="IDLE") for _ in range(4)
+            tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
         ]
         self._safe_slot_vars = make_safe_slot_vars(self.root, self.slot_vars)
         self.slot_queue: Queue[int] = Queue()
-        for i in range(4):
+        for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)
 
         # ── Preset support ────────────────────────────────────────────────────
@@ -304,6 +316,15 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
                 )
                 return
 
+            # A typed count above the fixed slot grid would hand a worker an
+            # index past slot_vars and report each of those files as an
+            # unexplained per-file error; cap it before the run is persisted.
+            workers = cap_typed_workers(
+                self.max_workers,
+                self._safe_slot_vars,
+                unattended=self._launched_from_driver,
+            )
+
             # Persist parallel processing settings
             _suite_config.save_value("bpm_parallel_mode", self.parallel_mode.get())
             _suite_config.save_value("bpm_max_workers", workers)
@@ -371,6 +392,13 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
         self._log_path = os.path.join(
             dir_path, "bpm_dry_run_log.txt" if is_dry_run else "bpm_sync_log.txt"
         )
+        # Defensive: a preset or restored setting can bypass start_processing.
+        requested_workers = (
+            max_workers if max_workers is not None else default_max_workers()
+        )
+        effective_workers = cap_workers_to_slot_grid(
+            requested_workers, self._safe_slot_vars
+        )
 
         header: list[str] = [
             "BPM ANALYSIS REPORT\n",
@@ -378,7 +406,7 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
             f"BPM Range: {bpm_min} - {bpm_max}\n",
             f"Analysis Duration: {analysis_duration} seconds\n",
             f"Parallel: {'Yes' if parallel_mode else 'No'}\n",
-            f"Workers: {max_workers or 4}\n",
+            f"Workers: {effective_workers}\n",
             "=" * 60 + "\n",
         ]
 
@@ -397,7 +425,7 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
                 on_complete=lambda **kw: self._on_complete(header=header, **kw),
                 on_error=self._on_error,
                 parallel_mode=parallel_mode,
-                max_workers=max_workers,
+                max_workers=effective_workers,
             )
 
     # ── Completion ────────────────────────────────────────────────────────────
@@ -464,5 +492,5 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
         self.bpm_range_max.set(int(settings.get("bpm_max", 175)))
         self.analysis_duration.set(int(settings.get("duration", 90)))
         self.parallel_mode.set(bool(settings.get("parallel_mode", False)))
-        self.max_workers.set(int(settings.get("max_workers", 4)))
+        self.max_workers.set(int(settings.get("max_workers", default_max_workers())))
         self.run_mode.set(str(settings.get("run_mode", "Dry Run")))

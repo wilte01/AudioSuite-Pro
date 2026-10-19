@@ -12,6 +12,10 @@ Each tool keeps its own Tk variables, its own start validation, its own
 engine call and its own preset value sets; the plumbing around them — the
 CLI handshake apply, the folder/help/log actions, the progress/complete/
 error plumbing and the completion log write — lives here once.
+
+Changed in 1.4.0: declares ``_launched_from_driver = False`` on
+``AnalysisTagToolApp`` so a typed-worker cap call can log instead of showing a
+modal warning on an unattended launch (D70).
 """
 
 from __future__ import annotations
@@ -70,6 +74,9 @@ class AnalysisTagToolApp(UIHelperMixin):
     _safe_slot_vars: "list[ThreadSafeSlotVar]"
     _preset_combo: ttk.Combobox | None
     _refresh_preset_list: "Callable[..., None] | None"
+    #: Set from argv in each tool's ``__init__``.  The default keeps an
+    #: ``object.__new__`` test shell on the interactive (modal-warning) path.
+    _launched_from_driver: bool = False
 
     def start_processing(self) -> None:
         """Subclass hook: validate inputs then launch the analysis thread."""

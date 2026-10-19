@@ -12,6 +12,8 @@ their original import path.
 
 Changed in 1.3.0: bootstrap_tool_app schedules the shared What's New panel, so
 every tool offers the release notes for the version it is running.
+Changed in 1.4.0: ``BaseSuiteApp`` resolves its worker count from
+``default_max_workers()`` when none is supplied.
 """
 
 import logging
@@ -23,6 +25,7 @@ from types import TracebackType
 
 from . import platform_utils, styles, suite_config
 from .cli_helpers import UniversalCLIHandler
+from .constants import default_max_workers
 from .error_logger import ErrorLogger, get_logger
 from .logging_setup import _log_uncaught
 from .logging_setup import configure_logging as configure_logging
@@ -127,11 +130,13 @@ class BaseSuiteApp(UIHelperMixin):
         window_key: str,
         logger_name: str,
         help_guide: str = "",
-        num_workers: int = 4,
+        num_workers: int | None = None,
     ):
         self.root = root
         self.help_guide = help_guide
-        self.num_workers = num_workers
+        self.num_workers = (
+            num_workers if num_workers is not None else default_max_workers()
+        )
 
         # 1. Standard Initialisation (Theming, Logging, Window)
         self.error_logger, _ = bootstrap_tool_app(root, title, window_key, logger_name)
@@ -142,9 +147,9 @@ class BaseSuiteApp(UIHelperMixin):
         self.auto_start: bool = False
 
         # 3. Standard Worker Pool (for parallel processing)
-        self.slot_vars = [tk.StringVar(value="IDLE") for _ in range(num_workers)]
+        self.slot_vars = [tk.StringVar(value="IDLE") for _ in range(self.num_workers)]
         self.slot_queue: Queue[int] = Queue()
-        for i in range(num_workers):
+        for i in range(self.num_workers):
             self.slot_queue.put(i)
 
         # 4. Standard CLI Handler

@@ -1,4 +1,8 @@
-"""Generate a fresh Key Detector guide from the current implementation."""
+"""Generate a fresh Key Detector guide from the current implementation.
+
+Changed in 1.4.0: the Workers description states the machine default
+(one per logical CPU, capped at 8) instead of a fixed 4.
+"""
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -80,7 +84,12 @@ bullet(
     "ProcessPoolExecutor to bypass the Python GIL. "
     "When disabled, the thread-based path is used.",
 )
-bullet(doc, "Workers: ", "Controls the maximum worker count; the default is 4.")
+bullet(
+    doc,
+    "Workers: ",
+    "Controls the maximum worker count; the default is one "
+    "worker per logical CPU, capped at 8.",
+)
 bullet(
     doc,
     "Presets: ",

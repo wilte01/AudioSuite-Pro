@@ -10,6 +10,7 @@ in audio_suite_shared.file_processor_base).
 
 Run with:
     pytest tests/test_file_processor.py -v
+Changed in 1.4.0: the processor default is read from default_max_workers().
 """
 
 from __future__ import annotations
@@ -212,9 +213,11 @@ class TestRunNormalization:
         )  # must not raise
 
     def test_processor_defaults(self) -> None:
+        from audio_suite_shared.constants import default_max_workers
+
         proc = fp.ArtNormalizerProcessor()
         assert proc.operation_type == "art_normalization"
-        assert proc.max_workers == 4
+        assert proc.max_workers == default_max_workers()
 
     def test_processor_respects_custom_workers(self) -> None:
         assert fp.ArtNormalizerProcessor(max_workers=2).max_workers == 2

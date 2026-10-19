@@ -2,6 +2,9 @@
 scrubber.py
 Per-file scrubbing worker and thread-pool orchestration loop.
 No tkinter imports — all UI interaction via injected callbacks.
+
+Changed in 1.4.0: the docstring no longer claims a fixed 4-worker pool; the
+count resolves from ``default_max_workers()`` (D56, D67).
 """
 
 import logging
@@ -376,7 +379,7 @@ def run_scrubbing(
     on_error: Callable[..., Any],
 ) -> None:
     """
-    Scan directory for supported audio files, process all with a 4-worker pool,
+    Scan directory for supported audio files, process all with a worker pool
     then invoke on_complete with summary data.
     """
     try:

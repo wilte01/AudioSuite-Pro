@@ -7,6 +7,9 @@ bootstrap is needed.  The machinery this class inherits from
 (audio_suite_shared.analysis_app_base) is covered once, in
 audio_suite_shared/tests/test_analysis_app_base.py; what is asserted here is
 Key Detector's own wiring: its literals and its file_processor call.
+
+Changed in 1.4.0: the worker-slot pool expectations are derived from
+``default_max_workers()`` instead of a literal pool of four (PLAN D56).
 """
 
 import tkinter as tk
@@ -15,6 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from audio_suite_shared.constants import default_max_workers
 from key_detector.app import KeyDetectorApp
 
 
@@ -165,7 +169,7 @@ def _make_batch_app(tmp_path, run_mode="Dry Run") -> KeyDetectorApp:
     app.parallel_mode = MagicMock(**{"get.return_value": True})
     app.max_workers = MagicMock(**{"get.return_value": 6})
     app.slot_queue = MagicMock()
-    app._safe_slot_vars = [MagicMock()]
+    app._safe_slot_vars = [MagicMock() for _ in range(6)]
     app.progress = {}
     app.auto_end = False
     app.auto_end_var = MagicMock(**{"get.return_value": False})
@@ -502,8 +506,9 @@ class TestRealConstruction:
 
     def test_worker_slot_pool_starts_idle_and_full(self, real_app, root) -> None:
         app = real_app()
-        assert [v.get() for v in app.slot_vars] == ["IDLE"] * 4
-        assert sorted(app.slot_queue.queue) == [0, 1, 2, 3]
+        workers = default_max_workers()
+        assert [v.get() for v in app.slot_vars] == ["IDLE"] * workers
+        assert sorted(app.slot_queue.queue) == list(range(workers))
 
     def test_slot_updates_are_marshalled_to_the_main_thread(
         self, real_app, root

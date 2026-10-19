@@ -3,6 +3,7 @@ Tests for genre_sync.app — GenreSetterApp orchestrator.
 
 Strategy: mock all tkinter / shared-library dependencies so we
 exercise the wiring and callback logic without a real GUI.
+Changed in 1.4.0: the slot grid is sized from DEFAULT_MAX_WORKERS.
 """
 
 from unittest.mock import MagicMock, patch
@@ -15,8 +16,10 @@ class TestGenreSetterAppInit:
         assert mock_tk_app.auto_end is False
 
     def test_constructor_creates_slot_pool(self, mock_tk_app):
-        assert len(mock_tk_app.slot_vars) == 4
-        assert mock_tk_app.slot_queue.qsize() == 4
+        from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
+
+        assert len(mock_tk_app.slot_vars) == DEFAULT_MAX_WORKERS
+        assert mock_tk_app.slot_queue.qsize() == DEFAULT_MAX_WORKERS
 
     def test_constructor_initializes_tk_vars(self, mock_tk_app):
         assert mock_tk_app.run_mode.get() == "Dry Run"

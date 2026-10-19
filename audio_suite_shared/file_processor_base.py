@@ -10,6 +10,10 @@ so internal paths/details no longer leak into the display and log callbacks.
 
 Changed in 1.1.0: the shared in-place DSP workflow now skips read-only formats before
 any decode or write.
+
+Changed in 1.4.0: ``max_workers`` defaults to ``None`` and resolves through
+``default_max_workers()``, so the pool sizes itself from the host instead of
+freezing at an import-time 4.
 """
 
 from __future__ import annotations
@@ -40,8 +44,9 @@ from .batch_undo import (
 )
 from .constants import (
     CPU_WORKER_TIMEOUT_SECS,
-    DEFAULT_MAX_WORKERS,
     WORKER_TIMEOUT_SECS,
+    cap_workers_to_slot_grid,
+    default_max_workers,
 )
 from .error_recovery import (
     RecoveryAction,
@@ -115,11 +120,13 @@ class BaseFileProcessor:
 
     def __init__(
         self,
-        max_workers: int = DEFAULT_MAX_WORKERS,
+        max_workers: int | None = None,
         operation_type: str = "file_processing",
         parallel_mode: bool = False,
     ):
-        self.max_workers = max_workers
+        self.max_workers = (
+            max_workers if max_workers is not None else default_max_workers()
+        )
         self.operation_type = operation_type
         self.parallel_mode = parallel_mode
         self.resource_manager = get_resource_manager()
@@ -226,8 +233,22 @@ class BaseFileProcessor:
             self.create_progress_tracker(on_progress, len(files))
         )
 
+        # Never open a pool wider than the slot grid: each worker takes its
+        # index from this queue, and the progress write would index past the
+        # end of slot_vars (D66).
+        effective_workers = cap_workers_to_slot_grid(
+            self.max_workers, processor_kwargs.get("slot_vars")
+        )
+        if effective_workers != self.max_workers:
+            logger.warning(
+                "%s: %d workers requested but the slot grid holds %d; capping the pool",
+                self.operation_type,
+                self.max_workers,
+                effective_workers,
+            )
+
         slot_queue: Queue[int] = Queue()
-        for i in range(self.max_workers):
+        for i in range(effective_workers):
             slot_queue.put(i)
 
         lock = threading.Lock()
@@ -239,7 +260,7 @@ class BaseFileProcessor:
         # KEEP-IN-SYNC: run_cpu_bound_processing, run_inplace_dsp_batch,
         # run_analysis_workflow — the executor loops are intentionally
         # ununified (D5) because each uses a different pool/process model.
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=effective_workers) as executor:
             futures = [
                 executor.submit(
                     self._process_with_recovery,
@@ -335,7 +356,9 @@ class BaseFileProcessor:
 
         lock = threading.Lock()
         start_time = time.time()
-        effective_workers = max_workers or self.max_workers
+        effective_workers = cap_workers_to_slot_grid(
+            max_workers or self.max_workers, worker_kwargs.get("slot_vars")
+        )
 
         def _safe_result_handler(
             filename: str,
@@ -1083,7 +1106,7 @@ def run_analysis_workflow(
     processor.process_batch(
         files,
         _worker,
-        max_workers=processor.max_workers,
+        max_workers=cap_workers_to_slot_grid(processor.max_workers, slot_vars),
     )
 
     _emit_completion(

@@ -19,6 +19,9 @@ file.
 
 Changed in 1.1.0: read-only formats (APE/MPC/DSF) are skipped with a clear message
 instead of being rewritten in place.
+
+Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
+when not supplied (PLAN D56).
 """
 
 # ── Standard library imports ─────────────────────────────────────────────────
@@ -42,6 +45,7 @@ from audio_suite_shared.batch_undo import (
     record_tag_edit_snapshot,
     use_batch,
 )
+from audio_suite_shared.constants import default_max_workers
 from audio_suite_shared.error_recovery import RecoveryAction, get_recovery_action
 from audio_suite_shared.exceptions import (
     AudioSuiteError,
@@ -70,7 +74,9 @@ logger = logging.getLogger(__name__)
 class SilenceTrimmerProcessor(BaseFileProcessor):
     """Silence-trimming file processor built on BaseFileProcessor."""
 
-    def __init__(self, max_workers: int = 4, parallel_mode: bool = False) -> None:
+    def __init__(
+        self, max_workers: int | None = None, parallel_mode: bool = False
+    ) -> None:
         super().__init__(
             operation_type="silence_trimming",
             max_workers=max_workers,
@@ -248,13 +254,14 @@ def run_trimming(
         on_error: Error callback invoked on unrecoverable failure.
         parallel_mode: Accepted for CLI consistency (silence trimmer is
             already parallelised via threads).
-        max_workers: Number of parallel workers.  Defaults to 4.
+        max_workers: Number of parallel workers.  Defaults to
+            ``default_max_workers()``.
 
     Returns:
         None
     """
     processor = SilenceTrimmerProcessor(
-        max_workers=max_workers or 4,
+        max_workers=max_workers or default_max_workers(),
         parallel_mode=parallel_mode,
     )
     resource_manager = get_resource_manager()

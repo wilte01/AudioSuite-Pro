@@ -11,6 +11,9 @@ The absence of a ``Tempo_Analyzer_Logging_Guide.docx`` is therefore a
 deliberate decision, not a gap: no logging guide is registered in
 ``audio_suite_shared.platform_utils.guide_to_program``, and
 ``tests/test_user_guide_hygiene.py`` locks that absence in place.
+
+Changed in 1.4.0: worker prose now derives its ceiling from the shared
+resolver default (8) instead of a fixed 4.
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ OUTPUT = Path(__file__).resolve().parent / "Tempo_Analyzer_User_Guide.docx"
 
 FORMATS = "MP3, FLAC, OGG, M4A, MP4, Opus, WAV, AIFF, and AIF"
 
-WORKER_COUNT = 4
+WORKER_COUNT = 8  # ceiling of default_max_workers()
 
 
 def bullet(doc: Document, title: str, text: str) -> None:
@@ -176,7 +179,7 @@ bullet(
 bullet(
     doc,
     "Parallel processing: ",
-    f"{WORKER_COUNT} concurrent worker slots show live per-file progress.",
+    f"Up to {WORKER_COUNT} concurrent worker slots show live per-file progress.",
 )
 bullet(doc, "Dry Run mode: ", "Preview every assignment before writing tags.")
 bullet(
@@ -200,7 +203,7 @@ grid(
         ),
         (
             "CPU",
-            f"Multi-core recommended ({WORKER_COUNT}+ workers for full "
+            f"Multi-core recommended (up to {WORKER_COUNT} workers for full "
             "parallel performance)",
         ),
         ("RAM", "Minimal - only tag metadata in memory"),
@@ -386,7 +389,7 @@ for text in (
     "Overall status showing the current operation phase",
     "Progress bar with completion percentage",
     "Running statistics: Processed, Skipped, Errors",
-    f"Worker status panel showing all {WORKER_COUNT} parallel workers and the "
+    f"Worker status panel showing up to {WORKER_COUNT} parallel workers and the "
     "file each is currently processing",
     "Real-time file list showing the assigned tempo marking and BPM value for "
     "each file",
@@ -765,7 +768,7 @@ grid(
     (
         (
             "Parallel workers",
-            f"{WORKER_COUNT} concurrent worker slots via a thread pool",
+            f"Up to {WORKER_COUNT} concurrent worker slots via a thread pool",
         ),
         ("CPU usage", "Very low - only tag read/write operations"),
         ("Memory usage", "Minimal - only tag metadata in RAM per worker"),

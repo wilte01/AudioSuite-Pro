@@ -7,6 +7,7 @@ Covers:
       bare negative-number token, e.g. "-50")
     - parse: invalid folder path exits with errors printed to stderr
       (regression — previously exited silently with no message anywhere)
+Changed in 1.4.0: the worker default is read from default_max_workers().
 """
 
 import pytest
@@ -77,7 +78,9 @@ class TestParseHappyPath:
         assert args.fade_in_ms is None
         assert args.fade_out_ms is None
         assert args.parallel_mode is False
-        assert args.max_workers == 4
+        from audio_suite_shared.constants import default_max_workers
+
+        assert args.max_workers == default_max_workers()
 
     def test_folder_path_set_from_argv_1(self, tmp_path):
         args = parse(["prog", str(tmp_path)])

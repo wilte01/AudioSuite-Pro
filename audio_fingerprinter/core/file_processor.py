@@ -19,6 +19,9 @@ the ISRCs each file's own tags carry are offered to MusicBrainz for its matched
 recording, minus the ones already registered.  A dry run renders the exact XML
 payload instead of posting it, and no submission outcome ever changes a file's
 status — the edit is supplementary and the files are already tagged.
+
+Changed in 1.4.0: artist/title and album reads of one file share a single
+handler load (PLAN D55).
 """
 
 from __future__ import annotations
@@ -42,11 +45,8 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.file_processor_base import BaseFileProcessor
-from audio_suite_shared.tag_helper_reader import (
-    read_artist_album,
-    read_artist_title,
-    read_isrcs,
-)
+from audio_suite_shared.tag_helper import TagHandlerFactory
+from audio_suite_shared.tag_helper_reader import read_isrcs
 
 from .acoustid_client import AcoustidClient, resolve_best_match
 from .album_cluster import (
@@ -234,7 +234,7 @@ def _write_mbids_for(
     """
     album_title = ""
     try:
-        _, album_title = read_artist_album(file_path)
+        _, album_title = TagHandlerFactory.get_handler(file_path).read_artist_album()
     except (OSError, AudioSuiteError):
         album_title = ""
     tags = select_mbid_tags(
@@ -502,7 +502,13 @@ def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult
     # AcoustID can rank a remix/cover built on the same audio above the
     # original; when the top candidates are effectively tied, the file's
     # existing artist/title tags break the tie.
-    artist_tag, title_tag = read_artist_title(full_path)
+    try:
+        handler = TagHandlerFactory.get_handler(full_path)
+        artist_tag, title_tag = handler.read_artist_title()
+    except Exception as exc:
+        logger.debug("Could not read tags from %s: %s", full_path, exc)
+        handler = None
+        artist_tag, title_tag = "Unknown", "Unknown"
     best, ambiguous, tag_resolved = resolve_best_match(
         lookup.recordings, artist_tag, title_tag
     )
@@ -514,7 +520,7 @@ def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult
         and job.params.musicbrainz
         and job.mb_client is not None
     ):
-        _, album_tag = read_artist_album(full_path)
+        _, album_tag = handler.read_artist_album() if handler is not None else ("", "")
         best, enrichment = _enrich_with_mb(
             job.params,
             job.mb_client,
@@ -788,8 +794,9 @@ def _run_album_phase(
             )
             continue
         try:
-            artist_tag, title_tag = read_artist_title(result.file_path)
-            _, album_tag = read_artist_album(result.file_path)
+            album_handler = TagHandlerFactory.get_handler(result.file_path)
+            artist_tag, title_tag = album_handler.read_artist_title()
+            _, album_tag = album_handler.read_artist_album()
         except (OSError, AudioSuiteError) as exc:
             logger.warning("Could not read tags from %s: %s", result.file_path, exc)
             artist_tag, title_tag, album_tag = "", "", ""

@@ -9,6 +9,7 @@ log callbacks carry the sanitised ``user_message_for`` text, never raw
 ``str(exc)``.
 
 Changed in 1.1.0: added a regression test that read-only formats never reach the DSP.
+Changed in 1.4.0: pins the None-sentinel worker resolution.
 """
 
 from __future__ import annotations
@@ -307,6 +308,54 @@ class TestRunParallelProcessing:
             "No supported audio files found in selected directory."
         )
         mock_callbacks["on_complete"].assert_not_called()
+
+
+class TestPoolNeverExceedsTheSlotGrid:
+    """A pool wider than the slot grid must be capped, never overflow it (D66).
+
+    Regression: the analysis tools' Workers field is free text.  A typed count
+    above the fixed grid made the thread pool hand out slot indices past the
+    end of ``slot_vars``; the progress write then raised ``IndexError`` for
+    every such file, which the recovery layer reported as an unexplained
+    per-file error.
+    """
+
+    def test_thread_pool_is_capped_at_the_grid(
+        self, temp_directory: Path, mock_callbacks: dict
+    ) -> None:
+        for i in range(6):
+            (temp_directory / f"track_{i}.mp3").write_bytes(b"audio data")
+
+        slot_vars = [MagicMock(), MagicMock()]
+        seen_slots: list[int] = []
+
+        def processor_func(**kwargs: object) -> None:
+            # The real progress write indexes the grid, so an out-of-range
+            # index fails here exactly as it does inside a tool.
+            slot_idx = int(kwargs["slot_idx"])
+            slot_vars[slot_idx].set(f"Processing: {kwargs['filename']}")
+            seen_slots.append(slot_idx)
+
+        with (
+            patch("audio_suite_shared.file_processor_base.get_resource_manager"),
+            patch("audio_suite_shared.file_processor_base.track_thread"),
+            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+        ):
+            processor = BaseFileProcessor(max_workers=12, operation_type="test")
+            processor.run_parallel_processing(
+                dir_path=str(temp_directory),
+                processor_func=processor_func,
+                on_progress=mock_callbacks["on_progress"],
+                on_complete=mock_callbacks["on_complete"],
+                on_error=mock_callbacks["on_error"],
+                slot_vars=slot_vars,
+            )
+
+        assert len(seen_slots) == 6
+        assert set(seen_slots) == {0, 1}
+        completion = mock_callbacks["on_complete"].call_args.kwargs
+        assert completion["total"] == 6
+        assert completion["errors"] == 0
 
 
 class TestRunWithRetry:
@@ -705,6 +754,65 @@ class TestRunCpuBoundProcessing:
         mock_callbacks["on_complete"].assert_called_once()
         assert len(results_store) == 3
 
+    def test_cpu_pool_is_capped_at_the_slot_grid(
+        self, temp_directory: Path, mock_callbacks: dict
+    ) -> None:
+        """A typed count above the grid must not index past ``slot_vars``."""
+        for i in range(3):
+            (temp_directory / f"track_{i}.mp3").write_bytes(b"audio data")
+
+        slot_vars = [MagicMock(), MagicMock()]
+        handled_slots: list[int] = []
+
+        with (
+            patch("audio_suite_shared.file_processor_base.get_resource_manager"),
+            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch(
+                "audio_suite_shared.file_processor_base.ProcessPoolExecutor"
+            ) as mock_exec_cls,
+            patch(
+                "audio_suite_shared.file_processor_base.as_completed",
+                side_effect=lambda futures: futures,
+            ),
+        ):
+            futures = [MagicMock() for _ in range(3)]
+            for future in futures:
+                future.result.return_value = {"status": "ok"}
+            executor = mock_exec_cls.return_value.__enter__.return_value
+            executor.submit.side_effect = futures
+
+            processor = BaseFileProcessor(
+                max_workers=12, operation_type="test_cpu", parallel_mode=True
+            )
+
+            def _result_handler(
+                filename: str,
+                dir_path: str,
+                result: dict[str, object],
+                slot_idx: int,
+                lock: threading.Lock,
+                on_progress: Callable[..., None],
+                **kwargs: object,
+            ) -> None:
+                del dir_path, result, lock, on_progress, kwargs
+                slot_vars[slot_idx].set(f"Tagging: {filename}")
+                handled_slots.append(slot_idx)
+
+            processor.run_cpu_bound_processing(
+                dir_path=str(temp_directory),
+                cpu_worker=MagicMock(return_value={"status": "ok"}),
+                result_handler=_result_handler,
+                on_progress=mock_callbacks["on_progress"],
+                on_complete=mock_callbacks["on_complete"],
+                on_error=mock_callbacks["on_error"],
+                max_workers=12,
+                slot_vars=slot_vars,
+            )
+
+        assert mock_exec_cls.call_args.kwargs["max_workers"] == 2
+        assert handled_slots == [0, 1, 0]
+        mock_callbacks["on_complete"].assert_called_once()
+
     def test_cpu_bound_parallel_mode_stored(
         self, mock_processor: BaseFileProcessor
     ) -> None:
@@ -715,6 +823,23 @@ class TestRunCpuBoundProcessing:
             )
             assert p.parallel_mode is True
             assert p.max_workers == 4
+
+    def test_default_worker_count_resolves_at_construction(self) -> None:
+        """An omitted count resolves through the function, not an import-time 4.
+
+        ``max_workers: int = DEFAULT_MAX_WORKERS`` would freeze the worker count
+        at import; the ``None`` sentinel must call ``default_max_workers()``
+        when the processor is built.
+        """
+        with (
+            patch("audio_suite_shared.file_processor_base.get_resource_manager"),
+            patch(
+                "audio_suite_shared.file_processor_base.default_max_workers",
+                return_value=6,
+            ),
+        ):
+            p = BaseFileProcessor(operation_type="test")
+        assert p.max_workers == 6
 
     def test_cpu_bound_inherits_max_workers(
         self, temp_directory: Path, mock_callbacks: dict

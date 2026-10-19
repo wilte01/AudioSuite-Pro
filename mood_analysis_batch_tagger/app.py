@@ -5,6 +5,11 @@ Main application window for Mood Analysis Batch Tagger.
 Recursively walks a root directory and all subfolders, analysing the mood
 from the audio signal of every supported audio file it finds, writing the
 mood and confidence tags.  Follows the standard AudioSuite-Pro tool pattern.
+
+Changed in 1.4.0: the saved worker default and slot grid resolve through
+``default_max_workers()`` / ``DEFAULT_MAX_WORKERS`` (PLAN D56), and a typed
+count above the grid is capped before it is persisted (D66); the notice is
+logged instead of shown when the launch is unattended (D70).
 """
 
 from __future__ import annotations
@@ -20,6 +25,8 @@ from typing import Any
 from audio_suite_shared import platform_utils, styles, suite_config
 from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.batch_undo import active_batch
+from audio_suite_shared.constants import DEFAULT_MAX_WORKERS, default_max_workers
+from audio_suite_shared.ui_common import cap_typed_workers
 from audio_suite_shared.ui_helpers import UIHelperMixin
 from mood_analysis_batch_tagger.core import batch_analysis_engine
 from mood_analysis_batch_tagger.ui import processing_tab, results_tab, setup_tab
@@ -46,10 +53,25 @@ class _ThreadSafeSlotVar:
         return self._var.get()
 
 
+def _saved_worker_count(saved: object) -> int:
+    """Return the worker count to seed the saved-config field with.
+
+    A missing or corrupt config value must fall back to the suite default
+    (host-derived since D56), never to a fixed four (D66).
+    """
+    if isinstance(saved, int) and not isinstance(saved, bool) and saved >= 1:
+        return saved
+    return default_max_workers()
+
+
 class MoodAnalysisBatchTaggerApp(UIHelperMixin):
     """Main application window for the Mood Analysis Batch Tagger tool."""
 
     HELP_GUIDE = "Mood_Analysis_Batch_Tagger_User_Guide.docx"
+
+    #: Set from argv in ``__init__``. The class default keeps an
+    #: ``object.__new__`` test shell on the interactive (warning) path.
+    _launched_from_driver: bool = False
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -70,8 +92,10 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
         saved_parallel = bool(
             suite_config.load_value("mood_analysis_batch_parallel_mode", False)
         )
-        workers_saved = suite_config.load_value("mood_analysis_batch_max_workers", 4)
-        saved_workers = workers_saved if isinstance(workers_saved, int) else 4
+        workers_saved = suite_config.load_value(
+            "mood_analysis_batch_max_workers", default_max_workers()
+        )
+        saved_workers = _saved_worker_count(workers_saved)
         self.parallel_mode = tk.BooleanVar(value=saved_parallel)
         self.max_workers = tk.IntVar(value=saved_workers)
 
@@ -93,7 +117,9 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
         self._log_path: str = ""
         self.auto_end: bool = False
 
-        self.slot_vars = [tk.StringVar(value="IDLE") for _ in range(4)]
+        self.slot_vars = [
+            tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
+        ]
         self._safe_slot_vars = [
             _ThreadSafeSlotVar(self.root, v) for v in self.slot_vars
         ]
@@ -278,9 +304,15 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
         suite_config.save_value(
             "mood_analysis_batch_parallel_mode", self.parallel_mode.get()
         )
-        suite_config.save_value(
-            "mood_analysis_batch_max_workers", self.max_workers.get()
+        # The Workers field is free text. Cap it on the main thread, with a
+        # warning, before the run is persisted, so the saved value matches what
+        # actually runs and no worker gets an index past the grid (D66).
+        workers = cap_typed_workers(
+            self.max_workers,
+            self._safe_slot_vars,
+            unattended=self._launched_from_driver,
         )
+        suite_config.save_value("mood_analysis_batch_max_workers", workers)
 
         self._tagged_count = 0
         self._skipped_count = 0
@@ -302,7 +334,7 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
         live: bool = self.run_mode.get() == "Live Update"
         duration: int = self.analysis_duration.get()
         parallel: bool = self.parallel_mode.get()
-        workers: int = self.max_workers.get()
+        workers = self.max_workers.get()
 
         def _run_worker() -> None:
             def _on_worker_status(slot: int, label: str) -> None:

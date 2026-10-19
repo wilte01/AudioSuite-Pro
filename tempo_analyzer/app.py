@@ -10,6 +10,8 @@ The scheme-change chain lives here because it touches three layers:
 
 Changed in 1.2.0: records tracks with no BPM tag to derive a marking from as
 a run note, so a batch report says so instead of only the tool's own log.
+Changed in 1.4.0: the worker slot grid is sized from ``DEFAULT_MAX_WORKERS``
+instead of a literal 4 (PLAN D56).
 """
 
 import logging
@@ -25,6 +27,7 @@ from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.audio_formats import is_supported_format
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
+from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from audio_suite_shared.exceptions import (
     handle_audio_errors,
     map_to_audio_error,
@@ -86,10 +89,12 @@ class TempoAnalyzerApp(UIHelperMixin):
         self.auto_end: bool = False
 
         # ── Worker slot pool ──────────────────────────────────────────────────
-        self.slot_vars = [tk.StringVar(value="IDLE") for _ in range(4)]
+        self.slot_vars = [
+            tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
+        ]
         self._safe_slot_vars = make_safe_slot_vars(self.root, self.slot_vars)
         self.slot_queue: Queue[Any] = Queue()
-        for i in range(4):
+        for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)
 
         self._preset_combo: ttk.Combobox | None = None

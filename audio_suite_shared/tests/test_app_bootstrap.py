@@ -17,6 +17,7 @@ Covers:
 
 Changed in 1.3.0: covers the deferred What's New offer that bootstrap_tool_app
 schedules for every tool it starts.
+Changed in 1.4.0: the default worker count is read from default_max_workers().
 """
 
 from __future__ import annotations
@@ -144,6 +145,24 @@ class TestConfigureLogging:
         configure_logging("test_rotating")
         handler_types = [type(h) for h in logging.getLogger("audio_suite").handlers]
         assert lh.RotatingFileHandler in handler_types
+
+    def test_logs_the_resolved_worker_count_at_startup(self) -> None:
+        """Triage must see the host-dependent worker default this run used."""
+        from audio_suite_shared.app_bootstrap import configure_logging
+        from audio_suite_shared.constants import (
+            MAX_WORKERS_CEILING,
+            default_max_workers,
+        )
+        from audio_suite_shared.logging_setup import get_logs_dir
+
+        configure_logging("workers_probe")
+        program_log = get_logs_dir() / "workers_probe.log"
+        text = program_log.read_text(encoding="utf-8")
+
+        lines = [line for line in text.splitlines() if "Workers:" in line]
+        assert len(lines) == 1, lines
+        assert f"Workers: {default_max_workers()} resolved" in lines[0]
+        assert f"ceiling={MAX_WORKERS_CEILING}" in lines[0]
 
     def test_sets_debug_level(self) -> None:
         """Root audio_suite logger must be set to DEBUG level."""
@@ -470,18 +489,19 @@ class TestBaseSuiteApp:
 
     def test_initialization(self, setup_tk) -> None:
         from audio_suite_shared.app_bootstrap import BaseSuiteApp
+        from audio_suite_shared.constants import default_max_workers
 
         app = BaseSuiteApp(
             setup_tk, "Suite App", "suite_key", "suite_logger", help_guide="guide.docx"
         )
         assert app.root is setup_tk
         assert app.help_guide == "guide.docx"
-        assert app.num_workers == 4
+        assert app.num_workers == default_max_workers()
         assert app.error_logger is not None
         assert not hasattr(app, "style")
         assert app.auto_end is False
         assert app.auto_start is False
-        assert len(app.slot_vars) == 4
+        assert len(app.slot_vars) == default_max_workers()
         assert app.cli_handler is not None
 
     def test_custom_worker_count(self, setup_tk) -> None:

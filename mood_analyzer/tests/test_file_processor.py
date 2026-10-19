@@ -2,6 +2,9 @@
 tests/test_file_processor.py
 Tests for mood_analyzer.core.file_processor.process_single_file and
 run_analysis orchestration.
+
+Changed in 1.4.0: the mocked processor carries a real `max_workers` so the
+slot-grid cap has a number to compare (D66).
 """
 
 import queue
@@ -364,6 +367,7 @@ class TestRunAnalysisNonParallel:
         from mood_analyzer.core.file_processor import run_analysis
 
         mock_processor = MagicMock()
+        mock_processor.max_workers = 2
         mock_processor.discover_audio_files.return_value = ["a.mp3", "b.mp3"]
         mock_processor.create_progress_tracker.return_value = (
             [0],

@@ -4,6 +4,9 @@ file_processor.py - Migrated to use BaseFileProcessor for BPM analysis.
 Eliminates ~150 lines of duplicated threading and error handling code
 by using shared BaseFileProcessor infrastructure while preserving identical
 functionality.
+
+Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
+when not supplied (PLAN D56).
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from typing import Any, Callable, Optional
 
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.batch_undo import get_active_batch_id, use_batch
+from audio_suite_shared.constants import cap_workers_to_slot_grid, default_max_workers
 from audio_suite_shared.exceptions import handle_audio_errors
 from audio_suite_shared.file_processor_base import BaseFileProcessor
 from audio_suite_shared.tag_helper import read_bpm, write_bpm
@@ -34,7 +38,9 @@ class BPMAnalyzerProcessor(BaseFileProcessor):
     while maintaining identical functionality.
     """
 
-    def __init__(self, max_workers: int = 4, parallel_mode: bool = False) -> None:
+    def __init__(
+        self, max_workers: int | None = None, parallel_mode: bool = False
+    ) -> None:
         super().__init__(
             operation_type="bpm_analysis",
             max_workers=max_workers,
@@ -257,7 +263,8 @@ def run_analysis(
         on_error:          Error callback forwarded to BaseFileProcessor.
         parallel_mode:     When True, use ProcessPoolExecutor for CPU-bound
             detection; when False (default), use ThreadPoolExecutor.
-        max_workers:       Number of parallel workers.  Defaults to 4.
+        max_workers:       Number of parallel workers.  Defaults to
+            ``default_max_workers()``.
     """
     logger.info(
         "run_analysis: dir=%s dry_run=%s bpm=[%d,%d] duration=%ds "
@@ -272,7 +279,12 @@ def run_analysis(
     )
 
     processor = BPMAnalyzerProcessor(
-        max_workers=max_workers or 4,
+        # Never build a pool wider than the caller's slot grid: the thread
+        # path sizes its queue from this count and the worker writes
+        # slot_vars[slot_idx], so a surplus worker raises IndexError (D66).
+        max_workers=cap_workers_to_slot_grid(
+            max_workers or default_max_workers(), slot_vars
+        ),
         parallel_mode=parallel_mode,
     )
 

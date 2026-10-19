@@ -13,6 +13,8 @@ Supports: MP3, FLAC, OGG, M4A, MP4, Opus, WAV, AIFF
 
 Changed in 1.1.0: uses librosa_load_with_fallback() so the new formats are analysed via
 an ffmpeg transcode.
+Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
+when not supplied (PLAN D56).
 """
 
 import logging
@@ -27,6 +29,7 @@ import numpy as np
 import numpy.typing as npt
 
 from audio_suite_shared.analysis_loader import librosa_load_with_fallback
+from audio_suite_shared.constants import default_max_workers
 from audio_suite_shared.error_recovery import RecoveryAction, get_recovery_action
 from audio_suite_shared.exceptions import (
     handle_audio_errors,
@@ -87,7 +90,9 @@ _ErrorCallback = Callable[[str], None]
 class KeyDetectorProcessor(BaseFileProcessor):
     """Key detection file processor using BaseFileProcessor infrastructure."""
 
-    def __init__(self, max_workers: int = 4, parallel_mode: bool = False) -> None:
+    def __init__(
+        self, max_workers: int | None = None, parallel_mode: bool = False
+    ) -> None:
         super().__init__(
             operation_type="key_detection",
             max_workers=max_workers,
@@ -303,10 +308,11 @@ def run_analysis(
         on_error:          Called with a human-readable message on fatal errors.
         parallel_mode:     When True, use ProcessPoolExecutor for CPU-bound
             detection; when False (default), use ThreadPoolExecutor.
-        max_workers:       Number of parallel workers.  Defaults to 4.
+        max_workers:       Number of parallel workers.  Defaults to
+            ``default_max_workers()``.
     """
     processor = KeyDetectorProcessor(
-        max_workers=max_workers or 4,
+        max_workers=max_workers or default_max_workers(),
         parallel_mode=parallel_mode,
     )
 
