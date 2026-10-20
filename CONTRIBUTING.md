@@ -145,6 +145,34 @@ python -m tests.cli_schema_conformance --record
 Never let CI record: a gate that rewrites the artifact it judges reports no
 drift.
 
+## Dependency security scanning
+
+CI's security job audits the graph the suite actually ships. It exports the
+locked graph (`uv.lock`, all extras, project excluded) and runs `pip-audit`
+against that file rather than against `.venv`, because the virtualenv also
+carries environment-only packages such as `pip`, whose advisories are not this
+project's to fix.
+
+Run the same scan locally:
+
+```pwsh
+uv export --frozen --all-extras --no-emit-project --format requirements-txt --no-hashes -o requirements-audit.txt
+uvx pip-audit -r requirements-audit.txt --no-deps --desc
+```
+
+`--no-deps` is deliberate: the export is already resolved, and letting
+pip-audit resolve again could audit versions the lock never installs.
+
+- CI runs the step **on probation for two sprints**
+  (`continue-on-error: true`), so a newly published advisory is visible without
+  blocking unrelated work. Do not delete the step to silence it, and do not
+  move the audit onto `.venv`.
+- A finding that can be upgraded away is fixed in the change that found it,
+  with the scan re-run to prove it: `urllib3>=2.8.0` landed with the step that
+  reported the three advisories against 2.7.0.
+- A finding that cannot be upgraded yet is recorded in the governing plan's
+  decision log with its advisory id and the reason, not suppressed.
+
 ## Audio correctness
 
 This suite writes audio and tag data. A defect that could corrupt,

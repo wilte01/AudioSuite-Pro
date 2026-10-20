@@ -18,6 +18,9 @@
 # schema-conformance gate validates the committed payload corpus against the
 # committed schema document with a real draft 2020-12 validator instead of a
 # hand-rolled subset (PLAN_feature_expansion.md D102).
+# Changed in 1.4.1: raises the urllib3 floor to 2.8.0, the fix for the three
+# PYSEC advisories the new dependency audit reports against 2.7.0, and adds
+# pip-audit to the dev extra so the same scan runs locally (PLAN D96).
 
 [build-system]
 # setuptools >= 77 is required by the PEP 639 metadata below: the SPDX
@@ -52,7 +55,11 @@ dependencies = [
     "scipy>=1.7.0",
     "sounddevice>=0.4.0",
     "requests>=2.28.0",
-    "urllib3>=1.26.0",
+    # 2.8.0 is the fix for PYSEC-2026-4175/-4176/-4177 (TLS proxy context
+    # confusion, chunked/deflate streaming loops). CI's exported-lock audit and
+    # tests/test_ci_security_audit.py keep the resolver from drifting back
+    # below this floor.
+    "urllib3>=2.8.0",
     "winaccent>=1.0.0; sys_platform == 'win32'",
     "audioop-lts>=0.2.0 ; python_full_version >= '3.13'",
 ]
@@ -82,6 +89,8 @@ dev = [
     "ruff>=0.5.0",
     "mypy>=1.0.0",
     "bandit[toml]>=1.7.0",
+    # Dev-only: audits the exported lock (what ships), not the virtualenv.
+    "pip-audit>=2.10.0",
     # Dev-only: the schema-conformance gate validates the committed artifact the
     # way an external consumer does.  No shipped path imports it.
     "jsonschema>=4.23.0",

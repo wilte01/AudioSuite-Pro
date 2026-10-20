@@ -56,7 +56,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "bandit[toml]"
+      # Changed in 1.4.1: uv joins this job for the exported-lock audit below
+      # (PLAN D96); bandit itself still runs from the installed package.
+      - run: pip install uv "bandit[toml]"
       - name: Bandit (full tree)
         env:
           PYTHONUTF8: "1"
@@ -85,6 +87,27 @@ jobs:
             exit "$code"
           fi
           echo "bandit gate pass: 0 High / 0 Medium (exit $code; Low findings accepted)"
+
+      - name: Dependency audit (exported lock)
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        # Changed in 1.4.1: added with PLAN D96, on probation for two sprints
+        # (D2). The step reports but does not fail the job yet, so a newly
+        # published advisory surfaces as a visible warning instead of blocking
+        # unrelated work; flip continue-on-error to false when the probation
+        # ends, and remove this flag then.
+        #
+        # Audit the *exported* graph, not .venv: the virtualenv also carries
+        # environment-only packages (pip) that never ship, and their advisories
+        # would drown the ones that matter. `--frozen` reads uv.lock, so the
+        # audit judges exactly the graph CI installs, and `--no-deps` stops
+        # pip-audit from re-resolving and drifting off that graph.
+        continue-on-error: true
+        run: |
+          uv export --frozen --all-extras --no-emit-project \
+            --format requirements-txt --no-hashes -o requirements-audit.txt
+          uvx pip-audit -r requirements-audit.txt --no-deps --desc
 
   compile:
     name: Compile / Pre-flight gate
