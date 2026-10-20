@@ -12,7 +12,8 @@ payload:
 =================  ==========================================================
 ``schema_version`` ``1`` — bumped only for a breaking change to this table.
 ``tool``           The tool's manifest id (``bpm``, ``library_stats``); ``cue``
-                   for the CUE commands.
+                   for the CUE commands and ``doctor`` for the install check,
+                   which have no manifest entry of their own.
 ``command``        The CLI path as invoked: ``bpm``, ``cue parse``.
 ``dry_run``        ``True`` when the run's ``--dry`` flag was in effect. A
                    command with no dry mode (``stats``, ``cue parse``) reports
@@ -54,6 +55,8 @@ keeps one meaning.
 Changed in 1.4.0: initial version (PLAN D82), replacing per-tool ad-hoc
 payloads: ``extra`` nesting, ``tagged``/``updated`` in place of counters, and
 ``log`` in place of ``log_entries`` were all inconsistent between commands.
+Changed in 1.4.1: ``doctor`` joins the contract, so an install check is as
+machine-readable as the runs it gates (PLAN D93).
 """
 
 from __future__ import annotations
@@ -96,6 +99,9 @@ TOOL_IDS: Final[Mapping[str, str]] = {
     "cue parse": "cue",
     "cue split": "cue",
     "declick": "pop_click_remover",
+    # ``doctor`` is the install check rather than a tool, so its id has no
+    # ``ToolManifest`` entry; it is declared here the way ``cue`` is.
+    "doctor": "doctor",
     "enhance": "audio_enhancer",
     "fingerprint": "fingerprinter",
     "genre-sync": "genre_sync",
@@ -122,10 +128,6 @@ TOOL_IDS: Final[Mapping[str, str]] = {
 #: either gains a schema or is listed here with a reason.
 NO_JSON_COMMANDS: Final[Mapping[str, str]] = {
     "cue generate": "writes a .cue sheet and has no machine-readable summary",
-    "doctor": (
-        "a diagnostic report whose verdict is the exit code; scripts gate on "
-        "that rather than parsing prose"
-    ),
 }
 
 #: Tool-specific top-level keys each command may add.  A value is the accepted
@@ -247,6 +249,18 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
         "cue_file": str,
         "output_dir": str,
         "tracks": list,
+    },
+    "doctor": {
+        "healthy": bool,
+        "checkout_version": (str, type(None)),
+        "installed_version": (str, type(None)),
+        "editable": bool,
+        "mapped": int,
+        # One object per first-party package: name, status, origin, commands.
+        "packages": list,
+        # One object per manifest command that failed to register: tool, command.
+        "missing_commands": list,
+        "problems": list,
     },
 }
 

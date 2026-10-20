@@ -16,8 +16,13 @@ when it drifts:
 
 ``cd-rip`` is the one command whose real run needs an audio CD drive; its two
 payload builders are locked directly instead (see :class:`TestCdRipPayloads`).
+``doctor`` inspects the running install rather than a library, so it needs no
+arguments - and its exit status is allowed to be 0 or 1, because a stale
+install is a valid report (its broken-install shape is locked in
+``audio_suite_shared/tests/test_doctor_cli.py``).
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+Changed in 1.4.1: ``doctor`` joins the driven set (PLAN D93).
 """
 
 from __future__ import annotations
@@ -181,6 +186,11 @@ def _argv_for(command: str, work: Path) -> list[str]:
         _write_wav(wav)
     out = work / "out"
     out.mkdir(exist_ok=True)
+
+    # ``doctor`` inspects the install, not a library: it takes no arguments,
+    # and its payload is valid whether this checkout is healthy or not.
+    if command == "doctor":
+        return []
 
     # These commands reach a web service when a file is present.  The schema
     # does not need a lookup to be proved, so they scan an empty directory.

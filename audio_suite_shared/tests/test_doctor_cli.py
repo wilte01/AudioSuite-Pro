@@ -2,10 +2,13 @@
 
 Changed in 1.4.0: locks the package-mapping report, the tool-impact list, and
 the non-zero exit that makes ``audiosuite doctor`` usable as a pre-flight gate.
+Changed in 1.4.1: locks the ``--json`` payload, including the core-count
+mapping that keeps ``succeeded`` at 0 on a broken install (PLAN D93).
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -16,13 +19,42 @@ from audio_suite_shared import (
     doctor_cli,
 )
 from audio_suite_shared.cli_base import cli
+from audio_suite_shared.cli_schema import validate_payload
 from audio_suite_shared.doctor_cli import (
     DoctorReport,
     PackageStatus,
     checkout_packages,
     collect_report,
+    doctor_payload,
     render_report,
 )
+
+
+def _broken_report() -> DoctorReport:
+    """Return a report with one healthy package and every failure kind.
+
+    It has a missing package, a version that matches (so the failure is the
+    mapping, not staleness) and a command that failed to register, which is the
+    shape a partially broken install actually produces.
+    """
+    return DoctorReport(
+        checkout_root=Path("C:/AudioSuite-Pro"),
+        declared="1.4.0",
+        installed="1.4.0",
+        editable=True,
+        packages=(
+            PackageStatus(
+                name="bpm_analyzer",
+                state="ok",
+                location="C:/AudioSuite-Pro/bpm_analyzer/__init__.py",
+                commands=("bpm",),
+            ),
+            PackageStatus(
+                name="spectral_viewer", state="missing", commands=("spectrogram",)
+            ),
+        ),
+        unregistered=(("Audio Fingerprinter", "fingerprint"),),
+    )
 
 
 class TestCheckoutPackages:
@@ -214,3 +246,154 @@ class TestDoctorCommand:
             packages=packages,
         )
         assert "Tools a stale install would break" in render_report(report)
+
+
+class TestDoctorPayload:
+    """The ``--json`` document reports the same findings as the text report."""
+
+    def test_the_payload_is_schema_valid(self) -> None:
+        payload = doctor_payload(_broken_report(), duration_secs=0.008)
+
+        assert validate_payload("doctor", payload) == []
+        assert payload["tool"] == payload["command"] == "doctor"
+        assert payload["dry_run"] is False
+
+    def test_packages_are_the_cores_items_not_the_report_lines(self) -> None:
+        """``total`` is the package count, so ``processed`` means the same."""
+        payload = doctor_payload(_broken_report(), duration_secs=1.0)
+
+        assert payload["total"] == payload["processed"] == 2
+        assert payload["skipped"] == 0
+        assert payload["errors"] == 1
+        assert payload["succeeded"] == 1
+        assert payload["mapped"] == 1
+
+    def test_the_diagnosis_is_carried_by_declared_extras(self) -> None:
+        payload = doctor_payload(_broken_report(), duration_secs=0.0)
+
+        assert payload["healthy"] is False
+        assert payload["checkout_version"] == "1.4.0"
+        assert payload["installed_version"] == "1.4.0"
+        assert payload["editable"] is True
+        assert payload["problems"] == []
+        assert payload["packages"] == [
+            {
+                "name": "bpm_analyzer",
+                "status": "ok",
+                "origin": "C:/AudioSuite-Pro/bpm_analyzer/__init__.py",
+                "commands": ["bpm"],
+            },
+            {
+                "name": "spectral_viewer",
+                "status": "missing",
+                "origin": None,
+                "commands": ["spectrogram"],
+            },
+        ]
+        assert payload["missing_commands"] == [
+            {"tool": "Audio Fingerprinter", "command": "fingerprint"}
+        ]
+
+    def test_a_structural_problem_counts_once_and_never_goes_negative(self) -> None:
+        report = DoctorReport(
+            checkout_root=None,
+            declared="1.4.0",
+            installed=None,
+            editable=False,
+            packages=(),
+            problems=("no pyproject.toml found, so this is not a source checkout",),
+        )
+
+        payload = doctor_payload(report, duration_secs=0.0)
+
+        assert validate_payload("doctor", payload) == []
+        assert payload["total"] == payload["processed"] == 0
+        assert payload["errors"] == 1
+        assert payload["succeeded"] == 0
+        assert payload["problems"] == [report.problems[0]]
+        assert payload["mapped"] == 0
+
+
+class TestDoctorJsonCommand:
+    """``doctor --json`` publishes one document and keeps its exit status."""
+
+    def test_a_healthy_install_exits_zero(self) -> None:
+        if doctor_cli.installed_version() is None:
+            pytest.skip("audiosuite-pro is not installed in this interpreter")
+
+        result = CliRunner().invoke(cli, ["doctor", "--json"])
+
+        assert result.exit_code == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert validate_payload("doctor", payload) == []
+        assert payload["healthy"] is True
+        assert payload["total"] > 0, "the package scan found nothing"
+        assert payload["mapped"] == payload["total"]
+        assert payload["errors"] == 0
+
+    def test_a_broken_install_exits_one_with_exactly_one_document(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(doctor_cli, "collect_report", _broken_report)
+
+        result = CliRunner().invoke(cli, ["doctor", "--json"])
+
+        assert result.exit_code == 1
+        # A second document would break every consumer that parses stdout; the
+        # ``SystemExit`` must not be intercepted into an error payload as well.
+        assert result.stdout.count('"schema_version"') == 1
+        payload = json.loads(result.stdout)
+        assert validate_payload("doctor", payload) == []
+        assert payload["healthy"] is False
+        assert payload["errors"] == 1
+        assert payload["missing_commands"] == [
+            {"tool": "Audio Fingerprinter", "command": "fingerprint"}
+        ]
+
+    def test_a_version_gap_fails_the_verdict_not_the_package_count(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stale install is unhealthy with zero findings, so the verdict
+        cannot be inferred from the counters alone."""
+        monkeypatch.setattr(doctor_cli, "installed_version", lambda: "1.0.0")
+
+        result = CliRunner().invoke(cli, ["doctor", "--json"])
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout)
+        assert validate_payload("doctor", payload) == []
+        assert payload["installed_version"] == "1.0.0"
+        assert payload["errors"] == 0
+        assert payload["succeeded"] == payload["total"]
+        assert payload["healthy"] is False
+
+    def test_the_human_report_moves_to_stderr(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(doctor_cli, "collect_report", _broken_report)
+
+        result = CliRunner().invoke(cli, ["doctor", "--json"])
+
+        assert "AudioSuite-Pro doctor" in result.stderr
+        assert "[MISSING] spectral_viewer" in result.stderr
+        assert "AudioSuite-Pro doctor" not in result.stdout
+
+    def test_text_mode_prints_the_report_and_no_document(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(doctor_cli, "collect_report", _broken_report)
+
+        result = CliRunner().invoke(cli, ["doctor"])
+
+        assert result.exit_code == 1
+        assert "[MISSING] spectral_viewer" in result.stdout
+        assert '"schema_version"' not in result.stdout
+
+    def test_json_then_text_is_text_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The last of the shared pair wins, exactly as Click parses it."""
+        monkeypatch.setattr(doctor_cli, "collect_report", _broken_report)
+
+        result = CliRunner().invoke(cli, ["doctor", "--json", "--text"])
+
+        assert result.exit_code == 1
+        assert '"schema_version"' not in result.stdout

@@ -812,6 +812,105 @@
       "additionalProperties": false
     },
     {
+      "title": "audiosuite doctor --json",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "tool": {
+          "const": "doctor"
+        },
+        "command": {
+          "const": "doctor"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "processed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "succeeded": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration_secs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "duration_str": {
+          "type": "string"
+        },
+        "log_entries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "healthy": {
+          "type": "boolean"
+        },
+        "checkout_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "installed_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "editable": {
+          "type": "boolean"
+        },
+        "mapped": {
+          "type": "integer"
+        },
+        "packages": {
+          "type": "array"
+        },
+        "missing_commands": {
+          "type": "array"
+        },
+        "problems": {
+          "type": "array"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tool",
+        "command",
+        "dry_run",
+        "total",
+        "processed",
+        "succeeded",
+        "skipped",
+        "errors",
+        "duration_secs",
+        "duration_str",
+        "log_entries"
+      ],
+      "additionalProperties": false
+    },
+    {
       "title": "audiosuite enhance --json",
       "type": "object",
       "properties": {

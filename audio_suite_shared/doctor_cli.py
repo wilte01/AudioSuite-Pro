@@ -10,23 +10,29 @@ mapped back to the CLI command it takes down, through the same table
 files.
 
 Exit status is 0 when the install is current and complete, 1 otherwise, so a
-CI job or a pre-flight script can gate on it.  Text output only: the command is
-a diagnostic, and every line is meant to be read by a person.
+CI job or a pre-flight script can gate on it.  The text report is written for a
+person to read; ``--json`` publishes the same findings against the shared CLI
+schema, so the gate that decides the exit code can also be read field by field.
 
 Changed in 1.4.0: added, with the mapping and tool-impact checks it reports.
+Changed in 1.4.1: ``--json`` publishes the report as a schema-valid payload,
+with the exit status still decided by ``healthy`` (PLAN D93).
 """
 
 from __future__ import annotations
 
 import importlib.metadata as metadata
 import importlib.util
+import json as _json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 import click
 
-from audio_suite_shared.cli_base import cli
+from audio_suite_shared.cli_base import _opt_json, cli
 from audio_suite_shared.project_version import find_pyproject
 from audio_suite_shared.runtime_check import (
     DISTRIBUTION_NAME,
@@ -332,8 +338,61 @@ def render_report(report: DoctorReport) -> str:
     return "\n".join(lines)
 
 
+def doctor_payload(report: DoctorReport, *, duration_secs: float) -> dict[str, Any]:
+    """Serialise *report* as ``doctor``'s locked JSON payload.
+
+    The packages are the run's items, so ``total``/``processed`` are their
+    count and ``skipped`` is 0: a package the checkout scanned was attempted.
+    ``errors`` counts the broken packages *and* any structural problem, which
+    keeps it a per-item verdict while ``problems`` still carries the wording a
+    person needs.  On a broken install ``succeeded`` therefore derives to 0
+    rather than going negative.
+
+    Args:
+        report: Result of :func:`collect_report`.
+        duration_secs: Wall-clock time the report took to build.
+
+    Returns:
+        A payload conforming to :func:`cli_schema.validate_payload`.
+    """
+    from audio_suite_shared.cli_schema import build_payload
+
+    broken = report.broken_packages
+    mapped = sum(1 for status in report.packages if status.state == "ok")
+    return build_payload(
+        "doctor",
+        dry_run=False,
+        total=len(report.packages),
+        processed=len(report.packages),
+        skipped=0,
+        errors=len(broken) + len(report.problems),
+        duration_secs=duration_secs,
+        log_entries=[],
+        healthy=report.healthy,
+        checkout_version=report.declared,
+        installed_version=report.installed,
+        editable=report.editable,
+        mapped=mapped,
+        packages=[
+            {
+                "name": status.name,
+                "status": status.state,
+                "origin": status.location,
+                "commands": list(status.commands),
+            }
+            for status in report.packages
+        ],
+        missing_commands=[
+            {"tool": tool_name, "command": command}
+            for tool_name, command in report.unregistered
+        ],
+        problems=list(report.problems),
+    )
+
+
 @cli.command("doctor")
-def doctor() -> None:
+@_opt_json
+def doctor(json: bool) -> None:
     """Check that this install maps every package in this checkout.
 
     \b
@@ -341,8 +400,20 @@ def doctor() -> None:
     resolve from this checkout, and every CLI command a stale or broken install
     would take down.  Exits 1 when anything is wrong, so a pre-flight script can
     gate on it.
+
+    ``--json`` publishes the same findings as a schema-valid payload; the
+    human report then goes to stderr so stdout carries one document.
     """
+    started = time.monotonic()
     report = collect_report()
-    click.echo(render_report(report))
+    duration_secs = time.monotonic() - started
+    if json:
+        # The diagnosis is still worth reading while a script consumes the
+        # document, so the text report moves to stderr instead of vanishing.
+        click.echo(render_report(report), err=True)
+        payload = doctor_payload(report, duration_secs=duration_secs)
+        click.echo(_json.dumps(payload, indent=2))
+    else:
+        click.echo(render_report(report))
     if not report.healthy:
         raise SystemExit(1)
