@@ -59,6 +59,10 @@ Changed in 1.4.1: ``doctor`` joins the contract, so an install check is as
 machine-readable as the runs it gates (PLAN D93).
 Changed in 1.4.1: ``cue generate`` joins the contract, so the declared no-JSON
 exception list is empty (PLAN D95).
+Changed in 1.4.1: the committed document and a recorded payload per command
+(``tests/data/cli_payloads.json``) are validated together by
+``python -m tests.cli_schema_conformance``, the CI schema-conformance gate
+(PLAN D102).
 """
 
 from __future__ import annotations

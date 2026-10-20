@@ -186,3 +186,31 @@ jobs:
             exit 1
           fi
           echo "instruction locks pass on the fixture path"
+
+  schema-conformance:
+    name: CLI schema conformance
+    runs-on: ubuntu-latest
+    # Changed in 1.4.1: added this job (PLAN D102). Every command publishes a
+    # JSON payload, so the contract between a script and the tools is only as
+    # good as the committed artifact: this validates one recorded payload per
+    # command (tests/data/cli_payloads.json) against the committed
+    # audio_suite_shared/cli_schema.json with the real draft 2020-12
+    # validator a consumer uses, and fails if a command has no recording or a
+    # recording no longer validates. Regenerate deliberately with
+    # `python -m tests.cli_schema_conformance --record`.
+    #
+    # Deliberately dependency-light: the check imports only
+    # audio_suite_shared.cli_schema (stdlib) and jsonschema, so it takes
+    # seconds and cannot be hidden by a tool-dependency failure. If a future
+    # edit imports tool code here, this job fails to import - which is the
+    # signal to keep the check separate, not to install the world.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "jsonschema>=4.23"
+      - name: Validate recorded payloads
+        env:
+          PYTHONUTF8: "1"
+        run: python -m tests.cli_schema_conformance --check

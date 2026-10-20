@@ -124,6 +124,27 @@ from the manifest and the full-suite lock tests fail if it drifts:
 [OK] Tool index regenerated: ... rows
 ```
 
+## CLI JSON schema conformance
+
+Every CLI command publishes a JSON payload through
+`audio_suite_shared/cli_schema.py`. Two artifacts are committed: the schema
+document (`audio_suite_shared/cli_schema.json`, generated from that table) and
+one recorded payload per command (`tests/data/cli_payloads.json`). The CI job
+"CLI schema conformance" validates the recordings against the document with the
+real draft 2020-12 validator a consumer uses, and
+`tests/test_cli_schema_conformance.py` makes the same check in the suite - plus
+the mutations that prove it can fail. A new command fails the gate until it has
+a recording.
+
+After a deliberate schema change, re-record the corpus from the real commands:
+
+```pwsh
+python -m tests.cli_schema_conformance --record
+```
+
+Never let CI record: a gate that rewrites the artifact it judges reports no
+drift.
+
 ## Audio correctness
 
 This suite writes audio and tag data. A defect that could corrupt,

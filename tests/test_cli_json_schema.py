@@ -25,12 +25,13 @@ Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 Changed in 1.4.1: ``doctor`` joins the driven set (PLAN D93).
 Changed in 1.4.1: ``cue generate`` joins the driven set too, leaving
 ``NO_JSON_COMMANDS`` empty (PLAN D95).
+Changed in 1.4.1: the argv builder and invocation moved to ``tests/cli_payloads``
+so the recorded corpus is produced by the same driver this lock uses (PLAN D102).
 """
 
 from __future__ import annotations
 
 import json
-import wave
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,7 @@ from audio_suite_shared.cli_schema import (
     validate_payload,
 )
 from audio_suite_shared.tool_plugin import get_registry
+from tests.cli_payloads import argv_for, capture
 
 
 def _walk_commands(group: Any, prefix: str = "") -> list[tuple[str, Any]]:
@@ -140,93 +142,12 @@ def _accepts(schema: dict[str, Any], value: Any) -> bool:
     return True
 
 
-def _write_wav(path: Path) -> Path:
-    """Write a short silent WAV the scanners will accept as a file."""
-    with wave.open(str(path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(8000)
-        handle.writeframes(b"\x00\x00" * 400)
-    return path
-
-
-def _write_cue(path: Path) -> Path:
-    """Write a minimal two-track CUE sheet."""
-    path.write_text(
-        'PERFORMER "Artist"\n'
-        'TITLE "Album"\n'
-        'FILE "image.wav" WAVE\n'
-        "  TRACK 01 AUDIO\n"
-        '    TITLE "One"\n'
-        '    PERFORMER "Artist"\n'
-        "    INDEX 01 00:00:00\n"
-        "  TRACK 02 AUDIO\n"
-        '    TITLE "Two"\n'
-        "    INDEX 01 00:03:00\n",
-        encoding="utf-8",
-    )
-    return path
-
-
 #: Commands whose real run is not a plain "scan this folder" call.  Each entry
-#: says why, so an exclusion cannot become a silent hole.
+#: says why, so an exclusion cannot become a silent hole.  ``tests/cli_payloads``
+#: keeps the same exclusion for the recorded corpus.
 _RUN_NOTES: dict[str, str] = {
     "cd-rip": "needs an audio CD drive; its payload builders are locked below",
 }
-
-#: Commands that would query a web service if given an audio file.  Their
-#: schema is proved on an empty directory instead of in a network test.
-_EMPTY_LIBRARY = frozenset({"album-art", "lyrics"})
-
-
-def _argv_for(command: str, work: Path) -> list[str]:
-    """Build the CLI arguments for one command's integration run."""
-    library = work / "library"
-    library.mkdir(exist_ok=True)
-    wav = library / "track.wav"
-    if not wav.exists():
-        _write_wav(wav)
-    out = work / "out"
-    out.mkdir(exist_ok=True)
-
-    # ``doctor`` inspects the install, not a library: it takes no arguments,
-    # and its payload is valid whether this checkout is healthy or not.
-    if command == "doctor":
-        return []
-
-    # These commands reach a web service when a file is present.  The schema
-    # does not need a lookup to be proved, so they scan an empty directory.
-    if command in _EMPTY_LIBRARY:
-        empty = work / "empty"
-        empty.mkdir(exist_ok=True)
-        return [str(empty), "--dry"]
-
-    if command == "stats":
-        return [str(library)]
-    if command == "tag-edit":
-        return [str(wav), "--field", "genre", "--value", "Rock", "--dry"]
-    if command == "spectrogram":
-        return [str(library), "--dry"]
-    if command == "cue parse":
-        return [str(_write_cue(work / "album.cue"))]
-    if command == "cue generate":
-        # No dry mode: the run writes a sheet, so point it at the temp tree
-        # instead of letting the default put ``album.cue`` in the library.
-        return [
-            str(library),
-            "--output",
-            str(out / "album.cue"),
-            "--title",
-            "Album",
-        ]
-    if command == "cue split":
-        return [str(_write_cue(work / "album.cue")), "--output-dir", str(out)]
-    if command in {"enhance", "reorganize"}:
-        return [str(library), "--dry", "--output-dir", str(out)]
-    if command == "fingerprint":
-        # A lookup without an API key is a usage error, not a payload.
-        return [str(library), "--dry", "--no-lookup"]
-    return [str(library), "--dry"]
 
 
 class TestRegistryCoverage:
@@ -458,28 +379,6 @@ class TestEveryCommandEmitsTheSchema:
         work.mkdir()
         return work
 
-    def _invoke(
-        self,
-        command: str,
-        argv: list[str],
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> tuple[int, str]:
-        if command == "mood-analysis-batch":
-            from mood_analysis_batch_tagger.core import batch_analysis_engine
-
-            def fake_run_batch(**_kwargs: Any) -> None:
-                _kwargs["out_queue"].put(("done", 2, 1, 0, 1, "runs/fake.log"))
-
-            monkeypatch.setattr(batch_analysis_engine, "run_batch", fake_run_batch)
-        if command == "cue split":
-            import audio_suite_shared.cue_cli as cue_cli
-
-            monkeypatch.setattr(cue_cli, "split_cue_file", lambda *_a, **_k: [])
-
-        # A nested path (``cue parse``) is two argv tokens, not one name.
-        result = CliRunner().invoke(cli, [*command.split(), *argv, "--json"])
-        return result.exit_code, result.stdout
-
     @pytest.mark.parametrize(
         "command",
         sorted(set(TOOL_IDS) - set(_RUN_NOTES)),
@@ -488,10 +387,9 @@ class TestEveryCommandEmitsTheSchema:
         self,
         command: str,
         work: Path,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        argv = _argv_for(command, work)
-        exit_code, stdout = self._invoke(command, argv, monkeypatch)
+        argv = argv_for(command, work)
+        exit_code, stdout, _stderr = capture(command, argv)
 
         assert exit_code in (0, 1), f"{command} exited {exit_code}"
         assert stdout.strip(), f"{command} wrote no JSON to stdout"
