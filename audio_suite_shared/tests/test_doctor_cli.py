@@ -3,11 +3,13 @@
 Changed in 1.4.0: locks the package-mapping report, the tool-impact list, and
 the non-zero exit that makes ``audiosuite doctor`` usable as a pre-flight gate.
 Changed in 1.4.1: locks the ``--json`` payload, including the core-count
-mapping that keeps ``succeeded`` at 0 on a broken install (PLAN D93).
+mapping that keeps ``succeeded`` at 0 on a broken install (PLAN D93), and the
+shared origin scan that the CLI's staleness warning reads too (PLAN D94).
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -17,13 +19,14 @@ from click.testing import CliRunner
 from audio_suite_shared import (
     cli_app,  # noqa: F401  (registers the commands)
     doctor_cli,
+    install_map,
+    runtime_check,
 )
 from audio_suite_shared.cli_base import cli
 from audio_suite_shared.cli_schema import validate_payload
 from audio_suite_shared.doctor_cli import (
     DoctorReport,
     PackageStatus,
-    checkout_packages,
     collect_report,
     doctor_payload,
     render_report,
@@ -57,54 +60,44 @@ def _broken_report() -> DoctorReport:
     )
 
 
-class TestCheckoutPackages:
-    def test_finds_packages_and_skips_non_packages(self, tmp_path: Path) -> None:
-        for name in ("alpha", "beta"):
-            (tmp_path / name).mkdir()
-            (tmp_path / name / "__init__.py").write_text("", encoding="utf-8")
-        (tmp_path / "utilities").mkdir()
-        (tmp_path / "tests").mkdir()
-        (tmp_path / "tests" / "__init__.py").write_text("", encoding="utf-8")
+class TestSharedResolver:
+    """``doctor`` and the CLI warning cannot disagree (PLAN D94)."""
 
-        assert checkout_packages(tmp_path) == ["alpha", "beta"]
+    def test_the_result_type_is_the_shared_one(self) -> None:
+        assert doctor_cli.PackageStatus is install_map.PackageStatus
 
-    def test_the_real_checkout_scan_is_non_empty(self) -> None:
-        """A scan that resolves nothing would pass vacuously."""
-        pyproject = doctor_cli.find_pyproject()
-        assert pyproject is not None
-        names = checkout_packages(pyproject.parent)
-        assert names, "the checkout scan found no first-party packages"
-        assert "audio_suite_shared" in names
-
-
-class TestResolvePackage:
-    def test_a_finder_that_raises_is_reported_as_missing(self, monkeypatch) -> None:
-        def _boom(_name: str):
-            raise ModuleNotFoundError(
-                "No module named 'spectral_viewer'", name="spectral_viewer"
-            )
-
-        monkeypatch.setattr(doctor_cli.importlib.util, "find_spec", _boom)
-        status = doctor_cli._resolve_package("spectral_viewer", Path.cwd())
-        assert status.state == "missing"
-
-    def test_an_installed_copy_outside_the_checkout_is_flagged(
-        self, monkeypatch, tmp_path: Path
+    def test_one_origin_scan_drives_both_consumers(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        root = tmp_path / "checkout"
-        elsewhere = tmp_path / "site-packages" / "bpm_analyzer"
-        elsewhere.mkdir(parents=True)
-        (elsewhere / "__init__.py").write_text("", encoding="utf-8")
+        """A package the warning names is exactly one doctor reports."""
+        root = install_map.checkout_root()
+        assert root is not None
+        assert "bpm_analyzer" in install_map.checkout_packages(root)
 
-        fake_spec = type("Spec", (), {"origin": str(elsewhere / "__init__.py")})()
-        monkeypatch.setattr(
-            doctor_cli.importlib.util, "find_spec", lambda _name: fake_spec
-        )
+        target = "bpm_analyzer"
+        foreign = tmp_path / "site-packages" / target / "__init__.py"
+        foreign.parent.mkdir(parents=True)
+        foreign.write_text("", encoding="utf-8")
+        real_find_spec = importlib.util.find_spec
 
-        status = doctor_cli._resolve_package("bpm_analyzer", root)
-        assert status.state == "elsewhere"
-        assert status.location is not None
-        assert "site-packages" in status.location
+        def find_spec(name: str, *args, **kwargs):
+            if name == target:
+                return type("Spec", (), {"origin": str(foreign)})()
+            return real_find_spec(name, *args, **kwargs)
+
+        # One seam, so a resolver change cannot satisfy one consumer and not
+        # the other.
+        monkeypatch.setattr(install_map.importlib.util, "find_spec", find_spec)
+        monkeypatch.setattr(runtime_check, "installed_version", lambda: "1.4.1")
+        monkeypatch.setattr(runtime_check, "checkout_version", lambda: "1.4.1")
+        runtime_check.reset_warning_state()
+
+        warning = runtime_check.stale_install_warning()
+        broken = {status.name for status in collect_report().broken_packages}
+
+        assert warning is not None
+        assert target in warning
+        assert broken == {target}
 
 
 class TestCollectReport:
@@ -167,6 +160,22 @@ class TestCollectReport:
         assert report.checkout_root is None
         assert report.healthy is False
         assert "not a source checkout" in render_report(report)
+
+    def test_unknown_versions_say_so_instead_of_inventing_a_verdict(self) -> None:
+        """No version pair must not read as either OK or STALE."""
+        report = DoctorReport(
+            checkout_root=None,
+            declared=None,
+            installed=None,
+            editable=False,
+            packages=(),
+            problems=("no pyproject.toml found, so this is not a source checkout",),
+        )
+
+        text = render_report(report)
+
+        assert "UNKNOWN" in text
+        assert "STALE" not in text
 
     def test_an_empty_scan_fails_loudly(self, monkeypatch, tmp_path: Path) -> None:
         pyproject = tmp_path / "pyproject.toml"

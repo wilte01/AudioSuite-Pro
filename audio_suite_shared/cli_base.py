@@ -592,8 +592,10 @@ def cli(ctx: click.Context, log_level: str, show_json_schema: bool) -> None:
     configure_logging("audiosuite_cli", min_level=level)
     # A global `pip install -e .` from an earlier release keeps the command
     # list it was built with; a bare `audiosuite` then dies on a tool import.
-    # Warn on every run whose metadata version disagrees with this checkout,
-    # and name the locked runtime rather than letting the mismatch stay hidden.
+    # Warn when the installed version disagrees with this checkout, or when it
+    # matches but packages import from another tree, and name the locked
+    # runtime rather than letting the mismatch stay hidden.  ``runtime_check``
+    # emits it once per process, so this per-command callback cannot repeat it.
     from audio_suite_shared.runtime_check import stale_install_warning
 
     warning = stale_install_warning()

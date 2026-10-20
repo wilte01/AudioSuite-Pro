@@ -2,6 +2,8 @@
 
 Changed in 1.4.0: locks the stale-install warning and the missing-module
 guidance that points at ``uv run audiosuite``.
+Changed in 1.4.1: locks the same-version origin scan and the once-per-process
+gate that keeps a repeated command from repeating the warning (PLAN D94).
 """
 
 from __future__ import annotations
@@ -11,6 +13,15 @@ import importlib.metadata as metadata
 import pytest
 
 from audio_suite_shared import runtime_check
+from audio_suite_shared.install_map import PackageStatus
+
+
+@pytest.fixture(autouse=True)
+def _reset_warning_gate():
+    """The warning is process-wide, so each test starts with it unseen."""
+    runtime_check.reset_warning_state()
+    yield
+    runtime_check.reset_warning_state()
 
 
 class TestInstalledVersion:
@@ -43,9 +54,12 @@ class TestCheckoutVersion:
 
 
 class TestStaleInstallWarning:
-    def test_matching_versions_warn_about_nothing(self, monkeypatch) -> None:
+    def test_matching_versions_of_a_mapped_checkout_warn_about_nothing(
+        self, monkeypatch
+    ) -> None:
         monkeypatch.setattr(runtime_check, "installed_version", lambda: "1.4.0")
         monkeypatch.setattr(runtime_check, "checkout_version", lambda: "1.4.0")
+        monkeypatch.setattr(runtime_check, "packages_outside_checkout", lambda: [])
         assert runtime_check.stale_install_warning() is None
 
     @pytest.mark.parametrize(
@@ -70,6 +84,79 @@ class TestStaleInstallWarning:
         assert "1.4.0" in warning
         assert runtime_check.LOCKED_RUNTIME in warning
         assert runtime_check.SYNC_COMMAND in warning
+
+    def test_the_version_gap_skips_the_origin_scan(self, monkeypatch) -> None:
+        """The cheap comparison answers the common failure on its own."""
+        monkeypatch.setattr(runtime_check, "installed_version", lambda: "1.0.0")
+        monkeypatch.setattr(runtime_check, "checkout_version", lambda: "1.4.0")
+        scans: list[int] = []
+        monkeypatch.setattr(
+            runtime_check,
+            "packages_outside_checkout",
+            lambda: scans.append(1) or [],
+        )
+
+        assert runtime_check.stale_install_warning() is not None
+        assert scans == []
+
+    def test_the_warning_is_emitted_once_per_process(self, monkeypatch) -> None:
+        monkeypatch.setattr(runtime_check, "installed_version", lambda: "1.0.0")
+        monkeypatch.setattr(runtime_check, "checkout_version", lambda: "1.4.0")
+
+        assert runtime_check.stale_install_warning() is not None
+        assert runtime_check.stale_install_warning() is None
+
+        runtime_check.reset_warning_state()
+        assert runtime_check.stale_install_warning() is not None
+
+
+class TestSameVersionOriginScan:
+    """A matching version can still be an install built from another tree."""
+
+    @staticmethod
+    def _matching(monkeypatch, names: list[str]) -> None:
+        monkeypatch.setattr(runtime_check, "installed_version", lambda: "1.4.1")
+        monkeypatch.setattr(runtime_check, "checkout_version", lambda: "1.4.1")
+        monkeypatch.setattr(
+            runtime_check,
+            "packages_outside_checkout",
+            lambda: [
+                PackageStatus(
+                    name=name, state="elsewhere", location=f"C:/python/{name}"
+                )
+                for name in names
+            ],
+        )
+
+    def test_a_matching_version_is_stale_when_a_package_resolves_elsewhere(
+        self, monkeypatch
+    ) -> None:
+        self._matching(monkeypatch, ["audio_fingerprinter"])
+
+        warning = runtime_check.stale_install_warning()
+
+        assert warning is not None
+        assert "audio_fingerprinter" in warning
+        assert "resolve outside" in warning
+        assert "audiosuite doctor" in warning
+        assert runtime_check.LOCKED_RUNTIME in warning
+        assert runtime_check.SYNC_COMMAND in warning
+
+    def test_a_matching_mapped_checkout_stays_silent(self, monkeypatch) -> None:
+        self._matching(monkeypatch, [])
+        assert runtime_check.stale_install_warning() is None
+
+    def test_many_foreign_packages_are_summarised(self, monkeypatch) -> None:
+        """A non-editable install maps every package; the warning stays short."""
+        self._matching(monkeypatch, [f"pkg_{index}" for index in range(9)])
+
+        warning = runtime_check.stale_install_warning()
+
+        assert warning is not None
+        for named in ("pkg_0", "pkg_5"):
+            assert named in warning
+        assert "and 3 more" in warning
+        assert "pkg_8" not in warning
 
 
 class TestMissingModulesMessage:

@@ -164,7 +164,11 @@ To check an install before blaming a tool, run `uv run audiosuite doctor`. It
 reports the checkout and installed versions, resolves every first-party package
 through the installed import machinery, lists any package that is missing or
 comes from a different install, names each CLI command that gap would take
-down, and exits 1 when anything is wrong.
+down, and exits 1 when anything is wrong (`doctor --json` publishes the same
+findings as one document). The CLI applies that same origin rule at startup:
+when a package in this checkout imports from another tree — which a rebuild at
+the *same* version does — every command warns once per process and names the
+packages, so a matching version is not mistaken for a current install.
 
 The GUI path is the root launcher `Master_Driver.pyw` (a control panel with a
 card per tool); every tool also has its own `<Tool>.pyw` launcher.

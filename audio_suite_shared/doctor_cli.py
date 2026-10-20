@@ -17,12 +17,12 @@ schema, so the gate that decides the exit code can also be read field by field.
 Changed in 1.4.0: added, with the mapping and tool-impact checks it reports.
 Changed in 1.4.1: ``--json`` publishes the report as a schema-valid payload,
 with the exit status still decided by ``healthy`` (PLAN D93).
+Changed in 1.4.1: the package resolver moved to ``install_map`` so the CLI's
+staleness warning reads the same origins as this report (PLAN D94).
 """
 
 from __future__ import annotations
 
-import importlib.metadata as metadata
-import importlib.util
 import json as _json
 import time
 from collections.abc import Callable
@@ -33,38 +33,24 @@ from typing import Any
 import click
 
 from audio_suite_shared.cli_base import _opt_json, cli
+
+# Re-exported: ``PackageStatus`` is doctor's public result type, and importing
+# it with the redundant alias is what tells mypy it is part of this module's
+# interface rather than a private import.
+from audio_suite_shared.install_map import PackageStatus as PackageStatus
+from audio_suite_shared.install_map import (
+    checkout_packages,
+    editable_install,
+    resolve_package,
+)
 from audio_suite_shared.project_version import find_pyproject
 from audio_suite_shared.runtime_check import (
-    DISTRIBUTION_NAME,
     SYNC_COMMAND,
     checkout_version,
     installed_version,
 )
 
-#: Directory names that never hold a first-party importable package.  Only
-#: directories with an ``__init__.py`` are candidates anyway; this keeps the
-#: deliberately non-package trees (``utilities``, ``user_guides``) and the
-#: test package out of the report.
-_NOT_PACKAGES = frozenset({"__pycache__", ".venv", ".git", "build", "dist", "tests"})
-
 Resolver = Callable[[str, Path], "PackageStatus"]
-
-
-@dataclass(frozen=True)
-class PackageStatus:
-    """One first-party package, resolved through the installed import system.
-
-    Attributes:
-        name: Top-level package name.
-        state: ``"ok"``, ``"missing"`` or ``"elsewhere"``.
-        location: Resolved ``__init__.py`` path, when one was found.
-        commands: CLI commands this package backs (empty for GUI-only code).
-    """
-
-    name: str
-    state: str
-    location: str | None = None
-    commands: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -112,55 +98,6 @@ class DoctorReport:
         )
 
 
-def checkout_packages(root: Path) -> list[str]:
-    """Return the top-level importable packages in *root*, sorted.
-
-    Args:
-        root: Checkout root holding ``pyproject.toml``.
-
-    Returns:
-        Directory names with an ``__init__.py``, excluding the test package and
-        build/venv trees.  Empty only when the scan itself is wrong.
-    """
-    return sorted(
-        entry.name
-        for entry in root.iterdir()
-        if entry.is_dir()
-        and entry.name not in _NOT_PACKAGES
-        and not entry.name.startswith(".")
-        and (entry / "__init__.py").is_file()
-    )
-
-
-def _resolve_package(name: str, root: Path) -> PackageStatus:
-    """Resolve *name* through the installed import system.
-
-    Args:
-        name: Top-level package name from the checkout.
-        root: Checkout root the package must resolve inside.
-
-    Returns:
-        ``ok`` when the spec's origin lives under *root*, ``missing`` when no
-        spec is found, ``elsewhere`` when a different copy wins the import.
-    """
-    try:
-        spec = importlib.util.find_spec(name)
-    except ModuleNotFoundError:
-        # A meta-path finder that raises is still "not importable from this
-        # install"; the report must describe that, not crash on it.
-        return PackageStatus(name=name, state="missing")
-    if spec is None:
-        return PackageStatus(name=name, state="missing")
-    origin = spec.origin
-    if origin is None:
-        # Namespace package: the finder maps directories, not a module file.
-        return PackageStatus(name=name, state="ok")
-    path = Path(origin).resolve()
-    if root not in path.parents:
-        return PackageStatus(name=name, state="elsewhere", location=str(path))
-    return PackageStatus(name=name, state="ok", location=str(path))
-
-
 def _command_map() -> dict[str, tuple[str, ...]]:
     """Return ``package -> CLI commands`` from the registration table.
 
@@ -197,22 +134,13 @@ def _unregistered_commands() -> tuple[tuple[str, str], ...]:
     return tuple(sorted(missing, key=lambda item: item[1]))
 
 
-def _is_editable() -> bool:
-    """Return whether the installed distribution is an editable install."""
-    try:
-        distribution = metadata.distribution(DISTRIBUTION_NAME)
-    except metadata.PackageNotFoundError:
-        return False
-    return any("__editable__" in str(item) for item in distribution.files or [])
-
-
 def collect_report(resolve: Resolver | None = None) -> DoctorReport:
     """Build the doctor report for this interpreter and checkout.
 
     Args:
-        resolve: Package resolver, defaulting to ``_resolve_package``.  Tests
-            inject a resolver to simulate a stale finder without touching the
-            environment.
+        resolve: Package resolver, defaulting to
+            ``install_map.resolve_package``.  Tests inject a resolver to
+            simulate a stale finder without touching the environment.
 
     Returns:
         The report.  A checkout with no discoverable packages yields a
@@ -220,7 +148,7 @@ def collect_report(resolve: Resolver | None = None) -> DoctorReport:
     """
     declared = checkout_version()
     installed = installed_version()
-    editable = _is_editable()
+    editable = editable_install()
     pyproject = find_pyproject()
     if pyproject is None:
         return DoctorReport(
@@ -250,7 +178,7 @@ def collect_report(resolve: Resolver | None = None) -> DoctorReport:
             ),
         )
 
-    resolver = resolve or _resolve_package
+    resolver = resolve or resolve_package
     commands = _command_map()
     packages = tuple(
         replace(resolver(name, root), commands=commands.get(name, ())) for name in names
