@@ -5,6 +5,10 @@ Changed in 1.2.0: adds the ``--musicbrainz`` / ``--write-isrc`` option tests
 payload the command prints (Sprint 2 Item 2.3).
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+
+Changed in 1.4.1: the fake run result declares ``fatal=False`` so the
+``finish_run`` exit check reads a real value instead of a truthy MagicMock
+attribute (PLAN D92).
 """
 
 from __future__ import annotations
@@ -59,8 +63,14 @@ class TestAlbumModeFlags:
 
     def _invoke(self, args: list[str]):
         runner = CliRunner()
+        # ``fatal=False`` is load-bearing: ``finish_run`` reads it, and a
+        # bare MagicMock answers every attribute truthily, which would exit 1.
         tool_result = MagicMock(
-            processed=0, errors=0, duration_secs=0.0, extra={"counts": {}}
+            processed=0,
+            errors=0,
+            duration_secs=0.0,
+            extra={"counts": {}},
+            fatal=False,
         )
         with (
             patch(
@@ -108,8 +118,14 @@ class TestMbidFlags:
 
     def _invoke(self, args: list[str]):
         runner = CliRunner()
+        # ``fatal=False`` is load-bearing: ``finish_run`` reads it, and a
+        # bare MagicMock answers every attribute truthily, which would exit 1.
         tool_result = MagicMock(
-            processed=0, errors=0, duration_secs=0.0, extra={"counts": {}}
+            processed=0,
+            errors=0,
+            duration_secs=0.0,
+            extra={"counts": {}},
+            fatal=False,
         )
         with (
             patch(
@@ -167,8 +183,14 @@ class TestMusicBrainzFlags:
 
     def _invoke(self, args: list[str]):
         runner = CliRunner()
+        # ``fatal=False`` is load-bearing: ``finish_run`` reads it, and a
+        # bare MagicMock answers every attribute truthily, which would exit 1.
         tool_result = MagicMock(
-            processed=0, errors=0, duration_secs=0.0, extra={"counts": {}}
+            processed=0,
+            errors=0,
+            duration_secs=0.0,
+            extra={"counts": {}},
+            fatal=False,
         )
         with (
             patch(

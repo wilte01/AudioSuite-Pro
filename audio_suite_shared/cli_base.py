@@ -27,6 +27,9 @@ consumer never has to parse stderr; the human line still goes to stderr,
 text mode is unchanged, and ``RunFailure(already_reported=True)`` lets a
 command that printed its own document exit non-zero without a second one
 (PLAN D91).
+Changed in 1.4.1: ``finish_run`` gives a *fatal* run exit 1 after its payload
+is printed, while a run whose only losses were per-file keeps its command's
+exit status (PLAN D92).
 """
 
 from __future__ import annotations
@@ -98,10 +101,16 @@ class _Result:
     duration_secs: float = 0.0
     log_entries: list[str] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
+    #: The run crashed instead of finishing (``_run_tool`` caught an exception).
+    #: Kept apart from ``errors`` so the counts stay reportable - a negative
+    #: sentinel in ``errors`` reached the text summary as "-1 errors", and the
+    #: JSON schema's ``minimum: 0`` could not express it (PLAN D92).
+    fatal: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["duration_str"] = f"{self.duration_secs:.1f}s"
+        d.pop("fatal")
         return d
 
     def to_payload(
@@ -142,16 +151,13 @@ class _Result:
             key: value for key, value in self.extra.items() if key in declared
         }
         fields.update(overrides)
-        # ``_run_tool`` records a fatal failure as ``errors = -1`` for its own
-        # callers; the schema counts errors, so one fatal run reports one.
-        errors = 1 if self.errors < 0 else self.errors
         return build_payload(
             command,
             dry_run=dry_run,
             total=self.total,
             processed=self.processed,
             skipped=self.skipped,
-            errors=errors,
+            errors=self.errors,
             duration_secs=self.duration_secs,
             log_entries=self.log_entries,
             **fields,
@@ -237,7 +243,11 @@ def _run_tool(
     except Exception as exc:
         logger.error("FATAL error in %s: %s", tool_name, exc, exc_info=True)
         click.echo(f"  FATAL: {exc}", err=True)
-        result.errors = -1
+        # The crash left one run unfinished, so it counts as one failed item:
+        # the payload stays schema-valid and the text summary cannot print a
+        # negative count.  ``fatal`` is what ``finish_run`` turns into exit 1.
+        result.errors = 1
+        result.fatal = True
         # The JSON payload must say why the run failed; ``error`` is the one
         # field every command may carry (cli_schema.error_payload), so a
         # consumer needs no separate failure shape.
@@ -251,6 +261,30 @@ def _run_tool(
     else:
         click.echo(f"Finished in {result.duration_secs:.1f}s.", err=True)
     return result
+
+
+def finish_run(result: _Result) -> None:
+    """Exit 1 when a run crashed instead of finishing, after its payload.
+
+    ``_run_tool`` flags a caught exception with ``fatal`` because the tool never
+    produced a completion summary.  Every command calls this *after* it has
+    printed its JSON or text payload, so a caller sees the reason and the
+    non-zero status together - before this, a run that died on its first file
+    exited 0 and only the payload said anything was wrong (PLAN D92).
+
+    A run whose failures were per-file keeps whatever exit status the command
+    already has: the suite has never had a single policy for "finished with
+    failures", and imposing one here would silently change every batch tool's
+    shell contract.
+
+    Args:
+        result: The collector ``_run_tool`` returned.
+
+    Raises:
+        SystemExit: With status 1 when the run failed fatally.
+    """
+    if result.fatal:
+        raise SystemExit(1)
 
 
 # ── Shared CLI options ────────────────────────────────────────────────────

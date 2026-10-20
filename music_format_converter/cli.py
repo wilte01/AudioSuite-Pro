@@ -4,6 +4,9 @@ Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 Changed in 1.4.1: an unknown ``--preset`` or an unsupported ``--format``
 raises ``click.UsageError`` (exit 2) instead of exiting 1 after an echo, so
 ``--json`` gets the schema's error document (PLAN D91).
+
+Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
+run whose only failures were per-file keeps its exit status (PLAN D92).
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from audio_suite_shared.cli_base import (
     _opt_json,
     _run_tool,
     cli,
+    finish_run,
 )
 from audio_suite_shared.suite_config import list_presets, load_preset
 
@@ -156,3 +160,4 @@ def convert(
             f"{result.skipped} skipped, "
             f"{result.errors} errors in {result.duration_secs:.1f}s"
         )
+    finish_run(result)

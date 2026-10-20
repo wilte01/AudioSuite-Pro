@@ -1,6 +1,9 @@
 """CLI command for Album Genre Tagger.
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+
+Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
+run whose only failures were per-file keeps its exit status (PLAN D92).
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from audio_suite_shared.cli_base import (
     _opt_json,
     _run_tool,
     cli,
+    finish_run,
 )
 
 
@@ -160,3 +164,4 @@ def album_genre(directory: str, dry_run: bool, json: bool, coverage: int) -> Non
         )
         if album_genre:
             click.echo(f"  Album genre: {album_genre}")
+    finish_run(result)

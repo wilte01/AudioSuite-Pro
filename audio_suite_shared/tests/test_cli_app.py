@@ -5,6 +5,10 @@ Changed in 1.3.0: the ingestibility counts move to 28 tools / 27 CLI commands
 with the Spectral Viewer.
 Changed in 1.4.0: locks the actionable message printed when a tool module
 cannot be imported (stale editable install).
+
+Changed in 1.4.1: ``_run_tool`` reports a crash as one failed item plus
+``fatal`` (not the ``errors = -1`` sentinel), so the fatal-run lock asserts
+both halves (PLAN D92).
 """
 
 from __future__ import annotations
@@ -362,7 +366,11 @@ class TestRunTool:
             raise RuntimeError("catastrophe")
 
         result = _run_tool("test", dummy_run)
-        assert result.errors == -1
+        # A crash is one failed item flagged ``fatal``; it used to be the
+        # ``errors = -1`` sentinel, which printed "-1 errors" in the text
+        # summary and could not satisfy the schema's minimum of 0 (D92).
+        assert result.errors == 1
+        assert result.fatal is True
 
     def test_run_tool_json_output(self, runner: CliRunner) -> None:
         import json

@@ -10,12 +10,18 @@ asserts the default shims cover every worker slot index a default-sized pool
 can hand out.
 Changed in 1.4.0: locks the per-run stale-install warning printed by the group
 callback.
+Changed in 1.4.1: locks ``finish_run`` - a fatal run exits 1 after its payload,
+a run whose failures were per-file keeps the command's exit status - and asserts
+that every CLI module calling ``_run_tool`` also calls it (PLAN D92).
 """
 
 from __future__ import annotations
 
+import ast
 import io
+import json
 import logging
+from pathlib import Path
 from queue import Queue
 from typing import Any, Callable
 from unittest.mock import MagicMock
@@ -29,6 +35,7 @@ from audio_suite_shared.cli_base import (
     _NullStringVar,
     _Result,
     _run_tool,
+    finish_run,
 )
 from audio_suite_shared.constants import default_max_workers
 
@@ -278,3 +285,126 @@ class TestStaleInstallWarning:
     def test_matching_install_prints_no_warning(self, monkeypatch, tmp_path) -> None:
         output = self._invoke(monkeypatch, None, tmp_path)
         assert "Warning: the installed audiosuite-pro" not in output
+
+
+class TestFinishRun:
+    """The exit status a command reports once its payload is on stdout."""
+
+    def test_a_fatal_run_exits_1(self) -> None:
+        with pytest.raises(SystemExit) as excinfo:
+            finish_run(_Result(errors=1, fatal=True))
+
+        assert excinfo.value.code == 1
+
+    @pytest.mark.parametrize("errors", [0, 1, 3])
+    def test_a_finished_run_returns(self, errors: int) -> None:
+        """Per-file failures are the payload's job, not the exit status's."""
+        assert finish_run(_Result(errors=errors)) is None
+
+    def test_a_fatal_run_still_counts_one_error(self) -> None:
+        """The text summary cannot print a negative count, and JSON forbids it."""
+        result = _run_tool("test", MagicMock(side_effect=RuntimeError("boom")))
+
+        assert result.fatal is True
+        assert result.errors == 1
+        assert result.to_payload("bpm")["errors"] == 1
+        assert "fatal" not in result.to_dict()
+
+
+class TestRunExitStatus:
+    """``_run_tool`` commands report a crash through the shell status too.
+
+    Before D92 a run that died on its first file printed ``FATAL`` and a
+    payload with ``errors: 1``, then exited 0 - a shell couldn't gate on it.
+    The per-file case stays at 0, which is what every batch tool already did.
+    """
+
+    @staticmethod
+    def _invoke(
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        run_fn: Callable[..., None],
+        *argv: str,
+    ) -> tuple[int, str, str]:
+        from click.testing import CliRunner
+
+        from audio_suite_shared import cli_app, cli_base
+
+        # cli_app is what registers the tool commands onto the group.
+        assert cli_app.cli is cli_base.cli
+        monkeypatch.setattr("bpm_analyzer.core.file_processor.run_analysis", run_fn)
+        result = CliRunner().invoke(cli_base.cli, ["bpm", str(tmp_path), *argv])
+        return result.exit_code, result.stdout, result.stderr
+
+    def test_a_fatal_run_exits_1_with_the_reason(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        def _boom(**_kwargs: object) -> None:
+            raise RuntimeError("decoder exploded")
+
+        exit_code, stdout, stderr = self._invoke(monkeypatch, tmp_path, _boom, "--json")
+
+        assert exit_code == 1, stderr
+        payload = json.loads(stdout)
+        assert payload["errors"] == 1
+        assert payload["error"] == "decoder exploded"
+        assert "FATAL" in stderr
+
+    def test_a_fatal_run_exits_1_in_text_mode(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        def _boom(**_kwargs: object) -> None:
+            raise RuntimeError("decoder exploded")
+
+        exit_code, stdout, stderr = self._invoke(monkeypatch, tmp_path, _boom)
+
+        assert exit_code == 1
+        # The text summary is the normal display, and it must not leak the
+        # failure marker as a count ("-1 errors").
+        assert "1 errors" in stdout
+        assert "-1" not in stdout
+        assert "FATAL" in stderr
+
+    def test_per_file_failures_keep_exit_0(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        def _three_failures(**kwargs: object) -> None:
+            on_complete = kwargs["on_complete"]
+            assert callable(on_complete)
+            on_complete(total=3, processed=3, skipped=0, errors=3, duration_secs=0.5)
+
+        exit_code, stdout, _ = self._invoke(
+            monkeypatch, tmp_path, _three_failures, "--json"
+        )
+
+        assert exit_code == 0
+        payload = json.loads(stdout)
+        assert payload["errors"] == 3
+        assert payload["succeeded"] == 0
+
+    def test_every_run_tool_call_site_also_calls_finish_run(self) -> None:
+        """A tool that wires ``_run_tool`` but skips the exit check fails here."""
+        repo_root = Path(__file__).resolve().parents[2]
+        runs: set[str] = set()
+        finishes: set[str] = set()
+        for cli_file in sorted(repo_root.glob("*/cli.py")):
+            calls = {
+                node.func.id
+                for node in ast.walk(ast.parse(cli_file.read_text(encoding="utf-8")))
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            }
+            # The package directory, not the file name: every candidate is
+            # called ``cli.py``, so keying on the name collapsed both sets to
+            # one entry and the scan passed with a call site removed.
+            package = cli_file.parent.name
+            if "_run_tool" in calls:
+                runs.add(package)
+            if "finish_run" in calls:
+                finishes.add(package)
+
+        assert runs, "no _run_tool call site found - the scan would pass vacuously"
+        assert finishes, "no finish_run call site found - the scan would pass vacuously"
+        assert not runs - finishes, (
+            "CLI modules that use _run_tool without finish_run: "
+            f"{sorted(runs - finishes)}"
+        )

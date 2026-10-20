@@ -3,6 +3,9 @@
 Changed in 1.4.0: ``--json`` flattens the collector's tool-specific fields so
 ``skipped_files`` (filename, reason, onset-periodicity score) is a top-level
 key next to the processed/skipped/errors counts.
+
+Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
+run whose only failures were per-file keeps its exit status (PLAN D92).
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from audio_suite_shared.cli_base import (
     _opt_workers,
     _run_tool,
     cli,
+    finish_run,
 )
 
 
@@ -72,3 +76,4 @@ def bpm(
             f"{result.skipped} skipped, {result.errors} errors "
             f"in {result.duration_secs:.1f}s"
         )
+    finish_run(result)

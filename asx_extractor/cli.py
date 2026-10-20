@@ -1,6 +1,9 @@
 """CLI command for ASX Playlist Extractor.
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+
+Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
+run whose only failures were per-file keeps its exit status (PLAN D92).
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from audio_suite_shared.cli_base import (
     _opt_json,
     _run_tool,
     cli,
+    finish_run,
 )
 
 logger = logging.getLogger(__name__)
@@ -194,3 +198,4 @@ def asx_extract(directory: str, dry_run: bool, json: bool) -> None:
             f"  Summary: {result.total} ASX files, {ok} extracted, "
             f"{fail} failed, {result.errors} errors in {result.duration_secs:.1f}s"
         )
+    finish_run(result)
