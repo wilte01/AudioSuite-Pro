@@ -180,24 +180,29 @@ audiosuite cue parse "D:\Music\Album\Album.cue" --json
 ### cue generate
 
 ```bash
-audiosuite cue generate TARGET [-o FILE] [--title TEXT] [--artist TEXT]
+audiosuite cue generate TARGET [-o FILE] [--title TEXT] [--artist TEXT] [--json]
 ```
 
 `TARGET` is a directory of ripped track files or a single audio file. Track
 numbers, titles and artists are read from embedded tags, falling back to the
 `NN - Title.ext` filename prefix for untagged files. The sheet is written to
-`album.cue` next to the input by default.
+`album.cue` next to the input by default. `--json` reports the written path
+(`cue_path`), the sheet's track count (`tracks`) and the album title (`title`)
+alongside the shared counters, so a caller can split the sheet it just made
+without reading it back.
 
 **Options:**
 - `-o, --output FILE` — Destination `.cue` path (default: `album.cue` next to the input)
 - `--title TEXT` — Album title for the generated sheet
 - `--artist TEXT` — Album artist (`PERFORMER`) for the generated sheet
+- `--json` / `--text` — Emit JSON output (default: text)
 
 **Examples:**
 ```bash
 audiosuite cue generate "D:\Music\Album"
 audiosuite cue generate "D:\Music\Album" --title "Greatest Hits" --artist "The Band"
 audiosuite cue generate "D:\Music\Album\01 Song.flac" -o out.cue
+audiosuite cue generate "D:\Music\Album" --json
 ```
 
 ### cue split

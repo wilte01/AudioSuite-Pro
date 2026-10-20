@@ -1,5 +1,8 @@
 """
 tests/test_cli_cue.py — tests for the ``audiosuite cue`` command group.
+
+Changed in 1.4.1: locks ``cue generate --json``, the payload that emptied
+``NO_JSON_COMMANDS`` (PLAN D95).
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ from click.testing import CliRunner
 
 import audio_suite_shared.cue_cli  # noqa: F401  (registers the cue group)
 from audio_suite_shared.cli_base import cli
+from audio_suite_shared.cli_schema import validate_payload
 
 SHEET_TEXT = """\
 PERFORMER "Cue Artist"
@@ -117,6 +121,79 @@ class TestGenerate:
         assert result.exit_code == 0, result.output
         assert out.exists()
         assert not (src / "album.cue").exists()
+
+    def test_json_reports_the_written_sheet(self, runner: CliRunner, tmp_path: Path):
+        """The payload names the file it wrote and the sheet's track count."""
+        src = self._make_dir(tmp_path)
+        out = tmp_path / "custom.cue"
+
+        result = runner.invoke(
+            cli,
+            [
+                "cue",
+                "generate",
+                str(src),
+                "-o",
+                str(out),
+                "--title",
+                "Test Album",
+                "--json",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert validate_payload("cue generate", payload) == []
+        assert payload["tool"] == "cue"
+        assert payload["dry_run"] is False
+        assert payload["cue_path"] == str(out)
+        # Two audio files, two tracks: a count, not ``cue split``'s path list.
+        assert payload["tracks"] == 2
+        assert payload["total"] == payload["processed"] == 2
+        assert payload["title"] == "Test Album"
+        assert out.exists()
+        # The human summary must not sit next to the document on stdout.
+        assert result.stdout.count('"schema_version"') == 1
+
+    def test_json_reports_an_empty_title_when_none_is_given(
+        self, runner: CliRunner, tmp_path: Path
+    ):
+        """An omitted ``--title`` is an empty string, not a missing key."""
+        src = self._make_dir(tmp_path)
+
+        result = runner.invoke(cli, ["cue", "generate", str(src), "--json"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert validate_payload("cue generate", payload) == []
+        assert payload["title"] == ""
+        assert payload["cue_path"] == str(src / "album.cue")
+
+    def test_json_write_failure_is_a_payload(self, runner: CliRunner, tmp_path: Path):
+        """An unwritable target reports why instead of an empty stdout."""
+        src = self._make_dir(tmp_path)
+        out = tmp_path / "no-such-dir" / "album.cue"
+
+        result = runner.invoke(
+            cli, ["cue", "generate", str(src), "-o", str(out), "--json"]
+        )
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout)
+        assert validate_payload("cue generate", payload) == []
+        assert payload["errors"] == 1
+        assert str(out) in payload["error"]
+
+    def test_text_write_failure_stays_human(self, runner: CliRunner, tmp_path: Path):
+        src = self._make_dir(tmp_path)
+        out = tmp_path / "no-such-dir" / "album.cue"
+
+        result = runner.invoke(cli, ["cue", "generate", str(src), "-o", str(out)])
+
+        assert result.exit_code == 1
+        assert result.stdout.strip() == ""
+        assert "Error" in result.stderr
+        assert str(out) in result.stderr
 
 
 class TestSplit:

@@ -23,12 +23,13 @@ Five layers:
    non-zero must not get a second one from the group handler.
 
 The table is asserted to cover exactly ``set(TOOL_IDS)``: a command that joins
-the schema without a usage case fails here, which is what keeps S5-4 honest
-when ``cue generate`` gains ``--json``.  ``doctor`` (S5-2) brings the two usage
+the schema without a usage case fails here, which is what kept S5-4 honest when
+``cue generate`` gained ``--json``.  ``doctor`` (S5-2) brings the two usage
 errors a command with no input can still raise - an unknown option and a stray
 positional - because Click rejects the invocation before any body runs.
 
-Changed in 1.4.1: added for S5-1 (PLAN D91), extended for ``doctor`` (D93).
+Changed in 1.4.1: added for S5-1 (PLAN D91), extended for ``doctor`` (D93) and
+``cue generate`` (D95).
 """
 
 from __future__ import annotations
@@ -67,6 +68,7 @@ _USAGE_CASES: dict[str, dict[str, list[str]]] = {
     "bpm": {"missing": [], "invalid": [MISSING_PATH]},
     "cd-rip": {"missing": ["Z:"], "invalid": ["Z:", "--verify", "bogus"]},
     "convert": {"missing": [], "invalid": [LIBRARY, "--sample-rate", "bogus"]},
+    "cue generate": {"missing": [], "invalid": [MISSING_PATH]},
     "cue parse": {"missing": [], "invalid": [MISSING_PATH]},
     "cue split": {"missing": [], "invalid": [MISSING_PATH]},
     "declick": {"missing": [], "invalid": [MISSING_PATH]},

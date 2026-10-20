@@ -23,6 +23,8 @@ install is a valid report (its broken-install shape is locked in
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 Changed in 1.4.1: ``doctor`` joins the driven set (PLAN D93).
+Changed in 1.4.1: ``cue generate`` joins the driven set too, leaving
+``NO_JSON_COMMANDS`` empty (PLAN D95).
 """
 
 from __future__ import annotations
@@ -207,6 +209,16 @@ def _argv_for(command: str, work: Path) -> list[str]:
         return [str(library), "--dry"]
     if command == "cue parse":
         return [str(_write_cue(work / "album.cue"))]
+    if command == "cue generate":
+        # No dry mode: the run writes a sheet, so point it at the temp tree
+        # instead of letting the default put ``album.cue`` in the library.
+        return [
+            str(library),
+            "--output",
+            str(out / "album.cue"),
+            "--title",
+            "Album",
+        ]
     if command == "cue split":
         return [str(_write_cue(work / "album.cue")), "--output-dir", str(out)]
     if command in {"enhance", "reorganize"}:
@@ -245,6 +257,18 @@ class TestRegistryCoverage:
         assert without_json == set(NO_JSON_COMMANDS), (
             "a command gained or lost --json without updating "
             f"NO_JSON_COMMANDS: {sorted(without_json)}"
+        )
+
+    def test_the_no_json_exception_list_is_empty(self) -> None:
+        """Every registered command publishes JSON; an exception is an edit.
+
+        ``cue generate`` was the last entry (PLAN D95).  Asserting emptiness
+        separately from the coverage equality above keeps the intent explicit:
+        adding a declared exception has to break a test whose name says so.
+        """
+        assert NO_JSON_COMMANDS == {}, (
+            "NO_JSON_COMMANDS is no longer empty; a command without --json is "
+            f"a deliberate decision, not a gap: {dict(NO_JSON_COMMANDS)}"
         )
 
     def test_tool_ids_match_the_manifest(self) -> None:

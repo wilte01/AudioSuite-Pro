@@ -6,6 +6,8 @@ is the first nested command group in the codebase; ``cli_app.py`` imports
 this module to trigger registration (see the ``import X.cli`` pattern there).
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+Changed in 1.4.1: ``cue generate`` publishes the shared payload, so the CLI
+has no command left without ``--json`` (PLAN D95).
 """
 
 from __future__ import annotations
@@ -207,13 +209,23 @@ def cue_parse_cli(cue_file: str, json_output: bool) -> None:
 @click.option(
     "--artist", default="", help="Album artist (PERFORMER) for the generated sheet."
 )
-def cue_generate_cli(target: str, output: str | None, title: str, artist: str) -> None:
+@click.option("--json/--text", "json_output", default=False, help="Emit JSON output.")
+def cue_generate_cli(
+    target: str,
+    output: str | None,
+    title: str,
+    artist: str,
+    json_output: bool,
+) -> None:
     """Build a CUE sheet that matches the audio at TARGET.
 
     TARGET is a directory of ripped track files or a single audio file.
     Track numbers, titles and artists are read from embedded tags, falling
     back to ``"NN - Title.ext"`` filename prefixes for untagged files.
+    ``--json`` reports the written path and the sheet's track count, so a
+    caller can split it without re-reading the sheet.
     """
+    started = time.monotonic()
     target_path = Path(target)
     files = _scan_audio_files(target_path)
     if not files:
@@ -238,9 +250,35 @@ def cue_generate_cli(target: str, output: str | None, title: str, artist: str) -
         )
 
     cue_text = build_cue(title=title, performer=artist, files=spec_list)
-    write_cue(cue_name, cue_text)
+    try:
+        write_cue(cue_name, cue_text)
+    except OSError as exc:
+        # A read-only folder or a missing parent is a run failure; raising
+        # ClickException lets the group handler publish a schema payload for
+        # it (PLAN D91) instead of an empty stdout.
+        raise click.ClickException(f"Could not write {cue_name}: {exc}") from exc
+
+    track_count = sum(len(f.tracks) for f in spec_list)
+    if json_output:
+        click.echo(
+            json.dumps(
+                build_payload(
+                    "cue generate",
+                    dry_run=False,
+                    total=len(files),
+                    processed=len(files),
+                    duration_secs=time.monotonic() - started,
+                    log_entries=[],
+                    cue_path=str(cue_name),
+                    tracks=track_count,
+                    title=title,
+                ),
+                indent=2,
+            )
+        )
+        return
     click.echo(f"Wrote CUE sheet: {cue_name}")
-    click.echo(f"  {sum(len(f.tracks) for f in spec_list)} track(s)")
+    click.echo(f"  {track_count} track(s)")
 
 
 @cue_group.command("split")

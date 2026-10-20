@@ -57,6 +57,8 @@ payloads: ``extra`` nesting, ``tagged``/``updated`` in place of counters, and
 ``log`` in place of ``log_entries`` were all inconsistent between commands.
 Changed in 1.4.1: ``doctor`` joins the contract, so an install check is as
 machine-readable as the runs it gates (PLAN D93).
+Changed in 1.4.1: ``cue generate`` joins the contract, so the declared no-JSON
+exception list is empty (PLAN D95).
 """
 
 from __future__ import annotations
@@ -96,6 +98,7 @@ TOOL_IDS: Final[Mapping[str, str]] = {
     "bpm": "bpm",
     "cd-rip": "cd_ripper",
     "convert": "converter",
+    "cue generate": "cue",
     "cue parse": "cue",
     "cue split": "cue",
     "declick": "pop_click_remover",
@@ -125,10 +128,10 @@ TOOL_IDS: Final[Mapping[str, str]] = {
 
 #: Commands registered on the CLI that have no ``--json`` payload.  Declared
 #: so the coverage test can prove the exclusion is deliberate: a new command
-#: either gains a schema or is listed here with a reason.
-NO_JSON_COMMANDS: Final[Mapping[str, str]] = {
-    "cue generate": "writes a .cue sheet and has no machine-readable summary",
-}
+#: either gains a schema or is listed here with a reason.  It is **empty** since
+#: ``cue generate`` gained a payload (PLAN D95), and the lock asserts emptiness:
+#: an entry reappearing is a deliberate release decision, not a silent gap.
+NO_JSON_COMMANDS: Final[Mapping[str, str]] = {}
 
 #: Tool-specific top-level keys each command may add.  A value is the accepted
 #: type or tuple of types; ``type(None)`` marks an optional null.
@@ -237,6 +240,13 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
         "tracks": (str, type(None)),
         "verify": (str, type(None)),
         "read_offset_frames": (int, type(None)),
+    },
+    "cue generate": {
+        "cue_path": str,
+        # The sheet's track count, not the written-path list ``cue split``
+        # publishes: a caller needs the count before splitting.
+        "tracks": int,
+        "title": str,
     },
     "cue parse": {
         "catalog": (str, type(None)),
