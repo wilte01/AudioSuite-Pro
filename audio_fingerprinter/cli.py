@@ -8,6 +8,10 @@ Changed in 1.2.0: reports the submission through
 the Results tab and the Master Driver batch report show.
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+Changed in 1.4.1: the seven pre-flight guards raise ``click.ClickException``
+instead of ``SystemExit(1)``, so ``--json`` publishes the schema's error
+document (with the same message on stderr) instead of an empty stdout
+(PLAN D91).
 """
 
 from __future__ import annotations
@@ -168,58 +172,45 @@ def fingerprint(
 
     key = api_key or load_api_key()
     if lookup and not key:
-        click.echo(
+        raise click.ClickException(
             "Fingerprinting requires an AcoustID API key when lookup is enabled. "
-            "Pass --api-key or set the ACOUSTID_API_KEY environment variable.",
-            err=True,
+            "Pass --api-key or set the ACOUSTID_API_KEY environment variable."
         )
-        raise SystemExit(1)
 
     if write_mbids and not write_tags:
-        click.echo(
-            "--write-mbids adds to the AcoustID tags; it also needs --write-tags.",
-            err=True,
+        raise click.ClickException(
+            "--write-mbids adds to the AcoustID tags; it also needs --write-tags."
         )
-        raise SystemExit(1)
 
     if write_isrc and not write_tags:
-        click.echo(
-            "--write-isrc adds to the AcoustID tags; it also needs --write-tags.",
-            err=True,
+        raise click.ClickException(
+            "--write-isrc adds to the AcoustID tags; it also needs --write-tags."
         )
-        raise SystemExit(1)
 
     if write_isrc and not musicbrainz:
-        click.echo(
+        raise click.ClickException(
             "--write-isrc needs --musicbrainz: ISRCs come from the MusicBrainz "
-            "recording lookup, not from AcoustID.",
-            err=True,
+            "recording lookup, not from AcoustID."
         )
-        raise SystemExit(1)
 
     if submit_isrc and not musicbrainz:
-        click.echo(
+        raise click.ClickException(
             "--submit-isrc needs --musicbrainz: the recording lookup is what "
             "tells the run which ISRCs are already registered, so only the new "
-            "ones are submitted.",
-            err=True,
+            "ones are submitted."
         )
-        raise SystemExit(1)
 
     if mb_auth == "app-token" and submit_isrc and not mb_user.strip():
-        click.echo(
+        raise click.ClickException(
             "--mb-auth app-token needs --mb-user: HTTP Digest sends both the "
-            "account name and the application token.",
-            err=True,
+            "account name and the application token."
         )
-        raise SystemExit(1)
 
     auth = build_auth(cast(MBAAuthMethod, mb_auth), mb_user) if submit_isrc else None
     if submit_isrc and not dry_run and auth is not None and auth.problem:
         # Fail before a long run, not after it: without a usable token a live
         # submission could only report that nothing was sent.
-        click.echo(auth.problem, err=True)
-        raise SystemExit(1)
+        raise click.ClickException(str(auth.problem))
 
     params = FingerprintParams(
         lookup_enabled=lookup,

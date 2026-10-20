@@ -4,12 +4,14 @@ Changed in 1.1.0: added the Sprint 1 effect flags (--reverse,
 --chorus) and fixed the --preset Custom KeyError (D14a).
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+Changed in 1.4.1: an unknown ``--preset`` raises ``click.UsageError`` instead
+of echoing and calling ``sys.exit``, so ``--json`` gets the schema's error
+document (PLAN D91).
 """
 
 from __future__ import annotations
 
 import json as _json_mod
-import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -74,9 +76,11 @@ def enhance(
     try:
         preset_enum = PresetName(preset.capitalize())
     except ValueError:
+        # A bad ``--preset`` value is a usage error, not a run failure: raising
+        # before any work lets the group handler publish the JSON error
+        # document (exit 2) instead of leaving stdout empty (PLAN D91).
         known = ", ".join(p.value for p in PresetName)
-        click.echo(f"Unknown preset '{preset}'. Known: {known}", err=True)
-        sys.exit(1)
+        raise click.UsageError(f"Unknown preset '{preset}'. Known: {known}") from None
 
     # Custom has no PRESETS entry (its values are whatever the user sets), so
     # fall back to the neutral defaults instead of raising KeyError (D14a).

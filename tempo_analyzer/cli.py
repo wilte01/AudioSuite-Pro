@@ -1,12 +1,14 @@
 """CLI command for Tempo Analyzer.
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+Changed in 1.4.1: an unknown ``--scheme`` raises ``click.UsageError`` (exit 2)
+instead of exiting 1 after an echo, so ``--json`` gets the schema's error
+document (PLAN D91).
 """
 
 from __future__ import annotations
 
 import json as _json_mod
-import sys
 
 import click
 
@@ -33,9 +35,10 @@ def tempo(directory: str, dry_run: bool, json: bool, scheme: str | None) -> None
     scheme_name = scheme or DEFAULT_SCHEME
     markings = TEMPO_SCHEMES.get(scheme_name)
     if not markings:
+        # A bad ``--scheme`` value is a usage error, so ``--json`` gets the
+        # schema's error document instead of an empty stdout (PLAN D91).
         known = ", ".join(TEMPO_SCHEMES)
-        click.echo(f"Unknown scheme '{scheme_name}'. Known: {known}", err=True)
-        sys.exit(1)
+        raise click.UsageError(f"Unknown scheme '{scheme_name}'. Known: {known}")
 
     with active_batch("tempo_analyzer", "tag_edit"):
         result = _run_tool(

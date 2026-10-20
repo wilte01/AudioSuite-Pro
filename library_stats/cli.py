@@ -6,19 +6,21 @@ album, track number, year), each completeness run records a trend snapshot in
 expose the recorded series (PLAN D41).
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+Changed in 1.4.1: a fatal scan failure raises ``RunFailure`` so ``--json``
+publishes the schema's error document instead of an empty stdout, and still
+exits 1 (PLAN D91).
 """
 
 from __future__ import annotations
 
 import dataclasses
 import sqlite3
-import sys
 import time
 from typing import Any
 
 import click
 
-from audio_suite_shared.cli_base import _opt_dir, _opt_json, cli
+from audio_suite_shared.cli_base import RunFailure, _opt_dir, _opt_json, cli
 from audio_suite_shared.cli_schema import build_payload
 from audio_suite_shared.exceptions import AudioSuiteError
 from library_stats.library_cache import LibraryCache
@@ -177,8 +179,11 @@ def stats(
         if cache is not None and use_cache:
             cache_info = f" | {cache.row_count(directory)} cached"
     except (OSError, ValueError, sqlite3.Error, AudioSuiteError) as exc:
-        click.echo(f"  FATAL: {exc}", err=True)
-        sys.exit(1)
+        # Before S5-1 this echoed FATAL and called ``sys.exit(1)``, so a
+        # ``--json`` run failed with an empty stdout.  The group handler turns
+        # the raise into the schema's error document and keeps exit 1, and the
+        # ``FATAL:`` wording survives on stderr (PLAN D91).
+        raise RunFailure(f"FATAL: {exc}") from exc
     finally:
         # The CLI owns the cache it created: close it or its SQLite
         # connection stays open for the lifetime of the process.

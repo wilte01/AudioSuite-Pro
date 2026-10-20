@@ -4,6 +4,10 @@ Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 Changed in 1.4.0: a drive/disc failure keeps the JSON contract - `--json`
 still prints one schema-conforming payload (errors 1, reason in `error`)
 before exiting 1, so a script never has to parse stderr for the cause.
+Changed in 1.4.1: those two paths raise ``RunFailure(already_reported=``
+``json_output)`` instead of a plain ``ClickException``, so the group's
+failure handler shows the human line and exits 1 without publishing a
+second JSON document (PLAN D91).
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ from typing import Any
 
 import click
 
-from audio_suite_shared.cli_base import cli
+from audio_suite_shared.cli_base import RunFailure, cli
 from audio_suite_shared.cli_schema import build_payload
 
 
@@ -258,8 +262,11 @@ def cd_rip_cli(
             if t.isdigit():
                 track_list.append({"number": int(t)})
         if not track_list:
-            click.echo("ERROR: No valid track numbers provided.", err=True)
-            return
+            # This used to echo and return, so an all-invalid ``--tracks`` list
+            # exited 0 with an empty stdout in JSON mode: a silent success for
+            # a request that ripped nothing.  It is a usage error (exit 2, and
+            # a schema-valid error document in JSON mode; PLAN D91).
+            raise click.UsageError("No valid track numbers provided.")
 
     def progress_cb(track_num: int, pct: int, msg: str) -> None:
         click.echo(f"  Track {track_num:02d}: {msg}", err=True)
@@ -324,7 +331,9 @@ def cd_rip_cli(
                     indent=2,
                 )
             )
-        raise click.ClickException(f"Rip session failed: {fatal_error}")
+        raise RunFailure(
+            f"Rip session failed: {fatal_error}", already_reported=json_output
+        )
 
     if json_output:
         click.echo(
@@ -367,7 +376,7 @@ def _detect_read_offset(
                     indent=2,
                 )
             )
-        raise click.ClickException(str(exc)) from exc
+        raise RunFailure(str(exc), already_reported=json_output) from exc
 
     if json_output:
         click.echo(

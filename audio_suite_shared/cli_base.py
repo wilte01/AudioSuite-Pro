@@ -20,18 +20,30 @@ every tool, so all commands publish the core keys defined in
 ``audio_suite_shared.cli_schema`` (PLAN D82).
 Changed in 1.4.0: every command warns once when the installed package
 version differs from the checkout, pointing at ``uv run audiosuite``.
+Changed in 1.4.1: the JSON contract covers failures too.  A group-level
+``main()`` override publishes a schema-valid payload for a usage error
+(exit 2) and for any other ``ClickException`` (its exit code), so a
+consumer never has to parse stderr; the human line still goes to stderr,
+text mode is unchanged, and ``RunFailure(already_reported=True)`` lets a
+command that printed its own document exit non-zero without a second one
+(PLAN D91).
 """
 
 from __future__ import annotations
 
+import errno
+import json
 import logging
+import sys
 import time
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from queue import Queue
 from typing import Any, Callable
 
 import click
 
+from audio_suite_shared.cli_schema import TOOL_IDS, error_payload
 from audio_suite_shared.constants import default_max_workers
 from audio_suite_shared.logging_setup import configure_logging as configure_logging
 from audio_suite_shared.project_version import declared_version
@@ -315,6 +327,103 @@ def _command_groups(
     return sections
 
 
+# ── Failure reporting (S5-1 / D91) ────────────────────────────────────────
+
+
+class RunFailure(click.ClickException):
+    """A run failure whose JSON document the command already printed.
+
+    ``_run_tool``-based commands publish their summary and return, so they
+    never raise.  The few commands that must print a failure document *and*
+    exit non-zero (cd-rip's drive and session failures) raise this with
+    ``already_reported=True``: the group handler still shows the human line
+    and exits 1, but does not publish a second document.
+    """
+
+    def __init__(self, message: str, *, already_reported: bool = False) -> None:
+        super().__init__(message)
+        self.already_reported = already_reported
+
+
+_JSON_ON = "--json"
+_JSON_OFF = "--text"
+_DRY_ON = "--dry"
+_DRY_OFF = "--live"
+
+
+def _last_flag(argv: Sequence[str], *, on: str, off: str) -> bool:
+    """Return the effective value of an ``--on/--off`` pair.
+
+    Click applies the last occurrence, so ``--json --text`` is text.
+    """
+    value = False
+    for token in argv:
+        if token == on:
+            value = True
+        elif token == off:
+            value = False
+    return value
+
+
+def _argv_wants_json(argv: Sequence[str]) -> bool:
+    """Return whether this invocation asked for JSON output."""
+    return _last_flag(argv, on=_JSON_ON, off=_JSON_OFF)
+
+
+def _argv_is_dry_run(argv: Sequence[str]) -> bool:
+    """Return whether this invocation asked for a dry run."""
+    return _last_flag(argv, on=_DRY_ON, off=_DRY_OFF)
+
+
+def _command_path(argv: Sequence[str]) -> str | None:
+    """Return the command path named in *argv* (``bpm``, ``cue parse``).
+
+    Group options come before the command: ``--log-level`` takes a value in
+    either spelling and the remaining flags are boolean.  The ``cue`` group
+    needs its subcommand because that is the schema key.
+    """
+    tokens = list(argv)
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "--log-level":
+            index += 2
+            continue
+        if token.startswith("--log-level=") or token.startswith("-"):
+            index += 1
+            continue
+        command = token
+        if command == "cue" and index + 1 < len(tokens):
+            subcommand = tokens[index + 1]
+            if not subcommand.startswith("-"):
+                command = f"{command} {subcommand}"
+        return command
+    return None
+
+
+def _failure_document(
+    argv: Sequence[str], exc: click.ClickException
+) -> dict[str, Any] | None:
+    """Return the payload to publish for *exc*, or None for text behaviour.
+
+    A document is published only when the invocation asked for JSON, named a
+    command the schema knows, and the failing command has not already printed
+    its own (``RunFailure(already_reported=True)``).
+    """
+    if isinstance(exc, RunFailure) and exc.already_reported:
+        return None
+    if not _argv_wants_json(argv):
+        return None
+    command = _command_path(argv)
+    if command is None or command not in TOOL_IDS:
+        return None
+    return error_payload(
+        command,
+        exc.format_message(),
+        dry_run=_argv_is_dry_run(argv),
+    )
+
+
 class GroupedHelpGroup(click.Group):
     """A ``click.Group`` whose help lists commands under functional headings.
 
@@ -338,6 +447,51 @@ class GroupedHelpGroup(click.Group):
                 continue
             with formatter.section(heading):
                 formatter.write_dl(rows)
+
+    def main(
+        self,
+        args: Sequence[str] | None = None,
+        prog_name: str | None = None,
+        complete_var: str | None = None,
+        standalone_mode: bool = True,
+        **extra: Any,
+    ) -> Any:
+        """Run the CLI, publishing a JSON document when a run fails.
+
+        Click's standalone mode prints a usage error and exits before any
+        command code can see it, which left ``--json`` consumers with an empty
+        stdout.  This override runs the group non-standalone and reproduces
+        Click's own presentation: a failing invocation keeps its exit status
+        and its human stderr line, and gains the schema's error document on
+        stdout when JSON was requested.  A non-standalone caller (a test, an
+        embedder) is delegated unchanged.
+        """
+        if not standalone_mode:
+            return super().main(args, prog_name, complete_var, standalone_mode, **extra)
+        argv = list(sys.argv[1:] if args is None else args)
+        try:
+            try:
+                return super().main(
+                    argv, prog_name, complete_var, standalone_mode=False, **extra
+                )
+            except (EOFError, KeyboardInterrupt) as exc:
+                click.echo(file=sys.stderr)
+                raise click.Abort() from exc
+            except click.ClickException as exc:
+                document = _failure_document(argv, exc)
+                if document is not None:
+                    click.echo(json.dumps(document, indent=2))
+                exc.show()
+                sys.exit(2 if isinstance(exc, click.UsageError) else exc.exit_code)
+            except OSError as exc:
+                if exc.errno != errno.EPIPE:
+                    raise
+                sys.exit(1)
+        except click.exceptions.Exit as exc:
+            sys.exit(exc.exit_code)
+        except click.Abort:
+            click.echo("Aborted!", err=True)
+            sys.exit(1)
 
 
 def _configure_console_logging(level: int) -> None:

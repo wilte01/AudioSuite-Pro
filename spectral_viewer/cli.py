@@ -9,6 +9,9 @@ Master Driver Dry Run cannot leave images behind.
 Changed in 1.3.0: initial version (PLAN_feature_expansion.md Item 3.1 / D42).
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+Changed in 1.4.1: the pre-render failures (unreadable path, no audio files)
+raise ``RunFailure`` so ``--json`` publishes the schema's error document
+instead of an empty stdout, and still exits 1 (PLAN D91).
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ import time
 
 import click
 
-from audio_suite_shared.cli_base import _opt_dry_run, _opt_json, cli
+from audio_suite_shared.cli_base import RunFailure, _opt_dry_run, _opt_json, cli
 from audio_suite_shared.cli_schema import build_payload
 from audio_suite_shared.exceptions import AudioSuiteError
 from spectral_viewer.core.spectrogram import (
@@ -103,12 +106,13 @@ def spectrogram(
     try:
         sources = iter_audio_files(path)
     except OSError as exc:
-        click.echo(f"  FATAL: {exc}", err=True)
-        sys.exit(1)
+        # Both failures happen before any payload exists, so ``--json`` used to
+        # fail with an empty stdout.  Raising lets the group handler publish the
+        # schema's error document while keeping exit 1 (PLAN D91).
+        raise RunFailure(f"FATAL: {exc}") from exc
 
     if not sources:
-        click.echo(f"  No supported audio files found in {path}", err=True)
-        sys.exit(1)
+        raise RunFailure(f"No supported audio files found in {path}")
 
     images: list[dict[str, str]] = []
     errors: list[dict[str, str]] = []

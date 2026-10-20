@@ -1,12 +1,14 @@
 """CLI command for Music Format Converter.
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+Changed in 1.4.1: an unknown ``--preset`` or an unsupported ``--format``
+raises ``click.UsageError`` (exit 2) instead of exiting 1 after an echo, so
+``--json`` gets the schema's error document (PLAN D91).
 """
 
 from __future__ import annotations
 
 import json as _json_mod
-import sys
 
 import click
 
@@ -90,9 +92,10 @@ def convert(
     if preset:
         settings = load_preset("music_format_converter", preset)
         if settings is None:
+            # A bad ``--preset`` value is a usage error, so JSON consumers get
+            # the schema's error document rather than an empty stdout (D91).
             known = ", ".join(list_presets("music_format_converter"))
-            click.echo(f"Unknown preset '{preset}'. Known: {known}", err=True)
-            sys.exit(1)
+            raise click.UsageError(f"Unknown preset '{preset}'. Known: {known}")
         output_format = settings.get("output_format", output_format)
         quality = settings.get("quality_preset", quality)
         sample_rate = settings.get("sample_rate", sample_rate)
@@ -117,12 +120,10 @@ def convert(
         quality = "medium"
 
     if output_format not in ALL_FORMATS:
-        click.echo(
+        raise click.UsageError(
             f"Unsupported format '{output_format}'. "
-            f"Supported: {', '.join(sorted(ALL_FORMATS))}",
-            err=True,
+            f"Supported: {', '.join(sorted(ALL_FORMATS))}"
         )
-        sys.exit(1)
 
     out_dir = output_dir or directory
     lossy = [f for f in ALL_FORMATS if f not in ("flac", "wav", "aiff", "aif")]
