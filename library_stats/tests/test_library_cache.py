@@ -803,6 +803,149 @@ class TestScopePredicate:
             sequential.close()
 
 
+class TestSingleStatementPlan:
+    """The one-statement reads take the plan the multi-statement reports do.
+
+    Changed in 1.4.1: ``get_cached_mtimes``, ``remove_orphans`` and
+    ``clear_dir`` used to run the sequential predicate regardless of scope, so
+    the index existed for the report path only (PLAN D97).  These tests read
+    the statements the connection actually executed - a plan decision is only
+    real if the SQL changed - and EXPLAIN each one.
+    """
+
+    @staticmethod
+    def _executed(cache: LibraryCache) -> list[str]:
+        """Return every statement the connection executes from now on."""
+        statements: list[str] = []
+        cache._connect().set_trace_callback(statements.append)
+        return statements
+
+    @staticmethod
+    def _by_operation(statements: list[str]) -> dict[str, list[str]]:
+        """Group the scoped statements by the operation that issued them."""
+        return {
+            "mtimes": [s for s in statements if s.startswith("SELECT path, mtime")],
+            "orphans": [s for s in statements if s.startswith("SELECT path_hash")],
+            # ``remove_orphans`` also deletes by path_hash; that is its own
+            # follow-up write, not the scoped statement under test.
+            "clear": [
+                s
+                for s in statements
+                if s.startswith("DELETE FROM files") and "path_hash" not in s
+            ],
+        }
+
+    def test_a_narrow_scope_reads_and_deletes_through_the_index(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        _fill(cache, tmp_path / "big", 40)
+        _fill(cache, tmp_path / "small", 2)
+        small = str(tmp_path / "small")
+        assert cache.scope_plan_kind(small) == "indexed"
+
+        statements = self._executed(cache)
+        try:
+            cache.get_cached_mtimes(small)
+            cache.remove_orphans(small, set())
+            cache.clear_dir(small)
+        finally:
+            cache._connect().set_trace_callback(None)
+
+        grouped = self._by_operation(statements)
+        # The discovered set must be complete: a scan that matched nothing
+        # would otherwise pass every assertion below.
+        assert set(grouped) == {"mtimes", "orphans", "clear"}
+        for operation, found in grouped.items():
+            assert len(found) == 1, (operation, found)
+            assert "path_fold >=" in found[0], (operation, found[0])
+            assert "INSTR" not in found[0], (operation, found[0])
+            plan = cache._connect().execute("EXPLAIN QUERY PLAN " + found[0]).fetchall()
+            assert any("idx_files_path_fold" in str(row) for row in plan), (
+                operation,
+                plan,
+            )
+
+    def test_a_wide_scope_keeps_the_sequential_predicate(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        _fill(cache, tmp_path, 40)
+        root = str(tmp_path)
+        assert cache.scope_plan_kind(root) == "sequential"
+
+        statements = self._executed(cache)
+        try:
+            cache.get_cached_mtimes(root)
+            cache.remove_orphans(root, set())
+            cache.clear_dir(root)
+        finally:
+            cache._connect().set_trace_callback(None)
+
+        grouped = self._by_operation(statements)
+        assert set(grouped) == {"mtimes", "orphans", "clear"}
+        for operation, found in grouped.items():
+            assert len(found) == 1, (operation, found)
+            assert "INSTR(LOWER(path)" in found[0], (operation, found[0])
+            assert "path_fold" not in found[0], (operation, found[0])
+
+    def _plan_pair(self, tmp_path: Path) -> tuple[LibraryCache, LibraryCache]:
+        """Return two caches whose *same* scope resolves to opposite plans."""
+        indexed = LibraryCache(tmp_path / "indexed.db")
+        sequential = LibraryCache(tmp_path / "sequential.db")
+        _fill(indexed, tmp_path / "small", 2)
+        _fill(indexed, tmp_path / "big", 40)
+        _fill(sequential, tmp_path / "small", 2)
+        # scoped * 2 (4) is not below the total (3), so the rule keeps the scan.
+        _fill(sequential, tmp_path / "big", 1)
+        return indexed, sequential
+
+    def test_both_plans_return_the_same_mtimes(self, tmp_path: Path) -> None:
+        indexed, sequential = self._plan_pair(tmp_path)
+        small = str(tmp_path / "small")
+        try:
+            assert indexed.scope_plan_kind(small) == "indexed"
+            assert sequential.scope_plan_kind(small) == "sequential"
+
+            assert indexed.get_cached_mtimes(small) == sequential.get_cached_mtimes(
+                small
+            )
+            assert indexed.get_cached_mtimes(str(tmp_path / "nope")) == {}
+        finally:
+            indexed.close()
+            sequential.close()
+
+    def test_both_plans_remove_the_same_orphans(self, tmp_path: Path) -> None:
+        indexed, sequential = self._plan_pair(tmp_path)
+        small = str(tmp_path / "small")
+        try:
+            removed_indexed = indexed.remove_orphans(small, set())
+            removed_sequential = sequential.remove_orphans(small, set())
+
+            assert removed_indexed == removed_sequential == 2
+            assert indexed.get_cached_mtimes(small) == {}
+            assert sequential.get_cached_mtimes(small) == {}
+            # The sibling directory is untouched by either plan.
+            assert indexed.row_count(str(tmp_path / "big")) == 40
+            assert sequential.row_count(str(tmp_path / "big")) == 1
+        finally:
+            indexed.close()
+            sequential.close()
+
+    def test_both_plans_clear_the_same_scope(self, tmp_path: Path) -> None:
+        indexed, sequential = self._plan_pair(tmp_path)
+        small = str(tmp_path / "small")
+        try:
+            indexed.clear_dir(small)
+            sequential.clear_dir(small)
+
+            assert indexed.row_count(small) == 0
+            assert sequential.row_count(small) == 0
+            assert indexed.row_count(str(tmp_path / "big")) == 40
+            assert sequential.row_count(str(tmp_path / "big")) == 1
+        finally:
+            indexed.close()
+            sequential.close()
+
+
 class TestBatch:
     """``batch()`` groups writes into one transaction (commit-per-row is slow)."""
 

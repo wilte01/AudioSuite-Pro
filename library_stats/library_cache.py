@@ -60,11 +60,19 @@ unconditional.  Single-statement reads (``get_cached_mtimes``,
 ``row_count``, ``remove_orphans``, ``clear_dir``) go straight at ``files``:
 copying a 20 000-row scope costs more than the one scan it would save
 (70 ms against 17 ms).  Every statement is a complete SQL literal — the plan is
-decided in one method instead of interpolated into fifteen — and
+decided by :meth:`LibraryCache.scope_plan_kind` instead of interpolated into a
+statement, so no query is assembled by string formatting (bandit B608) — and
 ``upsert_file`` writes ``path_fold``; legacy databases are migrated on connect
 (``PRAGMA user_version``).  Writes can be grouped with ``batch()``:
 commit-per-row cost 39.1 s on 20 000 rows against 0.24 s for one
 transaction.
+
+Changed in 1.4.1: the single-statement scoped reads take the same plan the
+multi-statement reports do (``get_cached_mtimes``, ``remove_orphans`` and
+``clear_dir``), so a narrow scope scans the ``path_fold`` index instead of
+running ``INSTR`` over every row (PLAN D97).  The rule is the measured one in
+:meth:`LibraryCache.scope_plan_kind`; a wide scope keeps the sequential scan,
+because the index loses at whole-library selectivity.
 
 Changed in 1.0.1: the cache database is created (or one-time converted on
 connect) with ``auto_vacuum=FULL``, so delete-heavy operations
@@ -167,6 +175,25 @@ SELECT path_hash, path, mtime, format, bpm, key, genre, mood,
 FROM files
 WHERE INSTR(LOWER(path), LOWER(?)) = 1"""
 _SCOPE_COUNT_SQL = "SELECT COUNT(*) FROM temp._scope_files"
+
+# Single-statement scoped reads and deletes, in both plans.  They are module
+# constants rather than literals inside three methods so the benchmark can time
+# exactly the SQL the methods run: a measurement of a hand-copied statement
+# could drift from production and read as a speed-up that never shipped.
+_SCOPED_MTIMES_INDEXED = (
+    "SELECT path, mtime FROM files WHERE path_fold >= ? AND path_fold < ?"
+)
+_SCOPED_MTIMES_SEQUENTIAL = (
+    "SELECT path, mtime FROM files WHERE INSTR(LOWER(path), LOWER(?)) = 1"
+)
+_SCOPED_HASHES_INDEXED = (
+    "SELECT path_hash FROM files WHERE path_fold >= ? AND path_fold < ?"
+)
+_SCOPED_HASHES_SEQUENTIAL = (
+    "SELECT path_hash FROM files WHERE INSTR(LOWER(path), LOWER(?)) = 1"
+)
+_SCOPED_CLEAR_INDEXED = "DELETE FROM files WHERE path_fold >= ? AND path_fold < ?"
+_SCOPED_CLEAR_SEQUENTIAL = "DELETE FROM files WHERE INSTR(LOWER(path), LOWER(?)) = 1"
 
 # SQLite auto_vacuum mode meaning FULL (deleted pages are returned to the OS
 # at commit, so delete-heavy caches never leave free-page bloat behind).
@@ -408,12 +435,18 @@ class LibraryCache:
         materialised scope: copying the scope costs more than this scan saves
         (70 ms against 17 ms for 20 000 rows), and every cached scan runs it
         once.  Only the multi-statement reports pay for a scope copy.
+
+        The statement follows :meth:`scope_plan_kind`: a narrow scope reads the
+        ``path_fold`` index, a wide one keeps the sequential predicate.
         """
         conn = self._connect()
-        cur = conn.execute(
-            "SELECT path, mtime FROM files WHERE INSTR(LOWER(path), LOWER(?)) = 1",
-            [self._path_prefix(dir_path)],
-        )
+        if self.scope_plan_kind(dir_path) == "indexed":
+            prefix = _path_fold(self._path_prefix(dir_path))
+            cur = conn.execute(
+                _SCOPED_MTIMES_INDEXED, [prefix, prefix + _SCOPE_RANGE_HIGH]
+            )
+        else:
+            cur = conn.execute(_SCOPED_MTIMES_SEQUENTIAL, [self._path_prefix(dir_path)])
         return {row[0]: row[1] for row in cur}
 
     def upsert_file(
@@ -482,13 +515,17 @@ class LibraryCache:
     def remove_orphans(self, dir_path: str, known_paths: set[str]) -> int:
         """Delete cache rows for files under *dir_path* that no longer exist.
 
-        Returns the number of rows removed.
+        Returns the number of rows removed.  The candidate scan follows
+        :meth:`scope_plan_kind`, like every other scoped statement.
         """
         conn = self._connect()
-        cur = conn.execute(
-            "SELECT path_hash FROM files WHERE INSTR(LOWER(path), LOWER(?)) = 1",
-            [self._path_prefix(dir_path)],
-        )
+        if self.scope_plan_kind(dir_path) == "indexed":
+            prefix = _path_fold(self._path_prefix(dir_path))
+            cur = conn.execute(
+                _SCOPED_HASHES_INDEXED, [prefix, prefix + _SCOPE_RANGE_HIGH]
+            )
+        else:
+            cur = conn.execute(_SCOPED_HASHES_SEQUENTIAL, [self._path_prefix(dir_path)])
         known_hashes = {_path_hash(p) for p in known_paths}
         orphan_hashes = [row[0] for row in cur if row[0] not in known_hashes]
         if orphan_hashes:
@@ -502,12 +539,17 @@ class LibraryCache:
     # ── Bulk operations ───────────────────────────────────────────────
 
     def clear_dir(self, dir_path: str) -> None:
-        """Delete all cached entries under a specific directory (recursive)."""
+        """Delete all cached entries under a specific directory (recursive).
+
+        The scope follows :meth:`scope_plan_kind`, so a narrow directory is
+        cleared through the ``path_fold`` index.
+        """
         conn = self._connect()
-        conn.execute(
-            "DELETE FROM files WHERE INSTR(LOWER(path), LOWER(?)) = 1",
-            [self._path_prefix(dir_path)],
-        )
+        if self.scope_plan_kind(dir_path) == "indexed":
+            prefix = _path_fold(self._path_prefix(dir_path))
+            conn.execute(_SCOPED_CLEAR_INDEXED, [prefix, prefix + _SCOPE_RANGE_HIGH])
+        else:
+            conn.execute(_SCOPED_CLEAR_SEQUENTIAL, [self._path_prefix(dir_path)])
         self._commit()
 
     def clear_all(self) -> None:
