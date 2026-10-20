@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,10 @@ from jsonschema import Draft202012Validator
 
 from audio_suite_shared.cli_schema import SCHEMA_VERSION, TOOL_IDS
 from tests import cli_schema_conformance as conformance
+from tests.ci_workflow import WORKFLOW as CI_WORKFLOW
+from tests.ci_workflow import action as ci_action
+from tests.ci_workflow import job as ci_job
+from tests.ci_workflow import step as ci_step
 from tests.cli_payloads import record_payloads
 
 #: The repository root, so the CI-step lock can find the workflow.
@@ -257,8 +262,8 @@ class TestTheGateEntryPoint:
         assert "gate fail:" in captured.err
 
 
-#: The workflow that runs the gate on a runner.
-WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+#: The workflow that runs the gate and publishes the artifact.
+WORKFLOW = CI_WORKFLOW
 
 
 class TestTheCiGate:
@@ -289,6 +294,138 @@ class TestTheCiGate:
         text = WORKFLOW.read_text(encoding="utf-8")
 
         assert 'pip install "jsonschema>=4.23"' in text
+
+    def test_the_test_job_exports_the_payloads(self) -> None:
+        """The artifact step lives in the test job, per the author request."""
+        test_job = ci_job("test")
+
+        assert (
+            "python -m tests.cli_schema_conformance --export-dir cli-payloads"
+            in test_job
+        )
+
+    def test_the_test_job_uploads_them_as_an_artifact(self) -> None:
+        test_job = ci_job("test")
+
+        assert "actions/upload-artifact@v4" in test_job
+        assert "name: cli-payloads" in test_job
+        assert "path: cli-payloads/" in test_job
+        # An empty artifact must fail the job, not look like a success.
+        assert "if-no-files-found: error" in test_job
+
+    def test_only_one_matrix_leg_publishes(self) -> None:
+        """The files come from the committed corpus, so one leg is enough."""
+        test_job = ci_job("test")
+        matrix = test_job.split("matrix:", 1)[1].split("steps:", 1)[0]
+        versions = re.findall(r'"(3\.\d+)"', matrix)
+
+        assert "3.14" in versions, f"the gated version is not in the matrix: {matrix}"
+        gated = [
+            block
+            for block in (
+                ci_step(test_job, "Export the recorded CLI payloads"),
+                ci_action(test_job, "actions/upload-artifact@v4"),
+            )
+            if "if: matrix.python-version == '3.14'" in block
+        ]
+        assert len(gated) == 2, "both the export and the upload must be gated"
+
+    def test_the_artifact_is_only_published_after_a_green_suite(self) -> None:
+        """A failing suite skips later steps, so a red run uploads nothing."""
+        test_job = ci_job("test")
+
+        assert (
+            test_job.index("Run test suite")
+            < test_job.index("Export the recorded CLI payloads")
+            < test_job.index("actions/upload-artifact@v4")
+        )
+
+
+class TestExportPayloads:
+    """The artifact a script author downloads: one file per command."""
+
+    def test_one_file_per_command(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        out = tmp_path / "cli-payloads"
+
+        assert conformance.main(["--export-dir", str(out)]) == 0
+
+        files = sorted(out.glob("*.json"))
+        assert len(files) == len(TOOL_IDS)
+        assert {path.stem for path in files} == {
+            conformance.slug_for(command) for command in TOOL_IDS
+        }
+        assert "exported" in capsys.readouterr().out
+
+    def test_each_file_is_the_recorded_payload(
+        self, corpus: conformance.Corpus, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "cli-payloads"
+        conformance.main(["--export-dir", str(out)])
+
+        for command in TOOL_IDS:
+            path = out / f"{conformance.slug_for(command)}.json"
+            assert json.loads(path.read_text(encoding="utf-8")) == dict(
+                corpus.payloads[command]
+            ), command
+
+    def test_the_exported_files_still_conform(self, tmp_path: Path) -> None:
+        out = tmp_path / "cli-payloads"
+        conformance.main(["--export-dir", str(out)])
+        payloads = {
+            payload["command"]: payload
+            for payload in (
+                json.loads(path.read_text(encoding="utf-8"))
+                for path in out.glob("*.json")
+            )
+        }
+
+        assert (
+            conformance.conformance_problems(payloads, conformance.load_schema()) == []
+        )
+
+    def test_slugs_are_stable_and_unique(self) -> None:
+        slugs = [conformance.slug_for(command) for command in TOOL_IDS]
+
+        assert conformance.slug_for("cue generate") == "cue-generate"
+        assert conformance.slug_for("bpm") == "bpm"
+        assert len(set(slugs)) == len(slugs), "two commands would share a file"
+
+    def test_a_broken_corpus_is_not_exported(
+        self,
+        corpus: conformance.Corpus,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The artifact is a promise to consumers; never publish a red one."""
+        payloads = _payloads(corpus)
+        payloads["bpm"]["processed"] = "two"
+        broken = tmp_path / "corpus.json"
+        conformance.write_corpus(payloads, path=broken)
+        out = tmp_path / "cli-payloads"
+
+        code = conformance.main(["--export-dir", str(out), "--corpus", str(broken)])
+
+        assert code == 1
+        assert "gate fail: bpm: processed" in capsys.readouterr().err
+        assert not list(out.glob("*.json"))
+
+    def test_the_export_directory_is_gitignored(self) -> None:
+        """A local export must not dirtify the tree or be committed.
+
+        The entry itself is required, not a mention: the change note above it
+        names the directory too, so a substring check would pass after the
+        ignore rule was deleted.
+        """
+        entries = {
+            line.strip()
+            for line in (REPO_ROOT / ".gitignore")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        }
+
+        assert "cli-payloads/" in entries
 
 
 class TestTheRecorder:

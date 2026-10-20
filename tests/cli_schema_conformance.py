@@ -32,8 +32,17 @@ To regenerate after a deliberate schema change::
 Recording drives every click command, so it needs the full tool environment;
 ``--check`` imports no tool code and runs anywhere with ``jsonschema``.
 
+``--export-dir DIR`` writes the validated recordings as one ``<command>.json``
+file per command (spaces become dashes, so ``cue generate`` is
+``cue-generate.json``).  CI's test job uploads that directory as the
+``cli-payloads`` artifact, so a script author can read the real payload a
+command produces without installing or running anything - and what they read is
+the same bytes the gate validates.
+
 Changed in 1.4.1: initial version, the recorded-payload gate for the CLI JSON
 contract (PLAN D102).
+Changed in 1.4.1: ``--export-dir`` and the ``cli-payloads`` CI artifact, so the
+recordings are inspectable without a checkout (PLAN D103).
 """
 
 from __future__ import annotations
@@ -325,6 +334,61 @@ def write_corpus(
     return data
 
 
+def slug_for(command: str) -> str:
+    """Return the file stem a command's exported payload is named after.
+
+    Args:
+        command: CLI path (``bpm``, ``cue generate``).
+
+    Returns:
+        Lower-case, dash-separated: ``cue-generate``.
+
+    Raises:
+        ConformanceError: if the command has no alphanumeric characters, which
+            would export to ``.json`` and collide with nothing useful.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-", command.lower()).strip("-")
+    if not slug:
+        raise ConformanceError(f"cannot derive an export name from {command!r}")
+    return slug
+
+
+def export_payloads(
+    payloads: Mapping[str, Mapping[str, Any]],
+    directory: Path,
+) -> list[Path]:
+    """Write one JSON file per command into *directory*.
+
+    Args:
+        payloads: Command path to recorded payload.
+        directory: Destination; created if missing.
+
+    Returns:
+        The files written, in command order.
+
+    Raises:
+        ConformanceError: if two commands slug to the same file name, which
+            would silently overwrite one payload with the other.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    stems: dict[str, str] = {}
+    written: list[Path] = []
+    for command in sorted(payloads):
+        stem = slug_for(command)
+        if stem in stems:
+            raise ConformanceError(
+                f"{command!r} and {stems[stem]!r} both export to {stem}.json"
+            )
+        stems[stem] = command
+        path = directory / f"{stem}.json"
+        text = json.dumps(payloads[command], indent=2, ensure_ascii=False) + "\n"
+        # UTF-8 without a BOM and LF endings, like the committed schema, so a
+        # downloaded file opens cleanly in every editor and diff tool.
+        path.write_bytes(text.encode("utf-8"))
+        written.append(path)
+    return written
+
+
 def _check(corpus_path: Path, schema_path: Path) -> int:
     """Validate the committed corpus against the committed schema."""
     corpus = load_corpus(corpus_path)
@@ -338,6 +402,22 @@ def _check(corpus_path: Path, schema_path: Path) -> int:
         f"{len(corpus.payloads)} recorded payload(s) in {corpus_path.name} validate "
         f"against {schema_path.name} (schema v{corpus.schema_version})"
     )
+    return 0
+
+
+def _export(corpus_path: Path, schema_path: Path, directory: Path) -> int:
+    """Validate the corpus, then write one file per command into *directory*."""
+    corpus = load_corpus(corpus_path)
+    document = load_schema(schema_path)
+    problems = conformance_problems(corpus.payloads, document)
+    if problems:
+        # Never publish payloads the gate rejects: the artifact is a promise to
+        # script authors, so it is written only from a conforming corpus.
+        for problem in problems:
+            print(f"gate fail: {problem}", file=sys.stderr)
+        return 1
+    written = export_payloads(corpus.payloads, directory)
+    print(f"exported {len(written)} payload(s) to {directory}")
     return 0
 
 
@@ -374,6 +454,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     action.add_argument(
         "--record", action="store_true", help="re-drive every command and rewrite it"
     )
+    action.add_argument(
+        "--export-dir",
+        type=Path,
+        metavar="DIR",
+        help="write one JSON file per command into DIR (the CI artifact)",
+    )
     parser.add_argument("--corpus", type=Path, default=CORPUS_PATH)
     parser.add_argument("--schema", type=Path, default=SCHEMA_PATH)
     args = parser.parse_args(argv)
@@ -381,6 +467,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.record:
             return _record(args.corpus)
+        if args.export_dir is not None:
+            return _export(args.corpus, args.schema, args.export_dir)
         return _check(args.corpus, args.schema)
     except ConformanceError as exc:
         print(f"gate fail: {exc}", file=sys.stderr)

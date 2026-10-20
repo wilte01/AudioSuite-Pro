@@ -145,6 +145,20 @@ python -m tests.cli_schema_conformance --record
 Never let CI record: a gate that rewrites the artifact it judges reports no
 drift.
 
+CI also publishes the recordings for people who consume the CLI rather than
+change it: the test job exports them as one file per command and uploads the
+`cli-payloads` artifact, so a script author can download real payloads without
+a checkout. Reproduce that directory locally with:
+
+```pwsh
+python -m tests.cli_schema_conformance --export-dir cli-payloads
+```
+
+`cue generate` becomes `cue-generate.json`; the export refuses a corpus the
+gate rejects, so a published payload is always one the contract validates.
+`cli-payloads/` is gitignored — it is a build artifact, not a second copy of
+the corpus.
+
 ## Dependency security scanning
 
 CI's security job audits the graph the suite actually ships. It exports the

@@ -152,6 +152,30 @@ jobs:
         run: |
           uv run python -m pytest --tb=short -q \
             --cov --cov-report=term-missing --cov-fail-under=75
+      - name: Export the recorded CLI payloads
+        # Changed in 1.4.1: added with PLAN D103. The recordings are the
+        # contract a script author programs against, so publish them where they
+        # can be read without a checkout: one <command>.json per command, from
+        # the same bytes the conformance gate validates.
+        #
+        # One matrix leg is enough, and it is the newest: the files come from the
+        # committed corpus, so they are identical on every interpreter - this
+        # step only formats and writes them.  If the version list above moves,
+        # update this condition with it (tests/test_cli_schema_conformance.py
+        # asserts the two agree, so a stale condition fails the suite).
+        if: matrix.python-version == '3.14'
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: uv run python -m tests.cli_schema_conformance --export-dir cli-payloads
+      - uses: actions/upload-artifact@v4
+        if: matrix.python-version == '3.14'
+        with:
+          name: cli-payloads
+          path: cli-payloads/
+          # An empty artifact would look like success while telling a script
+          # author nothing; fail the job instead.
+          if-no-files-found: error
       - name: Instruction locks, no user-global baseline (fixture path)
         shell: bash
         env:

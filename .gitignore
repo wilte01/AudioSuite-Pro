@@ -1,3 +1,6 @@
+# Changed in 1.4.1: ignores the exported CLI payload directory (cli-payloads/),
+# a CI build artifact regenerated with
+# `python -m tests.cli_schema_conformance --export-dir cli-payloads`.
 # Changed in 1.0.1: removed *.dll to allow discid.dll to be committed for CD Ripper.
 # Changed in 1.0.1: modified to document the CI infrastructure fix.
 # Python
@@ -49,6 +52,8 @@ album_art_config.key
 # backup is covered; these are secret-class like the keys themselves.
 *.key.bak
 *.spec
+# CLI payloads uploaded as the CI `cli-payloads` artifact (one file per command).
+cli-payloads/
 .coverage
 .coverage.*
 htmlcov/

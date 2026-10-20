@@ -28,8 +28,9 @@ from pathlib import Path
 import pytest
 import tomllib
 
+from tests.ci_workflow import job, step
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
-WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 CONTRIBUTING = REPO_ROOT / "CONTRIBUTING.md"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 UV_LOCK = REPO_ROOT / "uv.lock"
@@ -42,40 +43,6 @@ AUDIT_STEP = "Dependency audit (exported lock)"
 URLLIB3_FLOOR = (2, 8, 0)
 
 
-def _workflow() -> str:
-    """Return the workflow text."""
-    return WORKFLOW.read_text(encoding="utf-8")
-
-
-def _job(text: str, name: str) -> str:
-    """Return the YAML block for job *name* (a 2-space-indented key).
-
-    Raises:
-        AssertionError: if the job is missing or the slice is empty - a lock
-            reading ``""`` would pass every assertion below.
-    """
-    match = re.search(rf"^  {re.escape(name)}:\s*$", text, re.MULTILINE)
-    assert match is not None, f"ci.yml has no {name!r} job"
-    start = match.start()
-    following = re.search(r"^  [A-Za-z0-9_-]+:\s*$", text[match.end() :], re.MULTILINE)
-    end = match.end() + following.start() if following else len(text)
-    block = text[start:end]
-    assert block.strip(), f"ci.yml's {name!r} job parsed as empty"
-    return block
-
-
-def _step(job: str, name: str) -> str:
-    """Return the YAML block for the step called *name* inside *job*."""
-    match = re.search(rf"^      - name: {re.escape(name)}\s*$", job, re.MULTILINE)
-    assert match is not None, f"the job has no step named {name!r}"
-    start = match.start()
-    following = re.search(r"^      - ", job[match.end() :], re.MULTILINE)
-    end = match.end() + following.start() if following else len(job)
-    block = job[start:end]
-    assert block.strip(), f"step {name!r} parsed as empty"
-    return block
-
-
 def _version(text: str) -> tuple[int, ...]:
     """Parse a dotted package version into a comparable tuple."""
     match = re.match(r"(\d+(?:\.\d+)*)", text)
@@ -86,16 +53,16 @@ def _version(text: str) -> tuple[int, ...]:
 @pytest.fixture(scope="module")
 def audit_step() -> str:
     """The workflow's dependency-audit step, sliced out of the security job."""
-    return _step(_job(_workflow(), "security"), AUDIT_STEP)
+    return step(job("security"), AUDIT_STEP)
 
 
 class TestTheWorkflowRunsTheAudit:
     """The step exists, audits the exported lock, and is on probation."""
 
     def test_the_security_job_installs_uv(self) -> None:
-        job = _job(_workflow(), "security")
+        security = job("security")
 
-        assert "pip install uv" in job, "the audit needs uv to export the lock"
+        assert "pip install uv" in security, "the audit needs uv to export the lock"
 
     def test_the_step_exports_the_locked_graph(self, audit_step: str) -> None:
         assert "uv export --frozen --all-extras --no-emit-project" in audit_step
