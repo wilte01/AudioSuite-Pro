@@ -27,6 +27,9 @@ consumer never has to parse stderr; the human line still goes to stderr,
 text mode is unchanged, and ``RunFailure(already_reported=True)`` lets a
 command that printed its own document exit non-zero without a second one
 (PLAN D91).
+Changed in 1.4.1: ``--json-schema`` prints the committed document file rather
+than regenerating it, so a consumer receives the shipped artifact including
+its per-command example payloads (PLAN D104).
 Changed in 1.4.1: ``finish_run`` gives a *fatal* run exit 1 after its payload
 is printed, while a run whose only losses were per-file keeps its command's
 exit status (PLAN D92).
@@ -568,7 +571,10 @@ def _configure_console_logging(level: int) -> None:
     "show_json_schema",
     is_flag=True,
     default=False,
-    help="Print the locked JSON output schema (schema v1) and exit.",
+    help=(
+        "Print the locked JSON output schema (schema v1), with a recorded "
+        "example payload per command, and exit."
+    ),
 )
 # Plan G2: the version is read from [project] version in pyproject.toml, so
 # it lives in exactly one place.  Resolved once here (not per --help render)
@@ -578,11 +584,20 @@ def _configure_console_logging(level: int) -> None:
 def cli(ctx: click.Context, log_level: str, show_json_schema: bool) -> None:
     """AudioSuite-Pro — headless audio processing toolkit."""
     if show_json_schema:
-        # The schema is the same document for every command, so it is a group
-        # option: an external consumer can fetch it without importing Python.
-        from audio_suite_shared.cli_schema import schema_json
+        # The committed document is the contract, examples included, so it is a
+        # group option: an external consumer fetches the artifact itself without
+        # importing Python, and what is printed is the shipped document rather
+        # than one regenerated from the imported version.
+        from audio_suite_shared.cli_schema import committed_schema_text
 
-        click.echo(schema_json(), nl=False)
+        try:
+            document = committed_schema_text()
+        except OSError as exc:
+            raise click.ClickException(
+                "The committed JSON Schema (cli_schema.json) is missing from "
+                f"this install: {exc}. Reinstall the package."
+            ) from exc
+        click.echo(document, nl=False)
         ctx.exit(0)
     level = getattr(logging, log_level.upper(), logging.WARNING)
     _configure_console_logging(level)

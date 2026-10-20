@@ -52,6 +52,14 @@ payload.  ``stats`` reports the library's audio duration separately as
 ``library_duration_secs``/``library_duration_str``, precisely so the shared name
 keeps one meaning.
 
+Each variant in the committed document also carries ``examples``: one payload
+recorded from that command, so a reader can see a real document without running
+the tool.  In JSON Schema terms examples are annotations - they constrain
+nothing - but the schema-conformance gate validates every one of them against
+its own variant, so a published example is always a payload the contract
+accepts.  ``--json-schema`` prints the committed file itself (via
+:func:`committed_schema_text`), examples included.
+
 Changed in 1.4.0: initial version (PLAN D82), replacing per-tool ad-hoc
 payloads: ``extra`` nesting, ``tagged``/``updated`` in place of counters, and
 ``log`` in place of ``log_entries`` were all inconsistent between commands.
@@ -63,12 +71,16 @@ Changed in 1.4.1: the committed document and a recorded payload per command
 (``tests/data/cli_payloads.json``) are validated together by
 ``python -m tests.cli_schema_conformance``, the CI schema-conformance gate
 (PLAN D102).
+Changed in 1.4.1: every variant carries an ``examples`` array with the recorded
+payload for that command, and ``--json-schema`` prints that committed file, so
+a script author can see real output without running the tool (PLAN D104).
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
+from importlib import resources
 from typing import Any, Final
 
 #: Bumped only when a core key is renamed, removed or changes meaning.
@@ -449,7 +461,9 @@ def validate_payload(command: str, payload: Mapping[str, Any]) -> list[str]:
     return problems
 
 
-def json_schema() -> dict[str, Any]:
+def json_schema(
+    examples: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Build the JSON Schema (draft 2020-12) for every command's payload.
 
     The document has one variant per command under ``oneOf``, discriminated by
@@ -459,29 +473,81 @@ def json_schema() -> dict[str, Any]:
     and ``audio_suite_shared/cli_schema.json`` is the committed copy; the lock
     test fails when the two disagree.
 
+    Args:
+        examples: Command path to a real payload, published as that variant's
+            ``examples`` array.  The committed document is built with the
+            recorded payloads, so a reader can see the shape without running
+            the tool.  ``examples`` is an annotation: it does not constrain
+            validation (payloads still only need the core keys and declared
+            extras), which is why the gate validates every example itself.
+
     Returns:
         A JSON-serialisable schema document.
     """
-    variants = [_command_schema(command, tool) for command, tool in TOOL_IDS.items()]
+    variants = [
+        _command_schema(
+            command,
+            tool,
+            None if examples is None else examples.get(command),
+        )
+        for command, tool in TOOL_IDS.items()
+    ]
+    described = (
+        "One variant per command, discriminated by the constant 'command'. "
+        "Every payload carries the shared counters and an 'error' string "
+        "only when the run failed."
+    )
+    if examples is not None:
+        described += (
+            " Each variant's 'examples' array holds one payload recorded from "
+            "that command - illustrative only, not part of validation."
+        )
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "https://audiosuite-pro/schemas/cli-json-v1.json",
         "title": f"AudioSuite-Pro CLI JSON output (schema v{SCHEMA_VERSION})",
-        "description": (
-            "One variant per command, discriminated by the constant 'command'. "
-            "Every payload carries the shared counters and an 'error' string "
-            "only when the run failed."
-        ),
+        "description": described,
         "oneOf": variants,
     }
 
 
-def schema_json() -> str:
-    """Return the committed schema document as pretty-printed JSON text."""
-    return json.dumps(json_schema(), indent=2) + "\n"
+def schema_json(examples: Mapping[str, Mapping[str, Any]] | None = None) -> str:
+    """Return the schema document as pretty-printed JSON text.
+
+    Args:
+        examples: Command path to a real payload, as :func:`json_schema` takes
+            them.  The committed document is generated with the recorded
+            payloads; omitting them yields the structural schema alone.
+    """
+    return json.dumps(json_schema(examples), indent=2) + "\n"
 
 
-def _command_schema(command: str, tool: str) -> dict[str, Any]:
+def committed_schema_text() -> str:
+    """Return the committed schema document exactly as it ships.
+
+    ``--json-schema`` prints this document, so a consumer sees the artifact
+    including its example payloads rather than a document regenerated on the
+    fly from whatever version is imported.  (The CLI writes it as text, so the
+    console's platform line endings apply; the JSON is unchanged.)
+
+    Returns:
+        The file's text, UTF-8.
+
+    Raises:
+        FileNotFoundError: if the install is missing the package data.
+    """
+    return (
+        resources.files("audio_suite_shared")
+        .joinpath("cli_schema.json")
+        .read_text(encoding="utf-8")
+    )
+
+
+def _command_schema(
+    command: str,
+    tool: str,
+    example: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Build one command's variant of the schema document."""
     properties: dict[str, Any] = {
         "schema_version": {"const": SCHEMA_VERSION},
@@ -500,13 +566,16 @@ def _command_schema(command: str, tool: str) -> dict[str, Any]:
     for key, expected in extras_for(command).items():
         properties[key] = {"type": _schema_types(expected)}
     properties.setdefault("error", {"type": "string"})
-    return {
+    variant: dict[str, Any] = {
         "title": f"audiosuite {command} --json",
         "type": "object",
         "properties": properties,
         "required": list(CORE_TYPES),
         "additionalProperties": False,
     }
+    if example is not None:
+        variant["examples"] = [example]
+    return variant
 
 
 def _schema_types(expected: Any) -> str | list[str]:

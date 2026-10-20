@@ -207,6 +207,58 @@ class TestTheCheckCanFail:
         assert any("scan_path" in problem for problem in problems), problems
 
 
+class TestSchemaExamples:
+    """The published examples are validated, not decorative.
+
+    JSON Schema treats ``examples`` as an annotation, so a validator alone
+    would ship a stale or wrong example silently; the gate checks all three
+    promises - present, valid, and the recorded payload.
+    """
+
+    @staticmethod
+    def _variant(document: dict[str, Any], command: str) -> dict[str, Any]:
+        for variant in document["oneOf"]:
+            if variant["properties"]["command"].get("const") == command:
+                return variant
+        raise AssertionError(f"the schema has no variant for {command!r}")
+
+    def test_a_variant_without_examples_is_reported(
+        self, corpus: conformance.Corpus, document: dict[str, Any]
+    ) -> None:
+        narrowed = copy.deepcopy(document)
+        del self._variant(narrowed, "bpm")["examples"]
+
+        problems = conformance.conformance_problems(corpus.payloads, narrowed)
+
+        assert any(
+            "bpm: the schema variant has no example payload" in p for p in problems
+        )
+
+    def test_an_example_the_variant_rejects_is_reported(
+        self, corpus: conformance.Corpus, document: dict[str, Any]
+    ) -> None:
+        narrowed = copy.deepcopy(document)
+        self._variant(narrowed, "bpm")["examples"][0]["processed"] = "two"
+
+        problems = conformance.conformance_problems(corpus.payloads, narrowed)
+
+        assert any("bpm: example[0]: processed" in p for p in problems), problems
+
+    def test_an_example_that_is_not_the_recorded_payload_is_reported(
+        self, corpus: conformance.Corpus, document: dict[str, Any]
+    ) -> None:
+        narrowed = copy.deepcopy(document)
+        # Type-valid edit: only the drift check can catch it.
+        self._variant(narrowed, "bpm")["examples"][0]["duration_secs"] = 1.0
+
+        problems = conformance.conformance_problems(corpus.payloads, narrowed)
+
+        assert any(
+            "bpm: the recorded payload is not published as an example" in problem
+            for problem in problems
+        ), problems
+
+
 class TestTheGateEntryPoint:
     """The command CI runs exits non-zero exactly when the corpus breaks."""
 
@@ -435,6 +487,20 @@ class TestTheRecorder:
         payloads = record_payloads()
 
         assert set(payloads) == set(TOOL_IDS)
+        # A fresh recording has its own durations, so it is not yet the
+        # published example; shape is what this run asserts.
         assert (
-            conformance.conformance_problems(payloads, conformance.load_schema()) == []
+            conformance.conformance_problems(
+                payloads, conformance.load_schema(), check_examples=False
+            )
+            == []
         )
+
+    def test_recording_would_republish_the_examples(self) -> None:
+        """``--record`` writes the examples from the same fresh payloads."""
+        payloads = record_payloads()
+        rendered = json.loads(conformance.serialize_schema(payloads))
+
+        for variant in rendered["oneOf"]:
+            command = variant["properties"]["command"]["const"]
+            assert variant["examples"] == [payloads[command]], command

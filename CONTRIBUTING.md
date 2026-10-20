@@ -159,6 +159,15 @@ gate rejects, so a published payload is always one the contract validates.
 `cli-payloads/` is gitignored — it is a build artifact, not a second copy of
 the corpus.
 
+`audiosuite --json-schema` prints the committed document, and every command's
+variant carries an `examples` array with the recorded payload for that command,
+so a script author can see real output from an install without running
+anything. `--record` rewrites the corpus **and** the document's examples from
+the same run, and the conformance gate checks all three promises: an example is
+present, it validates against its own variant, and it is the recorded payload.
+The document ships as package data (`[tool.setuptools.package-data]`), because
+the flag reads the installed file rather than regenerating it.
+
 ## Dependency security scanning
 
 CI's security job audits the graph the suite actually ships. It exports the

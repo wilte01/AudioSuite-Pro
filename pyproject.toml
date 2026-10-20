@@ -21,6 +21,9 @@
 # Changed in 1.4.1: raises the urllib3 floor to 2.8.0, the fix for the three
 # PYSEC advisories the new dependency audit reports against 2.7.0, and adds
 # pip-audit to the dev extra so the same scan runs locally (PLAN D96).
+# Changed in 1.4.1: ships audio_suite_shared/cli_schema.json as package data,
+# so `--json-schema` can print the committed document - examples included -
+# from a wheel install rather than only from a checkout (PLAN D104).
 
 [build-system]
 # setuptools >= 77 is required by the PEP 639 metadata below: the SPDX
@@ -366,3 +369,9 @@ exclude = [
     "tests",
     "tests.*",
 ]
+
+# `--json-schema` prints the shipped document, so a wheel without it would
+# fail at that flag; .json is not a Python module, so setuptools needs the file
+# named here.  tests/test_cli_json_schema.py locks the entry.
+[tool.setuptools.package-data]
+audio_suite_shared = ["cli_schema.json"]

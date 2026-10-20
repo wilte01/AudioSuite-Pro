@@ -76,8 +76,10 @@ The JSON contract is defined and locked in
 ``audio_suite_shared/cli_schema.py``, and the generated JSON Schema document is
 committed as ``audio_suite_shared/cli_schema.json``.  Pass ``--json-schema``
 before any subcommand (``audiosuite --json-schema``) to print that document and
-exit, so an external validator needs no Python import.  Every command publishes
-``schema_version``, ``tool``, ``command``, ``dry_run``, ``total``,
+exit, so an external validator needs no Python import.  Each command's variant
+carries an ``examples`` array with a payload recorded from that command, so the
+shape a script parses is visible without running the tool.  Every command
+publishes ``schema_version``, ``tool``, ``command``, ``dry_run``, ``total``,
 ``processed``, ``succeeded``, ``skipped``, ``errors``, ``duration_secs``,
 ``duration_str`` and ``log_entries`` with those exact names and types, plus
 the tool-specific keys that file declares for the command.  Payloads go to
@@ -89,6 +91,9 @@ command and fails when the real payload drifts.
 
 Commands are registered by importing the corresponding tool's cli module.
 
+Changed in 1.4.1: ``--json-schema`` prints the committed document, whose
+variants now carry a recorded example payload, so a consumer can read real
+output from the install (PLAN D104).
 Changed in 1.2.0: documents the fingerprint ``--musicbrainz`` and
 ``--write-isrc`` flags.
 Changed in 1.3.0: registers and documents the ``spectrogram`` command.

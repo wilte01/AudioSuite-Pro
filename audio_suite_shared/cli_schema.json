@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://audiosuite-pro/schemas/cli-json-v1.json",
   "title": "AudioSuite-Pro CLI JSON output (schema v1)",
-  "description": "One variant per command, discriminated by the constant 'command'. Every payload carries the shared counters and an 'error' string only when the run failed.",
+  "description": "One variant per command, discriminated by the constant 'command'. Every payload carries the shared counters and an 'error' string only when the run failed. Each variant's 'examples' array holds one payload recorded from that command - illustrative only, not part of validation.",
   "oneOf": [
     {
       "title": "audiosuite album-art --json",
@@ -80,7 +80,27 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "art",
+          "command": "album-art",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.014,
+          "duration_str": "0.0s",
+          "log_entries": [
+            "Error: no supported audio files found in directory\n"
+          ],
+          "source": "none",
+          "selection_audit": null
+        }
+      ]
     },
     {
       "title": "audiosuite album-genre --json",
@@ -170,7 +190,45 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "album_genre",
+          "command": "album-genre",
+          "dry_run": true,
+          "total": 1,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.001,
+          "duration_str": "0.0s",
+          "log_entries": [
+            "============================================================\n",
+            "ALBUM GENRE TAGGER LOG\n",
+            "============================================================\n",
+            "Mode: DRY RUN\n",
+            "Directory: <run>\\library\n",
+            "Total audio files: 1\n",
+            "Minimum coverage required: 50%\n",
+            "\n",
+            "============================================================\n",
+            "PHASE 1: READING TITLEGENRE TAGS\n",
+            "------------------------------------------------------------\n",
+            "[SKIP] track.wav: No tags\n",
+            "\n",
+            "============================================================\n",
+            "COVERAGE CHECK FAILED\n",
+            "------------------------------------------------------------\n",
+            "Files with TITLEGENRE: 0 (0.0%)\n",
+            "Required coverage: 50%\n",
+            "Processing aborted.\n",
+            "============================================================\n"
+          ],
+          "coverage_pct": 0.0
+        }
+      ]
     },
     {
       "title": "audiosuite artnormalize --json",
@@ -239,7 +297,25 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "album_art_normalizer",
+          "command": "artnormalize",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 0,
+          "skipped": 1,
+          "errors": 0,
+          "duration_secs": 0.012,
+          "duration_str": "0.0s",
+          "log_entries": [
+            "[SKIPPED] track.wav | No embedded artwork \u2014 skipped.\n"
+          ]
+        }
+      ]
     },
     {
       "title": "audiosuite asx-extract --json",
@@ -314,7 +390,25 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "asx_extractor",
+          "command": "asx-extract",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [
+            "Found 0 ASX file(s) in <run>\\library"
+          ]
+        }
+      ]
     },
     {
       "title": "audiosuite bpm --json",
@@ -389,7 +483,33 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "bpm",
+          "command": "bpm",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.431,
+          "duration_str": "0.4s",
+          "log_entries": [
+            "[ERROR] track.wav: BPM detection failed \u2014 Audio is too short to analyse (0.05s).\n"
+          ],
+          "skipped_files": [],
+          "error_files": [
+            {
+              "filename": "track.wav",
+              "reason": "Audio is too short to analyse (0.05s).",
+              "error_type": "BPMDetectionError"
+            }
+          ]
+        }
+      ]
     },
     {
       "title": "audiosuite cd-rip --json",
@@ -491,7 +611,31 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "cd_ripper",
+          "command": "cd-rip",
+          "dry_run": false,
+          "total": 3,
+          "processed": 3,
+          "succeeded": 2,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 9.5,
+          "duration_str": "9.5s",
+          "log_entries": [
+            "track 1 done\n"
+          ],
+          "drive": "D:",
+          "output_dir": "out",
+          "format": "flac",
+          "tracks": "all",
+          "verify": "twice",
+          "read_offset_frames": null
+        }
+      ]
     },
     {
       "title": "audiosuite convert --json",
@@ -569,7 +713,30 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "converter",
+          "command": "convert",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 1,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.025,
+          "duration_str": "0.0s",
+          "log_entries": [
+            "[DRY RUN] track.wav | WAV \u2192 FLAC | Est. Size: 0.00MB \u2192 0.00MB\n"
+          ],
+          "converted": 1,
+          "output_dir": "<run>\\library",
+          "format_counts": {
+            "wav": 1
+          }
+        }
+      ]
     },
     {
       "title": "audiosuite cue generate --json",
@@ -647,7 +814,26 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "cue",
+          "command": "cue generate",
+          "dry_run": false,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 1,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.002,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "cue_path": "<run>\\out\\album.cue",
+          "tracks": 1,
+          "title": "Album"
+        }
+      ]
     },
     {
       "title": "audiosuite cue parse --json",
@@ -740,7 +926,74 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "cue",
+          "command": "cue parse",
+          "dry_run": false,
+          "total": 2,
+          "processed": 2,
+          "succeeded": 2,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.001,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "catalog": null,
+          "performer": "Artist",
+          "title": "Album",
+          "rem": [],
+          "files": [
+            {
+              "filename": "image.wav",
+              "file_type": "WAVE",
+              "title": null,
+              "performer": null,
+              "rem": [],
+              "tracks": [
+                {
+                  "number": 1,
+                  "mode": "AUDIO",
+                  "title": "One",
+                  "performer": "Artist",
+                  "songwriter": null,
+                  "isrc": null,
+                  "pregap": null,
+                  "postgap": null,
+                  "start_ms": 0,
+                  "indexes": [
+                    {
+                      "number": 1,
+                      "msf": "00:00:00",
+                      "start_ms": 0
+                    }
+                  ]
+                },
+                {
+                  "number": 2,
+                  "mode": "AUDIO",
+                  "title": "Two",
+                  "performer": null,
+                  "songwriter": null,
+                  "isrc": null,
+                  "pregap": null,
+                  "postgap": null,
+                  "start_ms": 3000,
+                  "indexes": [
+                    {
+                      "number": 1,
+                      "msf": "00:03:00",
+                      "start_ms": 3000
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "title": "audiosuite cue split --json",
@@ -818,7 +1071,26 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "cue",
+          "command": "cue split",
+          "dry_run": false,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "cue_file": "<run>\\album.cue",
+          "output_dir": "<run>\\out",
+          "tracks": []
+        }
+      ]
     },
     {
       "title": "audiosuite declick --json",
@@ -887,7 +1159,25 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "pop_click_remover",
+          "command": "declick",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 0,
+          "skipped": 1,
+          "errors": 0,
+          "duration_secs": 0.024,
+          "duration_str": "0.0s",
+          "log_entries": [
+            "[SKIP] track.wav | Clean \u2014 no defects found\n"
+          ]
+        }
+      ]
     },
     {
       "title": "audiosuite doctor --json",
@@ -986,7 +1276,262 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "doctor",
+          "command": "doctor",
+          "dry_run": false,
+          "total": 29,
+          "processed": 29,
+          "succeeded": 29,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.02,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "healthy": true,
+          "checkout_version": "1.4.0",
+          "installed_version": "1.4.0",
+          "editable": false,
+          "mapped": 29,
+          "packages": [
+            {
+              "name": "album_art_normalizer",
+              "status": "ok",
+              "origin": "<repo>\\album_art_normalizer\\__init__.py",
+              "commands": [
+                "artnormalize"
+              ]
+            },
+            {
+              "name": "album_art_sync",
+              "status": "ok",
+              "origin": "<repo>\\album_art_sync\\__init__.py",
+              "commands": [
+                "album-art"
+              ]
+            },
+            {
+              "name": "album_genre_tagger",
+              "status": "ok",
+              "origin": "<repo>\\album_genre_tagger\\__init__.py",
+              "commands": [
+                "album-genre"
+              ]
+            },
+            {
+              "name": "asx_extractor",
+              "status": "ok",
+              "origin": "<repo>\\asx_extractor\\__init__.py",
+              "commands": [
+                "asx-extract"
+              ]
+            },
+            {
+              "name": "audio_enhancer",
+              "status": "ok",
+              "origin": "<repo>\\audio_enhancer\\__init__.py",
+              "commands": [
+                "enhance"
+              ]
+            },
+            {
+              "name": "audio_fingerprinter",
+              "status": "ok",
+              "origin": "<repo>\\audio_fingerprinter\\__init__.py",
+              "commands": [
+                "fingerprint"
+              ]
+            },
+            {
+              "name": "audio_normalizer",
+              "status": "ok",
+              "origin": "<repo>\\audio_normalizer\\__init__.py",
+              "commands": [
+                "normalise"
+              ]
+            },
+            {
+              "name": "audio_refinery",
+              "status": "ok",
+              "origin": "<repo>\\audio_refinery\\__init__.py",
+              "commands": [
+                "refine"
+              ]
+            },
+            {
+              "name": "audio_suite_shared",
+              "status": "ok",
+              "origin": "<repo>\\audio_suite_shared\\__init__.py",
+              "commands": [
+                "cue"
+              ]
+            },
+            {
+              "name": "bpm_analyzer",
+              "status": "ok",
+              "origin": "<repo>\\bpm_analyzer\\__init__.py",
+              "commands": [
+                "bpm"
+              ]
+            },
+            {
+              "name": "cd_ripper",
+              "status": "ok",
+              "origin": "<repo>\\cd_ripper\\__init__.py",
+              "commands": [
+                "cd-rip"
+              ]
+            },
+            {
+              "name": "file_reorganizer",
+              "status": "ok",
+              "origin": "<repo>\\file_reorganizer\\__init__.py",
+              "commands": [
+                "reorganize"
+              ]
+            },
+            {
+              "name": "genre_sync",
+              "status": "ok",
+              "origin": "<repo>\\genre_sync\\__init__.py",
+              "commands": [
+                "genre-sync"
+              ]
+            },
+            {
+              "name": "key_detector",
+              "status": "ok",
+              "origin": "<repo>\\key_detector\\__init__.py",
+              "commands": [
+                "key"
+              ]
+            },
+            {
+              "name": "library_stats",
+              "status": "ok",
+              "origin": "<repo>\\library_stats\\__init__.py",
+              "commands": [
+                "stats"
+              ]
+            },
+            {
+              "name": "lyrics_manager",
+              "status": "ok",
+              "origin": "<repo>\\lyrics_manager\\__init__.py",
+              "commands": [
+                "lyrics"
+              ]
+            },
+            {
+              "name": "master_driver",
+              "status": "ok",
+              "origin": "<repo>\\master_driver\\__init__.py",
+              "commands": []
+            },
+            {
+              "name": "metadata_scrubber",
+              "status": "ok",
+              "origin": "<repo>\\metadata_scrubber\\__init__.py",
+              "commands": [
+                "scrub"
+              ]
+            },
+            {
+              "name": "mood_analysis_batch_tagger",
+              "status": "ok",
+              "origin": "<repo>\\mood_analysis_batch_tagger\\__init__.py",
+              "commands": [
+                "mood-analysis-batch"
+              ]
+            },
+            {
+              "name": "mood_analyzer",
+              "status": "ok",
+              "origin": "<repo>\\mood_analyzer\\__init__.py",
+              "commands": [
+                "mood-analyzer"
+              ]
+            },
+            {
+              "name": "music_format_converter",
+              "status": "ok",
+              "origin": "<repo>\\music_format_converter\\__init__.py",
+              "commands": [
+                "convert"
+              ]
+            },
+            {
+              "name": "noise_reduction",
+              "status": "ok",
+              "origin": "<repo>\\noise_reduction\\__init__.py",
+              "commands": [
+                "reduce"
+              ]
+            },
+            {
+              "name": "pop_click_remover",
+              "status": "ok",
+              "origin": "<repo>\\pop_click_remover\\__init__.py",
+              "commands": [
+                "declick"
+              ]
+            },
+            {
+              "name": "replaygain_analyzer",
+              "status": "ok",
+              "origin": "<repo>\\replaygain_analyzer\\__init__.py",
+              "commands": [
+                "replaygain"
+              ]
+            },
+            {
+              "name": "silence_trimmer",
+              "status": "ok",
+              "origin": "<repo>\\silence_trimmer\\__init__.py",
+              "commands": [
+                "silence-trim"
+              ]
+            },
+            {
+              "name": "spectral_viewer",
+              "status": "ok",
+              "origin": "<repo>\\spectral_viewer\\__init__.py",
+              "commands": [
+                "spectrogram"
+              ]
+            },
+            {
+              "name": "tag_editor",
+              "status": "ok",
+              "origin": "<repo>\\tag_editor\\__init__.py",
+              "commands": [
+                "tag-edit"
+              ]
+            },
+            {
+              "name": "tag_field_updater",
+              "status": "ok",
+              "origin": "<repo>\\tag_field_updater\\__init__.py",
+              "commands": [
+                "tag-update"
+              ]
+            },
+            {
+              "name": "tempo_analyzer",
+              "status": "ok",
+              "origin": "<repo>\\tempo_analyzer\\__init__.py",
+              "commands": [
+                "tempo"
+              ]
+            }
+          ],
+          "missing_commands": [],
+          "problems": []
+        }
+      ]
     },
     {
       "title": "audiosuite enhance --json",
@@ -1058,7 +1603,24 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "audio_enhancer",
+          "command": "enhance",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 1,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.013,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "done": 1
+        }
+      ]
     },
     {
       "title": "audiosuite fingerprint --json",
@@ -1136,7 +1698,49 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "fingerprinter",
+          "command": "fingerprint",
+          "dry_run": true,
+          "total": 1,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.024,
+          "duration_str": "0.0s",
+          "log_entries": [
+            "[ERROR] track.wav\n    An error occurred during processing.\n"
+          ],
+          "results": [
+            {
+              "file_path": "<run>\\library\\track.wav",
+              "filename": "track.wav",
+              "status": "ERROR",
+              "message": "An error occurred during processing.",
+              "duration": 0.0,
+              "fingerprint": "",
+              "acoustid_id": "",
+              "tag_written": false,
+              "recordings": [],
+              "recording_id": "",
+              "isrcs": [],
+              "musicbrainz": null
+            }
+          ],
+          "counts": {
+            "identified": 0,
+            "no_match": 0,
+            "tagged": 0,
+            "lookup_skipped": 0,
+            "album_ambiguous": 0,
+            "errors": 1
+          }
+        }
+      ]
     },
     {
       "title": "audiosuite genre-sync --json",
@@ -1211,7 +1815,27 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "genre_sync",
+          "command": "genre-sync",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 1,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.023,
+          "duration_str": "0.0s",
+          "log_entries": [
+            "track.wav | No genre fields available\n"
+          ],
+          "updated": 0,
+          "no_genre": 1
+        }
+      ]
     },
     {
       "title": "audiosuite key --json",
@@ -1280,7 +1904,25 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "key",
+          "command": "key",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.029,
+          "duration_str": "0.0s",
+          "log_entries": [
+            "[ERROR] track.wav: Audio is too short to analyse (0.05s).\n"
+          ]
+        }
+      ]
     },
     {
       "title": "audiosuite lyrics --json",
@@ -1349,7 +1991,23 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "lyrics_manager",
+          "command": "lyrics",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": []
+        }
+      ]
     },
     {
       "title": "audiosuite mood-analysis-batch --json",
@@ -1442,7 +2100,30 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "mood_analysis_batch",
+          "command": "mood-analysis-batch",
+          "dry_run": true,
+          "total": 3,
+          "processed": 3,
+          "succeeded": 2,
+          "skipped": 1,
+          "errors": 0,
+          "duration_secs": 0.012,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "directory": "<run>\\library",
+          "duration": 90,
+          "parallel": false,
+          "workers": null,
+          "tagged": 2,
+          "folders": 1,
+          "log_path": "runs/fake.log"
+        }
+      ]
     },
     {
       "title": "audiosuite mood-analyzer --json",
@@ -1511,7 +2192,25 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "mood_analyzer",
+          "command": "mood-analyzer",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 0,
+          "skipped": 1,
+          "errors": 0,
+          "duration_secs": 0.017,
+          "duration_str": "0.0s",
+          "log_entries": [
+            "[SKIP] track.wav: Audio is too short to analyse (0.05s).\n"
+          ]
+        }
+      ]
     },
     {
       "title": "audiosuite normalise --json",
@@ -1580,7 +2279,25 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "audio_normalizer",
+          "command": "normalise",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 1,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.057,
+          "duration_str": "0.1s",
+          "log_entries": [
+            "[DRY RUN] track.wav | Would apply 56.00 dB gain\n"
+          ]
+        }
+      ]
     },
     {
       "title": "audiosuite reduce --json",
@@ -1649,7 +2366,25 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "noise_reduction",
+          "command": "reduce",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 0,
+          "skipped": 1,
+          "errors": 0,
+          "duration_secs": 0.02,
+          "duration_str": "0.0s",
+          "log_entries": [
+            "[SKIP] track.wav | Clean \u2014 no noise detected\n"
+          ]
+        }
+      ]
     },
     {
       "title": "audiosuite refine --json",
@@ -1718,7 +2453,25 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "audio_refinery",
+          "command": "refine",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.109,
+          "duration_str": "0.1s",
+          "log_entries": [
+            "[ERROR] track.wav | An error occurred during processing.\n"
+          ]
+        }
+      ]
     },
     {
       "title": "audiosuite reorganize --json",
@@ -1787,7 +2540,23 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "file_reorganizer",
+          "command": "reorganize",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 1,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.013,
+          "duration_str": "0.0s",
+          "log_entries": []
+        }
+      ]
     },
     {
       "title": "audiosuite replaygain --json",
@@ -1856,7 +2625,26 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "replaygain",
+          "command": "replaygain",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 1,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.051,
+          "duration_str": "0.1s",
+          "log_entries": [
+            "\nFOLDER: <run>\\library\nALBUM STATS -> Gain: +54.00 dB | Peak: 1.000000\n-----------------------------------------------------------------\n",
+            "[DRY RUN] track.wav\n    Track Gain: +54.00 dB | Track Peak: 1.000000\n"
+          ]
+        }
+      ]
     },
     {
       "title": "audiosuite scrub --json",
@@ -1925,7 +2713,25 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "scrubber",
+          "command": "scrub",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 1,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.012,
+          "duration_str": "0.0s",
+          "log_entries": [
+            "[DRY RUN] track.wav | Would scrub metadata\n"
+          ]
+        }
+      ]
     },
     {
       "title": "audiosuite silence-trim --json",
@@ -1994,7 +2800,25 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "silence_trimmer",
+          "command": "silence-trim",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 0,
+          "skipped": 1,
+          "errors": 0,
+          "duration_secs": 0.037,
+          "duration_str": "0.0s",
+          "log_entries": [
+            "[SKIP] track.wav | Entire file is silence - skipped\n"
+          ]
+        }
+      ]
     },
     {
       "title": "audiosuite spectrogram --json",
@@ -2075,7 +2899,33 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "spectral_viewer",
+          "command": "spectrogram",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 1,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "path": "<run>\\library",
+          "written": 0,
+          "images": [
+            {
+              "source": "<run>\\library\\track.wav",
+              "output": "<run>\\library\\track_spectrogram.png",
+              "status": "planned"
+            }
+          ],
+          "error_messages": []
+        }
+      ]
     },
     {
       "title": "audiosuite stats --json",
@@ -2204,7 +3054,58 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "library_stats",
+          "command": "stats",
+          "dry_run": false,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 1,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.001,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "library_duration_secs": 0.0011043999693356454,
+          "library_duration_str": "0.0s",
+          "scan_path": "<run>\\library",
+          "total_files": 1,
+          "total_albums": 1,
+          "total_artists": 1,
+          "total_track_artists": 1,
+          "format_breakdown": {
+            ".wav": 1
+          },
+          "bpm_distribution": {
+            "Unknown": 1
+          },
+          "key_distribution": {},
+          "key_mode_distribution": {},
+          "mood_distribution": {},
+          "genre_distribution": {},
+          "tempo_marking_distribution": {},
+          "year_distribution": {
+            "Unknown": 1
+          },
+          "missing_data": {
+            "no_bpm": 1,
+            "no_key": 1,
+            "no_genre": 1,
+            "no_mood": 1,
+            "no_tempo_marking": 1
+          },
+          "top_artists": [
+            [
+              "Unknown",
+              1
+            ]
+          ],
+          "top_genres": []
+        }
+      ]
     },
     {
       "title": "audiosuite tag-edit --json",
@@ -2333,7 +3234,36 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "tag_editor",
+          "command": "tag-edit",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 1,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "path": "<run>\\library\\track.wav",
+          "field": "genre",
+          "old_value": null,
+          "new_value": "Rock",
+          "changed": true,
+          "written": false,
+          "error": null,
+          "csv": null,
+          "rows_read": 0,
+          "edits_planned": 1,
+          "unchanged": 0,
+          "row_errors": [],
+          "ignored_columns": []
+        }
+      ]
     },
     {
       "title": "audiosuite tag-update --json",
@@ -2408,7 +3338,25 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "tag_field_updater",
+          "command": "tag-update",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 0,
+          "skipped": 1,
+          "errors": 0,
+          "duration_secs": 0.014,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "directory": "<run>\\library",
+          "updated": 0
+        }
+      ]
     },
     {
       "title": "audiosuite tempo --json",
@@ -2477,7 +3425,25 @@
         "duration_str",
         "log_entries"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "tempo",
+          "command": "tempo",
+          "dry_run": true,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 0,
+          "skipped": 1,
+          "errors": 0,
+          "duration_secs": 0.048,
+          "duration_str": "0.0s",
+          "log_entries": [
+            "[SKIP] track.wav | No tags found\n"
+          ]
+        }
+      ]
     }
   ]
 }

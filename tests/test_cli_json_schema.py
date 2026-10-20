@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import tomllib
 from click.testing import CliRunner
 
 from audio_suite_shared import cli_schema
@@ -53,6 +54,7 @@ from audio_suite_shared.cli_schema import (
 )
 from audio_suite_shared.tool_plugin import get_registry
 from tests.cli_payloads import argv_for, capture
+from tests.cli_schema_conformance import load_corpus
 
 
 def _walk_commands(group: Any, prefix: str = "") -> list[tuple[str, Any]]:
@@ -297,15 +299,17 @@ class TestJsonSchemaDocument:
         return _committed_schema()
 
     def test_committed_file_matches_the_generator(self) -> None:
+        """The artifact is the generator's output, examples included."""
         committed = (
             Path(__file__).resolve().parents[1]
             / "audio_suite_shared"
             / "cli_schema.json"
         ).read_text(encoding="utf-8")
+        examples = load_corpus().payloads
 
-        assert committed == schema_json(), (
-            "audio_suite_shared/cli_schema.json is stale; regenerate it from "
-            "audio_suite_shared.cli_schema.schema_json()"
+        assert committed == schema_json(examples=examples), (
+            "audio_suite_shared/cli_schema.json is stale; regenerate it with "
+            "`python -m tests.cli_schema_conformance --record`"
         )
 
     def test_one_variant_per_command(self) -> None:
@@ -329,12 +333,58 @@ class TestJsonSchemaDocument:
             declared = [error_types] if isinstance(error_types, str) else error_types
             assert "string" in declared, command
 
+    def test_the_schema_ships_as_package_data(self) -> None:
+        """``--json-schema`` reads the installed file, so a wheel must carry it."""
+        pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+        config = tomllib.loads(pyproject)
+
+        package_data = config["tool"]["setuptools"]["package-data"]
+        assert "cli_schema.json" in package_data["audio_suite_shared"]
+
     def test_the_flag_prints_the_committed_document(self) -> None:
         result = CliRunner().invoke(cli, ["--json-schema"])
 
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout) == self._document()
         assert "--json-schema" in CliRunner().invoke(cli, ["--help"]).output
+
+
+class TestRecordedExamples:
+    """``--json-schema`` shows a real payload per command, no run required."""
+
+    def test_every_variant_publishes_the_recorded_payload(self) -> None:
+        document = _committed_schema()
+        corpus = load_corpus()
+
+        for command in TOOL_IDS:
+            variant = _schema_variant(document, command)
+            examples = variant["examples"]
+            assert examples == [dict(corpus.payloads[command])], command
+
+    def test_every_example_validates_against_its_own_variant(self) -> None:
+        document = _committed_schema()
+
+        for command in TOOL_IDS:
+            variant = _schema_variant(document, command)
+            for example in variant["examples"]:
+                assert _accepts(variant, example), (
+                    f"{command}: the published example fails its variant"
+                )
+
+    def test_the_flag_reaches_the_examples(self) -> None:
+        """A script author gets them from the CLI, not only from the file."""
+        result = CliRunner().invoke(cli, ["--json-schema"])
+        document = json.loads(result.stdout)
+        examples = {
+            variant["properties"]["command"]["const"]: variant["examples"]
+            for variant in document["oneOf"]
+        }
+
+        assert set(examples) == set(TOOL_IDS)
+        assert all(examples[command] for command in TOOL_IDS)
+        assert examples["bpm"][0]["command"] == "bpm"
 
 
 class TestCdRipPayloads:

@@ -60,7 +60,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
-from audio_suite_shared.cli_schema import SCHEMA_VERSION, TOOL_IDS
+from audio_suite_shared.cli_schema import SCHEMA_VERSION, TOOL_IDS, schema_json
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -233,6 +233,7 @@ def conformance_problems(
     document: Mapping[str, Any],
     *,
     expected_commands: Sequence[str] | None = None,
+    check_examples: bool = True,
 ) -> list[str]:
     """Return every problem with *payloads* against *document* (empty is pass).
 
@@ -241,11 +242,15 @@ def conformance_problems(
         document: The committed JSON Schema document.
         expected_commands: Commands that must be recorded; defaults to the
             schema's own ``TOOL_IDS``.
+        check_examples: Whether to require the published examples (present,
+            valid, and equal to the recorded payload).  A *fresh* recording is
+            not published yet - its durations differ - so the recorder's own
+            test validates shape with this off.
 
     Returns:
         Human-readable problems: commands with no recording, recordings for
-        commands the schema does not declare, and each validation error with
-        the command and the failing JSON path.
+        commands the schema does not declare, each validation error with the
+        command and the failing JSON path, and every example problem.
     """
     expected = set(TOOL_IDS) if expected_commands is None else set(expected_commands)
     recorded = set(payloads)
@@ -287,6 +292,33 @@ def conformance_problems(
         for error in errors:
             where = "/".join(str(part) for part in error.absolute_path) or "<root>"
             problems.append(f"{command}: {where}: {error.message}")
+
+    # The published examples are a promise to script authors: present for every
+    # command, each a payload the variant accepts, and the recorded one.  JSON
+    # Schema treats ``examples`` as an annotation, so nothing else would check
+    # them - a stale or wrong example would ship silently.
+    for command in sorted(expected & set(variants)) if check_examples else []:
+        examples = variants[command].get("examples")
+        if not isinstance(examples, list) or not examples:
+            problems.append(
+                f"{command}: the schema variant has no example payload "
+                "(regenerate with --record)"
+            )
+            continue
+        for index, example in enumerate(examples):
+            errors = sorted(
+                Draft202012Validator(variants[command]).iter_errors(example),
+                key=lambda error: [str(part) for part in error.absolute_path],
+            )
+            for error in errors:
+                where = "/".join(str(part) for part in error.absolute_path) or "<root>"
+                expected_type = f"{command}: example[{index}]: {where}"
+                problems.append(f"{expected_type}: {error.message}")
+        if command in payloads and payloads[command] not in examples:
+            problems.append(
+                f"{command}: the recorded payload is not published as an example "
+                "(regenerate with --record)"
+            )
     return problems
 
 
@@ -405,6 +437,35 @@ def _check(corpus_path: Path, schema_path: Path) -> int:
     return 0
 
 
+def serialize_schema(payloads: Mapping[str, Mapping[str, Any]]) -> bytes:
+    """Return the schema document with *payloads* as its examples.
+
+    UTF-8 without a BOM and LF endings: the committed ``cli_schema.json`` is
+    generated here, so the file's byte shape is written down in one place.
+    """
+    return schema_json(examples=payloads).encode("utf-8")
+
+
+def write_schema(
+    payloads: Mapping[str, Mapping[str, Any]],
+    *,
+    path: Path | None = None,
+) -> bytes:
+    """Write the schema document (examples included) and return the bytes.
+
+    Args:
+        payloads: Command path to the recorded payload.
+        path: Where to write; defaults to ``SCHEMA_PATH``.
+
+    Returns:
+        The exact bytes written, so a caller can assert on them.
+    """
+    destination = SCHEMA_PATH if path is None else path
+    data = serialize_schema(payloads)
+    destination.write_bytes(data)
+    return data
+
+
 def _export(corpus_path: Path, schema_path: Path, directory: Path) -> int:
     """Validate the corpus, then write one file per command into *directory*."""
     corpus = load_corpus(corpus_path)
@@ -421,15 +482,19 @@ def _export(corpus_path: Path, schema_path: Path, directory: Path) -> int:
     return 0
 
 
-def _record(corpus_path: Path) -> int:
-    """Drive every command and rewrite the corpus."""
+def _record(corpus_path: Path, schema_path: Path) -> int:
+    """Drive every command, rewrite the corpus, and re-render the schema."""
     from tests.cli_payloads import record_payloads
 
     payloads = record_payloads()
     write_corpus(payloads, path=corpus_path)
+    # The document's examples come from the corpus, so they are rewritten in
+    # the same action; a separate regeneration step could leave them stale.
+    write_schema(payloads, path=schema_path)
     for command in sorted(payloads):
         print(f"{command}: recorded")
     print(f"wrote {corpus_path}")
+    print(f"wrote {schema_path}")
     return 0
 
 
@@ -452,7 +517,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--check", action="store_true", help="validate the committed corpus"
     )
     action.add_argument(
-        "--record", action="store_true", help="re-drive every command and rewrite it"
+        "--record",
+        action="store_true",
+        help="re-drive every command, rewriting the corpus and the schema's examples",
     )
     action.add_argument(
         "--export-dir",
@@ -466,7 +533,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         if args.record:
-            return _record(args.corpus)
+            return _record(args.corpus, args.schema)
         if args.export_dir is not None:
             return _export(args.corpus, args.schema, args.export_dir)
         return _check(args.corpus, args.schema)
