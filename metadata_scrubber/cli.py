@@ -1,4 +1,7 @@
-"""CLI command for Metadata Scrubber."""
+"""CLI command for Metadata Scrubber.
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+"""
 
 from __future__ import annotations
 
@@ -54,7 +57,9 @@ def scrub(
             preserve_embedded_art=preserve_embedded_art,
         )
     if json:
-        click.echo(_json_mod.dumps(result.to_dict(), indent=2))
+        click.echo(
+            _json_mod.dumps(result.to_payload("scrub", dry_run=dry_run), indent=2)
+        )
     else:
         click.echo(
             f"  Summary: {result.processed} files, "

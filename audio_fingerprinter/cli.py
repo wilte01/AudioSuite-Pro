@@ -6,6 +6,8 @@ authentication guards (Sprint 2 Item 2.3).
 Changed in 1.2.0: reports the submission through
 :func:`~audio_fingerprinter.core.models.isrc_submission_note`, the same lines
 the Results tab and the Master Driver batch report show.
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 """
 
 from __future__ import annotations
@@ -248,15 +250,21 @@ def fingerprint(
     counts = result.extra.get("counts") or {}
     submission = result.extra.get("isrc_submission") or {}
     if json:
-        payload = result.to_dict()
-        payload["counts"] = counts
-        payload["results"] = [
-            r.to_dict() if hasattr(r, "to_dict") else r
-            for r in (result.extra.get("results") or [])
-        ]
-        if submission:
-            payload["isrc_submission"] = submission
-        click.echo(_json_mod.dumps(payload, indent=2))
+        # counts / isrc_submission pass through from the completion callback;
+        # only the result objects need serialising before they reach JSON.
+        click.echo(
+            _json_mod.dumps(
+                result.to_payload(
+                    "fingerprint",
+                    dry_run=dry_run,
+                    results=[
+                        r.to_dict() if hasattr(r, "to_dict") else r
+                        for r in (result.extra.get("results") or [])
+                    ],
+                ),
+                indent=2,
+            )
+        )
     else:
         if submission and dry_run:
             # The preview IS the deliverable of a dry run: print the exact body

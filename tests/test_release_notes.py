@@ -83,6 +83,9 @@ Changed in 1.4.0: re-baselined the lock for the Sprint 4 work window
 release tip -- and NOTE_MARKER is ``Changed in 1.4.0``, so only the Sprint 4
 change set requires notes. The asserted non-empty exception category stays the
 narrative ``.md`` documents, which every release touches.
+Changed in 1.4.0: declared .ogg an exception format for the licensed
+real-music BPM corpus under tests/data/bpm_corpus (binary audio carries no
+comment syntax; provenance is in that directory's ATTRIBUTION.md).
 """
 
 from __future__ import annotations
@@ -137,6 +140,9 @@ EXCEPTION_SUFFIXES: tuple[str, ...] = (
     ".mpc",
     ".spx",
     ".dsf",
+    # 1.4.0 licensed real-music BPM corpus (tests/data/bpm_corpus, CC0);
+    # provenance and calibration are recorded in its ATTRIBUTION.md.
+    ".ogg",
 )
 
 #: Categories asserted non-empty below - a comment-less or regenerated-binary

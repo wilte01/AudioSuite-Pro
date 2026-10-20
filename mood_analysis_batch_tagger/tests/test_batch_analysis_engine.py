@@ -22,6 +22,8 @@ All heavy dependencies (load_analysis_audio, analyze_mood, tag writes) are
 mocked so the suite runs quickly and standalone.
 
 Changed in 1.1.0: extended the test extension set to the five new formats.
+Changed in 1.4.0: the corrupt-file docstring now points at the loader's
+plain-language decode message rather than the decoder's own text.
 """
 
 from __future__ import annotations
@@ -1138,10 +1140,11 @@ class TestProcessPoolErrorMapping:
         not a batch-level contract: librosa ≤ 0.11's audioread fallback can
         return an empty decode (yielding the loader's "too short to analyse"
         message) while librosa ≥ 1.0 raises the soundfile error instead
-        (yielding "Could not decode audio file …"). Both branch texts are
-        pinned in ``audio_suite_shared/tests/test_analysis_loader.py``; this
-        batch-level test pins the batch outcome — status="error", a non-empty
-        reported message, and the other files still completing.
+        (yielding the loader's "Could not decode …" message, not the decoder's
+        text). Both branch texts are pinned in
+        ``audio_suite_shared/tests/test_analysis_loader.py``; this batch-level
+        test pins the batch outcome — status="error", a non-empty reported
+        message, and the other files still completing.
         """
         good = _write_tone_wav(str(tmp_path / "a_good.wav"))
         bad = str(tmp_path / "b_broken.flac")

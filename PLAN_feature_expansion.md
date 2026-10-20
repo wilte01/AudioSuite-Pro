@@ -534,7 +534,7 @@ addendum supersedes §3.2–3.3 where they conflict.
 ### 4.1 Scope
 
 **New Features:**
-1. Windows Explorer shell integration (right-click conversion)
+1. ~~Windows Explorer shell integration (right-click conversion)~~ — **WITHDRAWN, NOT IMPLEMENTED (D73)**
 2. Batch FFmpeg invocation optimization
 3. Tag read caching in batch operations
 4. Dynamic worker count based on CPU cores
@@ -553,7 +553,15 @@ addendum supersedes §3.2–3.3 where they conflict.
 
 ### 4.3 Implementation Items
 
-#### Item 4.1: Windows Explorer Shell Integration
+#### Item 4.1: Windows Explorer Shell Integration — WITHDRAWN, NOT IMPLEMENTED (D73)
+
+> **Status: WITHDRAWN (2026-10-19) — this feature is NOT being implemented.**
+> Everything below is the original proposal, kept only as the historical record.
+> The user judged Explorer right-click integration a step too far: it gave the
+> suite a second entry point that could not be discovered or configured from the
+> app, and its cascading submenu did not render consistently. The modules, tests,
+> CLI commands, README section and platform-matrix row were removed in the same
+> change. Do not re-implement from this section; see D73.
 
 **New Package:** `shell_integration/` (Windows-only)
 
@@ -754,6 +762,30 @@ confirmed.
 | D70 | **The over-grid worker cap is now non-blocking for unattended launches (2026-10-19).** `cap_typed_workers` takes a keyword-only `unattended: bool = False`; when set it logs one WARNING, "Workers limited: …", and writes the capped count back without opening a dialog. Every caller passes `unattended=self._launched_from_driver`, and the shared bases now declare `_launched_from_driver: bool = False` as a class default so an `object.__new__` test shell stays on the interactive path instead of raising `AttributeError`. The D68 typed-count lock additionally requires each `cap_typed_workers` call to pass `unattended=` | A modal warning is correct for a person clicking Start and fatal for a Master Driver or `--start` launch: the batch sat blocked at the first over-grid value with nobody to dismiss the dialog, before any file was processed. Logging keeps the clamp visible in `logs/<tool>.log` while letting the run proceed, and the AST clause makes the argument part of the registration contract rather than a convention. Tests cover the helper (dialog suppressed, record emitted, value written back, silent when the count fits) and the three app families (AnalysisAppBase, AnalysisTagToolApp via BPM Analyzer, standalone Silence Trimmer) with a driver-launch regression asserting no dialog, one log record, the capped persisted value and the capped processor argument. Mutation proof: disabling the `unattended` branch failed the helper tests; dropping the keyword from BPM's call failed the lock and the app regression; both restores were byte-identical (SHA-256 checked). Combined scan: 408 tests across the slot-grid lock, both shared bases and all five capped tools |
 | D71 | **Sprint 4 lands as two commits, not the five D59 prescribed (2026-10-19).** D59's commit 0–4 split assumed each item would be committed as it was built. In practice Items 4.3 and 4.4 were developed together in one worktree: nearly every processor file contains both a single-load hunk and a worker-default hunk, so a path-based split cannot separate them, and hunk surgery across ~90 files would risk the byte-level damage AGENTS warns about. The sprint therefore lands as **one implementation commit** (Items 4.1, 4.3, 4.4, the 4.2 rejection record, the D65–D71 locks, README and user guides) followed by **one release commit** (`utilities/release.py 1.4.0`: version, lock, changelog promotion, version-labelled guides). D53–D70 remain the per-item decision record and evidence; only the commit granularity is superseded | A commit boundary that mixes the two performance items is a price worth paying once, but an unreviewable 90-file hunk carve-up is not: the suite's only real integration signal is the bare full-suite run on the finished tree, and both commits are reviewable as units. The release stays separate because its diff is mechanical (version constants, promoted headings, regenerated `.docx` subtitles) and must not hide feature changes. Final gate on the pre-release tree: compileall rc=0, ruff clean, `ruff format --check` 867 files, mypy 498 files clean, bandit 0 High / 0 Medium (47 Low), bare `pytest` **9748 passed, 3 skipped, 30 deselected**, coverage 90.82% |
 | D72 | **Sprint 4 released as 1.4.0 (2026-10-19).** Implementation commit `0e13e23` carries Items 4.1, 4.3 and 4.4, the 4.2 rejection record and the D65–D71 locks. `utilities/release.py 1.4.0` then bumped `[project] version` 1.3.0 -> 1.4.0, refreshed `uv.lock` (the check reported it stale), promoted `[Unreleased]` to `[1.4.0] - 2026-10-19` with a fresh `Nothing yet.` placeholder, and regenerated the five version-labelled guides (lyrics_manager, spectral_viewer, tag_editor, tag_field_updater, undo_tag_edits), proving each zip entry except `word/document.xml` was unchanged. The script's own gate passed end to end: compile rc=0, ruff clean, `ruff format --check` 867 files, mypy 498 files clean, bandit 0 High / 0 Medium (47 Low), bare `pytest` **9748 passed, 3 skipped, 30 deselected**, coverage 90.82% | D71 records why the sprint landed as two commits rather than D59's five; this entry closes the sprint with the release evidence a later reader needs to date and verify 1.4.0 without re-running the cut. The counts are the release script's own gate output, not a re-typed summary, and the known limitations in D62 (Explorer submenu rendering, peak memory at 8 workers, batch FFmpeg intentionally absent) carry into 1.4.0 unchanged |
+| D73 | **Item 4.1 (Windows Explorer shell integration) is withdrawn and will NOT be implemented (2026-10-19).** User decision after the cascade failed to render: in this Explorer build the `AudioSuite-Pro` entry appeared but its submenu stayed empty under every documented shape (`SubCommands`, `MUIVerb` with `ExtendedSubCommandsKey`, and the flat fallback), so the feature's core promise — right-click, pick an action — never worked for the user who asked for it. The withdrawal is total, not deferred: `audio_suite_shared/shell_integration.py`, `shell_action.py`, `shell_cli.py`, `test_shell_integration.py` and `test_shell_action.py` are deleted; the `shell-install`/`shell-uninstall` import and usage lines are gone from `cli_app.py`; the README section and its platform-matrix row, the `PLATFORM_BRANCHES` entry, the worker-default allowlist entry and the 1.4.0 CHANGELOG `Added` bullet are removed, and the CHANGELOG records the withdrawal under `Removed`. D57, D58, D60, D61(c), D61(e), D62(1) and D67's shell reference are superseded where they concern this feature; they remain as the record of what was built and why | The feature's value was convenience, and a context menu whose submenu never populates is worse than no menu: it advertises actions it cannot run. The user's verdict is that the integration itself was a step too far, so keeping it alive behind a flat fallback would preserve a second, invisible surface with no in-app configuration and its own release obligations. Removing it also removes the only `winreg` write path in the suite and its platform-matrix claim, shrinking the tested surface rather than carrying dead code. The Master Driver and each tool's own launcher remain the supported entry points |
+| D74 | **A 0.2 s blip was tagged with a fabricated BPM, and a blip got a key tag: the too-short guard was bypassed by the two tools that decode through `librosa_load_with_fallback` directly (2026-10-19).** Discovered while verifying the new user-facing error text: `audiosuite bpm` on a 0.20 s WAV printed `[DRY RUN] short.wav → BPM 60` — the clamp floor — because `bpm_detector.detect_bpm` calls the fallback helper directly (it needs the float32 path) and never called `check_min_duration`, which `load_analysis_audio` applies for the tools that use it. `key_detector`'s serial and process-pool paths had the same gap. Both now call `check_min_duration(y, sr)` immediately after upcasting, before any feature extraction; a 0.2 s file reports `[ERROR] short.wav: Audio is too short to analyse (0.20s).` with no traceback, and a 0 s decode reports the same instead of the fabricated floor. Regression tests: `test_short_audio_is_reported_not_beaten_tracked`, `test_zero_length_buffer_is_reported_as_too_short`, `test_non_positive_rate_is_reported_not_divided_by_zero`, `test_short_decode_is_reported_not_analysed`; the key suite's mocked decodes were lengthened to 1 s so they exercise the normal path, not the guard. | This is the audio-correctness class AGENTS makes release-blocking: the tools wrote `BPM 60` and a key tag derived from 45 ms of audio, values that look real and that downstream tools (Tempo Analyzer, Master Driver) then treat as measured. The guard already existed and was documented as protecting every analysis engine; fixing the two bypass sites is smaller than teaching downstream consumers to distrust the tags. Mood Analyzer was unaffected (it decodes through `load_analysis_audio`). |
+
+| D75 | **Silent audio was tagged with a fabricated BPM, key and mood: the silence guard existed but no production path called it (2026-10-19).** `analysis_loader.is_effectively_silent()` and `SILENCE_RMS_THRESHOLD` (~ -60 dBFS) had shipped with tests, but a grep showed zero production callers — `load_analysis_audio` applied only `check_min_duration`, and BPM/Key applied it themselves after D74. On a silent file that meant beat tracking reported tempo 0.0 (D74's non-positive guard skips octave correction, so the hard clamp returned the floor), chroma correlation returned a confident key from a flat spectrum, and mood heuristics returned a mood with a confidence score; each was then written as a tag. The two halves are now one guard, `check_analysable(y, sr)`, which calls `check_min_duration` then `check_not_silent`; `load_analysis_audio` and the BPM detector and both Key decode paths call it. A 1 s silent WAV reports `Audio is effectively silent (-240 dBFS); nothing to analyse.`; mood reports it as a SKIP with no tag writes, key as an error with `detect_key` never called. Regression tests decode real silent WAVs and read the tags back: `test_silent_file_raises_audio_analysis_error`, `test_silent_file_reports_silence_and_writes_nothing`, `test_serial_path_reports_silence_and_leaves_file_untagged`, `test_silent_decode_is_reported_not_beaten_tracked`, `test_silent_decode_is_reported_not_analysed`, plus tone-through controls (`test_a_quiet_file_is_still_tagged`, `test_a_quiet_but_audible_signal_is_still_analysed`, `test_check_not_silent_is_the_silence_half_only`). Existing mocked decodes that used `np.zeros(...)` as a stand-in were made audible (a 220/440 Hz tone) so they exercise the normal path; `tests/data/silence-44-s.wv` now pins that a successfully transcoded file can still be refused as silent | This is the same audio-correctness class as D74, and the structural cause was the same: the contract lived in a function a decode path could skip. Composing the two halves into one call site makes half-adoption impossible for the next tool, which is cheaper than diagnosing fabricated tags downstream. The silence check is global-RMS, not per-window, so sparse music with quiet passages and a track that is merely quiet at -40 dBFS still analyse — the tests assert both sides, not only the refusal. |
+| D76 | **Beatless audio was tagged with the clamp floor: a non-positive tempo estimate is now reported as "No tempo detected" (2026-10-19).** D75 stopped silent input from reaching the tracker, but audible beatless material still did, and librosa reports tempo 0.0 for it (measured: a 10 s 440 Hz tone, a 30 s tone, a slow chord swell and a chirp all return 0.00 with zero beat frames; a 120 BPM click train returns 117.45 with 19 frames). `detect_bpm` clamped that zero to `min_bpm`, so `audiosuite bpm --live` tagged a tone with BPM 75 -- a fabricated measurement. The non-positive/non-finite branch now raises `NoTempoDetectedError` (subclass of `BPMDetectionError`) with `No tempo detected — the audio has no discernible beat.`; the serial processor and the process-pool handler report it as `[SKIP]` with `n_skipped=1`, and no tag is written. The broad `except Exception` in `detect_bpm` re-raises the subclass before mapping, otherwise the skip would be re-wrapped as a generic error. Verified through the CLI: `bpm --live` on a 10 s tone prints `[SKIP] tone.wav: No tempo detected — ...`, summary `1 skipped, 0 errors`, and the file's bytes and (absent) BPM tag are unchanged; a 30 s 120 BPM click train still tags `BPM 117`. Regression tests: `test_zero_tempo_reports_no_tempo`, `test_zero_tempo_ignores_the_configured_range`, `test_negative_tempo_reports_no_tempo`, `test_non_finite_tempo_reports_no_tempo`, `test_a_sustained_tone_reports_no_tempo`, `test_a_pad_with_no_transients_reports_no_tempo`, `test_serial_path_reports_skip`, `test_cpu_worker_reports_no_tempo`, `test_handler_reports_skip`, `test_live_run_leaves_a_beatless_file_untagged` | The distinction is "no beat" vs "a beat outside your range": the latter still clamps by design (a 60 BPM track under a 75 floor becomes 120 through octave correction), while a zero estimate has no octave to correct and no information to report. Tagging the floor made a beatless file indistinguishable from a measured one for every downstream consumer (Tempo Analyzer, Master Driver). Reporting a skip also keeps the batch error count meaningful: a beatless file is not a failure. Noise is a known limitation, not a promise: random onsets can look periodic to the tracker (white noise measured 89.10 BPM with 16 beat frames), and refusing it would need an onset-periodicity threshold that risks rejecting legitimate rubato or ambient music. |
+| D77 | **A positive tempo estimate is not proof of a beat: noise-only files are now refused unless the onset envelope repeats at the reported period (2026-10-19).** D76 refused non-positive estimates, but noise produces a *positive* one (white/pink/brown noise, 2-90 s: 89.10-258.40 BPM with 16-57 beat frames) because random onsets can be fitted to a tempo grid; those files were tagged with fabricated values. `detect_bpm` now computes the onset-strength envelope once (`aggregate=np.median`, matching `beat_track`'s internal call), passes it to the tracker, and measures the normalised autocorrelation of the mean-removed envelope at the detected period (max over +/-10% of the lag, so timing jitter survives). `MIN_ONSET_PERIODICITY = 0.15`: measured white/pink/brown noise 0.01-0.10 (worst case 0.092 at 2 s), a 120 BPM click train with 10% jitter 0.285, with 3 dB SNR noise 0.544, synthetic bass/chord/pluck mixes 0.64-0.78, clean click trains at 60-400 BPM 0.60-0.91 (>=2 s). Below the threshold the file raises `NoTempoDetectedError`, so the processor reports `[SKIP]` and writes no tag. A defect found while implementing: `beat_track(y=...)` aggregates its internal envelope with `np.median`, while `onset_strength` defaults to `np.mean`; passing a mean-aggregated envelope for a slow pad changed the estimate from 0.0 to 107.67 BPM (a fabricated value the periodicity check would have accepted), so the precomputed envelope uses median aggregation. CLI verification: 30 s white noise -> `[SKIP] noise.wav: No tempo detected — ...`, `1 skipped, 0 errors`, bytes and tag unchanged; a 100 BPM music-like mix still tags `BPM 99`; 120 BPM clicks under a noise floor still tag `BPM 117`. Regression tests: `test_white_noise_reports_no_tempo`, `test_noise_with_an_embedded_click_train_is_still_measured`, `test_a_flat_onset_envelope_reports_no_tempo`, `test_live_run_leaves_a_noise_only_file_untagged`, and the `TestOnsetPeriodicity` unit cases (clean click >= 0.5, noisy beat >= threshold, white noise < threshold, flat/non-positive 0.0). Mocked decodes in the BPM suite are now click trains at the tempo the tracker is mocked to report, so the guard is exercised rather than bypassed | The distinction is "no periodic onsets" vs "a beat outside your range": the latter still clamps by design. Rejecting noise at this layer is cheaper than teaching every consumer to distrust a plausible-looking tag, and the measured margin (1.5x above noise, 1.9x below the most degraded music proxy) is wide enough to protect jitter and noisy recordings. The remaining risk is a music signal with a drifting tempo and very soft onsets, which the +/-10% lag window mitigates but does not guarantee; clips shorter than ~2 s are refused because one beat interval cannot establish periodicity, and the no-tempo outcome is documented as a skip rather than an error. No real-music fixture exists in the repository (the only audio is synthetic or silent test data), so the music side of the margin is measured on constructed proxies; adding a licensed real-music regression corpus remains the honest next step. |
+| D78 | **The BPM skip line now shows the periodicity score, so a refused file is auditable (2026-10-19).** D77 refused noise-only files but the user-visible sentence was a bare verdict (`No tempo detected — the audio has no discernible beat.`), which cannot distinguish "the tracker found nothing" from "the tracker guessed a tempo and the onsets did not support it". `_no_tempo_message(periodicity)` now renders the measured score and the threshold for the periodicity branch: `No tempo detected — the audio has no discernible beat (onset periodicity 0.04, minimum 0.15).` The non-positive-tempo branch keeps the short sentence because no periodicity was measured there, and printing 0.00 would imply evidence that was never gathered. The processor already logs and displays `failure_reason(exc)`, so both the per-file log line and the status line pick the score up with no further plumbing. Tests pin the exact sentence for both branches (`TestNoTempoMessage`), the rendered score in a real noise decode (`test_white_noise_reports_no_tempo`), and both the display and `log_text` of a live noise-only run (`test_live_run_leaves_a_noise_only_file_untagged`) | A skip the user cannot explain is indistinguishable from a bug: the score turns "why was my file skipped?" into a number the user can compare with the minimum. Keeping the sentence at the raise site preserves the project's single-source user-message convention, and omitting the score for the no-estimate branch avoids inventing a measurement. The value is diagnostic text only; it does not change which files are refused. |
+| D79 | **Real-music calibration replaces the single-lag periodicity score with a harmonic comb, and the floor becomes 0.10 (2026-10-20).** D77's threshold was calibrated only against synthetic signals. Seven CC0 recordings from Wikimedia Commons are now committed under `tests/data/bpm_corpus` as centre-20 s, mono 22.05 kHz Vorbis excerpts (66-134 kB each, 700 kB total), with provenance, licences, trim offsets and measured scores in that directory's `ATTRIBUTION.md`. Measuring them exposed an overlap the synthetic suite could not see: with the single-lag score, real music reached as low as **0.135** (live jazz) while brown noise's slow drift reached **0.155**, so no threshold separated the two. `_onset_periodicity` now scores a weighted harmonic comb over the first four beat lags (weights 1.0, 0.7, 0.5, 0.35, normalised by the weights that fit the window): a groove repeats at its beat and its multiples, while noise fitted to a tempo grid peaks at one arbitrary lag. Re-measured: corpus **0.154-0.595**, seeded white/pink/brown noise **at most 0.080** over 600 x 30 s windows, 10%-jitter click trains 0.21-0.32, clean click trains 0.84-0.97. `MIN_ONSET_PERIODICITY` is **0.10**, 1.25x above the worst noise and 1.54x below the weakest real recording. `TestRealMusicCorpus` decodes each clip through `detect_bpm` and accepts the annotated tempo or its octave within +/-4 BPM, locks provenance, size and duration, and asserts the margins (music >= 1.2x the floor, seeded noise < the floor); the D77/D78 sentence tests now pin the 0.10 minimum. | The task was to calibrate against real music, and the honest result was that the statistic, not only the constant, was mis-calibrated: lowering 0.15 to admit jazz would have admitted brown noise, while keeping it refused real recordings. The comb is the smallest change that separates the two distributions and it strengthens the original rationale (periodicity, not a lucky lag). Excerpts rather than full tracks keep the corpus in git without turning the repository into an audio archive, and CC0 makes redistribution and re-encoding unambiguous. Remaining limitation: the corpus is small and popular-music-leaning, and a genuinely free-time recording can still be refused - the gate promises no *periodic* onsets, not the absence of music. |
+| D80 | **The BPM CLI's JSON summary now explains skipped files (2026-10-20).** D78 put the measured score in the human skip sentence, but `--json` still exposed only the `skipped` count. `run_analysis` now collects one record per `NoTempoDetectedError` - `filename`, `reason` (the same plain-language sentence the log shows) and `onset_periodicity` (`null` for a non-positive tempo, where no score was measured) - in both the thread path (`process_single_file`, appended under the progress lock) and the process-pool path (`_detect_bpm_cpu` returns the score from the exception context; `_handle_bpm_result` appends in the main process). The completion callback passes the list to the CLI, which flattens the collector's `extra` mapping so `skipped_files` is a top-level key alongside `processed`/`skipped`/`errors`, always present and sorted by filename. Integration tests drive real WAV files through the CLI in text and `--parallel` modes: a seeded noise file produces `{"filename": "noise.wav", "reason": "No tempo detected ... (onset periodicity 0.08, minimum 0.10).", "onset_periodicity": 0.0759}`, while a clean run returns `[]`. | Scripts consuming the summary need the *why* as data, not prose: parsing the sentence is brittle and the score was previously only available in the log. Building the record at the raise site keeps the reason and the number from diverging - the rule that a skip outcome is part of the contract (D78) now applies to machine output too. The flattening is local to BPM's `--json` branch because `_Result.extra` is a shared collector; other tools keep their current schema. |
+| D81 | **The BPM JSON summary separates failed files from beatless skips (2026-10-20).** D80 made refusals readable, but a corrupt file still appeared only in the `errors` count next to a `skipped` count that meant something different. `run_analysis` now collects `error_files` in parallel with `skipped_files`: each record carries `filename`, `reason` and `error_type` (the exception class name, e.g. `BPMDetectionError`). The threaded path builds it at the `BPMDetectionError` handler under the progress lock; the process-pool path returns `error_type` from `_detect_bpm_cpu` and appends in `_handle_bpm_result`. Both lists are sorted by filename and always present, and the CLI flattening added in D80 exposes them as top-level keys. Verified through the real CLI with a noise WAV, a click WAV and a corrupt MP3 in both thread and `--parallel` modes: counts `3 processed, 1 skipped, 1 error`, `skipped_files = [noise.wav, 0.0759]`, `error_files = [corrupt.mp3, BPMDetectionError]`. | A batch that mixes unreadable files with beatless ones must not report both as the same outcome: `skipped` is an analysis verdict, `errors` is a failure, and a script that retries failures should not retry a file that simply has no beat. Carrying `error_type` keeps that distinction machine-readable without matching prose; the GUI already tolerates extra completion fields (D80). |
+
+| D82 | **Every CLI tool's `--json` output now follows one locked schema (v1) (2026-10-20).** `audio_suite_shared/cli_schema.py` declares the core keys every payload carries (`schema_version`, `tool`, `command`, `dry_run`, `total`, `processed`, `succeeded`, `skipped`, `errors`, `duration_secs`, `duration_str`, `log_entries`) plus each command's tool-specific keys. Every command serialises through `_Result.to_payload()`/`build_payload()`, so the names cannot drift per tool; `succeeded` is computed once as `processed - skipped - errors`. The payload changes this required: `extra` nesting is gone (only declared fields are published), `stats` renames the library audio length to `library_duration_secs`/`library_duration_str` so the shared `duration_secs` means wall-clock time everywhere, `cd-rip`'s `log` becomes `log_entries`, `tag-edit` and `cd-rip` report one key set in both of their modes (nulls for the unused mode), `mood-analysis-batch` and `tag-update` gain the missing counters, `cue parse`/`cue split` and `spectrogram` gain the core envelope, and a fatal run reports `errors: 1` plus the reason in `error` instead of `-1`. Two defects fell out of driving every command: `audiosuite enhance` failed every file with `on_progress() got an unexpected keyword argument 'done'` (the shared callback now absorbs tool counters), and `reorganize --json` referenced a nonexistent `dry_run` name. `tests/test_cli_json_schema.py` proves coverage (every `--json` command has a schema, no stale entries, manifest ids match, `cue generate` is the declared no-JSON exception), shape (undeclared fields are refused; validation catches renamed/missing/wrong-typed keys) and reality (each command is invoked, its stdout parsed and validated; `cd-rip`, which needs a CD drive, has its two payload builders locked directly). Verified through the real console CLI: `bpm`, `stats` and `cue parse` all emit the core keys, and a silent WAV reports `succeeded: 0, errors: 1` with its reason | Scripts are the consumer that cannot adapt to per-tool naming: before this, `processed` sometimes excluded skipped files, `errors` was a `-1` sentinel on a fatal run, counts lived under `extra` or under names like `tagged`/`updated`/`log`, and `stats.duration_secs` meant library audio length rather than run time. Bumping a version number is a cheaper break to document than silently letting one field mean two things. Declaring tool fields per command keeps the core small while letting a new field ship with a deliberate schema entry, and the integration test is the only check that can catch a tool that bypasses `build_payload`. Remaining limitation: `cue generate` has no machine-readable summary, and JSON always reflects the whole run (there is no per-file streaming mode yet) |
+
+| D83 | **The CLI JSON schema is published as a generated JSON Schema document (2026-10-20).** `cli_schema.json_schema()` builds a draft 2020-12 document with 29 variants under `oneOf`, one per `--json` command, discriminated by a `command` constant; each variant requires the 12 core keys, allows only its declared extras plus the universal `error`, and forbids anything else. `audio_suite_shared/cli_schema.json` is the committed copy (about 47 KB) and `audio_suite_shared.cli_schema.schema_json()` is its only generator. `audiosuite --json-schema` (a group option, so it needs no subcommand) prints the document and exits 0. Because Click resolves the subcommand before running a group callback, the group now sets `invoke_without_command=True`; `no_args_is_help=True` is set explicitly so a bare `audiosuite` still prints help and exits 2 as before. Tests: the committed file must equal the generator byte-for-byte; the document must have exactly one variant per command with the exact required set and no `additionalProperties`; every real payload driven by the integration test must be accepted by the committed variant; and the flag's stdout must parse to the committed document. The test ships a small validator covering only the keywords the generator emits (const/type/required/properties/additionalProperties/items) rather than adding `jsonschema` as a dependency, because the contract is the generated document, not the library | A published JSON Schema turns the contract into something a non-Python consumer (editor, CI job, another language) can enforce without reading our source. Generating it from `CORE_TYPES`/`EXTRA_TYPES` means the document cannot drift from the runtime payloads in one direction only: the lock test compares the artifact to the generator and then validates real bytes against the artifact, so a stale file or a bypassed tool fails. Keeping the validator dependency-free avoids a new transitive graph for a test that would otherwise mostly prove `jsonschema` works. Remaining limitation: the document necessarily repeats the core properties in every variant (`oneOf` is the simplest universally supported form); a `$defs`/`allOf` refactor would shrink it but complicate the additionalProperties guarantee, so it is deliberately not used here |
+
+| D84 | **A stale editable finder is an install defect, and driving every command found two more (2026-10-20).** `audiosuite` died at import with `ModuleNotFoundError: No module named 'audio_fingerprinter'` because the distribution metadata in both interpreters predated later tool packages: the venv held a 1.2.0 editable finder (no `spectral_viewer`) and the PATH interpreter a 1.0.0 one (no `audio_fingerprinter`), each generated from the package set at install time. Repair: `uv sync --frozen --all-extras` for the venv and `pip install -e . --no-deps --no-build-isolation` for the global interpreter, both now 1.4.0 with all 30 packages mapped; `uv.lock` and `pyproject.toml` unchanged. Verification is by driving the console script itself, not the package: 28/28 commands answer `--help` through both entry points and 40 real invocations on a generated tagged library (dry and live: bpm/key/tempo/replaygain/mood/refine/convert/scrub/tag-edit/spectrogram/cue/stats) pass. That sweep exposed two defects, fixed here with regression tests: `fingerprint` never consulted the committed `fpcalc.exe`, so every file failed until `--fpcalc` was passed (it is now the final fallback, below explicit path, `FPCALC` and PATH), and `cd-rip` hung forever on an unavailable drive because `read_toc` raises `AudioIOError` - an `AudioSuiteError`, not an `OSError` - which killed the session thread before `session_done_cb`, leaving the CLI on `done_event.wait()`; a session now always signals completion, records `fatal_error` (the CLI exits non-zero with it), logs a missing disc at WARNING without a traceback, and treats a failed spin-down as non-fatal | Both failures look like code bugs and are actually environment/contract bugs that a per-package pytest run cannot see: the stale finder only breaks the installed entry point, and the bundled binary only matters on the path a user actually runs. Driving the console script - not `python -m pytest`, and not `from pkg import x` - is the only check that covers the install, the import graph and the real command together. The two code fixes follow the same rule: a resource the repository commits must be found by default, and a background session must signal completion on every exit path, because the CLI's synchronization is a `threading.Event` that no exception handler outside the thread can set |
+
+| D85 | **The supported runtime is pinned to `uv run audiosuite` in the README and in the CLI's own messages (2026-10-20).** A stale global `pip install -e .` keeps the editable finder it was built with, so driving a checkout through a bare `audiosuite` can fail with a bare `ModuleNotFoundError` that names a package but not the cause. `audio_suite_shared/runtime_check.py` compares the installed distribution's metadata version with `declared_version()` (pyproject) and exposes `stale_install_warning()` and `install_failure_message()`; the group callback prints the warning on every command run when the versions differ, and `cli_app` registers its commands from a data-driven tuple so a missing module raises `SystemExit` carrying the diagnosis (missing module, version pair, `uv sync --frozen --all-extras`, `uv run audiosuite --help`, README pointer) instead of a traceback. The README's Installation section gains a "Use the locked runtime" subsection explaining why `uv run audiosuite` is the supported entry point and how to refresh a deliberate global install. Verified through the real CLI: a fake 1.0.0 `dist-info` earlier on `sys.path` makes `bpm --help` print the warning on stderr while still exiting 0, a blocked `audio_fingerprinter` import prints the guidance and exits 1, and the healthy install stays silent (`--version`, `--help`, `--json-schema`, 28 commands) | The failure this prevents is indistinguishable from a code bug: the venv's 1.2.0 finder lacked `spectral_viewer` and the PATH interpreter's 1.0.0 finder lacked `audio_fingerprinter`, so the CLI died at the first tool import while every package's own tests passed. Naming the version pair makes the environment the visible suspect, and pointing at the locked runtime gives one command that cannot drift from the checkout. The per-command warning is deliberate: a silent mismatch is how a user ends up debugging an install for an hour. Remaining limitation: the check compares metadata versions only, so an install rebuilt from the same version but an older tree is not detected by version alone; the imported module names still have to resolve |
+
+| D86 | **`audiosuite doctor` reports the install mapping, and command registration is tolerant (2026-10-20).** D85 made a missing tool module a fatal `SystemExit`, which is precisely the state doctor exists to diagnose: a dead CLI cannot report which tools it lost. Registration now imports each entry of `_TOOL_CLI_MODULES` (now pairs of `(module, command)`) and collects failures instead of aborting, printing `runtime_check.missing_modules_message` and leaving every other command plus `doctor` usable. `audio_suite_shared/doctor_cli.py` walks the checkout for top-level packages with an `__init__.py`, resolves each through `importlib.util.find_spec` (a finder that raises counts as missing), and classifies it `ok` / `missing` / `elsewhere` by comparing the origin with the checkout root. `_unregistered_commands()` catches the case the package scan cannot: the package resolves but its `cli` module failed (a missing third-party dependency), so its command never registered. The report prints checkout and installed versions, `mapped/total`, every broken package with the commands it backs, and a single `Fix:` line; it exits 1 unless the versions match and every package and command is present. Verified through the real CLI: the live install reports `29/29 resolved` and exits 0; a fake 1.0.0 `dist-info` reports `STALE` and exits 1 while still mapping 29/29; blocking `audio_fingerprinter.cli` prints the startup warning, keeps 28 commands registered, and doctor lists `` `audiosuite fingerprint` (Audio Fingerprinter): command did not register `` with exit 1. Tests cover a missing package mapped to `spectrogram`, a package resolving from `site-packages`, a finder that raises, a structural no-checkout and empty-scan failure, and the version gap | The diagnostic has to be reachable from the failure it diagnoses: aborting the import also aborts the only command that can say what is missing. Tolerant registration keeps the blast radius to the affected tool and makes the damage machine-checkable (exit status), while the package scan refuses to pass on an empty result so a broken checkout walk fails loudly rather than reporting health. Remaining limitation: `doctor` is text-only, so a CI job gates on the exit code rather than parsing a payload; adding `--json` means a new locked schema variant |
+
+| D87 | **`cd-rip` keeps the JSON contract when the drive or disc fails (2026-10-20).** D86 made `cd-rip` exit 1 with the drive error, but only on stderr, so a script got a bare exit code from a command that otherwise always prints JSON. `cd_ripper/cli.py` now builds the schema's fatal shape before raising: `_rip_payload(..., error=...)` emits `errors: 1`, the reason in `error`, `read_offset_frames: null`, `total` and `processed` at 0, and the usual `drive`/`output_dir`/`format`/`tracks`/`verify` keys, so a consumer keeps one shape and one parser. `_offset_payload` takes the same optional `error`, covering `--detect-read-offset` failures (no disc, unreadable drive) with the same document. Both paths still print the human line to stderr and exit 1. Verified through the real console CLI with an unavailable drive: `cd-rip Z: --output-dir ... --json` exits 1 with "errors": 1 and "error": "Cannot open CD device ...", and `cd-rip Z: --detect-read-offset --json` does the same with `read_offset_frames` null; both payloads validate against the committed cd-rip schema variant | A command whose success path is machine-readable must not become unreadable on failure: a script that already parses stdout would otherwise have to scrape stderr for the cause, which is exactly the coupling the shared schema exists to remove. The error field is universal in `cli_schema`, so no new variant or `schema_version` bump is needed. Remaining limitation: Click's own usage errors (a missing `--output-dir`, an invalid value) still exit 2 without a payload, because those are argument errors rather than run failures |
+| D88 | **Sprint 4 is closed (2026-10-20): three of four scope items were delivered, one was withdrawn and one was rejected on measurement, and the post-release maintenance batch is recorded on `[Unreleased]` rather than as a new sprint.** 4.7 is the per-item close-out. The batch is D73 (shell withdrawal), D74-D79 (one composed analysis guard, the beatless and noise-only refusals, and their real-music calibration), D80-D81 (BPM's `skipped_files`/`error_files`), D82-D83 (CLI JSON schema v1 and its published JSON Schema), D84-D86 (fpcalc fallback, the `cd-rip` session hang, runtime diagnostics and `doctor`) and D87 (`cd-rip`'s fatal payload). No version bump: 1.4.1 remains Sprint 5's release per its D3. Gate on this state: compile rc=0, ruff clean, `ruff format --check` 869 files, mypy 498 files clean, bandit 0 High / 0 Medium (47 Low), bare `pytest` 9874 passed / 3 skipped / 30 deselected at 91.08 % coverage | A sprint is closed when every item has an outcome, not when every item shipped: 4.2's premise was refuted by measurement and 4.1's feature did not work for the user who asked for it, so the honest record is a rejection and a withdrawal with evidence. The post-release defects belong on the same branch because they were found by the release verification itself (D84) and several are audio-correctness fixes AGENTS makes release-blocking (D74-D79); deferring them would ship known fabricated tags |
+| D89 | **Sprint 4's deferred ideas are Sprint 5 implementation items S5-1-S5-8, not open Sprint 4 work (2026-10-20).** 5.3 Item 5.5 writes each one with the decision that named it: exit-2 usage errors without a payload (D87), a text-only `doctor` (D86), version-only staleness detection (D85), `cue generate` without a summary (D82), a small and popular-music-leaning BPM corpus (D79), the unmeasured 8-worker peak memory (D62(2)), `audio_refinery/refinery_settings.json` being tracked runtime state (observed at close), and streaming JSON still undecided (D82). Batch FFmpeg is deliberately absent: D54 is a measurement-backed rejection, so re-proposing it needs new measurements, not a backlog slot | The close-out has to leave one place for unfinished ideas or the next session re-reads 1482 lines of decision log to reconstruct them. Naming the source decision keeps the backlog honest: an item cannot be re-scoped into something the evidence does not support, and a reader can tell a deliberate limitation from a forgotten gap |
 
 #### 4.6.3 Execution order for Item 4.1 (the only new surface)
 
@@ -762,6 +794,52 @@ confirmed.
 3. `audio_suite_shared/shell_cli.py` — `shell-install` / `shell-uninstall`, with `--dry` printing the exact keys it would write (trace-mode discipline).
 4. `audio_suite_shared/tests/test_shell_integration.py` + `test_shell_action.py` — verb-table completeness, key-tree shape for both the cascade and the flat fallback, idempotent install, uninstall leaves no residue, action argv round-trip on a temp audio file, no-overwrite refusal, `--dry` writes nothing.
 5. `platform_support.py` declaration + regenerated README matrix; README subsection; CHANGELOG entry.
+
+### 4.7 Sprint 4 Close-Out (2026-10-20) — sprint closed, nothing open
+
+Sprint 4 is **CLOSED**. Of its four scope items, two shipped (re-specified, see
+below), one was withdrawn by user decision and one was rejected on measurement.
+4.1-4.6 remain as the decision record; this section is the outcome table, so a
+later reader does not have to reconstruct the sprint from nineteen decisions.
+
+| Scope item | Planned | Outcome | Evidence |
+|------------|---------|---------|----------|
+| 4.1 Windows Explorer shell integration | Right-click verbs for five commands | **Withdrawn; code removed.** Built to D57's shape, then deleted after the cascading submenu rendered empty in the user's Explorer build (the flat fallback did too). No registry write path, no CLI command and no README claim survives | D57, D58, D60, D73 |
+| 4.2 Batch FFmpeg invocation | One ffmpeg per batch | **Rejected on measurement.** 8 x 20 s WAV->FLAC: batch 0.14 s vs the existing 4-worker per-file 0.13 s; with one corrupt input among six the batch produced 0/6 outputs and a negative Windows exit code while per-file produced 5/6 | D54 |
+| 4.3 Tag read caching | TTL cache | **Delivered as the cause fix.** One `TagHandlerFactory` load per file at the six shared read sites instead of eight: 174 ms -> 23 ms per 100 files. No cache exists to invalidate, and the load counts are mutation-tested | D55, D63, D64 |
+| 4.4 Dynamic worker count | `min(cpu_count, 8)` with per-tool override | **Delivered suite-wide.** `default_max_workers()` feeds every processor default, slot grid, CLI default, Master Driver value and generated guide; 24 x 60 s WAV->MP3 went 2.02 s -> 1.17 s. A typed count above the grid is capped, never turned into per-file errors | D56, D65-D70 |
+| 4.4 Verification | Four-check gate and one bare `pytest` | **Met at the release cut**, and again on the finished maintenance batch: 9874 passed / 3 skipped / 30 deselected at 91.08 % coverage | D67, D71, D72, D88 |
+| 4.5 Rollback | Sprint-wide revert | **Not exercised.** Nothing needed one: 4.2 wrote no code, and 4.1's removal was a three-module revert plus its tests under D73 | D73 |
+
+**Delivered after the 1.4.0 cut, on `[Unreleased]`.** Verifying the release
+through the console script (D84) and then driving every command exposed defects
+the sprint's own gate could not see; they were fixed on the same branch rather
+than deferred, because several are audio-correctness class:
+
+- D73 removed the shell integration in full - modules, tests, CLI commands,
+  README section, platform-matrix row and worker-default allowlist entry.
+- D74-D79 made one composed guard (`check_analysable`) the only way to decode
+  for analysis, reported a non-positive tempo as a skip, refused noise-only
+  files whose onsets do not repeat, and calibrated that threshold against seven
+  committed CC0 recordings (music 0.154-0.595, seeded noise at most 0.080,
+  floor 0.10). The skip line carries the measured score.
+- D80-D81 gave BPM's `--json` separate `skipped_files` and `error_files`, so a
+  beatless verdict and a decode failure stay distinguishable as data.
+- D82-D83 put every CLI payload on one schema (v1) and published it as
+  `audio_suite_shared/cli_schema.json` plus `--json-schema`. Driving every
+  command also exposed the `enhance` callback defect and the `reorganize`
+  `dry_run` NameError.
+- D84-D86 recovered two install-level failures and two command-level defects:
+  `fingerprint` now finds the committed `fpcalc.exe`, `cd-rip` exits instead of
+  hanging forever on a missing disc, a stale install is named with the command
+  that repairs it, and `doctor` reports the package mapping.
+- D87 kept `cd-rip`'s JSON contract on a fatal drive or disc error.
+
+**Nothing is open.** The three limitations D62 accepted at lock-down stand as
+recorded: (1) Explorer submenu rendering is moot now that the feature is
+withdrawn; (2) the 8-worker peak memory is unmeasured and moved to S5-6;
+(3) batch FFmpeg remains unimplemented by decision (D54), not by omission.
+Sprint 5 starts from 5.3 Item 5.5.
 
 ---
 
@@ -775,48 +853,56 @@ confirmed.
 ### 5.1 Scope
 
 **Maintenance Items:**
-1. Technical debt backlog cleanup (address TODO/FIXME markers)
-2. Dependency security scanning integration
-3. Performance optimization for library stats queries
-4. Code documentation improvements
+1. **Carried-forward defect and hardening backlog** (Item 5.5) - the eight
+   items the Sprint 4 close-out deferred (D89), each with its source decision
+2. Dependency security scanning integration (Item 5.2)
+3. Performance optimization for library stats queries (Item 5.3)
+4. Code documentation improvements (Item 5.4)
 
-**Rationale:** Addresses technical debt and security hygiene without adding new features.
+**Dropped at the Sprint 4 close-out:** the TODO/FIXME cleanup that was item 1.
+A scan on 2026-10-20 finds **zero** `TODO`/`FIXME` markers in first-party Python,
+and the three file:line references this plan carried for it point at code that
+no longer exists (D5). The remaining debt is behavioural - contract gaps and
+unmeasured limits - and lives in Item 5.5.
+
+**Rationale:** Addresses technical debt and security hygiene without adding new
+features. 1.4.1 is a maintenance release: nothing here adds a user-facing tool
+or changes an audio outcome on purpose.
 
 ### 5.2 Decision Log
 
 | Decision | Rationale |
 |----------|-----------|
-| D1 | Address high-priority TODOs only (key detection, album art sync) | Focus on impactful items |
+| D1 | Address high-priority TODOs only (key detection, album art sync) - **closed as moot by D5**: no markers remain | Focus on impactful items |
 | D2 | Add `pip-audit` to CI gate (not blocking initially, then enforce) | Gradual adoption |
 | D3 | Version bump: 1.4.0 → 1.4.1 (MAINTENANCE) | No new features, improvements only |
+| D4 | **The carried-forward backlog enters Sprint 5 as Item 5.5 with eight numbered items (S5-1-S5-8), ordered contract-first**: the four a script consumer hits (usage-error payload, `doctor --json`, origin-based staleness, `cue generate` payload) before the four needing measurement or a decision (corpus breadth, peak memory, tracked settings, streaming JSON) | Each item names its source decision, symptom, fix and proving test, so the new session starts without re-reading Sprint 4. Contract gaps come first because they are cheap, testable, and each one otherwise costs a consumer a stderr parser; measurement items need host time and must not block the release |
+| D5 | **Item 5.1's TODO/FIXME list is dropped, not carried (2026-10-20).** A repo-wide scan of first-party Python finds no `TODO` or `FIXME` marker, and the three file:line references the plan carried (`key_detector/core/key_engine.py:372`, `album_art_sync/core/pipeline.py:292`, `library_stats/core/file_processor.py:384/443/470/702`) point at code that no longer exists. The item becomes the audit result plus a pointer to Item 5.5 | A plan reference that no longer resolves is worse than none: Sprint 5 would have begun by hunting debt that was already paid. The scan is cheap, so the rule is to re-derive it at sprint start instead of trusting a remembered line number |
+| D6 | **No version bump at the Sprint 4 close-out.** `pyproject.toml` stays 1.4.0 and the post-release batch stays under `[Unreleased]`; `utilities/release.py 1.4.1` is Sprint 5's first release step | The batch is defect fixes and contract additions on `main`, and 1.4.1 is exactly the maintenance release Sprint 5 targets (D3). Cutting it now would leave Sprint 5 with a release that predates its own work |
 
 ### 5.3 Implementation Items
 
-#### Item 5.1: Technical Debt Cleanup
+#### Item 5.1: Technical Debt Audit — CLOSED (2026-10-20)
 
-**Files to Modify:**
-- `key_detector/core/key_engine.py:372` - Resolve key detection edge case
-- `album_art_sync/core/pipeline.py:292` - Improve API error handling
-- `library_stats/core/file_processor.py` - Resolve TODOs (384, 443, 470, 702)
+**Result:** the TODO/FIXME backlog this item described no longer exists. A
+repo-wide scan of first-party Python finds **zero** `TODO` or `FIXME` markers,
+and every file:line reference the original item carried points at code that has
+since moved or been removed. The debt that does remain is behavioural - a
+contract gap or an unmeasured limit - so it is written as a testable item in
+Item 5.5 rather than as a marker to delete.
 
-**Approach:**
-- Read each TODO context
-- Implement fix or document why it's deferred
-- Add regression tests
-- Remove TODO marker
+**Rule for future sprints:** re-derive the marker and files-to-modify lists from
+the tree at sprint start; never trust a line number recorded in an older plan.
 
-**Tests to Add:**
-- Regression tests for each fix
-- Document decision in code comments
+**Tests to Add:** none for this item; each Item 5.5 entry carries its own.
 
 **Acceptance Criteria:**
-- High-priority TODOs resolved
-- Regression tests added
+- No stale `file:line` reference remains in this plan for this item
 - Full gate passes
 
 **Documentation:**
 - No user-facing change
-- CHANGELOG.md: Added bullet for technical debt cleanup
+- No CHANGELOG entry: nothing ships from this item
 
 #### Item 5.2: Dependency Security Scanning
 
@@ -895,6 +981,95 @@ confirmed.
 - No user-facing change
 - CHANGELOG.md: Added bullet for documentation improvements
 
+#### Item 5.5: Carried-Forward Defect & Hardening Backlog (added 2026-10-20)
+
+Eight items the Sprint 4 close-out deferred (D89). Each names the decision that
+found it, the symptom a user or script sees, the fix, and the test that proves
+it. Nothing here changes a successful audio outcome; S5-5 and S5-6 may conclude
+"no change" with a recorded measurement, and that is a valid delivery.
+
+**S5-1 - A usage error also emits a JSON payload.** Source: D87's limitation.
+Symptom: `audiosuite cd-rip --json` with a missing `--output-dir`, or any
+command with an invalid option value, exits 2 with nothing on stdout, so a
+JSON-only consumer must scrape Click's stderr - the coupling the schema exists
+to remove. Fix: handle `click.UsageError`/`BadParameter` at the command
+boundary; when `--json` is present, print `cli_schema.error_payload(path,
+message)` and exit 2 (the argument-error status stays distinct from a run
+failure's 1); text mode is untouched. Tests: for every command in `TOOL_IDS`,
+one missing-required-option case and one invalid-value case - exit 2, stdout
+parses, `validate_payload` clean, stderr still human, and no payload when
+`--json` is absent. Acceptance: no command in `TOOL_IDS` can exit 2 silently in
+JSON mode; no new schema variant is needed because `error` is universal.
+
+**S5-2 - `audiosuite doctor --json`.** Source: D86. Symptom: the only
+health check for an install is text, so CI must parse prose or gate on exit
+status alone. Fix: a payload with `checkout_version`, `installed_version`,
+`editable`, `mapped`, `total`, `packages` (name, status, origin, commands),
+`missing_commands` and `problems`, carrying the core keys; exit status unchanged.
+Tests: a schema variant and regenerated `cli_schema.json`; a healthy install, a
+fake stale dist-info and a blocked module each assert that the payload and the
+exit code agree. Acceptance: `doctor` joins the integration lock and
+`--json-schema` without a text parser.
+
+**S5-3 - Staleness detection beyond the metadata version.** Source: D85's
+limitation. Symptom: an install rebuilt from the same version but an older tree
+compares equal, so the warning stays silent while commands fail. Fix: reuse
+`doctor`'s origin rule - warn once, naming the packages that resolve from
+somewhere other than the checkout - instead of comparing versions only. Tests:
+matching version with one package resolving from `site-packages` warns and names
+it; a healthy checkout is silent; one warning per process, not per command.
+Acceptance: the CLI warning and `doctor` share one resolver, and a matching
+version can still be reported stale.
+
+**S5-4 - `cue generate` gains a machine-readable summary.** Source: D82.
+Symptom: it is the single `NO_JSON_COMMANDS` entry, so a script that generates a
+sheet cannot learn its path without reading stderr. Fix: a payload with
+`cue_path`, `tracks`, `title` plus the core keys, and an empty
+`NO_JSON_COMMANDS` (the lock asserts emptiness so a future exception is a
+deliberate edit). Tests: a schema variant, a real run over a temp multi-track
+image, and validation of the emitted payload. Acceptance: the declared no-JSON
+exception list is empty and `--json-schema` is regenerated.
+
+**S5-5 - Broaden the BPM calibration corpus.** Source: D79's limitation.
+Symptom: seven CC0 clips, popular-music-leaning; the gate is calibrated on
+0.154-0.595 against noise at most 0.080, and a free-time recording can still be
+refused. Fix: add at least four excerpts covering free-time jazz, ambient with a
+slow pulse, rubato classical and a shuffle/compound feel; measure each clip's
+comb score and accept only what the statistic supports - a clip the gate refuses
+is recorded as a decision, never fixed by lowering the floor silently. Tests:
+the corpus test reads expectations from `tests/data/bpm_corpus/ATTRIBUTION.md`,
+accepts the annotated tempo or its octave within +/-4 BPM, and still asserts
+music at least 1.2x the floor and seeded noise below it. Acceptance: margins
+re-measured and written down; no threshold change without them.
+
+**S5-6 - Measure peak memory at the 8-worker default.** Source: D62(2).
+Symptom: the ceiling of 8 was chosen on speed alone; concurrent librosa and
+pedalboard jobs hold large buffers, and the peak is unmeasured. Fix: measure peak
+RSS for an 8-file analysis batch at 4 and 8 workers on this host; if the 8-worker
+peak exceeds a documented budget, split the ceiling (analysis lower, conversion
+at 8) rather than abandoning the default for every tool. Tests: the measurement
+script prints both numbers and the host, and a test asserts every processor
+receives the configured ceiling. Acceptance: the number is recorded in this plan
+and any ceiling split is covered by the worker-default locks.
+
+**S5-7 - `audio_refinery/refinery_settings.json` is tracked runtime state.**
+Symptom: the tool rewrites a tracked file during ordinary use, so `git status`
+is dirty after a session and a real change hides among the noise. Fix: commit a
+`refinery_settings.default.json` and resolve the live file outside the checkout
+(or ignore the live file if the tool must keep it local); a run must never
+modify a tracked file. Tests: a settings round-trip under a temp directory, and
+a clean-checkout regression asserting no tracked path is modified after a save.
+Acceptance: no tracked file changes after a GUI session, and the shipped
+defaults still load on first run.
+
+**S5-8 - Decide on streaming JSON.** Source: D82's limitation. Symptom:
+`--json` prints one document after the whole run, so an hour-long batch shows
+nothing machine-readable until it ends. Fix: decide between `--json-lines` (one
+record per file carrying `filename`, `status`, `reason`, then the existing
+summary as the final line) and documenting the absence as deliberate. Tests, if
+adopted: line count equals files plus one, every line parses, the final line
+validates against the unchanged summary variant. Acceptance: a recorded decision,
+not a retrofit.
 ### 5.4 Verification
 
 **Gate Commands:**
@@ -906,6 +1081,7 @@ utilities\run_gate.ps1
 - TODO cleanup verified
 - `pip-audit` runs in CI
 - Performance benchmarks show improvement
+- Item 5.5: each S5 item's own tests, and every "no change" outcome recorded with its measurement
 - Full gate passes
 
 ### 5.5 Rollback Plan
@@ -914,6 +1090,7 @@ If Sprint 5 fails gate:
 - Revert TODO fixes
 - Remove `pip-audit` from CI
 - Revert performance optimizations
+- Revert Item 5.5 items individually; S5-2 and S5-4 also drop their schema variant and regenerate `cli_schema.json` so `--json-schema` stays byte-exact
 - Version remains at 1.4.0
 
 ---

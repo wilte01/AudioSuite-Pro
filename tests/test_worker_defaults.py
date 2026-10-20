@@ -7,7 +7,7 @@ saved-config fallback stayed at four (D66).  This scan finds the remaining
 shapes a fixed count can take — a ``max_workers=4`` keyword, a
 ``load_value("...workers", 4)`` default, a ``{"max_workers": 4}`` payload and
 a ``"4"`` worker entry — and requires each to be either derived or one of the
-two documented single-worker call sites.
+documented single-worker call sites.
 
 Changed in 1.4.0: adds the worker-count literal lock for the audit follow-up.
 """
@@ -24,12 +24,11 @@ _SKIP_PARTS = frozenset(
 _WORKER_ARGUMENTS = frozenset({"max_workers", "num_workers", "workers"})
 _WORKER_KEYS = frozenset({"max_workers", "num_workers", "workers"})
 
-#: Sites that intentionally use one worker: a single-file action and a serial
-#: tag-write stage.  Both are about ordering, not parallelism, so deriving
-#: them from the host default would change behaviour.
+#: Sites that intentionally use one worker: the serial tag-write stage.  It is
+#: about ordering, not parallelism, so deriving it from the host default would
+#: change behaviour.
 _ALLOWED_ONE_WORKER = frozenset(
     {
-        ("audio_suite_shared/shell_action.py", "max_workers"),
         ("replaygain_analyzer/core/file_processor.py", "max_workers"),
     }
 )
@@ -140,7 +139,7 @@ def _literal_worker_counts() -> list[str]:
 
 
 class TestWorkerCountLiterals:
-    """No fixed worker count outside the two documented single-worker sites."""
+    """No fixed worker count outside the documented single-worker site."""
 
     def test_the_scan_finds_worker_call_sites(self) -> None:
         files = _first_party_files()

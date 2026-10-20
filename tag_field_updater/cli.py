@@ -1,8 +1,12 @@
-"""CLI command for Tag Field Updater."""
+"""CLI command for Tag Field Updater.
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+"""
 
 from __future__ import annotations
 
 import json as _json_mod
+import time
 
 import click
 
@@ -13,6 +17,7 @@ from audio_suite_shared.cli_base import (
     _opt_json,
     cli,
 )
+from audio_suite_shared.cli_schema import build_payload
 
 
 @cli.command("tag-update")
@@ -35,22 +40,29 @@ def tag_update_cli(directory: str, dry_run: bool, json: bool) -> None:
 
     processor = TagProcessor()
 
+    started = time.monotonic()
     with active_batch("tag_field_updater", "tag_edit"):
         processor.scan_directory(directory, dry_run=dry_run)
 
     stats = processor.stats
 
-    result_data = {
-        "directory": directory,
-        "dry_run": dry_run,
-        "processed": stats.processed_files,
-        "updated": stats.updated_files,
-        "skipped": stats.skipped_files,
-        "errors": stats.error_files,
-    }
+    # processed_files counts every file the scan attempted, so skipped and
+    # failed files are already inside it (the shared schema's rule).
+    payload = build_payload(
+        "tag-update",
+        dry_run=dry_run,
+        total=stats.processed_files,
+        processed=stats.processed_files,
+        skipped=stats.skipped_files,
+        errors=stats.error_files,
+        duration_secs=time.monotonic() - started,
+        log_entries=[],
+        directory=directory,
+        updated=stats.updated_files,
+    )
 
     if json:
-        click.echo(_json_mod.dumps(result_data, indent=2))
+        click.echo(_json_mod.dumps(payload, indent=2))
     else:
         updated_label = "would update" if dry_run else "updated"
         click.echo(

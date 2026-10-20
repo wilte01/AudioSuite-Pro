@@ -1,11 +1,20 @@
 """Fingerprint generation via the external ``fpcalc`` binary.
 
 Resolution order for the binary:
-    explicit `--fpcalc` path  >  ``FPCALC`` environment variable  >  PATH.
+    explicit `--fpcalc` path  >  ``FPCALC`` environment variable  >  PATH
+    >  the ``fpcalc.exe`` committed at the checkout root.
+
+The committed copy is the last resort, so an intentional PATH install still
+wins, while a plain source checkout fingerprints out of the box without
+``--fpcalc`` or a PATH edit.
 
 The fingerprint inside ``FINGERPRINT=`` can be extremely long (one integer
 per ~2.5ms of audio), so fpcalc output is captured as text and parsed
 line-by-line rather than via mutagen or any Python fingerprint library.
+
+Changed in 1.4.0: adds the committed ``fpcalc.exe`` as the final fallback, so
+``audiosuite fingerprint`` works from a plain checkout without ``--fpcalc`` or
+a PATH entry.  An explicit path, ``FPCALC`` and PATH still win.
 """
 
 from __future__ import annotations
@@ -14,6 +23,7 @@ import logging
 import os
 import shutil
 from dataclasses import dataclass
+from pathlib import Path
 
 from audio_suite_shared.secure_subprocess import (
     SubprocessSecurityError,
@@ -28,6 +38,11 @@ logger = logging.getLogger(__name__)
 FPCALC_ENV_VAR = "FPCALC"
 DEFAULT_MAX_LENGTH = 120
 _FPCALC_TIMEOUT_SECS = 300
+
+#: The ``fpcalc.exe`` committed at the checkout root.  ``fingerprinter.py`` is
+#: ``<checkout>/audio_fingerprinter/core/fingerprinter.py``, so ``parents[2]``
+#: is the checkout itself; an installed wheel simply will not have the file.
+SHIPPED_FPCALC = Path(__file__).resolve().parents[2] / "fpcalc.exe"
 
 
 @dataclass(frozen=True)
@@ -47,7 +62,8 @@ def resolve_fpcalc(explicit_path: str | None = None) -> str:
     """Locate the ``fpcalc`` executable.
 
     Resolution order is ``explicit_path``, then the ``FPCALC`` environment
-    variable, then a ``shutil.which`` scan of PATH.
+    variable, then a ``shutil.which`` scan of PATH, then the copy of
+    ``fpcalc.exe`` shipped at the checkout root (``SHIPPED_FPCALC``).
 
     Args:
         explicit_path: Optional user-supplied path to ``fpcalc``.
@@ -74,6 +90,9 @@ def resolve_fpcalc(explicit_path: str | None = None) -> str:
     found = shutil.which("fpcalc")
     if found:
         return os.path.abspath(found)
+
+    if SHIPPED_FPCALC.is_file():
+        return str(SHIPPED_FPCALC)
 
     raise FingerprintToolError(
         "fpcalc was not found. Pass --fpcalc, set the FPCALC environment "

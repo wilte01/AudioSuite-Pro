@@ -7,6 +7,12 @@ functionality.
 
 Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
 when not supplied (PLAN D56).
+Changed in 1.4.0: a failed file reports the reason in plain language and logs
+one line; the stack trace goes to the DEBUG log instead of the console.
+Changed in 1.4.0: skipped and failed files are collected as structured records
+(filename, reason, and the periodicity score or exception type) and handed to
+``on_complete`` so the CLI's ``--json`` output can explain an outcome instead of
+only counting it.
 """
 
 from __future__ import annotations
@@ -21,11 +27,15 @@ from typing import Any, Callable, Optional
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.batch_undo import get_active_batch_id, use_batch
 from audio_suite_shared.constants import cap_workers_to_slot_grid, default_max_workers
-from audio_suite_shared.exceptions import handle_audio_errors
+from audio_suite_shared.exceptions import (
+    failure_reason,
+    handle_audio_errors,
+    log_handled_failure,
+)
 from audio_suite_shared.file_processor_base import BaseFileProcessor
 from audio_suite_shared.tag_helper import read_bpm, write_bpm
 
-from .bpm_detector import BPMDetectionError, detect_bpm
+from .bpm_detector import BPMDetectionError, NoTempoDetectedError, detect_bpm
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +67,40 @@ class ProcessingStatus(Enum):
     ERROR = auto()
 
 
+def _error_record(filename: str, reason: str, exc: BaseException) -> dict[str, object]:
+    """Build the structured record for one failed file.
+
+    ``error_type`` lets a script separate a corrupt/unreadable file from other
+    failures without matching prose; the reason stays the same plain-language
+    sentence the per-file log shows.
+    """
+    return {
+        "filename": filename,
+        "reason": reason,
+        "error_type": type(exc).__name__,
+    }
+
+
+def _skip_record(
+    filename: str, reason: str, exc: NoTempoDetectedError
+) -> dict[str, object]:
+    """Build the structured record for one refused file.
+
+    The score comes from the exception's context, not from the rendered
+    ``reason``: parsing the sentence would break the moment its wording
+    changes.  A non-positive tempo estimate never measured periodicity, so
+    that field is ``None`` rather than a fabricated zero.
+    """
+    score = exc.context.get("onset_periodicity")
+    return {
+        "filename": filename,
+        "reason": reason,
+        "onset_periodicity": (
+            float(score) if isinstance(score, (int, float)) else None
+        ),
+    }
+
+
 def process_single_file(
     name: str,
     dir_path: str,
@@ -67,6 +111,8 @@ def process_single_file(
     slot_idx: int,
     lock: threading.Lock,
     on_progress: Callable[..., None],
+    skipped_files: list[dict[str, object]] | None = None,
+    error_files: list[dict[str, object]] | None = None,
     **kwargs: Any,
 ) -> None:
     """
@@ -83,6 +129,10 @@ def process_single_file(
         lock:              Threading lock that gates calls to on_progress.
         on_progress:       Callback with signature (n_skipped, n_errors,
                            display_text, log_text) used by BaseFileProcessor.
+        skipped_files:     Optional shared list that receives one structured
+                           record per refused file; appended under *lock*.
+        error_files:       Optional shared list that receives one structured
+                           record per failed file; appended under *lock*.
         **kwargs:          Extra keyword arguments forwarded by the base class
                            (e.g. slot_vars).
     """
@@ -94,16 +144,33 @@ def process_single_file(
 
     try:
         bpm: int = detect_bpm(full_path, analysis_duration, min_bpm, max_bpm)
+    except NoTempoDetectedError as exc:
+        # Beatless audio is not a failure: there is simply nothing to tag. The
+        # old behaviour clamped the tracker's zero estimate to min_bpm and
+        # wrote that invented value, which looks exactly like a measurement.
+        reason = failure_reason(exc)
+        display = f"[SKIP] {name}: {reason}"
+        log = f"[SKIP] {name}: {reason}\n"
+        logger.info("[SKIP] %s — %s", name, reason)
+        with lock:
+            if skipped_files is not None:
+                skipped_files.append(_skip_record(name, reason, exc))
+            on_progress(n_skipped=1, n_errors=0, display_text=display, log_text=log)
+        return
     except BPMDetectionError as exc:
-        logger.error(
+        reason = failure_reason(exc)
+        log_handled_failure(
+            logger,
             "[BPMDetectionError] process_single_file failed for '%s': %s",
             name,
-            exc,
-            exc_info=True,
+            reason,
+            exc=exc,
         )
-        display = f"[ERROR] {name}: BPM detection failed"
-        log = f"[ERROR] {name}: BPM detection failed — {exc}\n"
+        display = f"[ERROR] {name}: {reason}"
+        log = f"[ERROR] {name}: BPM detection failed — {reason}\n"
         with lock:
+            if error_files is not None:
+                error_files.append(_error_record(name, reason, exc))
             on_progress(n_skipped=0, n_errors=1, display_text=display, log_text=log)
         return
 
@@ -151,28 +218,49 @@ def _detect_bpm_cpu(
     Runs in a separate process; no callback, lock, or UI references.
 
     Returns:
-        ``{"status": "ok", "bpm": <int>}`` on success, or
+        ``{"status": "ok", "bpm": <int>}`` on success,
+        ``{"status": "no_tempo", "error": <str>, "onset_periodicity":
+        <float | None>}`` when the audio has no discernible beat, or
         ``{"status": "error", "error": <str>}`` on failure.
     """
     try:
         bpm = detect_bpm(file_path, analysis_duration, min_bpm, max_bpm)
         return {"status": "ok", "bpm": bpm}
+    except NoTempoDetectedError as exc:
+        record = _skip_record(os.path.basename(file_path), failure_reason(exc), exc)
+        return {
+            "status": "no_tempo",
+            "error": record["reason"],
+            "onset_periodicity": record["onset_periodicity"],
+        }
     except BPMDetectionError as exc:
-        logger.error(
+        reason = failure_reason(exc)
+        log_handled_failure(
+            logger,
             "[BPMDetectionError] _detect_bpm_cpu failed for '%s': %s",
             file_path,
-            exc,
-            exc_info=True,
+            reason,
+            exc=exc,
         )
-        return {"status": "error", "error": str(exc)}
+        return {
+            "status": "error",
+            "error": reason,
+            "error_type": type(exc).__name__,
+        }
     except (ValueError, OSError, RuntimeError) as exc:
-        logger.error(
+        reason = failure_reason(exc)
+        log_handled_failure(
+            logger,
             "[Unexpected] _detect_bpm_cpu failed for '%s': %s",
             file_path,
-            exc,
-            exc_info=True,
+            reason,
+            exc=exc,
         )
-        return {"status": "error", "error": str(exc)}
+        return {
+            "status": "error",
+            "error": reason,
+            "error_type": type(exc).__name__,
+        }
 
 
 def _handle_bpm_result(
@@ -188,15 +276,46 @@ def _handle_bpm_result(
     reports progress."""
     is_dry_run = kwargs.get("is_dry_run", False)
     slot_vars: list[Any] | None = kwargs.get("slot_vars")
+    skipped_files = kwargs.get("skipped_files")
+    error_files = kwargs.get("error_files")
     if slot_vars is not None:
         slot_vars[slot_idx].set(f"Processing: {filename[:25]}...")
 
     full_path: str = os.path.join(dir_path, filename)
 
-    if result.get("status") == "error":
-        display = f"[ERROR] {filename}: {result.get('error', 'unknown error')}"
-        log = f"[ERROR] {filename}: BPM detection failed — {result.get('error')}\n"
+    if result.get("status") == "no_tempo":
+        reason = str(result.get("error", "unknown error"))
+        score = result.get("onset_periodicity")
+        display = f"[SKIP] {filename}: {reason}"
+        log = f"[SKIP] {filename}: {reason}\n"
         with lock:
+            if isinstance(skipped_files, list):
+                skipped_files.append(
+                    {
+                        "filename": filename,
+                        "reason": reason,
+                        "onset_periodicity": (
+                            float(score) if isinstance(score, (int, float)) else None
+                        ),
+                    }
+                )
+            on_progress(n_skipped=1, n_errors=0, display_text=display, log_text=log)
+        return
+
+    if result.get("status") == "error":
+        reason = str(result.get("error", "unknown error"))
+        error_type = str(result.get("error_type", "BPMDetectionError"))
+        display = f"[ERROR] {filename}: {reason}"
+        log = f"[ERROR] {filename}: BPM detection failed — {reason}\n"
+        with lock:
+            if isinstance(error_files, list):
+                error_files.append(
+                    {
+                        "filename": filename,
+                        "reason": reason,
+                        "error_type": error_type,
+                    }
+                )
             on_progress(n_skipped=0, n_errors=1, display_text=display, log_text=log)
         return
 
@@ -288,6 +407,22 @@ def run_analysis(
         parallel_mode=parallel_mode,
     )
 
+    # Structured skip records for the CLI's --json output.  Appended by the
+    # thread worker under its progress lock and by the process-pool result
+    # handler in the main thread; sorted once at completion so output order is
+    # deterministic regardless of which worker finished first.
+    skipped_files: list[dict[str, object]] = []
+    error_files: list[dict[str, object]] = []
+
+    def _complete(**cb_kwargs: object) -> None:
+        on_complete(
+            **cb_kwargs,
+            skipped_files=sorted(
+                skipped_files, key=lambda record: str(record["filename"])
+            ),
+            error_files=sorted(error_files, key=lambda record: str(record["filename"])),
+        )
+
     # Join an active undo batch if the caller opened one.  Worker threads
     # record tag snapshots against it via use_batch().
     undo_batch: str | None = get_active_batch_id()
@@ -301,6 +436,8 @@ def run_analysis(
         handler_kwargs = {
             "is_dry_run": is_dry_run,
             "slot_vars": slot_vars,
+            "skipped_files": skipped_files,
+            "error_files": error_files,
         }
         combined_kwargs: dict[str, object] = {**cpu_kwargs, **handler_kwargs}
 
@@ -309,7 +446,7 @@ def run_analysis(
             cpu_worker=_detect_bpm_cpu,
             result_handler=_handle_bpm_result,
             on_progress=on_progress,
-            on_complete=on_complete,
+            on_complete=_complete,
             on_error=on_error,
             extensions=SUPPORTED_EXTENSIONS,
             max_workers=max_workers,
@@ -337,6 +474,8 @@ def run_analysis(
                     lock=lock,
                     on_progress=on_progress,
                     slot_vars=slot_vars,
+                    skipped_files=skipped_files,
+                    error_files=error_files,
                     **kwargs,
                 )
 
@@ -344,7 +483,7 @@ def run_analysis(
             dir_path=dir_path,
             processor_func=processor_func,
             on_progress=on_progress,
-            on_complete=on_complete,
+            on_complete=_complete,
             on_error=on_error,
             extensions=SUPPORTED_EXTENSIONS,
         )

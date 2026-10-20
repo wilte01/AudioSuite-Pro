@@ -267,6 +267,13 @@ class TestOnCompleteReport:
         self._complete(app, total=4, processed=4, skipped=1, errors=1)
         assert "Tagged/Analyzed: 2" in self._report(app)
 
+    def test_tool_specific_completion_fields_are_tolerated(self, tmp_path):
+        """BPM passes ``skipped_files``; the shared report writer ignores it."""
+        app = _make_app()
+        app._log_path = str(tmp_path / "fake_dry_run_log.txt")
+        self._complete(app, skipped_files=[{"filename": "noise.wav"}])
+        assert "SUMMARY:" in self._report(app)
+
     def test_uses_the_tools_own_skipped_wording(self, tmp_path):
         """The two tools legitimately disagree on what a skip means."""
         app = _make_app()

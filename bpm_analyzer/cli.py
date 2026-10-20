@@ -1,4 +1,9 @@
-"""CLI command for BPM Analyzer."""
+"""CLI command for BPM Analyzer.
+
+Changed in 1.4.0: ``--json`` flattens the collector's tool-specific fields so
+``skipped_files`` (filename, reason, onset-periodicity score) is a top-level
+key next to the processed/skipped/errors counts.
+"""
 
 from __future__ import annotations
 
@@ -58,7 +63,9 @@ def bpm(
             max_workers=workers,
         )
     if json:
-        click.echo(_json_mod.dumps(result.to_dict(), indent=2))
+        # ``extra`` carries ``skipped_files`` / ``error_files``; to_payload
+        # publishes them at the top level under the shared CLI schema.
+        click.echo(_json_mod.dumps(result.to_payload("bpm", dry_run=dry_run), indent=2))
     else:
         click.echo(
             f"  Summary: {result.processed} files, "

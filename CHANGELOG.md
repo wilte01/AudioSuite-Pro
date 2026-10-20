@@ -9,23 +9,179 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **The CLI names the supported runtime when an install is stale.** Running the
+  console script from a checkout is now checked against `pyproject.toml`: when
+  the installed `audiosuite-pro` metadata version differs, every command prints
+  a warning naming both versions and `uv run audiosuite --help`. A tool module
+  that cannot be imported no longer kills the process: the rest of the CLI,
+  including `doctor`, stays usable and the missing package is reported with the
+  two commands that repair the environment (`uv sync --frozen --all-extras`,
+  then `uv run audiosuite`). The README's Installation section documents the
+  locked runtime and why a bare `audiosuite` can resolve to an older global
+  install.
+
+- **`audiosuite doctor` reports whether this install maps the checkout.** It
+  resolves every first-party package through the installed import machinery,
+  marks each as mapped, missing, or resolved from another install, maps a
+  broken package back to the CLI commands it takes down (including a tool whose
+  module resolved but whose command never registered), and prints the checkout
+  and installed versions. It exits 0 only when the versions match and every
+  package and command is present, so a pre-flight script can gate on it. The
+  scan asserts it found packages, so a broken checkout scan cannot pass
+  vacuously.
+
+- **Every CLI tool's `--json` output now follows one documented schema.** A
+  script can read `processed`, `succeeded`, `skipped`, `errors`, `total`,
+  `dry_run`, `duration_secs` and `log_entries` from any command's payload and
+  get the same meaning every time; `succeeded` is `processed - skipped -
+  errors`, so it no longer matters which tool counts attempts. Each payload also
+  carries `schema_version` (1), `tool` (the manifest id) and `command` (the CLI
+  path), and tool-specific keys are declared per command in
+  `audio_suite_shared/cli_schema.py` rather than leaking internal completion
+  fields. JSON always goes to stdout and progress to stderr. A breaking change
+  to a shared name bumps `schema_version`; `tests/test_cli_json_schema.py`
+  invokes every command and fails on drift.
+
+- **The CLI JSON contract ships as a JSON Schema document.**
+  `audio_suite_shared/cli_schema.json` (draft 2020-12) holds one variant per
+  command, discriminated by the constant `command`, and is generated from the
+  same table that builds the payloads. `audiosuite --json-schema` prints it
+  and exits, so an external validator needs no Python import; the lock test
+  fails if the committed document is stale and validates every command's real
+  payload against its committed variant.
+
+- **BPM Analyzer's `--json` output explains every refused file.** A
+  skipped file used to appear only in the `skipped` count; the JSON
+  payload now has a top-level `skipped_files` list with each file's
+  `filename`, `reason`, and `onset_periodicity` (null when the tracker
+  found no tempo at all, so no score was measured). The records come from
+  the exception's structured context in both the threaded and the
+  `--parallel` process-pool paths, and the list is always present (empty
+  when nothing was skipped). A parallel top-level `error_files` list reports
+  each failed file's `filename`, `reason`, and `error_type` (for example
+  `BPMDetectionError`), so a corrupt or unreadable file no longer looks
+  like a beatless skip. Both lists are always present and sorted by
+  filename. The GUI completion callback accepts such tool-specific fields, so
+  the same run data can reach the CLI without breaking the report writer.
+
+### Fixed
+
+- **`audiosuite cd-rip --json` reports a drive or disc failure in its payload.**
+  A session that could not open the drive exited 1 with the reason only on
+  stderr, so a script saw a bare failure. The rip path and
+  `--detect-read-offset` now print one schema-conforming payload first
+  (`errors: 1`, the reason in `error`, `read_offset_frames` null), then exit 1;
+  stderr keeps the human-readable line, and a successful run's shape is
+  unchanged.
+
+- **`audiosuite fingerprint` finds the fpcalc binary the repository ships.**
+  A source checkout commits `fpcalc.exe`, but resolution stopped at `--fpcalc`,
+  `FPCALC` and PATH, so every file failed with `fpcalc was not found` unless the
+  flag was passed. The committed copy is now the final fallback (an explicit
+  path, the environment variable and PATH still win), the GUI status line names
+  it instead of claiming PATH, and regression tests lock both the order and the
+  out-of-box run.
+
+- **`audiosuite cd-rip` exits with the drive error instead of hanging.**
+  `read_toc` raises `AudioIOError` for an unavailable drive; because that is an
+  `AudioSuiteError` and not an `OSError`, it escaped the session thread before
+  `session_done_cb` and the CLI waited on `done_event.wait()` forever with no
+  output. A session now always signals completion, records the fatal reason (the
+  CLI turns it into a non-zero exit), logs a missing disc at WARNING without a
+  traceback, and treats a failed spin-down as non-fatal.
+
+- **`audiosuite enhance` no longer reports every file as a worker error.** Its
+  progress callback sends a tool-specific `done=` counter that the shared
+  `_run_tool` callback did not accept, so each file failed with `on_progress()
+  got an unexpected keyword argument 'done'` — in text mode as well as JSON.
+  The shared callback now absorbs tool-specific counters it does not display.
+
+- **An unreadable file is reported in words that describe it.** BPM Analyzer,
+  Key Detector, Mood Analyzer and Spectral Viewer all decode through the shared
+  loader, which now raises one plain-language error:
+  `Could not decode '<name>' — the file may be corrupt, truncated, or in a
+  format no available decoder can read.` A file deleted between the scan and
+  the decode says so instead (`... the file was not found; it may have been
+  moved or deleted.`) while keeping the exception type callers already catch.
+  Previously the decoder's own wording reached users — libsndfile reports an
+  unreadable container as "File does not exist or is not a regular file", which
+  told someone looking at the file that it had vanished — and a failed FFmpeg
+  fallback logged its exit code and stderr at ERROR on top of it. The decoder's
+  exception is kept as the cause in `logs/<tool>.log`.
+
+- **`--log-level WARNING` now actually quiets the console.** The requested
+  level was applied to the root logger only, while each tool package carries
+  its own level, so its DEBUG and INFO records bypassed that filter and the
+  console handler printed every processing detail — including stack traces
+  logged at DEBUG — during a WARNING run. The console handler now sets the same
+  level, so only warnings and errors reach the screen while the per-tool file
+  log keeps its full detail.
+
+- **A fatal CLI failure is now visible in the JSON payload.** `_run_tool`
+  records a failed run as one error (it used to report `-1`) and includes the
+  reason in `error`, so a script parsing `--json` can see why the run stopped
+  instead of only a count it had to interpret.
+
+- **`--json` payloads no longer nest tool fields under `extra`.** Completion
+  data is published at the top level only when the schema declares it, so
+  internal fields (enhancer result objects, per-file log-line lists) cannot
+  change the public payload. `cd-rip`'s `log` is now `log_entries`, and
+  `stats` reports the library's audio length as `library_duration_secs` /
+  `library_duration_str` so `duration_secs` always means the run's wall-clock
+  time. `tag-edit` and `cd-rip` publish one key set in both of their modes,
+  with nulls for the fields a mode does not use.
+
+- **One handled failure produces one line, not a traceback.** A corrupt or
+  unsupported file is an expected per-file outcome, so the shared loader logs
+  its reason at ERROR and the full causal chain at DEBUG. Retries no longer
+  print a traceback for each failed attempt or for a non-retryable error; only
+  exhausted retries log a final ERROR with the reason. The per-file outcome
+  stays the user-facing report.
+
+- **Silent files are refused instead of tagged with a made-up tempo, key or
+  mood.** The shared analysis guard now rejects audio that is effectively
+  silent (below about -60 dBFS RMS) as well as audio shorter than half a
+  second, and BPM Analyzer, Key Detector and Mood Analyzer all apply it before
+  feature extraction. Previously a silent file produced the clamp-floor BPM,
+  a confident-looking key from a flat chroma spectrum, or a mood with a
+  confidence score, and those values were written to the file as if measured.
+  A silent file now reports `Audio is effectively silent (-240 dBFS); nothing
+  to analyse.` and leaves its tags untouched.
+
+- **Beatless files report "No tempo detected" instead of a made-up BPM.** When
+  the beat tracker finds no beat — a sustained tone, a drone, or a pad with no
+  rhythmic transients — it returns a tempo of zero. BPM Analyzer clamped that
+  to the minimum BPM and tagged it, so a file with no rhythm carried a value
+  that looked measured. The file is now left untagged and reported as `[SKIP]
+  <file>: No tempo detected — the audio has no discernible beat.`, in both the
+  threaded and the multi-process paths.
+
+- **Noise-only files no longer get a made-up tempo.** A positive estimate from
+  the beat tracker is not proof of a beat: random onsets can be fitted to a
+  tempo grid, which is how a noise recording came out as a plausible BPM. BPM
+  Analyzer now measures how strongly the onset pattern repeats at the detected
+  tempo and its multiples, and reports `[SKIP] <file>: No tempo detected — the
+  audio has no discernible beat.` when it does not, leaving the file untagged.
+  Music over a noisy floor still passes: the threshold sits well below a
+  jittered or noise-covered beat. The skip line and the per-file log now include the
+  measured onset periodicity and the 0.10 minimum, so a skipped file shows the
+  evidence rather than only the verdict.
+
+- **The BPM periodicity gate is calibrated against real music.** The guard
+  that refuses noise-only files now scores a harmonic comb - how strongly the
+  onset pattern repeats at one, two, three and four beats - instead of a
+  single lag, and the minimum is 0.10. A corpus of seven CC0 recordings under
+  `tests/data/bpm_corpus/` pins the music side: real tracks score 0.154-0.595
+  while seeded white, pink and brown noise never exceeds 0.080, so BPM
+  Analyzer no longer refuses genuine jazz, samba or hip-hop for want of a
+  stricter noise margin. Provenance, licences and the measured calibration are
+  in `tests/data/bpm_corpus/ATTRIBUTION.md`.
 
 ## [1.4.0] - 2026-10-19
 
 ### Added
-
-- **Right-click AudioSuite-Pro in Windows Explorer.** `audiosuite shell-install`
-  adds a per-user context menu for supported audio files with five verbs:
-  *Convert to MP3*, *Convert to FLAC*, *Analyze BPM*, *Analyze Key* and
-  *Analyze Mood*. Each verb acts on the one file you selected, never its
-  folder, and opens a console window so progress and errors are readable. The
-  menu needs no administrator rights (it lives under `HKCU`), refuses to
-  overwrite an existing conversion output, and writes analysis tags inside an
-  undo batch so *Undo Tag Edits* can revert a right-click. `--dry` prints the
-  exact registry keys first, `shell-uninstall` removes them, and
-  `shell-install --flat` writes the five verbs flat for Explorer builds that
-  do not render the cascading submenu.
 
 - **What's New after an update.** The suite now says what changed instead of
   leaving you to find the changelog: the first time it starts after an update
@@ -37,6 +193,19 @@ Nothing yet.
   disables the automatic panel entirely. Skipping a release does not lose its
   notes: the panel lists every release newer than the last version it showed,
   newest first, each under its own `Version x.y.z` heading.
+
+### Removed
+
+- **The Windows Explorer right-click integration is NOT being implemented.**
+  The `shell-install` / `shell-uninstall` commands and the per-user
+  `AudioSuite-Pro` context menu they registered have been withdrawn, and the
+  feature is explicitly off the roadmap: it will not be implemented. It was a
+  step too far: it gave Explorer a second entry point into the suite that
+  users could not discover or configure from the app itself, and its cascading
+  submenu did not render consistently across Explorer builds. The modules, their tests,
+  the CLI commands, the README section and the platform-matrix row were all
+  removed in the same change, so nothing advertises a menu that cannot be
+  installed. Use the Master Driver or each tool's own launcher instead.
 
 ### Changed
 
@@ -52,8 +221,8 @@ Nothing yet.
   Batch Tagger fell back to 4 (instead of the machine default) when a saved
   worker count was corrupt, and the `--workers` help text and module docstrings
   still advertised a fixed 4 — as did six of the generated user guides. A new
-  lock test fails on any fixed count above one except the two deliberately
-  serial call sites, the grid lock now derives its tool list from the tool
+  lock test fails on any fixed count above one except the deliberately
+  serial call site, the grid lock now derives its tool list from the tool
   manifest, so newly registered tools are covered without editing the test, and
   the affected guides were regenerated.
 

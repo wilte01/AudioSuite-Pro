@@ -22,6 +22,10 @@ USAGE QUICK-REFERENCE:
   # Or raise explicitly from domain logic:
   raise AudioCodecError("mutagen returned unsupported codec", path=path)
 ─────────────────────────────────────────────────────────────────────────────
+
+Changed in 1.4.0: adds failure_reason() and log_handled_failure(), so a handled
+per-file failure shows the user one plain-language sentence and keeps its stack
+trace in the debug log instead of printing it at the console.
 """
 
 from __future__ import annotations
@@ -467,14 +471,24 @@ def handle_audio_errors(
             except Exception as exc:
                 mapped = map_to_audio_error(exc, context={"operation": _ctx_label})
 
-                # Always log with full traceback — this is the contract.
+                # One readable line at the caller's level; the stack trace
+                # follows at DEBUG.  A handler that catches a domain error has
+                # handled it, so printing a traceback for every corrupt file
+                # was noise at the user's console, not diagnosis.  Uncaught
+                # crashes still reach the excepthooks with full tracebacks.
                 logger.log(
                     log_level,
                     "[%s] %s: %s",
                     type(mapped).__name__,
                     _ctx_label,
                     mapped.message,
-                    exc_info=True,  # ← guarantees the stack trace is ALWAYS captured
+                )
+                logger.debug(
+                    "[%s] %s: %s — traceback follows",
+                    type(mapped).__name__,
+                    _ctx_label,
+                    mapped.message,
+                    exc_info=True,
                 )
 
                 # Suppress-list: treat like reraise=False for these types
@@ -567,3 +581,53 @@ def user_message_for(exc: Exception) -> str:
             return _user_messages[exc_type]
 
     return "An unexpected error occurred. Please check the log for details."
+
+
+def failure_reason(exc: Exception) -> str:
+    """Return a concise, user-facing reason for a handled audio failure.
+
+    Decode and analysis errors are raised with a message already written for
+    the user (for example "Audio is too short to analyse (0.12s)." or "Could
+    not decode 'song.mp3' — the file may be corrupt…"), so that message is
+    preferred over ``user_message_for``'s generic per-class text.  Every other
+    type maps through ``user_message_for`` so the wording table stays in one
+    place.
+
+    Args:
+        exc: The exception a worker or detector caught.
+
+    Returns:
+        One sentence, suitable for a per-file status line or dialog.
+    """
+    mapped = map_to_audio_error(exc)
+    if isinstance(mapped, (AudioCodecError, AudioFormatError, AudioAnalysisError)):
+        if mapped.message:
+            return mapped.message
+    return user_message_for(mapped)
+
+
+def log_handled_failure(
+    logger: logging.Logger,
+    message: str,
+    *args: Any,
+    exc: BaseException | None = None,
+) -> None:
+    """Record a handled failure without dumping its stack trace at the user.
+
+    A corrupt or unsupported file is an expected per-file outcome, not a crash.
+    The concise record is emitted at ERROR (that is what the log reader needs),
+    while the full causal chain goes to DEBUG, so ``logs/<tool>.log`` keeps the
+    traceback for diagnosis without turning every bad file into a screenful of
+    ``Traceback (most recent call last)`` on the console.
+
+    Args:
+        logger:  The module logger to write to.
+        message: A ``%``-style format string.
+        *args:   Arguments for *message*.
+        exc:     The exception whose traceback belongs in the debug record.
+    """
+    logger.error(message, *args)
+    if exc is not None:
+        # Appending to the format string keeps its placeholders intact; passing
+        # an extra argument here would raise inside logging itself.
+        logger.debug(message + " — traceback follows", *args, exc_info=exc)

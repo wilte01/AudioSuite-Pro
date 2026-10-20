@@ -1,4 +1,7 @@
-"""CLI command for Silence Trimmer."""
+"""CLI command for Silence Trimmer.
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+"""
 
 from __future__ import annotations
 
@@ -61,7 +64,11 @@ def silence_trim(
             max_workers=workers,
         )
     if json:
-        click.echo(_json_mod.dumps(result.to_dict(), indent=2))
+        click.echo(
+            _json_mod.dumps(
+                result.to_payload("silence-trim", dry_run=dry_run), indent=2
+            )
+        )
     else:
         click.echo(
             f"  Summary: {result.processed} files, "

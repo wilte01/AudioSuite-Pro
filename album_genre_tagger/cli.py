@@ -1,4 +1,7 @@
-"""CLI command for Album Genre Tagger."""
+"""CLI command for Album Genre Tagger.
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+"""
 
 from __future__ import annotations
 
@@ -140,7 +143,9 @@ def album_genre(directory: str, dry_run: bool, json: bool, coverage: int) -> Non
             min_coverage=coverage,
         )
     if json:
-        click.echo(_json.dumps(result.to_dict(), indent=2))
+        click.echo(
+            _json.dumps(result.to_payload("album-genre", dry_run=dry_run), indent=2)
+        )
     else:
         album_genre = result.extra.get("album_genre", "")
         coverage_pct = result.extra.get("coverage_pct", 0)

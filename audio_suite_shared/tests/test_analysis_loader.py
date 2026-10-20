@@ -22,10 +22,14 @@ backend fails in a particular way on a particular host.
 
 Changed in 1.1.0: added fallback/decode and ffmpeg-transcode tests for
 librosa_load_with_fallback().
+Changed in 1.4.0: the failed-transcode contract is now a plain-language
+AudioCodecError (the decoder's own text is misleading), and the error path is
+locked to one console line with its traceback only in the DEBUG log.
 """
 
 from __future__ import annotations
 
+import logging
 import shutil
 import wave
 from pathlib import Path
@@ -38,7 +42,9 @@ from audio_suite_shared import analysis_loader
 from audio_suite_shared.analysis_loader import (
     MIN_ANALYSIS_SECONDS,
     SILENCE_RMS_THRESHOLD,
+    check_analysable,
     check_min_duration,
+    check_not_silent,
     is_effectively_silent,
     librosa_load_with_fallback,
     load_analysis_audio,
@@ -193,7 +199,7 @@ class TestLoadAnalysisAudioFailures:
         # The empty file exists, so the FFmpeg fallback would otherwise run a
         # real transcode (host-dependent, slow). Stub it away to keep this a
         # pure unit test; the outcome (AudioCodecError) is unchanged because a
-        # failed/absent transcode re-raises the original decode error.
+        # failed/absent transcode reports the shared decode error.
         monkeypatch.setattr(
             analysis_loader, "_transcode_via_ffmpeg", lambda *a, **k: None
         )
@@ -241,6 +247,19 @@ class TestLoadAnalysisAudioFailures:
         with pytest.raises(AudioAnalysisError):
             load_analysis_audio(str(tmp_path / "stub.flac"))
 
+    def test_silent_file_raises_audio_analysis_error(self, tmp_path) -> None:
+        """A real, decodable, one-second silent file is refused.
+
+        The decode is genuine (no mocking): silence satisfies the duration
+        guard, so only the silence guard can stop it reaching an analysis
+        engine — and a mode-aware engine would still return a confident mood.
+        """
+        path = _write_mono_wav(str(tmp_path / "silent.wav"), np.zeros(_SR))
+        with pytest.raises(AudioAnalysisError) as excinfo:
+            load_analysis_audio(path)
+        assert "silent" in str(excinfo.value).lower()
+        assert excinfo.value.context["rms_dbfs"] == -240.0
+
     def test_codec_error_chains_the_original_exception(self, tmp_path) -> None:
         """Callers log the causal chain, so ``__cause__`` must be preserved."""
         with pytest.raises(AudioCodecError) as excinfo:
@@ -256,6 +275,34 @@ class TestLoadAnalysisAudioFailures:
             "failed to decode" in record.message
             for record in caplog.records
             if record.name == analysis_loader.logger.name
+        )
+
+    def test_decode_failure_does_not_print_a_traceback(
+        self, tmp_path, caplog, monkeypatch
+    ) -> None:
+        """A bad file is a per-file outcome, not a crash.
+
+        The ERROR record must stand alone; the stack trace belongs in the
+        DEBUG log, or every corrupt file floods the console with
+        ``Traceback (most recent call last)`` lines the user cannot act on.
+        """
+        path = str(tmp_path / "empty.wav")
+        open(path, "wb").close()
+        monkeypatch.setattr(
+            analysis_loader, "_transcode_via_ffmpeg", lambda *a, **k: None
+        )
+        caplog.set_level(logging.DEBUG, logger=analysis_loader.logger.name)
+        with pytest.raises(AudioCodecError):
+            load_analysis_audio(path)
+
+        records = [r for r in caplog.records if r.name == analysis_loader.logger.name]
+        errors = [r for r in records if r.levelno >= logging.ERROR]
+        assert errors, "the failure must still be logged"
+        assert all(r.exc_info is None for r in errors), (
+            "an ERROR record carried a traceback; it belongs in the DEBUG log"
+        )
+        assert any(r.levelno == logging.DEBUG and r.exc_info for r in records), (
+            "the causal chain must still reach the debug log"
         )
 
     def test_both_declared_failure_types_are_skippable_by_the_batch_tools(
@@ -340,9 +387,16 @@ class TestLibrosaLoadWithFallback:
         with pytest.raises(FileNotFoundError):
             librosa_load_with_fallback(str(tmp_path / "missing.wv"))
 
-    def test_reraises_original_when_transcode_unavailable(
+    def test_reports_the_shared_decode_error_when_transcode_unavailable(
         self, monkeypatch, tmp_path
     ) -> None:
+        """A user sees a reason, not the decoder's own misleading text.
+
+        libsndfile reports an unreadable container as "File does not exist or
+        is not a regular file (possibly a pipe?)" even though the file is
+        right there, so the loader substitutes its own sentence and keeps the
+        decoder exception on ``__cause__`` for the log.
+        """
         import librosa
 
         path = str(tmp_path / "song.wv")
@@ -356,8 +410,14 @@ class TestLibrosaLoadWithFallback:
             analysis_loader, "_transcode_via_ffmpeg", lambda *a, **k: None
         )
 
-        with pytest.raises(RuntimeError, match="codec"):
+        with pytest.raises(AudioCodecError) as excinfo:
             librosa_load_with_fallback(path)
+        message = str(excinfo.value)
+        assert "song.wv" in message
+        assert "corrupt" in message
+        assert "File does not exist" not in message
+        assert "codec" not in message  # the decoder's text stays in __cause__
+        assert isinstance(excinfo.value.__cause__, RuntimeError)
 
 
 class TestTranscodeViaFFmpeg:
@@ -407,10 +467,14 @@ class TestTranscodeViaFFmpeg:
         y, sr = librosa_load_with_fallback(str(fixture))
         assert len(y) > 0
         assert sr > 0
-        # load_analysis_audio enforces the >=0.5s minimum internally.
-        y2, sr2 = load_analysis_audio(str(fixture))
-        assert len(y2) > 0
-        assert sr2 == sr
+        # The fixture is 3.7 s of (near) silence, so the shared loader's
+        # silence guard refuses it.  Pinning that here keeps the fixture's two
+        # properties -- runs through the FFmpeg fallback, is not analysable --
+        # in one place instead of assuming load_analysis_audio accepts any
+        # successfully decoded file.
+        with pytest.raises(AudioAnalysisError) as excinfo:
+            load_analysis_audio(str(fixture))
+        assert "silent" in str(excinfo.value).lower()
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -457,6 +521,48 @@ class TestCheckMinDuration:
     def test_returns_none_for_an_acceptable_signal(self) -> None:
         y = np.ones(int(MIN_ANALYSIS_SECONDS * _SR), dtype=np.float64)
         assert check_min_duration(y, _SR) is None
+
+
+class TestCheckAnalysable:
+    """The one guard every analysis decode path must call.
+
+    It composes the duration and silence checks, so a tool that adopts it
+    cannot end up with half the contract (the defect that let a silent file be
+    tagged with a clamp-floor BPM).
+    """
+
+    def test_a_usable_tone_passes(self) -> None:
+        assert check_analysable(0.5 * _tone(1.0), _SR) is None
+
+    def test_duration_failure_still_reports_duration(self) -> None:
+        with pytest.raises(AudioAnalysisError) as excinfo:
+            check_analysable(0.5 * _tone(0.2), _SR)
+        assert "too short" in str(excinfo.value).lower()
+
+    def test_a_right_length_silent_signal_is_rejected(self) -> None:
+        with pytest.raises(AudioAnalysisError) as excinfo:
+            check_analysable(np.zeros(_SR, dtype=np.float64), _SR)
+        assert "silent" in str(excinfo.value).lower()
+        assert "nothing to analyse" in str(excinfo.value).lower()
+        assert excinfo.value.context["rms_dbfs"] == -240.0
+
+    def test_message_reports_the_measured_level(self) -> None:
+        # A sine of amplitude 1e-4*sqrt(2) has RMS 1e-4 -> -80 dBFS.
+        with pytest.raises(AudioAnalysisError) as excinfo:
+            check_analysable((1.0e-4 * np.sqrt(2.0)) * _tone(1.0), _SR)
+        assert "-80" in str(excinfo.value)
+        assert excinfo.value.context["rms_dbfs"] == pytest.approx(-80.0, abs=0.1)
+
+    def test_signal_just_over_the_threshold_passes(self) -> None:
+        over = (SILENCE_RMS_THRESHOLD * 1.1 * np.sqrt(2.0)) * _tone(1.0)
+        assert check_analysable(over, _SR) is None
+
+    def test_check_not_silent_is_the_silence_half_only(self) -> None:
+        """Short but audible audio passes ``check_not_silent``: duration is
+        ``check_min_duration``'s job, so the two halves stay separable."""
+        assert check_not_silent(0.5 * _tone(0.05)) is None
+        with pytest.raises(AudioAnalysisError):
+            check_not_silent(np.zeros(100, dtype=np.float64))
 
 
 # ═════════════════════════════════════════════════════════════════════════════

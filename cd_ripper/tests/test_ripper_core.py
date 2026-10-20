@@ -1,6 +1,10 @@
 """
 Tests for cd_ripper.core.ripper (G-38)
 
+Changed in 1.4.0: locks that an unavailable drive (AudioIOError) and an
+unexpected session error still call session_done_cb - the CLI used to wait
+forever on a thread that had already died.
+
 Coverage strategy
 -----------------
 Pure-function / subprocess-backed units are tested directly.
@@ -1147,6 +1151,68 @@ class TestRipSession:
             assert ok is False
             assert "TOC" in err or "No TOC entry" in err
         assert session_done.is_set()
+
+    def test_audio_io_error_completes_the_session_and_is_recorded(self, tmp_path):
+        """An unavailable drive must not leave the session waiting forever.
+
+        ``read_toc`` raises ``AudioIOError`` (an ``AudioSuiteError``, not an
+        ``OSError``) for a missing drive letter.  Before this regression test
+        the exception escaped ``_run``, the thread died before
+        ``session_done_cb``, and ``audiosuite cd-rip Z:`` hung on
+        ``done_event.wait()`` with no output.
+        """
+        session_done = threading.Event()
+        log_lines = []
+        session = RipSession(
+            drive="Z:",
+            tracks=[],
+            out_dir=str(tmp_path),
+            fmt="FLAC",
+            quality_args=None,
+            progress_cb=_noop,
+            track_done_cb=_noop,
+            session_done_cb=session_done.set,
+            ffmpeg_path="ffmpeg",
+            log_cb=log_lines.append,
+        )
+
+        with (
+            patch("cd_ripper.core.ripper.probe_ffmpeg", return_value={"version": "0"}),
+            patch(
+                "cd_ripper.core.ripper.read_toc",
+                side_effect=AudioIOError("Cannot open CD device \\\\.\\Z:"),
+            ),
+            patch("cd_ripper.core.ripper.spin_down_drive"),
+        ):
+            session._run()
+
+        assert session_done.is_set()
+        assert session.fatal_error is not None
+        assert "Cannot open CD device" in session.fatal_error
+        assert any("TOC read failed" in line for line in log_lines)
+
+    def test_unexpected_error_still_signals_completion(self, tmp_path):
+        """The finally block is what keeps the CLI from waiting forever."""
+        session_done = threading.Event()
+        session = RipSession(
+            drive="D:",
+            tracks=[],
+            out_dir=str(tmp_path),
+            fmt="FLAC",
+            quality_args=None,
+            progress_cb=_noop,
+            track_done_cb=_noop,
+            session_done_cb=session_done.set,
+            ffmpeg_path="ffmpeg",
+        )
+
+        with patch(
+            "cd_ripper.core.ripper.probe_ffmpeg", side_effect=RuntimeError("no ffmpeg")
+        ):
+            session._run()
+
+        assert session_done.is_set()
+        assert session.fatal_error == "no ffmpeg"
 
 
 # ===========================================================================

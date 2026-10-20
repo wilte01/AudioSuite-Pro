@@ -1,10 +1,14 @@
-"""CLI command for Mood Analysis Batch Tagger."""
+"""CLI command for Mood Analysis Batch Tagger.
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+"""
 
 from __future__ import annotations
 
 import json as _json_mod
 import queue
 import threading
+import time
 from typing import Any
 
 import click
@@ -18,6 +22,7 @@ from audio_suite_shared.cli_base import (
     _opt_workers,
     cli,
 )
+from audio_suite_shared.cli_schema import build_payload
 
 
 @cli.command("mood-analysis-batch")
@@ -45,6 +50,7 @@ def mood_analysis_batch_cli(
 
     out_queue: queue.Queue[Any] = queue.Queue()
     stop_event = threading.Event()
+    started = time.monotonic()
     with active_batch("mood_analysis_batch_tagger", "tag_edit"):
         run_batch(
             root=directory,
@@ -72,21 +78,28 @@ def mood_analysis_batch_cli(
             _, tagged, skipped, errors, folders, log_path = msg
             break
 
-    result = {
-        "directory": directory,
-        "dry_run": dry_run,
-        "duration": duration,
-        "parallel": parallel,
-        "workers": workers,
-        "tagged": tagged,
-        "skipped": skipped,
-        "errors": errors,
-        "folders": folders,
-        "log_path": log_path,
-    }
+    # The batch reports three counts and no raw total; total is what it
+    # attempted, and processed follows the shared schema's rule.
+    payload = build_payload(
+        "mood-analysis-batch",
+        dry_run=dry_run,
+        total=tagged + skipped + errors,
+        processed=tagged + skipped + errors,
+        skipped=skipped,
+        errors=errors,
+        duration_secs=time.monotonic() - started,
+        log_entries=[],
+        directory=directory,
+        duration=duration,
+        parallel=parallel,
+        workers=workers,
+        tagged=tagged,
+        folders=folders,
+        log_path=log_path,
+    )
 
     if json:
-        click.echo(_json_mod.dumps(result, indent=2))
+        click.echo(_json_mod.dumps(payload, indent=2))
     else:
         click.echo(
             f"  Folders scanned: {folders}\n"

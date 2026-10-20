@@ -8,10 +8,13 @@ Changed in 1.4.0: the slot-helper expectations derive from
 ``default_max_workers()`` instead of the old fixed 4, and a regression test
 asserts the default shims cover every worker slot index a default-sized pool
 can hand out.
+Changed in 1.4.0: locks the per-run stale-install warning printed by the group
+callback.
 """
 
 from __future__ import annotations
 
+import io
 import logging
 from queue import Queue
 from typing import Any, Callable
@@ -20,6 +23,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from audio_suite_shared.cli_base import (
+    _configure_console_logging,
     _make_slot_queue,
     _make_slot_vars,
     _NullStringVar,
@@ -40,6 +44,39 @@ class TestNullStringVar:
         var = _NullStringVar()
         var.set("anything")
         assert var.get() == ""
+
+
+class TestConsoleLogLevel:
+    """``--log-level`` must filter the console handler, not just the root.
+
+    First-party loggers carry an explicit level, so their DEBUG records
+    bypass the root logger's level and reach a NOTSET console handler.  The
+    regression: ``audiosuite bpm <dir>`` at the default WARNING printed every
+    processing detail and the stack trace logged for a corrupt file.
+    """
+
+    def test_warning_level_hides_debug_records_from_the_console(self) -> None:
+        root = logging.getLogger()
+        previous = [(handler, handler.level) for handler in root.handlers]
+        stream = io.StringIO()
+        console = logging.StreamHandler(stream)
+        root.addHandler(console)
+        logger = logging.getLogger("test_console_level_probe")
+        previous_logger_level = logger.level
+        logger.setLevel(logging.DEBUG)
+        try:
+            _configure_console_logging(logging.WARNING)
+            logger.debug("processing detail")
+            logger.error("visible failure")
+            err = stream.getvalue()
+        finally:
+            root.removeHandler(console)
+            logger.setLevel(previous_logger_level)
+            for handler, level in previous:
+                handler.setLevel(level)
+
+        assert "processing detail" not in err
+        assert "visible failure" in err
 
 
 class TestSlotHelpers:
@@ -216,3 +253,28 @@ class TestCliSuiteLogging:
         configure.assert_called_once()
         assert configure.call_args.args == ("audiosuite_cli",)
         assert configure.call_args.kwargs["min_level"] == logging.INFO
+
+
+class TestStaleInstallWarning:
+    """A version gap between the install and the checkout reaches the user."""
+
+    @staticmethod
+    def _invoke(monkeypatch, warning: str | None, tmp_path) -> str:
+        from click.testing import CliRunner
+
+        from audio_suite_shared import cli_base, runtime_check
+
+        monkeypatch.setattr(runtime_check, "stale_install_warning", lambda: warning)
+        result = CliRunner().invoke(cli_base.cli, ["bpm", str(tmp_path), "--help"])
+        assert result.exit_code == 0, result.output
+        return result.output
+
+    def test_mismatch_is_printed_with_the_locked_runtime(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        message = "Warning: stale install. Run: uv run audiosuite --help"
+        assert message in self._invoke(monkeypatch, message, tmp_path)
+
+    def test_matching_install_prints_no_warning(self, monkeypatch, tmp_path) -> None:
+        output = self._invoke(monkeypatch, None, tmp_path)
+        assert "Warning: the installed audiosuite-pro" not in output

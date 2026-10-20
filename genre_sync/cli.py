@@ -1,4 +1,7 @@
-"""CLI command for Genre Sync."""
+"""CLI command for Genre Sync.
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+"""
 
 from __future__ import annotations
 
@@ -32,7 +35,9 @@ def genre_sync(directory: str, dry_run: bool, json: bool) -> None:
             is_dry_run=dry_run,
         )
     if json:
-        click.echo(_json_mod.dumps(result.to_dict(), indent=2))
+        click.echo(
+            _json_mod.dumps(result.to_payload("genre-sync", dry_run=dry_run), indent=2)
+        )
     else:
         updated = result.extra.get("updated", 0)
         no_genre = result.extra.get("no_genre", 0)

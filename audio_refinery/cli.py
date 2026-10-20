@@ -1,6 +1,8 @@
 """CLI command for Audio Refinery pipeline.
 Changed in 1.1.0: added the six Sprint 1 effect flags; effect fields
 are carried on the CLI-provided enhancement params.
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 """
 
 from __future__ import annotations
@@ -225,7 +227,9 @@ def refine(
             registry=registry,
         )
     if json:
-        click.echo(_json_mod.dumps(result.to_dict(), indent=2))
+        click.echo(
+            _json_mod.dumps(result.to_payload("refine", dry_run=dry_run), indent=2)
+        )
     else:
         succeeded = result.extra.get("succeeded", 0)
         click.echo(

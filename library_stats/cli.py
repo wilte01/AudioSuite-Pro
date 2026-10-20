@@ -4,6 +4,8 @@ Changed in 1.3.0: completeness covers the five primary fields (title, artist,
 album, track number, year), each completeness run records a trend snapshot in
 ``LibraryCache``, and ``--trend`` / ``--history-limit`` / ``--no-history``
 expose the recorded series (PLAN D41).
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from typing import Any
 import click
 
 from audio_suite_shared.cli_base import _opt_dir, _opt_json, cli
+from audio_suite_shared.cli_schema import build_payload
 from audio_suite_shared.exceptions import AudioSuiteError
 from library_stats.library_cache import LibraryCache
 
@@ -185,7 +188,22 @@ def stats(
     if json:
         import json as _json
 
-        payload = dataclasses.asdict(report)
+        report_fields = dataclasses.asdict(report)
+        # The report's duration is the library's audio length, not the run's
+        # wall-clock time; publish it under the distinct library_* names so
+        # the shared duration_secs keeps one meaning in every payload.
+        library_secs = float(report_fields.pop("duration_secs"))
+        payload = build_payload(
+            "stats",
+            dry_run=False,
+            total=report.total_files,
+            processed=report.total_files,
+            duration_secs=elapsed,
+            log_entries=[],
+            library_duration_secs=library_secs,
+            library_duration_str=f"{library_secs:.1f}s",
+            **report_fields,
+        )
         if completeness_report is not None:
             payload["completeness"] = completeness_report.to_dict()
         if trend:

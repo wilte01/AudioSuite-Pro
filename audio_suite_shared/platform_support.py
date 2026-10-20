@@ -49,8 +49,9 @@ generate_readme_platform_matrix.py`` renders the README section from it, and
 tree and fails if a platform-conditional branch exists that is not listed here
 — so a new ``if sys.platform == ...`` cannot be added without classifying it.
 
-Changed in 1.4.0: declares the Windows Explorer shell-integration branch
-(``audio_suite_shared/shell_integration.py``) as Windows-only.
+Changed in 1.4.0: the Windows Explorer shell-integration branch is gone with
+the withdrawn feature (PLAN D73), so its matrix row and declaration were
+removed in the same change.
 
 The ``os.name`` trap: patch ``sys.platform``, not ``os.name``
 ------------------------------------------------------------
@@ -512,19 +513,6 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
             "sys.platform."
         ),
         evidence="none",
-    ),
-    # ── Explorer shell integration (Sprint 4) ─────────────────────────────────
-    PlatformBranch(
-        module="audio_suite_shared/shell_integration.py",
-        source='return sys.platform == "win32"',
-        tier=WINDOWS_ONLY,
-        subsystem="Windows Explorer right-click menu (shell-install)",
-        behaviour=(
-            "install/uninstall/installed_verbs raise a clear RuntimeError on "
-            "every non-Windows platform; the capability itself is Windows "
-            "Explorer-only, not a degraded portable feature."
-        ),
-        evidence="audio_suite_shared/tests/test_shell_integration.py",
     ),
 )
 

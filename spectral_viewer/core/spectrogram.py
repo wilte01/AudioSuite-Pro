@@ -13,6 +13,8 @@ Tk and a figure can be exported in a headless CLI run), and
 over these three functions.
 
 Changed in 1.3.0: initial version (PLAN_feature_expansion.md Item 3.1 / D42).
+Changed in 1.4.0: the shared loader now supplies the plain-language decode
+error, so this module re-raises it instead of rewrapping it with a full path.
 """
 
 from __future__ import annotations
@@ -27,7 +29,10 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from audio_suite_shared.analysis_loader import librosa_load_with_fallback
+from audio_suite_shared.analysis_loader import (
+    decode_error,
+    librosa_load_with_fallback,
+)
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.exceptions import AudioAnalysisError, AudioCodecError
 
@@ -129,16 +134,15 @@ def _load_window(
         samples, sample_rate = librosa_load_with_fallback(
             file_path, duration=duration, mono=True, sr=None
         )
+    except AudioCodecError:
+        # The shared loader already produced the user-facing reason (the
+        # decoder's own wording is misleading); re-raise it unchanged so the
+        # CLI and GUI keep one exception type without losing that message.
+        raise
     except Exception as exc:
-        # The decoder raises its own library-specific errors (soundfile's
-        # LibsndfileError is a RuntimeError, and the FFmpeg fallback raises
-        # CalledProcessError internally). Mapping them here gives the CLI and
-        # the GUI one exception type to catch, so one unreadable file cannot
-        # abort a whole folder.
-        raise AudioCodecError(
-            f"Could not decode audio file '{file_path}'.",
-            context={"file": file_path},
-        ) from exc
+        # Any other failure still gets the same declared type, so one
+        # unreadable file cannot abort a whole folder.
+        raise decode_error(file_path, original=exc) from exc
     sr = int(sample_rate)
     if sr <= 0:
         raise AudioAnalysisError(

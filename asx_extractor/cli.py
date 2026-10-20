@@ -1,4 +1,7 @@
-"""CLI command for ASX Playlist Extractor."""
+"""CLI command for ASX Playlist Extractor.
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+"""
 
 from __future__ import annotations
 
@@ -181,7 +184,9 @@ def asx_extract(directory: str, dry_run: bool, json: bool) -> None:
         is_dry_run=dry_run,
     )
     if json:
-        click.echo(_json.dumps(result.to_dict(), indent=2))
+        click.echo(
+            _json.dumps(result.to_payload("asx-extract", dry_run=dry_run), indent=2)
+        )
     else:
         ok = result.extra.get("successes", 0)
         fail = result.extra.get("failures", 0)

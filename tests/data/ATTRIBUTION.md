@@ -24,3 +24,10 @@ redistributed here.
 
 These files are declared as an exception format in
 `tests/test_release_notes.py` (no comment syntax to carry a change note).
+
+## BPM regression corpus
+
+`tests/data/bpm_corpus/` holds seven CC0 excerpts of real recordings used to
+calibrate and regress the BPM onset-periodicity gate. Their provenance,
+licences, trim offsets and measured calibration live in
+[`bpm_corpus/ATTRIBUTION.md`](bpm_corpus/ATTRIBUTION.md).

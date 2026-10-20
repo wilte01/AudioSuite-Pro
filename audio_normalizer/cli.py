@@ -1,4 +1,7 @@
-"""CLI command for Audio Normalizer."""
+"""CLI command for Audio Normalizer.
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+"""
 
 from __future__ import annotations
 
@@ -70,7 +73,9 @@ def normalise(
             is_dry_run=dry_run,
         )
     if json:
-        click.echo(_json_mod.dumps(result.to_dict(), indent=2))
+        click.echo(
+            _json_mod.dumps(result.to_payload("normalise", dry_run=dry_run), indent=2)
+        )
     else:
         click.echo(
             f"  Summary: {result.processed} files, "

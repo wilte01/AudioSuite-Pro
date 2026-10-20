@@ -4,6 +4,11 @@ error_recovery.py — Retry logic and recovery action determination.
 Provides retry_with_backoff() for exponential-backoff retry loops and
 get_recovery_action() for deciding skip/retry/abort per exception type.
 No checkpoint persistence or decorator wrappers.
+
+Changed in 1.4.0: a failed attempt keeps its stack trace and non-retryable
+detail in the DEBUG log instead of printing a traceback at the user's console;
+the caller reports the per-file outcome. Exhausted retries still log one ERROR
+line with the final reason.
 """
 
 import logging
@@ -12,7 +17,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Optional, TypeVar
 
-from audio_suite_shared.exceptions import map_to_audio_error
+from audio_suite_shared.exceptions import failure_reason, map_to_audio_error
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
@@ -80,17 +85,24 @@ def retry_with_backoff(
 
         except Exception as e:
             mapped = map_to_audio_error(e)
-            logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
+            # The caller is the reporting boundary: it knows the file and shows
+            # the outcome.  This layer keeps the detail for the debug log only,
+            # so one failed file is not reported three times at ERROR.
+            logger.debug(
+                "[%s] %s — traceback follows",
+                type(mapped).__name__,
+                mapped.message,
+                exc_info=True,
+            )
             last_exception = e
 
             if not any(
                 isinstance(e, exc_type) for exc_type in retry_config.retry_on_exceptions
             ):
-                logger.error(
-                    "Operation %s failed with non-retryable error: %s",
+                logger.debug(
+                    "Operation %s is not retryable: %s",
                     operation_id,
-                    e,
-                    exc_info=True,
+                    failure_reason(e),
                 )
                 raise
 
@@ -114,8 +126,7 @@ def retry_with_backoff(
                     "Operation %s failed after %d attempts: %s",
                     operation_id,
                     attempt + 1,
-                    e,
-                    exc_info=True,
+                    failure_reason(e),
                 )
 
     raise last_exception  # type: ignore[misc]

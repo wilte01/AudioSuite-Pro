@@ -1,14 +1,104 @@
-"""CLI command for CD Ripper."""
+"""CLI command for CD Ripper.
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+Changed in 1.4.0: a drive/disc failure keeps the JSON contract - `--json`
+still prints one schema-conforming payload (errors 1, reason in `error`)
+before exiting 1, so a script never has to parse stderr for the cause.
+"""
 
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable
 from typing import Any
 
 import click
 
 from audio_suite_shared.cli_base import cli
+from audio_suite_shared.cli_schema import build_payload
+
+
+def _rip_payload(
+    *,
+    drive: str,
+    output_dir: str | None,
+    fmt: str | None,
+    tracks: str | None,
+    verify_mode: str | None,
+    dry_run: bool,
+    log_entries: list[str],
+    succeeded: int,
+    failed: int,
+    duration_secs: float,
+    error: str | None = None,
+) -> dict[str, Any]:
+    """Build the JSON payload for a rip (or a dry-run preview of one).
+
+    A dry run attempts nothing, so it reports ``processed=0`` and the tracks it
+    would have handled stay in ``total``.  ``read_offset_frames`` is null for a
+    rip; the offset-detection path fills it in, so one shape covers both.
+
+    Args:
+        error: The drive/disc failure that stopped the session.  When set, the
+            payload is the schema's fatal shape (``errors=1`` and the reason in
+            ``error``) instead of a track tally, so a script reads the cause from
+            the same document it already parses.
+    """
+    if error is not None:
+        payload = build_payload(
+            "cd-rip",
+            dry_run=dry_run,
+            errors=1,
+            duration_secs=duration_secs,
+            log_entries=log_entries,
+            drive=drive,
+            output_dir=output_dir,
+            format=fmt,
+            tracks=tracks,
+            verify=verify_mode,
+            read_offset_frames=None,
+        )
+        payload["error"] = error
+        return payload
+
+    attempted = succeeded + failed
+    return build_payload(
+        "cd-rip",
+        dry_run=dry_run,
+        total=attempted,
+        processed=attempted,
+        errors=failed,
+        duration_secs=duration_secs,
+        log_entries=log_entries,
+        drive=drive,
+        output_dir=output_dir,
+        format=fmt,
+        tracks=tracks,
+        verify=verify_mode,
+        read_offset_frames=None,
+    )
+
+
+def _offset_payload(
+    *, drive: str, offset: int | None, error: str | None = None
+) -> dict[str, Any]:
+    """Build the JSON payload for a read-offset measurement (or its failure)."""
+    payload = build_payload(
+        "cd-rip",
+        dry_run=False,
+        errors=1 if error is not None else 0,
+        log_entries=[],
+        drive=drive,
+        output_dir=None,
+        format=None,
+        tracks=None,
+        verify=None,
+        read_offset_frames=offset,
+    )
+    if error is not None:
+        payload["error"] = error
+    return payload
 
 
 @cli.command("cd-rip")
@@ -121,6 +211,25 @@ def cd_rip_cli(
         )
 
     if dry:
+        if json_output:
+            click.echo(
+                json.dumps(
+                    _rip_payload(
+                        drive=drive,
+                        output_dir=output_dir,
+                        fmt=fmt,
+                        tracks=tracks or "all",
+                        verify_mode=verify_mode,
+                        dry_run=True,
+                        log_entries=[],
+                        succeeded=0,
+                        failed=0,
+                        duration_secs=0.0,
+                    ),
+                    indent=2,
+                )
+            )
+            return
         click.echo("DRY RUN — would rip with these settings:", err=True)
         click.echo(f"  Drive:     {drive}", err=True)
         click.echo(f"  Output:    {output_dir}", err=True)
@@ -155,7 +264,15 @@ def cd_rip_cli(
     def progress_cb(track_num: int, pct: int, msg: str) -> None:
         click.echo(f"  Track {track_num:02d}: {msg}", err=True)
 
+    succeeded = 0
+    failed = 0
+
     def track_done_cb(track_num: int, success: bool, path: str, msg: str) -> None:
+        nonlocal succeeded, failed
+        if success:
+            succeeded += 1
+        else:
+            failed += 1
         status = "OK" if success else "FAIL"
         click.echo(f"  Track {track_num:02d}: [{status}] {msg}", err=True)
 
@@ -177,20 +294,56 @@ def cd_rip_cli(
         write_cue=write_cue,
         verify_mode=verify_mode,
     )
+    started = time.monotonic()
     session.start()
     done_event.wait()
 
-    result = {
-        "drive": drive,
-        "output_dir": output_dir,
-        "format": fmt,
-        "tracks": tracks or "all",
-        "verify": verify_mode,
-        "log": log_lines,
-    }
+    fatal_error = getattr(session, "fatal_error", None)
+    if isinstance(fatal_error, str) and fatal_error:
+        # Nothing was ripped: report the drive/decoder failure instead of a
+        # cheerful empty payload (a session that never started used to hang
+        # here forever because its thread died before signalling completion).
+        # In JSON mode the reason goes in the payload *and* stderr; the raise
+        # below still exits 1, so both consumers see the failure.
+        if json_output:
+            click.echo(
+                json.dumps(
+                    _rip_payload(
+                        drive=drive,
+                        output_dir=output_dir,
+                        fmt=fmt,
+                        tracks=tracks or "all",
+                        verify_mode=verify_mode,
+                        dry_run=False,
+                        log_entries=log_lines,
+                        succeeded=0,
+                        failed=0,
+                        duration_secs=time.monotonic() - started,
+                        error=fatal_error,
+                    ),
+                    indent=2,
+                )
+            )
+        raise click.ClickException(f"Rip session failed: {fatal_error}")
 
     if json_output:
-        click.echo(json.dumps(result, indent=2))
+        click.echo(
+            json.dumps(
+                _rip_payload(
+                    drive=drive,
+                    output_dir=output_dir,
+                    fmt=fmt,
+                    tracks=tracks or "all",
+                    verify_mode=verify_mode,
+                    dry_run=False,
+                    log_entries=log_lines,
+                    succeeded=succeeded,
+                    failed=failed,
+                    duration_secs=time.monotonic() - started,
+                ),
+                indent=2,
+            )
+        )
     else:
         click.echo(f"Rip session complete. {len(log_lines)} log entries.", err=True)
 
@@ -207,11 +360,21 @@ def _detect_read_offset(
     except AudioSuiteError as exc:
         # Covers ReadOffsetDetectionError (no DB record / no unanimous
         # offset) and device-level AudioIOError (no disc, open failure).
+        if json_output:
+            click.echo(
+                json.dumps(
+                    _offset_payload(drive=drive, offset=None, error=str(exc)),
+                    indent=2,
+                )
+            )
         raise click.ClickException(str(exc)) from exc
 
     if json_output:
         click.echo(
-            json.dumps({"drive": drive, "read_offset_frames": offset, "log": []})
+            json.dumps(
+                _offset_payload(drive=drive, offset=offset),
+                indent=2,
+            )
         )
     else:
         click.echo(f"Read offset measured: {offset:+d} frames for drive {drive}")

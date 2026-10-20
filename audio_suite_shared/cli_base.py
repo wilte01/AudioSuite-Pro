@@ -13,6 +13,13 @@ a shim for every index (D66).
 
 Changed in 1.0.1: fixes ``_run_tool``'s ``on_progress`` to accept the positional call
 form the analysis workflow uses.
+Changed in 1.4.0: the console handler now honours ``--log-level`` too, so a
+WARNING run no longer prints the DEBUG processing detail and its stack traces.
+Changed in 1.4.0: ``_Result.to_payload()`` is the single JSON exit point for
+every tool, so all commands publish the core keys defined in
+``audio_suite_shared.cli_schema`` (PLAN D82).
+Changed in 1.4.0: every command warns once when the installed package
+version differs from the checkout, pointing at ``uv run audiosuite``.
 """
 
 from __future__ import annotations
@@ -85,6 +92,59 @@ class _Result:
         d["duration_str"] = f"{self.duration_secs:.1f}s"
         return d
 
+    def to_payload(
+        self, command: str, *, dry_run: bool = False, **overrides: Any
+    ) -> dict[str, Any]:
+        """Serialise this run to its command's locked JSON schema.
+
+        Tool-specific completion fields (BPM's ``skipped_files``, the
+        fingerprinter's ``results``) arrive in ``extra`` and are published at
+        the top level, next to the core keys.  Building the payload here — not
+        in each CLI — is what keeps the core key names identical everywhere.
+
+        Args:
+            command:   CLI path, a key of ``cli_schema.TOOL_IDS``.
+            dry_run:   Whether the run's ``--dry`` flag was in effect.
+            **overrides: Tool-specific fields that must be serialised rather
+                       than passed through (the fingerprinter's result objects
+                       become dicts), replacing the same key in ``extra``.
+
+        Returns:
+            The payload, ready for ``json.dumps``.
+        """
+        from audio_suite_shared.cli_schema import build_payload, extras_for
+
+        # Only the fields the schema declares are public.  Completion callbacks
+        # also carry internal detail (enhancer result objects, log-line lists);
+        # publishing it would make every new internal field a JSON change, so it
+        # stays out and is noted at DEBUG for anyone debugging a missing field.
+        declared = set(extras_for(command)) | {"error"}
+        ignored = sorted(set(self.extra) - declared)
+        if ignored:
+            logger.debug(
+                "%s JSON payload omits undeclared completion field(s) %s",
+                command,
+                ignored,
+            )
+        fields: dict[str, Any] = {
+            key: value for key, value in self.extra.items() if key in declared
+        }
+        fields.update(overrides)
+        # ``_run_tool`` records a fatal failure as ``errors = -1`` for its own
+        # callers; the schema counts errors, so one fatal run reports one.
+        errors = 1 if self.errors < 0 else self.errors
+        return build_payload(
+            command,
+            dry_run=dry_run,
+            total=self.total,
+            processed=self.processed,
+            skipped=self.skipped,
+            errors=errors,
+            duration_secs=self.duration_secs,
+            log_entries=self.log_entries,
+            **fields,
+        )
+
 
 # ── Run helper ────────────────────────────────────────────────────────────
 
@@ -112,6 +172,7 @@ def _run_tool(
         skipped: int = 0,
         errors: int = 0,
         display_text: str = "",
+        **_ignored: Any,
     ) -> None:
         # The documented ProgressCallback contract is
         # ``(processed, total, skipped, errors, display_text)`` and two call
@@ -120,7 +181,10 @@ def _run_tool(
         # ``run_analysis_workflow`` wraps it in a positional lambda.  A
         # positional-or-keyword signature satisfies both; a ``**kwargs``-only
         # signature silently rejected the positional form and crashed every
-        # CLI run on the first file.
+        # CLI run on the first file.  ``**_ignored`` absorbs the tool-specific
+        # counters a callback may also send (the enhancer's ``done=``): a
+        # missing parameter made every file fail with "Worker error" in JSON
+        # and text mode alike.
         if display_text:
             click.echo(f"  {display_text}", err=True)
         elif total:
@@ -162,6 +226,10 @@ def _run_tool(
         logger.error("FATAL error in %s: %s", tool_name, exc, exc_info=True)
         click.echo(f"  FATAL: {exc}", err=True)
         result.errors = -1
+        # The JSON payload must say why the run failed; ``error`` is the one
+        # field every command may carry (cli_schema.error_payload), so a
+        # consumer needs no separate failure shape.
+        result.extra["error"] = str(exc)
         result.duration_secs = time.monotonic() - start
         return result
 
@@ -272,24 +340,74 @@ class GroupedHelpGroup(click.Group):
                 formatter.write_dl(rows)
 
 
-@click.group(cls=GroupedHelpGroup)
+def _configure_console_logging(level: int) -> None:
+    """Send console records at *level* to stderr, and nothing below it.
+
+    ``logging.basicConfig`` sets only the *root logger* level.  The tool
+    package loggers carry an explicit level from ``configure_logging``, so
+    their DEBUG and INFO records bypass the root level and still reach the
+    console handler, which is created with ``NOTSET``.  Without the handler
+    level, ``--log-level WARNING`` printed every processing detail — and the
+    stack traces logged at DEBUG — while the file logs obeyed the requested
+    level.
+
+    Args:
+        level: Minimum level the console should show.
+    """
+    logging.basicConfig(
+        level=level,
+        format="%(levelname)s [%(name)s] %(message)s",
+    )
+    for handler in logging.getLogger().handlers:
+        handler.setLevel(level)
+
+
+@click.group(
+    cls=GroupedHelpGroup,
+    # ``--json-schema`` is a flag, not a subcommand: the group callback must run
+    # and may exit before Click insists on a command.  ``no_args_is_help``
+    # keeps a bare invocation showing help exactly as before.
+    invoke_without_command=True,
+    no_args_is_help=True,
+)
 @click.option(
     "--log-level",
     default="WARNING",
     help="Logging level (DEBUG, INFO, WARNING, ERROR).",
 )
+@click.option(
+    "--json-schema",
+    "show_json_schema",
+    is_flag=True,
+    default=False,
+    help="Print the locked JSON output schema (schema v1) and exit.",
+)
 # Plan G2: the version is read from [project] version in pyproject.toml, so
 # it lives in exactly one place.  Resolved once here (not per --help render)
 # because a release bump must never require a second edit.
 @click.version_option(version=declared_version(), prog_name="audiosuite")
-def cli(log_level: str) -> None:
+@click.pass_context
+def cli(ctx: click.Context, log_level: str, show_json_schema: bool) -> None:
     """AudioSuite-Pro — headless audio processing toolkit."""
+    if show_json_schema:
+        # The schema is the same document for every command, so it is a group
+        # option: an external consumer can fetch it without importing Python.
+        from audio_suite_shared.cli_schema import schema_json
+
+        click.echo(schema_json(), nl=False)
+        ctx.exit(0)
     level = getattr(logging, log_level.upper(), logging.WARNING)
-    logging.basicConfig(
-        level=level,
-        format="%(levelname)s [%(name)s] %(message)s",
-    )
+    _configure_console_logging(level)
     # Also route first-party tool-package records to the suite log file;
     # min_level mirrors the console level so --log-level still governs what
     # is emitted (plan iteration-9 G4.3).
     configure_logging("audiosuite_cli", min_level=level)
+    # A global `pip install -e .` from an earlier release keeps the command
+    # list it was built with; a bare `audiosuite` then dies on a tool import.
+    # Warn on every run whose metadata version disagrees with this checkout,
+    # and name the locked runtime rather than letting the mismatch stay hidden.
+    from audio_suite_shared.runtime_check import stale_install_warning
+
+    warning = stale_install_warning()
+    if warning:
+        click.echo(warning, err=True)

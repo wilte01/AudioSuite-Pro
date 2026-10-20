@@ -1,4 +1,7 @@
-"""CLI command for ReplayGain Analyzer."""
+"""CLI command for ReplayGain Analyzer.
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+"""
 
 from __future__ import annotations
 
@@ -66,7 +69,9 @@ def replaygain(
             on_folder_complete=on_folder_complete,
         )
     if json:
-        click.echo(_json_mod.dumps(result.to_dict(), indent=2))
+        click.echo(
+            _json_mod.dumps(result.to_payload("replaygain", dry_run=dry_run), indent=2)
+        )
     else:
         click.echo(
             f"  Summary: {result.processed} files, "

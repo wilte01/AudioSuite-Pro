@@ -374,6 +374,34 @@ result set is non-empty so an empty scan fails loudly.** Evidence:
   by count**: a once-correct `handlers[0]` / `len(handlers) == 1` assertion
   silently targets the wrong file.
 
+- **Degenerate audio is refused by one composed guard, not two optional
+  checks.** `audio_suite_shared.analysis_loader.check_analysable()` is the
+  single entry point every analysis tool must call after decoding: it applies
+  the duration check (`MIN_ANALYSIS_SECONDS`) *and* the silence check
+  (`SILENCE_RMS_THRESHOLD`, ~ -60 dBFS global RMS). Calling only
+  `check_min_duration` re-admits silence, which beat tracking reports as tempo
+  0 (clamped to the floor), chroma correlation turns into a confident key and
+  mood heuristics turn into a mood with a confidence score — all fabricated
+  values the tools then tag. A tool that decodes through
+  `librosa_load_with_fallback` directly (BPM, Key) must call `check_analysable`
+  itself; `load_analysis_audio` applies it for callers that use that seam.
+  Evidence: `PLAN_feature_expansion.md` D74 (duration half) and D75 (silence
+  half). A non-positive tempo estimate is its own outcome, not a low one:
+  `NoTempoDetectedError` is reported as a skip (`No tempo detected — the audio
+  has no discernible beat.`) and never clamped to the BPM floor (D76). A
+  positive estimate needs evidence too: noise is fitted to a tempo grid, so
+  BPM reports no tempo unless the onset envelope's harmonic-comb score at that
+  period reaches `MIN_ONSET_PERIODICITY` (0.10) — a floor calibrated on the
+  committed CC0 real-music corpus (0.154-0.595) with seeded white, pink and
+  brown noise at most 0.080 (D77, D79); the skip line and the per-file log
+  carry the measured score and the minimum, so a refusal is auditable. The
+  CLI's `--json` summary builds `skipped_files` and `error_files` from the
+  exceptions' structured context, never by parsing the display sentence, so
+  a wording change cannot silently empty a field (D80, D81). When precomputing an
+  onset envelope for `beat_track`, aggregate with `np.median` to match its
+  internal call; the default mean changes the estimate (a slow pad returned
+  107.67 BPM with mean aggregation and 0.0 with median).
+
 ## Verification Tooling Traps
 
 - **Bare `mypy .` is the gate.** Per-file invocations (`mypy pkg/x.py

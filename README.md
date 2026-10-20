@@ -68,10 +68,10 @@ The matrix below is **generated from the declared classification** in
 #### Branch enumeration
 
 * **Portable core** (16 declared branches) — The non-Windows branch is implemented and a test runs it under a simulated non-Windows platform value.
-* **Windows-only** (7 declared branches) — A genuinely Windows-only capability. The non-Windows side is a documented stop, placeholder or no-op.
+* **Windows-only** (6 declared branches) — A genuinely Windows-only capability. The non-Windows side is a documented stop, placeholder or no-op.
 * **Unverified** (9 declared branches) — A non-Windows branch exists but no test runs it, so nothing proves it behaves correctly. Untested, not unsupported.
 
-Every one of the 32 distinct branches below was found by an AST scan of the first-party tree that skips comments and string literals; `audio_suite_shared/tests/test_platform_support.py` fails if a branch is added, removed or duplicated without re-classifying it here.
+Every one of the 31 distinct branches below was found by an AST scan of the first-party tree that skips comments and string literals; `audio_suite_shared/tests/test_platform_support.py` fails if a branch is added, removed or duplicated without re-classifying it here.
 
 | Tier | Module | Subsystem | Non-Windows behaviour | Evidence |
 |---|---|---|---|---|
@@ -92,7 +92,6 @@ Every one of the 32 distinct branches below was found by an AST scan of the firs
 | Portable core | `master_driver/utils/platform_utils.py` | Open a guide from the driver's Help button | win32 os.startfile, darwin `open`, otherwise `xdg-open`. | master_driver/tests/test_platform_utils.py |
 | Portable core | `master_driver/utils/platform_utils.py` | Open a guide from the driver's Help button | The win32 arm of the dispatch above. | master_driver/tests/test_platform_utils.py |
 | Windows-only | `audio_suite_shared/security/key_manager.py` | Key-file permission hardening | Windows restricts the key file with `icacls`; every other platform uses chmod 0600. The capability is available on both — only the mechanism is Windows-specific, so this downgrades no tool's tier. | audio_suite_shared/tests/test_key_manager.py::TestUnixPermissionsAppliedWhenSaving |
-| Windows-only | `audio_suite_shared/shell_integration.py` | Windows Explorer right-click menu (shell-install) | install/uninstall/installed_verbs raise a clear RuntimeError on every non-Windows platform; the capability itself is Windows Explorer-only, not a degraded portable feature. | audio_suite_shared/tests/test_shell_integration.py |
 | Windows-only | `audio_suite_shared/suite_config.py` | Config file cross-process lock | Windows uses msvcrt.locking for exclusive file locks; every other platform uses fcntl.flock. Both arms are implemented; the capability is available on all platforms. | audio_suite_shared/tests/test_i1_robustness.py |
 | Windows-only | `cd_ripper/core/disc.py` (tool `cd_ripper`) | CD drive enumeration | platform_supported() is the single gate: it reports False off-Windows and the drive list is empty, so the UI never offers a device extraction cannot act on. | cd_ripper/tests/test_ripper_platform_fail_fast.py |
 | Windows-only | `cd_ripper/core/drive_handler.py` (tool `cd_ripper`) | SCSI pass-through device I/O | The fail-fast message, which names the platform it was refused on so the limitation is never silent. | cd_ripper/tests/test_ripper_platform_fail_fast.py |
@@ -140,39 +139,35 @@ And a first working tool, in analysis-only mode (writes nothing):
 uv run audiosuite normalise "C:\path\to\music" --dry
 ```
 
+### Use the locked runtime
+
+`uv run audiosuite …` is the supported way to run the CLI from this checkout:
+it executes the dependency graph pinned in `uv.lock` against an editable
+install of these sources, so the command list always matches the tree. A bare
+`audiosuite` resolves whatever is on PATH — usually a global `pip install -e .`
+from an earlier release. That install keeps the editable finder it was created
+with, so once this tree gains a tool it dies with
+`ModuleNotFoundError: No module named '<tool>'`. The CLI now prints that
+diagnosis (and warns on every run whose installed metadata version differs
+from `pyproject.toml`) with the two commands that fix it:
+
+```
+uv sync --frozen --all-extras
+uv run audiosuite --help
+```
+
+If you deliberately use a global install, refresh its metadata after each pull
+with `python -m pip install -e . --no-deps`; the version warning stops once it
+matches `pyproject.toml`.
+
+To check an install before blaming a tool, run `uv run audiosuite doctor`. It
+reports the checkout and installed versions, resolves every first-party package
+through the installed import machinery, lists any package that is missing or
+comes from a different install, names each CLI command that gap would take
+down, and exits 1 when anything is wrong.
+
 The GUI path is the root launcher `Master_Driver.pyw` (a control panel with a
 card per tool); every tool also has its own `<Tool>.pyw` launcher.
-
-## Windows Explorer integration
-
-The Windows installer can add a per-user right-click menu for supported audio
-files (Windows Explorer only):
-
-```
-uv run audiosuite shell-install
-```
-
-Right-click an audio file and choose **AudioSuite-Pro** for *Convert to MP3*,
-*Convert to FLAC*, *Analyze BPM*, *Analyze Key* or *Analyze Mood*. Each verb
-acts on the one file you selected — never its folder — and runs in a console
-window so progress and errors are readable; a failure keeps the window open.
-
-* **No administrator rights.** Everything is written under
-  `HKCU\Software\Classes\SystemFileAssociations\<ext>\shell`, so the menu is
-  per-user and the uninstaller needs no elevation either.
-* **Nothing is overwritten.** A conversion refuses to replace an existing
-  `<name>.mp3` / `<name>.flac` and reports it instead.
-* **Analysis is undoable.** BPM, key and mood tag writes run inside an undo
-  batch, so *Undo Tag Edits* can revert a right-click.
-* **Preview first, if you like.** `audiosuite shell-install --dry` prints the
-exact registry keys it would write and writes none of them.
-* **Cascade fallback.** The default menu is a single cascading
-  **AudioSuite-Pro** entry. If your Explorer build does not render cascading
-  verb menus, re-run `shell-install --flat` to write the five verbs flat
-  instead. The menu's appearance is a visual check: install it once and
-  confirm it looks right.
-
-Remove it at any time with `uv run audiosuite shell-uninstall`.
 
 ## The tools
 

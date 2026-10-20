@@ -7,6 +7,8 @@ is the batch/export path — the GUI shows one image at a time — and it honour
 Master Driver Dry Run cannot leave images behind.
 
 Changed in 1.3.0: initial version (PLAN_feature_expansion.md Item 3.1 / D42).
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import time
 import click
 
 from audio_suite_shared.cli_base import _opt_dry_run, _opt_json, cli
+from audio_suite_shared.cli_schema import build_payload
 from audio_suite_shared.exceptions import AudioSuiteError
 from spectral_viewer.core.spectrogram import (
     DEFAULT_CMAP,
@@ -141,19 +144,23 @@ def spectrogram(
     written = sum(1 for image in images if image["status"] == "written")
 
     if json:
+        # processed counts everything attempted — planned/written images plus
+        # the files that failed — which is the shared schema's rule.
         click.echo(
             _json_mod.dumps(
-                {
-                    "tool": "spectral_viewer",
-                    "path": path,
-                    "processed": len(images),
-                    "written": written,
-                    "dry_run": dry_run,
-                    "errors": len(errors),
-                    "duration_secs": round(elapsed, 2),
-                    "images": images,
-                    "error_messages": errors,
-                },
+                build_payload(
+                    "spectrogram",
+                    dry_run=dry_run,
+                    total=len(sources),
+                    processed=len(images) + len(errors),
+                    errors=len(errors),
+                    duration_secs=elapsed,
+                    log_entries=[],
+                    path=path,
+                    written=written,
+                    images=images,
+                    error_messages=errors,
+                ),
                 indent=2,
             )
         )

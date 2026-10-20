@@ -3,6 +3,10 @@ secure_subprocess.py — Secure subprocess execution utilities.
 
 Provides validated subprocess execution with security controls to prevent
 command injection and ensure safe execution of external processes.
+
+Changed in 1.4.0: run_secure_subprocess() takes log_failure so a probe whose
+non-zero exit the caller already reports (the FFmpeg decode fallback) does not
+print a traceback, an exit code and FFmpeg's stderr at the user.
 """
 
 import logging
@@ -220,6 +224,7 @@ def run_secure_subprocess(
     timeout: Optional[int] = None,
     capture_output: bool = False,
     check: bool = True,
+    log_failure: bool = True,
     **kwargs: Any,
 ) -> subprocess.CompletedProcess[str]:
     """
@@ -232,6 +237,11 @@ def run_secure_subprocess(
         timeout: Maximum execution time in seconds
         capture_output: Whether to capture stdout/stderr
         check: Whether to raise exception on non-zero exit
+        log_failure: Emit the ERROR record (with stack trace, stdout and
+            stderr) when the process exits non-zero.  Pass ``False`` only for
+            a probe whose failure the caller already reports: a best-effort
+            decode fallback should not print ``Subprocess failed with code
+            3199971767`` and FFmpeg's stderr at the user.
         **kwargs: Additional arguments passed to subprocess.run
 
     Returns:
@@ -301,15 +311,22 @@ def run_secure_subprocess(
         )
         raise
     except subprocess.CalledProcessError as e:
-        logger.error(
-            "Subprocess failed with code %s: %s",
-            e.returncode,
-            executable,
-            exc_info=True,
-        )
-        if capture_output:
-            logger.error("stdout: %s", e.stdout)
-            logger.error("stderr: %s", e.stderr)
+        if log_failure:
+            logger.error(
+                "Subprocess failed with code %s: %s",
+                e.returncode,
+                executable,
+                exc_info=True,
+            )
+            if capture_output:
+                logger.error("stdout: %s", e.stdout)
+                logger.error("stderr: %s", e.stderr)
+        else:
+            logger.debug(
+                "Subprocess exited with code %s (failure reported by the caller): %s",
+                e.returncode,
+                executable,
+            )
         raise
     except Exception as e:
         logger.error("Unexpected error running subprocess: %s", e, exc_info=True)

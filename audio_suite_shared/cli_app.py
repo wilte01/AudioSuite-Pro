@@ -66,60 +66,117 @@ Usage:
     audiosuite cue parse /path/to/image.cue [--json]
     audiosuite cue generate /path/to/dir [--title "Album"] [--artist "Artist"]
     audiosuite cue split /path/to/image.cue [--output-dir DIR] [--ffmpeg PATH]
-    audiosuite shell-install [--flat] [--dry]
-    audiosuite shell-uninstall [--dry]
 
 The ``--dry/--live`` pair is the shared run-mode option: ``--dry`` analyses and
 reports without writing, ``--live`` writes.  ``--json/--text`` selects the
 output format.  ``--log-level`` is a group-level option, so it precedes the
 subcommand (``audiosuite --log-level DEBUG bpm /path/to/dir``).
 
+The JSON contract is defined and locked in
+``audio_suite_shared/cli_schema.py``, and the generated JSON Schema document is
+committed as ``audio_suite_shared/cli_schema.json``.  Pass ``--json-schema``
+before any subcommand (``audiosuite --json-schema``) to print that document and
+exit, so an external validator needs no Python import.  Every command publishes
+``schema_version``, ``tool``, ``command``, ``dry_run``, ``total``,
+``processed``, ``succeeded``, ``skipped``, ``errors``, ``duration_secs``,
+``duration_str`` and ``log_entries`` with those exact names and types, plus
+the tool-specific keys that file declares for the command.  Payloads go to
+stdout; progress and diagnostics stay on stderr.  ``succeeded`` is
+``processed - skipped - errors``, so a script does not need to know which
+tool counts attempts.  A breaking change to any of those names bumps
+``schema_version``, and ``tests/test_cli_json_schema.py`` invokes every
+command and fails when the real payload drifts.
+
 Commands are registered by importing the corresponding tool's cli module.
 
 Changed in 1.2.0: documents the fingerprint ``--musicbrainz`` and
 ``--write-isrc`` flags.
 Changed in 1.3.0: registers and documents the ``spectrogram`` command.
-Changed in 1.4.0: registers and documents ``shell-install`` / ``shell-uninstall``
-(the Windows Explorer right-click integration, PLAN D57).
+Changed in 1.4.0: removed the withdrawn ``shell-install`` / ``shell-uninstall``
+commands. The Windows Explorer right-click integration is NOT implemented (see
+CHANGELOG.md and PLAN_feature_expansion.md D73).
+Changed in 1.4.0: command registration is data-driven and tolerant - a missing
+tool module prints the stale-install diagnosis from ``runtime_check`` (naming
+``uv run audiosuite``) and leaves the other commands, plus ``doctor``, usable
+instead of dying with a bare traceback.
 """
 
 from __future__ import annotations
 
+import importlib
+
+import click
+
+# ``doctor`` must be registered even when a tool package is missing: it is the
+# command that reports the gap, so it is imported before the factory list is
+# attempted rather than listed in it.
+from audio_suite_shared import doctor_cli as _doctor_cli  # noqa: F401
+
+# Re-export shared infrastructure for backward compatibility.  Imported before
+# the registration loop so this module is the one that defines the group.
+from audio_suite_shared.cli_base import _Result, _run_tool, cli  # noqa: F401
+from audio_suite_shared.runtime_check import missing_modules_message
+
 # Import each tool's CLI module so its @cli.command() decorator runs and
 # registers the command on the shared group.  Order here determines help
-# listing order.
-import album_art_normalizer.cli  # noqa: F401, E402  — artnormalize
-import album_art_sync.cli  # noqa: F401, E402  — album-art
-import album_genre_tagger.cli  # noqa: F401, E402  — album-genre
-import asx_extractor.cli  # noqa: F401, E402  — asx-extract
-import audio_enhancer.cli  # noqa: F401, E402  — enhance
-import audio_fingerprinter.cli  # noqa: F401, E402  — fingerprint
-import audio_normalizer.cli  # noqa: F401, E402  — normalise
-import audio_refinery.cli  # noqa: F401, E402  — refine
-import audio_suite_shared.cue_cli  # noqa: F401, E402  — cue (parse/generate/split)
-import audio_suite_shared.shell_cli  # noqa: F401, E402  — shell-install/uninstall
-import bpm_analyzer.cli  # noqa: F401, E402  — bpm
-import cd_ripper.cli  # noqa: F401, E402  — cd-rip
-import file_reorganizer.cli  # noqa: F401, E402  — reorganize
-import genre_sync.cli  # noqa: F401, E402  — genre-sync
-import key_detector.cli  # noqa: F401, E402  — key
-import library_stats.cli  # noqa: F401, E402  — stats
-import lyrics_manager.cli  # noqa: F401, E402  — lyrics
-import metadata_scrubber.cli  # noqa: F401, E402  — scrub
-import mood_analysis_batch_tagger.cli  # noqa: F401, E402  — mood-analysis-batch
-import mood_analyzer.cli  # noqa: F401, E402  — mood-analyzer
-import music_format_converter.cli  # noqa: F401, E402 — convert
-import noise_reduction.cli  # noqa: F401, E402 — reduce
-import pop_click_remover.cli  # noqa: F401, E402  — declick
-import replaygain_analyzer.cli  # noqa: F401, E402  — replaygain
-import silence_trimmer.cli  # noqa: F401, E402  — silence-trim
-import spectral_viewer.cli  # noqa: F401, E402  — spectrogram
-import tag_editor.cli  # noqa: F401, E402  — tag-edit
-import tag_field_updater.cli  # noqa: F401, E402  — tag-update
-import tempo_analyzer.cli  # noqa: F401, E402  — tempo
+# listing order.  Each entry is ``(module, command)``; ``doctor`` maps a broken
+# package back to the commands it would take down.
+_TOOL_CLI_MODULES: tuple[tuple[str, str], ...] = (
+    ("album_art_normalizer.cli", "artnormalize"),
+    ("album_art_sync.cli", "album-art"),
+    ("album_genre_tagger.cli", "album-genre"),
+    ("asx_extractor.cli", "asx-extract"),
+    ("audio_enhancer.cli", "enhance"),
+    ("audio_fingerprinter.cli", "fingerprint"),
+    ("audio_normalizer.cli", "normalise"),
+    ("audio_refinery.cli", "refine"),
+    ("audio_suite_shared.cue_cli", "cue"),
+    ("bpm_analyzer.cli", "bpm"),
+    ("cd_ripper.cli", "cd-rip"),
+    ("file_reorganizer.cli", "reorganize"),
+    ("genre_sync.cli", "genre-sync"),
+    ("key_detector.cli", "key"),
+    ("library_stats.cli", "stats"),
+    ("lyrics_manager.cli", "lyrics"),
+    ("metadata_scrubber.cli", "scrub"),
+    ("mood_analysis_batch_tagger.cli", "mood-analysis-batch"),
+    ("mood_analyzer.cli", "mood-analyzer"),
+    ("music_format_converter.cli", "convert"),
+    ("noise_reduction.cli", "reduce"),
+    ("pop_click_remover.cli", "declick"),
+    ("replaygain_analyzer.cli", "replaygain"),
+    ("silence_trimmer.cli", "silence-trim"),
+    ("spectral_viewer.cli", "spectrogram"),
+    ("tag_editor.cli", "tag-edit"),
+    ("tag_field_updater.cli", "tag-update"),
+    ("tempo_analyzer.cli", "tempo"),
+)
 
-# Re-export shared infrastructure for backward compatibility
-from audio_suite_shared.cli_base import _Result, _run_tool, cli  # noqa: F401
+
+def _register_tool_commands() -> list[str]:
+    """Import every tool CLI module, returning the packages that failed.
+
+    Registration is deliberately tolerant: one missing package must not take
+    the whole CLI down, because ``audiosuite doctor`` is the command that
+    explains the gap and it has to stay reachable.  The caller warns with
+    ``runtime_check.missing_modules_message`` when the list is non-empty.
+
+    Returns:
+        The top-level module name of each tool package that could not be
+        imported, in registration order.
+    """
+    failures: list[str] = []
+    for module_name, _command in _TOOL_CLI_MODULES:
+        try:
+            importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            failures.append(exc.name or module_name)
+    return failures
+
+
+_missing_tool_modules = _register_tool_commands()
+if _missing_tool_modules:
+    click.echo(missing_modules_message(_missing_tool_modules), err=True)
 
 if __name__ == "__main__":
     cli()

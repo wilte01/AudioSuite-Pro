@@ -4,12 +4,15 @@ cue_cli.py — CUE sheet CLI commands (parse, generate, split).
 Registers the nested ``cue`` command group on the shared ``cli`` group.  This
 is the first nested command group in the codebase; ``cli_app.py`` imports
 this module to trigger registration (see the ``import X.cli`` pattern there).
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 """
 
 from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +20,7 @@ import click
 
 from audio_suite_shared.audio_formats import is_supported_format
 from audio_suite_shared.cli_base import cli
+from audio_suite_shared.cli_schema import build_payload
 from audio_suite_shared.cue_generator import (
     CueFileSpec,
     TrackSpec,
@@ -157,6 +161,7 @@ def cue_parse_cli(cue_file: str, json_output: bool) -> None:
     structure including REM comments, ISRC codes, PREGAP/POSTGAP and index
     timestamps in milliseconds.
     """
+    started = time.monotonic()
     try:
         from audio_suite_shared.cue_parser import parse_cue_file
 
@@ -164,7 +169,26 @@ def cue_parse_cli(cue_file: str, json_output: bool) -> None:
     except (CueParseError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
     if json_output:
-        click.echo(json.dumps(_sheet_to_json(sheet), indent=2))
+        data = _sheet_to_json(sheet)
+        track_count = sum(len(f["tracks"]) for f in data["files"])
+        click.echo(
+            json.dumps(
+                build_payload(
+                    "cue parse",
+                    dry_run=False,
+                    total=track_count,
+                    processed=track_count,
+                    duration_secs=time.monotonic() - started,
+                    log_entries=[],
+                    catalog=data["catalog"],
+                    performer=data["performer"],
+                    title=data["title"],
+                    rem=data["rem"],
+                    files=data["files"],
+                ),
+                indent=2,
+            )
+        )
     else:
         _print_sheet(sheet)
 
@@ -248,6 +272,7 @@ def cue_split_cli(
     timestamp and tagged with the sheet's title / performer.
     """
     out_dir = Path(output_dir) if output_dir else Path(cue_file).resolve().parent
+    started = time.monotonic()
     try:
         written = split_cue_file(
             cue_file,
@@ -261,11 +286,17 @@ def cue_split_cli(
     if json_output:
         click.echo(
             json.dumps(
-                {
-                    "cue_file": cue_file,
-                    "output_dir": str(out_dir),
-                    "tracks": written,
-                },
+                build_payload(
+                    "cue split",
+                    dry_run=False,
+                    total=len(written),
+                    processed=len(written),
+                    duration_secs=time.monotonic() - started,
+                    log_entries=[],
+                    cue_file=cue_file,
+                    output_dir=str(out_dir),
+                    tracks=written,
+                ),
                 indent=2,
             )
         )

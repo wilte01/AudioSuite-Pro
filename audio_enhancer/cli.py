@@ -2,6 +2,8 @@
 Changed in 1.1.0: added the Sprint 1 effect flags (--reverse,
 --karaoke/--no-karaoke, --karaoke-strength, --phaser, --flanger,
 --chorus) and fixed the --preset Custom KeyError (D14a).
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 """
 
 from __future__ import annotations
@@ -99,7 +101,9 @@ def enhance(
         is_dry_run=dry_run,
     )
     if json:
-        click.echo(_json_mod.dumps(result.to_dict(), indent=2))
+        click.echo(
+            _json_mod.dumps(result.to_payload("enhance", dry_run=dry_run), indent=2)
+        )
     else:
         done = result.extra.get("done", 0)
         click.echo(

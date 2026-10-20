@@ -9,6 +9,8 @@ ISRC submission toggle with its encrypted token (Sprint 2 Item 2.3).
 Changed in 1.2.0: shows the ISRC submission outcome on the Results tab and
 records the same line as the run's note, so a refused or offline submission is
 visible in the Master Driver batch report without opening the run log.
+Changed in 1.4.0: the fpcalc status line names the checkout's bundled binary
+instead of claiming it came from PATH.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import logging
 import os
 import threading
 import tkinter as tk
+from pathlib import Path
 from queue import Queue
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
@@ -36,7 +39,12 @@ from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 from audio_suite_shared.ui_helpers import UIHelperMixin
 
 from .core import file_processor
-from .core.fingerprinter import DEFAULT_MAX_LENGTH, FPCALC_ENV_VAR, resolve_fpcalc
+from .core.fingerprinter import (
+    DEFAULT_MAX_LENGTH,
+    FPCALC_ENV_VAR,
+    SHIPPED_FPCALC,
+    resolve_fpcalc,
+)
 from .core.models import (
     FingerprintFileResult,
     FingerprintParams,
@@ -313,11 +321,14 @@ class FingerprinterApp(UIHelperMixin):
             message = f"fpcalc not found: {user_message_for(map_to_audio_error(exc))}"
             self._update_fpcalc_status_cb(message, False)
             return
-        source = (
-            "explicit path"
-            if self.fpcalc_path.get().strip()
-            else ("FPCALC env var" if os.environ.get(FPCALC_ENV_VAR) else "PATH")
-        )
+        if self.fpcalc_path.get().strip():
+            source = "explicit path"
+        elif os.environ.get(FPCALC_ENV_VAR):
+            source = "FPCALC env var"
+        elif Path(path) == SHIPPED_FPCALC:
+            source = "bundled with the suite"
+        else:
+            source = "PATH"
         self._update_fpcalc_status_cb(f"fpcalc found ({source}): {path}", True)
 
     def _browse_fpcalc(self) -> None:

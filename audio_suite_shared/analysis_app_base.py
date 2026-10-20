@@ -23,6 +23,9 @@ not produce without reimplementing ``_on_complete``.
 Changed in 1.4.0: the worker slot grid and the saved-config default both derive
 from ``DEFAULT_MAX_WORKERS`` instead of a literal 4 (PLAN D56); a typed count
 above the grid is capped, logged instead of shown when unattended (D70).
+Changed in 1.4.0: the completion callback accepts tool-specific fields, so
+BPM's collected ``skipped_files`` can reach the CLI without breaking the GUI
+report writer (PLAN D80).
 """
 
 from __future__ import annotations
@@ -485,9 +488,15 @@ class AnalysisAppBase(UIHelperMixin):
         errors: int,
         duration_secs: float,
         log_entries: list[Any],
+        **_extra: Any,
     ) -> None:
         """Called on background thread - file I/O here, then schedule UI on
-        main thread."""
+        main thread.
+
+        Tool-specific completion fields (for example BPM's ``skipped_files``)
+        are accepted and ignored: the CLI consumes them, while the GUI report
+        needs only the shared counters and log.
+        """
         self._record_run_note(total=total, skipped=skipped, errors=errors)
 
         minutes = int(duration_secs // 60)

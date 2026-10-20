@@ -472,16 +472,62 @@ class TestUndoBatchRecording:
         assert self._run(tmp_path, is_dry_run=True) == []
 
 
-def _make_real_wav(path, seconds: float = 1.0):
-    """Write a real mono 16-bit WAV so the real tag reader/writer can work."""
+def _make_real_wav(path, seconds: float = 1.0, silent: bool = False):
+    """Write a real mono 16-bit WAV so the real tag reader/writer can work.
+
+    With ``silent=True`` the PCM is digital silence, which is long enough for
+    the duration guard but must be refused by the silence guard.
+    """
     from pydub import AudioSegment
 
     n = int(_SR * seconds)
     t = np.arange(n) / _SR
-    pcm = (0.4 * np.sin(2 * np.pi * 440.0 * t) * 32767).astype(np.int16)
+    signal = np.zeros(n) if silent else 0.4 * np.sin(2 * np.pi * 440.0 * t)
+    pcm = (signal * 32767).astype(np.int16)
     segment = AudioSegment(pcm.tobytes(), frame_rate=_SR, sample_width=2, channels=1)
     segment.export(str(path), format="wav")
     return path
+
+
+class TestSilentFileIsNeverTagged:
+    """A silent file is reported and leaves no mood/energy tag behind.
+
+    Outcome-level: the real loader decodes a real silent WAV and the real tag
+    reader confirms nothing was written, so a mocked ``write_mood`` cannot
+    make a refused write look like a successful one.
+    """
+
+    def test_silent_file_reports_silence_and_writes_nothing(self, tmp_path):
+        from audio_suite_shared.tag_helper import read_energy, read_mood
+
+        path = _make_real_wav(tmp_path / "silence.wav", silent=True)
+        original = path.read_bytes()
+        args = _make_call_args(
+            name="silence.wav", dir_path=str(tmp_path), is_dry_run=False
+        )
+        with patch(f"{MODULE}.analyze_mood") as mock_analyze:
+            process_single_file(**args)
+
+        mock_analyze.assert_not_called()
+        assert read_mood(str(path)) is None
+        assert read_energy(str(path)) is None
+        assert path.read_bytes() == original
+        shown = args["on_progress"].call_args[1]["display_text"]
+        assert "silent" in shown.lower()
+        assert "[TAGGED]" not in shown
+
+    def test_a_quiet_file_is_still_tagged(self, tmp_path):
+        """Control: the guard rejects silence, not quiet music."""
+        from audio_suite_shared.tag_helper import read_mood
+
+        path = _make_real_wav(tmp_path / "quiet.wav")
+        args = _make_call_args(
+            name="quiet.wav", dir_path=str(tmp_path), is_dry_run=False
+        )
+        with patch(f"{MODULE}._analyse_file", return_value=_TEST_ANALYSIS):
+            process_single_file(**args)
+
+        assert read_mood(str(path)) == _TEST_ANALYSIS.to_tag_string()
 
 
 class TestRealFileOutcome:

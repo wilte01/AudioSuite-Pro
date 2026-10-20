@@ -17,6 +17,10 @@ compatibility.  See the individual sub-modules for implementation details:
 Changed in 1.2.0: re-exports the new verification surface
 (``DBMatch``, ``match_track``, ``VerificationMethod``,
 ``describe_verification``, ``TrackVerification``).
+Changed in 1.4.0: a session always signals completion (an unhandled
+``AudioIOError`` used to kill the thread and hang the CLI forever), records a
+fatal TOC/drive error for the caller, and treats a failed spin-down as
+non-fatal.
 """
 
 import dataclasses
@@ -32,6 +36,7 @@ from audio_suite_shared.cue_generator import (
     build_cue,
     write_cue,
 )
+from audio_suite_shared.exceptions import AudioSuiteError
 
 # ── Re-exports from accuraterip ────────────────────────────────────────────
 from cd_ripper.core.accuraterip import (  # noqa: F401
@@ -262,6 +267,10 @@ class RipSession:
         self._cancelled = False
         self._current_task: RipTask | None = None
         self._thread: threading.Thread | None = None
+        #: Set when the session could not run at all (no disc, unreadable
+        #: drive, missing FFmpeg).  The CLI turns this into a non-zero exit so
+        #: an empty rip is never reported as success.
+        self.fatal_error: str | None = None
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -273,6 +282,19 @@ class RipSession:
             self._current_task.cancel()
 
     def _run(self) -> None:
+        """Thread entry point: always signals completion, even on failure."""
+        try:
+            self._run_session()
+        except Exception as exc:  # noqa: BLE001 - a dead thread would hang the CLI
+            _logging.getLogger(__name__).error(
+                "Rip session failed for drive %s: %s", self.drive, exc, exc_info=True
+            )
+            self.fatal_error = str(exc) or type(exc).__name__
+            self.log_cb(f"[ERROR] Rip session failed: {self.fatal_error}")
+        finally:
+            self.session_done_cb()
+
+    def _run_session(self) -> None:
         os.makedirs(self.out_dir, exist_ok=True)
         info = probe_ffmpeg(self.ffmpeg)
         self.log_cb(f"FFmpeg version : {info['version']}")
@@ -282,11 +304,15 @@ class RipSession:
         drive_letter = self.drive.rstrip("/\\").rstrip(":")
         try:
             toc = read_toc(drive_letter, self.log_cb)
-        except (OSError, RuntimeError) as e:
-            _logging.getLogger(__name__).error(
-                "TOC read failed for drive %s: %s", self.drive, e, exc_info=True
+        except (OSError, RuntimeError, AudioSuiteError) as e:
+            # A missing disc or an unavailable drive is an expected outcome,
+            # not a crash: log the message without a traceback, and let the
+            # session finish so the caller reports "failed", never hangs.
+            _logging.getLogger(__name__).warning(
+                "TOC read failed for drive %s: %s", self.drive, e
             )
             self.log_cb(f"TOC read failed: {e}")
+            self.fatal_error = str(e) or type(e).__name__
             toc = []
 
         toc_map = {e["number"]: e for e in toc}
@@ -328,15 +354,15 @@ class RipSession:
         # must never be silently swallowed -- we log it at WARNING level.
         try:
             spin_down_drive(self.drive.rstrip("/\\").rstrip(":"), self.log_cb)
-        except (OSError, RuntimeError) as _sd_exc:
+        except (OSError, RuntimeError, AudioSuiteError) as _sd_exc:
+            # AudioIOError is an AudioSuiteError, not an OSError: a drive that
+            # has already gone away (or never opened) must not fail the
+            # session after the tracks were reported.
             _logging.getLogger(__name__).warning(
-                "Drive spin-down failed after rip (non-fatal): %s",
-                _sd_exc,
-                exc_info=True,
+                "Drive spin-down failed after rip (non-fatal): %s", _sd_exc
             )
         if self.write_cue and done_paths:
             self._write_rip_cue(done_paths)
-        self.session_done_cb()
 
     def _build_verification_plan(self, toc: list[dict[str, int]]) -> VerificationPlan:
         """Resolve the disc-level verification plan once per session.

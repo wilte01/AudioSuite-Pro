@@ -3,6 +3,8 @@
 Changed in 1.2.0: adds the ``--musicbrainz`` / ``--write-isrc`` option tests
 (Sprint 2 Item 2.1) and the ``--submit-isrc`` tests, including the dry-run
 payload the command prints (Sprint 2 Item 2.3).
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from audio_fingerprinter.core.musicbrainz_client import (
     ISRCSubmission,
     build_isrc_submission_xml,
 )
+from audio_suite_shared.cli_base import _Result
 from audio_suite_shared.tag_helper_reader import read_isrcs
 
 
@@ -245,13 +248,11 @@ class TestSubmitIsrcFlags:
         submission: dict[str, object] | None = None,
     ):
         runner = CliRunner()
-        tool_result = MagicMock(
-            processed=0, errors=0, duration_secs=0.0, extra={"counts": {}}
-        )
+        # A real collector, not a MagicMock: the CLI now serialises through
+        # _Result.to_payload, which a mock cannot marshal.
+        tool_result = _Result(extra={"counts": {}})
         if submission is not None:
             tool_result.extra["isrc_submission"] = submission
-        # --json serialises the run summary; a MagicMock would not marshal.
-        tool_result.to_dict.return_value = {}
         with (
             patch(
                 "audio_fingerprinter.utils.api_key.load_api_key",
@@ -268,7 +269,7 @@ class TestSubmitIsrcFlags:
         ):
             result = runner.invoke(fingerprint, args)
         kwargs = mock_tool.call_args.kwargs if mock_tool.called else {}
-        return result, kwargs.get("params"), kwargs.get("mb_auth"), tool_result
+        return result, kwargs.get("params"), kwargs.get("mb_auth"), mock_tool
 
     def test_off_by_default(self, tmp_path):
         result, params, auth, _tool = self._invoke([str(tmp_path)])

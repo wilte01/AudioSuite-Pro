@@ -12,6 +12,8 @@ Supports: MP3, FLAC, OGG, M4A, Opus
 
 Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
 when not supplied (PLAN D56).
+Changed in 1.4.0: a failed file reports the reason in plain language and logs
+one line; the stack trace goes to the DEBUG log instead of the console.
 """
 
 import logging
@@ -29,7 +31,9 @@ from audio_suite_shared.exceptions import (
     AudioAnalysisError,
     AudioCodecError,
     AudioFormatError,
+    failure_reason,
     handle_audio_errors,
+    log_handled_failure,
     map_to_audio_error,
 )
 from audio_suite_shared.file_processor_base import (
@@ -152,26 +156,27 @@ def process_single_file(
 
     except Exception as exc:
         mapped = map_to_audio_error(exc)
-        logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
+        reason = failure_reason(mapped)
+        log_handled_failure(logger, "[%s] %s", type(mapped).__name__, reason, exc=exc)
         action = get_recovery_action(exc, "mood_analysis")
 
         if action == RecoveryAction.SKIP or isinstance(
             mapped, _SKIPPABLE_ANALYSIS_ERRORS
         ):
-            display = f"[SKIP] {safe_name}: {exc}"
+            display = f"[SKIP] {safe_name}: {reason}"
             with lock:
                 on_progress(
                     n_skipped=1,
                     display_text=display,
-                    log_text=f"[SKIP] {safe_name}: {exc}\n",
+                    log_text=f"[SKIP] {safe_name}: {reason}\n",
                 )
         else:
-            display = f"[ERROR] {safe_name}: {exc}"
+            display = f"[ERROR] {safe_name}: {reason}"
             with lock:
                 on_progress(
                     n_errors=1,
                     display_text=display,
-                    log_text=f"[ERROR] {safe_name}: {exc}\n",
+                    log_text=f"[ERROR] {safe_name}: {reason}\n",
                 )
 
 
@@ -199,13 +204,15 @@ def _analyze_mood_cpu(
             "energy": int(analysis.energy),
         }
     except Exception as exc:
-        logger.error(
+        reason = failure_reason(exc)
+        log_handled_failure(
+            logger,
             "[Unexpected] _analyze_mood_cpu failed for '%s': %s",
             file_path,
-            exc,
-            exc_info=True,
+            reason,
+            exc=exc,
         )
-        return {"status": "error", "error": str(exc)}
+        return {"status": "error", "error": reason}
 
 
 def _handle_mood_result(

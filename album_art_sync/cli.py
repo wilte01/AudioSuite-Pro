@@ -1,4 +1,7 @@
-"""CLI command for Album Art Sync."""
+"""CLI command for Album Art Sync.
+
+Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+"""
 
 from __future__ import annotations
 
@@ -86,7 +89,7 @@ def run_cli_art_sync(
         duration_secs=report.duration_secs,
         log_entries=report.log_entries,
         source=report.source or "none",
-        extra={"selection_audit": report.selection_audit},
+        selection_audit=report.selection_audit,
     )
 
 
@@ -136,7 +139,9 @@ def album_art(
         match_threshold=match_threshold,
     )
     if json:
-        click.echo(_json.dumps(result.to_dict(), indent=2))
+        click.echo(
+            _json.dumps(result.to_payload("album-art", dry_run=dry_run), indent=2)
+        )
     else:
         source = result.extra.get("source", "unknown")
         click.echo(

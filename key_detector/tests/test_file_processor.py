@@ -13,6 +13,9 @@ Covers:
 Changed in 1.1.0: retargeted the librosa patch points to the shared helper.
 Changed in 1.4.0: the mocked processor carries a real `max_workers` so the
 slot-grid cap has a number to compare (D66).
+Changed in 1.4.0: mocked decodes are one second long so they satisfy the
+shared 0.5 s minimum-duration guard; a dedicated regression asserts a shorter
+signal is reported as an error instead of being tagged.
 """
 
 import threading
@@ -51,6 +54,17 @@ def _make_call_args(
     }
 
 
+def _audible(sr: int = 22050, seconds: float = 1.0) -> np.ndarray:
+    """A 440 Hz tone that passes the shared duration and silence guards.
+
+    Mocked decodes must be audible: an all-zero array is rejected as
+    effectively silent, so using one would exercise the failure path in tests
+    that mean to exercise the normal one.
+    """
+    t = np.arange(int(sr * seconds)) / sr
+    return (0.4 * np.sin(2 * np.pi * 440.0 * t)).astype(np.float32)
+
+
 class TestSampleRatePassedToDetectKey:
     """detect_key must receive the sr that librosa.load() actually returned."""
 
@@ -65,7 +79,7 @@ class TestSampleRatePassedToDetectKey:
         librosa.load() resamples to (librosa.load defaults to sr=22050).
         detect_key must be called with the LOADED rate, never the native one.
         """
-        fake_audio = np.zeros(1000, dtype=np.float32)
+        fake_audio = _audible()
         args = _make_call_args()
 
         with (
@@ -101,7 +115,7 @@ class TestSampleRatePassedToDetectKey:
         can't distinguish correct from buggy behavior on its own -- covered
         by the mismatch cases above. This just confirms no crash in that path.
         """
-        fake_audio = np.zeros(1000, dtype=np.float32)
+        fake_audio = _audible()
         args = _make_call_args()
 
         with (
@@ -122,7 +136,7 @@ class TestSampleRatePassedToDetectKey:
         the wrong value to pass to detect_key(). After the fix, the
         production code path must not call it at all.
         """
-        fake_audio = np.zeros(1000, dtype=np.float32)
+        fake_audio = _audible()
         args = _make_call_args()
 
         with (
@@ -217,7 +231,7 @@ class TestDetectKeyCpu:
     def test_returns_ok_on_success(self):
         from key_detector.core.file_processor import _detect_key_cpu
 
-        fake_audio = np.zeros(1000, dtype=np.float32)
+        fake_audio = _audible()
         with (
             patch("librosa.load", return_value=(fake_audio, 22050)),
             patch(f"{MODULE}.detect_key", return_value="C"),
@@ -238,6 +252,68 @@ class TestDetectKeyCpu:
                 analysis_duration=30,
             )
         assert result["status"] == "error"
+
+    def test_short_decode_is_reported_not_analysed(self):
+        """A 0.2 s decode must not reach detect_key and must say why.
+
+        Regression: key detection decodes through the fallback helper
+        directly, bypassing the shared loader's too-short guard, so a blip
+        was chroma-analysed and its fabricated key written as a tag.
+        """
+        from key_detector.core.file_processor import _detect_key_cpu
+
+        short = _audible(seconds=0.2)
+        with (
+            patch("librosa.load", return_value=(short, 22050)),
+            patch(f"{MODULE}.detect_key") as mock_detect_key,
+        ):
+            result = _detect_key_cpu(
+                file_path="/music/blip.mp3",
+                analysis_duration=30,
+            )
+
+        assert result["status"] == "error"
+        assert "too short" in str(result["error"]).lower()
+        mock_detect_key.assert_not_called()
+
+    def test_silent_decode_is_reported_not_analysed(self):
+        """A one-second silent decode must not reach detect_key.
+
+        Silence is long enough to satisfy the duration guard, and chroma
+        correlation on a flat spectrum returns a confident-looking key, so the
+        silence half of the shared guard is what stops the fabricated tag.
+        """
+        from key_detector.core.file_processor import _detect_key_cpu
+
+        with (
+            patch("librosa.load", return_value=(np.zeros(22050, np.float32), 22050)),
+            patch(f"{MODULE}.detect_key") as mock_detect_key,
+        ):
+            result = _detect_key_cpu(
+                file_path="/music/silence.mp3",
+                analysis_duration=30,
+            )
+
+        assert result["status"] == "error"
+        assert "silent" in str(result["error"]).lower()
+        mock_detect_key.assert_not_called()
+
+    def test_quiet_decode_is_still_analysed(self):
+        """The guard rejects silence, not quiet music."""
+        from key_detector.core.file_processor import _detect_key_cpu
+
+        quiet = (_audible() * 0.02).astype(np.float32)
+        with (
+            patch("librosa.load", return_value=(quiet, 22050)),
+            patch(f"{MODULE}.detect_key", return_value="C") as mock_detect_key,
+        ):
+            result = _detect_key_cpu(
+                file_path="/music/quiet.mp3",
+                analysis_duration=30,
+            )
+
+        assert result["status"] == "ok"
+        mock_detect_key.assert_called_once()
 
 
 class TestHandleKeyResult:
@@ -360,7 +436,7 @@ class TestProcessSingleFileBranches:
     def test_live_mode_writes_key(self):
         """In live mode the detected key must be written and reported as
         TAGGED."""
-        fake_audio = np.zeros(1000, dtype=np.float32)
+        fake_audio = _audible()
         args = _make_call_args(is_dry_run=False)
         with (
             patch(f"{MODULE}.read_key", return_value=None),
@@ -377,7 +453,7 @@ class TestProcessSingleFileBranches:
     def test_live_mode_changed_key_shows_previous(self):
         """In live mode a changed key must produce '(was X)' in the display
         and 'Previous: X' in the log."""
-        fake_audio = np.zeros(1000, dtype=np.float32)
+        fake_audio = _audible()
         args = _make_call_args(is_dry_run=False)
         with (
             patch(f"{MODULE}.read_key", return_value="Am"),
@@ -521,7 +597,7 @@ class TestUndoBatchRecording:
         for i in range(4):
             slot_queue.put(i)
 
-        fake_audio = np.zeros(1000, dtype=np.float32)
+        fake_audio = _audible()
         handler = MagicMock()
         handler.get_raw_tags.return_value = {"TKEY": "C"}
         handler.read_key.return_value = None
@@ -580,14 +656,19 @@ class TestUndoBatchRecording:
 _SR = 22050
 
 
-def _make_real_wav(path, seconds: float = 1.0):
-    """Write a real mono 16-bit WAV so the real tag reader/writer can work."""
+def _make_real_wav(path, seconds: float = 1.0, silent: bool = False):
+    """Write a real mono 16-bit WAV so the real tag reader/writer can work.
+
+    With ``silent=True`` the PCM is digital silence, which is long enough for
+    the duration guard but must be refused by the silence guard.
+    """
     import numpy as np
     from pydub import AudioSegment
 
     n = int(_SR * seconds)
     t = np.arange(n) / _SR
-    pcm = (0.4 * np.sin(2 * np.pi * 440.0 * t) * 32767).astype(np.int16)
+    signal = np.zeros(n) if silent else 0.4 * np.sin(2 * np.pi * 440.0 * t)
+    pcm = (signal * 32767).astype(np.int16)
     segment = AudioSegment(pcm.tobytes(), frame_rate=_SR, sample_width=2, channels=1)
     segment.export(str(path), format="wav")
     return path
@@ -688,6 +769,33 @@ class TestUnknownKeyIsNeverTagged:
         assert "[DETECTED]" in args["on_progress"].call_args[1]["display_text"]
 
 
+class TestSilentFileIsNeverTagged:
+    """A silent file gets an error line, no key tag, and unchanged bytes.
+
+    Outcome-level: the real loader decodes a real silent WAV, and the real tag
+    reader confirms nothing was written. A mocked `write_key` could not tell a
+    refused write from a wrong one.
+    """
+
+    def test_serial_path_reports_silence_and_leaves_file_untagged(self, tmp_path):
+        from audio_suite_shared.tag_helper import read_key
+
+        path = _make_real_wav(tmp_path / "silence.wav", seconds=1.0, silent=True)
+        original = path.read_bytes()
+        args = _make_call_args(
+            name="silence.wav", dir_path=str(tmp_path), is_dry_run=False
+        )
+        with patch(f"{MODULE}.detect_key") as mock_detect_key:
+            process_single_file(**args)
+
+        mock_detect_key.assert_not_called()
+        assert read_key(str(path)) is None
+        assert path.read_bytes() == original
+        shown = args["on_progress"].call_args[1]["display_text"]
+        assert "silent" in shown.lower()
+        assert "[TAGGED]" not in shown
+
+
 class TestRealFileUndoRoundTrip:
     """The byte-level undo contract (iteration-6 B2) extended to the key
     tool (mirror of iteration-7 B5's mood_analyzer lock): a live run that
@@ -717,7 +825,7 @@ class TestRealFileUndoRoundTrip:
             patch(f"{MODULE}.detect_key", return_value="C"),
             patch(
                 "librosa.load",
-                return_value=(np.zeros(_SR, dtype=np.float32), _SR),
+                return_value=(_audible(_SR), _SR),
             ),
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
             patch("audio_suite_shared.file_processor_base.track_thread"),

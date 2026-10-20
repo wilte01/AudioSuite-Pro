@@ -3,6 +3,8 @@
 Changed in 1.0.1: adds the positional ``on_progress`` regression.
 Changed in 1.3.0: the ingestibility counts move to 28 tools / 27 CLI commands
 with the Spectral Viewer.
+Changed in 1.4.0: locks the actionable message printed when a tool module
+cannot be imported (stale editable install).
 """
 
 from __future__ import annotations
@@ -945,3 +947,40 @@ class TestRunToolTargetsAcceptItsKwargs:
             "the command must reach the engine and report the empty directory; "
             f"got: {result.output}"
         )
+
+
+class TestMissingToolGuidance:
+    """A missing tool package is reported, and doctor stays reachable."""
+
+    def test_missing_module_is_reported_not_fatal(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            cli_app_module,
+            "_TOOL_CLI_MODULES",
+            (("no_such_tool_package.cli", "ghost"),),
+        )
+        failures = cli_app_module._register_tool_commands()
+
+        assert failures == ["no_such_tool_package"]
+
+    def test_the_warning_names_doctor_and_the_locked_runtime(self) -> None:
+        from audio_suite_shared.runtime_check import missing_modules_message
+
+        message = missing_modules_message(["no_such_tool_package"])
+        assert "audiosuite doctor" in message
+        assert "uv run audiosuite" in message
+        assert "uv sync --frozen --all-extras" in message
+
+    def test_doctor_is_registered_before_the_tool_modules(self) -> None:
+        """The diagnostic must work when a tool package is missing."""
+        assert "doctor" in cli_app_module.cli.commands
+
+    def test_every_registered_module_resolves(self) -> None:
+        """A deleted or renamed CLI module must fail here, not at runtime."""
+        import importlib.util
+
+        missing = [
+            module_name
+            for module_name, _command in cli_app_module._TOOL_CLI_MODULES
+            if importlib.util.find_spec(module_name) is None
+        ]
+        assert not missing, f"unimportable command module(s): {missing}"

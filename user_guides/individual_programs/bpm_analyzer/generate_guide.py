@@ -2,6 +2,8 @@
 
 Changed in 1.4.0: the Workers description states the machine default
 (one per logical CPU, capped at 8) instead of a fixed 4.
+Changed in 1.4.0: the Command Line section documents the JSON
+``skipped_files`` records (filename, reason, onset-periodicity score).
 """
 
 from docx import Document
@@ -210,7 +212,12 @@ doc.add_paragraph(
     "--parallel/--no-parallel, "
     "--workers, the shared dry-run option, and --json. It "
     "reports processed, skipped, "
-    "errors, and elapsed time in text mode."
+    "errors, and elapsed time in text mode. JSON mode returns the "
+    "same counts as top-level fields plus skipped_files, one record "
+    "per refused file with its filename, reason, and "
+    "onset_periodicity score (null when no tempo estimate existed), "
+    "and error_files, one record per failed file with its filename, "
+    "reason, and error_type."
 )
 
 doc.add_heading("Master Driver Use", level=1)

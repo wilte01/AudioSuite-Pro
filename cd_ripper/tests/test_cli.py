@@ -8,12 +8,17 @@ so they are patched at their source modules. The fake session marks itself
 done by invoking the session_done_cb during start(), unblocking the
 command's done_event.wait().
 
+Changed in 1.4.0: the fake session reports no fatal error, and a new lock
+asserts a fatal drive error exits non-zero instead of printing an empty
+success payload.
+
 Run with:
     pytest tests/test_cli.py -v
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -22,6 +27,7 @@ from click.testing import CliRunner
 
 import cd_ripper.cli  # noqa: F401  (registers @cli.command on the group)
 from audio_suite_shared.cli_base import cli
+from audio_suite_shared.cli_schema import validate_payload
 from cd_ripper.core import metadata_resolver, ripper
 
 
@@ -36,6 +42,7 @@ def _fake_session_factory(captured: dict[str, Any]) -> MagicMock:
     def _build(**kwargs: Any) -> MagicMock:
         captured.update(kwargs)
         session = MagicMock()
+        session.fatal_error = None
 
         def _start() -> None:
             kwargs["log_cb"]("starting rip")
@@ -240,6 +247,76 @@ class TestRipOutput:
         assert '"drive": "D:"' in result.output
         assert '"format": "flac"' in result.output
         assert '"tracks": "all"' in result.output
+
+    def test_fatal_session_error_exits_non_zero(self, runner: CliRunner) -> None:
+        """A session that never opened the drive must not report success."""
+
+        def _build(**kwargs: Any) -> MagicMock:
+            session = MagicMock()
+            session.fatal_error = "Cannot open CD device \\\\.\\Z: (Win32 error 2)."
+
+            def _start() -> None:
+                kwargs["session_done_cb"]()
+
+            session.start.side_effect = _start
+            return session
+
+        with patch.object(ripper, "RipSession", side_effect=_build):
+            result = runner.invoke(cli, ["cd-rip", "Z:", "--output-dir", "/out"])
+
+        assert result.exit_code != 0
+        assert "Cannot open CD device" in result.output
+
+
+class TestFatalErrorJson:
+    """A drive/disc failure still honours the JSON contract."""
+
+    @staticmethod
+    def _failing_session(message: str):
+        def _build(**kwargs: Any) -> MagicMock:
+            session = MagicMock()
+            session.fatal_error = message
+            session.start.side_effect = lambda: kwargs["session_done_cb"]()
+            return session
+
+        return _build
+
+    def test_rip_failure_emits_errors_and_the_reason(self, runner: CliRunner) -> None:
+        message = "Cannot open CD device \\\\.\\Z: (Win32 error 2)."
+        with patch.object(
+            ripper, "RipSession", side_effect=self._failing_session(message)
+        ):
+            result = runner.invoke(
+                cli, ["cd-rip", "Z:", "--output-dir", "/out", "--json"]
+            )
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout)
+        assert payload["command"] == "cd-rip"
+        assert payload["errors"] == 1
+        assert payload["succeeded"] == 0
+        assert payload["drive"] == "Z:"
+        assert "Cannot open CD device" in payload["error"]
+        assert validate_payload("cd-rip", payload) == []
+        assert "Cannot open CD device" in result.stderr
+
+    def test_offset_detection_failure_emits_the_reason(self, runner: CliRunner) -> None:
+        from audio_suite_shared.exceptions import AudioIOError
+
+        with patch(
+            "cd_ripper.core.offset_detect.run_read_offset_detection",
+            side_effect=AudioIOError("No disc in drive Z:"),
+        ):
+            result = runner.invoke(
+                cli, ["cd-rip", "Z:", "--detect-read-offset", "--json"]
+            )
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout)
+        assert payload["errors"] == 1
+        assert payload["read_offset_frames"] is None
+        assert "No disc" in payload["error"]
+        assert validate_payload("cd-rip", payload) == []
 
 
 class TestVerifyOption:

@@ -15,6 +15,8 @@ Changed in 1.1.0: uses librosa_load_with_fallback() so the new formats are analy
 an ffmpeg transcode.
 Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
 when not supplied (PLAN D56).
+Changed in 1.4.0: a failed file reports the reason in plain language and logs
+one line; the stack trace goes to the DEBUG log instead of the console.
 """
 
 import logging
@@ -28,11 +30,16 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from audio_suite_shared.analysis_loader import librosa_load_with_fallback
+from audio_suite_shared.analysis_loader import (
+    check_analysable,
+    librosa_load_with_fallback,
+)
 from audio_suite_shared.constants import default_max_workers
 from audio_suite_shared.error_recovery import RecoveryAction, get_recovery_action
 from audio_suite_shared.exceptions import (
+    failure_reason,
     handle_audio_errors,
+    log_handled_failure,
     map_to_audio_error,
 )
 from audio_suite_shared.file_processor_base import (
@@ -142,6 +149,12 @@ def process_single_file(
         y_raw, _sr = librosa_load_with_fallback(file_path, duration=analysis_duration)
         loaded_sr: int = int(_sr)
         y: npt.NDArray[np.float64] = y_raw.astype(np.float64)
+        # See bpm_detector.detect_bpm: this tool decodes through the fallback
+        # helper directly, so it must apply the shared guard itself rather than
+        # analyse (and tag) a degenerate signal.  check_analysable rejects both
+        # a too-short decode and an effectively silent one, which chroma
+        # correlation would otherwise turn into a confident-looking key.
+        check_analysable(y, loaded_sr)
         detected_key: str = detect_key(y, loaded_sr)
 
         status = "DETECTED"
@@ -170,24 +183,25 @@ def process_single_file(
 
     except Exception as exc:
         mapped = map_to_audio_error(exc)
-        logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
+        reason = failure_reason(mapped)
+        log_handled_failure(logger, "[%s] %s", type(mapped).__name__, reason, exc=exc)
         action = get_recovery_action(exc, "key_detection")
 
         if action == RecoveryAction.SKIP:
-            display = f"[SKIP] {safe_name}: {exc}"
+            display = f"[SKIP] {safe_name}: {reason}"
             with lock:
                 on_progress(
                     n_skipped=1,
                     display_text=display,
-                    log_text=f"[SKIP] {safe_name}: {exc}\n",
+                    log_text=f"[SKIP] {safe_name}: {reason}\n",
                 )
         else:
-            display = f"[ERROR] {safe_name}: {exc}"
+            display = f"[ERROR] {safe_name}: {reason}"
             with lock:
                 on_progress(
                     n_errors=1,
                     display_text=display,
-                    log_text=f"[ERROR] {safe_name}: {exc}\n",
+                    log_text=f"[ERROR] {safe_name}: {reason}\n",
                 )
 
 
@@ -210,16 +224,19 @@ def _detect_key_cpu(
         y_raw, _sr = librosa_load_with_fallback(file_path, duration=analysis_duration)
         loaded_sr: int = int(_sr)
         y: npt.NDArray[np.float64] = y_raw.astype(np.float64)
+        check_analysable(y, loaded_sr)
         detected_key: str = detect_key(y, loaded_sr)
         return {"status": "ok", "key": detected_key}
     except Exception as exc:
-        logger.error(
+        reason = failure_reason(exc)
+        log_handled_failure(
+            logger,
             "[Unexpected] _detect_key_cpu failed for '%s': %s",
             file_path,
-            exc,
-            exc_info=True,
+            reason,
+            exc=exc,
         )
-        return {"status": "error", "error": str(exc)}
+        return {"status": "error", "error": reason}
 
 
 def _handle_key_result(
