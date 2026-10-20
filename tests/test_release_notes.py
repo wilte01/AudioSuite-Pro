@@ -86,6 +86,13 @@ narrative ``.md`` documents, which every release touches.
 Changed in 1.4.0: declared .ogg an exception format for the licensed
 real-music BPM corpus under tests/data/bpm_corpus (binary audio carries no
 comment syntax; provenance is in that directory's ATTRIBUTION.md).
+Changed in 1.4.1: re-baselined the lock for the Sprint 5 maintenance work
+(PLAN_feature_expansion.md D90). BASE_COMMIT is now a6f862e -- the Sprint 4
+close-out tip -- and NOTE_MARKER is ``Changed in 1.4.1``, so only the Sprint
+5 change set requires notes. The asserted non-empty exception category stays
+the narrative ``.md`` documents, which every release touches; ``.rst`` is
+declared later, in the commit that first adds an ``.rst`` file (the
+API-docs scaffold, D98), so no declared exception is stale.
 """
 
 from __future__ import annotations
@@ -98,14 +105,14 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: The plan's base commit; every file changed since here must be annotated.
-#: Updated for the Sprint 4 work window (D53): set to 2f6be06 (the 1.3.0
-#: release tip) so only the 1.4.0 change set requires notes. Earlier work is
+#: Updated for the Sprint 5 work window (D90): set to a6f862e (the Sprint 4
+#: close-out tip) so only the 1.4.1 change set requires notes. Earlier work is
 #: documented in its own plans and CHANGELOG.md, so it does not require
 #: per-file notes here.
-BASE_COMMIT = "2f6be06"
+BASE_COMMIT = "a6f862e"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 1.4.0"
+NOTE_MARKER = "Changed in 1.4.1"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (
