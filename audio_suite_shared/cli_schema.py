@@ -52,12 +52,14 @@ payload.  ``stats`` reports the library's audio duration separately as
 ``library_duration_secs``/``library_duration_str``, precisely so the shared name
 keeps one meaning.
 
-Each variant in the committed document also carries ``examples``: one payload
-recorded from that command, so a reader can see a real document without running
-the tool.  In JSON Schema terms examples are annotations - they constrain
-nothing - but the schema-conformance gate validates every one of them against
-its own variant, so a published example is always a payload the contract
-accepts.  ``--json-schema`` prints the committed file itself (via
+Each variant in the committed document also carries ``examples``: the payload
+recorded from that command, followed by the command's **fatal-error document**
+(counters at zero, ``errors`` at 1, the reason in ``error``).  Both are recorded
+from real invocations, so a reader can see the success shape *and* the failure
+shape without running the tool.  In JSON Schema terms examples are annotations -
+they constrain nothing - but the schema-conformance gate validates every one of
+them against its own variant, so a published example is always a payload the
+contract accepts.  ``--json-schema`` prints the committed file itself (via
 :func:`committed_schema_text`), examples included.
 
 Changed in 1.4.0: initial version (PLAN D82), replacing per-tool ad-hoc
@@ -74,6 +76,9 @@ Changed in 1.4.1: the committed document and a recorded payload per command
 Changed in 1.4.1: every variant carries an ``examples`` array with the recorded
 payload for that command, and ``--json-schema`` prints that committed file, so
 a script author can see real output without running the tool (PLAN D104).
+Changed in 1.4.1: each variant's ``examples`` also publishes the command's
+fatal-error document, recorded from a real failing invocation, so the failure
+shape is visible without triggering one (PLAN D105).
 """
 
 from __future__ import annotations
@@ -463,6 +468,7 @@ def validate_payload(command: str, payload: Mapping[str, Any]) -> list[str]:
 
 def json_schema(
     examples: Mapping[str, Mapping[str, Any]] | None = None,
+    errors: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the JSON Schema (draft 2020-12) for every command's payload.
 
@@ -475,11 +481,16 @@ def json_schema(
 
     Args:
         examples: Command path to a real payload, published as that variant's
-            ``examples`` array.  The committed document is built with the
-            recorded payloads, so a reader can see the shape without running
-            the tool.  ``examples`` is an annotation: it does not constrain
-            validation (payloads still only need the core keys and declared
-            extras), which is why the gate validates every example itself.
+            first example.  The committed document is built with the recorded
+            payloads, so a reader can see the shape without running the tool.
+            ``examples`` is an annotation: it does not constrain validation
+            (payloads still only need the core keys and declared extras),
+            which is why the gate validates every example itself.
+        errors: Command path to that command's fatal-error document, published
+            after the recorded payload in the same ``examples`` array.  It is
+            a real failure payload (``errors`` at 1, the message in ``error``),
+            so a script author sees the failure shape - no run required, and
+            no guess at whether a failed run still carries the core keys.
 
     Returns:
         A JSON-serialisable schema document.
@@ -489,6 +500,7 @@ def json_schema(
             command,
             tool,
             None if examples is None else examples.get(command),
+            None if errors is None else errors.get(command),
         )
         for command, tool in TOOL_IDS.items()
     ]
@@ -497,10 +509,12 @@ def json_schema(
         "Every payload carries the shared counters and an 'error' string "
         "only when the run failed."
     )
-    if examples is not None:
+    if examples is not None or errors is not None:
         described += (
-            " Each variant's 'examples' array holds one payload recorded from "
-            "that command - illustrative only, not part of validation."
+            " Each variant's 'examples' array holds the payload recorded from "
+            "that command followed by that command's fatal-error document "
+            "(errors: 1 with the reason in 'error') - illustrative only, not "
+            "part of validation."
         )
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -511,15 +525,20 @@ def json_schema(
     }
 
 
-def schema_json(examples: Mapping[str, Mapping[str, Any]] | None = None) -> str:
+def schema_json(
+    examples: Mapping[str, Mapping[str, Any]] | None = None,
+    errors: Mapping[str, Mapping[str, Any]] | None = None,
+) -> str:
     """Return the schema document as pretty-printed JSON text.
 
     Args:
         examples: Command path to a real payload, as :func:`json_schema` takes
             them.  The committed document is generated with the recorded
             payloads; omitting them yields the structural schema alone.
+        errors: Command path to that command's fatal-error document, published
+            after the payload in the same ``examples`` array.
     """
-    return json.dumps(json_schema(examples), indent=2) + "\n"
+    return json.dumps(json_schema(examples, errors), indent=2) + "\n"
 
 
 def committed_schema_text() -> str:
@@ -547,8 +566,14 @@ def _command_schema(
     command: str,
     tool: str,
     example: Mapping[str, Any] | None = None,
+    error_example: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build one command's variant of the schema document."""
+    """Build one command's variant of the schema document.
+
+    ``examples`` keeps a fixed order - the recorded payload first, the fatal
+    document second - because a consumer that reads ``examples[0]`` must get the
+    same kind of document every time.
+    """
     properties: dict[str, Any] = {
         "schema_version": {"const": SCHEMA_VERSION},
         "tool": {"const": tool},
@@ -573,8 +598,9 @@ def _command_schema(
         "required": list(CORE_TYPES),
         "additionalProperties": False,
     }
-    if example is not None:
-        variant["examples"] = [example]
+    published = [item for item in (example, error_example) if item is not None]
+    if published:
+        variant["examples"] = published
     return variant
 
 

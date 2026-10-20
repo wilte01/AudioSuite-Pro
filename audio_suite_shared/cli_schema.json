@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://audiosuite-pro/schemas/cli-json-v1.json",
   "title": "AudioSuite-Pro CLI JSON output (schema v1)",
-  "description": "One variant per command, discriminated by the constant 'command'. Every payload carries the shared counters and an 'error' string only when the run failed. Each variant's 'examples' array holds one payload recorded from that command - illustrative only, not part of validation.",
+  "description": "One variant per command, discriminated by the constant 'command'. Every payload carries the shared counters and an 'error' string only when the run failed. Each variant's 'examples' array holds the payload recorded from that command followed by that command's fatal-error document (errors: 1 with the reason in 'error') - illustrative only, not part of validation.",
   "oneOf": [
     {
       "title": "audiosuite album-art --json",
@@ -92,13 +92,28 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.014,
+          "duration_secs": 0.016,
           "duration_str": "0.0s",
           "log_entries": [
             "Error: no supported audio files found in directory\n"
           ],
           "source": "none",
           "selection_audit": null
+        },
+        {
+          "schema_version": 1,
+          "tool": "art",
+          "command": "album-art",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -227,6 +242,21 @@
             "============================================================\n"
           ],
           "coverage_pct": 0.0
+        },
+        {
+          "schema_version": 1,
+          "tool": "album_genre",
+          "command": "album-genre",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -309,11 +339,26 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.012,
+          "duration_secs": 0.04,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIPPED] track.wav | No embedded artwork \u2014 skipped.\n"
           ]
+        },
+        {
+          "schema_version": 1,
+          "tool": "album_art_normalizer",
+          "command": "artnormalize",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -407,6 +452,21 @@
           "log_entries": [
             "Found 0 ASX file(s) in <run>\\library"
           ]
+        },
+        {
+          "schema_version": 1,
+          "tool": "asx_extractor",
+          "command": "asx-extract",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -495,8 +555,8 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.431,
-          "duration_str": "0.4s",
+          "duration_secs": 0.484,
+          "duration_str": "0.5s",
           "log_entries": [
             "[ERROR] track.wav: BPM detection failed \u2014 Audio is too short to analyse (0.05s).\n"
           ],
@@ -508,6 +568,21 @@
               "error_type": "BPMDetectionError"
             }
           ]
+        },
+        {
+          "schema_version": 1,
+          "tool": "bpm",
+          "command": "bpm",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -634,6 +709,21 @@
           "tracks": "all",
           "verify": "twice",
           "read_offset_frames": null
+        },
+        {
+          "schema_version": 1,
+          "tool": "cd_ripper",
+          "command": "cd-rip",
+          "dry_run": false,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "No such option '--no-such-option'."
         }
       ]
     },
@@ -725,7 +815,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.025,
+          "duration_secs": 0.014,
           "duration_str": "0.0s",
           "log_entries": [
             "[DRY RUN] track.wav | WAV \u2192 FLAC | Est. Size: 0.00MB \u2192 0.00MB\n"
@@ -735,6 +825,21 @@
           "format_counts": {
             "wav": 1
           }
+        },
+        {
+          "schema_version": 1,
+          "tool": "converter",
+          "command": "convert",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -826,12 +931,27 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.002,
+          "duration_secs": 0.001,
           "duration_str": "0.0s",
           "log_entries": [],
           "cue_path": "<run>\\out\\album.cue",
           "tracks": 1,
           "title": "Album"
+        },
+        {
+          "schema_version": 1,
+          "tool": "cue",
+          "command": "cue generate",
+          "dry_run": false,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'TARGET': Path 'no-such-input' does not exist."
         }
       ]
     },
@@ -992,6 +1112,21 @@
               ]
             }
           ]
+        },
+        {
+          "schema_version": 1,
+          "tool": "cue",
+          "command": "cue parse",
+          "dry_run": false,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'CUE_FILE': File 'no-such-input' does not exist."
         }
       ]
     },
@@ -1089,6 +1224,21 @@
           "cue_file": "<run>\\album.cue",
           "output_dir": "<run>\\out",
           "tracks": []
+        },
+        {
+          "schema_version": 1,
+          "tool": "cue",
+          "command": "cue split",
+          "dry_run": false,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'CUE_FILE': File 'no-such-input' does not exist."
         }
       ]
     },
@@ -1171,11 +1321,26 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.024,
+          "duration_secs": 0.023,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] track.wav | Clean \u2014 no defects found\n"
           ]
+        },
+        {
+          "schema_version": 1,
+          "tool": "pop_click_remover",
+          "command": "declick",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -1288,13 +1453,13 @@
           "succeeded": 29,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.02,
+          "duration_secs": 0.007,
           "duration_str": "0.0s",
           "log_entries": [],
           "healthy": true,
           "checkout_version": "1.4.0",
           "installed_version": "1.4.0",
-          "editable": false,
+          "editable": true,
           "mapped": 29,
           "packages": [
             {
@@ -1530,6 +1695,21 @@
           ],
           "missing_commands": [],
           "problems": []
+        },
+        {
+          "schema_version": 1,
+          "tool": "doctor",
+          "command": "doctor",
+          "dry_run": false,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "No such option '--no-such-option'."
         }
       ]
     },
@@ -1615,10 +1795,25 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.013,
+          "duration_secs": 0.014,
           "duration_str": "0.0s",
           "log_entries": [],
           "done": 1
+        },
+        {
+          "schema_version": 1,
+          "tool": "audio_enhancer",
+          "command": "enhance",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -1710,7 +1905,7 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.024,
+          "duration_secs": 0.029,
           "duration_str": "0.0s",
           "log_entries": [
             "[ERROR] track.wav\n    An error occurred during processing.\n"
@@ -1739,6 +1934,21 @@
             "album_ambiguous": 0,
             "errors": 1
           }
+        },
+        {
+          "schema_version": 1,
+          "tool": "fingerprinter",
+          "command": "fingerprint",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -1827,13 +2037,28 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.023,
+          "duration_secs": 0.03,
           "duration_str": "0.0s",
           "log_entries": [
             "track.wav | No genre fields available\n"
           ],
           "updated": 0,
           "no_genre": 1
+        },
+        {
+          "schema_version": 1,
+          "tool": "genre_sync",
+          "command": "genre-sync",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -1916,11 +2141,26 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.029,
+          "duration_secs": 0.037,
           "duration_str": "0.0s",
           "log_entries": [
             "[ERROR] track.wav: Audio is too short to analyse (0.05s).\n"
           ]
+        },
+        {
+          "schema_version": 1,
+          "tool": "key",
+          "command": "key",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -2006,6 +2246,21 @@
           "duration_secs": 0.0,
           "duration_str": "0.0s",
           "log_entries": []
+        },
+        {
+          "schema_version": 1,
+          "tool": "lyrics_manager",
+          "command": "lyrics",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -2112,7 +2367,7 @@
           "succeeded": 2,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.012,
+          "duration_secs": 0.011,
           "duration_str": "0.0s",
           "log_entries": [],
           "directory": "<run>\\library",
@@ -2122,6 +2377,21 @@
           "tagged": 2,
           "folders": 1,
           "log_path": "runs/fake.log"
+        },
+        {
+          "schema_version": 1,
+          "tool": "mood_analysis_batch",
+          "command": "mood-analysis-batch",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -2204,11 +2474,26 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.017,
+          "duration_secs": 0.016,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] track.wav: Audio is too short to analyse (0.05s).\n"
           ]
+        },
+        {
+          "schema_version": 1,
+          "tool": "mood_analyzer",
+          "command": "mood-analyzer",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -2291,11 +2576,26 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.057,
+          "duration_secs": 0.062,
           "duration_str": "0.1s",
           "log_entries": [
             "[DRY RUN] track.wav | Would apply 56.00 dB gain\n"
           ]
+        },
+        {
+          "schema_version": 1,
+          "tool": "audio_normalizer",
+          "command": "normalise",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -2378,11 +2678,26 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.02,
+          "duration_secs": 0.037,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] track.wav | Clean \u2014 no noise detected\n"
           ]
+        },
+        {
+          "schema_version": 1,
+          "tool": "noise_reduction",
+          "command": "reduce",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -2465,11 +2780,26 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.109,
-          "duration_str": "0.1s",
+          "duration_secs": 0.169,
+          "duration_str": "0.2s",
           "log_entries": [
             "[ERROR] track.wav | An error occurred during processing.\n"
           ]
+        },
+        {
+          "schema_version": 1,
+          "tool": "audio_refinery",
+          "command": "refine",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -2552,9 +2882,24 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.013,
+          "duration_secs": 0.027,
           "duration_str": "0.0s",
           "log_entries": []
+        },
+        {
+          "schema_version": 1,
+          "tool": "file_reorganizer",
+          "command": "reorganize",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -2637,12 +2982,27 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.051,
+          "duration_secs": 0.082,
           "duration_str": "0.1s",
           "log_entries": [
             "\nFOLDER: <run>\\library\nALBUM STATS -> Gain: +54.00 dB | Peak: 1.000000\n-----------------------------------------------------------------\n",
             "[DRY RUN] track.wav\n    Track Gain: +54.00 dB | Track Peak: 1.000000\n"
           ]
+        },
+        {
+          "schema_version": 1,
+          "tool": "replaygain",
+          "command": "replaygain",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -2725,11 +3085,26 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.012,
+          "duration_secs": 0.049,
           "duration_str": "0.0s",
           "log_entries": [
             "[DRY RUN] track.wav | Would scrub metadata\n"
           ]
+        },
+        {
+          "schema_version": 1,
+          "tool": "scrubber",
+          "command": "scrub",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -2812,11 +3187,26 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.037,
+          "duration_secs": 0.016,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] track.wav | Entire file is silence - skipped\n"
           ]
+        },
+        {
+          "schema_version": 1,
+          "tool": "silence_trimmer",
+          "command": "silence-trim",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -2924,6 +3314,21 @@
             }
           ],
           "error_messages": []
+        },
+        {
+          "schema_version": 1,
+          "tool": "spectral_viewer",
+          "command": "spectrogram",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'PATH': Path 'no-such-input' does not exist."
         }
       ]
     },
@@ -3066,10 +3471,10 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.001,
+          "duration_secs": 0.007,
           "duration_str": "0.0s",
           "log_entries": [],
-          "library_duration_secs": 0.0011043999693356454,
+          "library_duration_secs": 0.007251399976667017,
           "library_duration_str": "0.0s",
           "scan_path": "<run>\\library",
           "total_files": 1,
@@ -3104,6 +3509,21 @@
             ]
           ],
           "top_genres": []
+        },
+        {
+          "schema_version": 1,
+          "tool": "library_stats",
+          "command": "stats",
+          "dry_run": false,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -3262,6 +3682,21 @@
           "unchanged": 0,
           "row_errors": [],
           "ignored_columns": []
+        },
+        {
+          "schema_version": 1,
+          "tool": "tag_editor",
+          "command": "tag-edit",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'PATH': Path 'no-such-input' does not exist."
         }
       ]
     },
@@ -3350,11 +3785,26 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.014,
+          "duration_secs": 0.038,
           "duration_str": "0.0s",
           "log_entries": [],
           "directory": "<run>\\library",
           "updated": 0
+        },
+        {
+          "schema_version": 1,
+          "tool": "tag_field_updater",
+          "command": "tag-update",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     },
@@ -3437,11 +3887,26 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.048,
+          "duration_secs": 0.047,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] track.wav | No tags found\n"
           ]
+        },
+        {
+          "schema_version": 1,
+          "tool": "tempo",
+          "command": "tempo",
+          "dry_run": true,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
         }
       ]
     }

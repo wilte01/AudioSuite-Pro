@@ -154,19 +154,25 @@ a checkout. Reproduce that directory locally with:
 python -m tests.cli_schema_conformance --export-dir cli-payloads
 ```
 
-`cue generate` becomes `cue-generate.json`; the export refuses a corpus the
-gate rejects, so a published payload is always one the contract validates.
+`cue generate` becomes `cue-generate.json` for the recorded payload and
+`cue-generate-error.json` for its fatal-error document — the file a run prints
+when it dies before doing any work. The export refuses a corpus the gate
+rejects, so a published document is always one the contract validates.
 `cli-payloads/` is gitignored — it is a build artifact, not a second copy of
 the corpus.
 
 `audiosuite --json-schema` prints the committed document, and every command's
-variant carries an `examples` array with the recorded payload for that command,
-so a script author can see real output from an install without running
-anything. `--record` rewrites the corpus **and** the document's examples from
-the same run, and the conformance gate checks all three promises: an example is
-present, it validates against its own variant, and it is the recorded payload.
-The document ships as package data (`[tool.setuptools.package-data]`), because
-the flag reads the installed file rather than regenerating it.
+variant carries an `examples` array with the recorded payload for that command
+followed by its fatal-error document, so a script author can see the shape of
+both a successful and a failed run from an install without running anything.
+`--record` rewrites the corpus **and** the document's examples from the same
+run, and the conformance gate checks every promise: each example is present, it
+validates against its own variant, it is the recorded document, and a failure
+example really is the failure shape — zero counters, `errors: 1`, the reason in
+`error`, and no tool-specific keys, so a failed run is readable with the code
+that reads a successful one. The document ships as package data
+(`[tool.setuptools.package-data]`), because the flag reads the installed file
+rather than regenerating it.
 
 ## Dependency security scanning
 

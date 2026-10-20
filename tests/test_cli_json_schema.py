@@ -32,6 +32,7 @@ so the recorded corpus is produced by the same driver this lock uses (PLAN D102)
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +54,7 @@ from audio_suite_shared.cli_schema import (
     validate_payload,
 )
 from audio_suite_shared.tool_plugin import get_registry
-from tests.cli_payloads import argv_for, capture
+from tests.cli_payloads import argv_for, capture, error_argv_for
 from tests.cli_schema_conformance import load_corpus
 
 
@@ -305,9 +306,10 @@ class TestJsonSchemaDocument:
             / "audio_suite_shared"
             / "cli_schema.json"
         ).read_text(encoding="utf-8")
-        examples = load_corpus().payloads
+        corpus = load_corpus()
+        expected = schema_json(examples=corpus.payloads, errors=corpus.errors)
 
-        assert committed == schema_json(examples=examples), (
+        assert committed == expected, (
             "audio_suite_shared/cli_schema.json is stale; regenerate it with "
             "`python -m tests.cli_schema_conformance --record`"
         )
@@ -361,7 +363,9 @@ class TestRecordedExamples:
         for command in TOOL_IDS:
             variant = _schema_variant(document, command)
             examples = variant["examples"]
-            assert examples == [dict(corpus.payloads[command])], command
+            assert examples[0] == dict(corpus.payloads[command]), command
+            assert examples[1] == dict(corpus.errors[command]), command
+            assert len(examples) == 2, command
 
     def test_every_example_validates_against_its_own_variant(self) -> None:
         document = _committed_schema()
@@ -385,6 +389,58 @@ class TestRecordedExamples:
         assert set(examples) == set(TOOL_IDS)
         assert all(examples[command] for command in TOOL_IDS)
         assert examples["bpm"][0]["command"] == "bpm"
+        # The failure shape travels with them, so a script author sees what a
+        # failed run prints without triggering one.
+        assert examples["bpm"][1]["error"]
+
+
+class TestFatalErrorExamples:
+    """Each variant also publishes what the command prints when it fails.
+
+    A script author should not have to provoke a failure to learn that a failed
+    run still carries the core keys with ``errors`` at 1 and the reason in
+    ``error``.  The example is a real recording, so it shows the message the
+    CLI actually writes, not a hand-written placeholder.
+    """
+
+    def test_every_variant_publishes_the_recorded_failure(self) -> None:
+        document = _committed_schema()
+        corpus = load_corpus()
+
+        for command in TOOL_IDS:
+            variant = _schema_variant(document, command)
+            fatal = variant["examples"][1]
+
+            assert fatal == dict(corpus.errors[command]), command
+            assert _accepts(variant, fatal), command
+
+    def test_the_fatal_shape_is_zero_counters_and_one_reason(self) -> None:
+        document = _committed_schema()
+
+        for command in TOOL_IDS:
+            fatal = _schema_variant(document, command)["examples"][1]
+
+            assert fatal["errors"] == 1, command
+            assert isinstance(fatal["error"], str), command
+            assert fatal["error"].strip(), command
+            for key in ("total", "processed", "succeeded", "skipped"):
+                assert fatal[key] == 0, (command, key)
+            # No tool-specific counters: a failure is readable with the core
+            # keys alone, whichever command produced it.
+            assert set(fatal) == set(CORE_TYPES) | {"error"}, command
+
+    @pytest.mark.parametrize("command", ["bpm", "cue parse", "tag-edit", "doctor"])
+    def test_a_real_failure_prints_the_published_document(self, command: str) -> None:
+        """The published example is a real run's output, not a sketch of one."""
+        published = _schema_variant(_committed_schema(), command)["examples"][1]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp) / "run"
+            work.mkdir()
+            exit_code, stdout, stderr = capture(command, error_argv_for(command, work))
+
+        assert exit_code == 2, stderr
+        assert json.loads(stdout) == published
 
 
 class TestCdRipPayloads:

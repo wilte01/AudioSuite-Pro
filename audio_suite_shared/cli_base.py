@@ -29,7 +29,7 @@ command that printed its own document exit non-zero without a second one
 (PLAN D91).
 Changed in 1.4.1: ``--json-schema`` prints the committed document file rather
 than regenerating it, so a consumer receives the shipped artifact including
-its per-command example payloads (PLAN D104).
+its per-command example payloads and fatal-error documents (PLAN D104, D105).
 Changed in 1.4.1: ``finish_run`` gives a *fatal* run exit 1 after its payload
 is printed, while a run whose only losses were per-file keeps its command's
 exit status (PLAN D92).
@@ -573,7 +573,7 @@ def _configure_console_logging(level: int) -> None:
     default=False,
     help=(
         "Print the locked JSON output schema (schema v1), with a recorded "
-        "example payload per command, and exit."
+        "payload and fatal-error document per command, and exit."
     ),
 )
 # Plan G2: the version is read from [project] version in pyproject.toml, so

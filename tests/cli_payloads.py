@@ -14,6 +14,9 @@ none of that, so only ``--record`` imports this module, and lazily.
 Changed in 1.4.1: initial version, extracted from
 ``tests/test_cli_json_schema.py`` so the recorder and the integration lock build
 argv and invoke commands the same way instead of drifting apart.
+Changed in 1.4.1: also records each command's fatal-error document by driving
+it with a missing input path, so the published failure shape is a real one
+(PLAN D105).
 """
 
 from __future__ import annotations
@@ -43,6 +46,21 @@ BUILDER_RECORDED: frozenset[str] = frozenset({"cd-rip"})
 #: Commands that would query a web service if given an audio file.  Their
 #: payload shape is proved on an empty directory instead of in a network call.
 EMPTY_LIBRARY: frozenset[str] = frozenset({"album-art", "lyrics"})
+
+#: Commands with no validated input path to point at a missing one: ``doctor``
+#: takes no arguments, and ``cd-rip``'s DRIVE is a device rather than a path.
+#: Their failure document is recorded from an unknown option instead.
+NO_INPUT_PATH: frozenset[str] = frozenset({"cd-rip", "doctor"})
+
+#: The unknown option that makes a command fail while Click parses its argv,
+#: before any tool code runs.  It has to be an option no command declares.
+UNKNOWN_OPTION: str = "--no-such-option"
+
+#: The missing path a command is pointed at to record its failure document.  It
+#: is relative on purpose: Click quotes the value it rejected ("Directory
+#: 'no-such-input' does not exist."), so a relative name keeps the committed
+#: message byte-identical on every host instead of baking a checkout path in.
+MISSING_INPUT: str = "no-such-input"
 
 
 def write_wav(path: Path) -> Path:
@@ -152,6 +170,29 @@ def _patched(command: str) -> Iterator[None]:
     yield
 
 
+def error_argv_for(command: str, work: Path) -> list[str]:
+    """Build argv that makes *command* fail before it does any work.
+
+    The failure a script author is most likely to hit is a mistyped input path,
+    so that is what each command is driven with: its normal recording argv with
+    the first (path) argument replaced by one that does not exist.  Click
+    rejects it while parsing, which is exactly the path that publishes the
+    fatal-error document.  The substitute is relative (``MISSING_INPUT``), so
+    the message the command prints carries no host path.
+
+    Args:
+        command: The command path, a key of ``cli_schema.TOOL_IDS``.
+        work: An empty scratch directory, as :func:`argv_for` takes.
+
+    Returns:
+        The argv (without ``--json``) that provokes the failure.
+    """
+    argv = argv_for(command, work)
+    if command in NO_INPUT_PATH or not argv:
+        return [UNKNOWN_OPTION]
+    return [MISSING_INPUT, *argv[1:]]
+
+
 def capture(command: str, argv: list[str]) -> tuple[int, str, str]:
     """Invoke *command* in JSON mode and return ``(exit_code, stdout, stderr)``."""
     with _patched(command):
@@ -226,4 +267,50 @@ def record_payloads() -> dict[str, dict[str, Any]]:
                 )
             replacements = ((str(work), "<run>"), (str(REPO_ROOT), "<repo>"))
             recorded[command] = _normalize(json.loads(stdout), replacements)
+    return recorded
+
+
+def record_error_payloads() -> dict[str, dict[str, Any]]:
+    """Drive every command into a fatal error, capturing what it printed.
+
+    The published failure shape is the document the CLI really writes when an
+    invocation dies before doing any work - not a hand-built sketch of one.
+    Each run must exit with Click's usage-error status and print a document
+    whose counters are zero, ``errors`` is 1 and ``error`` is a non-empty
+    string; anything else means the recording measured the wrong thing.
+
+    Returns:
+        Command path to its fatal-error document, for every command the schema
+        declares.  The rejected value is relative (``no-such-input``), so the
+        recorded message mentions no host path at all.
+
+    Raises:
+        RuntimeError: if a command exits with an unexpected status, prints no
+            document, or prints something that is not a fatal document.
+    """
+    recorded: dict[str, dict[str, Any]] = {}
+    for command in sorted(TOOL_IDS):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp) / "run"
+            work.mkdir()
+            argv = error_argv_for(command, work)
+            exit_code, stdout, stderr = capture(command, argv)
+            if exit_code != 2 or not stdout.strip():
+                raise RuntimeError(
+                    f"{command}: expected a usage error (exit 2) with a JSON "
+                    f"document, got exit {exit_code}, stdout={stdout!r}, "
+                    f"stderr={stderr!r}"
+                )
+            payload = json.loads(stdout)
+            message = payload.get("error")
+            if (
+                payload.get("errors") != 1
+                or not isinstance(message, str)
+                or not message
+            ):
+                raise RuntimeError(
+                    f"{command}: printed a document that is not a fatal error: "
+                    f"{payload!r}"
+                )
+            recorded[command] = _normalize(payload, ((str(REPO_ROOT), "<repo>"),))
     return recorded
