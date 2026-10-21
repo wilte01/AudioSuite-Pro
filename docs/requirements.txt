@@ -1,6 +1,7 @@
-# Documentation build only - deliberately not in the `dev` extra (PLAN D98):
-# the test suite does not need a docs toolchain, and CI does not build these
-# pages. Install into the project venv when you want to render them:
+# Documentation build only.  Sphinx is also in the `dev` extra since PLAN P2:
+# tests/test_docs_build.py builds these pages and fails on any parser warning,
+# so the toolchain has to be present wherever the suite runs.  Install this
+# file into the project venv when you want to render the pages by hand:
 #   python -m pip install -r docs/requirements.txt
 # Changed in 1.4.1: new file - the Sphinx pin for the API reference (PLAN D98).
 sphinx>=8.2

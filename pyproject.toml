@@ -100,6 +100,11 @@ dev = [
     "python-docx>=1.1.0",
     "python-pptx>=1.0.0",
     "types-requests>=2.28.0",
+    # Dev-only: tests/test_docs_build.py builds docs/ with Sphinx and fails on
+    # any parser warning, so a malformed docstring cannot reach the API
+    # reference (PLAN_feature_expansion P2).  D98 kept the docs toolchain out
+    # of dev because nothing parsed docstrings; the gate is that nothing.
+    "sphinx>=8.2",
 ]
 
 [tool.bandit]

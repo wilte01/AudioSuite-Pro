@@ -7,10 +7,11 @@ imports. Build it with the interpreter that carries the docs requirements::
     python -m pip install -r docs/requirements.txt
     python -m sphinx -b html docs docs/_build/html
 
-``docs/requirements.txt`` is deliberately outside the ``dev`` extra (PLAN D98):
-a contributor running the test suite does not need a documentation toolchain,
-and CI does not build these pages. This module imports only the standard
-library, so ``mypy .`` checks it with the rest of the tree.
+Sphinx is in the ``dev`` extra as well, because ``tests/test_docs_build.py``
+builds these pages with this configuration and fails on any parser warning
+(PLAN P2) -- a defect in a docstring is a defect in the published reference, so
+it belongs to the gate rather than to a manual step. This module imports only
+the standard library, so ``mypy .`` checks it with the rest of the tree.
 
 Changed in 1.4.1: new module - the Sphinx configuration for the API reference,
 stdlib-only so the type gate covers it (PLAN D98).

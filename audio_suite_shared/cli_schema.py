@@ -85,7 +85,7 @@ shape is visible without triggering one (PLAN D105).
 Changed in 1.4.1: records why there is no streaming mode (PLAN D101).
 
 One document per run, deliberately
----------------------------------
+----------------------------------
 
 ``--json`` prints **one** document, when the run ends: the summary above.
 There is no ``--json-lines`` and no per-file record stream (S5-8).  An

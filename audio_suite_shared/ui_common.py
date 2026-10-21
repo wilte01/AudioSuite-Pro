@@ -22,6 +22,10 @@ Usage in a tool's processing_tab.py:
 Changed in 1.4.0: adds ``cap_typed_workers``, the one place a typed Workers
 count above the slot grid is capped and reported to the user (D66); an
 unattended launch logs the clamp instead of showing a dialog (D70).
+
+Changed in 1.4.1: the ``Returns:`` blocks of ``build_results_tab`` and
+``build_processing_tab`` are literal blocks, so napoleon renders the widget
+dictionaries instead of a broken definition list (backlog P2).
 """
 
 import json
@@ -93,15 +97,17 @@ def build_results_tab(
                          button.  Only wired if on_play_original is also set.
 
     Returns:
-        {
-            'completion_label': tk.Label,
-            'time_label':       tk.Label,
-            'summary_label':    tk.Label,
-            <extra keys>:       tk.Label,  # if requested
-            'play_original_btn': tk.Button,   # if on_play_original set
-            'play_result_btn':   tk.Button,   # if on_play_original set
-            'audition_caption_var': tk.StringVar,
-        }
+        The widgets the tool drives, keyed by name::
+
+            {
+                'completion_label': tk.Label,
+                'time_label':       tk.Label,
+                'summary_label':    tk.Label,
+                'extra keys':       tk.Label,   # one per extra_labels entry
+                'play_original_btn': tk.Button,  # if on_play_original set
+                'play_result_btn':   tk.Button,  # if on_play_original set
+                'audition_caption_var': tk.StringVar,
+            }
     """
     if on_open_log is None:
         on_open_log = _default_open_log
@@ -414,12 +420,14 @@ def build_processing_tab(
         stats_text:  Initial text for the stats label.
 
     Returns:
-        {
-            'overall_status': tk.StringVar,
-            'progress':       ttk.Progressbar,
-            'stats_label':    tk.Label,
-            'file_listbox':   tk.Listbox,
-        }
+        The widgets the tool drives, keyed by name::
+
+            {
+                'overall_status': tk.StringVar,
+                'progress':       ttk.Progressbar,
+                'stats_label':    tk.Label,
+                'file_listbox':   tk.Listbox,
+            }
     """
     frame = tk.Frame(parent, padx=15, pady=15, bg=styles.BG_WHITE)
     frame.pack(expand=True, fill="both")

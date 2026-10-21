@@ -17,7 +17,7 @@ at all rather than an empty one - an install without a changelog (or a version
 that was built without its notes) simply has nothing to say.
 
 A skipped update must not lose its notes
----------------------------------------
+----------------------------------------
 
 Showing only the running version's section loses every release a user skipped:
 someone who jumps 1.2.0 -> 1.4.0 would never see what 1.3.0 changed.  The panel
@@ -49,6 +49,10 @@ It deliberately stays out of the way of unattended work:
 Changed in 1.3.0: new module - the in-app release-notes panel and its
 pending-version rule.  The panel covers every release since the last seen
 version, not just the running one, so a skipped update still reports itself.
+
+Changed in 1.4.1: a section underline one character short and a ``##``
+literal carrying a trailing space are corrected, so Sphinx's parser accepts
+the module and the API reference renders it (backlog P2).
 """
 
 from __future__ import annotations
@@ -155,7 +159,7 @@ def find_changelog(start: Path | None = None) -> Path | None:
 def section_body(changelog_text: str, version: str) -> str | None:
     """Return the body of the ``## [<version>]`` section.
 
-    The section ends at the next ``## `` heading, so the body can never run on
+    The section ends at the next ``##`` heading, so the body can never run on
     into a later release.
 
     Args:
