@@ -1,5 +1,8 @@
 """
 styles.py — Canonical colour palettes and ttk style setup for the Audio Suite.
+
+Changed in 1.4.1: documents the palette, typography and style entry points, so
+the generated API reference lists the contract a tool author calls (PLAN D98).
 """
 
 import logging
@@ -78,6 +81,21 @@ FONT_MONO = (FONT_FAMILY_MONO, 9)
 def set_active_typography(
     family: str | None = None, sizes: dict[str, int] | None = None
 ) -> None:
+    """Rebind the module's font tuples for the active typography.
+
+    Args:
+        family: Font family for text roles; ``None`` keeps the current one.
+        sizes: Point sizes keyed by role - ``Header``, ``Title_L``, ``Title``,
+            ``Button``, ``Label``, ``Body``, ``Caption``, ``Micro`` and
+            ``Mono``.  ``None`` resets every role to its default.  A role that
+            is absent keeps its default, so a saved dict from an older version
+            cannot break startup.
+
+    Note:
+        The ``FONT_*`` names are module globals, so callers import them
+        explicitly or rebuild widgets: a widget that already exists keeps the
+        font it was created with.
+    """
     global FONT_FAMILY_MAIN
     global FONT_TITLE, FONT_LABEL, FONT_LABEL_B, FONT_BUTTON, FONT_HEADER, FONT_TITLE_L
     global \
@@ -223,6 +241,20 @@ from . import suite_config  # noqa: E402
 
 
 def set_active_palette(name: str) -> None:
+    """Activate the colour palette called *name*.
+
+    Args:
+        name: A key of :data:`PALETTES`.  ``"Windows Accent"`` resolves the
+            live OS accent when ``windows-accent`` is installed (falling back
+            to the saved preference, then :data:`DEFAULT_PALETTE`, when the
+            probe fails); an unknown name falls back to
+            :data:`DEFAULT_PALETTE`.
+
+    Note:
+        :data:`PALETTES` itself is never mutated - the live accent colours live
+        in a separate dict - so one session's accent cannot leak into the next
+        session's fallback or into the picker swatches.
+    """
     global _active, PURPLE_MAIN, PURPLE_DARK, BG_LIGHT, BG_WHITE
 
     # If using Windows Accent, try to get actual system colors.
@@ -283,6 +315,13 @@ def _resolve_palette(name: str) -> dict[str, str]:
 
 
 def get_active_palette_name() -> str:
+    """Return which palette is currently in effect, by name.
+
+    The active state carries colours rather than a name, so the palette is
+    identified by its main colour.  The Windows Accent entry is matched
+    against the live accent first; :data:`DEFAULT_PALETTE` is returned when
+    nothing matches.
+    """
     # Check if it's the current Windows Accent colors
     if HAS_WINACCENT:
         try:
@@ -317,6 +356,13 @@ def bootstrap_theme() -> None:
 
 
 def apply_styles(style: ttk.Style) -> None:
+    """Configure *style* with the active palette and typography.
+
+    Args:
+        style: The ``ttk.Style`` to configure.  It is switched to the ``clam``
+            theme first, so a Windows ``vista`` theme cannot swallow the colour
+            overrides.
+    """
     style.theme_use("clam")
     style.configure("TNotebook", background=BG_LIGHT)
     style.configure(

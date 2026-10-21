@@ -93,6 +93,10 @@ close-out tip -- and NOTE_MARKER is ``Changed in 1.4.1``, so only the Sprint
 the narrative ``.md`` documents, which every release touches; ``.rst`` is
 declared later, in the commit that first adds an ``.rst`` file (the
 API-docs scaffold, D98), so no declared exception is stale.
+Changed in 1.4.1: ``.txt`` joins CODE_SUFFIXES in the commit that adds the
+first one (``docs/requirements.txt``, D98). A requirements file carries comment
+syntax, so it is annotated like configuration rather than exempted like a
+binary; the scan still refuses an unclassified format.
 """
 
 from __future__ import annotations
@@ -125,6 +129,12 @@ CODE_SUFFIXES: tuple[str, ...] = (
     ".yml",
     ".yaml",
     ".gitignore",
+    # Pinned requirements (1.4.1, PLAN D98). A requirements file is configuration
+    # with comment syntax - the marker goes in a `#` line - and the tree's only
+    # `.txt` is docs/requirements.txt. Classifying it as code means a future
+    # `.txt` must be either annotated or declared, rather than slipping through
+    # as an implicit exception.
+    ".txt",
 )
 
 #: Explicit exception categories. Every changed file must be either code or
@@ -150,6 +160,10 @@ EXCEPTION_SUFFIXES: tuple[str, ...] = (
     # 1.4.0 licensed real-music BPM corpus (tests/data/bpm_corpus, CC0);
     # provenance and calibration are recorded in its ATTRIBUTION.md.
     ".ogg",
+    # 1.4.1 Sphinx scaffold (PLAN D98). reStructuredText has comment syntax,
+    # but its comments are directive-shaped and a "Changed in 1.4.1" line in
+    # an API page would be read as prose in the rendered reference.
+    ".rst",
 )
 
 #: Categories asserted non-empty below - a comment-less or regenerated-binary

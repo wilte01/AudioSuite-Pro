@@ -7,7 +7,8 @@ that is removed from its command fails the suite unless this block is updated
 in the same change.  Shown values are the option defaults unless a value is
 part of a usage example.
 
-Usage:
+Usage::
+
     audiosuite bpm /path/to/dir [--bpm-min 60] [--bpm-max 200] [--duration 30]
                            [--parallel] [--workers N] [--dry] [--json]
     audiosuite key /path/to/dir [--duration 30] [--parallel] [--workers N]

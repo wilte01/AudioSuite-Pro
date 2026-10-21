@@ -9,27 +9,30 @@ script can read every tool's summary without per-tool key mapping:
 Schema version 1 guarantees these keys, with these names and types, in every
 payload:
 
-=================  ==========================================================
-``schema_version`` ``1`` — bumped only for a breaking change to this table.
-``tool``           The tool's manifest id (``bpm``, ``library_stats``); ``cue``
-                   for the CUE commands and ``doctor`` for the install check,
-                   which have no manifest entry of their own.
-``command``        The CLI path as invoked: ``bpm``, ``cue parse``.
-``dry_run``        ``True`` when the run's ``--dry`` flag was in effect. A
-                   command with no dry mode (``stats``, ``cue parse``) reports
-                   ``False``; read-only behaviour is part of the command's
-                   description, not of this flag.
-``total``          Items the run set out to handle (files, edits, tracks).
-``processed``      Items it finished attempting; a dry run still counts what
-                   it evaluated.  This includes the skipped and failed items.
-``succeeded``      ``processed - skipped - errors`` (never negative): the items
-                   that actually produced a result.  Published so a script
-                   does not have to know which tools count attempts.
-``skipped``        Items deliberately not handled (no beat, no lyrics, …).
-``errors``         Items that failed.
-``duration_secs``  Wall-clock run time, rounded to milliseconds.
-``duration_str``   The same value for display (``"12.4s"``).
-``log_entries``    The run's log lines, newline-terminated, as text.
+====================  ==========================================================
+Key                   Contract
+====================  ==========================================================
+``schema_version``    ``1`` — bumped only for a breaking change to this table.
+``tool``              The tool's manifest id (``bpm``, ``library_stats``); ``cue``
+                      for the CUE commands and ``doctor`` for the install check,
+                      which have no manifest entry of their own.
+``command``           The CLI path as invoked: ``bpm``, ``cue parse``.
+``dry_run``           ``True`` when the run's ``--dry`` flag was in effect. A
+                      command with no dry mode (``stats``, ``cue parse``) reports
+                      ``False``; read-only behaviour is part of the command's
+                      description, not of this flag.
+``total``             Items the run set out to handle (files, edits, tracks).
+``processed``         Items it finished attempting; a dry run still counts what
+                      it evaluated.  This includes the skipped and failed items.
+``succeeded``         ``processed - skipped - errors`` (never negative): the items
+                      that actually produced a result.  Published so a script
+                      does not have to know which tools count attempts.
+``skipped``           Items deliberately not handled (no beat, no lyrics, …).
+``errors``            Items that failed.
+``duration_secs``     Wall-clock run time, rounded to milliseconds.
+``duration_str``      The same value for display (``"12.4s"``).
+``log_entries``       The run's log lines, newline-terminated, as text.
+====================  ==========================================================
 
 Tool-specific keys are allowed **at the top level** next to the core keys, and
 each command declares its own in :data:`EXTRA_TYPES`.  Two consequences matter

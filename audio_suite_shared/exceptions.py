@@ -6,13 +6,14 @@ AudioSuite-Pro.
 
 DROP-IN PLACEMENT: copy this file to  audio_suite_shared/exceptions.py
 
-INTEGRATION POINTS (all pre-existing):
+INTEGRATION POINTS (all pre-existing)::
   • audio_suite_shared/error_logger.py  — stdlib logging shim (already wired)
   • audio_suite_shared/security/error_handler.py — SecureErrorHandler for
     sanitised user-facing messages
   • audio_suite_shared/error_recovery.py — retry / recovery action helpers
 
-USAGE QUICK-REFERENCE:
+USAGE QUICK-REFERENCE::
+
   from audio_suite_shared.exceptions import handle_audio_errors, AudioSuiteError
 
   @handle_audio_errors(reraise=False, context="tag_writer")
@@ -21,11 +22,15 @@ USAGE QUICK-REFERENCE:
 
   # Or raise explicitly from domain logic:
   raise AudioCodecError("mutagen returned unsupported codec", path=path)
+
 ─────────────────────────────────────────────────────────────────────────────
 
 Changed in 1.4.0: adds failure_reason() and log_handled_failure(), so a handled
 per-file failure shows the user one plain-language sentence and keeps its stack
 trace in the debug log instead of printing it at the console.
+Changed in 1.4.1: the reference blocks are literal and the two documented
+helpers use Args/Returns sections, so the generated API reference renders them
+without docutils errors (PLAN D98).
 """
 
 from __future__ import annotations
@@ -100,6 +105,17 @@ class AudioSuiteError(Exception):
 
     # Convenience so callers can do:  raise AudioFileNotFoundError(...) from exc
     def with_original(self, exc: Exception) -> "AudioSuiteError":
+        """Attach the underlying exception and return self, for chaining.
+
+        Args:
+            exc: The exception this one was mapped from; kept as
+                ``original`` so a log record or a handler can still reach the
+                library-level error.
+
+        Returns:
+            This exception, so a call site can both attach and raise in one
+            expression: ``raise AudioIOError(path=…).with_original(exc)``.
+        """
         self.original = exc
         return self
 
@@ -350,15 +366,14 @@ def map_to_audio_error(
     If ``exc`` is already an ``AudioSuiteError`` it is returned unchanged (no
     double-wrapping).
 
-    Parameters
-    ----------
-    exc     : The exception to map.
-    context : Optional extra metadata to attach (merged with any already on
-              the exception if it is already an AudioSuiteError).
+    Args:
+        exc: The exception to map.
+        context: Optional metadata to attach, merged with any context already
+            on the exception when it is itself an ``AudioSuiteError``.
 
-    Returns
-    -------
-    AudioSuiteError subclass instance.
+    Returns:
+        The nearest ``AudioSuiteError`` subclass instance, with the original
+        kept as ``original``.
     """
     if isinstance(exc, AudioSuiteError):
         if context:
@@ -419,41 +434,40 @@ def handle_audio_errors(
        re-raised / suppressed without double-wrapping.
     3. KeyboardInterrupt and SystemExit are **never** caught here.
 
-    Parameters
-    ----------
-    reraise     : Re-raise the (mapped) exception after logging.
-                  Set False for fire-and-forget helpers where you want
-                  failures logged but not surfaced.
-    context     : Optional string label added to the log message and the
-                  mapped exception's ``context`` dict, e.g. "tag_writer".
-                  Defaults to the decorated function's qualified name.
-    return_on_error : Value returned when reraise=False and an error occurs.
-                  Defaults to None.
-    log_level   : logging level for the error record (default: ERROR).
-    suppress_types : Tuple of AudioSuiteError subclasses that should be
-                  suppressed (not re-raised) even when reraise=True.
-                  Useful for non-critical operations like spin-down.
+    Args:
+        reraise: Re-raise the (mapped) exception after logging. Set ``False``
+            for fire-and-forget helpers where you want failures logged but not
+            surfaced.
+        context: Optional label added to the log message and the mapped
+            exception's ``context`` dict, e.g. ``"tag_writer"``.  Defaults to
+            the decorated function's qualified name.
+        return_on_error: Value returned when ``reraise=False`` and an error
+            occurs.  Defaults to ``None``.
+        log_level: Logging level for the error record (default: ``ERROR``).
+        suppress_types: ``AudioSuiteError`` subclasses to suppress (not
+            re-raise) even when ``reraise=True``, for teardown steps such as
+            spin-down.
 
-    Usage Examples
-    --------------
-    # 1. Core processing — re-raise so the worker thread sees the failure
-    @handle_audio_errors(context="loudness_measurement")
-    def measure_loudness(path: Path) -> dict:
-        ...
+    Usage Examples::
 
-    # 2. Best-effort helper — log and return None, never crash
-    @handle_audio_errors(reraise=False, context="album_art_fetch")
-    def fetch_cover_art(artist: str, album: str) -> Optional[bytes]:
-        ...
+        # 1. Core processing — re-raise so the worker thread sees the failure
+        @handle_audio_errors(context="loudness_measurement")
+        def measure_loudness(path: Path) -> dict:
+            ...
 
-    # 3. Suppress only minor teardown errors (replaces `except Exception: pass`)
-    @handle_audio_errors(
-        reraise=True,
-        suppress_types=(AudioExternalToolError,),
-        context="drive_spindown",
-    )
-    def spin_down_drive(drive: str) -> None:
-        ...
+        # 2. Best-effort helper — log and return None, never crash
+        @handle_audio_errors(reraise=False, context="album_art_fetch")
+        def fetch_cover_art(artist: str, album: str) -> Optional[bytes]:
+            ...
+
+        # 3. Suppress minor teardown errors (replaces `except Exception: pass`)
+        @handle_audio_errors(
+            reraise=True,
+            suppress_types=(AudioExternalToolError,),
+            context="drive_spindown",
+        )
+        def spin_down_drive(drive: str) -> None:
+            ...
     """
 
     def decorator(func: _F) -> _F:

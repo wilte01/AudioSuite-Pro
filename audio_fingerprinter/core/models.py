@@ -12,6 +12,8 @@ ISRC/enrichment fields on ``FingerprintFileResult``
 Changed in 1.2.0: adds :func:`isrc_submission_note` / :func:`isrc_submission_problem`
 so the CLI, the Results tab and the Master Driver batch report describe one
 submission outcome with the same words.
+Changed in 1.4.1: every ``to_dict`` states its serialisation contract, and the
+three with logic list the keys they build (PLAN D98).
 """
 
 from collections.abc import Mapping
@@ -128,6 +130,7 @@ class Fingerprint:
     fingerprint: str
 
     def to_dict(self) -> dict[str, Any]:
+        """Return this record as a JSON-ready mapping."""
         return asdict(self)
 
 
@@ -145,6 +148,7 @@ class ReleaseGroup:
     title: str = ""
 
     def to_dict(self) -> dict[str, Any]:
+        """Return this record as a JSON-ready mapping."""
         return asdict(self)
 
 
@@ -187,6 +191,7 @@ class Release:
     date: str = ""
 
     def to_dict(self) -> dict[str, Any]:
+        """Return this record as a JSON-ready mapping."""
         return asdict(self)
 
 
@@ -222,6 +227,7 @@ class AcoustidRecording:
     releases: tuple[Release, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
+        """Return this record as a JSON-ready mapping."""
         return asdict(self)
 
 
@@ -245,6 +251,14 @@ class LookupResult:
         return self.recordings[0] if self.recordings else None
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the lookup outcome, its error text and every candidate.
+
+        Returns:
+            ``status``, ``error`` and ``recordings`` (each candidate from its
+            own ``to_dict``), in that order.  The scores stay on the
+            candidates, so a caller reading the best score does not need a
+            second key.
+        """
         return {
             "status": self.status,
             "error": self.error,
@@ -286,6 +300,7 @@ class MBReleaseFacts:
     release_group_type: str = ""
 
     def to_dict(self) -> dict[str, Any]:
+        """Return this record as a JSON-ready mapping."""
         return asdict(self)
 
 
@@ -320,6 +335,7 @@ class MBRecording:
     release_group_ids: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
+        """Return this record as a JSON-ready mapping."""
         return asdict(self)
 
 
@@ -345,6 +361,7 @@ class MBArtist:
     disambiguation: str = ""
 
     def to_dict(self) -> dict[str, Any]:
+        """Return this record as a JSON-ready mapping."""
         return asdict(self)
 
 
@@ -376,6 +393,13 @@ class MBEnrichment:
     note: str = ""
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the enrichment, with the release facts nested.
+
+        Returns:
+            The fields above, with ``isrcs`` as a list (JSON has no tuples)
+            and ``release`` as its own mapping or None when no release was
+            selected.
+        """
         return {
             "recording_id": self.recording_id,
             "isrcs": list(self.isrcs),
@@ -445,6 +469,7 @@ class FingerprintParams:
     submit_isrc: bool = False
 
     def to_dict(self) -> dict[str, Any]:
+        """Return this record as a JSON-ready mapping."""
         return asdict(self)
 
 
@@ -493,6 +518,13 @@ class FingerprintFileResult:
     mb: MBEnrichment | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Return one file's result as the CLI ``--json`` record.
+
+        Returns:
+            The fields above, with ``status`` rendered through
+            :func:`status_text` (the enum member, never its repr), ``isrcs``
+            as a list, and ``recordings`` / ``musicbrainz`` nested or None.
+        """
         return {
             "file_path": self.file_path,
             "filename": self.filename,

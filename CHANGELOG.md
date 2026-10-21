@@ -66,6 +66,14 @@ Versions of the tools are released together with the suite (the single
   filename. The GUI completion callback accepts such tool-specific fields, so
   the same run data can reach the CLI without breaking the report writer.
 
+- **The shared package's API reference is generated from its docstrings.**
+  Every public module, class and function in `audio_suite_shared` now carries a
+  docstring, audited by `utilities/docstring_report.py` and locked by
+  `tests/test_docstring_coverage.py` (which also proves the audit can fail).
+  `docs/` renders that surface with Sphinx for tool authors who import the
+  package, and the requirements stay out of the `dev` extra so the test suite
+  does not need a docs toolchain.
+
 ### Fixed
 
 - **`audiosuite cd-rip --json` reports a drive or disc failure in its payload.**

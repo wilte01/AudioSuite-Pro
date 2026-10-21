@@ -57,6 +57,8 @@ cli-payloads/
 .coverage
 .coverage.*
 htmlcov/
+# Sphinx output (PLAN D98); the scaffold is committed, the rendered HTML is not.
+docs/_build/
 logs/
 *.log
 *.lnk

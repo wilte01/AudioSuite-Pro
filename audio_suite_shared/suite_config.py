@@ -4,7 +4,8 @@ suite_config.py — Shared Audio Suite config persistence.
 Reads and writes audio_suite_config.json, which lives in the suite root
 (the directory that contains all tool folders and the Master Driver).
 
-Path resolution from this file's location:
+Path resolution from this file's location::
+
     __file__  = .../audio_suite_shared/suite_config.py
     [1] up    = .../audio_suite_shared/   (this package)
     [2] up    = .../SUITE_ROOT/           ← where audio_suite_config.json lives
@@ -12,10 +13,14 @@ Path resolution from this file's location:
 Each tool's .pyw entry point and all tool folders sit as siblings under
 SUITE_ROOT, so the JSON is naturally shared across the whole suite.
 
-Keys currently used:
+Keys currently used::
+
     last_directory          – last-used music folder path
     <tool_name>_window      – saved window geometry per tool
                              (e.g. 'key_detector_window')
+
+Changed in 1.4.1: documents ``save_font_sizes`` and renders the path and key
+notes as literal blocks, so the API reference shows them verbatim (PLAN D98).
 """
 
 from __future__ import annotations
@@ -302,6 +307,13 @@ def load_font_sizes() -> dict[str, int]:
 
 
 def save_font_sizes(sizes: dict[str, int]) -> None:
+    """Persist the per-role font point sizes, preserving other keys.
+
+    Args:
+        sizes: Point sizes keyed by role (``Header``, ``Title_L``, ``Title``,
+            ``Button``, ``Label``, ``Body``, ``Caption``, ``Micro``, ``Mono``),
+            as :func:`load_font_sizes` returns them.
+    """
     with _file_lock():
         data = _load()
         data["font_sizes"] = sizes

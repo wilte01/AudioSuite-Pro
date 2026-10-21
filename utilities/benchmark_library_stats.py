@@ -27,6 +27,8 @@ next.  Both plans are also checked for agreement: a faster query that returned
 different rows would be a defect, not an optimisation.
 
 Exit status: 0 when both plans agree, 1 when they do not, 2 on bad arguments.
+
+Changed in 1.4.1: initial version, the D97 scope-plan benchmark.
 """
 
 from __future__ import annotations

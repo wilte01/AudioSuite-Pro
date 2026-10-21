@@ -7,7 +7,8 @@ their manifests here. Third-party tools can add manifests via the
 register() method or by dropping a plugin package with a
 tool_manifest() function into a configured plugin directory.
 
-Usage:
+Usage::
+
     from audio_suite_shared.tool_plugin import get_registry
 
     registry = get_registry()
@@ -17,6 +18,8 @@ Usage:
 Changed in 1.3.0: registers the ``spectral_viewer`` manifest (Sprint 3, D42),
 the first tool whose manifest is a read-only utility that writes images rather
 than tags.
+Changed in 1.4.1: the usage block is literal, so the generated API reference
+renders it as code rather than a definition list (PLAN D98).
 """
 
 from __future__ import annotations

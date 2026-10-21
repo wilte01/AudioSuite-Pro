@@ -52,9 +52,11 @@ tree and fails if a platform-conditional branch exists that is not listed here
 Changed in 1.4.0: the Windows Explorer shell-integration branch is gone with
 the withdrawn feature (PLAN D73), so its matrix row and declaration were
 removed in the same change.
+Changed in 1.4.1: the ``os.name`` trap section's underline matches its title, so
+the generated API reference renders the section instead of warning (PLAN D98).
 
 The ``os.name`` trap: patch ``sys.platform``, not ``os.name``
-------------------------------------------------------------
+----------------------------------------------------------------
 
 A test that wants to exercise a non-Windows arm must patch ``sys.platform``.
 Patching ``os.name`` looks equivalent and is not: ``pathlib.Path()`` consults

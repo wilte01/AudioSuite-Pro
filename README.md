@@ -256,7 +256,10 @@ them through review. Two properties are measured and enforced on every change:
 * **Typing** — 99.5% of production definitions are fully annotated (99.9% of
   parameters) and `mypy` runs in `--strict` mode across the whole suite with no
   errors. Every public module, class and function carries a docstring; function
-  signatures are explicitly typed end to end.
+  signatures are explicitly typed end to end. The shared package's API
+  reference is built from those docstrings with
+  `python -m pip install -r docs/requirements.txt` then
+  `python -m sphinx -b html docs docs/_build/html`.
 * **Audio correctness** — this suite transforms users' audio, so any change
   that could corrupt, mis-normalise or mis-convert a file is the highest
   priority class of fix. Such changes are validated by decoding the result and

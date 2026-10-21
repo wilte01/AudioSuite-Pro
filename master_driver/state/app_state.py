@@ -11,6 +11,8 @@ Changed in 1.2.0: adds the fingerprinter MusicBrainz / ISRC toggles.
 Changed in 1.3.0: adds the Spectral Viewer option variables (PLAN D42).
 Changed in 1.4.0: the five worker-count variables default to
 ``default_max_workers()`` instead of a literal "4" (PLAN D56).
+Changed in 1.4.1: the five utility-toggle property aliases say which
+``module_toggles`` entry they return (PLAN D98).
 """
 
 from __future__ import annotations
@@ -236,6 +238,7 @@ class AppState:
 
     @property
     def converter_toggle(self) -> tk.BooleanVar:
+        """Return ``module_toggles['converter']`` (legacy alias)."""
         return self.module_toggles["converter"]
 
     @converter_toggle.setter
@@ -244,6 +247,7 @@ class AppState:
 
     @property
     def asx_extractor_toggle(self) -> tk.BooleanVar:
+        """Return ``module_toggles['asx_extractor']`` (legacy alias)."""
         return self.module_toggles["asx_extractor"]
 
     @asx_extractor_toggle.setter
@@ -252,6 +256,7 @@ class AppState:
 
     @property
     def cd_ripper_toggle(self) -> tk.BooleanVar:
+        """Return ``module_toggles['cd_ripper']`` (legacy alias)."""
         return self.module_toggles["cd_ripper"]
 
     @cd_ripper_toggle.setter
@@ -260,6 +265,7 @@ class AppState:
 
     @property
     def mood_analysis_batch_toggle(self) -> tk.BooleanVar:
+        """Return ``module_toggles['mood_analysis_batch']`` (legacy alias)."""
         return self.module_toggles["mood_analysis_batch"]
 
     @mood_analysis_batch_toggle.setter
@@ -268,6 +274,7 @@ class AppState:
 
     @property
     def library_stats_toggle(self) -> tk.BooleanVar:
+        """Return ``module_toggles['library_stats']`` (legacy alias)."""
         return self.module_toggles["library_stats"]
 
     @library_stats_toggle.setter
