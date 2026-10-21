@@ -54,6 +54,9 @@ the withdrawn feature (PLAN D73), so its matrix row and declaration were
 removed in the same change.
 Changed in 1.4.1: the ``os.name`` trap section's underline matches its title, so
 the generated API reference renders the section instead of warning (PLAN D98).
+Changed in 1.4.1: the diagnostic scripts are classified - the peak-RSS probe's
+two ``sys.platform`` arms are declared, unverified for POSIX because their
+``resource`` import cannot run on this host (PLAN D100).
 
 The ``os.name`` trap: patch ``sys.platform``, not ``os.name``
 ----------------------------------------------------------------
@@ -513,6 +516,36 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
             "platform gets the DejaVu/Liberation fallback, which is computed "
             "at import time and so is not re-evaluated by a patched "
             "sys.platform."
+        ),
+        evidence="none",
+    ),
+    # ── Diagnostic scripts ────────────────────────────────────────────────────
+    PlatformBranch(
+        module="utilities/measure_worker_memory.py",
+        source='if sys.platform == "win32":',
+        tier=UNVERIFIED,
+        subsystem="Peak-RSS measurement for the worker-memory budget",
+        behaviour=(
+            "Windows reads PeakWorkingSetSize through GetProcessMemoryInfo, "
+            "and that arm is what this host exercises every run "
+            "(utilities/tests/test_measure_worker_memory.py asserts the value "
+            "is non-zero and responds to a 64 MB allocation). The other arm "
+            "cannot be tested on this host, so the helper is untested for "
+            "POSIX rather than unsupported: a patched sys.platform would hit "
+            "`import resource` and raise ImportError instead of measuring."
+        ),
+        evidence="none",
+    ),
+    PlatformBranch(
+        module="utilities/measure_worker_memory.py",
+        source='if sys.platform == "darwin":',
+        tier=UNVERIFIED,
+        subsystem="Peak-RSS measurement for the worker-memory budget",
+        behaviour=(
+            "ru_maxrss is bytes on macOS and KiB on Linux, so the arm exists, "
+            "but it cannot be simulated on a Windows host for the same reason "
+            "as the branch above: the POSIX arm imports `resource`, which does "
+            "not exist here."
         ),
         evidence="none",
     ),

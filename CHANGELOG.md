@@ -66,6 +66,15 @@ Versions of the tools are released together with the suite (the single
   filename. The GUI completion callback accepts such tool-specific fields, so
   the same run data can reach the CLI without breaking the report writer.
 
+- **The 8-worker default has a measured memory budget.** `utilities/
+  measure_worker_memory.py` runs a real analysis batch in a fresh process per
+  worker count and reports peak RSS, so the ceiling that was chosen on speed
+  alone now has a number behind it: on a 20-CPU host an 8-file batch peaks at
+  about 790 MB at 8 workers against the documented 1 GB budget, and the
+  `--parallel` parent stays near 50 MB because its children are separate
+  processes. Neither configuration needed a lower ceiling, so analysis and
+  conversion keep the same default.
+
 - **The BPM calibration corpus covers free-time, ambient, rubato and shuffle
   material.** Five more CC0 excerpts join the seven already committed, and the
   corpus's `ATTRIBUTION.md` table is now the tests' source of truth: a clip

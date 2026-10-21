@@ -69,9 +69,9 @@ The matrix below is **generated from the declared classification** in
 
 * **Portable core** (16 declared branches) — The non-Windows branch is implemented and a test runs it under a simulated non-Windows platform value.
 * **Windows-only** (6 declared branches) — A genuinely Windows-only capability. The non-Windows side is a documented stop, placeholder or no-op.
-* **Unverified** (9 declared branches) — A non-Windows branch exists but no test runs it, so nothing proves it behaves correctly. Untested, not unsupported.
+* **Unverified** (11 declared branches) — A non-Windows branch exists but no test runs it, so nothing proves it behaves correctly. Untested, not unsupported.
 
-Every one of the 31 distinct branches below was found by an AST scan of the first-party tree that skips comments and string literals; `audio_suite_shared/tests/test_platform_support.py` fails if a branch is added, removed or duplicated without re-classifying it here.
+Every one of the 33 distinct branches below was found by an AST scan of the first-party tree that skips comments and string literals; `audio_suite_shared/tests/test_platform_support.py` fails if a branch is added, removed or duplicated without re-classifying it here.
 
 | Tier | Module | Subsystem | Non-Windows behaviour | Evidence |
 |---|---|---|---|---|
@@ -106,6 +106,8 @@ Every one of the 31 distinct branches below was found by an AST scan of the firs
 | Unverified | `cd_ripper/ui/setup_tab.py` (tool `cd_ripper`) | ffmpeg discovery (rip setup tab) | Binary filename extension only. | none |
 | Unverified | `master_driver/ui/cards/typography_card.py` | Typography card font list | Windows and macOS get their own font families; every other platform gets the DejaVu/Liberation fallback, which is computed at import time and so is not re-evaluated by a patched sys.platform. | none |
 | Unverified | `replaygain_analyzer/core/ffmpeg_metrics.py` (tool `replaygain`) | ffmpeg discovery | Windows checks for an ffmpeg.exe shipped beside the module first; every other platform goes straight to PATH. | none |
+| Unverified | `utilities/measure_worker_memory.py` | Peak-RSS measurement for the worker-memory budget | ru_maxrss is bytes on macOS and KiB on Linux, so the arm exists, but it cannot be simulated on a Windows host for the same reason as the branch above: the POSIX arm imports `resource`, which does not exist here. | none |
+| Unverified | `utilities/measure_worker_memory.py` | Peak-RSS measurement for the worker-memory budget | Windows reads PeakWorkingSetSize through GetProcessMemoryInfo, and that arm is what this host exercises every run (utilities/tests/test_measure_worker_memory.py asserts the value is non-zero and responds to a 64 MB allocation). The other arm cannot be tested on this host, so the helper is untested for POSIX rather than unsupported: a patched sys.platform would hit `import resource` and raise ImportError instead of measuring. | none |
 
 <!-- PLATFORM MATRIX: END -->
 
