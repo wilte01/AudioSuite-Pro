@@ -9,6 +9,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.4.1] - 2026-10-21
+
 ### Added
 
 - **The CLI names the supported runtime when an install is stale.** Running the

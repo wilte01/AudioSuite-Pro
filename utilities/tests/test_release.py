@@ -10,10 +10,13 @@ compares the files byte-for-byte, so idempotency is measured rather than
 inferred from the ``[SKIP]`` lines.
 
 Changed in 1.3.0: new suite for the scripted release cut.
+Changed in 1.4.1: the cut refreshes the editable install's metadata before the
+gate, so `doctor`'s healthy-install tests see the bumped version.
 """
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
@@ -178,6 +181,57 @@ class TestChangelogRotation:
 
         assert changed
         assert "## [Unreleased]\n\nNothing yet.\n\n## [1.4.0]" in new_text
+
+
+class TestInstallRefresh:
+    """A bump must refresh the installed metadata before the gate reads it."""
+
+    def test_uses_uv_for_a_dependency_free_editable_reinstall(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """uv (not pip) and no dependency work, from the release root.
+
+        pip cannot do this in a uv-managed venv: there is no ``setuptools``,
+        so ``--no-build-isolation`` fails, and an isolated build would fetch a
+        backend the lock never pinned.
+        """
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **_kwargs: object) -> object:
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(release.shutil, "which", lambda name: "/usr/bin/uv")
+        monkeypatch.setattr(release.subprocess, "run", fake_run)
+        release.refresh_install_metadata(tmp_path, "python")
+
+        assert len(calls) == 1
+        args = calls[0]
+        assert args[:4] == ["/usr/bin/uv", "pip", "install", "--no-deps"]
+        assert args[4:6] == ["--python", "python"]
+        assert args[6] == "-e"
+        assert args[7] == str(tmp_path)
+
+    def test_a_failed_refresh_is_a_release_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A silent failure would let the gate read the old version."""
+
+        def fake_run(args: list[str], **_kwargs: object) -> object:
+            return subprocess.CompletedProcess(args, 1, "boom", "")
+
+        monkeypatch.setattr(release.shutil, "which", lambda name: "/usr/bin/uv")
+        monkeypatch.setattr(release.subprocess, "run", fake_run)
+        with pytest.raises(release.ReleaseError, match="metadata"):
+            release.refresh_install_metadata(tmp_path, "python")
+
+    def test_missing_uv_is_a_release_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without uv the environment cannot be refreshed, so say so."""
+        monkeypatch.setattr(release.shutil, "which", lambda name: None)
+        with pytest.raises(release.ReleaseError, match="uv is not on PATH"):
+            release.refresh_install_metadata(tmp_path, "python")
 
 
 class TestBanditVerdict:

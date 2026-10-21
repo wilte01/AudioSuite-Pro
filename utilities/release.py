@@ -40,6 +40,9 @@ without producing a second commit's worth of noise.
 Changed in 1.3.0: new module - the scripted release cut the 1.3.0 hand-run
 proved out (bump, lock, changelog, guide regeneration plus zip-entry diff, and
 the gate in one idempotent command).
+Changed in 1.4.1: refreshes the editable install's metadata before the gate, so
+a cut no longer fails `doctor`'s healthy-install tests on its own version bump
+(PLAN D106).
 """
 
 from __future__ import annotations
@@ -509,6 +512,66 @@ def run_gate(root: Path, python: str) -> int:
     return 0
 
 
+def refresh_install_metadata(root: Path, python: str) -> None:
+    """Reinstall the project's metadata so the gate sees the bumped version.
+
+    The gate's install-health tests compare ``pyproject.toml``'s version with
+    the installed distribution's metadata.  After a bump the two disagree until
+    the editable install is refreshed, so `doctor`'s healthy-install tests fail
+    for the right reason - the environment is stale, not the code - and a
+    release could never pass its own gate.
+
+    This goes through ``uv``, the project's package manager and the only tool
+    already required to cut a release: the venv it manages has no
+    ``setuptools``, so ``pip install --no-build-isolation`` fails with
+    ``BackendUnavailable`` and an isolated pip build would download a backend
+    the lock never pinned. ``uv pip install --no-deps`` rewrites the editable
+    install's metadata in about a tenth of a second and adds nothing else.
+
+    Args:
+        root: The repository root to reinstall from.
+        python: The interpreter that carries the editable install.
+
+    Raises:
+        ReleaseError: If uv is missing or the reinstall fails, naming the
+            command to run by hand.
+    """
+    uv = shutil.which("uv")
+    if uv is None:
+        raise ReleaseError(
+            "uv is not on PATH, so the installed metadata cannot be refreshed "
+            f"and the gate would read the old version; run `{python} -m pip "
+            "install --no-deps -e .` and re-run"
+        )
+    print("[START] refresh the editable install's metadata")
+    result = subprocess.run(
+        [
+            uv,
+            "pip",
+            "install",
+            "--no-deps",
+            "--python",
+            python,
+            "-e",
+            str(root),
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ReleaseError(
+            "could not refresh the installed metadata, so the gate would read "
+            "the old version; run `"
+            f"{python} -m pip install --no-deps -e .` and re-run:\n"
+            f"{result.stdout}{result.stderr}"
+        )
+    print("[OK] editable install metadata refreshed")
+
+
 def _run_security(root: Path, python: str) -> None:
     """Run bandit and fail the gate on 0 High / 0 Medium violations."""
     print("[START] bandit")
@@ -700,6 +763,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.skip_gate:
             print("[DONE] release files updated (gate skipped)")
             return 0
+        # The gate reads the *installed* version through doctor; a bump that
+        # leaves the editable install stale would fail its own gate.
+        refresh_install_metadata(root, args.python)
         return run_gate(root, args.python)
     except ReleaseError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)

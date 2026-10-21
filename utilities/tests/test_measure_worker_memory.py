@@ -17,6 +17,7 @@ Changed in 1.4.1: new suite for the D100 worker-memory measurement.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import wave
 from importlib.util import module_from_spec, spec_from_file_location
@@ -49,6 +50,35 @@ def _load_script() -> ModuleType:
 script = _load_script()
 
 
+def _child_peak(prelude: str) -> int:
+    """Return ``peak_rss_bytes()`` from a fresh interpreter running *prelude*.
+
+    Args:
+        prelude: Statements to execute before the measurement.
+
+    Returns:
+        The child's peak RSS in bytes, as it printed it.
+    """
+    module_path = REPO_ROOT / "utilities" / "measure_worker_memory.py"
+    source = (
+        "import importlib.util, sys\n"
+        f"spec = importlib.util.spec_from_file_location('m', r'{module_path}')\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "sys.modules['m'] = module\n"
+        "spec.loader.exec_module(module)\n"
+        + prelude
+        + "print(module.peak_rss_bytes())\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", source],
+        capture_output=True,
+        text=True,
+        check=True,
+        encoding="utf-8",
+    )
+    return int(result.stdout.strip().splitlines()[-1])
+
+
 class TestPeakRss:
     """The probe reports this process's real peak, not a zero."""
 
@@ -60,20 +90,23 @@ class TestPeakRss:
     def test_peak_rss_responds_to_an_allocation(self) -> None:
         """Holding 64 MB must move the reported peak by at least 32 MB.
 
-        ``bytes(64 << 20)`` is touched after allocation so the pages are
-        resident; without the touch a lazy allocator could report nothing and
-        the assertion below would pass on a broken probe.
+        Each side runs in a **fresh interpreter**: peak RSS is monotonic for a
+        process's lifetime, so in a suite that has already imported librosa the
+        earlier peak is far above the current working set and holding another
+        64 MB would not move it at all - the assertion would fail for a correct
+        probe. The pages are touched after allocation so a lazy allocator
+        cannot report nothing.
         """
-        before = script.peak_rss_bytes()
-        block = bytearray(64 << 20)
-        for index in range(0, len(block), 4096):
-            block[index] = 1
-        after = script.peak_rss_bytes()
-        assert after >= before + (32 << 20), (
-            f"peak moved only {(after - before) / 1_048_576:.1f} MB while holding "
-            "64 MB - the probe is not reading the working set"
+        baseline = _child_peak("")
+        allocated = _child_peak(
+            "block = bytearray(64 << 20)\n"
+            "for index in range(0, len(block), 4096):\n"
+            "    block[index] = 1\n"
         )
-        del block
+        assert allocated >= baseline + (32 << 20), (
+            f"peak moved only {(allocated - baseline) / 1_048_576:.1f} MB while "
+            "holding 64 MB - the probe is not reading the working set"
+        )
 
 
 class TestCorpus:
