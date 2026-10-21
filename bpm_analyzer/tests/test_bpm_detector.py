@@ -19,11 +19,15 @@ tests/data/bpm_corpus (provenance in its ATTRIBUTION.md).
 Changed in 1.4.0: the failure contract is now a user-facing reason (the file
 name is carried by the status line and the log record), with the decoder's own
 exception preserved on __cause__.
+Changed in 1.4.1: the real-music corpus's expectations are parsed from
+ATTRIBUTION.md's ``## Clips`` table instead of a hardcoded dict, so a refused
+recording is a declared row rather than an undocumented deletion (D99).
 """
 
 from __future__ import annotations
 
 import wave
+from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import patch
 
@@ -838,57 +842,179 @@ class TestGoldenVectorMeasuredBpm:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Licensed real-music corpus (plan feature expansion D79)
+# Licensed real-music corpus (plan feature expansion D79, D99)
 # ═════════════════════════════════════════════════════════════════════════════
 # The synthetic click trains above prove the tracker follows a constructed
 # pulse; they cannot show that the periodicity gate accepts actual music.  The
-# committed clips under tests/data/bpm_corpus are centre excerpts of seven CC0
+# committed clips under tests/data/bpm_corpus are short excerpts of CC0
 # recordings (provenance, licence and transformation: the directory's
-# ATTRIBUTION.md).  Each is annotated with its musical pulse; detection may
-# report that pulse's octave because the metrical level is ambiguous, so the
-# comparison accepts the annotated tempo or its double/half within the same
-# +/-4 BPM band the golden vectors use.
-#
-# Calibration (2026-10-20): harmonic-comb scores on these clips were
-# 0.154-0.595, the weakest being live_jazz_103; seeded white/pink/brown noise
-# over 600 x 30 s windows never exceeded 0.080.  The assertions below lock the
-# resulting margins, not the individual scores, so a librosa upgrade that
-# shifts every value slightly does not turn the corpus red by itself -- but a
-# change that lets noise through, or drags real music under the floor, does.
+# ATTRIBUTION.md).  D99 makes that file's ``## Clips`` table the source of
+# truth: it is parsed here, so a clip cannot exist without provenance and an
+# annotated pulse, and a recording the gate refuses keeps its place as a
+# ``refused`` row instead of being quietly deleted.  Each row's annotated
+# pulse is the musical tempo; detection may report that pulse's octave because
+# the metrical level is ambiguous, so the comparison accepts the annotated
+# tempo or its double/half within the same +/-4 BPM band the golden vectors
+# use.
 
 CORPUS_DIR = Path(__file__).resolve().parents[2] / "tests" / "data" / "bpm_corpus"
+ATTRIBUTION_PATH = CORPUS_DIR / "ATTRIBUTION.md"
 
-#: Committed clip -> annotated musical tempo (BPM).
-_CORPUS_TEMPOS: dict[str, float] = {
-    "brazilian_funk_130.ogg": 130.0,
-    "hiphop_86.ogg": 86.0,
-    "krautrock_152.ogg": 152.0,
-    "lick_swing_120.ogg": 120.0,
-    "live_jazz_103.ogg": 103.0,
-    "samba_103.ogg": 103.0,
-    "swing_152.ogg": 152.0,
-}
+#: The table cell that declares a recording the gate must not report a tempo for.
+_REFUSED = "refused"
 
 #: Clips are excerpts, not masters: this ceiling keeps the corpus reviewable
 #: in git instead of turning the repository into an audio archive.
 _MAX_CLIP_BYTES = 200_000
 
+#: The calibrated promise to real recordings: music clears the floor by 1.2x.
+_MUSIC_MARGIN = 1.2
 
-def _corpus_scores() -> dict[str, float]:
-    """Return the calibrated periodicity score of every committed clip."""
+#: How far a table's recorded score may drift from the measurement before the
+#: row is stale.  Loose enough for a librosa upgrade, tight enough that
+#: re-encoding a clip or replacing its source fails the suite.
+_SCORE_TOLERANCE = 0.05
+
+
+@dataclass(frozen=True)
+class CorpusRow:
+    """One row of the ``## Clips`` table: a clip and its recorded expectation.
+
+    Attributes:
+        filename: The committed ``.ogg`` in :data:`CORPUS_DIR`.
+        annotated_bpm: The musical pulse, or ``None`` for a ``refused`` row.
+        offset: Where the excerpt starts in the source, as written in the table.
+        length: The excerpt's length, as written in the table.
+        source: The Commons file page the excerpt came from.
+        author: The credited author.
+        licence: The licence short name; the suite requires CC0 1.0.
+        recorded_score: The comb score at the estimated tempo, or ``None`` when
+            the estimate was non-positive and no score exists.
+        detected_bpm: What ``detect_bpm`` reports, as written in the table.
+    """
+
+    filename: str
+    annotated_bpm: float | None
+    offset: str
+    length: str
+    source: str
+    author: str
+    licence: str
+    recorded_score: float | None
+    detected_bpm: str
+
+
+def _pipe_rows(markdown: str, heading: str) -> list[dict[str, str]]:
+    """Return the first pipe table under *heading*, keyed by its header cells.
+
+    Args:
+        markdown: The ATTRIBUTION.md text.
+        heading: The heading line the table sits under, e.g. ``"## Clips"``.
+
+    Returns:
+        One dict per data row, mapping header cell to cell text.  The
+        ``|---|---|`` separator is skipped.
+
+    Raises:
+        AssertionError: If the heading or a table under it is missing, or a row
+            does not have the header's column count - a malformed table must
+            fail loudly rather than parse into a shorter corpus.
+    """
+    lines = markdown.splitlines()
+    assert heading in lines, (
+        f"{heading!r} heading missing from {ATTRIBUTION_PATH.name} - the table "
+        "is the suite's source of truth"
+    )
+    start = lines.index(heading)
+    table: list[list[str]] = []
+    for line in lines[start + 1 :]:
+        if line.startswith("|"):
+            table.append([cell.strip() for cell in line.strip().strip("|").split("|")])
+        elif table:
+            break
+    assert len(table) >= 2, f"no pipe table under {heading!r}"
+
+    header = table[0]
+    rows: list[dict[str, str]] = []
+    for row in table[1:]:
+        if all(cell and set(cell) <= set("-: ") for cell in row):
+            continue
+        assert len(row) == len(header), (
+            f"malformed row under {heading!r}: {len(row)} cells for "
+            f"{len(header)} columns: {row}"
+        )
+        rows.append(dict(zip(header, row, strict=True)))
+    return rows
+
+
+def _corpus_rows() -> list[CorpusRow]:
+    """Parse the corpus table into rows.
+
+    Returns:
+        Every declared clip, in table order.
+
+    Raises:
+        AssertionError: If the table is empty, a filename repeats, or a pulse
+            cell is neither ``refused`` nor a number followed by ``BPM``.
+    """
+    rows = _pipe_rows(ATTRIBUTION_PATH.read_text(encoding="utf-8"), "## Clips")
+    assert rows, "the corpus table is empty - the scan would pass vacuously"
+
+    parsed: list[CorpusRow] = []
+    for row in rows:
+        pulse = row["Annotated pulse"]
+        refused = pulse.casefold() == _REFUSED
+        score = row["Measured score"]
+        parsed.append(
+            CorpusRow(
+                filename=row["Clip"].strip("`"),
+                annotated_bpm=None if refused else float(pulse.split()[0]),
+                offset=row["Offset"],
+                length=row["Length"],
+                source=row["Source"].strip("<>"),
+                author=row["Author"],
+                licence=row["Licence"],
+                recorded_score=None if score == "-" else float(score),
+                detected_bpm=row["Detected BPM"],
+            )
+        )
+
+    names = [row.filename for row in parsed]
+    assert len(names) == len(set(names)), (
+        f"the corpus table names a clip twice: {sorted(names)}"
+    )
+    return parsed
+
+
+_CORPUS_ROWS = _corpus_rows()
+_ACCEPTED_ROWS = [row for row in _CORPUS_ROWS if row.annotated_bpm is not None]
+_REFUSED_ROWS = [row for row in _CORPUS_ROWS if row.annotated_bpm is None]
+
+
+def _score_clip(path: Path) -> float | None:
+    """Return a clip's harmonic-comb score, or ``None`` without a positive estimate.
+
+    Args:
+        path: A committed corpus clip.
+
+    Returns:
+        The periodicity at the tempo ``beat_track`` estimates, or ``None`` when
+        that estimate is not positive - the zero-tempo branch computes no
+        score at all.
+    """
     import librosa
 
-    scores: dict[str, float] = {}
-    for name in _CORPUS_TEMPOS:
-        y, sr = librosa.load(str(CORPUS_DIR / name), sr=22050, mono=True)
-        envelope = librosa.onset.onset_strength(
-            y=y, sr=sr, hop_length=_ONSET_HOP_LENGTH, aggregate=np.median
-        )
-        tempo, _ = librosa.beat.beat_track(
-            onset_envelope=envelope, sr=sr, hop_length=_ONSET_HOP_LENGTH
-        )
-        scores[name] = _onset_periodicity(envelope, float(np.atleast_1d(tempo)[0]), sr)
-    return scores
+    y, sr = librosa.load(str(path), sr=22050, mono=True)
+    envelope = librosa.onset.onset_strength(
+        y=y, sr=sr, hop_length=_ONSET_HOP_LENGTH, aggregate=np.median
+    )
+    tempo, _ = librosa.beat.beat_track(
+        onset_envelope=envelope, sr=sr, hop_length=_ONSET_HOP_LENGTH
+    )
+    tempo_value = float(np.atleast_1d(tempo)[0])
+    if tempo_value <= 0:
+        return None
+    return _onset_periodicity(envelope, tempo_value, sr)
 
 
 def _noise_scores(seconds: int = 20, seeds: int = 10) -> list[float]:
@@ -921,14 +1047,49 @@ def _noise_scores(seconds: int = 20, seeds: int = 10) -> list[float]:
     return scores
 
 
+class TestCorpusTableParsing:
+    """The corpus table parser fails loudly instead of silently shrinking.
+
+    D99 moved the expectations out of a Python dict and into prose, so the
+    parser is now the gate's own input: a table it mis-reads would certify a
+    smaller corpus. These cases prove it cannot swallow a malformed row or a
+    missing table, and that the committed table really parses.
+    """
+
+    def test_a_malformed_row_is_rejected(self) -> None:
+        """A row with fewer cells than the header is an error, not a short row."""
+        markdown = (
+            "## Clips\n"
+            "| Clip | Annotated pulse |\n"
+            "|------|-----------------|\n"
+            "| `a.ogg` | 120 BPM |\n"
+            "| `b.ogg` |\n"
+        )
+        with pytest.raises(AssertionError, match="malformed row"):
+            _pipe_rows(markdown, "## Clips")
+
+    def test_a_missing_heading_is_rejected(self) -> None:
+        """Without the heading there is no table, which must not read as empty."""
+        with pytest.raises(AssertionError, match="heading missing"):
+            _pipe_rows("| Clip |\n|--|\n| `a.ogg` |\n", "## Clips")
+
+    def test_the_committed_table_parses(self) -> None:
+        """The real table yields accepted and refused rows, so neither set is empty."""
+        assert len(_CORPUS_ROWS) >= 8, f"only {len(_CORPUS_ROWS)} rows parsed"
+        assert _ACCEPTED_ROWS, "no accepted row - the tempo assertions are vacuous"
+        assert _REFUSED_ROWS, "no refused row - the refusal path is untested"
+
+
 class TestRealMusicCorpus:
     """Real recordings are analysed, and the calibration margin survives."""
 
     @pytest.mark.parametrize(
-        ("filename", "annotated_bpm"), sorted(_CORPUS_TEMPOS.items())
+        ("filename", "annotated_bpm"),
+        [(row.filename, row.annotated_bpm) for row in _ACCEPTED_ROWS],
+        ids=[row.filename for row in _ACCEPTED_ROWS],
     )
     def test_real_music_is_analysed(self, filename: str, annotated_bpm: float) -> None:
-        """Every clip decodes and returns a tempo at a musical metrical level."""
+        """Every accepted clip decodes and returns a tempo at a musical level."""
         detected = detect_bpm(str(CORPUS_DIR / filename))
         matches = [
             factor
@@ -940,41 +1101,117 @@ class TestRealMusicCorpus:
             "(octave-tolerant +/-4 BPM)"
         )
 
+    @pytest.mark.parametrize(
+        "filename",
+        [row.filename for row in _REFUSED_ROWS],
+        ids=[row.filename for row in _REFUSED_ROWS],
+    )
+    def test_refused_recordings_are_refused(self, filename: str) -> None:
+        """A ``refused`` row is a decision the gate still makes.
+
+        The row records either a score below the floor (the periodicity gate
+        declined a pulse it measured) or ``-`` (no positive estimate existed,
+        so no score was computed).  Both must still raise, and a measured
+        score must agree with the row - otherwise the refusal moved and the
+        table is stale.
+        """
+        row = next(row for row in _REFUSED_ROWS if row.filename == filename)
+        with pytest.raises(NoTempoDetectedError):
+            detect_bpm(str(CORPUS_DIR / filename))
+
+        if row.recorded_score is not None:
+            assert row.recorded_score < MIN_ONSET_PERIODICITY, (
+                f"{filename}: the table records {row.recorded_score:.3f}, at or "
+                f"above the {MIN_ONSET_PERIODICITY:.2f} floor - a refused row "
+                "must record why the gate declined it"
+            )
+        measured = _score_clip(CORPUS_DIR / filename)
+        if row.recorded_score is None:
+            assert measured is None, (
+                f"{filename}: the table records no score but the tracker now "
+                f"estimates one ({measured:.3f}) - re-annotate the row"
+            )
+        else:
+            assert measured is not None, f"{filename}: the table records a score"
+            assert abs(measured - row.recorded_score) <= _SCORE_TOLERANCE, (
+                f"{filename}: table records {row.recorded_score:.3f}, measured "
+                f"{measured:.3f}"
+            )
+
     def test_the_corpus_is_complete_and_attributed(self) -> None:
-        """Files, sizes, durations and provenance are all accounted for."""
+        """The directory, the table and the provenance agree, and nothing is huge."""
         import librosa
 
+        assert _CORPUS_ROWS, "the corpus table parsed to nothing"
         files = sorted(path.name for path in CORPUS_DIR.glob("*.ogg"))
-        assert files == sorted(_CORPUS_TEMPOS), (
-            "the committed corpus and the annotated set diverged - add or "
-            "remove the clip in both places"
+        assert files == sorted(row.filename for row in _CORPUS_ROWS), (
+            "the committed corpus and the table diverged - a clip is missing "
+            "its row or a row is missing its clip"
         )
-        attribution = (CORPUS_DIR / "ATTRIBUTION.md").read_text(encoding="utf-8")
-        for name in files:
-            path = CORPUS_DIR / name
-            assert name in attribution, f"{name} has no provenance entry"
+
+        attribution = ATTRIBUTION_PATH.read_text(encoding="utf-8")
+        for row in _CORPUS_ROWS:
+            path = CORPUS_DIR / row.filename
+            assert row.filename in attribution, f"{row.filename} has no row"
+            assert row.licence == "CC0 1.0", (
+                f"{row.filename}: licence {row.licence!r} is not the verified "
+                "CC0 dedication the corpus requires"
+            )
+            assert row.source.startswith("https://commons.wikimedia.org/wiki/File:"), (
+                f"{row.filename}: '{row.source}' is not a Commons file page"
+            )
             assert path.stat().st_size <= _MAX_CLIP_BYTES, (
-                f"{name} is {path.stat().st_size} bytes - corpus clips must "
-                f"stay under {_MAX_CLIP_BYTES}"
+                f"{row.filename} is {path.stat().st_size} bytes - corpus clips "
+                f"must stay under {_MAX_CLIP_BYTES}"
             )
             duration = librosa.get_duration(path=str(path))
-            assert 3.0 <= duration <= 20.5, f"{name}: unexpected duration {duration}"
+            assert 3.0 <= duration <= 20.5, (
+                f"{row.filename}: unexpected duration {duration}"
+            )
 
     def test_the_calibration_margins_hold(self) -> None:
-        """Music clears the floor by 1.2x; noise does not reach it.
+        """Music clears the floor by 1.2x, noise does not, and rows are current.
 
         The 1.2x margin (0.12 at the current 0.10 floor) is the calibrated
-        promise to real recordings, measured at 1.54x on the weakest clip.
-        Noise is asserted against the floor itself: the 30 s calibration sweep
-        (600 windows) peaked at 0.080, and these shorter 20 s windows at 0.090,
-        so this test also covers the harsher end of the noise distribution.
+        promise to real recordings.  Since D99 the binding clip is the rubato
+        nocturne at 0.124, 1.24x - rubato playing straddles the floor, which is
+        the tightest real-music evidence in the corpus.  Noise is asserted
+        against the floor itself: the 30 s calibration sweep (600 windows)
+        peaked at 0.080, and these shorter 20 s windows at 0.090, so this test
+        also covers the harsher end of the noise distribution.
         """
-        scores = _corpus_scores()
-        weakest = min(scores, key=lambda name: scores[name])
-        assert scores[weakest] >= 1.2 * MIN_ONSET_PERIODICITY, (
-            f"weakest real-music clip {weakest} scored {scores[weakest]:.3f}, "
-            f"below 1.2x the {MIN_ONSET_PERIODICITY:.2f} floor: {scores}"
+        measured: dict[str, float] = {}
+        for row in _CORPUS_ROWS:
+            score = _score_clip(CORPUS_DIR / row.filename)
+            if score is not None:
+                measured[row.filename] = score
+
+        accepted = {
+            row.filename: measured[row.filename]
+            for row in _ACCEPTED_ROWS
+            if row.filename in measured
+        }
+        assert accepted, "no accepted clip produced a score - the scan is vacuous"
+        weakest = min(accepted, key=lambda name: accepted[name])
+        assert accepted[weakest] >= _MUSIC_MARGIN * MIN_ONSET_PERIODICITY, (
+            f"weakest real-music clip {weakest} scored {accepted[weakest]:.3f}, "
+            f"below {_MUSIC_MARGIN}x the {MIN_ONSET_PERIODICITY:.2f} floor: "
+            f"{accepted}"
         )
+
+        for row in _CORPUS_ROWS:
+            if row.recorded_score is None:
+                continue
+            assert row.filename in measured, (
+                f"{row.filename}: the table records a score the pipeline did "
+                "not compute - re-annotate the row"
+            )
+            assert abs(measured[row.filename] - row.recorded_score) <= (
+                _SCORE_TOLERANCE
+            ), (
+                f"{row.filename}: table records {row.recorded_score:.3f}, "
+                f"measured {measured[row.filename]:.3f}"
+            )
 
         noise = _noise_scores()
         loudest = max(noise)

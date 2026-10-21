@@ -66,6 +66,16 @@ Versions of the tools are released together with the suite (the single
   filename. The GUI completion callback accepts such tool-specific fields, so
   the same run data can reach the CLI without breaking the report writer.
 
+- **The BPM calibration corpus covers free-time, ambient, rubato and shuffle
+  material.** Five more CC0 excerpts join the seven already committed, and the
+  corpus's `ATTRIBUTION.md` table is now the tests' source of truth: a clip
+  cannot exist without provenance and an annotated pulse, and two recordings
+  the gate correctly refuses (a free-jazz passage with no sustained pulse and a
+  beatless ambient piece) are recorded as `refused` rows instead of being
+  deleted. Re-measuring moved the weakest accepted clip from 1.54x to 1.24x the
+  onset-periodicity floor, which is the honest margin for rubato playing; the
+  floor itself did not move.
+
 - **The shared package's API reference is generated from its docstrings.**
   Every public module, class and function in `audio_suite_shared` now carries a
   docstring, audited by `utilities/docstring_report.py` and locked by
