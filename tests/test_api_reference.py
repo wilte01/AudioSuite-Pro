@@ -7,6 +7,9 @@ nothing, and — worse — 51 modules were never parsed by the docs build at all
 now exhaustive, and this test keeps it that way: a new shared module that ships
 without a reference entry fails here, and so does a stale entry for a module
 that no longer exists.
+
+Changed in 1.4.1: new file - locks the reference to the modules on disk, so
+an unlisted module or a stale entry fails instead of the page drifting (P3).
 """
 
 from __future__ import annotations

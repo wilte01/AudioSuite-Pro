@@ -12,6 +12,9 @@ published pages are), and fails on any warning.
 
 A missing Sphinx is a hard failure, not a skip: the toolchain is in the ``dev``
 extra precisely so this gate cannot silently disappear.
+
+Changed in 1.4.1: new file - the docs-build gate that fails on any Sphinx
+warning, so a malformed docstring cannot reach the published reference (P2).
 """
 
 from __future__ import annotations
