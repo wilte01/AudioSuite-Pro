@@ -69,3 +69,6 @@ logs/
 .env.*
 !.env.example
 .junie/
+
+# Agent harness state (a per-checkout project id, not project content).
+.freebuff/

@@ -37,6 +37,30 @@ Versions of the tools are released together with the suite (the single
 
 ### Added
 
+- **A finished batch report closes with one verdict line.** Caveats were
+  printed one per step, so judging a twelve-step run meant scanning twelve
+  lines and working out which ones mattered. The report now ends with a
+  single `Batch verdict:` line that names every tool which reported a
+  caveat, in run order, and leads with the failure count when steps failed
+  — for example `Batch verdict: 1 failed · 2 of 12 steps completed with
+  caveats — BPM Analyzer: 2 of 12 tracks measured outside the 75-175 BPM
+  range; CD Ripper: 1 of 5 tracks did not rip`. It appears only once the
+  batch has finished, so it never describes a run that is still going, and
+  it is bounded: past 400 characters whole caveats are dropped from the end
+  and counted (`; +3 more`), because every note is still printed in full on
+  its own step line.
+
+- **The BPM run summary counts tracks whose tempo fell outside the configured
+  range.** Those files are tagged as measured rather than skipped, so the only
+  trace of a range that does not match the library was a parenthetical on each
+  file's own line — a 200-track batch could hide twenty of them. The Results
+  panel and the run log now carry an `Outside BPM range` row (`1 of 12 tracks
+  (band 75-175)`), the CLI prints the same count after its summary, `--json`
+  publishes `outside_range_files` with each file's tempo and band, and the
+  Master Driver's step note reads `1 of 12 tracks measured outside the 75-175
+  BPM range`. A file with no beat still counts as skipped and an unreadable one
+  as an error; this count is neither.
+
 - **The BPM regression corpus now contains the slow ambient pulse it was
   missing.** The suite's "ambient with a slow pulse" evidence was a 92 BPM
   track, because no verified CC0 recording at 50-60 BPM had been found. One has
