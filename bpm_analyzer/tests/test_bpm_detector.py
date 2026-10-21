@@ -870,6 +870,15 @@ _MAX_CLIP_BYTES = 200_000
 #: The calibrated promise to real recordings: music clears the floor by 1.2x.
 _MUSIC_MARGIN = 1.2
 
+#: The floor the promise is expressed against.  Pinned by
+#: :meth:`TestRealMusicCorpus.test_the_calibration_constants_are_pinned`, which
+#: fails if either number is edited to make a red corpus green.
+_CALIBRATED_FLOOR = 0.10
+
+#: The hardest clip in the corpus must sit inside this multiple of the floor,
+#: or the corpus no longer contains evidence near the boundary (P4).
+_HARD_CLIP_LIMIT = 1.6
+
 #: How far a table's recorded score may drift from the measurement before the
 #: row is stale.  Loose enough for a librosa upgrade, tight enough that
 #: re-encoding a clip or replacing its source fails the suite.
@@ -1103,6 +1112,32 @@ class TestRealMusicCorpus:
 
     @pytest.mark.parametrize(
         "filename",
+        [row.filename for row in _ACCEPTED_ROWS],
+        ids=[row.filename for row in _ACCEPTED_ROWS],
+    )
+    def test_the_recorded_detected_bpm_is_current(self, filename: str) -> None:
+        """The table's ``Detected BPM`` cell describes what the tool reports now.
+
+        The annotation test above accepts the annotated tempo at any octave, so
+        it cannot notice that the *reported* number moved - only that some
+        musical level still matches.  That is how a range policy change hides:
+        `ambient_pulse_60.ogg` is annotated 60 and reported **120**, because 60
+        is below `detect_bpm`'s 75 BPM floor and the tool doubles it.  A change
+        to that floor would still pass the octave-tolerant test while every user
+        of the tool saw a different number for the same file, so the recorded
+        cell is checked against the live return value and a move fails here for
+        re-annotation rather than silently invalidating the column.
+        """
+        row = next(row for row in _ACCEPTED_ROWS if row.filename == filename)
+        detected = detect_bpm(str(CORPUS_DIR / filename))
+        assert abs(detected - float(row.detected_bpm)) <= 1.0, (
+            f"{filename}: table records {row.detected_bpm} BPM but the tool now "
+            f"reports {detected} - re-measure the row (the octave rule would "
+            "still accept it, which is why this column needs its own lock)"
+        )
+
+    @pytest.mark.parametrize(
+        "filename",
         [row.filename for row in _REFUSED_ROWS],
         ids=[row.filename for row in _REFUSED_ROWS],
     )
@@ -1218,4 +1253,56 @@ class TestRealMusicCorpus:
         assert loudest < MIN_ONSET_PERIODICITY, (
             f"seeded noise scored {loudest:.3f}, at or above the "
             f"{MIN_ONSET_PERIODICITY:.2f} floor"
+        )
+
+    def test_the_calibration_constants_are_pinned(self) -> None:
+        """The floor and the promise are calibrated numbers, not knobs (P4).
+
+        The 1.2x promise has 0.024 of absolute headroom on its weakest clip, so
+        the tempting fix when a librosa upgrade shifts scores down is to lower
+        one of these two numbers until the suite is green again — which would
+        quietly accept the fabricated tempos the gate exists to reject.  The
+        recorded rule is to re-derive both from a re-measured corpus instead
+        (PLAN_feature_expansion P4), and this test is what makes that rule
+        hold: changing either constant fails here, with the reason attached.
+        """
+        assert MIN_ONSET_PERIODICITY == _CALIBRATED_FLOOR, (
+            f"MIN_ONSET_PERIODICITY is {MIN_ONSET_PERIODICITY}, not the "
+            f"calibrated {_CALIBRATED_FLOOR}. If the corpus went red, re-derive "
+            "the floor from a re-measured corpus (D79's method: seeded noise vs "
+            "the committed clips) and record the new calibration; do not lower "
+            "it to make this suite pass"
+        )
+        assert _MUSIC_MARGIN == 1.2, (
+            f"the real-music promise is {_MUSIC_MARGIN}x, not the calibrated "
+            "1.2x; loosening the promise is the same edit as lowering the "
+            "floor and hides the same regression"
+        )
+
+    def test_the_corpus_keeps_a_clip_near_the_boundary(self) -> None:
+        """At least one accepted clip is hard, or the margin proves nothing (P4).
+
+        If the rubato recording were dropped, the weakest remaining clip is
+        0.154 (1.54x) and the 1.2x promise would still pass while no longer
+        corresponding to anything in the corpus: the suite would look green and
+        stop being evidence.  Keeping a clip inside 1.6x of the floor means the
+        promise is tested against music that is genuinely near the gate.
+        """
+        measured = {
+            row.filename: score
+            for row in _ACCEPTED_ROWS
+            if (score := _score_clip(CORPUS_DIR / row.filename)) is not None
+        }
+        assert measured, "no accepted clip produced a score - the scan is vacuous"
+
+        hard = {
+            name: score
+            for name, score in measured.items()
+            if score <= _HARD_CLIP_LIMIT * MIN_ONSET_PERIODICITY
+        }
+        assert hard, (
+            "every accepted clip clears the floor by more than "
+            f"{_HARD_CLIP_LIMIT}x (scores: {measured}); the corpus no longer "
+            "contains a recording near the gate, so the 1.2x promise is no "
+            "longer tested by it"
         )

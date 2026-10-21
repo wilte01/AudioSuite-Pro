@@ -494,6 +494,13 @@ result set is non-empty so an empty scan fails loudly.** Evidence:
   documented command as-is; the warnings are noise, not failures.
 - **A verification harness that cannot fail is worse than none** — see
   *Defects and failing checks*.
+- **A same-length edit inside one mtime tick leaves a stale `.pyc`.** P4's
+  break-and-restore check rewrote `_CALIBRATED_FLOOR = 0.10` to `0.09` and back
+  within the same second. The file's size and mtime were therefore unchanged and
+  Python kept loading the mutated bytecode, so the corpus suite failed with
+  "MIN_ONSET_PERIODICITY is 0.1, not the calibrated 0.09" against a source file
+  that visibly said `0.10`. Clear `__pycache__` (or run `python -B`) after any
+  break-and-restore before believing the result.
 - **`importlib.reload()` does not undo in-place mutations of module-level
   dicts.** `set_active_palette()` mutates the module-level `PALETTES` dict in
   place, so a test's reload-based "restore" silently did not restore and the pair

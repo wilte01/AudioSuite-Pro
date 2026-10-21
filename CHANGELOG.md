@@ -9,7 +9,53 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+### Fixed
+
+- **Analysis batches no longer get slower when you add worker threads.** BPM,
+  Key and Mood analysis spend several seconds compiling librosa's numeric
+  kernels the first time a batch runs. That compile happened once per worker
+  thread instead of once per run, and the threads waited on each other while it
+  did, so an eight-file batch took 12.2 s at 8 workers against 5.0 s at 4 — more
+  threads, less speed. The three analysis tools now compile those kernels once
+  before the worker pool starts: the same batch takes 2.8 s at either width, and
+  the thread path is 2.9x faster than `--parallel` (8.1 s) on the same files.
+  Peak memory is unchanged. A failed warm-up never fails the batch; the analysis
+  simply compiles on first use as before.
+
+### Added
+
+- **The BPM regression corpus now contains the slow ambient pulse it was
+  missing.** The suite's "ambient with a slow pulse" evidence was a 92 BPM
+  track, because no verified CC0 recording at 50-60 BPM had been found. One has
+  now been sourced: a 60 BPM drone by John Bartmann, whose pulse holds for its
+  first two minutes (score 0.746 at 60 BPM against 0.423 at 120, so the slow
+  pulse is the musical one). It is also the corpus's only recording whose tempo
+  falls below the tool's 75 BPM floor, so it locks the range correction that
+  reports it as 120.
+
+- **The API reference now documents every shared module, and building it is a
+  test.** `docs/api.rst` covered 11 of the 62 modules in `audio_suite_shared`,
+  so the log handlers, the tag-helper tiers and the Tk helpers that a tool
+  author actually imports were undocumented, and 51 modules were never parsed
+  by a docs build at all. All 61 modules are rendered now, in 14 sections, and
+  `tests/test_api_reference.py` fails when a module ships without an entry or
+  when the page lists one that no longer exists. A second test builds the page
+  with Sphinx and fails on any parser warning, which it immediately used to
+  catch four malformed docstrings and an ambiguous cross-reference; Sphinx is
+  therefore part of the `dev` extras now.
+
 ### Changed
+
+- **The real-music BPM corpus can no longer be made green by relaxing its own
+  calibration.** The suite promises that real recordings clear the noise floor
+  by 1.2x, and its hardest clip (a rubato nocturne) now has only 0.024 of
+  absolute headroom — the obvious fix for a red corpus after a dependency
+  upgrade is to lower the floor or the promise, which would quietly accept the
+  fabricated tempos the gate exists to reject. Both numbers are now pinned: a
+  test fails if either is edited and names the re-derivation procedure instead.
+  A second test requires the corpus to keep a clip near the boundary, so
+  dropping the hard recording cannot leave a green suite that no longer tests
+  the promise.
 
 - **A cached Library Statistics scan decides its query plan once per directory.**
   Choosing between the `path_fold` index and a sequential scan costs two
