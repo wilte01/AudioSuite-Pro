@@ -9,7 +9,15 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **A cached Library Statistics scan decides its query plan once per directory.**
+  Choosing between the `path_fold` index and a sequential scan costs two
+  `COUNT(*)` queries (about 16 ms on a 200 000-row cache), and every scoped
+  read used to pay it, so one scan asking three questions about one directory
+  paid three times. The decision is now remembered per directory for the life
+  of the cache instance: three scoped reads of the same folder fall from
+  18.7 ms to 3.1 ms, and a stale decision is only ever slower, never wrong.
 
 ## [1.4.1] - 2026-10-21
 

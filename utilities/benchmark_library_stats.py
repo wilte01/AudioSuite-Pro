@@ -232,6 +232,30 @@ def main(argv: Sequence[str] | None = None) -> int:
             for _ in range(args.runs):
                 cache.get_cached_mtimes(scope_dir)
             end_to_end_ms = (time.perf_counter() - started) / args.runs * 1000.0
+
+            def _three_reads(cold: bool) -> tuple[float, int]:
+                """Time three scoped reads about one directory (PLAN P1).
+
+                ``cold`` forgets the memo first, which is what every scan paid
+                before it existed (two COUNTs per read); ``warm`` is a second
+                scan of the same directory in one instance.
+                """
+                if cold:
+                    cache.invalidate_scope_plans()
+                counted: list[str] = []
+                conn.set_trace_callback(counted.append)
+                started_reads = time.perf_counter()
+                for _ in range(3):
+                    cache.get_cached_mtimes(scope_dir)
+                elapsed = time.perf_counter() - started_reads
+                conn.set_trace_callback(None)
+                decisions = sum(
+                    1 for line in counted if line.startswith("SELECT COUNT(*)")
+                )
+                return elapsed * 1000.0, decisions
+
+            cold_scan_ms, cold_decisions = _three_reads(cold=True)
+            warm_scan_ms, warm_decisions = _three_reads(cold=False)
         finally:
             cache.close()
 
@@ -247,6 +271,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(
             f"[INFO]   get_cached_mtimes end-to-end (decision + read): "
             f"{end_to_end_ms:6.2f} ms"
+        )
+        print(
+            f"[INFO]   three scoped reads: cold {cold_scan_ms:7.2f} ms "
+            f"({cold_decisions} decision queries) | warm {warm_scan_ms:6.2f} ms "
+            f"({warm_decisions}) | saved {cold_scan_ms - warm_scan_ms:5.2f} ms"
         )
 
         # Deletes mutate, so each plan runs on its own copy of the same file.

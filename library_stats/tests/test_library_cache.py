@@ -28,6 +28,7 @@ from library_stats.library_cache import (
     _SCHEMA_SQL,
     _SCHEMA_VERSION,
     _SCOPE_COUNT_SQL,
+    _SCOPE_PLAN_CACHE_LIMIT,
     _SCOPE_RANGE_HIGH,
     LibraryCache,
     _bpm_bin,
@@ -944,6 +945,134 @@ class TestSingleStatementPlan:
         finally:
             indexed.close()
             sequential.close()
+
+
+class TestScopePlanMemo:
+    """The plan decision is paid once per directory, not once per operation.
+
+    Changed in 1.4.1: PLAN P1 measured `scope_plan_kind` at **15.91 ms** on a
+    200 000-row cache (two `COUNT(*)` queries) and every scoped single-statement
+    operation paid it, so one scan asking three questions about one directory
+    ran the counts three times.  A cached plan can only ever be *suboptimal*
+    (both statements return the same rows), which is why a memo is safe here.
+    """
+
+    @staticmethod
+    def _counts(cache: LibraryCache) -> list[str]:
+        """Trace the statements from now on and return the scope `COUNT`s."""
+        statements: list[str] = []
+        cache._connect().set_trace_callback(statements.append)
+        return statements
+
+    @staticmethod
+    def _scope_counts(statements: list[str]) -> list[str]:
+        """Return the two scope-decision queries among *statements*."""
+        return [s for s in statements if s.startswith("SELECT COUNT(*)")]
+
+    def test_the_decision_is_paid_once_for_three_operations(
+        self, tmp_path: Path
+    ) -> None:
+        """`get_cached_mtimes` + `remove_orphans` + `clear_dir` = one decision."""
+        cache = LibraryCache(tmp_path / "cache.db")
+        try:
+            _fill(cache, tmp_path / "small", 2)
+            _fill(cache, tmp_path / "big", 40)
+            small = str(tmp_path / "small")
+            statements = self._counts(cache)
+
+            cache.get_cached_mtimes(small)
+            cache.remove_orphans(small, set())
+            cache.clear_dir(small)
+            cache._connect().set_trace_callback(None)
+
+            counts = self._scope_counts(statements)
+            assert len(counts) == 2, f"the scope was decided more than once: {counts}"
+        finally:
+            cache.close()
+
+    def test_a_second_scan_of_the_same_directory_reuses_the_decision(
+        self, tmp_path: Path
+    ) -> None:
+        """A long scan must not re-decide on every file batch."""
+        cache = LibraryCache(tmp_path / "cache.db")
+        try:
+            _fill(cache, tmp_path / "small", 2)
+            _fill(cache, tmp_path / "big", 40)
+            small = str(tmp_path / "small")
+            cache.get_cached_mtimes(small)
+
+            statements = self._counts(cache)
+            cache.get_cached_mtimes(small)
+            cache.remove_orphans(small, set())
+            cache._connect().set_trace_callback(None)
+
+            assert self._scope_counts(statements) == []
+        finally:
+            cache.close()
+
+    def test_invalidate_forces_a_recount(self, tmp_path: Path) -> None:
+        """The escape hatch exists for a caller whose shape really changed."""
+        cache = LibraryCache(tmp_path / "cache.db")
+        try:
+            _fill(cache, tmp_path / "small", 2)
+            _fill(cache, tmp_path / "big", 40)
+            small = str(tmp_path / "small")
+            cache.get_cached_mtimes(small)
+            cache.invalidate_scope_plans()
+
+            statements = self._counts(cache)
+            cache.get_cached_mtimes(small)
+            cache._connect().set_trace_callback(None)
+
+            assert len(self._scope_counts(statements)) == 2
+        finally:
+            cache.close()
+
+    def test_a_stale_plan_still_returns_the_same_rows(self, tmp_path: Path) -> None:
+        """Staleness is a performance question, never a correctness one."""
+        cache = LibraryCache(tmp_path / "cache.db")
+        try:
+            _fill(cache, tmp_path / "small", 2)
+            _fill(cache, tmp_path / "big", 40)
+            small = str(tmp_path / "small")
+            assert cache._plan_for(small) == "indexed"
+
+            # Grow the scope until the *current* answer flips to sequential;
+            # the memo keeps the indexed plan and must still return every row.
+            _fill(cache, tmp_path / "small", 100)
+            assert cache.scope_plan_kind(small) == "sequential"
+            assert cache._plan_for(small) == "indexed"
+            stale = cache.get_cached_mtimes(small)
+
+            cache.invalidate_scope_plans()
+            assert cache._plan_for(small) == "sequential"
+            assert cache.get_cached_mtimes(small) == stale
+            assert stale, "the comparison is vacuous if the scope is empty"
+        finally:
+            cache.close()
+
+    def test_clear_all_forgets_every_decision(self, tmp_path: Path) -> None:
+        """After a wipe every remembered ratio is meaningless."""
+        cache = LibraryCache(tmp_path / "cache.db")
+        try:
+            _fill(cache, tmp_path / "small", 2)
+            _fill(cache, tmp_path / "big", 40)
+            cache._plan_for(str(tmp_path / "small"))
+            cache.clear_all()
+            assert cache._scope_plans == {}
+        finally:
+            cache.close()
+
+    def test_the_memo_is_bounded(self, tmp_path: Path) -> None:
+        """A huge tree cannot grow the memo without limit."""
+        cache = LibraryCache(tmp_path / "cache.db")
+        try:
+            _fill(cache, tmp_path / "big", 40)
+            for index in range(_SCOPE_PLAN_CACHE_LIMIT + 20):
+                cache._plan_for(str(tmp_path / f"dir_{index}"))
+            assert len(cache._scope_plans) <= _SCOPE_PLAN_CACHE_LIMIT
+        finally:
+            cache.close()
 
 
 class TestBatch:
