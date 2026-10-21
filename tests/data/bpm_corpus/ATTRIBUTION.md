@@ -60,7 +60,7 @@ non-positive, so no periodicity was computed at all.
 | Clip | Annotated pulse | Offset | Length | Source | Author | Licence | Measured score | Detected BPM |
 |------|-----------------|--------|--------|--------|--------|---------|----------------|--------------|
 | `ambient_beatless.ogg` | refused | 11.20 s | 20 s | <https://commons.wikimedia.org/wiki/File:John_Bartmann_-_back-to-bali-master.ogg> | John Bartmann | CC0 1.0 | - | refused (no beat) |
-| `ambient_pulse_60.ogg` | 60 BPM | 40.00 s | 20 s | <https://commons.wikimedia.org/wiki/File:John_Bartmann_-_dark-highway-master.ogg> | John Bartmann | CC0 1.0 | 0.746 | 120 |
+| `ambient_pulse_60.ogg` | 60 BPM | 40.00 s | 20 s | <https://commons.wikimedia.org/wiki/File:John_Bartmann_-_dark-highway-master.ogg> | John Bartmann | CC0 1.0 | 0.746 | 60 |
 | `ambient_pulse_92.ogg` | 92 BPM | 11.20 s | 20 s | <https://commons.wikimedia.org/wiki/File:John_Bartmann_-_enigmatic-needle-master.ogg> | John Bartmann | CC0 1.0 | 0.297 | 92 |
 | `blues_shuffle_152.ogg` | 152 BPM | 25.09 s | 20 s | <https://commons.wikimedia.org/wiki/File:US_Army_Blues_-_09_-_Barbara.ogg> | U.S. Army Blues | CC0 1.0 | 0.252 | 152 |
 | `brazilian_funk_130.ogg` | 130 BPM | 0.00 s | 3.7 s | <https://commons.wikimedia.org/wiki/File:Brazilian-funk-metallic-hits_130bpm_B_minor.wav> | Musiclover242 | CC0 1.0 | 0.328 | 129 |
@@ -82,14 +82,16 @@ files that state a tempo in their own title or source description are the
 130 BPM funk loop and the 120 BPM MuseScore swing exercise; the rest were
 annotated from the recording's pulse.
 
-`ambient_pulse_60.ogg` is the one row whose annotation and detection differ by
-the tool's *range policy* rather than by metrical level: its raw estimate is
-**60.09 BPM**, below `detect_bpm`'s 75 BPM floor, so the tool doubles it and
-reports **120**. That is the documented below-range correction working, and it
-makes this the only clip in the corpus that exercises it. The pulse level is
-evidence, not an assumption: on the committed file the harmonic-comb score is
-**0.746 at 60 BPM** and **0.423 at 120 BPM**, so the once-per-second pulse is
-the musical one — a double-time grid would have to score higher at 120.
+`ambient_pulse_60.ogg` is the corpus's below-band case: its raw estimate is
+**60.09 BPM**, below `detect_bpm`'s default 75 BPM floor. It is reported as
+**60**, because the band chooses between octave-equivalent readings only when
+the folded level carries a pulse of its own (PLAN D108). The evidence is the
+comb score: **0.746 at 60 BPM** against **0.423 at 120 BPM**, so the doubled
+grid keeps 57 % of the slower one's pulse and falls under the 0.75 threshold.
+Before D108 this row read `Detected BPM 120`: the tool doubled the estimate and
+wrote that number as the file's BPM tag. The row is now the regression that
+keeps a fabricated doubling from coming back, and it is the only clip in the
+corpus whose tempo lies outside the default band.
 
 ## What the added feels are (S5-5)
 
@@ -124,7 +126,10 @@ Backlog P5 added the corpus's slowest accepted recording, and its strongest
 score: `ambient_pulse_60.ogg` measures **0.746**, 7.5x the floor, on a steady
 60 BPM pulse. The margin the suite promises is unaffected - it is decided by
 the weakest clip, not the strongest - so the binding case stays the rubato
-nocturne at 0.124.
+nocturne at 0.124. The same row also certifies the band's honesty: the 0.423
+measured at 120 BPM refuses the doubled reading (D108), and
+`test_the_below_band_clip_is_reported_at_its_own_pulse` fails if the tool ever
+reports 120 for it again.
 
 Re-run the corpus checks with:
 

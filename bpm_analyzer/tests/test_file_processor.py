@@ -5,9 +5,8 @@ pytest suite for bpm_analyzer.core.file_processor
 Covers:
   • process_single_file — happy paths (dry run, live)
   • process_single_file — BPMDetectionError surfaced to on_progress as ERROR
-  • process_single_file — out-of-range detect_bpm return is tagged, not
-    skipped (regression test: the dead SKIP branch was removed since
-    detect_bpm always clamps into [min_bpm, max_bpm] in real usage)
+  • process_single_file — an out-of-band detect_bpm return is tagged as
+    measured, never skipped, and its line says so (D108)
   • run_analysis — delegates to BaseFileProcessor.run_parallel_processing
   • Logging output verified via caplog
   • run_analysis — a typed worker count above the slot grid still finishes
@@ -17,6 +16,9 @@ Changed in 1.4.0: adds the slot-grid cap regression for a typed worker count.
 
 Changed in 1.4.1: asserts the kernel warm-up runs before the pool is built,
 not merely that it runs (backlog P6).
+
+Changed in 1.4.1: the band no longer clamps, so a measured tempo outside it
+reaches the tag and the file's line carries ``(outside 75-175)`` (D108).
 """
 
 from __future__ import annotations
@@ -552,12 +554,13 @@ class TestNoTempoIsSkipped:
 
 
 class TestProcessSingleFileOutOfRangeRegression:
-    """detect_bpm() always clamps its return value into [min_bpm, max_bpm]
-    (see bpm_detector tests), so process_single_file no longer has a
-    reachable SKIP-on-range path. These tests mock an out-of-range return
-    purely to confirm the removed branch stays removed — such a value
-    should now be treated like any other detection result and tagged,
-    never skipped.
+    """detect_bpm() can return a tempo outside the band (D108).
+
+    The band chooses between octave-equivalent readings, so a genuine 60 BPM
+    pulse under a 75 floor is reported as 60 rather than doubled to 120.  Such
+    a value is tagged as measured — never skipped, because it is a real tempo —
+    and the file's line says it is out of band so the number does not look like
+    the range was ignored.
     """
 
     def test_out_of_range_value_is_not_skipped(
@@ -580,6 +583,50 @@ class TestProcessSingleFileOutOfRangeRegression:
         assert c["n_skipped"] == 0
         assert "SKIP" not in c["display_text"]
         assert "DRY RUN" in c["display_text"]
+
+    def test_out_of_range_value_says_so_on_both_lines(
+        self, lock, on_progress, progress_calls, slot_vars
+    ) -> None:
+        """The display and the run log both carry the band, not just the number."""
+        with patch("bpm_analyzer.core.file_processor.detect_bpm", return_value=60):
+            with patch("bpm_analyzer.core.file_processor.read_bpm", return_value=None):
+                with patch("bpm_analyzer.core.file_processor.write_bpm"):
+                    process_single_file(
+                        name="drone.ogg",
+                        dir_path="/music",
+                        is_dry_run=False,
+                        min_bpm=75,
+                        max_bpm=175,
+                        analysis_duration=90,
+                        slot_idx=0,
+                        lock=lock,
+                        on_progress=on_progress,
+                        slot_vars=slot_vars,
+                    )
+        c = progress_calls[0]
+        assert "BPM 60 (outside 75-175)" in c["display_text"]
+        assert "BPM 60 (outside 75-175)" in c["log_text"]
+
+    def test_an_in_band_value_carries_no_note(
+        self, lock, on_progress, progress_calls, slot_vars
+    ) -> None:
+        """The note is evidence of a real exception, not decoration."""
+        with patch("bpm_analyzer.core.file_processor.detect_bpm", return_value=128):
+            process_single_file(
+                name="house.mp3",
+                dir_path="/music",
+                is_dry_run=True,
+                min_bpm=75,
+                max_bpm=175,
+                analysis_duration=90,
+                slot_idx=0,
+                lock=lock,
+                on_progress=on_progress,
+                slot_vars=slot_vars,
+            )
+        c = progress_calls[0]
+        assert "outside" not in c["display_text"]
+        assert "outside" not in c["log_text"]
 
     def test_out_of_range_value_above_max_is_not_skipped(
         self, lock, on_progress, progress_calls, slot_vars
@@ -971,6 +1018,43 @@ class TestHandleBpmResult:
                 "error_type": "BPMDetectionError",
             }
         ]
+
+    def test_handler_notes_an_out_of_band_tempo(self, lock, slot_vars) -> None:
+        """The process-pool path carries the same note as the thread path."""
+        on_progress = MagicMock()
+        with patch("bpm_analyzer.core.file_processor.read_bpm", return_value=None):
+            with patch("bpm_analyzer.core.file_processor.write_bpm"):
+                _handle_bpm_result(
+                    filename="drone.ogg",
+                    dir_path="/music",
+                    result={"status": "ok", "bpm": 60},
+                    slot_idx=0,
+                    lock=lock,
+                    on_progress=on_progress,
+                    is_dry_run=False,
+                    slot_vars=slot_vars,
+                    min_bpm=75,
+                    max_bpm=175,
+                )
+        kwargs = on_progress.call_args.kwargs
+        assert "BPM 60 (outside 75-175)" in kwargs["display_text"]
+        assert "BPM 60 (outside 75-175)" in kwargs["log_text"]
+
+    def test_handler_without_a_band_adds_no_note(self, lock, slot_vars) -> None:
+        """A caller that passed no band gets no claim about one."""
+        on_progress = MagicMock()
+        _handle_bpm_result(
+            filename="track.mp3",
+            dir_path="/music",
+            result={"status": "ok", "bpm": 60},
+            slot_idx=0,
+            lock=lock,
+            on_progress=on_progress,
+            is_dry_run=True,
+            slot_vars=slot_vars,
+        )
+        kwargs = on_progress.call_args.kwargs
+        assert "outside" not in kwargs["display_text"]
 
     def test_live_mode_writes_tag(self, lock, slot_vars):
         import os as _os

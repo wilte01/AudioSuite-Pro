@@ -17,6 +17,10 @@ only counting it.
 Changed in 1.4.1: ``run_analysis`` warms librosa's kernels before the worker
 pool starts, so a thread batch no longer pays one compile per thread
 (backlog P6).
+
+Changed in 1.4.1: the band no longer rewrites a tempo the onsets cannot
+corroborate, so a file whose measured BPM sits outside it is tagged as measured
+and its line says ``(outside 75-175)`` (PLAN D108).
 """
 
 from __future__ import annotations
@@ -106,6 +110,31 @@ def _skip_record(
     }
 
 
+def _range_note(bpm: int, min_bpm: int | None, max_bpm: int | None) -> str:
+    """Return a note when a measured tempo sits outside the configured band.
+
+    The band chooses between octave-equivalent readings, but it never rewrites
+    a measurement the onsets support (see ``bpm_detector.detect_bpm`` and PLAN
+    D108).  A file whose real tempo is below the floor is therefore tagged as
+    measured rather than doubled; saying so on the file's own line keeps that
+    visible instead of looking like the range the user set was ignored.
+
+    Args:
+        bpm:     The tempo actually measured.
+        min_bpm: Lower bound the run was configured with, or None when the
+                 caller did not supply a band.
+        max_bpm: Upper bound the run was configured with, or None.
+
+    Returns:
+        ``" (outside 75-175)"`` for an out-of-band tempo, otherwise ``""``.
+    """
+    if min_bpm is None or max_bpm is None:
+        return ""
+    if min_bpm <= bpm <= max_bpm:
+        return ""
+    return f" (outside {min_bpm}-{max_bpm})"
+
+
 def process_single_file(
     name: str,
     dir_path: str,
@@ -127,8 +156,9 @@ def process_single_file(
         name:              File name (not full path) of the audio file.
         dir_path:          Directory containing the audio file.
         is_dry_run:        When True, detect BPM but do not write the tag.
-        min_bpm:           Lower bound; detected tempo is clamped to this.
-        max_bpm:           Upper bound; detected tempo is clamped to this.
+        min_bpm:           Lower bound of the band used to choose between
+                           octave-equivalent readings; never a clamp.
+        max_bpm:           Upper bound of that band.
         analysis_duration: Maximum seconds of audio to pass to librosa.
         slot_idx:          Index of the worker-slot display variable.
         lock:              Threading lock that gates calls to on_progress.
@@ -179,13 +209,14 @@ def process_single_file(
             on_progress(n_skipped=0, n_errors=1, display_text=display, log_text=log)
         return
 
-    # NOTE: detect_bpm() always hard-clamps its return value into
-    # [min_bpm, max_bpm] (see bpm_detector.detect_bpm — octave correction
-    # followed by a final clamp). There is therefore no range check here:
-    # a returned value outside [min_bpm, max_bpm] cannot occur. Tracks whose
-    # true tempo falls outside the configured range are tagged with the
-    # nearest boundary value instead of being skipped.
+    # NOTE: detect_bpm() can return a tempo outside [min_bpm, max_bpm]: the
+    # band chooses between octave-equivalent readings but never overwrites a
+    # measurement the onsets support (D108). The value is tagged as measured
+    # and the file's line says it is out of band. There is deliberately no
+    # range check that skips it — a real tempo outside the band is still a
+    # real tempo, and the user chose that band as a prior, not as a filter.
 
+    note: str = _range_note(bpm, min_bpm, max_bpm)
     status: ProcessingStatus = ProcessingStatus.DRY_RUN
     action: str = f"BPM {bpm}"
 
@@ -196,16 +227,18 @@ def process_single_file(
         existing_bpm: Optional[int] = read_bpm(full_path)
         write_bpm(full_path, bpm)
         status = ProcessingStatus.TAGGED
-        logger.info("[TAGGED] %s — BPM %d (was %s)", name, bpm, existing_bpm)
+        logger.info("[TAGGED] %s — BPM %d%s (was %s)", name, bpm, note, existing_bpm)
 
         if existing_bpm and existing_bpm != bpm:
             action += f" (was {existing_bpm})"
+        action += note
     else:
-        logger.info("[DRY RUN] %s — BPM %d", name, bpm)
+        action += note
+        logger.info("[DRY RUN] %s — BPM %d%s", name, bpm, note)
 
     status_label: str = status.name.replace("_", " ")  # DRY_RUN → DRY RUN
     display = f"[{status_label}] {name} → {action}"
-    log = f"[{status_label}] {name} | BPM {bpm}\n"
+    log = f"[{status_label}] {name} | BPM {bpm}{note}\n"
 
     with lock:
         on_progress(n_skipped=0, n_errors=0, display_text=display, log_text=log)
@@ -325,6 +358,7 @@ def _handle_bpm_result(
         return
 
     bpm: int = result["bpm"]  # type: ignore[assignment]
+    note = _range_note(bpm, kwargs.get("min_bpm"), kwargs.get("max_bpm"))
 
     if not is_dry_run:
         if slot_vars is not None:
@@ -336,13 +370,16 @@ def _handle_bpm_result(
         action = f"BPM {bpm}"
         if existing_bpm and existing_bpm != bpm:
             action += f" (was {existing_bpm})"
+        action += note
         display = f"[TAGGED] {filename} \u2192 {action}"
-        log = f"[TAGGED] {filename} | BPM {bpm}\n"
-        logger.info("[TAGGED] %s \u2014 BPM %d (was %s)", filename, bpm, existing_bpm)
+        log = f"[TAGGED] {filename} | BPM {bpm}{note}\n"
+        logger.info(
+            "[TAGGED] %s \u2014 BPM %d%s (was %s)", filename, bpm, note, existing_bpm
+        )
     else:
-        display = f"[DRY RUN] {filename} \u2192 BPM {bpm}"
-        log = f"[DRY RUN] {filename} | BPM {bpm}\n"
-        logger.info("[DRY RUN] %s \u2014 BPM %d", filename, bpm)
+        display = f"[DRY RUN] {filename} \u2192 BPM {bpm}{note}"
+        log = f"[DRY RUN] {filename} | BPM {bpm}{note}\n"
+        logger.info("[DRY RUN] %s \u2014 BPM %d%s", filename, bpm, note)
 
     with lock:
         on_progress(n_skipped=0, n_errors=0, display_text=display, log_text=log)
@@ -377,8 +414,9 @@ def run_analysis(
     Args:
         dir_path:          Directory of audio files to analyse.
         is_dry_run:        When True, detect only — do not write tags.
-        min_bpm:           Minimum valid BPM; detected tempo is clamped to this.
-        max_bpm:           Maximum valid BPM; detected tempo is clamped to this.
+        min_bpm:           Lower bound of the band used to choose between
+                           octave-equivalent readings; never a clamp.
+        max_bpm:           Upper bound of that band.
         analysis_duration: Seconds of audio to pass to librosa.
         slot_vars:         List of tk.StringVar for worker-slot status labels.
         slot_queue:        Accepted for interface compatibility; not used directly.

@@ -4,6 +4,9 @@ Changed in 1.4.0: the Workers description states the machine default
 (one per logical CPU, capped at 8) instead of a fixed 4.
 Changed in 1.4.0: the Command Line section documents the JSON
 ``skipped_files`` records (filename, reason, onset-periodicity score).
+Changed in 1.4.1: the Detection Behavior section describes the range as a
+choice between octave readings and the ``(outside 75-175)`` line, rather than
+the removed hard clamp (PLAN D108).
 """
 
 from docx import Document
@@ -118,22 +121,26 @@ doc.add_paragraph(
     "tool's internal processing. The "
     "raw tempo estimate is then normalized to a scalar, "
     "octave-corrected by doubling or "
-    "halving when possible, rounded to an integer, and "
-    "hard-clamped to the requested range."
+    "halving only when the folded level carries a pulse of its "
+    "own, and rounded to an integer."
 )
 bullet(
     doc,
     "Outside-range tempo: ",
-    "The result is constrained to the nearest configured "
-    "boundary when octave correction "
-    "cannot place it inside the range.",
+    "A measured tempo outside the configured range is tagged "
+    "as measured, and its line says "
+    "so, for example BPM 60 (outside 75-175). The range "
+    "chooses between octave-equivalent "
+    "readings of the same pulse; it never moves a value to a "
+    "boundary or to an octave the "
+    "audio does not support.",
 )
 bullet(
     doc,
     "No detectable beat or silence: ",
-    "A non-positive estimate is not doubled; the final clamp "
-    "resolves it to the configured "
-    "minimum.",
+    "A file with no discernible beat, or one that is "
+    "effectively silent, is reported as [SKIP] "
+    "and left untagged.",
 )
 bullet(
     doc,
@@ -174,12 +181,11 @@ doc.add_paragraph(
 )
 doc.add_paragraph(
     "BPM Analyzer does not treat an out-of-range detection as a"
-    " skip: the detector clamps "
-    "the value into the configured range. Skips and errors in "
-    "the summary are therefore "
-    "reserved for processing infrastructure outcomes rather than"
-    " tempo values outside the "
-    "range."
+    " skip: the value is tagged "
+    "as measured and its line names the configured range. "
+    "Skips are reserved for files with "
+    "no discernible beat, and errors for files that could not be "
+    "read."
 )
 
 doc.add_heading("Logs", level=1)
@@ -250,9 +256,11 @@ bullet(
 bullet(
     doc,
     "Results seem too high or low: ",
-    "Check the configured range for octave expectations and "
-    "increase analysis duration for "
-    "more context.",
+    "The tool reports the metrical level it measures; a "
+    "consistent doubling or halving across "
+    "a folder is a range question, so widen the range and "
+    "increase analysis duration for more "
+    "context.",
 )
 bullet(
     doc,

@@ -9,7 +9,7 @@ part of a usage example.
 
 Usage::
 
-    audiosuite bpm /path/to/dir [--bpm-min 60] [--bpm-max 200] [--duration 30]
+    audiosuite bpm /path/to/dir [--bpm-min 75] [--bpm-max 175] [--duration 30]
                            [--parallel] [--workers N] [--dry] [--json]
     audiosuite key /path/to/dir [--duration 30] [--parallel] [--workers N]
                            [--dry] [--json]

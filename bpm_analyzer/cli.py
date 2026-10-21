@@ -6,6 +6,11 @@ key next to the processed/skipped/errors counts.
 
 Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
 run whose only failures were per-file keeps its exit status (PLAN D92).
+
+Changed in 1.4.1: ``--bpm-min``/``--bpm-max`` default to 75/175, matching the
+GUI and ``BPMArgs``; the band chooses between octave-equivalent readings and no
+longer overwrites a measurement, so a 60 BPM track is tagged 60 rather than 120
+(PLAN D108).
 """
 
 from __future__ import annotations
@@ -33,8 +38,18 @@ from audio_suite_shared.cli_base import (
 @_opt_json
 @_opt_parallel
 @_opt_workers
-@click.option("--bpm-min", default=60, type=int, help="Minimum BPM (default 60).")
-@click.option("--bpm-max", default=200, type=int, help="Maximum BPM (default 200).")
+@click.option(
+    "--bpm-min",
+    default=75,
+    type=int,
+    help="Lower bound for choosing between octave readings (default 75).",
+)
+@click.option(
+    "--bpm-max",
+    default=175,
+    type=int,
+    help="Upper bound for choosing between octave readings (default 175).",
+)
 @click.option(
     "--duration",
     default=30,

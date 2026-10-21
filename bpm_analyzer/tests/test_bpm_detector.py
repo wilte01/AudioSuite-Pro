@@ -5,8 +5,8 @@ pytest suite for bpm_analyzer.core.bpm_detector
 Tests are structured per claude.md §4:
   • Impulse / synthetic signal inputs
   • Float64 precision contract
-  • Octave-correction logic (white-box)
-  • Hard-clamp safety
+  • Metrical-level selection (evidence-gated octave correction)
+  • Out-of-band reporting (no clamp)
   • BPMDetectionError raised on librosa failure
   • Edge-case boundaries (min==max, zero duration guard, corrupt file)
 
@@ -37,6 +37,7 @@ import pytest
 
 # Module under test
 from bpm_analyzer.core.bpm_detector import (
+    _FOLD_EVIDENCE_RATIO,
     _ONSET_HOP_LENGTH,
     MIN_ONSET_PERIODICITY,
     BPMDetectionError,
@@ -97,6 +98,38 @@ def _patch_librosa(tempo_val: float, sr: int = 22050):
         return_value=(np.array([tempo_val]), None),
     )
     return load_patch, beat_patch
+
+
+def _pulse_with_subdivisions(
+    sr: int = 22050, seconds: float = 8.0
+) -> npt.NDArray[np.float32]:
+    """Return a 60 BPM pulse with quieter off-beat hits on its 120 BPM grid.
+
+    The beat tracker is mocked to report the slow level, as it does on a
+    half-time groove.  A pure click train has nothing at the half-beat, so the
+    comb rightly refuses to double it; these off-beat hits are what makes the
+    faster level a supported reading (D108).
+    """
+    n_samples = int(sr * seconds)
+    signal = np.zeros(n_samples, dtype=np.float64)
+    click_len = max(4, int(0.004 * sr))
+    decay = np.exp(-np.linspace(0.0, 8.0, click_len))
+    carrier = np.sin(2.0 * np.pi * 1000.0 * np.arange(click_len) / sr)
+    envelope = carrier * decay
+    half_beat = 0.5  # the 120 BPM grid of a 60 BPM pulse
+    position = 0.0
+    index = 0
+    while position < seconds:
+        start = int(position * sr)
+        end = min(start + click_len, n_samples)
+        gain = 1.0 if index % 2 == 0 else 0.6
+        signal[start:end] += gain * envelope[: end - start]
+        position += half_beat
+        index += 1
+    peak = float(np.max(np.abs(signal)))
+    if peak > 0.0:
+        signal = 0.9 * signal / peak
+    return signal.astype(np.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -173,38 +206,92 @@ class TestFloat64Precision:
 
 
 # ---------------------------------------------------------------------------
-# 3. Octave-correction logic
+# 3. Metrical-level selection — the band chooses, the onsets decide
 # ---------------------------------------------------------------------------
 
 
 class TestOctaveCorrection:
-    def test_doubles_when_too_slow(self):
-        """60 BPM should double to 120 to land in [75, 175]."""
+    """The band may pick an octave reading, never invent one (D108).
+
+    Before D108 the loops doubled or halved every estimate outside the band and
+    a final clamp turned what was left into a boundary number, so a genuine
+    60 BPM pulse below a 75 floor was reported — and tagged — as 120.  A fold now
+    has to be supported by the onset envelope: the folded level must carry at
+    least ``_FOLD_EVIDENCE_RATIO`` of the pulse the tracker measured.
+    """
+
+    def test_a_slow_pulse_is_reported_at_its_own_level(self):
+        """A 60 BPM click train is 60 BPM, not 120, under a 75 floor.
+
+        The doubled grid holds no events of its own: measured at HEAD the comb
+        scores it at 0.41 of the 60 BPM pulse, so the band has no second
+        reading to choose from and the measurement stands.  This is the
+        mis-tag the old correction produced on every real slow recording.
+        """
         load_p, beat_p = _patch_librosa(60.0)
         with load_p, beat_p:
+            result = detect_bpm("fake.mp3", min_bpm=75, max_bpm=175)
+        assert result == 60
+
+    def test_a_supported_doubling_still_happens(self):
+        """Off-beat hits make the faster level a real reading, so it is chosen.
+
+        A pure click train has nothing at the half-beat, which is why the case
+        above refuses to double.  A half-time groove does have those hits; the
+        doubled grid then scores comparably and the band may prefer it.
+        """
+        signal = _pulse_with_subdivisions()
+        with (
+            patch(
+                "bpm_analyzer.core.bpm_detector.librosa.load",
+                return_value=(signal, 22050),
+            ),
+            patch(
+                "bpm_analyzer.core.bpm_detector.librosa.beat.beat_track",
+                return_value=(np.array([60.0]), None),
+            ),
+        ):
             result = detect_bpm("fake.mp3", min_bpm=75, max_bpm=175)
         assert result == 120
 
     def test_halves_when_too_fast(self):
-        """200 BPM should halve to 100 to land in [75, 175]."""
+        """200 BPM halves to 100: the slower grid keeps the pulse (ratio 0.91)."""
         load_p, beat_p = _patch_librosa(200.0)
         with load_p, beat_p:
             result = detect_bpm("fake.mp3", min_bpm=75, max_bpm=175)
         assert result == 100
 
-    def test_multi_step_doubling(self):
-        """30 BPM needs two doublings → 120, within [75, 175]."""
-        load_p, beat_p = _patch_librosa(30.0)
-        with load_p, beat_p:
+    def test_multi_step_doubling_follows_the_evidence(self):
+        """30 → 60 → 120, because the 120 BPM grid supports both steps.
+
+        The tracker's estimate is the only thing mocked to 30; the audio itself
+        pulses at 120, so the quarter and half levels each score at least 1.08x
+        the level they replace and the band lands on 120.
+        """
+        signal, sr = _make_load_return(120.0)
+        with (
+            patch(
+                "bpm_analyzer.core.bpm_detector.librosa.load",
+                return_value=(signal, sr),
+            ),
+            patch(
+                "bpm_analyzer.core.bpm_detector.librosa.beat.beat_track",
+                return_value=(np.array([30.0]), None),
+            ),
+        ):
             result = detect_bpm("fake.mp3", min_bpm=75, max_bpm=175)
         assert result == 120
 
-    def test_multi_step_halving(self):
-        """400 BPM needs two halvings → 100, within [75, 175]."""
-        load_p, beat_p = _patch_librosa(400.0)
+    def test_multi_step_halving_stops_at_the_band_floor(self):
+        """300 → 150 → 75 under [50, 60]; halving to 37.5 would leave the floor.
+
+        The old code clamped the remainder to 60, which was not a level of the
+        music at all.  75 is the lowest supported level the band still allows.
+        """
+        load_p, beat_p = _patch_librosa(300.0)
         with load_p, beat_p:
-            result = detect_bpm("fake.mp3", min_bpm=75, max_bpm=175)
-        assert result == 100
+            result = detect_bpm("fake.mp3", min_bpm=50, max_bpm=60)
+        assert result == 75
 
     def test_no_correction_needed(self):
         """100 BPM is already in range — must not be modified."""
@@ -250,30 +337,27 @@ class TestRoundingBehavior:
 
 
 # ---------------------------------------------------------------------------
-# 4. Hard-clamp safety net
+# 4. Out-of-band tempos are reported, not clamped
 # ---------------------------------------------------------------------------
 
 
-class TestHardClamp:
-    def test_clamp_below_min(self):
-        """A value that cannot be doubled into range is clamped to min."""
-        # 50 BPM: doubling gives 100 (in range) — use a value where
-        # doubling would overshoot: min=110, max=120, raw=50 → 100 < 110,
-        # 200 > 120 — clamp to 110.
+class TestOutOfBandMeasurement:
+    """A tempo outside the band is a measurement, not a boundary (D108).
+
+    The old "hard clamp safety net" returned min or max, which looked exactly
+    like a measurement and was tagged as one: a 50 BPM recording under a
+    [110, 120] band was written to disk as 110.  The band now only chooses
+    between readings the onsets support, so an unsupported fold leaves the
+    measured value alone; the per-file processor marks the line as out of band
+    rather than hiding the number.
+    """
+
+    def test_below_the_band_is_reported_as_measured(self):
+        """50 BPM under [110, 120]: the double (100) has no pulse, so 50 stands."""
         load_p, beat_p = _patch_librosa(50.0)
         with load_p, beat_p:
             result = detect_bpm("fake.mp3", min_bpm=110, max_bpm=120)
-        assert result == 110
-
-    def test_clamp_above_max(self):
-        """Value that cannot be halved into range is clamped to max."""
-        # 300 BPM: halving gives 150 (in range for 75–175) — craft a
-        # narrow range: min=50, max=60, raw=300 → halve to 150, still >60;
-        # halve to 75, still >60; halve to 37.5 < 50 — clamp to 60.
-        load_p, beat_p = _patch_librosa(300.0)
-        with load_p, beat_p:
-            result = detect_bpm("fake.mp3", min_bpm=50, max_bpm=60)
-        assert result == 60
+        assert result == 50
 
 
 # ---------------------------------------------------------------------------
@@ -282,19 +366,21 @@ class TestHardClamp:
 
 
 class TestEqualBounds:
-    def test_above_equal_bounds_clamps_to_bounds(self):
-        """tempo=150, min=max=120 → clamp to 120."""
+    """A degenerate band offers no alternative reading, so nothing is invented."""
+
+    def test_above_equal_bounds_is_reported_as_measured(self):
+        """tempo=150 with min=max=120: halving would leave the band → 150."""
         load_p, beat_p = _patch_librosa(150.0)
         with load_p, beat_p:
             result = detect_bpm("fake.mp3", min_bpm=120, max_bpm=120)
-        assert result == 120
+        assert result == 150
 
-    def test_below_equal_bounds_clamps_to_bounds(self):
-        """tempo=80, min=max=120 → clamp to 120."""
+    def test_below_equal_bounds_is_reported_as_measured(self):
+        """tempo=80 with min=max=120: doubling overshoots the band → 80."""
         load_p, beat_p = _patch_librosa(80.0)
         with load_p, beat_p:
             result = detect_bpm("fake.mp3", min_bpm=120, max_bpm=120)
-        assert result == 120
+        assert result == 80
 
     def test_at_equal_bounds_unchanged(self):
         """tempo=120, min=max=120 → returned as-is."""
@@ -747,19 +833,20 @@ class TestGoldenVectorMeasuredBpm:
                     f"detected as {detected}"
                 )
 
-    def test_octave_correction_resolves_subband_clicks(self, tmp_path: Path) -> None:
-        """60 clicks/min sits below the default [75, 175] band; the engine
-        must return 120 -- the unique in-range octave (measured at HEAD:
-        raw 60.09 -> corrected 120).
+    def test_a_slow_click_train_keeps_its_own_pulse(self, tmp_path: Path) -> None:
+        """60 clicks/min stays 60 BPM, below the default band as well as inside it.
 
-        A narrowed range [50, 90] pins the octave logic from the other side:
-        the same fixture returns 60 there.
+        Real librosa (not a mock): the tracker estimates 60.09 here, and the
+        comb scores the doubled 120 BPM grid at 0.36 against 0.89 for the
+        60 BPM pulse, so there is no in-band reading to choose.  Before D108
+        this returned 120 and tagged it, which made a genuine 60 BPM recording
+        indistinguishable from a 120 BPM one downstream.
         """
         slow_path = _write_wav(
             tmp_path / "click_60.wav",
             clicked(60 / 60.0, 30.0, dither_seed=11),
         )
-        assert detect_bpm(slow_path) == 120
+        assert detect_bpm(slow_path) == 60
         assert detect_bpm(slow_path, min_bpm=50, max_bpm=90) == 60
 
     def test_digital_silence_is_refused_not_clamped(self, tmp_path: Path) -> None:
@@ -872,8 +959,12 @@ _MUSIC_MARGIN = 1.2
 
 #: The floor the promise is expressed against.  Pinned by
 #: :meth:`TestRealMusicCorpus.test_the_calibration_constants_are_pinned`, which
-#: fails if either number is edited to make a red corpus green.
+#: fails if any of these numbers is edited to make a red corpus green.
 _CALIBRATED_FLOOR = 0.10
+
+#: How much of a level's pulse a folded level must keep for the band to prefer
+#: it (D108).  Measured refusals scored 0.41-0.57, supported folds 0.93-1.07.
+_CALIBRATED_FOLD_RATIO = 0.75
 
 #: The hardest clip in the corpus must sit inside this multiple of the floor,
 #: or the corpus no longer contains evidence near the boundary (P4).
@@ -1277,6 +1368,28 @@ class TestRealMusicCorpus:
             f"the real-music promise is {_MUSIC_MARGIN}x, not the calibrated "
             "1.2x; loosening the promise is the same edit as lowering the "
             "floor and hides the same regression"
+        )
+        assert _FOLD_EVIDENCE_RATIO == _CALIBRATED_FOLD_RATIO, (
+            f"the fold-evidence ratio is {_FOLD_EVIDENCE_RATIO}, not the "
+            f"calibrated {_CALIBRATED_FOLD_RATIO}. Lowering it lets the band "
+            "double a slow pulse the onsets do not support (refusals scored "
+            "0.41-0.57 of the level they would replace, supported folds "
+            "0.93-1.07); re-derive it from measured clips and click trains "
+            "instead of relaxing it to make a slow clip double"
+        )
+
+    def test_the_below_band_clip_is_reported_at_its_own_pulse(self) -> None:
+        """The corpus's slowest clip is the evidence for the D108 fix.
+
+        `ambient_pulse_60.ogg` measures 0.746 at 60 BPM against 0.423 at 120, so
+        the default 75 BPM floor has no support for a doubled reading: a real
+        60 BPM recording is reported \u2014 and tagged \u2014 as 60.  Before D108 this
+        returned 120, and the tag made a measured tempo a fabricated one.
+        """
+        detected = detect_bpm(str(CORPUS_DIR / "ambient_pulse_60.ogg"))
+        assert detected == 60, (
+            f"the 60 BPM corpus clip is reported as {detected}; the band must "
+            "not invent a faster reading the onsets do not support"
         )
 
     def test_the_corpus_keeps_a_clip_near_the_boundary(self) -> None:

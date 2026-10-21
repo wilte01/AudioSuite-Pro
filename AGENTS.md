@@ -402,6 +402,23 @@ result set is non-empty so an empty scan fails loudly.** Evidence:
   internal call; the default mean changes the estimate (a slow pad returned
   107.67 BPM with mean aggregation and 0.0 with median).
 
+- **A configured band chooses between octave readings; it never edits a
+  measured tempo.** `detect_bpm`'s `min_bpm`/`max_bpm` doubled any estimate
+  below the floor and clamped whatever was left outside it, so a genuine 60 BPM
+  drone was reported *and tagged* as 120 — the same fabricated-value class as
+  the old clamp floor, one release later. The band now folds only when the
+  folded level's harmonic-comb score reaches `_FOLD_EVIDENCE_RATIO` (0.75) of
+  the level it replaces, and there is no clamp: an out-of-band tempo is returned
+  as measured and the per-file line says `(outside 75-175)`. Two traps. "The
+  strongest metrical level wins" is **not** a substitute for this rule —
+  measured, half-time levels outscore the true tempo on real recordings
+  (`hiphop_86` 0.492 at 43 BPM against 0.366 at 86), so that rule walks every
+  tempo down an octave; the tracker's own level stays the default and only a
+  comparably strong fold may replace it. And a range that differs between entry
+  points (the CLI's `--bpm-min 60` against the GUI's 75) silently tags the same
+  file two ways, so a range default is one value wherever it is declared.
+  Evidence: `PLAN_feature_expansion.md` D108.
+
 ## Verification Tooling Traps
 
 - **Bare `mypy .` is the gate.** Per-file invocations (`mypy pkg/x.py

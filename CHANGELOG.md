@@ -11,6 +11,19 @@ Versions of the tools are released together with the suite (the single
 
 ### Fixed
 
+- **A slow track is no longer tagged at double its real tempo.** BPM detection
+  doubled any estimate below the configured range and clamped whatever was left
+  outside it, so a genuine 60 BPM drone under the default 75 BPM floor was
+  reported — and written into the file's BPM tag — as 120. The range now chooses
+  between octave-equivalent readings only when the folded level carries a pulse
+  of its own: the drone's doubled grid scores 0.42 against 0.746 for its real
+  pulse, under the 0.75 evidence ratio a fold must reach, so 60 is kept — while
+  a genuine half-time reading (which does have those off-beat hits) still lands
+  on the faster level. A measured tempo outside
+  the range is tagged as measured and its line says `(outside 75-175)`.
+  `--bpm-min`/`--bpm-max` now default to 75/175, so the CLI and the GUI no
+  longer answer the same file differently.
+
 - **Analysis batches no longer get slower when you add worker threads.** BPM,
   Key and Mood analysis spend several seconds compiling librosa's numeric
   kernels the first time a batch runs. That compile happened once per worker
@@ -30,8 +43,8 @@ Versions of the tools are released together with the suite (the single
   now been sourced: a 60 BPM drone by John Bartmann, whose pulse holds for its
   first two minutes (score 0.746 at 60 BPM against 0.423 at 120, so the slow
   pulse is the musical one). It is also the corpus's only recording whose tempo
-  falls below the tool's 75 BPM floor, so it locks the range correction that
-  reports it as 120.
+  falls below the default 75 BPM floor, and it is the regression evidence for
+  the fix above: the clip stays 60 BPM instead of being doubled to 120.
 
 - **The API reference now documents every shared module, and building it is a
   test.** `docs/api.rst` covered 11 of the 62 modules in `audio_suite_shared`,

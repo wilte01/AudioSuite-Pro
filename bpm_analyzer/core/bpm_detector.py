@@ -9,6 +9,11 @@ Changed in 1.4.0: failure messages are written for the user. BPMDetectionError
 now subclasses AudioAnalysisError and carries a plain-language reason ("the file
 may be corrupt…") instead of the decoder's text, and the stack trace is logged at
 DEBUG so a corrupt file reports one line rather than a traceback.
+
+Changed in 1.4.1: the configured band chooses between octave-equivalent
+readings instead of rewriting the measurement. A 60 BPM pulse no longer becomes
+120 just because 60 is below the floor; a fold happens only when the onsets
+support the folded level (backlog P5 follow-up, PLAN D108).
 """
 
 from __future__ import annotations
@@ -54,6 +59,19 @@ _HARMONIC_WEIGHTS: tuple[float, ...] = (1.0, 0.7, 0.5, 0.35)
 # real music reached 0.135 while brown noise's slow drift reached 0.155, so no
 # threshold separated them.  Evidence: PLAN_feature_expansion.md D79.
 MIN_ONSET_PERIODICITY = 0.10
+
+# How strong a folded (doubled or halved) level's pulse must be, relative to the
+# level it would replace, before the configured band may choose it.  Doubling a
+# tempo whose beat is already at that level tests half-beat lags that hold no
+# onset energy, so the folded score collapses; a genuine half-time reading is
+# almost as strong as the reading it doubles.  Measured on the committed corpus
+# and on seeded click trains: refused folds scored 0.41-0.57 of the level they
+# would have replaced (`ambient_pulse_60` 0.422/0.746 = 0.57, a 60 BPM click
+# train 0.364/0.894 = 0.41), while the folds the band should make scored
+# 0.93-1.07 (`chopin_rubato_74` 0.133/0.124 = 1.07, a 120 BPM click train
+# 0.840/0.903 = 0.93).  0.75 sits in that gap, 1.3x from each side.  Evidence:
+# PLAN_feature_expansion.md D108.
+_FOLD_EVIDENCE_RATIO = 0.75
 
 
 class BPMDetectionError(AudioAnalysisError):
@@ -125,6 +143,39 @@ def _onset_periodicity(
     return weighted / total_weight
 
 
+def _fold_is_supported(
+    onset_env: npt.NDArray[np.float64],
+    from_bpm: float,
+    to_bpm: float,
+    sr: int,
+    *,
+    hop_length: int = _ONSET_HOP_LENGTH,
+) -> bool:
+    """Return whether *to_bpm* describes the pulse about as well as *from_bpm*.
+
+    Folding a tempo by an octave only makes sense when the folded grid holds
+    onset energy of its own.  On a 60 BPM pulse, doubling tests lags at half a
+    beat, where nothing happens, so the folded score drops to roughly half and
+    the fold would be inventing a subdivision; on a genuine half-time reading
+    the faster grid is nearly as strong as the slower one, so the fold is a
+    choice between two descriptions of the same music.
+
+    Args:
+        onset_env: Onset-strength envelope on the analysis hop grid.
+        from_bpm:  The level being folded away from.
+        to_bpm:    The candidate level (``from_bpm * 2`` or ``from_bpm / 2``).
+        sr:        Sample rate in Hz.
+        hop_length: Hop length the envelope was computed with.
+
+    Returns:
+        True when the candidate scores at least ``_FOLD_EVIDENCE_RATIO`` of the
+        level it would replace.
+    """
+    current = _onset_periodicity(onset_env, from_bpm, sr, hop_length=hop_length)
+    folded = _onset_periodicity(onset_env, to_bpm, sr, hop_length=hop_length)
+    return folded >= _FOLD_EVIDENCE_RATIO * current
+
+
 def _no_tempo_message(periodicity: float | None = None) -> str:
     """Build the one user-facing sentence for a beatless file.
 
@@ -181,11 +232,16 @@ def detect_bpm(
         file_path:    Absolute path to the audio file.
         max_duration: Maximum seconds of audio to analyse
         (trade-off: speed vs accuracy).
-        min_bpm:      Lower bound for the returned BPM value.
-        max_bpm:      Upper bound for the returned BPM value.
+        min_bpm:      Lower bound of the band used to choose between
+                      octave-equivalent readings of the pulse.
+        max_bpm:      Upper bound of that band.
 
     Returns:
-        Detected BPM rounded to the nearest integer, constrained to [min_bpm, max_bpm].
+        Detected BPM rounded to the nearest integer.  It lands inside
+        ``[min_bpm, max_bpm]`` whenever the onsets support an in-band reading;
+        when they do not, the measured level is returned as measured, which may
+        fall outside the band.  The band is a prior about which octave you
+        want, never a value that overwrites the measurement.
 
     Raises:
         NoTempoDetectedError: The beat tracker found no tempo (beatless audio).
@@ -271,17 +327,53 @@ def detect_bpm(
                 },
             )
 
-        # Octave-correct: double/halve until inside the requested range.
+        # Choose the metrical level.  The band says which octave-equivalent
+        # reading is wanted, but only between readings the onsets actually
+        # support: doubling a 60 BPM pulse to 120 because 60 sits below the
+        # floor invented a subdivision the audio does not contain, and the
+        # invented number was then written as the file's BPM tag.  A fold that
+        # the evidence does not support is refused, and the measured tempo is
+        # reported even though it is outside the band.
         while tempo < min_bpm and tempo * 2 <= max_bpm:
-            tempo *= 2
+            candidate = tempo * 2
+            if not _fold_is_supported(onset_env, tempo, candidate, sr):
+                logger.debug(
+                    "Not doubling '%s' from %.2f to %.2f BPM: the folded grid "
+                    "carries no pulse of its own",
+                    file_path,
+                    tempo,
+                    candidate,
+                )
+                break
+            tempo = candidate
         while tempo > max_bpm and tempo / 2 >= min_bpm:
-            tempo /= 2
+            candidate = tempo / 2
+            if not _fold_is_supported(onset_env, tempo, candidate, sr):
+                logger.debug(
+                    "Not halving '%s' from %.2f to %.2f BPM: the folded grid "
+                    "carries no pulse of its own",
+                    file_path,
+                    tempo,
+                    candidate,
+                )
+                break
+            tempo = candidate
 
-        # Hard clamp as a final safety net.
-        tempo = max(float(min_bpm), min(float(max_bpm), tempo))
+        # No clamp: a boundary number is as fabricated as a doubled one.  The
+        # caller reports the measured value and, when it lies outside the
+        # configured band, says so (per-file line, tag and run log).
         result: int = round(tempo)
 
-        logger.info("BPM detected for '%s': %d", file_path, result)
+        if not min_bpm <= result <= max_bpm:
+            logger.info(
+                "BPM detected for '%s': %d (outside the configured %d-%d band)",
+                file_path,
+                result,
+                min_bpm,
+                max_bpm,
+            )
+        else:
+            logger.info("BPM detected for '%s': %d", file_path, result)
         return result
 
     except NoTempoDetectedError:
