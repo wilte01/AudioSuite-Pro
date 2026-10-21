@@ -8,6 +8,8 @@ batch report says so instead of only the tool's own log.
 Changed in 1.4.0: the saved worker default, slot grid and report header all
 resolve through ``default_max_workers()`` / ``DEFAULT_MAX_WORKERS`` (PLAN D56);
 an over-grid typed count is logged rather than shown when unattended (D70).
+Changed in 1.4.1: the Results summary and the driver's run note report how many
+tracks were measured outside the configured BPM range (D109).
 """
 
 from __future__ import annotations
@@ -63,6 +65,11 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
     HELP_GUIDE: str = "BPM_Analyzer_User_Guide.docx"
 
     TAGGED_LABEL: str = "Tagged/Analyzed"
+
+    #: Rows added to the run summary for the run in progress (D109).  A tuple
+    #: replaced at the start of every completion, never mutated in place, so a
+    #: finished run's row cannot survive into the next one.
+    _summary_rows: tuple[tuple[str, str], ...] = ()
     DRY_COMPLETE_LABEL: str = "Analysis Complete!"
     LIVE_COMPLETE_LABEL: str = "BPM Tagging Complete!"
 
@@ -439,14 +446,33 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
         errors: int,
         duration_secs: float,
         log_entries: list[str],
+        outside_range_files: list[dict[str, object]] | None = None,
     ) -> None:
         """Record what the run could not analyse, then finish as usual.
 
         Runs on the worker thread before the shared base writes the report and
         schedules the Results update, so neither a damaged Tk nor an unwritable
         log can suppress the note the Master Driver reads.
+
+        ``outside_range_files`` arrives from ``run_analysis``'s completion
+        callback: files whose tempo was measured outside the configured band
+        and tagged as measured (D108).  They are counted in the run summary and
+        in the driver's note, never reported as skips - the tempo was written.
+
+        Args:
+            header: Report header lines for this run.
+            total: Files the run set out to analyse.
+            processed: Files it finished attempting.
+            skipped: Files with no discernible beat.
+            errors: Files that could not be analysed.
+            duration_secs: Wall-clock run time.
+            log_entries: The per-file log lines.
+            outside_range_files: Records for tempos outside the band, each
+                ``{"filename", "bpm", "min_bpm", "max_bpm"}``.
         """
-        self._record_run_note(total=total, errors=errors)
+        outside = list(outside_range_files or [])
+        self._summary_rows = tuple(self._outside_summary(total=total, outside=outside))
+        self._record_run_note(total=total, errors=errors, outside=outside)
         super()._on_complete(
             header=header,
             total=total,
@@ -457,21 +483,76 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
             log_entries=log_entries,
         )
 
-    def _record_run_note(self, *, total: int, errors: int) -> None:
-        """Record the tracks this run could not give a BPM to.
+    def _summary_extras(self) -> list[tuple[str, str]]:
+        """Return this run's out-of-band row for the log and the Results panel.
+
+        The rows are computed in :meth:`_on_complete` and handed over here, so
+        the log's SUMMARY block and the panel can never disagree.
+        """
+        return list(self._summary_rows)
+
+    @staticmethod
+    def _band_text(record: dict[str, object]) -> str:
+        """Return one record's band as ``"75-175"``, or ``""`` when it has none."""
+        low = record.get("min_bpm")
+        high = record.get("max_bpm")
+        if isinstance(low, int) and isinstance(high, int):
+            return f"{low}-{high}"
+        return ""
+
+    def _outside_summary(
+        self, *, total: int, outside: list[dict[str, object]]
+    ) -> list[tuple[str, str]]:
+        """Build the run summary's out-of-band row, or nothing when clean.
+
+        Args:
+            total: Files the run attempted.
+            outside: Records for tempos measured outside the band.
+
+        Returns:
+            One ``("Outside BPM range", "<n> of <total> tracks (band 75-175)")``
+            row when any file missed the band, else an empty list.
+        """
+        if not outside:
+            return []
+        band = self._band_text(outside[0])
+        suffix = f" (band {band})" if band else ""
+        return [("Outside BPM range", f"{len(outside)} of {total} tracks{suffix}")]
+
+    def _record_run_note(
+        self,
+        *,
+        total: int,
+        errors: int,
+        outside: list[dict[str, object]] | None = None,
+    ) -> None:
+        """Record what this run could not analyse or could not place in the band.
 
         BPM detection either returns a value or raises, so every file the run
         cannot analyse is already counted as an error; there is no separate
-        skip path.  A clean run records nothing, which clears any earlier note.
+        skip path.  A tempo outside the configured band is different: it was
+        measured, tagged and counted as processed, so it gets its own phrase
+        rather than inflating the error count.  A clean run records nothing,
+        which clears any earlier note.
 
         Args:
             total: Files the run attempted.
             errors: Files whose BPM detection failed.
+            outside: Records for tempos measured outside the band.
         """
-        record_caveats(
-            DRIVER_TOOL_ID,
-            shortfall(errors, total, "track", "yielded no BPM") if errors else "",
-        )
+        problems: list[str] = []
+        if errors:
+            problems.append(shortfall(errors, total, "track", "yielded no BPM"))
+        missed = list(outside or [])
+        if missed:
+            band = self._band_text(missed[0])
+            outcome = (
+                f"measured outside the {band} BPM range"
+                if band
+                else "measured outside the configured BPM range"
+            )
+            problems.append(shortfall(len(missed), total, "track", outcome))
+        record_caveats(DRIVER_TOOL_ID, *problems)
 
     # ── Presets ───────────────────────────────────────────────────────────────
 

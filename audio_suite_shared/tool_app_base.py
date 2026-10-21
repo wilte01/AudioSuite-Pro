@@ -16,6 +16,9 @@ error plumbing and the completion log write — lives here once.
 Changed in 1.4.0: declares ``_launched_from_driver = False`` on
 ``AnalysisTagToolApp`` so a typed-worker cap call can log instead of showing a
 modal warning on an unattended launch (D70).
+Changed in 1.4.1: ``_summary_extras`` is a hook a tool overrides to add
+``(label, value)`` rows to the run summary in both the log and the Results
+panel, so BPM can report tempos that missed the configured band (D109).
 """
 
 from __future__ import annotations
@@ -283,6 +286,21 @@ class AnalysisTagToolApp(UIHelperMixin):
         self.file_listbox.insert(tk.END, display_text)
         self.file_listbox.see(tk.END)
 
+    def _summary_extras(self) -> list[tuple[str, str]]:
+        """Return ``(label, value)`` rows to add to this run's summary.
+
+        Called by :meth:`_on_complete` once, after the run finishes, and again
+        by :meth:`_update_ui_on_complete` when the panel is drawn, so both
+        surfaces read the same rows.  A hook rather than a parameter: a tool
+        that adds to the signature instead would break the ``on_complete``
+        contract the shared base hands to every processor.  The default is no
+        extra rows, which is exactly the old report.
+
+        Returns:
+            Extra summary rows, in display order.  Empty by default.
+        """
+        return []
+
     def _on_complete(
         self,
         header: list[str],
@@ -297,6 +315,7 @@ class AnalysisTagToolApp(UIHelperMixin):
         minutes: int = int(duration_secs // 60)
         seconds: int = int(duration_secs % 60)
         tagged: int = processed - skipped - errors
+        extras: list[tuple[str, str]] = list(self._summary_extras())
 
         summary: list[str] = [
             "\n" + "=" * 60 + "\n",
@@ -305,8 +324,9 @@ class AnalysisTagToolApp(UIHelperMixin):
             f"{self.TAGGED_LABEL}: {tagged}\n",
             f"Skipped: {skipped}\n",
             f"Errors: {errors}\n",
-            f"Time: {minutes:02d}:{seconds:02d}\n",
         ]
+        summary.extend(f"{label}: {value}\n" for label, value in extras)
+        summary.append(f"Time: {minutes:02d}:{seconds:02d}\n")
         all_entries: list[str] = header + log_entries + summary
 
         try:
@@ -342,6 +362,7 @@ class AnalysisTagToolApp(UIHelperMixin):
             errors,
             minutes,
             seconds,
+            extras,
         )
 
     def _update_ui_on_complete(
@@ -352,18 +373,25 @@ class AnalysisTagToolApp(UIHelperMixin):
         errors: int,
         minutes: int,
         seconds: int,
+        summary_extras: list[tuple[str, str]] | None = None,
     ) -> None:
         """Update UI after analysis completes (must be called on main thread)."""
         is_dry_run: bool = self.run_mode.get() == "Dry Run"
-        self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")
-        self.summary_label.config(
-            text=(
-                f"Total: {total} files\n"
-                f"{self.TAGGED_LABEL}: {tagged}\n"
-                f"Skipped: {skipped}\n"
-                f"Errors: {errors}"
-            )
+        rows: list[tuple[str, str]] = (
+            list(summary_extras)
+            if summary_extras is not None
+            else list(self._summary_extras())
         )
+        text: str = (
+            f"Total: {total} files\n"
+            f"{self.TAGGED_LABEL}: {tagged}\n"
+            f"Skipped: {skipped}\n"
+            f"Errors: {errors}"
+        )
+        for label, value in rows:
+            text += f"\n{label}: {value}"
+        self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")
+        self.summary_label.config(text=text)
         self.completion_label.config(
             text=self.DRY_COMPLETE_LABEL if is_dry_run else self.LIVE_COMPLETE_LABEL
         )

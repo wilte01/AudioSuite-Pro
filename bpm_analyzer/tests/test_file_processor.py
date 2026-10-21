@@ -607,6 +607,50 @@ class TestProcessSingleFileOutOfRangeRegression:
         assert "BPM 60 (outside 75-175)" in c["display_text"]
         assert "BPM 60 (outside 75-175)" in c["log_text"]
 
+    def test_an_out_of_band_tempo_is_collected_as_a_record(
+        self, lock, on_progress, slot_vars
+    ) -> None:
+        """The list the run summary counts: filename, tempo and the band it missed."""
+        outside: list[dict[str, object]] = []
+        with patch("bpm_analyzer.core.file_processor.detect_bpm", return_value=60):
+            process_single_file(
+                name="drone.ogg",
+                dir_path="/music",
+                is_dry_run=True,
+                min_bpm=75,
+                max_bpm=175,
+                analysis_duration=90,
+                slot_idx=0,
+                lock=lock,
+                on_progress=on_progress,
+                slot_vars=slot_vars,
+                outside_range_files=outside,
+            )
+        assert outside == [
+            {"filename": "drone.ogg", "bpm": 60, "min_bpm": 75, "max_bpm": 175}
+        ]
+
+    def test_an_in_band_tempo_is_not_collected(
+        self, lock, on_progress, slot_vars
+    ) -> None:
+        """A row for every file would make the summary useless."""
+        outside: list[dict[str, object]] = []
+        with patch("bpm_analyzer.core.file_processor.detect_bpm", return_value=128):
+            process_single_file(
+                name="house.mp3",
+                dir_path="/music",
+                is_dry_run=True,
+                min_bpm=75,
+                max_bpm=175,
+                analysis_duration=90,
+                slot_idx=0,
+                lock=lock,
+                on_progress=on_progress,
+                slot_vars=slot_vars,
+                outside_range_files=outside,
+            )
+        assert outside == []
+
     def test_an_in_band_value_carries_no_note(
         self, lock, on_progress, progress_calls, slot_vars
     ) -> None:
@@ -816,6 +860,96 @@ class TestRunAnalysis:
 # ---------------------------------------------------------------------------
 # 7. run_analysis — parallel_mode=True path
 # ---------------------------------------------------------------------------
+
+
+class TestRunAnalysisOutOfBandRecords:
+    """``run_analysis`` publishes the records its workers collected."""
+
+    def test_the_completion_carries_the_out_of_band_list(self) -> None:
+        processor = MagicMock()
+
+        def fake_run(**kwargs: Any) -> None:
+            # Drive one real serial worker, then finish the run the way the
+            # shared base does, so the list has to survive the whole plumbing.
+            kwargs["processor_func"](
+                "drone.ogg",
+                "/music",
+                0,
+                threading.Lock(),
+                kwargs["on_progress"],
+            )
+            kwargs["on_complete"](
+                total=1,
+                processed=1,
+                skipped=0,
+                errors=0,
+                duration_secs=0.1,
+                log_entries=["[DRY RUN] drone.ogg | BPM 60\n"],
+            )
+
+        processor.run_parallel_processing.side_effect = fake_run
+        on_complete = MagicMock()
+
+        with (
+            patch(
+                "bpm_analyzer.core.file_processor.BPMAnalyzerProcessor",
+                return_value=processor,
+            ),
+            patch("bpm_analyzer.core.file_processor.detect_bpm", return_value=60),
+        ):
+            run_analysis(
+                dir_path="/music",
+                is_dry_run=True,
+                min_bpm=75,
+                max_bpm=175,
+                analysis_duration=90,
+                slot_vars=[MagicMock()],
+                slot_queue=MagicMock(),
+                on_progress=MagicMock(),
+                on_complete=on_complete,
+                on_error=MagicMock(),
+            )
+
+        published = on_complete.call_args.kwargs["outside_range_files"]
+        assert published == [
+            {"filename": "drone.ogg", "bpm": 60, "min_bpm": 75, "max_bpm": 175}
+        ]
+
+    def test_a_clean_run_publishes_an_empty_list(self) -> None:
+        """The key is always present, so a consumer never needs ``get``."""
+        processor = MagicMock()
+
+        def fake_run(**kwargs: Any) -> None:
+            kwargs["on_complete"](
+                total=0,
+                processed=0,
+                skipped=0,
+                errors=0,
+                duration_secs=0.1,
+                log_entries=[],
+            )
+
+        processor.run_parallel_processing.side_effect = fake_run
+        on_complete = MagicMock()
+
+        with patch(
+            "bpm_analyzer.core.file_processor.BPMAnalyzerProcessor",
+            return_value=processor,
+        ):
+            run_analysis(
+                dir_path="/music",
+                is_dry_run=True,
+                min_bpm=75,
+                max_bpm=175,
+                analysis_duration=90,
+                slot_vars=[MagicMock()],
+                slot_queue=MagicMock(),
+                on_progress=MagicMock(),
+                on_complete=on_complete,
+                on_error=MagicMock(),
+            )
+
+        assert on_complete.call_args.kwargs["outside_range_files"] == []
 
 
 class TestRunAnalysisParallelMode:
@@ -1039,6 +1173,29 @@ class TestHandleBpmResult:
         kwargs = on_progress.call_args.kwargs
         assert "BPM 60 (outside 75-175)" in kwargs["display_text"]
         assert "BPM 60 (outside 75-175)" in kwargs["log_text"]
+
+    def test_handler_collects_an_out_of_band_record(self, lock, slot_vars) -> None:
+        """The process-pool path fills the same list as the thread path."""
+        on_progress = MagicMock()
+        outside: list[dict[str, object]] = []
+        with patch("bpm_analyzer.core.file_processor.read_bpm", return_value=None):
+            with patch("bpm_analyzer.core.file_processor.write_bpm"):
+                _handle_bpm_result(
+                    filename="drone.ogg",
+                    dir_path="/music",
+                    result={"status": "ok", "bpm": 60},
+                    slot_idx=0,
+                    lock=lock,
+                    on_progress=on_progress,
+                    is_dry_run=False,
+                    slot_vars=slot_vars,
+                    min_bpm=75,
+                    max_bpm=175,
+                    outside_range_files=outside,
+                )
+        assert outside == [
+            {"filename": "drone.ogg", "bpm": 60, "min_bpm": 75, "max_bpm": 175}
+        ]
 
     def test_handler_without_a_band_adds_no_note(self, lock, slot_vars) -> None:
         """A caller that passed no band gets no claim about one."""

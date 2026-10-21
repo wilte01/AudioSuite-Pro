@@ -21,6 +21,9 @@ pool starts, so a thread batch no longer pays one compile per thread
 Changed in 1.4.1: the band no longer rewrites a tempo the onsets cannot
 corroborate, so a file whose measured BPM sits outside it is tagged as measured
 and its line says ``(outside 75-175)`` (PLAN D108).
+Changed in 1.4.1: those files are also collected as structured records and
+handed to ``on_complete``, so the run summary and the CLI's ``--json`` can
+count them instead of leaving the evidence only in per-file lines (D109).
 """
 
 from __future__ import annotations
@@ -135,6 +138,32 @@ def _range_note(bpm: int, min_bpm: int | None, max_bpm: int | None) -> str:
     return f" (outside {min_bpm}-{max_bpm})"
 
 
+def _outside_record(
+    filename: str, bpm: int, min_bpm: int, max_bpm: int
+) -> dict[str, object]:
+    """Build the structured record for one file whose tempo missed the band.
+
+    The band travels with the record, so a summary or a JSON consumer can word
+    the shortfall without knowing which flags the run was given.  The tempo is
+    the value that was measured and (in a live run) tagged.
+
+    Args:
+        filename: The file name, not the full path.
+        bpm:      The measured tempo.
+        min_bpm:  Lower bound the run was configured with.
+        max_bpm:  Upper bound the run was configured with.
+
+    Returns:
+        ``{"filename", "bpm", "min_bpm", "max_bpm"}`` for the completion list.
+    """
+    return {
+        "filename": filename,
+        "bpm": bpm,
+        "min_bpm": min_bpm,
+        "max_bpm": max_bpm,
+    }
+
+
 def process_single_file(
     name: str,
     dir_path: str,
@@ -147,6 +176,7 @@ def process_single_file(
     on_progress: Callable[..., None],
     skipped_files: list[dict[str, object]] | None = None,
     error_files: list[dict[str, object]] | None = None,
+    outside_range_files: list[dict[str, object]] | None = None,
     **kwargs: Any,
 ) -> None:
     """
@@ -168,6 +198,9 @@ def process_single_file(
                            record per refused file; appended under *lock*.
         error_files:       Optional shared list that receives one structured
                            record per failed file; appended under *lock*.
+        outside_range_files: Optional shared list that receives one record per
+                           file whose measured tempo fell outside the band;
+                           appended under *lock*.
         **kwargs:          Extra keyword arguments forwarded by the base class
                            (e.g. slot_vars).
     """
@@ -241,6 +274,8 @@ def process_single_file(
     log = f"[{status_label}] {name} | BPM {bpm}{note}\n"
 
     with lock:
+        if note and outside_range_files is not None:
+            outside_range_files.append(_outside_record(name, bpm, min_bpm, max_bpm))
         on_progress(n_skipped=0, n_errors=0, display_text=display, log_text=log)
 
 
@@ -316,6 +351,7 @@ def _handle_bpm_result(
     slot_vars: list[Any] | None = kwargs.get("slot_vars")
     skipped_files = kwargs.get("skipped_files")
     error_files = kwargs.get("error_files")
+    outside_range_files = kwargs.get("outside_range_files")
     if slot_vars is not None:
         slot_vars[slot_idx].set(f"Processing: {filename[:25]}...")
 
@@ -382,6 +418,11 @@ def _handle_bpm_result(
         logger.info("[DRY RUN] %s \u2014 BPM %d%s", filename, bpm, note)
 
     with lock:
+        if note and isinstance(outside_range_files, list):
+            band = kwargs.get("min_bpm")
+            top = kwargs.get("max_bpm")
+            if isinstance(band, int) and isinstance(top, int):
+                outside_range_files.append(_outside_record(filename, bpm, band, top))
         on_progress(n_skipped=0, n_errors=0, display_text=display, log_text=log)
 
 
@@ -460,6 +501,10 @@ def run_analysis(
     # deterministic regardless of which worker finished first.
     skipped_files: list[dict[str, object]] = []
     error_files: list[dict[str, object]] = []
+    # Files whose measured tempo fell outside the configured band.  They are
+    # neither skipped nor failed - they were tagged as measured - so they get
+    # their own list and the completion summary counts them (D109).
+    outside_range_files: list[dict[str, object]] = []
 
     def _complete(**cb_kwargs: object) -> None:
         on_complete(
@@ -468,6 +513,9 @@ def run_analysis(
                 skipped_files, key=lambda record: str(record["filename"])
             ),
             error_files=sorted(error_files, key=lambda record: str(record["filename"])),
+            outside_range_files=sorted(
+                outside_range_files, key=lambda record: str(record["filename"])
+            ),
         )
 
     # Join an active undo batch if the caller opened one.  Worker threads
@@ -485,6 +533,7 @@ def run_analysis(
             "slot_vars": slot_vars,
             "skipped_files": skipped_files,
             "error_files": error_files,
+            "outside_range_files": outside_range_files,
         }
         combined_kwargs: dict[str, object] = {**cpu_kwargs, **handler_kwargs}
 
@@ -523,6 +572,7 @@ def run_analysis(
                     slot_vars=slot_vars,
                     skipped_files=skipped_files,
                     error_files=error_files,
+                    outside_range_files=outside_range_files,
                     **kwargs,
                 )
 

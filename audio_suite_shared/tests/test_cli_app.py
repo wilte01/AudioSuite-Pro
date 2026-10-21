@@ -15,8 +15,11 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import json
 import re
 from pathlib import Path
+from typing import Any
+from unittest.mock import patch
 
 import click
 import pytest
@@ -611,6 +614,65 @@ class TestDiscoverabilityContract:
 
 
 # ── Edge cases ────────────────────────────────────────────────────────────────
+
+
+class TestBpmOutOfBandSummary:
+    """A tempo measured outside the band is counted, not hidden (D109)."""
+
+    _RECORD = {"filename": "drone.ogg", "bpm": 60, "min_bpm": 75, "max_bpm": 175}
+
+    @staticmethod
+    def _stub(outside: list[dict[str, object]]):
+        def fake_run_analysis(**kwargs: Any) -> None:
+            kwargs["on_complete"](
+                total=1,
+                processed=1,
+                skipped=0,
+                errors=0,
+                duration_secs=0.5,
+                log_entries=["[DRY RUN] drone.ogg | BPM 60 (outside 75-175)\n"],
+                outside_range_files=outside,
+            )
+
+        return fake_run_analysis
+
+    def test_the_text_summary_counts_them(
+        self, runner: CliRunner, tmp_path: pytest.TempPathFactory
+    ) -> None:
+        d = tmp_path / "m"
+        d.mkdir()
+        with patch(
+            "bpm_analyzer.core.file_processor.run_analysis", self._stub([self._RECORD])
+        ):
+            result = runner.invoke(cli, ["bpm", str(d), "--dry"])
+
+        assert result.exit_code == 0
+        assert "Outside BPM range: 1 of 1 files (band 75-175)" in result.output
+
+    def test_a_run_without_them_prints_no_line(
+        self, runner: CliRunner, tmp_path: pytest.TempPathFactory
+    ) -> None:
+        d = tmp_path / "m"
+        d.mkdir()
+        with patch("bpm_analyzer.core.file_processor.run_analysis", self._stub([])):
+            result = runner.invoke(cli, ["bpm", str(d), "--dry"])
+
+        assert "Outside BPM range" not in result.output
+
+    def test_the_json_payload_carries_the_records(
+        self, runner: CliRunner, tmp_path: pytest.TempPathFactory
+    ) -> None:
+        """The machine-readable half of the same claim."""
+        d = tmp_path / "m"
+        d.mkdir()
+        with patch(
+            "bpm_analyzer.core.file_processor.run_analysis", self._stub([self._RECORD])
+        ):
+            result = runner.invoke(cli, ["bpm", str(d), "--dry", "--json"])
+
+        # The status lines go to stderr, which CliRunner mixes into ``output``.
+        payload = json.loads(result.output[result.output.index("{") :])
+        assert payload["outside_range_files"] == [self._RECORD]
 
 
 class TestEdgeCases:

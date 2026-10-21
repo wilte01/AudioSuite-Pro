@@ -8,6 +8,9 @@ produced no BPM.
 
 Changed in 1.4.0: covers the typed Workers count being capped at the slot grid
 (D66).
+
+Changed in 1.4.1: covers the out-of-band tempo count on all three surfaces -
+the log's SUMMARY block, the Results panel and the driver's run note (D109).
 """
 
 from __future__ import annotations
@@ -526,7 +529,11 @@ def _make_run_note_app(log_path):
     return app
 
 
-def _complete(app, *, total, errors=0) -> None:
+#: One file whose 60 BPM was measured below the default band (D108).
+_OUTSIDE = [{"filename": "drone.ogg", "bpm": 60, "min_bpm": 75, "max_bpm": 175}]
+
+
+def _complete(app, *, total, errors=0, outside=None) -> None:
     """Drive the completion callback the analysis actually hands over."""
     app._on_complete(
         header=["BPM ANALYSIS REPORT\n"],
@@ -536,6 +543,7 @@ def _complete(app, *, total, errors=0) -> None:
         errors=errors,
         duration_secs=1.0,
         log_entries=["line\n"],
+        outside_range_files=list(outside or []),
     )
 
 
@@ -578,6 +586,73 @@ class TestRunNote:
         assert read_outcome("bpm") == "1 of 4 tracks yielded no BPM"
         assert read_outcome("bpm_analyzer") == ""
 
+    def test_out_of_band_tempos_are_counted(self, tmp_path, monkeypatch):
+        """D109: a measured-but-out-of-band tempo is neither a skip nor an error."""
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "bpm_log.txt")
+
+        _complete(app, total=12, outside=_OUTSIDE)
+
+        assert read_outcome("bpm") == (
+            "1 of 12 tracks measured outside the 75-175 BPM range"
+        )
+
+    def test_errors_and_out_of_band_tempos_are_both_reported(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "bpm_log.txt")
+
+        _complete(app, total=12, errors=3, outside=_OUTSIDE)
+
+        assert read_outcome("bpm") == (
+            "3 of 12 tracks yielded no BPM; "
+            "1 of 12 tracks measured outside the 75-175 BPM range"
+        )
+
+    def test_the_summary_block_names_the_band(self, tmp_path, monkeypatch):
+        """The run's own report says the count and the band, not just the count."""
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "bpm_log.txt")
+
+        _complete(app, total=12, outside=_OUTSIDE)
+
+        report = open(app._log_path, encoding="utf-8").read()
+        assert "Outside BPM range: 1 of 12 tracks (band 75-175)" in report
+
+    def test_a_clean_run_has_no_out_of_band_row(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "bpm_log.txt")
+
+        _complete(app, total=12)
+
+        report = open(app._log_path, encoding="utf-8").read()
+        assert "Outside BPM range" not in report
+
+    def test_the_results_panel_shows_the_row(self, tmp_path, monkeypatch):
+        """The row reaches the widget the user reads, not only the log file."""
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = _make_run_note_app(tmp_path / "bpm_log.txt")
+        app.summary_label = MagicMock()
+        app.time_label = MagicMock()
+        app.completion_label = MagicMock()
+        app.notebook = MagicMock()
+        app.start_btn = MagicMock()
+        app.run_mode = MagicMock(**{"get.return_value": "Dry Run"})
+        app._tab_results = MagicMock()
+        app.auto_end = False
+
+        _complete(app, total=12, outside=_OUTSIDE)
+
+        scheduled = next(
+            c_
+            for c_ in app.root.after.call_args_list
+            if c_.args[1] == app._update_ui_on_complete
+        )
+        app._update_ui_on_complete(*scheduled.args[2:])
+        shown = app.summary_label.config.call_args.kwargs["text"]
+        assert "Outside BPM range: 1 of 12 tracks (band 75-175)" in shown
+
     def test_an_unwritable_log_does_not_suppress_the_note(self, tmp_path, monkeypatch):
         monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
         # A directory where the report belongs: the base catches the OSError,
@@ -587,3 +662,62 @@ class TestRunNote:
         _complete(app, total=12, errors=2)
 
         assert read_outcome("bpm") == "2 of 12 tracks yielded no BPM"
+
+
+class TestSummarySource:
+    """The log's SUMMARY row and the panel row come from one place (D109).
+
+    ``_on_complete`` hands the rows it wrote to the scheduled UI update, so the
+    two surfaces cannot disagree; these tests pin the fallback the base uses
+    when the update is driven directly (the hook), because that is the path a
+    future caller reaches for.
+    """
+
+    @staticmethod
+    def _panel_app(log_path):
+        app = _make_run_note_app(log_path)
+        app.summary_label = MagicMock()
+        app.time_label = MagicMock()
+        app.completion_label = MagicMock()
+        app.notebook = MagicMock()
+        app.start_btn = MagicMock()
+        app.run_mode = MagicMock(**{"get.return_value": "Dry Run"})
+        app._tab_results = MagicMock()
+        app.auto_end = False
+        app.auto_end_var = MagicMock(**{"get.return_value": False})
+        return app
+
+    @staticmethod
+    def _shown(app) -> str:
+        return app.summary_label.config.call_args.kwargs["text"]
+
+    def test_the_panel_reads_the_hook_when_nothing_is_passed(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = self._panel_app(tmp_path / "bpm_log.txt")
+
+        _complete(app, total=12, outside=_OUTSIDE)
+        app._update_ui_on_complete(12, 12, 0, 0, 0, 1)
+
+        assert "Outside BPM range: 1 of 12 tracks (band 75-175)" in self._shown(app)
+
+    def test_a_clean_run_leaves_the_panel_row_empty(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = self._panel_app(tmp_path / "bpm_log.txt")
+
+        _complete(app, total=12)
+        app._update_ui_on_complete(12, 12, 0, 0, 0, 1)
+
+        assert "Outside BPM range" not in self._shown(app)
+
+    def test_a_later_clean_run_cannot_inherit_the_row(self, tmp_path, monkeypatch):
+        """Rows are replaced per run, not accumulated on the class."""
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = self._panel_app(tmp_path / "bpm_log.txt")
+
+        _complete(app, total=12, outside=_OUTSIDE)
+        _complete(app, total=12)
+        app._update_ui_on_complete(12, 12, 0, 0, 0, 1)
+
+        assert "Outside BPM range" not in self._shown(app)

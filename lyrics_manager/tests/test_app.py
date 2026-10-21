@@ -4,6 +4,8 @@ tests/test_app.py — unit tests for LyricsManagerApp (GUI orchestrator).
 Uses the ``object.__new__`` + ``MagicMock`` shell pattern (no real Tk display).
 Module-level dependencies are patched on the ``lyrics_manager.app`` namespace.
 Changed in 1.4.0: worker defaults are read from the shared function/constant.
+Changed in 1.4.1: pins that a tool which overrides no summary hook gets exactly
+the old completion summary, no extra rows (PLAN D109).
 """
 
 from __future__ import annotations
@@ -550,6 +552,20 @@ class TestUpdateUiOnComplete:
         assert "Lyrics Tagging Complete!" in str(app.completion_label.config.call_args)
         app.notebook.select.assert_called_once_with(app._tab_results)
         app.start_btn.config.assert_called_once_with(state="normal")
+
+    def test_a_tool_with_no_extras_gets_exactly_the_old_summary(self):
+        """The shared hook defaults to nothing, so no row is invented (D109)."""
+        app = _make_shell_app()
+        app.run_mode.get.return_value = "Dry Run"
+        app._update_ui_on_complete(5, 4, 0, 1, 1, 30)
+
+        text = app.summary_label.config.call_args.kwargs["text"]
+        assert text.splitlines() == [
+            "Total: 5 files",
+            "Tagged/Updated: 4",
+            "Skipped: 0",
+            "Errors: 1",
+        ]
 
     def test_auto_end_destroys_window(self):
         app = _make_shell_app()

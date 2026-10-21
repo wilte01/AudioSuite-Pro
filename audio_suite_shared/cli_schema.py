@@ -83,6 +83,9 @@ Changed in 1.4.1: each variant's ``examples`` also publishes the command's
 fatal-error document, recorded from a real failing invocation, so the failure
 shape is visible without triggering one (PLAN D105).
 Changed in 1.4.1: records why there is no streaming mode (PLAN D101).
+Changed in 1.4.1: BPM publishes ``outside_range_files`` - the tempos it
+measured outside the configured band and tagged as measured - so a run
+summary can count them without parsing the log (D109).
 
 One document per run, deliberately
 ----------------------------------
@@ -179,6 +182,10 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
     "bpm": {
         "skipped_files": list,
         "error_files": list,
+        # Tempos measured outside the configured band: tagged as measured, so
+        # neither skipped nor failed, and published for the same reason the
+        # per-file line says "(outside 75-175)" (D108, D109).
+        "outside_range_files": list,
     },
     "album-art": {
         "source": str,

@@ -92,7 +92,7 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.016,
+          "duration_secs": 0.022,
           "duration_str": "0.0s",
           "log_entries": [
             "Error: no supported audio files found in directory\n"
@@ -217,7 +217,7 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.001,
+          "duration_secs": 0.007,
           "duration_str": "0.0s",
           "log_entries": [
             "============================================================\n",
@@ -525,6 +525,9 @@
         "error_files": {
           "type": "array"
         },
+        "outside_range_files": {
+          "type": "array"
+        },
         "error": {
           "type": "string"
         }
@@ -555,8 +558,8 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.484,
-          "duration_str": "0.5s",
+          "duration_secs": 1.867,
+          "duration_str": "1.9s",
           "log_entries": [
             "[ERROR] track.wav: BPM detection failed \u2014 Audio is too short to analyse (0.05s).\n"
           ],
@@ -567,7 +570,8 @@
               "reason": "Audio is too short to analyse (0.05s).",
               "error_type": "BPMDetectionError"
             }
-          ]
+          ],
+          "outside_range_files": []
         },
         {
           "schema_version": 1,
@@ -815,7 +819,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.014,
+          "duration_secs": 0.03,
           "duration_str": "0.0s",
           "log_entries": [
             "[DRY RUN] track.wav | WAV \u2192 FLAC | Est. Size: 0.00MB \u2192 0.00MB\n"
@@ -1321,7 +1325,7 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.023,
+          "duration_secs": 0.043,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] track.wav | Clean \u2014 no defects found\n"
@@ -1453,13 +1457,13 @@
           "succeeded": 29,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.007,
+          "duration_secs": 0.027,
           "duration_str": "0.0s",
           "log_entries": [],
           "healthy": true,
-          "checkout_version": "1.4.0",
-          "installed_version": "1.4.0",
-          "editable": true,
+          "checkout_version": "1.4.1",
+          "installed_version": "1.4.1",
+          "editable": false,
           "mapped": 29,
           "packages": [
             {
@@ -1795,8 +1799,8 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.014,
-          "duration_str": "0.0s",
+          "duration_secs": 0.152,
+          "duration_str": "0.2s",
           "log_entries": [],
           "done": 1
         },
@@ -1905,8 +1909,8 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.029,
-          "duration_str": "0.0s",
+          "duration_secs": 0.141,
+          "duration_str": "0.1s",
           "log_entries": [
             "[ERROR] track.wav\n    An error occurred during processing.\n"
           ],
@@ -2037,7 +2041,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.03,
+          "duration_secs": 0.016,
           "duration_str": "0.0s",
           "log_entries": [
             "track.wav | No genre fields available\n"
@@ -2141,7 +2145,7 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.037,
+          "duration_secs": 0.018,
           "duration_str": "0.0s",
           "log_entries": [
             "[ERROR] track.wav: Audio is too short to analyse (0.05s).\n"
@@ -2367,7 +2371,7 @@
           "succeeded": 2,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.011,
+          "duration_secs": 0.012,
           "duration_str": "0.0s",
           "log_entries": [],
           "directory": "<run>\\library",
@@ -2474,7 +2478,7 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.016,
+          "duration_secs": 0.021,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] track.wav: Audio is too short to analyse (0.05s).\n"
@@ -2576,7 +2580,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.062,
+          "duration_secs": 0.081,
           "duration_str": "0.1s",
           "log_entries": [
             "[DRY RUN] track.wav | Would apply 56.00 dB gain\n"
@@ -2678,7 +2682,7 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.037,
+          "duration_secs": 0.029,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] track.wav | Clean \u2014 no noise detected\n"
@@ -2780,8 +2784,8 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.169,
-          "duration_str": "0.2s",
+          "duration_secs": 0.123,
+          "duration_str": "0.1s",
           "log_entries": [
             "[ERROR] track.wav | An error occurred during processing.\n"
           ]
@@ -2882,7 +2886,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.027,
+          "duration_secs": 0.013,
           "duration_str": "0.0s",
           "log_entries": []
         },
@@ -2982,7 +2986,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.082,
+          "duration_secs": 0.062,
           "duration_str": "0.1s",
           "log_entries": [
             "\nFOLDER: <run>\\library\nALBUM STATS -> Gain: +54.00 dB | Peak: 1.000000\n-----------------------------------------------------------------\n",
@@ -3085,7 +3089,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.049,
+          "duration_secs": 0.016,
           "duration_str": "0.0s",
           "log_entries": [
             "[DRY RUN] track.wav | Would scrub metadata\n"
@@ -3187,7 +3191,7 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.016,
+          "duration_secs": 0.019,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] track.wav | Entire file is silence - skipped\n"
@@ -3471,10 +3475,10 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.007,
+          "duration_secs": 0.001,
           "duration_str": "0.0s",
           "log_entries": [],
-          "library_duration_secs": 0.007251399976667017,
+          "library_duration_secs": 0.0010145999258384109,
           "library_duration_str": "0.0s",
           "scan_path": "<run>\\library",
           "total_files": 1,
@@ -3785,7 +3789,7 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.038,
+          "duration_secs": 0.014,
           "duration_str": "0.0s",
           "log_entries": [],
           "directory": "<run>\\library",
@@ -3887,7 +3891,7 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.047,
+          "duration_secs": 0.016,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] track.wav | No tags found\n"

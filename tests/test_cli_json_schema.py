@@ -244,6 +244,18 @@ class TestBuildPayload:
         assert payload["skipped_files"] == [{"filename": "noise.wav"}]
         assert "extra" not in payload
 
+    def test_the_out_of_band_records_are_published(self) -> None:
+        """D109: each record carries the band its tempo missed."""
+        record = {
+            "filename": "drone.ogg",
+            "bpm": 60,
+            "min_bpm": 75,
+            "max_bpm": 175,
+        }
+        payload = build_payload("bpm", dry_run=False, outside_range_files=[record])
+
+        assert payload["outside_range_files"] == [record]
+
     def test_undeclared_field_is_refused(self) -> None:
         """A new field must be declared before it can reach a consumer."""
         with pytest.raises(ValueError, match="undeclared JSON field"):

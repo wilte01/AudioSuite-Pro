@@ -7,6 +7,10 @@ Changed in 1.4.0: the Command Line section documents the JSON
 Changed in 1.4.1: the Detection Behavior section describes the range as a
 choice between octave readings and the ``(outside 75-175)`` line, rather than
 the removed hard clamp (PLAN D108).
+Changed in 1.4.1: documents the Outside BPM range count in the Results summary,
+the run log and the batch note, and the ``outside_range_files`` JSON key (D109);
+the Command Line section now states the CLI's 75-175 range default, which D108
+aligned with the GUI.
 """
 
 from docx import Document
@@ -187,6 +191,12 @@ doc.add_paragraph(
     "no discernible beat, and errors for files that could not be "
     "read."
 )
+doc.add_paragraph(
+    "When any file lands outside the range, the Results summary and "
+    "the run log add an Outside BPM range line, for example "
+    "1 of 12 tracks (band 75-175), and the Master Driver's batch "
+    "note reports the same count after the step."
+)
 
 doc.add_heading("Logs", level=1)
 bullet(doc, "Dry Run log: ", "bpm_dry_run_log.txt in the selected directory.")
@@ -201,9 +211,15 @@ bullet(
 
 doc.add_heading("Command Line", level=1)
 doc.add_paragraph(
-    "The registered command is bpm. CLI defaults differ from the"
-    " GUI defaults: the CLI "
-    "defaults to 60-200 BPM and 30 seconds. Examples:"
+    "The registered command is bpm. Its BPM range defaults to 75-175,"
+    " the same as the "
+    "GUI, while the analysis duration defaults to 30 seconds rather"
+    " than the GUI's 90. Examples:"
+)
+doc.add_paragraph(
+    "With --json the payload carries outside_range_files: one record "
+    "per file whose tempo landed outside the range, each with the "
+    "filename, the measured BPM and the band that was configured."
 )
 doc.add_paragraph(
     "python -m audio_suite_shared.cli_app bpm <folder> --dry\n"

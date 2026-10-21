@@ -9,8 +9,10 @@ run whose only failures were per-file keeps its exit status (PLAN D92).
 
 Changed in 1.4.1: ``--bpm-min``/``--bpm-max`` default to 75/175, matching the
 GUI and ``BPMArgs``; the band chooses between octave-equivalent readings and no
-longer overwrites a measurement, so a 60 BPM track is tagged 60 rather than 120
-(PLAN D108).
+longer overwrites a measurement, so a 60 BPM track is tagged 60 rather than
+120 (PLAN D108). The text summary counts the files whose tempo landed
+outside that band, and ``--json`` publishes them as ``outside_range_files``
+(D109).
 """
 
 from __future__ import annotations
@@ -91,4 +93,17 @@ def bpm(
             f"{result.skipped} skipped, {result.errors} errors "
             f"in {result.duration_secs:.1f}s"
         )
+        outside = result.extra.get("outside_range_files") or []
+        if outside:
+            # A measured tempo outside the band was still tagged, so it is
+            # neither a skip nor an error: it gets its own line, so nobody has
+            # to diff the log to notice the band did not match the library.
+            first = outside[0]
+            low = first.get("min_bpm")
+            high = first.get("max_bpm")
+            has_band = low is not None and high is not None
+            band = f" (band {low}-{high})" if has_band else ""
+            click.echo(
+                f"  Outside BPM range: {len(outside)} of {result.processed} files{band}"
+            )
     finish_run(result)
