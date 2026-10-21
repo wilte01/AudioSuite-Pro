@@ -13,6 +13,10 @@ Changed in 1.4.0: skipped and failed files are collected as structured records
 (filename, reason, and the periodicity score or exception type) and handed to
 ``on_complete`` so the CLI's ``--json`` output can explain an outcome instead of
 only counting it.
+
+Changed in 1.4.1: ``run_analysis`` warms librosa's kernels before the worker
+pool starts, so a thread batch no longer pays one compile per thread
+(backlog P6).
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from enum import Enum, auto
 from queue import Queue
 from typing import Any, Callable, Optional
 
+from audio_suite_shared.analysis_loader import warm_analysis_stack
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.batch_undo import get_active_batch_id, use_batch
 from audio_suite_shared.constants import cap_workers_to_slot_grid, default_max_workers
@@ -396,6 +401,10 @@ def run_analysis(
         parallel_mode,
         max_workers,
     )
+
+    # One compile of librosa's lazy numba kernels, before any worker thread
+    # can trigger (and contend on) its own copy — see PLAN_feature_expansion P6.
+    warm_analysis_stack()
 
     processor = BPMAnalyzerProcessor(
         # Never build a pool wider than the caller's slot grid: the thread

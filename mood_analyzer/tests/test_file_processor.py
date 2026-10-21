@@ -5,6 +5,9 @@ run_analysis orchestration.
 
 Changed in 1.4.0: the mocked processor carries a real `max_workers` so the
 slot-grid cap has a number to compare (D66).
+
+Changed in 1.4.1: asserts the kernel warm-up runs before the pool is built,
+not merely that it runs (backlog P6).
 """
 
 import queue
@@ -323,6 +326,42 @@ class TestRunAnalysisParallelMode:
 
 
 class TestRunAnalysisNonParallel:
+    def test_warms_the_analysis_stack_before_the_pool_starts(self) -> None:
+        """P6: the warm-up must run before any worker thread can compile."""
+        from mood_analyzer.core.file_processor import run_analysis
+
+        order: list[str] = []
+        processor = MagicMock()
+        processor.discover_audio_files.return_value = ["a.wav"]
+        processor.max_workers = 1
+        processor.process_batch.side_effect = lambda *_a, **_kw: order.append("pool")
+        processor.create_progress_tracker.return_value = (
+            [0],
+            [0],
+            [0],
+            [],
+            MagicMock(),
+        )
+        with (
+            patch(
+                f"{MODULE}.warm_analysis_stack",
+                side_effect=lambda: order.append("warm"),
+            ),
+            patch(f"{MODULE}.MoodAnalyzerProcessor", return_value=processor),
+        ):
+            run_analysis(
+                dir_path="/music",
+                is_dry_run=True,
+                analysis_duration=30,
+                slot_vars=[MagicMock()],
+                slot_queue=queue.Queue(),
+                on_progress=MagicMock(),
+                on_complete=MagicMock(),
+                on_error=MagicMock(),
+            )
+
+        assert order == ["warm", "pool"]
+
     def test_scan_failure_calls_on_error(self) -> None:
         from mood_analyzer.core.file_processor import run_analysis
 

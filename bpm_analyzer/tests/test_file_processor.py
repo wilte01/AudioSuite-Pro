@@ -14,6 +14,9 @@ Covers:
     every file (D66)
 
 Changed in 1.4.0: adds the slot-grid cap regression for a typed worker count.
+
+Changed in 1.4.1: asserts the kernel warm-up runs before the pool is built,
+not merely that it runs (backlog P6).
 """
 
 from __future__ import annotations
@@ -724,6 +727,43 @@ class TestRunAnalysis:
             )
         call_kwargs = mock_processor.run_parallel_processing.call_args.kwargs
         assert call_kwargs["dir_path"] == "/my/music"
+
+    def test_warms_the_analysis_stack_before_the_pool_starts(self):
+        """P6: the warm-up must run before any worker thread can compile.
+
+        A warm-up that runs *inside* the pool is the defect it exists to fix:
+        every worker would still compile its own copy and contend for the lock.
+        """
+        order: list[str] = []
+        processor = MagicMock()
+        processor.run_parallel_processing.side_effect = lambda **_kw: order.append(
+            "pool"
+        )
+
+        with (
+            patch(
+                "bpm_analyzer.core.file_processor.warm_analysis_stack",
+                side_effect=lambda: order.append("warm"),
+            ),
+            patch(
+                "bpm_analyzer.core.file_processor.BPMAnalyzerProcessor",
+                return_value=processor,
+            ),
+        ):
+            run_analysis(
+                dir_path="/music",
+                is_dry_run=True,
+                min_bpm=75,
+                max_bpm=175,
+                analysis_duration=90,
+                slot_vars=[],
+                slot_queue=MagicMock(),
+                on_progress=MagicMock(),
+                on_complete=MagicMock(),
+                on_error=MagicMock(),
+            )
+
+        assert order == ["warm", "pool"]
 
 
 # ---------------------------------------------------------------------------

@@ -25,12 +25,18 @@ librosa_load_with_fallback().
 Changed in 1.4.0: the failed-transcode contract is now a plain-language
 AudioCodecError (the decoder's own text is misleading), and the error path is
 locked to one console line with its traceback only in the DEBUG log.
+
+Changed in 1.4.1: ``TestWarmAnalysisStack`` pins the once-only, thread-safe
+warm-up, that a failure is logged and not retried, and that the warm-up body
+really calls the onset/beat/chroma helpers it claims to (backlog P6).
 """
 
 from __future__ import annotations
 
 import logging
 import shutil
+import threading
+import time
 import wave
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -49,6 +55,7 @@ from audio_suite_shared.analysis_loader import (
     librosa_load_with_fallback,
     load_analysis_audio,
     rms_energy_db,
+    warm_analysis_stack,
 )
 from audio_suite_shared.exceptions import AudioAnalysisError, AudioCodecError
 
@@ -747,3 +754,97 @@ class TestGoldenVectorMeasuredLevelFidelity:
         decoded_b, sr_b = load_analysis_audio(second)
         assert sr_a == sr_b
         assert np.array_equal(decoded_a, decoded_b)
+
+
+class TestWarmAnalysisStack:
+    """librosa's lazy numba kernels must compile once, not once per worker.
+
+    P6: a cold 8-thread batch spent 11.3 s in the *first* call of every worker
+    because numba compiles a signature per thread and the threads contend for
+    the compile lock.  The pool got slower going from 4 to 8 workers.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_warm_state(self) -> None:
+        """Start each test from "not warmed", and leave the suite warmed."""
+        analysis_loader._warm_up_done = False
+        yield
+        analysis_loader._warm_up_done = False
+
+    def test_concurrent_callers_run_the_warm_up_once(self, monkeypatch) -> None:
+        calls: list[int] = []
+        lock = threading.Lock()
+
+        def counting_warm_up() -> None:
+            # Sleep so the threads really overlap: without the lock's second
+            # check they would each enter the body (the defect being locked out).
+            time.sleep(0.05)
+            with lock:
+                calls.append(1)
+
+        monkeypatch.setattr(analysis_loader, "_run_warm_up", counting_warm_up)
+        threads = [threading.Thread(target=warm_analysis_stack) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        assert len(calls) == 1
+
+    def test_a_second_call_does_not_warm_again(self, monkeypatch) -> None:
+        calls: list[int] = []
+        monkeypatch.setattr(analysis_loader, "_run_warm_up", lambda: calls.append(1))
+
+        warm_analysis_stack()
+        warm_analysis_stack()
+        warm_analysis_stack()
+
+        assert calls == [1]
+
+    def test_a_failed_warm_up_is_not_raised_and_is_not_retried(
+        self, monkeypatch, caplog
+    ) -> None:
+        """An optimisation must never fail a batch — but it must not re-pay either."""
+        calls: list[int] = []
+
+        def exploding_warm_up() -> None:
+            calls.append(1)
+            raise RuntimeError("numba unavailable")
+
+        monkeypatch.setattr(analysis_loader, "_run_warm_up", exploding_warm_up)
+
+        with caplog.at_level(logging.DEBUG, logger=analysis_loader.logger.name):
+            warm_analysis_stack()
+            warm_analysis_stack()
+
+        assert calls == [1]
+        assert "warm-up failed" in caplog.text
+
+    def test_the_real_warm_up_exercises_the_analysis_calls(self, monkeypatch) -> None:
+        """The body must run librosa's chain, not just set the flag.
+
+        The P6 defect only went away once the warm-up covered onset *and* beat
+        tracking on a music-like signal; a warm-up that skipped the beat tracker
+        still left the compile to the first worker.
+        """
+        seen: list[str] = []
+
+        import librosa
+
+        def record(owner: object, name: str, label: str) -> None:
+            original = getattr(owner, name)
+
+            def wrapper(*args, **kwargs):
+                seen.append(label)
+                return original(*args, **kwargs)
+
+            monkeypatch.setattr(owner, name, wrapper)
+
+        record(librosa.onset, "onset_strength", "onset_strength")
+        record(librosa.beat, "beat_track", "beat_track")
+        record(librosa.feature, "chroma_cqt", "chroma_cqt")
+
+        warm_analysis_stack()
+
+        assert {"onset_strength", "beat_track", "chroma_cqt"} <= set(seen)
+        assert analysis_loader._warm_up_done is True

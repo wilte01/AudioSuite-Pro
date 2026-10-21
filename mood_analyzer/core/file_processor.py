@@ -14,6 +14,10 @@ Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
 when not supplied (PLAN D56).
 Changed in 1.4.0: a failed file reports the reason in plain language and logs
 one line; the stack trace goes to the DEBUG log instead of the console.
+
+Changed in 1.4.1: ``run_analysis`` warms librosa's kernels before the worker
+pool starts, so a thread batch no longer pays one compile per thread
+(backlog P6).
 """
 
 import logging
@@ -24,7 +28,10 @@ from functools import partial
 from queue import Queue
 from typing import Any
 
-from audio_suite_shared.analysis_loader import load_analysis_audio
+from audio_suite_shared.analysis_loader import (
+    load_analysis_audio,
+    warm_analysis_stack,
+)
 from audio_suite_shared.constants import default_max_workers
 from audio_suite_shared.error_recovery import RecoveryAction, get_recovery_action
 from audio_suite_shared.exceptions import (
@@ -295,6 +302,10 @@ def run_analysis(
         max_workers:       Number of parallel workers.  Defaults to
             ``default_max_workers()``.
     """
+    # One compile of librosa's lazy numba kernels, before any worker thread
+    # can trigger (and contend on) its own copy — see PLAN_feature_expansion P6.
+    warm_analysis_stack()
+
     processor = MoodAnalyzerProcessor(
         max_workers=max_workers or default_max_workers(),
         parallel_mode=parallel_mode,
