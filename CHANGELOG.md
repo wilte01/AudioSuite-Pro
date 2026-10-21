@@ -66,6 +66,22 @@ Versions of the tools are released together with the suite (the single
   filename. The GUI completion callback accepts such tool-specific fields, so
   the same run data can reach the CLI without breaking the report writer.
 
+- **Audio Refinery remembers its pipeline outside the checkout.** The
+  last-used stage configuration is now saved to
+  `~/.audiosuite/refinery_settings.json`, so a session no longer rewrites a
+  tracked file and `git status` stays clean. An existing
+  `audio_refinery/refinery_settings.json` is read once (and logged) so nobody
+  loses their settings on upgrade; the shipped defaults now live in a
+  committed `refinery_settings.default.json` generated from the code's own
+  defaults, with a test that keeps the two byte-identical.
+
+- **`--json` emits one document per run, and that is now a recorded
+  decision.** A stream of per-file records was considered and rejected: it
+  would have to come from every tool's progress callback, while scripts read
+  the summary. The behaviour is documented in the schema's module docs and the
+  README, and locked by a test that fails if anything precedes or follows the
+  document on stdout.
+
 - **The 8-worker default has a measured memory budget.** `utilities/
   measure_worker_memory.py` runs a real analysis batch in a fresh process per
   worker count and reports peak RSS, so the ceiling that was chosen on speed

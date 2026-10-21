@@ -3,7 +3,7 @@
   "trim": true,
   "enhance": true,
   "normalise": true,
-  "reduce_noise": true,
+  "reduce_noise": false,
   "declick_params": {
     "sensitivity": 0.31,
     "max_width_ms": 2
@@ -15,11 +15,11 @@
     "fade_out_ms": 1000
   },
   "noise_reduction_params": {
-    "reduce_hum": true,
+    "reduce_hum": false,
     "hum_frequency": 60,
     "hum_harmonics": 8,
     "hum_quality": 30.0,
-    "reduce_broadband": true,
+    "reduce_broadband": false,
     "noise_start_ms": 0,
     "noise_end_ms": 500,
     "gate_threshold_db": 3.0
@@ -37,8 +37,14 @@
     "presence_freq_hz": 3500.0,
     "high_shelf_gain_db": 4.0,
     "high_shelf_freq_hz": 7000.0,
-    "output_gain_db": 4.0,
-    "limiter_threshold_db": -0.5
+    "output_gain_db": 0.0,
+    "limiter_threshold_db": -0.5,
+    "reverse": false,
+    "karaoke": false,
+    "karaoke_strength": 1.0,
+    "phaser": false,
+    "flanger": false,
+    "chorus": false
   },
   "normalise_params": {
     "target_lufs": -16.0,

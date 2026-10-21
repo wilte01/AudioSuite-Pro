@@ -443,6 +443,35 @@ class TestFatalErrorExamples:
         assert json.loads(stdout) == published
 
 
+class TestSingleDocument:
+    """``--json`` writes one document per run, never a stream (PLAN D101).
+
+    S5-8 asked whether to add ``--json-lines`` and the answer was no: a
+    per-file stream would have to come from every processor's progress
+    callback across 28 commands, while the summary is what scripts consume.
+    The decision is only honest if the current behaviour is locked, so this
+    asserts the document starts at byte 0 and nothing follows it - a progress
+    line printed to stdout, or a second document, fails here.
+    """
+
+    @pytest.mark.parametrize("command", ["bpm", "doctor"])
+    def test_stdout_is_exactly_one_document(self, command: str) -> None:
+        """Nothing before the document and nothing after it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp) / "run"
+            work.mkdir()
+            _exit_code, stdout, _stderr = capture(command, argv_for(command, work))
+
+        text = stdout.lstrip()
+        assert text, f"{command}: --json wrote nothing to stdout"
+        document, end = json.JSONDecoder().raw_decode(text)
+        assert isinstance(document, dict), command
+        assert text[end:].strip() == "", (
+            f"{command}: stdout carried content after the summary document - "
+            "--json must emit exactly one document per run"
+        )
+
+
 class TestCdRipPayloads:
     """cd-rip cannot run without a drive; lock its payloads directly."""
 

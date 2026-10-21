@@ -32,6 +32,9 @@ much larger) number, which this script deliberately does not invent.
 
 Exit status: 0 when the measurement completes within budget, 1 when the widest
 configuration exceeds ``--budget-mb``, 2 on bad arguments.
+
+Changed in 1.4.1: new script - the D100 measurement and the probe that keeps
+its own trap (a silently-zero `GetProcessMemoryInfo`) from coming back.
 """
 
 from __future__ import annotations

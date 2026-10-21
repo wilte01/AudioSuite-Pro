@@ -82,6 +82,22 @@ a script author can see real output without running the tool (PLAN D104).
 Changed in 1.4.1: each variant's ``examples`` also publishes the command's
 fatal-error document, recorded from a real failing invocation, so the failure
 shape is visible without triggering one (PLAN D105).
+Changed in 1.4.1: records why there is no streaming mode (PLAN D101).
+
+One document per run, deliberately
+---------------------------------
+
+``--json`` prints **one** document, when the run ends: the summary above.
+There is no ``--json-lines`` and no per-file record stream (S5-8).  An
+hour-long batch therefore shows nothing machine-readable until it finishes.
+
+That is a decision, not an omission.  A per-file stream has to come from each
+processor's progress callback, so it is a 28-command retrofit whose records
+would vary in shape per tool, while the summary is what scripts consume today;
+progress already goes to stderr and to the log for a human watching.  The
+behaviour is locked rather than merely documented:
+``tests/test_cli_json_schema.py::TestSingleDocument`` asserts the document
+starts at byte 0 of stdout and nothing follows it, for every run it drives.
 """
 
 from __future__ import annotations

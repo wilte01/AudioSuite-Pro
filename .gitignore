@@ -59,6 +59,9 @@ cli-payloads/
 htmlcov/
 # Sphinx output (PLAN D98); the scaffold is committed, the rendered HTML is not.
 docs/_build/
+# Per-user pipeline state (PLAN D101). The live file belongs in ~/.audiosuite;
+# a copy left in the checkout by an older version is read once, never tracked.
+audio_refinery/refinery_settings.json
 logs/
 *.log
 *.lnk

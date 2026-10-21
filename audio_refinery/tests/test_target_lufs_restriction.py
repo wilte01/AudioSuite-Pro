@@ -6,6 +6,10 @@ Covers:
   - audio_refinery.utils.cli_args.parse()
   - audio_refinery.utils.settings._sanitise_target_lufs()
   - audio_refinery.utils.settings.load()
+
+Changed in 1.4.1: an autouse fixture isolates all three settings sources, and
+the write-error test targets a directory now that a save creates its parent
+(PLAN D101).
 """
 
 from __future__ import annotations
@@ -21,6 +25,21 @@ import audio_refinery.utils.cli_args as refinery_cli
 import audio_refinery.utils.settings as refinery_settings
 from audio_refinery.core.models import StageConfig
 from audio_suite_shared.cli_dataclasses import VALID_TARGET_LUFS_VALUES
+
+
+@pytest.fixture(autouse=True)
+def _isolate_settings_sources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep every test on its own settings file (PLAN D101).
+
+    The module-level tests patch the live path only; without this the legacy
+    checkout copy on a developer's disk would be adopted as a fallback and a
+    test asserting defaults could pass with a real user's values.
+    """
+    monkeypatch.setattr(refinery_settings, "_SETTINGS_FILE", tmp_path / "live.json")
+    monkeypatch.setattr(refinery_settings, "_LEGACY_FILE", tmp_path / "legacy.json")
+    monkeypatch.setattr(refinery_settings, "_DEFAULT_FILE", tmp_path / "default.json")
+    monkeypatch.setattr(refinery_settings, "_legacy_notice_emitted", False)
+
 
 VALID_LUFS = list(VALID_TARGET_LUFS_VALUES)
 INVALID_LUFS = [-10.0, -13.0, -15.5, -20.0, -25.0, 0.0, -70.0, 1.0]
@@ -262,13 +281,17 @@ class TestRefinerySettingsSave:
         )
 
     def test_save_write_error_logged_not_raised(self, tmp_path: Path) -> None:
+        """A write that fails is logged, never raised into the pipeline.
+
+        The target is a *directory* so the write genuinely fails: since D101
+        ``save`` creates the parent directory, so a missing parent (what this
+        test used before) no longer produces an error.
+        """
         config = StageConfig()
+        unwritable = tmp_path / "settings.json"
+        unwritable.mkdir()
         with (
-            patch.object(
-                refinery_settings,
-                "_SETTINGS_FILE",
-                tmp_path / "nonexistent" / "settings.json",
-            ),
+            patch.object(refinery_settings, "_SETTINGS_FILE", unwritable),
             patch.object(refinery_settings.logger, "warning") as mock_warn,
         ):
             refinery_settings.save(config)  # must not raise

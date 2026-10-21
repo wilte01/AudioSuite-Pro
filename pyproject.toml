@@ -375,3 +375,5 @@ exclude = [
 # named here.  tests/test_cli_json_schema.py locks the entry.
 [tool.setuptools.package-data]
 audio_suite_shared = ["cli_schema.json"]
+# Shipped pipeline defaults; the live file lives in ~/.audiosuite (PLAN D101).
+audio_refinery = ["refinery_settings.default.json"]

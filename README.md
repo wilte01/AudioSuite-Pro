@@ -222,6 +222,21 @@ subcommands are documented in
 `user_guides/reference/CLI_Commands_Reference.md`, and the tool guide hub is
 `user_guides/README.md`.
 
+### Scripting the CLI
+
+Every command accepts `--json` and then writes **one** JSON document to stdout,
+when the run finishes: the counters, the run's log lines, and whatever the
+command adds (`skipped_files`, `cue_path`, `packages`, …). Progress stays on
+stderr and in the log. `audiosuite --json-schema` prints the machine-readable
+contract, including a recorded success and failure example per command, so a
+script can be written against real output.
+
+There is deliberately no streaming mode (`--json-lines`): an hour-long batch
+reports nothing machine-readable until it ends. A per-file stream would have to
+be produced by every tool's progress callback, and the summary document is what
+scripts consume; the one-document behaviour is locked by a test rather than left
+to convention.
+
 ## Architecture
 
 * **`audio_suite_shared/`** — the shared layer every tool builds on:
