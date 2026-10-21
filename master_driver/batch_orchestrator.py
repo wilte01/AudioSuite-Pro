@@ -14,6 +14,9 @@ completed with a caveat (e.g. a rejected ISRC submission) says so in the batch
 report.  The note never changes the step's status.
 Changed in 1.3.0: adds ``spectral_viewer`` to the dependency graph as a leaf
 that runs after analysis, because it only reads what the analyzers wrote.
+Changed in 1.4.1: ``BatchProgress.verdict`` derives one closing line from every
+step note, so a long batch can be judged from one line instead of from each
+step's line (PLAN D110).
 """
 
 from __future__ import annotations
@@ -105,6 +108,12 @@ class BatchStep:
         )
 
 
+#: Longest verdict line kept.  The report is a text panel sized for one line
+#: per step, so a statement that grew with the number of caveats would push the
+#: steps out of view; whole clauses are dropped past this length instead.
+VERDICT_MAX_CHARS = 400
+
+
 @dataclass(frozen=True)
 class BatchProgress:
     """Snapshot of batch progress, emitted via callback."""
@@ -122,7 +131,81 @@ class BatchProgress:
     """Per-step status list: [(tool_id, name, status_str), ...]"""
 
     notes: dict[str, str] = field(default_factory=dict)
-    """tool_id to the caveat that step recorded, for steps that recorded one."""
+    """tool_id to the caveat that step recorded, for steps that recorded one.
+
+    The per-step lines read this dict; :attr:`verdict` folds it into one line.
+    """
+
+    @property
+    def finished(self) -> bool:
+        """Whether every step in this snapshot reached a terminal status.
+
+        Returns:
+            ``True`` when nothing is still pending or running.
+        """
+        return not self.pending_steps and not self.running_steps
+
+    @property
+    def verdict(self) -> str:
+        """Return one line summarising every note this batch recorded.
+
+        A twelve-step batch puts its caveats on twelve separate lines, so
+        judging the run means scanning all of them.  This folds them into one
+        closing statement that names each tool with a caveat, in run order,
+        and leads with the failure count when steps failed, so the line stands
+        on its own.
+
+        Empty while the batch is unfinished (a verdict may not describe a run
+        that is still going) and empty for a batch that recorded no notes (a
+        clean run has nothing to say, and the report is only kept on screen
+        for a verdict worth reading).
+
+        The line is bounded by :data:`VERDICT_MAX_CHARS`.  When the clauses do
+        not fit, whole clauses are dropped from the end and the remainder is
+        counted, because a clause cut mid-sentence reads as a different caveat;
+        every note stays visible in full on its own step line.
+
+        Returns:
+            The verdict line, or ``""`` when there is nothing to report.
+        """
+        if not self.finished or not self.notes:
+            return ""
+        caveats = [
+            f"{name}: {self.notes[tool_id]}"
+            for tool_id, name, _status in self.steps
+            if tool_id in self.notes
+        ]
+        if not caveats:
+            # Notes for tools that are not steps in this batch: nothing this
+            # line could truthfully attribute.
+            return ""
+        noun = "step" if self.total_steps == 1 else "steps"
+        head = "Batch verdict: "
+        if self.failed_steps:
+            head += f"{len(self.failed_steps)} failed \u00b7 "
+        head += f"{len(caveats)} of {self.total_steps} {noun} completed with caveats"
+        separator = " \u2014 "
+
+        line = head + separator + "; ".join(caveats)
+        if len(line) <= VERDICT_MAX_CHARS:
+            return line
+
+        kept: list[str] = []
+        for clause in caveats:
+            omitted = len(caveats) - len(kept) - 1
+            tail = f"; +{omitted} more" if omitted else ""
+            candidate = head + separator + "; ".join([*kept, clause]) + tail
+            if len(candidate) > VERDICT_MAX_CHARS:
+                break
+            kept.append(clause)
+        if not kept:
+            # Not even the first clause fits: shorten it rather than say
+            # nothing, since which step it belongs to is the useful part.
+            room = VERDICT_MAX_CHARS - len(head) - len(separator) - len("...")
+            return f"{head}{separator}{caveats[0][: max(room, 1)].rstrip()}..."
+        return (
+            head + separator + "; ".join(kept) + f"; +{len(caveats) - len(kept)} more"
+        )
 
 
 @dataclass(frozen=True)

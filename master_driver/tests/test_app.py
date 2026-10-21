@@ -8,6 +8,8 @@ Changed in 1.2.0: covers the batch report rendering a completed step's recorded
 note (a refused ISRC submission) on that step's own line.
 Changed in 1.3.0: covers the Help menu's What's New entry and the forced panel
 it opens.
+Changed in 1.4.1: covers the batch report's closing verdict line, including the
+one test that reads it back out of the real Tk text widget (PLAN D110).
 
 Regression background
 ---------------------
@@ -642,6 +644,52 @@ class TestBatchProgressUI:
 
         assert inserted == f"[1/1] {'Metadata Scrubber':<25s} \u2713 completed\n"
 
+    def test_the_finished_report_closes_with_the_verdict(self):
+        """One closing line folds both notes, so the run is judged at a glance."""
+        drv = self._shell()
+        progress = self._progress(
+            [
+                ("bpm", "BPM Analyzer", "completed"),
+                ("fingerprinter", "Audio Fingerprinter", "completed"),
+            ],
+            notes={
+                "bpm": "2 of 12 tracks measured outside the 75-175 BPM range",
+                "fingerprinter": "ISRC submission: offline",
+            },
+        )
+
+        drv._update_batch_progress(progress)
+        drv.root.after.call_args.args[1]()
+        inserted = drv._batch_status_text.insert.call_args.args[1]
+
+        lines = inserted.splitlines()
+        assert lines[-1] == (
+            "Batch verdict: 2 of 2 steps completed with caveats \u2014 "
+            "BPM Analyzer: 2 of 12 tracks measured outside the 75-175 BPM range; "
+            "Audio Fingerprinter: ISRC submission: offline"
+        )
+        # The verdict summarises; it never replaces the per-step detail.
+        assert any(
+            "BPM Analyzer" in line and "completed" in line for line in lines[:-1]
+        )
+
+    def test_a_running_batch_has_no_verdict_yet(self):
+        """A closing line may not describe a run that is still going."""
+        drv = self._shell()
+        progress = self._progress(
+            [
+                ("bpm", "BPM Analyzer", "completed"),
+                ("fingerprinter", "Audio Fingerprinter", "running"),
+            ],
+            notes={"bpm": "2 of 12 tracks measured outside the 75-175 BPM range"},
+        )
+
+        drv._update_batch_progress(progress)
+        drv.root.after.call_args.args[1]()
+        inserted = drv._batch_status_text.insert.call_args.args[1]
+
+        assert "Batch verdict" not in inserted
+
     def test_hide_batch_progress_schedules_after_500(self):
         drv = self._shell()
         drv._hide_batch_progress()
@@ -682,6 +730,41 @@ class TestBatchProgressUI:
         drv._batch_status_text.grid_remove.assert_called_once()
         drv._batch_eta_label.grid_remove.assert_called_once()
         drv._batch_progress_bar.grid_remove.assert_called_once()
+
+
+class TestBatchVerdictInTheRealReport:
+    """The verdict reaches the real text widget, not only the mock calls."""
+
+    def test_the_visible_report_ends_with_the_verdict(self, driver_app, monkeypatch):
+        """Read back what the user sees when the batch finishes."""
+        progress = BatchProgress(
+            total_steps=2,
+            completed_steps=2,
+            current_step=None,
+            current_progress=1.0,
+            elapsed=timedelta(seconds=30),
+            estimated_remaining=timedelta(0),
+            failed_steps=["cd_ripper"],
+            running_steps=[],
+            pending_steps=[],
+            steps=[
+                ("bpm", "BPM Analyzer", "completed"),
+                ("cd_ripper", "CD Ripper", "failed"),
+            ],
+            notes={"bpm": "2 of 12 tracks measured outside the 75-175 BPM range"},
+        )
+        # Run the main-thread update immediately instead of waiting for Tk.
+        monkeypatch.setattr(driver_app.root, "after", lambda _ms, fn, *args: fn(*args))
+
+        driver_app._update_batch_progress(progress)
+
+        shown = driver_app._batch_status_text.get("1.0", "end")
+        lines = shown.strip().splitlines()
+        assert lines[-1] == (
+            "Batch verdict: 1 failed \u00b7 1 of 2 steps completed with caveats "
+            "\u2014 BPM Analyzer: 2 of 12 tracks measured outside the 75-175 BPM range"
+        )
+        assert any("CD Ripper" in line and "FAILED" in line for line in lines[:-1])
 
 
 def _assert_hidden_widgets(driver):

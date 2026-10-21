@@ -12,6 +12,9 @@ the tool recorded (e.g. a rejected ISRC submission), so a caveat is visible
 without opening that tool's run log.
 Changed in 1.3.0: offers the shared What's New panel after an update (once per
 version) and adds a Help entry to reopen it on demand.
+Changed in 1.4.1: the finished batch report closes with one verdict line that
+folds every step's note together, so a twelve-step run can be judged without
+scanning twelve lines (PLAN D110).
 """
 
 import logging
@@ -574,10 +577,20 @@ class AudioSuiteDriver(UIHelperMixin):
                 summary += f" · {failed_count} failed"
             summary += f" · Elapsed: {elapsed_str} · ETA: {eta_str}"
 
+            # ── Closing verdict ─────────────────────────────────────────────
+            # A finished batch's caveats are spread one per step line, so a
+            # long run has to be read in full to be judged.  The verdict folds
+            # them into one line; it is empty while running and for a run that
+            # recorded nothing, and then this report is exactly as it was.
+            verdict = progress.verdict
+            body = "\n".join(lines)
+            if verdict:
+                body += "\n" + verdict
+
             # ── Update widgets ───────────────────────────────────────────────
             self._batch_status_text.config(state="normal")
             self._batch_status_text.delete("1.0", "end")
-            self._batch_status_text.insert("1.0", "\n".join(lines) + "\n")
+            self._batch_status_text.insert("1.0", body + "\n")
             self._batch_status_text.config(state="disabled")
             self._batch_status_text.grid()
 

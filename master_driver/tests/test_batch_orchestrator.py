@@ -9,11 +9,15 @@ step immediately (no retries) instead of being retried as a generic OSError.
 Changed in 1.2.0: adds the step-note tests: a caveat the tool records during
 its run reaches ``BatchStep.note`` / ``BatchProgress.notes``, a stale note from
 an earlier batch does not, and a failed step reports none.
+Changed in 1.4.1: adds the verdict tests - one closing line folds every step
+note together, only once the batch has finished, and drops whole clauses rather
+than cutting a caveat mid-sentence (D110).
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock, patch
 
@@ -23,6 +27,7 @@ from audio_suite_shared.run_outcome import record_outcome
 from audio_suite_shared.tool_plugin import ToolManifest
 from master_driver.batch_orchestrator import (
     DEPENDENCY_GRAPH,
+    VERDICT_MAX_CHARS,
     BatchOrchestrator,
     BatchProgress,
     BatchReport,
@@ -1021,3 +1026,155 @@ class TestStepNotes:
 
         assert report.completed == 1
         assert report.failed == 0
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# BatchProgress.verdict — one closing line from every step note (D110)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def _progress(
+    steps: list[tuple[str, str, str]],
+    *,
+    notes: dict[str, str] | None = None,
+    failed: list[str] | None = None,
+) -> BatchProgress:
+    """Build one progress snapshot; only the fields the verdict reads matter."""
+    return BatchProgress(
+        total_steps=len(steps),
+        completed_steps=sum(1 for _t, _n, st in steps if st == "completed"),
+        current_step=steps[-1][0] if steps else None,
+        current_progress=1.0,
+        elapsed=timedelta(seconds=60),
+        estimated_remaining=timedelta(0),
+        failed_steps=list(failed or []),
+        running_steps=[tid for tid, _n, st in steps if st == "running"],
+        pending_steps=[tid for tid, _n, st in steps if st == "pending"],
+        steps=list(steps),
+        notes=dict(notes or {}),
+    )
+
+
+class TestBatchVerdict:
+    """The report's closing line folds every note into one statement."""
+
+    def test_a_clean_finished_batch_has_no_verdict(self):
+        progress = _progress(
+            [
+                ("bpm", "BPM Analyzer", "completed"),
+                ("key", "Key Detector", "completed"),
+            ]
+        )
+
+        assert progress.finished is True
+        assert progress.verdict == ""
+
+    def test_an_unfinished_batch_has_no_verdict(self):
+        """A closing statement may not describe a run that is still going."""
+        progress = _progress(
+            [
+                ("bpm", "BPM Analyzer", "completed"),
+                ("fingerprinter", "Audio Fingerprinter", "running"),
+            ],
+            notes={"bpm": "2 of 12 tracks measured outside the 75-175 BPM range"},
+        )
+
+        assert progress.finished is False
+        assert progress.verdict == ""
+
+    def test_the_verdict_names_every_step_with_a_note_in_run_order(self):
+        progress = _progress(
+            [
+                ("bpm", "BPM Analyzer", "completed"),
+                ("key", "Key Detector", "completed"),
+                ("fingerprinter", "Audio Fingerprinter", "completed"),
+                ("scrubber", "Metadata Scrubber", "completed"),
+            ],
+            notes={
+                # Inserted the other way round on purpose: the line must follow
+                # the run's step order, not the dict's insertion order.
+                "fingerprinter": "ISRC submission: offline",
+                "bpm": "2 of 12 tracks measured outside the 75-175 BPM range",
+            },
+        )
+
+        assert progress.verdict == (
+            "Batch verdict: 2 of 4 steps completed with caveats \u2014 "
+            "BPM Analyzer: 2 of 12 tracks measured outside the 75-175 BPM range; "
+            "Audio Fingerprinter: ISRC submission: offline"
+        )
+
+    def test_failures_lead_the_line(self):
+        """A verdict that hid a failed step would not be a verdict."""
+        progress = _progress(
+            [
+                ("bpm", "BPM Analyzer", "completed"),
+                ("cd_ripper", "CD Ripper", "failed"),
+                ("scrubber", "Metadata Scrubber", "completed"),
+            ],
+            notes={"scrubber": "2 of 4 files could not be scrubbed"},
+            failed=["cd_ripper"],
+        )
+
+        assert progress.verdict == (
+            "Batch verdict: 1 failed \u00b7 1 of 3 steps completed with caveats "
+            "\u2014 Metadata Scrubber: 2 of 4 files could not be scrubbed"
+        )
+
+    def test_a_one_step_batch_says_step_not_steps(self):
+        progress = _progress(
+            [("bpm", "BPM Analyzer", "completed")],
+            notes={"bpm": "1 of 1 tracks yielded no BPM"},
+        )
+
+        assert progress.verdict == (
+            "Batch verdict: 1 of 1 step completed with caveats \u2014 "
+            "BPM Analyzer: 1 of 1 tracks yielded no BPM"
+        )
+
+    def test_a_long_batch_drops_whole_clauses_and_counts_the_rest(self):
+        """Eight caveats cannot fit one line; the line says what it dropped."""
+        notes = {
+            f"tool{i}": f"{i} of 40 tracks could not be scrubbed from the library"
+            for i in range(8)
+        }
+        steps = [(f"tool{i}", f"Tool {i}", "completed") for i in range(8)]
+
+        verdict = _progress(steps, notes=notes).verdict
+
+        assert len(verdict) <= VERDICT_MAX_CHARS, len(verdict)
+        assert verdict.startswith(
+            "Batch verdict: 8 of 8 steps completed with caveats \u2014 Tool 0: 0 of"
+        )
+        # Whole clauses only: the kept ones end where a note ends, and the
+        # dropped ones are counted rather than half-written.
+        assert "; +" in verdict
+        assert "Tool 7" not in verdict
+        dropped = int(verdict.rsplit("+", 1)[1].split()[0])
+        assert 1 <= dropped < 8
+
+    def test_an_oversized_single_note_is_shortened_not_dropped(self):
+        """With one caveat there is nothing to drop, so the text is cut."""
+        progress = _progress(
+            [
+                ("bpm", "BPM Analyzer", "completed"),
+                ("key", "Key Detector", "completed"),
+            ],
+            notes={"bpm": "x" * 500},
+        )
+
+        verdict = progress.verdict
+
+        assert len(verdict) <= VERDICT_MAX_CHARS, len(verdict)
+        assert verdict.startswith("Batch verdict: 1 of 2 steps completed with caveats")
+        assert "BPM Analyzer: xxx" in verdict
+        assert verdict.endswith("...")
+        assert "+0 more" not in verdict
+
+    def test_a_note_for_a_tool_outside_the_batch_is_not_attributed(self):
+        progress = _progress(
+            [("key", "Key Detector", "completed")],
+            notes={"bpm": "2 of 12 tracks measured outside the 75-175 BPM range"},
+        )
+
+        assert progress.verdict == ""

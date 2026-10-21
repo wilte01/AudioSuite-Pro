@@ -9,6 +9,9 @@ stage opens the same Custom DSP editor window as the standalone tool.
 
 Changed in 1.2.0: documents the per-step note a finished tool can leave on its
 batch-report line (and that such a report stays on screen).
+
+Changed in 1.4.1: documents the closing batch verdict line that folds every step
+note together, so a long batch is judged from one line (PLAN D110).
 """
 
 from docx import Document
@@ -202,6 +205,17 @@ add_bullet(
     "report on screen while it carries a note instead of hiding it "
     "when the batch ends. A note never means the step failed: the "
     "work it did was done.",
+)
+add_bullet(
+    doc,
+    "Batch verdict: ",
+    "When a finished batch recorded caveats, the report closes with "
+    "one line naming every tool that reported one, in run order - "
+    "for example, Batch verdict: 2 of 12 steps completed with "
+    "caveats - BPM Analyzer: 2 of 12 tracks measured outside the "
+    "75-175 BPM range. Failed steps are counted at the start of that "
+    "line. A long list of caveats is shortened with a count of how "
+    "many were left out; each full note stays on its own step line.",
 )
 
 doc.add_heading("Enrich Tools", level=1)
