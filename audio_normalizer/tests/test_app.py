@@ -9,11 +9,14 @@ Covers:
 Widget-heavy UI construction is mocked out.  Tests that require a real Tk
 instance are gated behind ``requires_display``, consistent with the pattern
 used in test_setup_tab.py.
+Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
+``run_parallel_process`` into the completion handler (PLAN D117).
 """
 
 import os
 import tkinter as tk
 from pathlib import Path
+from queue import Queue
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -465,3 +468,115 @@ class TestAuditionOnComplete:
         assert (
             _audition_caption(app.root) == "No supported audio file found for audition."
         )
+
+
+# ---------------------------------------------------------------------------
+# Completion seam: the processor payload must reach the handler _run binds and
+# land in the report the run writes.
+# ---------------------------------------------------------------------------
+
+_HEADER = ["NORMALIZATION REPORT\n"]
+
+
+def _completion_shell(tmp_path: Path) -> AudioNormalizerApp:
+    """Shell with only what the completion path touches."""
+    app = object.__new__(AudioNormalizerApp)
+    app.root = MagicMock()
+    app._log_path = str(tmp_path / "normalization_log.txt")
+    app.run_mode = MagicMock()
+    app.run_mode.get.return_value = "Dry Run"
+    app.auto_end_var = MagicMock()
+    app.auto_end_var.get.return_value = False
+    app.time_label = MagicMock()
+    app.summary_label = MagicMock()
+    app.completion_label = MagicMock()
+    app.notebook = MagicMock()
+    app._tab_results = MagicMock()
+    app.start_btn = MagicMock()
+    app._run_was_dry_run = True
+    app._audition_original = None
+    app._audition_result = None
+    app.set_audition_state = MagicMock()
+    return app
+
+
+class TestCompletionSeam:
+    """``run_parallel_process`` publishes into the handler ``_run`` binds."""
+
+    @staticmethod
+    def _wire(app: AudioNormalizerApp):
+        """Return the completion callable ``_run`` hands to the processor."""
+        return lambda **kw: app._on_complete(header=_HEADER, **kw)
+
+    @staticmethod
+    def _fake_process_single_file(**kwargs: Any) -> None:
+        """Stand in for the per-file normaliser, one outcome per file."""
+        outcomes = {
+            "a.wav": {"n_skipped": 0, "n_errors": 0},
+            "b.wav": {"n_skipped": 1, "n_errors": 0},
+            "c.wav": {"n_skipped": 0, "n_errors": 1},
+        }
+        progress = kwargs["on_progress"]
+        outcome = outcomes[kwargs["name"]]
+        progress(
+            n_skipped=outcome["n_skipped"],
+            n_errors=outcome["n_errors"],
+            display_text=kwargs["name"],
+            log_text=f"{kwargs['name']}\n",
+        )
+
+    def test_the_real_payload_is_written(self, tmp_path: Path) -> None:
+        """Every published count reaches the report the handler writes."""
+        from audio_normalizer.core import file_processor
+
+        for name in ("a.wav", "b.wav", "c.wav"):
+            (tmp_path / name).write_bytes(b"")
+        app = _completion_shell(tmp_path)
+
+        with patch.object(
+            file_processor,
+            "process_single_file",
+            side_effect=self._fake_process_single_file,
+        ):
+            file_processor.run_parallel_process(
+                dir_path=str(tmp_path),
+                target_lufs=-14.0,
+                tolerance=0.5,
+                is_dry_run=True,
+                slot_vars=[MagicMock()],
+                slot_queue=Queue(),
+                on_progress=MagicMock(),
+                on_complete=self._wire(app),
+                on_error=MagicMock(),
+            )
+
+        report = (tmp_path / "normalization_log.txt").read_text(encoding="utf-8")
+        assert "Total files: 3" in report
+        assert "Normalized: 1" in report
+        assert "Skipped (within tolerance): 1" in report
+        assert "Errors: 1" in report
+
+    @pytest.mark.parametrize(
+        "field",
+        ["total", "processed", "skipped", "errors", "duration_secs", "log_entries"],
+    )
+    def test_a_missing_field_raises_and_writes_no_report(
+        self, tmp_path: Path, field: str
+    ) -> None:
+        """A dropped field names itself and leaves no report behind."""
+        app = _completion_shell(tmp_path)
+        payload: dict[str, Any] = {
+            "total": 3,
+            "processed": 3,
+            "skipped": 1,
+            "errors": 1,
+            "duration_secs": 1.0,
+            "log_entries": ["line\n"],
+        }
+        payload.pop(field)
+
+        with pytest.raises(TypeError) as caught:
+            self._wire(app)(**payload)
+
+        assert field in str(caught.value)
+        assert not (tmp_path / "normalization_log.txt").exists()

@@ -30,7 +30,13 @@ What this cannot prove: that the processor still *sends* every field.  A field
 whose handler requires it but whose publisher stopped sending it fails at
 runtime by design -- loudly, which is the behaviour pinned here.  Supplying it
 is covered by each tool's own ``test_app.py`` seam test driving the real
-``run_*`` into the handler it binds.
+``run_*`` into the handler it binds, and -- since 2.0.0 -- statically by
+``tests/test_completion_payload_published.py``, which fails when any tool's
+wiring reads a completion field with a default instead of forwarding the
+published payload (the silent zero this table's counterpart cannot see).
+
+Changed in 2.0.0: points at the published-payload lock; the seam itself is
+unchanged.
 """
 
 from __future__ import annotations

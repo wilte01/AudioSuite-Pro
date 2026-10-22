@@ -25,6 +25,16 @@ Versions of the tools are released together with the suite (the single
   that gives one a default — the way a discarded count renders as a clean
   zero — fails the suite instead of a batch.
 
+- **Album Art Normalizer reports what it actually processed.** Its completion
+  wiring rebuilt the processor's payload field by field with
+  `kw.get(field, 0)`, so a field the processor renamed or stopped sending
+  arrived as a clean `0`/`00:00` in the finished report — the silent zero the
+  required-field contract exists to prevent, one layer above it. The payload is
+  now forwarded as published and a missing field raises with its name. A new
+  cross-tool lock reads every tool's completion wiring from the tree and fails
+  if one reintroduces per-field defaults, so the contract now covers the
+  publisher side that a signature test cannot see.
+
 - **ReplayGain Analyzer's summary no longer undercounts a mixed batch.** Its
   `Successfully processed` line subtracted the error count from a figure that
   already counted only successes, so two good files beside one failure read as

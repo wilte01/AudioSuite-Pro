@@ -9,6 +9,10 @@ Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``
 so a payload field the processor adds (D112) is ignored instead of aborting an
 otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
 completion, progress and error seams.
+Changed in 2.0.0: the completion wiring forwards the processor payload
+as published instead of reading each field with ``kw.get(field, 0)``, so
+a renamed or dropped count raises with its name instead of rendering a
+plausible zero in the finished report (PLAN D117).
 """
 
 from __future__ import annotations
@@ -298,14 +302,14 @@ class ArtNormalizerApp(BaseSuiteApp):
                 dir_path=directory,
                 target_size=target_size,
                 on_progress=self._on_progress,
-                on_complete=lambda **kw: self._on_complete(
-                    total=kw.get("total", 0),
-                    processed=kw.get("processed", 0),
-                    skipped=kw.get("skipped", 0),
-                    errors=kw.get("errors", 0),
-                    duration_secs=kw.get("duration_secs", 0.0),
-                    log_entries=kw.get("log_entries", []),
-                ),
+                # Forward the payload as published.  Reading each field with
+                # ``kw.get(field, 0)`` -- what this lambda used to do -- turned
+                # a renamed or dropped field into a plausible zero in the
+                # finished report, the exact silent-zero the completion seam
+                # exists to stop; ``_on_complete`` already declares every field
+                # it uses and absorbs extras, so the payload passes straight
+                # through and a missing one raises with its name.
+                on_complete=self._on_complete,
                 on_error=self._on_error,
                 is_dry_run=dry_run,
             )

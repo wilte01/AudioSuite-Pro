@@ -1,13 +1,15 @@
 """Tests for album_art_normalizer.app.
 
 Changed in 1.0.1: adds ``--size``-to-resolution pre-fill tests.
+Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
+``run_normalization`` into the completion handler (PLAN D117).
 """
 
 import sys
 import tkinter as tk
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -214,3 +216,125 @@ class TestSizePreFill:
         assert _size_to_resolution("999") == ""
         assert _size_to_resolution("abc") == ""
         assert _size_to_resolution("") == ""
+
+
+# ---------------------------------------------------------------------------
+# Completion seam: the processor payload must reach the handler app.py binds
+# and land in the report the run writes.
+# ---------------------------------------------------------------------------
+
+
+def _completion_shell(directory: Path) -> ArtNormalizerApp:
+    """Shell with only what the completion path touches."""
+    root = MagicMock()
+    scheduled: list[Any] = []
+    root.after.side_effect = lambda delay, fn, *args: scheduled.append((fn, args))
+
+    app = object.__new__(ArtNormalizerApp)
+    app.root = root
+    app._dir_path = str(directory)
+    app._log_path = ""
+    app._log_entries = []
+    app.progress = MagicMock()
+    app.stats_label = MagicMock()
+    app.file_listbox = MagicMock()
+    app.time_label = MagicMock()
+    app.summary_label = MagicMock()
+    app.completion_label = MagicMock()
+    app.notebook = MagicMock()
+    app._tab_results = MagicMock()
+    app.start_btn = MagicMock()
+    app.auto_end_var = MagicMock()
+    app.auto_end_var.get.return_value = False
+    app._scheduled = scheduled
+    return app
+
+
+def _flush(app: ArtNormalizerApp) -> None:
+    """Run every widget update the handler marshalled through ``root.after``."""
+    for fn, args in list(app._scheduled):
+        fn(*args)
+    app._scheduled.clear()
+
+
+class TestCompletionSeam:
+    """``run_normalization`` publishes into the handler ``app.py`` binds."""
+
+    @staticmethod
+    def _fake_normalize_single_file(**kwargs: Any) -> None:
+        """Stand in for the per-file worker, reporting one of three outcomes."""
+        outcomes = {
+            "a.wav": {"n_skipped": 0, "n_errors": 0},
+            "b.wav": {"n_skipped": 1, "n_errors": 0},
+            "c.wav": {"n_skipped": 0, "n_errors": 1},
+        }
+        progress = kwargs["on_progress"]
+        outcome = outcomes[kwargs["name"]]
+        progress(
+            n_skipped=outcome["n_skipped"],
+            n_errors=outcome["n_errors"],
+            display_text=f"[OK] {kwargs['name']}",
+            log_text=f"{kwargs['name']}\n",
+        )
+
+    def test_the_real_payload_is_written(self, tmp_path: Path) -> None:
+        """Every published count reaches the report and the log this run writes."""
+        from album_art_normalizer.core import file_processor
+
+        for name in ("a.wav", "b.wav", "c.wav"):
+            (tmp_path / name).write_bytes(b"")
+        app = _completion_shell(tmp_path)
+
+        with patch.object(
+            file_processor,
+            "_normalize_single_file",
+            side_effect=self._fake_normalize_single_file,
+        ):
+            file_processor.run_normalization(
+                dir_path=str(tmp_path),
+                target_size=(800, 800),
+                on_progress=app._on_progress,
+                on_complete=app._on_complete,
+                on_error=MagicMock(),
+                is_dry_run=True,
+            )
+
+        _flush(app)
+
+        # ``processed - skipped - errors``: the panel must not repeat a total.
+        app.summary_label.config.assert_called_with(
+            text=("Files examined: 3\nImages updated: 1\nSkipped: 1\nErrors: 1")
+        )
+        report = (tmp_path / "art_normalize_log.txt").read_text(encoding="utf-8")
+        for name in ("a.wav", "b.wav", "c.wav"):
+            assert f"[OK] {name}" in report
+
+    @pytest.mark.parametrize(
+        "field",
+        ["total", "processed", "skipped", "errors", "duration_secs", "log_entries"],
+    )
+    def test_a_missing_field_raises_and_writes_no_report(
+        self, tmp_path: Path, field: str
+    ) -> None:
+        """A dropped field names itself instead of rendering a plausible zero.
+
+        Regression: this app's ``on_complete`` used to read each field with
+        ``kw.get(field, 0)``, so a renamed or dropped key wrote ``Errors: 0``
+        and ``Images updated: 3`` into a finished report.
+        """
+        app = _completion_shell(tmp_path)
+        payload: dict[str, Any] = {
+            "total": 3,
+            "processed": 3,
+            "skipped": 1,
+            "errors": 1,
+            "duration_secs": 1.0,
+            "log_entries": ["line\n"],
+        }
+        payload.pop(field)
+
+        with pytest.raises(TypeError) as caught:
+            app._on_complete(**payload)
+
+        assert field in str(caught.value)
+        assert not (tmp_path / "art_normalize_log.txt").exists()

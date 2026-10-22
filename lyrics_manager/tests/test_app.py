@@ -6,13 +6,19 @@ Module-level dependencies are patched on the ``lyrics_manager.app`` namespace.
 Changed in 1.4.0: worker defaults are read from the shared function/constant.
 Changed in 1.4.1: pins that a tool which overrides no summary hook gets exactly
 the old completion summary, no extra rows (PLAN D109).
+Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
+``run_fetch`` into the completion handler (PLAN D117).
 """
 
 from __future__ import annotations
 
 import json as _json
 from pathlib import Path
+from queue import Queue
+from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from audio_suite_shared.cli_dataclasses import LyricsArgs
 from lyrics_manager.app import LyricsManagerApp
@@ -852,3 +858,115 @@ class TestPresetEdgeCases:
         ):
             app._delete_preset("B")
         save.assert_any_call("lyrics_presets_list", _json.dumps(["A", "C"]))
+
+
+# ---------------------------------------------------------------------------
+# Completion seam: the processor payload must reach the handler _run_fetch
+# binds and land in the report the run writes.
+# ---------------------------------------------------------------------------
+
+_HEADER = ["LYRIC LOOKUP REPORT\n"]
+
+
+def _completion_shell(tmp_path: Path) -> LyricsManagerApp:
+    """Shell with only what the shared completion path touches."""
+    app = object.__new__(LyricsManagerApp)
+    app.root = MagicMock()
+    app._log_path = str(tmp_path / "lyrics_dry_run_log.txt")
+    app.run_mode = MagicMock()
+    app.run_mode.get.return_value = "Dry Run"
+    app.auto_end = False
+    app.time_label = MagicMock()
+    app.summary_label = MagicMock()
+    app.completion_label = MagicMock()
+    app.notebook = MagicMock()
+    app._tab_results = MagicMock()
+    app.start_btn = MagicMock()
+    return app
+
+
+class TestCompletionSeam:
+    """``run_fetch`` publishes into the handler ``_run_fetch`` binds."""
+
+    @staticmethod
+    def _wire(app: LyricsManagerApp):
+        """Return the completion callable ``_run_fetch`` hands to the processor."""
+        return lambda **kw: app._on_complete(header=_HEADER, **kw)
+
+    @staticmethod
+    def _fake_process_single_file(**kwargs: Any) -> None:
+        """Stand in for the per-file lookup, one outcome per file."""
+        outcomes = {
+            "a.mp3": {"n_skipped": 0, "n_errors": 0},
+            "b.mp3": {"n_skipped": 1, "n_errors": 0},
+            "c.mp3": {"n_skipped": 0, "n_errors": 1},
+        }
+        progress = kwargs["on_progress"]
+        outcome = outcomes[kwargs["name"]]
+        progress(
+            n_skipped=outcome["n_skipped"],
+            n_errors=outcome["n_errors"],
+            display_text=kwargs["name"],
+            log_text=f"{kwargs['name']}\n",
+        )
+
+    def test_the_real_payload_is_written(self, tmp_path: Path) -> None:
+        """Every published count reaches the report the handler writes."""
+        from lyrics_manager.core import file_processor
+
+        for name in ("a.mp3", "b.mp3", "c.mp3"):
+            (tmp_path / name).write_bytes(b"")
+        app = _completion_shell(tmp_path)
+
+        with (
+            patch.object(file_processor, "get_provider", return_value=MagicMock()),
+            patch.object(
+                file_processor,
+                "process_single_file",
+                side_effect=self._fake_process_single_file,
+            ),
+        ):
+            file_processor.run_fetch(
+                dir_path=str(tmp_path),
+                is_dry_run=True,
+                provider_name="lrclib",
+                request_timeout=5.0,
+                skip_existing=False,
+                plain_fallback=True,
+                slot_vars=[MagicMock()],
+                slot_queue=Queue(),
+                on_progress=MagicMock(),
+                on_complete=self._wire(app),
+                on_error=MagicMock(),
+            )
+
+        report = (tmp_path / "lyrics_dry_run_log.txt").read_text(encoding="utf-8")
+        assert "Total files: 3" in report
+        assert "Tagged/Updated: 1" in report
+        assert "Skipped: 1" in report
+        assert "Errors: 1" in report
+
+    @pytest.mark.parametrize(
+        "field",
+        ["total", "processed", "skipped", "errors", "duration_secs", "log_entries"],
+    )
+    def test_a_missing_field_raises_and_writes_no_report(
+        self, tmp_path: Path, field: str
+    ) -> None:
+        """A dropped field names itself and leaves no report behind."""
+        app = _completion_shell(tmp_path)
+        payload: dict[str, Any] = {
+            "total": 3,
+            "processed": 3,
+            "skipped": 1,
+            "errors": 1,
+            "duration_secs": 1.0,
+            "log_entries": ["line\n"],
+        }
+        payload.pop(field)
+
+        with pytest.raises(TypeError) as caught:
+            self._wire(app)(**payload)
+
+        assert field in str(caught.value)
+        assert not (tmp_path / "lyrics_dry_run_log.txt").exists()

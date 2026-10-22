@@ -3,11 +3,17 @@ Tests for album_genre_tagger.app — GenreConsolidatorApp orchestrator.
 
 Focus: CLI-driven Run Controls mirroring and handler wiring, using the
 object.__new__ + MagicMock shell pattern (no real display required).
+Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
+``run_analysis`` into the completion handler (PLAN D117).
 """
 
 import os
 import tkinter as tk
+from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 def _make_shell_app(parsed):
@@ -1015,3 +1021,160 @@ class TestWriteLogSuccess:
         app._write_log(["new content\n"])
 
         assert log_file.read_text(encoding="utf-8") == "new content\n"
+
+
+# ---------------------------------------------------------------------------
+# Completion seam: the processor payload must reach the handler _run binds and
+# land in the report the run writes.
+# ---------------------------------------------------------------------------
+
+
+def _completion_shell(directory: Path) -> Any:
+    """Shell with only what the completion path touches."""
+    from album_genre_tagger.app import GenreConsolidatorApp
+
+    root = MagicMock()
+    scheduled: list[Any] = []
+    root.after.side_effect = lambda delay, fn, *args: scheduled.append((fn, args))
+
+    app = object.__new__(GenreConsolidatorApp)
+    app.root = root
+    app._dir_path = str(directory)
+    app._is_dry_run = True
+    app._min_coverage = 50
+    app._log_path = os.path.join(str(directory), "AlbumGenre_Tagger_Log.txt")
+    app.error_logger = MagicMock()
+    app.auto_end = False
+    app.progress = MagicMock()
+    app.file_listbox = MagicMock()
+    app.stats_label = MagicMock()
+    app.time_label = MagicMock()
+    app.summary_label = MagicMock()
+    app.completion_label = MagicMock()
+    app.genre_label = MagicMock()
+    app.notebook = MagicMock()
+    app._tab_results = MagicMock()
+    app.start_btn = MagicMock()
+    app._scheduled = scheduled
+    return app
+
+
+class TestCompletionSeam:
+    """``run_analysis`` publishes into the handler ``_run`` binds."""
+
+    @staticmethod
+    def _fake_read_titlegenre(filepath: str) -> tuple[str, str]:
+        """Two files carry a TITLEGENRE, one does not."""
+        genres = {
+            "a.wav": "Rock",
+            "b.wav": "Jazz",
+        }
+        name = os.path.basename(filepath)
+        if name in genres:
+            return genres[name], ""
+        return "", "no TITLEGENRE tag"
+
+    @staticmethod
+    def _fake_write_album_genre(
+        filepath: str, album_genre: str, is_dry_run: bool
+    ) -> tuple[bool, str]:
+        """One write fails, so write_errors is distinct from read_errors."""
+        if os.path.basename(filepath) == "b.wav":
+            return False, "file is read-only"
+        return True, ""
+
+    def _run(self, app: Any, tmp_path: Path) -> None:
+        """Drive the real entry point through the wiring ``_run`` uses."""
+        from album_genre_tagger.core import consolidator
+
+        for name in ("a.wav", "b.wav", "c.wav"):
+            (tmp_path / name).write_bytes(b"")
+
+        with (
+            patch.object(
+                consolidator,
+                "read_titlegenre",
+                side_effect=self._fake_read_titlegenre,
+            ),
+            patch.object(
+                consolidator,
+                "write_album_genre",
+                side_effect=self._fake_write_album_genre,
+            ),
+        ):
+            consolidator.run_analysis(
+                dir_path=str(tmp_path),
+                is_dry_run=True,
+                min_coverage=50,
+                on_phase1_progress=app._on_phase1_progress,
+                on_coverage_fail=app._on_coverage_fail,
+                on_phase2_progress=app._on_phase2_progress,
+                on_complete=app._on_complete,
+                on_error=MagicMock(),
+            )
+
+    def test_the_real_payload_is_written(self, tmp_path: Path) -> None:
+        """Every published count reaches the log and the panel this run writes."""
+        app = _completion_shell(tmp_path)
+
+        self._run(app, tmp_path)
+
+        report = (tmp_path / "AlbumGenre_Tagger_Log.txt").read_text(encoding="utf-8")
+        assert "Total files: 3" in report
+        assert "Files with TITLEGENRE: 2 (66.7%)" in report
+        assert "Unique genres: 2" in report
+        assert "Files would be updated: 2" in report
+        assert "Write errors: 1" in report
+        assert "Read errors: 1" in report
+
+        # The panel is scheduled from the worker's payload, not rebuilt here.
+        for fn, args in list(app._scheduled):
+            fn(*args)
+        text = app.summary_label.config.call_args.kwargs["text"]
+        assert text == (
+            "Total: 3 files\n"
+            "With TITLEGENRE: 2 (66.7%)\n"
+            "Unique genres found: 2\n"
+            "Files would be updated: 2\n"
+            "Errors: 2"
+        )
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "total",
+            "files_with_genre",
+            "coverage_pct",
+            "unique_genres",
+            "album_genre_string",
+            "write_count",
+            "write_errors",
+            "read_errors",
+            "duration_secs",
+            "log_entries",
+        ],
+    )
+    def test_a_missing_field_raises_and_writes_no_report(
+        self, tmp_path: Path, field: str
+    ) -> None:
+        """A dropped field names itself and leaves no log behind."""
+        app = _completion_shell(tmp_path)
+        payload: dict[str, Any] = {
+            "total": 3,
+            "files_with_genre": 2,
+            "coverage_pct": 66.7,
+            "unique_genres": ["Jazz", "Rock"],
+            "album_genre_string": "Jazz; Rock",
+            "write_count": 2,
+            "write_errors": 1,
+            "read_errors": 1,
+            "duration_secs": 1.0,
+            "log_entries": ["line\n"],
+        }
+        payload.pop(field)
+
+        with pytest.raises(TypeError) as caught:
+            app._on_complete(**payload)
+
+        assert field in str(caught.value)
+        assert not (tmp_path / "AlbumGenre_Tagger_Log.txt").exists()

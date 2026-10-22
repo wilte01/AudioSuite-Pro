@@ -1,5 +1,7 @@
 """Tests for audio_refinery.app — driver-mirror variable presence and audition.
 Changed in 1.1.0: added effect-field settings collect/apply coverage.
+Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
+``run_pipeline`` into the completion handler (PLAN D117).
 """
 
 from __future__ import annotations
@@ -7,6 +9,7 @@ from __future__ import annotations
 import sys
 import tkinter as tk
 from pathlib import Path
+from queue import Queue
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -557,3 +560,118 @@ class TestProgressD3:
         update_fn()
         assert app._progress_bar.__setitem__("value", 3)
         assert app._file_listbox.insert.call_args.args[1] == "song.wav"
+
+
+# ---------------------------------------------------------------------------
+# Completion seam: the processor payload must reach the handler _run binds and
+# land in the report the run writes.
+# ---------------------------------------------------------------------------
+
+
+def _completion_shell(tmp_path: Path) -> Any:
+    """Shell with only what the completion path touches."""
+    app = object.__new__(AudioRefineryApp)
+    app.root = MagicMock()
+    app._log_path = str(tmp_path / "refinery_log.txt")
+    app._run_was_dry_run = True
+    app._audition_original = None
+    app._audition_result = None
+    app._completion_label = MagicMock()
+    app._time_label = MagicMock()
+    app.overall_status = MagicMock()
+    app.notebook = MagicMock()
+    app._tab_results = MagicMock()
+    app.start_btn = MagicMock()
+    app.auto_end_var = MagicMock()
+    app.auto_end_var.get.return_value = False
+    return app
+
+
+class TestCompletionSeam:
+    """``run_pipeline`` publishes into the handler ``_run`` binds."""
+
+    @staticmethod
+    def _fake_worker_process(path: Path, **kwargs: Any) -> None:
+        """Stand in for one pipeline file, one outcome per file."""
+        from audio_refinery.core.models import FileResult, FileStatus
+
+        outcomes = {
+            "a.wav": FileStatus.DONE,
+            "b.wav": FileStatus.SKIPPED,
+            "c.wav": FileStatus.ERROR,
+        }
+        status = outcomes[path.name]
+        kwargs["on_file_done"](
+            FileResult(
+                path=path,
+                status=status,
+                error="already in completion registry"
+                if status == FileStatus.SKIPPED
+                else "boom"
+                if status == FileStatus.ERROR
+                else None,
+            )
+        )
+
+    def test_the_real_payload_is_written(self, tmp_path: Path) -> None:
+        """Every published count reaches the report the handler writes."""
+        from audio_refinery.core import file_processor
+        from audio_refinery.core.registry import CompletionRegistry
+
+        for name in ("a.wav", "b.wav", "c.wav"):
+            (tmp_path / name).write_bytes(b"")
+        app = _completion_shell(tmp_path)
+
+        with patch.object(
+            file_processor,
+            "_worker_process",
+            side_effect=self._fake_worker_process,
+        ):
+            file_processor.run_pipeline(
+                source_dir=tmp_path,
+                output_dir=tmp_path / "out",
+                config=StageConfig(dry_run=True),
+                registry=CompletionRegistry(tmp_path),
+                slot_vars=[MagicMock()],
+                slot_queue=Queue(),
+                on_progress=MagicMock(),
+                on_complete=app._on_complete,
+                on_error=MagicMock(),
+            )
+
+        report = (tmp_path / "refinery_log.txt").read_text(encoding="utf-8")
+        assert "Total: 3  Processed: 3  Succeeded: 1  Skipped: 1  Errors: 1" in report
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "total",
+            "processed",
+            "succeeded",
+            "skipped",
+            "errors",
+            "duration_secs",
+            "log_entries",
+        ],
+    )
+    def test_a_missing_field_raises_and_writes_no_report(
+        self, tmp_path: Path, field: str
+    ) -> None:
+        """A dropped field names itself and leaves no report behind."""
+        app = _completion_shell(tmp_path)
+        payload: dict[str, Any] = {
+            "total": 3,
+            "processed": 3,
+            "succeeded": 1,
+            "skipped": 1,
+            "errors": 1,
+            "duration_secs": 1.0,
+            "log_entries": ["line\n"],
+        }
+        payload.pop(field)
+
+        with pytest.raises(TypeError) as caught:
+            app._on_complete(**payload)
+
+        assert field in str(caught.value)
+        assert not (tmp_path / "refinery_log.txt").exists()

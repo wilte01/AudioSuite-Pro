@@ -9,15 +9,20 @@ without requiring a real Tk root.
 
 Changed in 1.2.0: covers the run note a finished conversion leaves for the
 Master Driver batch report (the files it skipped and the ones that failed).
+Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
+``run_conversion`` into the completion handler (PLAN D117).
 """
 
 import os
 import threading
 from pathlib import Path
+from queue import Queue
 from tkinter import messagebox
 from types import MethodType
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from audio_suite_shared.run_outcome import read_outcome
 from music_format_converter import app as app_module
@@ -1158,3 +1163,120 @@ class TestApplyCliArgsDriverMirror:
         MusicFormatConverterApp._apply_cli_args(stub)
         assert stub.clear_logs_var.get() is False
         assert stub.parallel_var.get() is False
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Completion seam: the processor payload must reach the handler _run binds and
+# land in the report the run writes.
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def _completion_shell(tmp_path):
+    """Shell with only what the completion path touches."""
+    app = object.__new__(MusicFormatConverterApp)
+    app.root = MagicMock()
+    app._log_path = str(tmp_path / "conversion_dry_run_flac.txt")
+    app._out_dir = ""
+    app.time_label = MagicMock()
+    app.summary_label = MagicMock()
+    app.completion_label = MagicMock()
+    app.notebook = MagicMock()
+    app._tab_results = MagicMock()
+    app.start_btn = MagicMock()
+    return app
+
+
+class TestCompletionSeam:
+    """``run_conversion`` publishes into the handler ``_run`` binds."""
+
+    @staticmethod
+    def _wire(app):
+        """Return the completion callable ``_run`` hands to the processor."""
+        return lambda **kw: app._on_complete(header=["REPORT\n"], delete=False, **kw)
+
+    @staticmethod
+    def _fake_process_single_file(*args, **kwargs):
+        """Stand in for the per-file converter, one outcome per file."""
+        name = args[0]
+        on_progress = args[11]
+        outcomes = {
+            "a.flac": {"n_converted": 1, "n_skipped": 0, "n_errors": 0},
+            "b.flac": {"n_converted": 0, "n_skipped": 1, "n_errors": 0},
+            "c.flac": {"n_converted": 0, "n_skipped": 0, "n_errors": 1},
+        }
+        outcome = outcomes[name]
+        on_progress(
+            outcome["n_converted"],
+            outcome["n_skipped"],
+            outcome["n_errors"],
+            name,
+            f"{name}\n",
+        )
+
+    def test_the_real_payload_is_written(self, tmp_path):
+        """Every published count reaches the report the handler writes."""
+        from music_format_converter.core import file_processor
+
+        for name in ("a.flac", "b.flac", "c.flac"):
+            (tmp_path / name).write_bytes(b"")
+        app = _completion_shell(tmp_path)
+
+        with patch.object(
+            file_processor,
+            "process_single_file",
+            side_effect=self._fake_process_single_file,
+        ):
+            file_processor.run_conversion(
+                input_dir=str(tmp_path),
+                output_dir=str(tmp_path / "out"),
+                output_format="mp3",
+                quality="highest",
+                delete_originals=False,
+                is_dry_run=True,
+                lossy_formats=["mp3"],
+                slot_vars=[MagicMock()],
+                slot_queue=Queue(),
+                on_progress=MagicMock(),
+                on_complete=self._wire(app),
+                on_error=MagicMock(),
+            )
+
+        report = (tmp_path / "conversion_dry_run_flac.txt").read_text(encoding="utf-8")
+        assert "Total files: 3" in report
+        assert "Converted: 1" in report
+        assert "Skipped: 1" in report
+        assert "Errors: 1" in report
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "total",
+            "processed",
+            "converted",
+            "skipped",
+            "errors",
+            "duration_secs",
+            "log_entries",
+            "output_dir",
+        ],
+    )
+    def test_a_missing_field_raises_and_writes_no_report(self, tmp_path, field):
+        """A dropped field names itself and leaves no report behind."""
+        app = _completion_shell(tmp_path)
+        payload = {
+            "total": 3,
+            "processed": 3,
+            "converted": 1,
+            "skipped": 1,
+            "errors": 1,
+            "duration_secs": 1.0,
+            "log_entries": ["line\n"],
+            "output_dir": str(tmp_path / "out"),
+        }
+        payload.pop(field)
+
+        with pytest.raises(TypeError) as caught:
+            self._wire(app)(**payload)
+
+        assert field in str(caught.value)
+        assert not (tmp_path / "conversion_dry_run_flac.txt").exists()

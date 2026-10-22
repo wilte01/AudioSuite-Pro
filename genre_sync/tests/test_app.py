@@ -4,9 +4,16 @@ Tests for genre_sync.app — GenreSetterApp orchestrator.
 Strategy: mock all tkinter / shared-library dependencies so we
 exercise the wiring and callback logic without a real GUI.
 Changed in 1.4.0: the slot grid is sized from DEFAULT_MAX_WORKERS.
+Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
+``run_processing`` into the completion handler (PLAN D117).
 """
 
+from pathlib import Path
+from queue import Queue
+from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestGenreSetterAppInit:
@@ -470,3 +477,132 @@ class TestApplyCliArgsStandalone:
         app.run_mode.set.assert_called_once_with("Dry Run")
         handler.apply_cli_args.assert_not_called()
         app.root.after.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Completion seam: the processor payload must reach the handler _run binds and
+# land in the report the run writes.
+# ---------------------------------------------------------------------------
+
+
+def _completion_shell(tmp_path: Path) -> Any:
+    """Shell with only what the completion path touches."""
+    from genre_sync.app import GenreSetterApp
+
+    app = object.__new__(GenreSetterApp)
+    app.root = MagicMock()
+    app._log_path = str(tmp_path / "genre_dry_run_log.txt")
+    app.run_mode = MagicMock()
+    app.run_mode.get.return_value = "Dry Run"
+    app.auto_end = False
+    app.time_label = MagicMock()
+    app.summary_label = MagicMock()
+    app.completion_label = MagicMock()
+    app.notebook = MagicMock()
+    app._tab_results = MagicMock()
+    app.start_btn = MagicMock()
+    return app
+
+
+class TestCompletionSeam:
+    """``run_processing`` publishes into the handler ``_run`` binds."""
+
+    @staticmethod
+    def _fake_process_single_file(
+        name: str,
+        dir_path: str,
+        is_dry_run: bool,
+        slot_vars: Any,
+        slot_queue: Any,
+        lock: Any,
+        on_progress: Any,
+    ) -> None:
+        """Stand in for the per-file pass, one outcome per file."""
+        outcomes = {
+            "a.mp3": {"updated": 1, "skipped": 0, "no_genre": 0, "errors": 0},
+            "b.mp3": {"updated": 0, "skipped": 1, "no_genre": 0, "errors": 0},
+            "c.mp3": {"updated": 0, "skipped": 0, "no_genre": 1, "errors": 0},
+            "d.mp3": {"updated": 0, "skipped": 0, "no_genre": 0, "errors": 1},
+        }
+        outcome = outcomes[name]
+        on_progress(
+            n_updated=outcome["updated"],
+            n_skipped=outcome["skipped"],
+            n_no_genre=outcome["no_genre"],
+            n_errors=outcome["errors"],
+            display_text=name,
+            log_updated=f"{name}\n" if outcome["updated"] else "",
+            log_skipped=f"{name}\n" if outcome["skipped"] else "",
+            log_no_genre=f"{name}\n" if outcome["no_genre"] else "",
+            log_errors=f"{name}\n" if outcome["errors"] else "",
+        )
+
+    def test_the_real_payload_is_written(self, tmp_path: Path) -> None:
+        """Every published count reaches the report the handler writes."""
+        from genre_sync.core import file_processor
+
+        for name in ("a.mp3", "b.mp3", "c.mp3", "d.mp3"):
+            (tmp_path / name).write_bytes(b"")
+        app = _completion_shell(tmp_path)
+
+        with patch.object(
+            file_processor,
+            "process_single_file",
+            side_effect=self._fake_process_single_file,
+        ):
+            file_processor.run_processing(
+                dir_path=str(tmp_path),
+                is_dry_run=True,
+                slot_vars=[MagicMock()],
+                slot_queue=Queue(),
+                on_progress=MagicMock(),
+                on_complete=app._on_complete,
+                on_error=MagicMock(),
+            )
+
+        report = (tmp_path / "genre_dry_run_log.txt").read_text(encoding="utf-8")
+        assert "Total files: 4" in report
+        assert "Would update: 1" in report
+        assert "Skipped (already correct): 1" in report
+        assert "No genre fields: 1" in report
+        assert "Errors: 1" in report
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "total",
+            "updated",
+            "skipped",
+            "no_genre",
+            "errors",
+            "duration_secs",
+            "log_updated",
+            "log_skipped",
+            "log_no_genre",
+            "log_errors",
+        ],
+    )
+    def test_a_missing_field_raises_and_writes_no_report(
+        self, tmp_path: Path, field: str
+    ) -> None:
+        """A dropped field names itself and leaves no report behind."""
+        app = _completion_shell(tmp_path)
+        payload: dict[str, Any] = {
+            "total": 4,
+            "updated": 1,
+            "skipped": 1,
+            "no_genre": 1,
+            "errors": 1,
+            "duration_secs": 1.0,
+            "log_updated": ["a.mp3\n"],
+            "log_skipped": ["b.mp3\n"],
+            "log_no_genre": ["c.mp3\n"],
+            "log_errors": ["d.mp3\n"],
+        }
+        payload.pop(field)
+
+        with pytest.raises(TypeError) as caught:
+            app._on_complete(**payload)
+
+        assert field in str(caught.value)
+        assert not (tmp_path / "genre_dry_run_log.txt").exists()

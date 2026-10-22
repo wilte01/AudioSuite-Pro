@@ -5,13 +5,16 @@ Changed in 1.2.0: covers the MusicBrainz / ISRC toggles reaching
 Changed in 1.2.0: covers the ISRC submission outcome on the Results tab and
 its record for the Master Driver batch report (``_surface_isrc_outcome``),
 including the manifest-id lock the driver's lookup depends on.
+Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
+``run_fingerprinting`` into the completion handler (PLAN D117).
 """
 
 import sys
 import tkinter as tk
 from pathlib import Path
+from queue import Queue
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -922,3 +925,119 @@ class TestProgressD3:
             "Processed: 4"
         )
         assert app.file_listbox.insert.call_args.args[1] == "song.mp3"
+
+
+# ---------------------------------------------------------------------------
+# Completion seam: the processor payload must reach the handler _run binds and
+# land in the report the run writes.
+# ---------------------------------------------------------------------------
+
+_HEADER = ["FINGERPRINT REPORT\n"]
+
+
+class TestCompletionSeam:
+    """``run_fingerprinting`` publishes into the handler ``_run`` binds."""
+
+    @staticmethod
+    def _wire(app: FingerprinterApp):
+        """Return the completion callable ``_run`` hands to the processor."""
+        return lambda **kw: app._on_complete(header=_HEADER, **kw)
+
+    @staticmethod
+    def _fake_worker(job) -> None:
+        """Stand in for the fpcalc+lookup worker, one outcome per file."""
+        from audio_fingerprinter.core.models import (
+            FingerprintFileResult,
+            FingerprintStatus,
+        )
+
+        outcomes = {
+            "a.mp3": FingerprintStatus.TAGGED,
+            "b.mp3": FingerprintStatus.NO_MATCH,
+            "c.mp3": FingerprintStatus.ERROR,
+        }
+        status = outcomes[job.filename]
+        job.results.append(
+            FingerprintFileResult(
+                file_path=job.filename,
+                filename=job.filename,
+                status=status,
+                message="detail" if status != FingerprintStatus.ERROR else "boom",
+            )
+        )
+        job.on_progress(1 if status == FingerprintStatus.ERROR else 0, f"[{status}]")
+
+    def test_the_real_payload_is_written(self, tmp_path: Path) -> None:
+        """Every published count reaches the report the handler writes."""
+        from audio_fingerprinter.core import file_processor
+        from audio_fingerprinter.core.models import FingerprintParams
+
+        for name in ("a.mp3", "b.mp3", "c.mp3"):
+            (tmp_path / name).write_bytes(b"")
+        app = TestOnCompleteSummary._make_app(tmp_path)
+
+        with (
+            patch.object(file_processor, "resolve_fpcalc", return_value="fpcalc"),
+            patch.object(file_processor, "_fingerprint_worker", self._fake_worker),
+        ):
+            file_processor.run_fingerprinting(
+                dir_path=str(tmp_path),
+                api_key="",
+                params=FingerprintParams(lookup_enabled=False, is_dry_run=True),
+                slot_vars=[MagicMock()],
+                slot_queue=Queue(),
+                on_progress=MagicMock(),
+                on_complete=self._wire(app),
+                on_error=MagicMock(),
+            )
+
+        report = (tmp_path / "fingerprint_dry_run_log.txt").read_text(encoding="utf-8")
+        assert "Total files: 3" in report
+        assert "Identified: 1" in report
+        assert "No match: 1" in report
+        assert "Tags written: 1" in report
+        assert "Lookup skipped: 0" in report
+        assert "Errors: 1" in report
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "total",
+            "processed",
+            "skipped",
+            "errors",
+            "duration_secs",
+            "log_entries",
+            "results",
+            "counts",
+        ],
+    )
+    def test_a_missing_field_raises_and_writes_no_report(
+        self, tmp_path: Path, field: str
+    ) -> None:
+        """A dropped field names itself and leaves no log behind."""
+        app = TestOnCompleteSummary._make_app(tmp_path)
+        payload: dict[str, Any] = {
+            "total": 3,
+            "processed": 2,
+            "skipped": 0,
+            "errors": 1,
+            "duration_secs": 1.0,
+            "log_entries": ["line\n"],
+            "results": [],
+            "counts": {
+                "identified": 1,
+                "no_match": 1,
+                "tagged": 1,
+                "lookup_skipped": 0,
+                "album_ambiguous": 0,
+                "errors": 1,
+            },
+        }
+        payload.pop(field)
+
+        with pytest.raises(TypeError) as caught:
+            self._wire(app)(**payload)
+
+        assert field in str(caught.value)
+        assert not (tmp_path / "fingerprint_dry_run_log.txt").exists()

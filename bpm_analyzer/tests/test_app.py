@@ -11,6 +11,8 @@ Changed in 1.4.0: covers the typed Workers count being capped at the slot grid
 
 Changed in 1.4.1: covers the out-of-band tempo count on all three surfaces -
 the log's SUMMARY block, the Results panel and the driver's run note (D109).
+Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
+``run_analysis`` into the completion handler (PLAN D117).
 """
 
 from __future__ import annotations
@@ -19,6 +21,8 @@ import logging
 import os
 import sys
 import tempfile
+from queue import Queue
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -820,3 +824,109 @@ class TestCompletionPayloadContract:
         assert "Outside BPM range: 1 of 12 tracks (band 75-175)" in report
         assert "Skipped: 1" in report
         assert "Errors: 1" in report
+
+
+# ---------------------------------------------------------------------------
+# Completion seam: the processor payload must reach the handler _run_analysis
+# binds and land in the report the run writes.
+# ---------------------------------------------------------------------------
+
+_HEADER = ["BPM ANALYSIS REPORT\n"]
+
+
+class TestCompletionSeam:
+    """``run_analysis`` publishes into the handler ``_run_analysis`` binds."""
+
+    @staticmethod
+    def _wire(app):
+        """Return the completion callable ``_run_analysis`` hands over."""
+        return lambda **kw: app._on_complete(header=_HEADER, **kw)
+
+    @staticmethod
+    def _fake_process_single_file(**kwargs: Any) -> None:
+        """Stand in for the per-file detector: one skip, one error, one
+        measurable tempo that fell outside the configured band."""
+        outcomes = {
+            "a.wav": {"n_skipped": 0, "n_errors": 0, "outside": True},
+            "b.wav": {"n_skipped": 1, "n_errors": 0, "outside": False},
+            "c.wav": {"n_skipped": 0, "n_errors": 1, "outside": False},
+        }
+        progress = kwargs["on_progress"]
+        outcome = outcomes[kwargs["name"]]
+        if outcome["outside"]:
+            kwargs["outside_range_files"].append(
+                {
+                    "filename": kwargs["name"],
+                    "bpm": 190,
+                    "min_bpm": kwargs["min_bpm"],
+                    "max_bpm": kwargs["max_bpm"],
+                }
+            )
+        progress(
+            n_skipped=outcome["n_skipped"],
+            n_errors=outcome["n_errors"],
+            display_text=kwargs["name"],
+            log_text=f"{kwargs['name']}\n",
+        )
+
+    def test_the_real_payload_is_written(self, tmp_path, monkeypatch) -> None:
+        """Every published count -- including the tool-specific band row --
+        reaches the report the handler writes."""
+        from bpm_analyzer.core import file_processor as core
+
+        for name in ("a.wav", "b.wav", "c.wav"):
+            (tmp_path / name).write_bytes(b"")
+        app = TestCompletionPayloadContract._app(tmp_path, monkeypatch)
+
+        with patch.object(
+            core,
+            "process_single_file",
+            side_effect=self._fake_process_single_file,
+        ):
+            core.run_analysis(
+                dir_path=str(tmp_path),
+                is_dry_run=True,
+                min_bpm=75,
+                max_bpm=175,
+                analysis_duration=10,
+                slot_vars=[MagicMock()],
+                slot_queue=Queue(),
+                on_progress=MagicMock(),
+                on_complete=self._wire(app),
+                on_error=MagicMock(),
+            )
+
+        report = open(app._log_path, encoding="utf-8").read()
+        assert "Total files: 3" in report
+        assert "Tagged/Analyzed: 1" in report
+        assert "Skipped: 1" in report
+        assert "Errors: 1" in report
+        assert "Outside BPM range: 1 of 3 tracks (band 75-175)" in report
+
+    @pytest.mark.parametrize(
+        "field",
+        ["total", "processed", "skipped", "errors", "duration_secs", "log_entries"],
+    )
+    def test_a_missing_field_raises_and_writes_no_report(
+        self, tmp_path, monkeypatch, field: str
+    ) -> None:
+        """A dropped field names itself and leaves no report behind."""
+        app = TestCompletionPayloadContract._app(tmp_path, monkeypatch)
+        payload: dict[str, Any] = {
+            "total": 3,
+            "processed": 3,
+            "skipped": 1,
+            "errors": 1,
+            "duration_secs": 1.0,
+            "log_entries": ["line\n"],
+            "skipped_files": [],
+            "error_files": [],
+            "outside_range_files": [],
+        }
+        payload.pop(field)
+
+        with pytest.raises(TypeError) as caught:
+            self._wire(app)(**payload)
+
+        assert field in str(caught.value)
+        assert not os.path.exists(app._log_path)

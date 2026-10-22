@@ -14,12 +14,18 @@ Changed in 1.4.1: the configured band chooses between octave-equivalent
 readings instead of rewriting the measurement. A 60 BPM pulse no longer becomes
 120 just because 60 is below the floor; a fold happens only when the onsets
 support the folded level (backlog P5 follow-up, PLAN D108).
+
+Changed in 2.0.0: the autocorrelation local is annotated with the dtype
+``np.correlate`` actually reports (``floating[Any]``) instead of the narrower
+``float64`` the installed numpy stubs no longer infer; the gate failed on the
+narrower annotation alone (no behaviour change).
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 import librosa
 import numpy as np
@@ -119,9 +125,9 @@ def _onset_periodicity(
     if energy <= 0.0:
         return 0.0
 
-    correlation: npt.NDArray[np.float64] = np.correlate(centred, centred, mode="full")[
-        len(centred) - 1 :
-    ]
+    correlation: npt.NDArray[np.floating[Any]] = np.correlate(
+        centred, centred, mode="full"
+    )[len(centred) - 1 :]
     normalised = correlation / correlation[0]
 
     lag = 60.0 / tempo_bpm * float(sr) / float(hop_length)
