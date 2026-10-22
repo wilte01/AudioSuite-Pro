@@ -1,10 +1,17 @@
-"""Music Format Converter card for Master Driver UI."""
+"""Music Format Converter card for Master Driver UI.
+
+Changed in 2.0.0: renders on the shared card shell instead of a hand-rolled
+copy of it, so its open Settings can span both Utilities columns
+(PLAN_feature_expansion.md D119).
+"""
 
 import tkinter as tk
 from tkinter import ttk
 from typing import TYPE_CHECKING, Callable, Optional
 
 from audio_suite_shared import styles
+
+from ._card_base import build_card_shell
 
 if TYPE_CHECKING:
     from ...state.app_state import AppState
@@ -16,38 +23,24 @@ def build(
     on_browse_output: "Callable[[], None]",
     on_toggle: "Optional[Callable[[], None]]" = None,
 ) -> None:
-    outer = tk.Frame(
+    def _body(body: tk.Frame) -> None:
+        _build_rows(body, state, on_browse_output)
+
+    build_card_shell(
         parent,
-        bg=styles.BG_LIGHT,
-        highlightbackground=styles.FG_SUB,
-        highlightthickness=1,
-    )
-    outer.pack(fill="x", pady=4, padx=2)
-
-    header = tk.Frame(outer, bg=styles.BG_LIGHT)
-    header.pack(fill="x", padx=8, pady=4)
-
-    tk.Checkbutton(
-        header,
-        variable=state.converter_toggle,
-        bg=styles.BG_LIGHT,
-        activebackground=styles.BG_LIGHT,
-        command=lambda: (
+        "Music Format Converter",
+        state.converter_toggle,
+        _body,
+        toggle_command=lambda: (
             on_toggle() if on_toggle and state.converter_toggle.get() else None
         ),
-    ).pack(side=tk.LEFT)
+    )
 
-    tk.Label(
-        header,
-        text="Music Format Converter",
-        font=styles.FONT_BODY,
-        bg=styles.BG_LIGHT,
-        fg=styles.FG_MAIN,
-    ).pack(side=tk.LEFT, expand=True, fill="x")
 
-    expand_var = tk.StringVar(value="▶  Settings")
-    expanded = [False]
-    body = tk.Frame(outer, bg=styles.BG_WHITE, padx=12, pady=8)
+def _build_rows(
+    body: tk.Frame, state: "AppState", on_browse_output: "Callable[[], None]"
+) -> None:
+    """Pack the converter's Settings rows into the shell's body frame."""
 
     # Detected format label
     state._converter_detected_label = tk.Label(
@@ -220,24 +213,4 @@ def build(
         font=styles.FONT_BUTTON,
         bg=styles.get_main(),
         fg="white",
-    ).pack(side=tk.RIGHT)
-
-    def _toggle() -> None:
-        if expanded[0]:
-            body.pack_forget()
-            expand_var.set("▶  Settings")
-        else:
-            body.pack(fill="x", padx=4, pady=(0, 4))
-            expand_var.set("▼  Settings")
-        expanded[0] = not expanded[0]
-
-    tk.Button(
-        header,
-        textvariable=expand_var,
-        font=styles.FONT_CAPTION,
-        bg=styles.BG_LIGHT,
-        fg=styles.FG_SUB,
-        relief=tk.FLAT,
-        cursor="hand2",
-        command=_toggle,
     ).pack(side=tk.RIGHT)

@@ -1,14 +1,22 @@
 """Undo Tag Edits card for the Master Driver UI.
 
 Unlike the batch tools in the Utilities tab, Undo Tag Edits is opened on
-demand and is never part of a batch run.  The card therefore shows a
-prominent ``Open Undo`` button instead of a module checkbox.
+demand and is never part of a batch run.  The card therefore shows no module
+checkbox; its collapsible body holds the description and the prominent
+``Open Undo`` button.
+
+Changed in 2.0.0: rendered on the shared card shell and collapsed by default.
+The three-line description used to sit outside any collapsible body, which
+made this the tallest card in the tab (131 px against 35 px) for a control
+opened between batches (PLAN_feature_expansion.md D119).
 """
 
 import tkinter as tk
 from typing import TYPE_CHECKING, Callable
 
 from audio_suite_shared import styles
+
+from ._card_base import build_card_shell
 
 if TYPE_CHECKING:
     from ...state.app_state import AppState
@@ -26,48 +34,33 @@ def build(
         state:  The shared driver app state (unused by this card).
         on_open: Callback that opens the Undo Tag Edits window.
     """
-    outer = tk.Frame(
-        parent,
-        bg=styles.BG_LIGHT,
-        highlightbackground=styles.FG_SUB,
-        highlightthickness=1,
-    )
-    outer.pack(fill="x", pady=4, padx=2)
 
-    body = tk.Frame(outer, bg=styles.BG_LIGHT, padx=12, pady=10)
-    body.pack(fill="x")
+    def _body(body: tk.Frame) -> None:
+        tk.Label(
+            body,
+            justify="left",
+            anchor="w",
+            wraplength=680,
+            text=(
+                "Restore the original tags of your audio files to the way they "
+                "were before a batch edit ran.  Every tag-editing tool in the "
+                "suite records a snapshot automatically, so you can undo a run "
+                "any time afterwards."
+            ),
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_SUB,
+        ).pack(anchor="w", pady=(0, 8))
 
-    tk.Label(
-        body,
-        text="Undo Tag Edits",
-        font=styles.FONT_TITLE,
-        bg=styles.BG_LIGHT,
-        fg=styles.FG_MAIN,
-    ).pack(anchor="w")
+        tk.Button(
+            body,
+            text="Open Undo",
+            font=styles.FONT_BUTTON,
+            bg=styles.get_main(),
+            fg="white",
+            relief=tk.RAISED,
+            cursor="hand2",
+            command=on_open,
+        ).pack(anchor="w", pady=(2, 2))
 
-    tk.Label(
-        body,
-        justify="left",
-        anchor="w",
-        wraplength=680,
-        text=(
-            "Restore the original tags of your audio files to the way they "
-            "were before a batch edit ran.  Every tag-editing tool in the "
-            "suite records a snapshot automatically, so you can undo a run "
-            "any time afterwards."
-        ),
-        font=styles.FONT_CAPTION,
-        bg=styles.BG_LIGHT,
-        fg=styles.FG_SUB,
-    ).pack(anchor="w", pady=(4, 8))
-
-    tk.Button(
-        body,
-        text="Open Undo",
-        font=styles.FONT_BUTTON,
-        bg=styles.get_main(),
-        fg="white",
-        relief=tk.RAISED,
-        cursor="hand2",
-        command=on_open,
-    ).pack(anchor="w", pady=(2, 2))
+    build_card_shell(parent, "Undo Tag Edits", None, _body)

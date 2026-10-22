@@ -12,6 +12,12 @@ files are specs over one ``build_simple_card()`` implementation
 Cards whose body content does not fit the declarative row types use
 :func:`build_card_shell`, which renders the shared outer/header/expand
 shell and delegates the body to a caller-supplied builder callback.
+
+Changed in 2.0.0: both shells report their body's open/closed state to an
+optional ``on_card_expand`` hook on the frame they are built into, so the
+Utilities tab can give the open card the full two-column width; and
+``build_card_shell`` can render without a module checkbox, which is what the
+Undo Tag Edits card needs (PLAN_feature_expansion.md D119).
 """
 
 from __future__ import annotations
@@ -29,6 +35,29 @@ if TYPE_CHECKING:
 
 _COLLAPSE_LABEL = "\u25b6  Settings"
 _EXPAND_LABEL = "\u25bc  Settings"
+
+#: Attribute a host frame exposes to learn that a card's body opened or closed.
+_EXPAND_HOOK_ATTR = "on_card_expand"
+
+
+def _expansion_hook(parent: tk.Misc) -> "Callable[[bool], None] | None":
+    """Return the host frame's expansion hook, or ``None`` when it has none.
+
+    The Utilities tab lays its cards out in a two-column grid and gives the
+    card whose Settings are open the full width, so it has to reflow when a
+    body opens or closes.  The hook lives on the frame the card is built into
+    rather than in a parameter, so all thirty card files keep the same
+    ``build(parent, state)`` signature they are discovered by.
+
+    Args:
+        parent: The frame the card was told to build into.
+
+    Returns:
+        A callable taking the new open state, or ``None`` for a plain frame
+        (the card then behaves exactly as before).
+    """
+    hook = getattr(parent, _EXPAND_HOOK_ATTR, None)
+    return hook if callable(hook) else None
 
 
 # ── Body-row spec records ─────────────────────────────────────────────────────
@@ -247,13 +276,17 @@ def build_simple_card(
             ).pack(side=tk.LEFT)
 
     def _toggle() -> None:
-        if expanded[0]:
-            body.pack_forget()
-            expand_var.set(_COLLAPSE_LABEL)
-        else:
+        is_open = not expanded[0]
+        if is_open:
             body.pack(fill="x", padx=4, pady=(0, 4))
             expand_var.set(_EXPAND_LABEL)
-        expanded[0] = not expanded[0]
+        else:
+            body.pack_forget()
+            expand_var.set(_COLLAPSE_LABEL)
+        expanded[0] = is_open
+        hook = _expansion_hook(parent)
+        if hook is not None:
+            hook(is_open)
 
     tk.Button(
         header,
@@ -292,8 +325,10 @@ def _pack_plain_label(frame: tk.Frame, text: str) -> None:
 def build_card_shell(
     parent: tk.Frame,
     title: str,
-    toggle_var: tk.BooleanVar,
+    toggle_var: tk.BooleanVar | None,
     body_builder: "Callable[[tk.Frame], None]",
+    *,
+    toggle_command: "Callable[[], None] | None" = None,
 ) -> None:
     """Render the shared collapsible card shell and delegate body content.
 
@@ -305,8 +340,12 @@ def build_card_shell(
     Args:
         parent: Parent frame for the card's outer frame.
         title:  Header title text.
-        toggle_var: The ``tk.BooleanVar`` bound to the header Checkbutton.
+        toggle_var: The ``tk.BooleanVar`` bound to the header Checkbutton, or
+            ``None`` for a card that is not part of a batch run (Undo Tag
+            Edits is opened on demand, so it has no module toggle).
         body_builder: Callback that populates the collapsible body frame.
+        toggle_command: Optional callback for the header Checkbutton, run after
+            the variable has changed (the converter re-scans its folder).
     """
     outer = tk.Frame(
         parent,
@@ -319,12 +358,16 @@ def build_card_shell(
     header = tk.Frame(outer, bg=styles.BG_LIGHT)
     header.pack(fill="x", padx=8, pady=4)
 
-    tk.Checkbutton(
-        header,
-        variable=toggle_var,
-        bg=styles.BG_LIGHT,
-        activebackground=styles.BG_LIGHT,
-    ).pack(side=tk.LEFT)
+    if toggle_var is not None:
+        toggle = tk.Checkbutton(
+            header,
+            variable=toggle_var,
+            bg=styles.BG_LIGHT,
+            activebackground=styles.BG_LIGHT,
+        )
+        if toggle_command is not None:
+            toggle.configure(command=toggle_command)
+        toggle.pack(side=tk.LEFT)
 
     tk.Label(
         header,
@@ -341,13 +384,17 @@ def build_card_shell(
     body_builder(body)
 
     def _toggle() -> None:
-        if expanded[0]:
-            body.pack_forget()
-            expand_var.set(_COLLAPSE_LABEL)
-        else:
+        is_open = not expanded[0]
+        if is_open:
             body.pack(fill="x", padx=4, pady=(0, 4))
             expand_var.set(_EXPAND_LABEL)
-        expanded[0] = not expanded[0]
+        else:
+            body.pack_forget()
+            expand_var.set(_COLLAPSE_LABEL)
+        expanded[0] = is_open
+        hook = _expansion_hook(parent)
+        if hook is not None:
+            hook(is_open)
 
     tk.Button(
         header,

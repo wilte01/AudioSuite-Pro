@@ -132,6 +132,18 @@ Versions of the tools are released together with the suite (the single
 
 ### Changed
 
+- **The Master Driver's UTIL tab fits the window again.** Seventeen utility
+  cards in one column needed 930 px of content in a 778 px viewport at the
+  saved window size, so the last four cards and the LAUNCH button sat below the
+  fold and every new tool pushed them further down. The cards now sit in two
+  weighted columns — nine rows, 385 px of content at the same size — and the
+  card whose Settings are open spans both columns while the cards after it
+  reflow behind it. The LAUNCH button is pinned below the scrolling area, so
+  the tab's primary action no longer has to be scrolled to. Undo Tag Edits, the
+  one card that was never a batch tool, was 131 px because its three-line
+  description sat outside any collapsible body; it is now a normal collapsed
+  card with that text inside its Settings.
+
 - **The ML stack is an opt-in `ml` extra, and its real-model paths are opt-in
   tests.** Demucs and its torch dependency resolve for 3.11, 3.12 and 3.14, but
   the Linux torch wheel set is 2–3 GB and no other tool needs it, so
