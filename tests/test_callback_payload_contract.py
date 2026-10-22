@@ -2,6 +2,7 @@
 
 Changed in 1.4.1: initial version, the cross-tool lock for the completion seam.
 Changed in 1.4.1: extended to the progress and error seams, one rule per seam.
+Changed in 2.0.0: registers ``stem_separator`` (Sprint 6, Item 6.1).
 
 The processor owns the payloads of the three callbacks it takes, and each GUI
 handler mirrors them by hand, so the two drift independently.  Two shipped
@@ -73,6 +74,7 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
         ("music_format_converter/app.py", "MusicFormatConverterApp"),
         ("replaygain_analyzer/app.py", "ReplayGainAnalyzerApp"),
         ("silence_trimmer/app.py", "SilenceTrimmerApp"),
+        ("stem_separator/app.py", "StemSeparatorApp"),
         ("tempo_analyzer/app.py", "TempoAnalyzerApp"),
     }
 )

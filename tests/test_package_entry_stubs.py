@@ -21,6 +21,9 @@ must execute in the suite:
 - ``tag_field_updater/__main__.py`` *does* parse argv (argparse
   ``--directory``), so its ``--help``/default/``--directory`` contracts are
   tested directly.
+
+Changed in 2.0.0: adds ``stem_separator`` to the first-party module set the
+exec probe restores (Sprint 6, Item 6.1).
 """
 
 from __future__ import annotations
@@ -101,6 +104,7 @@ _FIRST_PARTY: tuple[str, ...] = (
     "pop_click_remover",
     "replaygain_analyzer",
     "silence_trimmer",
+    "stem_separator",
     "tag_editor",
     "tag_field_updater",
     "tempo_analyzer",

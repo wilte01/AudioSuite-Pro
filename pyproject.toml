@@ -85,6 +85,16 @@ cd-ripping = [
 analysis = [
     "librosa>=0.10.0",
 ]
+# Changed in 2.0.0: the optional ML stack.  Deliberately a separate extra, not
+# a dependency: torch is ~2-3 GB on Linux (the nvidia-* wheel set) and the
+# suite's other 28 tools must stay installable without it (PLAN_feature_
+# expansion.md D115).  CI does not install this extra; the real-model paths are
+# opt-in behind the ``real_ml`` marker and the default suite runs against a
+# mocked engine.
+ml = [
+    "demucs>=4.1.0",
+    "pyrnnoise>=0.4.5",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -106,6 +116,17 @@ dev = [
     # of dev because nothing parsed docstrings; the gate is that nothing.
     "sphinx>=8.2",
 ]
+
+[tool.uv]
+# Changed in 2.0.0: demucs 4.1.0 declares `torch>=2.1,<2.3` for Intel macOS, a
+# release whose wheels stop at CPython 3.12.  In a universal lock uv applies
+# that platform's cap to every split, so `ml` resolved torch==2.2.2 for ALL
+# platforms and `uv sync --extra ml` failed on 3.13/3.14 with "no wheel with a
+# matching Python ABI tag" (measured on CPython 3.14.9).  torch is verified
+# working with demucs on 2.14.1 (PLAN_feature_expansion.md D116), so the cap is
+# overridden rather than allowed to pin the whole suite to a 2024 wheel.  ML on
+# Intel macOS is consequently unsupported; every other tool is unaffected.
+override-dependencies = ["torch>=2.9"]
 
 [tool.bandit]
 # B404 (import subprocess) is skipped by policy: the import itself carries no
@@ -267,6 +288,7 @@ testpaths = [
     "replaygain_analyzer/tests",
     "silence_trimmer/tests",
     "spectral_viewer/tests",
+    "stem_separator/tests",
     "tag_editor/tests",
     "tag_field_updater/tests",
     "tempo_analyzer/tests",
@@ -275,9 +297,10 @@ testpaths = [
 markers = [
     "integration: marks tests that require ffmpeg and real audio files. They run by default wherever ffmpeg/ffprobe are found (CI installs ffmpeg, plan A4); where a binary is missing the root conftest auto-skips each integration test with a reason naming the missing executable.",
     "hardware: marks tests that require physical CD drive hardware and the Win32 drive API. They are deselected by default (addopts runs pytest -m \"not hardware\") and never run in CI; the documented opt-in is `pytest -m hardware` (CONTRIBUTING, plan E2).",
+    "real_ml: marks tests that download and run a real ML model (Demucs, RNNoise) and therefore need the `ml` extra. Deselected by default alongside `hardware`; the documented opt-in is `pytest -m real_ml` (PLAN_feature_expansion.md D115).",
     "gui: marks tests that genuinely require a graphical display. Skipped with an attributable reason on a headless host; for tests that need a real Tk root without using the shared root/tk_root fixture.",
 ]
-addopts = '--strict-markers -ra -m "not hardware" --cov --cov-report=term-missing'
+addopts = '--strict-markers -ra -m "not hardware and not real_ml" --cov --cov-report=term-missing'
 filterwarnings = [
     # pydub 0.25.1 (latest on PyPI) ships lazy invalid-escape regexes in
     # utils.py that emit SyntaxWarning on Python 3.14 — otherwise masked
@@ -326,6 +349,7 @@ source = [
     "replaygain_analyzer",
     "silence_trimmer",
     "spectral_viewer",
+    "stem_separator",
     "tag_editor",
     "tag_field_updater",
     "tempo_analyzer",

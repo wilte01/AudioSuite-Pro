@@ -30,6 +30,9 @@ positional - because Click rejects the invocation before any body runs.
 
 Changed in 1.4.1: added for S5-1 (PLAN D91), extended for ``doctor`` (D93) and
 ``cue generate`` (D95).
+
+Changed in 2.0.0: adds the ``stems`` case with the Stem Separator's schema
+entry (Sprint 6, Item 6.1).
 """
 
 from __future__ import annotations
@@ -92,6 +95,9 @@ _USAGE_CASES: dict[str, dict[str, list[str]]] = {
     "silence-trim": {"missing": [], "invalid": [MISSING_PATH]},
     "spectrogram": {"missing": [], "invalid": [MISSING_PATH]},
     "stats": {"missing": [], "invalid": [LIBRARY, "--detail", "bogus"]},
+    # ``stems`` requires ``--output-dir``, so the bare invocation is already a
+    # usage error; ``--model`` is a Choice, rejected before the body runs.
+    "stems": {"missing": [], "invalid": [LIBRARY, "--model", "bogus"]},
     "tag-edit": {"missing": [], "invalid": [MISSING_PATH]},
     "tag-update": {"missing": [], "invalid": [MISSING_PATH]},
     "tempo": {"missing": [], "invalid": [MISSING_PATH]},

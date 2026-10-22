@@ -17,6 +17,8 @@ that runs after analysis, because it only reads what the analyzers wrote.
 Changed in 1.4.1: ``BatchProgress.verdict`` derives one closing line from every
 step note, so a long batch can be judged from one line instead of from each
 step's line (PLAN D110).
+Changed in 2.0.0: adds ``stem_separator`` to the dependency graph as a leaf
+(Sprint 6, Item 6.1).
 """
 
 from __future__ import annotations
@@ -251,6 +253,7 @@ DEPENDENCY_GRAPH: dict[str, list[str]] = {
     "pop_click_remover": [],
     "tag_field_updater": [],
     "silence_trimmer": [],
+    "stem_separator": [],
     "tag_editor": [],
 }
 

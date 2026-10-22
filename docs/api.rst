@@ -119,6 +119,9 @@ Analysis
 .. automodule:: audio_suite_shared.exceptions
    :members:
 
+.. automodule:: audio_suite_shared.gpu_utils
+   :members:
+
 Audio formats and DSP
 ---------------------
 

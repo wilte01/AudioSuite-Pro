@@ -86,6 +86,10 @@ Changed in 1.4.1: records why there is no streaming mode (PLAN D101).
 Changed in 1.4.1: BPM publishes ``outside_range_files`` - the tempos it
 measured outside the configured band and tagged as measured - so a run
 summary can count them without parsing the log (D109).
+Changed in 2.0.0: ``stems`` joins the contract with the separator's
+``separated``/``files_written``/``output_dir``/``device`` fields, so a script
+can tell how many tracks were split and where the stems landed
+(PLAN_feature_expansion.md Item 6.1).
 
 One document per run, deliberately
 ----------------------------------
@@ -164,6 +168,7 @@ TOOL_IDS: Final[Mapping[str, str]] = {
     "silence-trim": "silence_trimmer",
     "spectrogram": "spectral_viewer",
     "stats": "library_stats",
+    "stems": "stem_separator",
     "tag-edit": "tag_editor",
     "tag-update": "tag_field_updater",
     "tempo": "tempo",
@@ -279,6 +284,12 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
         "written": int,
         "images": list,
         "error_messages": list,
+    },
+    "stems": {
+        "separated": int,
+        "files_written": int,
+        "output_dir": str,
+        "device": str,
     },
     "cd-rip": {
         "drive": str,

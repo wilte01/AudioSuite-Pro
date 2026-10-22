@@ -61,6 +61,9 @@ Usage::
                            [--fade-in 25] [--fade-out 25] [--dry] [--json]
     audiosuite enhance /path/to/dir --output-dir DIR [--preset Moderate]
                            [--dry] [--json]
+    audiosuite stems /path/to/dir --output-dir DIR [--model htdemucs]
+                           [--stems vocals,drums,bass,other] [--mix]
+                           [--device auto] [--dry] [--json]
     audiosuite cd-rip <drive> --output-dir DIR [--format flac] [--tracks N]
                            [--cue] [--verify twice] [--detect-read-offset]
                            [--dry] [--json]
@@ -110,6 +113,10 @@ Changed in 1.4.0: command registration is data-driven and tolerant - a missing
 tool module prints the stale-install diagnosis from ``runtime_check`` (naming
 ``uv run audiosuite``) and leaves the other commands, plus ``doctor``, usable
 instead of dying with a bare traceback.
+Changed in 2.0.0: registers and documents ``stems``, the ML stem separator
+(PLAN_feature_expansion.md Item 6.1).  It is registered like any other command:
+without the ``ml`` extra it fails with a named missing dependency rather than
+at import time, so ``audiosuite --help`` stays complete on a CPU-only install.
 """
 
 from __future__ import annotations
@@ -158,6 +165,7 @@ _TOOL_CLI_MODULES: tuple[tuple[str, str], ...] = (
     ("replaygain_analyzer.cli", "replaygain"),
     ("silence_trimmer.cli", "silence-trim"),
     ("spectral_viewer.cli", "spectrogram"),
+    ("stem_separator.cli", "stems"),
     ("tag_editor.cli", "tag-edit"),
     ("tag_field_updater.cli", "tag-update"),
     ("tempo_analyzer.cli", "tempo"),

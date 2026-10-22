@@ -26,6 +26,11 @@ unattended launch logs the clamp instead of showing a dialog (D70).
 Changed in 1.4.1: the ``Returns:`` blocks of ``build_results_tab`` and
 ``build_processing_tab`` are literal blocks, so napoleon renders the widget
 dictionaries instead of a broken definition list (backlog P2).
+
+Changed in 2.0.0: ``path_row``'s parent annotation widens from ``tk.Frame`` to
+``tk.Misc`` (type-only).  A ``LabelFrame`` is a valid master and every widget
+``path_row`` builds accepts one, so the Stem Separator can put its output
+picker inside a configuration group without an extra nesting frame.
 """
 
 import json
@@ -202,7 +207,7 @@ def build_results_tab(
 
 
 def path_row(
-    parent: tk.Frame, label: str, var: tk.StringVar, on_browse: Callable[[], None]
+    parent: tk.Misc, label: str, var: tk.StringVar, on_browse: Callable[[], None]
 ) -> None:
     """Standard label + entry + browse button row."""
     tk.Label(

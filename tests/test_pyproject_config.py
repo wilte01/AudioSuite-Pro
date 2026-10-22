@@ -9,15 +9,24 @@ CI skips hardware tests when it does not. D1 pins the contract at three
 layers, so it cannot silently rot back to "everything runs":
 
 1. *Configuration lock* — ``pyproject.toml``'s ``addopts`` deselects
-   ``hardware`` by default and the marker descriptions state the contracts.
+   ``hardware`` (and, since 2.0.0, ``real_ml``) by default and the marker
+   descriptions state the contracts.
 2. *Full-tree collection contract* — a subprocess runs the real pytest
-   configuration: the default run deselects exactly the hardware set, the
-   documented opt-in ``pytest -m hardware`` restores it, and every
-   integration test is collected by the default run.
+   configuration: the default run deselects exactly the opt-in sets
+   (``hardware`` and, since 2.0.0, ``real_ml``), each documented opt-in
+   ``pytest -m <marker>`` restores its own set, and every integration test is
+   collected by the default run.
 3. *Behaviour lock* — against a byte-copy of the real root ``conftest.py``
    (the ``pytester`` technique used by ``tests/test_conftest.py``): the
    missing-ffmpeg auto-skip fires per integration test with a reason naming
    the missing executables, and a plain test beside it still runs.
+
+Changed in 2.0.0: the configuration lock reads the ``-m`` expression and
+asserts both opt-in markers are deselected (``real_ml`` joins ``hardware``,
+PLAN D115) instead of pinning the old whole-string form.  The full-tree
+contract gains a ``real_ml`` view for the same reason: the default run now
+deselects the union of the two opt-in sets, and the overlap check is
+parametrised over both markers.
 """
 
 from __future__ import annotations
@@ -175,10 +184,21 @@ class TestConfigLock:
         assert isinstance(addopts, str)
         return addopts
 
-    def test_addopts_deselects_hardware_by_default(self) -> None:
+    def test_addopts_deselects_the_opt_in_markers_by_default(self) -> None:
+        """Every opt-in marker is out of the default run, whatever the wording.
+
+        ``hardware`` was the only opt-in marker until 2.0.0 added ``real_ml``
+        for the Demucs/RNNoise paths (PLAN D115).  Parsing the ``-m``
+        expression rather than pinning the whole literal keeps the lock on
+        what it is for - each opt-in marker is deselected - and lets the
+        expression grow without weakening it.
+        """
         addopts = self._addopts()
-        assert ' -m "not hardware"' in addopts
         assert "--strict-markers" in addopts
+        assert ' -m "' in addopts
+        expression = addopts.split(' -m "', 1)[1].split('"', 1)[0]
+        assert "not hardware" in expression
+        assert "not real_ml" in expression
 
     def test_hardware_marker_states_the_opt_in(self) -> None:
         description = self._marker_description("hardware")
@@ -342,6 +362,7 @@ def tree_views() -> dict[str, dict[str, object]]:
     for key, extra in (
         ("default", ()),
         ("hardware", ("-m", "hardware")),
+        ("real_ml", ("-m", "real_ml")),
         ("integration", ("-m", "integration")),
     ):
         ids, stdout = _collect_tree(*extra)
@@ -357,32 +378,44 @@ class TestFullTreeContract:
     lock intact while silently un-filtering the default run fails it.
     """
 
-    def test_the_default_run_deselects_exactly_the_hardware_set(
+    def test_the_default_run_deselects_exactly_the_opt_in_sets(
         self, tree_views: dict[str, dict[str, object]]
     ) -> None:
+        """Default deselects every opt-in marker's tests, and nothing else.
+
+        2.0.0 added ``real_ml`` (PLAN D115), so the contract is the union of
+        the opt-in sets rather than the hardware set alone.
+        """
         default_stdout = tree_views["default"]["stdout"]
         assert isinstance(default_stdout, str)
         summary = _summary_numbers(default_stdout)
         hardware_ids = tree_views["hardware"]["ids"]
+        real_ml_ids = tree_views["real_ml"]["ids"]
         assert isinstance(hardware_ids, list)
+        assert isinstance(real_ml_ids, list)
 
         assert summary["collected"] + summary["deselected"] == summary["total"]
-        assert summary["deselected"] == len(hardware_ids), (
-            "the default deselect set and the hardware opt-in set must be the same size"
+        assert summary["deselected"] == len(hardware_ids) + len(real_ml_ids), (
+            "the default deselect set and the opt-in sets must be the same size"
         )
         assert all(node.startswith("cd_ripper/tests/") for node in hardware_ids), (
             "hardware tests live in the CD-ripper suite only"
         )
+        assert real_ml_ids, "the real_ml opt-in collected nothing"
+        assert all(node.startswith("stem_separator/tests/") for node in real_ml_ids), (
+            "real_ml tests live in the stem-separator suite only"
+        )
 
-    def test_the_hardware_set_never_runs_in_the_default_session(
-        self, tree_views: dict[str, dict[str, object]]
+    @pytest.mark.parametrize("marker", ["hardware", "real_ml"])
+    def test_the_opt_in_sets_never_run_in_the_default_session(
+        self, tree_views: dict[str, dict[str, object]], marker: str
     ) -> None:
         default_ids = tree_views["default"]["ids"]
-        hardware_ids = tree_views["hardware"]["ids"]
-        assert isinstance(default_ids, list) and isinstance(hardware_ids, list)
-        overlap = set(default_ids) & set(hardware_ids)
+        opt_in_ids = tree_views[marker]["ids"]
+        assert isinstance(default_ids, list) and isinstance(opt_in_ids, list)
+        overlap = set(default_ids) & set(opt_in_ids)
         assert not overlap, (
-            "hardware tests must be deselected by default; "
+            f"{marker} tests must be deselected by default; "
             f"{len(overlap)} were not: {sorted(overlap)[:5]}"
         )
 

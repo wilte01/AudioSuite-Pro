@@ -20,6 +20,8 @@ the first tool whose manifest is a read-only utility that writes images rather
 than tags.
 Changed in 1.4.1: the usage block is literal, so the generated API reference
 renders it as code rather than a definition list (PLAN D98).
+Changed in 2.0.0: registers the ``stem_separator`` manifest, the suite's first
+optional-dependency (``ml`` extra) tool (PLAN_feature_expansion.md Item 6.1).
 """
 
 from __future__ import annotations
@@ -399,6 +401,16 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="silence-trim",
         standalone=True,
         order=46,
+    ),
+    ToolManifest(
+        id="stem_separator",
+        name="Stem Separator",
+        category="utility",
+        pyw_filename="Stem_Separator.pyw",
+        description="Separate tracks into vocals, drums, bass and other stems",
+        cli_command="stems",
+        standalone=True,
+        order=48,
     ),
     ToolManifest(
         id="tag_editor",

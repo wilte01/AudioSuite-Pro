@@ -63,7 +63,7 @@ The matrix below is **generated from the declared classification** in
 #### Tool tiers
 
 * **Windows-only** — `cd_ripper`. The CD subsystem it drives (Win32 SCSI pass-through, drive enumeration) has no portable implementation; the tool fails fast with a named missing requirement rather than degrading silently.
-* **Portable core** — the other 27 of 28 tools. Each has no platform-conditional code in its own package at all, so its non-Windows CLI path is the same code path as on Windows.
+* **Portable core** — the other 28 of 29 tools. Each has no platform-conditional code in its own package at all, so its non-Windows CLI path is the same code path as on Windows.
 
 #### Branch enumeration
 
@@ -127,6 +127,15 @@ Without `uv`, the equivalent is:
 
 ```
 python -m pip install -e ".[dev,analysis,cd-ripping]"
+```
+
+The Stem Separator needs an optional fourth extra, `ml`, which pulls Demucs and
+torch (2–3 GB on Linux because of the CUDA wheel set, hence not a base
+dependency). Nothing else in the suite uses it, and without it the tool still
+opens, validates a run and completes a dry run:
+
+```
+uv sync --extra dev --extra analysis --extra cd-ripping --extra ml
 ```
 
 ### One-command smoke test
@@ -209,6 +218,7 @@ The table below is **generated from the tool manifest**
 | Tag Field Updater | Scan and update tag fields | `Tag_Field_Updater.pyw` | `user_guides/individual_programs/tag_field_updater/Tag_Field_Updater_User_Guide.docx` | Portable core |
 | Silence Trimmer | Trim silence and optionally apply fades | `Silence_Trimmer.pyw` | `user_guides/individual_programs/silence_trimmer/Silence_Trimmer_User_Guide.docx` | Portable core |
 | Tag Editor | Edit common tags in an interactive grid | `Tag_Editor.pyw` | `user_guides/individual_programs/tag_editor/Tag_Editor_User_Guide.docx` | Portable core |
+| Stem Separator | Separate tracks into vocals, drums, bass and other stems | `Stem_Separator.pyw` | `user_guides/individual_programs/stem_separator/Stem_Separator_User_Guide.docx` | Portable core |
 | Library Statistics Dashboard | Read-only tag statistics dashboard | `Library_Stats.pyw` | `user_guides/individual_programs/library_stats/Library_Stats_User_Guide.docx` | Portable core |
 | Spectral Viewer | Render and export FFT spectrograms | `Spectral_Viewer.pyw` | `user_guides/individual_programs/spectral_viewer/Spectral_Viewer_User_Guide.docx` | Portable core |
 | Tag-Based File Reorganizer | Move/copy files into a tag-based folder hierarchy | `File_Reorganizer.pyw` | `user_guides/individual_programs/file_reorganizer/File_Reorganizer_User_Guide.docx` | Portable core |

@@ -1,6 +1,7 @@
 """Tests for the README tool index and its cross-surface registration.
 
 Changed in 1.3.0: the metadata lock now expects 28 tool rows (Spectral Viewer).
+Changed in 2.0.0: the metadata lock now expects 29 tool rows (Stem Separator).
 
 Plan iteration 5, item E1 (audit #10): the README's tool index must be
 generated from the tool manifest instead of hand-maintained rows that drift
@@ -111,7 +112,7 @@ class TestIndexGeneration:
 class TestMetadataLock:
     """The distribution metadata ships the README and its index is whole."""
 
-    def test_pyproject_ships_the_readme_and_28_tool_rows(self) -> None:
+    def test_pyproject_ships_the_readme_and_29_tool_rows(self) -> None:
         from audio_suite_shared.tool_plugin import get_registry
 
         with (REPO_ROOT / "pyproject.toml").open("rb") as fh:
@@ -121,7 +122,7 @@ class TestMetadataLock:
         declared_readme = project.get("readme")
         assert declared_readme == "README.md", "pyproject.toml must ship the README"
         assert declared_readme == README.name
-        assert len(get_registry().all) == 28
+        assert len(get_registry().all) == 29
 
 
 class TestRegistrationLock:

@@ -6,6 +6,8 @@ manifest definitions.
 
 Changed in 1.3.0: the expected sets add the ``spectral_viewer`` manifest
 (Sprint 3, D42).
+Changed in 2.0.0: the expected sets add the ``stem_separator`` manifest and
+its ``stems`` command (Sprint 6, Item 6.1).
 """
 
 from audio_suite_shared.exceptions import AudioConfigurationError
@@ -165,7 +167,7 @@ class TestDefaultRegistry:
     def test_registry_is_populated(self):
         r = get_registry()
         assert len(r) >= 16  # all first-party tools
-        assert len(r) == 28  # 11 enrich + 16 utility + 1 refinery
+        assert len(r) == 29  # 11 enrich + 17 utility + 1 refinery
 
     def test_has_all_enrich_tools(self):
         r = get_registry()
@@ -205,6 +207,7 @@ class TestDefaultRegistry:
             "pop_click_remover",
             "silence_trimmer",
             "spectral_viewer",
+            "stem_separator",
         }
         assert ids == expected
 
@@ -243,6 +246,7 @@ class TestDefaultRegistry:
             "declick",
             "silence-trim",
             "spectrogram",
+            "stems",
             # Plan G2: the CLI subcommand is `refine`, and the manifest now
             # says so instead of leaving audio_refinery CLI-less by omission.
             "refine",
@@ -268,6 +272,7 @@ class TestDefaultRegistry:
             "pop_click_remover",
             "silence_trimmer",
             "spectral_viewer",
+            "stem_separator",
         }
         assert standalone == expected
 

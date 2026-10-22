@@ -1,6 +1,8 @@
 """Every GUI tool's completion handler must fail loudly when a field it needs is gone.
 
 Changed in 1.4.1: added, one seam case per GUI tool plus the frozen field table.
+Changed in 2.0.0: the table covers 15 GUI tools; ``stem_separator`` joins it
+with its separated/files-written/output/device fields (Sprint 6, Item 6.1).
 
 The completion seam deliberately tolerates unknown fields (``**_extra``, see
 ``tests/test_callback_payload_contract.py``), so a processor that renames a
@@ -194,6 +196,20 @@ EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
             "log_entries",
         }
     ),
+    "StemSeparatorApp": frozenset(
+        {
+            "total",
+            "processed",
+            "separated",
+            "files_written",
+            "skipped",
+            "errors",
+            "duration_secs",
+            "log_entries",
+            "output_dir",
+            "device",
+        }
+    ),
     "TempoAnalyzerApp": frozenset(
         {
             "header",
@@ -244,7 +260,7 @@ def _required(fn: Any) -> set[str]:
 
 def test_the_seam_table_covers_every_gui_tool() -> None:
     """A partial table would leave tools silently untested."""
-    assert len(COMPLETION_WIRINGS) == 14
+    assert len(COMPLETION_WIRINGS) == 15
     assert set(EXPECTED_REQUIRED) == set(COMPLETION_WIRINGS)
 
 

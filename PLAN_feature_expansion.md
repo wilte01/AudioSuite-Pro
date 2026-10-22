@@ -1428,6 +1428,76 @@ Gate on the completed item: `compileall` clean, `ruff check`/`ruff format
 - Document new dependency in INSTALLATION.md
 - CHANGELOG.md: Major version note for stem separation
 
+**Execution record (2026-10-22): COMPLETE.** `stem_separator/` ships as the
+suite's 29th tool: GUI `Stem_Separator.pyw`, CLI `audiosuite stems`, a Master
+Driver UTIL card, a user guide, and full registration (manifest, card, CLI,
+arg builder, orchestrator graph, driver state, pyproject `testpaths` +
+coverage, callback contract, `EXPECTED_PUBLISHERS`). The engine is
+`demucs.api.Separator` behind a lazy import, decoded once per file through
+pydub and resampled to the model's 44.1 kHz stereo before separation; slices
+are written as 16-bit WAV under `<output>/<track>/` with an optional
+`mix.wav`. The source files are never modified, so the tool records no undo
+snapshot. `audio_suite_shared/gpu_utils.py` (Item 6.3's utility) is introduced
+here and reports only what torch measured, because the PyPI Windows wheel is a
+CPU build.
+
+Measured end to end in a scratch venv with the real extra
+(`demucs==4.1.0`, `torch==2.14.1+cpu`, `pyrnnoise==0.4.5`, CPython 3.14.9,
+Windows), not against a mock: a 2 s 110 Hz + 440 Hz mix separated through
+`audiosuite stems --device cpu` in **4.3 s** and wrote four 2000 ms stereo
+44.1 kHz stems. Decoded per-stem RMS: source 0.0442, `bass` 0.0449 (the 110 Hz
+tone), `vocals` 0.00004, `drums` 0.00025, `other` 0.0007 — a tone is not a
+vocal, and the sum of the stems reconstructs the source to an RMS error of
+0.0009 (2%). The same run in the suite's own environment, which has no extra,
+exits 1 with `"error": "Demucs is not installed … Install the 'ml' extra"`,
+while `--dry` exits 0, reports the plan, and creates no per-track folder. The
+scratch venv and its run directory were deleted afterwards.
+
+Defects and gaps the item closed rather than deferred:
+
+* **D118 — the lock needed a torch override.** demucs 4.1.0 declares
+  `torch>=2.1,<2.3` for Intel macOS; in a universal lock uv applies that cap
+to every split, so `ml` resolved torch 2.2.2 for all platforms and a 3.14 leg
+  could not install it (no matching ABI wheel). `[tool.uv]
+override-dependencies = ["torch>=2.9"]` pins the graph to the version D116
+  verified working with demucs; ML on Intel macOS is knowingly unsupported and
+the rest of the suite is unaffected. Verified: `uv lock --check` clean and
+`uv pip install "demucs>=4.1.0" "pyrnnoise>=0.4.5"` resolves and imports on
+  CPython 3.14.9.
+* **The `real_ml` marker had no test to select.** D115 defined the marker and
+  the CHANGELOG promised `pytest -m real_ml`, but nothing carried it, so the
+  promise was empty. `TestRealModel` in
+  `stem_separator/tests/test_demucs_engine.py` is that test: it separates a
+  real 2 s tone and asserts the decoded PCM level of the written stem against
+  the model's own RMS (and that it is below the source's). Passed in the
+  scratch venv against real Demucs in 9.0 s; deselected by default (verified:
+  `65 passed, 1 deselected`).
+* **An empty argument list was being decorated into a launchable one.**
+  `build_utility_args` appended the driver display flags to every
+  non-enhancer tool, so the Stem Separator's "cannot run without an output
+  folder or a stem" `[]` reached the runner as
+  `["--no-clear-logs", "--no-parallel-run"]` — a launch with no directory.
+  The flags are now appended only to a non-empty list; the Audio Enhancer's
+  documented behaviour was already correct and is unchanged.
+* **Registration locks that counted 28 tools** (registry, CLI help,
+  portable-core set, undo display names), the usage-error table, and the
+  `addopts` lock all had to move with the new tool; the `addopts` lock now
+  reads the `-m` expression and asserts *both* opt-in markers are deselected,
+  instead of pinning the old literal form.
+* `Album Art Normalizer`-class type drift: `path_row`'s parent is annotated
+  `tk.Misc` (type-only) so a `LabelFrame` group is a legal master, and the
+  saved output folder is narrowed with `isinstance(..., str)` before it
+  reaches a `StringVar`.
+
+Gate on the completed item: `compileall` clean, `ruff check` /
+`ruff format --check` clean (911 files), bare `mypy .` clean (518 files),
+bandit 0 High / 0 Medium, bare `pytest` **10,556 passed, 3 skipped,
+31 deselected**, coverage 90.52% (floor 75). The five failures the full runs
+surfaced (usage-error table, `addopts` lock, two arg-builder cases, and the
+full-tree deselect count) were fixed in the item, not filtered out; the last of
+them is why the full-tree contract now collects a `real_ml` view and compares
+the default deselect set against the union of both opt-in sets.
+
 #### Item 6.2: ML-Powered Denoising
 
 **New Package:** `ml_denoiser/` (or integrate into existing `noise_reduction/`)
@@ -1540,6 +1610,8 @@ worktree was left clean (`git status --porcelain` empty).
 | D115 | **Commit 0 opens the Sprint 6 window.** `tests/test_release_notes.py` moves to `BASE_COMMIT = c0569e7` (the Sprint 5 close-out tip, the state Sprint 6 starts from) and `NOTE_MARKER = "Changed in 2.0.0"`, with a docstring paragraph recording the re-baseline. The four questions the plan left open are settled by the user on this addendum: the ML stack becomes a **new `ml` extra** (`demucs>=4.1.0`, `pyrnnoise>=0.4.5`) that CI does not install; the PyPI **CPU wheel** ships and GPU support is detected and reported honestly; `ml_denoiser` is built on **pyrnnoise/RNNoise** with no torch; and the real-model paths are verified by an **opt-in `real_ml` marker** excluded from the default run (`addopts -m "not hardware and not real_ml"`). | The lock only accepts a commit hash, so the window must open at a green commit, and 2.0.0 code needs a 2.0.0 marker before the first source file lands — the D53/D90 precedent. The plan's own §6.1 file list ("add `demucs` to dependencies") would have made torch mandatory for all 28 tools and for all three CI legs, contradicting D2's "make it optional"; §6.2 named RNNoise but no maintained PyPI binding of that name exists. |
 | D116 | **The plan's ML assumptions were probed, not assumed.** Measured: `torch==2.14.1` and `demucs==4.1.0` resolve for 3.11/3.12/3.14 on Windows and on Linux; the PyPI Windows wheel is `2.14.1+cpu` with `torch.cuda.is_available() is False`, while the Linux leg drags the `nvidia-*` wheel set (~2-3 GB), which is why the extra stays out of CI. `demucs.api.Separator(model, device, shifts, overlap, split, segment, jobs, progress, callback)` with `separate_tensor(wav, sr) -> (origin, {stem: Tensor})` and `separate_audio_file(Path)` only (a `str` is a `TypeError`); weights download from HuggingFace on first use (cached in `~/.cache/huggingface`). Real CPU throughput: model load 0.6 s cached, 10 s of audio in 3.9 s (2.5x realtime), 30 s in 9.7 s (3.1x realtime) — a 5-minute track is ~100 s. `pyrnnoise==0.4.5` ships a 13 MB win_amd64 wheel (Apache-2.0; RNNoise is BSD-3), imports on cp314, and denoised 30 s stereo in 2.9 s (10.4x realtime). Two traps found: it **resamples to 48 kHz internally and drops up to one 10 ms frame** (1.000 s at 44.1 kHz came back as 0.990 s), so the engine must pad to a 480-sample frame and trim to the exact input length; and it is **speech-oriented** — it attenuated a 220 Hz tone by ~24 dB (RMS 7143 -> 466), so the tool reports measured before/after RMS and offers an `amount` blend rather than promising a transparent denoise. `rnnoise` is not on PyPI; DeepFilterNet and DeepFilterNet-style packages downgrade numpy to 1.26 and packaging to 23.2, which breaks this suite's stack. | "ML integration is feasible" is the kind of claim that is worth a measurement before four to six weeks are spent on it, and each of these numbers changes a design decision: the CPU/GPU split, the resample-and-trim rule, the speech-only caveat, and the size of the lock diff. It also settles Item 6.2's engine choice on evidence (DeepFilterNet and the torch route were both probed) rather than on the plan's "(e.g. pretrained RNNoise)" aside. |
 | D117 | **Item 6.0 is cheaper than the plan assumes and needs one lock the plan does not list.** All fourteen apps write an artefact from their completion handler, and `BaseFileProcessor.discover_audio_files` filters on extension only, so a zero-byte `.wav` in `tmp_path` plus a patched per-file worker drives the real `run_*` — no audio fixtures. But `album_art_normalizer`'s wiring passes `kw.get("errors", 0)`, so a case that asserted *acceptance* would still let a renamed field through: every case asserts the rendered **values** with distinct counts per field. One addition to the plan's two locks: a static cross-check in the new `tests/test_completion_payload_published.py` requires every field a handler *requires* to be published by its processor (or supplied by the wiring lambda), which catches the D112/D113 class at collection time rather than after the DSP has finished. | A test that a payload is accepted proves the consumer half only; the defect being closed is a *publisher* that stopped sending a field, and a defaulted read (`kw.get`) renders that as a plausible zero. Asserting values with distinct counts is what makes a rename visible, and the static cross-check makes it visible before any run starts. |
+
+| D118 | **The lock pins torch itself, because a dependency's platform cap leaked into every split.** demucs 4.1.0 declares `torch>=2.1,<2.3` for Intel macOS; uv applies a per-platform cap to the whole universal lock, so `ml` resolved `torch==2.2.2` on every platform and `uv sync --extra ml` failed on 3.13/3.14 with "no wheel with a matching Python ABI tag". `[tool.uv] override-dependencies = ["torch>=2.9"]` now pins the version D116 measured working with demucs (2.14.1), at the cost of unsupported ML on Intel macOS. This is recorded as a decision rather than a quiet edit because an override outlives its reason: if demucs ever drops the macOS cap, the override should be re-examined rather than inherited. | The alternative — dropping the `ml` extra from the lock, or pinning demucs to an older release — would either ship an unresolvable extra or move the model version away from the one that was measured. A lock that cannot be installed is worse than a recorded override. |
 
 Gate state when Commit 0 was prepared (measured with the repo's `.venv`,
 CPython 3.14.9): `compileall` rc=0, `ruff check` and `ruff format --check`

@@ -22,6 +22,10 @@ User-facing behaviour
 * Undoing requires an explicit confirmation warning that current file contents
   will be permanently overwritten with the pre-run versions.
 * A refresh button re-reads the log (e.g. after the user has run a new tool).
+
+Changed in 2.0.0: ``_TOOL_DISPLAY_NAMES`` gains ``stem_separator``, so a run
+recorded by the new tool (Sprint 6, Item 6.1) reads as "Stem Separator" rather
+than as its raw id.
 """
 
 from __future__ import annotations
@@ -64,6 +68,7 @@ _TOOL_DISPLAY_NAMES: dict[str, str] = {
     "pop_click_remover": "Pop & Click Remover",
     "replaygain_analyzer": "ReplayGain Analyzer",
     "silence_trimmer": "Silence Trimmer",
+    "stem_separator": "Stem Separator",
     "tag_editor": "Tag Editor",
     "tag_field_updater": "Tag Field Updater",
     "tempo_analyzer": "Tempo Analyzer",

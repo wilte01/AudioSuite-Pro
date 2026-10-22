@@ -17,6 +17,9 @@ argv and invoke commands the same way instead of drifting apart.
 Changed in 1.4.1: also records each command's fatal-error document by driving
 it with a missing input path, so the published failure shape is a real one
 (PLAN D105).
+Changed in 2.0.0: drives ``stems`` with the Demucs model seam patched, so the
+recorded payload is what a real separation writes rather than a dry-run plan
+(PLAN_feature_expansion.md Item 6.1).
 """
 
 from __future__ import annotations
@@ -143,6 +146,16 @@ def argv_for(command: str, work: Path) -> list[str]:
         return [str(write_cue(work / "album.cue")), "--output-dir", str(out)]
     if command in {"enhance", "reorganize"}:
         return [str(library), "--dry", "--output-dir", str(out)]
+    if command == "stems":
+        # A live run against the patched model, so the payload carries the
+        # files a real separation writes instead of a dry-run plan.
+        return [
+            str(library),
+            "--output-dir",
+            str(out),
+            "--stems",
+            "vocals,drums",
+        ]
     if command == "fingerprint":
         # A lookup without an API key is a usage error, not a payload.
         return [str(library), "--dry", "--no-lookup"]
@@ -165,6 +178,24 @@ def _patched(command: str) -> Iterator[None]:
         import audio_suite_shared.cue_cli as cue_cli
 
         with mock.patch.object(cue_cli, "split_cue_file", lambda *_a, **_k: []):
+            yield
+        return
+    if command == "stems":
+        import numpy as np
+
+        from stem_separator.core import demucs_engine, file_processor
+        from stem_separator.core.models import STEM_NAMES, SeparatedTrack
+
+        track = SeparatedTrack(
+            sample_rate=44100,
+            stems={
+                name: np.full((2, 400), 0.1, dtype=np.float32) for name in STEM_NAMES
+            },
+        )
+        with (
+            mock.patch.object(file_processor, "separate", lambda *_a, **_k: track),
+            mock.patch.object(demucs_engine, "require_demucs", lambda: None),
+        ):
             yield
         return
     yield

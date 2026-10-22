@@ -13,6 +13,8 @@ Changed in 1.4.0: the five worker-count variables default to
 ``default_max_workers()`` instead of a literal "4" (PLAN D56).
 Changed in 1.4.1: the five utility-toggle property aliases say which
 ``module_toggles`` entry they return (PLAN D98).
+Changed in 2.0.0: adds the Stem Separator's destination, model, device, mix
+and per-stem selection variables (Sprint 6, Item 6.1).
 """
 
 from __future__ import annotations
@@ -230,6 +232,18 @@ class AppState:
         self.trimmer_apply_fade = tk.BooleanVar(master, value=False)
         self.trimmer_fade_in_ms = tk.StringVar(master, value="500")
         self.trimmer_fade_out_ms = tk.StringVar(master, value="1000")
+
+        # ── Stem Separator controls ──────────────────────────────────────────
+        # No output directory default: a separation writes whole new trees, so
+        # the driver must not guess a destination.
+        self.stem_separator_output_dir = tk.StringVar(master, value="")
+        self.stem_separator_model = tk.StringVar(master, value="htdemucs")
+        self.stem_separator_device = tk.StringVar(master, value="auto")
+        self.stem_separator_mix = tk.BooleanVar(master, value=False)
+        self.stem_separator_vocals = tk.BooleanVar(master, value=True)
+        self.stem_separator_drums = tk.BooleanVar(master, value=True)
+        self.stem_separator_bass = tk.BooleanVar(master, value=True)
+        self.stem_separator_other = tk.BooleanVar(master, value=True)
 
     # ── Backward-compatible property aliases for utility toggles ──────────────
     # These delegate to the module_toggles dict so existing card code and

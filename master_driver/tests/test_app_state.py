@@ -10,6 +10,9 @@ work normally here without each test needing to pass a root around
 explicitly. AppState's variables are genuine tkinter Var objects; their
 .get() and .set() behave exactly as in production.
 
+Changed in 2.0.0: the expected toggle set gains ``stem_separator``
+(Sprint 6, Item 6.1).
+
 What is tested
 --------------
 AppState
@@ -703,6 +706,7 @@ class TestModuleToggles:
         "pop_click_remover",
         "silence_trimmer",
         "spectral_viewer",
+        "stem_separator",
         # Refinery
         "audio_refinery",
     }

@@ -1,6 +1,9 @@
 """
 Tests for audio_suite_shared.system_requirements.
 
+Changed in 2.0.0: the ffmpeg-dependent table gains ``stem_separator``, whose
+Demucs adapter decodes through pydub (Sprint 6, Item 6.1).
+
 Covers:
     - SystemRequirement.render: names the binary, its purpose, and each hint
     - find_missing_requirements: present/absent/partial probes, the injected
@@ -41,6 +44,7 @@ FFMPEG_DEPENDENT_TOOLS: tuple[tuple[str, str], ...] = (
     ("pop_click_remover", "Pop_Click_Remover_User_Guide.docx"),
     ("replaygain_analyzer", "ReplayGain_Analyzer_User_Guide.docx"),
     ("silence_trimmer", "Silence_Trimmer_User_Guide.docx"),
+    ("stem_separator", "Stem_Separator_User_Guide.docx"),
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]

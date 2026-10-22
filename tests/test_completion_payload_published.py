@@ -67,6 +67,7 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
     ),
     "replaygain_analyzer": "replaygain_analyzer.core.file_processor.run_analysis",
     "silence_trimmer": "silence_trimmer.core.file_processor.run_trimming",
+    "stem_separator": "stem_separator.core.file_processor.run_stem_separation",
     "tempo_analyzer": "tempo_analyzer.core.file_processor.run_analysis",
 }
 

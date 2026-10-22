@@ -27,6 +27,11 @@ unsupported" is the honest reading of that tier.
 
 Changed in 1.3.0: the portable-core set grows to 27 tools / 26 portable CLI
 commands with the Spectral Viewer (D42).
+
+Changed in 2.0.0: the portable-core set grows to 28 tools / 27 portable CLI
+commands with the Stem Separator (Sprint 6, Item 6.1).  Its ML stack is an
+optional extra rather than a platform branch: without it the tool still opens,
+validates a run and completes a dry run on every platform.
 """
 
 from __future__ import annotations
@@ -358,7 +363,7 @@ class TestToolTiers:
         from audio_suite_shared.tool_plugin import get_registry
 
         tools = get_registry().all
-        assert len(tools) == 28
+        assert len(tools) == 29
         for manifest in tools:
             assert tool_tier(manifest.id) in TIERS
 
@@ -501,9 +506,9 @@ class TestPortableCoreCLI:
         # subcommand to drive under a mocked platform. Named here so that a
         # *new* tool without one is a failure, not a silent pass.
         assert [m.id for m in tools if not m.cli_command] == ["undo_tag_edits"]
-        assert len(with_cli) == 27
-        # 26 of the 27 are portable-core; cd-rip is the Windows-only one.
-        assert len(self._portable_commands()) == 26
+        assert len(with_cli) == 28
+        # 27 of the 28 are portable-core; cd-rip is the Windows-only one.
+        assert len(self._portable_commands()) == 27
 
     @pytest.mark.parametrize("command", _portable_commands())
     def test_portable_tool_help_resolves_under_a_non_windows_platform(

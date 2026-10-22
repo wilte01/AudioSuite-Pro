@@ -70,6 +70,22 @@ Versions of the tools are released together with the suite (the single
 
 ### Added
 
+- **Stem Separator: split a track into vocals, drums, bass and other.**
+  A new tool (GUI `Stem_Separator.pyw`, CLI `audiosuite stems`, Master Driver
+  UTIL card) runs Demucs on every supported audio file in a folder and writes
+  the selected stems under `<output>/<track>/` as 16-bit WAV, plus an optional
+  `mix.wav` of the selected stems. The source files are never modified, so the
+  tool keeps no undo record; a dry run reports the plan without loading the
+  model, downloading its weights or creating the per-track folder, and works
+  on an install without the ML stack. Two sources with the same stem name
+  (`song.flac` and `song.wav`) target one output folder, so the first is
+  separated and the second is reported as skipped instead of overwriting it.
+  The Setup tab states the device torch actually measured and why, because the
+  PyPI Windows torch wheel is a CPU build: an explicit `--device cuda` that is
+  not usable stops the run with that reason instead of quietly using the CPU.
+  `--json` publishes `separated`, `files_written`, `output_dir` and `device`,
+  the JSON schema corpus records a real run, and a user guide is shipped.
+
 - **A finished batch report closes with one verdict line.** Caveats were
   printed one per step, so judging a twelve-step run meant scanning twelve
   lines and working out which ones mattered. The report now ends with a
@@ -115,6 +131,15 @@ Versions of the tools are released together with the suite (the single
   therefore part of the `dev` extras now.
 
 ### Changed
+
+- **The ML stack is an opt-in `ml` extra, and its real-model paths are opt-in
+  tests.** Demucs and its torch dependency resolve for 3.11, 3.12 and 3.14, but
+  the Linux torch wheel set is 2–3 GB and no other tool needs it, so
+  `demucs>=4.1.0` and `pyrnnoise>=0.4.5` live in `ml` and CI does not install
+  it. The suite's default run deselected the new `real_ml` marker alongside
+  `hardware`; a real model run is `pytest -m real_ml` on a machine with the
+  extra. Without the extra the Stem Separator still opens, validates a run and
+  completes a dry run, and a live run fails with a message naming the extra.
 
 - **The real-music BPM corpus can no longer be made green by relaxing its own
   calibration.** The suite promises that real recordings clear the noise floor

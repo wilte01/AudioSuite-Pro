@@ -14,6 +14,11 @@ Changed in 1.2.0: emits the fingerprinter's ``--musicbrainz`` and
 Changed in 1.3.0: adds the ``spectral_viewer`` entry, which emits
 ``[path, mode, start, end]`` plus its optional output directory, FFT size and
 colour range.
+Changed in 2.0.0: adds the ``stem_separator`` entry, which returns an empty
+argv when its required output folder or stem selection is missing rather than
+launching a run that cannot write (Sprint 6, Item 6.1).  An empty builder
+result now stays empty: the driver display flags are appended only to a real
+argument list, so "cannot run as configured" is still readable by the caller.
 """
 
 from __future__ import annotations
@@ -337,11 +342,20 @@ def _build_utility_tool_args(
         "silence_trimmer": lambda: _build_silence_trimmer_args(
             path, mode_flag, start_flag, end_flag, state
         ),
+        "stem_separator": lambda: _build_stem_separator_args(
+            path, mode_flag, start_flag, end_flag, state
+        ),
     }
     builder = builders.get(tool_id)
     if builder is None:
         return []
     args = builder()
+    # An empty list is the builder's "this tool cannot run as configured"
+    # answer, and the caller and the card both read it as such.  Appending the
+    # display flags would make it non-empty, so a tool with a missing required
+    # field would launch with flags that name no directory.
+    if not args:
+        return []
     # The Audio Enhancer GUI parser is strict argparse (parse_args, no
     # parse_known_args); the driver display flags would fatal at launch,
     # so the enhancer never receives them.
@@ -672,6 +686,55 @@ def _build_silence_trimmer_args(
             "--fade-out",
             state.trimmer_fade_out_ms.get(),
         ]
+    return args
+
+
+def _build_stem_separator_args(
+    path: str,
+    mode_flag: str,
+    start_flag: str,
+    end_flag: str,
+    state: AppState,
+) -> list[str]:
+    """Return the CLI argument list for the Stem Separator.
+
+    A separation writes a whole output tree, so it cannot run without a
+    destination; with no output folder (or no stem ticked) the builder returns
+    an empty list and the card shows a required-field hint, the same way the
+    Audio Enhancer handles its required output directory.  An empty list never
+    emits a broken flag.
+    """
+    output = state.stem_separator_output_dir.get().strip()
+    if not output:
+        return []
+    stems = [
+        name
+        for name, var in (
+            ("vocals", state.stem_separator_vocals),
+            ("drums", state.stem_separator_drums),
+            ("bass", state.stem_separator_bass),
+            ("other", state.stem_separator_other),
+        )
+        if var.get()
+    ]
+    if not stems:
+        return []
+    args = [
+        path,
+        mode_flag,
+        start_flag,
+        end_flag,
+        "--output-dir",
+        output,
+        "--model",
+        state.stem_separator_model.get(),
+        "--stems",
+        ",".join(stems),
+        "--device",
+        state.stem_separator_device.get(),
+    ]
+    if state.stem_separator_mix.get():
+        args.append("--mix")
     return args
 
 

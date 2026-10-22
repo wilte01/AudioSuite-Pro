@@ -18,6 +18,9 @@ flags.
 
 Changed in 1.2.0: covers the fingerprinter ``--musicbrainz`` /
 ``--write-isrc`` argv.
+Changed in 2.0.0: covers the Stem Separator's argv, including its two
+required-field cases (no output folder, no stem selected) and the mix flag
+(Sprint 6, Item 6.1).
 """
 
 import os
@@ -98,6 +101,7 @@ def _make_state(
         "audio_normalizer",
         "pop_click_remover",
         "silence_trimmer",
+        "stem_separator",
         "tag_editor",
     ):
         state.module_toggles[key] = _bool_var(True)
@@ -159,6 +163,14 @@ def _make_state(
     state.trimmer_apply_fade = _bool_var(False)
     state.trimmer_fade_in_ms = _str_var("500")
     state.trimmer_fade_out_ms = _str_var("1000")
+    state.stem_separator_output_dir = _str_var("")
+    state.stem_separator_model = _str_var("htdemucs")
+    state.stem_separator_device = _str_var("auto")
+    state.stem_separator_mix = _bool_var(False)
+    state.stem_separator_vocals = _bool_var(True)
+    state.stem_separator_drums = _bool_var(True)
+    state.stem_separator_bass = _bool_var(True)
+    state.stem_separator_other = _bool_var(True)
 
     # Enrich params (noise reduction + fingerprinter)
     state.nr_reduce_hum = _bool_var(False)
@@ -890,6 +902,46 @@ class TestBuildUtilityArgs:
         trim_entry = next(e for e in args_list if "Silence Trimmer" in e[1].name)
         assert "--fade" not in trim_entry[2]
         assert "--fade-in" not in trim_entry[2]
+
+    def test_stem_separator_emits_output_model_stems_and_device(self):
+        state = _make_state()
+        state.stem_separator_output_dir = _str_var("D:/stems")
+        state.stem_separator_model = _str_var("htdemucs_ft")
+        state.stem_separator_device = _str_var("cpu")
+        state.stem_separator_bass = _bool_var(False)
+        args_list = build_utility_args(state)
+        entry = next(e for e in args_list if "Stem Separator" in e[1].name)
+        args = entry[2]
+        assert "D:/stems" == args[args.index("--output-dir") + 1]
+        assert "htdemucs_ft" == args[args.index("--model") + 1]
+        assert "cpu" == args[args.index("--device") + 1]
+        # Only the ticked stems are requested, in model order.
+        assert args[args.index("--stems") + 1] == "vocals,drums,other"
+        assert "--mix" not in args
+
+    def test_stem_separator_needs_an_output_directory(self):
+        """A separation writes a new tree, so there is no safe default."""
+        state = _make_state()
+        args_list = build_utility_args(state)
+        entry = next(e for e in args_list if "Stem Separator" in e[1].name)
+        assert entry[2] == []
+
+    def test_stem_separator_needs_one_stem(self):
+        state = _make_state()
+        state.stem_separator_output_dir = _str_var("D:/stems")
+        for name in ("vocals", "drums", "bass", "other"):
+            setattr(state, f"stem_separator_{name}", _bool_var(False))
+        args_list = build_utility_args(state)
+        entry = next(e for e in args_list if "Stem Separator" in e[1].name)
+        assert entry[2] == []
+
+    def test_stem_separator_mix_flag_when_enabled(self):
+        state = _make_state()
+        state.stem_separator_output_dir = _str_var("D:/stems")
+        state.stem_separator_mix = _bool_var(True)
+        args_list = build_utility_args(state)
+        entry = next(e for e in args_list if "Stem Separator" in e[1].name)
+        assert "--mix" in entry[2]
 
 
 # ═════════════════════════════════════════════════════════════════════════════
