@@ -2,6 +2,11 @@
 app.py
 GenreConsolidatorApp — thin orchestrator.
 Wires UI, core logic, and utilities together. No business logic here.
+
+Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``,
+so a payload field the processor adds (D112) is ignored instead of aborting an
+otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
+completion, progress and error seams.
 """
 
 import os
@@ -306,6 +311,7 @@ class GenreConsolidatorApp(UIHelperMixin):
         errors: int,
         display_text: str,
         log_text: str,
+        **_extra: Any,
     ) -> None:
         """Called from a worker thread — schedule the UI update."""
         self.root.after(
@@ -385,7 +391,9 @@ class GenreConsolidatorApp(UIHelperMixin):
         if self.auto_end:
             self.root.after(2000, self.root.destroy)
 
-    def _on_phase2_progress(self, display_text: str, log_text: str) -> None:
+    def _on_phase2_progress(
+        self, display_text: str, log_text: str, **_extra: Any
+    ) -> None:
         """Called from a worker thread — schedule the listbox append."""
         self.root.after(0, self._append_phase2_text, display_text)
 
@@ -407,6 +415,7 @@ class GenreConsolidatorApp(UIHelperMixin):
         read_errors: int,
         duration_secs: float,
         log_entries: list[Any],
+        **_extra: Any,
     ) -> None:
         """Called from a worker thread — log here, schedule the UI update."""
         self._write_log(log_entries)

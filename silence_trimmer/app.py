@@ -7,6 +7,11 @@ Changed in 1.4.0: the worker slot grid and saved-config fallback derive from
 ``DEFAULT_MAX_WORKERS`` / ``default_max_workers()`` (PLAN D56), and a typed
 count above the grid is capped before it is persisted (D66); the notice is
 logged instead of shown when the launch is unattended (D70).
+
+Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``,
+so a payload field the processor adds (D112) is ignored instead of aborting an
+otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
+completion, progress and error seams.
 """
 
 import logging
@@ -459,7 +464,13 @@ class SilenceTrimmerApp(UIHelperMixin, AuditionMixin):
     # ── Callbacks ─────────────────────────────────────────────────────────────
 
     def _on_progress(
-        self, processed: int, total: int, skipped: int, errors: int, display_text: str
+        self,
+        processed: int,
+        total: int,
+        skipped: int,
+        errors: int,
+        display_text: str,
+        **_extra: Any,
     ) -> None:
         """Update progress bar and file list on the main thread."""
         self.progress["maximum"] = total
@@ -479,6 +490,7 @@ class SilenceTrimmerApp(UIHelperMixin, AuditionMixin):
         errors: int,
         duration_secs: float,
         log_entries: list[str],
+        **_extra: Any,
     ) -> None:
         """Write log, update results tab, and re-enable the start button."""
         is_dry_run = self.run_mode.get() == "Dry Run"

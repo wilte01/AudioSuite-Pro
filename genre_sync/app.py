@@ -5,6 +5,9 @@ Wires UI, core logic, and utilities together. No business logic here.
 
 Changed in 1.4.0: the worker slot grid is sized from ``DEFAULT_MAX_WORKERS``
 instead of a literal 4 (PLAN D56).
+Changed in 1.4.1: ``_on_progress`` accepts ``**_extra: Any``, so a progress field
+the processor adds is ignored instead of aborting a running batch
+(``tests/test_callback_payload_contract.py``).
 """
 
 import logging
@@ -290,6 +293,7 @@ class GenreSetterApp(UIHelperMixin):
         no_genre: int,
         errors: int,
         display_text: str,
+        **_extra: Any,
     ) -> None:
         self.progress["maximum"] = total
         self.progress["value"] = processed

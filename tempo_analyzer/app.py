@@ -12,6 +12,11 @@ Changed in 1.2.0: records tracks with no BPM tag to derive a marking from as
 a run note, so a batch report says so instead of only the tool's own log.
 Changed in 1.4.0: the worker slot grid is sized from ``DEFAULT_MAX_WORKERS``
 instead of a literal 4 (PLAN D56).
+
+Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``,
+so a payload field the processor adds (D112) is ignored instead of aborting an
+otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
+completion, progress and error seams.
 """
 
 import logging
@@ -369,7 +374,13 @@ class TempoAnalyzerApp(UIHelperMixin):
     # ── Callbacks ─────────────────────────────────────────────────────────────
 
     def _on_progress(
-        self, processed: int, total: int, skipped: int, errors: int, display_text: str
+        self,
+        processed: int,
+        total: int,
+        skipped: int,
+        errors: int,
+        display_text: str,
+        **_extra: Any,
     ) -> None:
         """Called from worker threads — schedule UI update on main thread."""
         self.root.after(
@@ -397,6 +408,7 @@ class TempoAnalyzerApp(UIHelperMixin):
         errors: int,
         duration_secs: float,
         log_entries: list[str],
+        **_extra: Any,
     ) -> None:
         """Called on background thread — file I/O here, then schedule UI on
         main thread."""

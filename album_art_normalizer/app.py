@@ -4,6 +4,11 @@ and utilities together. Contains no business logic itself; it only coordinates.
 
 Changed in 1.0.1: consumes the driver's ``--size`` argument and maps it onto the
 resolution setting.
+
+Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``,
+so a payload field the processor adds (D112) is ignored instead of aborting an
+otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
+completion, progress and error seams.
 """
 
 from __future__ import annotations
@@ -14,7 +19,7 @@ import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
-from typing import cast
+from typing import Any, cast
 
 from audio_suite_shared import styles, suite_config
 from audio_suite_shared.app_bootstrap import BaseSuiteApp
@@ -317,6 +322,7 @@ class ArtNormalizerApp(BaseSuiteApp):
         skipped: int,
         errors: int,
         display_text: str,
+        **_extra: Any,
     ) -> None:
         self._log_entries.append(display_text)
         self.root.after(
@@ -350,6 +356,7 @@ class ArtNormalizerApp(BaseSuiteApp):
         errors: int,
         duration_secs: float,
         log_entries: list[str],
+        **_extra: Any,
     ) -> None:
         self.root.after(
             0,

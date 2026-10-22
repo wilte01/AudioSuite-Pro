@@ -534,7 +534,13 @@ _OUTSIDE = [{"filename": "drone.ogg", "bpm": 60, "min_bpm": 75, "max_bpm": 175}]
 
 
 def _complete(app, *, total, errors=0, outside=None) -> None:
-    """Drive the completion callback the analysis actually hands over."""
+    """Drive the completion callback the analysis actually hands over.
+
+    ``run_analysis`` always publishes ``skipped_files``, ``error_files`` and
+    ``outside_range_files``, so the helper does too: passing only the field
+    this tool reads is what let a narrower ``_on_complete`` signature ship
+    and abort every gui run with ``TypeError`` (D112).
+    """
     app._on_complete(
         header=["BPM ANALYSIS REPORT\n"],
         total=total,
@@ -543,6 +549,8 @@ def _complete(app, *, total, errors=0, outside=None) -> None:
         errors=errors,
         duration_secs=1.0,
         log_entries=["line\n"],
+        skipped_files=[],
+        error_files=[],
         outside_range_files=list(outside or []),
     )
 
@@ -721,3 +729,94 @@ class TestSummarySource:
         app._update_ui_on_complete(12, 12, 0, 0, 0, 1)
 
         assert "Outside BPM range" not in self._shown(app)
+
+
+class TestCompletionPayloadContract:
+    """The app accepts every field ``run_analysis`` publishes (D112).
+
+    ``run_analysis`` always hands ``skipped_files``, ``error_files`` and
+    ``outside_range_files`` to its completion callback.  BPM's override listed
+    only the field it consumed, so the lambda ``_run_analysis`` passes raised
+    ``TypeError`` on the worker thread: no report was written and the Results
+    tab never appeared.  These tests drive the real seam instead of calling
+    ``_on_complete`` with a hand-picked subset of the payload.
+    """
+
+    @staticmethod
+    def _app(tmp_path, monkeypatch):
+        from bpm_analyzer.app import BPMAnalyzerApp
+
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        app = object.__new__(BPMAnalyzerApp)
+        app.root = MagicMock()
+        app._safe_slot_vars = [MagicMock(), MagicMock()]
+        app.slot_queue = MagicMock()
+        app._log_path = str(tmp_path / "bpm_dry_run_log.txt")
+        app.auto_end = False
+        app.auto_end_var = MagicMock(**{"get.return_value": False})
+        app.run_mode = MagicMock(**{"get.return_value": "Dry Run"})
+        app.summary_label = MagicMock()
+        app.time_label = MagicMock()
+        app.completion_label = MagicMock()
+        app.notebook = MagicMock()
+        app.start_btn = MagicMock()
+        app._tab_results = MagicMock()
+        return app
+
+    def test_the_worker_payload_completes_the_gui_run(self, tmp_path, monkeypatch):
+        """The callback ``_run_analysis`` installs survives the full payload."""
+        from bpm_analyzer.core import file_processor as core
+
+        app = self._app(tmp_path, monkeypatch)
+        processor = MagicMock()
+        monkeypatch.setattr(core, "run_analysis", processor)
+
+        app._run_analysis(str(tmp_path), True, 75, 175, 10, False, 2)
+
+        on_complete = processor.call_args.kwargs["on_complete"]
+        on_complete(
+            total=3,
+            processed=3,
+            skipped=1,
+            errors=1,
+            duration_secs=1.0,
+            log_entries=["track.mp3: analysed\n"],
+            skipped_files=[{"filename": "noise.wav", "reason": "No tempo detected"}],
+            error_files=[
+                {"filename": "corrupt.mp3", "error_type": "BPMDetectionError"}
+            ],
+            outside_range_files=[],
+        )
+
+        report = open(app._log_path, encoding="utf-8").read()
+        assert "SUMMARY:" in report
+        assert "Skipped: 1" in report
+        assert "Errors: 1" in report
+        # The CLI-only records are ignored by the report, not rendered raw.
+        assert "noise.wav" not in report
+        assert any(
+            call.args[1] == app._update_ui_on_complete
+            for call in app.root.after.call_args_list
+        )
+
+    def test_the_out_of_band_row_survives_the_full_payload(self, tmp_path, monkeypatch):
+        """Accepting the CLI records must not drop the D109 summary row."""
+        app = self._app(tmp_path, monkeypatch)
+
+        app._on_complete(
+            header=["BPM ANALYSIS REPORT\n"],
+            total=12,
+            processed=12,
+            skipped=1,
+            errors=1,
+            duration_secs=1.0,
+            log_entries=["drone.ogg: 60 BPM (outside 75-175)\n"],
+            skipped_files=[{"filename": "noise.wav"}],
+            error_files=[{"filename": "corrupt.mp3"}],
+            outside_range_files=list(_OUTSIDE),
+        )
+
+        report = open(app._log_path, encoding="utf-8").read()
+        assert "Outside BPM range: 1 of 12 tracks (band 75-175)" in report
+        assert "Skipped: 1" in report
+        assert "Errors: 1" in report

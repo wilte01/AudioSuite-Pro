@@ -11,6 +11,11 @@ Tag preference persistence:
 Changed in 1.2.0: records the files a run could not scrub (and any it skipped)
 from the completion counts as the run's note, so a Master Driver batch reports
 them on the Metadata Scrubber step instead of only in the run log.
+
+Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``,
+so a payload field the processor adds (D112) is ignored instead of aborting an
+otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
+completion, progress and error seams.
 """
 
 import logging
@@ -328,6 +333,7 @@ class MetadataScrubberApp(BaseSuiteApp):
         skipped: int,
         errors: int,
         display_text: str,
+        **_extra: Any,
     ) -> None:
         self.progress["maximum"] = total
         self.progress["value"] = processed
@@ -348,6 +354,7 @@ class MetadataScrubberApp(BaseSuiteApp):
         errors: int,
         duration_secs: float,
         log_entries: list[Any],
+        **_extra: Any,
     ) -> None:
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)

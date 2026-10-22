@@ -447,6 +447,7 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
         duration_secs: float,
         log_entries: list[str],
         outside_range_files: list[dict[str, object]] | None = None,
+        **_extra: Any,
     ) -> None:
         """Record what the run could not analyse, then finish as usual.
 
@@ -469,6 +470,12 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
             log_entries: The per-file log lines.
             outside_range_files: Records for tempos outside the band, each
                 ``{"filename", "bpm", "min_bpm", "max_bpm"}``.
+            **_extra: The other tool-specific completion fields the processor
+                always publishes (``skipped_files``, ``error_files``).  They
+                feed the CLI's ``--json`` output and are ignored here, exactly
+                as the shared base documents: rejecting one aborted the whole
+                completion, so no report was written and the Results tab never
+                appeared.
         """
         outside = list(outside_range_files or [])
         self._summary_rows = tuple(self._outside_summary(total=total, outside=outside))
@@ -481,6 +488,7 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
             errors=errors,
             duration_secs=duration_secs,
             log_entries=log_entries,
+            **_extra,
         )
 
     def _summary_extras(self) -> list[tuple[str, str]]:

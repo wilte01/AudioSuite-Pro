@@ -3,10 +3,18 @@ Tests for replaygain_analyzer.app — ReplayGainAnalyzerApp orchestrator.
 
 Validates that callback signatures between app.py and
 core/file_processor.py match, preventing kwarg mismatch bugs.
+
+Changed in 1.4.1: ``TestCompletionSeam`` drives the real ``run_analysis``
+through the lambda wiring ``_run`` installs and reads the report it writes; the
+success count was ``processed - errors`` while ``processed`` already counted
+successes, so a mixed batch under-reported (and a lone failure read as -1), and
+the completion counts that used to default are now required payload fields.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+from queue import Queue
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -179,6 +187,132 @@ class TestCallbackSignatureConsistency:
             duration_secs=12.5,
             log_entries=[],
         )
+
+
+# ── Completion seam: the processor payload must reach this handler ───────
+
+
+def _completion_shell(log_path: Path):
+    """Build a ReplayGainAnalyzerApp shell carrying only what _on_complete reads."""
+    from replaygain_analyzer.app import ReplayGainAnalyzerApp
+
+    app = object.__new__(ReplayGainAnalyzerApp)
+    app.root = MagicMock()
+    app.run_mode = MagicMock()
+    app.run_mode.get.return_value = "Dry Run"
+    app.time_label = MagicMock()
+    app.summary_label = MagicMock()
+    app.completion_label = MagicMock()
+    app.notebook = MagicMock()
+    app._tab_results = MagicMock()
+    app.start_btn = MagicMock()
+    app.auto_end = False
+    app._log_path = str(log_path)
+    return app
+
+
+def _write_silent_wav(folder: Path) -> None:
+    """Write one analysable file; measurement is stubbed in these tests."""
+    from pydub import AudioSegment
+
+    AudioSegment.silent(duration=100).export(str(folder / "track.wav"), format="wav")
+
+
+def _flush(root: MagicMock) -> None:
+    """Run the widget updates the handler marshalled through ``root.after``."""
+    for call in root.after.call_args_list:
+        if len(call.args) > 1 and callable(call.args[1]):
+            call.args[1]()
+
+
+class TestCompletionSeam:
+    """``run_analysis`` publishes into the handler app.py actually binds."""
+
+    def test_the_real_payload_reaches_the_report(self, tmp_path: Path) -> None:
+        """Regression: the counts defaulted, so a run could print zeros.
+
+        ``errors`` and the rest were optional, so a payload that omitted the
+        error count wrote ``Errors: 0`` and ``Time: 00:00`` into a finished
+        report.  Drive the real orchestrator through the same lambda wiring
+        ``_run`` uses and read the file it wrote.
+        """
+        from replaygain_analyzer.core import file_processor
+
+        _write_silent_wav(tmp_path)
+        app = _completion_shell(tmp_path / "replaygain_dry_run_log.txt")
+        slot_queue: Queue = Queue()
+        slot_queue.put(0)
+
+        with patch.object(file_processor, "get_metrics", return_value=(None, 0.0)):
+            file_processor.run_analysis(
+                dir_path=str(tmp_path),
+                target_lufs=-16.0,
+                is_dry_run=True,
+                slot_vars=[MagicMock()],
+                slot_queue=slot_queue,
+                on_progress=MagicMock(),
+                on_folder_complete=MagicMock(),
+                on_complete=lambda **kw: app._on_complete(header=["REPORT\n"], **kw),
+                on_error=MagicMock(),
+            )
+
+        report = Path(app._log_path).read_text(encoding="utf-8")
+        assert "Total files: 1" in report
+        assert "Errors: 1" in report
+
+        _flush(app.root)
+        app.summary_label.config.assert_called_with(
+            text="Total: 1 files\nSuccessfully processed: 0\nErrors: 1"
+        )
+
+    def test_successes_are_not_reduced_by_the_error_count(self, tmp_path: Path) -> None:
+        """Regression: the summary subtracted errors from an already-clean count.
+
+        ``processed`` only counts files that measured successfully, so
+        ``processed - errors`` understated every mixed batch and went negative
+        once errors outnumbered successes.
+        """
+        app = _completion_shell(tmp_path / "log.txt")
+
+        app._on_complete(
+            header=["REPORT\n"],
+            total=3,
+            processed=2,
+            skipped=0,
+            errors=1,
+            duration_secs=75.0,
+            log_entries=["[DONE] a.wav\n", "[DONE] b.wav\n"],
+        )
+
+        report = (tmp_path / "log.txt").read_text(encoding="utf-8")
+        assert "Total files: 3" in report
+        assert "Successfully processed: 2" in report
+        assert "Errors: 1" in report
+        assert "Time: 01:15" in report
+
+    @pytest.mark.parametrize(
+        "field", ["skipped", "errors", "duration_secs", "log_entries"]
+    )
+    def test_a_missing_count_raises_instead_of_rendering_zero(
+        self, tmp_path: Path, field: str
+    ) -> None:
+        """Each count is required, so its absence names itself in the error."""
+        app = _completion_shell(tmp_path / "log.txt")
+        payload = {
+            "header": ["REPORT\n"],
+            "total": 3,
+            "processed": 2,
+            "skipped": 0,
+            "errors": 2,
+            "duration_secs": 75.0,
+            "log_entries": ["[DONE] track.mp3\n"],
+        }
+        del payload[field]
+
+        with pytest.raises(TypeError) as caught:
+            app._on_complete(**payload)
+        assert field in str(caught.value)
+        assert not (tmp_path / "log.txt").exists()
 
 
 class TestReplaygainAppActions:

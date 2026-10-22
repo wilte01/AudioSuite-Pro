@@ -7,6 +7,11 @@ Follows the identical conventions used by every other tool in the suite.
 
 Changed in 1.1.0: collect/apply settings now carry the six Sprint 1
 effect fields.
+
+Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``,
+so a payload field the processor adds (D112) is ignored instead of aborting an
+otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
+completion, progress and error seams.
 """
 
 from __future__ import annotations
@@ -585,6 +590,7 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         errors: int,
         display_text: str,
         log_text: str,
+        **_extra: Any,
     ) -> None:
         def _update() -> None:
             pct = (processed / total * 100) if total else 0
@@ -606,6 +612,7 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         errors: int,
         duration_secs: float,
         log_entries: list[str],
+        **_extra: Any,
     ) -> None:
         logger.info(
             f"_on_complete called: total={total}, processed={processed}, "

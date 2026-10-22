@@ -9,6 +9,11 @@ the run's note, so a Master Driver batch reports them on the Music Format
 Converter step instead of only in the run log.
 Changed in 1.4.0: the worker slot grid is sized from ``DEFAULT_MAX_WORKERS``
 instead of a literal 4 (PLAN D56).
+
+Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``,
+so a payload field the processor adds (D112) is ignored instead of aborting an
+otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
+completion, progress and error seams.
 """
 
 import logging
@@ -545,6 +550,7 @@ class MusicFormatConverterApp(UIHelperMixin):
         skipped: int,
         errors: int,
         display_text: str,
+        **_extra: Any,
     ) -> None:
         self.progress["maximum"] = total
         self.progress["value"] = processed
@@ -567,6 +573,7 @@ class MusicFormatConverterApp(UIHelperMixin):
         log_entries: list[str],
         output_dir: str,
         format_counts: dict[str, int] | None = None,
+        **_extra: Any,
     ) -> None:
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)

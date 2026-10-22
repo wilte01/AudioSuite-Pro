@@ -19,6 +19,9 @@ modal warning on an unattended launch (D70).
 Changed in 1.4.1: ``_summary_extras`` is a hook a tool overrides to add
 ``(label, value)`` rows to the run summary in both the log and the Results
 panel, so BPM can report tempos that missed the configured band (D109).
+Changed in 1.4.1: ``_on_progress`` accepts ``**_extra: Any`` like
+``_on_complete``, so a progress field the processor adds cannot abort a running
+batch (D112; locked by ``tests/test_callback_payload_contract.py``).
 """
 
 from __future__ import annotations
@@ -263,6 +266,7 @@ class AnalysisTagToolApp(UIHelperMixin):
         skipped: int,
         errors: int,
         display_text: str,
+        **_extra: Any,
     ) -> None:
         """Called from worker threads to update UI (scheduled on main thread)."""
         self.root.after(
@@ -310,8 +314,16 @@ class AnalysisTagToolApp(UIHelperMixin):
         errors: int,
         duration_secs: float,
         log_entries: list[str],
+        **_extra: Any,
     ) -> None:
-        """Called on the background thread after all files finish."""
+        """Called on the background thread after all files finish.
+
+        Tool-specific completion fields (for example BPM's ``skipped_files``
+        and ``error_files``) are accepted and ignored: the CLI consumes them,
+        while the GUI report needs only the shared counters and log.  Every
+        tool's processor publishes them, so rejecting one here would abort the
+        completion on the worker thread.
+        """
         minutes: int = int(duration_secs // 60)
         seconds: int = int(duration_secs % 60)
         tagged: int = processed - skipped - errors

@@ -236,6 +236,59 @@ function the edit handler calls (schedule it, don't duplicate the logic); audit
 all pre-fill routes together (Driver argv, CLI flags, restored config); and every
 pre-fill route needs a test asserting the **narrowed** state.
 
+## GUI Callback Contract (progress, complete, error)
+
+Every GUI tool starts its processor through a `run_*` entry point that takes
+three callbacks: `on_progress`, `on_complete` and `on_error`. The processor owns
+each payload and the `app.py` handler mirrors it by hand, so the two drift
+independently — and only the gate notices, after the audio work is already done.
+Two shipped defects were exactly this: `BPMAnalyzerApp._on_complete` declared
+its own keyword list while `run_analysis` grew `skipped_files` (D112), and
+`AudioEnhancerApp._on_complete` declared five fields while `run_enhancement`
+also publishes `processed`/`skipped` (D113). Each raised `TypeError: … got an
+unexpected keyword argument …` *inside the callback*, so a run that had finished
+its DSP wrote no report. Evidence: `PLAN_feature_expansion.md` D112, D113.
+
+Rules:
+
+- **Open payloads absorb extras; they never require them.** `on_complete` and
+  every `on_*progress` handler declares a catch-all (`**_extra: Any`) *and*
+  still declares every field it reads. A field it declares stays *required*:
+  a default on one is how a dropped field turns into a plausible zero, and
+  `tests/test_completion_seam.py` fails when one appears. The payload varies
+  by publisher: the shared runner sends
+  `processed/total/skipped/errors/display_text`, the
+  in-place DSP runner adds `succeeded`, and tools add `converted`, `updated`,
+  `no_genre`, `done`, `result`. A handler bound to one publisher must not raise
+  when its tool switches to the other.
+- **`on_error` keeps its single `message` parameter.** That seam is closed by
+  contract: every tool-side `on_error(...)` call in the tree passes exactly one
+  positional message. The parameter is the contract, not wiring noise — do not
+  replace it with a catch-all. (The Master Driver's runner callbacks are a
+  separate two-argument contract and are not part of this wiring.)
+- **Fix the handler, never the publisher.** Removing a field from a payload to
+  satisfy one narrow handler breaks every other consumer of that payload.
+- **Handlers run off the Tk thread.** Do the file I/O in the handler body, then
+  marshal each widget update with `self.root.after(0, ...)`. Never call a widget
+  inline from a callback.
+
+`tests/test_callback_payload_contract.py` enforces the rules. It parses (never
+imports) every first-party module, resolves each `on_complete=` /
+`on_*progress=` / `on_error=` keyword to the handler it reaches — following both
+wiring styles (direct binding, and `lambda **kw: self._on_...(..., **kw)`) and
+inherited handlers such as `LyricsManagerApp`'s — and checks the rule for that
+seam. `EXPECTED_TOOLS` × `EXPECTED_SEAMS` is frozen at 14 tools and three
+seams, so a new GUI tool must be registered there deliberately, every tool must
+wire all three, and a broken discovery pass fails instead of passing vacuously.
+Non-GUI wirings (the Master Driver's `lambda executed:`, CLI wrappers) are not
+matched. A required field that goes missing is a `TypeError` naming it, never
+a silent default: `tests/test_completion_seam.py` freezes each handler's
+required parameters in `EXPECTED_REQUIRED` and asserts that dropping any one
+of them raises. Neither lock can prove the processor still *sends* every
+field; only a test driving the real `run_*` into the bound handler does, and
+it asserts the written outcome — the pattern is
+`audio_enhancer/tests/test_app.py::TestCompletionSeam`.
+
 ## Startup Pre-Flight Guard (Do Not Disable)
 
 **Every** top-level `<Tool>.pyw` launcher must call
@@ -627,6 +680,11 @@ a broken Help button warns):
    the package in coverage `source`; unique test-dir basename or `__init__.py`.
 10. **Tests** — a new `<module>/tests/` suite, and update the expected-set tests
     in lockstep (`test_tool_plugin.py`, `test_app_state.py`, `test_runner.py`).
+
+11. **Callback contract** — the tool's `app.py` handlers follow the *GUI
+    Callback Contract* (catch-all on `on_complete`/`on_*progress`, one `message` on
+    `on_error`) and the tool is added to
+    `tests/test_callback_payload_contract.py`'s `EXPECTED_TOOLS`.
 
 **Verification:** a per-package `pytest <pkg>/tests` is NOT sufficient proof —
 the integration tests in `master_driver/tests/` and `audio_suite_shared/tests/`

@@ -24,12 +24,17 @@ start_processing output resolution
   * Empty source -> shows warning, returns early
   * Missing source path -> shows warning, returns early
   * No thread spawned for invalid source
+
+Changed in 1.4.1: adds ``TestCompletionSeam``, which drives the real
+``run_enhancement`` into the handler ``app.py`` binds and asserts the
+written report.
 """
 
 from __future__ import annotations
 
 import threading
 from pathlib import Path
+from queue import Queue
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -38,12 +43,39 @@ import pytest
 from audio_enhancer.app import AudioEnhancerApp
 from audio_enhancer.core.models import (
     PRESETS,
+    AudioFileInfo,
     EnhancementParams,
     JobStatus,
     PresetName,
     ProcessingResult,
 )
 from audio_enhancer.utils.cli_args import CliArgs
+
+
+def _make_app(tmp_path: Path) -> AudioEnhancerApp:
+    """Create an AudioEnhancerApp with mocked Tk root for test isolation."""
+    root = MagicMock()
+    scheduled: list = []
+    root.after.side_effect = lambda delay, fn, *a: scheduled.append(fn)
+
+    app = object.__new__(AudioEnhancerApp)
+    app.root = root
+    app._log_path = str(tmp_path / "enhancement_log.txt")
+    app._in_place = False
+    app._audition_original = None
+    app._audition_result = None
+    app.time_label = MagicMock()
+    app.summary_label = MagicMock()
+    app.completion_label = MagicMock()
+    app.notebook = MagicMock()
+    app._tab_results = MagicMock()
+    app.start_btn = MagicMock()
+    app._run_was_dry_run = False
+    app.auto_end_var = MagicMock()
+    app.auto_end_var.get.return_value = False
+    app._scheduled = scheduled  # stash so _run_completion can invoke it
+    return app
+
 
 # ── _on_complete log-formatting tests ─────────────────────────────────────
 
@@ -55,27 +87,7 @@ class TestOnCompleteLogFormatting:
     @pytest.fixture
     def app(tmp_path: Path) -> AudioEnhancerApp:
         """Create an AudioEnhancerApp with mocked Tk root for test isolation."""
-        root = MagicMock()
-        scheduled: list = []
-        root.after.side_effect = lambda delay, fn, *a: scheduled.append(fn)
-
-        app = object.__new__(AudioEnhancerApp)
-        app.root = root
-        app._log_path = str(tmp_path / "enhancement_log.txt")
-        app._in_place = False
-        app._audition_original = None
-        app._audition_result = None
-        app.time_label = MagicMock()
-        app.summary_label = MagicMock()
-        app.completion_label = MagicMock()
-        app.notebook = MagicMock()
-        app._tab_results = MagicMock()
-        app.start_btn = MagicMock()
-        app._run_was_dry_run = False
-        app.auto_end_var = MagicMock()
-        app.auto_end_var.get.return_value = False
-        app._scheduled = scheduled  # stash so _run_completion can invoke it
-        return app
+        return _make_app(tmp_path)
 
     def _run(self, app: AudioEnhancerApp, **kwargs) -> None:
         """Call _on_complete and invoke the scheduled UI update."""
@@ -931,3 +943,62 @@ class TestDryRunAudition:
         app.completion_label.config.assert_called_with(
             text="Enhancement Dry Run Complete!"
         )
+
+
+# ── Completion seam: the processor payload must reach this handler ────────
+
+
+class TestCompletionSeam:
+    """``run_enhancement`` publishes into the handler app.py actually binds."""
+
+    @staticmethod
+    @pytest.fixture
+    def app(tmp_path: Path) -> AudioEnhancerApp:
+        return _make_app(tmp_path)
+
+    def test_the_real_payload_is_accepted_and_the_report_is_written(
+        self, app: AudioEnhancerApp, tmp_path: Path
+    ) -> None:
+        """Regression: the processor also sends ``processed=`` and ``skipped=``.
+
+        Without the catch-all, binding ``on_complete=self._on_complete`` raised
+        ``TypeError: got an unexpected keyword argument 'processed'`` after the
+        DSP work had already finished, so the run ended with no report.
+        """
+        from audio_enhancer.core import file_processor as core
+
+        result = ProcessingResult(
+            source=Path("track.mp3"),
+            status=JobStatus.DONE,
+            rms_before_db=-20.0,
+            rms_after_db=-14.0,
+            tags_copied=5,
+        )
+        with (
+            patch.object(core, "find_audio_files", return_value=[Path("track.mp3")]),
+            patch.object(
+                core,
+                "inspect",
+                side_effect=lambda p: AudioFileInfo(path=p),
+            ),
+            patch.object(core, "process_file", return_value=result),
+        ):
+            core.run_enhancement(
+                source_path=Path("/fake/source"),
+                output_dir=Path("/fake/output"),
+                params=EnhancementParams(),
+                slot_vars=[MagicMock()],
+                slot_queue=Queue(),
+                on_progress=MagicMock(),
+                on_complete=app._on_complete,
+                on_error=MagicMock(),
+            )
+
+        # The handler only schedules the log write; flush it like the Tk loop.
+        for scheduled in list(app._scheduled):
+            scheduled()
+
+        report = (tmp_path / "enhancement_log.txt").read_text(encoding="utf-8")
+        assert "SUMMARY" in report
+        assert "Total files : 1" in report
+        assert "Enhanced    : 1" in report

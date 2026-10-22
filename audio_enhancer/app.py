@@ -14,6 +14,11 @@ Slot pool
 DEFAULT_MAX_WORKERS is imported from the shared constants module so that
 the slot-pool size and the ThreadPoolExecutor max_workers are always
 identical — changing the one constant updates both.
+
+Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``.
+The processor publishes ``processed`` and ``skipped`` to the completion handler,
+and rejecting them raised a TypeError after the DSP work had finished, losing the
+report.
 """
 
 from __future__ import annotations
@@ -433,6 +438,7 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
         errors: int,
         result: ProcessingResult,
         display_text: str,
+        **_extra: Any,
     ) -> None:
         def _update() -> None:
             self.progress["maximum"] = total
@@ -456,6 +462,7 @@ class AudioEnhancerApp(UIHelperMixin, AuditionMixin):
         errors: int,
         duration_secs: float,
         results: list[ProcessingResult],
+        **_extra: Any,
     ) -> None:
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)

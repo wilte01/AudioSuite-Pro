@@ -5,6 +5,11 @@ Wires UI, core logic, and utilities together. No business logic here.
 
 Changed in 1.4.0: the worker slot grid is sized from ``DEFAULT_MAX_WORKERS``
 instead of a literal 4 (PLAN D56).
+
+Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``,
+so a payload field the processor adds (D112) is ignored instead of aborting an
+otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
+completion, progress and error seams.
 """
 
 import logging
@@ -333,7 +338,13 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
     # ── Callbacks ─────────────────────────────────────────────────────────────
 
     def _on_progress(
-        self, processed: int, total: int, skipped: int, errors: int, display_text: str
+        self,
+        processed: int,
+        total: int,
+        skipped: int,
+        errors: int,
+        display_text: str,
+        **_extra: Any,
     ) -> None:
         self.progress["maximum"] = total
         self.progress["value"] = processed
@@ -352,6 +363,7 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
         errors: int,
         duration_secs: float,
         log_entries: list[Any],
+        **_extra: Any,
     ) -> None:
         is_dry_run = self.run_mode.get() == "Dry Run"
         minutes = int(duration_secs // 60)

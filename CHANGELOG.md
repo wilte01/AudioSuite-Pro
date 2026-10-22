@@ -11,6 +11,29 @@ Versions of the tools are released together with the suite (the single
 
 ### Fixed
 
+- **Every GUI tool's completion and progress steps survive the fields their
+  processor sends.**
+  Audio Enhancer bound its handler directly but declared only `(total, done,
+  errors, duration_secs, results)` while `run_enhancement` also publishes
+  `processed` and `skipped`, so a finished batch ended with `[AudioCodecError]
+  ... unexpected keyword argument 'processed'` and no report was written. All
+  fourteen completion handlers and fourteen progress handlers now absorb fields
+  they do not use, and a new cross-tool test derives the wiring from the tree
+  and fails if any handler narrows its signature again; the same lock pins the
+  one-message `on_error` contract every processor relies on. Each tool's
+  required completion fields are frozen in a second lock as well, so a handler
+  that gives one a default — the way a discarded count renders as a clean
+  zero — fails the suite instead of a batch.
+
+- **ReplayGain Analyzer's summary no longer undercounts a mixed batch.** Its
+  `Successfully processed` line subtracted the error count from a figure that
+  already counted only successes, so two good files beside one failure read as
+  1 and a single failure read as -1; the log and the summary panel now report
+  the success count itself. Its `skipped`, `errors`, `duration_secs` and
+  `log_entries` are required arguments now, so a payload that omits one raises
+  with the field's name instead of writing `Errors: 0` and `Time: 00:00` into a
+  report that never carried the numbers.
+
 - **A slow track is no longer tagged at double its real tempo.** BPM detection
   doubled any estimate below the configured range and clamped whatever was left
   outside it, so a genuine 60 BPM drone under the default 75 BPM floor was

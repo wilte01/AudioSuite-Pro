@@ -5,6 +5,14 @@ Wires UI, core logic, and utilities together. No business logic here.
 
 Changed in 1.4.0: the worker slot grid is sized from ``DEFAULT_MAX_WORKERS``
 instead of a literal 4 (PLAN D56).
+
+Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``,
+so a payload field the processor adds (D112) is ignored instead of aborting an
+otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
+completion, progress and error seams.  ``_on_complete``'s ``skipped``, ``errors``,
+``duration_secs`` and ``log_entries`` lost their defaults, so a payload that
+omits a count raises with its name instead of printing ``Errors: 0`` and
+``Time: 00:00`` from a run that never reported.
 """
 
 import argparse
@@ -347,7 +355,9 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
 
     # ── Callbacks (called from background thread — all UI via root.after) ─────
 
-    def _on_file_progress(self, processed: int, total: int, errors: int) -> None:
+    def _on_file_progress(
+        self, processed: int, total: int, errors: int, **_extra: Any
+    ) -> None:
         def _update_progress(
             p: int = processed, t: int = total, e: int = errors
         ) -> None:
@@ -383,17 +393,23 @@ class ReplayGainAnalyzerApp(UIHelperMixin):
         header: list[str],
         total: int,
         processed: int,
-        skipped: int = 0,
-        errors: int = 0,
-        duration_secs: float = 0.0,
-        log_entries: list[str] | None = None,
+        skipped: int,
+        errors: int,
+        duration_secs: float,
+        log_entries: list[str],
+        **_extra: Any,
     ) -> None:
-        if log_entries is None:
-            log_entries = []
+        """Write the run report; every count is required, never defaulted.
+
+        ``skipped`` is not rendered here, but it stays required because
+        ``run_analysis`` sends it unconditionally: a count the handler would
+        accept a stand-in for is a count the summary can print wrong.
+        """
         is_dry_run = self.run_mode.get() == "Dry Run"
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)
-        succeeded = processed - errors
+        # ``processed`` counts successes already; errors are counted apart from it.
+        succeeded = processed
 
         summary: list[str] = [
             "\n" + "=" * 60 + "\n",

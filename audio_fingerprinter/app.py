@@ -11,6 +11,11 @@ records the same line as the run's note, so a refused or offline submission is
 visible in the Master Driver batch report without opening the run log.
 Changed in 1.4.0: the fpcalc status line names the checkout's bundled binary
 instead of claiming it came from PATH.
+
+Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``,
+so a payload field the processor adds (D112) is ignored instead of aborting an
+otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
+completion, progress and error seams.
 """
 
 from __future__ import annotations
@@ -566,6 +571,7 @@ class FingerprinterApp(UIHelperMixin):
         total: int,
         errors: int,
         display_text: str = "",
+        **_extra: Any,
     ) -> None:
         def _update() -> None:
             self.progress["maximum"] = total
@@ -591,6 +597,7 @@ class FingerprinterApp(UIHelperMixin):
         results: list[FingerprintFileResult],
         counts: dict[str, int],
         isrc_submission: dict[str, Any] | None = None,
+        **_extra: Any,
     ) -> None:
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)
