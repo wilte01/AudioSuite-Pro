@@ -18,6 +18,8 @@ ui
     Widget builders: setup_tab, processing_tab, results_tab.
 utils
     CLI argument parsing.
+
+Changed in 2.0.0: created for the Stem Separator (PLAN_feature_expansion.md Item 6.1).
 """
 
 from __future__ import annotations
