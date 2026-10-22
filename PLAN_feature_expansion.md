@@ -1329,6 +1329,50 @@ a publisher case fails a coverage test instead of shrinking the set silently.
 stays the contract lock), the eleven per-tool `<tool>/tests/test_app.py` suites,
 `CHANGELOG.md`, and a row in this sprint's decision log.
 
+**Execution record (2026-10-22): COMPLETE.** All fourteen tools now drive their
+real `run_*` into the handler their `app.py` binds and assert a written outcome.
+Eleven `TestCompletionSeam` classes are new (album art normalizer, album genre
+tagger, fingerprinter, normalizer, refinery, BPM, genre sync, lyrics, scrubber,
+format converter, silence trimmer); tempo analyzer's capture-only payload case is
+replaced by a seam case; audio enhancer and replaygain analyzer already had the
+shape the plan asks for and needed no change. `tests/test_completion_payload_published.py`
+adds the publisher-side lock: a frozen fourteen-entry `EXPECTED_PUBLISHERS`
+table, an entry-point resolution case, a case-coverage scan that fails when a
+tool joins `EXPECTED_TOOLS` without a seam class naming its processor, and a
+required-field-versus-published cross-check that reads the processor's AST (it
+never imports a processor, so the lock does not depend on the audio stack).
+
+Two defects came out of the item rather than out of the plan:
+
+* **D117 was live, not hypothetical.** `album_art_normalizer`'s wiring rebuilt
+the payload with `kw.get(field, 0)`, so a field the processor renamed or stopped
+sending reached the report as a clean `0`/`00:00` — the silent zero the
+required-field contract exists to prevent, one layer above it. The wiring now
+forwards the published payload and a missing field raises with its name
+(`album_art_normalizer/app.py`, CHANGELOG *Fixed*). Every case asserts the
+rendered **values** with distinct counts per field, so an acceptance-only case
+would not have caught it.
+* **The gate found a stale annotation at HEAD.** Bare `mypy .` failed on
+`bpm_analyzer/core/bpm_detector.py`'s autocorrelation local, which declared
+`NDArray[np.float64]` while the installed numpy stubs report `floating[Any]`.
+Widened to the dtype numpy actually returns (no behaviour change) rather than
+left red.
+
+Negative controls: one drop-a-published-field experiment per tool, every
+mutation restored from the original bytes and SHA-256 verified (the harness was
+deleted afterwards). Fourteen of fourteen bit: the handler raised
+`missing 1 required positional argument: '<field>'` under `<App>._on_complete`
+and the case failed with the report artifact absent (twelve tools; album art
+normalizer and replaygain analyzer write their report before the summary render,
+so there the field-named raise is the failing end). The two tools whose first
+textual field match landed in a harmless location were re-probed directly and
+failed 5/5 runs.
+
+Gate on the completed item: `compileall` clean, `ruff check`/`ruff format
+--check` clean (888 files), bare `mypy .` clean (503 files), bandit 0 High /
+0 Medium, bare `pytest` **10,462 passed, 3 skipped, 30 deselected**, coverage
+90.84% (floor 75).
+
 #### Item 6.1: Demucs Integration for Stem Separation
 
 **New Package:** `stem_separator/`
@@ -1483,6 +1527,27 @@ If Sprint 6 fails gate:
 - Remove torch/demucs from dependencies
 - Revert version to 1.4.1
 - This is a major rollback; would only happen if ML integration proves infeasible
+
+### 6.6 Execution Addendum (2026-10-22) — pre-code verification
+
+Produced before any Sprint 6 code was written. Every claim below was measured on
+the development host (Windows, CPython 3.14.9, RTX 3060 / CUDA 13.4 driver,
+ffmpeg 8.0.1) through a scratch virtualenv, which was deleted afterwards; the
+worktree was left clean (`git status --porcelain` empty).
+
+| Decision | Rationale |
+|----------|-----------|
+| D115 | **Commit 0 opens the Sprint 6 window.** `tests/test_release_notes.py` moves to `BASE_COMMIT = c0569e7` (the Sprint 5 close-out tip, the state Sprint 6 starts from) and `NOTE_MARKER = "Changed in 2.0.0"`, with a docstring paragraph recording the re-baseline. The four questions the plan left open are settled by the user on this addendum: the ML stack becomes a **new `ml` extra** (`demucs>=4.1.0`, `pyrnnoise>=0.4.5`) that CI does not install; the PyPI **CPU wheel** ships and GPU support is detected and reported honestly; `ml_denoiser` is built on **pyrnnoise/RNNoise** with no torch; and the real-model paths are verified by an **opt-in `real_ml` marker** excluded from the default run (`addopts -m "not hardware and not real_ml"`). | The lock only accepts a commit hash, so the window must open at a green commit, and 2.0.0 code needs a 2.0.0 marker before the first source file lands — the D53/D90 precedent. The plan's own §6.1 file list ("add `demucs` to dependencies") would have made torch mandatory for all 28 tools and for all three CI legs, contradicting D2's "make it optional"; §6.2 named RNNoise but no maintained PyPI binding of that name exists. |
+| D116 | **The plan's ML assumptions were probed, not assumed.** Measured: `torch==2.14.1` and `demucs==4.1.0` resolve for 3.11/3.12/3.14 on Windows and on Linux; the PyPI Windows wheel is `2.14.1+cpu` with `torch.cuda.is_available() is False`, while the Linux leg drags the `nvidia-*` wheel set (~2-3 GB), which is why the extra stays out of CI. `demucs.api.Separator(model, device, shifts, overlap, split, segment, jobs, progress, callback)` with `separate_tensor(wav, sr) -> (origin, {stem: Tensor})` and `separate_audio_file(Path)` only (a `str` is a `TypeError`); weights download from HuggingFace on first use (cached in `~/.cache/huggingface`). Real CPU throughput: model load 0.6 s cached, 10 s of audio in 3.9 s (2.5x realtime), 30 s in 9.7 s (3.1x realtime) — a 5-minute track is ~100 s. `pyrnnoise==0.4.5` ships a 13 MB win_amd64 wheel (Apache-2.0; RNNoise is BSD-3), imports on cp314, and denoised 30 s stereo in 2.9 s (10.4x realtime). Two traps found: it **resamples to 48 kHz internally and drops up to one 10 ms frame** (1.000 s at 44.1 kHz came back as 0.990 s), so the engine must pad to a 480-sample frame and trim to the exact input length; and it is **speech-oriented** — it attenuated a 220 Hz tone by ~24 dB (RMS 7143 -> 466), so the tool reports measured before/after RMS and offers an `amount` blend rather than promising a transparent denoise. `rnnoise` is not on PyPI; DeepFilterNet and DeepFilterNet-style packages downgrade numpy to 1.26 and packaging to 23.2, which breaks this suite's stack. | "ML integration is feasible" is the kind of claim that is worth a measurement before four to six weeks are spent on it, and each of these numbers changes a design decision: the CPU/GPU split, the resample-and-trim rule, the speech-only caveat, and the size of the lock diff. It also settles Item 6.2's engine choice on evidence (DeepFilterNet and the torch route were both probed) rather than on the plan's "(e.g. pretrained RNNoise)" aside. |
+| D117 | **Item 6.0 is cheaper than the plan assumes and needs one lock the plan does not list.** All fourteen apps write an artefact from their completion handler, and `BaseFileProcessor.discover_audio_files` filters on extension only, so a zero-byte `.wav` in `tmp_path` plus a patched per-file worker drives the real `run_*` — no audio fixtures. But `album_art_normalizer`'s wiring passes `kw.get("errors", 0)`, so a case that asserted *acceptance* would still let a renamed field through: every case asserts the rendered **values** with distinct counts per field. One addition to the plan's two locks: a static cross-check in the new `tests/test_completion_payload_published.py` requires every field a handler *requires* to be published by its processor (or supplied by the wiring lambda), which catches the D112/D113 class at collection time rather than after the DSP has finished. | A test that a payload is accepted proves the consumer half only; the defect being closed is a *publisher* that stopped sending a field, and a defaulted read (`kw.get`) renders that as a plausible zero. Asserting values with distinct counts is what makes a rename visible, and the static cross-check makes it visible before any run starts. |
+
+Gate state when Commit 0 was prepared (measured with the repo's `.venv`,
+CPython 3.14.9): `compileall` rc=0, `ruff check` and `ruff format --check`
+clean, bandit 0 High / 0 Medium. Bare `mypy .` was **red at the base commit** --
+`bpm_analyzer/core/bpm_detector.py` declared `NDArray[np.float64]` for a local
+the installed numpy stubs report as `floating[Any]` -- so Item 6.0 repairs that
+annotation rather than starting from a green gate. The full-suite run for the
+completed change set is recorded under Item 6.0's execution record.
 
 ---
 

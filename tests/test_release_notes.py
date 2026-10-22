@@ -97,6 +97,14 @@ Changed in 1.4.1: ``.txt`` joins CODE_SUFFIXES in the commit that adds the
 first one (``docs/requirements.txt``, D98). A requirements file carries comment
 syntax, so it is annotated like configuration rather than exempted like a
 binary; the scan still refuses an unclassified format.
+Changed in 2.0.0: re-baselined the lock for the Sprint 6 work window
+(PLAN_feature_expansion.md D115). BASE_COMMIT is now c0569e7 -- the Sprint 5
+close-out tip, the state Sprint 6 starts from -- and NOTE_MARKER is
+``Changed in 2.0.0``, so only the Sprint 6 change set requires notes. The
+asserted non-empty exception category stays the narrative ``.md`` documents,
+which every release touches; no audio fixture is added by this sprint (its ML
+tests generate their audio), so the fixture extensions remain declared-only
+exceptions.
 """
 
 from __future__ import annotations
@@ -113,10 +121,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: close-out tip) so only the 1.4.1 change set requires notes. Earlier work is
 #: documented in its own plans and CHANGELOG.md, so it does not require
 #: per-file notes here.
-BASE_COMMIT = "a6f862e"
+BASE_COMMIT = "c0569e7"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 1.4.1"
+NOTE_MARKER = "Changed in 2.0.0"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (
