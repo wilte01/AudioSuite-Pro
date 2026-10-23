@@ -7,7 +7,7 @@ through the *installed* import machinery, and report every package that is
 missing or resolves somewhere other than this checkout.  Each broken package is
 mapped back to the CLI command it takes down, through the same table
 ``cli_app`` registers commands from, so the report names tools rather than
-files.It also answers the question a stale install hides behind: *which interpreter
+files.  It also answers the question a stale install hides behind: *which interpreter
 would this tool actually run in?*  The launchers re-execute themselves under
 ``<root>/.venv`` when one exists (``venv_bootstrap``), so the interpreter that
 runs the CLI and the one a double-clicked ``.pyw`` uses can differ.  The report
