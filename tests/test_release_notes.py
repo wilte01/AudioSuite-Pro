@@ -105,6 +105,13 @@ asserted non-empty exception category stays the narrative ``.md`` documents,
 which every release touches; no audio fixture is added by this sprint (its ML
 tests generate their audio), so the fixture extensions remain declared-only
 exceptions.
+Changed in 2.1.0: re-baselined the lock for the Sprint 7 work window
+(PLAN_feature_expansion.md D123). BASE_COMMIT is now 3eb5f85 -- the 2.0.0
+release tip -- and NOTE_MARKER is ``Changed in 2.1.0``, so the closed 2.0.0
+window's notes stay as each file's own history and no Sprint 6 file has to
+carry a second one. The asserted non-empty exception category is still the
+narrative ``.md`` documents: this re-baseline is itself the first .md change of
+the new window, so the scan's own commit cannot empty it.
 """
 
 from __future__ import annotations
@@ -117,14 +124,14 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: The plan's base commit; every file changed since here must be annotated.
-#: Updated for the Sprint 5 work window (D90): set to a6f862e (the Sprint 4
-#: close-out tip) so only the 1.4.1 change set requires notes. Earlier work is
-#: documented in its own plans and CHANGELOG.md, so it does not require
-#: per-file notes here.
-BASE_COMMIT = "c0569e7"
+#: Updated at the 2.0.0 release (D123): set to 3eb5f85 (the release tip) so the
+#: closed Sprint 6 window needs no further notes and only work after 2.0.0 does.
+#: Earlier work is documented in its own plans and CHANGELOG.md, so it does not
+#: require per-file notes here.
+BASE_COMMIT = "3eb5f85"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 2.0.0"
+NOTE_MARKER = "Changed in 2.1.0"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (
