@@ -10,6 +10,7 @@ Changed in 2.0.0: initial version (Sprint 6, Item 6.1).
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from queue import Queue
 from typing import Any
@@ -295,6 +296,28 @@ class TestFatalCases:
         first = completion["log_entries"][0]
         assert "Dry Run" in first
         assert "CPU" in first
+
+    def test_the_run_logs_the_device_and_its_reason(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Item 6.3 asks the device status to be *logged*, and the reason is
+        the half that makes a CPU fallback diagnosable.  ``device="cpu"`` keeps
+        the assertion independent of whether torch is installed on the host."""
+        _source(tmp_path / "song.wav")
+
+        with caplog.at_level(logging.INFO, logger=file_processor.__name__):
+            _run(
+                tmp_path,
+                StemSeparationParams(
+                    output_dir=str(tmp_path / "out"), device="cpu", dry_run=True
+                ),
+                patch_model=False,
+            )
+
+        messages = [record.getMessage() for record in caplog.records]
+        line = next(m for m in messages if "Stem separation device" in m)
+        assert "CPU" in line
+        assert "turned off" in line
 
     def test_an_empty_directory_completes_with_zeroes(self, tmp_path: Path) -> None:
         completion, _progress, errors = _run(

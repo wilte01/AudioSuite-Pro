@@ -1547,6 +1547,70 @@ the default deselect set against the union of both opt-in sets.
 - Update README.md
 - CHANGELOG.md: Added bullet for ML denoising
 
+**Execution record (2026-10-23): COMPLETE.** `ml_denoiser/` ships the whole
+registration a new tool needs, in one change: the manifest entry (`ml_denoiser`,
+order 53), `audiosuite denoise` plus its usage block and schema variant, its
+corpus recording, the arg builder entry, the dependency-graph leaf, the driver
+state variable, the pre-flight-guarded `ML_Denoiser.pyw`, the Master Driver card,
+the guide map entry, `testpaths` and coverage source, a generated user guide, and
+the callback-contract, completion-seam, publisher, registry, README and user-guide
+locks. The tool is in-place with undo (D120), so its reports come from the shared
+`run_inplace_dsp_batch`: `total`/`processed`/`succeeded`/`skipped`/`errors`/
+`duration_secs`/`log_entries`, with no tool-specific JSON field — the measured
+attenuation is in each status line and in the log, where a user reads it.
+
+Measured on the development host's installed `pyrnnoise==0.4.5` (CPython 3.14.9):
+`RNNoise(rate).denoise_chunk(chunk, partial=True)` takes and returns
+`(channels, samples)` int16 at the source rate, resampling to 48 kHz internally;
+a 573-sample 44.1 kHz input came back **574** samples, and 1.000 s at 44.1 kHz
+came back exactly 44100 — so the overshoot is a rounding case, not a lost frame,
+and the adapter forces the length in both directions (D120). A four-tone mix
+(220/330/440/660 Hz plus white noise, 48 kHz stereo) went from RMS 6976 to 786, a
+19 dB drop, confirming the speech-only caveat the guide warns about.
+
+Tests: 74 in the new suite — models (6), engine (18, including the fake model's
+overshoot/short-answer cases and `-6 dBFS` measurement), processor (9: dry run
+bytes and mtime untouched and no export call, live run decoding to half the
+source level with its tags and length, a clean file not rewritten, one broken
+file counted without stopping the batch, a missing extra raising before any file,
+an empty directory, and an undo round trip that restores the original bytes),
+`cli_args` (14), `app` (20, including the completion seam driven from a worker
+thread with `root.after` executing the scheduled render), and `setup_tab` (7,
+building the real panel on the session Tk root and asserting the amount slider's
+binding and range plus both caveat captions). Two `real_ml` cases run
+the real library on a tone and assert length, rate, attenuation and that a 50 %
+blend lands between the source and the full denoise; they are deselected by the
+default run and pass under `pytest -m real_ml` on this host.
+
+Locks updated in lockstep: `EXPECTED_TOOLS` 15 -> 16, `EXPECTED_REQUIRED` gains
+`MlDenoiserApp`, `EXPECTED_PUBLISHERS` gains `ml_denoiser`,
+`SHARED_COMPLETION_FIELDS` gains `succeeded` (D121), the registry locks move to
+30 tools / 29 CLI commands (11 enrich + 18 utility + 1 refinery), the README
+index to 30 rows, the CLI corpus to 33 commands, the ffmpeg-dependent guide table
+and the entry-stub package list gain the tool, and `test_pyproject_config.py`'s
+`real_ml` assertion now accepts both ML suites instead of the separator alone.
+
+Environment note: the dev interpreter here was missing three declared `dev`
+dependencies (`jsonschema`, `sphinx`, `python-pptx`), which made
+`tests/test_cli_schema_conformance.py` and `tests/test_docs_build.py` collection
+errors before any change of this item. They were installed to run the gate; the
+`--record` regeneration needs `jsonschema`. For the `real_ml` half, `pytest` and
+`pytest-cov` were added to the repo's `.venv` (the interpreter that carries the
+`ml` extra): `pytest -m real_ml ml_denoiser/tests/test_rnnoise_engine.py` there
+runs the real library and both cases pass.
+
+**Gate on the completed item:** `compileall` rc=0; `ruff check` and
+`ruff format --check` clean (934 files); bare `mypy .` clean (532 files); bandit
+0 High / 0 Medium; bare `pytest` **10,663 passed, 3 skipped, 33 deselected** in
+1257.82 s, coverage **90.58%** (floor 75).
+
+Break-and-restore controls, each restored from the original bytes with a SHA-256
+check (harness deleted afterwards): forcing the length trim/pad off failed both
+length tests; hard-wiring `is_dry_run=False` failed the dry-run byte/mtime and
+no-export tests; ignoring the amount in the blend failed the blend test;
+reporting every level change as a repair failed the clean-file tests in both the
+engine and the processor. 4 of 4 bit.
+
 #### Item 6.3: GPU Acceleration Support
 
 **Files to Modify:**
@@ -1571,6 +1635,63 @@ the default deselect set against the union of both opt-in sets.
 - Document GPU requirements in user guides
 - CHANGELOG.md: Added bullet for GPU support
 
+**Execution record (2026-10-23): COMPLETE, with one deviation recorded rather
+than faked.** `audio_suite_shared/gpu_utils.py` is the suite's single answer to
+"which device will this run use", and it answers from what torch measured rather
+than from the hardware: `detect_device()` returns a `DeviceInfo(device, name,
+reason)` whose CPU answer always names its cause, `resolve_device()` maps
+`auto|cpu|cuda` onto it (raising for an unknown value, and for `cuda` when CUDA
+is not usable), and `describe()` returns the short caption a status line shows.
+
+Measured on this host, which has an RTX 3060 in the case: the `ml` extra's wheel
+is `torch 2.14.1+cpu`, `torch.version.cuda is None` and
+`torch.cuda.is_available() is False`, so the Stem Separator captions `CPU` and
+the reason reads `the installed torch is a CPU-only build; install a CUDA build of torch to
+run on the GPU.` That is the answer D116 asked for and the one a card-presence
+check would have got wrong. A host with no torch gets `torch is not installed;
+install the 'ml' extra (uv sync --extra ml) to enable CUDA` instead — measured on
+the system interpreter, which is exactly that host — and a CUDA-capable build
+with no usable card is a third reason, so the two "CPU" outcomes that have
+different fixes stay distinguishable.
+
+Ten cases in `audio_suite_shared/tests/test_gpu_utils.py` lock that contract:
+missing torch, a CPU-only wheel, a CUDA build with no card, a usable card
+(card name, CUDA version and memory in one caption), `--device cpu` never
+importing torch at all, `auto`/`cpu`/`cuda` resolution, `cuda`-without-a-GPU
+raising with the reason, an unknown device raising, a blank value meaning
+`auto`, and the `describe()` caption. They are mocked against a
+`SimpleNamespace` shaped like the parts of torch the module reads, so the lock
+runs on CI legs that do not install the extra.
+
+Consumers and the logging half: the Stem Separator shows `CPU — <reason>` on its
+Setup tab, puts the caption in each run's log header and in the `--json`
+`device` field, and now records the pair at INFO in its own program log —
+`Stem separation device: CPU — the installed torch is a CPU-only build; …` —
+because the caption alone does not say *why*, and "which device did that slow
+run use, and why" is the question a slow run raises. Locked by
+`test_the_run_logs_the_device_and_its_reason`, which drives the real processor
+with `device="cpu"` so it does not depend on whether the host has torch.
+
+**Deviation, kept from D120 rather than widened for this item:** the ML Denoiser
+does not call this module. RNNoise is a C frame loop with no CUDA kernel, so a
+device option there could not change what runs — it would report `CPU` and use
+it for nothing. The item's "stem separator and ML denoiser use GPU detection"
+therefore applies to the torch-backed separator alone; the denoiser's guide says
+the model needs no GPU runtime and the CHANGELOG says RNNoise has no CUDA path,
+so the user-facing claim is accurate even though the code path is absent.
+
+Documentation: the Stem Separator guide states the GPU requirement, the CPU-build
+caveat and the `--device` contract (including the `Device says CPU on a machine
+with a GPU` FAQ entry), and the CHANGELOG's `Added` section now has the
+standalone device-reporting bullet this item asks for.
+
+**Gate on the completed item:** `compileall` rc=0; `ruff check` and
+`ruff format --check` clean (934 files); bare `mypy .` clean (532 files); bandit
+0 High / 0 Medium (50 Low, the documented first-party subprocess findings); bare
+`pytest` **10,664 passed, 3 skipped, 33 deselected** in 1248.19 s, coverage
+**90.58%** (floor 75). Per-suite: `stem_separator` 66 passed / 1 deselected,
+`ml_denoiser` 74 passed / 2 deselected, `test_gpu_utils.py` 10 passed.
+
 ### 6.4 Verification
 
 **Gate Commands:**
@@ -1588,6 +1709,38 @@ utilities\run_gate.ps1
 **Additional Verification:**
 - Test with real Demucs on development machine (if GPU available)
 - Performance benchmarks (CPU vs GPU)
+
+**Execution record (2026-10-23): COMPLETE, with two items resolved as decisions
+rather than measured.** The gate above is the sprint's own: every check green on
+the tree that ships Items 6.0-6.3, and the specific verification §6.4 lists is
+covered by it — `stem_separator` (66) and `ml_denoiser` (74) run their real
+processors with the model seam patched, `test_gpu_utils.py` (10) covers
+detection and CPU fallback, and the Master Driver integration is green in the
+full run: `TestBuildUtilityArgs` emits `--output-dir/--model/--device/--stems/
+--mix` for the separator (and refuses a launch with no output directory or no
+stem) and `--amount` for the denoiser, the dependency graph has both tools as
+leaves, `test_app_state.py`'s toggle set and `test_runner.py`'s tool list carry
+both ids, and the UTIL grid lock places both cards.
+
+**Real Demucs on this machine was already measured under Item 6.1** (a 2 s
+110 Hz + 440 Hz mix separated in 4.3 s through `audiosuite stems --device cpu`,
+four 2000 ms stereo 44.1 kHz stems, per-stem RMS 0.0449/0.00004/0.00025/0.0007
+against a 0.0442 source, reconstruction error 0.0009) and was not repeated here:
+re-running it would produce the same numbers from the same cached weights.
+
+**CPU-vs-GPU benchmarks: not produced, and that is the honest outcome (D122).**
+The `ml` extra installs `torch 2.14.1+cpu`, so this machine cannot run a CUDA
+separation without a ~3 GB out-of-extra install, and a benchmark of a build the
+project does not ship would not describe any user's run. The CPU numbers from
+Item 6.1 stand as the release measurement (2.5-3x realtime on a 3060-class CPU
+host), and the item is closed with that limitation stated rather than with a
+fabricated comparison.
+
+**Scope note, so the sprint is not closed on an overclaim.** §6.1's third
+capability, "ML-powered dialogue isolation (if models available)", has no
+implementation item in §6.3 and none was added: neither ML tool isolates
+dialogue, no model was adopted for it, and it remains a future capability rather
+than a silent gap.
 
 ### 6.5 Rollback Plan
 
@@ -1613,6 +1766,9 @@ worktree was left clean (`git status --porcelain` empty).
 
 | D118 | **The lock pins torch itself, because a dependency's platform cap leaked into every split.** demucs 4.1.0 declares `torch>=2.1,<2.3` for Intel macOS; uv applies a per-platform cap to the whole universal lock, so `ml` resolved `torch==2.2.2` on every platform and `uv sync --extra ml` failed on 3.13/3.14 with "no wheel with a matching Python ABI tag". `[tool.uv] override-dependencies = ["torch>=2.9"]` now pins the version D116 measured working with demucs (2.14.1), at the cost of unsupported ML on Intel macOS. This is recorded as a decision rather than a quiet edit because an override outlives its reason: if demucs ever drops the macOS cap, the override should be re-examined rather than inherited. | The alternative — dropping the `ml` extra from the lock, or pinning demucs to an older release — would either ship an unresolvable extra or move the model version away from the one that was measured. A lock that cannot be installed is worse than a recorded override. |
 | D119 | **The Utilities tab is a two-column grid, not a taller window.** Measured at the saved 1250x950 geometry with the real driver built: seventeen cards in one column needed **930 px** of content in a **778 px** viewport, so the last four cards and the LAUNCH button sat below the fold, and every new tool added 35 px. The cards now sit in two weighted columns — nine rows, **385 px** of content, ~310 px of headroom — the card whose Settings are open re-lays the grid and spans both columns while the rest reflow behind it, the LAUNCH button is pinned below the scrolling area, and the Undo Tag Edits card (131 px because its three-line description sat outside any collapsible body) is a normal collapsed card with that text inside its Settings. Expansion is reported through an `on_card_expand` hook on the frame a card is built into, so all thirty card files keep the `build(parent, state)` signature they are discovered by, and `tests/test_utilities_window.py` locks the cell order, the reflow, the pinned pack side and the collapsed undo card as structure rather than pixels. | Raising the persisted window height does not scale: the tab gains a card per tool, and Item 6.2's denoiser plus Item 6.3's GPU work would overflow any height a screen allows. Pinning LAUNCH also fixes a usability defect the measurement exposed — the tab's primary action was the last thing below the fold and had to be scrolled to. Also recorded in `CHANGELOG.md` under *Changed*. |
+| D120 | **Item 6.2 is an in-place repair tool whose report is the measurement.** `ml_denoiser/` is built on `NoisePopToolApp` and the shared `run_inplace_dsp_batch`, the same workflow as Noise Reduction: files are rewritten in place with their tags, every live run records a byte-level undo snapshot, and dry-run writes nothing. The item's one-line "Export denoised audio" was read as "writes the denoised audio", not as a separate output tree: a second tree would duplicate the Stem Separator's layout while losing undo, and a denoiser is a repair. Two measured facts shape the user-facing surface. RNNoise is speech-trained and **not transparent** (D116 measured -24 dB on a 220 Hz tone; this session measured -19 dB RMS on a four-tone mix, 6976 -> 786), so the tool has no "amount of noise" control that could not be honoured: it has a `percent` blend of the model's output with the source, and every status line quotes the level it measured (`Attenuated 6.0 dB (-18.4 -> -24.4 dBFS)`). A file whose level does not move by `MIN_CHANGE_DB` (0.1 dB) is reported clean and is not re-encoded, so a second pass over a processed folder is a no-op. And although D116's note said the model "drops up to one 10 ms frame", the same call path here returned **one sample too many** for a 573-sample 44.1 kHz input (573 -> 574), so the adapter forces the source length in both directions, restoring a short tail from the source instead of padding it with silence. There is **no `--device` option**: RNNoise is a C frame loop with no CUDA kernel, so a device flag could not change anything, and Item 6.3's "both ML tools detect the GPU" applies only to the torch-backed separator (recorded there rather than faked here). A dry run needs the `ml` extra because it measures with the model — the measurement is what it produces — and a missing extra is refused in `_validate_start`/`run_ml_denoise` with the install command instead of erroring on every file. | The alternative — promising a denoise the model cannot deliver, or hiding its level change — is the fabricated-value class this suite has closed twice (D74-D77, D108). Recording the units in one place matters too: the amount is a percentage in the GUI, the CLI and the driver, because a fraction passed to one of them would be read as 1 %. |
+| D121 | **A new tool is only covered by the callback contract if its wiring is discoverable, so the shared handlers gained a catch-all.** `ml_denoiser` binds `on_progress`/`on_complete`/`on_error` by keyword to the `NoisePopToolApp` handlers rather than through the local `_complete(**kw)` wrapper its two siblings use, which is what makes `tests/test_callback_payload_contract.py` see a sixteenth tool; for that to pass, `NoisePopToolApp._on_progress` and `._on_complete` now declare `**_extra: Any` (a docstring already claimed `_on_progress` did). The tool overrides `_on_complete` only to **marshal** the shared render onto the Tk thread (`root.after`), because the shared method touches widgets and the processor calls it from a worker; it calls `super()._on_complete` there, so the rendered report stays the shared one. Two lock corrections came with it: `SHARED_COMPLETION_FIELDS` gained `succeeded`, which `run_inplace_dsp_batch` has always published (its comment said so; the set did not), and `run_ml_denoise` calls `run_inplace_dsp_batch` directly instead of through a private `_run_batch`, because the publisher lock's AST scan only sees the shared runner in the entry point it is given. | A handler reachable only through a local wrapper is invisible to both locks, so a new tool could join the suite with no contract coverage and no test would say so — noise_reduction and pop_click_remover still use that shape and remain outside the frozen set. Making the new tool's seam visible was cheaper than widening the scanner, and it closes the same gap for the shared base that D112 opened for the analysis base. |
+| D122 | **Sprint 6 closes without a CPU-vs-GPU benchmark, deliberately.** §6.4 lists "Performance benchmarks (CPU vs GPU)" as additional verification; the `ml` extra resolves `torch 2.14.1+cpu` on every platform, so this host's RTX 3060 cannot run CUDA without a ~3 GB torch install outside the extra, and a comparison against a build the project does not ship would describe no user's run. The CPU figures already measured (10 s of audio in 3.9 s, 30 s in 9.7 s) are recorded as the release measurement, and the limitation is stated in the sprint's verification record instead of being met with numbers from a different stack. | A benchmark's job is to describe the shipped artifact; measuring an unshipped wheel would be a number with no referent, and installing 3 GB of CUDA torch to obtain it would also invalidate the `ml` extra's own guarantee (D116) that CI and ordinary installs stay CPU-only. If a CUDA build is ever adopted, the benchmark belongs in that change, where it can be reproduced from the lock. |
 
 Gate state when Commit 0 was prepared (measured with the repo's `.venv`,
 CPython 3.14.9): `compileall` rc=0, `ruff check` and `ruff format --check`

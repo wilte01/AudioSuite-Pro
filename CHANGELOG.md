@@ -80,11 +80,44 @@ Versions of the tools are released together with the suite (the single
   on an install without the ML stack. Two sources with the same stem name
   (`song.flac` and `song.wav`) target one output folder, so the first is
   separated and the second is reported as skipped instead of overwriting it.
-  The Setup tab states the device torch actually measured and why, because the
-  PyPI Windows torch wheel is a CPU build: an explicit `--device cuda` that is
-  not usable stops the run with that reason instead of quietly using the CPU.
+  The Setup tab states the device torch actually measured and why (see the
+  device-reporting bullet below), because the PyPI Windows torch wheel is a CPU
+  build: an explicit `--device cuda` that is not usable stops the run with that
+  reason instead of quietly using the CPU.
   `--json` publishes `separated`, `files_written`, `output_dir` and `device`,
   the JSON schema corpus records a real run, and a user guide is shipped.
+
+- **ML Denoiser: neural noise reduction with RNNoise.**
+  A new tool (GUI `ML_Denoiser.pyw`, CLI `audiosuite denoise`, Master Driver
+  UTIL card) removes broadband noise with RNNoise, a speech-trained recurrent
+  network from the same optional `ml` extra — no torch is needed, the wheel is
+  13 MB, and it denoised 30 s of stereo audio in 2.9 s. Files are rewritten in
+  place with their tags, each live run records an undo snapshot, and a dry run
+  reports the attenuation every file would receive. That report is the point:
+  the model is not transparent (it attenuated a 220 Hz tone by 24 dB in the
+  measurement), so each line states the before/after level (`Attenuated 6.0 dB
+  (-18.4 → -24.4 dBFS)`) instead of claiming a clean denoise. A `--amount`
+  percentage (1-100, the same unit the GUI slider and the driver use) blends the
+  model's output with the source for musical material, and a file whose level
+  does not move is reported clean and is not re-encoded. RNNoise resamples to 48 kHz
+  internally and can return the wrong length — a 573-sample file came back one
+  sample long — so the adapter forces the source length, restoring a shortened
+  tail from the source rather than fading it to silence. RNNoise has no CUDA
+  path, so the tool reports CPU honestly rather than offering a device flag
+  that could not change anything.
+
+- **GPU support is reported from what torch measured, not from the hardware.**
+  A GPU in the case does not mean a run uses it: the torch wheel
+  in the `ml` extra is a CPU build, so `torch.cuda.is_available()` is False even
+  on a machine with a discrete card. The new shared
+  `audio_suite_shared.gpu_utils` therefore answers from what torch reported and
+  says *why* when the answer is the CPU — no torch installed, a CPU-only build,
+  or CUDA support with no usable card — because those have three different
+  fixes. `--device auto|cpu|cuda` resolves through the same call, so `cpu`
+  never imports torch and an explicit `cuda` that is not usable stops the run
+  with that reason instead of quietly falling back; the Stem Separator shows the
+  line on its Setup tab, records it at INFO in the program log and publishes it
+  as the `device` field in `--json`.
 
 - **A finished batch report closes with one verdict line.** Caveats were
   printed one per step, so judging a twelve-step run meant scanning twelve

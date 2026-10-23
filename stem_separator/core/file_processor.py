@@ -255,6 +255,11 @@ def run_stem_separation(
         demucs_engine.require_demucs()
 
     device = demucs_engine.device_for(params.device)
+    # Recorded at INFO so the program log answers "which device did that run
+    # use, and why" without re-reading the Setup tab; the reason is what makes a
+    # CPU fallback auditable (a CPU-only torch build and a missing driver are
+    # different problems with different fixes).
+    logger.info("Stem separation device: %s — %s", device.label(), device.reason)
     processor = _build_processor()
 
     try:
