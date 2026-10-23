@@ -53,6 +53,9 @@ recordings are inspectable without a checkout (PLAN D103).
 Changed in 1.4.1: the corpus also records each command's fatal-error document
 (``errors``), validated and exported beside the payload, so the failure shape
 is published rather than inferred (PLAN D105).
+Changed in 2.1.0: the corpus comment names ``<python>`` — the recording
+interpreter, normalised so ``doctor``'s interpreter field does not bake a host
+path into the committed snapshot.
 """
 
 from __future__ import annotations
@@ -97,7 +100,8 @@ _COMMENT = (
     "One recorded payload and one fatal-error document per CLI command, "
     "validated against audio_suite_shared/cli_schema.json by the "
     "schema-conformance gate. Host paths appear as <run> (the scratch "
-    "directory) and <repo> (the checkout), so the file is machine-independent. "
+    "directory), <repo> (the checkout) and <python> (the recording interpreter, "
+    "which the doctor payload reports), so the file is machine-independent. "
     "Do not edit by hand; run `python -m tests.cli_schema_conformance --record`."
 )
 

@@ -10,6 +10,9 @@ Changed in 1.3.0: covers the Help menu's What's New entry and the forced panel
 it opens.
 Changed in 1.4.1: covers the batch report's closing verdict line, including the
 one test that reads it back out of the real Tk text widget (PLAN D110).
+Changed in 2.1.0: covers the shared Mode dropdown reaching both areas' variables
+and the launched utility argv (the launched Stem Separator opened in Dry Run
+after Live Update was picked on ENRICH).
 
 Regression background
 ---------------------
@@ -34,6 +37,7 @@ import pytest
 from audio_suite_shared.tool_plugin import get_registry
 from master_driver.app import _ACCENT_POLL_MS, AudioSuiteDriver
 from master_driver.batch_orchestrator import BatchProgress
+from master_driver.runner.arg_builder import build_utility_args
 from master_driver.state.app_state import AppState
 
 
@@ -341,6 +345,63 @@ class TestDriverConstructor:
         driver.state.refinery_source.set(str(tmp_path) + "x")
         driver._switch_tab("enrich")
         assert driver.state.dir_path.get() == str(tmp_path) + "x"
+
+
+class TestSharedRunMode:
+    """The one Mode dropdown must reach both tabs' arg builders.
+
+    Regression background
+    ---------------------
+    The Mode control is a single widget rebound to the active tab's variable,
+    but ENRICH/REFINE read ``global_mode`` while UTIL reads
+    ``util_global_mode``.  Picking "Live Update" on ENRICH therefore left the
+    UTIL variable on "Dry Run", so LAUNCH UTILITY PROCESS handed the child
+    ``--dry`` — the launched Stem Separator opened in Dry Run while the toolbar
+    had just shown Live Update.  The guide documents one shared Mode.
+    """
+
+    @staticmethod
+    def _pick(driver: AudioSuiteDriver, tab: str, value: str) -> None:
+        """Pick a Mode the way the dropdown does: write the linked variable."""
+        driver._switch_tab(tab)
+        driver._mode_combo.set(value)
+        driver.root.update_idletasks()
+
+    def test_enrich_pick_reaches_the_utility_mode(self, driver_app) -> None:
+        self._pick(driver_app, "enrich", "Live Update")
+        assert driver_app.state.global_mode.get() == "Live Update"
+        assert driver_app.state.util_global_mode.get() == "Live Update"
+
+    def test_utility_pick_reaches_the_enrich_mode(self, driver_app) -> None:
+        self._pick(driver_app, "util", "Live Update")
+        assert driver_app.state.util_global_mode.get() == "Live Update"
+        assert driver_app.state.global_mode.get() == "Live Update"
+
+    def test_dry_run_pick_is_mirrored_too(self, driver_app) -> None:
+        self._pick(driver_app, "util", "Live Update")
+        self._pick(driver_app, "enrich", "Dry Run")
+        assert driver_app.state.util_global_mode.get() == "Dry Run"
+
+    def test_launched_stem_separator_gets_the_mode_the_toolbar_shows(
+        self, driver_app, tmp_path
+    ) -> None:
+        """The reported case: pick Live Update on ENRICH, launch a utility."""
+        driver_app.state.dir_path.set(str(tmp_path))
+        driver_app.state.stem_separator_output_dir.set(str(tmp_path / "stems"))
+
+        self._pick(driver_app, "enrich", "Live Update")
+        driver_app._switch_tab("util")
+
+        # The toolbar shows Live Update on UTIL ...
+        assert driver_app._mode_combo.get() == "Live Update"
+        # ... and the argv handed to the child says the same thing.
+        args = next(
+            args
+            for _toggle, manifest, args in build_utility_args(driver_app.state)
+            if manifest.id == "stem_separator"
+        )
+        assert "--live" in args
+        assert "--dry" not in args
 
 
 class TestAccentPoll:

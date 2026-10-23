@@ -22,6 +22,8 @@ Covers:
     • cap_typed_workers: a typed count above the slot grid
 
 Changed in 1.4.0: adds the `cap_typed_workers` coverage (D66).
+Changed in 2.1.0: covers `install_optional_dependency` — consent, the install
+running off the Tk thread, and a run only resuming once the install verified.
 """
 
 from __future__ import annotations
@@ -1091,3 +1093,99 @@ class TestCapTypedWorkers:
 
         var.set.assert_not_called()
         assert not any("Workers limited" in record.message for record in caplog.records)
+
+
+class TestInstallOptionalDependency:
+    """The prompt → progress → resume flow for a first-use extra install.
+
+    Every widget is replaced by a mock and the worker thread runs synchronously,
+    so the test asserts the *policy*: no install without consent, the install
+    happens off the Tk thread, and a run only resumes when the install verified.
+    """
+
+    class _ImmediateThread:
+        """Stand-in for ``threading.Thread`` that runs its target at ``start``."""
+
+        def __init__(self, target=None, **_kwargs):
+            self._target = target
+
+        def start(self) -> None:
+            assert self._target is not None
+            self._target()
+
+    @staticmethod
+    def _parent() -> MagicMock:
+        parent = MagicMock()
+        # ``after`` schedules onto the Tk thread; run it inline instead.
+        parent.after.side_effect = lambda _ms, fn, *args: fn(*args)
+        return parent
+
+    def _patch_widgets(self, monkeypatch) -> None:
+        monkeypatch.setattr("audio_suite_shared.ui_common.tk.Toplevel", MagicMock())
+        monkeypatch.setattr("audio_suite_shared.ui_common.tk.Label", MagicMock())
+        monkeypatch.setattr("audio_suite_shared.ui_common.ttk.Progressbar", MagicMock())
+        monkeypatch.setattr(
+            "audio_suite_shared.ui_common.threading.Thread", self._ImmediateThread
+        )
+
+    def test_a_declined_prompt_installs_nothing(self, monkeypatch) -> None:
+        from audio_suite_shared import optional_deps, ui_common
+
+        self._patch_widgets(monkeypatch)
+        monkeypatch.setattr(ui_common.messagebox, "askyesno", lambda *a, **k: False)
+        install = MagicMock()
+        monkeypatch.setattr(ui_common, "ensure", install)
+        ready = MagicMock()
+
+        ui_common.install_optional_dependency(
+            self._parent(), optional_deps.DEMUCS, on_ready=ready
+        )
+
+        install.assert_not_called()
+        ready.assert_not_called()
+
+    def test_a_verified_install_resumes_the_run(self, monkeypatch) -> None:
+        from audio_suite_shared import optional_deps, ui_common
+
+        self._patch_widgets(monkeypatch)
+        monkeypatch.setattr(ui_common.messagebox, "askyesno", lambda *a, **k: True)
+        install = MagicMock(
+            return_value=optional_deps.InstallOutcome(True, "Demucs 4.1.0 is ready.")
+        )
+        monkeypatch.setattr(ui_common, "ensure", install)
+        ready = MagicMock()
+
+        ui_common.install_optional_dependency(
+            self._parent(), optional_deps.DEMUCS, on_ready=ready
+        )
+
+        install.assert_called_once_with(optional_deps.DEMUCS)
+        ready.assert_called_once()
+
+    def test_a_failed_install_is_not_silent_and_does_not_run(self, monkeypatch) -> None:
+        from audio_suite_shared import optional_deps, ui_common
+
+        self._patch_widgets(monkeypatch)
+        monkeypatch.setattr(ui_common.messagebox, "askyesno", lambda *a, **k: True)
+        monkeypatch.setattr(
+            ui_common,
+            "ensure",
+            MagicMock(
+                return_value=optional_deps.InstallOutcome(
+                    False, "Demucs could not be installed.", detail="pip exploded"
+                )
+            ),
+        )
+        shown = MagicMock()
+        monkeypatch.setattr(ui_common.messagebox, "showerror", shown)
+        ready = MagicMock()
+
+        ui_common.install_optional_dependency(
+            self._parent(), optional_deps.DEMUCS, on_ready=ready
+        )
+
+        ready.assert_not_called()
+        shown.assert_called_once()
+        message = shown.call_args.args[1]
+        assert "could not be installed" in message
+        assert "pip exploded" in message

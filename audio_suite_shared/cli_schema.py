@@ -94,6 +94,11 @@ Changed in 2.0.0: ``denoise`` joins the contract with the core keys only. The
 in-place workflow publishes ``succeeded``/``skipped``/``errors`` and nothing
 tool-specific, so the measured attenuation stays in the log rather than in a
 field a script would have to know the sign of (Item 6.2).
+Changed in 2.1.0: ``doctor`` publishes ``interpreter``,
+``launcher_interpreter``, ``launcher_from_venv`` and ``extras``, so a script
+can tell which interpreter the launchers use and whether a tool's optional
+engine imports there - the question a stale or system-Python install makes
+impossible to answer from the outside.
 
 One document per run, deliberately
 ----------------------------------
@@ -328,6 +333,14 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
         "checkout_version": (str, type(None)),
         "installed_version": (str, type(None)),
         "editable": bool,
+        # The interpreter running this process, and the one a ``.pyw`` would
+        # re-execute under (the project's ``.venv`` when it has one).
+        "interpreter": str,
+        "launcher_interpreter": str,
+        "launcher_from_venv": bool,
+        # One object per tool with an optional engine: tool, requirement,
+        # module, extra, importable, reason.
+        "extras": list,
         "mapped": int,
         # One object per first-party package: name, status, origin, commands.
         "packages": list,

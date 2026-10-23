@@ -22,9 +22,17 @@ Locks:
    ``File_Reorganizer.pyw`` has.
 4. Every root ``.pyw`` runs the pre-flight guard before its first tool import
    (AGENTS.md "Startup Pre-Flight Guard (Do Not Disable)").
+5. Every root ``.pyw`` re-executes itself under the project's ``.venv`` before
+   the guard, so ``uv``-installed extras are the ones the tool runs with
+   (AGENTS.md "Run From the Project's ``.venv``").
 
 Changed in 1.1.0: added ``TestEveryLauncherRunsThePreflightGuard``, the lock for
 that mandatory guard, after 24 of 28 launchers were found to be missing it.
+
+Changed in 2.1.0: added ``TestEveryLauncherRunsFromTheProjectVenv`` — the
+launcher preamble now starts with ``ensure_venv_interpreter()``, and a new
+launcher that copies only the guard would silently fall back to the system
+interpreter that has none of the extras.
 """
 
 from __future__ import annotations
@@ -404,4 +412,128 @@ class TestEveryLauncherRunsThePreflightGuard:
         assert not violations, (
             "launchers importing the guard from somewhere else: "
             + ", ".join(violations)
+        )
+
+
+def _venv_bootstrap_call(tree: ast.Module) -> ast.Call | None:
+    """Return the first ``ensure_venv_interpreter(...)`` call, or ``None``."""
+    calls = [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "ensure_venv_interpreter"
+    ]
+    if not calls:
+        return None
+    return min(calls, key=lambda call: (call.lineno, call.col_offset))
+
+
+class TestEveryLauncherRunsFromTheProjectVenv:
+    """AGENTS.md "Run From the Project's ``.venv``".
+
+    ``uv sync --extra ml`` installs into ``<root>/.venv``, while a
+    double-clicked ``.pyw`` runs under the system Python.  Without the
+    re-execution the tool cannot see the extras and installs a second copy into
+    the system interpreter.  Static like the guard lock: running 31 shipped
+    launchers would build 31 real GUIs.
+    """
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def launcher_trees() -> tuple[tuple[Path, ast.Module], ...]:
+        """Every root ``.pyw`` launcher with its parsed syntax tree."""
+        trees = tuple(
+            (
+                path,
+                ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
+            )
+            for path in sorted(REPO_ROOT.glob("*.pyw"))
+        )
+        # Non-vacuity: a glob that matched nothing would pass silently.
+        assert len(trees) >= 20, (
+            f"expected the full launcher set, found only {len(trees)}; "
+            "the venv sweep would pass vacuously"
+        )
+        return trees
+
+    def test_bootstrap_runs_before_the_preflight_guard(
+        self, launcher_trees: tuple[tuple[Path, ast.Module], ...]
+    ) -> None:
+        """Re-execute first; the guard then runs in the interpreter that stays."""
+        violations: list[str] = []
+        for path, tree in launcher_trees:
+            call = _venv_bootstrap_call(tree)
+            if call is None:
+                violations.append(f"{path.name}: no ensure_venv_interpreter(...) call")
+                continue
+            guard_line = _guard_call_line(tree)
+            if guard_line is not None and guard_line < call.lineno:
+                violations.append(
+                    f"{path.name}: guard on line {guard_line} precedes the "
+                    f"venv bootstrap on line {call.lineno}"
+                )
+        assert not violations, (
+            "launchers missing (or mis-ordering) the venv bootstrap: "
+            + "; ".join(violations)
+        )
+
+    def test_bootstrap_comes_from_the_shared_module(
+        self, launcher_trees: tuple[tuple[Path, ast.Module], ...]
+    ) -> None:
+        """The bootstrap is the shared one, not a re-implementation."""
+        violations: list[str] = []
+        for path, tree in launcher_trees:
+            imported = any(
+                isinstance(node, ast.ImportFrom)
+                and node.module == "audio_suite_shared.venv_bootstrap"
+                and any(alias.name == "ensure_venv_interpreter" for alias in node.names)
+                for node in ast.walk(tree)
+            )
+            if not imported:
+                violations.append(path.name)
+        assert not violations, (
+            "launchers importing the venv bootstrap from somewhere else: "
+            + ", ".join(violations)
+        )
+
+    def test_bootstrap_is_given_the_launchers_own_directory(
+        self, launcher_trees: tuple[tuple[Path, ast.Module], ...]
+    ) -> None:
+        """``.venv`` is resolved from the launcher's directory, never the cwd."""
+        violations: list[str] = []
+        for path, tree in launcher_trees:
+            call = _venv_bootstrap_call(tree)
+            if call is None:
+                continue
+            argument = call.args[0] if call.args else None
+            if not isinstance(argument, ast.Name):
+                violations.append(
+                    f"{path.name}: the bootstrap argument is not the launcher's "
+                    f"directory variable ({ast.dump(argument) if argument else 'none'})"
+                )
+                continue
+            assigned = next(
+                (
+                    node
+                    for node in ast.walk(tree)
+                    if isinstance(node, (ast.Assign, ast.AnnAssign))
+                    and any(
+                        isinstance(target, ast.Name) and target.id == argument.id
+                        for target in (
+                            node.targets
+                            if isinstance(node, ast.Assign)
+                            else [node.target]
+                        )
+                    )
+                ),
+                None,
+            )
+            if assigned is None or "__file__" not in ast.unparse(assigned):
+                violations.append(
+                    f"{path.name}: {argument.id} is not derived from __file__"
+                )
+        assert not violations, "launchers resolving .venv from the wrong root: " + (
+            "; ".join(violations)
         )

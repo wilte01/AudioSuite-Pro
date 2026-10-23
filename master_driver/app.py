@@ -48,7 +48,12 @@ _ACCENT_POLL_MS = 2000
 
 
 class AudioSuiteDriver(UIHelperMixin):
-    """Audio Suite Master Driver - orchestrates all tools."""
+    """Audio Suite Master Driver - orchestrates all tools.
+
+    Changed in 2.1.0: the ENRICH/REFINE and UTIL run modes are mirrored, so the
+    one Mode dropdown cannot leave a utility launching in the mode the toolbar
+    stopped showing.
+    """
 
     HELP_GUIDE = "Master_Driver_User_Guide.docx"
 
@@ -98,6 +103,7 @@ class AudioSuiteDriver(UIHelperMixin):
 
         self.root.configure(bg=styles.BG_APP)
         self._build_ui()
+        self._link_run_modes()
         self._setup_menu()
 
         # After an update, the hub is the natural place to say what changed.
@@ -193,6 +199,38 @@ class AudioSuiteDriver(UIHelperMixin):
         for child in self._dir_frame.winfo_children():
             if isinstance(child, tk.Button):
                 child.configure(bg=main_col)
+
+    # ── Shared run controls ──────────────────────────────────────────────────
+
+    def _link_run_modes(self) -> None:
+        """Keep the one Mode dropdown on one effective value.
+
+        The Mode control is a single widget, rebound to the active tab's
+        variable, but the arg builders read two of them: ``global_mode`` for
+        ENRICH/REFINE and ``util_global_mode`` for UTIL.  Picking "Live Update"
+        on ENRICH therefore left UTIL on "Dry Run", so LAUNCH UTILITY PROCESS
+        handed the child ``--dry`` while the toolbar had just shown Live Update
+        — a launched Stem Separator opened in Dry Run.  The guide documents one
+        shared Mode, so a write to either variable is mirrored to the other;
+        the tabs can no longer disagree about the run mode.
+        """
+        for mode_var in (self.state.global_mode, self.state.util_global_mode):
+            mode_var.trace_add(
+                "write", lambda *_a, source=mode_var: self._mirror_run_mode(source)
+            )
+
+    def _mirror_run_mode(self, source: tk.StringVar) -> None:
+        """Copy *source*'s run mode to the other area's variable.
+
+        Args:
+            source: The variable the user just wrote.  Mirroring it back onto
+                itself is skipped, and the second write carries the same value
+                so the traces terminate after one hop.
+        """
+        mode = source.get()
+        for target in (self.state.global_mode, self.state.util_global_mode):
+            if target is not source and target.get() != mode:
+                target.set(mode)
 
     # ── App lifecycle ─────────────────────────────────────────────────────────
 

@@ -31,6 +31,10 @@ Changed in 2.0.0: ``path_row``'s parent annotation widens from ``tk.Frame`` to
 ``tk.Misc`` (type-only).  A ``LabelFrame`` is a valid master and every widget
 ``path_row`` builds accepts one, so the Stem Separator can put its output
 picker inside a configuration group without an extra nesting frame.
+
+Changed in 2.1.0: adds ``install_optional_dependency``, the one prompt-and-
+progress flow a tool uses to install an optional extra (Demucs, RNNoise) at the
+moment a run first needs it.
 """
 
 import json
@@ -45,6 +49,7 @@ from typing import Any, Callable, Optional, cast
 from . import styles
 from .constants import cap_workers_to_slot_grid
 from .exceptions import AudioConfigurationError
+from .optional_deps import InstallOutcome, Requirement, ensure
 from .secure_subprocess import SubprocessSecurityError, run_secure_subprocess
 from .ui_audition import add_audition_buttons
 from .ui_driver_controls import DriverControlsPanel
@@ -1252,3 +1257,102 @@ def cap_typed_workers(
         messagebox.showwarning("Workers Limited", message)
     max_workers.set(capped)
     return capped
+
+
+# ── Optional-dependency install ───────────────────────────────────────────────
+
+
+def install_optional_dependency(
+    parent: tk.Misc,
+    requirement: Requirement,
+    *,
+    on_ready: Callable[[], None],
+) -> None:
+    """Install a tool's optional dependency on first use, then continue.
+
+    The ML tools run on Demucs and RNNoise, which live in the ``ml`` extra.
+    Making the user install that is a dead end for a non-technical audience —
+    and it silently does nothing when the tool was started by a different
+    interpreter than the one the packages were installed into.  So the tool
+    installs what it needs, once, at the moment a run first needs it, and
+    verifies the result by importing it in a fresh process before continuing.
+
+    Everything here runs on the Tk thread except :func:`optional_deps.ensure`,
+    which is a multi-minute download: it runs on a daemon worker and the
+    outcome is marshalled back with ``after``.  A declined prompt simply leaves
+    the run unstarted; a failed install reports why, so the dialog never says
+    "not installed" without saying what went wrong.
+
+    Args:
+        parent: The window the prompt and progress dialog are transient to.
+        requirement: The dependency to provide.
+        on_ready: Called on the Tk thread once the dependency is importable.
+    """
+    answer = messagebox.askyesno(
+        f"Install {requirement.label}?",
+        f"{requirement.label} is needed for this run and is not installed yet.\n\n"
+        f"It will be downloaded once (about {requirement.download_mb} MB) and "
+        "then used straight away. Later runs start immediately.",
+        parent=parent,
+    )
+    if not answer:
+        _log.info("User declined the %s install", requirement.label)
+        return
+
+    window = tk.Toplevel(parent)
+    window.title(f"Installing {requirement.label}")
+    window.configure(bg=styles.BG_WHITE)
+    window.resizable(False, False)
+    # ``transient`` is typed for a window master while the prompt accepts any
+    # widget; every caller passes the tool's own Tk root.
+    window.transient(cast(Any, parent))
+    tk.Label(
+        window,
+        text=f"Installing {requirement.label}",
+        font=styles.FONT_TITLE,
+        bg=styles.BG_WHITE,
+        fg=styles.FG_MAIN,
+    ).pack(padx=30, pady=(22, 6))
+    tk.Label(
+        window,
+        text="This can take several minutes. Leave this window open.",
+        font=styles.FONT_CAPTION,
+        bg=styles.BG_WHITE,
+        fg=styles.FG_SUB,
+    ).pack(padx=30)
+    progress = ttk.Progressbar(window, mode="indeterminate", length=360)
+    progress.pack(padx=30, pady=(16, 24))
+    progress.start(12)
+    window.grab_set()
+
+    def _finish(outcome: InstallOutcome) -> None:
+        if window.winfo_exists():
+            progress.stop()
+            window.grab_release()
+            window.destroy()
+        if outcome.ok:
+            _log.info("%s", outcome.message)
+            on_ready()
+            return
+        _log.error("Install failed: %s\n%s", outcome.message, outcome.detail)
+        detail = f"\n\n{outcome.detail}" if outcome.detail else ""
+        messagebox.showerror(
+            f"{requirement.label} Could Not Be Installed",
+            outcome.message + detail,
+            parent=parent,
+        )
+
+    def _install() -> None:
+        try:
+            outcome = ensure(requirement)
+        except Exception as exc:  # pragma: no cover - defensive
+            outcome = InstallOutcome(
+                False, f"{requirement.label} could not be installed: {exc}"
+            )
+        parent.after(0, _finish, outcome)
+
+    threading.Thread(
+        target=_install,
+        name=f"install-{requirement.module}",
+        daemon=True,
+    ).start()

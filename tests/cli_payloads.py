@@ -20,11 +20,15 @@ it with a missing input path, so the published failure shape is a real one
 Changed in 2.0.0: drives ``stems`` with the Demucs model seam patched, so the
 recorded payload is what a real separation writes rather than a dry-run plan
 (PLAN_feature_expansion.md Item 6.1).
+Changed in 2.1.0: the recording interpreter is normalised to ``<python>``, so
+the corpus stays machine-independent now that ``doctor`` reports the
+interpreter it ran under.
 """
 
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import wave
 from collections.abc import Iterator, Sequence
@@ -257,7 +261,8 @@ def _normalize(value: Any, replacements: Sequence[tuple[str, str]]) -> Any:
     A recorded ``scan_path`` or ``cue_path`` is an absolute path on whichever
     machine recorded it.  Committing that would bake a local checkout and
     username into the repository and make a diff depend on the host, so the
-    scratch directory becomes ``<run>`` and the checkout ``<repo>``.  The
+    scratch directory becomes ``<run>``, the checkout ``<repo>`` and the
+    recording interpreter ``<python>`` (``doctor`` reports it).  The
     conformance gate checks the document's shape, not those literals.
     """
     if isinstance(value, str):
@@ -315,7 +320,11 @@ def record_payloads() -> dict[str, dict[str, Any]]:
                 raise RuntimeError(
                     f"{command}: exit {exit_code}, stdout={stdout!r}, stderr={stderr!r}"
                 )
-            replacements = ((str(work), "<run>"), (str(REPO_ROOT), "<repo>"))
+            replacements = (
+                (str(work), "<run>"),
+                (str(REPO_ROOT), "<repo>"),
+                (sys.executable, "<python>"),
+            )
             recorded[command] = _normalize(json.loads(stdout), replacements)
     return recorded
 

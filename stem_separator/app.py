@@ -3,6 +3,17 @@ app.py
 StemSeparatorApp — thin orchestrator for the Stem Separator.
 
 Changed in 2.0.0: initial version (Sprint 6, Item 6.1).
+
+Changed in 2.1.0: the run mode is applied from the driver's argv before the
+    missing-``folder_path`` early return.  A standalone utility launch hands
+    over an empty positional slot, so ``--live`` was parsed and then dropped
+    and the window opened in Dry Run.
+
+Changed in 2.1.0: a live run whose Demucs install is missing no longer stops
+    with an "install the ml extra" dialog.  The tool installs Demucs itself on
+    first use (verified by an import in a fresh process) and continues, which
+    is also the only thing that works when the window was started by an
+    interpreter other than the one ``uv sync`` installed into.
 """
 
 from __future__ import annotations
@@ -14,7 +25,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Any, cast
 
-from audio_suite_shared import styles, suite_config
+from audio_suite_shared import optional_deps, styles, suite_config, ui_common
 from audio_suite_shared.app_bootstrap import BaseSuiteApp
 from audio_suite_shared.exceptions import failure_reason
 from audio_suite_shared.gpu_utils import resolve_device
@@ -172,6 +183,16 @@ class StemSeparatorApp(BaseSuiteApp):
         self.write_mix.set(parsed.mix)
         if parsed.device:
             self.device.set(parsed.device)
+
+        # The run mode is a setting of its own, not part of the folder
+        # handshake below: the Master Driver passes the mode picked in its
+        # toolbar even when it hands over no source folder (a standalone
+        # launch), and applying it only when ``folder_path`` arrived is how a
+        # launched separator opened in Dry Run while the toolbar showed Live
+        # Update.
+        if parsed.live_mode is not None:
+            self.run_mode.set("Live Update" if parsed.live_mode else "Dry Run")
+
         if not parsed.folder_path:
             return
 
@@ -184,8 +205,6 @@ class StemSeparatorApp(BaseSuiteApp):
             parsed,
             folder_var=self.folder_path,
         )
-        if parsed.live_mode is not None:
-            self.run_mode.set("Live Update" if parsed.live_mode else "Dry Run")
 
         if should_auto_start:
             self.root.after(1500, self.start_processing)
@@ -250,20 +269,34 @@ class StemSeparatorApp(BaseSuiteApp):
             normalise_stems(selected)
         except ValueError:
             return "Select at least one stem to export."
-
-        if self.run_mode.get() == "Live Update":
-            reason = demucs_engine.missing_dependency_reason()
-            if reason:
-                return reason
         return None
 
     def start_processing(self) -> None:
-        """Validate inputs then launch the background thread."""
+        """Validate the run, provide Demucs when needed, then start it.
+
+        A missing Demucs is no longer a refusal: the tool installs it (once)
+        at the moment a live run first needs it, then continues on its own.
+        """
         problem = self._validate_start()
         if problem:
             messagebox.showwarning("Cannot Start", problem)
             return
 
+        if (
+            self.run_mode.get() == "Live Update"
+            and demucs_engine.missing_dependency_reason() is not None
+        ):
+            ui_common.install_optional_dependency(
+                self.root,
+                optional_deps.DEMUCS,
+                on_ready=self._begin_run,
+            )
+            return
+
+        self._begin_run()
+
+    def _begin_run(self) -> None:
+        """Start the separation thread for the settings already validated."""
         folder = self.folder_path.get().strip()
         output = self.output_dir.get().strip()
         suite_config.save_value(LAST_OUTPUT_KEY, output)

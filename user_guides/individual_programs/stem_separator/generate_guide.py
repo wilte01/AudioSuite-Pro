@@ -3,6 +3,9 @@
 Changed in 2.0.0: initial version (Sprint 6, Item 6.1).  The version subtitle
 renders ``declared_version()`` and the generation month dynamically, and the
 output path is resolved from this file rather than an absolute checkout path.
+
+Changed in 2.1.0: the installation section states the one-time first-use
+install instead of telling the reader to run ``uv sync --extra ml``.
 """
 
 from datetime import date
@@ -74,9 +77,11 @@ for _hint in (
 ):
     doc.add_paragraph(_hint, style="List Bullet")
 doc.add_paragraph(
-    "Demucs and torch are an optional dependency, installed with the suite's "
-    "'ml' extra (uv sync --extra ml). Without it the tool opens, explains what "
-    "is missing and refuses a live run; a dry run still works."
+    "Demucs and torch are an optional dependency. The first live run that needs "
+    "them offers a one-time download (about 2.5 GB); accepting it installs them "
+    "where the tool can use them, checks that Demucs loads, and then continues "
+    "the run by itself. A dry run never needs them. A headless run installs the "
+    "suite's 'ml' extra instead (uv sync --extra ml)."
 )
 doc.add_paragraph(
     "The PyPI torch wheel for Windows is a CPU build. A machine with a NVIDIA "
@@ -235,8 +240,10 @@ doc.add_paragraph(
 doc.add_heading("Troubleshooting", level=1)
 bullet(
     doc,
-    "Demucs is not installed: ",
-    "Install the 'ml' extra (uv sync --extra ml). A dry run works without it.",
+    "A dialog about installing Demucs: ",
+    "The first live run offers the one-time download. Accept it and the run "
+    "continues once the install verifies; a failed download says why, and a dry "
+    "run works without it.",
 )
 bullet(
     doc,

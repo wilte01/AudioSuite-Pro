@@ -4,6 +4,9 @@ Changed in 2.0.0: initial version (Sprint 6, Item 6.2).  The version subtitle is
 rendered from ``declared_version()`` and the generation month, and the output
 path is resolved from this file rather than an absolute checkout path, because
 ``tests/test_user_guide_hygiene.py`` locks both shapes.
+
+Changed in 2.1.0: the installation section states the one-time first-use
+install instead of telling the reader to run ``uv sync --extra ml``.
 """
 
 from datetime import date
@@ -68,15 +71,14 @@ for _hint in (
     doc.add_paragraph(_hint, style="List Bullet")
 
 doc.add_paragraph(
-    "The neural model itself is an optional dependency. It ships in the `ml` "
-    "extra (approximately 13 MB, no GPU runtime):"
+    "The neural model itself is an optional dependency (approximately 13 MB, no "
+    "GPU runtime). The first run installs it: the tool asks once, downloads it, "
+    "checks that it loads, and then starts the batch."
 )
-doc.add_paragraph("uv sync --extra ml", style="List Bullet")
 doc.add_paragraph(
-    "Without that extra the tool opens, validates a run and explains what to "
-    "install; it does not start a batch that would fail on every file. A dry "
-    "run also needs the extra, because a dry run measures with the model - that "
-    "measurement is the point of it."
+    "A dry run needs it too, because a dry run measures with the model - that "
+    "measurement is the point of it. A headless run installs the suite's 'ml' "
+    "extra instead (uv sync --extra ml)."
 )
 
 # ── Supported files ──
@@ -216,9 +218,9 @@ doc.add_paragraph(
 doc.add_heading("Troubleshooting", level=1)
 bullet(
     doc,
-    "A dialog about the ml extra: ",
-    "Install it with 'uv sync --extra ml' (or 'pip install pyrnnoise'). The "
-    "message names the exact command.",
+    "A dialog about installing RNNoise: ",
+    "The first run offers the one-time download; accepting it installs RNNoise "
+    "and starts the batch. A download that fails says why in the dialog.",
 )
 bullet(
     doc,

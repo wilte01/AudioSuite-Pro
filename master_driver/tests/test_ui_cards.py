@@ -28,11 +28,16 @@ Changed in 1.1.0: adds the Audio Enhancer card's preset-vocabulary lock (every
 shared ``PresetName`` member, Custom included, must be selectable there).
 
 Changed in 1.2.0: supplies the new fingerprinter card variables.
+
+Changed in 2.1.0: adds the Stem Separator card's variables to the shared state
+stub, and locks its new Browse button: the chosen folder reaches the state
+variable, a re-browse starts from the current value only when it is a real
+folder, and a cancelled dialog leaves the entry alone.
 """
 
 import sys
 import tkinter as tk
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -89,8 +94,18 @@ def _make_state(root_widget):
             "file_reorganizer",
             "mood_analysis_batch",
             "album_art_normalizer",
+            "stem_separator",
         )
     }
+
+    state.stem_separator_output_dir = tk.StringVar(root_widget, value="")
+    state.stem_separator_model = tk.StringVar(root_widget, value="htdemucs")
+    state.stem_separator_device = tk.StringVar(root_widget, value="auto")
+    state.stem_separator_mix = tk.BooleanVar(root_widget, value=False)
+    state.stem_separator_vocals = tk.BooleanVar(root_widget, value=True)
+    state.stem_separator_drums = tk.BooleanVar(root_widget, value=True)
+    state.stem_separator_bass = tk.BooleanVar(root_widget, value=True)
+    state.stem_separator_other = tk.BooleanVar(root_widget, value=True)
 
     state.scrubber_preserve_lyrics = tk.BooleanVar(root_widget, value=True)
     state.scrubber_preserve_album_artist = tk.BooleanVar(root_widget, value=True)
@@ -1636,3 +1651,96 @@ class TestAlbumArtNormalizerCardExecuted:
         _collect(parent)
         combo_var_names = [str(c.cget("textvariable")) for c in combos]
         assert any(str(state.art_normalizer_size) in v for v in combo_var_names)
+
+
+class TestStemSeparatorCard:
+    @staticmethod
+    @pytest.fixture()
+    def _import():
+        from master_driver.ui.cards import stem_separator_card
+
+        return stem_separator_card
+
+    @staticmethod
+    def _browse_button(parent) -> tk.Button:
+        buttons = [
+            b
+            for b in _find_widgets_by_class(parent, tk.Button)
+            if b.cget("text") == "Browse"
+        ]
+        assert len(buttons) == 1, f"expected one Browse button, found {len(buttons)}"
+        return buttons[0]
+
+    def test_build_does_not_raise(self, parent, root, _import):
+        state = _make_state(root)
+        _import.build(parent, state)
+
+    def test_checkbutton_uses_stem_separator_toggle(self, parent, root, _import):
+        state = _make_state(root)
+        _import.build(parent, state)
+        btns = _find_checkbuttons(parent)
+        variables = [str(b.cget("variable")) for b in btns]
+        assert any(str(state.module_toggles["stem_separator"]) in v for v in variables)
+
+    def test_output_dir_entry_wired_to_state(self, parent, root, _import):
+        state = _make_state(root)
+        _import.build(parent, state)
+        entries = _find_entries(parent)
+        var_names = [str(e.cget("textvariable")) for e in entries]
+        assert any(str(state.stem_separator_output_dir) in v for v in var_names)
+
+    def test_required_field_hint_is_shown(self, parent, root, _import):
+        """The card states the rule the arg builder enforces, before a launch."""
+        state = _make_state(root)
+        _import.build(parent, state)
+        texts = [str(label.cget("text")) for label in _find_labels(parent)]
+        assert any(
+            text.startswith("Required") and "subfolder" in text for text in texts
+        )
+
+    def test_browse_button_fills_the_output_dir(self, parent, root, _import, tmp_path):
+        """The card's Browse action writes the chosen folder into the state var."""
+        state = _make_state(root)
+        _import.build(parent, state)
+        chosen = tmp_path / "stems"
+        chosen.mkdir()
+        with patch.object(
+            _import.filedialog, "askdirectory", return_value=str(chosen)
+        ) as ask:
+            self._browse_button(parent).invoke()
+        assert state.stem_separator_output_dir.get() == str(chosen)
+        assert ask.call_args.kwargs["title"] == "Select Stem Output Directory"
+
+    def test_browse_button_starts_from_the_current_value(
+        self, parent, root, _import, tmp_path
+    ):
+        """A re-browse opens where the entry currently points, not at default."""
+        state = _make_state(root)
+        state.stem_separator_output_dir.set(str(tmp_path))
+        _import.build(parent, state)
+        with patch.object(_import.filedialog, "askdirectory", return_value="") as ask:
+            self._browse_button(parent).invoke()
+        assert ask.call_args.kwargs["initialdir"] == str(tmp_path)
+
+    def test_browse_ignores_a_current_value_that_is_not_a_folder(
+        self, parent, root, _import, tmp_path
+    ):
+        """Typed text that is not a real folder must not reach the dialog."""
+        state = _make_state(root)
+        state.stem_separator_output_dir.set(str(tmp_path / "not-there-yet"))
+        _import.build(parent, state)
+        with patch.object(_import.filedialog, "askdirectory", return_value="") as ask:
+            self._browse_button(parent).invoke()
+        assert ask.call_args.kwargs["initialdir"] == ""
+        assert state.stem_separator_output_dir.get() == str(tmp_path / "not-there-yet")
+
+    def test_cancelled_browse_keeps_the_current_value(
+        self, parent, root, _import, tmp_path
+    ):
+        """An empty dialog result must not blank a destination already chosen."""
+        state = _make_state(root)
+        state.stem_separator_output_dir.set(str(tmp_path))
+        _import.build(parent, state)
+        with patch.object(_import.filedialog, "askdirectory", return_value=""):
+            self._browse_button(parent).invoke()
+        assert state.stem_separator_output_dir.get() == str(tmp_path)

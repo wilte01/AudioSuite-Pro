@@ -12,6 +12,10 @@ the process actually holds; ``test_main_measures_every_configured_worker_count``
 drives the real entry point end to end on a tiny corpus.
 
 Changed in 1.4.1: new suite for the D100 worker-memory measurement.
+Changed in 2.1.0: the two ``main()`` cases are marked ``worker_memory`` and
+deselected by default — each runs three real analysis batches (~23 s together)
+and the figures describe the host that ran them.  The pure-logic cases (corpus
+builder, marginal-cost arithmetic, usage errors) stay in the default run.
 """
 
 from __future__ import annotations
@@ -178,6 +182,7 @@ class TestPerWorkerCost:
 class TestCli:
     """The script reports the batch it actually ran, through both exits."""
 
+    @pytest.mark.worker_memory
     def test_main_measures_every_configured_worker_count(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -206,6 +211,7 @@ class TestCli:
             assert row["analysis_seconds"] == 1
         assert payload["within_budget"] is True
 
+    @pytest.mark.worker_memory
     def test_an_over_budget_peak_exits_one(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:

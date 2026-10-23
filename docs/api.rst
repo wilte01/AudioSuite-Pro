@@ -92,6 +92,9 @@ Install, startup and host capabilities
 .. automodule:: audio_suite_shared.preflight
    :members:
 
+.. automodule:: audio_suite_shared.venv_bootstrap
+   :members:
+
 .. automodule:: audio_suite_shared.project_version
    :members:
 
@@ -105,6 +108,9 @@ Processes, threads and resources
    :members:
 
 .. automodule:: audio_suite_shared.subprocess_utils
+   :members:
+
+.. automodule:: audio_suite_shared.optional_deps
    :members:
 
 .. automodule:: audio_suite_shared.constants

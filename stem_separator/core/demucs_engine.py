@@ -18,6 +18,10 @@ Two measured behaviours shape the code (PLAN_feature_expansion.md D116):
   duplicated to two channels rather than rejected.
 
 Changed in 2.0.0: initial version (Sprint 6, Item 6.1).
+
+Changed in 2.1.0: the missing-dependency message no longer tells a GUI user to
+    run ``uv sync --extra ml``; the tool installs Demucs on first use and the
+    hint remains only for a headless run.
 """
 
 from __future__ import annotations
@@ -67,7 +71,9 @@ def missing_dependency_reason() -> str | None:
         import demucs.api  # noqa: F401
     except ImportError as exc:
         return (
-            f"Demucs is not installed ({exc}). Install the 'ml' extra: {ML_EXTRA_HINT}."
+            f"Demucs is not installed ({exc}). The Stem Separator installs it "
+            f"on first live use; a headless run needs the 'ml' extra: "
+            f"{ML_EXTRA_HINT}."
         )
     except Exception as exc:  # pragma: no cover - broken installs only
         return f"Demucs is installed but failed to import: {exc}"

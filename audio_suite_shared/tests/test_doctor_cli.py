@@ -5,12 +5,15 @@ the non-zero exit that makes ``audiosuite doctor`` usable as a pre-flight gate.
 Changed in 1.4.1: locks the ``--json`` payload, including the core-count
 mapping that keeps ``succeeded`` at 0 on a broken install (PLAN D93), and the
 shared origin scan that the CLI's staleness warning reads too (PLAN D94).
+Changed in 2.1.0: locks the launcher-interpreter and optional-extra report,
+including that a missing extra is reported but does not fail the check.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -26,9 +29,12 @@ from audio_suite_shared.cli_base import cli
 from audio_suite_shared.cli_schema import validate_payload
 from audio_suite_shared.doctor_cli import (
     DoctorReport,
+    ExtraStatus,
     PackageStatus,
     collect_report,
     doctor_payload,
+    extra_statuses,
+    interpreter_facts,
     render_report,
 )
 
@@ -45,6 +51,24 @@ def _broken_report() -> DoctorReport:
         declared="1.4.0",
         installed="1.4.0",
         editable=True,
+        current_interpreter="C:/Python/python.exe",
+        launcher_interpreter="C:/AudioSuite-Pro/.venv/Scripts/python.exe",
+        launcher_from_venv=True,
+        extras=(
+            ExtraStatus(
+                tool="ml_denoiser",
+                label="RNNoise",
+                module="pyrnnoise",
+                importable=False,
+                reason="ModuleNotFoundError: No module named 'pyrnnoise'",
+            ),
+            ExtraStatus(
+                tool="stem_separator",
+                label="Demucs",
+                module="demucs",
+                importable=True,
+            ),
+        ),
         packages=(
             PackageStatus(
                 name="bpm_analyzer",
@@ -168,6 +192,10 @@ class TestCollectReport:
             declared=None,
             installed=None,
             editable=False,
+            current_interpreter=sys.executable,
+            launcher_interpreter=sys.executable,
+            launcher_from_venv=False,
+            extras=(ExtraStatus("stem_separator", "Demucs", "demucs", True),),
             packages=(),
             problems=("no pyproject.toml found, so this is not a source checkout",),
         )
@@ -176,6 +204,10 @@ class TestCollectReport:
 
         assert "UNKNOWN" in text
         assert "STALE" not in text
+        assert "no .venv" in text, (
+            "without a venv the report must say the launchers stay in this "
+            "interpreter rather than imply one exists"
+        )
 
     def test_an_empty_scan_fails_loudly(self, monkeypatch, tmp_path: Path) -> None:
         pyproject = tmp_path / "pyproject.toml"
@@ -224,6 +256,10 @@ class TestDoctorCommand:
             declared="1.4.0",
             installed="1.4.0",
             editable=True,
+            current_interpreter="C:/Python/python.exe",
+            launcher_interpreter="C:/Python/python.exe",
+            launcher_from_venv=False,
+            extras=(),
             packages=(
                 PackageStatus(
                     name="spectral_viewer",
@@ -252,9 +288,80 @@ class TestDoctorCommand:
             declared="1.4.0",
             installed="1.4.0",
             editable=True,
+            current_interpreter="C:/Python/python.exe",
+            launcher_interpreter="C:/Python/python.exe",
+            launcher_from_venv=False,
+            extras=(),
             packages=packages,
         )
         assert "Tools a stale install would break" in render_report(report)
+
+
+class TestInterpreterAndExtras:
+    """Which interpreter a tool runs in, and whether its engine imports there."""
+
+    def test_a_project_venv_is_named_as_the_launcher_interpreter(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The launchers re-execute into ``.venv``; doctor must say so."""
+        target = tmp_path / ".venv" / "Scripts" / "python.exe"
+        monkeypatch.setattr(doctor_cli, "find_venv_interpreter", lambda _root: target)
+
+        current, launcher, from_venv = interpreter_facts(tmp_path)
+
+        assert current == sys.executable
+        assert launcher == str(target)
+        assert from_venv is True
+
+    def test_without_a_venv_the_launcher_continues_in_this_interpreter(
+        self, tmp_path: Path
+    ) -> None:
+        current, launcher, from_venv = interpreter_facts(tmp_path)
+
+        assert launcher == current == sys.executable
+        assert from_venv is False
+
+    def test_extras_are_probed_in_the_launcher_interpreter(self) -> None:
+        """Probing this process would answer the wrong question."""
+        calls: list[tuple[str, str]] = []
+
+        def probe(module: str, *, python: str) -> str | None:
+            calls.append((module, python))
+            return None
+
+        statuses = extra_statuses("C:/venv/python.exe", probe=probe)
+
+        assert {
+            (status.tool, status.module, status.importable) for status in statuses
+        } == {
+            ("ml_denoiser", "pyrnnoise", True),
+            ("stem_separator", "demucs", True),
+        }
+        assert {python for _, python in calls} == {"C:/venv/python.exe"}
+        assert {module for module, _ in calls} == {"demucs", "pyrnnoise"}
+
+    def test_a_missing_extra_is_reported_with_its_install_command(self) -> None:
+        report = collect_report(
+            extras_probe=lambda module, python: f"ModuleNotFoundError: no {module}"
+        )
+
+        text = render_report(report)
+
+        assert "[MISSING]" in text
+        assert "uv sync --extra ml" in text
+        assert "ModuleNotFoundError" in text
+        assert "does not change this check's exit status" in text
+
+    def test_a_missing_extra_does_not_fail_the_check(self) -> None:
+        """An optional engine is installable on first use; it is not a defect."""
+        if doctor_cli.installed_version() is None:
+            pytest.skip("audiosuite-pro is not installed in this interpreter")
+
+        report = collect_report(extras_probe=lambda module, python: "no " + module)
+
+        assert report.healthy is True
+        assert report.extras
+        assert not any(extra.importable for extra in report.extras)
 
 
 class TestDoctorPayload:
@@ -284,6 +391,27 @@ class TestDoctorPayload:
         assert payload["checkout_version"] == "1.4.0"
         assert payload["installed_version"] == "1.4.0"
         assert payload["editable"] is True
+        assert payload["interpreter"] == "C:/Python/python.exe"
+        assert payload["launcher_interpreter"].endswith(".venv/Scripts/python.exe")
+        assert payload["launcher_from_venv"] is True
+        assert payload["extras"] == [
+            {
+                "tool": "ml_denoiser",
+                "requirement": "RNNoise",
+                "module": "pyrnnoise",
+                "extra": "ml",
+                "importable": False,
+                "reason": "ModuleNotFoundError: No module named 'pyrnnoise'",
+            },
+            {
+                "tool": "stem_separator",
+                "requirement": "Demucs",
+                "module": "demucs",
+                "extra": "ml",
+                "importable": True,
+                "reason": None,
+            },
+        ]
         assert payload["problems"] == []
         assert payload["packages"] == [
             {
@@ -309,6 +437,10 @@ class TestDoctorPayload:
             declared="1.4.0",
             installed=None,
             editable=False,
+            current_interpreter=sys.executable,
+            launcher_interpreter=sys.executable,
+            launcher_from_venv=False,
+            extras=(),
             packages=(),
             problems=("no pyproject.toml found, so this is not a source checkout",),
         )

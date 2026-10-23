@@ -7,6 +7,8 @@ a field fails here instead of at the end of a run that already rewrote the
 library.
 
 Changed in 2.0.0: initial version (Sprint 6, Item 6.2).
+Changed in 2.1.0: covers RNNoise being installed on first use instead of
+refusing the run, including the completion path that then starts it.
 """
 
 from __future__ import annotations
@@ -23,7 +25,9 @@ import pytest
 from pydub import AudioSegment
 from pydub.generators import Sine
 
+from audio_suite_shared import optional_deps, ui_common
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
+from audio_suite_shared.tool_app_base import NoisePopToolApp
 from ml_denoiser.app import MlDenoiserApp
 from ml_denoiser.core import file_processor
 from ml_denoiser.core.models import FRAME_SIZE, DenoiseParams
@@ -99,7 +103,7 @@ def _shell() -> MlDenoiserApp:
 
 
 class TestValidateStart:
-    """The pre-flight check that keeps a missing extra out of the batch."""
+    """The settings check that runs before the extra is provided."""
 
     def _app_with_amount(self, percent: int) -> MlDenoiserApp:
         app = _shell()
@@ -115,23 +119,81 @@ class TestValidateStart:
         assert message is not None
         assert "above 0%" in message
 
-    def test_a_missing_extra_names_the_install(
+    def test_a_missing_extra_is_not_a_refusal(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A missing RNNoise is installed instead, so it cannot block the start.
+
+        Refusing here is how a run ended with an "install the ml extra" dialog
+        that never installed anything — and never could, when the window was
+        started by a different interpreter than the one ``uv sync`` wrote to.
+        """
         monkeypatch.setitem(sys.modules, "pyrnnoise", None)
         app = self._app_with_amount(100)
 
-        message = app._validate_start()
-
-        assert message is not None
-        assert "RNNoise" in message
-        assert "ml" in message
+        assert app._validate_start() is None
 
     def test_a_healthy_install_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _install_fake_rnnoise(monkeypatch)
         app = self._app_with_amount(100)
 
         assert app._validate_start() is None
+
+
+class TestRnnoiseInstallOnFirstUse:
+    """A measured run installs RNNoise itself the first time it is needed."""
+
+    @staticmethod
+    def _app() -> MlDenoiserApp:
+        app = _shell()
+        app.denoise_amount = MagicMock()
+        app.denoise_amount.get.return_value = 100
+        return app
+
+    def test_a_missing_extra_offers_the_install_before_starting(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = self._app()
+        base_start = MagicMock()
+        monkeypatch.setattr(NoisePopToolApp, "_on_start", base_start)
+        monkeypatch.setattr(
+            "ml_denoiser.app.missing_dependency_reason", lambda: "no rnnoise"
+        )
+        install = MagicMock()
+        monkeypatch.setattr(ui_common, "install_optional_dependency", install)
+
+        app._on_start()
+
+        base_start.assert_not_called()
+        install.assert_called_once()
+        assert install.call_args.args[1] is optional_deps.RNNOISE
+        assert install.call_args.kwargs["on_ready"] == app._start_after_install
+
+    def test_the_install_completion_starts_the_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = self._app()
+        base_start = MagicMock()
+        monkeypatch.setattr(NoisePopToolApp, "_on_start", base_start)
+
+        app._start_after_install()
+
+        base_start.assert_called_once()
+
+    def test_an_installed_extra_starts_immediately(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = self._app()
+        base_start = MagicMock()
+        monkeypatch.setattr(NoisePopToolApp, "_on_start", base_start)
+        monkeypatch.setattr("ml_denoiser.app.missing_dependency_reason", lambda: None)
+        install = MagicMock()
+        monkeypatch.setattr(ui_common, "install_optional_dependency", install)
+
+        app._on_start()
+
+        base_start.assert_called_once()
+        install.assert_not_called()
 
 
 class TestCompletionSeam:

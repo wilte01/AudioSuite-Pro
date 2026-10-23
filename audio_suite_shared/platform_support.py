@@ -57,6 +57,10 @@ the generated API reference renders the section instead of warning (PLAN D98).
 Changed in 1.4.1: the diagnostic scripts are classified - the peak-RSS probe's
 two ``sys.platform`` arms are declared, unverified for POSIX because their
 ``resource`` import cannot run on this host (PLAN D100).
+Changed in 2.1.0: declared the launcher venv bootstrap's platform branch
+(``venv_bootstrap.py`` chooses ``Scripts/`` or ``bin/`` by platform value, and
+both arms are tested with an explicit ``platform`` argument), so the
+enumeration lock stays an exact bijection with the tree.
 
 The ``os.name`` trap: patch ``sys.platform``, not ``os.name``
 ----------------------------------------------------------------
@@ -203,6 +207,19 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
         subsystem="Open a generated user guide",
         behaviour="The win32 arm of the guide-launching dispatch.",
         evidence="audio_suite_shared/tests/test_platform_utils.py",
+    ),
+    PlatformBranch(
+        module="audio_suite_shared/venv_bootstrap.py",
+        source='if (platform or sys.platform).startswith("win"):',
+        tier=PORTABLE_CORE,
+        subsystem="Launcher re-execution into the project's .venv",
+        behaviour=(
+            "win32 finds the venv's Scripts/python.exe (or pythonw.exe when the "
+            "launch is windowed); every other platform finds bin/python with a "
+            "bin/python3 fallback. Both arms are implemented and tested with "
+            "an explicit platform value, so neither depends on the host."
+        ),
+        evidence="audio_suite_shared/tests/test_venv_bootstrap.py",
     ),
     PlatformBranch(
         module="audio_suite_shared/platform_utils.py",

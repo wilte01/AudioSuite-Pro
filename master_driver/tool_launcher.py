@@ -3,6 +3,11 @@ tool_launcher.py — Standalone processing launchers extracted from AudioSuiteDr
 
 Contains the accent-colour helper and all Refinery / Enrich / Utility
 processing functions that were originally methods on AudioSuiteDriver.
+
+Changed in 2.1.0: an enabled module whose builder returned no arguments is
+reported instead of launched.  Launching it passed the script zero arguments,
+so it opened as a bare standalone window — no directory, Mode defaulted — which
+is how a Stem Separator launched from a Live Update driver opened in Dry Run.
 """
 
 from __future__ import annotations
@@ -29,6 +34,50 @@ _log = logging.getLogger(__name__)
 
 def _after(root: tk.Tk, func: Callable[[], object]) -> None:
     root.after(0, func)
+
+
+def _unconfigured(
+    specs: Sequence[tuple[bool, ToolManifest, list[str], dict[str, str] | None]],
+) -> list[ToolManifest]:
+    """Return the enabled modules whose builder produced no argument list.
+
+    ``arg_builder`` returns an empty list when a module cannot run as
+    configured — the Stem Separator with no output folder or no stem ticked,
+    the Audio Enhancer with no output directory.  Launching anyway passes the
+    script no arguments at all, which opens it as a bare standalone window:
+    no source folder, and every run setting left at its own default, the Mode
+    included.  That is how a Stem Separator launched from a Live Update driver
+    opened in Dry Run, so such a module is reported instead of launched.
+
+    Args:
+        specs: Resolved specs from :func:`_resolved_specs`.
+
+    Returns:
+        The manifests of the enabled modules with an empty argument list.
+    """
+    return [
+        manifest for enabled, manifest, args, *_rest in specs if enabled and not args
+    ]
+
+
+def _show_unconfigured(root: tk.Tk, blocked: Sequence[ToolManifest]) -> None:
+    """Tell the user which selected modules still need their settings.
+
+    Args:
+        root: Window the dialog is parented to.
+        blocked: Manifests whose argument list came back empty.
+    """
+    names = "\n".join(f"  \u2022 {manifest.name}" for manifest in blocked)
+    ui_common.show_message(
+        root,
+        "Settings Required",
+        f"These modules are selected but not ready to run:\n\n{names}\n\n"
+        "Open each one's Settings on its card and fill in what it requires "
+        "(the Stem Separator needs an output folder and at least one stem; "
+        "the Audio Enhancer needs an output directory), then launch again.",
+        icon="\u26a0",
+        icon_color="#d97706",
+    )
 
 
 def _get_current_accent() -> str | None:
@@ -225,6 +274,11 @@ def launch_enrich(
         tool_env=arg_builder.get_fingerprinter_api_key_env(state),
     )
 
+    blocked = _unconfigured(specs)
+    if blocked:
+        _show_unconfigured(root, blocked)
+        return
+
     _suite_config.save_last_directory(snapshot_dir)
     threading.Thread(
         target=lambda: _run_enrich(
@@ -346,6 +400,11 @@ def launch_utility(
 
     # Built on the main thread; the thread receives the finished list.
     specs = _resolved_specs(arg_builder.build_utility_args(state))
+
+    blocked = _unconfigured(specs)
+    if blocked:
+        _show_unconfigured(root, blocked)
+        return
 
     _suite_config.save_last_directory(snapshot_dir)
     threading.Thread(

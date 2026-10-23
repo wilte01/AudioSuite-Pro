@@ -17,6 +17,11 @@ This gives you the runtime deps, the test stack (`pytest`/`pytest-cov`),
 (see README "Prerequisites"); the launchers warn — they do not block — when
 they are missing.
 
+A launcher you double-click uses this `.venv` automatically: every `.pyw`
+re-executes itself under `<root>/.venv` when that directory holds an
+interpreter, so the extras installed above are the ones the tool runs with
+instead of a second copy in the system Python.
+
 ## The mandatory Phase Gate
 
 **Every change is gated before it is marked complete.** Run all six (from the
@@ -72,6 +77,15 @@ or `xfail`ed to make a gate green — resolve the cause. The coverage gate
   Run this before considering any `cd_ripper` work complete — the 30
   hardware tests exist so release testing covers them.
 
+- `worker_memory` tests run real analysis batches to measure RSS across worker
+  counts. They are **deselected by default**: the figures describe the host
+  that ran them and the run costs about 25 s. Run them locally before
+  changing `utilities/measure_worker_memory.py`:
+
+  ```pwsh
+  python -m pytest -m worker_memory
+  ```
+
 - `gui`-marked tests need a real Tk display; on a headless host they skip
   with an attributable reason, and the session summary states explicitly
   that GUI behaviour was not verified.
@@ -106,7 +120,8 @@ silent runtime degradation:
    `DEPENDENCY_GRAPH`.
 6. **Driver state** — `master_driver/state/app_state.py` toggle key.
 7. **Pyw launcher** — top-level `<Tool_Name>.pyw` with the
-   `guard_or_exit()` pre-flight call.
+   `ensure_venv_interpreter()` re-exec (so `uv`-installed extras are the ones
+   the tool runs with) and the `guard_or_exit()` pre-flight call.
 8. **User guide** — generator in
    `user_guides/individual_programs/<module_dir>/generate_guide.py` (run it;
    the `.docx` is an artifact), and the filename registered in

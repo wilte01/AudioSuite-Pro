@@ -289,6 +289,36 @@ field; only a test driving the real `run_*` into the bound handler does, and
 it asserts the written outcome — the pattern is
 `audio_enhancer/tests/test_app.py::TestCompletionSeam`.
 
+## Run From the Project's `.venv`
+
+`uv sync --extra ml` installs into `<root>/.venv`, but a double-clicked
+`<Tool>.pyw` runs under whichever interpreter Windows associates with the
+extension — the system Python, which has none of the extras. The tool then
+cannot see an extra that *is* installed, and the on-demand installer
+(`audio_suite_shared.optional_deps`) writes a second copy into the system
+interpreter (`sys.executable`).
+
+So **every** top-level `<Tool>.pyw` calls
+`audio_suite_shared.venv_bootstrap.ensure_venv_interpreter(root)` with its own
+directory, before the pre-flight guard and before any tool import. When
+`<root>/.venv` holds an interpreter and this process is not already running from
+it, the launcher re-executes itself under that interpreter with the same
+arguments. `os.execv` replaces the process, so no parent process lingers and the
+window's lifetime is unchanged. No `.venv` (a plain `pip install` into the
+system interpreter still works), an already-active venv, a pytest run and a
+frozen build are all left alone; a failed `exec` logs and continues in the
+current interpreter, so a broken venv surfaces as the normal import error.
+
+Rules:
+
+- Pass the launcher's own directory (`_script_dir`), never `os.getcwd()` — the
+  `.venv` belongs to the suite root, whichever folder the icon was clicked from.
+- Nothing from a tool package may be imported above the call; it must run before
+  the process is replaced.
+- This is locked by
+  `tests/test_pyw_launchers.py::TestEveryLauncherRunsFromTheProjectVenv` — fix
+  the launcher, never the test.
+
 ## Startup Pre-Flight Guard (Do Not Disable)
 
 **Every** top-level `<Tool>.pyw` launcher must call
@@ -299,6 +329,9 @@ importing any tool module**:
 import os
 
 _script_dir = os.path.dirname(os.path.abspath(__file__))
+
+from audio_suite_shared.venv_bootstrap import ensure_venv_interpreter
+ensure_venv_interpreter(_script_dir)
 
 from audio_suite_shared.preflight import guard_or_exit
 guard_or_exit(_script_dir)

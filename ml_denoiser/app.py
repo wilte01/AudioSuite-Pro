@@ -13,6 +13,11 @@ it a missing extra would surface as a batch where every file errored, which
 reads like a data problem instead of a missing install.
 
 Changed in 2.0.0: initial version (Sprint 6, Item 6.2).
+
+Changed in 2.1.0: a missing RNNoise is installed by the tool on first use
+    (verified by an import in a fresh process) instead of refusing the run with
+    an "install the ml extra" dialog; ``_validate_start`` keeps only the
+    settings check.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ import logging
 import tkinter as tk
 from typing import Any, cast
 
+from audio_suite_shared import optional_deps, ui_common
 from audio_suite_shared.tool_app_base import NoisePopToolApp
 
 from .core.file_processor import run_ml_denoise
@@ -71,10 +77,27 @@ class MlDenoiserApp(NoisePopToolApp):
     def _validate_start(self) -> str | None:
         if self.denoise_amount.get() <= 0:
             return "Set the denoise amount above 0%."
-        missing = missing_dependency_reason()
-        if missing:
-            return missing
         return None
+
+    def _on_start(self) -> None:
+        """Provide RNNoise on first use, then run the shared start path.
+
+        A denoise measures the level change, so even a dry run needs the
+        model: the install is prompted here rather than reporting the missing
+        extra after the user has already asked for a run.
+        """
+        if missing_dependency_reason() is not None:
+            ui_common.install_optional_dependency(
+                self.root,
+                optional_deps.RNNOISE,
+                on_ready=self._start_after_install,
+            )
+            return
+        super()._on_start()
+
+    def _start_after_install(self) -> None:
+        """Continue the start that the install was holding back."""
+        super()._on_start()
 
     def _run_engine_in_batch(self, folder: str, is_dry_run: bool) -> None:
         params = DenoiseParams(

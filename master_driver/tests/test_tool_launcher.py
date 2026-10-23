@@ -14,6 +14,12 @@ tests lock that behaviour in.
 
 External effects are patched out (threading.Thread, suite-config writes,
 popup dialogs) so the tests never spawn subprocesses or touch user files.
+
+Changed in 2.1.0: covers the empty-argument gate. An enabled module whose
+builder returned no arguments (the Stem Separator with no output folder, the
+Audio Enhancer with no output directory) is reported and not launched; the
+argless launch opened the tool standalone with its Mode defaulted, which is how
+a Live Update driver produced a Dry Run Stem Separator.
 """
 
 from __future__ import annotations
@@ -116,6 +122,53 @@ class TestLaunchUtilityValidation:
 
         launch_mocks.show_message.assert_not_called()
         launch_mocks.thread.assert_called_once()
+
+    def test_stem_separator_without_its_settings_is_reported_not_launched(
+        self, state: AppState, launch_mocks: SimpleNamespace, tmp_path
+    ) -> None:
+        """An empty argv means "cannot run", so it is reported, never launched.
+
+        Regression: the separator with no output folder reached the runner as
+        a launch with zero arguments, which opened it as a bare standalone
+        window — no directory, Mode left on its own Dry Run default. The driver
+        had said Live Update, and the tool that opened said Dry Run.
+        """
+        state.dir_path.set(str(tmp_path))
+        state.module_toggles["stem_separator"].set(True)
+        assert state.stem_separator_output_dir.get() == ""
+
+        launch_utility(state, MagicMock(), MagicMock())
+
+        assert launch_mocks.show_message.call_args.args[1] == "Settings Required"
+        assert "Stem Separator" in launch_mocks.show_message.call_args.args[2]
+        launch_mocks.thread.assert_not_called()
+
+    def test_stem_separator_with_its_folder_launches(
+        self, state: AppState, launch_mocks: SimpleNamespace, tmp_path
+    ) -> None:
+        """The configured separator launches with a real argument list."""
+        state.dir_path.set(str(tmp_path))
+        state.stem_separator_output_dir.set(str(tmp_path / "stems"))
+        state.module_toggles["stem_separator"].set(True)
+
+        launch_utility(state, MagicMock(), MagicMock())
+
+        launch_mocks.show_message.assert_not_called()
+        launch_mocks.thread.assert_called_once()
+
+    def test_audio_enhancer_without_an_output_dir_is_reported_not_launched(
+        self, state: AppState, launch_mocks: SimpleNamespace, tmp_path
+    ) -> None:
+        """The same empty-argv rule covers the other required-output module."""
+        state.dir_path.set(str(tmp_path))
+        state.module_toggles["audio_enhancer"].set(True)
+        assert state.enhancer_output_dir.get() == ""
+
+        launch_utility(state, MagicMock(), MagicMock())
+
+        assert launch_mocks.show_message.call_args.args[1] == "Settings Required"
+        assert "Audio Enhancer" in launch_mocks.show_message.call_args.args[2]
+        launch_mocks.thread.assert_not_called()
 
     def test_thread_is_daemonised(
         self, state: AppState, launch_mocks: SimpleNamespace

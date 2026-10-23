@@ -12,6 +12,9 @@ an earlier batch does not, and a failed step reports none.
 Changed in 1.4.1: adds the verdict tests - one closing line folds every step
 note together, only once the batch has finished, and drops whole clauses rather
 than cutting a caveat mid-sentence (D110).
+Changed in 2.1.0: the three retrying tests share a ``no_retry_backoff`` fixture
+instead of waiting the production 1 s + 2 s + 3 s out; what they assert (which
+failures are retried, and the reported status) is unchanged.
 """
 
 from __future__ import annotations
@@ -436,8 +439,21 @@ class TestBatchOrchestratorParallel:
 # ═════════════════════════════════════════════════════════════════════════════
 
 
+@pytest.fixture()
+def no_retry_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the retry sleep a no-op.
+
+    The behaviour under test is which failures are retried and how the step is
+    reported, not how long the production backoff waits; the default 1 s + 2 s
+    + 3 s per exhausted step cost the suite ~20 s of pure waiting.
+    """
+    monkeypatch.setattr(
+        "audio_suite_shared.error_recovery.time.sleep", lambda _seconds: None
+    )
+
+
 class TestRetryBehaviour:
-    def test_retry_on_oserror_succeeds(self):
+    def test_retry_on_oserror_succeeds(self, no_retry_backoff):
         step = _make_step("bpm")
         call_count: list[int] = []
 
@@ -456,7 +472,7 @@ class TestRetryBehaviour:
         assert report.completed == 1
         assert len(call_count) == 2  # first fail, second succeed
 
-    def test_retry_exhaustion_marks_failed(self):
+    def test_retry_exhaustion_marks_failed(self, no_retry_backoff):
         step = _make_step("bpm")
 
         def _side_effect(*args, **kwargs):
@@ -852,7 +868,7 @@ class TestBatchProgressSteps:
             assert isinstance(name, str)
             assert isinstance(status, str)
 
-    def test_steps_show_failed_status(self):
+    def test_steps_show_failed_status(self, no_retry_backoff):
         """Failed steps must appear with 'failed' status in the steps list."""
         step = _make_step("bpm")
         callbacks: list[BatchProgress] = []

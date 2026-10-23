@@ -295,13 +295,19 @@ testpaths = [
     "tempo_analyzer/tests",
     "utilities/tests",
 ]
+# Changed in 2.1.0: ``worker_memory`` joins the opt-in markers.  The two
+# worker-memory cases run three real analysis batches (~23 s) and their figures
+# describe the host that measured them, so they are deselected like `hardware`
+# and `real_ml`; the suite's collection contract in tests/test_pyproject_config.py
+# pins the deselection arithmetic.
 markers = [
     "integration: marks tests that require ffmpeg and real audio files. They run by default wherever ffmpeg/ffprobe are found (CI installs ffmpeg, plan A4); where a binary is missing the root conftest auto-skips each integration test with a reason naming the missing executable.",
     "hardware: marks tests that require physical CD drive hardware and the Win32 drive API. They are deselected by default (addopts runs pytest -m \"not hardware\") and never run in CI; the documented opt-in is `pytest -m hardware` (CONTRIBUTING, plan E2).",
     "real_ml: marks tests that download and run a real ML model (Demucs, RNNoise) and therefore need the `ml` extra. Deselected by default alongside `hardware`; the documented opt-in is `pytest -m real_ml` (PLAN_feature_expansion.md D115).",
+    "worker_memory: marks tests that run real analysis batches to measure RSS across worker counts. Deselected by default because the figures describe the host that ran them and each batch costs ~25 s; the documented opt-in is `pytest -m worker_memory` (CONTRIBUTING).",
     "gui: marks tests that genuinely require a graphical display. Skipped with an attributable reason on a headless host; for tests that need a real Tk root without using the shared root/tk_root fixture.",
 ]
-addopts = '--strict-markers -ra -m "not hardware and not real_ml" --cov --cov-report=term-missing'
+addopts = '--strict-markers -ra -m "not hardware and not real_ml and not worker_memory" --cov --cov-report=term-missing'
 filterwarnings = [
     # pydub 0.25.1 (latest on PyPI) ships lazy invalid-escape regexes in
     # utils.py that emit SyntaxWarning on Python 3.14 — otherwise masked

@@ -9,7 +9,81 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`audiosuite doctor` reports the interpreter a tool will run in and whether
+  its optional engine is importable there.** A stale install and a
+  system-Python launch look the same from the outside: the package is present,
+  the tool still cannot import it. The report now names this process's
+  interpreter and the one a `.pyw` launcher would use (the project's `.venv`
+  when it exists), then probes Demucs and RNNoise in *that* interpreter — not
+  in the process running doctor — and lists each tool with its
+  `uv sync --extra ml` fix. A missing extra is reported without failing the
+  check, because the first run that needs it installs it.
+
+- **The launchers run from the project's `.venv`.** `uv sync --extra ml`
+  installs Demucs/RNNoise into `.venv`, but a double-clicked `.pyw` is started
+  by the system Python — so the tool could not see the extra that *was*
+  installed, and the first-run installer wrote a second copy into the system
+  interpreter. Every launcher now re-executes itself under `.venv` when one is
+  present, with the same script and arguments and keeping `pythonw.exe` for a
+  windowed launch, before the pre-flight guard runs. A checkout without a
+  `.venv` behaves exactly as before, and a failed re-exec continues in the
+  current interpreter instead of closing the window.
+
+- **The Master Driver's Stem Separator card can browse for its output folder.**
+  The Output Folder setting on the UTIL tab was a plain entry, so the stem
+  destination had to be typed even though the tool's own Setup tab has always
+  offered a Browse button. The card row now carries that button, opening the
+  folder dialog at the current value and leaving the entry untouched when the
+  dialog is cancelled.
+
+- **The ML tools install their own optional engine on first use.** Demucs
+  (Stem Separator) and RNNoise (ML Denoiser) live in the `ml` extra, and a run
+  that needed one stopped with "Demucs is not installed … uv sync --extra ml".
+  That instruction is a dead end for a non-technical user, and it installed
+  nothing at all when the window had been started by a different interpreter
+  than the one `uv` wrote the extra into — which is exactly what a
+  double-clicked `.pyw` does. The first run that needs one now offers a
+  one-time download, installs it into the interpreter that is actually running
+  the tool, verifies it by importing it in a fresh process and re-checking the
+  version floor declared in `pyproject.toml`, then continues the run by
+  itself. A declined or failed install reports why and starts nothing; the
+  Stem Separator's dry run never touches it, while the ML Denoiser installs for
+  both modes because a dry run measures with the model.
+
+### Fixed
+
+- **A launched Stem Separator opens in the mode the Master Driver shows.**
+  `_apply_cli_args` applied the run mode *after* an early return on a missing
+  source folder, and a standalone utility launch passes an empty positional
+  slot (the tool opens its own window and picks its folder itself). The
+  driver's `--live` therefore arrived and parsed, then was dropped: the
+  separator opened in Dry Run while the toolbar showed Live Update. The run
+  mode is a setting of its own and is now applied before the folder-gated
+  handshake, the order the shared `_apply_driver_cli_args` base already uses;
+  the Auto Start / Auto End / Clear Logs / Parallel mirrors stay behind the
+  gate because they describe a run an empty launch cannot target. Pinned by
+  three tests that drive the tool's real parser with the driver's argv.
+
+- **A module whose required settings are still empty is reported instead of
+  launched.** The Stem Separator with no output folder (or no stem ticked) made
+  the arg builder return an empty list, and the launcher turned that into a
+  launch with zero arguments: the tool opened as a bare standalone window with
+  no source folder and every run setting at its own default, so the Master
+  Driver's Live Update never arrived and the separator came up in Dry Run.
+  LAUNCH now names the modules that still need settings and starts nothing, and
+  the Stem Separator card states the rule (an output folder, at least one stem)
+  so the reason is visible before the click. The Audio Enhancer's empty output
+  directory takes the same gate.
+
+- **One Mode selection now applies to every batch the Master Driver launches.**
+  The toolbar's Mode dropdown is one control, but ENRICH/REFINE read one
+  variable and UTIL another, so picking "Live Update" on ENRICH and then
+  launching a utility handed the child `--dry` — the same visibly-wrong mode
+  the entries above describe. A write to either variable
+  is now mirrored to the other, so the mode the toolbar shows is the mode every
+  launch uses.
 
 ## [2.0.0] - 2026-10-23
 

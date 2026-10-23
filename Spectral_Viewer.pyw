@@ -9,6 +9,10 @@ import os
 
 _script_dir = os.path.dirname(os.path.abspath(__file__))
 
+from audio_suite_shared.venv_bootstrap import ensure_venv_interpreter
+
+ensure_venv_interpreter(_script_dir)
+
 from audio_suite_shared.preflight import guard_or_exit
 guard_or_exit(_script_dir)
 

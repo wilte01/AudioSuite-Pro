@@ -24,6 +24,10 @@ input length.  Two consequences shape this file:
   did rather than claiming a clean denoise.
 
 Changed in 2.0.0: initial version (Sprint 6, Item 6.2).
+
+Changed in 2.1.0: the missing-dependency message no longer tells a GUI user to
+    run ``uv sync --extra ml``; the tool installs RNNoise on first use and the
+    hint remains only for a headless run.
 """
 
 from __future__ import annotations
@@ -64,8 +68,8 @@ def missing_dependency_reason() -> str | None:
         import pyrnnoise  # noqa: F401
     except ImportError as exc:
         return (
-            f"RNNoise is not installed ({exc}). "
-            f"Install the 'ml' extra: {ML_EXTRA_HINT}."
+            f"RNNoise is not installed ({exc}). The ML Denoiser installs it on "
+            f"first use; a headless run needs the 'ml' extra: {ML_EXTRA_HINT}."
         )
     except Exception as exc:  # pragma: no cover - broken installs only
         return f"RNNoise is installed but failed to import: {exc}"

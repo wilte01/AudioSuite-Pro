@@ -9,11 +9,11 @@ CI skips hardware tests when it does not. D1 pins the contract at three
 layers, so it cannot silently rot back to "everything runs":
 
 1. *Configuration lock* — ``pyproject.toml``'s ``addopts`` deselects
-   ``hardware`` (and, since 2.0.0, ``real_ml``) by default and the marker
-   descriptions state the contracts.
+   ``hardware`` (and, since 2.0.0, ``real_ml``; since 2.1.0, ``worker_memory``)
+   by default and the marker descriptions state the contracts.
 2. *Full-tree collection contract* — a subprocess runs the real pytest
    configuration: the default run deselects exactly the opt-in sets
-   (``hardware`` and, since 2.0.0, ``real_ml``), each documented opt-in
+   (``hardware``, ``real_ml`` and ``worker_memory``), each documented opt-in
    ``pytest -m <marker>`` restores its own set, and every integration test is
    collected by the default run.
 3. *Behaviour lock* — against a byte-copy of the real root ``conftest.py``
@@ -27,16 +27,25 @@ PLAN D115) instead of pinning the old whole-string form.  The full-tree
 contract gains a ``real_ml`` view for the same reason: the default run now
 deselects the union of the two opt-in sets, and the overlap check is
 parametrised over both markers.
+
+Changed in 2.1.0: ``worker_memory`` joins the opt-in sets (the worker-memory
+harness's real batches), so the collection contract gains its view and the
+overlap check covers three markers.  The four collections now run in a single
+interpreter (``tests/_collect_views.py``) instead of four whole-tree
+subprocesses: the views and their assertions are the same evidence, but the
+interpreter startup and test-module imports are paid once (~35 s → ~19 s).
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -199,11 +208,17 @@ class TestConfigLock:
         expression = addopts.split(' -m "', 1)[1].split('"', 1)[0]
         assert "not hardware" in expression
         assert "not real_ml" in expression
+        assert "not worker_memory" in expression
 
     def test_hardware_marker_states_the_opt_in(self) -> None:
         description = self._marker_description("hardware")
         assert "pytest -m hardware" in description
         assert "never run in CI" in description
+
+    def test_worker_memory_marker_states_the_opt_in(self) -> None:
+        description = self._marker_description("worker_memory")
+        assert "pytest -m worker_memory" in description
+        assert "host that ran them" in description
 
     def test_integration_marker_states_the_presence_contract(self) -> None:
         description = self._marker_description("integration")
@@ -301,46 +316,72 @@ class TestPackagingMetadataLock:
 # ---------------------------------------------------------------------------
 
 
-def _collect_tree(*extra_args: str) -> tuple[list[str], str]:
-    """Collect the whole real tree through the real pyproject config.
+#: The helper that collects every marker view in one interpreter, so the
+#: suite pays interpreter startup and the test-module imports once instead of
+#: once per view (four subprocesses cost ~35 s; this costs ~19 s).
+COLLECT_HELPER = REPO_ROOT / "tests" / "_collect_views.py"
 
-    Args:
-        extra_args: Extra pytest arguments, e.g. ``("-m", "hardware")``.
+#: The views the helper must produce, in its own order.  Pinned here so an
+#: edit to the helper cannot quietly drop a view and leave the lock vacuous.
+EXPECTED_VIEWS = (
+    "default",
+    "hardware",
+    "real_ml",
+    "worker_memory",
+    "integration",
+)
+
+
+def _collect_views() -> dict[str, dict[str, object]]:
+    """Collect the real tree under each marker view through the real config.
+
+    The helper runs the four collections in a single interpreter; this function
+    verifies it produced every view, that each collection succeeded, and turns
+    each stdout into node-ids plus the raw text.
 
     Returns:
-        (collected node-ids, raw stdout). The pytest summary line
-        ("N/total tests collected (M deselected)") is asserted verbatim by
-        the callers — that is the "the summary line says so" evidence.
+        ``{view: {"ids": list[str], "stdout": str}}``.  The pytest summary line
+        ("N/total tests collected (M deselected)") is kept verbatim — that is
+        the "the summary line says so" evidence the callers assert on.
     """
     environment = dict(os.environ)
     environment["PYTHONUTF8"] = "1"
     environment["PYTHONIOENCODING"] = "utf-8"
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            "--collect-only",
-            "-q",
-            "--no-cov",
-            "-p",
-            "no:cacheprovider",
-            *extra_args,
-        ],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        encoding="utf-8",
-        check=False,
-        env=environment,
+    with tempfile.TemporaryDirectory() as scratch:
+        target = Path(scratch) / "collection-views.json"
+        result = subprocess.run(
+            [sys.executable, str(COLLECT_HELPER), str(target)],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            encoding="utf-8",
+            check=False,
+            env=environment,
+        )
+        assert result.returncode == 0, (
+            f"collection helper failed ({result.returncode}):\n"
+            f"{result.stdout[-1500:]}\n{result.stderr[-1500:]}"
+        )
+        payload = json.loads(target.read_text(encoding="utf-8"))
+
+    assert isinstance(payload, dict)
+    assert tuple(payload) == EXPECTED_VIEWS, (
+        f"the helper collected {tuple(payload)}, expected {EXPECTED_VIEWS}"
     )
-    assert result.returncode == 0, (
-        f"collect-only subprocess failed ({result.returncode}):\n"
-        f"{result.stdout[-1500:]}\n{result.stderr[-1500:]}"
-    )
-    collected_ids = [
-        line.strip() for line in result.stdout.splitlines() if "::" in line
-    ]
-    return collected_ids, result.stdout
+
+    views: dict[str, dict[str, object]] = {}
+    for name, entry in payload.items():
+        assert isinstance(entry, dict)
+        stdout = entry["stdout"]
+        returncode = entry["returncode"]
+        assert isinstance(stdout, str) and isinstance(returncode, int)
+        assert returncode == 0, (
+            f"the {name} collection failed ({returncode}):\n{stdout[-1500:]}"
+        )
+        views[name] = {
+            "ids": [line.strip() for line in stdout.splitlines() if "::" in line],
+            "stdout": stdout,
+        }
+    return views
 
 
 def _summary_numbers(stdout: str) -> dict[str, int]:
@@ -352,22 +393,14 @@ def _summary_numbers(stdout: str) -> dict[str, int]:
 
 @pytest.fixture(scope="module")
 def tree_views() -> dict[str, dict[str, object]]:
-    """Collect the three views of the real tree once per module.
+    """Collect one view per marker through the real config, once per module.
 
-    Three full-tree subprocess collections are the honest evidence; a
-    module-scoped fixture caches both node-ids and raw stdout so the expense
-    is paid once and every assertion works on the same tree state.
+    Four full-tree collections are the honest evidence — each one is the real
+    pytest configuration applying a real marker filter — but they run in one
+    interpreter (see :data:`COLLECT_HELPER`), and a module-scoped fixture caches
+    node-ids and raw stdout so every assertion works on the same tree state.
     """
-    views: dict[str, dict[str, object]] = {}
-    for key, extra in (
-        ("default", ()),
-        ("hardware", ("-m", "hardware")),
-        ("real_ml", ("-m", "real_ml")),
-        ("integration", ("-m", "integration")),
-    ):
-        ids, stdout = _collect_tree(*extra)
-        views[key] = {"ids": ids, "stdout": stdout}
-    return views
+    return _collect_views()
 
 
 class TestFullTreeContract:
@@ -383,23 +416,30 @@ class TestFullTreeContract:
     ) -> None:
         """Default deselects every opt-in marker's tests, and nothing else.
 
-        2.0.0 added ``real_ml`` (PLAN D115), so the contract is the union of
-        the opt-in sets rather than the hardware set alone.
+        2.0.0 added ``real_ml`` (PLAN D115) and 2.1.0 ``worker_memory``, so the
+        contract is the union of the opt-in sets rather than the hardware set
+        alone.
         """
         default_stdout = tree_views["default"]["stdout"]
         assert isinstance(default_stdout, str)
         summary = _summary_numbers(default_stdout)
         hardware_ids = tree_views["hardware"]["ids"]
         real_ml_ids = tree_views["real_ml"]["ids"]
+        worker_memory_ids = tree_views["worker_memory"]["ids"]
         assert isinstance(hardware_ids, list)
         assert isinstance(real_ml_ids, list)
+        assert isinstance(worker_memory_ids, list)
 
         assert summary["collected"] + summary["deselected"] == summary["total"]
-        assert summary["deselected"] == len(hardware_ids) + len(real_ml_ids), (
-            "the default deselect set and the opt-in sets must be the same size"
-        )
+        assert summary["deselected"] == (
+            len(hardware_ids) + len(real_ml_ids) + len(worker_memory_ids)
+        ), "the default deselect set and the opt-in sets must be the same size"
         assert all(node.startswith("cd_ripper/tests/") for node in hardware_ids), (
             "hardware tests live in the CD-ripper suite only"
+        )
+        assert worker_memory_ids, "the worker_memory opt-in collected nothing"
+        assert all(node.startswith("utilities/tests/") for node in worker_memory_ids), (
+            "worker_memory tests live in the script's own suite only"
         )
         assert real_ml_ids, "the real_ml opt-in collected nothing"
         # Both ML tools carry real-model cases: the separator (Demucs) and the
@@ -409,7 +449,7 @@ class TestFullTreeContract:
             for node in real_ml_ids
         ), "real_ml tests live in the ML tools' own suites only"
 
-    @pytest.mark.parametrize("marker", ["hardware", "real_ml"])
+    @pytest.mark.parametrize("marker", ["hardware", "real_ml", "worker_memory"])
     def test_the_opt_in_sets_never_run_in_the_default_session(
         self, tree_views: dict[str, dict[str, object]], marker: str
     ) -> None:

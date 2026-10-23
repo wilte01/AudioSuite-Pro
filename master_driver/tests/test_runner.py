@@ -21,12 +21,16 @@ Changed in 1.2.0: covers the fingerprinter ``--musicbrainz`` /
 Changed in 2.0.0: covers the Stem Separator's argv, including its two
 required-field cases (no output folder, no stem selected) and the mix flag
 (Sprint 6, Item 6.1).
+Changed in 2.1.0: the two failing-step tests patch the retry backoff instead of
+waiting it out (1 s + 2 s + 3 s each); the assertions are unchanged.
 """
 
 import os
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from audio_suite_shared.tool_plugin import ToolManifest
 from master_driver.runner.arg_builder import (
@@ -1321,6 +1325,20 @@ class TestSuiteRoot:
 # ═════════════════════════════════════════════════════════════════════════════
 
 
+@pytest.fixture()
+def no_retry_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the retry sleep a no-op.
+
+    These tests assert *what* a failed step reports, not how long the
+    production backoff waits; the default 1 s + 2 s + 3 s per failed step cost
+    the suite ~26 s of pure waiting.  ``sleep`` is patched where
+    ``retry_with_backoff`` looks it up.
+    """
+    monkeypatch.setattr(
+        "audio_suite_shared.error_recovery.time.sleep", lambda _seconds: None
+    )
+
+
 class TestRunModules:
     def _toggle(self, value):
         t = MagicMock()
@@ -1496,7 +1514,9 @@ class TestRunModules:
             )
         assert completed == [1]
 
-    def test_permission_error_during_run_calls_on_error(self, tmp_path):
+    def test_permission_error_during_run_calls_on_error(
+        self, tmp_path, no_retry_backoff
+    ):
         script = tmp_path / "tool.pyw"
         script.write_text("pass")
         errors = []
@@ -1514,7 +1534,7 @@ class TestRunModules:
             )
         assert len(errors) == 1
 
-    def test_oserror_during_run_calls_on_error(self, tmp_path):
+    def test_oserror_during_run_calls_on_error(self, tmp_path, no_retry_backoff):
         script = tmp_path / "tool.pyw"
         script.write_text("pass")
         errors = []

@@ -7,10 +7,14 @@ or stops publishing a field fails here instead of at the end of a separation
 that already ran.
 
 Changed in 2.0.0: initial version (Sprint 6, Item 6.1).
+Changed in 2.1.0: covers the run mode reaching the Setup tab from the driver's
+argv, including a standalone launch that carries no source folder, and a live
+run installing Demucs on first use instead of refusing to start.
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from queue import Queue
 from typing import Any
@@ -20,6 +24,8 @@ import numpy as np
 import pytest
 from pydub import AudioSegment
 
+from audio_suite_shared import optional_deps, ui_common
+from audio_suite_shared.cli_helpers import UniversalCLIHandler
 from audio_suite_shared.exceptions import AudioMissingDependencyError
 from stem_separator.app import StemSeparatorApp
 from stem_separator.core import demucs_engine, file_processor
@@ -190,6 +196,120 @@ class TestCompletionSeam:
         assert not (out / "stem_separation_log.txt").exists()
 
 
+class _Var:
+    """Minimal stand-in for a tk variable: ``set`` stores, ``get`` returns."""
+
+    def __init__(self, value: Any = "") -> None:
+        self._value = value
+
+    def get(self) -> Any:
+        return self._value
+
+    def set(self, value: Any) -> None:
+        self._value = value
+
+
+class TestStartupMode:
+    """The mode the Master Driver picked must reach the Setup tab.
+
+    Regression background
+    ---------------------
+    ``_apply_cli_args`` applied the run mode *after* an early return on a
+    missing ``folder_path``.  A standalone utility launch passes an empty
+    positional slot (the tool opens its own window and picks its folder
+    itself), so ``--live`` arrived, parsed, and was then dropped: the separator
+    opened in Dry Run while the driver's toolbar showed Live Update.
+    """
+
+    @staticmethod
+    def _shell() -> StemSeparatorApp:
+        app = object.__new__(StemSeparatorApp)
+        app.root = MagicMock()
+        app.folder_path = _Var("")
+        app.output_dir = _Var("")
+        app.model = _Var("htdemucs")
+        app.stem_vars = {stem: _Var(True) for stem in STEM_NAMES}
+        app.write_mix = _Var(False)
+        app.device = _Var("auto")
+        app.run_mode = _Var("Dry Run")
+        app.auto_start_var = _Var(False)
+        app.auto_end_var = _Var(False)
+        app.clear_logs_var = _Var(False)
+        app.parallel_var = _Var(False)
+        app.cli_handler = UniversalCLIHandler(app)
+        return app
+
+    @staticmethod
+    def _launch(monkeypatch: pytest.MonkeyPatch, *args: str) -> None:
+        monkeypatch.setattr(sys, "argv", ["Stem_Separator.pyw", *args])
+
+    @staticmethod
+    def _standalone_argv(mode: str, output: str) -> list[str]:
+        """The argv the driver builds for a standalone launch (no folder)."""
+        return [
+            "",
+            mode,
+            "--no-start",
+            "--no-end",
+            "--output-dir",
+            output,
+            "--model",
+            "htdemucs",
+            "--stems",
+            "vocals,drums,bass,other",
+            "--device",
+            "auto",
+            "--no-clear-logs",
+            "--no-parallel-run",
+        ]
+
+    def test_live_update_reaches_the_ui_without_a_source_folder(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        self._launch(
+            monkeypatch, *self._standalone_argv("--live", str(tmp_path / "stems"))
+        )
+        app = self._shell()
+
+        app._apply_cli_args()
+
+        assert app.run_mode.get() == "Live Update"
+        assert app.output_dir.get() == str(tmp_path / "stems")
+        # No folder was handed over, so nothing may be auto-started; the tool
+        # keeps its own empty source and its last-directory fallback.
+        assert app.folder_path.get() == ""
+        app.root.after.assert_not_called()
+
+    def test_dry_run_is_applied_the_same_way(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        self._launch(
+            monkeypatch, *self._standalone_argv("--dry", str(tmp_path / "stems"))
+        )
+        app = self._shell()
+        app.run_mode.set("Live Update")
+
+        app._apply_cli_args()
+
+        assert app.run_mode.get() == "Dry Run"
+
+    def test_a_folder_launch_still_applies_the_mode_and_auto_start(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        argv = self._standalone_argv("--live", str(tmp_path / "stems"))
+        argv[0] = str(tmp_path)
+        argv[2] = "--start"
+        self._launch(monkeypatch, *argv)
+        app = self._shell()
+
+        app._apply_cli_args()
+
+        assert app.run_mode.get() == "Live Update"
+        assert app.folder_path.get() == str(tmp_path)
+        assert app.auto_start_var.get() is True
+        assert app.root.after.call_args.args[0] == 1500
+
+
 class TestValidation:
     """A run that cannot work is refused with a message, before the thread."""
 
@@ -242,16 +362,15 @@ class TestValidation:
 
         assert problem is not None and "stem" in problem
 
-    def test_a_live_run_without_demucs_is_refused(self, tmp_path: Path) -> None:
+    def test_a_missing_demucs_is_not_a_refusal(self, tmp_path: Path) -> None:
+        """A live run installs Demucs instead of stopping with a dialog."""
         app = self._app(tmp_path)
         app.run_mode.get.return_value = "Live Update"
 
         with patch.object(
             demucs_engine, "missing_dependency_reason", return_value="no demucs"
         ):
-            problem = app._validate_start()
-
-        assert problem == "no demucs"
+            assert app._validate_start() is None
 
     def test_a_dry_run_does_not_need_demucs(self, tmp_path: Path) -> None:
         app = self._app(tmp_path)
@@ -269,6 +388,93 @@ class TestValidation:
             var.get.return_value = stem in {"vocals", "bass"}
 
         assert app._selected_stems() == ("vocals", "bass")
+
+
+class TestDemucsInstallOnFirstUse:
+    """A live run installs Demucs itself the first time it needs it.
+
+    Regression background
+    ---------------------
+    The run used to stop with "Demucs is not installed ... uv sync --extra ml".
+    For a non-technical user that is a dead end, and it installed nothing at all
+    when the window had been started by a different interpreter than the one
+    ``uv`` wrote the extra into.
+    """
+
+    @staticmethod
+    def _app(tmp_path: Path) -> StemSeparatorApp:
+        app = object.__new__(StemSeparatorApp)
+        app.root = MagicMock()
+        app.folder_path = _Var(str(tmp_path))
+        app.output_dir = _Var(str(tmp_path / "out"))
+        app.stem_vars = {stem: _Var(True) for stem in STEM_NAMES}
+        app.run_mode = _Var("Live Update")
+        app.device = _Var("auto")
+        app._begin_run = MagicMock()
+        return app
+
+    def test_a_live_run_installs_demucs_before_starting(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = self._app(tmp_path)
+        monkeypatch.setattr(
+            demucs_engine, "missing_dependency_reason", lambda: "no demucs"
+        )
+        install = MagicMock()
+        monkeypatch.setattr(ui_common, "install_optional_dependency", install)
+
+        app.start_processing()
+
+        app._begin_run.assert_not_called()
+        install.assert_called_once()
+        assert install.call_args.args[1] is optional_deps.DEMUCS
+        assert install.call_args.kwargs["on_ready"] == app._begin_run
+
+    def test_the_install_completion_runs_the_separation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = self._app(tmp_path)
+        monkeypatch.setattr(
+            demucs_engine, "missing_dependency_reason", lambda: "no demucs"
+        )
+        install = MagicMock()
+        monkeypatch.setattr(ui_common, "install_optional_dependency", install)
+        app.start_processing()
+
+        install.call_args.kwargs["on_ready"]()
+
+        app._begin_run.assert_called_once()
+
+    def test_an_installed_demucs_starts_immediately(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = self._app(tmp_path)
+        monkeypatch.setattr(demucs_engine, "missing_dependency_reason", lambda: None)
+        install = MagicMock()
+        monkeypatch.setattr(ui_common, "install_optional_dependency", install)
+
+        app.start_processing()
+
+        app._begin_run.assert_called_once()
+        install.assert_not_called()
+
+    def test_a_dry_run_never_probes_or_installs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = self._app(tmp_path)
+        app.run_mode.set("Dry Run")
+        install = MagicMock()
+        monkeypatch.setattr(ui_common, "install_optional_dependency", install)
+        monkeypatch.setattr(
+            demucs_engine,
+            "missing_dependency_reason",
+            MagicMock(side_effect=AssertionError("dry run probed Demucs")),
+        )
+
+        app.start_processing()
+
+        app._begin_run.assert_called_once()
+        install.assert_not_called()
 
 
 class TestFatalRun:

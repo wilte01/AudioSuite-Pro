@@ -67,11 +67,11 @@ The matrix below is **generated from the declared classification** in
 
 #### Branch enumeration
 
-* **Portable core** (16 declared branches) — The non-Windows branch is implemented and a test runs it under a simulated non-Windows platform value.
+* **Portable core** (17 declared branches) — The non-Windows branch is implemented and a test runs it under a simulated non-Windows platform value.
 * **Windows-only** (6 declared branches) — A genuinely Windows-only capability. The non-Windows side is a documented stop, placeholder or no-op.
 * **Unverified** (11 declared branches) — A non-Windows branch exists but no test runs it, so nothing proves it behaves correctly. Untested, not unsupported.
 
-Every one of the 33 distinct branches below was found by an AST scan of the first-party tree that skips comments and string literals; `audio_suite_shared/tests/test_platform_support.py` fails if a branch is added, removed or duplicated without re-classifying it here.
+Every one of the 34 distinct branches below was found by an AST scan of the first-party tree that skips comments and string literals; `audio_suite_shared/tests/test_platform_support.py` fails if a branch is added, removed or duplicated without re-classifying it here.
 
 | Tier | Module | Subsystem | Non-Windows behaviour | Evidence |
 |---|---|---|---|---|
@@ -88,6 +88,7 @@ Every one of the 33 distinct branches below was found by an AST scan of the firs
 | Portable core | `audio_suite_shared/ui_common.py` | Open the suite log file | The macOS arm; Linux/POSIX falls through to `xdg-open`. | audio_suite_shared/tests/test_ui_common.py |
 | Portable core | `audio_suite_shared/ui_common.py` | Open the suite log file | win32 os.startfile, darwin `open`, otherwise `xdg-open` — the same three-way dispatch as platform_utils. | audio_suite_shared/tests/test_ui_common.py |
 | Portable core | `audio_suite_shared/ui_common.py` | Open the suite log file | The win32 arm of the three-way dispatch above. | audio_suite_shared/tests/test_ui_common.py |
+| Portable core | `audio_suite_shared/venv_bootstrap.py` | Launcher re-execution into the project's .venv | win32 finds the venv's Scripts/python.exe (or pythonw.exe when the launch is windowed); every other platform finds bin/python with a bin/python3 fallback. Both arms are implemented and tested with an explicit platform value, so neither depends on the host. | audio_suite_shared/tests/test_venv_bootstrap.py |
 | Portable core | `master_driver/utils/platform_utils.py` | Open a guide from the driver's Help button | The macOS arm; Linux/POSIX falls through to `xdg-open`. | master_driver/tests/test_platform_utils.py |
 | Portable core | `master_driver/utils/platform_utils.py` | Open a guide from the driver's Help button | win32 os.startfile, darwin `open`, otherwise `xdg-open`. | master_driver/tests/test_platform_utils.py |
 | Portable core | `master_driver/utils/platform_utils.py` | Open a guide from the driver's Help button | The win32 arm of the dispatch above. | master_driver/tests/test_platform_utils.py |
@@ -177,7 +178,13 @@ reports the checkout and installed versions, resolves every first-party package
 through the installed import machinery, lists any package that is missing or
 comes from a different install, names each CLI command that gap would take
 down, and exits 1 when anything is wrong (`doctor --json` publishes the same
-findings as one document). The CLI applies that same origin rule at startup:
+findings as one document). It also names the interpreter a launcher would run
+under — the project's `.venv` when one exists — and probes each tool's optional
+engine (Demucs, RNNoise) in *that* interpreter, so "the extra is installed but
+the tool cannot see it" is one line instead of a debugging session. A missing
+extra is reported with its `uv sync --extra ml` fix and does not fail the
+check: the first run that needs it offers the install. The CLI applies that
+same origin rule at startup:
 when a package in this checkout imports from another tree — which a rebuild at
 the *same* version does — every command warns once per process and names the
 packages, so a matching version is not mistaken for a current install.

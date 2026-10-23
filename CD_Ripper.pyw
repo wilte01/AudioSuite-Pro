@@ -15,6 +15,10 @@ import logging
 
 _suite_dir = os.path.dirname(os.path.abspath(__file__))
 
+from audio_suite_shared.venv_bootstrap import ensure_venv_interpreter
+
+ensure_venv_interpreter(_suite_dir)
+
 from audio_suite_shared.preflight import guard_or_exit
 guard_or_exit(_suite_dir)
 
