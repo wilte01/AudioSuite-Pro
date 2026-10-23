@@ -9,6 +9,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.0.0] - 2026-10-23
+
 ### Fixed
 
 - **Every GUI tool's completion and progress steps survive the fields their
