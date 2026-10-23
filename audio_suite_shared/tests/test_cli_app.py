@@ -485,18 +485,18 @@ class TestDiscoverabilityContract:
     ) -> None:
         """The acceptance criterion, stated without inventing a feature.
 
-        Plan G2 asks that ``--help`` list every tool.  28 of the 29 have a
-        subcommand and so are listed; the 29th (``undo_tag_edits``) is a
+        Plan G2 asks that ``--help`` list every tool.  29 of the 30 have a
+        subcommand and so are listed; the 30th (``undo_tag_edits``) is a
         declared GUI-only gap, and listing it would mean building the CLI
         command the plan explicitly does not ask for.  It is therefore
         covered by ``test_no_undeclared_gap_below`` instead of by help text.
         """
         tools = get_registry().all
-        assert len(tools) == 29
+        assert len(tools) == 30
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         with_subcommand = [m for m in tools if m.cli_command]
-        assert len(with_subcommand) == 28
+        assert len(with_subcommand) == 29
         for manifest in with_subcommand:
             assert manifest.cli_command in result.output, (
                 f"{manifest.id}: '{manifest.cli_command}' is not listed in "
@@ -514,11 +514,11 @@ class TestDiscoverabilityContract:
         with _introspection_context() as context:
             groups = _command_groups(cli, context)
 
-        # A flat alphabetical dump is the failure mode this replaces: with 28
+        # A flat alphabetical dump is the failure mode this replaces: with 29
         # commands and no headings, the reader gets one undifferentiated wall.
         # Require real functional sections, not a decorative one.
         assert len(groups) >= 3, (
-            "top-level help must group 28 commands into functional sections; "
+            "top-level help must group 29 commands into functional sections; "
             f"got {len(groups)}"
         )
         for _category, heading in _CATEGORY_HEADINGS:

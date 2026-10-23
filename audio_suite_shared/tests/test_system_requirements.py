@@ -3,6 +3,8 @@ Tests for audio_suite_shared.system_requirements.
 
 Changed in 2.0.0: the ffmpeg-dependent table gains ``stem_separator``, whose
 Demucs adapter decodes through pydub (Sprint 6, Item 6.1).
+Changed in 2.0.0: the table gains ``ml_denoiser``, which decodes through pydub
+the same way (Item 6.2).
 
 Covers:
     - SystemRequirement.render: names the binary, its purpose, and each hint
@@ -39,6 +41,7 @@ FFMPEG_DEPENDENT_TOOLS: tuple[tuple[str, str], ...] = (
     ("audio_normalizer", "Audio_Normalizer_User_Guide.docx"),
     ("audio_refinery", "Audio_Refinery_User_Guide.docx"),
     ("cd_ripper", "CD_Ripper_User_Guide.docx"),
+    ("ml_denoiser", "ML_Denoiser_User_Guide.docx"),
     ("music_format_converter", "Music_Format_Converter_User_Guide.docx"),
     ("noise_reduction", "Noise_Reduction_User_Guide.docx"),
     ("pop_click_remover", "Pop_Click_Remover_User_Guide.docx"),

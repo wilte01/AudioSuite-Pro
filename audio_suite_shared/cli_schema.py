@@ -90,6 +90,10 @@ Changed in 2.0.0: ``stems`` joins the contract with the separator's
 ``separated``/``files_written``/``output_dir``/``device`` fields, so a script
 can tell how many tracks were split and where the stems landed
 (PLAN_feature_expansion.md Item 6.1).
+Changed in 2.0.0: ``denoise`` joins the contract with the core keys only. The
+in-place workflow publishes ``succeeded``/``skipped``/``errors`` and nothing
+tool-specific, so the measured attenuation stays in the log rather than in a
+field a script would have to know the sign of (Item 6.2).
 
 One document per run, deliberately
 ----------------------------------
@@ -149,6 +153,7 @@ TOOL_IDS: Final[Mapping[str, str]] = {
     "cue parse": "cue",
     "cue split": "cue",
     "declick": "pop_click_remover",
+    "denoise": "ml_denoiser",
     # ``doctor`` is the install check rather than a tool, so its id has no
     # ``ToolManifest`` entry; it is declared here the way ``cue`` is.
     "doctor": "doctor",

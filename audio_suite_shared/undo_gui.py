@@ -26,6 +26,9 @@ User-facing behaviour
 Changed in 2.0.0: ``_TOOL_DISPLAY_NAMES`` gains ``stem_separator``, so a run
 recorded by the new tool (Sprint 6, Item 6.1) reads as "Stem Separator" rather
 than as its raw id.
+Changed in 2.0.0: gains ``ml_denoiser`` for the same reason (Item 6.2). Without
+it an undo row read the raw id, and its audio-overwrite records are exactly the
+ones a user needs to recognise.
 """
 
 from __future__ import annotations
@@ -61,6 +64,7 @@ _TOOL_DISPLAY_NAMES: dict[str, str] = {
     "key_detector": "Key Detector",
     "lyrics_manager": "Lyrics Manager",
     "metadata_scrubber": "Metadata Scrubber",
+    "ml_denoiser": "ML Denoiser",
     "mood_analysis_batch_tagger": "Mood Analysis Batch Tagger",
     "mood_analyzer": "Mood Analyzer",
     "music_format_converter": "Music Format Converter",

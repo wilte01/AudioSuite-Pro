@@ -62,6 +62,7 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
     "genre_sync": "genre_sync.core.file_processor.run_processing",
     "lyrics_manager": "lyrics_manager.core.file_processor.run_fetch",
     "metadata_scrubber": "metadata_scrubber.core.scrubber.run_scrubbing",
+    "ml_denoiser": "ml_denoiser.core.file_processor.run_ml_denoise",
     "music_format_converter": (
         "music_format_converter.core.file_processor.run_conversion"
     ),
@@ -73,11 +74,13 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
 
 #: Fields the shared completion helpers publish on a tool's behalf:
 #: ``_emit_completion`` (parallel/CPU pools and ``run_analysis_workflow``) and
-#: ``run_inplace_dsp_batch`` (the in-place DSP tools).
+#: ``run_inplace_dsp_batch`` (the in-place DSP tools, which also publish
+#: ``succeeded`` — the count those tools' handlers render).
 SHARED_COMPLETION_FIELDS: frozenset[str] = frozenset(
     {
         "total",
         "processed",
+        "succeeded",
         "skipped",
         "errors",
         "duration_secs",

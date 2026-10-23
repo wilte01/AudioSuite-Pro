@@ -19,6 +19,8 @@ argv when its required output folder or stem selection is missing rather than
 launching a run that cannot write (Sprint 6, Item 6.1).  An empty builder
 result now stays empty: the driver display flags are appended only to a real
 argument list, so "cannot run as configured" is still readable by the caller.
+Changed in 2.0.0: adds the ``ml_denoiser`` entry, which has no required field —
+its amount always has a value — so it always emits a runnable argv (Item 6.2).
 """
 
 from __future__ import annotations
@@ -343,6 +345,9 @@ def _build_utility_tool_args(
             path, mode_flag, start_flag, end_flag, state
         ),
         "stem_separator": lambda: _build_stem_separator_args(
+            path, mode_flag, start_flag, end_flag, state
+        ),
+        "ml_denoiser": lambda: _build_ml_denoiser_args(
             path, mode_flag, start_flag, end_flag, state
         ),
     }
@@ -736,6 +741,28 @@ def _build_stem_separator_args(
     if state.stem_separator_mix.get():
         args.append("--mix")
     return args
+
+
+def _build_ml_denoiser_args(
+    path: str,
+    mode_flag: str,
+    start_flag: str,
+    end_flag: str,
+    state: AppState,
+) -> list[str]:
+    """Return the CLI argument list for the ML Denoiser.
+
+    ``--amount`` is the GUI's percentage (1-100), which is also the CLI's unit,
+    so the driver cannot pass a fraction the tool would read as 1 %.
+    """
+    return [
+        path,
+        mode_flag,
+        start_flag,
+        end_flag,
+        "--amount",
+        state.ml_denoiser_amount.get(),
+    ]
 
 
 def _build_mood_analysis_batch_args(

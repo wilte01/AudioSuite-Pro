@@ -167,7 +167,7 @@ class TestDefaultRegistry:
     def test_registry_is_populated(self):
         r = get_registry()
         assert len(r) >= 16  # all first-party tools
-        assert len(r) == 29  # 11 enrich + 17 utility + 1 refinery
+        assert len(r) == 30  # 11 enrich + 18 utility + 1 refinery
 
     def test_has_all_enrich_tools(self):
         r = get_registry()
@@ -208,6 +208,7 @@ class TestDefaultRegistry:
             "silence_trimmer",
             "spectral_viewer",
             "stem_separator",
+            "ml_denoiser",
         }
         assert ids == expected
 
@@ -246,6 +247,7 @@ class TestDefaultRegistry:
             "declick",
             "silence-trim",
             "spectrogram",
+            "denoise",
             "stems",
             # Plan G2: the CLI subcommand is `refine`, and the manifest now
             # says so instead of leaving audio_refinery CLI-less by omission.
@@ -273,6 +275,7 @@ class TestDefaultRegistry:
             "silence_trimmer",
             "spectral_viewer",
             "stem_separator",
+            "ml_denoiser",
         }
         assert standalone == expected
 

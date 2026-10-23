@@ -707,6 +707,7 @@ class TestModuleToggles:
         "silence_trimmer",
         "spectral_viewer",
         "stem_separator",
+        "ml_denoiser",
         # Refinery
         "audio_refinery",
     }

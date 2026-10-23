@@ -22,6 +22,8 @@ Changed in 1.4.1: the usage block is literal, so the generated API reference
 renders it as code rather than a definition list (PLAN D98).
 Changed in 2.0.0: registers the ``stem_separator`` manifest, the suite's first
 optional-dependency (``ml`` extra) tool (PLAN_feature_expansion.md Item 6.1).
+Changed in 2.0.0: registers ``ml_denoiser``, which shares that extra but needs
+no torch: RNNoise is a 13 MB C library (Item 6.2).
 """
 
 from __future__ import annotations
@@ -411,6 +413,16 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="stems",
         standalone=True,
         order=48,
+    ),
+    ToolManifest(
+        id="ml_denoiser",
+        name="ML Denoiser",
+        category="utility",
+        pyw_filename="ML_Denoiser.pyw",
+        description="Neural noise reduction with RNNoise (speech-trained)",
+        cli_command="denoise",
+        standalone=True,
+        order=53,
     ),
     ToolManifest(
         id="tag_editor",

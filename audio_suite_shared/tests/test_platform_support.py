@@ -363,7 +363,7 @@ class TestToolTiers:
         from audio_suite_shared.tool_plugin import get_registry
 
         tools = get_registry().all
-        assert len(tools) == 29
+        assert len(tools) == 30
         for manifest in tools:
             assert tool_tier(manifest.id) in TIERS
 
@@ -506,9 +506,9 @@ class TestPortableCoreCLI:
         # subcommand to drive under a mocked platform. Named here so that a
         # *new* tool without one is a failure, not a silent pass.
         assert [m.id for m in tools if not m.cli_command] == ["undo_tag_edits"]
-        assert len(with_cli) == 28
-        # 27 of the 28 are portable-core; cd-rip is the Windows-only one.
-        assert len(self._portable_commands()) == 27
+        assert len(with_cli) == 29
+        # 28 of the 29 are portable-core; cd-rip is the Windows-only one.
+        assert len(self._portable_commands()) == 28
 
     @pytest.mark.parametrize("command", _portable_commands())
     def test_portable_tool_help_resolves_under_a_non_windows_platform(

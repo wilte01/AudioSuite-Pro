@@ -146,6 +146,10 @@ def argv_for(command: str, work: Path) -> list[str]:
         return [str(write_cue(work / "album.cue")), "--output-dir", str(out)]
     if command in {"enhance", "reorganize"}:
         return [str(library), "--dry", "--output-dir", str(out)]
+    if command == "denoise":
+        # A live run against the patched adapter, so the payload reports a
+        # denoised file; the dry-run plan would need the same model anyway.
+        return [str(library), "--amount", "100"]
     if command == "stems":
         # A live run against the patched model, so the payload carries the
         # files a real separation writes instead of a dry-run plan.
@@ -178,6 +182,21 @@ def _patched(command: str) -> Iterator[None]:
         import audio_suite_shared.cue_cli as cue_cli
 
         with mock.patch.object(cue_cli, "split_cue_file", lambda *_a, **_k: []):
+            yield
+        return
+    if command == "denoise":
+        import ml_denoiser.core.file_processor as denoise_processor
+        from ml_denoiser.core.models import DenoiseResult
+
+        def fake_denoise(audio: Any, amount: float = 1.0) -> Any:
+            # Fixed levels, not the fixture's own: the recorded artifact is a
+            # payload shape, and a silent WAV would print -inf in its log.
+            return DenoiseResult(audio.apply_gain(-6.0), -18.0, -24.0, True)
+
+        with (
+            mock.patch.object(denoise_processor, "denoise_segment", fake_denoise),
+            mock.patch.object(denoise_processor, "require_rnnoise", lambda: None),
+        ):
             yield
         return
     if command == "stems":

@@ -22,6 +22,10 @@ panel, so BPM can report tempos that missed the configured band (D109).
 Changed in 1.4.1: ``_on_progress`` accepts ``**_extra: Any`` like
 ``_on_complete``, so a progress field the processor adds cannot abort a running
 batch (D112; locked by ``tests/test_callback_payload_contract.py``).
+Changed in 2.0.0: ``NoisePopToolApp``'s progress and completion handlers accept
+``**_extra: Any`` too, so the ML Denoiser can bind them directly and be covered
+by the callback-payload lock instead of hiding behind a local wrapper
+(Sprint 6, Item 6.2).
 """
 
 from __future__ import annotations
@@ -829,8 +833,14 @@ class NoisePopToolApp(UIHelperMixin, AuditionMixin):
         skipped: int,
         errors: int,
         display_text: str,
+        **_extra: Any,
     ) -> None:
-        """Schedule a progress-bar update onto the main thread."""
+        """Schedule a progress-bar update onto the main thread.
+
+        ``**_extra`` absorbs any field a processor publishes that this render
+        does not read, so a tool that adds one cannot turn a finished run into a
+        ``TypeError`` inside the callback (AGENTS: GUI Callback Contract).
+        """
         self.root.after(
             0,
             self._update_progress_ui,
@@ -871,8 +881,14 @@ class NoisePopToolApp(UIHelperMixin, AuditionMixin):
         errors: int,
         duration_secs: float,
         log_entries: list[str],
+        **_extra: Any,
     ) -> None:
-        """Update UI after all files finish (called on the background thread)."""
+        """Update UI after all files finish (called on the background thread).
+
+        ``**_extra`` absorbs a field a processor adds that this render does not
+        read; the six declared fields stay required, so a payload that drops one
+        still raises with its name rather than rendering a plausible zero.
+        """
         self.progress["value"] = 100
         self.overall_status.set("Complete.")
 

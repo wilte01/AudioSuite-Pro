@@ -10,6 +10,7 @@ X/Y coordinates (Tk's ``WxH-X-Y`` form is now parsed instead of split on
 Changed in 1.3.0: registers the Spectral Viewer's guide filename in
 ``guide_to_program`` so its Help button resolves the shipped .docx.
 Changed in 2.0.0: registers the Stem Separator's guide filename.
+Changed in 2.0.0: registers the ML Denoiser's guide filename (Item 6.2).
 """
 
 import logging
@@ -126,6 +127,7 @@ def open_help(guide_filename: str) -> None:
         "Mood_Analysis_Batch_Tagger_User_Guide.docx": "mood_analysis_batch_tagger",
         "Mood_Analyzer_User_Guide.docx": "mood_analyzer",
         "Music_Format_Converter_User_Guide.docx": "music_format_converter",
+        "ML_Denoiser_User_Guide.docx": "ml_denoiser",
         "Noise_Reduction_User_Guide.docx": "noise_reduction",
         "Pop_Click_Remover_User_Guide.docx": "pop_click_remover",
         "ReplayGain_Analyzer_User_Guide.docx": "replaygain_analyzer",

@@ -64,6 +64,7 @@ Usage::
     audiosuite stems /path/to/dir --output-dir DIR [--model htdemucs]
                            [--stems vocals,drums,bass,other] [--mix]
                            [--device auto] [--dry] [--json]
+    audiosuite denoise /path/to/dir [--amount 100] [--dry] [--json]
     audiosuite cd-rip <drive> --output-dir DIR [--format flac] [--tracks N]
                            [--cue] [--verify twice] [--detect-read-offset]
                            [--dry] [--json]
@@ -117,6 +118,9 @@ Changed in 2.0.0: registers and documents ``stems``, the ML stem separator
 (PLAN_feature_expansion.md Item 6.1).  It is registered like any other command:
 without the ``ml`` extra it fails with a named missing dependency rather than
 at import time, so ``audiosuite --help`` stays complete on a CPU-only install.
+Changed in 2.0.0: registers and documents ``denoise``, the ML denoiser
+(Item 6.2).  It shares the ``ml`` extra's import tolerance: the command imports,
+``--help`` works, and a run without the extra exits 1 naming what to install.
 """
 
 from __future__ import annotations
@@ -157,6 +161,7 @@ _TOOL_CLI_MODULES: tuple[tuple[str, str], ...] = (
     ("library_stats.cli", "stats"),
     ("lyrics_manager.cli", "lyrics"),
     ("metadata_scrubber.cli", "scrub"),
+    ("ml_denoiser.cli", "denoise"),
     ("mood_analysis_batch_tagger.cli", "mood-analysis-batch"),
     ("mood_analyzer.cli", "mood-analyzer"),
     ("music_format_converter.cli", "convert"),

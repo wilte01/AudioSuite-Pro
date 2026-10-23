@@ -102,6 +102,7 @@ def _make_state(
         "pop_click_remover",
         "silence_trimmer",
         "stem_separator",
+        "ml_denoiser",
         "tag_editor",
     ):
         state.module_toggles[key] = _bool_var(True)
@@ -171,6 +172,7 @@ def _make_state(
     state.stem_separator_drums = _bool_var(True)
     state.stem_separator_bass = _bool_var(True)
     state.stem_separator_other = _bool_var(True)
+    state.ml_denoiser_amount = _str_var("100")
 
     # Enrich params (noise reduction + fingerprinter)
     state.nr_reduce_hum = _bool_var(False)
@@ -942,6 +944,18 @@ class TestBuildUtilityArgs:
         args_list = build_utility_args(state)
         entry = next(e for e in args_list if "Stem Separator" in e[1].name)
         assert "--mix" in entry[2]
+
+    def test_ml_denoiser_emits_its_amount_percentage(self):
+        """The driver passes a percentage, the unit both entry points use."""
+        state = _make_state()
+        state.ml_denoiser_amount = _str_var("40")
+        args_list = build_utility_args(state)
+        entry = next(e for e in args_list if "ML Denoiser" in e[1].name)
+        args = entry[2]
+        assert "--amount" in args
+        assert args[args.index("--amount") + 1] == "40"
+        # The shared run-mode/start/end tokens lead, as for every utility.
+        assert args[:4] == ["/music", "--dry", "--no-start", "--no-end"]
 
 
 # ═════════════════════════════════════════════════════════════════════════════

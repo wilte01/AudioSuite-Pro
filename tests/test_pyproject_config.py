@@ -402,9 +402,12 @@ class TestFullTreeContract:
             "hardware tests live in the CD-ripper suite only"
         )
         assert real_ml_ids, "the real_ml opt-in collected nothing"
-        assert all(node.startswith("stem_separator/tests/") for node in real_ml_ids), (
-            "real_ml tests live in the stem-separator suite only"
-        )
+        # Both ML tools carry real-model cases: the separator (Demucs) and the
+        # denoiser (RNNoise), each in its own suite (PLAN Item 6.2).
+        assert all(
+            node.startswith(("stem_separator/tests/", "ml_denoiser/tests/"))
+            for node in real_ml_ids
+        ), "real_ml tests live in the ML tools' own suites only"
 
     @pytest.mark.parametrize("marker", ["hardware", "real_ml"])
     def test_the_opt_in_sets_never_run_in_the_default_session(

@@ -19,6 +19,9 @@ step note, so a long batch can be judged from one line instead of from each
 step's line (PLAN D110).
 Changed in 2.0.0: adds ``stem_separator`` to the dependency graph as a leaf
 (Sprint 6, Item 6.1).
+Changed in 2.0.0: adds ``ml_denoiser`` as a leaf (Item 6.2).  It rewrites the
+files already in the directory, so it depends on nothing another tool produces
+and imposes no ordering on the rest of the batch.
 """
 
 from __future__ import annotations
@@ -254,6 +257,7 @@ DEPENDENCY_GRAPH: dict[str, list[str]] = {
     "tag_field_updater": [],
     "silence_trimmer": [],
     "stem_separator": [],
+    "ml_denoiser": [],
     "tag_editor": [],
 }
 

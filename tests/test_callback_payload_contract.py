@@ -71,6 +71,7 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
         ("genre_sync/app.py", "GenreSetterApp"),
         ("lyrics_manager/app.py", "LyricsManagerApp"),
         ("metadata_scrubber/app.py", "MetadataScrubberApp"),
+        ("ml_denoiser/app.py", "MlDenoiserApp"),
         ("music_format_converter/app.py", "MusicFormatConverterApp"),
         ("replaygain_analyzer/app.py", "ReplayGainAnalyzerApp"),
         ("silence_trimmer/app.py", "SilenceTrimmerApp"),

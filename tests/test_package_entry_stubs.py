@@ -97,6 +97,7 @@ _FIRST_PARTY: tuple[str, ...] = (
     "lyrics_manager",
     "master_driver",
     "metadata_scrubber",
+    "ml_denoiser",
     "mood_analyzer",
     "mood_analysis_batch_tagger",
     "noise_reduction",

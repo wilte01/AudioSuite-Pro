@@ -75,6 +75,9 @@ _USAGE_CASES: dict[str, dict[str, list[str]]] = {
     "cue parse": {"missing": [], "invalid": [MISSING_PATH]},
     "cue split": {"missing": [], "invalid": [MISSING_PATH]},
     "declick": {"missing": [], "invalid": [MISSING_PATH]},
+    # ``denoise`` has no required option; ``--amount`` is a bounded float, so a
+    # percentage outside 1-100 is rejected before the body runs.
+    "denoise": {"missing": [], "invalid": [LIBRARY, "--amount", "0"]},
     # ``doctor`` takes no input, so the two reachable usage errors are the
     # invocation itself: an option it does not know and a positional it does
     # not accept.  Both must publish a document like every other command.

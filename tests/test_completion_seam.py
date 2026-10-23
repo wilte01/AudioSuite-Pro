@@ -196,6 +196,16 @@ EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
             "log_entries",
         }
     ),
+    "MlDenoiserApp": frozenset(
+        {
+            "total",
+            "succeeded",
+            "skipped",
+            "errors",
+            "duration_secs",
+            "log_entries",
+        }
+    ),
     "StemSeparatorApp": frozenset(
         {
             "total",
@@ -260,7 +270,7 @@ def _required(fn: Any) -> set[str]:
 
 def test_the_seam_table_covers_every_gui_tool() -> None:
     """A partial table would leave tools silently untested."""
-    assert len(COMPLETION_WIRINGS) == 15
+    assert len(COMPLETION_WIRINGS) == 16
     assert set(EXPECTED_REQUIRED) == set(COMPLETION_WIRINGS)
 
 
