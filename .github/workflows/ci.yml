@@ -176,6 +176,34 @@ jobs:
           # An empty artifact would look like success while telling a script
           # author nothing; fail the job instead.
           if-no-files-found: error
+      - name: Build the documentation site
+        # Changed in 2.1.0: added with PLAN_docs_consolidation P3.2. Until now
+        # the docs were built only inside tests/test_docs_build.py's tempdir and
+        # thrown away, so "the docs" could not be read without a checkout. The
+        # suite gate still owns correctness (it fails on any parser warning);
+        # this step publishes what that gate certified.
+        #
+        # One matrix leg is enough, and it is the newest: every page comes from
+        # committed sources, so the HTML is identical on each interpreter.
+        if: matrix.python-version == '3.14'
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        # The index links each tool's guide as ../user_guides/..., i.e. the
+        # path it has in the repository.  Copying the guide sources beside the
+        # pages keeps those links working in the artifact instead of pointing
+        # at a checkout the reader does not have (P3.3).
+        run: |
+          uv run python -m sphinx -b html -q docs docs/_build/html
+          cp -r user_guides docs/_build/user_guides
+      - uses: actions/upload-artifact@v4
+        if: matrix.python-version == '3.14'
+        with:
+          name: docs-html
+          path: docs/_build/
+          # A build that produced no pages would be a green step publishing
+          # nothing; fail the job instead.
+          if-no-files-found: error
       - name: Instruction locks, no user-global baseline (fixture path)
         shell: bash
         env:

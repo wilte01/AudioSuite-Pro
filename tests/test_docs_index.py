@@ -1,7 +1,7 @@
 """Locks: the documentation index cannot lie.
 
 PLAN_docs_consolidation P1.6. Before this file, the suite had no single front
-door: ``docs/index.rst``'s toctree listed the API reference and the plugin guide
+door: the docs index's toctree listed the API reference and the plugin guide
 only, and the nominal hub (``user_guides/README.md``) had rotted — it named two
 files that do not exist, advertised per-tool logging guides a lock forbids, and
 omitted about a third of the tools.
@@ -22,6 +22,10 @@ Four locks, each catching a different way an index goes wrong:
 
 Changed in 2.1.0: new file - the index freshness and reachability locks
 (PLAN_docs_consolidation P1.6).
+Changed in 2.1.0: the index is Markdown (P3.1), so paths are single-backtick
+spans and links are ``[text](target)``.  The tool table now links each guide's
+Markdown source rather than the ``.docx`` artefact, because that is what the
+rendered site can open (P3.3).
 """
 
 from __future__ import annotations
@@ -32,18 +36,18 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-INDEX = REPO_ROOT / "docs" / "index.rst"
+INDEX = REPO_ROOT / "docs" / "index.md"
 DOCS = REPO_ROOT / "docs"
 GENERATOR = REPO_ROOT / "utilities" / "generate_docs_index.py"
 
 #: The manifest ships 30 first-party tools; a table that loses rows fails here.
 REQUIRED_TOOL_ROWS = 30
 
-#: A backticked token that is a repository-relative path (it contains a slash).
-_PATH_TOKEN = re.compile(r"``([A-Za-z0-9_][A-Za-z0-9_./-]*/[A-Za-z0-9_./-]+)``")
+#: A backticked span that is a repository-relative path (it contains a slash).
+_PATH_TOKEN = re.compile(r"`([A-Za-z0-9_][A-Za-z0-9_./-]*/[A-Za-z0-9_./-]+)`")
 
-#: An inline RST link target: ``text <target>``_.
-_LINK_TARGET = re.compile(r"`[^`<]*<([^>`]+)>`_")
+#: A Markdown inline link: ``[text](target)``.
+_LINK_TARGET = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 
 _EXCLUDED_PARTS = frozenset({"__pycache__", "_build", ".ipynb_checkpoints"})
 
@@ -77,7 +81,7 @@ class TestToolTableFreshness:
         committed = generator.block_from_index(text).replace("\r\n", "\n")
         fresh = generator.render_tool_table().replace("\r\n", "\n")
         assert committed == fresh, (
-            "docs/index.rst's tool table is stale. Re-run "
+            "docs/index.md's tool table is stale. Re-run "
             "`python utilities/generate_docs_index.py` (the table is generated "
             "from audio_suite_shared/tool_plugin.py; do not hand-edit it)."
         )
@@ -85,9 +89,9 @@ class TestToolTableFreshness:
     def test_the_table_has_every_tool(self) -> None:
         """The table carries one row per first-party tool, no more, no fewer."""
         text = INDEX.read_text(encoding="utf-8")
-        rows = [line for line in text.splitlines() if line.startswith("   * - ")]
-        # One header row (Tool/Launcher/User guide) plus one row per tool.
-        assert len(rows) == REQUIRED_TOOL_ROWS + 1, (
+        rows = [line for line in text.splitlines() if line.startswith("| ")]
+        # One header row (Tool/Launcher/User guide), one separator, one per tool.
+        assert len(rows) == REQUIRED_TOOL_ROWS + 2, (
             f"expected {REQUIRED_TOOL_ROWS} tool rows plus a header, found "
             f"{len(rows) - 1} tool rows"
         )
@@ -103,7 +107,7 @@ class TestPathsResolve:
         assert tokens, "no repository-relative paths found - the scan is vacuous"
         missing = [token for token in tokens if not (REPO_ROOT / token).exists()]
         assert not missing, (
-            "docs/index.rst names paths that do not exist:\n  " + "\n  ".join(missing)
+            "docs/index.md names paths that do not exist:\n  " + "\n  ".join(missing)
         )
 
     def test_every_link_target_exists(self) -> None:
@@ -115,9 +119,13 @@ class TestPathsResolve:
             if not m.group(1).startswith(("http://", "https://", "mailto:"))
         ]
         assert targets, "no link targets found - the scan is vacuous"
-        missing = [target for target in targets if not (DOCS / target).exists()]
+        missing = [
+            target
+            for target in targets
+            if not (DOCS / target.split("#", 1)[0]).exists()
+        ]
         assert not missing, (
-            "docs/index.rst links to targets that do not exist:\n  "
+            "docs/index.md links to targets that do not exist:\n  "
             + "\n  ".join(missing)
         )
 
@@ -135,7 +143,7 @@ class TestEveryDocsPageIsReachable:
             path
             for path in sorted(DOCS.rglob("*"))
             if path.is_file()
-            and path.suffix in {".rst", ".md"}
+            and path.suffix in {".md", ".rst"}
             and path != INDEX
             and not _EXCLUDED_PARTS.intersection(path.relative_to(DOCS).parts)
         ]
@@ -159,6 +167,6 @@ class TestEveryDocsPageIsReachable:
                 continue
             unreachable.append(relative.as_posix())
         assert not unreachable, (
-            "pages under docs/ are not named by docs/index.rst (add them to its "
+            "pages under docs/ are not named by docs/index.md (add them to its "
             "toctree or link them):\n  " + "\n  ".join(unreachable)
         )

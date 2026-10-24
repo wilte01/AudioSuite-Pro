@@ -1,9 +1,10 @@
-"""Sphinx configuration for the AudioSuite-Pro API reference.
+"""Sphinx configuration for the AudioSuite-Pro documentation site.
 
-The API HTML is a developer artefact, not part of the shipped application: it
+The HTML is a developer artefact, not part of the shipped application: it
 documents the shared package's public surface, which is what a tool author
-imports. Build it with the interpreter that carries the ``dev`` extra (Sphinx lives
-there, so the build gate cannot silently lose its toolchain)::
+imports, and renders the committed pages under ``docs/``. Build it with the
+interpreter that carries the ``dev`` extra (Sphinx and MyST live there, so the
+build gate cannot silently lose its toolchain)::
 
     uv sync --extra dev
     python -m sphinx -b html docs docs/_build/html
@@ -19,6 +20,9 @@ stdlib-only so the type gate covers it (PLAN D98).
 Changed in 2.1.0: the ``docs/requirements.txt`` install line and its
 ``exclude_patterns`` entry are gone with that file - the toolchain is declared
 once, in ``pyproject.toml``'s ``dev`` extra (PLAN_docs_consolidation P1.7).
+Changed in 2.1.0: every page is Markdown, rendered by MyST. One authored prose
+format across the repository was D1's whole point, and the RST island was the
+last second format (PLAN_docs_consolidation P3.1).
 """
 
 from __future__ import annotations
@@ -35,10 +39,27 @@ author = "AudioSuite-Pro contributors"
 copyright = "2026, AudioSuite-Pro contributors"  # noqa: A001 - Sphinx reads it
 
 extensions: list[str] = [
+    "myst_parser",
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
 ]
+
+#: Every page is Markdown; the renderer is MyST (PLAN_docs_consolidation D1).
+source_suffix: dict[str, str] = {".md": "markdown"}
+
+#: MyST extensions the committed pages use.  ``deflist`` renders the plugin
+#: guide's state table (``loaded`` / ``disabled`` / ``rejected``), whose
+#: definitions must not collapse into one paragraph.
+myst_enable_extensions: list[str] = ["deflist"]
+
+#: The index links committed repository files that live *outside* ``docs/`` --
+#: the user guides' Markdown sources, the README and the changelog.  Sphinx only
+#: resolves documents inside its source directory, so without this MyST reports
+#: each of those links as ``myst.xref_missing`` and the build gate goes red for
+#: links that are correct in the repository.  Cross-page links inside ``docs/``
+#: use the explicit ``{doc}`` role, so nothing that *can* be resolved is lost.
+myst_all_links_external = True
 
 # Google-style docstrings are the repository convention (Args/Returns/Raises).
 napoleon_google_docstring = True

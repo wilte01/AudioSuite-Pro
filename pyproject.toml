@@ -115,6 +115,10 @@ dev = [
     # reference (PLAN_feature_expansion P2).  D98 kept the docs toolchain out
     # of dev because nothing parsed docstrings; the gate is that nothing.
     "sphinx>=8.2",
+    # Dev-only: the docs sources are Markdown, rendered by MyST.  Declared here
+    # rather than in a second requirements file, so the toolchain has exactly
+    # one home (PLAN_docs_consolidation P1.7, D1/P3.1).
+    "myst-parser>=4.0",
 ]
 
 [tool.uv]

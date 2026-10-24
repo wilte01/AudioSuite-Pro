@@ -1,6 +1,6 @@
 """Gate: every ``audio_suite_shared`` module appears in the API reference.
 
-PLAN_feature_expansion P3. `docs/api.rst` listed 11 of the 62 shared modules,
+PLAN_feature_expansion P3. `docs/api.md` listed 11 of the 62 shared modules,
 so a tool author looking for the log handlers or the tag-helper tiers found
 nothing, and — worse — 51 modules were never parsed by the docs build at all
 (which is why P2's parser gate could not have caught their warts). The list is
@@ -10,6 +10,8 @@ that no longer exists.
 
 Changed in 1.4.1: new file - locks the reference to the modules on disk, so
 an unlisted module or a stale entry fails instead of the page drifting (P3).
+Changed in 2.1.0: the page is Markdown, so the directives are MyST fences
+(PLAN_docs_consolidation P3.1).
 Changed in 2.1.0: a subpackage counts as a shipped module, so the plugin
 system's package entry is neither reported missing nor stale (Sprint 7).
 """
@@ -21,16 +23,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "audio_suite_shared"
-API_RST = ROOT / "docs" / "api.rst"
+API_MD = ROOT / "docs" / "api.md"
 
 _AUTOMODULE = re.compile(
-    r"^\.\. automodule:: audio_suite_shared\.(\w+)\s*$", re.MULTILINE
+    r"^```\{automodule\} audio_suite_shared\.(\w+)\s*$", re.MULTILINE
 )
 
 
 def _documented() -> list[str]:
     """Modules named by an ``automodule`` directive in the reference."""
-    return _AUTOMODULE.findall(API_RST.read_text(encoding="utf-8"))
+    return _AUTOMODULE.findall(API_MD.read_text(encoding="utf-8"))
 
 
 def _shipped() -> set[str]:
@@ -50,11 +52,11 @@ def test_every_shared_module_is_documented() -> None:
     # An empty scan must fail loudly: this is the trap that let a
     # wrongly-scoped walk pass vacuously in an earlier remediation.
     assert shipped, "no modules found in audio_suite_shared"
-    assert documented, "no automodule directives found in docs/api.rst"
+    assert documented, "no automodule directives found in docs/api.md"
 
     missing = sorted(shipped - documented)
     assert not missing, (
-        "these shared modules ship without an entry in docs/api.rst: "
+        "these shared modules ship without an entry in docs/api.md: "
         + ", ".join(missing)
     )
 
@@ -65,7 +67,7 @@ def test_the_reference_has_no_stale_entries() -> None:
     # (``tests`` and ``security`` are not API pages, so they need no entry).
     stale = sorted(set(_documented()) - _shipped() - _shipped_packages())
     assert not stale, (
-        "docs/api.rst documents modules that no longer exist: " + ", ".join(stale)
+        "docs/api.md documents modules that no longer exist: " + ", ".join(stale)
     )
 
 
@@ -73,6 +75,6 @@ def test_each_module_is_listed_once() -> None:
     documented = _documented()
     duplicates = sorted({name for name in documented if documented.count(name) > 1})
     assert not duplicates, (
-        "docs/api.rst renders these modules more than once, which makes every "
+        "docs/api.md renders these modules more than once, which makes every "
         "cross-reference to them ambiguous: " + ", ".join(duplicates)
     )

@@ -697,7 +697,7 @@ file exactly `{tool_id}_card.py` (e.g. `fingerprinter_card.py` for id
 The suite has one extension mechanism: `audio_suite_shared/plugin_system/`
 discovers `plugins/*/MANIFEST.toml` and validates it, and `tool_plugin` adds the
 enabled plugins' tools to the registry it freezes. The development guide is
-[docs/plugins.rst](docs/plugins.rst); the bundled example is
+[docs/plugins.md](docs/plugins.md); the bundled example is
 `plugins/example_plugin/`. Evidence: `PLAN_feature_expansion.md` D130-D133.
 
 - **Discovery is data; code loads only when enabled.** The manifest is parsed
