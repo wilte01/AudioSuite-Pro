@@ -257,21 +257,37 @@ jobs:
         shell: bash
         env:
           PYTHONUTF8: "1"
-        # The index links each tool's guide as ../user_guides/..., i.e. the
-        # path it has in the repository.  Copying the guide sources beside the
-        # pages keeps those links working in the artifact instead of pointing
-        # at a checkout the reader does not have (P3.3).
-        run: |
-          uv run python -m sphinx -b html -q docs docs/_build/html
-          cp -r user_guides docs/_build/user_guides
-      - uses: actions/upload-artifact@v4
+        # Changed in 2.1.1: the build and the copy list are one implementation
+        # now, utilities/build_docs_site.py (PLAN_feature_expansion D7). The
+        # pages link repository files with checkout-relative prefixes, so the
+        # artifact needs the checkout's shape: html/ plus user_guides/,
+        # packaging/ and the five root documents beside it, and an index.html
+        # that lands an extracted zip on the front door (D5). Doing that in two
+        # places - a shell heredoc here and a Python fixture in the lock - is
+        # how a lock ends up certifying a tree nobody publishes. The doctrees
+        # directory is built outside the publish root: a plain sphinx-build puts
+        # 1.9 MB of pickles in html/.doctrees, which would ship (D8).
+        #
+        # The suite still owns correctness: tests/test_docs_build.py fails on
+        # any parser warning, and it runs before this step.
+        run: uv run python utilities/build_docs_site.py
+      - name: Upload the documentation site
         if: matrix.python-version == '3.14'
+        uses: actions/upload-artifact@v4
         with:
           name: docs-html
           path: docs/_build/
           # A build that produced no pages would be a green step publishing
           # nothing; fail the job instead.
           if-no-files-found: error
+          # Changed in 2.1.1: this artifact IS the delivery, not a step on the
+          # way to a website (PLAN_feature_expansion D9). GitHub Pages cannot be
+          # enabled for a private repository on the free plan, and the owner
+          # declined the paid plan, so there is deliberately no deploy job here:
+          # a job that cannot succeed is worse than none. The artifact is
+          # self-contained - every link in it resolves inside the tree, which
+          # tests/test_docs_build.py keeps true - so a downloaded zip works
+          # without a checkout. Revisit only with a hosting decision.
       - name: Instruction locks, no user-global baseline (fixture path)
         shell: bash
         env:

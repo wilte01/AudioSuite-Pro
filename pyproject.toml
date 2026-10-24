@@ -172,6 +172,12 @@ exclude = [
     "^tests/",
     "^user_guides/",
     "/tests/",
+    # Changed in 2.1.1: the staged documentation tree. `utilities/build_docs_site.py`
+    # copies `user_guides/` (generators included) into `docs/_build/`, which
+    # `.gitignore` already excludes but mypy does not - so running the staging
+    # step and then `mypy .` reported 46 false errors from a copy of files that
+    # are themselves excluded. Ruff skips gitignored paths; this makes mypy agree.
+    "^docs/_build/",
 ]
 
 [[tool.mypy.overrides]]
