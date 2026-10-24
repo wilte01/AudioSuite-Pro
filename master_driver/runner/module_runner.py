@@ -9,6 +9,12 @@ blocking subprocess.
 
 Both sequential and parallel execution delegate to
 :class:`~master_driver.batch_orchestrator.BatchOrchestrator`.
+
+Changed in 2.1.0: a failed step's dialog names its exit code.  The summary was
+a bare "Module failed: <name>" although the launcher's exit code is the only
+remaining evidence once its own stdout/stderr is gone — which is how a plugin
+launcher whose import raised ``ModuleNotFoundError`` reached the user as an
+unactionable popup (``PLAN_feature_expansion.md`` D135).
 """
 
 from __future__ import annotations
@@ -51,6 +57,26 @@ def _clear_logs(
                     _err("File Error", f"Cannot delete log file:\n{item}\n\n{e}")
     except OSError as exc:
         _err("Log Clear Error", f"Could not access directory:\n{path}\n\n{exc}")
+
+
+def _exit_code_detail(step: BatchStep) -> str:
+    """Return the failed step's exit code as a parenthetical, or ``""``.
+
+    A bare "Module failed: <name>" is what a user can neither act on nor
+    search: the launcher's own traceback goes to a stdout/stderr the driver
+    does not show, so the exit code is the only evidence of *why* it failed.
+    A step with no code recorded (a standalone launch that was never started)
+    says nothing rather than inventing a zero.
+
+    Args:
+        step: The failed step.
+
+    Returns:
+        ``" (exit code 3)"`` when a code was recorded, else ``""``.
+    """
+    if step.exit_code is None:
+        return ""
+    return f" (exit code {step.exit_code})"
 
 
 def _suite_root() -> str:
@@ -192,7 +218,8 @@ def _run_modules_sequential(
                 else:
                     on_error(
                         "Module Error",
-                        f"Module failed: {step.manifest.name}",
+                        f"Module failed: {step.manifest.name}"
+                        + _exit_code_detail(step),
                     )
 
     _finalise(report.completed, clear_logs, dir_path, on_complete, on_error)
@@ -240,7 +267,7 @@ def _run_modules_parallel(
             if step.status == StepStatus.FAILED:
                 on_error(
                     "Module Error",
-                    f"Module failed: {step.manifest.name}",
+                    f"Module failed: {step.manifest.name}" + _exit_code_detail(step),
                 )
 
     _finalise(report.completed, clear_logs, dir_path, on_complete, on_error)

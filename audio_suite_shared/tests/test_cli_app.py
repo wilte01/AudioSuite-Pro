@@ -12,6 +12,9 @@ both halves (PLAN D92).
 
 Changed in 2.0.0: the ingestibility counts move to 29 tools / 28 CLI commands
 with the Stem Separator (Sprint 6, Item 6.1).
+
+Changed in 2.1.0: covers the ``plugins`` group's documented flags and the
+grouped-command path the failure document resolves.
 """
 
 from __future__ import annotations
@@ -438,7 +441,7 @@ class TestDiscoverabilityContract:
         "manifest_id,command",
         [
             (manifest.id, manifest.cli_command)
-            for manifest in get_registry().all
+            for manifest in get_registry().first_party
             if manifest.cli_command
         ],
         ids=lambda value: value if isinstance(value, str) else value[0],
@@ -458,7 +461,7 @@ class TestDiscoverabilityContract:
 
     def test_no_undeclared_gap_below(self) -> None:
         """A tool without a subcommand must be a declared, justified gap."""
-        without = {m.id for m in get_registry().all if not m.cli_command}
+        without = {m.id for m in get_registry().first_party if not m.cli_command}
         assert without == set(self.NO_CLI_TOOLS), (
             "tools without a CLI subcommand changed. Add a subcommand, or add "
             "an entry to NO_CLI_TOOLS with its reason — a new gap must not "
@@ -491,7 +494,7 @@ class TestDiscoverabilityContract:
         command the plan explicitly does not ask for.  It is therefore
         covered by ``test_no_undeclared_gap_below`` instead of by help text.
         """
-        tools = get_registry().all
+        tools = get_registry().first_party
         assert len(tools) == 30
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0

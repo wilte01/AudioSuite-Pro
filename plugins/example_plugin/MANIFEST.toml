@@ -1,0 +1,35 @@
+# Changed in 2.1.0: ships the example plugin that documents and demonstrates
+# every extension point (PLAN_feature_expansion.md Item 7.2).  A third-party
+# manifest does not need this line; the suite's own change-note lock requires
+# it because this file is committed to the repository.
+[plugin]
+id = "example_plugin"
+name = "Example Plugin"
+version = "1.0.0"
+author = "AudioSuite-Pro"
+description = "Template plugin: a tool, a card, a tag processor and an analysis"
+api_version = 1
+
+[tool]
+id = "example_tool"
+name = "Example Tool"
+category = "utility"
+description = "Count audio files in a folder and report the tags they carry"
+entry_point = "example_plugin.tool:main"
+cli_command = "example"
+launcher = "Example_Plugin.pyw"
+standalone = true
+order = 62
+
+[tool.ui]
+entry = "example_plugin.ui:build"
+
+[[tag_processor]]
+id = "collapse_comment_whitespace"
+name = "Collapse comment whitespace"
+entry_point = "example_plugin.tag_processor:apply"
+
+[[analysis]]
+id = "title_words"
+name = "Title word count"
+entry_point = "example_plugin.analysis:analyse"

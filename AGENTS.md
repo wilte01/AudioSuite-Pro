@@ -271,6 +271,17 @@ Rules:
 - **Handlers run off the Tk thread.** Do the file I/O in the handler body, then
   marshal each widget update with `self.root.after(0, ...)`. Never call a widget
   inline from a callback.
+- **A raw `threading.Thread` worker must not call `root.after` at all.** The
+  rule above is safe only because `on_*` handlers are *invoked* on the Tk
+  thread by the runner, so their `root.after` is a same-thread call; a worker
+  thread of your own calling `after` (or any widget method) raises
+  `RuntimeError: main thread is not in main loop` on 3.14, the thread dies with
+  the exception, and the window waits for a result that never comes. Hand the
+  result over with a `queue.SimpleQueue` and let a poller the Tk thread started
+  (`root.after(_POLL_MS, self._poll)`, re-scheduled on every empty read) collect
+  it and do the widget writes. Evidence: `plugins/example_plugin/window.py`,
+  `PLAN_feature_expansion.md` D136 — the first version of that window marshalled
+  from the worker and hung on a real launch.
 
 `tests/test_callback_payload_contract.py` enforces the rules. It parses (never
 imports) every first-party module, resolves each `on_complete=` /
@@ -680,6 +691,46 @@ file exactly `{tool_id}_card.py` (e.g. `fingerprinter_card.py` for id
 - A file whose name merely *resembles* the id is silently never found — the only
   symptom is a `No card UI for tool '<id>'` warning in the console. Verify the
   card file name against the manifest id before creating it.
+
+## Plugin System
+
+The suite has one extension mechanism: `audio_suite_shared/plugin_system/`
+discovers `plugins/*/MANIFEST.toml` and validates it, and `tool_plugin` adds the
+enabled plugins' tools to the registry it freezes. The development guide is
+[docs/plugins.rst](docs/plugins.rst); the bundled example is
+`plugins/example_plugin/`. Evidence: `PLAN_feature_expansion.md` D130-D133.
+
+- **Discovery is data; code loads only when enabled.** The manifest is parsed
+  and refused or accepted at import time of `cli_app`, with no plugin module
+  imported, so `doctor` and `plugins list` can report a plugin that will not
+  load. Never import plugin code during discovery: a broken third-party plugin
+  would then take down `audiosuite --help`.
+- **Enablement is a suite preference, never a manifest field.** The map lives in
+  `audio_suite_config.json` under `plugins_enabled`; a plugin missing from it
+  falls back to `loader.BUNDLED_DEFAULT_ENABLED`, which is first-party code. A
+  manifest must not be able to opt itself in.
+- **Four extension points, one real host each** — `tool` (`tool_plugin`,
+  `cli_app`, the Master Driver's toggle/card/arguments/launcher), `tool.ui`
+  (`utilities_window` / `enrich_tab` calling the plugin's card builder),
+  `tag_processor` (`TagProcessor`), `analysis` (library_stats
+  `scan_directory`). A new extension point is not shipped until a first-party
+  host calls it and a test reads the artefact back from disk.
+- **A plugin failure is counted, never fatal.** A contribution that raises or
+  returns the wrong shape is logged against its plugin and counted
+  (`plugin_errors`, `plugin_analysis_errors`); the file and the run continue.
+  The one defect the host cannot undo is a tag processor that writes during a
+  dry run — test that outcome on a real file.
+- **Every host keeps an off switch.** `tag-update` has `--no-plugin-tags`,
+  `stats` has `--no-plugin-analysis`, and both default to on. Without the
+  switch, a difference between two runs cannot be attributed to a plugin.
+- **Pre-flight deliberately skips `plugins/`.** A third-party syntax error must
+  block that plugin, not every tool's launch.
+- **Tests isolate discovery.** Point `AUDIOSUITE_PLUGIN_DIR` at a temp tree and
+  call `reset_plugins_for_tests()` (it also removes the roots it added to
+  `sys.path`). `tag_field_updater/tests` and `library_stats/tests` do this in an
+  autouse fixture; a test that wants a contribution installs its own throwaway
+  plugin. Fixed names collide through `sys.modules`, so purge the probe module
+  before importing a rewritten one.
 
 ## Registering a New Tool (Checklist)
 

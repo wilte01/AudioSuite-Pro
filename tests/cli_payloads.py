@@ -41,6 +41,7 @@ from click.testing import CliRunner
 
 from audio_suite_shared.cli_app import cli
 from audio_suite_shared.cli_schema import TOOL_IDS
+from audio_suite_shared.plugin_system import BUNDLED_DEFAULT_ENABLED
 
 #: The checkout root, normalised to ``<repo>`` in a recorded payload.
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -55,9 +56,16 @@ BUILDER_RECORDED: frozenset[str] = frozenset({"cd-rip"})
 EMPTY_LIBRARY: frozenset[str] = frozenset({"album-art", "lyrics"})
 
 #: Commands with no validated input path to point at a missing one: ``doctor``
-#: takes no arguments, and ``cd-rip``'s DRIVE is a device rather than a path.
-#: Their failure document is recorded from an unknown option instead.
-NO_INPUT_PATH: frozenset[str] = frozenset({"cd-rip", "doctor"})
+#: and ``plugins list`` take no arguments, and ``cd-rip``'s DRIVE is a device
+#: rather than a path.  Their failure document is recorded from an unknown
+#: option instead.
+NO_INPUT_PATH: frozenset[str] = frozenset({"cd-rip", "doctor", "plugins list"})
+
+#: The bundled example plugin, the only id guaranteed to be discoverable on
+#: every checkout: the enable/disable recordings name it.  Derived from the
+#: first-party default-enabled set, so renaming the plugin cannot leave a stale
+#: recording pointing at an id that no longer exists.
+EXAMPLE_PLUGIN_ID: str = sorted(BUNDLED_DEFAULT_ENABLED)[0]
 
 #: The unknown option that makes a command fail while Click parses its argv,
 #: before any tool code runs.  It has to be an option no command declares.
@@ -120,6 +128,14 @@ def argv_for(command: str, work: Path) -> list[str]:
     # and its payload is valid whether this checkout is healthy or not.
     if command == "doctor":
         return []
+
+    # The plugin commands act on suite configuration, not on audio, so their
+    # argument names a plugin id rather than a directory.  ``plugins list``
+    # takes nothing at all.
+    if command == "plugins list":
+        return []
+    if command in {"plugins enable", "plugins disable"}:
+        return [EXAMPLE_PLUGIN_ID]
 
     # These commands reach a web service when a file is present.  The schema
     # does not need a lookup to be proved, so they scan an empty directory.
@@ -186,6 +202,18 @@ def _patched(command: str) -> Iterator[None]:
         import audio_suite_shared.cue_cli as cue_cli
 
         with mock.patch.object(cue_cli, "split_cue_file", lambda *_a, **_k: []):
+            yield
+        return
+    if command in {"plugins enable", "plugins disable"}:
+        # A recording must not flip the plugin's enabled flag in the checkout's
+        # real configuration: the in-memory map records the decision instead.
+        import audio_suite_shared.plugins_cli as plugins_cli
+
+        recorded: dict[str, bool] = {}
+        with (
+            mock.patch.object(plugins_cli, "load_enabled_map", lambda: dict(recorded)),
+            mock.patch.object(plugins_cli, "save_enabled_map", recorded.update),
+        ):
             yield
         return
     if command == "denoise":

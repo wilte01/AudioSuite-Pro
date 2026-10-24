@@ -22,6 +22,11 @@ Changed in 2.0.0: adds ``stem_separator`` to the dependency graph as a leaf
 Changed in 2.0.0: adds ``ml_denoiser`` as a leaf (Item 6.2).  It rewrites the
 files already in the directory, so it depends on nothing another tool produces
 and imposes no ordering on the rest of the batch.
+Changed in 2.1.0: a standalone step records the launcher's exit code on
+``BatchStep.exit_code`` (the module-level ``_launch_standalone`` reports it
+through ``on_exit``).  Without it the caller's summary was a bare "Module
+failed: <name>" naming no reason, which is how a plugin launcher that raised
+``ModuleNotFoundError`` read to the user (``PLAN_feature_expansion.md`` D135).
 """
 
 from __future__ import annotations
@@ -309,11 +314,20 @@ def _launch_standalone(
     label: str,
     *,
     on_error: Callable[[str, str], None] | None = None,
+    on_exit: Callable[[int], None] | None = None,
 ) -> bool:
     """Launch a standalone .pyw script and wait for it to close.
 
     This is the single authoritative implementation used by both
     :class:`BatchOrchestrator` and :func:`module_runner.run_modules`.
+
+    Args:
+        script_path: The launcher to run.
+        args: Arguments forwarded to it.
+        label: Name used in the error dialogs and the log line.
+        on_error: Callable(title, message) reporting a launch failure.
+        on_exit: Callable(code) receiving the launcher's exit code as soon as
+            the window closes, so the caller can keep it for its own report.
 
     Returns ``True`` if the script was found, launched, and exited with
     code 0.  Returns ``False`` otherwise.
@@ -337,6 +351,8 @@ def _launch_standalone(
     try:
         process = start_python_script(script_path, args)
         process.wait()
+        if on_exit is not None:
+            on_exit(process.returncode)
         if process.returncode != 0:
             logger.warning(
                 "Standalone %s exited with code %d",
@@ -643,8 +659,20 @@ class BatchOrchestrator:
         return success
 
     def _launch_standalone(self, step: BatchStep) -> bool:
-        """Launch standalone — delegates to module-level ``_launch_standalone``."""
-        return _launch_standalone(step.script_path, step.args, step.tool_id)
+        """Launch standalone — delegates to module-level ``_launch_standalone``.
+
+        The launcher's exit code is recorded on the step as it arrives: the
+        module-level function reports its own dialog, so without this the
+        caller's later error summary ("Module failed: <name>") would be the
+        only evidence left and would name no reason at all.
+        """
+
+        def _record(code: int) -> None:
+            step.exit_code = code
+
+        return _launch_standalone(
+            step.script_path, step.args, step.tool_id, on_exit=_record
+        )
 
     def _emit_progress(
         self,

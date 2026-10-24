@@ -11,6 +11,9 @@ card list.  With seventeen utility tools a single column overflowed the
 window before the last four cards and the launch button, so the tab now fits
 and the primary action never scrolls out of reach (PLAN_feature_expansion.md
 D119).
+
+Changed in 2.1.0: a plugin tool without a card module gets the generic plugin card, and
+select-all includes plugin tools.
 """
 
 from __future__ import annotations
@@ -23,7 +26,8 @@ from tkinter import filedialog
 from typing import Callable
 
 from audio_suite_shared import styles
-from audio_suite_shared.tool_plugin import get_registry
+from audio_suite_shared.plugin_system import get_plugins
+from audio_suite_shared.tool_plugin import ToolManifest, get_registry
 
 from ..state.app_state import AppState
 
@@ -148,9 +152,11 @@ def build(
         expanded[cell] = False
         return cell
 
-    # Build cards in registry order for the "utility" category
+    # Build cards in registry order for the "utility" category. A plugin that
+    # ships only a CLI entry point has no launcher for the driver to open, so
+    # it gets no cell at all rather than an empty one.
     registry = get_registry()
-    for manifest in registry.by_category("utility"):
+    for manifest in registry.driver_by_category("utility"):
         cell = _add_cell()
         if manifest.id == "converter":
             # converter card has extra callbacks — handle specially
@@ -178,13 +184,55 @@ def build(
 
 
 def _build_card(tool_id: str, parent: tk.Frame, state: AppState) -> None:
-    """Lazy-import the card module for *tool_id* and call ``build(parent, state)``."""
+    """Build the card for *tool_id*, plugin-aware.
+
+    A first-party tool is looked up by its module name, as it always has been.
+    A plugin supplies its own builder through ``[tool.ui].entry``; if it ships
+    none (or that builder fails), the generic plugin card renders instead, so
+    the tool is always reachable from the tab.
+
+    Args:
+        tool_id: The manifest id of the card to build.
+        parent: The cell the card is built into.
+        state: The Master Driver state holding the module toggles.
+    """
     mod_name = _CARD_MODULE_OVERRIDES.get(tool_id, f"{tool_id}_card")
     try:
         mod = importlib.import_module(f"master_driver.ui.cards.{mod_name}")
         mod.build(parent, state)
+        return
     except (ImportError, AttributeError) as exc:
-        _log.warning("No card UI for tool %r: %s", tool_id, exc)
+        manifest = get_registry().get(tool_id)
+        if manifest is None or not manifest.plugin:
+            _log.warning("No card UI for tool %r: %s", tool_id, exc)
+            return
+    _build_plugin_card(manifest, parent, state)
+
+
+def _build_plugin_card(
+    manifest: ToolManifest, parent: tk.Frame, state: AppState
+) -> None:
+    """Build a plugin's own card, falling back to the generic one.
+
+    Args:
+        manifest: The plugin's tool manifest.
+        parent: The cell the card is built into.
+        state: The Master Driver state holding the module toggles.
+    """
+    if manifest.ui_entry:
+        try:
+            hook = get_plugins().resolve(manifest.ui_entry)
+            hook(parent, state)
+            return
+        except Exception as exc:  # a third-party card must not kill the tab
+            _log.warning(
+                "Plugin card for %r failed (%s); using the generic card",
+                manifest.id,
+                exc,
+            )
+    from .cards import plugin_card
+
+    plugin_card.build(parent, state, manifest)
 
 
 def _build_converter_card(parent: tk.Frame, state: AppState) -> None:

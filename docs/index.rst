@@ -15,3 +15,4 @@ machine-readable version.
    :maxdepth: 2
 
    api
+   plugins

@@ -27,6 +27,9 @@ Changed in 1.4.1: ``cue generate`` joins the driven set too, leaving
 ``NO_JSON_COMMANDS`` empty (PLAN D95).
 Changed in 1.4.1: the argv builder and invocation moved to ``tests/cli_payloads``
 so the recorded corpus is produced by the same driver this lock uses (PLAN D102).
+
+Changed in 2.1.0: the coverage locks read the first-party manifests (and exclude a
+plugin's own commands) now that the registry also holds plugins.
 """
 
 from __future__ import annotations
@@ -173,10 +176,23 @@ class TestRegistryCoverage:
         assert not stale, f"schemas for commands that do not exist: {stale}"
 
     def test_commands_without_json_are_declared(self) -> None:
+        registered = {path for path, _command in _walk_commands(cli)}
+        # A plugin's own command is the plugin's interface, not the suite's
+        # schema: its output is not this contract, so it is excluded by name —
+        # taken from the registry, never a hand-written list that could go stale.
+        plugin_commands = {
+            manifest.cli_command
+            for manifest in get_registry().plugins
+            if manifest.cli_command
+        }
+        assert plugin_commands <= registered, (
+            "the registry declares plugin commands the CLI did not register: "
+            f"{sorted(plugin_commands - registered)}"
+        )
         without_json = {
             path
             for path, command in _walk_commands(cli)
-            if "--json" not in _option_names(command)
+            if "--json" not in _option_names(command) and path not in plugin_commands
         }
         assert without_json == set(NO_JSON_COMMANDS), (
             "a command gained or lost --json without updating "
@@ -196,7 +212,9 @@ class TestRegistryCoverage:
         )
 
     def test_tool_ids_match_the_manifest(self) -> None:
-        for manifest in get_registry().all:
+        # First-party manifests only: a plugin's command publishes the plugin's
+        # own output, which the suite's schema deliberately does not describe.
+        for manifest in get_registry().first_party:
             if not manifest.cli_command:
                 continue
             assert TOOL_IDS[manifest.cli_command] == manifest.id, (

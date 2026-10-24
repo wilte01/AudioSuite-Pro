@@ -7,6 +7,8 @@ artifact, missing launcher), the registry-extraction failure, and the
 ``main()`` CLI body so the script measures above the plan's 60% floor.
 
 The ``if __name__ == "__main__":`` guard is excluded by the coverage config.
+
+Changed in 2.1.0: the fake registry exposes ``first_party``, which the generator walks.
 """
 
 from __future__ import annotations
@@ -38,7 +40,12 @@ def _manifest(**overrides: object) -> SimpleNamespace:
 
 
 def _registry(*manifests: SimpleNamespace) -> SimpleNamespace:
-    return SimpleNamespace(all=list(manifests))
+    """Return a stand-in for the tool registry the generator reads.
+
+    ``first_party`` is what the index renders; a plugin's tool has no guide or
+    launcher row in the README, so the generator never walks ``all``.
+    """
+    return SimpleNamespace(all=list(manifests), first_party=list(manifests))
 
 
 class TestExtractGuideRegistryFailure:

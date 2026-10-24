@@ -21,6 +21,8 @@ result now stays empty: the driver display flags are appended only to a real
 argument list, so "cannot run as configured" is still readable by the caller.
 Changed in 2.0.0: adds the ``ml_denoiser`` entry, which has no required field —
 its amount always has a value — so it always emits a runnable argv (Item 6.2).
+
+Changed in 2.1.0: a plugin tool's arguments follow the command its manifest declares.
 """
 
 from __future__ import annotations
@@ -73,13 +75,40 @@ def build_enrich_args(
 
     specs: list[tuple[_ToggleVar, ToolManifest, list[str]]] = []
     registry = get_registry()
-    for manifest in registry.by_category("enrich"):
+    for manifest in registry.driver_by_category("enrich"):
         toggle = state.module_toggles[manifest.id]
         args = _build_enrich_tool_args(
             manifest.id, path, mode_flag, start_flag, end_flag, state
         )
         specs.append((toggle, manifest, args))
     return specs
+
+
+def _build_plugin_tool_args(
+    path: str,
+    mode_flag: str,
+    start_flag: str,
+    end_flag: str,
+) -> list[str]:
+    """Return the argument list every plugin tool is launched with.
+
+    A plugin declares no argument builder of its own — the driver cannot read
+    a third-party tool's options — so the contract is the same four-flag
+    grammar the shared ``_apply_driver_cli_args`` base parses: the directory,
+    the run mode, and the auto-start/auto-end pair.  A plugin that ignores a
+    flag ignores it explicitly; it is never launched with an empty list, which
+    the launch gate would report as an unconfigured module (D128).
+
+    Args:
+        path: The directory the driver is pointed at.
+        mode_flag: ``--live`` or ``--dry``.
+        start_flag: ``--start`` or ``--no-start``.
+        end_flag: ``--end`` or ``--no-end``.
+
+    Returns:
+        The four arguments, in the order every first-party builder uses.
+    """
+    return [path, mode_flag, start_flag, end_flag]
 
 
 def _build_enrich_tool_args(
@@ -91,6 +120,9 @@ def _build_enrich_tool_args(
     state: AppState,
 ) -> list[str]:
     """Return the CLI argument list for a single enrich tool."""
+    manifest = get_registry().get(tool_id)
+    if manifest is not None and manifest.plugin:
+        return _build_plugin_tool_args(path, mode_flag, start_flag, end_flag)
     builders: dict[str, Callable[[], list[str]]] = {
         "scrubber": lambda: [
             path,
@@ -213,7 +245,7 @@ def build_utility_args(
 
     specs: list[tuple[_ToggleVar, ToolManifest, list[str]]] = []
     registry = get_registry()
-    for manifest in registry.by_category("utility"):
+    for manifest in registry.driver_by_category("utility"):
         toggle = state.module_toggles[manifest.id]
         args = _build_utility_tool_args(
             manifest.id, path, mode_flag, start_flag, end_flag, state
@@ -231,6 +263,9 @@ def _build_utility_tool_args(
     state: AppState,
 ) -> list[str]:
     """Return the CLI argument list for a single utility tool."""
+    manifest = get_registry().get(tool_id)
+    if manifest is not None and manifest.plugin:
+        return _build_plugin_tool_args(path, mode_flag, start_flag, end_flag)
     builders: dict[str, Callable[[], list[str]]] = {
         "converter": lambda: _build_converter_args(
             path, mode_flag, start_flag, end_flag, state

@@ -3,6 +3,11 @@ processor.py — Tag processing orchestration (decomposed).
 
 Business logic lives in mapping_engine.py and transformation_rules.py.
 This module re-exports the public API for backward compatibility.
+
+Changed in 2.1.0: :class:`TagProcessor` is the host for the plugin system's
+``tag_processor`` extension point.  An enabled plugin's processors run after
+the built-in rules for each file, honour the run's dry-run flag, and their
+outcomes are counted separately from the built-in edits (Sprint 7).
 """
 
 import logging
@@ -35,6 +40,15 @@ except ImportError as e:  # pragma: no cover
         "Mutagen library not found. Please install with: pip install mutagen",
         dependency="mutagen",
     ) from e
+
+from audio_suite_shared.plugin_system import (
+    ContributionSpec,
+    PluginError,
+    context_for,
+    get_plugins,
+    resolved_contributions,
+    run_tag_processor,
+)
 
 from .mapping_engine import (
     SUPPORTED_EXTENSIONS,
@@ -88,17 +102,37 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+#: A resolved plugin contribution: its manifest-declared spec and its callable.
+PluginHook = tuple[ContributionSpec, Callable[..., object]]
+
 
 class TagProcessor:
-    """Core processor for tag field updates. Orchestrates scanning and dispatching."""
+    """Core processor for tag field updates. Orchestrates scanning and dispatching.
+
+    Args:
+        plugins: Whether enabled plugins' tag processors run after the built-in
+            rules.  A caller that wants the suite's own behaviour only — and
+            the deterministic output a plugin could otherwise change — passes
+            False; the CLI's ``--no-plugin-tags`` flag is that switch.
+    """
 
     SUPPORTED_EXTENSIONS = SUPPORTED_EXTENSIONS
     TAG_MAPPINGS = TAG_MAPPINGS
 
-    def __init__(self) -> None:
-        """Initialize the tag processor with zeroed stats and a clear stop flag."""
+    def __init__(self, *, plugins: bool = True) -> None:
+        """Initialize the tag processor with zeroed stats and a clear stop flag.
+
+        Args:
+            plugins: Whether plugin tag processors run at all.
+        """
         self.stats = ProcessingStats()
         self.stop_flag = False
+        self.plugins = plugins
+        #: Files whose tags a plugin processor changed.
+        self.plugin_changes = 0
+        #: Plugin processors that raised (counted, never fatal to the scan).
+        self.plugin_errors = 0
+        self._hooks: tuple[PluginHook, ...] | None = None
 
     def should_update_value(self, value: str) -> bool:
         """Determine if a tag value contains a bare slash and requires updating.
@@ -154,6 +188,12 @@ class TagProcessor:
         results: list[ProcessingResult] = []
         self.stats = ProcessingStats()
         self.stop_flag = False
+        self.plugin_changes = 0
+        self.plugin_errors = 0
+        # A scan resolves the plugin processors once, not once per file, and a
+        # fresh scan re-resolves them: a plugin enabled between runs must take
+        # effect without restarting the interpreter.
+        self._hooks = None
 
         logger.info(
             "Starting scan of directory: %s (mode: %s)",
@@ -262,7 +302,72 @@ class TagProcessor:
             )
             self.stats.error_files += 1
 
+        if self.plugins and not result.error:
+            self._run_plugin_processors(file_path, dry_run=dry_run)
+
         return result
+
+    # ------------------------------------------------------------------
+    # Plugin tag processors (the ``tag_processor`` extension point)
+    # ------------------------------------------------------------------
+
+    def _plugin_hooks(self) -> tuple[PluginHook, ...]:
+        """Return the enabled plugins' tag processors, resolved once.
+
+        Returns:
+            ``(spec, callable)`` pairs; empty when no plugin contributes one or
+            when discovery itself fails, because tagging must not be blocked by
+            a plugin directory problem.
+        """
+        if self._hooks is None:
+            try:
+                registry = get_plugins()
+                self._hooks = resolved_contributions(
+                    registry.tag_processors(), registry.resolve_spec
+                )
+            except PluginError as exc:  # pragma: no cover - discovery is total
+                logger.warning("Plugin tag processors unavailable: %s", exc)
+                self._hooks = ()
+        return self._hooks
+
+    def _run_plugin_processors(self, file_path: Path, *, dry_run: bool) -> None:
+        """Run every enabled plugin's tag processor against one file.
+
+        A processor that raises is logged and counted; it never fails the file,
+        because its plugin is not part of the suite's own contract.
+
+        Args:
+            file_path: The file just processed by the built-in rules.
+            dry_run: Whether the run may write anything at all.
+        """
+        for spec, hook in self._plugin_hooks():
+            try:
+                outcome = run_tag_processor(
+                    hook,
+                    file_path,
+                    dry_run=dry_run,
+                    context=context_for(spec.plugin_id),
+                )
+            except Exception as exc:  # noqa: BLE001 - a plugin must not abort a run
+                self.plugin_errors += 1
+                logger.warning(
+                    "Plugin %r tag processor %s failed on %s: %s: %s",
+                    spec.plugin_id,
+                    spec.id,
+                    file_path.name,
+                    type(exc).__name__,
+                    exc,
+                )
+                continue
+            if outcome.changed:
+                self.plugin_changes += 1
+                logger.info(
+                    "Plugin %r tag processor %s changed %s: %s",
+                    spec.plugin_id,
+                    spec.id,
+                    file_path.name,
+                    outcome.message or "no reason given",
+                )
 
     # ------------------------------------------------------------------
     # Private delegate methods (backward-compatible dispatch targets)

@@ -7,6 +7,8 @@ matching the style used in the REFINE section (audio_refinery setup_tab).
 
 Cards are discovered dynamically via the ToolRegistry — adding a new
 enrich tool to the registry automatically adds its card here.
+
+Changed in 2.1.0: a plugin tool without a card module gets the generic plugin card.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import tkinter as tk
 from typing import Callable
 
 from audio_suite_shared import styles
+from audio_suite_shared.plugin_system import get_plugins
 from audio_suite_shared.tool_plugin import get_registry
 
 from ..state.app_state import AppState
@@ -44,9 +47,10 @@ def build(parent: tk.Frame, state: AppState, on_run: "Callable[[], None]") -> tk
     # Stretch scroll_frame to fill the full canvas width
     canvas.bind("<Configure>", lambda e: canvas.itemconfig(window_id, width=e.width))
 
-    # Build cards in registry order for the "enrich" category
+    # Build cards in registry order for the "enrich" category. A CLI-only
+    # plugin has no launcher for the driver to open, so it gets no card.
     registry = get_registry()
-    for manifest in registry.by_category("enrich"):
+    for manifest in registry.driver_by_category("enrich"):
         _build_card(manifest.id, scroll_frame, state)
 
     # ── Launch button ─────────────────────────────────────────────────────────
@@ -72,14 +76,37 @@ def build(parent: tk.Frame, state: AppState, on_run: "Callable[[], None]") -> tk
 
 
 def _build_card(tool_id: str, parent: tk.Frame, state: AppState) -> None:
-    """Lazy-import the card module for *tool_id* and call its ``build()``.
+    """Build the card for *tool_id*, plugin-aware.
 
     Convention: card modules live at
     ``master_driver.ui.cards.{tool_id}_card`` and expose a ``build(parent,
-    state)`` function.
+    state)`` function.  A plugin tool instead supplies ``[tool.ui].entry`` in
+    its manifest, and falls back to the generic plugin card when it ships none.
+
+    Args:
+        tool_id: The manifest id of the card to build.
+        parent: The frame the card is built into.
+        state: The Master Driver state holding the module toggles.
     """
     try:
         mod = importlib.import_module(f"master_driver.ui.cards.{tool_id}_card")
         mod.build(parent, state)
+        return
     except (ImportError, AttributeError) as exc:
-        _log.warning("No card UI for tool %r: %s", tool_id, exc)
+        manifest = get_registry().get(tool_id)
+        if manifest is None or not manifest.plugin:
+            _log.warning("No card UI for tool %r: %s", tool_id, exc)
+            return
+    if manifest.ui_entry:
+        try:
+            get_plugins().resolve(manifest.ui_entry)(parent, state)
+            return
+        except Exception as exc:  # a third-party card must not kill the tab
+            _log.warning(
+                "Plugin card for %r failed (%s); using the generic card",
+                manifest.id,
+                exc,
+            )
+    from .cards import plugin_card
+
+    plugin_card.build(parent, state, manifest)

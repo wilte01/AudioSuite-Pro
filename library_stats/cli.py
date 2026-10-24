@@ -9,6 +9,9 @@ Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 Changed in 1.4.1: a fatal scan failure raises ``RunFailure`` so ``--json``
 publishes the schema's error document instead of an empty stdout, and still
 exits 1 (PLAN D91).
+Changed in 2.1.0: ``--no-plugin-analysis`` keeps the plugin system's analysis
+contributions out of the report, and ``--json`` publishes their metrics under
+``plugin_analysis`` / ``plugin_analysis_errors`` (Sprint 7).
 """
 
 from __future__ import annotations
@@ -98,6 +101,12 @@ from library_stats.library_cache import LibraryCache
     default=False,
     help="Do not record this run's completeness snapshot.",
 )
+@click.option(
+    "--no-plugin-analysis",
+    is_flag=True,
+    default=False,
+    help="Skip analysis contributions from enabled plugins.",
+)
 def stats(
     directory: str,
     json: bool,
@@ -110,6 +119,7 @@ def stats(
     trend: bool,
     history_limit: int,
     no_history: bool,
+    no_plugin_analysis: bool,
 ) -> None:
     """Scan library and show aggregate tag statistics (read-only).
 
@@ -159,6 +169,7 @@ def stats(
             use_cache=use_cache,
             refresh_cache=refresh,
             cache=cache,
+            plugins=not no_plugin_analysis,
         )
         completeness_report = (
             analyse_completeness(directory) if want_completeness else None

@@ -32,6 +32,8 @@ touches.
 
 Conventions (AGENTS.md "Utility Script Markers"): ASCII-only [START] /
 [OK] / [ERROR] / [DONE] status markers on stdout/stderr.
+
+Changed in 2.1.0: reads only first-party manifests.
 """
 
 from __future__ import annotations
@@ -116,7 +118,7 @@ def render_tool_index() -> str:
 
     guides = extract_guide_registry()
     rows: list[str] = []
-    for manifest in get_registry().all:
+    for manifest in get_registry().first_party:
         guide_name = guide_filename_for(manifest.id, manifest.pyw_filename)
         folder = guides.get(guide_name)
         if not folder:

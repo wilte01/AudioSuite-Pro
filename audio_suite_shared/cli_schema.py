@@ -170,6 +170,13 @@ TOOL_IDS: Final[Mapping[str, str]] = {
     "mood-analysis-batch": "mood_analysis_batch",
     "mood-analyzer": "mood_analyzer",
     "normalise": "audio_normalizer",
+    # The plugin management commands belong to the plugin system rather than
+    # to a tool; like ``doctor`` and ``cue`` they are declared here because
+    # they publish a payload.  A *plugin's own* command is deliberately absent:
+    # its output is the plugin's, not the suite's contract.
+    "plugins disable": "plugins",
+    "plugins enable": "plugins",
+    "plugins list": "plugins",
     "reduce": "noise_reduction",
     "refine": "audio_refinery",
     "reorganize": "file_reorganizer",
@@ -266,6 +273,11 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
     "tag-update": {
         "directory": str,
         "updated": int,
+        # Files whose tags an enabled plugin's tag processor changed, and the
+        # processors that raised: counted apart from the built-in edits so a
+        # plugin's effect is attributable (Sprint 7).
+        "plugin_updates": int,
+        "plugin_errors": int,
     },
     "stats": {
         "scan_path": str,
@@ -288,6 +300,10 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
         "top_genres": list,
         "completeness": dict,
         "trend": list,
+        # Enabled plugins' analysis metrics: "<plugin>:<contribution>" →
+        # metric → value → file count, plus the contributions that failed.
+        "plugin_analysis": dict,
+        "plugin_analysis_errors": int,
     },
     "spectrogram": {
         "path": str,
@@ -327,6 +343,19 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
         "cue_file": str,
         "output_dir": str,
         "tracks": list,
+    },
+    "plugins disable": {
+        "plugin": str,
+        "enabled": bool,
+    },
+    "plugins enable": {
+        "plugin": str,
+        "enabled": bool,
+    },
+    "plugins list": {
+        # One object per discovered plugin: id, name, version, status,
+        # directory, problem, tool, contributions.
+        "plugins": list,
     },
     "doctor": {
         "healthy": bool,

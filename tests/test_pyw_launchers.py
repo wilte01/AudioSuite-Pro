@@ -33,12 +33,21 @@ Changed in 2.1.0: added ``TestEveryLauncherRunsFromTheProjectVenv`` — the
 launcher preamble now starts with ``ensure_venv_interpreter()``, and a new
 launcher that copies only the guard would silently fall back to the system
 interpreter that has none of the extras.
+
+Changed in 2.1.0: added ``TestPluginLauncherResolvesItsRoots``.  The sweeps
+above glob ``REPO_ROOT/*.pyw``, so the launcher a plugin ships — at
+``plugins/<plugin>/<Launcher>.pyw`` — was covered by none of them, and its two
+roots were off by one level: ``sys.path`` got the suite root instead of
+``plugins``, the entry import raised ``ModuleNotFoundError``, and the Master
+Driver reported only "Module failed: Example Tool".
 """
 
 from __future__ import annotations
 
 import ast
 import logging
+import os
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -46,6 +55,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -537,3 +547,156 @@ class TestEveryLauncherRunsFromTheProjectVenv:
         assert not violations, "launchers resolving .venv from the wrong root: " + (
             "; ".join(violations)
         )
+
+
+def _plugin_launchers() -> tuple[tuple[Path, str], ...]:
+    """Return ``(launcher path, importable package)`` for every plugin tool.
+
+    Read from the manifests rather than globbed, because the manifest is what
+    the Master Driver resolves the launcher from; a ``.pyw`` that no manifest
+    names is not one a user can reach this way.
+    """
+    found: list[tuple[Path, str]] = []
+    for manifest_path in sorted((REPO_ROOT / "plugins").glob("*/MANIFEST.toml")):
+        data = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+        launcher = (data.get("tool") or {}).get("launcher")
+        if not launcher:
+            continue
+        # The loader takes the plugin directory's name as the package name.
+        found.append((manifest_path.parent / launcher, manifest_path.parent.name))
+    return tuple(found)
+
+
+def _root_assignments(launcher: Path) -> dict[str, Any]:
+    """Evaluate a plugin launcher's ``_plugin_root``/``_suite_root`` lines.
+
+    Only those statements run — executing the launcher would build a real Tk
+    window — but they are the shipped source, unparaphrased, so an edit that
+    moves either root is measured exactly as the process would compute it.
+
+    Args:
+        launcher: The plugin launcher file.
+
+    Returns:
+        The evaluated namespace, holding ``_plugin_root`` and ``_suite_root``.
+    """
+    source = launcher.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(launcher))
+    wanted = {"_plugin_root", "_suite_root"}
+    statements = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        if any(isinstance(t, ast.Name) and t.id in wanted for t in targets):
+            statements.append(node)
+
+    declared = {
+        target.id
+        for node in statements
+        for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+        if isinstance(target, ast.Name)
+    }
+    assert declared == wanted, (
+        f"{launcher.name} no longer declares {sorted(wanted)} (found "
+        f"{sorted(declared)}); this lock cannot measure the launcher's roots"
+    )
+
+    namespace: dict[str, Any] = {
+        "__file__": str(launcher),
+        "_script_dir": os.path.dirname(os.path.abspath(launcher)),
+        "os": os,
+        "sys": sys,
+        "Path": Path,
+    }
+    for node in statements:
+        module = ast.Module(body=[node], type_ignores=[])
+        exec(compile(module, str(launcher), "exec"), namespace)
+    return namespace
+
+
+class TestPluginLauncherResolvesItsRoots:
+    """A plugin launcher must derive the two directories a plugin actually has.
+
+    A plugin lives at ``<suite>/plugins/<plugin>/``, one level below the suite
+    root, so neither root is ``__file__``'s own directory the way it is for a
+    first-party launcher at the suite root.  Deriving them one level too high
+    makes ``sys.path`` hold the suite root, the entry-point import raises
+    ``ModuleNotFoundError``, and the driver surfaces only a generic "Module
+    failed" dialog — which is exactly what shipped in 2.1.0.
+    """
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def launchers() -> tuple[tuple[Path, str], ...]:
+        """Every plugin launcher with the package it must be able to import."""
+        found = _plugin_launchers()
+        assert found, (
+            "no plugin manifest declares a launcher; this lock would pass vacuously"
+        )
+        return found
+
+    def test_suite_root_is_the_repository_root(
+        self, launchers: tuple[tuple[Path, str], ...]
+    ) -> None:
+        """The pre-flight guard and the ``.venv`` re-exec use the suite root."""
+        violations = []
+        for launcher, _package in launchers:
+            suite_root = Path(_root_assignments(launcher)["_suite_root"]).resolve()
+            if suite_root != REPO_ROOT or not (suite_root / "pyproject.toml").is_file():
+                violations.append(
+                    f"{launcher.name}: suite root resolved to {suite_root}"
+                )
+        assert not violations, (
+            "plugin launchers pointing the guard/.venv at the wrong directory: "
+            + "; ".join(violations)
+        )
+
+    def test_import_root_holds_the_plugin_package(
+        self, launchers: tuple[tuple[Path, str], ...]
+    ) -> None:
+        """``_plugin_root`` must be the folder containing the plugin package."""
+        violations = []
+        for launcher, package in launchers:
+            plugin_root = Path(_root_assignments(launcher)["_plugin_root"]).resolve()
+            if not (plugin_root / package / "__init__.py").is_file():
+                violations.append(
+                    f"{launcher.name}: sys.path gets {plugin_root}, which has no "
+                    f"{package}/__init__.py"
+                )
+        assert not violations, (
+            "plugin launchers that cannot import their own package: "
+            + "; ".join(violations)
+        )
+
+    def test_entry_point_import_succeeds_from_that_root(
+        self, launchers: tuple[tuple[Path, str], ...]
+    ) -> None:
+        """Run the launcher's own import line the way the launcher would.
+
+        The path assertions above are structural; this one fails the way the
+        user saw — a subprocess whose ``sys.path`` holds only the computed
+        root tries to import the plugin package.
+        """
+        for launcher, package in launchers:
+            plugin_root = Path(_root_assignments(launcher)["_plugin_root"]).resolve()
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys; sys.path.insert(0, sys.argv[1]); "
+                    f"import {package}; print({package}.__file__)",
+                    str(plugin_root),
+                ],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            assert completed.returncode == 0, (
+                f"{launcher.name}: `import {package}` failed with the launcher's "
+                f"own sys.path root {plugin_root}\n{completed.stderr}"
+            )

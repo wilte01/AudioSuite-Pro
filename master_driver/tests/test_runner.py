@@ -576,7 +576,7 @@ class TestBuildUtilityArgs:
         state = _make_state()
         from audio_suite_shared.tool_plugin import get_registry
 
-        expected = len(get_registry().by_category("utility"))
+        expected = len(get_registry().driver_by_category("utility"))
         assert len(build_utility_args(state)) == expected
 
     def test_converter_entry_present(self):
@@ -965,6 +965,61 @@ class TestBuildUtilityArgs:
 # ═════════════════════════════════════════════════════════════════════════════
 # build_refinery_args
 # ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestPluginDriverArgs:
+    """A plugin tool is launched with the shared four-flag grammar.
+
+    The driver cannot read a third-party tool's options, so the contract is the
+    one every first-party builder starts with: the directory, the run mode and
+    the auto-start/auto-end pair.  The empty list would be reported by the
+    launch gate as an unconfigured module (D128), which is why this is pinned
+    per flag rather than by count alone.
+    """
+
+    @staticmethod
+    def _plugin_manifest() -> ToolManifest:
+        from audio_suite_shared.tool_plugin import get_registry
+
+        plugins = get_registry().plugins
+        assert plugins, "no plugin registered, so this suite would be vacuous"
+        return plugins[0]
+
+    def test_utility_builder_emits_the_four_flags(self):
+        from master_driver.runner.arg_builder import _build_utility_tool_args
+
+        manifest = self._plugin_manifest()
+
+        args = _build_utility_tool_args(
+            manifest.id, "/music", "--live", "--start", "--no-end", None
+        )
+
+        assert args == ["/music", "--live", "--start", "--no-end"]
+
+    def test_enrich_builder_emits_the_four_flags(self):
+        from master_driver.runner.arg_builder import _build_enrich_tool_args
+
+        manifest = self._plugin_manifest()
+
+        args = _build_enrich_tool_args(
+            manifest.id, "/music", "--dry", "--no-start", "--end", None
+        )
+
+        assert args == ["/music", "--dry", "--no-start", "--end"]
+
+    def test_the_plugin_entry_carries_the_launcher_path(self):
+        state = _make_state()
+        manifest = self._plugin_manifest()
+
+        entries = [
+            entry for entry in build_utility_args(state) if entry[1].id == manifest.id
+        ]
+
+        assert entries, "the plugin has no entry in the utility argument list"
+        _toggle, resolved, args = entries[0]
+        assert resolved.plugin is True
+        assert resolved.pyw_filename.endswith(".pyw")
+        assert args, "a plugin entry must never arrive with an empty argument list"
 
 
 class TestBuildRefineryArgs:
@@ -1701,6 +1756,42 @@ class TestRunModules:
             )
         assert results == [0]
         assert "Module Not Found" in errors
+
+    def test_standalone_failure_names_the_exit_code(self, tmp_path):
+        """A standalone launcher that exits non-zero reports its code.
+
+        The launcher's own traceback goes to a stdout/stderr the driver never
+        shows, so the code is the only evidence a user or a bug report can
+        carry. The message used to be a bare "Module failed: <name>", which is
+        how the broken example-plugin launcher shipped (PLAN D135).
+        """
+        script = tmp_path / "example_tool.pyw"
+        script.write_text("pass")
+        manifest = _make_manifest("example_tool", standalone=True)
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_proc.returncode = 3
+        errors: list[tuple[str, str]] = []
+        with (
+            patch(
+                "master_driver.runner.module_runner._suite_root",
+                return_value=str(tmp_path),
+            ),
+            patch(
+                "master_driver.batch_orchestrator.start_python_script",
+                return_value=mock_proc,
+            ),
+        ):
+            run_modules(
+                [(self._toggle(True), manifest, [])],
+                False,
+                str(tmp_path),
+                lambda: None,
+                lambda n: None,
+                on_error=lambda t, m: errors.append((t, m)),
+            )
+        assert errors and errors[0][0] == "Module Error"
+        assert "(exit code 3)" in errors[0][1], errors
 
     def test_parallel_routes_through_orchestrator(self, tmp_path):
         """In parallel mode, module_runner must hand off to the

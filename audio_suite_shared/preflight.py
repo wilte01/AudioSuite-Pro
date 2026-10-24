@@ -13,6 +13,11 @@ Tk roots, run side effects, or recurse into the very bug we are catching).  It
 only verifies that every module *parses*.  Runtime import failures are surfaced
 separately by Python's own import machinery once the guard passes.
 
+The scan covers first-party source only: ``plugins/`` is excluded, because the
+guard blocks the launch it checks and a third-party plugin must not be able to
+stop every tool in the suite from starting.  A broken plugin is reported by
+the plugin loader instead.
+
 :func:`report_missing_requirements` is a second, independent check: it probes the
 external binaries declared in :mod:`audio_suite_shared.system_requirements`.
 That check is **warning-level only** — it never blocks.  A missing ``ffmpeg``
@@ -21,6 +26,9 @@ compile gate keeps blocking semantics.
 
 The core scan is pure (no GUI) and fully unit-testable; :func:`guard_or_exit`
 adds the blocking-dialog behaviour used by the launchers.
+
+Changed in 2.1.0: the plugin directory is skipped when byte-compiling: a broken
+third-party plugin must not block every tool's launch.
 """
 
 from __future__ import annotations
@@ -55,6 +63,12 @@ WARNING_TITLE = "Audio Suite — Missing System Tool"
 _SOURCE_SUFFIXES = (".py", ".pyw")
 
 #: Directories that are never part of the shipped tool chain.
+#:
+#: ``plugins`` is excluded on purpose: a third-party plugin is not first-party
+#: source, and the guard blocks the launch it is checking.  A syntactically
+#: broken plugin must therefore not stop every tool in the suite from starting
+#: — the plugin loader reports it as a rejected plugin (``audiosuite plugins
+#: list``, ``audiosuite doctor``) and the rest of the suite keeps working.
 _EXCLUDED_DIRS = {
     ".venv",
     ".git",
@@ -65,6 +79,7 @@ _EXCLUDED_DIRS = {
     ".idea",
     ".github",
     "runtime",
+    "plugins",
 }
 
 

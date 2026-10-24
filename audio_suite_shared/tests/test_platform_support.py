@@ -32,6 +32,9 @@ Changed in 2.0.0: the portable-core set grows to 28 tools / 27 portable CLI
 commands with the Stem Separator (Sprint 6, Item 6.1).  Its ML stack is an
 optional extra rather than a platform branch: without it the tool still opens,
 validates a run and completes a dry run on every platform.
+
+Changed in 2.1.0: reads only first-party manifests, so a plugin tool cannot skew the
+platform matrix.
 """
 
 from __future__ import annotations
@@ -362,7 +365,7 @@ class TestToolTiers:
     def test_every_manifest_tool_resolves_to_a_tier(self) -> None:
         from audio_suite_shared.tool_plugin import get_registry
 
-        tools = get_registry().all
+        tools = get_registry().first_party
         assert len(tools) == 30
         for manifest in tools:
             assert tool_tier(manifest.id) in TIERS
@@ -370,7 +373,7 @@ class TestToolTiers:
     def test_tool_tier_is_derived_from_its_own_branches(self) -> None:
         from audio_suite_shared.tool_plugin import get_registry
 
-        for manifest in get_registry().all:
+        for manifest in get_registry().first_party:
             expected = (
                 WINDOWS_ONLY
                 if any(
@@ -384,7 +387,7 @@ class TestToolTiers:
     def test_every_branch_tool_is_a_manifest_id(self) -> None:
         from audio_suite_shared.tool_plugin import get_registry
 
-        ids = {manifest.id for manifest in get_registry().all}
+        ids = {manifest.id for manifest in get_registry().first_party}
         unknown = sorted(
             {b.tool for b in PLATFORM_BRANCHES if b.tool is not None} - ids
         )
@@ -450,7 +453,7 @@ class TestReadmeDriftLock:
         generator = _load_generator("tool_index")
         block = generator.render_tool_index().replace("\r\n", "\n")
         assert "| Platform |" in block
-        for manifest in get_registry().all:
+        for manifest in get_registry().first_party:
             expected = TIER_TITLES[tool_tier(manifest.id)]
             row = next(
                 line
@@ -492,14 +495,14 @@ class TestPortableCoreCLI:
 
         return [
             manifest.cli_command
-            for manifest in get_registry().all
+            for manifest in get_registry().first_party
             if manifest.cli_command and tool_tier(manifest.id) == PORTABLE_CORE
         ]
 
     def test_the_portable_set_covers_every_tool_but_cd_ripper(self) -> None:
         from audio_suite_shared.tool_plugin import get_registry
 
-        tools = get_registry().all
+        tools = get_registry().first_party
         with_cli = [m for m in tools if m.cli_command]
         assert [m.id for m in tools if tool_tier(m.id) == WINDOWS_ONLY] == ["cd_ripper"]
         # The one documented gap: Undo Tag Edits is GUI-only, so there is no

@@ -24,6 +24,12 @@ Changed in 1.4.0: ``_read_file_tags`` and the CSV export read every field from
 **one** ``TagHandlerFactory`` load instead of eight facade calls (measured
 174 ms → 23 ms per 100 files, PLAN D55), and the export reuses the shared
 reader so the duplicate-read block cannot drift from the scanner.
+
+Changed in 2.1.0: this module is the host for the plugin system's ``analysis``
+extension point.  An enabled plugin's contributions run once per file with the
+tags the scan already read, and their metrics are aggregated into
+``StatsReport.plugin_analysis`` — counted apart from the suite's own figures so
+a plugin's numbers stay attributable (Sprint 7).
 """
 
 from __future__ import annotations
@@ -33,11 +39,21 @@ import logging
 import os
 import time
 from collections import Counter
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.exceptions import AudioFileNotFoundError
+from audio_suite_shared.plugin_system import (
+    ContributionSpec,
+    PluginError,
+    context_for,
+    get_plugins,
+    resolved_contributions,
+    run_analysis,
+)
 from audio_suite_shared.tag_helper_base import TagHandlerFactory
 
 logger = logging.getLogger(__name__)
@@ -69,6 +85,14 @@ class StatsReport:
     missing_data: dict[str, int] = field(default_factory=dict)
     top_artists: list[tuple[str, int]] = field(default_factory=list)
     top_genres: list[tuple[str, int]] = field(default_factory=list)
+
+    #: Plugin analysis metrics, keyed ``"<plugin>:<contribution>"`` then metric
+    #: name, holding a value→file-count distribution.  A distribution rather
+    #: than an average: a plugin's scale is not the suite's to interpret, and a
+    #: count is what the rest of this report publishes.
+    plugin_analysis: dict[str, dict[str, dict[str, int]]] = field(default_factory=dict)
+    #: Analysis contributions that raised or returned an invalid shape.
+    plugin_analysis_errors: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -300,10 +324,109 @@ def _read_file_tags(path: str) -> _FileTags:
     )
 
 
+# ── Plugin analysis (the ``analysis`` extension point) ──────────────────────
+
+#: A resolved contribution: its manifest-declared spec and its callable.
+PluginHook = tuple[ContributionSpec, Callable[..., object]]
+
+
+def _analysis_hooks() -> tuple[PluginHook, ...]:
+    """Return the enabled plugins' analysis contributions, resolved once.
+
+    Returns:
+        ``(spec, callable)`` pairs.  A plugin that cannot import is logged and
+        skipped by ``resolved_contributions``; a discovery failure yields no
+        contributions rather than aborting the scan.
+    """
+    try:
+        registry = get_plugins()
+        return resolved_contributions(
+            registry.analysis_contributions(), registry.resolve_spec
+        )
+    except PluginError as exc:  # pragma: no cover - discovery is total
+        logger.warning("Plugin analysis unavailable: %s", exc)
+        return ()
+
+
+def _record_analysis(
+    report: StatsReport,
+    hooks: tuple[PluginHook, ...],
+    path: str,
+    tags: Mapping[str, Any],
+) -> None:
+    """Run every analysis contribution for one file and count its metrics.
+
+    A contribution that raises, or returns something other than a mapping of
+    scalars, is counted in ``plugin_analysis_errors`` and logged; it never
+    fails the file or the scan.
+
+    Args:
+        report: The report whose ``plugin_analysis`` receives the metrics.
+        hooks: The resolved contributions to run.
+        path: The file being scanned.
+        tags: The tag values the scan already read for this file.
+    """
+    for spec, hook in hooks:
+        try:
+            metrics = run_analysis(
+                hook, Path(path), tags, context=context_for(spec.plugin_id)
+            )
+        except Exception as exc:  # noqa: BLE001 - a plugin must not abort a scan
+            report.plugin_analysis_errors += 1
+            logger.warning(
+                "Plugin %r analysis %s failed on %s: %s: %s",
+                spec.plugin_id,
+                spec.id,
+                os.path.basename(path),
+                type(exc).__name__,
+                exc,
+            )
+            continue
+        bucket = report.plugin_analysis.setdefault(f"{spec.plugin_id}:{spec.id}", {})
+        for name, value in metrics.items():
+            counts = bucket.setdefault(name, {})
+            key = str(value)
+            counts[key] = counts.get(key, 0) + 1
+
+
+def _scan_plugin_analysis(
+    dir_path: str, report: StatsReport, hooks: tuple[PluginHook, ...]
+) -> None:
+    """Run the analysis contributions over the tree in a second pass.
+
+    The cached scanner never reads a cached file's tags, so a contribution
+    cannot run from what it has.  Analysis therefore costs its own walk when
+    both the cache and a plugin's analysis are in play: correctness first, and
+    the trade is the user's deliberate choice to enable such a plugin.
+
+    Args:
+        dir_path: Root directory to walk.
+        report: The report receiving the metrics.
+        hooks: The resolved contributions, empty when none are enabled.
+    """
+    if not hooks:
+        return
+    for root, _dirs, files in os.walk(dir_path):
+        for name in files:
+            if not name.lower().endswith(SUPPORTED_EXTENSIONS):
+                continue
+            full = os.path.join(root, name)
+            try:
+                tags = _read_file_tags(full)
+            except Exception:
+                logger.debug("Skipping unreadable file: %s", full, exc_info=True)
+                continue
+            _record_analysis(report, hooks, full, asdict(tags))
+
+
 # ── Full walk scanner (original, uncached) ──────────────────────────────────
 
 
-def _scan_directory_full(dir_path: str, report: StatsReport) -> None:
+def _scan_directory_full(
+    dir_path: str,
+    report: StatsReport,
+    hooks: tuple[PluginHook, ...] = (),
+) -> None:
     """Walk *dir_path* and populate *report* by reading tags from every file."""
     format_counter: Counter[str] = Counter()
     bpm_counter: Counter[str] = Counter()
@@ -383,6 +506,7 @@ def _scan_directory_full(dir_path: str, report: StatsReport) -> None:
                     missing_no_tempo += 1
 
                 year_counter[_decade_bin(tags.year)] += 1
+                _record_analysis(report, hooks, full, asdict(tags))
             except Exception:
                 # One corrupt file must never abort a library scan; the
                 # pre-refactor per-field facades swallowed the same failures.
@@ -749,6 +873,7 @@ def scan_directory(
     use_cache: bool = False,
     refresh_cache: bool = False,
     cache: Any = None,
+    plugins: bool = True,
 ) -> StatsReport:
     """Walk *dir_path* and build a StatsReport from existing tags.
 
@@ -759,6 +884,9 @@ def scan_directory(
         refresh_cache: When True and *use_cache* is also True, clear the
             cache first for a full re-scan.  Ignored when *use_cache* is False.
         cache: An existing ``LibraryCache`` instance, or None to create one.
+        plugins: Whether enabled plugins' analysis contributions run.  Passing
+            False is the CLI's ``--no-plugin-analysis`` switch; a plugin's
+            metrics then stay out of the report entirely.
 
     Returns:
         Populated StatsReport.
@@ -766,6 +894,7 @@ def scan_directory(
     dir_path = os.path.normpath(dir_path)
     start = time.monotonic()
     report = StatsReport(scan_path=dir_path)
+    hooks = _analysis_hooks() if plugins else ()
 
     if use_cache:
         owns_cache = cache is None
@@ -782,8 +911,11 @@ def scan_directory(
             # open — it belongs to the caller.
             if owns_cache:
                 cache.close()
+        # The cache path read no tags for unchanged files, so contributions
+        # run in their own pass rather than silently aggregating a subset.
+        _scan_plugin_analysis(dir_path, report, hooks)
     else:
-        _scan_directory_full(dir_path, report)
+        _scan_directory_full(dir_path, report, hooks)
 
     report.duration_secs = time.monotonic() - start
     return report

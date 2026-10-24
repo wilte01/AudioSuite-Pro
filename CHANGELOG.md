@@ -11,6 +11,59 @@ Versions of the tools are released together with the suite (the single
 
 ### Added
 
+- **The example plugin's window opens on the folder and run mode the Master
+  Driver was set to.** A launcher receives the same arguments as every tool
+  (`<directory> --live|--dry --start|--no-start --end|--no-end`); the example
+  ignored all four, so it opened empty and always labelled live. Its window now
+  lives in `example_plugin/window.py` (a `.pyw` launcher is not importable, so
+  nothing in it could be tested), parses the grammar with `parse_launch_args`,
+  and fills the folder entry and mode through one write path shared with
+  Browse. It also honours `--start` and `--end`: the report runs as soon as the
+  window opens and the window closes when it finishes, so the Master Driver can
+  launch it as a batch step. The walk runs on a worker thread and reaches the
+  window through a queue the Tk thread polls — a worker calling `root.after`
+  itself raises `RuntimeError: main thread is not in main loop` — and a run that
+  failed stays open so its message can be read instead of vanishing with the
+  process.
+
+### Fixed
+
+- **The bundled example plugin's launcher now opens.** Launching `Example
+  Tool` from the Master Driver reported only `Module Error — Module failed:
+  Example Tool`: the launcher derived both directories one level too high, so
+  it put the suite root on `sys.path` instead of `plugins/`, the import of
+  `example_plugin.tool` raised `ModuleNotFoundError`, and the pre-flight guard
+  scanned the suite root's parent rather than the suite. A failed step's dialog
+  now also names the launcher's exit code, since that is the only evidence left
+  once its output is gone.
+
+## [2.1.0] - 2026-10-23
+
+### Added
+
+- **A plugin system: third-party tools and analysis in `plugins/`, enabled one
+  by one.** A directory under `plugins/` holding a `MANIFEST.toml` can add a
+  tool (CLI command, Master Driver toggle and card, optional launcher), a
+  Master Driver card body, a tag processor that runs during `tag-update`, and an
+  analysis contribution that runs during `stats`. Manifests are parsed and
+  validated at startup without importing any plugin code, so `audiosuite doctor`
+  and the new `audiosuite plugins list` can report a plugin that will not load;
+  a plugin's code is imported only once you enable it (`audiosuite plugins
+  enable <id>`, stored with every other preference in
+  `audio_suite_config.json`). A refused manifest is listed with the key to fix
+  rather than silently skipped — unknown keys, duplicate ids, a `cli_command`
+  that would shadow a suite command, an `api_version` this suite does not
+  understand, a launcher outside the plugin folder, and an entry point that
+  escapes the plugin's own package are all rejections. Plugin tag edits and
+  plugin analysis metrics are counted apart from the tool's own figures
+  (`plugin_updates` / `plugin_errors`, `plugin_analysis` /
+  `plugin_analysis_errors`), and `--no-plugin-tags` / `--no-plugin-analysis` run
+  a tool without them, so a difference between two runs stays attributable.
+  `plugins/example_plugin/` demonstrates all four extension points and is the
+  template to copy; `docs/plugins.rst` is the development guide and manifest
+  reference. Plugin code runs in the suite's own process — enabling one is a
+  trust decision, and the guide says so.
+
 - **`audiosuite doctor` reports the interpreter a tool will run in and whether
   its optional engine is importable there.** A stale install and a
   system-Python launch look the same from the outside: the package is present,

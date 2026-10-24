@@ -30,7 +30,7 @@ Usage::
     audiosuite scrub /path/to/dir [--preserve-lyrics] [--preserve-album-artist]
                            [--preserve-embedded-art] [--dry] [--json]
     audiosuite tag-edit /path/to/track.mp3 --field comment --clear [--dry] [--json]
-    audiosuite tag-update /path/to/dir [--dry] [--json]
+    audiosuite tag-update /path/to/dir [--no-plugin-tags] [--dry] [--json]
     audiosuite lyrics /path/to/dir [--provider lrclib] [--request-timeout 10]
                            [--skip-existing] [--plain-fallback] [--dry] [--json]
     audiosuite album-art /path/to/dir [--embed-size 800] [--min-dimension 500]
@@ -40,7 +40,8 @@ Usage::
     audiosuite reorganize /path/to/dir --output-dir DIR [--action copy]
                            [--specific-pattern PATTERN]
                            [--various-pattern PATTERN] [--dry] [--json]
-    audiosuite stats /path/to/dir [--full] [--completeness] [--detail album_art]
+    audiosuite stats /path/to/dir [--full] [--no-plugin-analysis]
+                       [--completeness] [--detail album_art]
                            [--export-csv PATH] [--export-json PATH]
                            [--incremental] [--refresh] [--json]
     audiosuite spectrogram /path/to/dir [--output-dir DIR] [--n-fft 2048]
@@ -71,6 +72,9 @@ Usage::
     audiosuite cue parse /path/to/image.cue [--json]
     audiosuite cue generate /path/to/dir [--title "Album"] [--artist "Artist"]
     audiosuite cue split /path/to/image.cue [--output-dir DIR] [--ffmpeg PATH]
+    audiosuite plugins list [--json]
+    audiosuite plugins enable PLUGIN_ID [--json]
+    audiosuite plugins disable PLUGIN_ID [--json]
 
 The ``--dry/--live`` pair is the shared run-mode option: ``--dry`` analyses and
 reports without writing, ``--live`` writes.  ``--json/--text`` selects the
@@ -121,18 +125,28 @@ at import time, so ``audiosuite --help`` stays complete on a CPU-only install.
 Changed in 2.0.0: registers and documents ``denoise``, the ML denoiser
 (Item 6.2).  It shares the ``ml`` extra's import tolerance: the command imports,
 ``--help`` works, and a run without the extra exits 1 naming what to install.
+Changed in 2.1.0: registers the ``plugins`` group (list / enable / disable) and
+one command per enabled plugin tool.  A plugin command resolves its entry point
+when invoked, so a broken plugin costs its own command and nothing else
+(Sprint 7, Item 7.1).
 """
 
 from __future__ import annotations
 
 import importlib
+from typing import TYPE_CHECKING
 
 import click
 
+if TYPE_CHECKING:
+    from audio_suite_shared.tool_plugin import ToolManifest
+
 # ``doctor`` must be registered even when a tool package is missing: it is the
 # command that reports the gap, so it is imported before the factory list is
-# attempted rather than listed in it.
+# attempted rather than listed in it.  ``plugins`` joins it for the same reason:
+# the command that manages third-party code must not depend on any of it.
 from audio_suite_shared import doctor_cli as _doctor_cli  # noqa: F401
+from audio_suite_shared import plugins_cli as _plugins_cli  # noqa: F401
 
 # Re-export shared infrastructure for backward compatibility.  Imported before
 # the registration loop so this module is the one that defines the group.
@@ -198,9 +212,76 @@ def _register_tool_commands() -> list[str]:
     return failures
 
 
+def _register_plugin_commands() -> list[str]:
+    """Register one command per enabled plugin tool that declares a callable.
+
+    A plugin command is a real top-level command, so a plugin is as usable
+    headless as a first-party tool.  The command resolves its entry point when
+    invoked, never at registration, so a broken plugin costs its own command
+    and nothing else; the failure is also named by ``audiosuite doctor`` and
+    ``audiosuite plugins list``.
+
+    Returns:
+        One ``plugin: reason`` line per plugin whose command could not be
+        registered.
+    """
+    from audio_suite_shared.tool_plugin import get_registry
+
+    failures: list[str] = []
+    for manifest in get_registry().plugins:
+        entry_point = manifest.entry_point
+        command_name = manifest.cli_command
+        if entry_point is None or command_name is None:
+            continue
+        if command_name in cli.commands:
+            failures.append(
+                f"{manifest.id}: command {command_name!r} is already registered"
+            )
+            continue
+        cli.add_command(_plugin_command(command_name, manifest, entry_point))
+    return failures
+
+
+def _plugin_command(
+    command_name: str, manifest: "ToolManifest", entry_point: str
+) -> click.Command:
+    """Build the Click command that runs one plugin tool.
+
+    Args:
+        command_name: The subcommand name the manifest declares.
+        manifest: The plugin's tool manifest, for the help line.
+        entry_point: ``module:callable`` resolved when the command runs.
+
+    Returns:
+        The command, ready to add to the group.
+    """
+    help_text = manifest.description or manifest.name
+
+    @click.command(name=command_name, help=help_text)
+    @click.argument("directory", type=click.Path(exists=True, file_okay=False))
+    @click.option(
+        "--dry/--live", "dry_run", default=False, help="Analyse only, do not write."
+    )
+    def _plugin_entry(directory: str, dry_run: bool) -> None:
+        """Run the plugin's own entry point."""
+        from audio_suite_shared.plugin_system import PluginError, get_plugins
+
+        try:
+            hook = get_plugins().resolve(entry_point)
+        except PluginError as exc:
+            raise click.ClickException(str(exc)) from exc
+        from audio_suite_shared.plugin_system.extension_points import run_tool_entry
+
+        run_tool_entry(hook, directory, dry_run=dry_run)
+
+    return _plugin_entry
+
+
 _missing_tool_modules = _register_tool_commands()
 if _missing_tool_modules:
     click.echo(missing_modules_message(_missing_tool_modules), err=True)
+
+_plugin_command_failures = _register_plugin_commands()
 
 if __name__ == "__main__":
     cli()

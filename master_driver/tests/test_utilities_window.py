@@ -9,6 +9,8 @@ depend on the host's screen size or theme.
 
 Changed in 2.0.0: initial version - locks the two-column reflow and the
 pinned launch button (PLAN_feature_expansion.md D119).
+Changed in 2.1.0: locks the plugin card path - the plugin's own ``ui`` entry,
+its generic fallback and the fallback when that entry raises (Sprint 7).
 """
 
 from __future__ import annotations
@@ -18,10 +20,12 @@ import tkinter as tk
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
-from audio_suite_shared.tool_plugin import get_registry
+from audio_suite_shared.plugin_system import PluginError
+from audio_suite_shared.tool_plugin import ToolManifest, get_registry
 from master_driver.state.app_state import AppState
 from master_driver.ui import utilities_window
 
@@ -321,3 +325,103 @@ class TestConverterCard:
         # `update_format_detection` writes to.
         assert _is_descendant(tab.state._converter_detected_label, body)
         assert _is_descendant(tab.state._converter_format_menu, body)
+
+
+class TestPluginCards:
+    """A plugin tool always reaches a card, and never breaks the tab.
+
+    Three shapes matter: the plugin ships its own builder (the shipped example
+    does), it ships none (the generic card renders), and its builder raises
+    (the generic card renders and the tab survives).  Without the fallback the
+    tab logs ``No card UI for tool``, drops the cell and the plugin becomes
+    unreachable — the silent-degradation class this tab has shipped before.
+    """
+
+    @staticmethod
+    def _texts(widget: tk.Misc) -> list[str]:
+        """Return every ``text`` a widget or its descendants carry."""
+        found: list[str] = []
+        text = widget.cget("text") if "text" in widget.keys() else None
+        if isinstance(text, str):
+            found.append(text)
+        for child in widget.winfo_children():
+            found.extend(TestPluginCards._texts(child))
+        return found
+
+    def test_the_example_plugin_renders_its_own_card(self, root: tk.Misc) -> None:
+        frame = tk.Frame(root)
+        state = AppState(root)
+        try:
+            utilities_window._build_card("example_tool", frame, state)
+
+            texts = self._texts(frame)
+        finally:
+            frame.destroy()
+
+        assert any("Example Tool" in text for text in texts)
+        assert any("Plugin card:" in text for text in texts)
+        assert not any("Plugin card (generic)" in text for text in texts), (
+            "the example plugin declares a ui entry, so the generic card must "
+            "not render"
+        )
+
+    def test_a_plugin_without_a_ui_entry_gets_the_generic_card(
+        self, root: tk.Misc, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        manifest = ToolManifest(
+            id="generic_tool",
+            name="Generic Plugin Tool",
+            category="utility",
+            pyw_filename="plugins/demo/Demo.pyw",
+            description="A plugin with no card of its own",
+            plugin=True,
+            origin="/plugins/demo",
+        )
+        registry = MagicMock()
+        registry.get.return_value = manifest
+        monkeypatch.setattr(utilities_window, "get_registry", lambda: registry)
+        frame = tk.Frame(root)
+        state = AppState(root)
+        state.module_toggles[manifest.id] = tk.BooleanVar(root, value=False)
+        try:
+            utilities_window._build_card(manifest.id, frame, state)
+
+            texts = self._texts(frame)
+        finally:
+            frame.destroy()
+
+        assert any("Generic Plugin Tool" in text for text in texts)
+        assert any("Plugin card (generic)" in text for text in texts)
+
+    def test_a_failing_plugin_card_falls_back_to_the_generic_card(
+        self, root: tk.Misc, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        manifest = ToolManifest(
+            id="broken_ui_tool",
+            name="Broken UI Tool",
+            category="utility",
+            pyw_filename="plugins/demo/Demo.pyw",
+            plugin=True,
+            origin="/plugins/demo",
+            ui_entry="demo.ui:build",
+        )
+        registry = MagicMock()
+        registry.get.return_value = manifest
+
+        class _Plugins:
+            def resolve(self, entry: str) -> object:
+                raise PluginError("boom")
+
+        monkeypatch.setattr(utilities_window, "get_registry", lambda: registry)
+        monkeypatch.setattr(utilities_window, "get_plugins", lambda: _Plugins())
+        frame = tk.Frame(root)
+        state = AppState(root)
+        state.module_toggles[manifest.id] = tk.BooleanVar(root, value=False)
+        try:
+            utilities_window._build_card(manifest.id, frame, state)
+
+            texts = self._texts(frame)
+        finally:
+            frame.destroy()
+
+        assert any("Plugin card (generic)" in text for text in texts)

@@ -339,7 +339,7 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.027,
+          "duration_secs": 0.013,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIPPED] track.wav | No embedded artwork \u2014 skipped.\n"
@@ -558,8 +558,8 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 2.713,
-          "duration_str": "2.7s",
+          "duration_secs": 5.588,
+          "duration_str": "5.6s",
           "log_entries": [
             "[ERROR] track.wav: BPM detection failed \u2014 Audio is too short to analyse (0.05s).\n"
           ],
@@ -819,7 +819,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.015,
+          "duration_secs": 0.022,
           "duration_str": "0.0s",
           "log_entries": [
             "[DRY RUN] track.wav | WAV \u2192 FLAC | Est. Size: 0.00MB \u2192 0.00MB\n"
@@ -935,7 +935,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.002,
+          "duration_secs": 0.005,
           "duration_str": "0.0s",
           "log_entries": [],
           "cue_path": "<run>\\out\\album.cue",
@@ -1062,7 +1062,7 @@
           "succeeded": 2,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.001,
+          "duration_secs": 0.007,
           "duration_str": "0.0s",
           "log_entries": [],
           "catalog": null,
@@ -1325,8 +1325,8 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.037,
-          "duration_str": "0.0s",
+          "duration_secs": 0.055,
+          "duration_str": "0.1s",
           "log_entries": [
             "[SKIP] track.wav | Clean \u2014 no defects found\n"
           ]
@@ -1427,7 +1427,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.057,
+          "duration_secs": 0.15,
           "duration_str": "0.1s",
           "log_entries": [
             "[FIXED] track.wav | Attenuated 6.0 dB (-18.0 \u2192 -24.0 dBFS) \u2014 Denoised\n"
@@ -1571,8 +1571,8 @@
           "succeeded": 31,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.419,
-          "duration_str": "0.4s",
+          "duration_secs": 0.582,
+          "duration_str": "0.6s",
           "log_entries": [],
           "healthy": true,
           "checkout_version": "2.0.0",
@@ -1950,8 +1950,8 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.029,
-          "duration_str": "0.0s",
+          "duration_secs": 0.099,
+          "duration_str": "0.1s",
           "log_entries": [],
           "done": 1
         },
@@ -2060,8 +2060,8 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.029,
-          "duration_str": "0.0s",
+          "duration_secs": 0.09,
+          "duration_str": "0.1s",
           "log_entries": [
             "[ERROR] track.wav\n    An error occurred during processing.\n"
           ],
@@ -2192,8 +2192,8 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.022,
-          "duration_str": "0.0s",
+          "duration_secs": 0.062,
+          "duration_str": "0.1s",
           "log_entries": [
             "track.wav | No genre fields available\n"
           ],
@@ -2296,8 +2296,8 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.037,
-          "duration_str": "0.0s",
+          "duration_secs": 0.067,
+          "duration_str": "0.1s",
           "log_entries": [
             "[ERROR] track.wav: Audio is too short to analyse (0.05s).\n"
           ]
@@ -2398,7 +2398,7 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.0,
+          "duration_secs": 0.001,
           "duration_str": "0.0s",
           "log_entries": []
         },
@@ -2522,7 +2522,7 @@
           "succeeded": 2,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.013,
+          "duration_secs": 0.033,
           "duration_str": "0.0s",
           "log_entries": [],
           "directory": "<run>\\library",
@@ -2629,7 +2629,7 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.035,
+          "duration_secs": 0.034,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] track.wav: Audio is too short to analyse (0.05s).\n"
@@ -2731,8 +2731,8 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.055,
-          "duration_str": "0.1s",
+          "duration_secs": 0.166,
+          "duration_str": "0.2s",
           "log_entries": [
             "[DRY RUN] track.wav | Would apply 56.00 dB gain\n"
           ]
@@ -2751,6 +2751,359 @@
           "duration_str": "0.0s",
           "log_entries": [],
           "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
+        }
+      ]
+    },
+    {
+      "title": "audiosuite plugins disable --json",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "tool": {
+          "const": "plugins"
+        },
+        "command": {
+          "const": "plugins disable"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "processed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "succeeded": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration_secs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "duration_str": {
+          "type": "string"
+        },
+        "log_entries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tool",
+        "command",
+        "dry_run",
+        "total",
+        "processed",
+        "succeeded",
+        "skipped",
+        "errors",
+        "duration_secs",
+        "duration_str",
+        "log_entries"
+      ],
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "plugins",
+          "command": "plugins disable",
+          "dry_run": false,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 1,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.01,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "plugin": "example_plugin",
+          "enabled": false
+        },
+        {
+          "schema_version": 1,
+          "tool": "plugins",
+          "command": "plugins disable",
+          "dry_run": false,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "no plugin with id 'no-such-input'; run 'audiosuite plugins list' to see what is installed"
+        }
+      ]
+    },
+    {
+      "title": "audiosuite plugins enable --json",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "tool": {
+          "const": "plugins"
+        },
+        "command": {
+          "const": "plugins enable"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "processed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "succeeded": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration_secs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "duration_str": {
+          "type": "string"
+        },
+        "log_entries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tool",
+        "command",
+        "dry_run",
+        "total",
+        "processed",
+        "succeeded",
+        "skipped",
+        "errors",
+        "duration_secs",
+        "duration_str",
+        "log_entries"
+      ],
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "plugins",
+          "command": "plugins enable",
+          "dry_run": false,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 1,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.01,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "plugin": "example_plugin",
+          "enabled": true
+        },
+        {
+          "schema_version": 1,
+          "tool": "plugins",
+          "command": "plugins enable",
+          "dry_run": false,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "no plugin with id 'no-such-input'; run 'audiosuite plugins list' to see what is installed"
+        }
+      ]
+    },
+    {
+      "title": "audiosuite plugins list --json",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "tool": {
+          "const": "plugins"
+        },
+        "command": {
+          "const": "plugins list"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "processed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "succeeded": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration_secs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "duration_str": {
+          "type": "string"
+        },
+        "log_entries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "plugins": {
+          "type": "array"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tool",
+        "command",
+        "dry_run",
+        "total",
+        "processed",
+        "succeeded",
+        "skipped",
+        "errors",
+        "duration_secs",
+        "duration_str",
+        "log_entries"
+      ],
+      "additionalProperties": false,
+      "examples": [
+        {
+          "schema_version": 1,
+          "tool": "plugins",
+          "command": "plugins list",
+          "dry_run": false,
+          "total": 1,
+          "processed": 1,
+          "succeeded": 1,
+          "skipped": 0,
+          "errors": 0,
+          "duration_secs": 0.009,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "plugins": [
+            {
+              "id": "example_plugin",
+              "name": "Example Plugin",
+              "version": "1.0.0",
+              "status": "loaded",
+              "directory": "<repo>\\plugins\\example_plugin",
+              "problem": null,
+              "tool": {
+                "id": "example_tool",
+                "name": "Example Tool",
+                "category": "utility",
+                "description": "Count audio files in a folder and report the tags they carry",
+                "entry_point": "example_plugin.tool:main",
+                "cli_command": "example",
+                "launcher": "plugins/example_plugin/Example_Plugin.pyw",
+                "ui_entry": "example_plugin.ui:build",
+                "standalone": true,
+                "order": 62
+              },
+              "contributions": [
+                {
+                  "kind": "tag_processor",
+                  "id": "collapse_comment_whitespace",
+                  "name": "Collapse comment whitespace"
+                },
+                {
+                  "kind": "analysis",
+                  "id": "title_words",
+                  "name": "Title word count"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "schema_version": 1,
+          "tool": "plugins",
+          "command": "plugins list",
+          "dry_run": false,
+          "total": 0,
+          "processed": 0,
+          "succeeded": 0,
+          "skipped": 0,
+          "errors": 1,
+          "duration_secs": 0.0,
+          "duration_str": "0.0s",
+          "log_entries": [],
+          "error": "No such option: --no-such-option"
         }
       ]
     },
@@ -2833,8 +3186,8 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.017,
-          "duration_str": "0.0s",
+          "duration_secs": 0.078,
+          "duration_str": "0.1s",
           "log_entries": [
             "[SKIP] track.wav | Clean \u2014 no noise detected\n"
           ]
@@ -2935,8 +3288,8 @@
           "succeeded": 0,
           "skipped": 0,
           "errors": 1,
-          "duration_secs": 0.122,
-          "duration_str": "0.1s",
+          "duration_secs": 0.263,
+          "duration_str": "0.3s",
           "log_entries": [
             "[ERROR] track.wav | An error occurred during processing.\n"
           ]
@@ -3037,7 +3390,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.013,
+          "duration_secs": 0.021,
           "duration_str": "0.0s",
           "log_entries": []
         },
@@ -3137,7 +3490,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.062,
+          "duration_secs": 0.123,
           "duration_str": "0.1s",
           "log_entries": [
             "\nFOLDER: <run>\\library\nALBUM STATS -> Gain: +54.00 dB | Peak: 1.000000\n-----------------------------------------------------------------\n",
@@ -3240,8 +3593,8 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.037,
-          "duration_str": "0.0s",
+          "duration_secs": 0.054,
+          "duration_str": "0.1s",
           "log_entries": [
             "[DRY RUN] track.wav | Would scrub metadata\n"
           ]
@@ -3342,7 +3695,7 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.053,
+          "duration_secs": 0.081,
           "duration_str": "0.1s",
           "log_entries": [
             "[SKIP] track.wav | Entire file is silence - skipped\n"
@@ -3456,7 +3809,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.0,
+          "duration_secs": 0.001,
           "duration_str": "0.0s",
           "log_entries": [],
           "path": "<run>\\library",
@@ -3596,6 +3949,12 @@
         "trend": {
           "type": "array"
         },
+        "plugin_analysis": {
+          "type": "object"
+        },
+        "plugin_analysis_errors": {
+          "type": "integer"
+        },
         "error": {
           "type": "string"
         }
@@ -3626,10 +3985,10 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.003,
+          "duration_secs": 0.005,
           "duration_str": "0.0s",
           "log_entries": [],
-          "library_duration_secs": 0.002870699972845614,
+          "library_duration_secs": 0.005128700053319335,
           "library_duration_str": "0.0s",
           "scan_path": "<run>\\library",
           "total_files": 1,
@@ -3663,7 +4022,18 @@
               1
             ]
           ],
-          "top_genres": []
+          "top_genres": [],
+          "plugin_analysis": {
+            "example_plugin:title_words": {
+              "title_words": {
+                "0": 1
+              },
+              "title_state": {
+                "missing": 1
+              }
+            }
+          },
+          "plugin_analysis_errors": 0
         },
         {
           "schema_version": 1,
@@ -3773,7 +4143,7 @@
           "succeeded": 1,
           "skipped": 0,
           "errors": 0,
-          "duration_secs": 0.003,
+          "duration_secs": 0.015,
           "duration_str": "0.0s",
           "log_entries": [
             "=== Stem separation \u2014 1 file(s) \u2014 Live Update \u2014 CPU ===\n",
@@ -4029,6 +4399,12 @@
         "updated": {
           "type": "integer"
         },
+        "plugin_updates": {
+          "type": "integer"
+        },
+        "plugin_errors": {
+          "type": "integer"
+        },
         "error": {
           "type": "string"
         }
@@ -4059,11 +4435,13 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.013,
+          "duration_secs": 0.035,
           "duration_str": "0.0s",
           "log_entries": [],
           "directory": "<run>\\library",
-          "updated": 0
+          "updated": 0,
+          "plugin_updates": 0,
+          "plugin_errors": 0
         },
         {
           "schema_version": 1,
@@ -4161,7 +4539,7 @@
           "succeeded": 0,
           "skipped": 1,
           "errors": 0,
-          "duration_secs": 0.033,
+          "duration_secs": 0.029,
           "duration_str": "0.0s",
           "log_entries": [
             "[SKIP] track.wav | No tags found\n"

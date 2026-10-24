@@ -9,6 +9,8 @@ Covers:
     - report_missing_requirements: warning-level ffmpeg/ffprobe report that
       never blocks, plus its tkinter-free (pure) contract
     - guard_or_exit: wires the real dialog + exit behaviour
+
+Changed in 2.1.0: pins that ``plugins/`` stays outside the compiled tree.
 """
 
 from __future__ import annotations
@@ -64,6 +66,18 @@ class TestIterSourceFiles:
         files = {p.name for p in iter_source_files(suite_root)}
         assert "lib.py" not in files
         assert "cached.pyc" not in files
+
+    def test_excludes_the_plugin_directory(self, suite_root: Path):
+        """A third-party plugin must not be able to block every launch."""
+        plugin = suite_root / "plugins" / "demo_plugin"
+        plugin.mkdir(parents=True)
+        (plugin / "broken.py").write_text("def broken(:\n")
+
+        files = {p.name for p in iter_source_files(suite_root)}
+
+        assert "mod.py" in files, "the scan dropped first-party source"
+        assert "broken.py" not in files
+        assert find_broken_files(suite_root) == []
 
     def test_returns_sorted_result(self, suite_root: Path):
         names = [p.name for p in iter_source_files(suite_root)]

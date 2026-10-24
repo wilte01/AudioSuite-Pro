@@ -25,6 +25,8 @@ enforced invariant:
    engineering standard (audit A8's "record it") where new contributors read
    first. The gate commands are read from ``CONTRIBUTING.md``, the normative
    source, so the README summary cannot drift from the enforced gate.
+
+Changed in 2.1.0: the tool index now carries the plugin tool's row.
 """
 
 from __future__ import annotations
@@ -104,9 +106,23 @@ class TestIndexGeneration:
 
         block = tool_index_module.render_tool_index().replace("\r\n", "\n")
         assert block, "the generator produced an empty index"
-        for manifest in get_registry().all:
+        for manifest in get_registry().first_party:
             assert f"| {manifest.name} | {manifest.description} |" in block, (
                 f"tool {manifest.id!r} ({manifest.name}) has no README row"
+            )
+
+    def test_a_plugin_never_appears_in_the_shipped_index(
+        self, tool_index_module: ModuleType
+    ) -> None:
+        """The index describes the distribution, not the user's install."""
+        from audio_suite_shared.tool_plugin import get_registry
+
+        plugins = get_registry().plugins
+        assert plugins, "the plugin population is empty, so this lock is vacuous"
+        block = tool_index_module.render_tool_index()
+        for manifest in plugins:
+            assert f"| {manifest.name} |" not in block, (
+                f"plugin {manifest.id!r} leaked into the shipped README index"
             )
 
 
@@ -123,7 +139,9 @@ class TestMetadataLock:
         declared_readme = project.get("readme")
         assert declared_readme == "README.md", "pyproject.toml must ship the README"
         assert declared_readme == README.name
-        assert len(get_registry().all) == 30
+        # The distribution's tool count, not the install's: a plugin adds a
+        # registry entry, never a README row.
+        assert len(get_registry().first_party) == 30
 
 
 class TestRegistrationLock:
@@ -160,7 +178,7 @@ class TestRegistrationLock:
     ) -> None:
         from audio_suite_shared.tool_plugin import get_registry
 
-        for manifest in get_registry().all:
+        for manifest in get_registry().first_party:
             self._assert_surface(manifest, card_overrides)
 
 
@@ -172,7 +190,7 @@ class TestGuideRegistry:
     ) -> None:
         from audio_suite_shared.tool_plugin import get_registry
 
-        for manifest in get_registry().all:
+        for manifest in get_registry().first_party:
             guide_name = tool_index_module.guide_filename_for(
                 manifest.id, manifest.pyw_filename
             )

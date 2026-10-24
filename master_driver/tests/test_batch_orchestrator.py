@@ -264,6 +264,36 @@ class TestBatchOrchestratorSequential:
         assert report.completed == 1
         assert step.status == StepStatus.COMPLETED
 
+    def test_standalone_exit_code_is_recorded_on_the_step(self, tmp_path):
+        """A window that closes with an error leaves its code on the step.
+
+        The launcher's own output is gone by the time the caller reports, so
+        ``step.exit_code`` is what lets the failure dialog name a reason
+        instead of saying only "Module failed: <name>" (PLAN D135).
+        """
+        script = tmp_path / "example_tool.pyw"
+        script.write_text("pass")
+        step = BatchStep(
+            tool_id="example_tool",
+            manifest=_make_manifest("example_tool", standalone=True),
+            script_path=str(script),
+            args=[],
+        )
+        orch = BatchOrchestrator([step])
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = 1
+        type(mock_proc).returncode = PropertyMock(return_value=1)
+
+        with patch(
+            "master_driver.batch_orchestrator.start_python_script",
+            return_value=mock_proc,
+        ):
+            report = orch.run()
+
+        assert report.failed == 1
+        assert step.status == StepStatus.FAILED
+        assert step.exit_code == 1
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # BatchOrchestrator — Parallel execution
@@ -604,7 +634,7 @@ class TestDependencyGraph:
     def _registered() -> set[str]:
         from audio_suite_shared.tool_plugin import get_registry
 
-        return {m.id for m in get_registry().all}
+        return {m.id for m in get_registry().first_party}
 
     def test_graph_covers_every_batch_eligible_tool(self):
         """set(manifest ids) == set(DEPENDENCY_GRAPH keys | EXCLUDED).
@@ -636,8 +666,26 @@ class TestDependencyGraph:
         """
         from audio_suite_shared.tool_plugin import get_registry
 
-        no_cli = frozenset(m.id for m in get_registry().all if not m.cli_command)
+        no_cli = frozenset(
+            m.id for m in get_registry().first_party if not m.cli_command
+        )
         assert self.EXCLUDED == no_cli
+
+    def test_a_plugin_tool_resolves_to_no_dependencies(self):
+        """A plugin cannot be a graph key, and its dependencies are empty.
+
+        ``BatchOrchestrator`` reads the graph with ``.get(tool_id, [])``, so a
+        plugin tool schedules exactly as a dependency-free first-party tool
+        does.  The graph itself stays a first-party contract: a plugin cannot
+        add an ordering rule to the shipped pipeline.
+        """
+        from audio_suite_shared.tool_plugin import get_registry
+
+        plugins = get_registry().plugins
+        assert plugins, "no plugin registered, so this lock would be vacuous"
+        for manifest in plugins:
+            assert manifest.id not in DEPENDENCY_GRAPH
+            assert DEPENDENCY_GRAPH.get(manifest.id, []) == []
 
     def test_excluded_tools_have_no_arg_builder_entry(self):
         """An excluded id must not be schedulable, or the exclusion is wrong.

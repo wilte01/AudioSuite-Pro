@@ -1,11 +1,18 @@
 """
-tool_plugin.py — Plugin System for Tool Registration.
+tool_plugin.py — the suite's tool registry, first-party and plugin tools alike.
 
 Defines ToolManifest (declarative tool metadata) and ToolRegistry
-(discovery / iteration). All first-party AudioSuite-Pro tools register
-their manifests here. Third-party tools can add manifests via the
-register() method or by dropping a plugin package with a
-tool_manifest() function into a configured plugin directory.
+(discovery / iteration). Every first-party AudioSuite-Pro tool registers its
+manifest in ``_DEFAULT_MANIFESTS``; third-party tools join the same registry
+from ``<suite root>/plugins/<name>/MANIFEST.toml`` through
+``audio_suite_shared.plugin_system``.
+
+The two populations stay distinguishable on purpose. ``registry.all`` answers
+"what can this install run" and is what the Master Driver and the CLI consume,
+while ``registry.first_party`` is what the suite's own shipped artifacts (the
+README tool index, the platform matrix, the committed JSON schema corpus, the
+user guides) are locked against — a third-party plugin must never change what
+those documents claim about the distribution.
 
 Usage::
 
@@ -24,13 +31,22 @@ Changed in 2.0.0: registers the ``stem_separator`` manifest, the suite's first
 optional-dependency (``ml`` extra) tool (PLAN_feature_expansion.md Item 6.1).
 Changed in 2.0.0: registers ``ml_denoiser``, which shares that extra but needs
 no torch: RNNoise is a 13 MB C library (Item 6.2).
+Changed in 2.1.0: the registry gains the plugin population. Manifests from
+``plugins/*/MANIFEST.toml`` are discovered while the registry is built (so the
+freeze still means "no late registrations"), a plugin that cannot be registered
+is recorded instead of raised, and ``first_party`` / ``plugins`` /
+``driver_manifests`` let the shipped-artifact locks and the Master Driver ask
+for exactly the population they mean (Sprint 7, Item 7.1).
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from audio_suite_shared.exceptions import AudioConfigurationError
+
+logger = logging.getLogger(f"audio_suite.{__name__}")
 
 
 @dataclass(frozen=True)
@@ -67,6 +83,20 @@ class ToolManifest:
         has no CLI equivalent.
     order : int
         Display order within each category (lower = first).
+    plugin : bool
+        True for a manifest that came from a plugin directory.  The field is
+        what keeps the shipped-artifact locks (README index, platform matrix,
+        JSON schema corpus, user guides) describing the distribution rather
+        than the user's install.
+    origin : str
+        The plugin directory a plugin manifest came from, or ``""`` for a
+        first-party tool.  ``doctor`` and the driver's diagnostics quote it.
+    entry_point : str | None
+        ``"package.module:callable"`` a plugin's CLI command invokes.  None for
+        a first-party tool, whose command is a real Click function.
+    ui_entry : str | None
+        ``"package.module:build"`` a plugin's Master Driver card builder.
+        None means the driver renders the generic plugin card.
     """
 
     id: str
@@ -78,6 +108,20 @@ class ToolManifest:
     default_on: bool = False
     cli_command: str | None = None
     order: int = 100
+    plugin: bool = False
+    origin: str = ""
+    entry_point: str | None = None
+    ui_entry: str | None = None
+
+    @property
+    def is_driver_tool(self) -> bool:
+        """Return whether the Master Driver can launch this tool.
+
+        Every first-party tool has a launcher; a plugin may ship only a CLI
+        command, in which case the driver has no window to open and must not
+        create a toggle whose argument list would be empty.
+        """
+        return bool(self.pyw_filename)
 
 
 class ToolRegistry:
@@ -90,6 +134,7 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._manifests: dict[str, ToolManifest] = {}
         self._frozen = False
+        self._plugin_problems: list[str] = []
 
     # ── Registration ───────────────────────────────────────────────────────
 
@@ -110,6 +155,81 @@ class ToolRegistry:
             )
         self._manifests[manifest.id] = manifest
 
+    def register_plugin(self, manifest: ToolManifest) -> bool:
+        """Add a plugin's tool manifest, recording a refusal instead of raising.
+
+        A plugin is third-party code with a third-party manifest; the suite has
+        to survive one that is wrong.  The refusal is kept in
+        :attr:`plugin_problems` so ``audiosuite doctor`` can name it, and the
+        other plugins (and every first-party tool) still register.
+
+        Args:
+            manifest: The manifest built from a plugin's ``[tool]`` table.
+
+        Returns:
+            True when the manifest was registered, False when it was refused.
+        """
+        if not manifest.plugin:
+            raise AudioConfigurationError(
+                "register_plugin() only accepts plugin manifests; use register() "
+                "for a first-party tool"
+            )
+        try:
+            self.register(manifest)
+        except AudioConfigurationError as exc:
+            self._plugin_problems.append(f"{manifest.origin or manifest.id}: {exc}")
+            logger.warning("Plugin tool refused: %s", exc)
+            return False
+        return True
+
+    def record_plugin_problem(self, problem: str) -> None:
+        """Record a plugin problem discovered before a manifest could be built.
+
+        Args:
+            problem: A one-line description naming the plugin and the reason.
+        """
+        self._plugin_problems.append(problem)
+
+    @property
+    def plugin_problems(self) -> list[str]:
+        """Refusals recorded while registering plugin manifests."""
+        return list(self._plugin_problems)
+
+    @property
+    def first_party(self) -> list[ToolManifest]:
+        """Every first-party manifest, sorted by (category, order, name).
+
+        This is the population the suite's shipped artifacts describe; a
+        plugin must never change what the README index, the platform matrix or
+        the committed JSON schema corpus claim.
+        """
+        return [manifest for manifest in self.all if not manifest.plugin]
+
+    @property
+    def plugins(self) -> list[ToolManifest]:
+        """Every plugin manifest, sorted by (category, order, name)."""
+        return [manifest for manifest in self.all if manifest.plugin]
+
+    @property
+    def driver_manifests(self) -> list[ToolManifest]:
+        """Manifests the Master Driver can launch (all of them but CLI-only tools)."""
+        return [manifest for manifest in self.all if manifest.is_driver_tool]
+
+    def driver_by_category(self, category: str) -> list[ToolManifest]:
+        """Launcher-bearing manifests in *category*, sorted by order.
+
+        Args:
+            category: One of ``"enrich"``, ``"utility"`` or ``"refinery"``.
+
+        Returns:
+            The driver-visible manifests of that category.
+        """
+        return [
+            manifest
+            for manifest in self.by_category(category)
+            if manifest.is_driver_tool
+        ]
+
     # ── Lookup ─────────────────────────────────────────────────────────────
 
     def get(self, tool_id: str) -> ToolManifest | None:
@@ -126,17 +246,24 @@ class ToolRegistry:
 
     @property
     def all(self) -> list[ToolManifest]:
-        """All registered manifests sorted by (category, order)."""
+        """All registered manifests, first-party tools then plugins.
+
+        Plugins sort after the first-party population so a third-party tool
+        never displaces a shipped tool's documented position (the Utilities
+        tab's order, the CLI help sections and the README index all derive from
+        this order).  Within each population the sort is (category, order,
+        name).
+        """
         return sorted(
             self._manifests.values(),
-            key=lambda m: (m.category, m.order, m.name),
+            key=lambda m: (m.plugin, m.category, m.order, m.name),
         )
 
     def by_category(self, category: str) -> list[ToolManifest]:
-        """Manifests in *category* sorted by order."""
+        """Manifests in *category*, first-party tools then plugins, by order."""
         return sorted(
             (m for m in self._manifests.values() if m.category == category),
-            key=lambda m: (m.order, m.name),
+            key=lambda m: (m.plugin, m.order, m.name),
         )
 
     def by_cli(self) -> list[ToolManifest]:
@@ -469,11 +596,25 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
     ),
 )
 
+#: The shipped tool table, under a name the plugin loader can consult without
+#: reaching into a private constant. The ids are the reserved ids a plugin may
+#: not reuse.
+FIRST_PARTY_MANIFESTS: tuple[ToolManifest, ...] = _DEFAULT_MANIFESTS
+
 
 def _build_default_registry() -> ToolRegistry:
-    """Create and populate the registry with all first-party tools.
+    """Create and populate the registry with first-party and plugin tools.
 
-    Assembles the registry from the declarative ``_DEFAULT_MANIFESTS`` table.
+    Assembles the first-party population from the declarative
+    ``_DEFAULT_MANIFESTS`` table, then lets ``plugin_system`` add the enabled
+    plugins' tool contributions.  Discovery happens here rather than after the
+    freeze on purpose: a frozen registry is what makes the tool listing stable
+    for the life of a process, and a plugin is only ever registered once.
+
+    A plugin failure never propagates: discovery records a rejected manifest,
+    and ``register_plugin`` records a refused one, so a broken third-party
+    plugin cannot stop the CLI or the Master Driver from starting.
+
     The table's ids, field values and declaration order are the contract the
     expected-set test (``test_tool_plugin.py``) and the Master Driver's tool
     listing depend on — edit the table, never this function, to add a tool.
@@ -481,8 +622,52 @@ def _build_default_registry() -> ToolRegistry:
     r = ToolRegistry()
     for manifest in _DEFAULT_MANIFESTS:
         r.register(manifest)
+    _register_plugin_tools(r)
     r._freeze()
     return r
+
+
+def _register_plugin_tools(registry: ToolRegistry) -> None:
+    """Register the enabled plugins' tool contributions on *registry*.
+
+    Args:
+        registry: The registry being built, before it is frozen.
+    """
+    from audio_suite_shared.plugin_system import get_plugins
+
+    try:
+        plugins = get_plugins()
+    except Exception as exc:  # pragma: no cover - discovery is total by design
+        registry.record_plugin_problem(
+            f"plugin discovery failed: {type(exc).__name__}: {exc}"
+        )
+        logger.warning("Plugin discovery failed: %s", exc)
+        return
+    for problem in plugins.problems:
+        registry.record_plugin_problem(f"{problem.directory.name}: {problem.reason}")
+    for plugin_manifest in plugins.tool_manifests():
+        contribution = plugin_manifest.tool
+        if contribution is None:  # pragma: no cover - tool_manifests() filters
+            continue
+        registry.register_plugin(
+            ToolManifest(
+                id=contribution.id,
+                name=contribution.name,
+                category=contribution.category,
+                # A plugin's launcher is resolved against the suite root, the
+                # same way a first-party launcher is; the loader has already
+                # checked that the file exists inside the plugin directory.
+                pyw_filename=contribution.launcher or "",
+                description=contribution.description,
+                standalone=contribution.standalone,
+                cli_command=contribution.cli_command,
+                order=contribution.order,
+                plugin=True,
+                origin=str(plugin_manifest.directory),
+                entry_point=contribution.entry_point,
+                ui_entry=contribution.ui_entry,
+            )
+        )
 
 
 def get_registry() -> ToolRegistry:

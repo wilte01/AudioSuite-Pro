@@ -35,6 +35,8 @@ The modules are parsed, never imported: the apps build Tk widgets at import
 time and this is a static contract.  ``EXPECTED_SEAMS`` is a frozen snapshot,
 so a new GUI tool must be registered here deliberately and a broken discovery
 pass cannot succeed vacuously.
+
+Changed in 2.1.0: a plugin tool with no card module is not a GUI seam.
 """
 
 from __future__ import annotations
@@ -46,9 +48,20 @@ from typing import Sequence
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-#: Directories that never hold first-party app code.
+#: Directories that never hold first-party app code.  ``plugins`` is
+#: third-party code: its wiring is covered by the plugin's own suite, and a
+#: plugin must not be able to join (or break) this frozen first-party table.
 _SKIPPED_DIRS = frozenset(
-    {".git", ".venv", "__pycache__", "build", "dist", "htmlcov", "user_guides"}
+    {
+        ".git",
+        ".venv",
+        "__pycache__",
+        "build",
+        "dist",
+        "htmlcov",
+        "user_guides",
+        "plugins",
+    }
 )
 
 #: Seams that carry a keyword payload the handler must tolerate.

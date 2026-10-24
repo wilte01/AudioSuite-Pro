@@ -22,6 +22,8 @@ MATRIX markers is the only part of README.md this script touches.
 
 Conventions (AGENTS.md "Utility Script Markers"): ASCII-only [START] / [OK] /
 [ERROR] / [DONE] status markers on stdout/stderr.
+
+Changed in 2.1.0: reads only first-party manifests.
 """
 
 from __future__ import annotations
@@ -58,7 +60,7 @@ def render_platform_matrix() -> str:
     )
     from audio_suite_shared.tool_plugin import get_registry
 
-    tools = get_registry().all
+    tools = get_registry().first_party
     windows_only = windows_only_tools()
     portable = [
         manifest.name for manifest in tools if tool_tier(manifest.id) == PORTABLE_CORE

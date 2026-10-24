@@ -1,6 +1,8 @@
 """CLI command for Tag Field Updater.
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+Changed in 2.1.0: ``--no-plugin-tags`` turns off the plugin system's enabled
+tag processors, and the payload counts their edits separately (Sprint 7).
 """
 
 from __future__ import annotations
@@ -24,7 +26,15 @@ from audio_suite_shared.cli_schema import build_payload
 @_opt_dir
 @_opt_dry_run
 @_opt_json
-def tag_update_cli(directory: str, dry_run: bool, json: bool) -> None:
+@click.option(
+    "--no-plugin-tags",
+    is_flag=True,
+    default=False,
+    help="Skip tag processors contributed by enabled plugins.",
+)
+def tag_update_cli(
+    directory: str, dry_run: bool, json: bool, no_plugin_tags: bool
+) -> None:
     """Scan and update tag fields (replace bare '/' with '; ' in tag values).
 
     With ``--dry`` the rewrites are computed and reported but nothing is
@@ -34,11 +44,12 @@ def tag_update_cli(directory: str, dry_run: bool, json: bool) -> None:
     Examples:
         audiosuite tag-update /Music --dry
         audiosuite tag-update /Music --live
+        audiosuite tag-update /Music --no-plugin-tags
         audiosuite tag-update /Music --json
     """
     from tag_field_updater.core.processor import TagProcessor
 
-    processor = TagProcessor()
+    processor = TagProcessor(plugins=not no_plugin_tags)
 
     started = time.monotonic()
     with active_batch("tag_field_updater", "tag_edit"):
@@ -59,6 +70,8 @@ def tag_update_cli(directory: str, dry_run: bool, json: bool) -> None:
         log_entries=[],
         directory=directory,
         updated=stats.updated_files,
+        plugin_updates=processor.plugin_changes,
+        plugin_errors=processor.plugin_errors,
     )
 
     if json:

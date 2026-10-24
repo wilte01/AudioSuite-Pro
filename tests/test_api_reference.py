@@ -10,6 +10,8 @@ that no longer exists.
 
 Changed in 1.4.1: new file - locks the reference to the modules on disk, so
 an unlisted module or a stale entry fails instead of the page drifting (P3).
+Changed in 2.1.0: a subpackage counts as a shipped module, so the plugin
+system's package entry is neither reported missing nor stale (Sprint 7).
 """
 
 from __future__ import annotations
@@ -36,6 +38,11 @@ def _shipped() -> set[str]:
     return {path.stem for path in PACKAGE.glob("*.py")} - {"__init__"}
 
 
+def _shipped_packages() -> set[str]:
+    """Subpackages of ``audio_suite_shared`` (a directory with an initialiser)."""
+    return {path.name for path in PACKAGE.iterdir() if (path / "__init__.py").is_file()}
+
+
 def test_every_shared_module_is_documented() -> None:
     documented = set(_documented())
     shipped = _shipped()
@@ -53,7 +60,10 @@ def test_every_shared_module_is_documented() -> None:
 
 
 def test_the_reference_has_no_stale_entries() -> None:
-    stale = sorted(set(_documented()) - _shipped())
+    # A documented subpackage is not stale: its entry renders the package's own
+    # docstring, and subpackages are legitimately outside the module list above
+    # (``tests`` and ``security`` are not API pages, so they need no entry).
+    stale = sorted(set(_documented()) - _shipped() - _shipped_packages())
     assert not stale, (
         "docs/api.rst documents modules that no longer exist: " + ", ".join(stale)
     )

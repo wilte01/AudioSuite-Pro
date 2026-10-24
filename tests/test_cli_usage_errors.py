@@ -33,6 +33,9 @@ Changed in 1.4.1: added for S5-1 (PLAN D91), extended for ``doctor`` (D93) and
 
 Changed in 2.0.0: adds the ``stems`` case with the Stem Separator's schema
 entry (Sprint 6, Item 6.1).
+
+Changed in 2.1.0: adds the ``plugins list`` / ``enable`` / ``disable`` usage cases their
+schema entries require.
 """
 
 from __future__ import annotations
@@ -90,6 +93,11 @@ _USAGE_CASES: dict[str, dict[str, list[str]]] = {
     "mood-analysis-batch": {"missing": [], "invalid": [MISSING_PATH]},
     "mood-analyzer": {"missing": [], "invalid": [MISSING_PATH]},
     "normalise": {"missing": [], "invalid": [LIBRARY, "--mode", "bogus"]},
+    # ``plugins list`` takes no argument, like ``doctor``; ``enable``/``disable``
+    # reject an id no discovered plugin declares, which is a usage error.
+    "plugins disable": {"missing": [], "invalid": [MISSING_PATH]},
+    "plugins enable": {"missing": [], "invalid": [MISSING_PATH]},
+    "plugins list": {"missing": ["--no-such-option"], "invalid": ["stray-argument"]},
     "reduce": {"missing": [], "invalid": [LIBRARY, "--hum-frequency", "42"]},
     "refine": {"missing": [], "invalid": [MISSING_PATH]},
     "reorganize": {"missing": [LIBRARY], "invalid": [MISSING_PATH]},

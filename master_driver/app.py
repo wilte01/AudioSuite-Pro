@@ -474,7 +474,7 @@ class AudioSuiteDriver(UIHelperMixin):
         Args:
             v: The value to assign to each utility module toggle.
         """
-        for manifest in get_registry().by_category("utility"):
+        for manifest in get_registry().driver_by_category("utility"):
             if manifest.id == "undo_tag_edits":
                 continue
             toggle = self.state.module_toggles[manifest.id]

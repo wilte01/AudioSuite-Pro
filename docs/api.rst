@@ -38,6 +38,9 @@ CLI plumbing
 .. automodule:: audio_suite_shared.cue_cli
    :members:
 
+.. automodule:: audio_suite_shared.plugins_cli
+   :members:
+
 Cue sheets
 ----------
 
@@ -214,6 +217,24 @@ Tool and tab scaffolding
    :members:
 
 .. automodule:: audio_suite_shared.analysis_app_base
+   :members:
+
+Plugins
+-------
+
+.. automodule:: audio_suite_shared.plugin_system
+   :no-members:
+
+.. automodule:: audio_suite_shared.plugin_system.models
+   :members:
+
+.. automodule:: audio_suite_shared.plugin_system.loader
+   :members:
+
+.. automodule:: audio_suite_shared.plugin_system.registry
+   :members:
+
+.. automodule:: audio_suite_shared.plugin_system.extension_points
    :members:
 
 Tk helpers

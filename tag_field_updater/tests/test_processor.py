@@ -4,6 +4,8 @@ Tests for TagProcessor class.
 Comprehensive test coverage for tag field processing logic, including all
 five format processors, edge-case value transformations, and thread-stop
 behaviour.
+
+Changed in 2.1.0: adds the tag-processor extension-point host tests.
 """
 
 from __future__ import annotations
@@ -1059,3 +1061,200 @@ class TestUndoBatchRecording:
                     result = process_mp3_file(Path(tmp.name))
             assert result.updated is True
             assert log.list_batches() == []
+
+
+# ---------------------------------------------------------------------------
+# Plugin tag processors (the ``tag_processor`` extension point)
+# ---------------------------------------------------------------------------
+
+_PLUGIN_MANIFEST = """\
+[plugin]
+id = "host_probe_plugin"
+name = "Host Probe Plugin"
+version = "1.0.0"
+author = "tests"
+description = "Exercises the tag-processor host"
+api_version = 1
+
+[[tag_processor]]
+id = "stamp_genre"
+name = "Stamp the genre"
+entry_point = "host_probe_plugin.tags:apply"
+"""
+
+_PLUGIN_PROCESSOR = '''\
+"""A tag processor that stamps one field, honouring the dry-run flag."""
+
+from types import SimpleNamespace
+
+
+def apply(path, dry_run, *, context):
+    """Write ``genre`` unless this is a dry run."""
+    context.write_tag(path, "genre", "Probed") if not dry_run else None
+    return SimpleNamespace(changed=True, message="genre stamped")
+'''
+
+
+class TestPluginTagProcessors:
+    """The host end of the plugin system's ``tag_processor`` extension point.
+
+    The outcome is read back from disk with a fresh mutagen handle, so a
+    processor that silently did not persist is a failure — not a mock's call
+    count standing in for the file's contents.
+    """
+
+    @staticmethod
+    def _install_plugin(tmp_path: Path, monkeypatch: object) -> Path:
+        """Create a plugin root holding one enabled tag processor.
+
+        Args:
+            tmp_path: The test's scratch directory.
+            monkeypatch: The pytest monkeypatch fixture.
+
+        Returns:
+            The plugin root, already pointed at by the environment override.
+        """
+        import sys
+
+        from audio_suite_shared.plugin_system import loader, reset_plugins_for_tests
+
+        # A module name is cached once imported, so a test that rewrites the
+        # processor's source (the raising case) would otherwise keep running
+        # the previous test's code.
+        for name in [
+            module
+            for module in sys.modules
+            if module == "host_probe_plugin" or module.startswith("host_probe_plugin.")
+        ]:
+            del sys.modules[name]
+
+        root = tmp_path / "plugins"
+        package = root / "host_probe_plugin"
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        (package / "MANIFEST.toml").write_text(_PLUGIN_MANIFEST, encoding="utf-8")
+        (package / "tags.py").write_text(_PLUGIN_PROCESSOR, encoding="utf-8")
+
+        monkeypatch.setenv(loader.PLUGIN_DIR_ENV, str(root))  # type: ignore[attr-defined]
+        # The enable map lives in the user's shared config; a test must not
+        # depend on it (and must not write to it), so it is pinned here.
+        monkeypatch.setattr(  # type: ignore[attr-defined]
+            loader, "load_enabled_map", lambda: {"host_probe_plugin": True}
+        )
+        reset_plugins_for_tests()
+        return root
+
+    @staticmethod
+    def _tagged_mp3(path: Path) -> Path:
+        """Export a real MP3 carrying a genre tag."""
+        from mutagen.id3 import TCON
+        from mutagen.mp3 import MP3
+        from pydub import AudioSegment
+
+        AudioSegment.silent(duration=20).export(str(path), format="mp3")
+        audio = MP3(str(path))
+        if audio.tags is None:
+            audio.add_tags()
+        audio.tags.add(TCON(encoding=3, text="Original"))
+        audio.save()
+        return path
+
+    @staticmethod
+    def _genre_on_disk(path: Path) -> str | None:
+        """Read the genre back from the file, not from the processor."""
+        from audio_suite_shared.tag_helper import read_genre
+
+        return read_genre(str(path))
+
+    def test_enabled_processor_writes_after_the_built_in_rules(
+        self, tmp_path: Path, monkeypatch: object
+    ) -> None:
+        """A live run persists the processor's change and counts it."""
+        from audio_suite_shared.plugin_system import reset_plugins_for_tests
+
+        self._install_plugin(tmp_path, monkeypatch)
+        try:
+            library = tmp_path / "library"
+            library.mkdir()
+            track = self._tagged_mp3(library / "track.mp3")
+            assert self._genre_on_disk(track) == "Original"
+
+            processor = TagProcessor()
+            processor.scan_directory(str(library), dry_run=False)
+
+            assert self._genre_on_disk(track) == "Probed"
+            assert processor.plugin_changes == 1
+            assert processor.plugin_errors == 0
+        finally:
+            reset_plugins_for_tests()
+
+    def test_dry_run_leaves_the_file_untouched(
+        self, tmp_path: Path, monkeypatch: object
+    ) -> None:
+        """The dry-run flag reaches the processor, which writes nothing."""
+        from audio_suite_shared.plugin_system import reset_plugins_for_tests
+
+        self._install_plugin(tmp_path, monkeypatch)
+        try:
+            library = tmp_path / "library"
+            library.mkdir()
+            track = self._tagged_mp3(library / "track.mp3")
+            before = track.read_bytes()
+
+            processor = TagProcessor()
+            processor.scan_directory(str(library), dry_run=True)
+
+            assert track.read_bytes() == before
+            assert self._genre_on_disk(track) == "Original"
+        finally:
+            reset_plugins_for_tests()
+
+    def test_plugins_false_skips_every_processor(
+        self, tmp_path: Path, monkeypatch: object
+    ) -> None:
+        """``plugins=False`` is the switch the CLI's --no-plugin-tags exposes."""
+        from audio_suite_shared.plugin_system import reset_plugins_for_tests
+
+        self._install_plugin(tmp_path, monkeypatch)
+        try:
+            library = tmp_path / "library"
+            library.mkdir()
+            track = self._tagged_mp3(library / "track.mp3")
+            before = track.read_bytes()
+
+            processor = TagProcessor(plugins=False)
+            processor.scan_directory(str(library), dry_run=False)
+
+            assert track.read_bytes() == before
+            assert self._genre_on_disk(track) == "Original"
+            assert processor.plugin_changes == 0
+        finally:
+            reset_plugins_for_tests()
+
+    def test_a_raising_processor_is_counted_and_does_not_fail_the_file(
+        self, tmp_path: Path, monkeypatch: object
+    ) -> None:
+        """A broken plugin costs its own processor, never the batch."""
+        from audio_suite_shared.plugin_system import reset_plugins_for_tests
+
+        self._install_plugin(tmp_path, monkeypatch)
+        try:
+            broken = tmp_path / "plugins" / "host_probe_plugin" / "tags.py"
+            broken.write_text(
+                "def apply(path, dry_run):\n    raise RuntimeError('boom')\n",
+                encoding="utf-8",
+            )
+            library = tmp_path / "library"
+            library.mkdir()
+            track = self._tagged_mp3(library / "track.mp3")
+
+            processor = TagProcessor()
+            results = processor.scan_directory(str(library), dry_run=False)
+
+            assert [result.error for result in results] == [None]
+            assert self._genre_on_disk(track) == "Original"
+            assert processor.plugin_errors == 1
+            assert processor.plugin_changes == 0
+            assert processor.stats.error_files == 0
+        finally:
+            reset_plugins_for_tests()

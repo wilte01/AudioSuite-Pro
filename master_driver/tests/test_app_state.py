@@ -40,6 +40,8 @@ Changed in 1.2.0: covers the new fingerprinter MusicBrainz / ISRC keys.
 
 Changed in 1.3.0: the expected toggle-key set adds ``spectral_viewer``.
 Changed in 1.4.0: the worker default is read from default_max_workers().
+
+Changed in 2.1.0: plugin tools contribute their own toggle keys.
 """
 
 import json
@@ -708,6 +710,9 @@ class TestModuleToggles:
         "spectral_viewer",
         "stem_separator",
         "ml_denoiser",
+        # Plugin tools (from the shipped example plugin; the registry
+        # generates a toggle for every manifest with a launcher)
+        "example_tool",
         # Refinery
         "audio_refinery",
     }

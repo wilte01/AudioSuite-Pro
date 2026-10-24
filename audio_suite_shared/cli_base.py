@@ -33,6 +33,9 @@ its per-command example payloads and fatal-error documents (PLAN D104, D105).
 Changed in 1.4.1: ``finish_run`` gives a *fatal* run exit 1 after its payload
 is printed, while a run whose only losses were per-file keeps its command's
 exit status (PLAN D92).
+
+Changed in 2.1.0: ``_command_path`` takes any grouped command the schema declares
+(``plugins list``), not only ``cue``'s subcommands.
 """
 
 from __future__ import annotations
@@ -416,8 +419,11 @@ def _command_path(argv: Sequence[str]) -> str | None:
     """Return the command path named in *argv* (``bpm``, ``cue parse``).
 
     Group options come before the command: ``--log-level`` takes a value in
-    either spelling and the remaining flags are boolean.  The ``cue`` group
-    needs its subcommand because that is the schema key.
+    either spelling and the remaining flags are boolean.  A command that lives
+    in a group (``cue parse``, ``plugins list``) needs its subcommand because
+    the schema keys the payload by the full path: the pair is taken only when
+    it is itself a declared command, so a group's own arguments are not
+    mistaken for a subcommand.
     """
     tokens = list(argv)
     index = 0
@@ -430,10 +436,11 @@ def _command_path(argv: Sequence[str]) -> str | None:
             index += 1
             continue
         command = token
-        if command == "cue" and index + 1 < len(tokens):
+        if index + 1 < len(tokens):
             subcommand = tokens[index + 1]
-            if not subcommand.startswith("-"):
-                command = f"{command} {subcommand}"
+            nested = f"{command} {subcommand}"
+            if not subcommand.startswith("-") and nested in TOOL_IDS:
+                command = nested
         return command
     return None
 

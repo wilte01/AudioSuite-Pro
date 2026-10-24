@@ -21,6 +21,9 @@ not raise a TypeError).
 Run with:
     pytest tests/test_file_processor.py -v
 Changed in 1.4.0: the reader mocks patch one handler load (PLAN D55).
+
+Changed in 2.1.0: adds the analysis extension-point host tests, including the cached
+scan's coverage of every file.
 """
 
 from __future__ import annotations
@@ -552,3 +555,147 @@ class TestReadFileTags:
             r["read_bpm"].side_effect = OSError("corrupt")
             with pytest.raises(OSError):
                 _read_file_tags(str(tmp_path / "a.mp3"))
+
+
+# ── Plugin analysis (the ``analysis`` extension point) ───────────────────────
+
+_PROBE_MANIFEST = """[plugin]
+id = "stats_probe_plugin"
+name = "Stats Probe Plugin"
+version = "1.0.0"
+author = "tests"
+description = "Exercises the analysis host"
+api_version = 1
+
+[[analysis]]
+id = "extension"
+name = "Extension of the scanned file"
+entry_point = "stats_probe_plugin.metrics:analyse"
+"""
+
+_PROBE_SOURCE = '''"""A metric derived from the file it is given."""
+
+
+def analyse(path, tags):
+    """Return one metric per file."""
+    return {"extension": path.suffix}
+'''
+
+
+class TestPluginAnalysis:
+    """The host end of the plugin system's ``analysis`` extension point.
+
+    Metrics are aggregated per file from the tags the scan already read, so the
+    figures stay attributable to the plugin that produced them.  A plugin that
+    raises costs its own metric, never the scan.
+    """
+
+    @staticmethod
+    def _install_plugin(
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        source: str = _PROBE_SOURCE,
+    ) -> None:
+        """Install one enabled plugin contributing a single analysis metric."""
+        import sys
+
+        from audio_suite_shared.plugin_system import loader, reset_plugins_for_tests
+
+        root = tmp_path / "plugins"
+        package = root / "stats_probe_plugin"
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        (package / "MANIFEST.toml").write_text(_PROBE_MANIFEST, encoding="utf-8")
+        (package / "metrics.py").write_text(source, encoding="utf-8")
+
+        # A module is cached once imported, so a test that rewrites the
+        # contribution's source would otherwise keep running the last version.
+        for name in [
+            module
+            for module in sys.modules
+            if module == "stats_probe_plugin"
+            or module.startswith("stats_probe_plugin.")
+        ]:
+            del sys.modules[name]
+
+        monkeypatch.setenv(loader.PLUGIN_DIR_ENV, str(root))
+        monkeypatch.setattr(
+            loader, "load_enabled_map", lambda: {"stats_probe_plugin": True}
+        )
+        reset_plugins_for_tests()
+
+    def test_metrics_are_counted_per_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A full scan aggregates the contribution's metric for every file."""
+        self._install_plugin(tmp_path, monkeypatch)
+        library = tmp_path / "library"
+        library.mkdir()
+        (library / "one.mp3").write_bytes(b"x")
+        (library / "two.flac").write_bytes(b"x")
+
+        with _reader_mocks():
+            report = scan_directory(str(library))
+
+        assert report.plugin_analysis == {
+            "stats_probe_plugin:extension": {"extension": {".flac": 1, ".mp3": 1}}
+        }
+        assert report.plugin_analysis_errors == 0
+        assert report.total_files == 2
+
+    def test_incremental_scan_still_analyses_every_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The cache skips tag reads, never the contribution's coverage."""
+        self._install_plugin(tmp_path, monkeypatch)
+        library = tmp_path / "library"
+        library.mkdir()
+        (library / "one.mp3").write_bytes(b"x")
+        (library / "two.flac").write_bytes(b"x")
+        cache = LibraryCache(tmp_path / "cache.db")
+        try:
+            with _reader_mocks():
+                report = scan_directory(str(library), use_cache=True, cache=cache)
+        finally:
+            cache.close()
+        assert report.plugin_analysis == {
+            "stats_probe_plugin:extension": {"extension": {".flac": 1, ".mp3": 1}}
+        }
+
+    def test_plugins_false_publishes_no_plugin_metrics(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``plugins=False`` is what the CLI's --no-plugin-analysis exposes."""
+        self._install_plugin(tmp_path, monkeypatch)
+        library = tmp_path / "library"
+        library.mkdir()
+        (library / "a.mp3").write_bytes(b"x")
+
+        with _reader_mocks():
+            report = scan_directory(str(library), plugins=False)
+
+        assert report.plugin_analysis == {}
+        assert report.plugin_analysis_errors == 0
+        assert report.total_files == 1
+
+    def test_a_raising_contribution_is_counted_not_fatal(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A broken plugin costs its metric; the scan still reports the library."""
+        self._install_plugin(
+            tmp_path,
+            monkeypatch,
+            source=('def analyse(path, tags):\n    raise RuntimeError("boom")\n'),
+        )
+        library = tmp_path / "library"
+        library.mkdir()
+        (library / "a.mp3").write_bytes(b"x")
+
+        with _reader_mocks() as r:
+            r["read_genre"].return_value = "Rock"
+            report = scan_directory(str(library))
+
+        assert report.plugin_analysis == {}
+        assert report.plugin_analysis_errors == 1
+        assert report.genre_distribution == {"Rock": 1}
+        assert report.total_files == 1

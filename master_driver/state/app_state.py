@@ -18,6 +18,9 @@ and per-stem selection variables (Sprint 6, Item 6.1).
 Changed in 2.0.0: adds the ML Denoiser's amount percentage (Item 6.2).  The
 module toggle itself comes from the registry, so a new tool needs no toggle line
 here (and ``test_app_state.py`` freezes the expected set).
+Changed in 2.1.0: toggles are generated for ``registry.driver_manifests`` rather
+than ``registry.all``, so a plugin tool that ships only a CLI entry point gets no
+toggle (Sprint 7, Item 7.1).
 """
 
 from __future__ import annotations
@@ -75,8 +78,11 @@ class AppState:
         }
 
         # ── Module activation toggles (auto-generated from registry) ─────────
+        # ``driver_manifests`` excludes a plugin that ships only a CLI entry
+        # point: the driver has no window to open for it, and a toggle whose
+        # argument list is empty is exactly what the launch gate blocks (D128).
         self.module_toggles: dict[str, tk.BooleanVar] = {}
-        for manifest in registry.all:
+        for manifest in registry.driver_manifests:
             self.module_toggles[manifest.id] = tk.BooleanVar(
                 master, value=manifest.default_on
             )

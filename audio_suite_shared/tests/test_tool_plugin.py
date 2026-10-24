@@ -8,7 +8,11 @@ Changed in 1.3.0: the expected sets add the ``spectral_viewer`` manifest
 (Sprint 3, D42).
 Changed in 2.0.0: the expected sets add the ``stem_separator`` manifest and
 its ``stems`` command (Sprint 6, Item 6.1).
+
+Changed in 2.1.0: the registry now holds plugin manifests beside the first-party ones.
 """
+
+import pytest
 
 from audio_suite_shared.exceptions import AudioConfigurationError
 from audio_suite_shared.tool_plugin import (
@@ -167,11 +171,32 @@ class TestDefaultRegistry:
     def test_registry_is_populated(self):
         r = get_registry()
         assert len(r) >= 16  # all first-party tools
-        assert len(r) == 30  # 11 enrich + 18 utility + 1 refinery
+        assert len(r.first_party) == 30  # 11 enrich + 18 utility + 1 refinery
+        # A plugin adds a registry entry, never a first-party one.
+        assert len(r) == len(r.first_party) + len(r.plugins)
+        assert r.plugins, "the shipped example plugin did not register"
+
+    def test_plugin_and_first_party_populations_are_disjoint(self):
+        r = get_registry()
+        first_party = {m.id for m in r.first_party}
+        plugins = {m.id for m in r.plugins}
+
+        assert first_party & plugins == set()
+        assert all(m.plugin for m in r.plugins)
+        assert all(not m.plugin for m in r.first_party)
+
+    def test_plugins_sort_after_first_party_tools(self):
+        """A plugin must not displace a shipped tool's documented position."""
+        r = get_registry()
+        plugin_flags = [manifest.plugin for manifest in r.by_category("utility")]
+
+        assert any(plugin_flags), "no plugin in the utility category; test vacuous"
+        first_plugin = plugin_flags.index(True)
+        assert all(plugin_flags[first_plugin:])
 
     def test_has_all_enrich_tools(self):
         r = get_registry()
-        ids = {m.id for m in r.by_category("enrich")}
+        ids = {m.id for m in r.first_party if m.category == "enrich"}
         expected = {
             "scrubber",
             "replaygain",
@@ -189,7 +214,7 @@ class TestDefaultRegistry:
 
     def test_has_all_utility_tools(self):
         r = get_registry()
-        ids = {m.id for m in r.by_category("utility")}
+        ids = {m.id for m in r.first_party if m.category == "utility"}
         expected = {
             "converter",
             "asx_extractor",
@@ -214,12 +239,12 @@ class TestDefaultRegistry:
 
     def test_has_refinery(self):
         r = get_registry()
-        ids = {m.id for m in r.by_category("refinery")}
+        ids = {m.id for m in r.first_party if m.category == "refinery"}
         assert "audio_refinery" in ids
 
     def test_cli_commands_match_expected(self):
         r = get_registry()
-        commands = {m.cli_command for m in r.by_cli()}
+        commands = {m.cli_command for m in r.first_party if m.cli_command}
         expected = {
             "scrub",
             "fingerprint",
@@ -257,7 +282,7 @@ class TestDefaultRegistry:
 
     def test_standalone_tools(self):
         r = get_registry()
-        standalone = {m.id for m in r.all if m.standalone}
+        standalone = {m.id for m in r.first_party if m.standalone}
         expected = {
             "cd_ripper",
             "mood_analysis_batch",
@@ -280,9 +305,9 @@ class TestDefaultRegistry:
         assert standalone == expected
 
     def test_undo_tool_appears_last_in_utility_category(self):
-        """The Undo Tag Edits card must sit at the bottom of the UTIL tab."""
+        """The Undo Tag Edits card must sit at the bottom of the shipped cards."""
         r = get_registry()
-        utility_ids = [m.id for m in r.by_category("utility")]
+        utility_ids = [m.id for m in r.by_category("utility") if not m.plugin]
         assert utility_ids[-1] == "undo_tag_edits"
 
     def test_registry_is_frozen(self):
@@ -317,3 +342,68 @@ class TestDefaultRegistry:
             assert dataclasses.is_dataclass(m)
             with pytest.raises(dataclasses.FrozenInstanceError):
                 m.name = "tampered"  # type: ignore[misc]
+
+
+class TestPluginRegistration:
+    """A plugin manifest joins the registry without being able to break it."""
+
+    def _plugin_manifest(self, tool_id: str) -> ToolManifest:
+        return ToolManifest(
+            id=tool_id,
+            name="Plugin Tool",
+            category="utility",
+            pyw_filename="plugins/demo/Demo.pyw",
+            plugin=True,
+            origin="/plugins/demo",
+        )
+
+    def test_register_plugin_adds_the_manifest(self):
+        r = ToolRegistry()
+
+        assert r.register_plugin(self._plugin_manifest("demo_tool")) is True
+        assert r.get("demo_tool") is not None
+        assert [m.id for m in r.plugins] == ["demo_tool"]
+        assert r.plugin_problems == []
+
+    def test_a_duplicate_plugin_is_recorded_not_raised(self):
+        r = ToolRegistry()
+        r.register_plugin(self._plugin_manifest("demo_tool"))
+
+        assert r.register_plugin(self._plugin_manifest("demo_tool")) is False
+        assert r.plugin_problems and "demo_tool" in r.plugin_problems[0]
+
+    def test_a_plugin_colliding_with_a_first_party_id_is_recorded(self):
+        r = ToolRegistry()
+        r.register(
+            ToolManifest(id="bpm", name="BPM", category="enrich", pyw_filename="b.pyw")
+        )
+
+        assert r.register_plugin(self._plugin_manifest("bpm")) is False
+        assert r.get("bpm") is not None  # type: ignore[union-attr]
+        assert r.get("bpm").name == "BPM"  # type: ignore[union-attr]
+
+    def test_register_plugin_refuses_a_first_party_manifest(self):
+        r = ToolRegistry()
+
+        with pytest.raises(AudioConfigurationError):
+            r.register_plugin(
+                ToolManifest(id="x", name="X", category="utility", pyw_filename="x.pyw")
+            )
+
+    def test_a_cli_only_plugin_is_not_a_driver_tool(self):
+        r = ToolRegistry()
+        r.register_plugin(
+            ToolManifest(
+                id="cli_only",
+                name="CLI Only",
+                category="utility",
+                pyw_filename="",
+                plugin=True,
+                entry_point="demo.tool:main",
+                cli_command="demo",
+            )
+        )
+
+        assert r.get("cli_only").is_driver_tool is False  # type: ignore[union-attr]
+        assert [m.id for m in r.driver_manifests] == []
+        assert [m.id for m in r.driver_by_category("utility")] == []
