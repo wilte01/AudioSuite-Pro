@@ -12,7 +12,7 @@ docs/_build/
     html/               the Sphinx output
     user_guides/        copied, because every tool row links ../user_guides/...
     packaging/          copied, because the index links ../packaging/...
-    README.md  CHANGELOG.md  CONTRIBUTING.md  AGENTS.md  SECURITY.md
+    README.md  CHANGELOG.md  CONTRIBUTING.md  SECURITY.md
 ```
 
 Two callers share it, and that is the point: CI runs
@@ -37,7 +37,10 @@ Build it with the interpreter that carries the ``dev`` extra::
     python utilities/build_docs_site.py --out /tmp/site   # elsewhere
 
 Changed in 2.1.1: new module - the staging step shared by CI and the
-self-containment lock (PLAN_feature_expansion.md D7, D8).
+self-containment lock (PLAN_feature_expansion.md D7, D8). ``AGENTS.md`` is not
+staged: it is the repository's instruction file for people working in the
+checkout, not an end-user document, and the artifact is handed to whoever opens
+the zip (D13).
 """
 
 from __future__ import annotations
@@ -53,11 +56,12 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 #: Repository files the rendered pages link to, copied to the publish root.
+#: ``AGENTS.md`` is deliberately absent: ``docs/index.md`` no longer cites it,
+#: and the repository's instruction file is not an end-user document (D13).
 STAGED_FILES: tuple[str, ...] = (
     "README.md",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
-    "AGENTS.md",
     "SECURITY.md",
 )
 

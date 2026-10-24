@@ -22,7 +22,8 @@ runs - and walks every ``href``/``src`` in the result, because twelve links in
 the pages pointed at targets the artifact never published or could not
 resolve. ``TestTheCertifiedBuildIsTheDelivery`` holds the workflow to that
 tree: the test job stages and uploads it, and there is deliberately no Pages
-deploy while publication is blocked (D9).
+deploy while publication is blocked (D9). `AGENTS.md` is not staged - it is the
+repository's instruction file, not an end-user document (D13).
 """
 
 from __future__ import annotations
@@ -226,12 +227,25 @@ class TestPublishedTreeIsSelfContained:
         stager = _load_stager()
         staged_files = tuple(stager.STAGED_FILES)
         staged_dirs = tuple(stager.STAGED_DIRS)
-        assert len(staged_files) >= 5, f"the staged file list shrank: {staged_files}"
+        assert len(staged_files) >= 4, f"the staged file list shrank: {staged_files}"
         assert len(staged_dirs) >= 2, f"the staged directory list shrank: {staged_dirs}"
 
         absent = [name for name in staged_files if not (published / name).is_file()]
         absent += [name for name in staged_dirs if not (published / name).is_dir()]
         assert not absent, "the staging step did not publish:\n  " + "\n  ".join(absent)
+
+    def test_the_instruction_file_is_not_shipped(self, published: Path) -> None:
+        """The repository's own instructions stay out of the artifact (D13)."""
+        staged = tuple(_load_stager().STAGED_FILES)
+        assert "AGENTS.md" not in staged, (
+            "AGENTS.md is in the copy list again; it is the repository's "
+            "instruction file for contributors, not an end-user document (D13)"
+        )
+        assert not (published / "AGENTS.md").exists(), (
+            "the artifact carries AGENTS.md; the pages no longer link it, and "
+            "the copy hands the repository's instructions to whoever opens "
+            "the zip (D13)"
+        )
 
     def test_the_doctrees_stay_out_of_the_publish_root(self, published: Path) -> None:
         """Sphinx's build cache must not ship in the artifact (D8)."""

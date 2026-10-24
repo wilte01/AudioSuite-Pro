@@ -97,15 +97,14 @@ tool entry in the manifest.
   checklist for registering a new tool.
 * {doc}`resilience` — what happens when a file, a step or a
   batch fails: backoff policy, recovery actions, and resource cleanup.
-* [AGENTS.md](../AGENTS.md) — the repository's instruction file: the rules the
-  gate enforces, and the domain traps worth knowing before editing DSP code.
 
 ## Decision record
 
 The `PLAN_*.md` and `AUDIT_*.md` files at the repository root are the
 project's decision log: each records what was decided, the evidence behind it and
 what was deferred. They are history, not instructions — the rules that still
-apply live in `AGENTS.md` and `CONTRIBUTING.md`.
+apply live in the repository's `AGENTS.md` and in
+[CONTRIBUTING.md](../CONTRIBUTING.md), which ships with this documentation.
 
 * `PLAN_docs_consolidation.md` — the current plan: consolidating this
   documentation into as few formats as possible.

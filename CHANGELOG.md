@@ -32,8 +32,8 @@ Nothing yet.
 
 - **The documentation artifact is self-contained.** The `docs-html` artifact now
   carries every file its pages link to - `README.md`, `CHANGELOG.md`,
-  `CONTRIBUTING.md`, `AGENTS.md`, `SECURITY.md`, `packaging/` and the guide
-  sources - plus a root `index.html`, so a downloaded artifact opens on the
+  `CONTRIBUTING.md`, `SECURITY.md`, `packaging/` and the guide sources - plus a
+  root `index.html`, so a downloaded artifact opens on the
   front door and its links resolve without a checkout. Twelve were dangling
   before: six targets the build never published, two links in
   `docs/user/suite-overview.md` written one directory too shallow, and four
@@ -57,6 +57,13 @@ Nothing yet.
   docstrings, the plugin guide, the resilience and user pages, all Markdown
   rendered by MyST from the configuration the build gate reads. A shared module
   the API page does not render fails the suite.
+
+- **The documentation artifact no longer ships `AGENTS.md`.** The copy existed
+  only because `docs/index.md` linked the repository's instruction file, and
+  that link is gone: the artifact now carries what its pages reference and
+  nothing else. The file is guidance for people working in the checkout, not an
+  end-user document, and the zip is handed to whoever opens it. A lock fails if
+  it returns to the staging list or the publish root.
 
 - **The document locks run before the test matrix, not inside it.** A
   `docs-locks` CI job runs the seven modules whose subject is a committed
