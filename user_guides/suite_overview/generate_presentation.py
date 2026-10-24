@@ -2,12 +2,16 @@
 
 Builds a guided tour of the suite for new users: what the suite is, the
 three-stage map, every tool grouped by category, format support, and
-where to go for detail. Content is compiled from the current tool
-registry (audio_suite_shared.tool_plugin), each tool's own User Guide
-generator, and the suite Overview Guide.
+where to go for detail. The prose is written here, in the slide builders
+below; there is no Markdown source because a slide layout is code rather
+than prose (PLAN_docs_consolidation D20).
 
 Usage:
     python user_guides/suite_overview/generate_presentation.py
+
+Changed in 2.1.0: the closing slide points at the pages that now own the
+content it used to name (the Suite Overview, ``docs/resilience.md`` and the
+security page); the three orphan guides it referenced were retired.
 
 Changed in 1.1.0: the Audio Enhancer slide now names all four presets and
 describes the Custom DSP editor window instead of the old inline sliders.
@@ -2171,7 +2175,7 @@ def slide_next_steps(prs: Presentation, number: int) -> None:
     add_title(
         slide,
         "Where to Go Next",
-        "All documentation ships inside the suite, under user_guides/",
+        "docs/index.md is the front door - guides, reference and the API",
     )
     add_textbox(
         slide,
@@ -2189,9 +2193,8 @@ def slide_next_steps(prs: Presentation, number: int) -> None:
                 marker="\u2022",
             ),
             Line(
-                "The AudioSuite-Pro Overview Guide - how the 26 tools "
-                "relate, and which one to reach for "
-                "(user_guides/suite_overview/)",
+                "The Suite Overview - how the 30 tools are grouped, and "
+                "which one to reach for (docs/user/suite-overview.md)",
                 size=15,
                 space_after=10,
                 marker="\u2022",
@@ -2204,14 +2207,15 @@ def slide_next_steps(prs: Presentation, number: int) -> None:
                 marker="\u2022",
             ),
             Line(
-                "The Technical User Guide - suite-wide error recovery and "
-                "resource management",
+                "Retries, failure handling and cleanup - what happens when "
+                "a file or a batch step fails (docs/resilience.md)",
                 size=15,
                 space_after=10,
                 marker="\u2022",
             ),
             Line(
-                "The Security Guide - API keys, credentials, and safe file handling",
+                "Security - API keys, credentials, and safe file handling "
+                "(docs/user/security.md)",
                 size=15,
                 space_after=10,
                 marker="\u2022",

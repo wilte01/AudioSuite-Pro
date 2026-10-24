@@ -19,6 +19,9 @@ than a file, which is why they are one module:
 Both scans read the working tree and assert a non-empty result set, so a
 mis-scoped walk fails loudly instead of passing vacuously (AGENTS.md, "Never
 lose a rule to a scripted edit").
+
+Changed in 2.1.0: new file - the authored-format whitelist and the
+machine-specific path scan (PLAN_docs_consolidation P4.2, P4.3).
 """
 
 from __future__ import annotations

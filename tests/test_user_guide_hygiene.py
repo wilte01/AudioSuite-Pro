@@ -144,17 +144,8 @@ class TestGeneratorHygiene:
     )
 
     #: Artefacts that still have no source at all, per PLAN §6 (D9).
-    PENDING_RETIREMENT: dict[str, str] = {
-        "user_guides/reference/AudioSuite_Message_Guide.docx": (
-            "§6: generate from the message catalogue, or retire into the reference set"
-        ),
-        "user_guides/suite_overview/AudioSuite-Pro_Overview_Guide.docx": (
-            "§6: retire into the index's suite section"
-        ),
-        "user_guides/suite_overview/TECHNICAL_USER_GUIDE.docx": (
-            "§6: retire into the developer documentation"
-        ),
-    }
+    #: Empty since the three orphans were retired into ``docs/`` (P4.1 close-out).
+    PENDING_RETIREMENT: dict[str, str] = {}
 
     def test_guide_root_exists(self) -> None:
         """The individual-program guide tree is the subject of these locks."""
@@ -175,10 +166,13 @@ class TestGeneratorHygiene:
           not compared, because regenerating a designed deck or a guide whose
           sample lines come from the live formatter would rewrite a tracked
           binary during the test run.
-        * **Pending retirement** - the three classified files in §6 of
-          PLAN_docs_consolidation, each with a reason and a planned destination.
+        * **Pending retirement** - a binary with no source yet, each entry
+          naming the plan's disposition. The list is empty today: the three
+          orphan guides were retired into `docs/` and deleted. It stays
+          length-asserted so re-opening that state means editing the plan and
+          this test together, deliberately.
 
-        The allowed sets are data, but the counts are asserted: adding a fourth
+        The allowed sets are data, but the counts are asserted: adding a
         pending file, or silently dropping one, fails here.
         """
         artefacts = [
@@ -186,15 +180,19 @@ class TestGeneratorHygiene:
             for path in tracked
             if path.startswith("user_guides/")
             and Path(path).suffix in {".docx", ".pptx"}
+            # ``git ls-files`` still lists a file deleted but not yet committed;
+            # a deletion cannot carry a Markdown source, so the lock judges the
+            # binaries that exist (the same fix PLAN D15b made tree-wide).
+            and (REPO_ROOT / path).is_file()
         ]
         assert len(artefacts) >= 30, (
             f"only {len(artefacts)} artefacts found - the scan is broken, so "
             "this lock would pass vacuously"
         )
 
-        assert len(self.PENDING_RETIREMENT) == 3, (
-            "the pending-retirement list changed size; retire the files or "
-            "update the plan's §6 dispositions deliberately"
+        assert len(self.PENDING_RETIREMENT) == 0, (
+            "a binary was parked for retirement again; retire it into docs/ "
+            "and delete it, or record why in the plan's §6 deliberately"
         )
         assert len(self.GENERATOR_BACKED) == 2, (
             "the generator-backed list changed size; a new designed artefact "

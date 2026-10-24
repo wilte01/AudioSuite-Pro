@@ -802,8 +802,12 @@ be a bare full-suite `pytest` run.
 - Two artefacts keep a committed generator instead of a Markdown source: the
   new-user `.pptx` (a slide layout is code, not prose) and the logging guide
   (its sample log lines are rendered from the live formatter).
-  `tests/test_user_guide_hygiene.py` accepts exactly those two plus three files
-  still awaiting retirement; any other unreproducible binary fails.
+  `tests/test_user_guide_hygiene.py` accepts exactly those two; any other
+  unreproducible binary fails, and a parked one is a test failure by design.
+- User-facing error wording lives once, in `audio_suite_shared/exceptions.py`'s
+  `USER_MESSAGES`. `docs/user/messages.md` renders that table and
+  `audio_suite_shared/tests/test_exceptions.py` fails when the two disagree, so
+  a message cannot change meaning in one place only.
 - `tests/test_docs_formats.py` is the arbiter for formats: a new `.rst`/`.txt`
   page fails until the approved set is edited deliberately, and a
   machine-specific absolute path in doc tooling fails the scan.

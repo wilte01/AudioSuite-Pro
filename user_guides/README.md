@@ -10,9 +10,11 @@ This folder holds the files, not the index:
 |---|---|
 | `individual_programs/<tool>/` | one folder per tool: the `.md` user guide source and the `.docx` rendered from it by `utilities/build_user_guides.py` |
 | `reference/CLI_Commands_Reference.md` | every `audiosuite` command, its flags, and the headless/scripting section |
-| `reference/AudioSuite_Message_Guide.docx` | every user-facing message and what to do about it |
-| `suite_overview/` | suite-level material: the logging guide and the new-user presentation |
+| `suite_overview/` | suite-level material: the logging guide and the new-user presentation, each with its own committed generator |
 
+The message guide moved to [docs/user/messages.md](../docs/user/messages.md),
+the suite map to [docs/user/suite-overview.md](../docs/user/suite-overview.md)
+and the technical notes to [docs/resilience.md](../docs/resilience.md).
 The security guide moved to [docs/user/security.md](../docs/user/security.md):
 encrypted API keys and how to recover them, safe file selection, and what each
 security message means. The threat model and reporting route stay in

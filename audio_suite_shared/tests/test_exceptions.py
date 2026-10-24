@@ -15,6 +15,10 @@ Covers:
 Place this file at:
     AudioSuite-Pro/audio_suite_shared/tests/test_exceptions.py
 ─────────────────────────────────────────────────────────────────────────────
+Changed in 2.1.0: ``TestUserMessagesDocumentation`` pins
+``docs/user/messages.md`` to ``USER_MESSAGES`` and to the real log filename
+and directory override, so the retired Message Guide cannot come back as a
+hand-written page that drifts from the code.
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ from audio_suite_shared.error_recovery import (
     retry_with_backoff,
 )
 from audio_suite_shared.exceptions import (
+    USER_MESSAGES,
     AudioAnalysisError,
     AudioCodecError,
     AudioConfigFileError,
@@ -1087,3 +1092,45 @@ class TestDecoratorIntegration:
             results.append(process_file(name))
 
         assert results == ["ok:a.mp3", "ERROR", "ok:c.mp3"]
+
+
+class TestUserMessagesDocumentation:
+    """``docs/user/messages.md`` renders the translation table, and cannot drift.
+
+    The page exists because the retired *Message Guide* `.docx` listed log files
+    and dialogs that no longer exist, with nothing tying it to the code. The
+    table in `exceptions.USER_MESSAGES` is the single source of truth for the
+    wording, so the page is locked against it: a reworded message or a new
+    error class fails here until the page is updated.
+    """
+
+    #: The page a reader is sent to when a message needs explaining.
+    PAGE = Path(__file__).resolve().parents[2] / "docs" / "user" / "messages.md"
+
+    def test_every_message_and_type_is_on_the_page(self) -> None:
+        """Each entry's sentence *and* class name appear on the page."""
+        assert len(USER_MESSAGES) >= 10, (
+            f"only {len(USER_MESSAGES)} messages - the table lost rows, so this "
+            "lock would pass vacuously"
+        )
+        assert self.PAGE.is_file(), f"missing message page: {self.PAGE}"
+        page = self.PAGE.read_text(encoding="utf-8")
+
+        missing: list[str] = []
+        for error_type, message in USER_MESSAGES.items():
+            if error_type.__name__ not in page:
+                missing.append(f"{error_type.__name__}: class name not on the page")
+            if message not in page:
+                missing.append(f"{error_type.__name__}: {message!r} not on the page")
+        assert not missing, (
+            "docs/user/messages.md is out of step with USER_MESSAGES "
+            "(update the page, not the table):\n  " + "\n  ".join(missing)
+        )
+
+    def test_the_page_states_the_real_log_locations(self) -> None:
+        """Log location facts are checked against ``logging_setup``, not copied."""
+        from audio_suite_shared import logging_setup
+
+        page = self.PAGE.read_text(encoding="utf-8")
+        assert logging_setup._SUITE_LOG_FILENAME in page
+        assert logging_setup._LOG_DIR_ENV in page

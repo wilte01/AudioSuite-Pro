@@ -31,6 +31,10 @@ trace in the debug log instead of printing it at the console.
 Changed in 1.4.1: the reference blocks are literal and the two documented
 helpers use Args/Returns sections, so the generated API reference renders them
 without docutils errors (PLAN D98).
+Changed in 2.1.0: the user-facing wording table is a module constant
+``USER_MESSAGES`` instead of a dict rebuilt inside ``user_message_for`` on
+every call, so ``docs/user/messages.md`` can be locked against it
+(PLAN_docs_consolidation, §6 retirement / D21).
 """
 
 from __future__ import annotations
@@ -534,6 +538,48 @@ def handle_audio_errors(
 # ===========================================================================
 
 
+#: The one translation table from an error class to a user-facing sentence.
+#: Keyed by class; ``user_message_for`` walks the MRO so the most specific
+#: match wins.  ``docs/user/messages.md`` renders this table for readers and
+#: ``audio_suite_shared/tests/test_exceptions.py`` fails when the page and
+#: the table disagree.
+USER_MESSAGES: dict[type, str] = {
+    AudioFileNotFoundError: (
+        "The file could not be found. It may have been moved or deleted."
+    ),
+    AudioPermissionError: (
+        "Permission denied. Check that AudioSuite has read/write access."
+    ),
+    AudioDiskFullError: ("The disk is full. Free up space and try again."),
+    AudioDirectoryError: (
+        "Could not access the folder. Check that it exists and is accessible."
+    ),
+    AudioCodecError: ("This file uses an unsupported or unreadable codec."),
+    AudioFormatError: ("The file format is invalid or corrupted."),
+    AudioExternalToolError: (
+        "An external tool (e.g. ffmpeg) failed."
+        " Check that it is installed and up to date."
+    ),
+    AudioTagError: ("Could not read or write the file's metadata tags."),
+    AudioAnalysisError: (
+        "Audio analysis failed. The file may be corrupted or too short."
+    ),
+    AudioConfigFileError: (
+        "The configuration file is missing or corrupted. Default settings will be used."
+    ),
+    AudioConfigValueError: (
+        "An invalid configuration value was detected. Please check your settings."
+    ),
+    AudioMissingDependencyError: ("A required tool or library is not installed."),
+    AudioIOError: "A file system error occurred.",
+    AudioProcessingError: ("An error occurred during processing."),
+    AudioConfigurationError: ("A configuration error occurred."),
+    AudioSuiteError: (
+        "An unexpected error occurred. Please check the log for details."
+    ),
+}
+
+
 def user_message_for(exc: Exception) -> str:
     """
     Return a short, non-technical string suitable for display in a dialog or
@@ -551,48 +597,10 @@ def user_message_for(exc: Exception) -> str:
     if debug:
         return str(exc)
 
-    # Map to clean user messages — extend this table as new subclasses are added.
-    _user_messages: dict[type, str] = {
-        AudioFileNotFoundError: (
-            "The file could not be found. It may have been moved or deleted."
-        ),
-        AudioPermissionError: (
-            "Permission denied. Check that AudioSuite has read/write access."
-        ),
-        AudioDiskFullError: ("The disk is full. Free up space and try again."),
-        AudioDirectoryError: (
-            "Could not access the folder. Check that it exists and is accessible."
-        ),
-        AudioCodecError: ("This file uses an unsupported or unreadable codec."),
-        AudioFormatError: ("The file format is invalid or corrupted."),
-        AudioExternalToolError: (
-            "An external tool (e.g. ffmpeg) failed."
-            " Check that it is installed and up to date."
-        ),
-        AudioTagError: ("Could not read or write the file's metadata tags."),
-        AudioAnalysisError: (
-            "Audio analysis failed. The file may be corrupted or too short."
-        ),
-        AudioConfigFileError: (
-            "The configuration file is missing or corrupted."
-            " Default settings will be used."
-        ),
-        AudioConfigValueError: (
-            "An invalid configuration value was detected. Please check your settings."
-        ),
-        AudioMissingDependencyError: ("A required tool or library is not installed."),
-        AudioIOError: "A file system error occurred.",
-        AudioProcessingError: ("An error occurred during processing."),
-        AudioConfigurationError: ("A configuration error occurred."),
-        AudioSuiteError: (
-            "An unexpected error occurred. Please check the log for details."
-        ),
-    }
-
     # Walk the MRO so the most specific match wins.
     for exc_type in type(exc).__mro__:
-        if exc_type in _user_messages:
-            return _user_messages[exc_type]
+        if exc_type in USER_MESSAGES:
+            return USER_MESSAGES[exc_type]
 
     return "An unexpected error occurred. Please check the log for details."
 
