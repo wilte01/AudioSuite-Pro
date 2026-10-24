@@ -10,6 +10,12 @@ Changed in 2.0.0: initial version (Sprint 6, Item 6.1).
 Changed in 2.1.0: covers the run mode reaching the Setup tab from the driver's
 argv, including a standalone launch that carries no source folder, and a live
 run installing Demucs on first use instead of refusing to start.
+Changed in 2.1.1: ``TestFatalRun`` patches the name ``app.py`` binds, not the
+module it was imported from. ``app.py`` does ``from .core.file_processor import
+run_stem_separation``, so patching ``file_processor.run_stem_separation`` left
+the real processor running: it found no audio in the temporary folder, returned
+normally, and the test failed on a zero-call ``_on_error`` instead of exercising
+the error path at all (PLAN_feature_expansion D11).
 """
 
 from __future__ import annotations
@@ -486,9 +492,8 @@ class TestFatalRun:
         app.slot_queue = Queue()
         app._on_error = MagicMock()
 
-        with patch.object(
-            file_processor,
-            "run_stem_separation",
+        with patch(
+            "stem_separator.app.run_stem_separation",
             side_effect=AudioMissingDependencyError("Demucs is not installed"),
         ):
             app._run_separation(

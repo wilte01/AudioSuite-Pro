@@ -1165,7 +1165,7 @@
       "duration_secs": 0.0,
       "duration_str": "0.0s",
       "log_entries": [],
-      "error": "No such option: --no-such-option"
+      "error": "No such option '--no-such-option'."
     },
     "convert": {
       "schema_version": 1,
@@ -1270,7 +1270,7 @@
       "duration_secs": 0.0,
       "duration_str": "0.0s",
       "log_entries": [],
-      "error": "No such option: --no-such-option"
+      "error": "No such option '--no-such-option'."
     },
     "enhance": {
       "schema_version": 1,
@@ -1435,7 +1435,7 @@
       "duration_secs": 0.0,
       "duration_str": "0.0s",
       "log_entries": [],
-      "error": "No such option: --no-such-option"
+      "error": "No such option '--no-such-option'."
     },
     "reduce": {
       "schema_version": 1,

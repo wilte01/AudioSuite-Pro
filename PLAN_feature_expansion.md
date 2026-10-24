@@ -1852,7 +1852,7 @@ ad-hoc empty-argument fix into an enforced launch gate.
 | D131 | **Plugins are discovered always and enabled per plugin, and the shipped default is first-party code.** The enable map is `plugins_enabled` in `audio_suite_config.json` (the shared store, per *Shared Config Pattern*), read by the loader with a total fallback to `BUNDLED_DEFAULT_ENABLED = {"example_plugin"}` when a plugin is absent from it. The bundled example is enabled by that constant, not by a manifest field, so a third-party manifest cannot opt itself in. `audiosuite plugins list` (status, contributions, refusal reason) and `plugins enable\|disable <id>` are the user surface, and `enable` refuses a rejected manifest rather than switching on something the suite cannot honour. An unknown id is a Click usage error (exit 2), so it publishes the schema's standard fatal document instead of a tool-shaped payload with ``total=1``. | "Discover all, enable per plugin" was the chosen activation model, and a JSON key nobody can reach without editing a file is not a surface. Keeping the default in code rather than in the example's manifest is what makes "installing a plugin is not the same as trusting it" true: the user's decision is recorded where every other preference is, and a plugin cannot make it for them. |
 | D132 | **All four extension points are wired to real hosts, and each host has an off switch.** `tool` joins the frozen registry (so the Master Driver's toggle, card, arguments and launcher, the CLI and the README all see it), `tool.ui` is called by `utilities_window` / `enrich_tab` with a generic plugin card as the fallback, `tag_processor` runs per file in `TagProcessor` after the built-in rules, and `analysis` runs per file in library_stats' `scan_directory`. Contributions run through `run_tag_processor` / `run_analysis`, so an arbitrary return value becomes a typed outcome, and a contribution that raises is counted (`plugin_errors`, `plugin_analysis_errors`) and logged instead of failing the file. The flags are `--no-plugin-tags` and `--no-plugin-analysis`, both defaulting on; the cached library scan runs the contributions in a second pass rather than aggregating only the cache misses. | A surface a test can point at is what separates an extension point from a documented intention, and the plan named all four. Counting plugin outcomes apart from the tool's own is what makes a difference between two runs attributable — the same reasoning that keeps `doctor`'s extras out of `errors`. The second pass is the honest trade: the cache exists to skip tag reads, and a contribution cannot run from tags that were never read, so enabling one either costs a walk or reports a subset of the library as if it were the whole. |
 | D133 | **The 2.1.0 acceptance run, with its absences recorded.** `plugins/example_plugin/` implements every extension point (tool, card, tag processor, analysis, launcher) and is the template the guide points at; `docs/plugins.rst` is the development guide and `MANIFEST.toml` reference; `CHANGELOG.md [2.1.0]` carries the feature bullet. Verification at the release state: `compileall` rc=0, `ruff check` / `ruff format --check` clean (955 files), bare `mypy .` clean (546 files), bandit 0 High / 0 Medium, bare `pytest` **10,857 passed, 3 skipped, 35 deselected** at **90.64 %** coverage, and `python -m tests.cli_schema_conformance --check` **36 payloads and 36 fatal-error documents** conforming — with the bundled plugin's own `example_plugin:title_words` metrics visible in the recorded `stats` payload, so the corpus proves the analysis host end to end. Recorded limitations: plugin code is **unsandboxed** (it runs in-process with the user's permissions, which the guide states before the first manifest example); a plugin tool's CLI output is deliberately **outside** `cli_schema` (`test_commands_without_json_are_declared` excludes it by name read from the registry); `api_version` 1 is the only version, with no negotiation; there is no uninstall, version pin or per-plugin dependency check; and a plugin that changes its module on disk inside one process is only seen by the next process, because `sys.modules` caches the import. | The plan's acceptance criteria were "example plugin loads, extension points work, full gate passes". Recording the absences is the same discipline 6.7 applied: an unsandboxed in-process model is a decision a user must be told about, and "plugins are supported" must not be read as "plugins are safe to install blindly". The schema exclusion is written into a test that reads the plugin list from the registry, so it cannot silently widen. |
-| D134 | **Sprint 7 is closed and released as 2.1.0 (2026-10-23).** The cut ran through `utilities/release.py 2.1.0` (version, `uv.lock`, changelog promotion, guide regeneration and the gate), which is the same path 2.0.0 took. Sprint 8 (§8) starts against this state; the plugin system adds no ML or optional dependency, so nothing in 2.1.0 can block it. | A sprint is closed when every item has an outcome, and this one shipped its scope without a deferred defect. Naming the release in the decision record keeps the next sprint's base version unambiguous — the alternative is a follower inferring 2.1.0 from `pyproject.toml`. |
+| D134 | **Sprint 7 is closed and released as 2.1.0 (2026-10-23).** The cut ran through `utilities/release.py 2.1.0` (version, `uv.lock`, changelog promotion, guide regeneration and the gate), which is the same path 2.0.0 took. Sprint 8 (§8) starts against this state; the plugin system adds no ML or optional dependency, so nothing in 2.1.0 can block it. Two defects in the sprint's own example plugin surfaced *after* the cut and were fixed inside the same window (D135, D136), so the close-out in 7.6 is written against the later commit `b362169`, not the release tip. | A sprint is closed when every item has an outcome, and this one shipped its scope; the two post-release fixes were resolved where they were found rather than deferred. Naming the release in the decision record keeps the next sprint's base version unambiguous — the alternative is a follower inferring 2.1.0 from `pyproject.toml`. |
 | D135 | **A shipped plugin launcher could not start, and the launcher sweeps could not see it.** Selecting `Example Tool` with mode Dry Run and pressing LAUNCH UTILITY PROCESS produced `Module Error — Module failed: Example Tool`. `plugins/example_plugin/Example_Plugin.pyw` derived its two directories with `parents[1]` where the import root is `parent`: `_plugin_root` became the suite root and `_suite_root` its parent, so `sys.path` held a folder with no `example_plugin` package, `from example_plugin.tool import summarise` raised `ModuleNotFoundError`, and the pre-flight guard byte-compiled the suite root's parent. The window now opens (verified by launching the real `.pyw`: `logs/Example_Plugin.log` records the start with no uncaught exception). Two things kept it hidden: every launcher lock globs `REPO_ROOT/*.pyw`, so a launcher one level down was covered by none of them, and `module_runner`'s summary said only `Module failed: <name>` while the launcher's traceback went to a stdout/stderr the driver discards. Fixed in lockstep: the roots are now `parent` and `parent.parent`; `tests/test_pyw_launchers.py::TestPluginLauncherResolvesItsRoots` discovers launchers **from the manifests** (not a glob) and asserts the suite root is the repository root, the import root holds the plugin package, and the launcher's own `sys.path` imports that package in a subprocess — it was confirmed red on the shipped source (3 failed) and green after the restore, with the file's SHA-256 verified. `_launch_standalone` now reports the exit code through `on_exit` so `BatchStep.exit_code` is recorded and the dialog reads `Module failed: Example Tool (exit code 1)`. | A plugin launcher is a first-party-audited file at a third-party-shaped path, which is exactly where a filename-glob lock stops looking; reading the population from the manifest is what makes the next plugin's launcher covered automatically. Both failures are the same class as D112/D113 — a contract that drifted between two layers while every gate stayed green — so the fix carries the missing outcome (an import that actually runs, an exit code that actually reaches the dialog) rather than a re-paragraph of the code. |
 | D136 | **The example launcher honours the driver's argument grammar instead of opening empty.** Every plugin tool is launched with `[directory, --live\|--dry, --start\|--no-start, --end\|--no-end]` (`arg_builder._build_plugin_tool_args`, D128), and the example ignored all four: the window opened with an empty folder and always said live, whatever mode the user had selected. It now parses the grammar with `parse_launch_args` (first non-flag argument is the directory, unknown flags are ignored so a newer driver cannot break an older plugin, a repeated mode flag is last-wins) and pre-fills the folder entry and the mode label. `--start`/`--end` are honoured too: `--start` schedules the report as soon as the window opens, and `--end` closes it once that run produces one, which is what lets the driver use the example as a batch step (a run that failed keeps the window open, because closing would hide the only line saying what went wrong). The walk and the tag reads happen on a worker thread and reach the window through a `queue.SimpleQueue` that the Tk thread polls with `root.after` — polling from the owner thread, not marshalling from the worker — because a worker calling `root.after` itself raises `RuntimeError: main thread is not in main loop` on 3.14 and takes the window down; a real launch reproduced exactly that before the queue was introduced. The window moved out of `Example_Plugin.pyw` into `example_plugin/window.py` because a `.pyw` file is not importable, so a pre-fill living only in the launcher cannot be tested at all; the launcher is now the same thin bootstrap a first-party tool has. `set_folder` is the single write path for the entry (argv and Browse both use it), which is AGENTS' pre-fill rule applied to the one widget this template writes itself. Verified by `tests/test_example_plugin.py` (28 tests): the parser's cases, the driver's own `_build_plugin_tool_args` output piped through the parser, the mock-level pre-fill, the values the real widgets carry on the shared hidden root, Browse sharing the write path, the launcher forwarding `sys.argv[1:]`, `--start` scheduling a run and `--end` closing on completion (through a fake root that records every call made from a non-Tk thread, and on the shared hidden root for the real widget outcome), and a failed or folder-less run staying open with its message. Break-and-restore on the three new behaviours (auto-start removed, `--end` ignored, worker calling `root.after`) went red 2/2, 2/2 and 2/2 with the file's SHA-256 verified after each restore. | The four-flag grammar is the plugin tool's whole contract with the driver, and an example that ignores it teaches every copied plugin to do the same — the defect then only shows up as a window that disagrees with the mode the user picked. Reading all four while acting on the two the window can honour is the honest middle: the template shows where `--start`/`--end` arrive and says why it leaves them alone, so a plugin that does want batch behaviour has the hook and the reason in one place. |
 
@@ -1980,19 +1980,23 @@ If Sprint 7 fails gate:
 - Remove `plugins/` directory
 - Version remains at 2.0.0
 
-### 7.6 Sprint 7 Close-Out (2026-10-23) — sprint closed, released as 2.1.0
+### 7.6 Sprint 7 Close-Out (2026-10-23; final state 2026-10-24) — sprint closed, released as 2.1.0
 
 Sprint 7 is **CLOSED**. It shipped as **2.1.0** through
 `utilities/release.py 2.1.0` (version, `uv.lock`, changelog promotion, guide
 regeneration, gate), the same path 2.0.0 took. 7.1-7.5 remain as the decision
-record; this table is the outcome.
+record; this table is the outcome. The close-out was first written at the
+release tip (`3eb5f85`), then rewritten on **2026-10-24** against the final
+state of the 2.1.0 window (`b362169`), because using the shipped example plugin
+found two defects the release gate could not see (D135, D136). Those are fixed
+and committed, `[Unreleased]` carries them, and nothing about them is deferred.
 
 | Scope item | Planned | Outcome | Evidence |
 |------------|---------|---------|----------|
 | 7.1 Plugin System Core | `plugin_system/` with loader, registry, extension points, tests; MANIFEST.toml; invalid plugins rejected with a clear error | **Delivered, plus one module the plan did not name.** `plugin_system/` holds `models.py` (manifest, contribution and state dataclasses, `PluginError`), `loader.py` (total discovery: closed key sets, id/command collisions, package containment, exact `api_version`), `registry.py` (process singleton, lazy `module:callable` resolution, `reset_plugins_for_tests`) and `extension_points.py` (context, invocation helpers, outcome normalisation), with **77 tests** across `test_loader.py`, `test_registry.py` and `test_extension_points.py`. The registry integration is inside `_build_default_registry()` **before** the freeze, so plugin tools are ordinary manifests everywhere the driver, CLI and README read them. The user surface the plan lacked is the `audiosuite plugins list\|enable\|disable` group, with three schema entries and re-recorded payloads | D130, D131; 77 passing in the package |
-| 7.2 Example Plugin | `plugins/example_plugin/`: a simple tool demonstrating the system, documented in a plugin guide | **Delivered and used as the template.** The plugin declares a tool (`example_tool`, CLI `example`, launcher `Example_Plugin.pyw`), a card (`ui.py` through the shared `build_simple_card`), a tag processor (collapses comment whitespace) and an analysis contribution (title word count) — every extension point in one readable plugin. It is enabled by `BUNDLED_DEFAULT_ENABLED`, so it also demonstrates the activation model. `docs/plugins.rst` is the guide and manifest reference, and the recorded `stats` payload carries its real `example_plugin:title_words` metrics | D131, D133; `audiosuite plugins list` reports `1 loaded` |
+| 7.2 Example Plugin | `plugins/example_plugin/`: a simple tool demonstrating the system, documented in a plugin guide | **Delivered and used as the template.** The plugin declares a tool (`example_tool`, CLI `example`, launcher `Example_Plugin.pyw`), a card (`ui.py` through the shared `build_simple_card`), a tag processor (collapses comment whitespace) and an analysis contribution (title word count) — every extension point in one readable plugin. It is enabled by `BUNDLED_DEFAULT_ENABLED`, so it also demonstrates the activation model. `docs/plugins.rst` is the guide and manifest reference, and the recorded `stats` payload carries its real `example_plugin:title_words` metrics. Its launcher is the template's whole launch path and now works end to end: it opens on the driver's folder and mode, runs its report under `--start` and closes under `--end`, with the walk on a worker thread feeding a queue the Tk thread polls; launching the real `.pyw` from the Master Driver was the test the release gate lacked | D131, D133, D135, D136; `audiosuite plugins list` reports `1 loaded`; `tests/test_example_plugin.py` (28) + `tests/test_pyw_launchers.py` |
 | Four extension points | Tools, tag processors, UI components, custom analysis | **All four wired to first-party hosts and off-switchable.** `tool` (registry/CLI/driver), `tool.ui` (`utilities_window` / `enrich_tab`, generic plugin card as the fallback), `tag_processor` (`TagProcessor`, after the built-in rules, dry-run honoured by the processor) and `analysis` (library_stats `scan_directory`). Host outcomes are counted apart (`plugin_updates`/`plugin_errors`, `plugin_analysis`/`plugin_analysis_errors`) and both tools gained a documented flag (`--no-plugin-tags`, `--no-plugin-analysis`). Each host's tests read the artefact back: a real encoded MP3's genre on disk, and the aggregated metric for every file including a cached scan | D132; `tag_field_updater` + `library_stats` host tests |
-| 7.4 Verification | Full gate, plugin suite, example plugin loads, extension points work | **Met at the release state.** `compileall` rc=0, `ruff check` / `ruff format --check` clean (955 files), bare `mypy .` clean (546 files), bandit 0 High / 0 Medium, bare `pytest` **10,857 passed, 3 skipped, 35 deselected at 90.64 % coverage**, and the CLI schema gate **36 payloads / 36 fatal-error documents** conforming. Integration locks were updated where a plugin legitimately joins a first-party contract: the tool registry, the driver's toggles, the card lookup, the README index, the platform matrix, the JSON-schema coverage and the usage-error table | D133; release gate log |
+| 7.4 Verification | Full gate, plugin suite, example plugin loads, extension points work | **Met at the release state and re-measured on the close-out state.** At `3eb5f85`: `compileall` rc=0, `ruff check` / `ruff format --check` clean (955 files), bare `mypy .` clean (546 files), bandit 0 High / 0 Medium, bare `pytest` **10,857 passed, 3 skipped, 35 deselected at 90.64 % coverage**, CLI schema gate **36 payloads / 36 fatal-error documents** conforming. At `b362169`: `compileall` rc=0, ruff clean (957 files), bare `mypy .` clean (547 files), bandit 0 High / 0 Medium, bare `pytest` **10,890 passed, 3 skipped, 35 deselected at 90.64 %**, `python -m tests.cli_schema_conformance --check` **36 payloads / 36 fatal-error documents** conforming, plus the 28-test example-plugin suite and two real launches of the `.pyw` (`--start --end` exits by itself in under a second; `--start --no-end` stays open). Integration locks were updated where a plugin legitimately joins a first-party contract: the tool registry, the driver's toggles, the card lookup, the README index, the platform matrix, the JSON-schema coverage and the usage-error table | D133, D135, D136; release gate log and the close-out gate run |
 | 7.5 Rollback | Remove the package and `plugins/`, version stays 2.0.0 | **Not exercised, and the capability is removable by construction.** Removing `plugins/` leaves every host with zero contributions and every tool with its pre-2.1.0 behaviour, because each host resolves its contribution list first and returns early when it is empty. The package is a leaf: nothing first-party imports it at module scope except the two hosts and `tool_plugin`, so a revert is a directory removal plus those imports | 7.1/7.2 execution records |
 
 **Delivered beyond the plan, because the work found it.** (1) The plugin
@@ -2010,90 +2014,244 @@ through a `tool_manifest()` function in "a configured plugin directory" was
 removed: no such loader existed, and the guide now describes the mechanism that
 does.
 
-**No defect and no accepted limitation is open.** The limitations 7.6/D133
-records are design decisions, not deferred defects: plugin code is unsandboxed
-and enabled per plugin (the guide states it before the first manifest example);
-a plugin tool's output is outside `cli_schema` by design; `api_version` 1 has no
-negotiation; there is no uninstall, pin or per-plugin dependency check; and a
-module edited inside one process is seen only by the next. Sprint 5's
-limitations are unchanged.
+**Two defects were found after the release and fixed inside the same window.**
+(1) `Example Tool` would not launch from the Master Driver at all: the plugin
+launcher resolved its roots one level too high, and the dialog said only
+`Module failed: Example Tool` (D135). (2) With the launcher working, the window
+opened on nothing and always said live, because it ignored all four of the
+driver's arguments (D136). Both were shipped defects in the sprint's own
+deliverable, so both were fixed where they were found, with the missing locks:
+launchers are now discovered from the manifests rather than a root glob, a
+failed standalone step reports its exit code, and the window's pre-fill, run
+and close paths are tested on the real widgets. The second one also produced a
+repo rule (`AGENTS.md`, *GUI Callback Contract*): a worker thread must never
+call `root.after`. No defect is open.
+
+**No accepted limitation changed, and the risk plan's mitigation is answered.**
+The limitations 7.6/D133 records are design decisions, not deferred defects:
+plugin code is unsandboxed and enabled per plugin (the guide states it before
+the first manifest example); a plugin tool's output is outside `cli_schema` by
+design; `api_version` 1 has no negotiation; there is no uninstall, pin or
+per-plugin dependency check; and a module edited inside one process is seen
+only by the next. The *Risk Assessment* entry's "sandboxing considerations"
+resolved as **documented-unsandboxed plus opt-in enablement** rather than a
+sandbox: an in-process plugin runs with the user's permissions, which the guide
+says before the first example, and nothing loads without the user enabling it.
+Sprint 5's limitations are unchanged.
+
+**Sprint 8 starts here.** Its base is `61a9738` — released 2.1.0 (`b362169`),
+the two post-release plugin fixes, and the five documentation-consolidation
+commits (`62c8b61`..`61a9738`) — with the plugin system adding no ML or optional
+dependency (D134), so the documentation sprint inherits no engine prerequisite.
+Sprint 8 (§8) was re-scoped on 2026-10-24 against the tree that consolidation
+left behind: the site already exists, so only publication remains.
 
 ---
 
-## Sprint 8: API Documentation Site
+## Sprint 8: Publish the Documentation Site (publication blocked; the artifact is the delivery)
 
 **Target Version:** 2.1.1 (MAINTENANCE - documentation only)  
-**Estimated Effort:** 1-2 weeks  
-**Dependencies:** Sprint 7 complete  
-**Release Criteria:** Documentation builds successfully
+**Estimated Effort:** 1-2 days (was 1-2 weeks while building the site was in scope)  
+**Dependencies:** Sprint 7 complete (2.1.0, plus the post-release fixes D135/D136), and `PLAN_docs_consolidation` complete at `61a9738`  
+**Base Commit:** `61a9738`  
+**Release Criteria:** the artifact the suite certified is self-contained — every link resolves inside it — publication is blocked for a recorded reason, and 2.1.1 is cut through `utilities/release.py`
 
 ### 8.1 Scope
 
-**Documentation:**
-1. Sphinx/MkDocs site generation
-2. API documentation from docstrings
-3. Deployment to GitHub Pages
+**Re-scoped 2026-10-24.** This sprint was written before the documentation
+consolidation shipped the site. By the time it came up, two of its three scope
+items had shipped, four of its five listed paths must not be created, and its
+D1 named a generator the repository does not use. §8.2 records D1's
+supersession rather than rewriting the earlier text as if it had been right;
+this section is what is actually left.
 
-**Rationale:** Improves developer experience and external visibility.
+**Shipped outside this sprint, and not to be rebuilt** (`PLAN_docs_consolidation`,
+`62c8b61`..`61a9738`):
+
+1. **The site.** Sphinx + MyST (`docs/conf.py`) rendering seven committed
+   Markdown pages: `docs/index.md` as the front door, `docs/api.md` (70
+   `{automodule}` directives over `audio_suite_shared`), `docs/plugins.md`,
+   `docs/resilience.md` and three pages under `docs/user/`.
+2. **The API reference from docstrings,** exhaustive and locked: a shared module
+   the page does not render fails `tests/test_api_reference.py`, and a malformed
+   docstring fails the build gate.
+3. **The built HTML in CI** (`docs-html`, 3.14 leg), plus the locks that keep the
+   pages, the guides and the generated tables from rotting: `test_docs_build.py`,
+   `test_docs_formats.py`, `test_docs_index.py`, `test_guide_resolution.py` and the
+   dedicated `docs-locks` job (D22 of that plan).
+
+**Remaining scope (re-cut 2026-10-24, after the hosting probe):**
+
+1. **Publication is blocked, and the block is recorded rather than worked
+   around.** `wilte01/AudioSuite-Pro` is a private repository, the owner keeps it
+   private and declines the paid plan, and GitHub Pages is available for private
+   repositories only on Pro/Team/Enterprise - so no workflow change can publish
+   it. The `docs-html` artifact is the delivery (D9; Item 8.1).
+2. **Make that artifact self-contained.** Twelve link occurrences in the built
+   pages pointed at targets it did not publish or could not resolve (measured;
+   D5), so an extracted artifact had a broken front door. Six are a copy gap and
+   six are source defects (Item 8.2, D7).
+3. **Stage it in one implementation.** The build, the copy list and the root
+   redirect live in `utilities/build_docs_site.py`, which CI and the lock both
+   call (D7), with Sphinx's doctrees kept out of the publish root (D8).
+4. **Open the 2.1.1 window**: re-baseline the change-note lock, and give the
+   consolidation the changelog entries the cut would otherwise omit (Item 8.3).
+5. **A documentation section in `CONTRIBUTING.md`**, which today does not contain
+   the word "documentation" at all (Item 8.4).
+
+**Rationale:** the site exists and is locked, and the artifact is what a reader
+actually opens. Publication was the sprint's point; with it blocked by an owner
+decision, what still delivers is an artifact that works without a checkout. The
+benefit the sprint can no longer claim - external visibility - is recorded as an
+outcome rather than quietly dropped.
 
 ### 8.2 Decision Log
 
 | Decision | Rationale |
 |----------|-----------|
-| D1 | Use MkDocs (Markdown-based, easier than Sphinx) | Better for mixed content/docs |
-| D2 | Host on GitHub Pages (automatic via GitHub Actions) | Free, standard for open source |
-| D3 | Version bump: 2.1.0 → 2.1.1 (MAINTENANCE) | Documentation only |
+| D1 — **SUPERSEDED 2026-10-24:** the site is **Sphinx + MyST**, not MkDocs. No `mkdocs.yml` is created and `mkdocstrings` is not added. | The site shipped before this sprint opened, and D1's stated reason ("Markdown-based, easier than Sphinx") no longer applies: the installed site renders Markdown through MyST, so the format advantage is already held. A second generator would need a second config, a second navigation for the same seven pages and a second docstring renderer over the same modules as `sphinx.ext.autodoc` — two tools that must be kept agreeing about a page set nothing else reads. It would also fail the lock that closed the consolidation's Phase 4: `tests/test_docs_formats.py::TestAuthoredFormatWhitelist` approves only `.md`, `.docx`, `.pptx` and `.py` under `docs/`, so `docs/mkdocs.yml` is a red suite on its first commit. |
+| D2 — **SUPERSEDED 2026-10-24 (owner decision): publication is blocked and no deploy job is added.** GitHub Pages needs a public repository on the free plan; this one is private and stays private on that plan (D9). The route below is kept as the record of what was intended, and as the recipe to follow if hosting is ever authorised. **Originally: hosted on GitHub Pages, with the route named:** `actions/upload-pages-artifact` + `actions/deploy-pages`, `permissions: pages: write, id-token: write`, the `github-pages` environment, from a job that reuses the certified `docs-html` artefact. Not a `gh-pages` branch, and the site is not rebuilt for publication. | Free and standard for an open-source repository, which is why the sprint chose it. The mechanics matter because two of them are traps. A branch-based `gh-pages` deploy is served through Jekyll, which drops every path beginning with an underscore — `_static` and `_sources` are exactly what Sphinx writes, so the theme's CSS and the "view source" links would 404 silently. And a second build would publish pages the gate never parsed: `tests/test_docs_build.py` is the only thing that turns a parser warning into a failure, so what is deployed has to be the artefact that run produced. **Prerequisite the tree cannot verify:** Pages on a free plan needs the repository public. If it is not, the sprint either makes it public — an owner decision, not a side effect of a docs sprint — or records that the artefact stays the delivery. |
+| D3 — **Version bump 2.1.0 → 2.1.1 (MAINTENANCE), unchanged**, with two corrections: `pyproject.toml` is already `2.1.0`, so "the version stays at 2.1.0" is not a rollback step but the starting state, and the repository has **no git tags**, so the changelog heading is a version's only marker. | Documentation-only was and is the right classification: nothing in this sprint is importable by the application. The corrections exist because a rollback that "restores" a state which was never left reads as a safeguard while doing nothing. |
+| D4 — **The publish root is the CI artefact itself**: the build step assembles `docs/_build` with `html/` and `user_guides/` as siblings plus a one-file root `index.html`, and Pages serves that directory as-is. Links are not rewritten at publish time, and the site's home URL is `/html/`. | Measured on the built output: `docs/index.md`'s guide links are emitted as `href="../user_guides/..."` and `docs/user/security.md`'s as `../../SECURITY.md`. Those are checkout-depth paths and Sphinx keeps a page's depth in the output, so they resolve only when the artefact has the sibling layout the CI copy step already creates. Rewriting them at publication would mean the hrefs a reader clicks are not the hrefs any test reads — the self-containment lock (Item 8.2) would be checking a document nothing serves. The home URL ending in `/html/` is the price; a root redirect keeps the bare project URL working, and one redirect file is cheaper than a rewrite pass that must be re-proved on every page. |
+| D5 — **The site is made self-contained by copying the six off-tree targets into the publish root**, at the paths the emitted hrefs already point at: `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`, `SECURITY.md` and `packaging/`, beside `html/` and `user_guides/`. | This extends the copy D19 of the consolidation plan already makes for the guides, so one mechanism covers every link and no page needs a second syntax. Two alternatives are worse. Absolute `https://github.com/...` URLs would be *skipped* by `tests/test_docs_index.py`'s external-URL exemption, so a link could rot while the lock stayed green. Publishing only the rendered pages would leave `README`/`CHANGELOG`/`CONTRIBUTING`/`SECURITY`/`BUILD_INSTALLER` dead, which is the failure this item exists to prevent. **Measured 2026-10-24, which corrects the count this row was written with:** twelve link occurrences in the built pages were dangling, and only six were the copy gap this decision addresses - the other six are source defects it cannot fix, repaired in D7. Two limits stay and are accepted: the copied Markdown is served as text rather than rendered (D9 removes the host that would ever have rendered it), and `AGENTS.md` and `SECURITY.md` each keep one repository-relative link that resolves in a checkout but not inside the artifact; publishing a second copy of a page under `docs/` would be the duplication this plan exists to remove. `AGENTS.md` is copied knowingly: `docs/index.md` cites it for the conventions, and the artifact is an internal delivery (D9) - not a public site - so it carries the repository's instruction file to the same audience the checkout does. If hosting is ever authorised, that copy is the first thing to revisit. |
+| D6 — **The change-note window re-baselines at `61a9738` with `NOTE_MARKER = "Changed in 2.1.1"`** — not at the 2.1.0 release tip. | `tests/test_release_notes.py` still measures from `BASE_COMMIT = "3eb5f85"` (the 2.0.0 tip) under `NOTE_MARKER = "Changed in 2.1.0"`, a marker naming a version that shipped on 2026-10-23. Every prior sprint re-baselined at its start (D32, D44, D53, D90, D115, D123), so this is an established step rather than a new idea. The boundary is the consolidation tip rather than the release commit `b362169` because five documentation commits landed after the cut while the marker still said 2.1.0; re-basing at `b362169` would demand a "Changed in 2.1.1" note inside the **52 code files** those commits changed, whose own history is that 2.1.0 window — the churn a re-baseline exists to avoid. |
+| D7 — **One implementation stages the site: `utilities/build_docs_site.py`, called by CI and by the self-containment lock.** It builds `docs/` into `<out>/html`, copies `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`, `SECURITY.md`, `user_guides/` and `packaging/` beside it, and writes `<out>/index.html` as the redirect. The six source-level link defects it cannot fix are repaired in the pages: four `[text](page.md)` links in `docs/index.md` become `{doc}` roles, and two `../` links in `docs/user/suite-overview.md` become `../../` (they pointed at `docs/CONTRIBUTING.md` and `docs/user_guides/`, neither of which has ever existed). `tests/test_docs_index.py` stopped reading a `{doc}` docname as a repository path, which it had to, because the role body contains a slash. | Two lists drift: a copy list in the workflow and a fixture in the test would eventually publish one tree and certify another, and the lock's whole value is that it judges exactly what ships. `{doc}` is not a new syntax - D19 of the consolidation plan made it the rule for cross-page links inside `docs/`; these four were left as Markdown links, which MyST emits verbatim, so they resolved to `html/*.md` files the build never writes. The two `../` depths were wrong in the repository view too, so one repair fixes both. The path lock's correction is the same class as the ones `AGENTS.md` calls a defect found while fixing a defect: the page was right and the scan was wrong. |
+| D8 — **Sphinx's doctrees are built outside the publish root.** The staging step passes `-d` to a temporary directory; the plain `sphinx-build docs docs/_build/html` idiom leaves `.doctrees` *inside* `html/` (measured: 1.9 MB of pickles at 2.1.0), and the lock asserts it stays out. | The artifact is now the delivery, so whatever sits in the publish root is what a reader downloads - `/html/.doctrees/` is neither a page nor a link target, and under a host it would be served. A published tree should contain what the pages reference and nothing else. The suite's own build gate keeps its doctrees in a pytest tempdir and is unaffected. |
+| D9 — **Publication is blocked: GitHub Pages cannot be enabled for this repository, and no deploy job is added.** The probe on 2026-10-24 found `wilte01/AudioSuite-Pro` private - the unauthenticated repository API returns 404 while the account reports zero public repositories - and GitHub's own documentation states Pages is available "in public repositories with GitHub Free ... and in public and private repositories with GitHub Pro, GitHub Team, GitHub Enterprise Cloud, and GitHub Enterprise Server". The owner declined the paid plan and keeps the repository private, so `docs-html` is the delivery. `TestTheCertifiedBuildIsTheDelivery` holds both halves: the test job uploads the staged tree whole, and no `actions/deploy-pages` step exists. | Three routes existed: make the repository public (which needs a committed-secrets audit first - this tree has carried live API keys in working state before, and history is permanent), upgrade the plan (declined), or keep the artifact as the delivery. The third changes nothing outside the sprint and still delivers the part that was broken. A deploy job that cannot succeed would be red on every push and would teach people to ignore the job list, so it is absent rather than present-and-disabled; the test is what keeps it from creeping back. Re-opened only by a hosting decision, which is also when D2's public-repository premise and D5's `AGENTS.md` copy have to be revisited. |
+| D10 — **The recorded usage-error wording follows the locked Click.** Click 8.5 prints `No such option '--no-such-option'.` where the committed corpus (`tests/data/cli_payloads.json`) and the schema's published examples (`audio_suite_shared/cli_schema.json`) carried `No such option: --no-such-option`. `tests/test_cli_json_schema.py::TestFatalErrorExamples` compares a real run against the schema example, so it was red at HEAD - reproduced in a clean worktree at `61a9738` before anything was changed. The three occurrences in each file were corrected, not regenerated. | `--record` is the documented path, and it was run first: it also rewrites every payload's `duration_secs`/`duration_str` (28 unrelated lines) and the `_generated` date, and it emitted `"interpreter": "<repo>\.venv\Scripts\python.exe"` where the corpus carries `"<python>"` - a change in the recorder's own sanitizer that deserves its own look, not carriage inside a documentation release. The contract being corrected is the message text Click emits, which the failing test proves empirically; regenerating everything to fix three strings is the larger diff for the same outcome. `--record` remains the tool to use when a payload *shape* changes. |
+| D11 — **The stem_separator fatal-run test patched a name `app.py` never reads.** `app.py` binds the processor with `from .core.file_processor import run_stem_separation`, so `patch.object(file_processor, "run_stem_separation")` patched the module attribute and left the bound name alone. The real processor then ran against an empty temporary folder, found no audio, returned normally, and the test failed on a zero-call `_on_error` - red at HEAD, reproduced in a clean worktree at `61a9738`. It now patches `stem_separator.app.run_stem_separation`, so the error path actually runs and the fake root's `after` proves the handler is marshalled to the Tk thread exactly as `BaseSuiteApp._on_error` requires (it calls `messagebox.showerror` directly, so it must not run on a worker thread). | A patch target that silently matches nothing is the same failure class as a scan over an empty set: the test kept passing its own setup and asserted a condition the code could never reach. Patching the name the module reads is the only form that exercises the branch, and the assertion it already had - `_on_error` called once with the dependency message - is the one that matters, so nothing was weakened to fix it. |
 
 ### 8.3 Implementation Items
 
-#### Item 8.1: MkDocs Configuration
+#### Item 8.1: Record publication as blocked
 
-**Files to Create:**
-- `docs/mkdocs.yml` - MkDocs configuration
-- `docs/index.md` - Landing page
-- `docs/api/` - API documentation (auto-generated)
-- `docs/user-guides/` - User guide copies
-- `.github/workflows/docs.yml` - CI for docs deployment
+**Files to change:**
+- `.github/workflows/ci.yml` - a comment at the `docs-html` upload step naming the artifact as the delivery and the entitlement reason (D9); no deploy job
+- `tests/test_docs_build.py` - `TestTheCertifiedBuildIsTheDelivery`, so the blocked state is a decision a test holds
 
-**MkDocs Plugins:**
-- `mkdocs-material` theme
-- `mkdocstrings` for API docs
-- `mkdocs-gen-files` for reference
+**Steps:**
+- State the blocker where the artifact is produced, so the next reader does not infer from a bare upload step that publication was never attempted.
+- Assert the workflow uploads `docs/_build/` as `docs-html` with `if-no-files-found: error`, and that no `actions/deploy-pages` step exists.
+- Change no repository setting: Pages is never enabled.
 
-**API Documentation:**
-- Auto-generate from docstrings
-- Organize by package
-- Include shared layer and tools
+**Acceptance:** every 3.14 run uploads `docs-html`, an empty artifact fails the job, and a Pages deploy cannot appear without failing the suite with the reason.
 
-**Acceptance Criteria:**
-- MkDocs builds successfully
-- API docs generated correctly
-- GitHub Actions deploys to GitHub Pages
-- Documentation accessible at URL
+#### Item 8.2: Make the artifact self-contained
 
-**Documentation:**
-- CONTRIBUTING.md: Add docs contribution section
-- CHANGELOG.md: Added bullet for API documentation
+**Files to change:**
+- `utilities/build_docs_site.py` - new: the build, the copy list and the root redirect (D7, D8)
+- `.github/workflows/ci.yml` - the docs build step calls it
+- `docs/index.md` - four `[text](page.md)` links become `{doc}` roles
+- `docs/user/suite-overview.md` - two `../` links become `../../`
+- `tests/test_docs_index.py` - the path scan stops reading a `{doc}` docname as a repository path
+- `tests/test_docs_build.py` - `TestPublishedTreeIsSelfContained`, staging through the module CI runs
+
+**Steps:**
+- Stage `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`, `SECURITY.md`, `user_guides/` and `packaging/` beside `html/` in the publish root, which is where `../` and `../../` resolve from the rendered pages (measured; D4).
+- Write the publish root's `index.html` as a redirect to `html/`, so an extracted artifact opens on the front door.
+- Repair the six source-level links (D7): they are not copy gaps, and no amount of staging fixes them.
+- The lock stages into a tempdir through `utilities/build_docs_site.py`, walks every `href`/`src` in the output, and fails on a link that escapes the tree or lands on a missing file, naming the source page for each offender. It asserts a non-empty set of checked links (floor 200; the staged tree carries 239) and that `.doctrees` is absent, so it cannot pass vacuously (`AGENTS.md`, "Never lose a rule to a scripted edit").
+
+**Acceptance:** zero escaping or dangling links in the staged tree, with the lock proved able to fail by removing one copied target (measured: `html/index.html -> ../AGENTS.md`).
+
+#### Item 8.3: Open the 2.1.1 window
+
+**Files to change:**
+- `tests/test_release_notes.py` - `BASE_COMMIT` → `61a9738`, `NOTE_MARKER` → `Changed in 2.1.1`, plus the re-baseline paragraph that names this sprint (D6)
+- `CHANGELOG.md` - the consolidation's entries and the self-containment bullet under `[Unreleased]`
+
+**Steps:**
+- Re-baseline in the sprint's first commit, before any other file is edited, so no file is asked for two notes.
+- The changelog entries are not cosmetic: `utilities/release.py` refuses an empty `[Unreleased]`, and at the item's start it held the two plugin fixes only - a 2.1.1 cut would publish the Markdown guide sources, the site, the retired binaries' replacement pages and the new locks as work no entry names.
+- One bullet per phase is the right granularity (guides rendered from Markdown sources; one Sphinx site; the format and freshness locks; the `docs-locks` job), not a per-file list.
+
+**Acceptance:** `python utilities/release.py 2.1.1 --dry-run` reports the promotion it will perform and names the documentation entries.
+
+#### Item 8.4: CONTRIBUTING documentation section
+
+**Files to change:** `CONTRIBUTING.md`
+
+**Steps:**
+- Describe the workflow as the commands that actually run, not as prose: edit a `.md` page then `python -m sphinx -b html docs docs/_build/html`; edit a guide source then `python utilities/build_user_guides.py <module_dir>`; re-run the generator for either table.
+- State the two rules no generator can enforce: a `.docx`/`.pptx` is never hand-edited, and `docs/index.md`'s tool table is not edited by hand.
+- Point at `docs-locks` as the job that fails first, so a contributor reads the real failure before the full suite.
+- State that the built site is a CI artifact rather than a website, with the reason (D9), and that an extracted artifact is opened through its root `index.html`.
+
+**Acceptance:** the section names every command it tells a contributor to run, and each command as written exits 0 (verified at 2.1.1: Sphinx, the staging step, the guide renderer's `--check`, both table generators, and the seven-module `docs-locks` selection).
 
 ### 8.4 Verification
 
-**Gate Commands:**
-```powershell
-mkdocs build
+**Gate:** the standard per-sprint gate (Cross-Cutting A), run in full - bare `pytest`, not a docs-only selection.
+
+**Sprint-specific:**
+```bash
+python -m sphinx -b html -q docs docs/_build/html   # warning-free
+python utilities/build_docs_site.py                 # stages the publish root
+python -m pytest tests/test_docs_build.py tests/test_release_notes.py --no-cov -q
+python utilities/release.py 2.1.1 --dry-run
 ```
 
 **Specific Verification:**
-- Documentation builds without errors
-- All modules documented
-- Links work
-- GitHub Actions deploys successfully
+- Every page renders, and the staged tree is checked as an artifact rather than as a source tree: serve it (`python -m http.server` inside `docs/_build`) and fetch the root redirect, `html/`, the API page, one guide's Markdown source and each of the six copied files - all 200 (measured at 2.1.1).
+- Every link in the staged tree resolves inside it: the lock reports 239 checked occurrences with zero escaping and zero dangling.
+- The blocking reason sits where the artifact is produced, and no `actions/deploy-pages` step exists (D9).
 
 ### 8.5 Rollback Plan
 
 If Sprint 8 fails gate:
-- Remove MkDocs configuration
-- Remove GitHub Actions workflow
-- Version remains at 2.1.0
+- Nothing to unpublish: no Pages environment is enabled and no deploy job exists, so the rollback is the revert itself.
+- Keep the staging step and the self-containment lock: they repair the `docs-html` artifact, which is the delivery on its own.
+- **Not** "remove the docs configuration": `docs/conf.py`, the pages and their locks are load-bearing for `tests/test_docs_build.py`, `test_api_reference.py` and `test_docs_index.py`, so removing them fails the suite instead of rolling anything back.
+- Before the cut, the version stays at `2.1.0` in `pyproject.toml` and `uv.lock`; the changelog heading is the only other marker, because no git tags exist. After the cut, a revert leaves the `[2.1.1]` record in place rather than un-cutting it.
+
+### 8.6 Sprint 8 Close-Out (2026-10-24) — sprint closed, released as 2.1.1
+
+Sprint 8 is **CLOSED**. It shipped as **2.1.1** through `utilities/release.py
+2.1.1`: version and `uv.lock` bump, changelog promotion, seven version-labelled
+guide regenerations and the full gate. 8.1-8.5 remain as the decision record;
+this table is the outcome.
+
+| Scope item | Planned | Outcome | Evidence |
+|------------|---------|---------|----------|
+| 8.1 Publish the certified build | A `deploy-docs` job publishing the `docs-html` artifact to GitHub Pages | **Blocked by entitlement and recorded, not worked around.** The repository is private, the owner declined the paid plan, and Pages has no path for a private repository on Free - so no deploy job exists, and a lock keeps one from appearing. The artifact is the delivery, and it is now one that works when downloaded | D9; `TestTheCertifiedBuildIsTheDelivery` (3 tests); the unauthenticated repository API 404 and `public_repos: 0` probe |
+| 8.2 Make the artifact self-contained | Copy the six off-tree targets, write the root redirect, add a lock | **Delivered, with six more defects than the plan counted.** The measurement found twelve dangling link occurrences, not nine: six copy gaps, two wrong `../` depths in `docs/user/suite-overview.md` and four Markdown links in `docs/index.md` that MyST emits verbatim. All twelve resolve; the staging step is one module, and Sphinx's `.doctrees` (1.9 MB) no longer ships in `html/` | D4, D5, D7, D8; `TestPublishedTreeIsSelfContained` walks 239 internal links with 0 escaping and 0 dangling; break-and-restore red on `html/index.html -> ../AGENTS.md` |
+| 8.3 Open the 2.1.1 window | Re-baseline the change-note lock; give the consolidation changelog entries | **Delivered.** The window starts at `61a9738` under `Changed in 2.1.1`, and `[2.1.1]` carries one bullet per consolidation phase plus the artifact work and the two defects below | D6; `python utilities/release.py 2.1.1 --dry-run` is now a no-op (every guide already labels 2.1.1) |
+| 8.4 CONTRIBUTING documentation section | Commands, the two no-hand-edit rules, the `docs-locks` pointer | **Delivered, and every command in it was run.** Sphinx, the staging step, `build_user_guides.py --check`, both table generators and the seven-module `docs-locks` selection each exit 0; the section also states that the artifact, not a website, is the delivery | `CONTRIBUTING.md` §Documentation; verifier runs on this host |
+| 8.4 Verification | The per-sprint gate in full, plus the artifact checks | **Met.** `compileall` rc=0 · `ruff check .` / `ruff format --check .` clean (930 files) · bare `mypy .` clean (549 files) · bandit **0 High / 0 Medium** (47 Low, the documented subprocess set) · bare `pytest` **10,911 passed, 3 skipped, 35 deselected, 0 failed** at **90.50 %** coverage in 14 m 23 s. The staged tree was also served over HTTP: the root redirect, `html/`, the API page, a guide source and all six copied files returned 200 | the release gate log; local `http.server` pass |
+| 8.5 Rollback | Revert the deploy job, keep the copy step and the lock | **Not exercised, and the tree states why.** There is no environment to unpublish and no deploy job to remove, so the rollback is the revert itself; the staging step and the lock are delivery on their own | 8.5 |
+
+**Two defects were found by running the gate, proved pre-existing, and fixed
+here.** Both reproduced in a clean worktree at `61a9738` with none of this
+sprint's changes, so neither was carried in by the documentation work.
+(1) The committed usage-error wording no longer matched the locked Click 8.5,
+which made `TestFatalErrorExamples[doctor]` red; the three occurrences in the
+corpus and in the schema's examples were corrected (D10). (2) The
+stem-separator fatal-run test patched a module attribute that `app.py` never
+reads, so it asserted an error path nothing entered; it now patches the name
+the app binds, and the assertion is unchanged (D11). A third finding is
+recorded without being acted on: a full `--record` pass now emits
+`<repo>\.venv\Scripts\python.exe` where the corpus carries `<python>` (D10),
+which is a question about the recorder's sanitizer, not a docs-sprint change.
+
+**Delivered beyond the plan, because the work found it.** (1)
+`utilities/build_docs_site.py`, so CI and the lock cannot disagree about what is
+published. (2) A `^docs/_build/` exclude in `[tool.mypy]`: running the staging
+step and then `mypy .` reported 46 false errors from the staged copy of
+`user_guides/`, which ruff had already been skipping because it honours
+`.gitignore`. (3) The docs-index path scan stopped reading a `{doc}` docname as
+a repository path - the page was right and the scan was wrong. (4) A name on the
+`docs-html` upload step, so the delivery lock can point at that step rather than
+at a substring window.
+
+**What the sprint cannot claim, and does not.** The rationale this sprint was
+written with was external visibility. With publication blocked by an owner
+decision, the artifact is an internal delivery, and the close-out says so
+instead of implying a site exists. Re-opening it needs a hosting decision first,
+which is also when D2's public-repository premise and D5's `AGENTS.md` copy have
+to be revisited. No other limitation changed: the copied Markdown is served as
+text rather than rendered, and `AGENTS.md`/`SECURITY.md` keep one
+repository-relative link each that resolves in a checkout but not inside the
+artifact.
 
 ---
 
@@ -2174,7 +2332,7 @@ If Sprint 8 fails gate:
 | 5 | 1.4.1 | 1-2 weeks | Technical debt, security scanning |
 | 6 | 2.0.0 | 4-6 weeks | ML stem separation, ML denoising |
 | 7 | 2.1.0 | 3-4 weeks | Plugin system |
-| 8 | 2.1.1 | 1-2 weeks | API documentation site |
+| 8 | 2.1.1 | 1-2 days | Docs site published (site, API reference and locks already shipped by `PLAN_docs_consolidation`) |
 
 **Total Estimated Duration:** 17-26 weeks (4-6 months)
 
@@ -2224,9 +2382,9 @@ If Sprint 8 fails gate:
    - Rollback: Revert specific fixes
 
 4. **Sprint 8 (Documentation):**
-   - Risk: Minimal (documentation only)
-   - Mitigation: N/A
-   - Rollback: Remove docs config
+   - Risk: Minimal (documentation only), and the one real hazard is a *published* artefact rather than a local one: a site that serves dead links, or that exposes a file the owner would not have chosen to publish
+   - Mitigation: the publish tree is built by the same step the suite certifies, and a self-containment lock fails on any link that escapes it (Item 8.2)
+   - Rollback: revert the deploy job and unpublish Pages; the Sphinx config and its locks stay, because removing them fails the suite
 
 ---
 
@@ -2248,7 +2406,7 @@ If Sprint 8 fails gate:
 - Sprint 5: Technical debt reduced, security scanning operational
 - Sprint 6: ML capabilities functional (with fallback), major version justified
 - Sprint 7: Plugin system operational, example plugin works
-- Sprint 8: Documentation site live and accessible
+- Sprint 8: Documentation site published from the certified build, with every link on it resolving
 
 ---
 
