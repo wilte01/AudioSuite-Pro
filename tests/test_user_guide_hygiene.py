@@ -5,12 +5,12 @@ reproducible from a committed generator script, and no backup or superseded
 artifact may remain tracked. These locks convert that into an enforced
 invariant so the tree cannot silently rot again:
 
-1. *Source lock* - every directory under
-   ``user_guides/individual_programs/`` that contains a committed
-   ``*_User_Guide.docx`` also contains a committed ``*_User_Guide.md``, and a
-   freshly rendered artefact is byte-identical in ``word/document.xml`` to the
-   committed one. A hand-edited guide with no source is undetectable after the
-   fact, which is how the Tempo Analyzer guide drifted out of date for years.
+1. *Source lock* - every tracked ``.docx``/``.pptx`` under ``user_guides/``
+   is either rendered from a Markdown source beside it, or written by a
+   committed generator, or one of three named files awaiting retirement. A
+   hand-edited guide with no source is undetectable after the fact, which is
+   how the Tempo Analyzer guide drifted out of date for years; a new binary
+   fails this lock until someone gives it a source deliberately.
 2. *Backup lock* - no ``*.bak``/``*.bak*`` file is tracked anywhere under
    ``user_guides/``. These are dead weight that can never be regenerated or
    reviewed, and they silently mask the fact that a guide is stale.
@@ -40,6 +40,14 @@ the generator principle to the suite-level artefacts outside
 six ``.docx`` with no generator at all are dispositioned per file in
 PLAN_docs_consolidation (§6); the byte-level freshness check for every artefact
 lands with P4.1.
+Changed in 2.1.0: lock (1) now covers **every** tracked ``.docx``/``.pptx`` in
+``user_guides/``, not just ``individual_programs/``, so a new binary can no
+longer appear outside the rendered tree (PLAN_docs_consolidation P4.1). The
+three files still awaiting retirement are listed with a reason, and the list
+length is asserted, so it cannot quietly grow. Designed artefacts (the
+presentation) and derived ones (the logging guide, whose sample log lines are
+rendered from the live formatter) stay generator-backed; a ``.pptx`` layout is
+code, not prose, and a Markdown source for it would be a lossy duplicate.
 """
 
 from __future__ import annotations
@@ -82,6 +90,15 @@ def _load_renderer() -> Any:
     return module
 
 
+def _markdown_sources() -> list[Path]:
+    """Return every Markdown guide source under ``user_guides/``.
+
+    Returns:
+        Source paths, sorted.
+    """
+    return sorted((REPO_ROOT / "user_guides").rglob("*_User_Guide.md"))
+
+
 def tracked_paths() -> list[str]:
     """Return every tracked path in the repository, POSIX-style.
 
@@ -118,37 +135,105 @@ def _under(tracked: list[str], directory: Path) -> list[str]:
 class TestGeneratorHygiene:
     """Every committed user guide must be reproducible."""
 
+    #: Artefacts written by a committed generator rather than a Markdown source.
+    GENERATOR_BACKED: frozenset[str] = frozenset(
+        {
+            "user_guides/suite_overview/LOGGING_SYSTEM_GUIDE.docx",
+            "user_guides/suite_overview/AudioSuite-Pro_New_User_Presentation.pptx",
+        }
+    )
+
+    #: Artefacts that still have no source at all, per PLAN §6 (D9).
+    PENDING_RETIREMENT: dict[str, str] = {
+        "user_guides/reference/AudioSuite_Message_Guide.docx": (
+            "§6: generate from the message catalogue, or retire into the reference set"
+        ),
+        "user_guides/suite_overview/AudioSuite-Pro_Overview_Guide.docx": (
+            "§6: retire into the index's suite section"
+        ),
+        "user_guides/suite_overview/TECHNICAL_USER_GUIDE.docx": (
+            "§6: retire into the developer documentation"
+        ),
+    }
+
     def test_guide_root_exists(self) -> None:
         """The individual-program guide tree is the subject of these locks."""
         assert GUIDE_ROOT.is_dir(), f"missing guide root: {GUIDE_ROOT}"
 
-    def test_every_guide_has_a_markdown_source(self) -> None:
-        """Each directory shipping a user guide also ships its Markdown source.
+    def test_every_artefact_is_reproducible(self, tracked: list[str]) -> None:
+        """Every tracked ``.docx``/``.pptx`` has a source or a generator.
 
-        The scan reads the working tree rather than the index, like
-        :meth:`test_artefacts_match_their_sources`: CI checks out exactly the
-        committed tree, so the two are equivalent there, while locally a source
-        may exist for a few minutes before it is committed. Requiring the index
-        would fail every work-in-progress run of the very command this lock
-        asks for (``build_user_guides.py``).
+        This is the whole-tree form of the old ``individual_programs`` lock:
+        a binary that nothing can rebuild is exactly what accumulated outside
+        the rendered tree before (PLAN_docs_consolidation P4.1). Three states
+        are accepted, and nothing else:
+
+        * **Markdown-backed** - a ``.md`` source beside the artefact. Its
+          freshness is asserted by :meth:`test_artefacts_match_their_sources`.
+        * **Generator-backed** - a committed script that names the artefact in
+          its own text (see :class:`TestSuiteOverviewGenerators`). Freshness is
+          not compared, because regenerating a designed deck or a guide whose
+          sample lines come from the live formatter would rewrite a tracked
+          binary during the test run.
+        * **Pending retirement** - the three classified files in §6 of
+          PLAN_docs_consolidation, each with a reason and a planned destination.
+
+        The allowed sets are data, but the counts are asserted: adding a fourth
+        pending file, or silently dropping one, fails here.
         """
-        guides = sorted(GUIDE_ROOT.glob("*/*_User_Guide.docx"))
-        assert guides, "no committed user guides found - locks would pass vacuously"
+        artefacts = [
+            path
+            for path in tracked
+            if path.startswith("user_guides/")
+            and Path(path).suffix in {".docx", ".pptx"}
+        ]
+        assert len(artefacts) >= 30, (
+            f"only {len(artefacts)} artefacts found - the scan is broken, so "
+            "this lock would pass vacuously"
+        )
+
+        assert len(self.PENDING_RETIREMENT) == 3, (
+            "the pending-retirement list changed size; retire the files or "
+            "update the plan's §6 dispositions deliberately"
+        )
+        assert len(self.GENERATOR_BACKED) == 2, (
+            "the generator-backed list changed size; a new designed artefact "
+            "needs its own generator and a deliberate entry here"
+        )
 
         offenders: list[str] = []
-        for guide in guides:
-            if not guide.with_suffix(".md").is_file():
-                offenders.append(f"{guide.parent.name}: {guide.name} has no .md source")
+        for artefact in artefacts:
+            if artefact in self.PENDING_RETIREMENT:
+                if not (REPO_ROOT / artefact).is_file():
+                    offenders.append(
+                        f"{artefact}: listed for retirement but no longer on disk; "
+                        "drop the entry with the file"
+                    )
+                continue
+            if artefact in self.GENERATOR_BACKED:
+                continue  # TestSuiteOverviewGenerators owns the generator checks
+            source = Path(artefact).with_suffix(".md").as_posix()
+            if not (REPO_ROOT / source).is_file():
+                offenders.append(
+                    f"{artefact}: no Markdown source, no generator and no "
+                    "retirement entry - add the source (then run "
+                    "`python utilities/build_user_guides.py`) or classify it"
+                )
+
+        unknown = sorted(
+            (set(self.PENDING_RETIREMENT) | self.GENERATOR_BACKED) - set(artefacts)
+        )
+        offenders.extend(
+            f"{path}: classified but not a tracked artefact" for path in unknown
+        )
 
         assert not offenders, (
-            "user guides without a committed Markdown source (the .docx is a "
-            "build artefact - add the source, then run "
-            "`python utilities/build_user_guides.py`):\n  " + "\n  ".join(offenders)
+            "unreproducible documentation binaries:\n  " + "\n  ".join(offenders)
         )
 
     def test_sources_parse_through_the_renderer(self) -> None:
         """Every source parses with a title, so the renderer can rebuild it."""
-        sources = sorted(GUIDE_ROOT.glob("*/*_User_Guide.md"))
+        sources = _markdown_sources()
         assert sources, "no guide sources found - locks would pass vacuously"
         renderer = _load_renderer()
         for source in sources:
@@ -156,8 +241,14 @@ class TestGeneratorHygiene:
             assert guide.title, f"{source}: parsed with an empty title"
 
     def test_artefacts_match_their_sources(self) -> None:
-        """Each committed artefact is what the renderer produces from its source."""
-        sources = sorted(GUIDE_ROOT.glob("*/*_User_Guide.md"))
+        """Each committed artefact is what the renderer produces from its source.
+
+        The walk is tree-wide, not ``individual_programs/``-wide: the whole-tree
+        lock accepts a Markdown source anywhere under ``user_guides/``, so the
+        freshness check has to follow the same subject or a suite-level source
+        would be accepted without ever being compared to its artefact.
+        """
+        sources = _markdown_sources()
         assert sources, "no guide sources found - locks would pass vacuously"
         renderer = _load_renderer()
         problems: list[str] = []

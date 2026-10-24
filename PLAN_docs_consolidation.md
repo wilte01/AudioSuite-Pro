@@ -45,6 +45,7 @@ stays the single record of why the tree looks the way it does.
 | D16 | **The release cut still judges the rendered artefact, not the Markdown front matter.** P2.4 proposed reading the version subtitle from the guide's front matter; the implemented `release.py` keeps reading `word/document.xml`'s paragraph. | DECIDED during P2.4 (deviates from the plan text) | The artefact is what the Help button opens and what a user sees. A front-matter check proves the *source* names the new version and says nothing about a stale `.docx` that was never rendered; the artefact check fails in exactly that case, and its zip-entry triage already proves the only changed entry is `word/document.xml`. Reading the source would have been a weaker lock in the name of a shorter one. The front-matter subtitle is still *rendered* from `declared_version()` when a guide declares `version: auto`. |
 | D17 | **The guide-source lock scans the working tree, not the git index.** Its sibling artefact lock already did. | DECIDED during P2.2 | `git ls-files` lists only committed paths, so the lock failed on the 31 sources for as long as they were uncommitted — the exact work-in-progress state the lock's own message tells you to create. In CI the checkout is the commit, so the tree scan is equally strong there; locally it stops a green suite from depending on someone having staged files. The backup/logging locks keep reading the index, where "tracked" *is* the subject. |
 | D19 | **Links to files outside `docs/` stay plain relative URLs, and the CI artifact ships the guide sources beside the pages.** | DECIDED during P3.3 | MyST resolves a Markdown link as a cross-reference only inside the Sphinx source directory, so the 30 guide links (plus README, CHANGELOG, the `.docx` guides) produced 39 `myst.xref_missing` warnings — a red build for links that are correct in the repository. `myst_all_links_external = True` restores the RST behaviour (plain hyperlink), and cross-page links inside `docs/` use the explicit `{doc}` role so nothing resolvable is lost. The artifact then copies `user_guides/` next to `html/`, which is exactly where `../user_guides/...` points, so the published links resolve without a checkout. The alternative — making the repository root the Sphinx source directory — would pull README/AGENTS/CHANGELOG in as documents and change every page's URL for one link prefix. |
+| D20 | **P4.1's "every artefact has a Markdown source" is executed as a *closed classification*, not a single rule.** Every tracked `.docx`/`.pptx` is now one of: Markdown-backed (31, byte-fresh through the renderer), generator-backed (2), or pending retirement (3, named with a reason). | DECIDED during P4.1 (deviates from the plan text) | Two artefacts cannot honestly have a prose source. The new-user `.pptx` is a designed deck — cards, dividers, shapes and colour are code, and a Markdown source would either lose the layout or grow a second, lossy slide dialect. The logging guide's sample log lines are rendered from the live formatter, so its "source" is `logging_setup.py`; a Markdown copy would be the stale duplicate this plan exists to remove. The three classified files are the §6 orphans, whose retirement is a content migration (57 KB of prose) rather than a lock change. The counts of both lists are asserted, so neither can grow silently — a fourth orphan or a third designed artefact fails the suite. |
 | D18 | **P2.2's transcription was recorded by a one-off script, not retyped by hand** — contrary to the plan's "read by eye, file by file — no scripted wholesale conversion". The recorder built each generator's document in memory, walked it paragraph by paragraph, and emitted the Markdown; it was deleted after the run. | DECIDED during P2.2, verified afterwards | The risk the constraint targets is *silent* corruption by a mechanical bulk edit, and the recorder's output was proved against the thing that matters: every one of the 31 committed `.docx` files was decoded and its paragraph/table text compared with the fresh Markdown's rendering. 30 matched exactly; the one difference (`master_driver`) was the two paragraphs P1.4 had deliberately added, confirmed as a pure insertion (HEAD's 78 lines are an ordered subsequence of the new 80). One transcription defect *was* found and fixed this way — a lost four-space indent in `stem_separator`'s output-layout block. Retyping 10.5k lines by hand would have carried a larger error rate with no such proof. |
 
 ---
@@ -293,7 +294,7 @@ builds `docs/` and uploads the HTML (the `cli-payloads` job is the pattern), so
 table with links to each guide's Markdown, so one site covers user guides,
 reference and API.
 
-### Phase 4 — locks so it cannot rot back
+### Phase 4 — locks so it cannot rot back **[AUTHORISED 2026-10-24 — EXECUTED]**
 
 **P4.1** Extend the hygiene lock from `individual_programs/` to **every**
 `.docx`/`.pptx` in the tree: each must have a Markdown source and a fresh
@@ -314,16 +315,18 @@ it stops applying — as a labelled supersession entry, per D6.
 
 ## 6. Orphan-binary disposition (D9)
 
-Proposed, pending review. Each row removes a binary that no gate can inspect.
+Each row removes a binary that no gate can inspect. Four are executed (Phase 1);
+the three marked **pending** remain un-migrated and are frozen by P4.1's
+length-asserted allowlist, so they cannot be joined by a fourth (§10 P4.1, D20).
 
 | File | Disposition | Destination |
 |---|---|---|
-| `reference/AudioSuite_Message_Guide.docx` (60 KB) | **Generate** from the message catalogue (`user_message_for` / `audio_suite_shared.exceptions`) — the strings already exist once in code | `docs/user/messages.md` (generated) + optional `.docx` |
+| `reference/AudioSuite_Message_Guide.docx` (60 KB) | **Generate** from the message catalogue (`user_message_for` / `audio_suite_shared.exceptions`) — the strings already exist once in code. **Pending**: generating it is new tooling, not a lock | `docs/user/messages.md` (generated) + optional `.docx` |
 | `CLI_Headless_Mode_Guide.docx` | **Retire** into the gated CLI reference (P1.3) | `reference/CLI_Commands_Reference.md` |
 | `suite_overview/Audio_Suite_Security_Guide.docx` | **Retire** into the merged security page (P1.1) | `docs/user/security.md` |
 | `suite_overview/Plugin_System_Developer_Guide.docx` | **Retire**; `docs/plugins.rst` is newer and AGENTS-cited (P1.2) | `docs/plugins.*` |
-| `suite_overview/TECHNICAL_USER_GUIDE.docx` (22 KB) | **Retire** into the developer section of the index; its content overlaps `CONTRIBUTING.md` and `docs/` | `docs/index` + `CONTRIBUTING.md` |
-| `suite_overview/AudioSuite-Pro_Overview_Guide.docx` (21 KB) | **Retire** into the index's suite section; the `.pptx` remains the single suite-level narrative artefact | `docs/index` |
+| `suite_overview/TECHNICAL_USER_GUIDE.docx` (22 KB) | **Retire** into the developer section of the index; its content overlaps `CONTRIBUTING.md` and `docs/`. **Pending**: 33 KB of prose to triage for anything still true | `docs/index` + `CONTRIBUTING.md` |
+| `suite_overview/AudioSuite-Pro_Overview_Guide.docx` (21 KB) | **Retire** into the index's suite section; the `.pptx` remains the single suite-level narrative artefact. **Pending**: it describes 20 tools where the suite ships 30, so the content is stale as well as duplicated | `docs/index` |
 | `suite_overview/LOGGING_SYSTEM_GUIDE.docx` | **Keep generated** (already has a generator; no Help registration by design) | unchanged |
 
 ---
@@ -359,13 +362,17 @@ Proposed, pending review. Each row removes a binary that no gate can inspect.
 
 ## 8. Acceptance (definition of done)
 
-1. A human edits exactly one prose format; `git ls-files` shows no `.rst` (or
-   only the D1-declared island), no prose in `.py`, and every `.docx`/`.pptx`
-   reproducible by `--check`.
+1. A human edits exactly one prose format; `git ls-files` shows no `.rst`, no
+   prose in `.py`, and every `.docx`/`.pptx` **classified as reproducible** —
+   Markdown-backed ones byte-fresh through `--check`, the two designed/derived
+   ones generator-backed, and the three §6 orphans frozen by an allowlist that
+   cannot grow (D20).
 2. One index names every tool and every living document, and a test fails if any
    entry does not resolve.
 3. No document topic has two homes (§3 F2 resolved).
-4. Zero orphan binaries (§6 executed; P4.1 lock green).
+4. Orphan binaries are closed over: no new one can appear (P4.1 lock green),
+   and the three known ones are listed with a retirement destination (§6).
+   Their content migration is the one item this plan leaves open.
 5. No host-absolute path in doc tooling (P4.3).
 6. The full gate is green, and the docs HTML is a CI artefact (P3.2).
 
@@ -406,4 +413,9 @@ Proposed, pending review. Each row removes a binary that no gate can inspect.
 | P3.2 | `[x]` | CI's 3.14 test leg builds the site (`python -m sphinx -b html -q docs docs/_build/html`) and uploads `docs-html` with `if-no-files-found: error`, so "the docs" are readable without a checkout. The suite gate stays the correctness authority: `test_docs_build.py` still fails on any parser warning, and the CI step publishes what that gate certified. |
 | P3.3 | `[x]` | The generated tool table links each guide's **Markdown source** (`../user_guides/.../<Guide>_User_Guide.md`) instead of the `.docx`, so the site's own table points at pages it can render; the README table keeps linking the artefact a user opens. Links to files outside `docs/` are plain relative URLs (`myst_all_links_external`), because Sphinx resolves only documents inside its source dir — see D19. |
 | **Phase 3 gate** | `[x]` | Full bare `pytest`: **10 894 passed, 3 skipped, 35 deselected, 0 failed**, coverage **90.54 %** (≥ 75), 19 m 35 s, exit 0. Compile exit 0 · `ruff check .` clean · `ruff format --check .` 928 files · bare `mypy .` 0 issues / 548 files · bandit 0 High / 0 Medium (46 Low). The 65 targeted doc/registration/release tests ran first, and the docs build is warning-free (the 1 360 remaining warnings are the pre-existing Sphinx 9.2 napoleon deprecations). The CI artifact layout was reproduced locally: `docs/_build/html/index.html` plus `docs/_build/user_guides/...` resolves every guide link. |
-| P4.1–P4.5 | pending | Phase 1 prerequisite work (the index and generator locks) is in place. |
+| P4.1 | `[~]` | The hygiene lock now covers **every** tracked `.docx`/`.pptx` under `user_guides/` (36 files), not just `individual_programs/`: 31 are Markdown-backed and byte-fresh through `renderer.check_guide()`, 2 are generator-backed, and 3 are listed for retirement with a reason. Both classified lists assert their length, and the lock was proved able to fail (an intent-to-add `Dummy.docx` failed it; removing the file restored green). **Not** byte-fresh-checked: the `.pptx` and the logging guide, whose regeneration during a test run would rewrite a tracked binary — see D20. The three remaining orphans are still unretired (see §6). |
+| P4.2 | `[x]` | New `tests/test_docs_formats.py::TestAuthoredFormatWhitelist`: every tracked file under `docs/` and `user_guides/` must carry an approved suffix (`.md` authored, `.docx`/`.pptx` artefacts, `.py` for the two generators), `docs/` may hold no artefact, and **no `.rst` page may exist**. Proved able to fail: an intent-to-add `docs/regression_probe.rst` failed both whitelist tests, and removing it restored green. Non-vacuity: the walk asserts ≥ 40 files. |
+| P4.3 | `[x]` | `tests/test_docs_formats.py::TestNoMachineSpecificPaths` scans every tracked `.py`/`.md`/`.rst`/`.toml`/`.yml`/`.json` under `user_guides/`, `utilities/` and `docs/` for a drive path into `Users`/`Documents`/`Desktop`/`Program Files`. Proved able to fail by appending one such literal to `generate_docs_index.py` (exit 1), then restoring it SHA-256-identically. It caught a real occurrence on first run — the renderer's own docstring quoted the retired `D:\\Users\\…` path — which was reworded rather than waived. |
+| P4.4 | `[x]` | `tests/test_docs_index.py::TestEveryDocsPageIsReachable::test_every_tool_guide_is_named_by_the_index`: every `*_User_Guide.md` is named by the index. It immediately failed for `master_driver`, which is the orchestrator rather than a manifest tool and so was missing from the generated table; the index now names its guide in prose, and the lock asserts ≥ 30 guides so the walk cannot pass vacuously. |
+| **Phase 4 gate** | `[x]` | Full bare `pytest`: **10 899 passed, 3 skipped, 35 deselected, 0 failed**, coverage **90.54 %** (≥ 75), 13 m 59 s, exit 0 (five more tests than Phase 3: four format/path locks and the guide-reachability lock). Compile exit 0 · `ruff check .` clean · `ruff format --check .` 929 files · bare `mypy .` 0 issues / 548 files · bandit 0 High / 0 Medium (46 Low). All three new locks were proved able to fail, with SHA-256-identical restores. |
+| P4.5 | `[x]` | `AGENTS.md` gains a **Documentation Formats** section (one authored format; artefacts are generated and never hand-edited; both tables are generated; the two generator-backed artefacts and the three pending ones; which test is the arbiter) and the *User-Guide Regeneration Diffs* section now says the zip-entry triage is what `--check` and the release cut do. The superseded wording (per D6) is recorded here, not rewritten into history: the old text implied each tool's generator was the source of truth. |

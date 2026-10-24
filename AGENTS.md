@@ -778,20 +778,50 @@ the integration tests in `master_driver/tests/` and `audio_suite_shared/tests/`
 catch registration mistakes a package's own tests cannot see. The final gate MUST
 be a bare full-suite `pytest` run.
 
+## Documentation Formats
+
+**One authored format: Markdown.** Everything else under `docs/` and
+`user_guides/` is generated, and no generated file is hand-edited.
+
+- `docs/**/*.md` are Sphinx pages rendered by MyST (`myst-parser` in the `dev`
+  extra). `tests/test_docs_build.py` fails on any parser warning; CI publishes
+  the built HTML as the `docs-html` artifact.
+  Cross-page links inside `docs/` use the `{doc}` role; links to repository
+  files outside it stay plain relative URLs (`myst_all_links_external`), because
+  Sphinx only resolves documents inside its source directory.
+- `user_guides/individual_programs/<tool>/<Guide>_User_Guide.md` is a guide's
+  source. The `.docx` beside it is rendered by
+  `utilities/build_user_guides.py` and is what the Help button opens: edit the
+  Markdown, then run `python utilities/build_user_guides.py <module_dir>`.
+  `--check` proves every artefact is current and reports drift as a differing
+  zip entry.
+- Both HTML tables are generated: `utilities/generate_docs_index.py` writes the
+  docs index (from the tool manifest, validated against `guide_to_program`) and
+  `utilities/generate_readme_tool_index.py` writes the README's. Never edit
+  either by hand — re-run the script.
+- Two artefacts keep a committed generator instead of a Markdown source: the
+  new-user `.pptx` (a slide layout is code, not prose) and the logging guide
+  (its sample log lines are rendered from the live formatter).
+  `tests/test_user_guide_hygiene.py` accepts exactly those two plus three files
+  still awaiting retirement; any other unreproducible binary fails.
+- `tests/test_docs_formats.py` is the arbiter for formats: a new `.rst`/`.txt`
+  page fails until the approved set is edited deliberately, and a
+  machine-specific absolute path in doc tooling fails the scan.
+
 ## User-Guide Regeneration Diffs
 
 Regenerating `user_guides/**/*.docx` / `.pptx` is **content-stable but never
 byte-stable**: python-docx/pptx rebuild the zip container and every entry's
 local-header mtime changes, so `git status` reports all artifacts modified even
-when no text moved. Triage a regeneration change-set by comparing **zip entry
-data**, not the file hash or `git diff`:
+when no text moved. This is why `build_user_guides.py --check` — and the release
+cut's triage — compares **zip entry data**, not the file hash or `git diff`:
 
 - every entry's compressed data byte-identical to HEAD → timestamp-only diff →
   `git restore` it (minimal-diff rule);
 - an entry's data differs → investigate before keeping it.
 
-**The generator's fresh output is the source of truth.** A committed artifact
-re-saved by an external editor is external-tool drift, not generator drift:
+**The renderer's fresh output is the source of truth.** A committed artifact
+re-saved by an external editor is external-tool drift, not renderer drift:
 LibreOffice rewrites `docProps/app.xml`'s `Application` field, adds
 `docProps/custom.xml`, and drops
 `thumbnail.jpeg`/`stylesWithEffects.xml`/`webSettings.xml`. When the text is
@@ -800,7 +830,7 @@ byte-identical, keeping the regenerated file restores it.
 Run the generators with the interpreter that carries the dev extras
 (`python-docx`/`python-pptx`): `python` on PATH may be a system interpreter
 without them, while `generate_presentation.py` needs `python-pptx` from `.venv`.
-Verify with `pytest tests/test_user_guide_hygiene.py`.
+Verify with `pytest tests/test_user_guide_hygiene.py tests/test_docs_formats.py`.
 
 ## Refactor Safety
 

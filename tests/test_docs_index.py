@@ -149,6 +149,28 @@ class TestEveryDocsPageIsReachable:
         ]
         return pages
 
+    def test_every_tool_guide_is_named_by_the_index(self) -> None:
+        """Each tool's Markdown guide appears in the generated table (P4.4)."""
+        guides = sorted(
+            (REPO_ROOT / "user_guides" / "individual_programs").glob(
+                "*/*_User_Guide.md"
+            )
+        )
+        assert len(guides) >= 30, (
+            f"only {len(guides)} guide sources found - the walk is broken, so "
+            "this lock would pass vacuously"
+        )
+        text = INDEX.read_text(encoding="utf-8")
+        missing = [
+            guide.relative_to(REPO_ROOT).as_posix()
+            for guide in guides
+            if guide.relative_to(REPO_ROOT).as_posix() not in text
+        ]
+        assert not missing, (
+            "tool guides are not linked from docs/index.md (re-run "
+            "`python utilities/generate_docs_index.py`):\n  " + "\n  ".join(missing)
+        )
+
     def test_every_page_is_named_by_the_index(self) -> None:
         """Each page appears either as a toctree entry or as a link."""
         text = INDEX.read_text(encoding="utf-8")

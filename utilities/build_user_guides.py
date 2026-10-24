@@ -11,10 +11,10 @@ Why this exists
 ---------------
 Each guide used to be produced by its own copy of a python-docx script, so the
 prose lived in Python: editing one sentence was a code edit policed by ruff,
-mypy and bandit, 24 of the 33 generators wrote to a hard-coded
-``D:\\Users\\...`` path, and the 31 scripts shared no renderer at all
-(PLAN_docs_consolidation F4). This module is the single renderer; the guides are
-Markdown, which is also what the documentation index and the docs site read.
+mypy and bandit, 24 of the 33 generators wrote to a hard-coded absolute path
+belonging to one developer's profile, and the 31 scripts shared no renderer at
+all (PLAN_docs_consolidation F4). This module is the single renderer; the guides
+are Markdown, which is also what the documentation index and the docs site read.
 
 The dialect is deliberately small - only what the guides actually use:
 
