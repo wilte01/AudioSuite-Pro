@@ -119,6 +119,14 @@ a deletion cannot carry a note in its own content, and the deletion is recorded
 in the governing plan's decision log instead. ``test_scan_is_non_vacuous``
 still requires at least one *existing* modified code file, so skipping deleted
 paths cannot make the scan vacuous.
+Changed in 2.1.1: re-baselined the lock for the Sprint 8 documentation window
+(PLAN_feature_expansion.md D6). BASE_COMMIT is now 61a9738 -- the tip of the
+documentation consolidation, which is the state Sprint 8 starts from -- and
+NOTE_MARKER is ``Changed in 2.1.1``. The boundary is the consolidation tip
+rather than the 2.1.0 release commit (b362169) on purpose: five documentation
+commits landed after that cut while the marker still said 2.1.0, so re-basing
+at the release commit would demand a 2.1.1 note inside the code files those
+commits touched, whose own history is the 2.1.0 window.
 """
 
 from __future__ import annotations
@@ -131,14 +139,14 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: The plan's base commit; every file changed since here must be annotated.
-#: Updated at the 2.0.0 release (D123): set to 3eb5f85 (the release tip) so the
-#: closed Sprint 6 window needs no further notes and only work after 2.0.0 does.
-#: Earlier work is documented in its own plans and CHANGELOG.md, so it does not
-#: require per-file notes here.
-BASE_COMMIT = "3eb5f85"
+#: Re-baselined for Sprint 8 (D6): set to 61a9738 (the documentation
+#: consolidation tip) so the closed 2.1.0 window needs no further notes and only
+#: this sprint's work does. Earlier work is documented in its own plans and
+#: CHANGELOG.md, so it does not require per-file notes here.
+BASE_COMMIT = "61a9738"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 2.1.0"
+NOTE_MARKER = "Changed in 2.1.1"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (

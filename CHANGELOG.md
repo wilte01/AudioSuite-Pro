@@ -9,6 +9,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.1.1] - 2026-10-24
+
 ### Added
 
 - **The example plugin's window opens on the folder and run mode the Master
@@ -26,7 +30,67 @@ Versions of the tools are released together with the suite (the single
   failed stays open so its message can be read instead of vanishing with the
   process.
 
+- **The documentation artifact is self-contained.** The `docs-html` artifact now
+  carries every file its pages link to - `README.md`, `CHANGELOG.md`,
+  `CONTRIBUTING.md`, `AGENTS.md`, `SECURITY.md`, `packaging/` and the guide
+  sources - plus a root `index.html`, so a downloaded artifact opens on the
+  front door and its links resolve without a checkout. Twelve were dangling
+  before: six targets the build never published, two links in
+  `docs/user/suite-overview.md` written one directory too shallow, and four
+  links in `docs/index.md` written as Markdown to `.md` files that MyST emits
+  verbatim. `utilities/build_docs_site.py` stages the tree for CI and for the
+  lock that walks it, and keeps Sphinx's build cache out of the publish root.
+  Publication to GitHub Pages is not part of this release: Pages cannot be
+  enabled for a private repository on the free plan, so the artifact is the
+  delivery and every link in it is checked.
+
+### Changed
+
+- **Every user guide is rendered from one shared Markdown source.** Each of the
+  31 guides now has a `.md` source beside its `.docx`, rendered by
+  `utilities/build_user_guides.py`, so the prose is reviewable as text and the
+  Word file cannot drift from it. `--check` compares zip-entry data to prove
+  every artifact is what the renderer produces today.
+
+- **The reference is one Sphinx site built from Markdown pages.** `docs/` now
+  holds the front door, the API reference generated from `audio_suite_shared`'s
+  docstrings, the plugin guide, the resilience and user pages, all Markdown
+  rendered by MyST from the configuration the build gate reads. A shared module
+  the API page does not render fails the suite.
+
+- **The document locks run before the test matrix, not inside it.** A
+  `docs-locks` CI job runs the seven modules whose subject is a committed
+  document in a couple of minutes, so a stale guide, an unclassified binary, a
+  reintroduced prose format or a hand-edited table fails early instead of
+  fifteen minutes into a three-interpreter run. A lock keeps the job's file list
+  honest in both directions.
+
+### Removed
+
+- **The documentation duplicates with no owner.** `AudioSuite_Message_Guide.docx`,
+  `suite_overview/TECHNICAL_USER_GUIDE.docx` and
+  `suite_overview/AudioSuite-Pro_Overview_Guide.docx` are gone; their subjects
+  became `docs/user/messages.md`, `docs/resilience.md` and
+  `docs/user/suite-overview.md`, each written from the code and locked against
+  it rather than copied, because each file described behaviour the code does not
+  have. The 31 per-tool `generate_guide.py` scripts and
+  `docs/requirements.txt` went with them, and the last `.rst` page became
+  Markdown.
+
 ### Fixed
+
+- **The CLI's recorded usage-error examples match what the locked Click
+  prints.** Click 8.5 says `No such option '--x'.` where the committed payload
+  corpus and the published schema examples still said `No such option: --x`, so
+  the test that compares a real run against the published example failed. Both
+  files now carry the message the CLI actually emits.
+
+- **The stem-separator fatal-run test exercises the branch it names.** It
+  patched `file_processor.run_stem_separation` while `app.py` binds the function
+  by name at import, so the real processor ran against an empty folder, returned
+  normally, and the test asserted an error path nothing had entered. It now
+  patches the name `app.py` reads, which also proves the handler is marshalled
+  to the Tk thread rather than called from the worker.
 
 - **The bundled example plugin's launcher now opens.** Launching `Example
   Tool` from the Master Driver reported only `Module Error — Module failed:
