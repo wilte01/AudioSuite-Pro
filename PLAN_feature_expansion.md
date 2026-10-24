@@ -1,6 +1,18 @@
 # AudioSuite-Pro Feature Expansion & Enhancement Plan
 
 **Created:** 2026-10-15  
+**Status:** `[x]` **Complete (2026-10-24) — all eight sprints shipped, 1.1.0
+through 2.1.1.** No item in this file is open, and the per-sprint gate was
+green at each cut. Sprints 4-8 each end in a close-out naming the version they
+shipped as (`4.7`, `5.8`, `6.7`, `7.6`, `8.6`); Sprints 1-3 predate that
+convention and are evidenced by their changelog sections — 1.1.0, 1.2.0 and
+1.3.0 shipped on 2026-10-16, -17 and -18, and no item of theirs was carried.
+Sprint 8's publication step is delivered *as blocked*, not as done: GitHub
+Pages cannot be enabled for this private repository on the Free plan and the
+owner declined the paid plan, so the certified `docs-html` artifact is the
+delivery (**D9**). Per AGENTS.md (*Plan Governance*) this file is now a
+historical record — follow-on work belongs in a new plan, or here only as a
+clearly-labelled decision-log or supersession entry.  
 **Base Version:** 1.0.1 (post-bughunt remediation)  
 **Governance:** AGENTS.md (local and global)  
 **Scope:** Implementation of recommendations from comprehensive code analysis report
@@ -2119,8 +2131,8 @@ outcome rather than quietly dropped.
 | D8 — **Sphinx's doctrees are built outside the publish root.** The staging step passes `-d` to a temporary directory; the plain `sphinx-build docs docs/_build/html` idiom leaves `.doctrees` *inside* `html/` (measured: 1.9 MB of pickles at 2.1.0), and the lock asserts it stays out. | The artifact is now the delivery, so whatever sits in the publish root is what a reader downloads - `/html/.doctrees/` is neither a page nor a link target, and under a host it would be served. A published tree should contain what the pages reference and nothing else. The suite's own build gate keeps its doctrees in a pytest tempdir and is unaffected. |
 | D9 — **Publication is blocked: GitHub Pages cannot be enabled for this repository, and no deploy job is added.** The probe on 2026-10-24 found `wilte01/AudioSuite-Pro` private - the unauthenticated repository API returns 404 while the account reports zero public repositories - and GitHub's own documentation states Pages is available "in public repositories with GitHub Free ... and in public and private repositories with GitHub Pro, GitHub Team, GitHub Enterprise Cloud, and GitHub Enterprise Server". The owner declined the paid plan and keeps the repository private, so `docs-html` is the delivery. `TestTheCertifiedBuildIsTheDelivery` holds both halves: the test job uploads the staged tree whole, and no `actions/deploy-pages` step exists. | Three routes existed: make the repository public (which needs a committed-secrets audit first - this tree has carried live API keys in working state before, and history is permanent), upgrade the plan (declined), or keep the artifact as the delivery. The third changes nothing outside the sprint and still delivers the part that was broken. A deploy job that cannot succeed would be red on every push and would teach people to ignore the job list, so it is absent rather than present-and-disabled; the test is what keeps it from creeping back. Re-opened only by a hosting decision, which is also when D2's public-repository premise and D5's `AGENTS.md` copy have to be revisited. |
 | D10 — **The recorded usage-error wording follows the locked Click.** Click 8.5 prints `No such option '--no-such-option'.` where the committed corpus (`tests/data/cli_payloads.json`) and the schema's published examples (`audio_suite_shared/cli_schema.json`) carried `No such option: --no-such-option`. `tests/test_cli_json_schema.py::TestFatalErrorExamples` compares a real run against the schema example, so it was red at HEAD - reproduced in a clean worktree at `61a9738` before anything was changed. The three occurrences in each file were corrected, not regenerated. | `--record` is the documented path, and it was run first: it also rewrites every payload's `duration_secs`/`duration_str` (28 unrelated lines) and the `_generated` date, and it emitted `"interpreter": "<repo>\.venv\Scripts\python.exe"` where the corpus carries `"<python>"` - a change in the recorder's own sanitizer that deserves its own look, not carriage inside a documentation release. The contract being corrected is the message text Click emits, which the failing test proves empirically; regenerating everything to fix three strings is the larger diff for the same outcome. `--record` remains the tool to use when a payload *shape* changes. |
-| D12 — **The licence lock hashed a checkout's line endings, not the licence.** `tests/test_pyproject_config.py`'s `_GPL3_SHA256` was `230184f6…`, the digest of this host's CRLF working copy (35,823 bytes, `core.autocrlf=true`, and `LICENSE` has no `.gitattributes` entry), while the repository stores the same text as LF (`git cat-file -p HEAD:LICENSE` digests to `3972dc97…`, 35,149 bytes). The lock therefore passed here and failed on every checkout that keeps the stored form — CI's Linux legs included — reporting a corrupted licence nobody had edited. Found after the close, while gating the split commits in clean worktrees rather than in this working tree. The digest is now taken over the text normalised to LF, and a bare CR is still refused; the CRLF working copy and an LF copy of the real file both pass, and a one-character edit still fails (measured). | **"Verbatim" is a claim about the text, and a line-ending conversion cannot change text**, so hashing raw bytes quietly encoded the machine that computed the constant. The failure message is what makes it a defect rather than cosmetics: it told a reader to refetch the licence, which would have replaced a correct file. It also explains the constant's own history — D1 asked for the verbatim GNU text and the pin was then taken from a working copy, which is why the recorded value never matched the committed blob. The audit's other byte-hash locks were checked in the same pass and none shares the shape: the ones over audio hash binary fixtures in `tmp_path`, and `tests/external_records.py` records a digest for the host's global `AGENTS.md` without asserting equality (drift is caught by headings and markers), so this was the tree's only constant-pinned digest of a committed text file. |
 | D11 — **The stem_separator fatal-run test patched a name `app.py` never reads.** `app.py` binds the processor with `from .core.file_processor import run_stem_separation`, so `patch.object(file_processor, "run_stem_separation")` patched the module attribute and left the bound name alone. The real processor then ran against an empty temporary folder, found no audio, returned normally, and the test failed on a zero-call `_on_error` - red at HEAD, reproduced in a clean worktree at `61a9738`. It now patches `stem_separator.app.run_stem_separation`, so the error path actually runs and the fake root's `after` proves the handler is marshalled to the Tk thread exactly as `BaseSuiteApp._on_error` requires (it calls `messagebox.showerror` directly, so it must not run on a worker thread). | A patch target that silently matches nothing is the same failure class as a scan over an empty set: the test kept passing its own setup and asserted a condition the code could never reach. Patching the name the module reads is the only form that exercises the branch, and the assertion it already had - `_on_error` called once with the dependency message - is the one that matters, so nothing was weakened to fix it. |
+| D12 — **The licence lock hashed a checkout's line endings, not the licence.** `tests/test_pyproject_config.py`'s `_GPL3_SHA256` was `230184f6…`, the digest of this host's CRLF working copy (35,823 bytes, `core.autocrlf=true`, and `LICENSE` has no `.gitattributes` entry), while the repository stores the same text as LF (`git cat-file -p HEAD:LICENSE` digests to `3972dc97…`, 35,149 bytes). The lock therefore passed here and failed on every checkout that keeps the stored form — CI's Linux legs included — reporting a corrupted licence nobody had edited. Found after the close, while gating the split commits in clean worktrees rather than in this working tree. The digest is now taken over the text normalised to LF, and a bare CR is still refused; the CRLF working copy and an LF copy of the real file both pass, and a one-character edit still fails (measured). | **"Verbatim" is a claim about the text, and a line-ending conversion cannot change text**, so hashing raw bytes quietly encoded the machine that computed the constant. The failure message is what makes it a defect rather than cosmetics: it told a reader to refetch the licence, which would have replaced a correct file. It also explains the constant's own history — D1 asked for the verbatim GNU text and the pin was then taken from a working copy, which is why the recorded value never matched the committed blob. The audit's other byte-hash locks were checked in the same pass and none shares the shape: the ones over audio hash binary fixtures in `tmp_path`, and `tests/external_records.py` records a digest for the host's global `AGENTS.md` without asserting equality (drift is caught by headings and markers), so this was the tree's only constant-pinned digest of a committed text file. |
 
 ### 8.3 Implementation Items
 
@@ -2338,7 +2350,12 @@ artifact.
 | 5 | 1.4.1 | 1-2 weeks | Technical debt, security scanning |
 | 6 | 2.0.0 | 4-6 weeks | ML stem separation, ML denoising |
 | 7 | 2.1.0 | 3-4 weeks | Plugin system |
-| 8 | 2.1.1 | 1-2 days | Docs site published (site, API reference and locks already shipped by `PLAN_docs_consolidation`) |
+| 8 | 2.1.1 | 1-2 days | Self-contained documentation artifact as the delivery (site, API reference and locks already shipped by `PLAN_docs_consolidation`); publication to GitHub Pages is recorded as blocked by entitlement (D9) |
+
+**Every row shipped at the version it names** — 1.1.0 (2026-10-16), 1.2.0
+(2026-10-17), 1.3.0 (2026-10-18), 1.4.0 (2026-10-19), 1.4.1 (2026-10-21), 2.0.0
+and 2.1.0 (2026-10-23), 2.1.1 (2026-10-24). The durations were estimates, not
+measurements, so they are left as planned rather than rewritten.
 
 **Total Estimated Duration:** 17-26 weeks (4-6 months)
 
@@ -2390,7 +2407,7 @@ artifact.
 4. **Sprint 8 (Documentation):**
    - Risk: Minimal (documentation only), and the one real hazard is a *published* artefact rather than a local one: a site that serves dead links, or that exposes a file the owner would not have chosen to publish
    - Mitigation: the publish tree is built by the same step the suite certifies, and a self-containment lock fails on any link that escapes it (Item 8.2)
-   - Rollback: revert the deploy job and unpublish Pages; the Sphinx config and its locks stay, because removing them fails the suite
+   - Rollback: nothing to unpublish — no Pages environment is enabled and no deploy job exists, so the rollback is the revert itself (8.5); the Sphinx config and its locks stay, because removing them fails the suite
 
 ---
 
@@ -2412,7 +2429,10 @@ artifact.
 - Sprint 5: Technical debt reduced, security scanning operational
 - Sprint 6: ML capabilities functional (with fallback), major version justified
 - Sprint 7: Plugin system operational, example plugin works
-- Sprint 8: Documentation site published from the certified build, with every link on it resolving
+- Sprint 8: The documentation artifact is self-contained — every link in the
+  staged tree resolves and it opens on its root `index.html` — which is
+  *delivery*; a published site is recorded as blocked by entitlement (D9), so
+  no site is claimed
 
 ---
 
@@ -2421,3 +2441,22 @@ artifact.
 This plan provides a structured, incremental approach to addressing the functionality gaps and improvement opportunities identified in the comprehensive analysis. Each sprint is designed to be standalone and releasable, with clear versioning decisions and rollback plans. The plan respects AGENTS.md governance and maintains the suite's high quality standards throughout execution.
 
 The sequence prioritizes low-risk, high-impact features first (formats, DSP effects, metadata integration) before tackling complex architectural changes (ML integration, plugin system). This approach allows for early wins while building toward the most significant capabilities.
+
+## Plan Complete (2026-10-24)
+
+All eight sprints are executed and released; the last one closed as 2.1.1 on the
+same day. This file therefore stops being a work list and becomes the record of
+what was decided and delivered — the eight sprint sections keep their decision
+logs and close-outs intact, because the evidence for *why* a thing is the way it
+is lives there, and rewriting them would delete that evidence.
+
+Two things a later reader should not have to rediscover. The plan's premise
+changed under it: it was written for external visibility, and publication turned
+out to be impossible without either paying for GitHub Pro or making a
+repository with a secret-bearing history public (**D9**), so the documentation
+deliverable became an internal artifact — the part that was actually broken
+(dead links, a 1.9 MB doctree leak, no front door) is the part that got fixed.
+And a defect can outlive its sprint: the licence lock has passed on this host
+for a reason unrelated to the licence ever since its constant was taken from a
+working copy (**D12**), and only gating in clean worktrees found it. New work
+starts in a new plan; nothing in this one is waiting.
