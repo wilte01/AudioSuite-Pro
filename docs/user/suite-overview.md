@@ -35,7 +35,7 @@ tool appears in the right tab without any UI code being edited.
   {doc}`../resilience`.
 - **Two ways to run the same work.** The CLI does it headlessly
   (`audiosuite <command>`), the Master Driver does it with progress, retries and
-  a summary. The [CLI reference](../user_guides/reference/CLI_Commands_Reference.md)
+  a summary. The [CLI reference](../../user_guides/reference/CLI_Commands_Reference.md)
   lists every command and its `--json` payload.
 
 ## Where to go next
@@ -43,8 +43,8 @@ tool appears in the right tab without any UI code being edited.
 | You want | Read |
 | --- | --- |
 | What one tool does, setting by setting | that tool's user guide, linked from the {doc}`../index` |
-| Every command and flag, or scripting the suite | [CLI commands reference](../user_guides/reference/CLI_Commands_Reference.md) |
+| Every command and flag, or scripting the suite | [CLI commands reference](../../user_guides/reference/CLI_Commands_Reference.md) |
 | What an error message means and where the logs are | {doc}`messages` |
 | How retries, failure handling and cleanup work | {doc}`../resilience` |
 | API keys, file handling, what the suite treats as untrusted | {doc}`security` |
-| Building the suite's own code | [contributing](../CONTRIBUTING.md), {doc}`../api`, {doc}`../plugins` |
+| Building the suite's own code | [contributing](../../CONTRIBUTING.md), {doc}`../api`, {doc}`../plugins` |

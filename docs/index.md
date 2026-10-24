@@ -63,9 +63,9 @@ tool entry in the manifest.
 
 ## Suite-wide guides
 
-* [Suite overview](user/suite-overview.md) — how the 30 tools are grouped, what
+* {doc}`user/suite-overview` — how the 30 tools are grouped, what
   each Master Driver tab runs, and how a batch is ordered.
-* [Security in AudioSuite-Pro](user/security.md) — encrypted API keys and how
+* {doc}`user/security` — encrypted API keys and how
   to recover them, safe file selection, and what each security message means.
 * [Logging system guide](../user_guides/suite_overview/LOGGING_SYSTEM_GUIDE.docx)
   — where each program writes its log, what the levels mean, and how to read a
@@ -80,7 +80,7 @@ tool entry in the manifest.
 * [CLI commands reference](../user_guides/reference/CLI_Commands_Reference.md)
   — every `audiosuite` command, its flags, and a headless/scripting section.
   Its flag names and defaults are locked against the real click commands.
-* [Messages, dialogs and log files](user/messages.md) — where the logs live,
+* {doc}`user/messages` — where the logs live,
   what each severity means, and what to do about every error message. Its
   message table is locked against the code's translation table.
 * `audiosuite --json-schema` — the machine-readable output contract, printed
@@ -95,7 +95,7 @@ tool entry in the manifest.
   plugin.
 * [Contributing](../CONTRIBUTING.md) — the gate, the test conventions, and the
   checklist for registering a new tool.
-* [Retries and cleanup](resilience.md) — what happens when a file, a step or a
+* {doc}`resilience` — what happens when a file, a step or a
   batch fails: backoff policy, recovery actions, and resource cleanup.
 * [AGENTS.md](../AGENTS.md) — the repository's instruction file: the rules the
   gate enforces, and the domain traps worth knowing before editing DSP code.

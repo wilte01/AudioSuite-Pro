@@ -26,6 +26,13 @@ Changed in 2.1.0: the index is Markdown (P3.1), so paths are single-backtick
 spans and links are ``[text](target)``.  The tool table now links each guide's
 Markdown source rather than the ``.docx`` artefact, because that is what the
 rendered site can open (P3.3).
+Changed in 2.1.1: the path scan no longer reads a MyST role's docname as a
+repository path (PLAN_feature_expansion.md, Sprint 8).  ``{doc}`user/security```
+names a document, and the page links subdirectory pages with that role because a
+Markdown link to ``user/security.md`` is emitted verbatim by MyST - a dead link
+in the rendered site.  The role body contains a slash, so the token regex
+claimed it and the lock failed on a page that is correct; ``path_tokens`` strips
+role spans first, and a lock-step test pins both halves.
 """
 
 from __future__ import annotations
@@ -43,8 +50,29 @@ GENERATOR = REPO_ROOT / "utilities" / "generate_docs_index.py"
 #: The manifest ships 30 first-party tools; a table that loses rows fails here.
 REQUIRED_TOOL_ROWS = 30
 
+#: A MyST role span, e.g. ``{doc}`user/security```. Its body is a docname, not a
+#: repository path, even when it contains a slash.
+_MYST_ROLE = re.compile(r"\{[a-z]+\}`[^`]*`")
+
 #: A backticked span that is a repository-relative path (it contains a slash).
 _PATH_TOKEN = re.compile(r"`([A-Za-z0-9_][A-Za-z0-9_./-]*/[A-Za-z0-9_./-]+)`")
+
+
+def path_tokens(text: str) -> set[str]:
+    """Return the repository-relative paths a page names in backticks.
+
+    MyST role spans are removed first: ``{doc}`user/security``` contains a slash
+    but names a document, so reading it as a path would fail on a correct page
+    (2.1.1).
+
+    Args:
+        text: The page source.
+
+    Returns:
+        The distinct backticked tokens that contain a slash.
+    """
+    return {m.group(1) for m in _PATH_TOKEN.finditer(_MYST_ROLE.sub("", text))}
+
 
 #: A Markdown inline link: ``[text](target)``.
 _LINK_TARGET = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
@@ -103,12 +131,18 @@ class TestPathsResolve:
     def test_every_repository_path_exists(self) -> None:
         """Backticked repo-relative paths must resolve from the repository root."""
         text = INDEX.read_text(encoding="utf-8")
-        tokens = sorted({m.group(1) for m in _PATH_TOKEN.finditer(text)})
+        tokens = sorted(path_tokens(text))
         assert tokens, "no repository-relative paths found - the scan is vacuous"
         missing = [token for token in tokens if not (REPO_ROOT / token).exists()]
         assert not missing, (
             "docs/index.md names paths that do not exist:\n  " + "\n  ".join(missing)
         )
+
+    def test_myst_role_targets_are_not_read_as_paths(self) -> None:
+        """A ``{doc}`` docname is a document, not a claimed repository path."""
+        sample = "See {doc}`user/security` and `audio_suite_shared/cli_app.py`."
+
+        assert path_tokens(sample) == {"audio_suite_shared/cli_app.py"}
 
     def test_every_link_target_exists(self) -> None:
         """Inline link targets resolve relative to docs/ (external URLs aside)."""
