@@ -140,6 +140,55 @@ from the manifest and the full-suite lock tests fail if it drifts:
 [OK] Tool index regenerated: ... rows
 ```
 
+## Documentation
+
+Everything under `docs/` is Markdown rendered by Sphinx + MyST, and every guide
+under `user_guides/` is Markdown rendered into the Word file each Help button
+opens. In both cases the Markdown is the source and the rendered thing is an
+artifact no one edits by hand.
+
+```pwsh
+# the site, straight from docs/conf.py (the build gate reads the same config)
+python -m sphinx -b html docs docs/_build/html
+
+# the publish-ready tree: html/ plus every file the pages link to, and a root
+# index.html that opens on the front door
+python utilities/build_docs_site.py
+
+# one tool's guide from its Markdown source, or all of them
+python utilities/build_user_guides.py <module_dir>
+python utilities/build_user_guides.py --check
+
+# the two generated tables
+python utilities/generate_docs_index.py
+python utilities/generate_readme_tool_index.py
+```
+
+Two rules no generator can enforce:
+
+* a `.docx` or `.pptx` under `user_guides/` is never edited in Word — change the
+  `.md` beside it and re-render, because the freshness lock compares the
+  committed artifact against what the renderer produces today;
+* the tool table in `docs/index.md` and the one in `README.md` are generated from
+  the manifest; re-run the generator instead of editing a row.
+
+`docs-locks` is the CI job that runs the document locks on their own, ahead of
+the three-interpreter suite matrix, so a stale artifact or a reintroduced format
+fails in a couple of minutes instead of fifteen. The same modules run locally
+with:
+
+```pwsh
+python -m pytest tests/test_user_guide_hygiene.py tests/test_docs_formats.py `
+  tests/test_docs_index.py tests/test_guide_resolution.py tests/test_api_reference.py `
+  tests/test_readme.py tests/test_changelog_format.py --no-cov -q
+```
+
+The built site is a CI artifact (`docs-html`), not a website: GitHub Pages cannot
+be enabled for this repository, so the artifact is the delivery, and
+`utilities/build_docs_site.py` stages it so every link inside it resolves
+(PLAN_feature_expansion.md D9). A downloaded artifact is opened through its root
+`index.html`.
+
 ## CLI JSON schema conformance
 
 Every CLI command publishes a JSON payload through
