@@ -34,6 +34,14 @@ overlap check covers three markers.  The four collections now run in a single
 interpreter (``tests/_collect_views.py``) instead of four whole-tree
 subprocesses: the views and their assertions are the same evidence, but the
 interpreter startup and test-module imports are paid once (~35 s → ~19 s).
+
+Changed in 2.1.1: the licence lock hashes the licence's *text*, not the bytes
+one checkout happens to hold. ``_GPL3_SHA256`` was the digest of a CRLF working
+copy while the repository stores LF, so the same unedited licence passed on a
+host with ``core.autocrlf=true`` and failed everywhere else - every Linux CI
+leg - with the message reserved for a corrupted file. Line endings are now
+normalised before hashing, and a bare CR, which no conversion produces, still
+fails.
 """
 
 from __future__ import annotations
@@ -250,10 +258,39 @@ class TestConfigLock:
 # ---------------------------------------------------------------------------
 
 #: SHA-256 of the canonical GNU GPL v3 text (https://www.gnu.org/licenses/
-#: gpl-3.0.txt). Locking the hash, not just the header, means a corrupted or
-#: silently re-flowed LICENSE fails here — the plan requires the D1 licence
+#: gpl-3.0.txt), taken over the text with **LF** line endings - the form the
+#: repository stores, so the digest describes the licence rather than one
+#: host's checkout. Locking the hash, not just the header, means a corrupted or
+#: silently re-flowed LICENSE fails here - the plan requires the D1 licence
 #: text verbatim.
-_GPL3_SHA256 = "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
+_GPL3_SHA256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+
+
+def _canonical_licence_text(raw: bytes) -> bytes:
+    """Return ``raw`` with its line endings normalised to LF.
+
+    ``LICENSE`` carries no ``.gitattributes`` entry, so a working copy with
+    ``core.autocrlf=true`` holds it as CRLF (35,823 bytes) while the repository
+    stores LF (35,149).  That conversion belongs to the checkout, not to the
+    licence, so the hash is taken over the normalised text; hashing raw bytes
+    made one unmodified file pass on this host and fail on any clone without
+    the conversion.
+
+    Args:
+        raw: The file's bytes.
+
+    Returns:
+        The same text with every CRLF pair replaced by LF.
+
+    Raises:
+        ValueError: if ``raw`` carries a bare CR. No line-ending conversion
+            produces one, so it is corruption rather than a checkout
+            difference and must not be normalised away.
+    """
+    if b"\r" in raw.replace(b"\r\n", b""):
+        raise ValueError("bare CR in the licence text - not a line-ending conversion")
+    return raw.replace(b"\r\n", b"\n")
+
 
 _BASELINE_DOCS = ("CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md")
 
@@ -287,12 +324,12 @@ class TestPackagingMetadataLock:
     def test_the_licence_file_exists_verbatim(self) -> None:
         path = REPO_ROOT / "LICENSE"
         assert path.is_file(), "LICENSE must exist on disk"
-        raw = path.read_bytes()
-        text = raw.decode("utf-8")
-        assert hashlib.sha256(raw).hexdigest() == _GPL3_SHA256, (
+        canonical = _canonical_licence_text(path.read_bytes())
+        assert hashlib.sha256(canonical).hexdigest() == _GPL3_SHA256, (
             "LICENSE is not the verbatim GNU GPL v3 text — refetch it from "
             "https://www.gnu.org/licenses/gpl-3.0.txt rather than editing"
         )
+        text = canonical.decode("utf-8")
         assert text.startswith("                    GNU GENERAL PUBLIC LICENSE")
         assert "Version 3, 29 June 2007" in text
 
@@ -309,6 +346,38 @@ class TestPackagingMetadataLock:
         for name in _BASELINE_DOCS:
             assert (REPO_ROOT / name).is_file(), f"{name} must exist"
             assert name in readme, f"README must reference {name}"
+
+
+class TestTheLicenceLockIgnoresTheCheckout:
+    """A line-ending conversion must not decide whether the lock is green.
+
+    ``_GPL3_SHA256`` was the digest of this host's CRLF working copy, so the
+    same unmodified licence failed on every clone that keeps the stored LF -
+    including CI's Linux legs - and the failure message pointed a reader at
+    refetching a file that was already correct. Both directions are pinned
+    here: the conversion is tolerated, and real corruption is not.
+    """
+
+    def test_a_crlf_working_copy_hashes_as_the_canonical_text(self) -> None:
+        """Normalising the other checkout state yields the pinned digest."""
+        canonical = _canonical_licence_text((REPO_ROOT / "LICENSE").read_bytes())
+        crlf = canonical.replace(b"\n", b"\r\n")
+        assert crlf != canonical, "the fixture must actually differ in line endings"
+        assert hashlib.sha256(_canonical_licence_text(crlf)).hexdigest() == _GPL3_SHA256
+
+    def test_a_bare_carriage_return_is_still_refused(self) -> None:
+        """Only CRLF is a conversion; a lone CR is corruption and fails."""
+        with pytest.raises(ValueError, match="bare CR"):
+            _canonical_licence_text(b"line one\rline two\r\n")
+
+    def test_a_changed_byte_still_fails_the_lock(self) -> None:
+        """The normalisation must not be a blanket pass for any text."""
+        canonical = _canonical_licence_text((REPO_ROOT / "LICENSE").read_bytes())
+        edited = canonical.replace(
+            b"Version 3, 29 June 2007", b"Version 3, 29 June 2008"
+        )
+        assert edited != canonical, "the fixture must actually edit the text"
+        assert hashlib.sha256(edited).hexdigest() != _GPL3_SHA256
 
 
 # ---------------------------------------------------------------------------

@@ -101,6 +101,14 @@ Nothing yet.
   now also names the launcher's exit code, since that is the only evidence left
   once its output is gone.
 
+- **The licence lock no longer depends on the checkout's line endings.** It
+  hashed the bytes on disk, and `LICENSE` has no `.gitattributes` entry, so this
+  host's CRLF copy passed while a clone that keeps the stored LF — every Linux
+  CI leg — failed the same unedited licence with the message reserved for a
+  corrupted file. The digest is now taken over the text with LF endings, the
+  form the repository stores, and a bare carriage return, which no line-ending
+  conversion produces, still fails.
+
 ## [2.1.0] - 2026-10-23
 
 ### Added
