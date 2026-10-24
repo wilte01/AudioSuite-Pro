@@ -20,8 +20,15 @@ Both scans read the working tree and assert a non-empty result set, so a
 mis-scoped walk fails loudly instead of passing vacuously (AGENTS.md, "Never
 lose a rule to a scripted edit").
 
+A third lock is *about* the first two: ``TestDocsLocksRunOnTheirOwn`` holds the
+``docs-locks`` CI job (D22) to every module whose subject is a committed
+document, so a stale guide fails in minutes instead of 15-20 minutes into the
+suite matrix - and so the job cannot quietly lose a lock.
+
 Changed in 2.1.0: new file - the authored-format whitelist and the
 machine-specific path scan (PLAN_docs_consolidation P4.2, P4.3).
+Changed in 2.1.0: adds ``TestDocsLocksRunOnTheirOwn``, the lock behind the
+dedicated CI job (PLAN_docs_consolidation D22).
 """
 
 from __future__ import annotations
@@ -32,6 +39,8 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+
+from tests.ci_workflow import job as ci_job
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -52,6 +61,31 @@ DOC_TREES = ("docs", "user_guides")
 #: Every tracked path with one of these suffixes is scanned for absolute paths.
 SCAN_TREES = ("user_guides", "utilities", "docs")
 SCAN_SUFFIXES = frozenset({".py", ".md", ".rst", ".toml", ".yml", ".yaml", ".json"})
+
+#: The document locks CI runs together, before the full suite (D22). Each
+#: module's subject is a committed document: a guide artefact and its source,
+#: the ``docs/`` pages, the generated index and README tables, the changelog, or
+#: the Help button's path resolution.
+DOCS_LOCKS: tuple[str, ...] = (
+    "tests/test_user_guide_hygiene.py",
+    "tests/test_docs_formats.py",
+    "tests/test_docs_index.py",
+    "tests/test_guide_resolution.py",
+    "tests/test_api_reference.py",
+    "tests/test_readme.py",
+    "tests/test_changelog_format.py",
+)
+
+#: Document-shaped modules the fast job deliberately leaves to the full suite.
+DOCS_LOCKS_DEFERRED: dict[str, str] = {
+    "tests/test_docs_build.py": (
+        "builds the Sphinx site, whose autodoc imports the documented package; "
+        "the test job publishes what its verdict certifies (P3.2)"
+    ),
+    "tests/test_docstring_coverage.py": (
+        "its subject is docstring coverage in the source tree, not a committed document"
+    ),
+}
 
 #: A Windows drive path that points into a user profile or a system folder.
 _ABSOLUTE = re.compile(
@@ -171,4 +205,71 @@ class TestNoMachineSpecificPaths:
             "documentation tooling names a machine-specific absolute path. It "
             "must resolve paths from the repository root or the script's own "
             "location (PLAN_docs_consolidation P4.3):\n  " + "\n  ".join(offenders)
+        )
+
+
+def _document_lock_modules() -> set[str]:
+    """Return every test module whose subject is a committed document.
+
+    The families are named rather than derived from a list of subjects the
+    files do not declare: a module about a document is called
+    ``test_docs*``/``test_user_guide*``/``test_guide*``/``test_api_*``, or it
+    locks the README or the changelog by name.
+
+    Returns:
+        POSIX paths relative to the repository root, e.g. ``tests/test_docs_index.py``.
+    """
+    prefixes = ("test_docs", "test_user_guide", "test_guide", "test_api_")
+    names = {
+        path.name
+        for path in (REPO_ROOT / "tests").glob("test_*.py")
+        if path.name.startswith(prefixes)
+    }
+    names |= {"test_readme.py", "test_changelog_format.py"}
+    return {f"tests/{name}" for name in names}
+
+
+class TestDocsLocksRunOnTheirOwn:
+    """The document locks are a CI job of their own, and it runs all of them.
+
+    Lock (3), PLAN_docs_consolidation D22. The suite still owns correctness -
+    these are the same test modules - but a lock that only speaks 15 minutes
+    into a three-interpreter matrix is a lock people work around. Two failures
+    this catches: a lock dropped from the job's command (so the job is green
+    while a guide rots), and a new document lock that nobody added to the job
+    (so it keeps running only in the full suite).
+    """
+
+    def test_the_job_runs_every_lock(self) -> None:
+        """Each listed lock is named in the ``docs-locks`` job's steps."""
+        block = ci_job("docs-locks")
+        assert len(DOCS_LOCKS) >= 7, (
+            f"{len(DOCS_LOCKS)} locks listed - the list shrank, so the job would "
+            "silently stop covering a document"
+        )
+        missing = [path for path in DOCS_LOCKS if path not in block]
+        assert not missing, (
+            "the docs-locks job in ci.yml does not run these locks, so their "
+            "failures are back to surfacing only in the full suite "
+            "(PLAN_docs_consolidation D22):\n  " + "\n  ".join(missing)
+        )
+
+    def test_every_document_lock_is_classified(self) -> None:
+        """A new document lock joins the job, or the deferred list, deliberately."""
+        discovered = _document_lock_modules()
+        assert len(discovered) >= 8, (
+            f"only {len(discovered)} document lock modules found - the walk is "
+            "broken, so this lock would pass vacuously"
+        )
+        stale = sorted(set(DOCS_LOCKS_DEFERRED) - discovered)
+        assert not stale, (
+            "these modules are deferred from the docs-locks job but no longer "
+            "exist; remove them from DOCS_LOCKS_DEFERRED:\n  " + "\n  ".join(stale)
+        )
+        unclassified = sorted(discovered - set(DOCS_LOCKS) - set(DOCS_LOCKS_DEFERRED))
+        assert not unclassified, (
+            "document lock modules are not classified for the docs-locks job. "
+            "Add each to DOCS_LOCKS (and to the job's command in ci.yml) or to "
+            "DOCS_LOCKS_DEFERRED with a reason (PLAN_docs_consolidation D22):\n  "
+            + "\n  ".join(unclassified)
         )

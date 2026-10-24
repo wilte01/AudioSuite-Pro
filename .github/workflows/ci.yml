@@ -29,6 +29,74 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
 
+  docs-locks:
+    name: Docs locks (freshness & formats)
+    # Changed in 2.1.0: added this job (PLAN_docs_consolidation D22). The
+    # document locks fail on a stale guide artefact, a binary nobody
+    # classified, a reintroduced prose format or a generated table that no
+    # longer matches its source - but they used to run only inside the full
+    # suite, so a stale .docx surfaced 15-20 minutes into a three-interpreter
+    # matrix. Running the same files on their own turns that into a couple of
+    # minutes, which is early enough to be worth fixing straight away.
+    #
+    # It adds no check the suite lacks - the same modules run there too - and
+    # tests/test_docs_formats.py::TestDocsLocksRunOnTheirOwn keeps this file
+    # list honest, so a lock cannot be dropped from the job silently. The
+    # install comes from uv.lock rather than a hand-written pip list because
+    # the freshness locks compare a committed artefact against what python-docx
+    # renders today: an unpinned renderer would red the job for a reason that
+    # has nothing to do with the change under test.
+    # windows-latest for the same reason the typecheck job moved there: these
+    # locks read the real registry (test_readme imports every tool surface), so
+    # they exercise Windows-only code and a Linux leg would be a platform
+    # nothing else in this repo runs on.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install uv
+      - run: uv sync --extra dev
+      - name: Documentation locks
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        # --no-cov keeps this run out of the coverage data: it measures seven
+        # lock modules, not the suite, and coverage belongs to the test job.
+        # The exit code is not the whole verdict: a run that collected nothing
+        # (a renamed module, an empty selection) prints an empty report that
+        # reads like success, so the summary is checked too. A skip is also a
+        # failure here, on the same rule the instruction-locks step applies -
+        # a skipped lock is a lock nobody verified.
+        run: |
+          log="$(mktemp)"
+          set +e
+          uv run python -m pytest \
+            tests/test_user_guide_hygiene.py \
+            tests/test_docs_formats.py \
+            tests/test_docs_index.py \
+            tests/test_guide_resolution.py \
+            tests/test_api_reference.py \
+            tests/test_readme.py \
+            tests/test_changelog_format.py \
+            --no-cov -q > "$log" 2>&1
+          code=$?
+          set -e
+          cat "$log"
+          if [ "$code" -ne 0 ]; then
+            exit "$code"
+          fi
+          grep -qE "[0-9]+ passed" "$log" || {
+            echo "gate fail: the documentation locks ran nothing" >&2
+            exit 1
+          }
+          if grep -qE "[0-9]+ skipped" "$log"; then
+            echo "gate fail: a document lock skipped; a skipped lock is not a verified lock" >&2
+            exit 1
+          fi
+          echo "documentation locks pass"
+
   typecheck:
     name: Type Check
     # This project targets Windows: mypy's platform selection follows the
