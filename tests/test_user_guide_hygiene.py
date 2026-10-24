@@ -5,11 +5,12 @@ reproducible from a committed generator script, and no backup or superseded
 artifact may remain tracked. These locks convert that into an enforced
 invariant so the tree cannot silently rot again:
 
-1. *Generator lock* - every directory under
+1. *Source lock* - every directory under
    ``user_guides/individual_programs/`` that contains a committed
-   ``*_User_Guide.docx`` also contains a committed ``generate_guide.py``.
-   A hand-edited guide with no generator is undetectable after the fact,
-   which is how the Tempo Analyzer guide drifted out of date for years.
+   ``*_User_Guide.docx`` also contains a committed ``*_User_Guide.md``, and a
+   freshly rendered artefact is byte-identical in ``word/document.xml`` to the
+   committed one. A hand-edited guide with no source is undetectable after the
+   fact, which is how the Tempo Analyzer guide drifted out of date for years.
 2. *Backup lock* - no ``*.bak``/``*.bak*`` file is tracked anywhere under
    ``user_guides/``. These are dead weight that can never be regenerated or
    reviewed, and they silently mask the fact that a guide is stale.
@@ -33,21 +34,52 @@ an untracked stray file cannot fail CI, and a tracked one must.
 
 Changed in 1.0.1: adds lock (6), which pins every guide's version subtitle to
 ``declared_version()`` (plan D15).
+Changed in 2.1.0: adds ``TestSuiteOverviewGenerators`` (lock 7), which extends
+the generator principle to the suite-level artefacts outside
+``individual_programs/`` - the logging guide and the new-user presentation. The
+six ``.docx`` with no generator at all are dispositioned per file in
+PLAN_docs_consolidation (§6); the byte-level freshness check for every artefact
+lands with P4.1.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
+import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GUIDE_ROOT = REPO_ROOT / "user_guides" / "individual_programs"
 
-# Directories that legitimately hold no generated guide. Empty by design: a
-# new entry here is a deliberate, reviewed decision to exempt a directory.
-GENERATOR_EXEMPT_DIRS: frozenset[str] = frozenset()
+#: The one renderer every guide artefact comes from.
+RENDERER = REPO_ROOT / "utilities" / "build_user_guides.py"
+
+
+def _load_renderer() -> Any:
+    """Load the shared guide renderer as a module.
+
+    The renderer is a script under ``utilities/`` (not an importable package),
+    so it is loaded by path. It is registered in ``sys.modules`` first because
+    ``@dataclass`` resolves annotations through that mapping.
+
+    Returns:
+        The loaded module, typed ``Any``: a script has no static surface here.
+
+    Raises:
+        AssertionError: If the renderer is missing or cannot be loaded, which
+            would make the source/artefact locks pass vacuously.
+    """
+    assert RENDERER.is_file(), f"shared guide renderer missing: {RENDERER}"
+    spec = importlib.util.spec_from_file_location("guide_renderer", RENDERER)
+    assert spec is not None and spec.loader is not None, f"cannot load {RENDERER}"
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["guide_renderer"] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def tracked_paths() -> list[str]:
@@ -90,44 +122,51 @@ class TestGeneratorHygiene:
         """The individual-program guide tree is the subject of these locks."""
         assert GUIDE_ROOT.is_dir(), f"missing guide root: {GUIDE_ROOT}"
 
-    def test_every_guide_has_a_generator(self, tracked: list[str]) -> None:
-        """Each directory shipping a user guide also ships its generator."""
-        guides = [
-            p for p in _under(tracked, GUIDE_ROOT) if p.endswith("_User_Guide.docx")
-        ]
+    def test_every_guide_has_a_markdown_source(self) -> None:
+        """Each directory shipping a user guide also ships its Markdown source.
+
+        The scan reads the working tree rather than the index, like
+        :meth:`test_artefacts_match_their_sources`: CI checks out exactly the
+        committed tree, so the two are equivalent there, while locally a source
+        may exist for a few minutes before it is committed. Requiring the index
+        would fail every work-in-progress run of the very command this lock
+        asks for (``build_user_guides.py``).
+        """
+        guides = sorted(GUIDE_ROOT.glob("*/*_User_Guide.docx"))
         assert guides, "no committed user guides found - locks would pass vacuously"
 
         offenders: list[str] = []
         for guide in guides:
-            directory = Path(guide).parent
-            if directory.name in GENERATOR_EXEMPT_DIRS:
-                continue
-            # `guide` is a git-relative POSIX path, so the expected generator
-            # path is built in the same form instead of via Path arithmetic
-            # against the absolute repo root (which would raise ValueError).
-            generator = f"{directory.as_posix()}/generate_guide.py"
-            if generator not in tracked:
-                offenders.append(
-                    f"{directory.name}: {Path(guide).name} has no generator"
-                )
+            if not guide.with_suffix(".md").is_file():
+                offenders.append(f"{guide.parent.name}: {guide.name} has no .md source")
 
         assert not offenders, (
-            "user guides without a committed generate_guide.py "
-            "(add the generator, or add the directory to "
-            "GENERATOR_EXEMPT_DIRS with a documented reason):\n  "
-            + "\n  ".join(offenders)
+            "user guides without a committed Markdown source (the .docx is a "
+            "build artefact - add the source, then run "
+            "`python utilities/build_user_guides.py`):\n  " + "\n  ".join(offenders)
         )
 
-    def test_generators_are_syntactically_valid(self) -> None:
-        """Each generator byte-compiles, so a guide can actually be rebuilt."""
-        generators = sorted(GUIDE_ROOT.glob("*/generate_guide.py"))
-        assert generators, "no generators found - locks would pass vacuously"
-        for generator in generators:
-            compile(
-                generator.read_text(encoding="utf-8"),
-                str(generator),
-                "exec",
-            )
+    def test_sources_parse_through_the_renderer(self) -> None:
+        """Every source parses with a title, so the renderer can rebuild it."""
+        sources = sorted(GUIDE_ROOT.glob("*/*_User_Guide.md"))
+        assert sources, "no guide sources found - locks would pass vacuously"
+        renderer = _load_renderer()
+        for source in sources:
+            guide = renderer.parse_guide(source.read_text(encoding="utf-8"), source)
+            assert guide.title, f"{source}: parsed with an empty title"
+
+    def test_artefacts_match_their_sources(self) -> None:
+        """Each committed artefact is what the renderer produces from its source."""
+        sources = sorted(GUIDE_ROOT.glob("*/*_User_Guide.md"))
+        assert sources, "no guide sources found - locks would pass vacuously"
+        renderer = _load_renderer()
+        problems: list[str] = []
+        for source in sources:
+            problems.extend(renderer.check_guide(source))
+        assert not problems, (
+            "committed user-guide artefacts are stale; run "
+            "`python utilities/build_user_guides.py`:\n  " + "\n  ".join(problems)
+        )
 
 
 class TestNoBackupArtifacts:
@@ -399,4 +438,59 @@ class TestGuideVersionLabels:
             "guide version subtitles must be sourced dynamically "
             f"({expected!r}); found hardcoded/stale labels:\n  "
             + "\n  ".join(offenders)
+        )
+
+
+class TestSuiteOverviewGenerators:
+    """Suite-level artefacts stay reproducible from a committed generator.
+
+    Lock (7), PLAN_docs_consolidation P1.8. Locks (1)-(4) only cover
+    ``individual_programs/``, which is how six hand-made ``.docx`` accumulated
+    outside it. This lock covers the suite-level artefacts that *do* have a
+    generator, so one cannot lose its script in a refactor. The remaining
+    orphans are dispositioned per file in the plan (§6) rather than exempted
+    here.
+
+    The generators are read as text, never imported: their module bodies write
+    the artefact on import, so importing one would rewrite a committed file
+    during a test run. Byte-level freshness (regenerate, then compare zip
+    entries) is P4.1, not this lock.
+    """
+
+    #: (generator path, artefact filename) pairs this lock holds to.
+    BACKED_ARTEFACTS: tuple[tuple[str, str], ...] = (
+        (
+            "user_guides/suite_overview/generate_logging_system_guide.py",
+            "LOGGING_SYSTEM_GUIDE.docx",
+        ),
+        (
+            "user_guides/suite_overview/generate_presentation.py",
+            "AudioSuite-Pro_New_User_Presentation.pptx",
+        ),
+    )
+
+    def test_each_suite_artefact_has_its_generator(self, tracked: list[str]) -> None:
+        """Every listed artefact ships with the script that writes it."""
+        assert len(self.BACKED_ARTEFACTS) >= 2, (
+            "the checked set is empty - this lock would pass vacuously"
+        )
+        offenders: list[str] = []
+        for generator, artefact in self.BACKED_ARTEFACTS:
+            generator_path = REPO_ROOT / generator
+            if generator not in tracked:
+                offenders.append(f"{generator}: generator is not tracked")
+                continue
+            if not generator_path.is_file():
+                offenders.append(f"{generator}: generator is missing on disk")
+                continue
+            source = generator_path.read_text(encoding="utf-8")
+            if artefact not in source:
+                offenders.append(
+                    f"{generator}: never names {artefact!r} - it cannot be the "
+                    "generator for that artefact"
+                )
+            if not (GUIDE_ROOT.parent / "suite_overview" / artefact).is_file():
+                offenders.append(f"{artefact}: artefact is missing on disk")
+        assert not offenders, (
+            "suite-level generator hygiene problems:\n  " + "\n  ".join(offenders)
         )

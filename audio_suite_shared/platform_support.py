@@ -61,6 +61,11 @@ Changed in 2.1.0: declared the launcher venv bootstrap's platform branch
 (``venv_bootstrap.py`` chooses ``Scripts/`` or ``bin/`` by platform value, and
 both arms are tested with an explicit ``platform`` argument), so the
 enumeration lock stays an exact bijection with the tree.
+Changed in 2.1.0: the Master Driver's duplicate ``open_help`` resolver is gone
+(PLAN_docs_consolidation P1.5) - ``master_driver/app.py`` routes its Help button
+through the shared ``_open_help_standard``, so the private dispatch that was
+declared here no longer exists and its three rows were removed in the same
+change.
 
 The ``os.name`` trap: patch ``sys.platform``, not ``os.name``
 ----------------------------------------------------------------
@@ -497,30 +502,6 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
         tool="cd_ripper",
     ),
     # ── Master Driver ─────────────────────────────────────────────────────────
-    PlatformBranch(
-        module="master_driver/utils/platform_utils.py",
-        source='if sys.platform == "win32":',
-        tier=PORTABLE_CORE,
-        subsystem="Open a guide from the driver's Help button",
-        behaviour=("win32 os.startfile, darwin `open`, otherwise `xdg-open`."),
-        evidence="master_driver/tests/test_platform_utils.py",
-    ),
-    PlatformBranch(
-        module="master_driver/utils/platform_utils.py",
-        source="os.startfile(help_file)",
-        tier=PORTABLE_CORE,
-        subsystem="Open a guide from the driver's Help button",
-        behaviour="The win32 arm of the dispatch above.",
-        evidence="master_driver/tests/test_platform_utils.py",
-    ),
-    PlatformBranch(
-        module="master_driver/utils/platform_utils.py",
-        source='elif sys.platform == "darwin":',
-        tier=PORTABLE_CORE,
-        subsystem="Open a guide from the driver's Help button",
-        behaviour="The macOS arm; Linux/POSIX falls through to `xdg-open`.",
-        evidence="master_driver/tests/test_platform_utils.py",
-    ),
     PlatformBranch(
         module="master_driver/ui/cards/typography_card.py",
         source=(

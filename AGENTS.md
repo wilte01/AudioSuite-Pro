@@ -756,9 +756,12 @@ a broken Help button warns):
    plus `master_driver/tests/test_app_state.py`'s expected keys.
 7. **Pyw launcher** — a top-level `<Tool_Name>.pyw` calling the pre-flight guard
    (mandatory — see *Startup Pre-Flight Guard*).
-8. **User guide** — a generator in
-   `user_guides/individual_programs/<module_dir>/generate_guide.py`, run to
-   produce the `.docx`, and the filename → folder registration in
+8. **User guide** — a Markdown source
+   `user_guides/individual_programs/<module_dir>/<Guide>_User_Guide.md`, rendered
+   by `python utilities/build_user_guides.py <module_dir>`; the `.docx` beside it
+   is a build artefact, never hand-edited (the renderer is the one shared
+   implementation, and `tests/test_user_guide_hygiene.py` fails on a stale
+   artefact). Plus the filename → folder registration in
    `audio_suite_shared/platform_utils.py`'s `guide_to_program`.
 9. **Test registration** — `pyproject.toml`: `<module>/tests` in `testpaths` plus
    the package in coverage `source`; unique test-dir basename or `__init__.py`.

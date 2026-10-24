@@ -10,6 +10,8 @@ compares the files byte-for-byte, so idempotency is measured rather than
 inferred from the ``[SKIP]`` lines.
 
 Changed in 1.3.0: new suite for the scripted release cut.
+Changed in 2.1.0: the fixture ships the shared Markdown renderer instead of a
+per-tool `generate_guide.py` (PLAN_docs_consolidation P2.4).
 Changed in 1.4.1: the cut refreshes the editable install's metadata before the
 gate, so `doctor`'s healthy-install tests see the bumped version.
 """
@@ -60,15 +62,16 @@ CHANGELOG = """\
 - An older release entry.
 """
 
-STUB_GENERATOR = '''\
-"""Stub guide generator: renders the version from pyproject.toml."""
+STUB_RENDERER = '''\
+"""Stub shared guide renderer: renders the version from pyproject.toml."""
 
+import sys
 import tomllib
 from pathlib import Path
 
 from docx import Document
 
-root = Path(__file__).resolve().parents[3]
+root = Path(__file__).resolve().parents[1]
 version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))[
     "project"
 ]["version"]
@@ -78,6 +81,7 @@ document.add_paragraph(f"Version {version} \\u2014 November 2026")
 document.save(
     str(root / "user_guides" / "individual_programs" / "demo" / "Demo_User_Guide.docx")
 )
+sys.exit(0)
 '''
 
 
@@ -357,7 +361,10 @@ def release_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (tmp_path / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
     demo = tmp_path / "user_guides" / "individual_programs" / "demo"
     demo.mkdir(parents=True)
-    (demo / "generate_guide.py").write_text(STUB_GENERATOR, encoding="utf-8")
+    (demo / "Demo_User_Guide.md").write_text("# demo\n", encoding="utf-8")
+    utilities = tmp_path / "utilities"
+    utilities.mkdir()
+    (utilities / "build_user_guides.py").write_text(STUB_RENDERER, encoding="utf-8")
     _write_guide(demo / "Demo_User_Guide.docx", "Version 1.3.0 \u2014 October 2026")
 
     def fake_lock_is_current(root: Path, offline: bool) -> bool:

@@ -43,6 +43,10 @@ the gate in one idempotent command).
 Changed in 1.4.1: refreshes the editable install's metadata before the gate, so
 a cut no longer fails `doctor`'s healthy-install tests on its own version bump
 (PLAN D106).
+Changed in 2.1.0: guides are rebuilt through the shared Markdown renderer
+(``utilities/build_user_guides.py <tool>``) instead of each tool's retired
+``generate_guide.py`` (PLAN_docs_consolidation P2.4). The version-subtitle and
+zip-entry checks are unchanged - they still judge the artefact a user opens.
 """
 
 from __future__ import annotations
@@ -362,21 +366,21 @@ def guide_change_problems(
 
 
 def regenerate_guide(guide: Path, python: str, root: Path) -> None:
-    """Run the guide's committed generator with the dev interpreter.
+    """Rebuild one guide through the shared Markdown renderer.
 
     Args:
         guide: The committed guide to rebuild.
         python: The interpreter carrying python-docx.
-        root: The repository root, used as the generator's working directory.
+        root: The repository root, used as the renderer's working directory.
 
     Raises:
-        ReleaseError: If the generator is missing or exits non-zero.
+        ReleaseError: If the renderer is missing or exits non-zero.
     """
-    generator = guide.parent / "generate_guide.py"
-    if not generator.is_file():
-        raise ReleaseError(f"{guide.parent.name}: no generate_guide.py to rebuild it")
+    renderer = root / "utilities" / "build_user_guides.py"
+    if not renderer.is_file():
+        raise ReleaseError(f"no shared guide renderer at {renderer}")
     result = subprocess.run(
-        [python, str(generator)],
+        [python, str(renderer), guide.parent.name],
         cwd=root,
         capture_output=True,
         text=True,
@@ -386,8 +390,8 @@ def regenerate_guide(guide: Path, python: str, root: Path) -> None:
     )
     if result.returncode != 0:
         raise ReleaseError(
-            f"{generator.name} failed (exit {result.returncode}):\n"
-            f"{result.stdout}{result.stderr}"
+            f"build_user_guides.py failed for {guide.parent.name} "
+            f"(exit {result.returncode}):\n{result.stdout}{result.stderr}"
         )
 
 

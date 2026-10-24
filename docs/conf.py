@@ -2,19 +2,23 @@
 
 The API HTML is a developer artefact, not part of the shipped application: it
 documents the shared package's public surface, which is what a tool author
-imports. Build it with the interpreter that carries the docs requirements::
+imports. Build it with the interpreter that carries the ``dev`` extra (Sphinx lives
+there, so the build gate cannot silently lose its toolchain)::
 
-    python -m pip install -r docs/requirements.txt
+    uv sync --extra dev
     python -m sphinx -b html docs docs/_build/html
 
-Sphinx is in the ``dev`` extra as well, because ``tests/test_docs_build.py``
-builds these pages with this configuration and fails on any parser warning
-(PLAN P2) -- a defect in a docstring is a defect in the published reference, so
-it belongs to the gate rather than to a manual step. This module imports only
-the standard library, so ``mypy .`` checks it with the rest of the tree.
+Sphinx is in the ``dev`` extra, because ``tests/test_docs_build.py`` builds these
+pages with this configuration and fails on any parser warning (PLAN P2) -- a
+defect in a docstring is a defect in the published reference, so it belongs to
+the gate rather than to a manual step. This module imports only the standard
+library, so ``mypy .`` checks it with the rest of the tree.
 
 Changed in 1.4.1: new module - the Sphinx configuration for the API reference,
 stdlib-only so the type gate covers it (PLAN D98).
+Changed in 2.1.0: the ``docs/requirements.txt`` install line and its
+``exclude_patterns`` entry are gone with that file - the toolchain is declared
+once, in ``pyproject.toml``'s ``dev`` extra (PLAN_docs_consolidation P1.7).
 """
 
 from __future__ import annotations
@@ -43,4 +47,4 @@ autodoc_typehints = "description"
 autodoc_member_order = "bysource"
 
 html_theme = "alabaster"
-exclude_patterns: list[str] = ["_build", "requirements.txt"]
+exclude_patterns: list[str] = ["_build"]

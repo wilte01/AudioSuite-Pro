@@ -1,5 +1,11 @@
 # Security Policy for AudioSuite-Pro
 
+This page is the policy and threat model: what the suite treats as untrusted,
+where the subprocess boundary is, and what is out of scope. User-facing
+practice — encrypted API keys and how to recover them, safe file selection,
+and what each security message means — is documented in
+[docs/user/security.md](docs/user/security.md).
+
 ## Reporting a vulnerability
 
 There is currently **no dedicated private vulnerability-reporting channel

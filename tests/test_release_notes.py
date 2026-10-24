@@ -112,6 +112,13 @@ window's notes stay as each file's own history and no Sprint 6 file has to
 carry a second one. The asserted non-empty exception category is still the
 narrative ``.md`` documents: this re-baseline is itself the first .md change of
 the new window, so the scan's own commit cannot empty it.
+Changed in 2.1.0: a *deleted* code file no longer crashes the note scan
+(PLAN_docs_consolidation P1.5). ``git diff --name-only`` lists deletions too, so
+reading every changed code path raised FileNotFoundError on the first removal —
+a deletion cannot carry a note in its own content, and the deletion is recorded
+in the governing plan's decision log instead. ``test_scan_is_non_vacuous``
+still requires at least one *existing* modified code file, so skipping deleted
+paths cannot make the scan vacuous.
 """
 
 from __future__ import annotations
@@ -144,10 +151,12 @@ CODE_SUFFIXES: tuple[str, ...] = (
     ".yml",
     ".yaml",
     ".gitignore",
-    # Pinned requirements (1.4.1, PLAN D98). A requirements file is configuration
-    # with comment syntax - the marker goes in a `#` line - and the tree's only
-    # `.txt` is docs/requirements.txt. Classifying it as code means a future
-    # `.txt` must be either annotated or declared, rather than slipping through
+    # Requirements files carry comment syntax, so a `.txt` is configuration to be
+    # annotated in a `#` line rather than a binary to be exempted (1.4.1, PLAN
+    # D98). The file that motivated the entry - docs/requirements.txt - was
+    # retired in 2.1.0, so the Sphinx pin is declared once in pyproject.toml's
+    # dev extra (PLAN_docs_consolidation P1.7). The suffix stays classified: a
+    # future `.txt` must still be annotated or declared, never slipping through
     # as an implicit exception.
     ".txt",
 )
@@ -238,6 +247,10 @@ class TestPerFileChangeNote:
             path
             for path in changed
             if path.endswith(CODE_SUFFIXES)
+            # A deleted file cannot carry a note, and ``git diff`` still lists
+            # it. The removal is recorded in the governing plan instead; the
+            # non-vacuity test above still demands an existing code change.
+            and (REPO_ROOT / path).is_file()
             and NOTE_MARKER not in (REPO_ROOT / path).read_text(encoding="utf-8")
         ]
         assert not missing, (

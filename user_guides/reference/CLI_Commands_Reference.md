@@ -351,6 +351,136 @@ audiosuite fingerprint "D:\Music\Ripped-CD" --musicbrainz --submit-isrc --live
 | `stats` | Library Statistics Dashboard | Utility |
 | `tempo` | Tempo Analyzer | Enrich |
 
+## Headless / Scripting
+
+The CLI is the headless face of the suite: no window is created, and each command
+imports and runs the same processor class the GUI uses, so a result does not
+depend on which face you chose. This section covers what is shared by **every**
+command; the per-command sections above cover each command's own flags, and the
+`All Commands` table is the authoritative list — a tool that is not in it has no
+CLI command yet and runs through its `.pyw` launcher or the Master Driver.
+
+### Running it
+
+`uv run audiosuite …` from the checkout is the supported form: it executes the
+dependency graph pinned in `uv.lock` against an editable install of these
+sources, so the command list always matches the tree. Without `uv`, invoke the
+module directly:
+
+```bash
+python -m audio_suite_shared.cli_app --help
+```
+
+### Grammar
+
+```
+audiosuite <command> [OPTIONS] DIRECTORY
+```
+
+`DIRECTORY` is required on every command and is always the folder to scan.
+
+### Options every command accepts
+
+- `--dry` / `--live` — analyse and report without writing, or write the result (default: live)
+- `--json` / `--text` — one JSON document on stdout, or the human-readable report (default: text)
+- `--parallel` / `--no-parallel` — process-level parallelism for CPU-bound stages (default: off)
+- `--workers N` — worker count for the parallel path; each command's `--help` prints its own resolved default
+- `--log-level` — `DEBUG`, `INFO`, `WARNING` or `ERROR`, given **before** the command (default: `WARNING`)
+- `--json-schema` — print the locked output schema with a recorded success and failure document per command, then exit (before the command)
+- `--version` — print the installed suite version and exit (before the command)
+
+`audiosuite doctor` is the install check: it reports the checkout and installed
+versions, resolves every first-party package, names the CLI commands a gap would
+take down, and exits 1 when anything is wrong (`doctor --json` publishes the
+same findings as one document).
+
+### JSON output
+
+With `--json`, stdout carries **one** document and nothing else: progress and
+errors go to stderr, so the output pipes cleanly. The document is written when
+the run finishes, not per file — there is deliberately no streaming mode, and
+that behaviour is pinned by a test rather than left to convention.
+
+Every document carries `schema_version`, `tool`, `command`, `dry_run`, the
+counters (`total`, `processed`, `succeeded`, `skipped`, `errors`), `duration_secs`,
+`duration_str`, `log_entries`, and the command's own extras. A recorded example
+(`bpm --dry --json` over a one-file folder that could not be analysed):
+
+```json
+{
+  "schema_version": 1,
+  "tool": "bpm",
+  "command": "bpm",
+  "dry_run": true,
+  "total": 1,
+  "processed": 1,
+  "succeeded": 0,
+  "skipped": 0,
+  "errors": 1,
+  "duration_secs": 5.588,
+  "duration_str": "5.6s",
+  "log_entries": ["[ERROR] track.wav: BPM detection failed — Audio is too short to analyse (0.05s).\n"],
+  "skipped_files": [],
+  "error_files": [
+    {
+      "filename": "track.wav",
+      "reason": "Audio is too short to analyse (0.05s).",
+      "error_type": "BPMDetectionError"
+    }
+  ],
+  "outside_range_files": []
+}
+```
+
+The shape is locked by `audio_suite_shared/cli_schema.json` and validated in CI
+against one recording per command, so a script written against this example
+keeps working or the gate fails. `--json-schema` prints the whole contract.
+
+### Scripting examples
+
+Collect two analyses and compare their error counts (PowerShell):
+
+```powershell
+$bpm = audiosuite bpm "D:\Music\Library" --dry --json | ConvertFrom-Json
+$key = audiosuite key "D:\Music\Library" --dry --json | ConvertFrom-Json
+Write-Host "BPM errors: $($bpm.errors)  Key errors: $($key.errors)"
+```
+
+A full tag-enrichment pass, dry first and live once the report is clean:
+
+```bash
+uv run audiosuite bpm /music/library --dry --json
+uv run audiosuite key /music/library --dry --json
+uv run audiosuite tempo /music/library --dry --scheme Italian --json
+uv run audiosuite replaygain /music/library --dry --json
+```
+
+Read one counter in a shell pipeline:
+
+```bash
+if [ "$(audiosuite bpm /music/library --json | jq '.errors')" -gt 0 ]; then
+    echo "BPM analysis reported errors" >&2
+fi
+```
+
+A weekly scheduled run (cron; on Windows use Task Scheduler with the same
+command):
+
+```bash
+0 3 * * 0 cd /path/to/AudioSuite-Pro && uv run audiosuite replaygain /music/library --live --json >> /var/log/audiosuite.log 2>&1
+```
+
+GUI and CLI differ only in what starts them:
+
+| | GUI (`.pyw` / Master Driver) | CLI (`audiosuite`) |
+|---|---|---|
+| Window | yes, one per tool or via the control panel | none |
+| Batch of tools | sequenced by the Master Driver | one command per invocation; chain them in your shell |
+| Mode | Dry Run / Live Update radio | `--dry` / `--live` |
+| Progress | tabs, log pane, batch progress bar | stderr, plus the run log |
+| Result | the report on screen | the JSON document |
+| Undo history | shared batch undo | shared batch undo |
+
 ## Standalone Utility Scripts
 
 ### Undo Batch

@@ -20,6 +20,13 @@ iteration-5 G1).
 
 The tracked set is read through ``git ls-files`` so the locks assert on what
 is actually *committed*, not merely present in a working tree.
+
+Changed in 2.1.0: the tracked set is filtered to files that exist on disk. A
+path deleted in the worktree but not yet committed is still listed by
+``git ls-files``, so the scan raised ``FileNotFoundError`` on the first test
+file the repository ever removed - a deletion cannot be scanned for vacuous
+asserts, and the non-vacuity assertion below still demands a non-empty set
+(PLAN_docs_consolidation P1.5).
 """
 
 from __future__ import annotations
@@ -50,7 +57,11 @@ def tracked_test_files() -> tuple[Path, ...]:
     files = sorted(
         REPO_ROOT / line
         for line in out
-        if "tests" in Path(line).parts and line.endswith(".py")
+        if "tests" in Path(line).parts
+        and line.endswith(".py")
+        # A deletion is listed by ``git ls-files`` until it is committed; a
+        # path with no file behind it has no AST to scan.
+        and (REPO_ROOT / line).is_file()
     )
     assert files, "git ls-files found no tracked test files"
     return tuple(files)

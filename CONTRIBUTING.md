@@ -122,9 +122,10 @@ silent runtime degradation:
 7. **Pyw launcher** — top-level `<Tool_Name>.pyw` with the
    `ensure_venv_interpreter()` re-exec (so `uv`-installed extras are the ones
    the tool runs with) and the `guard_or_exit()` pre-flight call.
-8. **User guide** — generator in
-   `user_guides/individual_programs/<module_dir>/generate_guide.py` (run it;
-   the `.docx` is an artifact), and the filename registered in
+8. **User guide** — Markdown source
+   `user_guides/individual_programs/<module_dir>/<Guide>_User_Guide.md`, rendered
+   by `python utilities/build_user_guides.py <module_dir>` (the `.docx` is an
+   artifact), and the filename registered in
    `audio_suite_shared/platform_utils.py` `guide_to_program`.
 9. **Test registration** — `<module>/tests` in `pyproject.toml` `testpaths`
    + coverage `source`.
