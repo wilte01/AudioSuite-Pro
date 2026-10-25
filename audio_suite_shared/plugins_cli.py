@@ -17,6 +17,9 @@ must be visible to the very next ``plugins list``, even when both run inside
 one interpreter (the test suite does exactly that).
 
 Changed in 2.1.0: new module — the plugin management commands (Sprint 7).
+Changed in 2.1.4: ``plugins list`` exits 1 when its payload reports rejected
+manifests, so a rejected plugin is visible to a scheduler as well as to a reader
+(R-06, PLAN D9/D23).  Disabled plugins stay a skip, not an error.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ import time
 
 import click
 
-from audio_suite_shared.cli_base import _opt_json, cli
+from audio_suite_shared.cli_base import _opt_json, cli, finish_batch
 from audio_suite_shared.cli_schema import build_payload
 from audio_suite_shared.plugin_system import (
     default_plugin_root,
@@ -100,16 +103,22 @@ def plugins_list(json: bool) -> None:
 
     if json:
         click.echo(_json_mod.dumps(payload, indent=2))
-        return
-    if not entries:
+    elif not entries:
         click.echo(f"  No plugins found in {default_plugin_root()}.")
-        return
-    click.echo(f"  Plugins: {loaded} loaded, {disabled} disabled, {rejected} rejected")
-    for entry in entries:
-        line = f"  [{entry['status']!s:<8}] {entry['id']} {entry['version']}".rstrip()
-        if entry["problem"]:
-            line += f" — {entry['problem']}"
-        click.echo(line)
+    else:
+        click.echo(
+            f"  Plugins: {loaded} loaded, {disabled} disabled, {rejected} rejected"
+        )
+        for entry in entries:
+            line = (
+                f"  [{entry['status']!s:<8}] {entry['id']} {entry['version']}".rstrip()
+            )
+            if entry["problem"]:
+                line += f" — {entry['problem']}"
+            click.echo(line)
+    # The payload calls a rejected manifest an error, so the shell status has to
+    # agree with it (R-06).  A disabled plugin is a skip and keeps status 0.
+    finish_batch(rejected)
 
 
 def _set_enabled(plugin_id: str, enabled: bool) -> None:

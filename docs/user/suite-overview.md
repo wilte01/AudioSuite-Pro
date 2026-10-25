@@ -36,7 +36,9 @@ tool appears in the right tab without any UI code being edited.
 - **Two ways to run the same work.** The CLI does it headlessly
   (`audiosuite <command>`), the Master Driver does it with progress, retries and
   a summary. The [CLI reference](../../user_guides/reference/CLI_Commands_Reference.md)
-  lists every command and its `--json` payload.
+  lists every command and its `--json` payload. A command's exit status matches
+  its summary: `0` clean (skipped files included), `1` finished with per-file
+  errors or stopped fatally, `2` a usage error.
 
 ## Where to go next
 

@@ -8,6 +8,10 @@ Changed in 2.1.0: :class:`TagProcessor` is the host for the plugin system's
 ``tag_processor`` extension point.  An enabled plugin's processors run after
 the built-in rules for each file, honour the run's dry-run flag, and their
 outcomes are counted separately from the built-in edits (Sprint 7).
+Changed in 2.1.4: ``scan_directory`` no longer increments ``error_files`` for a
+failed result as well as ``process_file`` having already counted it, so the
+summary and JSON reported one corrupt file as two errors (found while wiring
+the R-06 exit contract, which reads the same count).
 """
 
 import logging
@@ -217,8 +221,10 @@ class TagProcessor:
                     self.stats.processed_files += 1
                     if result.updated:
                         self.stats.updated_files += 1
-                    if result.error:
-                        self.stats.error_files += 1
+                    # ``process_file`` already counts its own errors (the format
+                    # delegates and its own except branch); counting the
+                    # returned flag again reported one corrupt file as two
+                    # errors in the CLI summary and JSON payload.
 
                     if progress_callback:
                         progress_callback(file_path.name, self.stats)

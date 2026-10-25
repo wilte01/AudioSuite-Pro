@@ -14,6 +14,10 @@ Every assertion here is a **positive** contract stated about the outcome:
 what the file on disk now holds, what the JSON reports, and how many undo rows
 exist for it.  None of them asserts "nothing happened" — per ``AGENTS.md`` §7
 such a test pins whatever the implementation happened not to do.
+
+Changed in 2.1.4: ``TestExitContract`` pins the R-06 status (PLAN D9) — a run
+that reports a per-file error exits 1 through the real command, a tree with
+nothing to rewrite exits 0, and one unreadable file does not stop the others.
 """
 
 from __future__ import annotations
@@ -205,6 +209,57 @@ class TestLiveRunStillWrites:
 
         invoke(str(song.parent), "--live", "--json")
         assert read_genre(song) == REWRITTEN_GENRE
+
+
+class TestExitContract:
+    """R-06: the shell status mirrors the ``errors`` the payload reports."""
+
+    def test_one_unreadable_file_makes_the_live_run_exit_1(
+        self, song: Path, undo_db: Path
+    ) -> None:
+        """The pre-fix behaviour: summary said ``Errors: 1`` and the shell saw 0.
+
+        The readable file must still be rewritten — a failure is reported, not
+        fatal — so this asserts both halves of the contract in one run.
+        """
+        (song.parent / "broken.mp3").write_bytes(b"this is not an mp3")
+
+        result = invoke(str(song.parent), "--live", "--json")
+
+        assert result.exit_code == 1
+        report = payload(result)
+        assert report["errors"] == 1
+        assert report["processed"] == 2
+        assert report["updated"] == 1
+        assert read_genre(song) == REWRITTEN_GENRE
+
+    def test_the_same_failure_exits_1_in_text_mode(self, tmp_path: Path) -> None:
+        library = tmp_path / "library"
+        library.mkdir()
+        (library / "broken.flac").write_bytes(b"not a flac either")
+
+        result = invoke(str(library), "--live")
+
+        assert result.exit_code == 1
+        assert "Errors:          1" in result.output
+
+    def test_a_tree_with_nothing_to_rewrite_exits_0(
+        self, tmp_path: Path, undo_db: Path
+    ) -> None:
+        """No slash in the value means no edit and no error — a clean run."""
+        path = tmp_path / "library" / "clean.mp3"
+        path.parent.mkdir()
+        AudioSegment.silent(duration=50).export(str(path), format="mp3")
+        tags = ID3()
+        tags.add(TCON(encoding=3, text="Rock"))
+        tags.save(str(path))
+
+        result = invoke(str(path.parent), "--live", "--json")
+
+        assert result.exit_code == 0
+        report = payload(result)
+        assert report["errors"] == 0
+        assert read_genre(path) == "Rock"
 
 
 class TestDocumentedExampleIsReal:

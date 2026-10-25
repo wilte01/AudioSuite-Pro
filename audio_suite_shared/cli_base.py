@@ -36,6 +36,11 @@ exit status (PLAN D92).
 
 Changed in 2.1.0: ``_command_path`` takes any grouped command the schema declares
 (``plugins list``), not only ``cue``'s subcommands.
+Changed in 2.1.4: ``finish_run`` now exits 1 when the run finished with
+per-file errors, not only when it crashed, and ``finish_batch`` applies that
+same rule to a command that builds its own payload.  The exit contract is 0 =
+clean (skips included), 1 = completed with per-file errors or crashed, 2 =
+usage (Click's own); ``--json`` payloads are unchanged (PLAN D9, D22).
 """
 
 from __future__ import annotations
@@ -270,26 +275,44 @@ def _run_tool(
 
 
 def finish_run(result: _Result) -> None:
-    """Exit 1 when a run crashed instead of finishing, after its payload.
+    """Apply the run exit contract, after the payload is on stdout.
+
+    The contract is **0** = clean (skips included), **1** = the run completed
+    with per-file errors or crashed, **2** = usage (Click's own).  Every command
+    calls this *after* it has printed its JSON or text payload, so a caller
+    sees the reason and the status together.
 
     ``_run_tool`` flags a caught exception with ``fatal`` because the tool never
-    produced a completion summary.  Every command calls this *after* it has
-    printed its JSON or text payload, so a caller sees the reason and the
-    non-zero status together - before this, a run that died on its first file
-    exited 0 and only the payload said anything was wrong (PLAN D92).
-
-    A run whose failures were per-file keeps whatever exit status the command
-    already has: the suite has never had a single policy for "finished with
-    failures", and imposing one here would silently change every batch tool's
-    shell contract.
+    produced a completion summary, but the exit status is the same: a scheduler
+    cannot act on "0 with 3 errors in the payload" any more than it can on "0
+    with a FATAL line" - which is exactly what ``convert`` did when it
+    converted none of its input (audit R-06).  A skipped file is not an error,
+    so an all-skipped tree still exits 0.
 
     Args:
         result: The collector ``_run_tool`` returned.
 
     Raises:
-        SystemExit: With status 1 when the run failed fatally.
+        SystemExit: With status 1 when the run failed fatally or finished with
+            per-file errors.
     """
-    if result.fatal:
+    finish_batch(1 if result.fatal else result.errors)
+
+
+def finish_batch(errors: int) -> None:
+    """Apply the run exit contract to a command that builds its own payload.
+
+    A command that reports a per-file ``errors`` count without going through
+    ``_run_tool`` must reach the same status; this is that single rule, so a
+    future command cannot invent a third reading of the same number (PLAN D22).
+
+    Args:
+        errors: The error count the command published in its payload.
+
+    Raises:
+        SystemExit: With status 1 when *errors* is non-zero.
+    """
+    if errors > 0:
         raise SystemExit(1)
 
 

@@ -6,6 +6,9 @@ five format processors, edge-case value transformations, and thread-stop
 behaviour.
 
 Changed in 2.1.0: adds the tag-processor extension-point host tests.
+Changed in 2.1.4: locks the scan-level error tally - one corrupt file is one
+error, not the two the CLI used to report (found while wiring the R-06 exit
+contract, which reads the same count).
 """
 
 from __future__ import annotations
@@ -293,6 +296,23 @@ class TestScanDirectory:
             processor.scan_directory(tmpdir, progress_callback=mock_callback)
 
             mock_callback.assert_called()
+
+    def test_one_failed_file_is_counted_once(self) -> None:
+        """One corrupt file is one error, not two.
+
+        ``process_file`` counts its own failures; ``scan_directory`` counted the
+        returned ``error`` flag a second time, so both the CLI summary and the
+        JSON payload reported a doubled count - and the R-06 exit contract now
+        reads that same number.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "broken.mp3").write_bytes(b"this is not an MPEG stream")
+            processor = TagProcessor()
+            results = processor.scan_directory(tmpdir)
+
+        assert [result.error is not None for result in results] == [True]
+        assert processor.stats.processed_files == 1
+        assert processor.stats.error_files == 1
 
     def test_stats_reset_on_each_scan(self) -> None:
         """Stats are zeroed at the start of each scan_directory call."""

@@ -13,6 +13,11 @@ callback.
 Changed in 1.4.1: locks ``finish_run`` - a fatal run exits 1 after its payload,
 a run whose failures were per-file keeps the command's exit status - and asserts
 that every CLI module calling ``_run_tool`` also calls it (PLAN D92).
+Changed in 2.1.4: the per-file half of that lock is inverted by the audit's R-06
+contract (PLAN D9): a run that reports errors now exits 1, skips alone stay 0,
+and ``finish_batch`` applies the same rule to a command that builds its own
+payload (D22).  ``TestRunExitStatus`` drives the real group so the status is
+observed on a command invocation, not only on the helper.
 """
 
 from __future__ import annotations
@@ -35,6 +40,7 @@ from audio_suite_shared.cli_base import (
     _NullStringVar,
     _Result,
     _run_tool,
+    finish_batch,
     finish_run,
 )
 from audio_suite_shared.constants import default_max_workers
@@ -296,10 +302,24 @@ class TestFinishRun:
 
         assert excinfo.value.code == 1
 
-    @pytest.mark.parametrize("errors", [0, 1, 3])
-    def test_a_finished_run_returns(self, errors: int) -> None:
-        """Per-file failures are the payload's job, not the exit status's."""
-        assert finish_run(_Result(errors=errors)) is None
+    @pytest.mark.parametrize("errors", [1, 3])
+    def test_a_run_that_reported_errors_exits_1(self, errors: int) -> None:
+        """R-06: the payload's ``errors`` governs the status too.
+
+        Before the fix ``convert`` printed ``1 errors`` and returned 0, so a
+        scheduler could not tell a clean run from one that converted nothing.
+        """
+        with pytest.raises(SystemExit) as excinfo:
+            finish_run(_Result(total=3, processed=3, errors=errors))
+
+        assert excinfo.value.code == 1
+
+    def test_a_clean_run_returns(self) -> None:
+        assert finish_run(_Result(total=2, processed=2, errors=0)) is None
+
+    def test_skips_alone_stay_clean(self) -> None:
+        """A skipped file was not a failure: an all-skipped tree exits 0."""
+        assert finish_run(_Result(total=4, processed=4, skipped=4, errors=0)) is None
 
     def test_a_fatal_run_still_counts_one_error(self) -> None:
         """The text summary cannot print a negative count, and JSON forbids it."""
@@ -311,12 +331,27 @@ class TestFinishRun:
         assert "fatal" not in result.to_dict()
 
 
+class TestFinishBatch:
+    """The same rule for a command that builds its own payload (D22)."""
+
+    def test_zero_errors_returns(self) -> None:
+        assert finish_batch(0) is None
+
+    @pytest.mark.parametrize("errors", [1, 7])
+    def test_any_reported_error_exits_1(self, errors: int) -> None:
+        with pytest.raises(SystemExit) as excinfo:
+            finish_batch(errors)
+
+        assert excinfo.value.code == 1
+
+
 class TestRunExitStatus:
-    """``_run_tool`` commands report a crash through the shell status too.
+    """``_run_tool`` commands report a crash and per-file errors through status.
 
     Before D92 a run that died on its first file printed ``FATAL`` and a
     payload with ``errors: 1``, then exited 0 - a shell couldn't gate on it.
-    The per-file case stays at 0, which is what every batch tool already did.
+    Before R-06 the *per-file* case was deliberately left at 0, so ``convert``
+    exited 0 after converting none of its input; D9 supersedes that.
     """
 
     @staticmethod
@@ -365,9 +400,11 @@ class TestRunExitStatus:
         assert "-1" not in stdout
         assert "FATAL" in stderr
 
-    def test_per_file_failures_keep_exit_0(
+    def test_per_file_failures_exit_1_with_the_payload_intact(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
+        """R-06: the document is unchanged and only the status moves."""
+
         def _three_failures(**kwargs: object) -> None:
             on_complete = kwargs["on_complete"]
             assert callable(on_complete)
@@ -377,9 +414,40 @@ class TestRunExitStatus:
             monkeypatch, tmp_path, _three_failures, "--json"
         )
 
-        assert exit_code == 0
+        assert exit_code == 1
         payload = json.loads(stdout)
         assert payload["errors"] == 3
+        assert payload["succeeded"] == 0
+
+    def test_a_clean_run_exits_0(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        def _clean(**kwargs: object) -> None:
+            on_complete = kwargs["on_complete"]
+            assert callable(on_complete)
+            on_complete(total=2, processed=2, skipped=0, errors=0, duration_secs=0.5)
+
+        exit_code, _, stderr = self._invoke(monkeypatch, tmp_path, _clean, "--json")
+
+        assert exit_code == 0, stderr
+
+    def test_skips_alone_exit_0(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A tree already in the target format is a clean run, not a failure."""
+
+        def _skipped(**kwargs: object) -> None:
+            on_complete = kwargs["on_complete"]
+            assert callable(on_complete)
+            on_complete(total=3, processed=3, skipped=3, errors=0, duration_secs=0.5)
+
+        exit_code, stdout, stderr = self._invoke(
+            monkeypatch, tmp_path, _skipped, "--json"
+        )
+
+        assert exit_code == 0, stderr
+        payload = json.loads(stdout)
+        assert payload["skipped"] == 3
         assert payload["succeeded"] == 0
 
     def test_every_run_tool_call_site_also_calls_finish_run(self) -> None:

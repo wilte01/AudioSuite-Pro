@@ -9,7 +9,25 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **CLI commands exit 1 when a batch finishes with errors.** A run that reported
+  `1 errors` in its summary and its `--json` payload still returned status 0, so
+  a scheduler or CI job could not tell a clean run from one that converted,
+  tagged or normalised nothing. The status now follows the count the run
+  printed: **0** clean (including skipped files), **1** completed with per-file
+  errors or crashed, **2** a usage error. Only the status changed — `--json`
+  documents are byte-identical — and an all-skipped folder still exits 0.
+  `audiosuite plugins list` follows the same rule, exiting 1 when it reports a
+  rejected plugin manifest. Scripts that relied on 0-after-errors will now see
+  the failure, which is the point of the change.
+
+### Fixed
+
+- **Tag Field Updater counts a failed file once.** The per-file scan and the
+  per-format handlers both incremented the error tally, so one corrupt file was
+  reported as two errors in the summary and the `--json` payload. The count is
+  now taken once, in the handler that classified the failure.
 
 ## [2.1.3] - 2026-10-25
 

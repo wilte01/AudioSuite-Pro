@@ -8,6 +8,9 @@ Changed in 1.4.1: those two paths raise ``RunFailure(already_reported=``
 ``json_output)`` instead of a plain ``ClickException``, so the group's
 failure handler shows the human line and exits 1 without publishing a
 second JSON document (PLAN D91).
+Changed in 2.1.4: a session that finished with failed tracks exits 1 as well
+as reporting ``errors`` in its payload, so a partial rip is not a shell
+success (PLAN D9).  The drive/disc failure path keeps its ``RunFailure``.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ from typing import Any
 
 import click
 
-from audio_suite_shared.cli_base import RunFailure, cli
+from audio_suite_shared.cli_base import RunFailure, cli, finish_batch
 from audio_suite_shared.cli_schema import build_payload
 
 
@@ -355,6 +358,7 @@ def cd_rip_cli(
         )
     else:
         click.echo(f"Rip session complete. {len(log_lines)} log entries.", err=True)
+    finish_batch(failed)
 
 
 def _detect_read_offset(

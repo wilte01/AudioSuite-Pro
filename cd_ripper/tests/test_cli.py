@@ -11,6 +11,9 @@ command's done_event.wait().
 Changed in 1.4.0: the fake session reports no fatal error, and a new lock
 asserts a fatal drive error exits non-zero instead of printing an empty
 success payload.
+Changed in 2.1.4: ``TestPartialFailureExitStatus`` pins the R-06 contract for a
+session that finished with failed tracks - exit 1, payload unchanged, a clean
+rip still 0 (PLAN D9).
 
 Run with:
     pytest tests/test_cli.py -v
@@ -266,6 +269,61 @@ class TestRipOutput:
 
         assert result.exit_code != 0
         assert "Cannot open CD device" in result.output
+
+
+class TestPartialFailureExitStatus:
+    """R-06: a session that failed a track is not a shell success."""
+
+    @staticmethod
+    def _session(outcomes: list[bool]):
+        """Build a fake session reporting one result per outcome."""
+
+        def _build(**kwargs: Any) -> MagicMock:
+            session = MagicMock()
+            session.fatal_error = None
+
+            def _start() -> None:
+                for number, success in enumerate(outcomes, start=1):
+                    kwargs["track_done_cb"](
+                        number, success, f"/out/{number}.flac", "ripped"
+                    )
+                kwargs["session_done_cb"]()
+
+            session.start.side_effect = _start
+            return session
+
+        return _build
+
+    def test_a_failed_track_exits_1_and_the_payload_still_reports_it(
+        self, runner: CliRunner
+    ) -> None:
+        with patch.object(
+            ripper, "RipSession", side_effect=self._session([True, False])
+        ):
+            result = runner.invoke(
+                cli, ["cd-rip", "D:", "--output-dir", "/out", "--json"]
+            )
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout)
+        assert payload["errors"] == 1
+        assert payload["succeeded"] == 1
+        assert validate_payload("cd-rip", payload) == []
+
+    def test_text_mode_still_prints_the_session_line(self, runner: CliRunner) -> None:
+        with patch.object(ripper, "RipSession", side_effect=self._session([False])):
+            result = runner.invoke(cli, ["cd-rip", "D:", "--output-dir", "/out"])
+
+        assert result.exit_code == 1
+        assert "Rip session complete" in result.output
+
+    def test_a_clean_rip_stays_0(self, runner: CliRunner) -> None:
+        with patch.object(
+            ripper, "RipSession", side_effect=self._session([True, True])
+        ):
+            result = runner.invoke(cli, ["cd-rip", "D:", "--output-dir", "/out"])
+
+        assert result.exit_code == 0, result.output
 
 
 class TestFatalErrorJson:

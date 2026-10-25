@@ -1,6 +1,8 @@
 """CLI command for Mood Analysis Batch Tagger.
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+Changed in 2.1.4: the command exits 1 when it reports per-file errors, the
+same contract ``finish_run`` applies to the ``_run_tool`` commands (PLAN D9).
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from audio_suite_shared.cli_base import (
     _opt_parallel,
     _opt_workers,
     cli,
+    finish_batch,
 )
 from audio_suite_shared.cli_schema import build_payload
 
@@ -109,3 +112,4 @@ def mood_analysis_batch_cli(
         )
         if log_path:
             click.echo(f"  Log: {log_path}", err=True)
+    finish_batch(errors)

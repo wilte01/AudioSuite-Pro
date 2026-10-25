@@ -3,6 +3,8 @@
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 Changed in 2.1.0: ``--no-plugin-tags`` turns off the plugin system's enabled
 tag processors, and the payload counts their edits separately (Sprint 7).
+Changed in 2.1.4: the command exits 1 when it reports per-file errors, the
+same contract ``finish_run`` applies to the ``_run_tool`` commands (PLAN D9).
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from audio_suite_shared.cli_base import (
     _opt_dry_run,
     _opt_json,
     cli,
+    finish_batch,
 )
 from audio_suite_shared.cli_schema import build_payload
 
@@ -84,3 +87,6 @@ def tag_update_cli(
             f"  Files skipped:   {stats.skipped_files}\n"
             f"  Errors:          {stats.error_files}"
         )
+    # The payload's ``errors`` is what the status reports; a plugin failure is
+    # counted in ``plugin_errors`` and is never fatal by contract.
+    finish_batch(stats.error_files)

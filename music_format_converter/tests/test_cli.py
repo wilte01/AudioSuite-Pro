@@ -8,8 +8,12 @@ before the conversion call.
 
 Changed in 2.1.2: added a live ALAC run (R-02) — the command must exit 0 and
 leave a playable `.m4a`, not fail on an unmuxable `.alac` extension.
+Changed in 2.1.4: ``TestExitContract`` pins the R-06 status through the real
+command — one corrupt input in a folder makes the run exit 1 while the summary
+still reports it, and an all-skipped tree stays at 0.
 """
 
+import json
 from unittest.mock import patch
 
 import pytest
@@ -126,6 +130,58 @@ class TestRecursiveMixedCli:
 
         assert result.exit_code == 0, result.output
         assert "2 skipped" in result.output
+
+
+class TestExitContract:
+    """R-06 — a batch that reports errors must not look like a clean run."""
+
+    def test_a_failing_file_exits_1_with_the_summary_intact(self, tmp_path):
+        """The pre-fix defect: ``1 errors`` printed, ``$?`` was 0.
+
+        A corrupt ``.wav`` is the probe: it is an allowed lossless source, so
+        the run reaches the decoder and fails there.  A corrupt lossy file
+        would be *skipped* first (no quality gain to a lossless target), which
+        is a different outcome.
+        """
+        (tmp_path / "broken.wav").write_bytes(b"this is not a RIFF stream")
+        out = tmp_path / "converted"
+
+        result = CliRunner().invoke(
+            cli.convert,
+            [str(tmp_path), "--format", "flac", "--output-dir", str(out)],
+        )
+
+        assert result.exit_code == 1, result.output
+        assert "1 errors" in result.output
+        assert "Traceback" not in result.output
+
+    def test_the_json_payload_is_unchanged_on_error(self, tmp_path):
+        """Only the status moves: every documented key is still published."""
+        (tmp_path / "broken.wav").write_bytes(b"this is not a RIFF stream")
+
+        result = CliRunner().invoke(
+            cli.convert, [str(tmp_path), "--format", "flac", "--json"]
+        )
+
+        assert result.exit_code == 1, result.output
+        payload = json.loads(result.stdout)
+        assert payload["errors"] == 1
+        assert payload["succeeded"] == 0
+        for key in (
+            "schema_version",
+            "tool",
+            "command",
+            "dry_run",
+            "total",
+            "processed",
+            "succeeded",
+            "skipped",
+            "errors",
+            "duration_secs",
+            "duration_str",
+            "log_entries",
+        ):
+            assert key in payload, key
 
 
 class TestAlacEndToEnd:

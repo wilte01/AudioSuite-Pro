@@ -394,6 +394,29 @@ versions, resolves every first-party package, names the CLI commands a gap would
 take down, and exits 1 when anything is wrong (`doctor --json` publishes the
 same findings as one document).
 
+### Exit status
+
+Every command reports the outcome through its exit status, and the status agrees
+with the summary it printed:
+
+| Status | Meaning |
+|---|---|
+| `0` | The run was clean. **Skipped files are not errors** — a folder already in the target format exits 0. |
+| `1` | The run finished with at least one per-file error, or it stopped early with a fatal error. The payload's `errors` count matches. |
+| `2` | Usage error: an unknown flag, a missing required argument, or a bad value. Click reports it before any work starts. |
+
+A dry run obeys the same rule: `--dry` writes nothing, but an unreadable or
+unsupported input is still a real failure, so the status is 1 there too.
+
+```bash
+audiosuite convert /Music/tmp --format flac || echo "conversion reported errors"
+```
+
+This is the one behaviour change a script may notice: before 2.1.4 a batch that
+reported errors still exited 0. The JSON document is unchanged, so a script that
+parsed `errors` keeps working; one that relied on the status now sees the same
+signal as the summary.
+
 ### JSON output
 
 With `--json`, stdout carries **one** document and nothing else: progress and

@@ -2,6 +2,10 @@
 
 run_batch is imported inside the command body, so the mock must be applied to
 the source module (batch_analysis_engine), not the importing cli module.
+
+Changed in 2.1.4: the command now applies the shared exit contract (PLAN D9), so
+the cases that report ``errors=1`` assert exit 1 with the summary still printed,
+and ``TestExitContract`` pins the clean and all-skipped cases at 0.
 """
 
 from __future__ import annotations
@@ -59,7 +63,9 @@ class TestMoodAnalysisBatchCliJson:
                 ["mood-analysis-batch", str(tmp_path), "--json"],
             )
 
-        assert result.exit_code == 0
+        # One file failed, so the run is not a shell success (R-06) - and the
+        # document it printed is still the full, unchanged payload.
+        assert result.exit_code == 1
         payload = json.loads(result.output)
         assert payload["tagged"] == 5
         assert payload["skipped"] == 2
@@ -100,7 +106,7 @@ class TestMoodAnalysisBatchCliText:
                 ["mood-analysis-batch", str(tmp_path), "--text"],
             )
 
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "Folders scanned: 1" in result.output
         assert "Files tagged:    5" in result.output
         assert "Files skipped:   2" in result.output
@@ -186,6 +192,8 @@ class TestMoodAnalysisBatchCliUndoBatch:
             _enqueue_done(
                 kwargs["out_queue"],  # type: ignore[arg-type]
                 tagged=3,
+                skipped=0,
+                errors=0,
             )
 
         with (
@@ -198,3 +206,44 @@ class TestMoodAnalysisBatchCliUndoBatch:
 
         assert result.exit_code == 0
         assert len(entered_ids) == 1, "active_batch should be entered exactly once"
+
+
+class TestExitContract:
+    """R-06: the shell status mirrors the ``errors`` the payload reports."""
+
+    def test_a_clean_run_exits_0(self, tmp_path: Any) -> None:
+        runner = CliRunner()
+        fake = _FakeRunBatch(tagged=4, skipped=0, errors=0)
+        with patch(f"{ENGINE}.run_batch", side_effect=fake):
+            result = runner.invoke(
+                cli, ["mood-analysis-batch", str(tmp_path), "--json"]
+            )
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["errors"] == 0
+
+    def test_an_all_skipped_run_exits_0(self, tmp_path: Any) -> None:
+        """Nothing tagged because nothing had audio to analyse is not a failure."""
+        runner = CliRunner()
+        fake = _FakeRunBatch(tagged=0, skipped=4, errors=0)
+        with patch(f"{ENGINE}.run_batch", side_effect=fake):
+            result = runner.invoke(
+                cli, ["mood-analysis-batch", str(tmp_path), "--json"]
+            )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["skipped"] == 4
+        assert payload["errors"] == 0
+
+    def test_errors_exit_1_after_the_summary_is_printed(self, tmp_path: Any) -> None:
+        """The count a user reads and the status a script sees must agree."""
+        runner = CliRunner()
+        fake = _FakeRunBatch(tagged=1, skipped=0, errors=2)
+        with patch(f"{ENGINE}.run_batch", side_effect=fake):
+            result = runner.invoke(
+                cli, ["mood-analysis-batch", str(tmp_path), "--text"]
+            )
+
+        assert result.exit_code == 1
+        assert "Errors:          2" in result.output

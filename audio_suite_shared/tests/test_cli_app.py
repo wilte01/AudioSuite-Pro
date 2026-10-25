@@ -15,6 +15,10 @@ with the Stem Separator (Sprint 6, Item 6.1).
 
 Changed in 2.1.0: covers the ``plugins`` group's documented flags and the
 grouped-command path the failure document resolves.
+Changed in 2.1.4: the dry-run smoke class now asserts the R-06 status.  The
+fixture's files are fake bytes, so every analysis command reports two per-file
+errors and exits 1; the old ``exit_code == 0`` assertions were the defect, not a
+clean run (PLAN D9).
 """
 
 from __future__ import annotations
@@ -136,6 +140,21 @@ class TestSubcommandHelp:
 
 
 class TestDryRunInvocations:
+    """Each command parses its flags and runs to completion on a real folder.
+
+    The fixture's ``track1.mp3`` / ``track2.flac`` are fake bytes, so every
+    command that decodes audio reports two per-file errors and must exit 1
+    (R-06).  A crash also exits 1, so the summary line is what separates a
+    reported failure from a fatal one.
+    """
+
+    @staticmethod
+    def _assert_reported_errors(result: Any) -> None:
+        """The run finished, reported both files, and did not crash."""
+        assert result.exit_code == 1, result.output
+        assert "2 errors" in result.output
+        assert "FATAL" not in result.output
+
     def test_bpm_dry_run(self, runner: CliRunner, temp_music_dir: str) -> None:
         result = runner.invoke(
             cli,
@@ -151,12 +170,11 @@ class TestDryRunInvocations:
                 "5",
             ],
         )
-        # Should complete without error (exit 0 or non-zero depending on mock)
-        assert result.exit_code == 0
+        self._assert_reported_errors(result)
 
     def test_key_dry_run(self, runner: CliRunner, temp_music_dir: str) -> None:
         result = runner.invoke(cli, ["key", temp_music_dir, "--dry", "--duration", "5"])
-        assert result.exit_code == 0
+        self._assert_reported_errors(result)
 
     def test_tempo_dry_run(self, runner: CliRunner, temp_music_dir: str) -> None:
         result = runner.invoke(
@@ -168,16 +186,18 @@ class TestDryRunInvocations:
         result = runner.invoke(
             cli, ["replaygain", temp_music_dir, "--dry", "--target-lufs", "-14"]
         )
-        assert result.exit_code == 0
+        self._assert_reported_errors(result)
 
     def test_normalise_dry_run(self, runner: CliRunner, temp_music_dir: str) -> None:
         result = runner.invoke(cli, ["normalise", temp_music_dir, "--dry"])
-        assert result.exit_code == 0
+        self._assert_reported_errors(result)
 
     def test_normalise_json_flag(self, runner: CliRunner, temp_music_dir: str) -> None:
-        """--json must emit a JSON summary without failing."""
+        """--json must emit the shared document for the same reported errors."""
         result = runner.invoke(cli, ["normalise", temp_music_dir, "--dry", "--json"])
-        assert result.exit_code == 0
+
+        assert result.exit_code == 1, result.output
+        assert json.loads(result.stdout)["errors"] == 2
 
     def test_scrub_dry_run(self, runner: CliRunner, temp_music_dir: str) -> None:
         result = runner.invoke(cli, ["scrub", temp_music_dir, "--dry"])
@@ -196,11 +216,11 @@ class TestDryRunInvocations:
                 "5",
             ],
         )
-        assert result.exit_code == 0
+        self._assert_reported_errors(result)
 
     def test_silence_trim_dry_run(self, runner: CliRunner, temp_music_dir: str) -> None:
         result = runner.invoke(cli, ["silence-trim", temp_music_dir, "--dry"])
-        assert result.exit_code == 0
+        self._assert_reported_errors(result)
 
 
 # ── convert subcommand ────────────────────────────────────────────────────────
