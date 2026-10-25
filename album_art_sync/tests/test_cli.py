@@ -3,10 +3,15 @@
 Changed in 1.0.1: added an M1 regression asserting an internal pipeline error
 prints a clean error line and never a 'NoneType' AttributeError traceback.
 Changed in 1.4.0: patches the pipeline's single handler load (PLAN D55).
+Changed in 2.1.4: the run cases assert the R-06 status.  This command reports an
+empty folder, and a pipeline failure, as one error in its payload, so the shell
+status is 1 - the previous ``exit_code == 0`` assertions contradicted the
+summary the same run printed (PLAN D9).
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -60,25 +65,37 @@ class TestAlbumArtValidation:
 
 
 class TestAlbumArtRun:
+    """Options parse and the run reports what it found.
+
+    A folder with no audio is this command's "nothing to do" error (its payload
+    says ``1 errors``), so the status is 1: the assertion is about the status
+    agreeing with the payload, not about the empty folder being notable.
+    """
+
     def test_dry_run_on_empty_dir(self, runner: CliRunner, audio_dir: Path):
         result = runner.invoke(cli, ["album-art", str(audio_dir), "--dry"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
+        assert "1 errors" in result.output
 
     def test_json_flag(self, runner: CliRunner, audio_dir: Path):
         result = runner.invoke(cli, ["album-art", str(audio_dir), "--dry", "--json"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
+        assert json.loads(result.stdout)["errors"] == 1
 
     def test_size_option(self, runner: CliRunner, audio_dir: Path):
         result = runner.invoke(
             cli, ["album-art", str(audio_dir), "--embed-size", "1200", "--dry"]
         )
-        assert result.exit_code == 0
+        # Reaching the summary is what proves the option was accepted.
+        assert result.exit_code == 1
+        assert "Summary: 0 files" in result.output
 
     def test_no_purge_option(self, runner: CliRunner, audio_dir: Path):
         result = runner.invoke(
             cli, ["album-art", str(audio_dir), "--no-purge", "--dry"]
         )
-        assert result.exit_code == 0
+        assert result.exit_code == 1
+        assert "Summary: 0 files" in result.output
 
 
 class TestAlbumArtUndoBatch:
@@ -146,7 +163,9 @@ class TestAlbumArtErrorContract:
         ):
             result = runner.invoke(cli, ["album-art", str(audio_dir), "--live"])
 
-        assert result.exit_code == 0
+        # The failure is reported as an error (exit 1), cleanly - which is the
+        # point of the regression, not a zero status.
+        assert result.exit_code == 1
         assert "Error: Audio analysis failed" in result.output
         assert "AttributeError" not in result.output
         assert "NoneType" not in result.output

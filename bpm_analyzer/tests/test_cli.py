@@ -4,6 +4,9 @@ Changed in 1.4.0: the ``--json`` payload now carries top-level
 ``skipped_files`` and ``error_files`` lists so a script can tell a beatless
 file from a corrupt one, and see the periodicity score or error type behind
 each outcome.
+Changed in 2.1.4: the JSON helper asserts the R-06 exit status.  A run that
+reports a per-file error exits 1, so ``_invoke_json`` takes the expected count
+and derives the status from it instead of always demanding 0 (PLAN D9).
 """
 
 from __future__ import annotations
@@ -60,12 +63,20 @@ def mixed_dir(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _invoke_json(directory: Path) -> dict[str, Any]:
+def _invoke_json(directory: Path, *, expect_errors: int = 0) -> dict[str, Any]:
+    """Run the JSON path and return its payload.
+
+    The exit status follows the error count the payload reports (R-06), so the
+    expectation is a parameter: a clean run is 0, a run with per-file errors is
+    1.  ``expect_errors`` is the count the caller already asserts, so the status
+    and the count cannot disagree in one test.
+    """
     result = CliRunner().invoke(
         cli,
         ["bpm", str(directory), "--dry", "--json", "--duration", "8"],
     )
-    assert result.exit_code == 0, result.output
+    expected_status = 1 if expect_errors else 0
+    assert result.exit_code == expected_status, result.output
     payload: dict[str, Any] = json.loads(result.stdout)
     return payload
 
@@ -104,7 +115,7 @@ class TestBpmJsonSkippedFiles:
         _write_noise(tmp_path / "noise.wav")
         (tmp_path / "corrupt.mp3").write_bytes(b"not audio")
 
-        payload = _invoke_json(tmp_path)
+        payload = _invoke_json(tmp_path, expect_errors=1)
 
         assert payload["processed"] == 2
         assert payload["skipped"] == 1
