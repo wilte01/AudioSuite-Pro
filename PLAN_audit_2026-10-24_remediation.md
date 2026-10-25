@@ -1060,7 +1060,7 @@ records the final six-command tail.
 
 | Item | Release | Commit | Date | Targeted verification | Negative control | Gate |
 |---|---|---|---|---|---|---|
-| A1 | 2.1.2 | — | — | — | — | — |
+| A1 | 2.1.2 | `9e3c00f` | 2026-10-25 | `pytest replaygain_analyzer/tests` → 197 passed; guide rebuilt, only `word/document.xml` differs | Mean formula planted: `test_album_gain_is_duration_weighted` and `TestAlbumGainOutcome` fail — tag +9.50 dB against measured +12.90 dB | compile OK; ruff clean; ruff format clean; mypy 549 files; bandit 0 High / 0 Medium (47 Low); bare `pytest` 10,929 passed, 3 skipped, 90.50 %, 18:46 |
 | A2 | 2.1.2 | — | — | — | — | — |
 | A3 | 2.1.2 | — | — | — | — | — |
 | B1 | 2.1.3 | — | — | — | — | — |
