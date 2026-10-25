@@ -12,6 +12,11 @@ disk looking finished.
 Changed in 1.2.0: consumes the typed ``TrackVerification`` and reports its
 EAC-style label (with the AccurateRip confidence) instead of the bare status
 value (PLAN_feature_expansion.md D30).
+
+Changed in 2.1.2: the per-track output path is checked for containment inside
+``out_dir`` before any directory is created, so a tag value can never write
+outside the chosen tree (security finding R-03). ``_safe_filename`` already
+refuses ``.``/``..``; this is the backstop.
 """
 
 import logging as _logging
@@ -19,8 +24,10 @@ import os
 import subprocess
 import tempfile
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
+from audio_suite_shared.exceptions import AudioSuiteError
 from cd_ripper.core.metadata_resolver import (
     FORMAT_OPTIONS,
     _build_metadata_args,
@@ -35,6 +42,30 @@ from cd_ripper.core.track_processor import (
     read_wav_pcm,
     verify_extracted_track,
 )
+
+
+def _ensure_inside_output_dir(out_dir: str, out_path: str, track_num: int) -> None:
+    """Refuse a track output path that resolves outside *out_dir*.
+
+    Both sides are resolved first, so ``..`` segments and symlinks are already
+    folded in, and compared case-insensitively on Windows where two casings
+    are the same file.
+
+    Args:
+        out_dir: The output directory the user chose.
+        out_path: The joined per-track output path.
+        track_num: Track number, for the message.
+
+    Raises:
+        AudioSuiteError: When *out_path* is not below *out_dir*.
+    """
+    root = Path(os.path.normcase(str(Path(out_dir).resolve())))
+    candidate = Path(os.path.normcase(str(Path(out_path).resolve())))
+    if not candidate.is_relative_to(root):
+        raise AudioSuiteError(
+            f"Track {track_num:02d}: the resolved output path escapes the output "
+            "directory"
+        )
 
 
 class RipTask:
@@ -99,10 +130,19 @@ class RipTask:
         album_folder = f"[{year}] {album}" if year else album
         artist_dir = os.path.join(self.out_dir, album_artist or "Unknown Artist")
         album_dir = os.path.join(artist_dir, album_folder)
-        os.makedirs(album_dir, exist_ok=True)
 
         fname = f"{num:02d} - {title}.{ext}"
         out_path = os.path.join(album_dir, fname)
+        # Before creating anything: the tags came from an online database, and
+        # a path that resolves outside out_dir must be refused, not written.
+        try:
+            _ensure_inside_output_dir(self.out_dir, out_path, num)
+        except AudioSuiteError as exc:
+            self.log_cb(f"[ERROR] {exc}")
+            self.done_cb(num, False, "", str(exc))
+            return
+        os.makedirs(album_dir, exist_ok=True)
+
         duration = self.track.get("duration", 0)
 
         self.progress_cb(num, 0, "Starting\u2026")

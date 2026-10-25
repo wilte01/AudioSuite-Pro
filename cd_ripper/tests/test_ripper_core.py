@@ -22,6 +22,10 @@ real ffmpeg/SCSI calls.
 Changed in 1.0.1: adds ``TestRipTask`` regression tests asserting a failed or
 interrupted encode removes any partial output file.
 
+Changed in 2.1.2: adds the R-03 tests — ``_safe_filename`` never returns a
+bare ``.``/``..``, and the per-track output path is refused before any folder
+is created when it would land outside the output directory.
+
 Changed in 1.2.0: follows ``verify_extracted_track`` onto the typed
 ``TrackVerification`` and pins the confidence/method/label of each outcome.
 """
@@ -203,6 +207,119 @@ class TestSafeFilename:
         assert ":" not in result
         assert "/" not in result
         assert "*" not in result
+
+    # ── R-03: a name is never a directory reference ──────────────────────
+
+    def test_bare_dot_dot_becomes_placeholder(self):
+        """`os.path.join(out_dir, "..")` walks out of the tree (R-03)."""
+        assert _safe_filename("..") == "_"
+
+    def test_bare_dot_becomes_placeholder(self):
+        assert _safe_filename(".") == "_"
+
+    def test_dot_with_whitespace_becomes_placeholder(self):
+        assert _safe_filename("  ..  ") == "_"
+
+    def test_trailing_dot_stripped(self):
+        """Windows strips a trailing dot, so "..." must not become ".." there."""
+        assert _safe_filename("...") == ""
+        assert _safe_filename("Track 01.") == "Track 01"
+
+    def test_trailing_space_stripped(self):
+        assert _safe_filename("Track 01 ") == "Track 01"
+
+    def test_interior_dots_are_kept(self):
+        assert _safe_filename("Mr. Brightside") == "Mr. Brightside"
+
+
+# ===========================================================================
+# R-03 — output-path containment
+# ===========================================================================
+
+
+class TestOutputPathContainment:
+    """A tag value must never write outside the rip's output directory.
+
+    ``_safe_filename`` refuses ``.``/``..``, so this guard is the backstop: it
+    is exercised directly, and again through ``RipTask.run`` with the sanitiser
+    stubbed, because that is how a future change would reintroduce the escape.
+    """
+
+    def test_accepts_a_legitimate_nested_path(self, tmp_path):
+        from cd_ripper.core.encoding_pipeline import _ensure_inside_output_dir
+
+        out_dir = tmp_path / "rips"
+        _ensure_inside_output_dir(
+            str(out_dir), str(out_dir / "Artist" / "[2024] Album" / "01 - T.flac"), 1
+        )
+
+    @pytest.mark.parametrize(
+        "escape", [os.path.join("..", "x.flac"), os.path.join("..", "..", "x.flac")]
+    )
+    def test_refuses_a_path_outside_the_output_dir(self, tmp_path, escape):
+        from audio_suite_shared.exceptions import AudioSuiteError
+        from cd_ripper.core.encoding_pipeline import _ensure_inside_output_dir
+
+        out_dir = tmp_path / "rips"
+        out_dir.mkdir()
+        with pytest.raises(AudioSuiteError, match="escapes the output directory"):
+            _ensure_inside_output_dir(str(out_dir), str(out_dir / escape), 7)
+
+    def test_run_refuses_before_creating_anything(self, tmp_path):
+        """A traversal album name is refused before ``os.makedirs``.
+
+        ``_safe_filename`` is stubbed to return ``..`` so the sanitiser cannot
+        mask the guard: the track is reported failed and nothing is created.
+        """
+        out_dir = tmp_path / "rips"
+        # Both path components the pipeline builds from tags resolve to `..`,
+        # so the album directory lands two levels above out_dir.
+        track = _make_track(album="Album", album_artist="Album", year="")
+        task, _progress, done = self._make_task(tmp_path, track=track)
+        task.out_dir = str(out_dir)
+
+        def fake_safe(name):
+            return ".." if name == "Album" else name
+
+        created = []
+
+        with (
+            patch(
+                "cd_ripper.core.encoding_pipeline._safe_filename",
+                side_effect=fake_safe,
+            ),
+            patch(
+                "cd_ripper.core.encoding_pipeline.os.makedirs",
+                side_effect=lambda path, **kw: created.append(path),
+            ),
+        ):
+            task.run()
+
+        assert created == []
+        assert len(done) == 1
+        num, ok, path, err = done[0]
+        assert (num, ok, path) == (1, False, "")
+        assert "escapes the output directory" in err
+        assert not out_dir.exists()
+
+    def _make_task(self, tmp_path, track=None, fmt="FLAC"):
+
+        toc_entry = _make_toc_entry()
+        progress_events = []
+        done_events = []
+        task = RipTask(
+            drive="D:",
+            track=track or _make_track(),
+            toc_entry=toc_entry,
+            out_dir=str(tmp_path),
+            fmt=fmt,
+            codec_args=FORMAT_OPTIONS[fmt]["codec_args"],
+            progress_cb=lambda num, pct, msg: progress_events.append((num, pct, msg)),
+            done_cb=lambda num, ok, path, err: done_events.append((num, ok, path, err)),
+            ffmpeg_path="ffmpeg",
+            log_cb=_noop,
+        )
+        return task, progress_events, done_events
 
 
 # ===========================================================================

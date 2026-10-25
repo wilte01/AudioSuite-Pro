@@ -76,6 +76,8 @@ Patterns use a foobar2000-like syntax:
 
 After evaluation, the engine removes control characters, replaces path-illegal characters such as < > : " | ? * with underscores, normalizes separators, strips leading/trailing separators, trims components, and drops empty components. If the resolved path has no extension, the source file's extension is appended.
 
+A pattern that resolves to a `.` or `..` path component, a drive-qualified value such as `C:\Music`, or a UNC value such as `\\server\share` is refused, not silently rewritten: the file is counted in Errors, reported as a pattern error, and nothing is written. The same refusal applies if a destination would resolve outside the chosen destination directory, so a tag value can never place a file outside the tree you selected. An absolute-looking tag value such as `/etc/passwd` is re-rooted inside the destination instead.
+
 ## Dry Run, Copy, and Move
 
 - **Dry Run: **Logs source-to-target plans and increments scan/processed statistics without touching files.

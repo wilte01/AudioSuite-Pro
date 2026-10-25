@@ -76,7 +76,9 @@ Each track is written under the selected output directory using this structure:
 
 <output>\<album artist>\[<year>] <album>\<track number> - <title>.<extension>
 
-Invalid filename characters are replaced with underscores. The encoder writes title, artist, album artist, album, date, genre, and track metadata when values are available.
+Invalid filename characters are replaced with underscores, and a tag that is exactly `.` or `..` becomes an underscore so it cannot be used as a folder name. Before any folder is created, each track's output path is checked to be inside the selected output directory; a path that would land outside it fails that track and creates nothing.
+
+The encoder writes title, artist, album artist, album, date, genre, and track metadata when values are available.
 
 When CUE output is enabled, the generated sheet is named from the sanitized album title and includes the successfully encoded tracks and their titles and performers.
 

@@ -7,6 +7,13 @@ and copies or moves the file to the resolved target path.
 Changed in 1.0.1: a copy/move whose resolved destination already exists is
 skipped with a warning instead of silently overwriting the existing file,
 whose bytes the undo record cannot restore.
+
+Changed in 2.1.2: every destination is checked for containment inside
+``base_dir`` before any write (security finding R-03). ``resolve_path`` already
+refuses ``..``, drive and UNC values, so this is the defence-in-depth layer
+that also covers a future resolver change; a violation is a ``PatternError``,
+which the existing handler reports as "PATTERN ERROR" and counts in
+``stats.errors``.
 """
 
 from __future__ import annotations
@@ -272,6 +279,7 @@ class FileReorganizer:
                     target_rel += entry.suffix
 
                 target_path = os.path.join(self.base_dir, target_rel)
+                self._ensure_contained(target_path, target_rel)
                 if not self._perform_action(file_path, target_path):
                     self.stats.files_skipped += 1
                     if progress_callback:
@@ -301,6 +309,27 @@ class FileReorganizer:
                     )
 
         return self.stats
+
+    def _ensure_contained(self, target: str, target_rel: str) -> None:
+        """Refuse a destination that resolves outside :attr:`base_dir`.
+
+        Both sides are resolved first (so ``..`` and symlinks are already
+        folded in) and compared case-insensitively on Windows, where a
+        differently-cased path is the same file.
+
+        Args:
+            target: The joined destination path.
+            target_rel: The resolved pattern value, for the error message.
+
+        Raises:
+            PatternError: When *target* is not below ``base_dir``.
+        """
+        base = Path(os.path.normcase(str(Path(self.base_dir).resolve())))
+        candidate = Path(os.path.normcase(str(Path(target).resolve())))
+        if not candidate.is_relative_to(base):
+            raise PatternError(
+                f"Resolved path escapes the destination directory: {target_rel!r}"
+            )
 
     def _perform_action(self, source: str, target: str) -> bool:
         """Copy or move *source* to *target*, refusing to overwrite.

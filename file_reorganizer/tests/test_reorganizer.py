@@ -14,6 +14,9 @@ Covers:
   - progress_callback called for all code branches
   - stop() interruption
 
+Changed in 2.1.2: adds the R-03 containment tests — a `..` tag value, and a
+resolved path that escapes base_dir, must be refused in both dry and live
+runs, leaving nothing outside the destination.
 Changed in 1.0.1: adds existing-destination collision regression tests (M5).
 """
 
@@ -1075,3 +1078,130 @@ class TestEngineCollisionIntegration:
         # Exactly one source was consumed by the move; the colliding one stays.
         remaining = [p for p in (first, second) if p.exists()]
         assert len(remaining) == 1
+
+
+# ── R-03: tag-driven destinations stay inside base_dir ─────────────────────
+
+
+def _stray_paths(base: Path, root: Path, source: Path) -> list[Path]:
+    """Paths under *root* that are neither inside *base* nor *source*.
+
+    A refused run must leave the source tree alone and create nothing else
+    outside the destination.
+    """
+    stray: list[Path] = []
+    root_resolved = root.resolve()
+    base_resolved = base.resolve()
+    source_resolved = source.resolve()
+    for entry in root_resolved.rglob("*"):
+        if entry.is_relative_to(source_resolved) or entry.is_relative_to(base_resolved):
+            continue
+        stray.append(entry)
+    return stray
+
+
+class TestTraversalContainment:
+    """A tag value must never write outside the chosen destination tree.
+
+    ``resolve_path`` refuses ``..``/drive/UNC values, and the engine checks
+    containment as the backstop. Both the dry run and the live run go through
+    the same code, so both are exercised.
+    """
+
+    def _run(self, tmp_path: Path, tags: dict[str, str], dry_run: bool):
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        track = src / "t.flac"
+        _make_flac(track)
+        _tag_flac(track, tags)
+        dst = tmp_path / "dst"
+        calls: list[str] = []
+        reorg = FileReorganizer(
+            "%album%/%title%", "%album%/%title%", str(dst), dry_run=dry_run
+        )
+        stats = reorg.run(str(src), progress_callback=lambda p, _s: calls.append(p))
+        return stats, calls, track, dst
+
+    @pytest.mark.parametrize("dry_run", [True, False])
+    def test_dot_dot_tags_are_refused_and_create_nothing(
+        self, tmp_path: Path, dry_run: bool
+    ) -> None:
+        stats, calls, track, dst = self._run(
+            tmp_path, {"album": "..", "title": ".."}, dry_run=dry_run
+        )
+
+        assert stats.errors >= 1
+        assert stats.files_processed == 0
+        assert any("PATTERN ERROR" in c for c in calls), calls
+        # Nothing was created outside the destination, and the source is intact.
+        assert _stray_paths(dst, tmp_path, tmp_path / "src") == []
+        assert track.exists()
+
+    @pytest.mark.parametrize("dry_run", [True, False])
+    def test_parent_traversal_tag_is_refused(
+        self, tmp_path: Path, dry_run: bool
+    ) -> None:
+        stats, calls, track, dst = self._run(
+            tmp_path, {"album": "../../evil", "title": "x"}, dry_run=dry_run
+        )
+
+        assert stats.errors >= 1
+        assert any("PATTERN ERROR" in c for c in calls), calls
+        assert not (tmp_path.parent / "evil").exists()
+        assert _stray_paths(dst, tmp_path, tmp_path / "src") == []
+        assert track.exists()
+
+    def test_absolute_tag_value_is_re_rooted_inside(self, tmp_path: Path) -> None:
+        """An absolute tag value lands below the destination, not at the root."""
+        stats, _calls, _track, dst = self._run(
+            tmp_path, {"album": "/etc/passwd", "title": "x"}, dry_run=False
+        )
+
+        assert stats.files_processed == 1
+        assert _stray_paths(dst, tmp_path, tmp_path / "src") == []
+        assert (dst / "etc" / "passwd" / "x.flac").is_file()
+
+    def test_engine_refuses_a_resolved_path_that_escapes(self, tmp_path: Path) -> None:
+        """The containment check itself, independent of resolve_path.
+
+        resolve_path is stubbed to return a traversal value, which is how a
+        future resolver change would reintroduce the escape; the engine must
+        still refuse to write.
+        """
+        from file_reorganizer.core import engine as engine_module
+
+        src = tmp_path / "src"
+        src.mkdir()
+        track = src / "t.flac"
+        _make_flac(track)
+        _tag_flac(track, {"album": "A", "title": "T"})
+        dst = tmp_path / "dst"
+        calls: list[str] = []
+
+        with patch.object(
+            engine_module,
+            "resolve_path",
+            return_value=os.path.join("..", "escape.flac"),
+        ):
+            reorg = FileReorganizer("%album%", "%album%", str(dst))
+            stats = reorg.run(str(src), progress_callback=lambda p, _s: calls.append(p))
+
+        assert stats.errors == 1
+        assert any("PATTERN ERROR" in c for c in calls), calls
+        assert not (tmp_path / "escape.flac").exists()
+        assert track.exists()
+
+    def test_containment_accepts_a_legitimate_nested_path(self, tmp_path: Path) -> None:
+        """Positive control: the check must not refuse a normal destination."""
+        dst = tmp_path / "dst"
+        reorg = FileReorganizer("%album%/%title%", "%album%/%title%", str(dst))
+        reorg._ensure_contained(str(dst / "A" / "T.flac"), os.path.join("A", "T.flac"))
+
+    def test_containment_rejects_a_relative_escape(self, tmp_path: Path) -> None:
+        dst = tmp_path / "dst"
+        reorg = FileReorganizer("%album%", "%album%", str(dst))
+        with pytest.raises(PatternError, match="escapes"):
+            reorg._ensure_contained(
+                os.path.join(str(dst), "..", "outside.flac"),
+                os.path.join("..", "outside.flac"),
+            )

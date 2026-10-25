@@ -9,6 +9,20 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+### Security
+
+- **File Reorganizer and CD ripper refuse paths that escape the destination.**
+  Tag values are untrusted input, and the organizer's resolver kept `..`, so a
+  file tagged `album="../../evil"` was copied to a directory above the chosen
+  destination (the resolver returned `..\\..\\evil`). `resolve_path` now
+  refuses a `.`/`..` component, a drive-qualified value (`C:\\Music`) and a UNC
+  value (`\\\\server\\share`) instead of rewriting them, and the engine checks
+  every destination for containment inside the destination directory before
+  writing. The CD ripper's filename sanitiser no longer returns a bare `.` or
+  `..`, and its per-track output path is checked for containment before any
+  folder is created. Refusals surface as a pattern error (organizer) or a
+  failed track (ripper) and write nothing.
+
 ### Fixed
 
 - **Album ReplayGain is weighted by track duration.** A folder's album gain

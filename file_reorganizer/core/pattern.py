@@ -10,6 +10,11 @@ Supports:
   $left(val, n)               -- first n characters
   $num(val, digits)           -- zero-pad number to width
   %tag_name%                  -- read tag value from audio file
+
+Changed in 2.1.2: a resolved path is refused instead of silently rewritten when
+it names a drive or UNC prefix, or contains a `.`/`..` component (security
+finding R-03). Tag values are untrusted input, and `..` components let a tag
+walk out of the destination tree.
 """
 
 from __future__ import annotations
@@ -20,6 +25,25 @@ import re
 
 class PatternError(Exception):
     """Raised when a pattern string cannot be parsed or evaluated."""
+
+
+# A drive-qualified path (C:\Music in tag text) or a UNC share.
+_DRIVE_PREFIX_RE = re.compile(r"^[A-Za-z]:")
+_UNC_PREFIXES: tuple[str, ...] = ("\\\\", "//", "\\/", "/\\")
+
+# Components that address a directory rather than name one.
+_DOT_COMPONENTS: frozenset[str] = frozenset({".", ".."})
+
+
+def _looks_like_share(remainder: str) -> bool:
+    """Whether *remainder* (leading separators removed) names a UNC share.
+
+    A share needs a host *and* a share name, so one separator inside the
+    remainder is required. Without this, ``"///"`` — what a pattern of empty
+    or absolute-looking components collapses to — would be refused as a UNC
+    path instead of resolving to the empty path the caller skips.
+    """
+    return bool(remainder.strip()) and bool(re.search(r"[/\\]", remainder))
 
 
 _TOKEN_RE = re.compile(
@@ -302,20 +326,47 @@ def resolve_path(
     Path-illegal characters (``<>:"|?*``) are replaced with underscores.
     Empty path components are collapsed.
 
+    The returned path is relative and traversal-free, or this raises:
+    a drive-qualified value (``C:\\Music``), a UNC share
+    (``\\\\server\\share``) and a ``.``/``..`` component are all refused rather
+    than rewritten, because a tag value is untrusted input and a silent
+    rewrite changes the user's intended folder without telling them.
+
+    A leading separator is *not* refused: an empty leading tag (``%artist%/``
+    with no artist) produces one, and the result is stripped to a relative
+    path below ``base_dir`` either way, so it cannot escape.
+
     Args:
         pattern: The folder/file pattern string.
         tags: Tag values.
         base_dir: Optional root directory to prepend.
 
     Returns:
-        A sanitized absolute or relative path string.
+        A sanitized relative path, or one below *base_dir* when it is given.
+
+    Raises:
+        PatternError: If the pattern is malformed, or the resolved value is a
+            drive/UNC path or contains a `.`/`..` component.
     """
     raw = evaluate_pattern(pattern, tags)
     # Remove control characters (never valid in paths)
     raw = re.sub(r"[\r\n]+", "", raw)
+
+    # Drive and UNC prefixes are checked *before* the illegal-character pass:
+    # that pass rewrites ':' to '_' and would erase the drive marker.
+    if raw.startswith(_UNC_PREFIXES) and _looks_like_share(raw.lstrip("/\\")):
+        raise PatternError(f"UNC path is not allowed: {raw!r}")
+    if _DRIVE_PREFIX_RE.match(raw):
+        raise PatternError(f"Drive-qualified path is not allowed: {raw!r}")
+
     # Replace path-illegal characters
     raw = re.sub(r'[<>:"|?*]', "_", raw)
     raw = re.sub(r"[/\\]+", lambda _: os.sep, raw)
+    # Refuse directory references before they collapse into the destination
+    for component in raw.split(os.sep):
+        stripped = component.strip()
+        if stripped in _DOT_COMPONENTS:
+            raise PatternError(f"Path component {stripped!r} is not allowed: {raw!r}")
     # Strip leading/trailing separators
     raw = raw.strip(os.sep)
     # Strip whitespace from each component and drop empties

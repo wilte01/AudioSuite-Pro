@@ -1,6 +1,10 @@
 """
 metadata_resolver.py  –  Format definitions, metadata construction, and
 FFmpeg probing / streaming for CD ripping encoding pipelines.
+
+Changed in 2.1.2: ``_safe_filename`` no longer returns a bare ``.`` or ``..``,
+and drops trailing dots/spaces, so a tag value cannot be joined into a parent
+directory (security finding R-03).
 """
 
 import logging as _logging
@@ -85,7 +89,25 @@ def get_quality_options(fmt: str) -> dict[str, list[str]] | None:
 
 
 def _safe_filename(name: str) -> str:
-    return re.sub(r'[\\/*?:"<>|]', "_", name).strip()
+    """Return *name* with characters a filesystem cannot hold replaced by ``_``.
+
+    A bare ``.`` or ``..`` is a directory reference, not a name: joining it to
+    the output directory walks out of it, so it becomes ``_``. Trailing dots
+    and spaces are dropped because Windows silently strips them, which would
+    otherwise turn a name back into a traversal token. An empty string stays
+    empty: callers already supply their own fallbacks (``or track_artist``,
+    ``"Unknown Album"``).
+
+    Args:
+        name: A tag value used as a path component.
+
+    Returns:
+        A single path component, safe to join onto a directory.
+    """
+    cleaned = re.sub(r'[\\/*?:"<>|]', "_", name).strip()
+    if cleaned in (".", ".."):
+        return "_"
+    return cleaned.rstrip(". ")
 
 
 # ── FFmpeg metadata argument builder ──────────────────────────────────────
