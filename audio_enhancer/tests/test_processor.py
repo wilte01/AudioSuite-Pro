@@ -39,6 +39,9 @@ Tags
 Changed in 1.1.0: retargeted the chain mocks to
 apply_enhancement_chain, added the effect-control builder tests and
 live-vs-dry-run effect assertions.
+Changed in 2.1.3: dropped the ``apply_effects`` keyword assertions and added
+``TestDryRunMatchesTheLiveRun``, which measures a dry run and a live run of the
+same cancelling effect on a real WAV and requires equal levels (R-09).
 """
 
 from __future__ import annotations
@@ -975,7 +978,9 @@ class TestProcessFile:
             )
 
         apply_chain.assert_called_once()
-        assert apply_chain.call_args.kwargs["apply_effects"] is True
+        # No dry-run flag reaches the DSP: every call site asks for the chain
+        # the parameters describe (R-09).
+        assert apply_chain.call_args.kwargs == {}
         read_audio.assert_called_once_with(info.path)
         write_audio.assert_called_once()
         assert result.status == JobStatus.DONE
@@ -1154,7 +1159,73 @@ class TestProcessFile:
         assert result.rms_after_db == pytest.approx(-20.0)
         assert result.gain_db == pytest.approx(10.0)
         apply_chain.assert_called_once()
-        assert apply_chain.call_args.kwargs["apply_effects"] is False
+        # Identical call shape to the live run above - the dry-run difference
+        # is the early return, not a different chain (R-09).
+        assert apply_chain.call_args.kwargs == {}
+
+
+class TestDryRunMatchesTheLiveRun:
+    """R-09: a dry run must measure the chain the live run writes.
+
+    Both rows below go through the same ``process_file`` entry point on a real
+    WAV, so the equality is between two measured outcomes rather than between a
+    result and the configuration it was derived from.
+    """
+
+    @staticmethod
+    def _write_centred_wav(path: Path) -> None:
+        """Write a stereo WAV whose two channels are identical.
+
+        Karaoke is a channel subtraction, so an identical-channel source
+        collapses to near-silence. That makes "the effect ran" and "the base
+        chain ran" 40 dB apart - a difference one measurement cannot hide.
+        """
+        from pedalboard.io import AudioFile
+
+        mono = _sine(440.0, duration_s=0.5).astype(np.float32)
+        audio = np.vstack([mono, mono])
+        with AudioFile(str(path), "w", SR, num_channels=2) as handle:
+            handle.write(audio)
+
+    def test_dry_run_measures_the_full_chain(self, tmp_path: Path) -> None:
+        """Dry and live runs of a cancelling effect report the same level."""
+        src = tmp_path / "centred.wav"
+        self._write_centred_wav(src)
+        out_dir = tmp_path / "out"
+        info = AudioFileInfo(path=src)
+        params = EnhancementParams(karaoke=True)
+
+        dry = process_file(info, params, out_dir, dry_run=True)
+        assert dry.status == JobStatus.DONE
+        assert not out_dir.exists(), "a dry run must create nothing"
+
+        live = process_file(info, params, out_dir, dry_run=False)
+        assert live.status == JobStatus.DONE
+        assert (out_dir / "centred.wav").is_file()
+
+        assert dry.rms_after_db == pytest.approx(live.rms_after_db, abs=1e-9)
+        # Karaoke cancellation is what makes that equality meaningful: a
+        # base-chain measurement would sit near the source level instead.
+        assert dry.rms_after_db < dry.rms_before_db - 6.0, (
+            f"dry run reported {dry.rms_after_db:.2f} dBFS from "
+            f"{dry.rms_before_db:.2f} dBFS - the karaoke stage did not run"
+        )
+
+    def test_full_chain_differs_from_base_chain_when_an_effect_is_on(self) -> None:
+        """Guards the equality above: it can only fail if the chains differ."""
+        from audio_suite_shared.dsp_chain import (
+            apply_enhancement_chain,
+            build_enhancement_chain,
+            compute_rms_db,
+        )
+
+        mono = _sine(440.0, duration_s=0.5)
+        audio = np.vstack([mono, mono])
+        params = EnhancementParams(karaoke=True)
+
+        full_db = compute_rms_db(apply_enhancement_chain(audio, SR, params))
+        base_db = compute_rms_db(build_enhancement_chain(params)(audio, SR))
+        assert base_db - full_db > 6.0
 
 
 class TestUnsupportedFormatSkip:

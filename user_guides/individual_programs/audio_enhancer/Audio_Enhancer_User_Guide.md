@@ -77,7 +77,7 @@ Preset values are defined in code and configure the complete enhancement pass. T
 
 ## Effects
 
-The Custom DSP editor also exposes five optional effects, and the command line can enable the same effects through flags. All five default to off, so a preset run or an untouched Custom run produces exactly the same output as before the effects existed. Applying a preset resets only the numeric DSP values; it never changes the effect toggles. Reverse and karaoke are applied before the main chain, while the phaser, flanger, and chorus run after the EQ shaping. Dry Run disables all five effects so it still measures the base chain only.
+The Custom DSP editor also exposes five optional effects, and the command line can enable the same effects through flags. All five default to off, so a preset run or an untouched Custom run produces exactly the same output as before the effects existed. Applying a preset resets only the numeric DSP values; it never changes the effect toggles. Reverse and karaoke are applied before the main chain, while the phaser, flanger, and chorus run after the EQ shaping. Dry Run applies the same chain as a live run — effects included — and only skips writing the file and copying tags, so the level it reports is the level you would get. A cancelling effect therefore shows as the drop it really is: karaoke on a centred mix reports near-silence in a dry run, exactly as the written file would.
 
 - **Reverse: **Reverses the audio playback direction.
 - **Karaoke: **Removes centre-panned content (typically lead vocals) by subtracting one channel from the other. Karaoke Strength, 0 to 1, blends between the original and the fully removed signal. Mono input is returned unchanged.

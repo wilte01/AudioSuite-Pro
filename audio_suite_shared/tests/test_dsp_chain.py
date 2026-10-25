@@ -7,6 +7,9 @@ DSP normalization plan.
 
 Changed in 1.1.0: added the effect-builder and
 apply_enhancement_chain orchestrator tests.
+Changed in 2.1.3: replaced the ``apply_effects=False`` bypass test with
+``test_has_no_bypass_parameter`` and
+``test_configured_effects_are_always_applied`` (R-09).
 """
 
 from __future__ import annotations
@@ -279,14 +282,26 @@ class TestApplyEnhancementChain:
     def _base(self, params: SimpleNamespace) -> np.ndarray:
         return build_enhancement_chain(params)(_stereo_sine(), SR)
 
-    def test_dry_run_equals_base_chain(self):
-        params = _effect_params(
-            reverse=True, karaoke=True, phaser=True, flanger=True, chorus=True
+    def test_has_no_bypass_parameter(self):
+        """There is no way to ask the chain for a different signal (R-09)."""
+        import inspect
+
+        assert (
+            "apply_effects" not in inspect.signature(apply_enhancement_chain).parameters
         )
+        with pytest.raises(TypeError):
+            apply_enhancement_chain(
+                _stereo_sine(), SR, _effect_params(), apply_effects=False
+            )
+
+    def test_configured_effects_are_always_applied(self):
+        """An enabled effect changes the output whether or not a caller is
+        previewing - the difference a bypass would have hidden."""
+        params = _effect_params(karaoke=True)
         audio = _stereo_sine()
-        out = apply_enhancement_chain(audio, SR, params, apply_effects=False)
+        out = apply_enhancement_chain(audio, SR, params)
         expected = build_enhancement_chain(params)(audio, SR)
-        np.testing.assert_array_equal(out, expected)
+        assert compute_rms_db(expected) - compute_rms_db(out) > 6.0
 
     def test_all_effects_off_equals_base_chain(self):
         params = _effect_params()

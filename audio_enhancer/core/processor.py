@@ -3,11 +3,11 @@ core/processor.py
 Builds and applies the pedalboard DSP chain to a single audio file.
 Emits progress via an optional callback so the UI can update in real time.
 
-Changed in 1.1.0: routed enhancement through apply_enhancement_chain(
-..., apply_effects=not is_dry_run) so Dry Run bypasses the new
-Sprint 1 effects.  Also added a clean [SKIP] guard for formats the enhancer
+Changed in 1.1.0: added a clean [SKIP] guard for formats the enhancer
 cannot round-trip (.wv/.spx/.ape/.mpc/.dsf) so the widened shared format set
 does not surface them as misleading decode errors.
+Changed in 2.1.3: Dry Run no longer bypasses the Sprint 1 effects, so it
+measures exactly the signal a live run writes (R-09).
 """
 
 from __future__ import annotations
@@ -125,11 +125,11 @@ def process_file(
         # silently, per claude.md's bug-fixing protocol — pedalboard is a
         # core dependency and swapping it is a design decision, not a bug fix.
         #
-        # Sprint 1 (1.1.0): the Sprint 1 effects are bypassed under dry-run
-        # (D17), so a dry run still measures the base-chain level only.
-        enhanced = apply_enhancement_chain(
-            audio, sample_rate, params, apply_effects=not dry_run
-        ).astype(np.float64)
+        # Both modes apply the same chain: the only dry-run difference is the
+        # early return below, which skips the write and the tag copy (R-09).
+        enhanced = apply_enhancement_chain(audio, sample_rate, params).astype(
+            np.float64
+        )
         post_chain_clip_check(enhanced, stage_name="Enhance")
 
         result.rms_before_db = compute_rms_db(audio)

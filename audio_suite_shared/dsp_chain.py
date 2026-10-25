@@ -12,6 +12,9 @@ flanger, chorus). Phaser/Chorus join the Pedalboard; flanger is a custom
 numpy modulated delay; reverse/karaoke are pre-chain array ops. Added
 apply_enhancement_chain() as the ordered orchestrator; with effects off the
 base chain output is byte-identical to before.
+Changed in 2.1.3: removed the ``apply_effects`` bypass parameter, so the
+orchestrator always applies the configured chain and a preview cannot measure
+a different signal from the one that gets written (R-09).
 """
 
 from __future__ import annotations
@@ -233,8 +236,6 @@ def apply_enhancement_chain(
     audio: npt.NDArray[np.floating[Any]],
     sample_rate: int,
     params: Any,
-    *,
-    apply_effects: bool = True,
 ) -> npt.NDArray[np.floating[Any]]:
     """Apply the full ordered enhancement chain (D17) to an audio array.
 
@@ -242,27 +243,20 @@ def apply_enhancement_chain(
     LowShelf → Peak → HighShelf → Phaser → Flanger (numpy) → Chorus → Gain →
     Limiter.
 
-    When ``apply_effects`` is False (dry-run) the pre-chain array effects and
-    every Sprint 1 effect are bypassed and only the base 7-plugin chain is
-    applied — matching the original pipeline's dry-run behaviour.  With all
-    effects off the output is byte-identical to the pre-Sprint-1 chain.
+    The chain is the one ``params`` configures, always: there is no bypass
+    switch, so a caller that wants a preview of the result measures the same
+    signal an export would write. With all effects off the output is
+    byte-identical to the pre-Sprint-1 chain.
 
     Args:
         audio: ``(channels, samples)`` array.
         sample_rate: Sample rate in Hz.
         params: Enhancement params object (duck-typed as in
             :func:`build_enhancement_chain`).
-        apply_effects: Whether to apply the Sprint 1 effects.
 
     Returns:
         The processed array.
     """
-    if not apply_effects:
-        passthrough: npt.NDArray[np.floating[Any]] = build_enhancement_chain(params)(
-            audio, sample_rate
-        )
-        return passthrough
-
     processed: npt.NDArray[np.floating[Any]] = apply_pre_chain_effects(audio, params)
     if _effect_flag(params, "flanger"):
         from pedalboard import Pedalboard

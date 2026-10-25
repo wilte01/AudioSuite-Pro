@@ -29,6 +29,13 @@ Versions of the tools are released together with the suite (the single
   processes exactly the nine it can scrub: MP3, FLAC, OGG, Opus, M4A, MP4, WAV,
   AIFF and AIF. Tag sampling for the preserve checklist uses the same table, so
   it no longer spends its 100-file budget on files that will not be processed.
+- **Audio Enhancer dry runs measure the chain the live run writes.** Dry Run
+  bypassed the five effects, so a preview with karaoke, phaser, flanger, chorus,
+  reverse or the output gain enabled reported the level of a *different* signal:
+  karaoke on a centred mix showed -9.9 dBFS where the written file measures
+  near-silence. The bypass switch is gone and both modes run the configured
+  chain; the only remaining difference is that a dry run writes no file and
+  copies no tags.
 
 ## [2.1.2] - 2026-10-25
 
