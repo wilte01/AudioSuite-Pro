@@ -11,6 +11,9 @@ The refusal is a contract about the *returned value*: it is relative and
 traversal-free, or the call raises. A leading separator is deliberately not
 refused — an empty leading tag produces one, and the result is stripped to a
 relative path below ``base_dir`` either way, so it cannot escape.
+
+Changed in 2.1.2: new file, holding the R-03 traversal-refusal contract for
+``file_reorganizer.core.pattern``.
 """
 
 from __future__ import annotations
