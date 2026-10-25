@@ -20,6 +20,15 @@ Versions of the tools are released together with the suite (the single
   `album_art_sync/config/album_art_config.json`. A copy left at either old
   location is migrated on first load together with its `.key` — a JSON copied
   without its key cannot be decrypted — and the originals are left in place.
+- **The Metadata Scrubber no longer offers formats it cannot open.** Discovery
+  used the suite-wide extension list while the loader handled nine containers,
+  so a valid WavPack, Monkey's Audio, Musepack, Speex or DSD file in a chosen
+  folder was listed and then reported `[UNREADABLE]` with an error count — a
+  failure against a file that is perfectly fine. Extension discovery and the
+  loader now derive from one table, so the scrubber offers, samples and
+  processes exactly the nine it can scrub: MP3, FLAC, OGG, Opus, M4A, MP4, WAV,
+  AIFF and AIF. Tag sampling for the preserve checklist uses the same table, so
+  it no longer spends its 100-file budget on files that will not be processed.
 
 ## [2.1.2] - 2026-10-25
 

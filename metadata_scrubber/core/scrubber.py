@@ -5,6 +5,8 @@ No tkinter imports — all UI interaction via injected callbacks.
 
 Changed in 1.4.0: the docstring no longer claims a fixed 4-worker pool; the
 count resolves from ``default_max_workers()`` (D56, D67).
+Changed in 2.1.3: discovery and loading share one ``_LOADERS`` table, so the
+scrubber can no longer advertise a container it cannot open (R-05).
 """
 
 import logging
@@ -23,9 +25,6 @@ from mutagen.oggopus import OggOpus
 from mutagen.oggvorbis import OggVorbis
 from mutagen.wave import WAVE
 
-from audio_suite_shared.audio_formats import (
-    SUPPORTED_EXTENSIONS as _CANONICAL_EXTENSIONS,
-)
 from audio_suite_shared.batch_undo import (
     get_active_batch_id,
     record_tag_edit_snapshot,
@@ -40,12 +39,33 @@ from audio_suite_shared.exceptions import (
 from audio_suite_shared.file_processor_base import BaseFileProcessor
 from audio_suite_shared.tag_helper_base import TagHandlerFactory
 
-# .wma is intentionally NOT listed: mutagen has no WMA/ASF handler, so any
-# discovered .wma file would fail at load. Only formats with a _load_audio()
-# handler are enumerated.
-SUPPORTED_EXTENSIONS: set[str] = {
-    ext for ext in _CANONICAL_EXTENSIONS if ext not in (".wma",)
+#: Extension -> mutagen loader. This table is the *only* source of truth for
+#: what the scrubber advertises: ``SUPPORTED_EXTENSIONS`` is derived from it and
+#: ``_load_audio`` looks the same entry up, so discovery cannot offer a container
+#: the loader cannot open (R-05 - ``.wv/.ape/.mpc/.spx/.dsf`` came from the
+#: suite-wide list and were then reported ``[UNREADABLE]`` at run time).
+#: A plain class is a valid callable; an explicit lambda appears only where the
+#: constructor takes keyword arguments.
+#:
+#: ``TagHandlerFactory`` is deliberately not used as the loader here: scrubbing
+#: needs the *raw* mutagen object, because ``_collect_tags_to_preserve`` captures
+#: actual ``APIC``/``SYLT``/``USLT``/``TPE2``/``TXXX`` frames and restores those
+#: same frame objects. WavPack/APE/Musepack/Speex/DSF stay out of the table until
+#: a frame-level APEv2 handler exists for that restore logic - the plan records
+#: the gap as a deferred item rather than papering over it with discovery.
+_LOADERS: dict[str, Callable[[str], Any]] = {
+    ".mp3": lambda path: MP3(path, ID3=ID3),
+    ".flac": FLAC,
+    ".ogg": OggVorbis,
+    ".opus": OggOpus,
+    ".m4a": MP4,
+    ".mp4": MP4,
+    ".wav": WAVE,
+    ".aiff": AIFF,
+    ".aif": AIFF,
 }
+
+SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(_LOADERS)
 
 logger = logging.getLogger(__name__)
 
@@ -69,23 +89,18 @@ def _get_frame_safe(audio: Any, field_id: str) -> Optional[Any]:
 
 
 def _load_audio(full_path: str) -> Any:
-    """Load an audio file with the appropriate mutagen handler."""
+    """Load an audio file with the handler ``_LOADERS`` maps to its extension.
+
+    Raises:
+        ValueError: when the extension has no loader. Discovery only offers what
+            this table contains, so the raise is a direct-call guard rather than
+            a reachable run-time path.
+    """
     ext = os.path.splitext(full_path)[1].lower()
-    if ext == ".mp3":
-        return MP3(full_path, ID3=ID3)
-    if ext == ".flac":
-        return FLAC(full_path)
-    if ext == ".ogg":
-        return OggVorbis(full_path)
-    if ext == ".opus":
-        return OggOpus(full_path)
-    if ext in (".m4a", ".mp4"):
-        return MP4(full_path)
-    if ext == ".wav":
-        return WAVE(full_path)
-    if ext in (".aiff", ".aif"):
-        return AIFF(full_path)
-    raise ValueError(f"Unsupported audio format: {ext}")
+    loader = _LOADERS.get(ext)
+    if loader is None:
+        raise ValueError(f"Unsupported audio format: {ext}")
+    return loader(full_path)
 
 
 def _has_tags(audio: Any) -> bool:

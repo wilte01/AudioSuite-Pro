@@ -3,6 +3,10 @@ Tests for metadata_scrubber.core.tag_scanner
 Gap G-07: is_ignored(), scan_custom_tags()
 
 Uses pydub + mutagen to create real minimal audio test fixtures for all formats.
+
+Changed in 2.1.3: `TestDiscoveryMatchesTheScrubber` asserts sampling uses the
+scrubber's own extension set, so the preserve checklist cannot be built from a
+container the scrubber cannot open (R-05).
 """
 
 import pytest
@@ -357,3 +361,18 @@ class TestScanCustomTagsMixedFormats:
             "CUSTOMTAG",
             "ANOTHER",
         }.issubset(result)
+
+
+class TestDiscoveryMatchesTheScrubber:
+    """R-05: the checklist is built only from scrubbable containers."""
+
+    def test_sampling_uses_the_scrubbers_extension_set(self):
+        """The scanner samples the one object the scrubber loads from.
+
+        Sampling a container the scrubber cannot open offers preserve-list keys
+        that can never be restored, and it spends the 100-file sampling budget
+        on files that will not be processed.
+        """
+        from metadata_scrubber.core import scrubber, tag_scanner
+
+        assert tag_scanner.SUPPORTED_EXTENSIONS is scrubber.SUPPORTED_EXTENSIONS

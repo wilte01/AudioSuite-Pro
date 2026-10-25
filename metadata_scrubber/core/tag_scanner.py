@@ -2,15 +2,20 @@
 tag_scanner.py
 Scans a directory for custom tags, filtering out known system tags.
 Pure logic — no tkinter imports.
+
+Changed in 2.1.3: discovery uses the scrubber's ``SUPPORTED_EXTENSIONS`` (the
+``_LOADERS`` keys), not the suite-wide list, so the preserve checklist cannot
+be built from a container the scrubber is unable to open (R-05).
 """
 
 import logging
 import os
 from typing import Any, Callable, Optional, cast
 
-from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.exceptions import map_to_audio_error, user_message_for
 from audio_suite_shared.tag_helper_base import TagHandlerFactory
+
+from .scrubber import SUPPORTED_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 

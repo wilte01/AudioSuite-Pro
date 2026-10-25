@@ -11,7 +11,11 @@ Dry Run reports what would be scrubbed without changing files. Live Update perfo
 
 ## Supported Files
 
-The core scrubber supports all nine suite audio formats except WMA: MP3, FLAC, OGG, M4A, MP4, Opus, WAV, AIFF, and AIF. WMA is excluded because mutagen has no ASF tag handler. The GUI discovers custom tags by sampling up to 100 supported audio files in the selected directory. Processing then scans the supported files in that directory.
+The scrubber works with nine containers: MP3, FLAC, OGG, Opus, M4A, MP4, WAV, AIFF, and AIF. Those are the only files it lists, samples, or processes.
+
+Other formats the suite can convert are deliberately not offered here: WavPack (.wv), Monkey's Audio (.ape), Musepack (.mpc), Speex (.spx), DSD (.dsf), and WMA. WMA is excluded because mutagen has no ASF tag handler at all. The remaining five can be decoded for conversion, but the scrubber wipes a file's tags and then restores individual tag frames, and no frame-level tag handler exists for those containers yet — listing them would mean reporting a valid file as unreadable. A folder holding only such files reports "No supported audio files found" rather than an error per file.
+
+The GUI discovers custom tags by sampling up to 100 supported audio files in the selected directory. Processing then scans the supported files in that directory.
 
 - **Always preserved: **Artist, album, and title, using format-specific tag representations.
 - **Optional lyrics: **MP3 USLT/SYLT, Vorbis lyrics/syncedlyrics, and the M4A/MP4 lyrics atom where supported.

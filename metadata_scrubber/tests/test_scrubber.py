@@ -4,10 +4,16 @@ Gap G-27: process_single_file(), run_scrubbing()
 
 Uses pydub + mutagen to build real MP3 test fixtures.
 slot_vars and slot_queue are simulated with MagicMock/Queue.
+
+Changed in 2.1.3: `TestFormatDiscoveryMatchesLoader` locks discovery to the
+`_LOADERS` table and proves a valid `.wv` file is no longer reported as an
+error (R-05).
 """
 
+import shutil
 import threading
 import unittest
+from pathlib import Path
 from queue import Queue
 from unittest.mock import MagicMock
 
@@ -2034,3 +2040,117 @@ class TestTopLevelErrorHandler:
             )
         errors = [r for r in results if r.get("n_errors", 0) > 0]
         assert any("[ERROR]" in r.get("display_text", "") for r in errors)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Format discovery (R-05): advertise exactly what the loader table can open
+# ═════════════════════════════════════════════════════════════════════════════
+
+#: pydub/ffmpeg export format per advertised extension. A new loader without an
+#: entry here fails the per-extension test by KeyError: the probe has to be
+#: extended deliberately, it cannot silently skip the new format.
+_EXPORT_FORMAT = {
+    ".mp3": "mp3",
+    ".flac": "flac",
+    ".ogg": "ogg",
+    ".opus": "opus",
+    ".m4a": "mp4",
+    ".mp4": "mp4",
+    ".wav": "wav",
+    ".aiff": "aiff",
+    ".aif": "aiff",
+}
+
+#: Containers every full ffmpeg build can encode. If none of these can be
+#: produced, `test_every_advertised_extension_loads` would skip every case and
+#: pass vacuously, so it asserts this floor explicitly.
+_CORE_CONTAINERS = (".mp3", ".flac", ".ogg", ".wav", ".m4a")
+
+#: Containers the user's library may hold that the scrubber cannot scrub yet.
+#: Absent from discovery on purpose - see the deferred APEv2 item in the plan.
+_UNSUPPORTED_CONTAINERS = (".wv", ".ape", ".mpc", ".spx", ".dsf", ".wma")
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+class TestFormatDiscoveryMatchesLoader:
+    def test_supported_extensions_is_exactly_the_loader_table(self):
+        """Discovery and loading derive from one table, so they cannot drift."""
+        from metadata_scrubber.core import scrubber
+
+        assert scrubber.SUPPORTED_EXTENSIONS == frozenset(scrubber._LOADERS)
+        assert isinstance(scrubber.SUPPORTED_EXTENSIONS, frozenset)
+
+    def test_every_advertised_extension_loads(self, tmp_path):
+        """Every advertised extension has a loader that opens a real file."""
+        import mutagen
+
+        from metadata_scrubber.core.scrubber import (
+            SUPPORTED_EXTENSIONS,
+            _load_audio,
+        )
+
+        assert set(SUPPORTED_EXTENSIONS) == set(_EXPORT_FORMAT)
+
+        exercised: list[str] = []
+        for ext in sorted(SUPPORTED_EXTENSIONS):
+            path = tmp_path / f"probe{ext}"
+            try:
+                AudioSegment.silent(duration=100).export(
+                    str(path), format=_EXPORT_FORMAT[ext]
+                )
+            except Exception:  # ffmpeg absent, or built without this encoder
+                continue
+            audio = _load_audio(str(path))
+            assert isinstance(audio, mutagen.FileType), ext
+            exercised.append(ext)
+
+        missing = [ext for ext in _CORE_CONTAINERS if ext not in exercised]
+        assert not missing, (
+            "core containers could not be generated, so the load check skipped "
+            f"them instead of proving them: {missing} (exercised: {exercised})"
+        )
+
+    def test_unsupported_containers_are_not_advertised(self):
+        """WavPack/APE/MPC/Speex/DSF/WMA stay out until a loader exists."""
+        from metadata_scrubber.core.scrubber import SUPPORTED_EXTENSIONS
+
+        assert SUPPORTED_EXTENSIONS.isdisjoint(_UNSUPPORTED_CONTAINERS)
+
+    def test_scan_reports_no_unreadable_error_for_a_wavpack_file(self, tmp_path):
+        """A `.wv` file is not discovered, so it is neither read nor reported.
+
+        Before R-05 the suite-wide extension list offered the file and the
+        missing loader turned it into a `[UNREADABLE]` error with a non-zero
+        error count, on a file that is perfectly valid.
+        """
+        source = _REPO_ROOT / "tests" / "data" / "silence-44-s.wv"
+        assert source.is_file()
+        shutil.copyfile(source, tmp_path / "silence-44-s.wv")
+
+        slot_vars, slot_q = _make_slot_fixtures()
+        cb, results = _collect_progress()
+        complete_calls: list[dict] = []
+        errors: list[str] = []
+
+        run_scrubbing(
+            dir_path=str(tmp_path),
+            is_dry_run=False,
+            preserve_list=[],
+            preserve_lyrics=False,
+            preserve_album_artist=False,
+            preserve_embedded_art=False,
+            slot_vars=slot_vars,
+            slot_queue=slot_q,
+            on_progress=cb,
+            on_complete=lambda **kw: complete_calls.append(kw),
+            on_error=errors.append,
+        )
+
+        assert not complete_calls
+        assert not [r for r in results if "UNREADABLE" in r.get("display_text", "")], (
+            results
+        )
+        # Nothing was discovered, so the run reports "no supported files" rather
+        # than a per-file error against a valid WavPack file.
+        assert errors == ["No supported audio files found in the selected directory."]
