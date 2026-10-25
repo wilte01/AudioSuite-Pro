@@ -10,6 +10,10 @@ preventing double-put / over-concurrency in the slot queue.
 
 Changed in 1.0.1: the per-track peak tag value is converted from the
 ffmpeg dBFS measurement to the linear amplitude ReplayGain defines.
+Changed in 2.1.2: each measurement now carries the file's duration, and the
+per-folder album gain is energy-weighted by it instead of averaging per-track
+loudness (audit R-01). A file whose duration cannot be read is reported as a
+per-file error rather than weighted with a guessed length.
 """
 
 from __future__ import annotations
@@ -93,14 +97,14 @@ def _measure_worker(job: _MeasureJob) -> None:
         if job.on_slot_update:
             job.on_slot_update(slot_idx, f"Analyzing: {job.filename[:25]}...")
 
-        def _do_measure() -> tuple[float | None, float]:
+        def _do_measure() -> tuple[float | None, float, float | None]:
             return get_metrics(full_path)
 
-        lufs, peak = job.processor.run_with_retry(
+        lufs, peak, duration_s = job.processor.run_with_retry(
             _do_measure, max_retries=2, label=f"measure {job.filename}"
         )
 
-        if lufs is None:
+        if lufs is None or duration_s is None:
             with job.lock:
                 job.on_progress(n_errors=1, display_text=f"[ERROR] {job.filename}")
             return
@@ -111,6 +115,7 @@ def _measure_worker(job: _MeasureJob) -> None:
             "path": full_path,
             "lufs": lufs,
             "peak": peak,
+            "duration_s": duration_s,
             "track_gain": target_gain,
         }
 
@@ -156,9 +161,10 @@ def _write_worker(job: _WriteJob) -> None:
     with use_batch(job.undo_batch):
         lufs_values = [f["lufs"] for f in job.files_data]
         peak_values = [f["peak"] for f in job.files_data]
+        durations_s = [f["duration_s"] for f in job.files_data]
 
         album_gain, album_peak, album_gain_str, album_peak_str = calculate_album_gain(
-            job.target_lufs, lufs_values, peak_values
+            job.target_lufs, lufs_values, peak_values, durations_s
         )
 
         log_header = (

@@ -35,7 +35,7 @@ This tool requires ffmpeg and ffprobe to be installed and on PATH. ffmpeg decode
 
 Setup contains the directory picker, target LUFS, run mode, optional MP3 lossless gain, presets, and shared run controls. The application validates the directory and target before starting. Target LUFS uses the suite's permitted target values.
 
-- **Target LUFS: **Desired integrated loudness target. Track gain is target LUFS minus measured LUFS; album gain uses the mean LUFS for each folder.
+- **Target LUFS: **Desired integrated loudness target. Track gain is target LUFS minus measured LUFS; album gain uses the folder's combined loudness, weighted by each file's duration.
 - **Dry Run / Live Update: **Dry Run measures and previews values without tag writes. Live Update writes ReplayGain tags.
 - **Apply Lossless Gain: **After tagging, bakes track gain into MP3 files losslessly. It applies only to MP3 files and is not a re-encode.
 - **Presets: **Save and restore target LUFS and run mode through shared suite presets.
@@ -44,7 +44,7 @@ Setup contains the directory picker, target LUFS, run mode, optional MP3 lossles
 
 1. Recursively discover supported audio files and group them by containing folder.
 1. Phase 1 measures each file's integrated LUFS and true peak in parallel, with retry handling.
-1. For each folder, calculate album gain as target LUFS minus the mean file LUFS.
+1. For each folder, calculate album gain as target LUFS minus the combined loudness of its files: each file's energy is weighted by its duration, so a long quiet track counts less than a short loud one.
 1. Calculate album peak as the maximum true peak among files in that folder.
 1. In Dry Run, report the track and album values without writing.
 1. In Live Update, write track gain, album gain, track peak, and album peak tags.
@@ -53,7 +53,7 @@ Setup contains the directory picker, target LUFS, run mode, optional MP3 lossles
 ## ReplayGain Values and Tags
 
 - **Track Gain: **The per-file gain required to reach the target, formatted such as +2.34 dB.
-- **Album Gain: **The folder-level gain derived from the mean integrated LUFS of that folder.
+- **Album Gain: **The folder-level gain derived from the duration-weighted combined loudness of that folder, which is what a player applies to the album as a whole.
 - **Track Peak: **The measured true-peak value for the file, converted from dBFS to the linear amplitude (0.0–1.0) ReplayGain peak tags use.
 - **Album Peak: **The highest true peak measured among files in the folder (the loudest linear amplitude, not the largest dBFS), in the same linear form.
 
@@ -94,7 +94,7 @@ From the Master Driver, open ENRICH and select ReplayGain Analyzer. The driver p
 ## Troubleshooting
 
 - **No audio files found: **Select a directory containing supported audio files or check that the files are accessible.
-- **A folder's album gain looks unexpected: **Album gain is calculated per folder from the mean LUFS of only the files that measured successfully.
+- **A folder's album gain looks unexpected: **Album gain is calculated per folder from the duration-weighted loudness of only the files that measured successfully. A file whose duration cannot be read is reported as an error rather than counted as zero, so check the folder's error count before judging the album value.
 - **Tags did not change: **Confirm Live Update was selected. Dry Run never writes ReplayGain metadata.
 - **MP3 loudness changed unexpectedly: **Apply Lossless Gain explicitly changes MP3 frame gain after tagging; disable it to write tags only.
 - **A file errors: **Review the per-file status and replaygain log for FFmpeg measurement, tag-writing, or gain-application details.

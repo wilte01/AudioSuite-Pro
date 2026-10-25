@@ -7,9 +7,14 @@ Pure function — no tkinter, no file I/O, no FFmpeg.
 
 Changed in 1.0.1: album peak is now converted from the ffmpeg dBFS
 measurement to the linear amplitude the REPLAYGAIN_*_PEAK tags require.
+Changed in 2.1.2: album loudness is the duration-weighted mean-square energy
+of the tracks (ReplayGain 2.0-compatible), not the arithmetic mean of their
+integrated loudness. A 10 s -10 LUFS track and a 30 s -30 LUFS track used to
+count equally, which put a +4.0 dB album gain on a pair whose combined signal
+is -15.9 LUFS (audit R-01).
 """
 
-import statistics
+import math
 
 from audio_suite_shared.exceptions import AudioSuiteError
 
@@ -37,17 +42,24 @@ def calculate_album_gain(
     target_lufs: float,
     lufs_values: list[float],
     peak_values: list[float],
+    durations_s: list[float],
 ) -> tuple[float, float, str, str]:
     """
     Derive album gain and album peak from per-file measurements.
 
-    Album gain  = target_lufs − mean(integrated LUFS across all files)
-    Album peak  = max(linear true peak across all files)
+    Album loudness = ``10·log10(Σ 10^(Lᵢ/10)·dᵢ / Σ dᵢ)`` — the mean-square
+    energy of the tracks, weighted by each track's duration. Album gain is
+    ``target_lufs − album loudness``; album peak is the loudest linear true
+    peak across the files.
 
     Args:
         target_lufs:  Desired integrated loudness level (e.g. -16.0).
         lufs_values:  Non-empty list of per-file integrated LUFS measurements.
         peak_values:  Non-empty list of per-file true peak values (dBFS).
+            This list is aggregated with ``max()`` and may be longer than
+            ``lufs_values``.
+        durations_s:  Per-file durations in seconds, one per LUFS value.
+            Every entry must be finite and positive.
 
     Returns:
         (album_gain, album_peak, album_gain_str, album_peak_str).
@@ -55,9 +67,10 @@ def calculate_album_gain(
         ReplayGain tag unit), converted from the dBFS inputs.
 
     Raises:
-        AudioSuiteError: If either input list is empty.
+        AudioSuiteError: If a list is empty, the duration list does not match
+            ``lufs_values``, a duration is not finite/positive, or the summed
+            energy is not positive.
     """
-    # Fix #20: guard against empty lists that would raise StatisticsError / ValueError
     if not lufs_values:
         raise AudioSuiteError(
             "calculate_album_gain: lufs_values must not be empty",
@@ -68,8 +81,34 @@ def calculate_album_gain(
             "calculate_album_gain: peak_values must not be empty",
             context={"target_lufs": target_lufs},
         )
+    if len(durations_s) != len(lufs_values):
+        raise AudioSuiteError(
+            "calculate_album_gain: durations_s must match lufs_values",
+            context={
+                "target_lufs": target_lufs,
+                "lufs_count": len(lufs_values),
+                "duration_count": len(durations_s),
+            },
+        )
+    if any((not math.isfinite(duration)) or duration <= 0 for duration in durations_s):
+        raise AudioSuiteError(
+            "calculate_album_gain: every duration must be finite and positive",
+            context={"target_lufs": target_lufs, "durations_s": durations_s},
+        )
 
-    album_gain: float = target_lufs - statistics.mean(lufs_values)
+    total_duration = sum(durations_s)
+    energy = sum(
+        10 ** (lufs / 10) * duration
+        for lufs, duration in zip(lufs_values, durations_s, strict=True)
+    )
+    if energy <= 0:
+        raise AudioSuiteError(
+            "calculate_album_gain: the summed track energy must be positive",
+            context={"target_lufs": target_lufs, "energy": energy},
+        )
+
+    album_lufs = 10 * math.log10(energy / total_duration)
+    album_gain: float = target_lufs - album_lufs
     album_peak: float = max(dbfs_to_linear(peak) for peak in peak_values)
     return (
         album_gain,

@@ -1,7 +1,7 @@
 """
 ffmpeg_metrics.py
-Measures integrated loudness (LUFS) and true peak (dBFS) of an audio
-file using FFmpeg's ebur128 filter.
+Measures integrated loudness (LUFS), true peak (dBFS) and duration of an
+audio file using FFmpeg's ebur128 filter.
 
 Pure function — no tkinter imports, no global state.
 Also owns get_resource_path() for PyInstaller compatibility.
@@ -12,6 +12,13 @@ FFmpeg resolution order (Windows)
 2. System PATH: 'ffmpeg'  (consistent with cd_ripper/ui/setup_tab.py fallback)
 
 On non-Windows the system 'ffmpeg' is always used.
+
+Changed in 2.1.2: returns the file's duration as a third measurement. Album
+ReplayGain is the loudness of the album's combined signal, so it needs each
+track's length, not just its integrated loudness (audit R-01). The duration is
+parsed from the same ebur128 run's stderr; only a missing Duration line costs a
+second `ffprobe` call, and a probe failure is reported as None (the caller
+counts that file as an error rather than weighting it with a guessed length).
 """
 
 import logging
@@ -67,7 +74,63 @@ def _get_ffmpeg_exe() -> str:
     return "ffmpeg"
 
 
-def get_metrics(file_path: str) -> tuple[float | None, float]:
+def _duration_from_stderr(stderr: str) -> float | None:
+    """Return the input duration FFmpeg printed in its banner, in seconds.
+
+    Args:
+        stderr: FFmpeg's stderr from the ebur128 run.
+
+    Returns:
+        The duration in seconds, or ``None`` when no ``Duration:`` line was
+        printed (a pipe input or an unreadable container).
+    """
+    match = re.search(r"Duration:\s+(\d+):(\d+):(\d+(?:\.\d+)?)", stderr)
+    if match is None:
+        return None
+    hours, minutes, seconds = match.groups()
+    return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+
+
+def _probe_duration_seconds(file_path: str) -> float | None:
+    """Ask ffprobe for the container duration when FFmpeg printed none.
+
+    Args:
+        file_path: Absolute path to the audio file.
+
+    Returns:
+        The duration in seconds, or ``None`` when the probe cannot supply one.
+    """
+    try:
+        result = run_secure_subprocess(
+            "ffprobe",
+            [
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                os.path.normpath(file_path),
+            ],
+            capture_output=True,
+            timeout=WORKER_TIMEOUT_SECS,
+            check=False,
+            log_failure=False,
+        )
+        text = (result.stdout or "").strip()
+        return float(text) if text else None
+    except (
+        FileNotFoundError,
+        SubprocessSecurityError,
+        OSError,
+        ValueError,
+        subprocess.TimeoutExpired,
+    ) as exc:
+        logger.warning("Could not read the duration of %s: %s", file_path, exc)
+        return None
+
+
+def get_metrics(file_path: str) -> tuple[float | None, float, float | None]:
     """
     Analyse one audio file with FFmpeg ebur128 and return measurements.
 
@@ -75,9 +138,12 @@ def get_metrics(file_path: str) -> tuple[float | None, float]:
         file_path: Absolute path to the audio file.
 
     Returns:
-        (integrated_lufs, true_peak_dbfs).
-        integrated_lufs is None if measurement failed.
-        true_peak_dbfs defaults to 0.0 on failure.
+        ``(integrated_lufs, true_peak_dbfs, duration_seconds)``.
+        ``integrated_lufs`` is None if measurement failed.
+        ``true_peak_dbfs`` defaults to 0.0 on failure.
+        ``duration_seconds`` is None when neither FFmpeg's input banner nor
+        ffprobe reported one; callers must treat that as a failed measurement,
+        never as zero.
     """
     ffmpeg = _get_ffmpeg_exe()
 
@@ -109,6 +175,9 @@ def get_metrics(file_path: str) -> tuple[float | None, float]:
 
         lufs: float | None = float(lufs_matches[-1]) if lufs_matches else None
         peak: float = float(peak_matches[-1]) if peak_matches else 0.0
+        duration_s = _duration_from_stderr(result.stderr)
+        if duration_s is None:
+            duration_s = _probe_duration_seconds(file_path)
 
         if lufs is None:
             logger.warning(
@@ -119,7 +188,7 @@ def get_metrics(file_path: str) -> tuple[float | None, float]:
                 result.stderr[-500:] if result.stderr else "(empty)",
             )
 
-        return lufs, peak
+        return lufs, peak, duration_s
 
     except (FileNotFoundError, SubprocessSecurityError):
         logger.error(
@@ -129,12 +198,12 @@ def get_metrics(file_path: str) -> tuple[float | None, float]:
             "replaygain_analyzer/core/ module.",
             ffmpeg,
         )
-        return None, 0.0
+        return None, 0.0, None
 
     except subprocess.TimeoutExpired:
         logger.warning("ffmpeg timed out processing: %s", file_path)
-        return None, 0.0
+        return None, 0.0, None
 
     except (OSError, subprocess.CalledProcessError) as exc:
         logger.error("Unexpected error measuring %s: %s", file_path, exc, exc_info=True)
-        return None, 0.0
+        return None, 0.0, None

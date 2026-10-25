@@ -9,7 +9,17 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Album ReplayGain is weighted by track duration.** A folder's album gain
+  used the arithmetic mean of its tracks' integrated loudness, so a ten-second
+  track counted as much as a thirty-minute one. The audit's pair (10 s at
+  -10 LUFS against 30 s at -30 LUFS) was tagged as +4.0 dB where the combined
+  signal needs about -0.1 dB. Album loudness is now the duration-weighted
+  mean-square energy of the measured files (ReplayGain 2.0-compatible): the
+  same pair is tagged at about -0.1 dB, and a real concatenated measurement
+  agrees within 0.2 dB. A file whose duration cannot be read is reported as a
+  per-file error instead of being weighted as zero.
 
 ## [2.1.1] - 2026-10-24
 

@@ -11,9 +11,14 @@ Changes vs original:
   - TestReplaygainProcessSingleFile: adds slot double-put regression test
 
 Changed in 1.0.1: updates the peak/probe assertions for the linear (not dBFS) peak.
+Changed in 2.1.2: get_metrics returns a third value (duration), the ebur128
+fixtures carry a Duration line, and the measurement mocks supply durations so
+the energy-weighted album path is exercised (audit R-01).
 """
 
 import os
+import re
+import shutil
 import subprocess
 import threading
 from queue import Queue
@@ -53,6 +58,7 @@ def _make_slot_fixtures(n: int = 4) -> tuple[list, Queue]:
 
 
 MOCK_STDERR_GOOD = (
+    "  Duration: 00:00:12.34, start: 0.000000, bitrate: 128 kb/s\n"
     "  Summary:\n"
     "    Integrated loudness:\n"
     "      I:         -18.20 LUFS\n"
@@ -135,6 +141,7 @@ class TestGetMetrics:
         mock_result = MagicMock()
         mock_result.returncode = returncode
         mock_result.stderr = stderr
+        mock_result.stdout = ""
         return mock_result
 
     def test_returns_tuple(self, tmp_path) -> None:
@@ -145,7 +152,7 @@ class TestGetMetrics:
             return_value=self._mock_run(MOCK_STDERR_GOOD),
         ):
             result = get_metrics(str(f))
-        assert isinstance(result, tuple) and len(result) == 2
+        assert isinstance(result, tuple) and len(result) == 3
 
     def test_parses_lufs_value(self, tmp_path) -> None:
         f = tmp_path / "t.mp3"
@@ -154,7 +161,7 @@ class TestGetMetrics:
             "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
             return_value=self._mock_run(MOCK_STDERR_GOOD),
         ):
-            lufs, peak = get_metrics(str(f))
+            lufs, peak, _duration = get_metrics(str(f))
         assert lufs is not None
         assert abs(lufs - (-18.20)) < 0.01
 
@@ -165,8 +172,54 @@ class TestGetMetrics:
             "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
             return_value=self._mock_run(MOCK_STDERR_GOOD),
         ):
-            lufs, peak = get_metrics(str(f))
+            lufs, peak, _duration = get_metrics(str(f))
         assert abs(peak - (-1.45)) < 0.01
+
+    def _mock_run_with_stdout(self, stderr: str, stdout: str) -> MagicMock:
+        result = self._mock_run(stderr)
+        result.stdout = stdout
+        return result
+
+    def test_parses_duration_from_the_input_banner(self, tmp_path) -> None:
+        f = tmp_path / "t.mp3"
+        f.write_bytes(b"x")
+        with patch(
+            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            return_value=self._mock_run(MOCK_STDERR_GOOD),
+        ):
+            _, _, duration = get_metrics(str(f))
+        assert duration is not None
+        assert abs(duration - 12.34) < 1e-6
+
+    def test_missing_duration_falls_back_to_ffprobe(self, tmp_path) -> None:
+        f = tmp_path / "t.mp3"
+        f.write_bytes(b"x")
+        calls: list[tuple[str, list[str]]] = []
+
+        def fake_run(exe, args, **kw):
+            calls.append((exe, args))
+            if exe == "ffprobe":
+                return self._mock_run_with_stdout("", "5.5\n")
+            return self._mock_run(MOCK_STDERR_NO_PEAK)
+
+        with patch(
+            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            fake_run,
+        ):
+            _, _, duration = get_metrics(str(f))
+        assert calls[-1][0] == "ffprobe"
+        assert duration == 5.5
+
+    def test_duration_is_none_when_neither_source_reports_it(self, tmp_path) -> None:
+        f = tmp_path / "t.mp3"
+        f.write_bytes(b"x")
+        with patch(
+            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            return_value=self._mock_run(MOCK_STDERR_NO_PEAK),
+        ):
+            lufs, _, duration = get_metrics(str(f))
+        assert lufs == pytest.approx(-18.20)
+        assert duration is None
 
     def test_no_lufs_output_returns_none(self, tmp_path) -> None:
         f = tmp_path / "t.mp3"
@@ -175,7 +228,7 @@ class TestGetMetrics:
             "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
             return_value=self._mock_run(MOCK_STDERR_NO_LUFS),
         ):
-            lufs, peak = get_metrics(str(f))
+            lufs, peak, _duration = get_metrics(str(f))
         assert lufs is None
         assert peak == 0.0
 
@@ -186,7 +239,7 @@ class TestGetMetrics:
             "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
             side_effect=FileNotFoundError("ffmpeg not found"),
         ):
-            lufs, peak = get_metrics(str(f))
+            lufs, peak, _duration = get_metrics(str(f))
         assert lufs is None
         assert peak == 0.0
 
@@ -199,7 +252,7 @@ class TestGetMetrics:
             "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
             side_effect=subprocess.TimeoutExpired(cmd="ffmpeg", timeout=300),
         ):
-            lufs, peak = get_metrics(str(f))
+            lufs, peak, _duration = get_metrics(str(f))
         assert lufs is None
         assert peak == 0.0
 
@@ -210,7 +263,7 @@ class TestGetMetrics:
             "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
             side_effect=OSError("unexpected"),
         ):
-            lufs, peak = get_metrics(str(f))
+            lufs, peak, _duration = get_metrics(str(f))
         assert lufs is None
 
     def test_uses_normpath_on_file_path(self, tmp_path) -> None:
@@ -241,7 +294,7 @@ class TestGetMetrics:
             "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
             return_value=self._mock_run(stderr),
         ):
-            lufs, _ = get_metrics(str(f))
+            lufs, _, _ = get_metrics(str(f))
         assert abs(lufs - (-18.20)) < 0.01
 
     def test_peak_defaults_to_zero_when_not_in_output(self, tmp_path) -> None:
@@ -251,7 +304,7 @@ class TestGetMetrics:
             "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
             return_value=self._mock_run(MOCK_STDERR_NO_PEAK),
         ):
-            lufs, peak = get_metrics(str(f))
+            lufs, peak, _duration = get_metrics(str(f))
         assert abs(lufs - (-18.20)) < 0.01
         assert peak == 0.0
 
@@ -294,41 +347,53 @@ class TestReplaygainProcessSingleFile:
 
     def test_successful_measurement_stored_in_album_data(self, tmp_path) -> None:
         _make_audio(tmp_path, "t.mp3")
-        _, album_data, _ = self._call(tmp_path, "t.mp3", (-18.0, -0.5))
+        _, album_data, _ = self._call(tmp_path, "t.mp3", (-18.0, -0.5, 10.0))
         assert str(tmp_path) in album_data
         assert len(album_data[str(tmp_path)]) == 1
 
     def test_track_gain_calculated_correctly(self, tmp_path) -> None:
         _make_audio(tmp_path, "t.mp3")
-        _, album_data, _ = self._call(tmp_path, "t.mp3", (-18.0, -0.5))
+        _, album_data, _ = self._call(tmp_path, "t.mp3", (-18.0, -0.5, 10.0))
         entry = album_data[str(tmp_path)][0]
         assert abs(entry["track_gain"] - 2.0) < 1e-9
 
     def test_null_lufs_reports_error(self, tmp_path) -> None:
         _make_audio(tmp_path, "t.mp3")
-        progress, _, _ = self._call(tmp_path, "t.mp3", (None, 0.0))
+        progress, _, _ = self._call(tmp_path, "t.mp3", (None, 0.0, None))
         assert any(r.get("n_errors", 0) == 1 for r in progress)
+
+    def test_null_duration_reports_error_and_stores_nothing(self, tmp_path) -> None:
+        """A missing duration must be an error, never a zero weight (R-01)."""
+        _make_audio(tmp_path, "t.mp3")
+        progress, album_data, _ = self._call(tmp_path, "t.mp3", (-18.0, -0.5, None))
+        assert any(r.get("n_errors", 0) == 1 for r in progress)
+        assert album_data == {}
+
+    def test_duration_stored_with_the_measurement(self, tmp_path) -> None:
+        _make_audio(tmp_path, "t.mp3")
+        _, album_data, _ = self._call(tmp_path, "t.mp3", (-18.0, -0.5, 12.5))
+        assert album_data[str(tmp_path)][0]["duration_s"] == 12.5
 
     def test_slot_returned_on_success(self, tmp_path) -> None:
         _make_audio(tmp_path, "t.mp3")
-        _, _, slot_q = self._call(tmp_path, "t.mp3", (-18.0, -0.5))
+        _, _, slot_q = self._call(tmp_path, "t.mp3", (-18.0, -0.5, 10.0))
         assert slot_q.qsize() == 4
 
     def test_slot_returned_on_null_lufs(self, tmp_path) -> None:
         _make_audio(tmp_path, "t.mp3")
-        _, _, slot_q = self._call(tmp_path, "t.mp3", (None, 0.0))
+        _, _, slot_q = self._call(tmp_path, "t.mp3", (None, 0.0, None))
         assert slot_q.qsize() == 4
 
     def test_slot_not_double_put_on_null_lufs(self, tmp_path) -> None:
         """Regression: original code had a manual slot_queue.put() before return
         AND a finally block that also put — causing qsize() > 4."""
         _make_audio(tmp_path, "t.mp3")
-        _, _, slot_q = self._call(tmp_path, "t.mp3", (None, 0.0))
+        _, _, slot_q = self._call(tmp_path, "t.mp3", (None, 0.0, None))
         assert slot_q.qsize() == 4, "Slot was double-put (qsize > 4)"
 
     def test_album_data_key_is_folder_path(self, tmp_path) -> None:
         _make_audio(tmp_path, "t.mp3")
-        _, album_data, _ = self._call(tmp_path, "t.mp3", (-20.0, -1.0))
+        _, album_data, _ = self._call(tmp_path, "t.mp3", (-20.0, -1.0, 10.0))
         assert str(tmp_path) in album_data
 
     def test_multiple_files_accumulate_in_album_data(self, tmp_path) -> None:
@@ -338,7 +403,7 @@ class TestReplaygainProcessSingleFile:
             slot_vars, slot_q = _make_slot_fixtures()
             with patch(
                 "replaygain_analyzer.core.file_processor.get_metrics",
-                return_value=(-18.0 - i, -0.5),
+                return_value=(-18.0 - i, -0.5, 10.0),
             ):
                 process_single_file(
                     file_name=name,
@@ -393,6 +458,7 @@ class TestApplyReplaygainTags:
                     "path": str(tmp_path / name),
                     "lufs": -18.0,
                     "peak": -0.5,
+                    "duration_s": 10.0,
                     "track_gain": 2.0,
                 }
             )
@@ -670,6 +736,7 @@ class TestReplaygainPeakTagOutcome:
             "path": path,
             "lufs": -18.0,
             "peak": peak_dbfs,
+            "duration_s": 10.0,
             "track_gain": 2.0,
         }
 
@@ -723,6 +790,7 @@ class TestApplyReplaygainTagsLosslessGain:
                 "path": path,
                 "lufs": -18.0,
                 "peak": -0.5,
+                "duration_s": 10.0,
                 "track_gain": 2.0,
             }
         ]
@@ -751,6 +819,7 @@ class TestApplyReplaygainTagsLosslessGain:
                 "path": str(flac),
                 "lufs": -18.0,
                 "peak": -0.5,
+                "duration_s": 10.0,
                 "track_gain": 2.0,
             }
         ]
@@ -874,7 +943,7 @@ class TestReplaygainRunAnalysis:
     def _run(
         self,
         tmp_path,
-        lufs_return: tuple = (-18.0, -0.5),
+        lufs_return: tuple = (-18.0, -0.5, 10.0),
         is_dry_run: bool = False,
     ) -> tuple:
         slot_vars, slot_q = _make_slot_fixtures()
@@ -923,7 +992,7 @@ class TestReplaygainRunAnalysis:
 
     def test_null_lufs_counted_as_error(self, tmp_path) -> None:
         _make_audio(tmp_path, "t.mp3")
-        _, _, complete, _ = self._run(tmp_path, lufs_return=(None, 0.0))
+        _, _, complete, _ = self._run(tmp_path, lufs_return=(None, 0.0, None))
         assert complete[0]["errors"] == 1
 
     def test_nonexistent_directory_calls_on_error(self, tmp_path) -> None:
@@ -972,7 +1041,7 @@ class TestReplaygainRunAnalysis:
 
         with patch(
             "replaygain_analyzer.core.file_processor.get_metrics",
-            return_value=(-18.0, -0.5),
+            return_value=(-18.0, -0.5, 10.0),
         ):
             run_analysis(
                 dir_path=str(tmp_path),
@@ -1015,7 +1084,7 @@ class TestReplaygainRunAnalysis:
         with (
             patch(
                 "replaygain_analyzer.core.file_processor.get_metrics",
-                return_value=(-18.0, -0.5),
+                return_value=(-18.0, -0.5, 10.0),
             ),
             patch(
                 "replaygain_analyzer.core.file_processor.apply_track_gain",
@@ -1064,7 +1133,7 @@ class TestUndoBatchRecording:
         with (
             patch(
                 "replaygain_analyzer.core.file_processor.get_metrics",
-                return_value=(-18.0, -0.5),
+                return_value=(-18.0, -0.5, 10.0),
             ),
             patch(
                 "audio_suite_shared.tag_helper_base.TagHandlerFactory",
@@ -1116,7 +1185,7 @@ class TestUndoBatchRecording:
         with (
             patch(
                 "replaygain_analyzer.core.file_processor.get_metrics",
-                return_value=(-18.0, -0.5),
+                return_value=(-18.0, -0.5, 10.0),
             ),
             patch(
                 "audio_suite_shared.tag_helper_base.TagHandlerFactory",
@@ -1155,7 +1224,7 @@ class TestUndoBatchRecording:
         slot_vars, slot_q = _make_slot_fixtures()
         with patch(
             "replaygain_analyzer.core.file_processor.get_metrics",
-            return_value=(-18.0, -0.5),
+            return_value=(-18.0, -0.5, 10.0),
         ):
             with active_batch("replaygain_analyzer", "tag_edit", db_path=undo_db):
                 run_analysis(
@@ -1258,3 +1327,129 @@ class TestCliArgs:
         assert len(errors) == 2
         assert any("not exist" in e for e in errors)
         assert any("Target LUFS" in e for e in errors)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# R-01 outcome - the album tag must match the combined signal's loudness
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestAlbumGainOutcome:
+    """Write real tags, then compare them with a concatenated measurement.
+
+    The two tones sit within EBU R128's relative gate, so FFmpeg's one-pass
+    measurement of the joined signal is a valid reference for the album value.
+    The audit's extreme pair (10 s at -10 LUFS against 30 s at -30 LUFS) is
+    pinned in the pure-function test instead: a real measurement would gate the
+    quiet track out and stop being the same quantity.
+    """
+
+    @staticmethod
+    def _ffmpeg() -> str:
+        exe = shutil.which("ffmpeg")
+        if exe is None:
+            pytest.skip("ffmpeg is not installed")
+        return exe
+
+    @staticmethod
+    def _tone(ffmpeg: str, path, seconds: int, freq: int, volume_db: int) -> None:
+        subprocess.run(
+            [
+                ffmpeg,
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                f"sine=frequency={freq}:sample_rate=44100:duration={seconds}",
+                "-af",
+                f"volume={volume_db}dB",
+                "-c:a",
+                "flac",
+                str(path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    @staticmethod
+    def _concat_lufs(ffmpeg: str, list_path) -> float:
+        result = subprocess.run(
+            [
+                ffmpeg,
+                "-hide_banner",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(list_path),
+                "-af",
+                "ebur128=peak=true",
+                "-f",
+                "null",
+                "-",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        matches = re.findall(r"I:\s+([-+]?\d+\.?\d*)\s+LUFS", result.stderr)
+        assert matches, result.stderr[-500:]
+        return float(matches[-1])
+
+    def test_album_tag_matches_the_combined_signal(self, tmp_path) -> None:
+        ffmpeg = self._ffmpeg()
+        loud = tmp_path / "loud.flac"
+        long_quiet = tmp_path / "long_quiet.flac"
+        self._tone(ffmpeg, loud, 10, 1000, 0)
+        self._tone(ffmpeg, long_quiet, 240, 250, -8)
+
+        slot_vars, slot_q = _make_slot_fixtures()
+        completions: list = []
+        errors: list = []
+        run_analysis(
+            dir_path=str(tmp_path),
+            target_lufs=-16.0,
+            is_dry_run=False,
+            slot_vars=slot_vars,
+            slot_queue=slot_q,
+            on_progress=lambda **kw: None,
+            on_folder_complete=lambda **kw: completions.append(kw),
+            on_complete=lambda **kw: None,
+            on_error=errors.append,
+        )
+        assert errors == []
+        assert len(completions) == 1
+
+        from mutagen.flac import FLAC
+
+        tags_loud = FLAC(str(loud)).tags
+        tags_quiet = FLAC(str(long_quiet)).tags
+        assert tags_loud is not None and tags_quiet is not None
+        album_tag = tags_loud["REPLAYGAIN_ALBUM_GAIN"][0]
+        assert tags_quiet["REPLAYGAIN_ALBUM_GAIN"][0] == album_tag
+        tagged_gain = float(album_tag.replace(" dB", ""))
+
+        list_path = tmp_path / "album.txt"
+        list_path.write_text(
+            "file '%s'\nfile '%s'\n" % (loud.as_posix(), long_quiet.as_posix()),
+            encoding="utf-8",
+        )
+        measured_gain = -16.0 - self._concat_lufs(ffmpeg, list_path)
+        assert abs(tagged_gain - measured_gain) <= 0.2, (
+            f"tag {tagged_gain:+.2f} dB vs measured {measured_gain:+.2f} dB"
+        )
+
+        track_gains = [
+            float(tags_loud["REPLAYGAIN_TRACK_GAIN"][0].replace(" dB", "")),
+            float(tags_quiet["REPLAYGAIN_TRACK_GAIN"][0].replace(" dB", "")),
+        ]
+        mean_gain = sum(track_gains) / len(track_gains)
+        assert abs(mean_gain - measured_gain) > 2.0, (
+            "the test must distinguish the energy-weighted value from the "
+            f"arithmetic mean ({mean_gain:+.2f} dB)"
+        )

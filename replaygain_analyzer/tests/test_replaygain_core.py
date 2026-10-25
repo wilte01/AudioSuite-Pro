@@ -9,6 +9,9 @@ New vs original:
     is NOT invoked when is_dry_run=True — exercised via apply_replaygain_tags)
 
 Changed in 1.0.1: updates the tag assertions for the linear (not dBFS) peak.
+Changed in 2.1.2: album-gain tests take per-track durations and pin the
+duration-weighted formula; the old mean-of-loudness test becomes the
+equal-duration special case (audit R-01).
 """
 
 from unittest.mock import patch
@@ -46,39 +49,63 @@ class TestDbfsToLinear:
 
 class TestCalculateAlbumGain:
     def test_returns_four_element_tuple(self) -> None:
-        result = calculate_album_gain(-16.0, [-18.0, -20.0], [-1.0, -2.0])
+        result = calculate_album_gain(-16.0, [-18.0, -20.0], [-1.0, -2.0], [10.0, 10.0])
         assert isinstance(result, tuple) and len(result) == 4
 
     def test_album_gain_float(self) -> None:
         gain, peak, gain_str, peak_str = calculate_album_gain(
-            -16.0, [-18.0, -20.0], [-1.0, -2.0]
+            -16.0, [-18.0, -20.0], [-1.0, -2.0], [10.0, 10.0]
         )
         assert isinstance(gain, float)
 
     def test_album_peak_float(self) -> None:
         gain, peak, gain_str, peak_str = calculate_album_gain(
-            -16.0, [-18.0, -20.0], [-1.0, -2.0]
+            -16.0, [-18.0, -20.0], [-1.0, -2.0], [10.0, 10.0]
         )
         assert isinstance(peak, float)
 
     def test_gain_str_has_plus_sign_when_positive(self) -> None:
-        gain, peak, gain_str, peak_str = calculate_album_gain(-16.0, [-20.0], [-1.0])
+        _, _, gain_str, _ = calculate_album_gain(-16.0, [-20.0], [-1.0], [10.0])
         assert gain_str.startswith("+")
 
     def test_gain_str_has_minus_sign_when_negative(self) -> None:
-        gain, peak, gain_str, peak_str = calculate_album_gain(-23.0, [-20.0], [-1.0])
+        _, _, gain_str, _ = calculate_album_gain(-23.0, [-20.0], [-1.0], [10.0])
         assert gain_str.startswith("-")
 
     def test_gain_calculation_single_file(self) -> None:
-        gain, _, _, _ = calculate_album_gain(-16.0, [-18.0], [-1.0])
+        gain, _, _, _ = calculate_album_gain(-16.0, [-18.0], [-1.0], [10.0])
         assert abs(gain - 2.0) < 1e-9
 
-    def test_gain_calculation_multiple_files_uses_mean(self) -> None:
-        gain, _, _, _ = calculate_album_gain(-16.0, [-18.0, -22.0], [-1.0, -0.5])
+    def test_equal_durations_and_levels_reduce_to_the_mean(self) -> None:
+        """Equal lengths and equal loudness give the old mean answer.
+
+        Equal *lengths* alone do not reduce to the arithmetic mean of track
+        loudness - the mean-square energy of two different levels is not the
+        mean of their dB values - so this uses two equally loud tracks.
+        """
+        gain, _, _, _ = calculate_album_gain(
+            -16.0, [-20.0, -20.0], [-1.0, -0.5], [10.0, 10.0]
+        )
         assert abs(gain - 4.0) < 1e-9
 
+    def test_album_gain_is_duration_weighted(self) -> None:
+        """A 10 s -10 LUFS track must not outweigh 30 s at -30 LUFS.
+
+        The combined signal's mean-square energy is
+        (10*10**-1 + 30*10**-3) / 40, i.e. -15.892 LUFS, so the gain at
+        -16 LUFS is about -0.108 dB. The arithmetic mean of track loudness is
+        -20 LUFS, which produced +4.0 dB (audit R-01).
+        """
+        gain, _, _, _ = calculate_album_gain(
+            -16.0, [-10.0, -30.0], [-0.5, -0.5], [10.0, 30.0]
+        )
+        assert abs(gain - (-0.1076)) < 1e-3
+        assert abs(gain - 4.0) > 2.0
+
     def test_album_peak_is_max_of_peaks(self) -> None:
-        _, peak, _, _ = calculate_album_gain(-16.0, [-18.0, -20.0], [-0.3, -0.1, -0.5])
+        _, peak, _, _ = calculate_album_gain(
+            -16.0, [-18.0, -20.0], [-0.3, -0.1, -0.5], [10.0, 10.0]
+        )
         assert abs(peak - dbfs_to_linear(-0.1)) < 1e-9
 
     def test_album_peak_is_linear_not_dbfs(self) -> None:
@@ -88,68 +115,95 @@ class TestCalculateAlbumGain:
         0.501187, and the album maximum must be the loudest *linear* peak
         (the -0.5 dBFS file), not the largest dBFS value.
         """
-        _, peak, _, peak_str = calculate_album_gain(-16.0, [-18.0], [-6.0])
+        _, peak, _, peak_str = calculate_album_gain(-16.0, [-18.0], [-6.0], [10.0])
         assert round(peak, 6) == 0.501187
         assert peak_str == "0.501187"
 
-        _, peak, _, _ = calculate_album_gain(-16.0, [-18.0, -18.0], [-6.0, -0.5])
+        _, peak, _, _ = calculate_album_gain(
+            -16.0, [-18.0, -18.0], [-6.0, -0.5], [10.0, 10.0]
+        )
         assert abs(peak - dbfs_to_linear(-0.5)) < 1e-9
 
     def test_gain_str_format_two_decimal_places(self) -> None:
-        _, _, gain_str, _ = calculate_album_gain(-16.0, [-18.123], [-1.0])
+        _, _, gain_str, _ = calculate_album_gain(-16.0, [-18.123], [-1.0], [10.0])
         numeric_part = gain_str.replace("+", "").replace("-", "").replace(" dB", "")
         assert len(numeric_part.split(".")[1]) == 2
 
     def test_peak_str_format_six_decimal_places(self) -> None:
-        _, _, _, peak_str = calculate_album_gain(-16.0, [-18.0], [-0.912345])
+        _, _, _, peak_str = calculate_album_gain(-16.0, [-18.0], [-0.912345], [10.0])
         assert len(peak_str.split(".")[1]) == 6
 
     def test_gain_str_ends_with_db(self) -> None:
-        _, _, gain_str, _ = calculate_album_gain(-16.0, [-18.0], [-1.0])
+        _, _, gain_str, _ = calculate_album_gain(-16.0, [-18.0], [-1.0], [10.0])
         assert gain_str.endswith(" dB")
 
     def test_exact_target_when_mean_equals_target(self) -> None:
-        gain, _, gain_str, _ = calculate_album_gain(-16.0, [-16.0], [-1.0])
+        gain, _, gain_str, _ = calculate_album_gain(-16.0, [-16.0], [-1.0], [10.0])
         assert abs(gain) < 1e-9
         assert gain_str in ("+0.00 dB", "-0.00 dB", "0.00 dB")
 
     @pytest.mark.parametrize("target", [-14.0, -16.0, -18.0, -23.0])
     def test_common_streaming_targets(self, target: float) -> None:
-        gain, _, gain_str, _ = calculate_album_gain(target, [target - 2.0], [-1.0])
+        gain, _, _, _ = calculate_album_gain(target, [target - 2.0], [-1.0], [10.0])
         assert abs(gain - 2.0) < 1e-9
 
     def test_single_track_album(self) -> None:
-        gain, peak, _, _ = calculate_album_gain(-16.0, [-18.0], [-0.5])
+        gain, peak, _, _ = calculate_album_gain(-16.0, [-18.0], [-0.5], [10.0])
         assert abs(gain - 2.0) < 1e-9
         assert abs(peak - dbfs_to_linear(-0.5)) < 1e-9
 
     def test_large_track_list(self) -> None:
         lufs = [-18.0] * 50
         peaks = [-0.5] * 50
-        gain, peak, _, _ = calculate_album_gain(-16.0, lufs, peaks)
+        durations = [10.0] * 50
+        gain, peak, _, _ = calculate_album_gain(-16.0, lufs, peaks, durations)
         assert abs(gain - 2.0) < 1e-6
         assert abs(peak - dbfs_to_linear(-0.5)) < 1e-9
 
-    # ── New: empty-list guard tests (finding #20) ─────────────────────────────
+    # ── Duration guards (audit R-01) ────────────────────────────────
 
     def test_empty_lufs_raises_audio_suite_error(self) -> None:
         from audio_suite_shared.exceptions import AudioSuiteError
 
         with pytest.raises(AudioSuiteError, match="lufs_values must not be empty"):
-            calculate_album_gain(-16.0, [], [-1.0])
+            calculate_album_gain(-16.0, [], [-1.0], [])
 
     def test_empty_peaks_raises_audio_suite_error(self) -> None:
         from audio_suite_shared.exceptions import AudioSuiteError
 
         with pytest.raises(AudioSuiteError, match="peak_values must not be empty"):
-            calculate_album_gain(-16.0, [-18.0], [])
+            calculate_album_gain(-16.0, [-18.0], [], [10.0])
 
     def test_both_empty_raises_audio_suite_error(self) -> None:
         """lufs guard fires first when both lists are empty."""
         from audio_suite_shared.exceptions import AudioSuiteError
 
         with pytest.raises(AudioSuiteError, match="lufs_values must not be empty"):
-            calculate_album_gain(-16.0, [], [])
+            calculate_album_gain(-16.0, [], [], [])
+
+    @pytest.mark.parametrize(
+        "durations",
+        [
+            [],
+            [10.0],
+            [0.0, 10.0],
+            [-1.0, 10.0],
+            [float("nan"), 10.0],
+            [float("inf"), 10.0],
+        ],
+    )
+    def test_bad_durations_raise(self, durations: list[float]) -> None:
+        from audio_suite_shared.exceptions import AudioSuiteError
+
+        with pytest.raises(AudioSuiteError, match="duration"):
+            calculate_album_gain(-16.0, [-18.0, -20.0], [-1.0, -1.0], durations)
+
+    def test_zero_energy_raises(self) -> None:
+        """A -inf loudness contributes no energy; do not return a finite gain."""
+        from audio_suite_shared.exceptions import AudioSuiteError
+
+        with pytest.raises(AudioSuiteError, match="energy"):
+            calculate_album_gain(-16.0, [float("-inf")], [-1.0], [10.0])
 
 
 # ── write_replaygain_tags ─────────────────────────────────────────────────────

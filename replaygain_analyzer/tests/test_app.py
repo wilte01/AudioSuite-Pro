@@ -9,6 +9,8 @@ through the lambda wiring ``_run`` installs and reads the report it writes; the
 success count was ``processed - errors`` while ``processed`` already counted
 successes, so a mixed batch under-reported (and a lone failure read as -1), and
 the completion counts that used to default are now required payload fields.
+Changed in 2.1.2: the measurement mock returns the third metric (duration),
+which album gain now needs (audit R-01).
 """
 
 from __future__ import annotations
@@ -243,7 +245,9 @@ class TestCompletionSeam:
         slot_queue: Queue = Queue()
         slot_queue.put(0)
 
-        with patch.object(file_processor, "get_metrics", return_value=(None, 0.0)):
+        with patch.object(
+            file_processor, "get_metrics", return_value=(None, 0.0, None)
+        ):
             file_processor.run_analysis(
                 dir_path=str(tmp_path),
                 target_lufs=-16.0,
