@@ -2,6 +2,12 @@
 app.py — AudioSuiteV6 orchestrator for Album Art Sync.
 Contains the thread-safe on_pick bridge that connects background API
 queries to the main-thread picker dialog.
+
+Changed in 2.1.3: reads the album-art config through ``load_config()`` with no
+argument, so the GUI and the CLI/batch pipeline resolve the same file (audit
+R-04, plan B1). The call used to pass ``__file__``, which made this module read
+``album_art_sync/album_art_config.json`` while the pipeline read
+``album_art_sync/core/album_art_config.json``.
 """
 
 import json
@@ -75,7 +81,7 @@ class AudioSuiteV6(UIHelperMixin):
         self._cancel_requested: bool = False
         self._running: bool = False  # guard against concurrent start_thread()
         self.auto_end: bool = False
-        self._app_config: dict[str, Any] = load_config(__file__)
+        self._app_config: dict[str, Any] = load_config()
 
         # Presets
         self._preset_combo: ttk.Combobox | None = None

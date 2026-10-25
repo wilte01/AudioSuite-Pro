@@ -35,6 +35,12 @@ functions) is mocked.  The suite is headless and requires no display.
 
 Changed in 1.0.1: added an L3 regression asserting a per-file AudioSuiteError
 from embed_artwork does not abort the album batch.
+Changed in 2.1.3: the config tests patch ``settings.CONFIG_DIR`` instead of
+passing a fake "script" path, and the class gains the three B1 locks: the GUI
+and the pipeline resolve the same file, a legacy JSON + ``.key`` pair is
+migrated without touching the originals, and no caller may pass an argument to
+``load_config``/``save_config`` again (audit R-04,
+``PLAN_audit_2026-10-24_remediation.md`` B1).
 """
 
 from __future__ import annotations
@@ -215,6 +221,25 @@ from album_art_sync.api.musicbrainz import escape_lucene  # noqa: E402
 from album_art_sync.core import artwork_applier  # noqa: E402
 from album_art_sync.core.ranker import RankedCandidate  # noqa: E402
 from album_art_sync.utils.cli_args import ArtArgs, parse, validate_args  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _isolate_album_art_config(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    """Keep every test in this module away from the install's key file.
+
+    The config path is canonical since 2.1.3, so one patch covers every caller
+    in the package — ``AudioSuiteV6.__init__`` included. Without it a test that
+    builds the app against a missing file would create a template (and a new
+    key) inside the source tree.
+    """
+    from album_art_sync.config import settings
+
+    isolated = tmp_path_factory.mktemp("album_art_config")
+    monkeypatch.setattr(settings, "CONFIG_DIR", isolated, raising=False)
+    monkeypatch.setattr(settings, "legacy_config_paths", lambda: [], raising=False)
+    return isolated
 
 
 def _make_test_candidate(
@@ -424,19 +449,29 @@ class TestValidateArgs:
 
 
 class TestSettings:
-    """Tests for load_config() and save_config() using a temp directory."""
+    """Tests for load_config() and save_config() against one canonical file."""
 
     def _import_settings(self):
         from album_art_sync.config import settings
 
         return settings
 
+    @pytest.fixture(autouse=True)
+    def _isolated_config_dir(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+        """Point the module at a temp directory; never the live install."""
+        settings = self._import_settings()
+        # ``raising=False`` keeps the fixture usable against the pre-2.1.3
+        # module: without it the setup error would mask whether the assertions
+        # themselves can detect the split.
+        monkeypatch.setattr(settings, "CONFIG_DIR", tmp_path, raising=False)
+        monkeypatch.setattr(settings, "legacy_config_paths", lambda: [], raising=False)
+        return tmp_path
+
     def test_load_config_returns_default_when_file_missing(
         self, tmp_path: Path
     ) -> None:
         settings = self._import_settings()
-        fake_script = str(tmp_path / "app.py")
-        result = settings.load_config(fake_script)
+        result = settings.load_config()
         assert "fanart" in result
         assert "app_key" in result["fanart"]
 
@@ -444,17 +479,16 @@ class TestSettings:
         self, tmp_path: Path
     ) -> None:
         settings = self._import_settings()
-        fake_script = str(tmp_path / "app.py")
-        settings.load_config(fake_script)
+        settings.load_config()
         config_file = tmp_path / "album_art_config.json"
         assert config_file.exists()
+        assert settings.config_path() == config_file
 
     def test_save_and_reload_round_trips_values(self, tmp_path: Path) -> None:
         settings = self._import_settings()
-        fake_script = str(tmp_path / "app.py")
         payload = {"fanart": {"app_key": "TEST_KEY", "client_key": "TEST_CLIENT"}}
-        settings.save_config(payload, fake_script)
-        reloaded = settings.load_config(fake_script)
+        settings.save_config(payload)
+        reloaded = settings.load_config()
         assert reloaded["fanart"]["app_key"] == "TEST_KEY"
         assert reloaded["fanart"]["client_key"] == "TEST_CLIENT"
 
@@ -462,10 +496,119 @@ class TestSettings:
         settings = self._import_settings()
         config_file = tmp_path / "album_art_config.json"
         config_file.write_text("not valid json {{{")
-        fake_script = str(tmp_path / "app.py")
-        result = settings.load_config(fake_script)
+        result = settings.load_config()
         # Should return the hardcoded default without raising
         assert "fanart" in result
+
+    def test_gui_and_pipeline_resolve_the_same_config_file(
+        self, tmp_path: Path
+    ) -> None:
+        """Both entry points read what one of them saved (audit R-04).
+
+        Before 2.1.3 the GUI passed ``__file__`` from ``album_art_sync/app.py``
+        and the pipeline passed ``__file__`` from ``album_art_sync/core/``, so
+        this assertion failed: the pipeline read a different, empty file.
+        """
+        settings = self._import_settings()
+        from album_art_sync import app as app_module
+        from album_art_sync.core import pipeline
+
+        payload = {"fanart": {"app_key": "GUI_KEY", "client_key": "GUI_CLIENT"}}
+        settings.save_config(payload)
+
+        # One resolver, no caller-derived path: both modules hold the same
+        # function, so neither can point anywhere else.
+        assert app_module.load_config is settings.load_config
+        assert pipeline.load_config is settings.load_config
+        assert settings.config_path() == tmp_path / "album_art_config.json"
+
+        assert app_module.load_config() == payload
+        assert pipeline.load_config() == payload
+
+    def test_load_migrates_legacy_json_and_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A legacy pair is copied intact; the originals are left alone."""
+        import json
+
+        from audio_suite_shared.security.key_manager import KeyManager
+
+        settings = self._import_settings()
+        legacy_dir = tmp_path / "legacy_pkg"
+        legacy_dir.mkdir()
+        legacy = legacy_dir / "album_art_config.json"
+        canonical_dir = tmp_path / "canonical"
+        canonical_dir.mkdir()
+
+        payload = {"fanart": {"app_key": "LEGACY_KEY", "client_key": "LEGACY_CLIENT"}}
+        # Write a real encrypted pair, exactly as the old GUI left it behind.
+        manager = KeyManager(str(legacy))
+        legacy.write_text(
+            json.dumps(manager.encrypt_config(payload)), encoding="utf-8-sig"
+        )
+        legacy_key = legacy.with_suffix(".key")
+        assert legacy_key.is_file()
+        legacy_before = (legacy.read_bytes(), legacy_key.read_bytes())
+
+        monkeypatch.setattr(settings, "CONFIG_DIR", canonical_dir)
+        monkeypatch.setattr(settings, "legacy_config_paths", lambda: [legacy])
+
+        # The permission outcome below is POSIX-only (Windows hardens with
+        # icacls), so the cross-platform assertion is that the migrated key
+        # goes through the shared hardening. ``side_effect`` keeps the real
+        # body, so both assertions describe the same run.
+        with patch.object(
+            KeyManager,
+            "harden_key_file",
+            autospec=True,
+            side_effect=KeyManager.harden_key_file,
+        ) as mock_harden:
+            assert settings.load_config() == payload
+
+        target = canonical_dir / "album_art_config.json"
+        assert target.is_file()
+        migrated_key = target.with_suffix(".key")
+        assert migrated_key.is_file()
+        assert mock_harden.call_count == 1
+        assert mock_harden.call_args[0][0].config_path == str(target)
+        # Migrating must not destroy the user's only copy.
+        assert (legacy.read_bytes(), legacy_key.read_bytes()) == legacy_before
+
+        if sys.platform != "win32":
+            # copyfile does not carry permissions: without re-hardening, the
+            # user-only 0600 key arrives readable by every local user.
+            assert (migrated_key.stat().st_mode & 0o777) == 0o600
+
+    def test_no_caller_derived_config_path_remains(self) -> None:
+        """No module may pass a path to load_config()/save_config() again."""
+        import ast
+
+        settings = self._import_settings()
+        package_root = Path(settings.__file__).resolve().parent.parent
+        scanned: list[Path] = []
+        offenders: list[str] = []
+
+        for path in sorted(package_root.rglob("*.py")):
+            if "tests" in path.relative_to(package_root).parts:
+                continue
+            scanned.append(path)
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in {"load_config", "save_config"}
+                    and (node.args or node.keywords)
+                ):
+                    rel = path.relative_to(package_root).as_posix()
+                    offenders.append(f"{rel}:{node.lineno}")
+
+        # An empty scan would pass vacuously (plan D5): prove files were read.
+        assert scanned, "no album_art_sync modules were scanned"
+        assert not offenders, (
+            "caller-derived config path must not return (plan B1):\n  "
+            + "\n  ".join(offenders)
+        )
 
 
 # ===========================================================================

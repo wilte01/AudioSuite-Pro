@@ -45,8 +45,11 @@ audio_suite_config.key
 audio_suite_config.json.lock
 audio_suite_config.json.tmp.*
 # album_art_sync API-key files (live Fanart.tv keys — never commit; template lives on disk)
+# Changed in 2.1.3: the config file is canonical at album_art_sync/config/ and
+# save_config leaves an interrupted atomic write as this .tmp beside it.
 album_art_config.json
 album_art_config.key
+album_art_config.json.tmp
 # Backups written by KeyManager before it replaces an unusable key file.
 # A glob, not two literal names, so every current and future tool's key
 # backup is covered; these are secret-class like the keys themselves.

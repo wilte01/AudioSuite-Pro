@@ -4,6 +4,12 @@ key_manager.py — Secure key management for API keys and sensitive configuratio
 Provides encryption/decryption services for sensitive data
 stored in configuration files.
 Uses Fernet symmetric encryption for secure key storage.
+
+Changed in 2.1.3: the key-file hardening moved out of ``_generate_and_save_key``
+into the public ``harden_key_file()``, so a caller that copies an existing key
+into its canonical directory can re-apply it. ``shutil.copyfile`` does not carry
+permissions, so a migrated 0600 key was landing as ``0666 & ~umask`` — readable
+by every local user on POSIX (audit R-04, plan B1).
 """
 
 import base64
@@ -11,6 +17,7 @@ import binascii
 import logging
 import os
 import shutil
+from pathlib import Path
 from typing import Any
 
 from audio_suite_shared.exceptions import AudioProcessingError
@@ -69,9 +76,7 @@ class KeyManager:
         Returns:
             bytes: Encryption key for Fernet
         """
-        from pathlib import Path as _Path
-
-        key_file = str(_Path(self.config_path).with_suffix(".key"))
+        key_file = self.key_file_path()
 
         if os.path.exists(key_file):
             try:
@@ -155,6 +160,54 @@ class KeyManager:
                 backup,
             )
 
+    def key_file_path(self) -> str:
+        """Return the key file this manager uses: ``<config path>.key``."""
+        return str(Path(self.config_path).with_suffix(".key"))
+
+    def harden_key_file(self) -> None:
+        """Restrict the key file to the current user.
+
+        ``icacls`` on Windows (routed through the secure wrapper), ``0600``
+        elsewhere. Applied when a key is generated, and by callers that copy an
+        existing key file into its canonical directory: a copy is a new file and
+        inherits that directory's permissions rather than the original's.
+        """
+        key_file = self.key_file_path()
+        if os.name == "nt":
+            # On Windows, restrict to current user via icacls.
+            # Route through the secured wrapper so the ACL command is
+            # allowlisted, argument-validated, and startupinfo-hardened.
+            username = os.getenv("USERNAME")
+            if not username:
+                logger.warning(
+                    "USERNAME is not set; skipping Windows ACL hardening "
+                    "on key file: %s",
+                    key_file,
+                )
+                return
+            try:
+                run_secure_subprocess(
+                    "icacls",
+                    [
+                        key_file,
+                        "/inheritance:r",
+                        "/grant:r",
+                        f"{username}:F",
+                    ],
+                    capture_output=True,
+                    timeout=5,
+                    check=False,
+                )
+            except Exception:
+                logger.warning(
+                    "Could not set Windows ACL on key file: %s "
+                    "(key file written without ACL hardening)",
+                    key_file,
+                    exc_info=True,
+                )
+        else:
+            os.chmod(key_file, 0o600)
+
     def _generate_and_save_key(self, key_file: str) -> bytes:
         """
         Generate a new encryption key and save it to file.
@@ -175,40 +228,7 @@ class KeyManager:
                 f.write(key)
 
             # Set restrictive permissions on key file
-            if os.name == "nt":
-                # On Windows, restrict to current user via icacls.
-                # Route through the secured wrapper so the ACL command is
-                # allowlisted, argument-validated, and startupinfo-hardened.
-                username = os.getenv("USERNAME")
-                if not username:
-                    logger.warning(
-                        "USERNAME is not set; skipping Windows ACL hardening "
-                        "on key file: %s",
-                        key_file,
-                    )
-                else:
-                    try:
-                        run_secure_subprocess(
-                            "icacls",
-                            [
-                                key_file,
-                                "/inheritance:r",
-                                "/grant:r",
-                                f"{username}:F",
-                            ],
-                            capture_output=True,
-                            timeout=5,
-                            check=False,
-                        )
-                    except Exception:
-                        logger.warning(
-                            "Could not set Windows ACL on key file: %s "
-                            "(key file written without ACL hardening)",
-                            key_file,
-                            exc_info=True,
-                        )
-            else:
-                os.chmod(key_file, 0o600)
+            self.harden_key_file()
 
             return key
         except (IOError, OSError) as e:

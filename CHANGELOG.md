@@ -9,7 +9,17 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Album Art Sync reads one configuration file in every run mode.** The window
+  and the command-line/batch pipeline derived the config location from their own
+  module path, so the window read `album_art_sync/album_art_config.json` while
+  the pipeline read `album_art_sync/core/album_art_config.json`. On an install
+  where the Fanart.tv keys were entered in the window, batch runs found an empty
+  file and silently lost that source. Both now read
+  `album_art_sync/config/album_art_config.json`. A copy left at either old
+  location is migrated on first load together with its `.key` — a JSON copied
+  without its key cannot be decrypted — and the originals are left in place.
 
 ## [2.1.2] - 2026-10-25
 

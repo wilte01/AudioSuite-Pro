@@ -197,14 +197,21 @@ Tool-local files remain acceptable only for:
 - complex nested pipeline settings (`refinery_settings.json`),
 - domain-specific lists too structured for flat key-value (`tag_prefs.json`).
 
-**Resolve key files to one canonical directory.** `album_art_sync` currently
-derives `album_art_config.json` from the *calling module's* `__file__`
-(`album_art_sync/config/settings.py` `load_config(script_file=__file__)`), and two copies exist
-on a live install (`album_art_sync/album_art_config.json` and
-`album_art_sync/core/album_art_config.json`). Two key files means a key set in
-one place can be missing in the other, and — because these files are gitignored —
-the split is invisible in review. New key-file code must resolve one canonical
-directory for the tool, not the caller's location.
+**Resolve key files to one canonical directory.** Key-file code resolves one
+canonical directory for the tool, never the calling module's location, and takes
+no path argument a caller could vary. `album_art_sync` is the worked example:
+`album_art_sync/config/settings.py` owns `CONFIG_DIR` and `config_path()`,
+`load_config()` and `save_config()` take no arguments, and both the GUI
+(`album_art_sync/app.py`) and the batch pipeline
+(`album_art_sync/core/pipeline.py`) call them — before 2.1.3 each passed its own
+`__file__`, so the GUI read `album_art_sync/album_art_config.json` while the CLI
+read `album_art_sync/core/album_art_config.json` and one source of Fanart.tv keys
+was silently empty. A legacy pair at either old location is copied — JSON *and*
+its sibling `.key`, because the JSON alone is undecryptable — into the canonical
+directory on first load, with the legacy files left in place for manual
+recovery. Those files are gitignored, so review cannot see the split: a test
+must assert the single path. Evidence: `PLAN_audit_2026-10-24_remediation.md`
+B1/D17.
 
 ## GUI (Tkinter) Testing
 

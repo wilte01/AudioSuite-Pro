@@ -79,7 +79,9 @@ The supported directory extensions are MP3, FLAC, OGG, M4A, MP4, and Opus. The s
 
 ## Configuration
 
-Fanart.tv credentials are loaded from album_art_config.json next to the tool and are encrypted through the suite KeyManager. The configuration loader can create a default template when the file is missing. Do not place credentials in the guide, source code, or command line.
+Fanart.tv credentials are loaded from one file, `album_art_sync/config/album_art_config.json`, and are encrypted through the suite KeyManager with the key stored beside it as `album_art_config.key`. The window and every command-line or batch run read that same file, so a key entered once in the window is used everywhere.
+
+If the file is missing, the loader looks for a copy left by an earlier version in `album_art_sync/album_art_config.json` or `album_art_sync/core/album_art_config.json`. When it finds one it copies the file and its `.key` into the config folder and leaves the originals untouched, so you can still recover them by hand. If the file is missing entirely, a template with empty keys is created. Do not place credentials in the guide, source code, or command line.
 
 - **Request timeout: **10 seconds by default.
 - **Minimum candidate dimension: **500 pixels by default; CLI range is 200 through 2000.

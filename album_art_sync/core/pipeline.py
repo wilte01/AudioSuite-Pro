@@ -5,6 +5,11 @@ returns a failure ArtSyncReport instead of None, honouring its -> ArtSyncReport
 contract so the CLI can no longer crash with an AttributeError.
 Changed in 1.4.0: the album-identity reads (artist/album, album artist and
 MusicBrainz album id) share one handler load (PLAN D55).
+Changed in 2.1.3: reads the album-art config through ``load_config()`` with no
+argument, so the CLI/batch path and the GUI resolve the same file (audit R-04,
+plan B1). The call used to pass ``__file__`` and therefore read
+``album_art_sync/core/album_art_config.json``, which is empty on an install
+where the keys were entered in the GUI.
 """
 
 from __future__ import annotations
@@ -210,7 +215,7 @@ def resolve_and_apply(
         _audit("")
         _log(f"Files: {len(files)} audio file(s)")
 
-        app_config = load_config(__file__)
+        app_config = load_config()
         on_pick: Callable[..., Any]
         if auto_select:
             on_pick = _auto_select_pick

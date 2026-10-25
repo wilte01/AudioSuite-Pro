@@ -2,6 +2,11 @@
 Tests for audio_suite_shared.security.key_manager
 Gap G-19: KeyManager — key generation, encrypt/decrypt round-trips,
           config encrypt/decrypt, is_encrypted_value, corrupt-key recovery
+
+Changed in 2.1.3: covers the extracted ``harden_key_file()``, which a caller
+uses on an *existing* key it copied into a canonical directory (audit R-04,
+plan B1). ``shutil.copyfile`` does not carry permissions, so a 0600 key landed
+as ``0666 & ~umask`` before the caller could re-apply this.
 """
 
 import base64
@@ -404,6 +409,53 @@ class TestKeyFileErrorPaths:
         with patch("audio_suite_shared.security.key_manager.os", fake_os):
             KeyManager(str(config))
         mock_chmod.assert_called_once()
+
+    def test_harden_key_file_tightens_an_existing_key_on_posix(self, tmp_path):
+        """An existing key is chmodded to 0600, not only a freshly generated one."""
+        import types
+
+        fake_os = types.ModuleType("fake_os")
+        fake_os.name = "posix"
+        fake_os.path = os.path
+        fake_os.makedirs = os.makedirs
+        fake_os.getenv = os.getenv
+        mock_chmod = MagicMock()
+        fake_os.chmod = mock_chmod
+
+        config = tmp_path / "app.json"
+        config.write_text("{}")
+        manager = KeyManager(str(config))
+        mock_chmod.reset_mock()
+
+        with patch("audio_suite_shared.security.key_manager.os", fake_os):
+            manager.harden_key_file()
+
+        mock_chmod.assert_called_once_with(manager.key_file_path(), 0o600)
+
+    def test_harden_key_file_uses_icacls_on_windows(self, tmp_path):
+        """The Windows branch is reachable for an existing key too."""
+        import types
+
+        fake_os = types.ModuleType("fake_os")
+        fake_os.name = "nt"
+        fake_os.path = os.path
+        fake_os.getenv = lambda name, *a, **kw: "tester"
+
+        config = tmp_path / "app.json"
+        config.write_text("{}")
+        manager = KeyManager(str(config))
+
+        with patch("audio_suite_shared.security.key_manager.os", fake_os):
+            with patch(
+                "audio_suite_shared.security.key_manager.run_secure_subprocess"
+            ) as mock_run:
+                manager.harden_key_file()
+
+        mock_run.assert_called_once()
+        exe, args = mock_run.call_args[0]
+        assert exe == "icacls"
+        assert manager.key_file_path() in args
+        assert "tester:F" in args
 
     def test_encrypt_failure_raises_audio_processing_error(self, km):
         """If Fernet.encrypt raises, encrypt_string must raise

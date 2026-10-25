@@ -36,7 +36,12 @@ encrypted with Fernet symmetric encryption before they are written to disk.
 
 - On first use the module creates a key file (`album_art_config.key`) next to
   the configuration file. API keys are stored encrypted in
-  `album_art_config.json`.
+  `album_art_config.json`. Both live in one place,
+  `album_art_sync/config/`, and every entry point — the window and the
+  command-line or batch runs — reads that same file. An installation from an
+  earlier version may still hold a copy beside the module or in its `core/`
+  folder; the first load copies it and its `.key` into `config/` and leaves the
+  originals in place.
 - Both files are git-ignored and must never be committed or shared. A backup
   copy of a replaced key file (`*.key.bak`) is secret-class too.
 - If the key file is ever replaced, values encrypted under the old key stop
