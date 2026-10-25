@@ -1061,7 +1061,7 @@ records the final six-command tail.
 | Item | Release | Commit | Date | Targeted verification | Negative control | Gate |
 |---|---|---|---|---|---|---|
 | A1 | 2.1.2 | `9e3c00f` | 2026-10-25 | `pytest replaygain_analyzer/tests` → 197 passed; guide rebuilt, only `word/document.xml` differs | Mean formula planted: `test_album_gain_is_duration_weighted` and `TestAlbumGainOutcome` fail — tag +9.50 dB against measured +12.90 dB | compile OK; ruff clean; ruff format clean; mypy 549 files; bandit 0 High / 0 Medium (47 Low); bare `pytest` 10,929 passed, 3 skipped, 90.50 %, 18:46 |
-| A2 | 2.1.2 | — | — | — | — | — |
+| A2 | 2.1.2 | `94f91ae` | 2026-10-25 | `pytest music_format_converter/tests` → 503 passed; `pytest tests/test_release_notes.py tests/test_user_guide_hygiene.py tests/test_docs_formats.py` → 528 passed; guide rebuilt, only `word/document.xml` differs; `build_user_guides.py --check` current | Old `f"{base_name}.{output_format}"` planted (SHA-256-verified restore): 6 fail — `test_live_conversion_writes_m4a_and_not_alac`, `test_output_probes_as_alac_inside_an_mp4_container`, `test_output_is_bit_exact_with_the_source`, `test_dry_run_previews_the_m4a_name`, `test_alac_file_is_still_accepted_as_input`, `TestAlacEndToEnd::test_live_alac_conversion_succeeds_and_names_the_m4a`, each with `Error initializing the muxer for ...\\song.alac: Invalid argument` | compile OK; ruff clean; ruff format clean; mypy 549 files; bandit 0 High / 0 Medium (47 Low); bare `pytest` 10,947 passed, 3 skipped, 90.50 %, 14:51 |
 | A3 | 2.1.2 | — | — | — | — | — |
 | B1 | 2.1.3 | — | — | — | — | — |
 | B2 | 2.1.3 | — | — | — | — | — |
