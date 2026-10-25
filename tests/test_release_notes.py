@@ -127,6 +127,14 @@ rather than the 2.1.0 release commit (b362169) on purpose: five documentation
 commits landed after that cut while the marker still said 2.1.0, so re-basing
 at the release commit would demand a 2.1.1 note inside the code files those
 commits touched, whose own history is the 2.1.0 window.
+Changed in 2.1.2: re-baselined the lock for the audit-remediation window
+(PLAN_audit_2026-10-24_remediation.md §2.5). BASE_COMMIT is now dfb5c48 --
+the state after the 2.1.1 cut -- and NOTE_MARKER is ``Changed in 2.1.2``, so
+only the Sprint 1-3 work requires notes. The boundary is the 2.1.1 cut state
+rather than the release commit itself because the two documentation commits
+that followed the cut belong to the 2.1.1 window. The asserted non-empty
+exception category stays the narrative ``.md`` documents: the plan commit is
+the first one in this window.
 """
 
 from __future__ import annotations
@@ -139,14 +147,14 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: The plan's base commit; every file changed since here must be annotated.
-#: Re-baselined for Sprint 8 (D6): set to 61a9738 (the documentation
-#: consolidation tip) so the closed 2.1.0 window needs no further notes and only
-#: this sprint's work does. Earlier work is documented in its own plans and
-#: CHANGELOG.md, so it does not require per-file notes here.
-BASE_COMMIT = "61a9738"
+#: Re-baselined for the audit-remediation window (2.1.2-2.1.4): set to dfb5c48,
+#: the state after the 2.1.1 cut, so the closed 2.1.1 window needs no further
+#: notes and only this plan's work does. Earlier work is documented in its own
+#: plans and CHANGELOG.md, so it does not require per-file notes here.
+BASE_COMMIT = "dfb5c48"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 2.1.1"
+NOTE_MARKER = "Changed in 2.1.2"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (
