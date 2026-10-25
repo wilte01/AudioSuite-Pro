@@ -9,6 +9,9 @@ Bit-depth reduction and sample-rate conversion both go through FFmpeg's
 ``aresample`` filter (plan E1, decision D1): TPDF dither on every depth
 reduction, and the SoX resampler whenever a rate conversion is requested.
 
+Changed in 2.1.2: ALAC keeps its ``-codec:a alac`` argument; the container is
+chosen by the `.m4a` extension the processor now writes
+(formats.output_extension), not by a `-f` flag.
 Changed in 1.1.0: added the Ogg Speex (.spx) libspeex codec branch.
 """
 
@@ -262,6 +265,10 @@ def get_ffmpeg_params(
         cmd.extend(["-codec:a", codec])
 
     elif output_format == "alac":
+        # ALAC is a codec, not a muxer: the container is chosen by the output
+        # file's `.m4a` extension (formats.OUTPUT_EXTENSIONS). Do NOT add
+        # `-f alac` here — there is no such muxer, and forcing one would
+        # break the MP4 container the extension selects.
         cmd.extend(["-codec:a", "alac"])
 
     elif output_format == "wma":

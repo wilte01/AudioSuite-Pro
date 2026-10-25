@@ -19,7 +19,8 @@ The converter is designed for a single input format per folder. It scans the inp
 ## Supported Formats
 
 - **Lossy: **MP3, AAC, M4A, OGG, Opus, MP4, WMA, and SPX are recognized as lossy formats.
-- **Lossless/uncompressed: **FLAC, WAV, ALAC, APE, AIFF, AIF, WV, MPC, and DSF are recognized as lossless input categories.
+- **Lossless/uncompressed: **FLAC, WAV, ALAC (M4A container), APE, AIFF, AIF, WV, MPC, and DSF are recognized as lossless input categories.
+- **ALAC output: **ALAC is written inside an M4A container, so the output file is named with the .m4a extension, not .alac. ALAC and AAC-M4A share that extension, so a later run to either format replaces the earlier .m4a file with the same name.
 - **Unsupported output: **APE, MPC, and DSF can be detected as input but are excluded as outputs because the converter has no supported encoder for them.
 - **Conversion restrictions: **Same-format conversion is prohibited, and lossy input cannot be converted to a lossless output because quality cannot be recovered.
 
@@ -66,7 +67,7 @@ Setup contains the input directory, output format, quality, sample rate, WAV bit
 - **M4A: **AAC at 320, 256, or 192 kbps.
 - **MP4: **AAC at 320, 256, or 192 kbps (same tiers as M4A).
 - **Opus: **256, 192, or 128 kbps.
-- **ALAC: **Always lossless; no quality tiers apply.
+- **ALAC: **Always lossless; no quality tiers apply. Output is an M4A-container file.
 - **AIFF / AIF: **24-bit PCM at highest/high, 16-bit PCM at medium. Because the quality preset alone selects the depth, the dither option applies to the 16-bit tiers as well.
 - **WMA: **320, 256, or 192 kbps.
 - **SPX (Speex): **Speex quality 8, the codec's top tier (a single fixed tier).

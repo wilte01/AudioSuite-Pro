@@ -6,6 +6,9 @@ directory scanning.
 Pure module — no tkinter, no subprocess, no FFmpeg.
 All business rules for which conversions are allowed live here.
 
+Changed in 2.1.2: added OUTPUT_EXTENSIONS/output_extension so an output file
+is named for its container, not its codec: ALAC is written as `.m4a`, which
+is the extension FFmpeg needs to pick the MP4 muxer.
 Changed in 1.1.0: classified the new formats (spx lossy; wv/ape/mpc/dsf lossless) and
 added the unsupported-output set.
 """
@@ -50,6 +53,29 @@ ALL_OUTPUT_FORMATS: list[str] = [
     f for f in ALL_FORMATS if f not in UNSUPPORTED_OUTPUT_FORMATS
 ]
 
+# Format name -> file extension actually written for it. FFmpeg selects its
+# muxer from the output file's extension, so a format whose name is not a
+# muxer-able extension must be mapped: ALAC is a codec, and its container is
+# M4A (the `ipod`/mov muxer). Naming the output `song.alac` made FFmpeg fail
+# with "Unable to choose an output format" for every file.
+OUTPUT_EXTENSIONS: dict[str, str] = {"alac": "m4a"}
+
+
+def output_extension(fmt: str) -> str:
+    """Return the file extension (no dot) written for output format *fmt*.
+
+    Unmapped formats keep their own name, so this is the identity for every
+    format except :data:`OUTPUT_EXTENSIONS`' keys.
+
+    Args:
+        fmt: Output format name, case-insensitive.
+
+    Returns:
+        The extension to append to the output file name.
+    """
+    lowered = fmt.lower()
+    return OUTPUT_EXTENSIONS.get(lowered, lowered)
+
 
 # ── Per-format descriptive metadata ──────────────────────────────────────────
 
@@ -73,6 +99,10 @@ def format_info(fmt: str) -> str:
             "tag preservation."
         ),
         "m4a": "\n✓ M4A fully supports metadata tags (artist, title, album, etc.)",
+        "alac": (
+            "\nℹ ALAC is stored in an M4A container; the output file uses the "
+            ".m4a extension."
+        ),
         "mp3": "\n✓ MP3 fully supports ID3 tags for metadata",
         "flac": "\n✓ FLAC fully supports Vorbis comments for metadata",
     }

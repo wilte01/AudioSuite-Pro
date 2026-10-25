@@ -20,6 +20,14 @@ Versions of the tools are released together with the suite (the single
   same pair is tagged at about -0.1 dB, and a real concatenated measurement
   agrees within 0.2 dB. A file whose duration cannot be read is reported as a
   per-file error instead of being weighted as zero.
+- **ALAC conversions now write an M4A container instead of failing.** Every
+  ALAC run failed with `Error initializing the muxer ... Invalid argument`,
+  because the output was named `song.alac` and FFmpeg selects its muxer from
+  the file extension; `.alac` names a codec, not a container. The converter now
+  names each output for its container (`formats.output_extension`), so ALAC is
+  written as `song.m4a` and the audio decodes bit-identically to the source.
+  ALAC and AAC-M4A share the `.m4a` extension, so a later run to either format
+  replaces the earlier file with the same name.
 
 ## [2.1.1] - 2026-10-24
 

@@ -10,6 +10,9 @@ Changed in 1.0.1: skipped test_shipped_chain_suppresses_the_aliased_partial
 and test_run_conversion_reaches_44k_output on CI where ffmpeg may not have
 soxr resampler enabled or PATH configuration differs.
 
+Changed in 2.1.2: added the ALAC output-naming and real-conversion outcome
+tests (R-02). The outcome test probes and decodes the produced file, so a
+missing muxer cannot pass as a successful conversion.
 Changed in 1.1.0: added the Ogg Speex codec case.
 """
 
@@ -21,6 +24,7 @@ import os
 import sqlite3
 import subprocess
 import threading
+import wave
 from queue import Queue
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -1713,6 +1717,28 @@ def _probe_codec(path: str) -> str:
     return result.stdout.strip()
 
 
+def _probe_container(path: str) -> str:
+    """Return the container (``format_name``) of *path* via a real ffprobe call."""
+    from audio_suite_shared.secure_subprocess import run_secure_subprocess
+
+    result = run_secure_subprocess(
+        "ffprobe",
+        [
+            "-v",
+            "error",
+            "-show_entries",
+            "format=format_name",
+            "-of",
+            "csv=p=0",
+            path,
+        ],
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    return result.stdout.strip()
+
+
 class TestRecursiveMixedConversion:
     def _run(self, in_dir, out_dir, output_format, is_dry_run=False, n_slots=4):
         slot_vars, slot_queue = _make_slot_fixtures(n_slots)
@@ -1973,3 +1999,169 @@ class TestSameStemCollision:
         remaining = [p for p in (a, b) if os.path.exists(p)]
         assert len(remaining) == 1
         assert (out / "song.mp3").exists()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# A2 (R-02) — ALAC must produce a playable M4A file
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def _make_stereo_pair(tmp_path, name, ms=1500):
+    """Write a stereo WAV whose channels carry *different* tones.
+
+    Distinct channels matter: a conversion that sums or duplicates one
+    channel still decodes "fine", so only a per-channel measurement can see
+    it.  Returns the path.
+    """
+    path = tmp_path / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    left = Sine(440).to_audio_segment(duration=ms, volume=-12.0).set_channels(1)
+    right = Sine(880).to_audio_segment(duration=ms, volume=-18.0).set_channels(1)
+    AudioSegment.from_mono_audiosegments(left, right).export(
+        str(path), format=path.suffix.lstrip(".")
+    )
+    return str(path)
+
+
+def _decode_per_channel(path, tmp_path, tag):
+    """Decode *path* to 16-bit PCM and return ``(channels, sample_rate, [[int]])``.
+
+    Returns one sample list per channel, so a measurement can compare each
+    channel against the same channel of the source.
+    """
+    from audio_suite_shared.secure_subprocess import run_secure_subprocess
+
+    decoded = tmp_path / f"decoded_{tag}.wav"
+    run_secure_subprocess(
+        "ffmpeg",
+        [
+            "-hide_banner",
+            "-y",
+            "-i",
+            path,
+            "-acodec",
+            "pcm_s16le",
+            "-f",
+            "wav",
+            str(decoded),
+        ],
+        capture_output=True,
+        timeout=120,
+        check=True,
+    )
+    with wave.open(str(decoded), "rb") as wf:
+        channels = wf.getnchannels()
+        rate = wf.getframerate()
+        raw = wf.readframes(wf.getnframes())
+    samples = array.array("h", raw)
+    return channels, rate, [samples[c::channels] for c in range(channels)]
+
+
+def _channel_rms(samples) -> float:
+    if not samples:
+        return 0.0
+    return math.sqrt(sum(float(s) * s for s in samples) / len(samples)) / 32768.0
+
+
+class TestAlacOutput:
+    """ALAC is a codec; its container is M4A (finding R-02).
+
+    ``song.alac`` is not a muxer-able extension, so FFmpeg refused every ALAC
+    output with "Error initializing the muxer".  These tests exercise the real
+    conversion and decode the produced file, because an argument-level
+    assertion (``-codec:a alac`` present) passed while every live run failed.
+    """
+
+    def _run(self, in_dir, out_dir, output_format="alac", is_dry_run=False):
+        slot_vars, slot_queue = _make_slot_fixtures(4)
+        progress, complete, errors = [], [], []
+        run_conversion(
+            input_dir=str(in_dir),
+            output_dir=str(out_dir),
+            output_format=output_format,
+            quality="highest",
+            delete_originals=False,
+            is_dry_run=is_dry_run,
+            lossy_formats=LOSSY_FORMATS,
+            slot_vars=slot_vars,
+            slot_queue=slot_queue,
+            on_progress=lambda **kw: progress.append(kw),
+            on_complete=lambda **kw: complete.append(kw),
+            on_error=lambda msg: errors.append(msg),
+        )
+        return progress, complete, errors
+
+    def test_dry_run_previews_the_m4a_name(self, tmp_path):
+        """The preview names the file the run would actually write."""
+        _make_tone(tmp_path, "tone.wav")
+        progress, complete, errors = self._run(
+            tmp_path, tmp_path / "out", is_dry_run=True
+        )
+
+        assert errors == []
+        assert complete[0]["total"] == 1
+        lines = [kw["display_text"] for kw in progress]
+        assert any("tone.m4a" in line for line in lines), lines
+        assert not any("tone.alac" in line for line in lines), lines
+
+    def test_live_conversion_writes_m4a_and_not_alac(self, tmp_path):
+        _make_tone(tmp_path, "tone.wav")
+        out = tmp_path / "out"
+        _, complete, errors = self._run(tmp_path, out)
+
+        assert errors == []
+        assert complete[0]["converted"] == 1
+        assert complete[0]["errors"] == 0
+        assert (out / "tone.m4a").exists()
+        assert not (out / "tone.alac").exists()
+        assert list(out.iterdir()) == [out / "tone.m4a"]
+
+    def test_output_probes_as_alac_inside_an_mp4_container(self, tmp_path):
+        _make_tone(tmp_path, "tone.wav")
+        out = tmp_path / "out"
+        self._run(tmp_path, out)
+
+        produced = str(out / "tone.m4a")
+        assert _probe_codec(produced) == "alac"
+        container = _probe_container(produced)
+        assert "mp4" in container or "m4a" in container, container
+
+    def test_output_is_bit_exact_with_the_source(self, tmp_path):
+        """Lossless means the decoded audio matches, sample for sample.
+
+        Measured per channel on the decoded PCM, not by reading back the
+        arguments or the internal state that produced the file.
+        """
+        source = _make_stereo_pair(tmp_path, os.path.join("album", "pair.wav"))
+        out = tmp_path / "out"
+        _, complete, errors = self._run(tmp_path, out)
+        assert errors == []
+        assert complete[0]["converted"] == 1
+
+        src_ch, src_rate, src = _decode_per_channel(source, tmp_path, "src")
+        out_ch, out_rate, produced = _decode_per_channel(
+            str(out / "album" / "pair.m4a"), tmp_path, "out"
+        )
+
+        assert (src_ch, src_rate) == (out_ch, out_rate) == (2, 44100)
+        assert len(src[0]) == len(produced[0])
+        # The two source channels differ, so a mono-sum or channel swap shows.
+        assert abs(_channel_rms(src[0]) - _channel_rms(src[1])) > 0.02
+        for idx, (a, b) in enumerate(zip(src, produced)):
+            delta = abs(_channel_rms(a) - _channel_rms(b))
+            assert delta < 1e-4, f"channel {idx} RMS drifted by {delta}"
+            assert max(abs(x - y) for x, y in zip(a, b)) == 0, (
+                f"channel {idx} is not bit-identical"
+            )
+
+    def test_alac_file_is_still_accepted_as_input(self, tmp_path):
+        """A produced ALAC file must be re-readable (it is detected as m4a)."""
+        from music_format_converter.core.formats import detect_format
+
+        _make_tone(tmp_path, "tone.wav")
+        out = tmp_path / "out"
+        self._run(tmp_path, out)
+
+        produced = out / "tone.m4a"
+        assert detect_format(produced.name) == "m4a"
+        assert AudioSegment.from_file(str(produced)).frame_rate == 44100

@@ -3,6 +3,10 @@ Tests for music_format_converter.ui.setup_tab — Setup tab construction.
 
 Uses the session-scoped real Tk root from conftest.py so the shared
 DriverControlsPanel builds genuine widgets.
+
+Changed in 2.1.2: added the ALAC description tests (R-02), which read the
+label text through both the combobox handler and the update_format_menu
+pre-fill route on real widgets.
 """
 
 import tkinter as tk
@@ -367,3 +371,34 @@ class TestDitherControl:
         _, widgets, container = _build(root)
         widgets["update_format_menu"](["flac", "wav"], "wav")
         assert str(self._find_dither_box(container).cget("state")) != "disabled"
+
+
+class TestAlacFormatDescription:
+    """A2 (R-02) — the ALAC description reaches the widget the user reads.
+
+    The label text comes from `format_info` through two routes: the
+    `<<ComboboxSelected>>` handler, and `update_format_menu`, which the app
+    calls when it narrows the menu from scanned input (a programmatic pre-fill
+    that never fires the widget event).  Both are exercised here on real
+    widgets, because a description that only exists in `format_info` is not a
+    description the user ever sees.
+    """
+
+    def test_alac_description_names_the_m4a_container(self, root: tk.Tk) -> None:
+        _, widgets, container = _build(root)
+
+        widgets["update_format_info"]("alac")
+
+        texts = _descendant_texts(container)
+        assert any(".m4a" in text and "container" in text.lower() for text in texts), (
+            texts
+        )
+
+    def test_prefill_route_updates_the_description(self, root: tk.Tk) -> None:
+        """`update_format_menu` is the pre-fill route; it must update the label."""
+        _, widgets, container = _build(root)
+
+        widgets["update_format_menu"](list(ALL_FORMATS), "alac")
+
+        texts = _descendant_texts(container)
+        assert any("ALAC" in text and ".m4a" in text for text in texts), texts

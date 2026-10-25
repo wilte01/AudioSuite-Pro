@@ -4,6 +4,8 @@ Gap G-05: format_info, is_lossy, detect_format, can_convert,
           available_output_formats, available_output_formats_for,
           discover_input_files, scan_input_directory, ScanResult
 
+Changed in 2.1.2: added the OUTPUT_EXTENSIONS/output_extension contract that
+names ALAC output as `.m4a` (FFmpeg picks its muxer from the extension).
 Changed in 1.1.0: made the lossless-input test skip every unsupported output format.
 """
 
@@ -17,6 +19,7 @@ from music_format_converter.core.formats import (
     ALL_OUTPUT_FORMATS,
     LOSSLESS_FORMATS,
     LOSSY_FORMATS,
+    OUTPUT_EXTENSIONS,
     UNSUPPORTED_OUTPUT_FORMATS,
     ScanResult,
     available_output_formats,
@@ -26,6 +29,7 @@ from music_format_converter.core.formats import (
     discover_input_files,
     format_info,
     is_lossy,
+    output_extension,
     scan_input_directory,
 )
 
@@ -53,6 +57,40 @@ class TestConstants:
         for fmt in ALL_FORMATS:
             if fmt not in UNSUPPORTED_OUTPUT_FORMATS:
                 assert fmt in ALL_OUTPUT_FORMATS
+
+
+# ── output_extension ──────────────────────────────────────────────────────────
+
+
+class TestOutputExtension:
+    """The written file extension, which is what FFmpeg's muxer selection uses."""
+
+    def test_alac_is_written_as_m4a(self):
+        assert output_extension("alac") == "m4a"
+
+    def test_lookup_is_case_insensitive(self):
+        assert output_extension("ALAC") == "m4a"
+
+    def test_identity_for_every_other_output_format(self):
+        for fmt in ALL_OUTPUT_FORMATS:
+            if fmt in OUTPUT_EXTENSIONS:
+                continue
+            assert output_extension(fmt) == fmt
+
+    def test_alac_is_the_only_remapped_format(self):
+        """A new mapping is a deliberate decision, not an incidental edit."""
+        assert OUTPUT_EXTENSIONS == {"alac": "m4a"}
+
+    def test_every_mapping_target_is_itself_an_output_format(self):
+        # `m4a` must be convertible to in its own right, or an ALAC output
+        # would be named for a container the tool cannot parse.
+        for target in OUTPUT_EXTENSIONS.values():
+            assert target in ALL_OUTPUT_FORMATS
+
+    def test_format_info_names_the_m4a_container(self):
+        info = format_info("alac")
+        assert ".m4a" in info
+        assert "container" in info.lower()
 
 
 # ── format_info ───────────────────────────────────────────────────────────────

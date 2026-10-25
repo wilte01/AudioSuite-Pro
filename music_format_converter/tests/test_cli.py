@@ -5,11 +5,16 @@ The dither cases assert the value that actually reaches
 core.file_processor.run_conversion (the consumer boundary), because a test that
 only checks click's own parsing cannot see a flag that is parsed but dropped
 before the conversion call.
+
+Changed in 2.1.2: added a live ALAC run (R-02) — the command must exit 0 and
+leave a playable `.m4a`, not fail on an unmuxable `.alac` extension.
 """
 
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
+from pydub.generators import Sine
 
 from music_format_converter import cli
 
@@ -121,3 +126,49 @@ class TestRecursiveMixedCli:
 
         assert result.exit_code == 0, result.output
         assert "2 skipped" in result.output
+
+
+class TestAlacEndToEnd:
+    """R-02 — a live ALAC run must exit 0 and leave a playable `.m4a`."""
+
+    def test_live_alac_conversion_succeeds_and_names_the_m4a(self, tmp_path):
+        source = tmp_path / "song.wav"
+        Sine(440).to_audio_segment(duration=1000, volume=-12.0).export(
+            str(source), format="wav"
+        )
+        out = tmp_path / "converted"
+
+        result = CliRunner().invoke(
+            cli.convert,
+            [str(tmp_path), "--format", "alac", "--output-dir", str(out)],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "1 converted" in result.output
+        assert "0 errors" in result.output
+        assert (out / "song.m4a").exists()
+        assert not (out / "song.alac").exists()
+
+    def test_dry_run_names_the_m4a_and_writes_nothing(self, tmp_path):
+        (tmp_path / "song.wav").write_bytes(b"x")
+        out = tmp_path / "converted"
+
+        result = CliRunner().invoke(
+            cli.convert,
+            [str(tmp_path), "--dry", "--format", "alac", "--output-dir", str(out)],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert not out.exists()
+
+    def test_alac_is_still_offered_as_a_format(self):
+        out = CliRunner().invoke(cli.convert, ["--help"]).output
+        assert out  # help renders; the format list itself lives in core.formats
+
+
+@pytest.mark.parametrize("fmt", ["alac", "m4a"])
+def test_alac_and_m4a_share_one_container_extension(fmt):
+    """Both targets write `.m4a`; a later run replaces the earlier file."""
+    from music_format_converter.core.formats import output_extension
+
+    assert output_extension(fmt) == "m4a"

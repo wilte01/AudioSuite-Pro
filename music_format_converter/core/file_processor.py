@@ -4,6 +4,10 @@ Per-file conversion worker orchestrated via BaseFileProcessor.process_batch.
 
 No tkinter imports. All UI interaction via injected callbacks.
 
+Changed in 2.1.2: the output file name uses the format's container extension
+(formats.output_extension), so ALAC is written as `song.m4a` instead of
+`song.alac` — FFmpeg could not select a muxer for the latter and failed
+with "Error initializing the muxer" on every file.
 Changed in 1.0.1: two same-stem sources with different extensions in one
 folder (e.g. song.flac + song.wav) both target song.<ext>; only the first
 is converted and the collision is reported as a skip instead of silently
@@ -55,6 +59,7 @@ from .formats import (
     can_convert,
     detect_format,
     discover_input_files,
+    output_extension,
 )
 
 logger = logging.getLogger(__name__)
@@ -444,7 +449,10 @@ def process_single_file(
             return
 
         base_name = os.path.splitext(filename)[0]
-        output_name = f"{base_name}.{output_format}"
+        # The extension is the format's *container* extension, not its name:
+        # FFmpeg picks the muxer from the extension, so ALAC must be written
+        # as `.m4a` (formats.OUTPUT_EXTENSIONS).
+        output_name = f"{base_name}.{output_extension(output_format)}"
         output_path = os.path.join(output_dir, output_name)
         input_size = os.path.getsize(input_path) / (1024 * 1024)
 
