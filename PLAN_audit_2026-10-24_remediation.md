@@ -1077,6 +1077,10 @@ version, the promotion of `[Unreleased]`, the guide regeneration and the gate
 output. A missing cut row means the sprint is not closed, whatever the item
 rows say.
 
+| Cut | Release | Date | What the script did | Verification |
+|---|---|---|---|---|
+| Sprint 1 | **2.1.2** | 2026-10-25 | `utilities/release.py 2.1.2`: bumped `pyproject.toml` 2.1.1 → 2.1.2, re-locked and read the version back from `uv.lock`, promoted `[Unreleased]` (D16 left `Nothing yet.`) to `## [2.1.2] - 2026-10-25`, regenerated the 7 version-labelled guides, then ran the gate | `audiosuite --version` → `2.1.2`; `## [2.1.2]` present; `uv.lock` 2.1.2; guides read `Version 2.1.2 — October 2026`; all 7 `.docx` differ only in `word/document.xml`; `pytest test_project_version test_whats_new test_release_notes test_user_guide_hygiene` → 74 passed; gate: compile OK, ruff clean, format clean, mypy 549 files, bandit 0/0, bare `pytest` 10,987 passed, 3 skipped, 14:27. The first attempt's gate failed twice for reasons outside the cut: a missing `Changed in 2.1.2` note in the new `test_pattern.py` (fixed in `3a2d36b`), and a one-off `STATUS_BREAKPOINT` (2147483651) crash of the nested collection helper in `test_pyproject_config.py`, which did not reproduce standalone or on the rerun |
+
 ---
 
 ## 8. Out of scope (deliberately deferred)

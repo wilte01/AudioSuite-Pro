@@ -9,6 +9,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.1.2] - 2026-10-25
+
 ### Security
 
 - **File Reorganizer and CD ripper refuse paths that escape the destination.**

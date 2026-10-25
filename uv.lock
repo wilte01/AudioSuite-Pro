@@ -201,7 +201,7 @@ wheels = [
 
 [[package]]
 name = "audiosuite-pro"
-version = "2.1.1"
+version = "2.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "audioop-lts", marker = "python_full_version >= '3.13'" },
