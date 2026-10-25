@@ -143,6 +143,14 @@ file's own history and only Sprint 2 work needs a note. The asserted
 non-empty exception category stays the narrative ``.md`` documents: this
 re-baseline lands with the plan row that records it, which is the window's
 first narrative change.
+Changed in 2.1.4: re-baselined the lock for the Sprint 3 window
+(PLAN_audit_2026-10-24_remediation.md section 2.5 / D21). BASE_COMMIT is now
+8f37560 -- the 2.1.3 release commit, the state Sprint 3 starts from -- and
+NOTE_MARKER is ``Changed in 2.1.4``, so the closed 2.1.3 notes stay as each
+file's own history and only Sprint 3 work needs a note. The asserted
+non-empty exception category stays the narrative ``.md`` documents: this
+re-baseline lands with the plan rows that record it, which are the window's
+first narrative changes, so the scan cannot be vacuous here.
 """
 
 from __future__ import annotations
@@ -157,14 +165,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: The plan's base commit; every file changed since here must be annotated.
 #: Re-baselined per sprint (section 2.5 of the audit-remediation plan) so each
 #: release's notes are written while its work is in flight, not retro-fitted at
-#: the cut. Sprint 2 sets it to 2136190, the 2.1.2 release commit: the closed
-#: 2.1.2 window needs no further notes and only Sprint 2 work does. Earlier
+#: the cut. Sprint 3 sets it to 8f37560, the 2.1.3 release commit: the closed
+#: 2.1.3 window needs no further notes and only Sprint 3 work does. Earlier
 #: work is documented in its own plans and CHANGELOG.md, so it does not require
 #: per-file notes here.
-BASE_COMMIT = "2136190"
+BASE_COMMIT = "8f37560"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 2.1.3"
+NOTE_MARKER = "Changed in 2.1.4"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (
