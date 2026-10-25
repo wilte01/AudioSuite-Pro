@@ -35,7 +35,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "audiosuite-pro"
-version = "2.1.2"
+version = "2.1.3"
 readme = "README.md"
 requires-python = ">=3.11"
 # Plan iteration 5 E2 (audit #11), decision D1: GPL-3.0, chosen because the
@@ -433,5 +433,7 @@ audio_suite_shared = ["cli_schema.json"]
 # Changed in 2.1.1: bumped [project] version 2.1.0 -> 2.1.1
 # (release cut by utilities/release.py).
 # Changed in 2.1.2: bumped [project] version 2.1.1 -> 2.1.2
+# (release cut by utilities/release.py).
+# Changed in 2.1.3: bumped [project] version 2.1.2 -> 2.1.3
 # (release cut by utilities/release.py).
 audio_refinery = ["refinery_settings.default.json"]

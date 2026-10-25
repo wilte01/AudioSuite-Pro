@@ -9,6 +9,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.1.3] - 2026-10-25
+
 ### Fixed
 
 - **Album Art Sync reads one configuration file in every run mode.** The window

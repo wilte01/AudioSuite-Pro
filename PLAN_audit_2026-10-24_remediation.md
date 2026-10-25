@@ -104,7 +104,7 @@ guide source.
 | 2.1.0 | 2026-10-23 | Plugin system | S7 |
 | 2.1.1 | 2026-10-24 | Docs consolidation and launch correctness | S8 + follow-on batch |
 | 2.1.2 | 2026-10-25 | P0 containment: album gain, ALAC, traversal | this plan, Sprint 1 |
-| **2.1.3** | planned | **P1 tool truth: config, scrubber discovery, dry run** | **this plan, Sprint 2** |
+| 2.1.3 | 2026-10-25 | P1 tool truth: config, scrubber discovery, dry run | this plan, Sprint 2 |
 | **2.1.4** | planned | **P1 automation, security policy, APEv2 tests, batch gating** | **this plan, Sprint 3** |
 
 The table is the project's release history at the plan's base commit
@@ -1084,6 +1084,7 @@ rows say.
 | Cut | Release | Date | What the script did | Verification |
 |---|---|---|---|---|
 | Sprint 1 | **2.1.2** | 2026-10-25 | `utilities/release.py 2.1.2`: bumped `pyproject.toml` 2.1.1 → 2.1.2, re-locked and read the version back from `uv.lock`, promoted `[Unreleased]` (D16 left `Nothing yet.`) to `## [2.1.2] - 2026-10-25`, regenerated the 7 version-labelled guides, then ran the gate | `audiosuite --version` → `2.1.2`; `## [2.1.2]` present; `uv.lock` 2.1.2; guides read `Version 2.1.2 — October 2026`; all 7 `.docx` differ only in `word/document.xml`; `pytest test_project_version test_whats_new test_release_notes test_user_guide_hygiene` → 74 passed; gate: compile OK, ruff clean, format clean, mypy 549 files, bandit 0/0, bare `pytest` 10,987 passed, 3 skipped, 14:27. The first attempt's gate failed twice for reasons outside the cut: a missing `Changed in 2.1.2` note in the new `test_pattern.py` (fixed in `3a2d36b`), and a one-off `STATUS_BREAKPOINT` (2147483651) crash of the nested collection helper in `test_pyproject_config.py`, which did not reproduce standalone or on the rerun |
+| Sprint 2 | **2.1.3** | 2026-10-25 | `utilities/release.py 2.1.3`: bumped `pyproject.toml` 2.1.2 → 2.1.3, re-locked and read the version back from `uv.lock`, promoted `[Unreleased]` (left as `Nothing yet.`) to `## [2.1.3] - 2026-10-25` carrying the three `Fixed` entries, regenerated the 7 version-labelled guides, then ran the gate | `audiosuite --version` → `2.1.3`; `## [2.1.3]` present at line 14; `uv.lock` 2.1.3; guides read `Version 2.1.3 — October 2026`; all 7 `.docx` differ only in `word/document.xml`; `build_user_guides.py --check` → 31 artefacts current; `pytest test_project_version test_whats_new test_release_notes test_user_guide_hygiene` → 74 passed; gate inside the script: compileall OK, ruff clean, format clean, mypy 549 files, bandit 0 High / 0 Medium (47 Low), bare `pytest` 11,000 passed, 3 skipped, 90.51 %, 21:26 |
 
 ---
 
