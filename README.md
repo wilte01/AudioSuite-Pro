@@ -236,7 +236,8 @@ Per-tool documentation lives in the linked `user_guides/individual_programs/`
 documents (rendered by the shared `utilities/build_user_guides.py` from their
 Markdown sources); the CLI
 subcommands are documented in
-`user_guides/reference/CLI_Commands_Reference.md`, and the tool guide hub is
+`user_guides/reference/CLI_Commands_Reference.md`, which the same renderer builds
+into `CLI_Commands_Reference.docx`, and the tool guide hub is
 `user_guides/README.md`.
 
 ### Scripting the CLI

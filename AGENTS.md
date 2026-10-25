@@ -801,7 +801,12 @@ be a bare full-suite `pytest` run.
   `utilities/build_user_guides.py` and is what the Help button opens: edit the
   Markdown, then run `python utilities/build_user_guides.py <module_dir>`.
   `--check` proves every artefact is current and reports drift as a differing
-  zip entry.
+  zip entry. Suite-wide reference pages ride the same path: `reference/*.md`
+  (the CLI commands reference) is rendered by the same script
+  (`python utilities/build_user_guides.py reference`) into the `.docx` beside
+  it, and is drift-checked identically even though no Help button opens it.
+  The renderer's dialect is small: a list, table, fence or callout needs a blank
+  line before it, or it is absorbed into the preceding paragraph as plain text.
 - Both HTML tables are generated: `utilities/generate_docs_index.py` writes the
   docs index (from the tool manifest, validated against `guide_to_program`) and
   `utilities/generate_readme_tool_index.py` writes the README's. Never edit

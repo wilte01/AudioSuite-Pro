@@ -143,9 +143,10 @@ from the manifest and the full-suite lock tests fail if it drifts:
 ## Documentation
 
 Everything under `docs/` is Markdown rendered by Sphinx + MyST, and every guide
-under `user_guides/` is Markdown rendered into the Word file each Help button
-opens. In both cases the Markdown is the source and the rendered thing is an
-artifact no one edits by hand.
+under `user_guides/` is Markdown rendered into a Word file: the per-tool guides
+are what each Help button opens, and the suite-wide reference page (the CLI
+commands reference) is rendered by the same script. In both cases the Markdown
+is the source and the rendered thing is an artifact no one edits by hand.
 
 ```pwsh
 # the site, straight from docs/conf.py (the build gate reads the same config)
@@ -155,8 +156,9 @@ python -m sphinx -b html docs docs/_build/html
 # index.html that opens on the front door
 python utilities/build_docs_site.py
 
-# one tool's guide from its Markdown source, or all of them
+# one tool's guide from its Markdown source, the CLI reference, or all of them
 python utilities/build_user_guides.py <module_dir>
+python utilities/build_user_guides.py reference
 python utilities/build_user_guides.py --check
 
 # the two generated tables

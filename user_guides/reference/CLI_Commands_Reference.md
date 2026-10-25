@@ -1,4 +1,7 @@
-# CLI Commands Reference
+---
+title: CLI Commands Reference
+subtitle: Every audiosuite command, its flags, and the headless scripting contract
+---
 
 All CLI commands are accessed via the `audiosuite` entry point:
 
@@ -15,11 +18,13 @@ audiosuite album-genre <directory> [--dry] [--json] [--coverage N]
 ```
 
 **Options:**
+
 - `--dry` / `--live` — Analyse only, do not write tags (default: live)
 - `--json` / `--text` — Output results as JSON (default: text)
 - `--coverage N` — Minimum coverage percentage 0–100 before writing (default: 50)
 
 **Examples:**
+
 ```bash
 audiosuite album-genre "D:\Music\Various" --dry
 audiosuite album-genre "D:\Music\Various" --json
@@ -35,12 +40,14 @@ audiosuite album-art <directory> [--embed-size N] [--purge/--no-purge] [--dry] [
 ```
 
 **Options:**
+
 - `--embed-size N` — Embedded resolution in pixels (default: 800)
 - `--purge` / `--no-purge` — Purge hidden thumbnail files (default: purge)
 - `--dry` / `--live` — Analyse only, do not write tags (default: live)
 - `--json` / `--text` — Output results as JSON (default: text)
 
 **Examples:**
+
 ```bash
 audiosuite album-art "D:\Music\Beatles" --embed-size 1200 --no-purge
 audiosuite album-art "D:\Music\Beatles" --dry
@@ -55,10 +62,12 @@ audiosuite asx-extract <directory> [--dry] [--json]
 ```
 
 **Options:**
+
 - `--dry` / `--live` — Analyse only, do not copy or remove files (default: live)
 - `--json` / `--text` — Output results as JSON (default: text)
 
 **Examples:**
+
 ```bash
 audiosuite asx-extract "D:\Playlists" --dry
 audiosuite asx-extract "D:\Playlists" --json
@@ -73,6 +82,7 @@ audiosuite reduce <directory> [--reduce-hum] [--reduce-broadband] [OPTIONS]
 ```
 
 **Options:**
+
 - `--reduce-hum` — Enable hum removal via notch filtering
 - `--hum-frequency [50|60]` — Mains frequency in Hz (default: 60)
 - `--hum-harmonics N` — Harmonics to filter, 1–20 (default: 8)
@@ -85,6 +95,7 @@ audiosuite reduce <directory> [--reduce-hum] [--reduce-broadband] [OPTIONS]
 - `--json` / `--text` — Output results as JSON (default: text)
 
 **Examples:**
+
 ```bash
 audiosuite reduce "D:\Music" --reduce-hum --hum-frequency 50
 audiosuite reduce "D:\Music" --reduce-broadband --dry --json
@@ -100,6 +111,7 @@ audiosuite refine <directory> [--stages LIST] [OPTIONS]
 ```
 
 **Options:**
+
 - `--stages LIST` — Comma-separated stages to run: `declick`, `trim`, `reduce_noise`, `enhance`, `normalise` (default: declick,trim,enhance,normalise)
 - `--reduce-hum` — Enable hum removal via notch filtering
 - `--hum-frequency [50|60]` — Mains frequency in Hz (default: 60)
@@ -120,6 +132,7 @@ audiosuite refine <directory> [--stages LIST] [OPTIONS]
 - `--json` / `--text` — Output results as JSON (default: text)
 
 **Examples:**
+
 ```bash
 audiosuite refine "D:\Music" --stages declick,trim,reduce_noise,enhance,normalise
 audiosuite refine "D:\Music" --stages reduce_noise --reduce-hum --hum-frequency 50 --dry
@@ -134,6 +147,7 @@ audiosuite cd-rip DRIVE [--output-dir DIR] [--format FMT] [--tracks LIST] [--cue
 ```
 
 **Options:**
+
 - `--output-dir DIR` — Destination folder (required for ripping; not needed with `--detect-read-offset`)
 - `--format [wav|mp3|flac|ogg|m4a|opus]` — Output audio format (default: flac)
 - `--tracks LIST` — Comma-separated track numbers to rip (default: all)
@@ -145,6 +159,7 @@ audiosuite cd-rip DRIVE [--output-dir DIR] [--format FMT] [--tracks LIST] [--cue
 - `--json` / `--text` — Output results as JSON
 
 **Examples:**
+
 ```bash
 audiosuite cd-rip D: --output-dir /output/flac --format flac
 audiosuite cd-rip D: --output-dir /output/mp3 --format mp3 --tracks 1,2,3
@@ -172,6 +187,7 @@ structure including REM comments, ISRC codes, PREGAP/POSTGAP and index
 timestamps in milliseconds.
 
 **Examples:**
+
 ```bash
 audiosuite cue parse "D:\Music\Album\Album.cue"
 audiosuite cue parse "D:\Music\Album\Album.cue" --json
@@ -192,12 +208,14 @@ alongside the shared counters, so a caller can split the sheet it just made
 without reading it back.
 
 **Options:**
+
 - `-o, --output FILE` — Destination `.cue` path (default: `album.cue` next to the input)
 - `--title TEXT` — Album title for the generated sheet
 - `--artist TEXT` — Album artist (`PERFORMER`) for the generated sheet
 - `--json` / `--text` — Emit JSON output (default: text)
 
 **Examples:**
+
 ```bash
 audiosuite cue generate "D:\Music\Album"
 audiosuite cue generate "D:\Music\Album" --title "Greatest Hits" --artist "The Band"
@@ -215,11 +233,13 @@ Each track is cut losslessly from the image at its `INDEX 01` timestamp and
 tagged with the sheet's title / performer.
 
 **Options:**
+
 - `-o, --output-dir DIR` — Destination folder (default: alongside the CUE sheet)
 - `--ffmpeg TEXT` — FFmpeg executable (name on PATH or absolute path)
 - `--json` / `--text` — Emit JSON output
 
 **Examples:**
+
 ```bash
 audiosuite cue split "D:\Music\Album\Album.cue"
 audiosuite cue split "D:\Music\Album\Album.cue" -o "D:\Music\Album\Tracks"
@@ -239,16 +259,15 @@ audiosuite lyrics <directory> [--dry] [--json] [--parallel] [--workers N]
 ```
 
 **Options:**
+
 - `--dry` / `--live` — Analyse only, do not write tags (default: live)
 - `--json` / `--text` — Output results as JSON (default: text)
 - `--parallel` / `--no-parallel` — Process files in parallel (default: off)
 - `--workers N` — Parallel worker count (default: 4)
 - `--provider NAME` — Lyric source provider, e.g. `lrclib` (default: lrclib)
 - `--request-timeout SEC` — Per-request timeout in seconds (default: 10.0)
-- `--skip-existing` / `--no-skip-existing` — Skip files that already contain
-  lyrics (default: skip-existing)
-- `--plain-fallback` / `--no-plain-fallback` — Store unsynced lyrics when no
-  synced lyrics are available (default: plain-fallback)
+- `--skip-existing` / `--no-skip-existing` — Skip files that already contain lyrics (default: skip-existing)
+- `--plain-fallback` / `--no-plain-fallback` — Store unsynced lyrics when no synced lyrics are available (default: plain-fallback)
 
 Synced lyrics are embedded as an ID3 `SYLT` frame for MP3/WAV/AIFF and in the
 `SYNCEDLYRICS` Vorbis comment for FLAC/OGG/Opus. Unsynced lyrics (the fallback)
@@ -256,6 +275,7 @@ use `USLT` for MP3/WAV/AIFF, `LYRICS` for FLAC/OGG/Opus and `\xa9lyr` for
 M4A/MP4. Each run records a batch in the undo log so tags can be reverted.
 
 **Examples:**
+
 ```bash
 audiosuite lyrics "D:\Music\Unknown-Arm"
 audiosuite lyrics "D:\Music\Unknown-Arm" --live --parallel --workers 8
@@ -279,41 +299,21 @@ audiosuite fingerprint <directory> [--lookup/--no-lookup]
     [--mb-user USER] [--json] [--dry]
 ```
 
-- `--lookup` (default: on) — query AcoustID for each fingerprint. Without an
-  API key the command exits instead of silently fingerprinting only.
-- `--write-tags` (default: off) — write the AcoustID fingerprint/id tags.
-  Requires live mode.
+- `--lookup` (default: on) — query AcoustID for each fingerprint. Without an API key the command exits instead of silently fingerprinting only.
+- `--write-tags` (default: off) — write the AcoustID fingerprint/id tags. Requires live mode.
 - `--threshold N` — minimum AcoustID score, 0.0-1.0 (default: 0.5).
 - `--max-length N` — seconds of audio passed to `fpcalc` (default: 120).
-- `--album-mode` (default: off) — cluster a folder's lookups by release group
-  and tag only when the album is decided; ambiguous albums stay untagged.
+- `--album-mode` (default: off) — cluster a folder's lookups by release group and tag only when the album is decided; ambiguous albums stay untagged.
 - `--album-min N` — votes needed to form an album cluster (default: 3).
-- `--mbid-region CC` — preferred release country (ISO 3166-1 alpha-2) used
-  only to break a tie between otherwise identical releases.
-- `--musicbrainz` (default: off) — look the matched recording up in
-  MusicBrainz: retrieve its ISRCs and release facts (date, label, country),
-  and let MusicBrainz break an AcoustID near-tie the file's own tags could
-  not settle. A lookup failure never fails a file; it degrades to the
-  AcoustID-only result and says so in the message.
-- `--write-isrc` (default: off) — write the retrieved ISRCs, in the format's
-  native convention (`TSRC` for MP3/WAV/AIFF/DSF, `----:com.apple.iTunes:ISRC`
-  for M4A/MP4, an `ISRC` comment/item for FLAC/OGG/Opus/WV/APE/MPC). Requires
-  `--musicbrainz`, `--write-tags` and live mode.
-- `--submit-isrc` (default: off) — submit the ISRCs the files' own tags carry
-  to MusicBrainz for their matched recording, skipping codes already
-  registered. Requires `--musicbrainz` (the recording lookup is what identifies
-  the known codes). In dry mode the exact XML payload is printed and nothing is
-  posted; live mode needs a token from `MUSICBRAINZ_TOKEN` or the encrypted
-  store. The token is never accepted as a flag: argv is visible in process
-  listings and shell history.
-- `--mb-auth oauth|app-token` (default: `oauth`) — how the submission is
-  authenticated. `oauth` sends the token as a bearer token (scope
-  `submit_isrc`); `app-token` uses a legacy application token over HTTP Digest,
-  which MusicBrainz has deprecated.
-- `--mb-user USER` — MusicBrainz account name, required only by
-  `--mb-auth app-token` (digest sends both a username and the token).
+- `--mbid-region CC` — preferred release country (ISO 3166-1 alpha-2) used only to break a tie between otherwise identical releases.
+- `--musicbrainz` (default: off) — look the matched recording up in MusicBrainz: retrieve its ISRCs and release facts (date, label, country), and let MusicBrainz break an AcoustID near-tie the file's own tags could not settle. A lookup failure never fails a file; it degrades to the AcoustID-only result and says so in the message.
+- `--write-isrc` (default: off) — write the retrieved ISRCs, in the format's native convention (`TSRC` for MP3/WAV/AIFF/DSF, `----:com.apple.iTunes:ISRC` for M4A/MP4, an `ISRC` comment/item for FLAC/OGG/Opus/WV/APE/MPC). Requires `--musicbrainz`, `--write-tags` and live mode.
+- `--submit-isrc` (default: off) — submit the ISRCs the files' own tags carry to MusicBrainz for their matched recording, skipping codes already registered. Requires `--musicbrainz` (the recording lookup is what identifies the known codes). In dry mode the exact XML payload is printed and nothing is posted; live mode needs a token from `MUSICBRAINZ_TOKEN` or the encrypted store. The token is never accepted as a flag: argv is visible in process listings and shell history.
+- `--mb-auth oauth|app-token` (default: `oauth`) — how the submission is authenticated. `oauth` sends the token as a bearer token (scope `submit_isrc`); `app-token` uses a legacy application token over HTTP Digest, which MusicBrainz has deprecated.
+- `--mb-user USER` — MusicBrainz account name, required only by `--mb-auth app-token` (digest sends both a username and the token).
 
 **Examples:**
+
 ```bash
 audiosuite fingerprint "D:\Music\Unknown-Arm" --dry
 audiosuite fingerprint "D:\Music\Unknown-Arm" --live --write-tags --musicbrainz

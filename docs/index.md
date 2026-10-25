@@ -78,8 +78,11 @@ tool entry in the manifest.
 ## Reference
 
 * [CLI commands reference](../user_guides/reference/CLI_Commands_Reference.md)
-  — every `audiosuite` command, its flags, and a headless/scripting section.
-  Its flag names and defaults are locked against the real click commands.
+  ([Word](../user_guides/reference/CLI_Commands_Reference.docx)) — every
+  `audiosuite` command, its flags, and a headless/scripting section. Its flag
+  names and defaults are locked against the real click commands, and the Word
+  copy is rendered from the Markdown by `utilities/build_user_guides.py` like
+  every tool guide.
 * {doc}`user/messages` — where the logs live,
   what each severity means, and what to do about every error message. Its
   message table is locked against the code's translation table.

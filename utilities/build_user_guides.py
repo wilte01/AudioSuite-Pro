@@ -2,10 +2,15 @@
 """
 build_user_guides.py
 
-Renders every per-tool user guide from its Markdown source.
+Renders every user guide and every reference page from its Markdown source.
 
 Source of truth:  ``user_guides/individual_programs/<tool>/<Guide>_User_Guide.md``
-Artefact:         ``user_guides/individual_programs/<tool>/<Guide>_User_Guide.docx``
+                  ``user_guides/reference/<Page>.md``
+Artefact:         the ``.docx`` beside each source
+
+Both trees go through this one renderer, so the suite-wide reference pages are
+regenerated and drift-checked exactly like a tool's user guide (the CLI
+reference rides the same path so its Word copy cannot silently rot).
 
 Why this exists
 ---------------
@@ -34,6 +39,7 @@ Usage:
     python utilities/build_user_guides.py             # rebuild every guide
     python utilities/build_user_guides.py --check      # verify artefacts are current
     python utilities/build_user_guides.py bpm_analyzer # one tool
+    python utilities/build_user_guides.py reference    # the CLI reference
 
 ``--check`` renders into a temporary directory and compares **zip-entry data**
 with the committed artefact. It never compares file hashes: python-docx rebuilds
@@ -47,6 +53,9 @@ Conventions (AGENTS.md "Utility Script Markers"): ASCII-only [START] / [OK] /
 
 Changed in 2.1.0: new file - the one Markdown-to-docx renderer for every per-tool
 user guide (PLAN_docs_consolidation P2.1).
+Changed in 2.1.4: renders ``user_guides/reference/*.md`` too, so the CLI
+commands reference has a committed ``.docx`` that the same script builds and
+``--check`` drift-checks instead of a hand-maintained binary.
 """
 
 from __future__ import annotations
@@ -69,6 +78,9 @@ from docx.text.paragraph import Paragraph
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GUIDE_ROOT = REPO_ROOT / "user_guides" / "individual_programs"
+#: Suite-wide reference pages (the CLI reference) rendered the same way, so a
+#: committed Word copy has a regeneration path and is drift-checked.
+REFERENCE_ROOT = REPO_ROOT / "user_guides" / "reference"
 
 #: Colour fills, matching the helpers the retired generators used.
 CALL_OUT_FILL = "FFF4CE"
@@ -393,12 +405,15 @@ def render_guide(guide: Guide) -> DocxDocument:
 
 
 def guide_sources() -> list[Path]:
-    """Return every committed guide Markdown source.
+    """Return every committed guide and reference Markdown source.
+
+    Two trees are rendered: one folder per tool under
+    ``individual_programs/``, and the suite-wide pages under ``reference/``.
 
     Returns:
         Source paths, sorted.
     """
-    return sorted(GUIDE_ROOT.glob("*/*_User_Guide.md"))
+    return sorted([*GUIDE_ROOT.glob("*/*_User_Guide.md"), *REFERENCE_ROOT.glob("*.md")])
 
 
 def target_for(source: Path) -> Path:
@@ -484,7 +499,7 @@ def main(argv: list[str]) -> int:
     if wanted:
         sources = [s for s in sources if s.parent.name in wanted]
     if not sources:
-        print("[ERROR] no guide sources found under user_guides/individual_programs")
+        print("[ERROR] no guide sources found under user_guides/")
         return 1
 
     print(f"[START] {'Checking' if check else 'Rebuilding'} {len(sources)} user guides")

@@ -9,6 +9,19 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+### Added
+
+- **The CLI commands reference has a Word copy, built like every user guide.**
+  `user_guides/reference/CLI_Commands_Reference.md` is now rendered to
+  `CLI_Commands_Reference.docx` by the shared `utilities/build_user_guides.py`,
+  the script that already turns each tool's Markdown guide into the `.docx` its
+  Help button opens, so the reference has a regeneration path and can no longer
+  be a hand-maintained binary. The source gained the same YAML front matter the
+  tool guides use and its wrapped option bullets were joined into one line each,
+  because the renderer's dialect ends a bullet at the first unindented
+  continuation. `--check` and `tests/test_user_guide_hygiene.py` now cover the
+  `reference/` tree alongside `individual_programs/`.
+
 ### Changed
 
 - **CLI commands exit 1 when a batch finishes with errors.** A run that reported

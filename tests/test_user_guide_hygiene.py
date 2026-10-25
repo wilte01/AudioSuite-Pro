@@ -48,6 +48,9 @@ length is asserted, so it cannot quietly grow. Designed artefacts (the
 presentation) and derived ones (the logging guide, whose sample log lines are
 rendered from the live formatter) stay generator-backed; a ``.pptx`` layout is
 code, not prose, and a Markdown source for it would be a lossy duplicate.
+
+Changed in 2.1.4: the source scan also covers ``user_guides/reference/*.md``,
+so the CLI reference's Word copy is freshness-checked exactly like a tool guide.
 """
 
 from __future__ import annotations
@@ -93,10 +96,22 @@ def _load_renderer() -> Any:
 def _markdown_sources() -> list[Path]:
     """Return every Markdown guide source under ``user_guides/``.
 
+    Two trees are sources: one folder per tool under ``individual_programs/``
+    and the suite-wide reference pages under ``reference/`` (the CLI reference),
+    which the shared renderer builds into a Word document the same way. Listing
+    them here rather than asking the renderer keeps the freshness lock able to
+    catch a renderer that has stopped discovering a tree.
+
     Returns:
         Source paths, sorted.
     """
-    return sorted((REPO_ROOT / "user_guides").rglob("*_User_Guide.md"))
+    user_guides = REPO_ROOT / "user_guides"
+    return sorted(
+        [
+            *user_guides.glob("individual_programs/*/*_User_Guide.md"),
+            *user_guides.glob("reference/*.md"),
+        ]
+    )
 
 
 def tracked_paths() -> list[str]:
