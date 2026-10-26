@@ -27,6 +27,17 @@ Known format-specific behaviour (verified empirically, not assumed)
   trimmed to round(duration * sample_rate) samples from the START
   (trimming from the front was verified to misalign the signal; trimming
   the tail is correct).
+
+Changed in 2.1.4: every ffmpeg/ffprobe call goes through the shared secure
+wrapper (audit R-08, plan C3), with ``text=False`` for the raw-PCM stream.
+
+Subprocess boundary
+-------------------
+Every ffmpeg/ffprobe call goes through
+``audio_suite_shared.secure_subprocess.run_secure_subprocess`` with a fixed
+argument list (SECURITY.md): no shell, and the binaries must be on the
+wrapper's allowlist. The raw-PCM decode passes ``text=False`` because its
+stdout is float samples, which ``text=True`` would decode and corrupt.
 """
 
 from __future__ import annotations
@@ -46,7 +57,10 @@ from audio_suite_shared.exceptions import (
     AudioFormatError,
     AudioMissingDependencyError,
 )
-from audio_suite_shared.subprocess_utils import get_startupinfo
+from audio_suite_shared.secure_subprocess import (
+    SubprocessSecurityError,
+    run_secure_subprocess,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +113,35 @@ def _require_ffprobe() -> str:
     return path
 
 
+def _tool_failure(action: str, tool: str, exc: BaseException) -> AudioExternalToolError:
+    """Build the user-facing error for a refused or failed tool invocation.
+
+    Covers both failure shapes the wrapper can raise: a non-zero child exit
+    (``CalledProcessError``, which carries the exit code and the child's
+    stderr) and a wrapper refusal (``SubprocessSecurityError``, an
+    ``AudioSuiteError`` with neither).  The message is the caller's own
+    sentence, so the wording a user sees does not change with the routing.
+
+    Args:
+        action: The caller's message, e.g. ``"ffmpeg failed to decode x.m4a"``.
+        tool:   ``"ffmpeg"`` or ``"ffprobe"``, recorded in the context.
+        exc:    The exception the wrapper raised.
+
+    Returns:
+        The ``AudioExternalToolError`` to raise, with ``exc`` as ``original``.
+    """
+    stderr = getattr(exc, "stderr", None)
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", errors="replace")
+    return AudioExternalToolError(
+        action,
+        tool=tool,
+        returncode=getattr(exc, "returncode", None),
+        stderr=stderr or None,
+        original=exc,
+    )
+
+
 def _probe_stream(path: Path) -> dict[str, Any]:
     """Return the first audio stream's ffprobe JSON metadata for path.
 
@@ -108,8 +151,7 @@ def _probe_stream(path: Path) -> dict[str, Any]:
             audio stream.
     """
     ffprobe = _require_ffprobe()
-    cmd = [
-        ffprobe,
+    args = [
         "-v",
         "error",
         "-print_format",
@@ -120,20 +162,10 @@ def _probe_stream(path: Path) -> dict[str, Any]:
         str(path),
     ]
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=True,
-            startupinfo=get_startupinfo(),
-        )
-    except subprocess.CalledProcessError as exc:
-        raise AudioExternalToolError(
-            f"ffprobe failed to read {path.name}",
-            tool="ffprobe",
-            returncode=exc.returncode,
-            stderr=exc.stderr,
-            original=exc,
+        proc = run_secure_subprocess(ffprobe, args, capture_output=True, check=True)
+    except (subprocess.CalledProcessError, SubprocessSecurityError) as exc:
+        raise _tool_failure(
+            f"ffprobe failed to read {path.name}", "ffprobe", exc
         ) from exc
 
     data = json.loads(proc.stdout)
@@ -169,8 +201,7 @@ def read_audio(path: Path) -> tuple[npt.NDArray[np.float32], int]:
     declared_duration = float(stream.get("duration", 0.0))
 
     ffmpeg = _require_ffmpeg()
-    cmd = [
-        ffmpeg,
+    args = [
         "-y",
         "-i",
         str(path),
@@ -183,19 +214,13 @@ def read_audio(path: Path) -> tuple[npt.NDArray[np.float32], int]:
         "-",
     ]
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            check=True,
-            startupinfo=get_startupinfo(),
+        # text=False: stdout is raw float32 PCM, not text.
+        proc = run_secure_subprocess(
+            ffmpeg, args, capture_output=True, check=True, text=False
         )
-    except subprocess.CalledProcessError as exc:
-        raise AudioExternalToolError(
-            f"ffmpeg failed to decode {path.name}",
-            tool="ffmpeg",
-            returncode=exc.returncode,
-            stderr=exc.stderr.decode("utf-8", errors="replace") if exc.stderr else None,
-            original=exc,
+    except (subprocess.CalledProcessError, SubprocessSecurityError) as exc:
+        raise _tool_failure(
+            f"ffmpeg failed to decode {path.name}", "ffmpeg", exc
         ) from exc
 
     raw = np.frombuffer(proc.stdout, dtype=np.float32)
@@ -262,8 +287,7 @@ def write_audio(
         )
         codec_args = ["-c:a", "aac", "-b:a", f"{kbps}k"]
 
-    cmd = [
-        ffmpeg,
+    args = [
         "-y",
         "-f",
         "f32le",
@@ -277,18 +301,16 @@ def write_audio(
         str(output_path),
     ]
     try:
-        subprocess.run(
-            cmd,
+        # text=False: stdin is raw float32 PCM (see read_audio).
+        run_secure_subprocess(
+            ffmpeg,
+            args,
             input=pcm_bytes,
             capture_output=True,
             check=True,
-            startupinfo=get_startupinfo(),
+            text=False,
         )
-    except subprocess.CalledProcessError as exc:
-        raise AudioExternalToolError(
-            f"ffmpeg failed to encode {output_path.name}",
-            tool="ffmpeg",
-            returncode=exc.returncode,
-            stderr=exc.stderr.decode("utf-8", errors="replace") if exc.stderr else None,
-            original=exc,
+    except (subprocess.CalledProcessError, SubprocessSecurityError) as exc:
+        raise _tool_failure(
+            f"ffmpeg failed to encode {output_path.name}", "ffmpeg", exc
         ) from exc

@@ -5,16 +5,19 @@ Style matches Music Format Converter results_tab.py.
 Changed in 1.2.0: surfaces each track's EAC-style verification label (with
 its AccurateRip confidence) and adds the manual "Re-rip flagged tracks"
 action (PLAN_feature_expansion.md D30).
+Changed in 2.1.4: eject and reveal go through ``core/drive_control`` - no
+PowerShell command string, no raw ``subprocess.Popen`` (audit R-08, plan C3).
 """
 
 import os
-import subprocess
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from typing import Any
 
 from audio_suite_shared import styles
+from audio_suite_shared.exceptions import AudioSuiteError
 from audio_suite_shared.secure_subprocess import run_secure_subprocess
+from cd_ripper.core.drive_control import eject_drive, reveal_in_file_manager
 
 
 class ResultsTab:
@@ -194,19 +197,12 @@ class ResultsTab:
         drive = self.state.get("drive", "")
         if not drive:
             return
-        if os.name == "nt":
-            letter = drive.rstrip("\\").rstrip("/").rstrip(":")
-            subprocess.Popen(
-                [
-                    "powershell",
-                    "-c",
-                    f"(New-Object -ComObject Shell.Application)"
-                    f'.Namespace(17).ParseName("{letter}:").InvokeVerb("Eject")',
-                ],
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
-        else:
-            subprocess.Popen(["eject", drive])
+        try:
+            eject_drive(drive)
+        except AudioSuiteError as exc:
+            # A tray that will not open is worth saying out loud: the button
+            # looks like it did nothing otherwise.
+            messagebox.showerror("Eject Failed", str(exc), parent=self.frame)
 
     def _on_row_double(self, event: Any) -> None:
         item = self._tree.identify_row(event.y)
@@ -217,15 +213,7 @@ class ResultsTab:
             None,
         )
         if r and r["path"] and os.path.exists(r["path"]):
-            if os.name == "nt":
-                subprocess.Popen(
-                    ["explorer", f"/select,{r['path']}"],
-                    creationflags=subprocess.CREATE_NO_WINDOW,
-                )
-            else:
-                run_secure_subprocess(
-                    "xdg-open",
-                    [os.path.dirname(r["path"])],
-                    capture_output=True,
-                    check=False,
-                )
+            try:
+                reveal_in_file_manager(r["path"])
+            except AudioSuiteError as exc:
+                messagebox.showerror("Cannot Open Folder", str(exc), parent=self.frame)

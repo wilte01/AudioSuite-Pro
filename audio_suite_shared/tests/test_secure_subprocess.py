@@ -4,6 +4,9 @@ Gap G-18: validate_executable, validate_script_path, validate_arguments,
           run_secure_subprocess, run_secure_popen
 
 Security-critical: injection attempts, allowlist bypass, happy paths.
+
+Changed in 2.1.4: covers the ``text`` parameter, which lets a binary stream
+(the enhancer's raw PCM decode) use the wrapper (audit R-08, plan C3).
 """
 
 import os
@@ -487,3 +490,53 @@ class TestRunPythonScriptLineCallback:
         fake = _FakePopen(["slow"], wait_raises=subprocess.TimeoutExpired("x", 1))
         with pytest.raises(subprocess.TimeoutExpired):
             self._run(fake)
+
+
+# ── text parameter (plan C3, audit R-08) ─────────────────────────────────────
+
+
+class TestTextParameter:
+    """``text`` lets a binary stream use the wrapper.
+
+    The Audio Enhancer reads raw float32 PCM off ffmpeg's stdout; decoding that
+    as text corrupts it, and the wrapper used to hardcode ``text=True``.  The
+    default must stay ``True`` so no existing caller changes behaviour.
+    """
+
+    def test_default_still_returns_str(self):
+        result = run_secure_subprocess(
+            sys.executable, ["-c", "print('hello')"], capture_output=True, check=True
+        )
+        assert isinstance(result.stdout, str)
+        assert result.stdout.strip() == "hello"
+
+    def test_text_false_returns_bytes(self):
+        result = run_secure_subprocess(
+            sys.executable,
+            ["-c", "print(chr(0))"],
+            capture_output=True,
+            check=True,
+            text=False,
+        )
+        assert isinstance(result.stdout, bytes)
+        # Trailing newline differs by platform (\r\n on Windows).
+        assert result.stdout.strip() == b"\x00"
+
+    def test_text_false_carries_raw_binary_intact(self):
+        """This is the enhancer's case: PCM bytes, not text.
+
+        ``text=True`` hands the child's stdout to a text decoder; raw float32
+        samples have no text reading, so the bytes must arrive untouched.
+        (Subprocess's own reader thread swallows the decode error on some
+        versions and leaves ``stdout`` as ``None``, which is why the caller
+        cannot rely on an exception being raised.)
+        """
+        program = "import sys\nsys.stdout.buffer.write(bytes([0, 129, 255]))"
+        result = run_secure_subprocess(
+            sys.executable,
+            ["-c", program],
+            capture_output=True,
+            check=True,
+            text=False,
+        )
+        assert result.stdout == b"\x00\x81\xff"

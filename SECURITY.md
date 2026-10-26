@@ -34,14 +34,32 @@ prefer new parsing code that fails closed (typed exceptions out of
 
 ## Subprocess execution surface
 
-All first-party subprocess invocations go through
+Every subprocess invocation in the shipped runtime — the tool packages,
+`audio_suite_shared` and `master_driver` — goes through
 `audio_suite_shared/secure_subprocess.py`, which enforces an executable
-allowlist (notably `ffmpeg` / `ffprobe`, treated as a pair), refuses
-`shell=True`, and rejects partial paths outside the allowlist. New
-subprocess call sites must use this wrapper — a raw `subprocess.run` in a
-tool package is a review finding, not a pattern. `os.startfile(path)` calls
-in the UI layer open user-picked local files via the OS shell association;
-they are never fed tag-derived or network-derived strings.
+allowlist (notably `ffmpeg` / `ffprobe`, treated as a pair, `fpcalc` for
+fingerprinting, and `explorer` / `eject` for CD-drive control), refuses
+`shell=True`, and rejects partial paths outside the allowlist. Arguments are
+validated too: shell metacharacters and redirection patterns are refused
+before anything is spawned. The wrapper always supplies `startupinfo` itself,
+and `text=False` is available for a **binary** stream — the Audio Enhancer
+reads raw float32 PCM off ffmpeg's stdout, which decoding as text would
+corrupt.
+
+New subprocess call sites must use this wrapper. That is no longer a
+review-only convention: `tests/test_subprocess_boundary.py` parses every
+shipped module and fails on a direct `subprocess.run` / `Popen` /
+`check_output` outside the wrapper, so the invariant cannot drift back.
+`utilities/` is deliberately outside that boundary — those scripts drive the
+development checkout (`uv`, `git`, `pytest`) and never process user audio, so
+adding their tools to the product allowlist would be the wrong fix.
+
+One action deliberately runs no process at all: the CD Ripper opens a Windows
+tray through MCI (`mciSendStringW`) with a command built from a validated
+single drive letter, which replaced an interpolated PowerShell command string
+(audit R-08). `os.startfile(path)` calls in the UI layer open user-picked
+local files via the OS shell association; they are never fed tag-derived or
+network-derived strings.
 
 ## What is intentionally out of scope
 

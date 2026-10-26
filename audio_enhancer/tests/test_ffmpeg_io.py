@@ -10,7 +10,10 @@ Two tiers
 Unit tests (always run): mock subprocess.run/shutil.which, exercising
 this module's own logic in isolation — error routing, bitrate clamping,
 extension validation — without depending on a real ffmpeg binary or
-producing real encoded audio.
+producing real encoded audio. ``TestSecureWrapperRouting`` sits one layer up
+and asserts the call shape the module passes to
+``audio_suite_shared.secure_subprocess.run_secure_subprocess`` (plan C3): the
+extra layer is invisible to a test that patches ``subprocess.run``.
 
 Integration tests (skipped automatically if ffmpeg/ffprobe is not on
 PATH): round-trip real audio through real ffmpeg subprocesses and verify
@@ -19,6 +22,9 @@ module's docstring, rather than trusting the mocks alone.
 
 Run with:
     pytest tests/test_ffmpeg_io.py -v
+
+Changed in 2.1.4: adds ``TestSecureWrapperRouting`` for the move onto the
+shared secure-subprocess wrapper (audit R-08, plan C3).
 """
 
 from __future__ import annotations
@@ -38,6 +44,7 @@ from audio_suite_shared.exceptions import (
     AudioFormatError,
     AudioMissingDependencyError,
 )
+from audio_suite_shared.secure_subprocess import SubprocessSecurityError
 
 SR: int = 48_000
 
@@ -209,6 +216,95 @@ class TestSubprocessFailureRouting:
         ):
             with pytest.raises(AudioExternalToolError, match="no audio stream"):
                 ffmpeg_io._probe_stream(Path("silent.opus"))
+
+
+# ── Unit tests: the calls actually go through the secure wrapper (plan C3) ───
+
+
+class TestSecureWrapperRouting:
+    """Every ffmpeg/ffprobe call is handed to the shared wrapper.
+
+    ``run_secure_subprocess`` is patched rather than ``subprocess.run``:
+    patching the layer below proves only that *something* spawned a process,
+    not that the allowlist and the argv validation were applied.
+    """
+
+    def test_probe_stream_uses_the_wrapper(self) -> None:
+        probe = MagicMock(
+            stdout='{"streams": [{"sample_rate": "48000", "channels": 2}]}'
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/ffprobe"),
+            patch.object(
+                ffmpeg_io, "run_secure_subprocess", return_value=probe
+            ) as secure,
+        ):
+            ffmpeg_io._probe_stream(Path("a.opus"))
+
+        assert secure.call_args.args[0] == "/usr/bin/ffprobe"
+        args = secure.call_args.args[1]
+        assert "-show_streams" in args
+        assert args[-1] == "a.opus"
+        assert secure.call_args.kwargs["capture_output"] is True
+        assert secure.call_args.kwargs["check"] is True
+        # No text=False: ffprobe's JSON is decoded as text by the wrapper.
+        assert "text" not in secure.call_args.kwargs
+
+    def test_decode_asks_the_wrapper_for_bytes(self) -> None:
+        probe = MagicMock(
+            stdout=(
+                '{"streams": [{"sample_rate": "48000", "channels": 2, '
+                '"duration": "0.5"}]}'
+            )
+        )
+        pcm = np.zeros(10, dtype=np.float32).tobytes()  # 5 frames, 2 channels
+        with (
+            patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+            patch.object(
+                ffmpeg_io,
+                "run_secure_subprocess",
+                side_effect=[probe, MagicMock(stdout=pcm)],
+            ) as secure,
+        ):
+            audio, sample_rate = ffmpeg_io.read_audio(Path("a.m4a"))
+
+        assert secure.call_count == 2
+        decode_kwargs = secure.call_args_list[1].kwargs
+        assert decode_kwargs["text"] is False
+        assert "encoding" not in decode_kwargs
+        assert "errors" not in decode_kwargs
+        assert audio.shape == (2, 5)
+        assert sample_rate == 48_000
+
+    def test_encode_asks_the_wrapper_for_bytes(self) -> None:
+        with (
+            patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+            patch.object(
+                ffmpeg_io, "run_secure_subprocess", return_value=MagicMock()
+            ) as secure,
+        ):
+            ffmpeg_io.write_audio(_sine(440.0), SR, Path("o.opus"))
+
+        assert secure.call_args.args[0] == "/usr/bin/ffmpeg"
+        assert secure.call_args.kwargs["text"] is False
+        assert isinstance(secure.call_args.kwargs["input"], bytes)
+
+    def test_a_refused_call_keeps_the_user_facing_message(self) -> None:
+        """A wrapper refusal must not reach the user as a security traceback."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+            patch.object(
+                ffmpeg_io,
+                "run_secure_subprocess",
+                side_effect=SubprocessSecurityError("Executable not allowed: ffmpeg"),
+            ),
+        ):
+            with pytest.raises(
+                AudioExternalToolError, match="ffmpeg failed to encode out.opus"
+            ) as exc_info:
+                ffmpeg_io.write_audio(_sine(440.0), SR, Path("out.opus"))
+        assert exc_info.value.context.get("tool") == "ffmpeg"
+        assert isinstance(exc_info.value.original, SubprocessSecurityError)
 
 
 # ── Integration tests: real ffmpeg round-trip (skipped if unavailable) ───────

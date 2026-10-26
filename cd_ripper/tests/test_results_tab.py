@@ -5,11 +5,15 @@ double-click reveal.
 Real Tk widgets off the shared hidden root for ``refresh``; shell panels
 (``object.__new__`` + MagicMock tree) for the early-return branches of
 ``_on_row_double``. Platform branches are driven by patching ``os.name``
-(repo precedent: test_disc_core.py), with ``startfile``/``CREATE_NO_WINDOW``
-created for cross-platform CI.
+(repo precedent: test_disc_core.py), with ``startfile`` created for
+cross-platform CI.
 
 Changed in 1.2.0: covers the confidence wording and the manual
 "Re-rip flagged tracks" action.
+
+Changed in 2.1.4: eject and reveal are delegated to ``core.drive_control``, so
+this file asserts the delegation (and that no subprocess call is left in the
+tab) while the platform argv is asserted in ``test_drive_control.py``.
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from audio_suite_shared.exceptions import AudioSuiteError
 from cd_ripper.ui import results_tab as results_mod
 from cd_ripper.ui.results_tab import ResultsTab
 
@@ -165,34 +170,36 @@ class TestEject:
     def _shell_tab(state: dict[str, Any]) -> ResultsTab:
         t = object.__new__(ResultsTab)
         t.state = state
+        t.frame = MagicMock()
         return t
 
     def test_no_drive_is_a_no_op(self) -> None:
         t = self._shell_tab({})
-        with patch.object(results_mod.subprocess, "Popen") as popen:
+        with patch.object(results_mod, "eject_drive") as eject:
             t._eject()
-        popen.assert_not_called()
+        eject.assert_not_called()
 
-    def test_windows_drive_ejects_via_powershell(self) -> None:
+    def test_drive_is_handed_to_the_helper(self) -> None:
         t = self._shell_tab({"drive": "D:\\"})
-        with (
-            patch.object(results_mod.os, "name", "nt"),
-            patch.object(results_mod.subprocess, "Popen") as popen,
-            patch.object(results_mod.subprocess, "CREATE_NO_WINDOW", 0, create=True),
-        ):
+        with patch.object(results_mod, "eject_drive") as eject:
             t._eject()
-        args = popen.call_args.args[0]
-        assert args[0] == "powershell"
-        assert '"D:' in args[2]
+        eject.assert_called_once_with("D:\\")
 
-    def test_posix_drive_ejects_via_eject_binary(self) -> None:
+    def test_the_tab_holds_no_subprocess_path(self) -> None:
+        """The PowerShell eject is deleted, not left reachable beside the fix."""
+        assert not hasattr(results_mod, "subprocess")
+
+    def test_failed_eject_is_reported_not_silent(self) -> None:
         t = self._shell_tab({"drive": "/dev/sr0"})
         with (
-            patch.object(results_mod.os, "name", "posix"),
-            patch.object(results_mod.subprocess, "Popen") as popen,
+            patch.object(
+                results_mod, "eject_drive", side_effect=AudioSuiteError("no tray")
+            ),
+            patch.object(results_mod, "messagebox") as box,
         ):
             t._eject()
-        popen.assert_called_once_with(["eject", "/dev/sr0"])
+        box.showerror.assert_called_once()
+        assert "no tray" in str(box.showerror.call_args.args[1])
 
 
 class TestRowDouble:
@@ -214,55 +221,48 @@ class TestRowDouble:
         tree = MagicMock()
         tree.identify_row.return_value = "42"
         t = self._shell_tab(tree, {"rip_results": [_result(1)]})
-        with patch.object(results_mod.subprocess, "Popen") as popen:
+        with patch.object(results_mod, "reveal_in_file_manager") as reveal:
             t._on_row_double(MagicMock(y=5))
-        popen.assert_not_called()
+        reveal.assert_not_called()
 
     def test_missing_file_is_a_no_op(self, tmp_path: Any) -> None:
         tree = MagicMock()
         tree.identify_row.return_value = "1"
         state = {"rip_results": [_result(1, path=str(tmp_path / "gone.flac"))]}
         t = self._shell_tab(tree, state)
-        with patch.object(results_mod.subprocess, "Popen") as popen:
+        with patch.object(results_mod, "reveal_in_file_manager") as reveal:
             t._on_row_double(MagicMock(y=5))
-        popen.assert_not_called()
+        reveal.assert_not_called()
 
-    def test_windows_row_reveals_file_in_explorer(self, tmp_path: Any) -> None:
+    def test_row_hands_the_file_to_the_helper(self, tmp_path: Any) -> None:
         target = tmp_path / "track.flac"
         target.write_bytes(b"x")
         tree = MagicMock()
         tree.identify_row.return_value = "1"
         state = {"rip_results": [_result(1, path=str(target))]}
         t = self._shell_tab(tree, state)
-        with (
-            patch.object(results_mod.os, "name", "nt"),
-            patch.object(results_mod.subprocess, "Popen") as popen,
-            patch.object(results_mod.subprocess, "CREATE_NO_WINDOW", 0, create=True),
-        ):
+        with patch.object(results_mod, "reveal_in_file_manager") as reveal:
             t._on_row_double(MagicMock(y=5))
-        popen.assert_called_once_with(
-            ["explorer", f"/select,{target}"],
-            creationflags=0,
-        )
+        reveal.assert_called_once_with(str(target))
 
-    def test_posix_row_opens_file_directory(self, tmp_path: Any) -> None:
+    def test_refused_reveal_is_reported_not_silent(self, tmp_path: Any) -> None:
         target = tmp_path / "track.flac"
         target.write_bytes(b"x")
         tree = MagicMock()
         tree.identify_row.return_value = "1"
         state = {"rip_results": [_result(1, path=str(target))]}
         t = self._shell_tab(tree, state)
+        t.frame = MagicMock()
         with (
-            patch.object(results_mod.os, "name", "posix"),
-            patch.object(results_mod, "run_secure_subprocess") as secure,
+            patch.object(
+                results_mod,
+                "reveal_in_file_manager",
+                side_effect=AudioSuiteError("refused"),
+            ),
+            patch.object(results_mod, "messagebox") as box,
         ):
             t._on_row_double(MagicMock(y=5))
-        secure.assert_called_once_with(
-            "xdg-open",
-            [str(tmp_path)],
-            capture_output=True,
-            check=False,
-        )
+        box.showerror.assert_called_once()
 
 
 class TestBuild:
@@ -295,13 +295,9 @@ class TestBuild:
     def test_eject_button_is_wired_to_the_handler(self, tab: ResultsTab) -> None:
         tab.state["drive"] = "D:"
         button = next(b for b in self._buttons(tab) if "Eject Disc" in b.cget("text"))
-        with (
-            patch.object(results_mod.os, "name", "nt"),
-            patch.object(results_mod.subprocess, "Popen") as popen,
-            patch.object(results_mod.subprocess, "CREATE_NO_WINDOW", 0, create=True),
-        ):
+        with patch.object(results_mod, "eject_drive") as eject:
             button.invoke()
-        assert popen.call_count == 1
+        eject.assert_called_once_with("D:")
 
     def test_row_double_binding_attached(self, tab: ResultsTab) -> None:
         assert tab._tree.bind("<Double-1>")

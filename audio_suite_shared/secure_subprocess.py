@@ -7,6 +7,10 @@ command injection and ensure safe execution of external processes.
 Changed in 1.4.0: run_secure_subprocess() takes log_failure so a probe whose
 non-zero exit the caller already reports (the FFmpeg decode fallback) does not
 print a traceback, an exit code and FFmpeg's stderr at the user.
+
+Changed in 2.1.4: adds ``text`` so a binary stream (the enhancer's raw PCM
+decode) can use the wrapper, and allowlists ``explorer``/``eject`` for the CD
+ripper's fixed-argv drive control (plan C3, audit R-08).
 """
 
 import logging
@@ -49,6 +53,14 @@ ALLOWED_EXECUTABLES = {
     # allow both bare and .exe forms matching the ffprobe/ffmpeg pairing.
     "icacls",
     "icacls.exe",
+    # CD-ripper drive control (cd_ripper/core/drive_control.py).  Both call
+    # sites pass a fixed argument list and never a shell: ``explorer.exe
+    # /select,<file>`` reveals a ripped track, and ``eject <device>`` opens a
+    # POSIX tray.  The Windows tray is ejected through MCI via ctypes, so no
+    # executable runs for it at all (previously a PowerShell command string).
+    "explorer",
+    "explorer.exe",
+    "eject",
 }
 
 # Allowed file extensions for scripts
@@ -225,10 +237,15 @@ def run_secure_subprocess(
     capture_output: bool = False,
     check: bool = True,
     log_failure: bool = True,
+    text: bool = True,
     **kwargs: Any,
-) -> subprocess.CompletedProcess[str]:
+) -> subprocess.CompletedProcess[Any]:
     """
     Run a subprocess with security validation.
+
+    The wrapper always supplies ``startupinfo`` (and ``creationflags`` in
+    :func:`run_secure_popen`), so a caller must not pass either: duplicating
+    the keyword raises ``TypeError`` rather than being merged.
 
     Args:
         executable: The program to execute
@@ -242,10 +259,16 @@ def run_secure_subprocess(
             a probe whose failure the caller already reports: a best-effort
             decode fallback should not print ``Subprocess failed with code
             3199971767`` and FFmpeg's stderr at the user.
+        text: Decode the child's output to ``str`` (the default).  Pass
+            ``False`` only for a raw binary stream - the Audio Enhancer reads
+            float PCM samples off ffmpeg's stdout, which ``text=True`` would
+            try to decode.  ``encoding`` and ``errors`` must not be passed
+            with ``text=False``; ``subprocess.run`` rejects the combination.
         **kwargs: Additional arguments passed to subprocess.run
 
     Returns:
-        subprocess.CompletedProcess object
+        ``subprocess.CompletedProcess`` whose ``stdout``/``stderr`` are ``str``
+        when ``text`` is true and ``bytes`` when it is false.
 
     Raises:
         SubprocessSecurityError: If security validation fails
@@ -294,7 +317,7 @@ def run_secure_subprocess(
             timeout=timeout,
             capture_output=capture_output,
             check=check,
-            text=True,
+            text=text,
             startupinfo=get_startupinfo(),
             **kwargs,
         )

@@ -41,6 +41,19 @@ Versions of the tools are released together with the suite (the single
   per-format handlers both incremented the error tally, so one corrupt file was
   reported as two errors in the summary and the `--json` payload. The count is
   now taken once, in the handler that classified the failure.
+- **Every audio-tool subprocess call goes through the shared secure wrapper.**
+  The Audio Enhancer's ffmpeg/ffprobe decode and encode spawned processes
+  directly, and the CD Ripper's Eject button built a PowerShell command string
+  by interpolation; both bypassed the executable allowlist that `SECURITY.md`
+  says covers all shipped code. The enhancer now calls
+  `run_secure_subprocess` — the raw-PCM decode passes the new `text=False`, so
+  its binary stdout is no longer decoded as text — and drive eject/reveal moved
+  into a Tk-free `cd_ripper/core/drive_control.py`: the Windows tray opens
+  through MCI from a validated single drive letter (no process, no shell), while
+  POSIX eject and the Explorer reveal pass fixed argument lists. A tray that
+  refuses to open now says so in a dialog instead of looking like a no-op, and a
+  repository-wide test fails on any new direct `subprocess.run`/`Popen` in
+  shipped code.
 
 ## [2.1.3] - 2026-10-25
 
