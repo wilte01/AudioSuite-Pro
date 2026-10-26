@@ -46,6 +46,18 @@ It deliberately stays out of the way of unattended work:
 * the seen version is written when the panel is closed, so a run that is
   killed with the panel open simply offers it again.
 
+The whole history is one click away
+------------------------------------
+
+The panel deliberately renders only what is pending, so every release older
+than the recorded version is never seen in the app.  A ``Full Changelog``
+button on the panel opens a second, non-modal window that renders *every*
+released section of the same file, newest first, through the same parser and
+renderer - the archive is read from the changelog, never from a second
+hand-maintained list, so it cannot drift.  Closing it records nothing as seen:
+browsing the history must never hide the pending notes the panel was opened
+to show.
+
 Changed in 1.3.0: new module - the in-app release-notes panel and its
 pending-version rule.  The panel covers every release since the last seen
 version, not just the running one, so a skipped update still reports itself.
@@ -53,6 +65,13 @@ version, not just the running one, so a skipped update still reports itself.
 Changed in 1.4.1: a section underline one character short and a ``##``
 literal carrying a trailing space are corrected, so Sphinx's parser accepts
 the module and the API reference renders it (backlog P2).
+
+Changed in 2.1.5: adds :func:`full_changelog` and
+:func:`show_full_changelog` - the archive behind the panel's **Full Changelog**
+button. Every released section of the same changelog renders newest first
+through the renderer both windows now share (``_build_panel``), and closing the
+archive records nothing as seen, so browsing the history cannot hide the
+pending notes the panel exists to show.
 """
 
 from __future__ import annotations
@@ -82,6 +101,10 @@ PANEL_SUBTITLE = "What's new in this release"
 
 #: Subtitle used when the panel covers more than one release.
 MULTI_SUBTITLE = "What's new since your last update"
+
+#: Window title and subtitle of the complete-history window.
+FULL_WINDOW_TITLE = "AudioSuite Release History"
+FULL_SUBTITLE = "Every release recorded in the changelog"
 
 #: ASCII-safe bullet glyph (written as an escape so the source stays ASCII).
 BULLET_GLYPH = "\u2022"
@@ -117,8 +140,9 @@ class ReleaseNotes:
     """The notes for one released version.
 
     Attributes:
-        version: The running version the panel is titled with, e.g.
-            ``"1.3.0"``.
+        version: The version the window names - the running version for the
+            pending panel (e.g. ``"1.3.0"``), the newest release for the full
+            history.
         blocks: The parsed blocks of every covered release, newest first,
             each preceded by a ``"version"`` block when more than one
             release is shown.
@@ -364,6 +388,50 @@ def notes_since(
     return ReleaseNotes(running, combined, tuple(v for v, _ in sections))
 
 
+def full_changelog(changelog: Path | None = None) -> ReleaseNotes | None:
+    """Return every released section of the changelog, newest first.
+
+    The pending panel leaves out everything at or before the recorded version;
+    this is the archive behind it, so it covers the whole file instead.
+
+    Args:
+        changelog: Changelog path; discovered when omitted.
+
+    Returns:
+        The combined notes with a ``"version"`` block before each release, or
+        ``None`` when there is no changelog or it holds no released section.
+        ``[Unreleased]`` is not a release and is skipped, as is any section
+        whose body is blank.  Sections are ordered by version number, not by
+        their position in the file, so a misplaced heading cannot render the
+        history out of order.
+    """
+    path = changelog or find_changelog()
+    if path is None:
+        logger.debug("no CHANGELOG.md found; release history unavailable")
+        return None
+    text = path.read_text(encoding="utf-8")
+
+    sections: list[tuple[str, list[Block]]] = []
+    for version in released_versions(text):
+        if version_key(version) is None:
+            continue
+        body = section_body(text, version)
+        if body is None:
+            continue
+        blocks = parse_blocks(body)
+        if blocks:
+            sections.append((version, blocks))
+    if not sections:
+        return None
+
+    sections.sort(key=lambda section: version_key(section[0]) or (), reverse=True)
+    combined: list[Block] = []
+    for version, blocks in sections:
+        combined.append(Block("version", version))
+        combined.extend(blocks)
+    return ReleaseNotes(sections[0][0], combined, tuple(v for v, _ in sections))
+
+
 # ---------------------------------------------------------------------------
 # Deciding whether to offer the panel
 # ---------------------------------------------------------------------------
@@ -422,35 +490,33 @@ def mark_seen(version: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The panel
+# The panels
 # ---------------------------------------------------------------------------
 
 
-def show(
+def _build_panel(
     parent: tk.Tk | tk.Toplevel,
-    notes: ReleaseNotes,
     *,
-    on_close: object = None,
-) -> tk.Toplevel:
-    """Render *notes* in a scrollable Toplevel.
-
-    When *notes* covers several releases, each is introduced by its version
-    heading so the user can tell which change came from which update.
-
-    The panel is intentionally not modal: it is informational, and a grab
-    that outlives the user's attention would block the tool behind it.
+    title: str,
+    heading: str,
+    subtitle: str,
+    blocks: list[Block],
+) -> tuple[tk.Toplevel, ttk.Frame]:
+    """Build the scrollable release-notes window both panels render into.
 
     Args:
         parent: The window the panel belongs to.
-        notes: The parsed notes to render.
-        on_close: Optional callable invoked instead of recording the version
-            as seen when the panel closes.
+        title: The window title.
+        heading: The large heading above the subtitle.
+        subtitle: The line under the heading.
+        blocks: The parsed blocks to render.
 
     Returns:
-        The created Toplevel.
+        ``(top, frame)``.  *frame* is the padded container, left open so the
+        caller can pack its own buttons and wire the close protocol.
     """
     top = tk.Toplevel(parent)
-    top.title(f"What's New in AudioSuite {notes.version}")
+    top.title(title)
     top.configure(bg=styles.BG_APP)
     top.minsize(520, 360)
     top.transient(parent)
@@ -460,7 +526,7 @@ def show(
 
     tk.Label(
         frame,
-        text=f"AudioSuite {notes.version}",
+        text=heading,
         font=styles.FONT_TITLE,
         bg=styles.BG_APP,
         fg=styles.FG_MAIN,
@@ -468,7 +534,7 @@ def show(
     ).pack(fill="x")
     tk.Label(
         frame,
-        text=PANEL_SUBTITLE if len(notes.versions) <= 1 else MULTI_SUBTITLE,
+        text=subtitle,
         font=styles.FONT_LABEL,
         bg=styles.BG_APP,
         fg=styles.FG_SUB,
@@ -501,7 +567,7 @@ def show(
     body.tag_configure("lead", font=styles.FONT_BODY_B)
     body.tag_configure("paragraph", spacing1=4)
 
-    for block in notes.blocks:
+    for block in blocks:
         if block.style == "version":
             body.insert("end", f"Version {block.text}\n", "version")
         elif block.style == "heading":
@@ -514,6 +580,44 @@ def show(
         else:
             body.insert("end", f"{block.text}\n\n", "paragraph")
     body.configure(state="disabled")
+    return top, frame
+
+
+def show(
+    parent: tk.Tk | tk.Toplevel,
+    notes: ReleaseNotes,
+    *,
+    on_close: object = None,
+    changelog: Path | None = None,
+) -> tk.Toplevel:
+    """Render *notes* in a scrollable Toplevel.
+
+    When *notes* covers several releases, each is introduced by its version
+    heading so the user can tell which change came from which update.
+
+    The panel is intentionally not modal: it is informational, and a grab
+    that outlives the user's attention would block the tool behind it.  A
+    **Full Changelog** button opens the releases the panel leaves out in
+    :func:`show_full_changelog`, beside it.
+
+    Args:
+        parent: The window the panel belongs to.
+        notes: The parsed notes to render.
+        on_close: Optional callable invoked instead of recording the version
+            as seen when the panel closes.
+        changelog: Changelog the Full Changelog button reads; discovered when
+            omitted.
+
+    Returns:
+        The created Toplevel.
+    """
+    top, frame = _build_panel(
+        parent,
+        title=f"What's New in AudioSuite {notes.version}",
+        heading=f"AudioSuite {notes.version}",
+        subtitle=PANEL_SUBTITLE if len(notes.versions) <= 1 else MULTI_SUBTITLE,
+        blocks=notes.blocks,
+    )
 
     def close() -> None:
         """Dismiss the panel and remember that it was shown."""
@@ -521,6 +625,52 @@ def show(
             on_close()
         else:
             mark_seen(notes.version)
+        top.destroy()
+
+    actions = ttk.Frame(frame)
+    actions.pack(fill="x", pady=(10, 0))
+    ttk.Button(actions, text="Close", command=close).pack(side="right")
+    ttk.Button(
+        actions,
+        text="Full Changelog",
+        command=lambda: show_full_changelog(top, changelog=changelog),
+    ).pack(side="left")
+    top.protocol("WM_DELETE_WINDOW", close)
+    top.lift()
+    return top
+
+
+def show_full_changelog(
+    parent: tk.Tk | tk.Toplevel, *, changelog: Path | None = None
+) -> tk.Toplevel | None:
+    """Render every release in the changelog in a scrollable Toplevel.
+
+    This is the archive the What's New panel links to: the panel only ever
+    shows the releases the user has not seen, so the rest of the history is
+    otherwise unreachable from inside the app.  Closing it records nothing as
+    seen: browsing the archive must not hide the pending notes the panel still
+    has to show.
+
+    Args:
+        parent: The window the history belongs to.
+        changelog: Changelog path; discovered when omitted.
+
+    Returns:
+        The created Toplevel, or ``None`` when there is no changelog to show.
+    """
+    notes = full_changelog(changelog)
+    if notes is None:
+        return None
+    top, frame = _build_panel(
+        parent,
+        title=FULL_WINDOW_TITLE,
+        heading="AudioSuite release history",
+        subtitle=FULL_SUBTITLE,
+        blocks=notes.blocks,
+    )
+
+    def close() -> None:
+        """Dismiss the history window."""
         top.destroy()
 
     ttk.Button(frame, text="Close", command=close).pack(anchor="e", pady=(10, 0))
@@ -554,4 +704,4 @@ def offer_pending(
     notes = pending_notes(version, argv=argv, changelog=changelog, force=force)
     if notes is None:
         return None
-    return show(parent, notes, on_close=on_close)
+    return show(parent, notes, on_close=on_close, changelog=changelog)

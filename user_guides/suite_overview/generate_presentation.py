@@ -13,6 +13,14 @@ Changed in 2.1.0: the closing slide points at the pages that now own the
 content it used to name (the Suite Overview, ``docs/resilience.md`` and the
 security page); the three orphan guides it referenced were retired.
 
+Changed in 2.1.5: the deck covers all 30 tools. Tag Editor, Stem Separator,
+Spectral Viewer and ML Denoiser were missing from every slide, the format
+matrix and the task chooser; they now have their own two slides plus matrix and
+chooser rows, and ``tests/test_suite_docs_tool_coverage.py`` fails if any
+first-party tool is missing from the deck again. The tool count the first two
+slides quote now comes from the tool manifest (``TOOL_COUNT``), because both
+said 26 while the suite shipped 30.
+
 Changed in 1.1.0: the Audio Enhancer slide now names all four presets and
 describes the Custom DSP editor window instead of the old inline sliders.
 """
@@ -31,7 +39,14 @@ from pptx.table import _Cell
 from pptx.text.text import _Paragraph, _Run
 from pptx.util import Inches, Pt
 
+from audio_suite_shared.tool_plugin import get_registry
+
 OUTPUT = Path(__file__).resolve().parent / "AudioSuite-Pro_New_User_Presentation.pptx"
+
+#: How many tools the deck says the suite has.  Read from the tool manifest
+#: rather than typed here: the slide said 26 while the suite shipped 30, and a
+#: number written as prose cannot notice a new tool.
+TOOL_COUNT = len(get_registry().first_party)
 
 SLIDE_W = Inches(13.333)
 SLIDE_H = Inches(7.5)
@@ -514,6 +529,42 @@ FORMAT_ROWS: list[list[str]] = [
         YES,
         "Restores tag snapshots for all suite formats",
     ],
+    [
+        "Tag Editor",
+        YES,
+        YES,
+        YES,
+        YES,
+        YES,
+        "Plus WAV, AIFF/AIF - every live write is one undoable batch",
+    ],
+    [
+        "Spectral Viewer",
+        YES,
+        YES,
+        YES,
+        YES,
+        YES,
+        "Read-only: writes PNG spectrograms, never touches the audio",
+    ],
+    [
+        "Stem Separator",
+        YES,
+        YES,
+        YES,
+        YES,
+        YES,
+        "Plus MP4, WAV, AIFF - reads any suite format, writes WAV stems",
+    ],
+    [
+        "ML Denoiser",
+        YES,
+        YES,
+        YES,
+        YES,
+        YES,
+        "Plus MP4, WAV, AIFF - RNNoise model, speech-trained",
+    ],
 ]
 
 CHOOSER_HEADERS = ["I want to...", "Use"]
@@ -555,6 +606,19 @@ CHOOSER_ROWS: list[list[str]] = [
     [
         "Remove mains hum or hiss/background noise",
         "Noise Reduction (or the Reduce Noise stage in Audio Refinery)",
+    ],
+    [
+        "Fix one tag by hand, or apply a spreadsheet of edits",
+        "Tag Editor - one field, a bulk change, or a CSV import",
+    ],
+    ["See what a click or a hum looks like", "Spectral Viewer - PNG spectrograms"],
+    [
+        "Pull out a vocal or make a karaoke track",
+        "Stem Separator - vocals, drums, bass and other",
+    ],
+    [
+        "Clean up speech without picking a noise profile",
+        "ML Denoiser - RNNoise, with an amount blend for music",
     ],
 ]
 
@@ -748,7 +812,7 @@ def slide_what(prs: Presentation, number: int) -> None:
         2.7,
         [
             Line(
-                "A suite of 26 Windows desktop tools for processing, "
+                f"A suite of {TOOL_COUNT} Windows desktop tools for processing, "
                 "repairing, analysing and tagging a music library - plus "
                 "one Master Driver that ties them all together.",
                 size=15,
@@ -931,7 +995,7 @@ def slide_master_driver(prs: Presentation, number: int) -> None:
             Line(
                 "Point it at a music folder and it runs a configured set "
                 "of tools in a fixed, dependency-aware order - no need to "
-                "open 26 separate windows.",
+                f"open {TOOL_COUNT} separate windows.",
                 size=14,
                 space_after=9,
                 marker="\u2022",
@@ -2001,6 +2065,165 @@ def slide_maintenance(prs: Presentation, number: int) -> None:
     add_footer(slide, number)
 
 
+def slide_model_tools(prs: Presentation, number: int) -> None:
+    """Build the Stem Separator and ML Denoiser cards."""
+    slide = new_slide(prs)
+    add_title(
+        slide,
+        "Model-Based Tools: Separation & Neural Denoise",
+        "Both run a trained model, and both fetch it on first use",
+        UTIL,
+    )
+    add_card(
+        slide,
+        0.55,
+        1.35,
+        6.0,
+        5.35,
+        "Stem Separator",
+        [
+            Line(
+                "Splits a mixed track into vocals, drums, bass and other with "
+                "Demucs, an open-source source-separation model",
+                marker="\u2022",
+            ),
+            Line(
+                "Writes each stem as its own file into an output folder - the "
+                "source is never modified, so there is nothing to undo",
+                marker="\u2022",
+            ),
+            Line(
+                "Two models (htdemucs, htdemucs_ft), a selectable stem list, "
+                "and an optional mix of the parts you exported",
+                marker="\u2022",
+            ),
+            Line(
+                "Runs on CPU or CUDA; the 80 MB model downloads once and is "
+                "cached (audiosuite stems)",
+                marker="\u2022",
+            ),
+        ],
+        UTIL,
+        UTIL_LIGHT,
+        title_size=16,
+        body_size=13,
+    )
+    add_card(
+        slide,
+        6.75,
+        1.35,
+        6.0,
+        5.35,
+        "ML Denoiser",
+        [
+            Line(
+                "Removes broadband noise with RNNoise, a small recurrent "
+                "network trained on speech",
+                marker="\u2022",
+            ),
+            Line(
+                "No noise profile to pick: the model estimates speech frame "
+                "by frame and rebuilds the signal with the noise suppressed",
+                marker="\u2022",
+            ),
+            Line(
+                "Speech-oriented, so it attenuates musical content - the "
+                "amount blend keeps part of the source and suits music",
+                marker="\u2022",
+            ),
+            Line(
+                "Processed in place with tags preserved, each file written "
+                "only after its temporary copy is verified (audiosuite denoise)",
+                marker="\u2022",
+            ),
+        ],
+        UTIL,
+        UTIL_LIGHT,
+        title_size=16,
+        body_size=13,
+    )
+    add_footer(slide, number)
+
+
+def slide_inspect_edit(prs: Presentation, number: int) -> None:
+    """Build the Spectral Viewer and Tag Editor cards."""
+    slide = new_slide(prs)
+    add_title(
+        slide,
+        "Working on a Single File: Looking & Editing",
+        "The batches run themselves - these two put one file in front of you",
+        UTIL,
+    )
+    add_card(
+        slide,
+        0.55,
+        1.35,
+        6.0,
+        5.35,
+        "Spectral Viewer",
+        [
+            Line(
+                "Draws an FFT spectrogram: time left to right, frequency "
+                "bottom to top, colour is loudness in dB relative to the peak",
+                marker="\u2022",
+            ),
+            Line(
+                "An inspection tool - it never retags, re-encodes or moves "
+                "audio, and the only files it writes are the PNGs you export",
+                marker="\u2022",
+            ),
+            Line(
+                "Adjust the time window, frequency ceiling, colour range and "
+                "FFT size, then zoom and pan before exporting",
+                marker="\u2022",
+            ),
+            Line(
+                "Headless: audiosuite spectrogram renders a folder, one PNG per file",
+                marker="\u2022",
+            ),
+        ],
+        UTIL,
+        UTIL_LIGHT,
+        title_size=16,
+        body_size=13,
+    )
+    add_card(
+        slide,
+        6.75,
+        1.35,
+        6.0,
+        5.35,
+        "Tag Editor",
+        [
+            Line(
+                "An interactive grid over the common tag fields - load a "
+                "library folder, select rows, edit in place",
+                marker="\u2022",
+            ),
+            Line(
+                "Applies validated single-field edits, bulk transformations "
+                "and CSV imports to the selected files",
+                marker="\u2022",
+            ),
+            Line(
+                "Every live write is recorded as one undoable batch, "
+                "restorable from Undo Tag Edits",
+                marker="\u2022",
+            ),
+            Line(
+                "Headless: audiosuite tag-edit writes one field, or imports a "
+                "CSV of per-file edits",
+                marker="\u2022",
+            ),
+        ],
+        UTIL,
+        UTIL_LIGHT,
+        title_size=16,
+        body_size=13,
+    )
+    add_footer(slide, number)
+
+
 def slide_formats(prs: Presentation, number: int) -> None:
     """Build the format-support matrix slide."""
     slide = new_slide(prs)
@@ -2336,12 +2559,14 @@ def build_deck() -> Presentation:
         UTIL,
     )
     slide_util_audio(prs, 17)
-    slide_conversion(prs, 18)
-    slide_maintenance(prs, 19)
-    slide_formats(prs, 20)
-    slide_chooser(prs, 21)
-    slide_getting_started(prs, 22)
-    slide_next_steps(prs, 23)
+    slide_model_tools(prs, 18)
+    slide_inspect_edit(prs, 19)
+    slide_conversion(prs, 20)
+    slide_maintenance(prs, 21)
+    slide_formats(prs, 22)
+    slide_chooser(prs, 23)
+    slide_getting_started(prs, 24)
+    slide_next_steps(prs, 25)
     slide_closing(prs)
     return prs
 

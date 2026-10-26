@@ -9,7 +9,111 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **The What's New panel can open the complete changelog.** The panel only
+  renders the releases since the last one seen, so the rest of the history was
+  unreachable from inside the app. A **Full Changelog** button now opens a
+  scrollable window listing every released section of `CHANGELOG.md`, newest
+  first - version headings, entries and bold lead-ins, rendered by the same
+  parser and renderer as the panel. Closing it records nothing as seen, so
+  browsing the archive never hides the pending notes the panel was opened to
+  show.
+- **The full changelog is also on the Help menu.** A **Full Changelog** entry
+  opens the same history window straight from the Master Driver, so the archive
+  no longer requires opening the What's New panel first. An installation whose
+  changelog has no released sections says so instead of opening an empty
+  window.
+
+### Fixed
+
+- **The reference and the new-user deck now cover all 30 tools.** The CLI
+  reference documented the flags of only eight tools and listed 24 of the 37
+  command entries in its *All Commands* table; the new-user presentation named
+  26 of the 30 tools, and its opening slides went on to claim "26 Windows
+  desktop tools" and "26 separate windows" while the suite shipped 30; the
+  README's generated table listed all 30, but its opening line still claimed
+  27. From the reference or the deck a reader could not learn that Tag Editor,
+  Stem Separator, Spectral Viewer or ML Denoiser existed. The reference is now
+  grouped by stage with a section per tool, every flag taken from the CLI
+  itself; the deck gains two slides plus format-matrix and task-chooser rows,
+  and reads its tool count from the manifest instead of quoting a literal.
+  `tests/test_suite_docs_tool_coverage.py` derives the population from the tool
+  manifest and fails when either artefact drops a tool. It also scans the
+  README, `CONTRIBUTING.md`, `SECURITY.md`, every page under `docs/` and every
+  guide under `user_guides/` for a quoted tool count - the total, a
+  per-category count, the Windows-only remainder and the deck's window count -
+  and fails on any claim the manifest does not support.
+- **The reference's flag lock reads every flag a bullet names, not just the
+  first.** A bullet documenting both halves of a toggle (`--dry` / `--live`) or
+  a short and long form (`-o, --output`) was validated only against the flag it
+  opened with, so a renamed or invented second flag passed the gate. The lock
+  now checks every backticked flag in a bullet and every bracketed flag in a
+  usage line against the owning command's click params, naming the line, the
+  command and the flags it does accept when one does not exist.
+- **Every documented default in the reference is checked against click, not
+  only `--dry`/`--live` and `--stages`.** Those two were the claims that had
+  bitten before, so they were the only ones locked while 120 others went
+  unchecked: `--threshold` could say `0.5` with click defaulting to `0.6`, or
+  `--purge` could claim `no-purge` and the gate stayed green. The lock now reads
+  each `(default: …)` claim from the bullet, resolves the owning option, and
+  compares - numbers numerically (`-16` against `-16.0`, `60` against the `'60'`
+  a `Choice` stores), choice names as text, and a switch's prose by its
+  polarity, taken from the option's own flags (`--fade`/`--no-fade`,
+  `--delete-originals`/`--keep-originals`), so naming the wrong side fails. A
+  phrase the lock cannot read fails too, naming the phrase and the real default,
+  rather than being skipped. `--scheme`'s `(default: Italian)` is compared with
+  the Tempo Analyzer's own `DEFAULT_SCHEME`, because click stores `None` there.
+  The four bullets under *Options every command accepts* (a pre-command option
+  included) are checked against every command that defines the flag, and any
+  command that disagrees fails the run.
+- **A command option the reference never documents now fails the gate.** Every
+  check ran document-to-code, so a flag added to a click command and never
+  written down kept the suite green - the shape that had shipped
+  `--no-write-mbids` on `audiosuite fingerprint`, named by no bullet and absent
+  from its usage grammar, so a reader could not learn the switch existed. The
+  lock now walks every first-party command's click params and requires each flag
+  (both halves of every switch pair included) to be named by that command's own
+  section: in a bullet or in the fenced block that shows its grammar. Shared
+  flags are exempt because *Options every command accepts* documents them once
+  for the whole suite, the root group's own options must appear there, and
+  plugin-provided commands are excluded because their contract lives in
+  `docs/plugins.md`. The fingerprinter's syntax block gained the missing
+  `[--write-mbids/--no-write-mbids]` pair.
+- **A command documented only inside another tool's section now fails the
+  gate.** Every command check asked whether its *flags* were documented, so a
+  grammar block pasted into another tool's section satisfied it, and a command
+  accepting only the shared flags was fully covered by *Options every command
+  accepts* while having no section at all. A lock now reads which tool each
+  section documents and requires every first-party command - a group's
+  sub-commands counted under their group - to own a section that documents
+  nothing else; the failure names the command and the section it is buried in.
+  Command presence therefore has one owner: the option lock checks the flags of
+  commands the reference documents and leaves "is it documented at all" here.
+- **A section headed with the wrong tool's name now fails the gate.** One lock
+  required each tool's name to appear in *some* heading, another required each
+  command to own a section, but nothing paired the two: two sections could trade
+  headings - every flag still documented, every command still owning a section -
+  and the reference named one tool above another tool's grammar. A lock now ties
+  each section's heading to what that section documents, reading the expected
+  name from the tool manifest itself (`scrub` → `Metadata Scrubber`), so a
+  heading copied from a sibling section, a near-miss such as `CD Rippers`, or a
+  name the manifest no longer uses all fail; a compound heading that opens with
+  the right name but also names a second tool fails naming it. A command with no
+  manifest of its own - `doctor`, `plugins`, the three `cue` sub-commands - is
+  checked against its own command name, which is what stops `cue split`'s
+  section from being titled `cue parse`.
+- **A tool documented under the wrong stage now fails the gate.** The reference
+  files each tool's section into a stage group (`## ENRICH commands`,
+  `## REFINERY command`, `## UTIL commands`) and the manifest gives every tool a
+  `category`, but nothing compared the two, so a section moved into the wrong
+  group - or a tool whose category changed in the manifest - stayed green. A
+  lock now requires each tool's section to sit inside a stage whose heading names
+  that tool's own category; `UTIL` is accepted for `utility` because either word
+  may truncate the other, so the check needs no hand-listed alias table. A
+  category split across two stage groups, and a tool section above every stage
+  group, fail as well, while a group holding no manifest tool (`## Suite
+  commands`, `## CUE sheet commands`) is left alone.
 
 ## [2.1.4] - 2026-10-26
 

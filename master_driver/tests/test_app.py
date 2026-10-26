@@ -15,6 +15,8 @@ and the launched utility argv (the launched Stem Separator opened in Dry Run
 after Live Update was picked on ENRICH).
 Changed in 2.1.4: covers a skipped step's line naming the dependency that
 blocked it (plan C4), alongside the existing completed-step caveat case.
+Changed in 2.1.5: covers the Help menu's Full Changelog entry, the archive it
+opens, and the notice it shows when the installation has no changelog.
 
 Regression background
 ---------------------
@@ -863,26 +865,29 @@ def _assert_hidden_widgets(driver):
     return driver._batch_status_text is not None
 
 
+def _help_menu_labels(driver_app) -> list[str]:
+    """Return the Help menu's command labels, in menu order."""
+    menubar = driver_app.root.nametowidget(driver_app.root["menu"])
+    labels = [
+        menubar.entrycget(index, "label")
+        for index in range(menubar.index("end") + 1)
+        if menubar.type(index) == "cascade"
+    ]
+    assert "Help" in labels
+    help_index = labels.index("Help")
+    help_menu = driver_app.root.nametowidget(menubar.entrycget(help_index, "menu"))
+    return [
+        help_menu.entrycget(index, "label")
+        for index in range(help_menu.index("end") + 1)
+        if help_menu.type(index) == "command"
+    ]
+
+
 class TestWhatsNew:
     """The hub offers and reopens the release notes (1.3.0)."""
 
     def test_help_menu_lists_whats_new(self, driver_app) -> None:
-        menubar = driver_app.root.nametowidget(driver_app.root["menu"])
-        labels = [
-            menubar.entrycget(index, "label")
-            for index in range(menubar.index("end") + 1)
-            if menubar.type(index) == "cascade"
-        ]
-        assert "Help" in labels
-        help_index = labels.index("Help")
-        help_menu = driver_app.root.nametowidget(menubar.entrycget(help_index, "menu"))
-        help_labels = [
-            help_menu.entrycget(index, "label")
-            for index in range(help_menu.index("end") + 1)
-            if help_menu.type(index) == "command"
-        ]
-
-        assert "What's New" in help_labels
+        assert "What's New" in _help_menu_labels(driver_app)
 
     def test_show_whats_new_forces_the_panel(self, driver_app, monkeypatch) -> None:
         from audio_suite_shared import whats_new
@@ -899,3 +904,39 @@ class TestWhatsNew:
         assert calls, "the Help entry did not open the release notes"
         assert calls[0][0] is driver_app.root
         assert calls[0][1]["force"] is True
+
+
+class TestFullChangelogMenuEntry:
+    """The Help menu opens the whole history without the What's New panel."""
+
+    def test_help_menu_lists_full_changelog(self, driver_app) -> None:
+        assert "Full Changelog" in _help_menu_labels(driver_app)
+
+    def test_entry_opens_the_archive(self, driver_app, monkeypatch) -> None:
+        from audio_suite_shared import whats_new
+
+        opened: list[object] = []
+
+        def fake_show(parent: object, **kwargs: object) -> object:
+            """Record the parent and report a window, so no notice is shown."""
+            opened.append(parent)
+            return object()
+
+        monkeypatch.setattr(whats_new, "show_full_changelog", fake_show)
+
+        with patch("master_driver.app.messagebox.showinfo") as info:
+            driver_app._show_full_changelog()
+
+        info.assert_not_called()
+        assert opened == [driver_app.root], "the Help entry opened no history window"
+
+    def test_entry_reports_a_missing_changelog(self, driver_app, monkeypatch) -> None:
+        from audio_suite_shared import whats_new
+
+        monkeypatch.setattr(whats_new, "show_full_changelog", lambda parent, **kw: None)
+
+        with patch("master_driver.app.messagebox.showinfo") as info:
+            driver_app._show_full_changelog()
+
+        info.assert_called_once()
+        assert "CHANGELOG" in info.call_args[0][1]

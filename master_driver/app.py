@@ -18,6 +18,8 @@ scanning twelve lines (PLAN D110).
 Changed in 2.1.4: a skipped step's line carries the reason it was skipped (the
 failed dependency, or the dependency that never ran), so the panel says why a
 step did not run instead of only that it did not (plan C4).
+Changed in 2.1.5: the Help menu gains a Full Changelog entry, so the complete
+release history opens without going through the What's New panel first.
 """
 
 import logging
@@ -495,6 +497,7 @@ class AudioSuiteDriver(UIHelperMixin):
         menubar.add_cascade(label="Help", menu=help_menu)
         help_menu.add_command(label="User Guide", command=self._open_help)
         help_menu.add_command(label="What's New", command=self._show_whats_new)
+        help_menu.add_command(label="Full Changelog", command=self._show_full_changelog)
         help_menu.add_separator()
         help_menu.add_command(label="About", command=self._show_about)
 
@@ -520,6 +523,19 @@ class AudioSuiteDriver(UIHelperMixin):
     def _show_whats_new(self) -> None:
         """Open the release notes for the running version on demand."""
         whats_new.offer_pending(self.root, force=True)
+
+    def _show_full_changelog(self) -> None:
+        """Open the complete release history on demand.
+
+        The What's New panel only shows the releases the user has not seen, so
+        this entry is the direct route to the whole changelog.  An install
+        without one says so instead of opening nothing.
+        """
+        if whats_new.show_full_changelog(self.root) is None:
+            messagebox.showinfo(
+                "Changelog Unavailable",
+                "No released versions were found in this installation's CHANGELOG.md.",
+            )
 
     def _open_refinery_ui(self) -> None:
 

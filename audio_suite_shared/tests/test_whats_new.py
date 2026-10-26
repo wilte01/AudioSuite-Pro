@@ -11,7 +11,9 @@ Three layers are pinned separately, because each has its own failure mode:
   version, so an update skipped across two releases still reports both, and
   must not dump the whole history on a first launch;
 * the **panel** must actually render the sections (version labels, headings,
-  entries, bold lead-ins) and record the version only when it is closed.
+  entries, bold lead-ins) and record the version only when it is closed;
+* the **full history** must cover every released section - not just the
+  pending ones - newest first, and closing it must record nothing as seen.
 
 The end-to-end case uses a temporary changelog rather than the shipped one, so
 it tests the widget rather than the current release; a separate test asserts
@@ -19,6 +21,10 @@ the shipped changelog really does carry the running version's notes, which is
 what makes the panel useful after an update.
 
 Changed in 1.3.0: new suite for the in-app release-notes panel.
+Changed in 2.1.5: covers the full-history window - ``full_changelog``'s
+newest-first ordering and its exclusion of ``[Unreleased]``, the panel's Full
+Changelog button, and the rule that closing the archive records nothing as
+seen.
 """
 
 from __future__ import annotations
@@ -562,3 +568,163 @@ class TestPanel:
             )
             is None
         )
+
+
+class TestFullChangelog:
+    """The archive covers every released section, newest first."""
+
+    def test_covers_every_release_newest_first(self, changelog: Path) -> None:
+        notes = whats_new.full_changelog(changelog)
+
+        assert notes is not None
+        assert notes.versions == ("9.9.2", "9.9.1", "9.9.0")
+        assert [block.text for block in notes.blocks if block.style == "version"] == [
+            "9.9.2",
+            "9.9.1",
+            "9.9.0",
+        ]
+        leads = [block.lead for block in notes.blocks]
+        assert "The older thing." in leads, "the oldest release is missing"
+        assert "The newest thing." in leads
+
+    def test_unreleased_section_is_not_a_release(self, changelog: Path) -> None:
+        notes = whats_new.full_changelog(changelog)
+
+        assert notes is not None
+        assert "Unreleased" not in notes.versions
+        assert all(block.text != "Nothing yet." for block in notes.blocks)
+
+    def test_order_comes_from_the_version_numbers(self, tmp_path: Path) -> None:
+        """A heading in the wrong place cannot render the history out of order."""
+        text = (
+            "# Changelog\n\n"
+            "## [9.9.9] - 2027-01-01\n\n- Nine.\n\n"
+            "## [9.9.10] - 2027-02-01\n\n- Ten.\n"
+        )
+        path = tmp_path / "CHANGELOG.md"
+        path.write_text(text, encoding="utf-8")
+
+        notes = whats_new.full_changelog(path)
+
+        assert notes is not None
+        assert notes.versions == ("9.9.10", "9.9.9")
+        assert notes.version == "9.9.10", "the window names the wrong newest release"
+
+    def test_blank_sections_are_skipped(self, tmp_path: Path) -> None:
+        text = (
+            "# Changelog\n\n"
+            "## [9.9.1] - 2027-01-01\n\n- New.\n\n"
+            "## [9.9.0] - 2026-12-01\n\n"
+        )
+        path = tmp_path / "CHANGELOG.md"
+        path.write_text(text, encoding="utf-8")
+
+        notes = whats_new.full_changelog(path)
+
+        assert notes is not None
+        assert notes.versions == ("9.9.1",)
+        assert "9.9.0" not in [block.text for block in notes.blocks]
+
+    def test_no_changelog_means_no_history(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(whats_new, "find_changelog", lambda start=None: None)
+
+        assert whats_new.full_changelog() is None
+
+    def test_changelog_without_a_release_has_no_history(self, tmp_path: Path) -> None:
+        path = tmp_path / "CHANGELOG.md"
+        path.write_text("# Changelog\n\n## [Unreleased]\n\n- Soon.\n", encoding="utf-8")
+
+        assert whats_new.full_changelog(path) is None
+
+
+class TestFullChangelogPanel:
+    """The panel's button opens the whole file and records nothing on close."""
+
+    @staticmethod
+    def _button(window: tk.Misc, text: str) -> ttk.Button:
+        """Return the button labelled *text*."""
+        for widget in _widgets(window):
+            if isinstance(widget, ttk.Button) and widget.cget("text") == text:
+                return widget
+        raise AssertionError(f"no {text!r} button in the window")
+
+    def test_panel_offers_the_button(self, tk_root: tk.Tk, changelog: Path) -> None:
+        notes = whats_new.release_notes("9.9.1", changelog)
+        assert notes is not None
+
+        panel = whats_new.show(tk_root, notes, changelog=changelog)
+
+        try:
+            assert self._button(panel, "Full Changelog").winfo_exists()
+        finally:
+            panel.destroy()
+
+    def test_button_opens_the_releases_outside_the_panel(
+        self, tk_root: tk.Tk, changelog: Path
+    ) -> None:
+        notes = whats_new.release_notes("9.9.1", changelog)
+        assert notes is not None
+
+        panel = whats_new.show(tk_root, notes, changelog=changelog)
+
+        try:
+            self._button(panel, "Full Changelog").invoke()
+            history = [
+                widget
+                for widget in panel.winfo_children()
+                if isinstance(widget, tk.Toplevel)
+            ]
+            assert len(history) == 1, "the button opened no history window"
+            assert history[0].title() == whats_new.FULL_WINDOW_TITLE
+            body = _text_of(history[0])
+            assert "Version 9.9.2" in body
+            assert "Version 9.9.0" in body, "the older release is not in the archive"
+            assert "The older thing." in body
+        finally:
+            panel.destroy()
+
+    def test_history_renders_every_release(
+        self, tk_root: tk.Tk, changelog: Path
+    ) -> None:
+        history = whats_new.show_full_changelog(tk_root, changelog=changelog)
+
+        assert history is not None
+        try:
+            body = _text_of(history)
+            assert "Version 9.9.2" in body
+            assert "Version 9.9.1" in body
+            assert "Version 9.9.0" in body
+            assert "Nothing yet." not in body, "the unreleased section leaked in"
+            labels = [
+                widget.cget("text")
+                for widget in _widgets(history)
+                if isinstance(widget, tk.Label)
+            ]
+            assert whats_new.FULL_SUBTITLE in labels
+        finally:
+            history.destroy()
+
+    def test_closing_the_history_records_nothing(
+        self, tk_root: tk.Tk, changelog: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        recorded: list[str] = []
+        monkeypatch.setattr(whats_new, "mark_seen", recorded.append)
+
+        history = whats_new.show_full_changelog(tk_root, changelog=changelog)
+
+        assert history is not None
+        buttons = [w for w in _widgets(history) if isinstance(w, ttk.Button)]
+        assert buttons, "the history window has no close button"
+        buttons[0].invoke()
+
+        assert recorded == [], "browsing the archive marked the release as seen"
+        assert not history.winfo_exists()
+
+    def test_history_is_unavailable_without_a_changelog(
+        self, tk_root: tk.Tk, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(whats_new, "find_changelog", lambda start=None: None)
+
+        assert whats_new.show_full_changelog(tk_root) is None

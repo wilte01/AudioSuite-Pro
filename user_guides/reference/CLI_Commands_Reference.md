@@ -9,9 +9,115 @@ All CLI commands are accessed via the `audiosuite` entry point:
 audiosuite <command> <directory> [options]
 ```
 
-## Album Genre Tagger
+## ENRICH commands
 
-Consolidate album-level genre tags from custom field hierarchy.
+The eleven tagging and analysis tools. Run them in this order for complete
+results: **Metadata Scrubber**, **Audio Fingerprinter**, **ReplayGain
+Analyzer**, **Album Genre Tagger**, **Genre Sync**, **BPM Analyzer**, **Tempo
+Analyzer**, **Key Detector**, **Mood Analyzer**, **Album Art Sync**, **Lyrics
+Manager**. The order matters in two places only: Tempo Analyzer reads the BPM
+tag that BPM Analyzer writes, and Album Genre Tagger writes the album-level
+genre (`ALBUMGENRE`) before Genre Sync derives each file's `Genre` from that
+hierarchy.
+
+Every command that changes a file accepts `--dry` / `--live` (analyse only, or
+write) and `--json` / `--text` (one JSON document on stdout, or the report);
+the complete shared set is in *Options every command accepts*. Each section
+below lists its own flags and repeats the mode flag wherever the command's
+two modes do something different.
+
+### Metadata Scrubber
+
+Strip tag clutter from MP3 files - comment spam, foreign frames, and the
+tools that wrote them - while keeping what makes the file usable.
+
+```bash
+audiosuite scrub <directory> [--preserve-lyrics/--no-preserve-lyrics] [OPTIONS]
+```
+
+**Options:**
+
+- `--preserve-lyrics` / `--no-preserve-lyrics` — Keep the lyrics frames (default: preserve)
+- `--preserve-album-artist` / `--no-preserve-album-artist` — Keep the album-artist frame (default: preserve)
+- `--preserve-embedded-art` / `--no-preserve-embedded-art` — Keep embedded artwork (default: preserve)
+
+**Examples:**
+
+```bash
+audiosuite scrub "D:\Music\Downloads" --dry
+audiosuite scrub "D:\Music\Downloads" --no-preserve-embedded-art
+```
+
+### Audio Fingerprinter
+
+Generate a Chromaprint fingerprint for every audio file and identify it
+through AcoustID, optionally enriching the match from the MusicBrainz
+database. `--musicbrainz` costs one MusicBrainz request per unique recording
+(plus one per unique release) at MusicBrainz's documented one request per
+second, so it is off by default.
+
+```bash
+audiosuite fingerprint <directory> [--lookup/--no-lookup]
+    [--write-tags/--no-write-tags] [--threshold N] [--max-length N]
+    [--album-mode/--no-album-mode] [--album-min N] [--mbid-region CC]
+    [--musicbrainz/--no-musicbrainz] [--write-mbids/--no-write-mbids]
+    [--write-isrc/--no-write-isrc] [--submit-isrc/--no-submit-isrc]
+    [--mb-auth oauth|app-token] [--mb-user USER] [--fpcalc PATH]
+    [--api-key KEY] [--json] [--dry]
+```
+
+- `--lookup` (default: on) — query AcoustID for each fingerprint. Without an API key the command exits instead of silently fingerprinting only.
+- `--write-tags` (default: off) — write the AcoustID fingerprint/id tags. Requires live mode.
+- `--threshold N` — minimum AcoustID score, 0.0-1.0 (default: 0.5).
+- `--max-length N` — seconds of audio passed to `fpcalc` (default: 120).
+- `--fpcalc PATH` — path to the bundled `fpcalc` executable, when it is not found on `PATH`.
+- `--api-key KEY` — AcoustID key for this run only, overriding the stored or environment key. Prefer the stored key: argv is visible in process listings and shell history.
+- `--album-mode` (default: off) — cluster a folder's lookups by release group and tag only when the album is decided; ambiguous albums stay untagged.
+- `--album-min N` — votes needed to form an album cluster (default: 3).
+- `--mbid-region CC` — preferred release country (ISO 3166-1 alpha-2) used only to break a tie between otherwise identical releases.
+- `--musicbrainz` (default: off) — look the matched recording up in MusicBrainz: retrieve its ISRCs and release facts (date, label, country), and let MusicBrainz break an AcoustID near-tie the file's own tags could not settle. A lookup failure never fails a file; it degrades to the AcoustID-only result and says so in the message.
+- `--write-mbids` (default: off) — also write `MUSICBRAINZ_TRACKID` / `ARTISTID` / `ALBUMID`. Requires `--write-tags` and live mode.
+- `--write-isrc` (default: off) — write the retrieved ISRCs, in the format's native convention (`TSRC` for MP3/WAV/AIFF/DSF, `----:com.apple.iTunes:ISRC` for M4A/MP4, an `ISRC` comment/item for FLAC/OGG/Opus/WV/APE/MPC). Requires `--musicbrainz`, `--write-tags` and live mode.
+- `--submit-isrc` (default: off) — submit the ISRCs the files' own tags carry to MusicBrainz for their matched recording, skipping codes already registered. Requires `--musicbrainz` (the recording lookup is what identifies the known codes). In dry mode the exact XML payload is printed and nothing is posted; live mode needs a token from `MUSICBRAINZ_TOKEN` or the encrypted store. The token is never accepted as a flag: argv is visible in process listings and shell history.
+- `--mb-auth oauth|app-token` (default: `oauth`) — how the submission is authenticated. `oauth` sends the token as a bearer token (scope `submit_isrc`); `app-token` uses a legacy application token over HTTP Digest, which MusicBrainz has deprecated.
+- `--mb-user USER` — MusicBrainz account name, required only by `--mb-auth app-token` (digest sends both a username and the token).
+
+**Examples:**
+
+```bash
+audiosuite fingerprint "D:\Music\Unknown-Arm" --dry
+audiosuite fingerprint "D:\Music\Unknown-Arm" --live --write-tags --musicbrainz
+audiosuite fingerprint "D:\Music\Unknown-Arm" --live --write-tags --musicbrainz --write-isrc --json
+audiosuite fingerprint "D:\Music\Ripped-CD" --musicbrainz --submit-isrc --dry
+audiosuite fingerprint "D:\Music\Ripped-CD" --musicbrainz --submit-isrc --live
+```
+
+### ReplayGain Analyzer
+
+Measure perceived loudness and write the standard ReplayGain tags. The
+measurement is metadata only and reversible by deleting the tags; `--apply-gain`
+is the one mode that changes the audio, and only for MP3.
+
+```bash
+audiosuite replaygain <directory> [--target-lufs LUFS] [--apply-gain/--no-apply-gain] [OPTIONS]
+```
+
+**Options:**
+
+- `--target-lufs LUFS` — reference loudness the gain is measured against; one of `-12`, `-14`, `-16`, `-18`, `-23` (default: -16)
+- `--apply-gain` / `--no-apply-gain` — after tagging, bake the track gain into MP3 files losslessly by adjusting the global-gain header (default: off)
+
+**Examples:**
+
+```bash
+audiosuite replaygain "D:\Music\Album" --dry
+audiosuite replaygain "D:\Music\Album" --apply-gain --json
+```
+
+### Album Genre Tagger
+
+Consolidate album-level genre tags from the file's custom-field hierarchy,
+writing `ALBUMGENRE` only once the album's tracks agree.
 
 ```bash
 audiosuite album-genre <directory> [--dry] [--json] [--coverage N]
@@ -19,8 +125,6 @@ audiosuite album-genre <directory> [--dry] [--json] [--coverage N]
 
 **Options:**
 
-- `--dry` / `--live` — Analyse only, do not write tags (default: live)
-- `--json` / `--text` — Output results as JSON (default: text)
 - `--coverage N` — Minimum coverage percentage 0–100 before writing (default: 50)
 
 **Examples:**
@@ -31,20 +135,130 @@ audiosuite album-genre "D:\Music\Various" --json
 audiosuite album-genre "D:\Music\Various" --coverage 75
 ```
 
-## Album Art Sync
+### Genre Sync
 
-Fetch and embed album artwork from multiple sources (MusicBrainz, Fanart.tv, Deezer, iTunes).
+Derive the standard genre tag from the custom genre fields already stored in
+each file - `TITLEGENRE`, `ARTISTGENRE`, `ALBUMGENRE` and `ALBUMARTISTGENRE` -
+through a deterministic priority tree, so the standard field matches the
+hierarchy the rest of the library uses.
 
 ```bash
-audiosuite album-art <directory> [--embed-size N] [--purge/--no-purge] [--dry] [--json]
+audiosuite genre-sync <directory> [--dry] [--json]
+```
+
+**Examples:**
+
+```bash
+audiosuite genre-sync "D:\Music\Library" --dry
+audiosuite genre-sync "D:\Music\Library"
+```
+
+### BPM Analyzer
+
+Detect tempo and write the BPM tag. A positive estimate needs evidence: noise
+fits a tempo grid, so a file whose onset envelope has no periodicity at the
+detected tempo is reported as a skip instead of being tagged with a fabricated
+number. `--bpm-min` / `--bpm-max` choose between octave readings - they never
+edit a measured tempo, and an out-of-band tempo is reported as measured.
+
+```bash
+audiosuite bpm <directory> [--bpm-min N] [--bpm-max N] [--duration SEC] [OPTIONS]
+```
+
+**Options:**
+
+- `--bpm-min N` — lower bound for choosing between octave readings (default: 75)
+- `--bpm-max N` — upper bound for choosing between octave readings (default: 175)
+- `--duration SEC` — seconds of audio analysed (default: 30)
+
+**Examples:**
+
+```bash
+audiosuite bpm "D:\Music\Library" --dry --json
+audiosuite bpm "D:\Music\Library" --bpm-min 60 --bpm-max 200
+```
+
+### Tempo Analyzer
+
+Derive a human-readable tempo marking from the BPM tag that BPM Analyzer
+wrote. It performs no analysis of its own: with no BPM tag there is nothing to
+convert, and the file is skipped.
+
+```bash
+audiosuite tempo <directory> [--scheme NAME] [--dry] [--json]
+```
+
+**Options:**
+
+- `--scheme NAME` — tempo naming scheme, e.g. `Italian`, `House`, `Fast Run` (default: Italian)
+
+**Examples:**
+
+```bash
+audiosuite tempo "D:\Music\Library" --dry
+audiosuite tempo "D:\Music\Library" --scheme Italian --live --json
+```
+
+### Key Detector
+
+Detect musical key from a chromagram and write it in each format's native tag
+(`TKEY` for MP3/WAV/AIFF, `initialkey` for FLAC/OGG/Opus, the `initialkey`
+atom for M4A/MP4).
+
+```bash
+audiosuite key <directory> [--duration SEC] [OPTIONS]
+```
+
+**Options:**
+
+- `--duration SEC` — seconds of audio analysed (default: 30)
+
+**Examples:**
+
+```bash
+audiosuite key "D:\Music\Library" --dry --json
+audiosuite key "D:\Music\Library" --live --duration 60
+```
+
+### Mood Analyzer
+
+Estimate mood from the audio signal itself - valence and arousal - and tag it.
+Nothing is read from other tags, so this runs independently of the rest of the
+chain.
+
+```bash
+audiosuite mood-analyzer <directory> [--duration SEC] [OPTIONS]
+```
+
+**Options:**
+
+- `--duration SEC` — seconds of audio analysed (default: 90)
+
+**Examples:**
+
+```bash
+audiosuite mood-analyzer "D:\Music\Album" --dry
+audiosuite mood-analyzer "D:\Music\Album" --live --json
+```
+
+### Album Art Sync
+
+Fetch and embed album artwork from multiple sources (MusicBrainz, Fanart.tv,
+Deezer, iTunes). Candidates are filtered by album-name fuzzy matching and
+quality-ranked by resolution, and the best match is embedded without user
+interaction.
+
+```bash
+audiosuite album-art <directory> [--embed-size N] [--min-dimension N]
+    [--match-threshold F] [--purge/--no-purge] [OPTIONS]
 ```
 
 **Options:**
 
 - `--embed-size N` — Embedded resolution in pixels (default: 800)
+- `--min-dimension N` — smallest acceptable candidate dimension in pixels; smaller images are rejected (default: 500)
+- `--match-threshold F` — album-name fuzzy-match threshold, 0.0–1.0 (default: 0.85)
 - `--purge` / `--no-purge` — Purge hidden thumbnail files (default: purge)
-- `--dry` / `--live` — Analyse only, do not write tags (default: live)
-- `--json` / `--text` — Output results as JSON (default: text)
 
 **Examples:**
 
@@ -53,18 +267,133 @@ audiosuite album-art "D:\Music\Beatles" --embed-size 1200 --no-purge
 audiosuite album-art "D:\Music\Beatles" --dry
 ```
 
-## ASX Playlist Extractor
+### Lyrics Manager
+
+Fetch synced lyrics from a remote source and embed them into audio files.
+Files are matched to the lyric source by their artist and title tags; files
+whose tags are missing or contain "Unknown" are skipped.
+
+```bash
+audiosuite lyrics <directory> [--provider NAME] [--request-timeout SEC]
+                   [--skip-existing/--no-skip-existing]
+                   [--plain-fallback/--no-plain-fallback] [OPTIONS]
+```
+
+**Options:**
+
+- `--provider NAME` — lyric source: `lrclib` or `sidecar` (default: lrclib)
+- `--request-timeout SEC` — per-request timeout in seconds (default: 10.0)
+- `--skip-existing` / `--no-skip-existing` — Skip files that already contain lyrics (default: skip-existing)
+- `--plain-fallback` / `--no-plain-fallback` — Store unsynced lyrics when no synced lyrics are available (default: plain-fallback)
+
+Synced lyrics are embedded as an ID3 `SYLT` frame for MP3/WAV/AIFF and in the
+`SYNCEDLYRICS` Vorbis comment for FLAC/OGG/Opus. Unsynced lyrics (the fallback)
+use `USLT` for MP3/WAV/AIFF, `LYRICS` for FLAC/OGG/Opus and `©lyr` for
+M4A/MP4. Each run records a batch in the undo log so tags can be reverted.
+
+**Examples:**
+
+```bash
+audiosuite lyrics "D:\Music\Unknown-Arm"
+audiosuite lyrics "D:\Music\Unknown-Arm" --live --parallel --workers 8
+audiosuite lyrics "D:\Music\Unknown-Arm" --provider sidecar --json
+```
+
+## REFINERY command
+
+### Audio Refinery
+
+Run the single-pass Refinery pipeline. Stages are selected with the
+`--stages` comma-separated list (order is fixed), and each stage's own tool is
+also available standalone - `declick`, `silence-trim`, `reduce`, `enhance` and
+`normalise` below run exactly the same processors.
+
+```bash
+audiosuite refine <directory> [--stages LIST] [OPTIONS]
+```
+
+**Options:**
+
+- `--dry` / `--live` — Simulate the selected stages and report, or write the results (default: live)
+- `--stages LIST` — Comma-separated stages to run: `declick`, `trim`, `reduce_noise`, `enhance`, `normalise` (default: declick,trim,enhance,normalise)
+- `--output DIR` — Output directory (default: source dir)
+- `--sensitivity F` — Declick sensitivity (default: 0.31)
+- `--width N` — Declick max defect width in ms (default: 2)
+- `--threshold DB` — Trim silence threshold dBFS (default: -50)
+- `--fade` / `--no-fade` — Apply fade in/out during the trim stage (default: no-fade)
+- `--fade-in MS` — Fade-in length (default: 500)
+- `--fade-out MS` — Fade-out length (default: 1000)
+- `--reduce-hum` — Enable hum removal via notch filtering
+- `--hum-frequency [50|60]` — Mains frequency in Hz (default: 60)
+- `--hum-harmonics N` — Harmonics to filter, 1–20 (default: 8)
+- `--hum-quality Q` — Notch Q factor, 1–100 (default: 30)
+- `--reduce-broadband` — Enable broadband noise reduction
+- `--noise-start MS` — Noise profile start in ms (default: 0)
+- `--noise-end MS` — Noise profile end in ms (default: 500)
+- `--gate-threshold DB` — Gate threshold above the noise floor in dB (default: 3.0)
+- `--preset NAME` — Enhancement preset: Mild, Moderate, Aggressive, Custom (default: Moderate)
+- `--karaoke` / `--no-karaoke` — Remove centre-panned content (lead vocals) (default: no-karaoke)
+- `--karaoke-strength F` — Karaoke removal strength, 0.0–1.0 (default: 1.0)
+- `--reverse` — Reverse the audio (default: off)
+- `--phaser` — Apply a phaser effect (default: off)
+- `--flanger` — Apply a flanger effect (default: off)
+- `--chorus` — Apply a chorus effect (default: off)
+- `--target-lufs LUFS` — Normalisation target, one of `-12`, `-14`, `-16`, `-18`, `-23` (default: -16.0)
+- `--tolerance DB` — Normalisation tolerance (default: 0.5)
+
+**Examples:**
+
+```bash
+audiosuite refine "D:\Music" --stages declick,trim,reduce_noise,enhance,normalise
+audiosuite refine "D:\Music" --stages reduce_noise --reduce-hum --hum-frequency 50 --dry
+audiosuite refine "D:\Music" --stages trim,normalise --fade --fade-in 250
+```
+
+## UTIL commands
+
+Conversion, extraction, ripping, single-purpose audio processing and library
+maintenance. The audio-altering commands here are the standalone forms of the
+Refinery stages, plus tools the pipeline does not contain.
+
+### Music Format Converter
+
+Convert audio files between formats, with format-specific quality, sample rate
+and bit depth.
+
+```bash
+audiosuite convert <directory> [--format FMT] [--quality Q] [--sample-rate HZ]
+    [--bit-depth BITS] [--output-dir DIR] [OPTIONS]
+```
+
+**Options:**
+
+- `--dry` / `--live` — List the files that would be converted, or convert them (default: live)
+- `--format FMT` — output format (default: flac)
+- `--quality Q` — `highest`, `high`, `medium`, `low`, or a numeric 0–10 (default: highest)
+- `--sample-rate [source|44100|48000|88200|96000|176400|192000]` — output sample rate; `source` keeps the input's rate (default: source)
+- `--bit-depth [auto|16|24|32|float]` — bit depth for WAV output; `auto` preserves the source depth (default: auto)
+- `--output-dir DIR` — output directory
+- `--normalize-mp3` / `--no-normalize-mp3` — losslessly adjust MP3 output to a target loudness (default: off)
+- `--target-lufs LUFS` — target integrated loudness when `--normalize-mp3` is set (default: -16.0)
+- `--delete-originals` / `--keep-originals` — remove the source file after a successful conversion (default: keep)
+- `--dither` / `--no-dither` — TPDF dither when the output depth is lower than the source, WAV/AIFF only (default: on)
+- `--preset NAME` — load settings from a saved preset
+
+**Examples:**
+
+```bash
+audiosuite convert "D:\Music\WAV" --format flac --output-dir "D:\Music\FLAC" --dry
+audiosuite convert "D:\Music\FLAC" --format mp3 --quality high --normalize-mp3
+audiosuite convert "D:\Music\WAV" --format flac --bit-depth 24 --sample-rate 96000 --json
+```
+
+### ASX Playlist Extractor
 
 Extract audio files from ASX playlists.
 
 ```bash
 audiosuite asx-extract <directory> [--dry] [--json]
 ```
-
-**Options:**
-
-- `--dry` / `--live` — Analyse only, do not copy or remove files (default: live)
-- `--json` / `--text` — Output results as JSON (default: text)
 
 **Examples:**
 
@@ -73,7 +402,76 @@ audiosuite asx-extract "D:\Playlists" --dry
 audiosuite asx-extract "D:\Playlists" --json
 ```
 
-## Noise Reduction
+### Album Art Normalizer
+
+Normalise embedded album artwork - resize it to one consistent dimension - in
+MP3, FLAC, OGG, Opus, M4A, MP4, WAV, AIFF and AIF files.
+
+```bash
+audiosuite artnormalize <directory> [--size N] [--dry] [--json]
+```
+
+**Options:**
+
+- `--size N` — embedded image size in pixels (default: 800)
+
+**Examples:**
+
+```bash
+audiosuite artnormalize "D:\Music\Library" --size 1000 --dry
+audiosuite artnormalize "D:\Music\Library" --json
+```
+
+### CD Ripper
+
+Rip audio CD tracks to files from a command line.
+
+```bash
+audiosuite cd-rip DRIVE [--output-dir DIR] [--format FMT] [--tracks LIST] [--cue] [OPTIONS]
+```
+
+**Options:**
+
+- `--output-dir DIR` — Destination folder (required for ripping; not needed with `--detect-read-offset`)
+- `--format [wav|mp3|flac|ogg|m4a|opus]` — Output audio format (default: flac)
+- `--tracks LIST` — Comma-separated track numbers to rip (default: all)
+- `--quality TEXT` — Format-specific quality preset string
+- `--cue` / `--no-cue` — Write a CUE sheet alongside the ripped tracks (default: no-cue)
+- `--verify [off|twice|accuraterip]` — Track verification: `twice` re-reads each track and compares, `accuraterip` additionally cross-checks against the AccurateRip database, `off` disables verification (default: twice). Per-track outcomes are reported with EAC's wording - `Accurate (confidence N)` for a database match, `Rip-twice verified` for the local check, `Not in database`, `Unavailable (offline)`, or `Not accurate` (which is never written). A failed track can be re-ripped from the Results tab; nothing is retried automatically
+- `--detect-read-offset` — Measure the drive's read offset against the AccurateRip database using the inserted CD and persist it for the drive; applied automatically to future rips. Needs a multi-track disc present in the database and network access; exits non-zero and persists nothing on failure
+
+**Examples:**
+
+```bash
+audiosuite cd-rip D: --output-dir /output/flac --format flac
+audiosuite cd-rip D: --output-dir /output/mp3 --format mp3 --tracks 1,2,3
+audiosuite cd-rip D: --output-dir /output/flac --cue
+audiosuite cd-rip D: --output-dir /output/flac --verify accuraterip
+audiosuite cd-rip D: --detect-read-offset
+```
+
+### Mood Analysis Batch Tagger
+
+Recursively analyse and tag mood from the audio signal itself, for a whole
+library tree rather than one album. The same analysis as Mood Analyzer, with
+the recursion and batch reporting the batch tools share.
+
+```bash
+audiosuite mood-analysis-batch <directory> [--duration SEC] [OPTIONS]
+```
+
+**Options:**
+
+- `--duration SEC` — seconds of audio analysed per file (default: 90)
+
+**Examples:**
+
+```bash
+audiosuite mood-analysis-batch "D:\Music" --dry --json
+audiosuite mood-analysis-batch "D:\Music" --parallel --workers 8
+```
+
+### Noise Reduction
 
 Remove mains-frequency hum and broadband background noise from audio files.
 
@@ -90,9 +488,7 @@ audiosuite reduce <directory> [--reduce-hum] [--reduce-broadband] [OPTIONS]
 - `--reduce-broadband` — Enable broadband noise reduction
 - `--noise-start MS` — Noise profile start in ms (default: 0)
 - `--noise-end MS` — Noise profile end in ms (default: 500)
-- `--gate-threshold DB` — Gate threshold in dB (default: 3)
-- `--dry` / `--live` — Write results or preview only (default: live)
-- `--json` / `--text` — Output results as JSON (default: text)
+- `--gate-threshold DB` — Gate threshold above the noise floor in dB (default: 3.0)
 
 **Examples:**
 
@@ -101,74 +497,349 @@ audiosuite reduce "D:\Music" --reduce-hum --hum-frequency 50
 audiosuite reduce "D:\Music" --reduce-broadband --dry --json
 ```
 
-## Audio Refinery
+### Audio Enhancer
 
-Run the single-pass Refinery pipeline. Stages are selected with the
-`--stages` comma-separated list (order is fixed).
+Improve dynamic range and clarity with the seven-stage DSP chain (noise gate,
+EQ, presence peak, output gain and more), either from a preset or the Custom
+settings the GUI editor stores.
 
 ```bash
-audiosuite refine <directory> [--stages LIST] [OPTIONS]
+audiosuite enhance <directory> --output-dir DIR [OPTIONS]
 ```
 
 **Options:**
 
-- `--stages LIST` — Comma-separated stages to run: `declick`, `trim`, `reduce_noise`, `enhance`, `normalise` (default: declick,trim,enhance,normalise)
-- `--reduce-hum` — Enable hum removal via notch filtering
-- `--hum-frequency [50|60]` — Mains frequency in Hz (default: 60)
-- `--hum-harmonics N` — Harmonics to filter, 1–20 (default: 8)
-- `--hum-quality Q` — Notch Q factor, 1–100 (default: 30)
-- `--reduce-broadband` — Enable broadband noise reduction
-- `--noise-start MS` — Noise profile start in ms (default: 0)
-- `--noise-end MS` — Noise profile end in ms (default: 500)
-- `--gate-threshold DB` — Gate threshold in dB (default: 3)
-- `--sensitivity F` — Declick sensitivity (default: 0.31)
-- `--width N` — Declick max defect width in ms (default: 2)
-- `--threshold DB` — Trim silence threshold dBFS (default: -50)
+- `--dry` / `--live` — Analyse the files and report, or write the enhanced copies (default: live)
+- `--output-dir DIR` — Destination folder (required: the enhancer writes a new file rather than overwriting the source)
 - `--preset NAME` — Enhancement preset: Mild, Moderate, Aggressive, Custom (default: Moderate)
-- `--target-lufs LUFS` — Normalisation target (default: -16.0)
-- `--tolerance DB` — Normalisation tolerance (default: 0.5)
-- `--output DIR` — Output directory (default: source dir)
-- `--dry` / `--live` — Simulate or write results
-- `--json` / `--text` — Output results as JSON (default: text)
+- `--karaoke` / `--no-karaoke` — Remove centre-panned content (lead vocals) (default: no-karaoke)
+- `--karaoke-strength F` — Karaoke removal strength, 0.0–1.0 (default: 1.0)
+- `--reverse` — Reverse the audio (default: off)
+- `--phaser` — Apply a phaser effect (default: off)
+- `--flanger` — Apply a flanger effect (default: off)
+- `--chorus` — Apply a chorus effect (default: off)
 
 **Examples:**
 
 ```bash
-audiosuite refine "D:\Music" --stages declick,trim,reduce_noise,enhance,normalise
-audiosuite refine "D:\Music" --stages reduce_noise --reduce-hum --hum-frequency 50 --dry
+audiosuite enhance "D:\Music\Dull" --output-dir "D:\Music\Enhanced" --preset Moderate --dry
+audiosuite enhance "D:\Music\Dull" --output-dir "D:\Music\Enhanced" --preset Aggressive --json
 ```
 
-## CD Ripper
+### Audio Normalizer
 
-Rip audio CD tracks to files from a command line.
+Normalise audio loudness to a target LUFS level.
 
 ```bash
-audiosuite cd-rip DRIVE [--output-dir DIR] [--format FMT] [--tracks LIST] [--cue] [OPTIONS]
+audiosuite normalise <directory> [--target-lufs LUFS] [--tolerance DB] [--mode MODE] [OPTIONS]
 ```
 
 **Options:**
 
-- `--output-dir DIR` — Destination folder (required for ripping; not needed with `--detect-read-offset`)
-- `--format [wav|mp3|flac|ogg|m4a|opus]` — Output audio format (default: flac)
-- `--tracks LIST` — Comma-separated track numbers to rip (default: all)
-- `--quality TEXT` — Format-specific quality preset string
-- `--cue` / `--no-cue` — Write a CUE sheet alongside the ripped tracks (default: no-cue)
-- `--verify [off|twice|accuraterip]` — Track verification: `twice` re-reads each track and compares, `accuraterip` additionally cross-checks against the AccurateRip database, `off` disables verification (default: twice). Per-track outcomes are reported with EAC's wording — `Accurate (confidence N)` for a database match, `Rip-twice verified` for the local check, `Not in database`, `Unavailable (offline)`, or `Not accurate` (which is never written). A failed track can be re-ripped from the Results tab; nothing is retried automatically
-- `--dry` / `--live` — Show what would be ripped without writing files
-- `--detect-read-offset` — Measure the drive's read offset against the AccurateRip database using the inserted CD and persist it for the drive; applied automatically to future rips. Needs a multi-track disc present in the database and network access; exits non-zero and persists nothing on failure
-- `--json` / `--text` — Output results as JSON
+- `--dry` / `--live` — Measure and report only, or rewrite the audio at the target loudness (default: live)
+- `--target-lufs LUFS` — target loudness, one of `-12`, `-14`, `-16`, `-18`, `-23` (default: -14)
+- `--tolerance DB` — acceptable deviation in LUFS (default: 0.5)
+- `--mode [normalise|lossless]` — `normalise` re-encodes through FFmpeg's loudnorm filter; `lossless` adjusts an MP3's global-gain header in place and falls back to `normalise` for other formats (default: normalise)
 
 **Examples:**
 
 ```bash
-audiosuite cd-rip D: --output-dir /output/flac --format flac
-audiosuite cd-rip D: --output-dir /output/mp3 --format mp3 --tracks 1,2,3
-audiosuite cd-rip D: --output-dir /output/flac --cue
-audiosuite cd-rip D: --output-dir /output/flac --verify accuraterip
-audiosuite cd-rip D: --detect-read-offset
+audiosuite normalise "D:\Music\Album" --target-lufs -16 --dry
+audiosuite normalise "D:\Music\Album" --mode lossless --json
 ```
 
-## CUE Sheets
+### Pop & Click Remover
+
+Remove clicks and pops from audio files with the same windowed detector the
+Refinery's declick stage uses.
+
+```bash
+audiosuite declick <directory> [--sensitivity F] [--max-width MS] [OPTIONS]
+```
+
+**Options:**
+
+- `--dry` / `--live` — Report the detected clicks only, or repair the audio (default: live)
+- `--sensitivity F` — click detection sensitivity (default: 0.25)
+- `--max-width MS` — maximum click width in milliseconds (default: 5)
+
+**Examples:**
+
+```bash
+audiosuite declick "D:\Music\Vinyl" --dry
+audiosuite declick "D:\Music\Vinyl" --sensitivity 0.31 --max-width 2
+```
+
+### Tag Field Updater
+
+Scan and update tag fields - by default replacing a bare `/` in a tag value
+with `; ` - and record an undo batch so the whole run can be reverted.
+
+```bash
+audiosuite tag-update <directory> [--no-plugin-tags] [--dry] [--json]
+```
+
+**Options:**
+
+- `--dry` / `--live` — Compute and report the rewrites only, or write them (default: live)
+- `--no-plugin-tags` — skip tag processors contributed by enabled plugins (default: plugins run)
+
+With `--dry` the rewrites are computed and reported but nothing is written: no
+file is saved and no undo record is created.
+
+**Examples:**
+
+```bash
+audiosuite tag-update "D:\Music" --dry
+audiosuite tag-update "D:\Music" --live
+audiosuite tag-update "D:\Music" --no-plugin-tags --json
+```
+
+### Silence Trimmer
+
+Trim leading and trailing silence, optionally applying fades.
+
+```bash
+audiosuite silence-trim <directory> [--threshold DB] [--fade/--no-fade] [OPTIONS]
+```
+
+**Options:**
+
+- `--dry` / `--live` — Report what would be trimmed, or write the trimmed audio (default: live)
+- `--threshold DB` — silence threshold in dBFS (default: -50)
+- `--fade` / `--no-fade` — apply fade in/out (default: no-fade)
+- `--fade-in MS` — fade-in length (default: 25)
+- `--fade-out MS` — fade-out length (default: 25)
+
+**Examples:**
+
+```bash
+audiosuite silence-trim "D:\Music\Album" --dry
+audiosuite silence-trim "D:\Music\Album" --fade --fade-in 100 --fade-out 250
+```
+
+### Tag Editor
+
+Edit common tag fields, or import a CSV of per-file edits. Single-file mode
+writes one field; CSV mode takes a library directory and applies the edits the
+CSV records.
+
+```bash
+audiosuite tag-edit PATH --field FIELD --value TEXT [--dry] [--json]
+audiosuite tag-edit DIRECTORY --csv EDITS.csv [--dry] [--json]
+```
+
+**Options:**
+
+- `--dry` / `--live` — Preview the edit, or write it (default: live)
+- `--field [title|artist|album|album_artist|track|year|genre|comment]` — field to write in single-file mode
+- `--value TEXT` — new field value
+- `--clear` — remove the field instead of setting it
+- `--csv PATH` — import a CSV of per-file edits; the command's path argument must then be a library directory
+
+**Examples:**
+
+```bash
+audiosuite tag-edit /Music/track.mp3 --field title --value "New Title"
+audiosuite tag-edit /Music/track.mp3 --field comment --clear --dry
+audiosuite tag-edit /Music --csv /Music/edits.csv --dry
+```
+
+### Stem Separator
+
+Separate audio files into vocals, drums, bass and other stems with Demucs, an
+optional extra installed by `uv sync --extra ml`.
+
+```bash
+audiosuite stems <directory> --output-dir DIR [--model NAME] [--stems LIST] [OPTIONS]
+```
+
+**Options:**
+
+- `--dry` / `--live` — List the stems that would be written, or run the separation (default: live)
+- `--output-dir DIR` — directory the per-track stem folders are written into
+- `--model [htdemucs|htdemucs_ft]` — Demucs model (default: htdemucs)
+- `--stems LIST` — comma-separated stems to export (default: vocals,drums,bass,other)
+- `--mix` / `--no-mix` — also write `mix.wav`, the sum of the exported stems (default: no-mix)
+- `--device [auto|cpu|cuda]` — compute device; `auto` uses CUDA when torch reports it usable (default: auto)
+
+**Examples:**
+
+```bash
+audiosuite stems "D:\Music\Album" --output-dir "D:\Music\Stems" --dry
+audiosuite stems "D:\Music\Album" --output-dir "D:\Music\Stems" --model htdemucs_ft --mix
+```
+
+### Library Statistics Dashboard
+
+Scan a library and report aggregate tag statistics. Read-only: no tag and no
+audio byte is ever written.
+
+```bash
+audiosuite stats <directory> [--incremental/--full] [--refresh] [OPTIONS]
+```
+
+**Options:**
+
+- `--incremental` / `--full` — incremental scan using the SQLite cache, which re-reads only changed files (default: full walk)
+- `--refresh` — full re-scan that rebuilds the cache from scratch
+- `--export-csv PATH` — write per-file metadata as a CSV spreadsheet
+- `--export-json PATH` — write the full report as a JSON file
+- `--completeness` — also report tag completeness for BPM, key, genre, mood, artwork and ReplayGain
+- `--detail [title|artist|album|track_number|year|bpm|key|genre|mood|tempo_marking|album_art|replaygain]` — with `--completeness`, list the files missing the given tag
+- `--trend` — show the recorded completeness trend for this directory
+- `--history-limit N` — snapshots to show with `--trend` (default: 12)
+- `--no-history` — do not record this run's completeness snapshot
+- `--no-plugin-analysis` — skip analysis contributions from enabled plugins
+
+**Examples:**
+
+```bash
+audiosuite stats "D:\Music" --completeness
+audiosuite stats "D:\Music" --incremental --completeness --detail bpm --json
+audiosuite stats "D:\Music" --trend --history-limit 6
+audiosuite stats "D:\Music" --export-csv "D:\Reports\library.csv" --json
+```
+
+### Spectral Viewer
+
+Render FFT spectrograms for one file or a whole directory. Read-only with
+respect to the audio: nothing is retagged or re-encoded, and the only files
+written are PNG images. `--dry` lists the images it would write and writes
+none of them.
+
+```bash
+audiosuite spectrogram PATH [--output-dir DIR] [OPTIONS]
+```
+
+**Options:**
+
+- `--dry` / `--live` — List the images that would be written, or render them (default: live)
+- `--output-dir DIR` — directory for the PNGs (default: beside each source file)
+- `--n-fft N` — FFT window size in samples (default: 2048)
+- `--hop-length N` — samples between successive frames (default: 512)
+- `--start SEC` — window start in seconds (default: 0.0)
+- `--end SEC` — window end in seconds; `0` runs to the end, capped at 600 seconds (default: 0.0)
+- `--max-freq HZ` — highest frequency to show; `0` is Nyquist (default: 0.0)
+- `--db-range DB` — colour floor in dB below the peak (default: 80.0)
+- `--cmap NAME` — matplotlib colour map (default: magma)
+
+**Examples:**
+
+```bash
+audiosuite spectrogram "D:\Music\Album\01 Track.flac" --dry
+audiosuite spectrogram "D:\Music\Album" --output-dir "D:\Spectrograms"
+audiosuite spectrogram "D:\Music\Album" --start 30 --end 60 --max-freq 12000 --cmap viridis
+```
+
+### ML Denoiser
+
+Neural noise reduction with RNNoise, an optional extra installed by
+`uv sync --extra ml`. The model is trained on speech, so for music
+`--amount` blends the source back in rather than replacing it.
+
+```bash
+audiosuite denoise <directory> [--amount PCT] [--dry] [--json]
+```
+
+**Options:**
+
+- `--dry` / `--live` — Report the measured levels only, or write the processed audio (default: live)
+- `--amount PCT` — how much of the model's output to keep, 1–100 %; lower values blend the source back in, which suits music (default: 100.0)
+
+**Examples:**
+
+```bash
+audiosuite denoise "D:\Music\Interviews" --dry
+audiosuite denoise "D:\Music\Live" --amount 40 --json
+```
+
+### Tag-Based File Reorganizer
+
+Move or copy audio files into a folder hierarchy built from their tags.
+
+```bash
+audiosuite reorganize <directory> --output-dir DIR [--action copy|move] [OPTIONS]
+```
+
+**Options:**
+
+- `--output-dir DIR` — destination directory
+- `--action [copy|move]` — defaults to the saved configuration, or `copy` when none is saved
+- `--specific-pattern PATTERN` — folder pattern for specific-artist albums
+- `--various-pattern PATTERN` — folder pattern for Various Artists albums
+
+**Examples:**
+
+```bash
+audiosuite reorganize "D:\Music\Unsorted" --output-dir "D:\Music\Sorted" --dry
+audiosuite reorganize "D:\Music\Unsorted" --output-dir "D:\Music\Sorted" --action move --json
+```
+
+### Undo Tag Edits
+
+Undo Tag Edits restores the tags a batch run changed. It has its own window
+(`Undo_Tag_Edits.pyw`) and a CLI in `utilities/undo.py`, not an `audiosuite`
+sub-command, because it operates on the shared undo database rather than on a
+directory of audio:
+
+```bash
+python utilities/undo.py list [--limit N]
+python utilities/undo.py show <batch_id>
+python utilities/undo.py undo <batch_id>
+```
+
+See *Undo Batch* at the end of this reference for the batch model and the
+`--db` option.
+
+## Suite commands
+
+### doctor
+
+Check that the installation maps every package in the checkout. It reports the
+installed and checkout versions, how many first-party packages resolve from
+this checkout, every CLI command a stale install would take down, the
+interpreter a launcher would run under, and whether each optional extra
+(Demucs, RNNoise) imports there. It takes no directory and exits 1 when the
+install is wrong.
+
+```bash
+audiosuite doctor [--json]
+```
+
+**Examples:**
+
+```bash
+audiosuite doctor
+audiosuite doctor --json
+```
+
+### plugins
+
+Inspect and enable third-party plugins discovered under `plugins/`. Discovery
+reads each `MANIFEST.toml` without importing plugin code, so a broken plugin
+cannot take down `audiosuite --help`; enablement is stored in the shared
+`audio_suite_config.json`.
+
+```bash
+audiosuite plugins list [--json]
+audiosuite plugins enable PLUGIN_ID [--json]
+audiosuite plugins disable PLUGIN_ID [--json]
+```
+
+**Examples:**
+
+```bash
+audiosuite plugins list
+audiosuite plugins enable example_plugin
+audiosuite plugins disable example_plugin --json
+```
+
+`audiosuite example` is the bundled example plugin's own command (count the
+audio files in a folder and report the tags they carry); it exists only while
+that plugin is enabled.
+
+## CUE sheet commands
 
 Parse, generate, and split `.cue` sheets. The `cue` group has three sub-commands:
 
@@ -245,111 +916,54 @@ audiosuite cue split "D:\Music\Album\Album.cue"
 audiosuite cue split "D:\Music\Album\Album.cue" -o "D:\Music\Album\Tracks"
 ```
 
-## Lyrics Manager
-
-Fetch synced lyrics from a remote source and embed them into audio files.
-Files are matched to the lyric source by their artist and title tags; files
-whose tags are missing or contain "Unknown" are skipped.
-
-```bash
-audiosuite lyrics <directory> [--dry] [--json] [--parallel] [--workers N]
-                   [--provider NAME] [--request-timeout SEC]
-                   [--skip-existing/--no-skip-existing]
-                   [--plain-fallback/--no-plain-fallback]
-```
-
-**Options:**
-
-- `--dry` / `--live` — Analyse only, do not write tags (default: live)
-- `--json` / `--text` — Output results as JSON (default: text)
-- `--parallel` / `--no-parallel` — Process files in parallel (default: off)
-- `--workers N` — Parallel worker count (default: 4)
-- `--provider NAME` — Lyric source provider, e.g. `lrclib` (default: lrclib)
-- `--request-timeout SEC` — Per-request timeout in seconds (default: 10.0)
-- `--skip-existing` / `--no-skip-existing` — Skip files that already contain lyrics (default: skip-existing)
-- `--plain-fallback` / `--no-plain-fallback` — Store unsynced lyrics when no synced lyrics are available (default: plain-fallback)
-
-Synced lyrics are embedded as an ID3 `SYLT` frame for MP3/WAV/AIFF and in the
-`SYNCEDLYRICS` Vorbis comment for FLAC/OGG/Opus. Unsynced lyrics (the fallback)
-use `USLT` for MP3/WAV/AIFF, `LYRICS` for FLAC/OGG/Opus and `\xa9lyr` for
-M4A/MP4. Each run records a batch in the undo log so tags can be reverted.
-
-**Examples:**
-
-```bash
-audiosuite lyrics "D:\Music\Unknown-Arm"
-audiosuite lyrics "D:\Music\Unknown-Arm" --live --parallel --workers 8
-audiosuite lyrics "D:\Music\Unknown-Arm" --json
-```
-
-## Audio Fingerprinter
-
-Generate a Chromaprint fingerprint for every audio file and identify it
-through AcoustID, optionally enriching the match from the MusicBrainz
-database. `--musicbrainz` costs one MusicBrainz request per unique recording
-(plus one per unique release) at MusicBrainz's documented one request per
-second, so it is off by default.
-
-```bash
-audiosuite fingerprint <directory> [--lookup/--no-lookup]
-    [--write-tags/--no-write-tags] [--threshold N] [--max-length N]
-    [--album-mode/--no-album-mode] [--album-min N] [--mbid-region CC]
-    [--musicbrainz/--no-musicbrainz] [--write-isrc/--no-write-isrc]
-    [--submit-isrc/--no-submit-isrc] [--mb-auth oauth|app-token]
-    [--mb-user USER] [--json] [--dry]
-```
-
-- `--lookup` (default: on) — query AcoustID for each fingerprint. Without an API key the command exits instead of silently fingerprinting only.
-- `--write-tags` (default: off) — write the AcoustID fingerprint/id tags. Requires live mode.
-- `--threshold N` — minimum AcoustID score, 0.0-1.0 (default: 0.5).
-- `--max-length N` — seconds of audio passed to `fpcalc` (default: 120).
-- `--album-mode` (default: off) — cluster a folder's lookups by release group and tag only when the album is decided; ambiguous albums stay untagged.
-- `--album-min N` — votes needed to form an album cluster (default: 3).
-- `--mbid-region CC` — preferred release country (ISO 3166-1 alpha-2) used only to break a tie between otherwise identical releases.
-- `--musicbrainz` (default: off) — look the matched recording up in MusicBrainz: retrieve its ISRCs and release facts (date, label, country), and let MusicBrainz break an AcoustID near-tie the file's own tags could not settle. A lookup failure never fails a file; it degrades to the AcoustID-only result and says so in the message.
-- `--write-isrc` (default: off) — write the retrieved ISRCs, in the format's native convention (`TSRC` for MP3/WAV/AIFF/DSF, `----:com.apple.iTunes:ISRC` for M4A/MP4, an `ISRC` comment/item for FLAC/OGG/Opus/WV/APE/MPC). Requires `--musicbrainz`, `--write-tags` and live mode.
-- `--submit-isrc` (default: off) — submit the ISRCs the files' own tags carry to MusicBrainz for their matched recording, skipping codes already registered. Requires `--musicbrainz` (the recording lookup is what identifies the known codes). In dry mode the exact XML payload is printed and nothing is posted; live mode needs a token from `MUSICBRAINZ_TOKEN` or the encrypted store. The token is never accepted as a flag: argv is visible in process listings and shell history.
-- `--mb-auth oauth|app-token` (default: `oauth`) — how the submission is authenticated. `oauth` sends the token as a bearer token (scope `submit_isrc`); `app-token` uses a legacy application token over HTTP Digest, which MusicBrainz has deprecated.
-- `--mb-user USER` — MusicBrainz account name, required only by `--mb-auth app-token` (digest sends both a username and the token).
-
-**Examples:**
-
-```bash
-audiosuite fingerprint "D:\Music\Unknown-Arm" --dry
-audiosuite fingerprint "D:\Music\Unknown-Arm" --live --write-tags --musicbrainz
-audiosuite fingerprint "D:\Music\Unknown-Arm" --live --write-tags --musicbrainz --write-isrc --json
-audiosuite fingerprint "D:\Music\Ripped-CD" --musicbrainz --submit-isrc --dry
-audiosuite fingerprint "D:\Music\Ripped-CD" --musicbrainz --submit-isrc --live
-```
-
 ## All Commands
+
+Every command the CLI ships, including the suite commands that operate on the
+installation rather than on a folder of audio. Each of the 30 tools appears
+here, and each tool's own section above documents its flags.
 
 | Command | Tool | Category |
 |---|---|---|
-| `album-genre` | Album Genre Tagger | Enrich (metadata) |
-| `album-art` | Album Art Sync | Enrich (metadata) |
-| `asx-extract` | ASX Playlist Extractor | Utility |
+| `album-art` | Album Art Sync | Enrich |
+| `album-genre` | Album Genre Tagger | Enrich |
+| `artnormalize` | Album Art Normalizer | Util |
+| `asx-extract` | ASX Playlist Extractor | Util |
 | `bpm` | BPM Analyzer | Enrich |
-| `cd-rip` | CD Ripper | Utility |
-| `convert` | Music Format Converter | Utility |
-| `cue generate` | CUE Sheet Generator | Utility |
-| `cue parse` | CUE Sheet Parser | Utility |
-| `cue split` | CUE Sheet Splitter | Utility |
-| `declick` | Pop & Click Remover | Refinery |
-| `enhance` | Audio Enhancer | Refinery |
-| `fingerprint` | Audio Fingerprinter | Enrich (metadata) |
+| `cd-rip` | CD Ripper | Util |
+| `convert` | Music Format Converter | Util |
+| `cue generate` | CUE sheet generator | Suite |
+| `cue parse` | CUE sheet parser | Suite |
+| `cue split` | CUE sheet splitter | Suite |
+| `declick` | Pop & Click Remover | Util |
+| `denoise` | ML Denoiser | Util |
+| `doctor` | Install check | Suite |
+| `enhance` | Audio Enhancer | Util |
+| `example` | Example Tool (plugin) | Plugin |
+| `fingerprint` | Audio Fingerprinter | Enrich |
 | `genre-sync` | Genre Sync | Enrich |
 | `key` | Key Detector | Enrich |
 | `lyrics` | Lyrics Manager | Enrich |
-| `normalise` | Audio Normalizer | Refinery |
-| `reduce` | Noise Reduction | Utility |
+| `mood-analysis-batch` | Mood Analysis Batch Tagger | Util |
+| `mood-analyzer` | Mood Analyzer | Enrich |
+| `normalise` | Audio Normalizer | Util |
+| `plugins disable` | Plugin manager | Suite |
+| `plugins enable` | Plugin manager | Suite |
+| `plugins list` | Plugin manager | Suite |
+| `reduce` | Noise Reduction | Util |
 | `refine` | Audio Refinery | Refinery |
-| `reorganize` | Tag-Based File Reorganizer | Utility |
+| `reorganize` | Tag-Based File Reorganizer | Util |
 | `replaygain` | ReplayGain Analyzer | Enrich |
 | `scrub` | Metadata Scrubber | Enrich |
-| `silence-trim` | Silence Trimmer | Refinery |
-| `stats` | Library Statistics Dashboard | Utility |
+| `silence-trim` | Silence Trimmer | Util |
+| `spectrogram` | Spectral Viewer | Util |
+| `stats` | Library Statistics Dashboard | Util |
+| `stems` | Stem Separator | Util |
+| `tag-edit` | Tag Editor | Util |
+| `tag-update` | Tag Field Updater | Util |
 | `tempo` | Tempo Analyzer | Enrich |
+
+Undo Tag Edits is the one tool without a row: it operates on the shared undo
+database through `utilities/undo.py`, documented under *Undo Batch*.
 
 ## Headless / Scripting
 

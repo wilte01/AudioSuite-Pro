@@ -1,6 +1,6 @@
 # AudioSuite-Pro
 
-AudioSuite-Pro is a Windows-first audio workbench of 27 first-party tools
+AudioSuite-Pro is a Windows-first audio workbench of 30 first-party tools
 that share one driver, one command line and one registry: tag enrichment
 (BPM, key, mood, lyrics, album art, ReplayGain, genre), DSP repair and
 conversion (loudness normalisation, hum/click removal, silence trimming,
