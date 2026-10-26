@@ -9,6 +9,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.1.4] - 2026-10-26
+
 ### Added
 
 - **The CLI commands reference has a Word copy, built like every user guide.**

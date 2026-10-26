@@ -1,8 +1,8 @@
 # PLAN — Audit 2026-10-24 Remediation: P0 and P1
 
-**Status:** `[~]` in progress (2026-10-25) — 2.1.2 and 2.1.3 are cut, and
-Sprint 3's items C1–C4 are closed; the 2.1.4 cut is the remaining step. Per-item
-state lives in §7.
+**Status:** `[x]` done (2026-10-26) — 2.1.2, 2.1.3 and 2.1.4 are cut and all
+nine items (A1–A3, B1–B3, C1–C4) are closed. Per-item state lives in §7; from
+here this plan is a historical record, and follow-on work belongs in a new plan.
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
 **Source:** [AUDIT_2026-10-24_suite_report.md](AUDIT_2026-10-24_suite_report.md) §6
 (detailed findings) and §9.1 (plan-ready register).
@@ -113,7 +113,7 @@ guide source.
 | 2.1.1 | 2026-10-24 | Docs consolidation and launch correctness | S8 + follow-on batch |
 | 2.1.2 | 2026-10-25 | P0 containment: album gain, ALAC, traversal | this plan, Sprint 1 |
 | 2.1.3 | 2026-10-25 | P1 tool truth: config, scrubber discovery, dry run | this plan, Sprint 2 |
-| **2.1.4** | planned | **P1 automation, security policy, APEv2 tests, batch gating** | **this plan, Sprint 3** |
+| 2.1.4 | 2026-10-26 | P1 automation, security policy, APEv2 tests, batch gating | this plan, Sprint 3 |
 
 The table is the project's release history at the plan's base commit
 (`dfb5c48`, the state after the 2.1.1 cut); `CHANGELOG.md` is the authoritative
@@ -1093,6 +1093,7 @@ rows say.
 |---|---|---|---|---|
 | Sprint 1 | **2.1.2** | 2026-10-25 | `utilities/release.py 2.1.2`: bumped `pyproject.toml` 2.1.1 → 2.1.2, re-locked and read the version back from `uv.lock`, promoted `[Unreleased]` (D16 left `Nothing yet.`) to `## [2.1.2] - 2026-10-25`, regenerated the 7 version-labelled guides, then ran the gate | `audiosuite --version` → `2.1.2`; `## [2.1.2]` present; `uv.lock` 2.1.2; guides read `Version 2.1.2 — October 2026`; all 7 `.docx` differ only in `word/document.xml`; `pytest test_project_version test_whats_new test_release_notes test_user_guide_hygiene` → 74 passed; gate: compile OK, ruff clean, format clean, mypy 549 files, bandit 0/0, bare `pytest` 10,987 passed, 3 skipped, 14:27. The first attempt's gate failed twice for reasons outside the cut: a missing `Changed in 2.1.2` note in the new `test_pattern.py` (fixed in `3a2d36b`), and a one-off `STATUS_BREAKPOINT` (2147483651) crash of the nested collection helper in `test_pyproject_config.py`, which did not reproduce standalone or on the rerun |
 | Sprint 2 | **2.1.3** | 2026-10-25 | `utilities/release.py 2.1.3`: bumped `pyproject.toml` 2.1.2 → 2.1.3, re-locked and read the version back from `uv.lock`, promoted `[Unreleased]` (left as `Nothing yet.`) to `## [2.1.3] - 2026-10-25` carrying the three `Fixed` entries, regenerated the 7 version-labelled guides, then ran the gate | `audiosuite --version` → `2.1.3`; `## [2.1.3]` present at line 14; `uv.lock` 2.1.3; guides read `Version 2.1.3 — October 2026`; all 7 `.docx` differ only in `word/document.xml`; `build_user_guides.py --check` → 31 artefacts current; `pytest test_project_version test_whats_new test_release_notes test_user_guide_hygiene` → 74 passed; gate inside the script: compileall OK, ruff clean, format clean, mypy 549 files, bandit 0 High / 0 Medium (47 Low), bare `pytest` 11,000 passed, 3 skipped, 90.51 %, 21:26 |
+| Sprint 3 | **2.1.4** | 2026-10-26 | `utilities/release.py 2.1.4`: bumped `pyproject.toml` 2.1.3 → 2.1.4 (the script adds its own `# Changed in 2.1.4` note, because `.toml` is in the lock's code set), re-locked and read the version back from `uv.lock`, promoted `[Unreleased]` (one `Added`, one `Changed`, three `Fixed` entries) to `## [2.1.4] - 2026-10-26` and reopened it with `Nothing yet.`, regenerated the 7 version-labelled guides, refreshed the editable install's metadata, then ran the gate | `audiosuite --version` → `2.1.4`; `## [2.1.4]` present at line 14; `uv.lock` 2.1.4; guides read `Version 2.1.4 — October 2026`; the script compared each regenerated `.docx` entry-by-entry and accepted only a `word/document.xml` change; `build_user_guides.py --check` → 32 artefacts current; `[Unreleased]` reopened with the placeholder; gate inside the script: compileall OK, ruff clean, format clean, mypy 550 files, bandit 0 High / 0 Medium (38 Low), bare `pytest` 11,105 passed, 3 skipped, 35 deselected, 90.87 %, 12:56 |
 
 ---
 
