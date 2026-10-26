@@ -13,6 +13,8 @@ one test that reads it back out of the real Tk text widget (PLAN D110).
 Changed in 2.1.0: covers the shared Mode dropdown reaching both areas' variables
 and the launched utility argv (the launched Stem Separator opened in Dry Run
 after Live Update was picked on ENRICH).
+Changed in 2.1.4: covers a skipped step's line naming the dependency that
+blocked it (plan C4), alongside the existing completed-step caveat case.
 
 Regression background
 ---------------------
@@ -661,6 +663,35 @@ class TestBatchProgressUI:
         assert "Overall: 4/5 completed" in summary, summary
         assert "1 failed" in summary
         assert drv._batch_progress_bar.config.call_args.kwargs["value"] == 25
+
+    def test_skipped_step_shows_why_it_did_not_run(self):
+        """A step skipped for a failed dependency says so on its own line.
+
+        The panel used to render 'skipped' with no reason, so a batch whose
+        BPM failed showed Tempo as merely skipped and the user had to guess
+        why (audit R-10, plan C4).
+        """
+        drv = self._shell()
+        progress = self._progress(
+            [
+                ("bpm", "BPM Analyzer", "failed"),
+                ("tempo", "Tempo Analyzer", "skipped"),
+            ],
+            failed=("bpm",),
+            notes={"tempo": "skipped: dependency 'bpm' failed"},
+        )
+
+        drv._update_batch_progress(progress)
+        scheduled = drv.root.after.call_args
+        assert scheduled is not None
+        scheduled.args[1]()
+        inserted = drv._batch_status_text.insert.call_args.args[1]
+
+        expected = (
+            f"[2/2] {'Tempo Analyzer':<25s} \u2014 skipped \u2014 "
+            "skipped: dependency 'bpm' failed"
+        )
+        assert expected in inserted, inserted
 
     def test_completed_step_shows_the_note_the_tool_recorded(self):
         """A caveat (e.g. a refused ISRC submission) is on the step line itself."""

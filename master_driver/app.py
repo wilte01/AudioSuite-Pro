@@ -15,6 +15,9 @@ version) and adds a Help entry to reopen it on demand.
 Changed in 1.4.1: the finished batch report closes with one verdict line that
 folds every step's note together, so a twelve-step run can be judged without
 scanning twelve lines (PLAN D110).
+Changed in 2.1.4: a skipped step's line carries the reason it was skipped (the
+failed dependency, or the dependency that never ran), so the panel says why a
+step did not run instead of only that it did not (plan C4).
 """
 
 import logging
@@ -580,9 +583,12 @@ class AudioSuiteDriver(UIHelperMixin):
             running_count = 0
             for i, (tid, name, st) in enumerate(progress.steps):
                 icon = status_chars.get(st, "?")
-                # A caveat the tool recorded about this run (a refused ISRC
-                # submission, for instance).  It is appended, never substituted
-                # for the status: the step really did complete.
+                # A note about this step's run: a caveat a tool recorded (a
+                # refused ISRC submission, for instance) or the reason a step
+                # was skipped because the step it needs failed.  It is
+                # appended, never substituted for the status: a completed step
+                # really did the work, and a skipped one says why it did not
+                # run.
                 note = progress.notes.get(tid, "")
                 suffix = f" — {note}" if note else ""
                 if st == "running":
@@ -603,7 +609,9 @@ class AudioSuiteDriver(UIHelperMixin):
                         f"[{i + 1}/{total}] {name:<25s} {icon} waiting for {dep_str}"
                     )
                 elif st == "skipped":
-                    lines.append(f"[{i + 1}/{total}] {name:<25s} {icon} skipped")
+                    lines.append(
+                        f"[{i + 1}/{total}] {name:<25s} {icon} skipped{suffix}"
+                    )
                 else:
                     lines.append(f"[PENDING] {name:<25s} {icon} pending")
 

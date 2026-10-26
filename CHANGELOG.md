@@ -54,6 +54,14 @@ Versions of the tools are released together with the suite (the single
   refuses to open now says so in a dialog instead of looking like a no-op, and a
   repository-wide test fails on any new direct `subprocess.run`/`Popen` in
   shipped code.
+- **A batch no longer starts a step whose dependency failed.** The Master
+  Driver added a failed step to the same set that releases its dependants, so a
+  failed BPM analysis still let Tempo run — writing tempo markings derived from
+  files that were never tagged — and the report counted that step as completed.
+  Sequential mode consulted no dependency graph at all and did the same. Both
+  modes now mark the dependant **skipped** with the reason on its line
+  (`skipped: dependency 'bpm' failed`, or `did not run` when the dependency was
+  itself skipped), including every step above it in the chain.
 
 ## [2.1.3] - 2026-10-25
 

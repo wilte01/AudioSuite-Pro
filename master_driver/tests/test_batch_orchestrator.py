@@ -15,6 +15,9 @@ than cutting a caveat mid-sentence (D110).
 Changed in 2.1.0: the three retrying tests share a ``no_retry_backoff`` fixture
 instead of waiting the production 1 s + 2 s + 3 s out; what they assert (which
 failures are retried, and the reported status) is unchanged.
+Changed in 2.1.4: adds the dependency-failure tests — a failed step skips its
+dependants in both modes instead of releasing them, and the skip reason reaches
+the step, the panel and the report (audit R-10, plan C4).
 """
 
 from __future__ import annotations
@@ -462,6 +465,146 @@ class TestBatchOrchestratorParallel:
             report = orch.run(parallel=True, max_workers=2)
         assert report.completed == 1
         assert report.failed == 1
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# A failed dependency must not release its dependants (plan C4, audit R-10)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def _fail_scripts(*fragments: str):
+    """Return a ``run_python_script`` side effect failing the named scripts.
+
+    Args:
+        *fragments: Substrings of a script path that exit with code 1.
+
+    Returns:
+        A callable suitable for ``side_effect=``.
+    """
+
+    def _side_effect(*args, **kwargs):
+        script = str(args[0])
+        if any(fragment in script for fragment in fragments):
+            return _mock_result(1)
+        return _mock_result(0)
+
+    return _side_effect
+
+
+class TestFailedDependencySkipsDependants:
+    """Tempo reads BPM tags; when BPM fails, tempo must not run.
+
+    The orchestrator used to add a failed step to the same set that released
+    dependants, so ``tempo`` ran against files with no BPM tags and the report
+    called it completed.  Both modes are covered because sequential mode used
+    to consult no graph at all.
+    """
+
+    def test_parallel_skips_the_dependant(self):
+        steps = [_make_step("bpm"), _make_step("tempo")]
+        orch = BatchOrchestrator(steps)
+        with patch(
+            "master_driver.batch_orchestrator.run_python_script",
+            side_effect=_fail_scripts("bpm.pyw"),
+        ) as run_script:
+            report = orch.run(parallel=True, max_workers=2)
+
+        assert [call.args[0] for call in run_script.call_args_list] == [
+            steps[0].script_path
+        ], "the dependant must never be submitted to the pool"
+        assert {s.tool_id: s.status for s in report.steps} == {
+            "bpm": StepStatus.FAILED,
+            "tempo": StepStatus.SKIPPED,
+        }
+        assert (report.completed, report.failed, report.skipped) == (0, 1, 1)
+
+    def test_parallel_skip_carries_the_reason(self):
+        steps = [_make_step("bpm"), _make_step("tempo")]
+        orch = BatchOrchestrator(steps)
+        seen: list[BatchProgress] = []
+        with patch(
+            "master_driver.batch_orchestrator.run_python_script",
+            side_effect=_fail_scripts("bpm.pyw"),
+        ):
+            orch.run(parallel=True, max_workers=2, progress_callback=seen.append)
+
+        tempo_note = next(s.note for s in steps if s.tool_id == "tempo")
+        assert tempo_note == "skipped: dependency 'bpm' failed"
+        assert seen[-1].steps == [
+            ("bpm", "Bpm", "failed"),
+            ("tempo", "Tempo", "skipped"),
+        ]
+        assert seen[-1].notes["tempo"] == tempo_note
+
+    def test_sequential_skips_the_dependant(self):
+        steps = [_make_step("bpm"), _make_step("tempo")]
+        orch = BatchOrchestrator(steps)
+        with patch(
+            "master_driver.batch_orchestrator.run_python_script",
+            side_effect=_fail_scripts("bpm.pyw"),
+        ) as run_script:
+            report = orch.run(parallel=False)
+
+        assert [call.args[0] for call in run_script.call_args_list] == [
+            steps[0].script_path
+        ]
+        assert {s.tool_id: s.status for s in report.steps} == {
+            "bpm": StepStatus.FAILED,
+            "tempo": StepStatus.SKIPPED,
+        }
+        assert (report.completed, report.failed, report.skipped) == (0, 1, 1)
+        assert steps[1].note == "skipped: dependency 'bpm' failed"
+
+    def test_a_successful_dependency_releases_its_dependant(self):
+        """The guard must not turn the graph into a blocker."""
+        steps = [_make_step("bpm"), _make_step("tempo")]
+        orch = BatchOrchestrator(steps)
+        with patch(
+            "master_driver.batch_orchestrator.run_python_script",
+            return_value=_mock_result(0),
+        ):
+            report = orch.run(parallel=False)
+        assert report.completed == 2
+        assert steps[1].note == ""
+
+    def test_a_skipped_step_blocks_its_dependants(self, monkeypatch):
+        """A standalone step never runs, so its dependant says 'did not run'."""
+        monkeypatch.setitem(DEPENDENCY_GRAPH, "tempo", ["cd_ripper"])
+        steps = [_make_step("cd_ripper", standalone=True), _make_step("tempo")]
+        orch = BatchOrchestrator(steps)
+        with patch(
+            "master_driver.batch_orchestrator.run_python_script",
+            return_value=_mock_result(0),
+        ) as run_script:
+            report = orch.run(parallel=True, max_workers=2)
+
+        assert run_script.call_count == 0
+        assert {s.tool_id: s.status for s in report.steps} == {
+            "cd_ripper": StepStatus.SKIPPED,
+            "tempo": StepStatus.SKIPPED,
+        }
+        assert steps[1].note == "skipped: dependency 'cd_ripper' did not run"
+
+    def test_transitive_dependant_is_skipped_too(self, monkeypatch):
+        """bpm fails -> tempo skipped -> a step above tempo is skipped as well."""
+        monkeypatch.setitem(DEPENDENCY_GRAPH, "synth", ["tempo"])
+        steps = [_make_step("bpm"), _make_step("tempo"), _make_step("synth")]
+        orch = BatchOrchestrator(steps)
+        with patch(
+            "master_driver.batch_orchestrator.run_python_script",
+            side_effect=_fail_scripts("bpm.pyw"),
+        ):
+            report = orch.run(parallel=True, max_workers=2)
+
+        assert {s.tool_id: s.status for s in report.steps} == {
+            "bpm": StepStatus.FAILED,
+            "tempo": StepStatus.SKIPPED,
+            "synth": StepStatus.SKIPPED,
+        }
+        assert (report.completed, report.failed, report.skipped) == (0, 1, 2)
+        # The transitive reason names the failure that actually happened, not
+        # the skipped step in between.
+        assert steps[2].note == "skipped: dependency 'bpm' failed"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1167,6 +1310,20 @@ class TestBatchVerdict:
             "BPM Analyzer: 2 of 12 tracks measured outside the 75-175 BPM range; "
             "Audio Fingerprinter: ISRC submission: offline"
         )
+
+    def test_a_skipped_step_note_is_not_a_caveat(self):
+        """A dependency skip is reported on its own line, not as completed work."""
+        progress = _progress(
+            [
+                ("bpm", "BPM Analyzer", "failed"),
+                ("tempo", "Tempo Analyzer", "skipped"),
+            ],
+            notes={"tempo": "skipped: dependency 'bpm' failed"},
+            failed=["bpm"],
+        )
+
+        assert progress.finished is True
+        assert progress.verdict == ""
 
     def test_failures_lead_the_line(self):
         """A verdict that hid a failed step would not be a verdict."""

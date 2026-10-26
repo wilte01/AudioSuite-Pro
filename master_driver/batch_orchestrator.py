@@ -27,6 +27,10 @@ Changed in 2.1.0: a standalone step records the launcher's exit code on
 through ``on_exit``).  Without it the caller's summary was a bare "Module
 failed: <name>" naming no reason, which is how a plugin launcher that raised
 ``ModuleNotFoundError`` read to the user (``PLAN_feature_expansion.md`` D135).
+Changed in 2.1.4: a step whose dependency failed is now skipped in **both**
+modes, with the reason on the step, instead of being released to run against
+work that never completed (audit R-10, plan C4).  Success and completion are
+tracked separately: only a step that ran to success may satisfy a dependant.
 """
 
 from __future__ import annotations
@@ -180,10 +184,14 @@ class BatchProgress:
         """
         if not self.finished or not self.notes:
             return ""
+        # Only a completed step contributes a caveat.  A skipped step carries
+        # the reason it did not run, which belongs on its own line: folding it
+        # in here would report "completed with caveats" about a step this batch
+        # deliberately did not start.
         caveats = [
             f"{name}: {self.notes[tool_id]}"
-            for tool_id, name, _status in self.steps
-            if tool_id in self.notes
+            for tool_id, name, status in self.steps
+            if tool_id in self.notes and status == "completed"
         ]
         if not caveats:
             # Notes for tools that are not steps in this batch: nothing this
@@ -301,6 +309,38 @@ def _collect_deps(
             collected.add(dep)
             _collect_deps(dep, collected, available, visited, _stack)
     _stack.discard(tool_id)
+
+
+def _blocked_by(
+    tool_id: str,
+    dep_map: dict[str, set[str]],
+    failed: set[str],
+    skipped: set[str],
+) -> str | None:
+    """Return the note for a step a dependency cannot release, else None.
+
+    A dependency that ran and failed blocks with ``failed``; one that itself
+    never ran blocks with ``did not run``.  Naming the difference matters: a
+    transitive dependant must not accuse a tool that was skipped of failing,
+    and the note is what the user reads in the batch panel.
+
+    Args:
+        tool_id: The step being considered.
+        dep_map: Transitive dependency closure per tool id.
+        failed:  Tool ids that ran and failed.
+        skipped: Tool ids that did not run.
+
+    Returns:
+        The skip note, or None when every dependency is satisfiable.
+    """
+    deps = sorted(dep_map.get(tool_id, set()))
+    for dep in deps:
+        if dep in failed:
+            return f"skipped: dependency '{dep}' failed"
+    for dep in deps:
+        if dep in skipped:
+            return f"skipped: dependency '{dep}' did not run"
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -447,8 +487,30 @@ class BatchOrchestrator:
         completed_count: int,
         failed_steps: list[str],
     ) -> BatchReport:
+        # Sequential mode used to consult no graph at all, so a dependant ran
+        # straight after a failed dependency.  The graph is resolved here for
+        # the same rule parallel mode applies: a dependency that did not
+        # succeed must skip its dependants, not release them.
+        dep_map = _resolve_dependencies([s.tool_id for s in self._steps])
+        failed_ids: set[str] = set()
+        skipped_ids: set[str] = set()
+
         for step in self._steps:
             if step.status == StepStatus.SKIPPED:
+                skipped_ids.add(step.tool_id)
+                continue
+
+            blocked = _blocked_by(step.tool_id, dep_map, failed_ids, skipped_ids)
+            if blocked is not None:
+                step.status = StepStatus.SKIPPED
+                step.note = blocked
+                step.start_time = time.monotonic()
+                step.end_time = step.start_time
+                skipped_ids.add(step.tool_id)
+                logger.info("Step %s %s", step.tool_id, blocked)
+                self._emit_progress(
+                    step, total, completed_count, failed_steps, progress_callback
+                )
                 continue
 
             step.status = StepStatus.RUNNING
@@ -465,6 +527,7 @@ class BatchOrchestrator:
             else:
                 step.status = StepStatus.FAILED
                 failed_steps.append(step.tool_id)
+                failed_ids.add(step.tool_id)
 
             step.end_time = time.monotonic()
             self._emit_progress(
@@ -484,17 +547,21 @@ class BatchOrchestrator:
         tool_ids = [s.tool_id for s in self._steps]
         dep_map = _resolve_dependencies(tool_ids)
         step_map: dict[str, BatchStep] = {s.tool_id: s for s in self._steps}
-        completed: set[str] = set()
+        # `finished` is every step that reached a terminal status and drives the
+        # loop; `succeeded` is the only set a dependant may rely on.  They used
+        # to be one set, so a failed step released its dependants and the batch
+        # reported a tool that analysed untagged files as completed.
+        finished: set[str] = set()
+        succeeded: set[str] = set()
+        failed_ids: set[str] = set()
         running: set[str] = set()
 
         # A standalone step is a blocking GUI window, so it cannot be driven
         # concurrently with the rest of the batch. Parallel mode does not launch
         # it (sequential mode does, via _launch_standalone) and the step is
         # reported as SKIPPED — never counted as completed, which would report a
-        # tool that never ran as one that did. `skipped_ids` is tracked
-        # separately from `completed` because `completed` doubles as the
-        # dependency-satisfaction set: a skipped step's dependents must not run
-        # either, so they stay PENDING and are reported as not-run.
+        # tool that never ran as one that did.  Any step that depends on it is
+        # skipped too, by `_skip_blocked` below.
         skipped_ids: set[str] = set()
         for s in self._steps:
             if s.manifest.standalone:
@@ -502,6 +569,7 @@ class BatchOrchestrator:
                 s.start_time = time.monotonic()
                 s.end_time = time.monotonic()
                 skipped_ids.add(s.tool_id)
+                finished.add(s.tool_id)
 
         if skipped_ids:
             logger.info(
@@ -510,19 +578,46 @@ class BatchOrchestrator:
                 ", ".join(sorted(skipped_ids)),
             )
 
+        def _skip_blocked() -> None:
+            """Skip every step whose dependency cannot release it.
+
+            Runs after each completion (and once before the pool starts, since
+            a standalone skip can already block a dependant) so a dependant is
+            never submitted against work that did not happen.  The step keeps
+            the reason, which is what the panel and the report show.
+            """
+            for tid in tool_ids:
+                if tid in finished:
+                    continue
+                note = _blocked_by(tid, dep_map, failed_ids, skipped_ids)
+                if note is None:
+                    continue
+                step = step_map[tid]
+                step.status = StepStatus.SKIPPED
+                step.note = note
+                step.start_time = time.monotonic()
+                step.end_time = step.start_time
+                skipped_ids.add(tid)
+                finished.add(tid)
+                logger.info("Step %s %s", tid, note)
+                self._emit_progress(
+                    step, total, completed_count, failed_steps, progress_callback
+                )
+
         def _can_run(tid: str) -> bool:
             return (
-                dep_map[tid].issubset(completed)
-                and tid not in completed
+                dep_map[tid].issubset(succeeded)
+                and tid not in finished
                 and tid not in running
-                and tid not in skipped_ids
             )
+
+        _skip_blocked()
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures: dict[str, Future[bool]] = {}
 
             # Keep submitting tasks as dependencies resolve
-            while len(completed) + len(skipped_ids) < len(tool_ids):
+            while len(finished) < len(tool_ids):
                 for tid in tool_ids:
                     if _can_run(tid) and tid not in futures:
                         step = step_map[tid]
@@ -544,14 +639,14 @@ class BatchOrchestrator:
                                 step = step_map[tid]
                                 if success:
                                     step.status = StepStatus.COMPLETED
-                                    completed.add(tid)
-                                    running.discard(tid)
+                                    succeeded.add(tid)
                                     completed_count += 1
                                 else:
                                     step.status = StepStatus.FAILED
+                                    failed_ids.add(tid)
                                     failed_steps.append(tid)
-                                    completed.add(tid)
-                                    running.discard(tid)
+                                finished.add(tid)
+                                running.discard(tid)
                                 step.end_time = time.monotonic()
                                 self._emit_progress(
                                     step,
@@ -562,6 +657,7 @@ class BatchOrchestrator:
                                 )
                                 del futures[tid]
                                 break
+                        _skip_blocked()
                         break  # Re-evaluate dependencies after each completion
                 except TimeoutError:
                     logger.warning(
@@ -572,9 +668,11 @@ class BatchOrchestrator:
                         step.status = StepStatus.FAILED
                         step.end_time = time.monotonic()
                         failed_steps.append(tid)
-                        completed.add(tid)
+                        failed_ids.add(tid)
+                        finished.add(tid)
                         running.discard(tid)
                     futures.clear()
+                    _skip_blocked()
 
         return self._build_report(total, completed_count, failed_steps)
 

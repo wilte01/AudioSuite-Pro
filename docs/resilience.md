@@ -61,6 +61,13 @@ Analyser after BPM Analyser). A tool that needs a tag another tool writes
 reports the file as skipped rather than failing it, so a partial pipeline
 still produces a usable library.
 
+A step whose dependency did **not** succeed is not started at all: it is marked
+**SKIPPED** and carries the reason — `skipped: dependency 'bpm' failed`, or
+`did not run` when that dependency was itself skipped. This holds in
+sequential and Parallel mode alike. Starting Tempo against files BPM never
+tagged would write a tempo marking derived from nothing and then report the
+step as completed, which is worse than not running it.
+
 ## Resource cleanup
 
 `ResourceManager` is a process-wide registry of things that must not leak:
