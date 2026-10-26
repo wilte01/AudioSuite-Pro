@@ -67,11 +67,11 @@ The matrix below is **generated from the declared classification** in
 
 #### Branch enumeration
 
-* **Portable core** (14 declared branches) — The non-Windows branch is implemented and a test runs it under a simulated non-Windows platform value.
+* **Portable core** (15 declared branches) — The non-Windows branch is implemented and a test runs it under a simulated non-Windows platform value.
 * **Windows-only** (6 declared branches) — A genuinely Windows-only capability. The non-Windows side is a documented stop, placeholder or no-op.
 * **Unverified** (11 declared branches) — A non-Windows branch exists but no test runs it, so nothing proves it behaves correctly. Untested, not unsupported.
 
-Every one of the 31 distinct branches below was found by an AST scan of the first-party tree that skips comments and string literals; `audio_suite_shared/tests/test_platform_support.py` fails if a branch is added, removed or duplicated without re-classifying it here.
+Every one of the 32 distinct branches below was found by an AST scan of the first-party tree that skips comments and string literals; `audio_suite_shared/tests/test_platform_support.py` fails if a branch is added, removed or duplicated without re-classifying it here.
 
 | Tier | Module | Subsystem | Non-Windows behaviour | Evidence |
 |---|---|---|---|---|
@@ -89,6 +89,7 @@ Every one of the 31 distinct branches below was found by an AST scan of the firs
 | Portable core | `audio_suite_shared/ui_common.py` | Open the suite log file | win32 os.startfile, darwin `open`, otherwise `xdg-open` — the same three-way dispatch as platform_utils. | audio_suite_shared/tests/test_ui_common.py |
 | Portable core | `audio_suite_shared/ui_common.py` | Open the suite log file | The win32 arm of the three-way dispatch above. | audio_suite_shared/tests/test_ui_common.py |
 | Portable core | `audio_suite_shared/venv_bootstrap.py` | Launcher re-execution into the project's .venv | win32 finds the venv's Scripts/python.exe (or pythonw.exe when the launch is windowed); every other platform finds bin/python with a bin/python3 fallback. Both arms are implemented and tested with an explicit platform value, so neither depends on the host. | audio_suite_shared/tests/test_venv_bootstrap.py |
+| Portable core | `cd_ripper/core/drive_control.py` (tool `cd_ripper`) | Rip results: eject the tray / reveal a ripped file | win32 opens the tray through MCI (no process at all) and selects the file with `explorer.exe /select,`; every other platform runs `eject` and `xdg-open` through the secure wrapper. Both arms are implemented and both are driven by a simulated sys.platform in the module's own suite. | cd_ripper/tests/test_drive_control.py |
 | Windows-only | `audio_suite_shared/security/key_manager.py` | Key-file permission hardening | Windows restricts the key file with `icacls`; every other platform uses chmod 0600. The capability is available on both — only the mechanism is Windows-specific, so this downgrades no tool's tier. | audio_suite_shared/tests/test_key_manager.py::TestUnixPermissionsAppliedWhenSaving |
 | Windows-only | `audio_suite_shared/suite_config.py` | Config file cross-process lock | Windows uses msvcrt.locking for exclusive file locks; every other platform uses fcntl.flock. Both arms are implemented; the capability is available on all platforms. | audio_suite_shared/tests/test_i1_robustness.py |
 | Windows-only | `cd_ripper/core/disc.py` (tool `cd_ripper`) | CD drive enumeration | platform_supported() is the single gate: it reports False off-Windows and the drive list is empty, so the UI never offers a device extraction cannot act on. | cd_ripper/tests/test_ripper_platform_fail_fast.py |
@@ -99,7 +100,7 @@ Every one of the 31 distinct branches below was found by an AST scan of the firs
 | Unverified | `audio_suite_shared/security/input_validator.py` | Path validation limits | Same 260/4096 ceiling as the subprocess validator, but bound at import time, so patching os.name afterwards cannot change it — only a module reload under a different platform would. | none |
 | Unverified | `audio_suite_shared/security/input_validator.py` | Windows reserved device names | An extra per-component fullmatch pass that runs only on Windows, on top of the platform-independent reserved-name and safe-character checks. It cannot be honestly exercised by patching os.name: pathlib.Path() consults os.name when it constructs, so such a test silently switches to PosixPath and measures a hybrid that exists on no real platform (see the os.name trap note in the module docstring). | none |
 | Unverified | `audio_suite_shared/styles.py` | Light/Dark theme detection | Only Windows reads the AppsUseLightTheme registry value; every other platform falls back to the documented 'Light' default. | none |
-| Unverified | `cd_ripper/ui/results_tab.py` (tool `cd_ripper`) | Rip results: open folder / eject / reveal | Windows uses os.startfile, a PowerShell Shell.Application eject and `explorer /select,`; elsewhere the code shells out to `xdg-open` and `eject`. No test runs the non-Windows arms. | none |
+| Unverified | `cd_ripper/ui/results_tab.py` (tool `cd_ripper`) | Rip results: open output folder | Windows uses os.startfile; elsewhere the code shells out to `xdg-open` through the secure wrapper. No test runs the non-Windows arm. Eject and reveal are no longer branched here: they moved to core/drive_control.py, classified as portable core above. | none |
 | Unverified | `cd_ripper/ui/results_tab.py` (tool `cd_ripper`) | Rip results: open output folder | The Windows arm of the open-folder dispatch above. | none |
 | Unverified | `cd_ripper/ui/setup_tab.py` (tool `cd_ripper`) | ffmpeg discovery (rip setup tab) | Binary filename extension only. | none |
 | Unverified | `master_driver/ui/cards/typography_card.py` | Typography card font list | Windows and macOS get their own font families; every other platform gets the DejaVu/Liberation fallback, which is computed at import time and so is not re-evaluated by a patched sys.platform. | none |

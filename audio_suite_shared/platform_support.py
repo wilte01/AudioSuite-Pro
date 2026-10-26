@@ -57,6 +57,10 @@ the generated API reference renders the section instead of warning (PLAN D98).
 Changed in 1.4.1: the diagnostic scripts are classified - the peak-RSS probe's
 two ``sys.platform`` arms are declared, unverified for POSIX because their
 ``resource`` import cannot run on this host (PLAN D100).
+Changed in 2.1.4: the CD ripper's eject and reveal branches moved out of
+``ui/results_tab.py`` into ``core/drive_control.py`` and are declared as
+portable core there, so the results-tab row now covers only the open-folder
+dispatch (audit R-08, plan C3).
 Changed in 2.1.0: declared the launcher venv bootstrap's platform branch
 (``venv_bootstrap.py`` chooses ``Scripts/`` or ``bin/`` by platform value, and
 both arms are tested with an explicit ``platform`` argument), so the
@@ -473,14 +477,30 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
         module="cd_ripper/ui/results_tab.py",
         source='if os.name == "nt":',
         tier=UNVERIFIED,
-        subsystem="Rip results: open folder / eject / reveal",
+        subsystem="Rip results: open output folder",
         behaviour=(
-            "Windows uses os.startfile, a PowerShell Shell.Application eject "
-            "and `explorer /select,`; elsewhere the code shells out to "
-            "`xdg-open` and `eject`. No test runs the non-Windows arms."
+            "Windows uses os.startfile; elsewhere the code shells out to "
+            "`xdg-open` through the secure wrapper. No test runs the "
+            "non-Windows arm. Eject and reveal are no longer branched here: "
+            "they moved to core/drive_control.py, classified as portable core above."
         ),
         evidence="none",
-        occurrences=3,
+        tool="cd_ripper",
+    ),
+    PlatformBranch(
+        module="cd_ripper/core/drive_control.py",
+        source='if sys.platform == "win32":',
+        tier=PORTABLE_CORE,
+        subsystem="Rip results: eject the tray / reveal a ripped file",
+        behaviour=(
+            "win32 opens the tray through MCI (no process at all) and "
+            "selects the file with `explorer.exe /select,`; every other "
+            "platform runs `eject` and `xdg-open` through the secure "
+            "wrapper. Both arms are implemented and both are driven by a "
+            "simulated sys.platform in the module's own suite."
+        ),
+        evidence="cd_ripper/tests/test_drive_control.py",
+        occurrences=2,
         tool="cd_ripper",
     ),
     PlatformBranch(
