@@ -5,13 +5,20 @@ Gap G-23: MP3Handler, VorbisHandler, MP4Handler, TagHandlerFactory,
 
 Fixtures: real minimal audio files created via pydub (requires ffmpeg).
 Marked with 'integration' so they can be skipped in environments without ffmpeg.
+
+Changed in 2.1.4: adds ``TestAPEv2Handler`` (audit R-07, plan C2) — WavPack,
+Monkey's Audio and Musepack were writable but only incidentally exercised.
 """
 
+import hashlib
 import os
+import shutil
+from pathlib import Path
 
+import mutagen
 import pytest
 
-from audio_suite_shared.exceptions import AudioFormatError
+from audio_suite_shared.exceptions import AudioFormatError, AudioTagError
 
 try:
     from pydub import AudioSegment
@@ -24,6 +31,7 @@ from mutagen.flac import FLAC
 
 from audio_suite_shared.tag_helper import (
     EDITABLE_FIELDS,
+    APEv2Handler,
     IFFID3Handler,
     MP3Handler,
     MP4Handler,
@@ -45,6 +53,7 @@ from audio_suite_shared.tag_helper import (
     write_genre,
     write_genre_sync_result,
     write_key,
+    write_replaygain,
     write_tempo_marking,
 )
 
@@ -109,6 +118,60 @@ def aiff_file(tmp_path):
     path = tmp_path / "test.aiff"
     _silent().export(str(path), format="aiff")
     return str(path)
+
+
+# ── APEv2 fixtures (WavPack / Monkey's Audio / Musepack) ──────────────────────
+#
+# pydub cannot encode these containers, so the fixtures are the committed
+# mutagen files under tests/data.  Every test writes to a *copy*: a write to the
+# committed file would corrupt the shared fixture for every other suite.
+
+_DATA_DIR = Path(__file__).resolve().parents[2] / "tests" / "data"
+
+
+def _copy_apev2_fixture(tmp_path: Path, name: str) -> str:
+    """Copy one committed APEv2 fixture into *tmp_path* and open it by copy."""
+    source = _DATA_DIR / name
+    if not source.is_file():  # pragma: no cover - the fixture set is committed
+        pytest.skip(f"committed fixture missing: {name}")
+    target = tmp_path / name
+    shutil.copyfile(source, target)
+    return str(target)
+
+
+@pytest.fixture
+def wv_file(tmp_path: Path) -> str:
+    return _copy_apev2_fixture(tmp_path, "silence-44-s.wv")
+
+
+@pytest.fixture
+def ape_file(tmp_path: Path) -> str:
+    return _copy_apev2_fixture(tmp_path, "mac-399.ape")
+
+
+@pytest.fixture
+def mpc_file(tmp_path: Path) -> str:
+    return _copy_apev2_fixture(tmp_path, "click.mpc")
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _committed_apev2_fixtures_untouched():
+    """Fail the module if any committed APEv2 fixture was mutated in place.
+
+    The tests copy before writing, but a future test that forgets would corrupt
+    a tracked binary for every other suite while still passing here.  Hashing
+    the originals before and after the module is the cheapest way to make that
+    impossible to miss.
+    """
+    names = ("silence-44-s.wv", "mac-399.ape", "click.mpc")
+    before = {name: _sha256(_DATA_DIR / name) for name in names}
+    yield
+    after = {name: _sha256(_DATA_DIR / name) for name in names}
+    assert after == before, "a committed APEv2 fixture was modified in place"
 
 
 # ── is_supported ──────────────────────────────────────────────────────────────
@@ -643,6 +706,326 @@ class TestMP4Handler:
         h.load()
         fields = h.read_custom_genre_fields()
         assert all(v is None for v in fields.values())
+
+
+# ── APEv2Handler (WavPack / Monkey's Audio / Musepack) ───────────────────────
+
+
+class TestAPEv2Handler:
+    """APEv2 round trips, proven by re-opening the file with a fresh handler.
+
+    Every write goes to a copy of the committed fixture and every assertion
+    reads the bytes back through a new ``APEv2Handler`` — never the instance
+    that just wrote them — so a write that never reaches the disk fails here
+    instead of passing on in-memory state (plan §5.2).
+    """
+
+    @staticmethod
+    def _open(path: str) -> APEv2Handler:
+        """Open *path* with a brand-new, loaded handler, as a consumer would."""
+        handler = APEv2Handler(path)
+        handler.load()
+        return handler
+
+    def test_factory_routes_wavpack_ape_and_mpc(self, wv_file, ape_file, mpc_file):
+        for path in (wv_file, ape_file, mpc_file):
+            handler = TagHandlerFactory.get_handler(path)
+            assert isinstance(handler, APEv2Handler)
+            # get_handler loads the file, so a routing error would surface as
+            # an exception rather than a silently un-taggable instance.
+            assert handler._audio is not None
+
+    def test_load_refuses_a_non_apev2_extension(self, tmp_path):
+        path = tmp_path / "song.flac"
+        path.write_bytes(b"not really a flac")
+        with pytest.raises(AudioTagError, match="cannot load extension: .flac"):
+            APEv2Handler(str(path)).load()
+
+    def test_reads_bpm_key_genre_mood_from_wavpack(self, wv_file):
+        h = self._open(wv_file)
+        h.write_bpm(86)
+        h.write_key("Am")
+        h.write_genre("Hip Hop")
+        h.write_tempo_marking("Andante")
+        h.write_mood("Dark")
+        h.write_mood_confidence("0.87")
+        h.write_energy("7")
+
+        fresh = self._open(wv_file)
+        assert fresh.read_bpm() == 86
+        assert fresh.read_key() == "Am"
+        assert fresh.read_genre() == "Hip Hop"
+        assert fresh.read_tempo_marking() == "Andante"
+        assert fresh.read_mood() == "Dark"
+        assert fresh.read_energy() == "7"
+        # No dedicated reader: the confidence item is read back through the
+        # generic custom-field accessor, which is what a consumer would use.
+        assert fresh.read_custom_field("MOODCONFIDENCE") == "0.87"
+
+    def test_bpm_none_when_absent_or_unparseable(self, ape_file):
+        h = self._open(ape_file)
+        assert h.read_bpm() is None
+
+        h.write_bpm(0)  # stores "0", which still parses
+        assert self._open(ape_file).read_bpm() == 0
+
+        audio = mutagen.File(ape_file)
+        audio.tags["BPM"] = "not a number"
+        audio.save()
+        assert self._open(ape_file).read_bpm() is None
+
+    def test_reads_legacy_item_names_as_fallbacks(self, ape_file):
+        """The suite's preferred item is absent, so the legacy one is read."""
+        audio = mutagen.File(ape_file)
+        audio.add_tags()
+        audio.tags["TMOO"] = "Melancholy"
+        audio.tags["ENERGY"] = "3"
+        audio.tags["TRACKNUMBER"] = "4"
+        audio.tags["YEAR"] = "1999"
+        audio.tags["DESCRIPTION"] = "legacy comment"
+        audio.save()
+
+        fresh = self._open(ape_file)
+        assert fresh.read_mood() == "Melancholy"
+        assert fresh.read_energy() == "3"
+        editable = fresh.read_editable_tags()
+        assert editable["track"] == "4"
+        assert editable["year"] == "1999"
+        assert editable["comment"] == "legacy comment"
+
+    def test_writes_and_reads_artwork(self, wv_file):
+        jpeg = b"\xff\xd8\xff\xe0" + b"jpegpayload" * 8 + b"\xff\xd9"
+        h = self._open(wv_file)
+        assert h.has_artwork() is False
+        assert h.extract_artwork() is None
+
+        h.embed_artwork(jpeg)
+
+        fresh = self._open(wv_file)
+        assert fresh.has_artwork() is True
+        assert fresh.extract_artwork() == jpeg
+
+        # APEv2 has no MIME field for cover art: the item payload is
+        # ``filename\x00data`` and the filename carries the type.
+        raw = bytes(mutagen.File(wv_file).tags["Cover Art (Front)"])
+        filename, _sep, payload = raw.partition(b"\x00")
+        assert filename == b"cover.jpg"
+        assert payload == jpeg
+
+    def test_embed_artwork_replaces_the_previous_picture(self, wv_file):
+        first = b"\xff\xd8first\xff\xd9"
+        second = b"\xff\xd8second\xff\xd9"
+        h = self._open(wv_file)
+        h.embed_artwork(first)
+        h.embed_artwork(second)
+
+        tags = mutagen.File(wv_file).tags
+        covers = [key for key in tags.keys() if key.lower() == "cover art (front)"]
+        assert len(covers) == 1
+        assert self._open(wv_file).extract_artwork() == second
+
+    def test_editable_tags_mapping(self, mpc_file):
+        values = {
+            "title": "Song",
+            "artist": "Artist",
+            "album": "Album",
+            "album_artist": "Album Artist",
+            "track": "02/10",
+            "year": "2004",
+            "genre": "Jazz",
+            "comment": "a comment",
+        }
+        assert set(values) == set(EDITABLE_FIELDS)
+
+        h = self._open(mpc_file)
+        for field, value in values.items():
+            h.write_editable_tag(field, value)
+
+        assert self._open(mpc_file).read_editable_tags() == values
+
+    def test_write_editable_tag_drops_the_legacy_key(self, ape_file):
+        audio = mutagen.File(ape_file)
+        audio.add_tags()
+        audio.tags["TRACKNUMBER"] = "9"
+        audio.save()
+
+        h = self._open(ape_file)
+        h.write_editable_tag("track", "1")
+
+        tags = mutagen.File(ape_file).tags
+        assert "TRACKNUMBER" not in tags
+        assert self._open(ape_file).read_editable_tags()["track"] == "1"
+
+    def test_write_editable_tag_none_clears_the_field(self, mpc_file):
+        h = self._open(mpc_file)
+        h.write_editable_tag("comment", "temporary")
+        h.write_editable_tag("comment", None)
+        assert self._open(mpc_file).read_editable_tags()["comment"] is None
+
+    def test_write_editable_tag_refuses_an_unknown_field(self, mpc_file):
+        h = self._open(mpc_file)
+        with pytest.raises(AudioTagError, match="Unsupported editable tag field"):
+            h.write_editable_tag("bpm", "120")
+
+    def test_custom_genre_fields_are_read_by_canonical_name(self, wv_file):
+        audio = mutagen.File(wv_file)
+        audio.tags["TITLEGENRE"] = "t"
+        audio.tags["ARTISTGENRE"] = "a"
+        audio.tags["ALBUMARTISTGENRE"] = "aa"
+        audio.save()
+
+        h = self._open(wv_file)
+        h.write_genre_sync_result("Folk", "derived-folk")
+        fields = self._open(wv_file).read_custom_genre_fields()
+
+        assert set(fields) == {
+            "TITLEGENRE",
+            "ARTISTGENRE",
+            "ALBUMGENRE",
+            "ALBUMARTISTGENRE",
+            "GENREDERIVED",
+        }
+        assert fields["TITLEGENRE"] == "t"
+        assert fields["ARTISTGENRE"] == "a"
+        assert fields["ALBUMARTISTGENRE"] == "aa"
+        assert fields["GENREDERIVED"] == "derived-folk"
+        assert fields["ALBUMGENRE"] is None
+        assert self._open(wv_file).read_genre() == "Folk"
+
+    def test_write_album_genre_result(self, mpc_file):
+        h = self._open(mpc_file)
+        h.write_album_genre_result("Jazz;Blues")
+
+        fresh = self._open(mpc_file)
+        assert fresh.read_custom_field("ALBUMGENRE") == "Jazz;Blues"
+        assert fresh.read_custom_field("ALBUMDERIVED") == "Y"
+
+    def test_replaygain_round_trip(self, ape_file):
+        write_replaygain(
+            ape_file,
+            {
+                "REPLAYGAIN_TRACK_GAIN": "-3.21 dB",
+                "REPLAYGAIN_ALBUM_GAIN": "-2.00 dB",
+            },
+        )
+
+        fresh = self._open(ape_file)
+        assert fresh.read_replaygain() == ("-3.21 dB", "-2.00 dB")
+
+    def test_reads_artist_album_and_title(self, wv_file):
+        """The committed fixture stores Artist as two NUL-separated values."""
+        fresh = self._open(wv_file)
+        assert fresh.read_artist_album() == ("piman", "Quod Libet Test Data")
+        assert fresh.read_artist_title() == ("piman", "Silence")
+        assert fresh.read_album_artist() is None
+
+        audio = mutagen.File(wv_file)
+        audio.tags["ALBUMARTIST"] = "Various"
+        audio.tags["DISCNUMBER"] = "2"
+        audio.save()
+
+        updated = self._open(wv_file)
+        assert updated.read_album_artist() == "Various"
+        assert updated.read_disc_number() == "2"
+
+    def test_missing_artist_and_album_default_to_unknown(self, mpc_file):
+        h = self._open(mpc_file)
+        assert h.read_artist_album() == ("Unknown", "Unknown")
+        assert h.read_artist_title() == ("Unknown", "Unknown")
+
+    def test_set_raw_tags_replaces_the_container_content(self, wv_file):
+        handler = self._open(wv_file)
+        handler.set_raw_tags({"ARTIST": "one\x00two", "COMMENT": "keep me"})
+
+        fresh = self._open(wv_file)
+        raw = fresh.get_raw_tags()
+        # An APEv2 value is a str subclass whose list() yields each
+        # NUL-separated value; indexing the value would yield a character.
+        assert list(raw["ARTIST"]) == ["one", "two"]
+        assert str(list(raw["COMMENT"])[0]) == "keep me"
+        # The incoming mapping is the new content (clear + update), not a set of
+        # additions — that is what makes a scrubber restore land exactly the
+        # tags that were captured, with no survivors from the wiped file.
+        assert fresh.read_custom_field("ALBUM") is None
+
+    def test_set_raw_tags_none_is_a_no_op(self, wv_file):
+        handler = self._open(wv_file)
+        before = _sha256(Path(wv_file))
+        handler.set_raw_tags(None)
+        assert _sha256(Path(wv_file)) == before
+
+    def test_set_raw_tags_restores_onto_a_wiped_file(self, wv_file):
+        """The scrubber's undo path: capture, wipe, hand a fresh tags object back.
+
+        The scrubber loads the file with mutagen, populates that object's tags
+        and passes them to ``set_raw_tags`` without saving first, so the
+        handler's own container is ``None`` and the incoming one is bound to a
+        different handle.  A rebind that is never serialised would look green
+        on an in-memory read and lose the tags on disk.
+        """
+        captured = self._open(wv_file).get_raw_tags()
+        assert captured is not None
+
+        h = self._open(wv_file)
+        h.delete_tags()
+
+        writer = mutagen.File(wv_file)
+        writer.add_tags()
+        writer.tags["ARTIST"] = "Restored"
+        writer.tags["ALBUM"] = "After Wipe"
+        h.set_raw_tags(writer.tags)
+
+        fresh = self._open(wv_file)
+        assert fresh.read_artist_album() == ("Restored", "After Wipe")
+
+    def test_delete_tags_keeps_the_audio_stream(self, wv_file):
+        duration_before = mutagen.File(wv_file).info.length
+
+        h = self._open(wv_file)
+        h.write_bpm(100)
+        h.delete_tags()
+
+        fresh = self._open(wv_file)
+        assert fresh.read_bpm() is None
+        assert fresh.read_genre() is None
+        assert fresh.read_replaygain() == (None, None)
+        assert all(value is None for value in fresh.read_editable_tags().values())
+        assert fresh.has_artwork() is False
+
+        # The tag container is gone but the audio payload is not: same length,
+        # same sample rate, the stream still parses.
+        audio = mutagen.File(wv_file)
+        assert audio is not None
+        assert audio.tags is None or len(audio.tags) == 0
+        assert audio.info.length == pytest.approx(duration_before)
+        assert audio.info.sample_rate == 44100
+
+    def test_lyrics_items_coexist(self, wv_file):
+        h = self._open(wv_file)
+        h.write_synced_lyrics("[00:01.00] line one")
+        h.write_plain_lyrics("plain line")
+
+        fresh = self._open(wv_file)
+        assert fresh.read_synced_lyrics() == "[00:01.00] line one"
+        lyrics = fresh.read_lyrics_tags()
+        assert lyrics.synced == "[00:01.00] line one"
+        assert lyrics.plain == "plain line"
+
+    def test_synced_lyrics_reader_falls_back_but_the_tags_reader_does_not(
+        self, mpc_file
+    ):
+        h = self._open(mpc_file)
+        h.write_plain_lyrics("only plain")
+
+        fresh = self._open(mpc_file)
+        # read_synced_lyrics is the "give me something to display" accessor.
+        assert fresh.read_synced_lyrics() == "only plain"
+        # read_lyrics_tags reports each item independently, so the synced slot
+        # stays empty instead of echoing the plain text (pinned by the
+        # Lyrics Manager, which must not mistake one for the other).
+        tags = fresh.read_lyrics_tags()
+        assert tags.synced is None
+        assert tags.plain == "only plain"
 
 
 # ── Facade / module-level functions ───────────────────────────────────────────

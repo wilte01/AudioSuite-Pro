@@ -11,6 +11,8 @@ Covers:
   • Logging output verified via caplog
   • run_analysis — a typed worker count above the slot grid still finishes
     every file (D66)
+  • a live run on a WavPack file — the BPM reaches the APEv2 tag on disk
+    (audit R-07, plan C2)
 
 Changed in 1.4.0: adds the slot-grid cap regression for a typed worker count.
 
@@ -19,15 +21,20 @@ not merely that it runs (backlog P6).
 
 Changed in 1.4.1: the band no longer clamps, so a measured tempo outside it
 reaches the tag and the file's line carries ``(outside 75-175)`` (D108).
+
+Changed in 2.1.4: adds the end-to-end WavPack tag write (audit R-07, C2).
 """
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import threading
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import mutagen
 import numpy as np
 import pytest
 
@@ -36,6 +43,7 @@ from bpm_analyzer.core.bpm_detector import (
     MIN_ONSET_PERIODICITY,
     BPMDetectionError,
     NoTempoDetectedError,
+    detect_bpm,
 )
 from bpm_analyzer.core.file_processor import (
     ProcessingStatus,
@@ -1478,3 +1486,121 @@ class TestProcessingStatusEnum:
 
     def test_name_replace_produces_readable_label(self):
         assert ProcessingStatus.DRY_RUN.name.replace("_", " ") == "DRY RUN"
+
+
+# ---------------------------------------------------------------------------
+# 12. End-to-end tag write on WavPack (audit R-07, plan C2)
+# ---------------------------------------------------------------------------
+
+
+CORPUS_DIR = Path(__file__).resolve().parents[2] / "tests" / "data" / "bpm_corpus"
+
+
+def _transcode_to_wavpack(source: Path, target: Path) -> None:
+    """Transcode the committed corpus clip to WavPack, or skip the test.
+
+    WavPack is lossless and ffmpeg's encoder takes integer samples, so the
+    decode must stay inside full scale for the samples - and therefore the
+    tempo - to survive the conversion: a clip whose decoder output peaks above
+    1.0 is hard-clipped by the encoder, and clipping changes the onset envelope.
+    ``samba_103.ogg`` decodes at 0.86 peak, verified to measure the same 103 BPM
+    before and after the transcode; ``hiphop_86.ogg`` (peak 1.58) measures 86 as
+    OGG and 161 clipped to WavPack, so it is not a valid fixture for this test.
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        pytest.skip("ffmpeg is not installed")
+    if not source.is_file():  # pragma: no cover - corpus is committed
+        pytest.skip(f"committed corpus clip missing: {source.name}")
+
+    encoders = subprocess.run(
+        [ffmpeg, "-hide_banner", "-encoders"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if "wavpack" not in encoders.stdout:
+        pytest.skip("this ffmpeg build has no wavpack encoder")
+
+    result = subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(source),
+            "-c:a",
+            "wavpack",
+            str(target),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0 or not target.is_file():
+        pytest.skip(f"ffmpeg could not encode wavpack: {result.stderr.strip()}")
+
+
+class TestWavpackTagWrittenEndToEnd:
+    """A live run on WavPack must land a tag the file can be re-read from.
+
+    R-07: the APEv2 writer was the one tag path with no handler suite, and BPM
+    writes through the shared facade.  A broken container would have stayed
+    green behind every mock, so this drives the real analysis, the real
+    factory, the real mutagen write, and reads the value back with a **fresh**
+    handler — plus checks the stream itself did not move.
+    """
+
+    def test_bpm_tag_lands_on_a_wavpack_file(
+        self, tmp_path: Path, lock, on_progress, progress_calls, slot_vars
+    ) -> None:
+        from audio_suite_shared.tag_helper import APEv2Handler
+
+        clip = CORPUS_DIR / "samba_103.ogg"
+        target = tmp_path / "samba_103.wv"
+        _transcode_to_wavpack(clip, target)
+
+        # The corpus records this clip at 103 BPM; measuring the OGG here makes
+        # the comparison below about equivalence, not a hardcoded number.
+        ogg_bpm = detect_bpm(str(clip), 20, 75, 175)
+
+        before = mutagen.File(str(target))
+        assert isinstance(before.tags, mutagen.apev2.APEv2)
+        duration_before = before.info.length
+
+        process_single_file(
+            name=target.name,
+            dir_path=str(tmp_path),
+            is_dry_run=False,
+            min_bpm=75,
+            max_bpm=175,
+            analysis_duration=20,
+            slot_idx=0,
+            lock=lock,
+            on_progress=on_progress,
+            slot_vars=slot_vars,
+        )
+
+        (call,) = progress_calls
+        assert "TAGGED" in call["display_text"]
+
+        handler = APEv2Handler(str(target))
+        handler.load()
+        tagged = handler.read_bpm()
+        assert tagged is not None
+        # The tracker may report the pulse's octave, so accept the OGG path's
+        # value or its double/half within the corpus's own +/-4 BPM band.
+        assert (
+            min(
+                abs(tagged - ogg_bpm),
+                abs(tagged - 2 * ogg_bpm),
+                abs(tagged - round(ogg_bpm / 2)),
+            )
+            <= 4
+        )
+
+        after = mutagen.File(str(target))
+        assert after is not None
+        assert after.info.length == pytest.approx(duration_before)
