@@ -27,17 +27,20 @@ enforced invariant:
    source, so the README summary cannot drift from the enforced gate.
 
 Changed in 2.1.0: the tool index now carries the plugin tool's row.
+Changed in 2.1.6: the import block is re-sorted against the corrected ruff
+target py311 — ``tomllib`` is 3.11 standard library
+(R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
 
 import importlib
+import tomllib
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from types import ModuleType
 
 import pytest
-import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 README = REPO_ROOT / "README.md"

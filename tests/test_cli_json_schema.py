@@ -30,17 +30,21 @@ so the recorded corpus is produced by the same driver this lock uses (PLAN D102)
 
 Changed in 2.1.0: the coverage locks read the first-party manifests (and exclude a
 plugin's own commands) now that the registry also holds plugins.
+
+Changed in 2.1.6: the import block is re-sorted against the corrected ruff
+target py311 — ``tomllib`` is 3.11 standard library
+(R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
 
 import json
 import tempfile
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import pytest
-import tomllib
 from click.testing import CliRunner
 
 from audio_suite_shared import cli_schema

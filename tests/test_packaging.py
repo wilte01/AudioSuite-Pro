@@ -33,10 +33,10 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
-import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PACKAGING = REPO_ROOT / "packaging"

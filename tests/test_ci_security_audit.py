@@ -18,15 +18,18 @@ non-empty first: a text extraction that finds nothing must fail loudly rather
 than pass vacuously.
 
 Changed in 1.4.1: initial version (PLAN D96).
+Changed in 2.1.6: the import block is re-sorted against the corrected ruff
+target py311 — ``tomllib`` is 3.11 standard library
+(R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
-import tomllib
 
 from tests.ci_workflow import job, step
 

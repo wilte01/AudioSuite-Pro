@@ -15,6 +15,10 @@ over these three functions.
 Changed in 1.3.0: initial version (PLAN_feature_expansion.md Item 3.1 / D42).
 Changed in 1.4.0: the shared loader now supplies the plain-language decode
 error, so this module re-raises it instead of rewrapping it with a full path.
+Changed in 2.1.6: the peak comes from ``np.max(magnitude)`` — the
+``magnitude.max()`` no-argument form has no valid overload under the 3.11 numpy
+stubs the corrected mypy target selects (R-15,
+PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
@@ -208,7 +212,11 @@ def compute_spectrogram(
         samples, n_fft=n_fft, hop_length=hop_length
     )
     magnitude: npt.NDArray[np.floating[Any]] = np.abs(spectrum)
-    peak = float(magnitude.max()) if magnitude.size else 0.0
+    # ``np.max(magnitude)``, not ``magnitude.max()``: the no-argument method form
+    # has no valid overload under the 3.11 numpy stubs [tool.mypy]
+    # ``python_version`` selects. The ``magnitude.size`` guard stays, so an empty
+    # window still gets the 0.0 sentinel instead of a reduction on nothing.
+    peak = float(np.max(magnitude)) if magnitude.size else 0.0
     peak_amplitude = float(np.max(np.abs(samples))) if len(samples) else 0.0
     peak_db = (
         _SILENCE_PEAK_DB if peak_amplitude <= 0.0 else 20.0 * math.log10(peak_amplitude)

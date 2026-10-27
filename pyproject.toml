@@ -145,7 +145,13 @@ skips = ["B404", "B101"]
 exclude_dirs = ["tests"]
 
 [tool.mypy]
-python_version = "3.12"
+# Changed in 2.1.6: python_version 3.12 -> 3.11, the floor [project]
+# requires-python declares. The 3.12 pin certified a target the oldest
+# supported leg cannot run, and it hid a real error the 3.11 stubs expose
+# (ndarray.max() with no argument, spectral_viewer/core/spectrogram.py).
+# tests/test_tooling_targets.py keeps this, [tool.ruff] target-version and
+# requires-python in agreement (PLAN_audit_2026-10-24_deferred_p2p3.md R-15).
+python_version = "3.11"
 strict = true
 ignore_missing_imports = true
 # Third-party packages that ship py.typed but contain untyped defs:
@@ -233,7 +239,13 @@ module = [
 implicit_reexport = true
 
 [tool.ruff]
-target-version = "py310"
+# Changed in 2.1.6: target-version py310 -> py311, matching [project]
+# requires-python. At py310 ruff classified 3.11's standard library (tomllib)
+# as third-party, so import blocks were checked against a rule the project does
+# not follow and the 3.11 modernisations were suppressed: `ruff check .` was
+# green only because the target was wrong, and 12 I001 findings appeared the
+# moment it was corrected (PLAN_audit_2026-10-24_deferred_p2p3.md R-15).
+target-version = "py311"
 line-length = 88
 
 [tool.ruff.lint]

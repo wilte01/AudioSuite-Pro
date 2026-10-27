@@ -1,0 +1,434 @@
+# PLAN — Audit 2026-10-24 deferred register (P2/P3): CI policy, a POSIX leg, tooling targets, docs truth
+
+**Status:** `[~]` in progress — drafted 2026-10-27. **R-15 is complete and the
+gate is green** (record in §5); R-16's verification row is written, R-11 and
+R-12 are open. Nothing is committed yet.
+**Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
+**Base state:** `main` at `85046ef` ("Record the 2.1.6 CI remediation decisions
+(2026-10-27)"), working tree clean. `v2.1.5` is the repository's only tag (at
+`942c183`). `tests/test_release_notes.py` is re-baselined to `5cbe83d` with
+`NOTE_MARKER = "Changed in 2.1.6"`, so this window's per-file notes are 2.1.6's
+and `[Unreleased]` is the 2.1.6 narrative.
+**Source:** [AUDIT_2026-10-24_suite_report.md](AUDIT_2026-10-24_suite_report.md)
+§6 (findings R-11, R-12, R-15, R-16) and §9.1 (plan-ready register, including
+each finding's acceptance evidence).
+**Predecessor:** `PLAN_audit_2026-10-24_remediation.md` — closed 2026-10-26 with
+2.1.4; its §8 defers the audit's P2/P3 findings ("they need their own plan"),
+and its D13 rules them out of that plan's scope. This is that plan.
+`PLAN_ci_2026-10-27_remediation.md` (C1–C8 complete at `f273729`) is the
+predecessor *record* for the `.github/workflows/ci.yml` window this plan edits
+next; its X2 and X3 carry forward here.
+**Governing scope:** four findings — R-11 (dependency audit non-blocking), R-12
+(POSIX untested), R-15 (Ruff/mypy targets below the floor), R-16 (README tool
+count). Nothing else.
+**Not in scope, and why:** R-13 (library cache key) and R-14 (non-ASCII console
+output) are the register's remaining P3 defects and are **not** in this brief —
+they stay deferred in the predecessor's §8 and need their own plan. The
+maintainability register Q-01–Q-10 and the market-parity backlog F-01–F-12 are
+untouched. See §6 for the deferrals this plan creates.
+**Versioning:** this plan adds no tool, flag, JSON key or output format, so
+every item is MAINTENANCE-class. R-15 lands under `[Unreleased]` (2.1.6); R-11
+and R-12 are targeted at 2.1.7 because they change what CI runs rather than what
+ships. The 2.1.6 cut is **not** authorised here — that is X3 of the CI plan, and
+the per-sprint cut procedure is §2.5 of the audit-remediation plan.
+**Anti-creep rule:** implement only the items below. No adjacent refactors, no
+new runtime dependency, no styling changes outside touched files, and no
+`AGENTS.md` rule addition (which would mean editing the frozen `RULE_INVENTORY`
+deliberately). A defect discovered *while* implementing an item is fixed in the
+same change with a regression test and recorded in §2 (AGENTS.md, *Defects and
+failing checks*).
+
+---
+
+## 1. What is actually true today (measured at `85046ef`)
+
+Every number below was measured on this host (Windows, Python 3.14, ruff 0.17.1,
+mypy 2.4.0, pip-audit 2.10.1) before writing the plan, because the audit's
+findings are three days old and one of the four is already closed. Numbers taken
+from earlier records are marked as such.
+
+| Finding | State now | Evidence |
+|---|---|---|
+| **R-11** | **Live.** The `security` job's `Dependency audit (exported lock)` step still carries `continue-on-error: true`, and its comment still says the audit is "on probation for two sprints". | `tests/ci_workflow.py::step(job("security"), …)` slices the step; `tests/test_ci_security_audit.py::test_the_step_is_on_probation` asserts `continue-on-error: true` **and** the word `probation`, so the probation cannot end by editing the workflow alone. The same module's docstring already names "kept forever without a recorded decision" as one of the four ways the audit can be quietly undone. |
+| **R-12** | **Live.** No job executes a tool package on a POSIX host. `lint`, `security`, `compile` and `schema-conformance` run on `ubuntu-latest`; `docs-locks`, `typecheck` and `test` run on `windows-latest`. | `ci.yml`. The `docs-locks` job's own comment says why it is on Windows: "these locks read the real registry (`test_readme` imports every tool surface), so they exercise Windows-only code and a Linux leg would be a platform nothing else in this repo runs on." The `typecheck` job's comment records the opposite constraint: on `ubuntu-latest` typeshed has no `ctypes.windll`, `os.startfile`, `msvcrt`, `winaccent`, so bare `mypy .` reports ~35 false `attr-defined` errors (CI run 38548380226). |
+| **R-15** | **Live, and the green suite depends on it.** `[tool.ruff] target-version = "py310"` and `[tool.mypy] python_version = "3.12"` sit either side of `requires-python = ">=3.11"`. | Measured: `ruff check .` → *All checks passed*; `ruff check . --target-version py311` → **12 errors, all `I001`**, because at a py310 target `tomllib` (3.11 stdlib) is classified third-party, so imports are mis-sorted. `mypy .` → *no issues found in 550 source files*; `mypy . --python-version 3.11` → **1 error**: `spectral_viewer/core/spectrogram.py:211: All overload variants of "max" of "ndarray" require at least one argument [call-overload]`. |
+| **R-16** | **Closed in 2.1.5.** `README.md` line 3 reads "30 first-party tools" and the platform section reads "the other 29 of 30 tools" — both correct for a 30-tool registry. | `tests/test_suite_docs_tool_coverage.py::TestToolCountClaims` parses every count claim in `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `docs/**` and `user_guides/**`, asserts the scan found ≥5 claims (non-vacuous), and compares each with what the manifest implies (total, Windows-only remainder, subset, and per-category rows). `tests/test_readme.py::TestMetadataLock` pins `len(get_registry().first_party) == 30`. The mechanism the audit asked for (render the intro count from the registry) was superseded by a lock over the prose, which is what §2/D7 records. |
+
+Two further measurements the items depend on:
+
+* **Deferred `UP` rule set** (R-15's "add `UP` rules after the target is
+  corrected"): `ruff check . --select UP --statistics` → **317 findings, 314
+  fixable** — `UP045` 139, `UP035` 80, `UP037` 57, `UP024` 21, `UP015` 10,
+  `UP033` 6, `UP007` 1 (not auto-fixable), `UP031` 1, `UP012` 1, `UP009` 1.
+  `UP042` (`str`-mixin enum → `StrEnum`) currently reports nothing.
+* **pip-audit capability**: the installed 2.10.1 supports `-f json`, `-o FILE`,
+  `--no-deps` and `--ignore-vuln ID`, so the audit's verdict can be read from a
+  structured payload rather than from prose.
+
+---
+
+## 2. Decision log
+
+| D | Decision | Status | Rationale / evidence |
+|---|---|---|---|
+| D1 | Record this work in a **new plan**; do not append it to `PLAN_audit_2026-10-24_remediation.md` or `PLAN_ci_2026-10-27_remediation.md`. | DECIDED | AGENTS.md, *Plan Governance*: a completed plan is a historical record, and the predecessor's §8 defers exactly these four findings to a plan of their own. |
+| D2 | R-11 ends the probation **by policy**, and the recurring audit gets its **own workflow file** rather than a `schedule:` trigger on `ci.yml`. | DECIDED | A `schedule:` on `ci.yml` re-runs the 25-minute three-interpreter test job weekly to audit a file that takes seconds. A second workflow with `schedule:` + `workflow_dispatch` runs the same checker and nothing else. The probation has run since 1.4.1 — seven release cuts past the "two sprints" it was granted (1.4.1 was the last cut before 2.0.0, and 2.1.6 is in flight). |
+| D3 | The audit's verdict comes from **pip-audit's JSON**, never from a substring of its prose, and `--ignore-vuln` stays **off** so the raw finding is always printed. A first-party, stdlib-only `utilities/check_dependency_audit.py` applies the allowlist and returns the exit status. | DECIDED | AGENTS.md, *A verification harness that cannot fail*: a verdict keyed on a word appearing anywhere in output is not a verdict. Keeping `--ignore-vuln` off leaves one place where an advisory can be accepted — the committed allowlist — instead of two. |
+| D4 | Allowlist entries carry `id`, `reason` and an **expiry date**, and an entry whose advisory no longer appears is a **failure** (stale), as is an expired one. | DECIDED | The audit asks for "a small documented allowlist … (and a date/reason)" plus a weekly audit "so the allowlist ages visibly". Expiry makes the age fail the build; staleness stops the list growing into a permanent suppression. |
+| D5 | R-12 adds an **explicitly declared selection** on `ubuntu-latest`, not the full suite — and a lock that pins the selection. | DECIDED | The suite is Windows-first and ~25 minutes; the typecheck job cannot run there at all (~35 false errors), and the registry-reading doc locks are deliberately on Windows. A selection that can silently shrink is the failure mode, so it is declared and locked. |
+| D6 | The POSIX leg runs **without a virtual display**; GUI-dependent tests skip with `NO_DISPLAY_REASON`, bounded to `requires_display` by the root `conftest.py`. | DECIDED | B4 replaced the blanket headless skip precisely so a display-less host reports *which* Tk-dependent tests it could not run rather than skipping everything. Installing `xvfb` would let the leg claim GUI verification it did not perform — an over-claim of the same class R-12 exists to remove. |
+| D7 | R-16 is closed **by verification, not by work**, and the README's intro count stays hand-written prose under `TestToolCountClaims`. | DECIDED | The count is a phrase inside sentences in five document families (`README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `docs/**`, `user_guides/**`) and in the deck; a generator would have to own the sentences, while `generate_readme_tool_index.py` already owns the table and the lock already owns the prose. |
+| D8 | R-15 fixes the targets **down to the floor** (`ruff` `py311`, `mypy` `python_version = "3.11"`) and keeps **one** typecheck job instead of matrixing it. | DECIDED | The floor is the binding contract (`requires-python = ">=3.11"`); the audit's own acceptance evidence is "3.11 typecheck leg green". A 3.12 pin certifies a target nothing runs on the oldest supported leg, and it hid a real error (measured: 1). Matrixing would double a multi-minute job to test an upper bound nothing claims to be the constraint. |
+| D9 | The lint job installs ruff **from `uv.lock`** instead of `pip install ruff`. | DECIDED | The same argument the `docs-locks` job already makes for its renderer: an unpinned tool can red the gate for a reason that has nothing to do with the change under test. The dev venv carries ruff 0.17.1 while the `lint` job installs whatever is newest that day, so a new default rule is a red gate with no repository change. This is in R-15's title ("tooling-version mismatch"), so it is in scope rather than a drive-by. |
+| D10 | A new `tests/test_tooling_targets.py` holds the interpreter-target lock. | DECIDED | Nothing in the tree pins either target today: a search of `tests/` for `py310`, `py311`, `target-version`, `python_version` and `requires-python` returns **no matches**. That is how they drifted below the floor in the first place. Root `tests/` is exempt from the test-file naming map, and artifact-locking modules there are the established shape (`test_ci_security_audit.py`, `test_readme.py`). |
+| D11 | The deferred `UP` rule set is **not** enabled here; it is recorded as a follow-on with its measured counts (§6). | DECIDED | 317 findings would swamp the review of a config correction, and the audit's own fix shape orders it *after* the target is corrected. Two traps stay on the record: `UP007` (1) is not auto-fixable, and if a later `UP042` fix is taken, AGENTS.md's `str`-mixin enum trap applies to every interpolation of that field package-wide. |
+| D12 | The POSIX leg is **Ubuntu only**; no macOS leg is added. | DECIDED | The audit says "Ubuntu (and ideally macOS)". Nothing in the tree claims macOS support, and macOS runners bill at a multiple of Linux minutes for a claim nobody makes. Revisit only with a support decision (recorded in §6). |
+| D13 | `platform_support.py` stays the **single source** for the caveat; the README block is regenerated, never hand-edited. | DECIDED | `MATRIX_CAVEAT` is asserted verbatim against the README by `test_platform_support.py::TestReadmeDriftLock::test_readme_states_the_caveat_verbatim`, and the generated block is compared against a fresh render. The same lock forbids the phrasings `cross-platform`, `fully cross-platform` and `works on linux and macos`, so the new wording must be narrower, not larger. |
+| D14 | The R-15 lock reads the lint job's **executed** lines, not its raw text. | DECIDED | The job's comment explains why it takes ruff from the lock and quotes `pip install ruff` while doing so, so a raw-text match failed on the explanation instead of on the wiring — the lock caught this on its first run. Stripping comment lines is the same distinction `tests/test_ci_security_audit.py` draws when it proves the audit never points at `.venv` ("a comment cannot point the audit at a directory"). Every CI-text lock added later starts from this shape. |
+
+---
+
+## 3. Items
+
+Each item names the files, the defect, the change and the evidence that the
+change is real. "Break-and-restore" means the lock was proven able to fail by
+mutating the code under a SHA-256-verified restore, with `__pycache__` cleared
+before the verdict is believed (AGENTS.md, *Verification Tooling Traps*).
+
+### R-15 — the tooling targets must name the floor
+
+*Files:* `pyproject.toml` (`[tool.ruff] target-version`, `[tool.mypy]
+python_version`), the modules ruff re-sorts at a py311 target (12 `I001`
+findings),
+`spectral_viewer/core/spectrogram.py` (line 211),
+`.github/workflows/ci.yml` (`lint` and `typecheck` jobs), new
+`tests/test_tooling_targets.py`.
+
+*Defect:* three declarations disagree about which interpreter this project
+supports. `requires-python = ">=3.11"` and the test matrix (`3.11`, `3.12`,
+`3.14`) say 3.11 is the floor; ruff's target says 3.10, so 3.11's standard
+library is misclassified and the modernisations 3.11 unlocks are suppressed;
+mypy's target says 3.12, so the type gate certifies syntax and stdlib members
+the floor leg cannot run. Measured today: at the declared 3.10 target ruff is
+green, and at the *correct* 3.11 target it reports 12 errors — the green was an
+artefact of the wrong target. Symmetrically, mypy is clean at 3.12 and reports
+1 error at 3.11, in a module whose arithmetic is one line from the audio path.
+
+*Change:*
+1. `target-version = "py311"`, matching `requires-python`.
+2. Fix the 12 `I001` findings the corrected target exposes. Applied with
+   `ruff check --fix` **and reviewed as a diff** — the audit plan's *Never lose a
+   rule to a scripted edit* rule applies to import-block rewrites too.
+3. `python_version = "3.11"` in `[tool.mypy]`.
+4. Fix `spectral_viewer/core/spectrogram.py:211`: `magnitude.max()` with no
+   argument has no valid overload against 3.11's numpy stubs; `np.max(magnitude)`
+   is the same call with a signature that type-checks. The `if magnitude.size`
+   guard above it stays — the empty case still must not produce `-inf`.
+5. The `typecheck` job installs and runs on the **floor**: `python-version:
+   "3.11"` so the installed stubs and the declared `python_version` agree,
+   instead of checking a 3.12 environment against a 3.11 declaration.
+6. The `lint` job takes ruff from `uv.lock` (`pip install uv` →
+   `uv sync --extra dev` → `uv run ruff check .` / `uv run ruff format --check
+   .`), so the tool that defines "clean" is the one the lock names.
+
+*Evidence:*
+* `ruff check .` and `ruff format --check .` clean with the target declared in
+  pyproject, i.e. **without** the `--target-version py311` flag.
+* `mypy .` clean (550 files) with `python_version = "3.11"`.
+* `tests/test_tooling_targets.py` fails when any of the three declarations is
+  moved out of agreement with the others: the ruff target's minor, mypy's
+  `python_version` minor and the lowest minor in `requires-python` (3.11), plus
+  the `typecheck` job's `python-version` and the presence of a lock-sourced ruff
+  install in `lint`. Each assertion is proved able to fail by editing the value
+  in a scratch copy.
+* The 3.11 mypy leg is green **in CI**. The local `--python-version 3.11` run is
+  a proxy on a host whose environment is 3.14, so it starts the item, it does
+  not close it — see X1.
+
+**Delivered (2026-10-27).** `target-version = "py311"`; the 12 `I001` findings
+that exposed are fixed and reviewed hunk by hunk — every one is `tomllib` moving
+out of the third-party block into the standard-library block, with no logic
+touched. `python_version = "3.11"`, and
+`spectral_viewer/core/spectrogram.py` now takes its peak with `np.max(magnitude)`
+(the no-argument method form has no valid overload under the 3.11 stubs; the
+`magnitude.size` guard is kept, so an empty window still gets the 0.0 sentinel).
+The `typecheck` job installs `python-version: "3.11"`; the `lint` job installs
+the dev extra from `uv.lock` and runs `uv run ruff`. Fifteen files carry this
+window's `Changed in 2.1.6` note, as `tests/test_release_notes.py` requires. New
+lock `tests/test_tooling_targets.py` (9 tests). One trap, D14: a CI-text
+assertion must read executed lines, because the job's comment quotes the command
+it replaced.
+
+### R-16 — README tool count: verification only (already closed in 2.1.5)
+
+*Files:* none.
+
+*Defect:* the audit found `README.md` claiming "27 first-party tools" against a
+30-tool registry. **It no longer does.** `README.md` line 3 reads "30
+first-party tools"; the platform section reads "the other 29 of 30 tools"; and
+the lock the audit asked for turns out to exist in a stronger form than
+requested: `TestToolCountClaims` checks *every* count claim in the shipped prose
+(not just the one the audit found) against the manifest, with a non-vacuity
+floor of five claims and explicit assertions that the README and the deck were
+read.
+
+*Change:* none. This item closes the audit row with evidence, records the
+mechanism that superseded the audit's suggested fix (D7), and names the two
+locks that keep it closed.
+
+*Evidence:* `tests/test_suite_docs_tool_coverage.py::TestToolCountClaims` (all
+five cases, including `test_every_count_claim_matches_the_manifest` and
+`test_the_scan_reads_the_readme_and_the_deck`) and
+`tests/test_readme.py::TestMetadataLock::test_pyproject_ships_the_readme_and_30_tool_rows`
+pass on the base commit. No production or documentation change is part of this
+item, and `CHANGELOG.md` gets no bullet for it (§7).
+
+### R-11 — the dependency audit must be blocking, with a dated allowlist
+
+*Files:* `.github/workflows/ci.yml` (the audit step), new
+`.github/workflows/dependency-audit.yml`, new `security/pip_audit_allowlist.toml`,
+new `utilities/check_dependency_audit.py`, `CONTRIBUTING.md`
+(*Dependency security scanning*), `tests/test_ci_security_audit.py`, plus the
+checker's own tests.
+
+*Defect:* the security job's audit reports but cannot fail. `continue-on-error:
+true` was added in 1.4.1 "on probation for two sprints"; the probation has
+outlived its two sprints by seven release cuts, and the project otherwise gates
+security tightly (bandit 0 High / 0 Medium is a hard gate, secrets are scanned
+against the index). A newly published advisory against a shipped dependency
+therefore turns one step orange and the suite ships the graph anyway. The
+finding's blast radius is the shipped lock: `uv.lock` is what users install.
+
+*Change:*
+1. `continue-on-error` is removed from the step; the checker's exit status is
+   the step's verdict.
+2. `utilities/check_dependency_audit.py` (stdlib only) reads a pip-audit JSON
+   payload, applies the allowlist, prints one line per finding, and exits
+   non-zero for: an advisory with no allowlist entry; an entry that has expired;
+   an entry whose advisory is no longer reported (stale); an unparsable, empty
+   or unexpectedly shaped payload (fail loudly, never pass vacuously).
+3. `security/pip_audit_allowlist.toml` starts **empty**, with the schema and the
+   expiry rule documented in its header. An empty list is the honest starting
+   state: today's exported graph audits clean, and an entry is added only when a
+   real advisory cannot be upgraded away — with its id, reason and expiry.
+4. The allowlist's entries are the only suppression: the step keeps pip-audit's
+   raw output in the log, and no `--ignore-vuln` is passed.
+5. `.github/workflows/dependency-audit.yml` runs the same checker weekly
+   (`schedule:`) and on demand (`workflow_dispatch:`) against `main`, so an
+   advisory published between commits surfaces without waiting for a pull
+   request, and so an expiry date can be exceeded on a week nobody commits.
+6. `CONTRIBUTING.md`'s probation paragraph is replaced by the new contract
+   (blocking, allowlist with expiry, weekly job, what to do when a finding
+   appears).
+7. `tests/test_ci_security_audit.py::test_the_step_is_on_probation` is replaced
+   by the new contract — the module's docstring already treats the flag as
+   something that must not be "kept forever without a recorded decision", so
+   this is the deliberate edit it was built for, not a locked assertion being
+   weakened.
+
+*Evidence:*
+* Checker tests, offline, over synthetic pip-audit JSON: unlisted advisory →
+  non-zero; listed and unexpired → zero; expired → non-zero and the message
+  names the date; stale entry → non-zero; empty payload and malformed payload →
+  non-zero. Break-and-restore: removing the expiry comparison must fail the
+  suite.
+* `tests/test_ci_security_audit.py` asserts the step no longer carries
+  `continue-on-error`, that it invokes the checker, that the weekly workflow
+  exists with a `schedule:` trigger and invokes the **same** script, and that
+  the allowlist file is present and parses. Non-vacuity: each slice is asserted
+  non-empty, the pattern the existing module uses.
+* The real-world proof of the audit's acceptance column ("CI failure on a new
+  advisory") cannot be manufactured by publishing an advisory, so it is
+  demonstrated on a synthetic payload in the checker's own tests and named as
+  such in the verification record.
+
+### R-12 — a POSIX leg that runs the portable core, and a caveat that matches it
+
+*Files:* `.github/workflows/ci.yml` (new `posix-smoke` job),
+`audio_suite_shared/platform_support.py` (`MATRIX_CAVEAT` and the module
+docstring's "the Linux CI leg added by plan item A4 is still `[~]` with no
+recorded run"), the regenerated README platform block
+(`utilities/generate_readme_platform_matrix.py`), any staged copy under `docs/`
+(whichever generator owns it), and a new lock beside the existing CI locks.
+
+*Defect:* the repository makes a portability claim it does not test, and the
+claim is currently in a contradictory state. `README.md`'s Prerequisites say
+"CI verifies 3.11, 3.12 and 3.14" — true — while the platform section says "**no
+tool in this suite has been executed on a real Linux or macOS host**" and names
+a "Linux CI leg added by plan item A4 [that] is still unrecorded". A4 is the CI
+ffmpeg install — the marker description in `pyproject.toml` reads "CI installs
+ffmpeg, plan A4", and `ci.yml`'s test job runs `choco install ffmpeg` — so the
+caveat cites a deliverable that never existed. Meanwhile the only Ubuntu jobs
+that import first-party code are the compile, lint, security and schema jobs;
+nothing runs a tool package. The portable-core tier therefore rests entirely on
+unit tests that simulate a platform value.
+
+*Change:*
+1. A `posix-smoke` job on `ubuntu-latest` that installs the base + dev extras
+   **from the lock** (`uv sync --extra dev`), installs ffmpeg via apt, and then
+   (a) smoke-checks the CLI surface — `audiosuite --help` and `audiosuite
+   doctor` — and (b) runs an **explicitly declared** module selection of the
+   portable core: the shared package's non-GUI modules
+   (`audio_suite_shared/tests/test_cli_app.py` and its `test_cli_*` siblings
+   among them), and the tool suites whose tests do not require Windows.
+2. The selection is derived by **running it**, not by guessing from the README's
+   tiers: the job's first landing records, in this plan, exactly which modules
+   run and which are excluded with a reason (Windows-only imports, GUI
+   dependencies, the registry-reading doc locks, `mypy` itself). A module whose
+   test fails on POSIX is either fixed in this change (it is a real portability
+   defect, and the finding exists to surface it) or excluded with the reason
+   recorded here — never left in the selection to fail quietly.
+3. The job's verdict is non-vacuous and attributable, in the shape the
+   `docs-locks` step already uses: capture the log, fail on the real exit code,
+   `grep -qE "[0-9]+ passed"`, and print the root `conftest.py`'s display
+   summary — which states plainly whether GUI behaviour was verified and how
+   many tests the absence of a display cost. The skip count is pinned, so a
+   blanket skip cannot masquerade as a passing leg (D6).
+4. The selection is pinned by a lock (new module, in the shape of
+   `tests/test_ci_security_audit.py`): the job exists, the selection is
+   non-empty, the job's module list and the lock's list are the same set, and a
+   module cannot be dropped from the job without editing the lock.
+5. `MATRIX_CAVEAT` is rewritten to say what is now true — a named selection runs
+   on a real Ubuntu host on every push, and the *tier definitions are
+   unchanged*: `portable-core` still means "the non-Windows arm is implemented
+   and a test exercises it under a simulated platform value", and `unverified`
+   still means "no test runs it under any platform value". Running a real host
+   does not reclassify a tier, so the README is regenerated rather than
+   re-argued, and the sentence citing plan item A4 is replaced by one naming
+   this plan and the job.
+6. The README's generated block is regenerated with
+   `utilities/generate_readme_platform_matrix.py`; the file is never hand-edited
+   (D13), and no other paragraph may grow a portability claim — the anti
+   over-claim lock forbids `cross-platform`, `fully cross-platform` and `works
+   on linux and macos`.
+
+*Evidence:*
+* A green `posix-smoke` run whose log carries a passed count and a bounded,
+  attributable skip list; the run is the acceptance evidence in the audit's own
+  terms ("green Ubuntu CLI/shared smoke run").
+* `test_platform_support.py::TestReadmeDriftLock` green after the regeneration,
+  including the verbatim-caveat case, and the tool-index platform column
+  unchanged (the tiers did not move).
+* The new CI lock fails when the job is deleted, when a module is removed from
+  its selection, and when the selection is emptied — each proved by mutating a
+  scratch copy.
+* The CLI smoke commands are the two the finding names and both exist today:
+  `doctor` is registered by `audio_suite_shared/cli_app.py` even when a tool
+  package fails to import, which is why it is the right smoke for a host nobody
+  has run before.
+
+---
+
+## 4. Traceability
+
+| Finding | Sev | Item | Acceptance evidence (audit §9.1) | Release |
+|---|---|---|---|---|
+| R-11 — dependency audit non-blocking | P2 | §3 R-11 | CI failure on a new advisory | 2.1.7 |
+| R-12 — POSIX untested | P2 | §3 R-12 | green Ubuntu CLI/shared smoke run | 2.1.7 |
+| R-15 — Ruff/mypy targets below floor | P2 | §3 R-15 | 3.11 typecheck leg green | 2.1.6 |
+| R-16 — README count stale | P3 | §3 R-16 | README assertion matches `len(first_party())` | none (closed in 2.1.5) |
+
+---
+
+## 5. Verification record
+
+Filled per item as it lands, under AGENTS.md's gate — compile, `ruff check` /
+`ruff format --check`, bare `mypy .`, `bandit -r . -x ./.venv -c pyproject.toml`
+(0 High / 0 Medium), bare `pytest` — plus, for the CI items, the runner's own
+verdict. The last complete record is `PLAN_ci_2026-10-27_remediation.md` §4 at
+`f273729` (all nine jobs green); nothing in this plan inherits its numbers.
+
+Three claims in this plan cannot be closed on the development host and must be
+recorded as runner-verified when they are: the 3.11 mypy leg (R-15), the
+`posix-smoke` leg itself (R-12), and the weekly workflow's first scheduled run
+(R-11). Each is named in §6 as an open verification rather than asserted here.
+
+### R-15 — measured 2026-10-27 (development host: Windows, Python 3.14)
+
+* `python -m compileall -q -f .` — exit 0 (only the pre-existing third-party
+  pydub `SyntaxWarning` noise).
+* `ruff check .` — clean **with `target-version = "py311"` declared in
+  pyproject**, i.e. without passing the flag that produced the failing run.
+* `ruff format --check .` — clean, 938 files.
+* `python -m mypy .` — clean, **550 source files**, with
+  `python_version = "3.11"`.
+* `bandit -r . -x ./.venv -c pyproject.toml` — **0 High / 0 Medium** (38 Low, the
+  documented tail).
+* bare `pytest` — **11 155 passed, 3 skipped, 35 deselected, 905 s**, coverage
+  **90.89 %**, floor 75 % reached. The 11 146 of the CI plan's record plus the
+  nine new tests in `tests/test_tooling_targets.py`.
+
+**Break-and-restore.** `ci.yml` was mutated to the pre-R-15 values in two
+passes — the typecheck job back to `python-version: "3.12"`, then
+`uv run ruff check .` back to `ruff check .` — and each mutation failed exactly
+the one lock that owns it (verdicts keyed on `FAILED` lines, never on a word
+appearing in the output) while the restored file passed both again; restores
+were SHA-256-verified, and the mutated file is data rather than an imported
+module, so no stale bytecode could have carried a verdict. The pyproject half is
+proved inside the lock: a py310 Ruff target, a 3.12 mypy target and a raised
+floor are each applied to an edited copy of the real file and must be reported.
+
+**Open on the runner** (X1, extended): the 3.11 `typecheck` leg, and the `lint`
+job's `uv sync --extra dev` on `ubuntu-latest` — that job used to install one
+package and now installs the locked graph on a platform this host cannot
+exercise. Both are verified by the first push, and a failure there is a finding
+for this plan rather than a defect to work around.
+
+---
+
+## 6. Open items, and deferrals this plan creates
+
+* **X1 — a local 3.11/3.12 interpreter.** This host has 3.14 only (CI plan X2
+  carries forward). Every R-15 claim about the 3.11 leg is either a proxy
+  measurement (`mypy . --python-version 3.11`) or the runner's verdict, and the
+  `lint` job's Linux `uv sync --extra dev` joins that list (R-15 delivered it
+  without being able to run it here). A
+  defect that only manifests under 3.11's installed wheels cannot be reproduced
+  locally. Note the trap while measuring: the lock resolves *different* numpy
+  and scipy legs below 3.12 (AGENTS.md, *A dependency's version can change which
+  branch runs*), so the 3.11 environment can expose a finding the proxy run
+  cannot.
+* **X2 — the `UP` rule set** (D11). Measured at `85046ef`: 317 findings, 314
+  fixable — `UP045` 139, `UP035` 80, `UP037` 57, `UP024` 21, `UP015` 10,
+  `UP033` 6, `UP007` 1, `UP031` 1, `UP012` 1, `UP009` 1. Its own change, with
+  `ruff check --diff --select UP` reviewed by hand rather than applied blind.
+  `UP007` is the audit's "135 `Optional[...]` alongside `X | None`" observation
+  and is not auto-fixable. `UP042` reports nothing today; if it is ever taken,
+  AGENTS.md's `str`-mixin enum trap governs every interpolation site in the
+  package, not just the refactored module.
+* **X3 — the 2.1.6 cut** (CI plan X3). `[Unreleased]` is written but unreleased,
+  and this plan does not authorise the cut. R-15 lands in the window either way;
+  whether R-11/R-12 ride 2.1.6 or their own 2.1.7 is a release decision, not an
+  item.
+* **X4 — R-13 and R-14 remain deferred.** The cache key's path+mtime identity
+  and the non-ASCII console output are the register's remaining P3 defects; they
+  are outside this brief and stay in the predecessor's §8.
+* **X5 — no macOS leg** (D12). Recorded as a decision, not an omission: revisit
+  only with a supporting claim to make.
+* **X6 — no `smoke` marker / fast profile** (audit Q-09). The POSIX leg uses an
+  explicit declared selection instead of a new marker, so the two do not
+  compete for the same problem.
+
+---
+
+## 7. Changelog mapping
+
+When the items land, `CHANGELOG.md`'s `[Unreleased]` carries: R-15 under
+**Changed** (the tooling now targets the interpreter the project declares, and
+one real type error the old target hid is fixed); R-11 under **Changed** (the
+dependency audit is blocking, with a dated allowlist and a weekly run); R-12
+under **Added** (a POSIX smoke leg, and the platform caveat rewritten to match
+it). R-16 gets **no bullet**: it was closed by the 2.1.5 docs work this plan
+merely records.
+
+---
+
+## 8. Risks and rollback
+
+| Risk | Mitigation | Rollback |
+|---|---|---|
+| Making the audit blocking reds `main` the day an advisory is published against a dependency nobody can upgrade yet. | The allowlist is the escape valve, with a reason and an expiry; the checker's message names the id, the fix versions and where to record the entry. | Restoring `continue-on-error` is legitimate if it is a recorded decision row in this plan — never a silent revert. The lock fails on a silent revert, because it asserts the flag is absent. |
+| The `posix-smoke` leg's first run fails on real POSIX defects, or worse, passes because it collected almost nothing. | The selection is declared and locked; the job asserts a passed count and prints the display summary; skips are bounded and pinned. | Narrow the selection or remove the job **in the same change** that restores the caveat. A job removed while the caveat still claims it is the exact defect R-12 exists to remove. |
+| `target-version = "py311"` surfaces more than the 12 measured findings, or `mypy` at 3.11 more than the 1. | Both were measured before the plan was written, so the size is known; anything further is fixed in the change or recorded here as a decision, never ignored. | Revert the target alone and record why — but the lock in `tests/test_tooling_targets.py` then has to be changed deliberately, which is the point. |
+| The floor environment resolves different numpy/scipy legs below 3.12 than the 3.14 host does. | X1 names it; the acceptance evidence is the 3.11 leg's verdict, not the local proxy. | None needed: this is a measurement limitation, not a defect. |
+| An allowlist entry is added to silence an advisory instead of fixing it. | Entries expire, staling is a failure, and the weekly run makes an expired entry red on a day nobody committed. | Remove the entry and upgrade, or renew it with a new reason and date — the renewal is a visible diff in review. |

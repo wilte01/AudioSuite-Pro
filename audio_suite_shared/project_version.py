@@ -25,15 +25,18 @@ TOML parser ships in the standard library.  That floor has been raised, and
 hand-matching TOML is strictly worse: it cannot see array-of-table or dotted
 key syntax, and it would have to be re-audited against every TOML edge case the
 standard library already handles correctly.
+
+Changed in 2.1.6: the import block is re-sorted against the corrected ruff
+target py311, so ``tomllib`` sits in the standard-library block the 3.11 floor
+puts it in (R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
 
+import tomllib
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
-
-import tomllib
 
 _PACKAGE_NAME = "audiosuite-pro"
 

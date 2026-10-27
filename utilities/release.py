@@ -47,6 +47,9 @@ Changed in 2.1.0: guides are rebuilt through the shared Markdown renderer
 (``utilities/build_user_guides.py <tool>``) instead of each tool's retired
 ``generate_guide.py`` (PLAN_docs_consolidation P2.4). The version-subtitle and
 zip-entry checks are unchanged - they still judge the artefact a user opens.
+Changed in 2.1.6: the import block is re-sorted against the corrected ruff
+target py311 — ``tomllib`` is 3.11 standard library
+(R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
@@ -58,11 +61,10 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 import zipfile
 from pathlib import Path
 from typing import Any
-
-import tomllib
 
 #: The only zip entry a version-only guide regeneration may touch.
 GUIDE_TEXT_ENTRY = "word/document.xml"

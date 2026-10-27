@@ -11,6 +11,17 @@ Versions of the tools are released together with the suite (the single
 
 ### Changed
 
+- **The lint and type gates now target the interpreter the project declares.**
+  Ruff was configured for 3.10 and mypy for 3.12 while `requires-python` promised
+  3.11, so `ruff check .` passed only because 3.11's `tomllib` was classified as
+  third-party: correcting the target reported 12 mis-sorted import blocks, and
+  the type gate certified syntax and standard-library members the oldest
+  supported interpreter cannot run. Both now name the 3.11 floor, the
+  `typecheck` job installs 3.11, the `lint` job takes Ruff from `uv.lock`
+  instead of an unpinned `pip install ruff`, and the one real error the 3.12 pin
+  hid is fixed (`ndarray.max()` with no argument has no valid overload under the
+  3.11 stubs, in the spectral viewer's peak calculation). A new lock holds the
+  three declarations, and the two CI jobs, to the floor.
 - **A wedged test now fails the Python 3.14 CI leg instead of hanging it.** The
   first run of the new workflow stopped at 6% for forty minutes and had to be
   cancelled with no output: the tests in that stretch of the collection order

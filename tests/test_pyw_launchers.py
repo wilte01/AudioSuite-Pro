@@ -40,6 +40,10 @@ above glob ``REPO_ROOT/*.pyw``, so the launcher a plugin ships — at
 roots were off by one level: ``sys.path`` got the suite root instead of
 ``plugins``, the entry import raised ``ModuleNotFoundError``, and the Master
 Driver reported only "Module failed: Example Tool".
+
+Changed in 2.1.6: the import block is re-sorted against the corrected ruff
+target py311 — ``tomllib`` is 3.11 standard library
+(R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
@@ -49,13 +53,13 @@ import logging
 import os
 import subprocess
 import sys
+import tomllib
 import types
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 

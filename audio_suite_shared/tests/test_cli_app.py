@@ -19,6 +19,10 @@ Changed in 2.1.4: the dry-run smoke class now asserts the R-06 status.  The
 fixture's files are fake bytes, so every analysis command reports two per-file
 errors and exits 1; the old ``exit_code == 0`` assertions were the defect, not a
 clean run (PLAN D9).
+
+Changed in 2.1.6: the function-local import block is re-sorted against the
+corrected ruff target py311 — ``tomllib`` is 3.11 standard library
+(R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
@@ -604,9 +608,8 @@ class TestDiscoverabilityContract:
         self, runner: CliRunner
     ) -> None:
         """Guard the 'lives in exactly one place' requirement."""
-        from pathlib import Path
-
         import tomllib
+        from pathlib import Path
 
         pyproject = tomllib.load(
             (Path(__file__).resolve().parents[2] / "pyproject.toml").open("rb")

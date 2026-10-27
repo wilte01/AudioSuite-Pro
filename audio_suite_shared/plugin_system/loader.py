@@ -22,6 +22,9 @@ resolves one of their entry points.**
 
 Changed in 2.1.0: new module — MANIFEST.toml discovery, validation and
 enablement resolution (Sprint 7, Item 7.1).
+Changed in 2.1.6: the import block is re-sorted against the corrected ruff
+target py311 — ``tomllib`` is 3.11 standard library, so a py310 target treated
+it as third-party (R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
@@ -30,11 +33,10 @@ import logging
 import os
 import re
 import sys
+import tomllib
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-
-import tomllib
 
 from audio_suite_shared.plugin_system.models import (
     PLUGIN_API_VERSION,

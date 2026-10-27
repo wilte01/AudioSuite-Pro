@@ -61,10 +61,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 
 import pytest
-import tomllib
 
 from tests.test_conftest import _load_root_conftest, _outcome, _outcome_line
 

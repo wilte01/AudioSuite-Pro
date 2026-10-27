@@ -9,15 +9,19 @@ and this module is the only reader of it.
 The reader is ``tomllib``, which is standard library on every interpreter the
 suite supports (the floor is 3.11), so there is no import guard and no
 ``importorskip`` escape hatch here any more.
+
+Changed in 2.1.6: the import block is re-sorted against the corrected ruff
+target py311 — ``tomllib`` is 3.11 standard library, which is exactly why this
+module needs no import guard (R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import pytest
-import tomllib
 
 from audio_suite_shared import project_version
 

@@ -7,17 +7,20 @@ rather than as a generic dialog, "pip succeeded" is not accepted as proof, and
 the declared version floor cannot drift away from ``pyproject.toml``.
 
 Changed in 2.1.0: initial version.
+Changed in 2.1.6: the import block is re-sorted against the corrected ruff
+target py311 — ``tomllib`` is 3.11 standard library
+(R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
 
 import ast
 import subprocess
+import tomllib
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-import tomllib
 
 from audio_suite_shared.optional_deps import (
     DEMUCS,

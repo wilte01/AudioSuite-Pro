@@ -109,11 +109,16 @@ what was deferred. They are history, not instructions — the rules that still
 apply live in the repository's `AGENTS.md` and in
 [CONTRIBUTING.md](../CONTRIBUTING.md), which ships with this documentation.
 
-* `PLAN_ci_2026-10-27_remediation.md` — the current plan: the defects the first
-  run of the published CI workflow exposed, and the hang it could not report.
-* `PLAN_docs_consolidation.md` — the previous plan (complete): consolidating
+* `PLAN_audit_2026-10-24_deferred_p2p3.md` — the current plan: the dependency
+  audit's CI policy, a POSIX smoke leg, the interpreter targets the tooling
+  declares, and the README's tool count. R-15 (the targets) is delivered; R-11,
+  R-12 and the R-16 verification row are open.
+* `PLAN_ci_2026-10-27_remediation.md` — the previous plan (its C1–C8 complete,
+  X1–X3 open): the defects the first run of the published CI workflow exposed,
+  and the hang it could not report.
+* `PLAN_docs_consolidation.md` — the plan before that (complete): consolidating
   this documentation into as few formats as possible.
-* `AUDIT_2026-10-06_suite_report.md` — the most recent full audit.
+* `AUDIT_2026-10-24_suite_report.md` — the most recent full audit.
 * [CHANGELOG.md](../CHANGELOG.md) — the shipped history, by release.
 
 ```{toctree}

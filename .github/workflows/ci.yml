@@ -19,15 +19,28 @@ on:
 jobs:
   lint:
     name: Lint & Format
+    # Changed in 2.1.6: the linter comes from uv.lock instead of `pip install
+    # ruff` (R-15, PLAN_audit_2026-10-24_deferred_p2p3.md). An unpinned ruff can
+    # red the gate for a reason that has nothing to do with the change under
+    # test - a new release with a new default rule - which is the argument the
+    # docs-locks job already makes for its renderer. The lock is what decides
+    # "clean"; the interpreter running ruff is irrelevant to the verdict, so
+    # this job stays on the version it had.
+    #
+    # The dev extra is installed because `uv sync` installs the project graph,
+    # not a single tool: `uv run ruff` then resolves the locked ruff. It costs
+    # about a minute more than `pip install ruff`, and it removes the class of
+    # red gate where the repository is unchanged and the tool is not.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install ruff
-      - run: ruff check .
-      - run: ruff format --check .
+      - run: pip install uv
+      - run: uv sync --extra dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
 
   docs-locks:
     name: Docs locks (freshness & formats)
@@ -114,12 +127,21 @@ jobs:
     # them and reports ~35 false attr-defined errors (CI run 38548380226);
     # on the Windows dev host the same bare `mypy .` is clean. Run it where
     # the code is actually deployed.
+    #
+    # Changed in 2.1.6: the interpreter is the 3.11 floor, not 3.12 (R-15,
+    # PLAN_audit_2026-10-24_deferred_p2p3.md). [tool.mypy] python_version is now
+    # "3.11", so the environment this job installs must be the floor too: a
+    # 3.11 declaration checked against a 3.12 environment certifies a target
+    # the oldest supported interpreter never runs, and the floor's own stubs
+    # are what caught the one error the old pin hid
+    # (spectral_viewer/core/spectrogram.py). The Windows choice is unchanged -
+    # it is about typeshed's platform members, not about the interpreter.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
       - run: pip install uv
       - run: uv sync --extra dev --extra analysis --extra cd-ripping
       - run: uv run mypy .
