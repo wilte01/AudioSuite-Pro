@@ -28,6 +28,11 @@ is created when it would land outside the output directory.
 
 Changed in 1.2.0: follows ``verify_extracted_track`` onto the typed
 ``TrackVerification`` and pins the confidence/method/label of each outcome.
+
+Changed in 2.1.6: the failed-open test finds an unused drive letter by probing
+``os.path.exists`` over the alphabet. ``os.listdrives()`` only exists on 3.12+,
+so on the 3.11 leg the test raised ``AttributeError`` instead of exercising the
+error message it locks.
 """
 
 import ctypes
@@ -1937,8 +1942,10 @@ class TestOpenDeviceFailureReporting:
 
     @pytest.mark.skipif(sys.platform != "win32", reason="needs Win32 kernel32")
     def test_failed_open_raises_clear_audio_io_error(self):
-        used = set(os.listdrives())
-        letter = next(c for c in string.ascii_uppercase if f"{c}:\\" not in used)
+        # Probe each letter rather than calling os.listdrives(): that helper is
+        # 3.12+, and this test must run on the 3.11 floor too.
+        used = {c for c in string.ascii_uppercase if os.path.exists(f"{c}:\\")}
+        letter = next(c for c in string.ascii_uppercase if c not in used)
         with pytest.raises(AudioIOError) as excinfo:
             _open_device(letter)
         assert "Cannot open CD device" in str(excinfo.value)

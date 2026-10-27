@@ -42,6 +42,12 @@ host with ``core.autocrlf=true`` and failed everywhere else - every Linux CI
 leg - with the message reserved for a corrupted file. Line endings are now
 normalised before hashing, and a bare CR, which no conversion produces, still
 fails.
+
+Changed in 2.1.6: the three nested pytest runs are given a deadline. They used
+``runpytest_subprocess``'s default ``timeout=None``, so the first 3.14 CI leg
+sat at 6% for forty minutes on the first of them and had to be cancelled, with
+no output to say why. A wedged inner run now fails this test and reports the
+inner stdout/stderr instead of hanging the job.
 """
 
 from __future__ import annotations
@@ -63,6 +69,13 @@ from tests.test_conftest import _load_root_conftest, _outcome, _outcome_line
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = REPO_ROOT / "pyproject.toml"
+
+#: Every nested pytest run gets a deadline. ``runpytest_subprocess`` defaults to
+#: ``timeout=None``, so a wedged inner run hung the whole leg with no output
+#: until GitHub's six-hour cap - which is what the first 3.14 run did, at the
+#: first of these three calls. A timeout fails the test with the inner output
+#: instead, which is the only way to see what wedged it.
+_SUBPROCESS_TIMEOUT_SECONDS = 600
 
 #: Mirrors the real ``[tool.pytest.ini_options]`` markers and addopts in the
 #: pytester sandbox: ``--strict-markers`` accepts the three real markers and
@@ -580,7 +593,12 @@ class TestIntegrationAutoSkipBehaviour:
     ) -> None:
         _install_pytester_sandbox(pytester, monkeypatch)
         outcomes = pytester.runpytest_subprocess(
-            "-p", "fake_missing", "-p", "no:cacheprovider", "-v"
+            "-p",
+            "fake_missing",
+            "-p",
+            "no:cacheprovider",
+            "-v",
+            timeout=_SUBPROCESS_TIMEOUT_SECONDS,
         )
         assert outcomes.ret == 0
         outcomes.assert_outcomes(passed=1, skipped=1)
@@ -608,7 +626,12 @@ class TestIntegrationAutoSkipBehaviour:
         """
         _install_pytester_sandbox(pytester, monkeypatch)
         root_conftest = _load_root_conftest()
-        outcomes = pytester.runpytest_subprocess("-p", "no:cacheprovider", "-v")
+        outcomes = pytester.runpytest_subprocess(
+            "-p",
+            "no:cacheprovider",
+            "-v",
+            timeout=_SUBPROCESS_TIMEOUT_SECONDS,
+        )
 
         if root_conftest.probe_missing_executables():
             line = _outcome_line(outcomes, "test_marked_integration")
@@ -630,7 +653,12 @@ class TestIntegrationAutoSkipBehaviour:
         """
         _install_pytester_sandbox(pytester, monkeypatch)
         outcomes = pytester.runpytest_subprocess(
-            "-p", "no:cacheprovider", "-m", "hardware", "-v"
+            "-p",
+            "no:cacheprovider",
+            "-m",
+            "hardware",
+            "-v",
+            timeout=_SUBPROCESS_TIMEOUT_SECONDS,
         )
         assert outcomes.ret == 0
         outcomes.assert_outcomes(passed=1)

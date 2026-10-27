@@ -16,11 +16,18 @@ Failure model:
   Any check failure produces an IntegrityResult with status=FAIL and a
   human-readable message.  The pipeline skips the file rather than
   attempting expensive DSP on an invalid input.
+
+Changed in 2.1.6: existence, regular-file-ness and size now come from one
+``Path.stat()`` call guarded by ``OSError``, instead of ``Path.exists()`` and
+``Path.is_file()``. Those two only swallow a stat failure on 3.13+, so on the
+3.11/3.12 legs an unreadable or locked file raised out of ``validate_file``
+while a 3.14 host reported the same file as merely absent.
 """
 
 from __future__ import annotations
 
 import logging
+import stat
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -220,14 +227,24 @@ def validate_file(path: Path) -> IntegrityResult:
     result = IntegrityResult(path=path)
 
     # 1. Existence and readability
-    if not path.exists():
+    # One stat decides existence, regular-file-ness and size. ``Path.exists()``
+    # and ``Path.is_file()`` must not be the ones stat-ing for us: 3.13+ swallow
+    # a stat OSError and report False, while 3.11/3.12 re-raise anything that is
+    # not ENOENT/ENOTDIR - so a locked or unreadable path crashed the check on
+    # the older supported legs instead of failing that file with a reason.
+    try:
+        file_stat = path.stat()
+    except FileNotFoundError:
         result.add_failure("existence", "File does not exist")
         return result
-    result.add_check("existence")
+    except OSError as exc:
+        result.add_failure("existence", f"Cannot stat: {exc}")
+        return result
 
-    if not path.is_file():
+    if not stat.S_ISREG(file_stat.st_mode):
         result.add_failure("existence", "Path is not a regular file")
         return result
+    result.add_check("existence")
 
     try:
         with open(path, "rb") as fh:
@@ -241,12 +258,7 @@ def validate_file(path: Path) -> IntegrityResult:
     result.add_check("readability")
 
     # 2. File size validation
-    try:
-        file_size = path.stat().st_size
-    except OSError as exc:
-        result.add_failure("file_size", f"Cannot stat: {exc}")
-        return result
-
+    file_size = file_stat.st_size
     result.file_size_bytes = file_size
 
     if file_size == 0:

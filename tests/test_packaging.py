@@ -19,6 +19,12 @@ absent, binaries staged.
 
 Skipped (attributably) where ``pwsh`` is not on PATH, so a Linux collector
 still gathers the static layer.
+
+Changed in 2.1.6: the PowerShell runs carry deadlines. ``subprocess.run`` with
+no ``timeout`` means a script waiting on something - a prompt, a locked file -
+hangs the suite until GitHub's six-hour cap, and the first 3.14 CI leg was
+cancelled at 6% in exactly this stretch of the collection order. A timeout
+fails the test with the captured output instead.
 """
 
 from __future__ import annotations
@@ -98,6 +104,7 @@ def _run_harness(tmp_path: Path, body: str) -> subprocess.CompletedProcess[str]:
         encoding="utf-8",
         errors="replace",
         check=False,
+        timeout=300,
     )
 
 
@@ -462,6 +469,7 @@ class TestFullStaging:
             errors="replace",
             check=False,
             cwd=REPO_ROOT,
+            timeout=900,
         )
         assert result.returncode == 0, result.stdout + result.stderr
 

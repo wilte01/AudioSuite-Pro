@@ -17,6 +17,9 @@ Changed in 2.1.4: covers a skipped step's line naming the dependency that
 blocked it (plan C4), alongside the existing completed-step caveat case.
 Changed in 2.1.5: covers the Help menu's Full Changelog entry, the archive it
 opens, and the notice it shows when the installation has no changelog.
+Changed in 2.1.6: the Help-menu helper resolves Help's position in the menubar
+instead of reusing its position among the cascade labels, which pointed at a
+different entry on the Tk 8.6 legs (their menubar carried a tear-off entry).
 
 Regression background
 ---------------------
@@ -868,19 +871,44 @@ def _assert_hidden_widgets(driver):
 def _help_menu_labels(driver_app) -> list[str]:
     """Return the Help menu's command labels, in menu order."""
     menubar = driver_app.root.nametowidget(driver_app.root["menu"])
-    labels = [
-        menubar.entrycget(index, "label")
-        for index in range(menubar.index("end") + 1)
-        if menubar.type(index) == "cascade"
-    ]
-    assert "Help" in labels
-    help_index = labels.index("Help")
+    # Resolve Help to its position in the menubar itself. Filtering to the
+    # cascades and then reusing that position is what broke on the Tk 8.6 legs:
+    # their menubar carried a tear-off entry at index 0, so position 0 in the
+    # filtered list named the tear-off rather than Help.
+    help_index = next(
+        (
+            index
+            for index in range(menubar.index("end") + 1)
+            if menubar.type(index) == "cascade"
+            and menubar.entrycget(index, "label") == "Help"
+        ),
+        None,
+    )
+    assert help_index is not None, "the menubar has no Help menu"
     help_menu = driver_app.root.nametowidget(menubar.entrycget(help_index, "menu"))
     return [
         help_menu.entrycget(index, "label")
         for index in range(help_menu.index("end") + 1)
         if help_menu.type(index) == "command"
     ]
+
+
+class TestHelpMenuConstruction:
+    """The menubar is a plain cascade list, with no Tk tear-off row (2.1.6)."""
+
+    def test_menubar_has_no_tear_off_entry(self, driver_app) -> None:
+        """Tk 8.6 renders a default tear-off as a dashed row above Help.
+
+        Tk 9 defaults ``tearoff`` to 0, so this only fails on the older Tk the
+        Windows CI legs ship - which is where the entry appeared. It also
+        shifted every menubar index by one, which is what the Help-menu helper
+        was misreading.
+        """
+        menubar = driver_app.root.nametowidget(driver_app.root["menu"])
+        entries = [menubar.type(index) for index in range(menubar.index("end") + 1)]
+
+        assert entries, "the menubar has no entries - the check is vacuous"
+        assert "tearoff" not in entries
 
 
 class TestWhatsNew:

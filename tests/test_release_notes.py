@@ -158,6 +158,16 @@ instead of new work being filed under a release it is not in. The asserted
 non-empty exception category stays the narrative ``.md`` documents: this
 re-baseline lands with the ``CHANGELOG.md`` entry for the work in flight, which
 is the window's first narrative change, so the scan cannot be vacuous here.
+Changed in 2.1.6: re-baselined the lock for the post-2.1.5 window. BASE_COMMIT
+is now 5cbe83d -- the tip after the 2.1.5 cut -- and NOTE_MARKER is ``Changed in
+2.1.6``, so 2.1.5's notes stay as each file's own history. The window's first
+narrative change is the ``[Unreleased]`` entry these CI fixes land under.
+Changed in 2.1.6: the diff no longer forces ``core.autocrlf=false``. On a host
+whose checkout converts line endings (GitHub's Windows runners set
+``core.autocrlf=true``) that override made every LF-stored file look modified,
+so the lock read a 3.11/3.12 run as hundreds of unannotated files and went red
+for a change nobody had made. Without it, git normalises the working tree the
+way it wrote it, which is what ``git status`` reports on every host.
 """
 
 from __future__ import annotations
@@ -172,14 +182,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: The plan's base commit; every file changed since here must be annotated.
 #: Re-baselined per sprint (section 2.5 of the audit-remediation plan) so each
 #: release's notes are written while its work is in flight, not retro-fitted at
-#: the cut. It now sits at bd99ed1, the 2.1.4 release commit: the closed 2.1.4
-#: window needs no further notes and only work after that cut does. Earlier
+#: the cut. It now sits at 5cbe83d, the tip after the 2.1.5 cut (2.1.5's own
+#: release commit is 942c183 and its notes are written): the closed 2.1.5
+#: window needs no further notes and only work after that tip does. Earlier
 #: work is documented in its own plans and CHANGELOG.md, so it does not require
 #: per-file notes here.
-BASE_COMMIT = "bd99ed1"
+BASE_COMMIT = "5cbe83d"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 2.1.5"
+NOTE_MARKER = "Changed in 2.1.6"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (
@@ -251,8 +262,11 @@ def changed_since_base() -> list[str]:
         subprocess.CalledProcessError: if ``git`` fails - e.g. the base commit
             is missing because the checkout is shallow.
     """
+    # No ``core.autocrlf`` override: forcing it off makes a checkout that
+    # converts line endings look like every LF-stored file changed, which is a
+    # property of the machine, not of the change set.
     result = subprocess.run(
-        ["git", "-c", "core.autocrlf=false", "diff", "--name-only", BASE_COMMIT],
+        ["git", "diff", "--name-only", BASE_COMMIT],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

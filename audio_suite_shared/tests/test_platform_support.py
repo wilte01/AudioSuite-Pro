@@ -35,6 +35,12 @@ validates a run and completes a dry run on every platform.
 
 Changed in 2.1.0: reads only first-party manifests, so a plugin tool cannot skew the
 platform matrix.
+
+Changed in 2.1.6: the ``os.name`` trap lock accepts 3.11's louder form of the
+same trap. There ``Path("C:/tmp/x")`` under a patched ``os.name`` raises
+``NotImplementedError`` (the flavour's support flag is evaluated at import)
+instead of building the hybrid PosixPath 3.12+ builds; the test now asserts
+that message rather than going red on the older legs.
 """
 
 from __future__ import annotations
@@ -625,8 +631,17 @@ class TestPortableCoreCLI:
         if os.name != "nt":  # pragma: no cover - the trap is Windows-specific
             pytest.skip("os.name trap only manifests on a Windows host")
         with patch.object(os, "name", "posix"):
-            assert not isinstance(Path("C:/tmp/x"), PureWindowsPath)
-            assert Path("C:/tmp/x").is_absolute() is False
+            try:
+                hybrid = Path("C:/tmp/x")
+            except NotImplementedError as exc:
+                # 3.11 evaluates the flavour's support flag at import time, so
+                # patching os.name does not even yield a PosixPath there - it
+                # refuses to build one. That is the same trap, louder, and the
+                # assertion is what keeps this test from passing vacuously.
+                assert "PosixPath" in str(exc)
+                return
+            assert not isinstance(hybrid, PureWindowsPath)
+            assert hybrid.is_absolute() is False
 
 
 class TestAttributableSkips:

@@ -10,10 +10,16 @@ Tests cover:
   - Audio property validation (sample rate, duration, channels)
   - Batch validation utilities
   - Integration with pipeline pre-flight check
+
+Changed in 2.1.6: the oversized-file fake now returns a real mode alongside the
+size. A bare ``MagicMock()`` as the stat result satisfied ``Path.is_file()`` on
+one interpreter and raised ``TypeError`` on another, so the test asserted the
+size check through a fake that could not reach it everywhere.
 """
 
 from __future__ import annotations
 
+import stat
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -346,7 +352,9 @@ class TestValidateFileEdgeCases:
         big.write_bytes(b"RIFF" + b"\x00" * 100)
 
         with patch.object(type(big), "stat") as mock_stat:
-            mock_stat.return_value = MagicMock(st_size=5 * 1024 * 1024 * 1024)
+            mock_stat.return_value = MagicMock(
+                st_size=5 * 1024 * 1024 * 1024, st_mode=stat.S_IFREG | 0o644
+            )
             result = validate_file(big)
             assert result.status == IntegrityStatus.FAIL
             assert any("exceeds maximum" in f for f in result.failures)

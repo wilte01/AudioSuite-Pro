@@ -198,6 +198,11 @@ jobs:
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: windows-latest
+    # Changed in 2.1.6: a deadline on the leg. The first 3.14 run wedged at 6%
+    # with no output and no timeout above it, so it would have held a runner
+    # until GitHub's six-hour cap. The suite takes ~25 minutes here; a leg that
+    # is still going at 60 is stuck, and failing it says so in the run list.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

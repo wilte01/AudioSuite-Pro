@@ -20,6 +20,10 @@ failed dependency, or the dependency that never ran), so the panel says why a
 step did not run instead of only that it did not (plan C4).
 Changed in 2.1.5: the Help menu gains a Full Changelog entry, so the complete
 release history opens without going through the What's New panel first.
+Changed in 2.1.6: the menubar is built with ``tearoff=0``. ``tk.Menu`` defaults
+to a tear-off entry, which Tk 8.6 renders as a dashed row above Help (Tk 9
+defaults to no tear-off, so only the older interpreter legs showed it), and
+which shifts every entry index on those legs.
 """
 
 import logging
@@ -491,7 +495,7 @@ class AudioSuiteDriver(UIHelperMixin):
     # ── Menu ──────────────────────────────────────────────────────────────────
 
     def _setup_menu(self) -> None:
-        menubar = tk.Menu(self.root, font=styles.FONT_BODY)
+        menubar = tk.Menu(self.root, tearoff=0, font=styles.FONT_BODY)
         self.root.config(menu=menubar)
         help_menu = tk.Menu(menubar, tearoff=0, font=styles.FONT_BODY)
         menubar.add_cascade(label="Help", menu=help_menu)

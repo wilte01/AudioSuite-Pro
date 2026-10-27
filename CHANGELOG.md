@@ -9,8 +9,46 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+### Changed
+
+- **A wedged test now fails the Python 3.14 CI leg instead of hanging it.** The
+  first run of the new workflow stopped at 6% for forty minutes and had to be
+  cancelled with no output: the tests in that stretch of the collection order
+  run subprocesses with no deadline - three nested pytest runs
+  (`runpytest_subprocess` defaults to `timeout=None`) and the PowerShell
+  staging harness. They now carry timeouts, so a wedged child fails the test
+  with its captured output. The test job also declares `timeout-minutes: 60`,
+  so a stuck leg fails in the run list rather than holding a runner until
+  GitHub's six-hour cap. The suite takes about 25 minutes; a leg still going at
+  60 is stuck.
+
 ### Fixed
 
+- **The release-note lock no longer reads a line-ending conversion as a
+  change.** It ran `git diff` with `core.autocrlf=false` forced, so on a
+  checkout that converts line endings - GitHub's Windows runners do - every
+  LF-stored file looked modified. The 3.11 and 3.12 legs therefore reported
+  hundreds of files "without a `Changed in 2.1.5` note" that nobody had
+  touched, while a 3.14 host read the same commit as clean. The override is
+  gone, so the lock sees what `git status` reports on the machine it runs on.
+- **The refinery's integrity check reports an unreadable file instead of
+  crashing on it, on every supported interpreter.** `validate_file` decided
+  existence and regular-file-ness through `Path.exists()` and `Path.is_file()`;
+  those swallow a stat failure only on 3.13+, so a locked or permission-denied
+  path raised out of the check on 3.11 and 3.12 instead of failing that file
+  with a reason. One guarded `Path.stat()` now decides existence, regular-file
+  status and size, so all three legs give the same verdict.
+- **The Master Driver menubar no longer shows a tear-off row above Help.**
+  `tk.Menu` defaults to a tear-off entry; Tk 8.6 draws it as a dashed line and
+  shifts every entry index by one, while Tk 9 defaults to none - so the bug was
+  invisible on the 3.14 host but present on the 3.11/3.12 legs the suite runs.
+  The menubar is built with `tearoff=0`, and the Help-menu test resolves Help's
+  real position instead of reusing its position among the cascade labels.
+- **Two tests used APIs the 3.11 floor does not have.** The CD Ripper's
+  failed-open test called `os.listdrives()` (3.12+) and now probes drive
+  letters with `os.path.exists`; the `os.name` trap lock accepts 3.11's louder
+  outcome, where patching `os.name` raises `NotImplementedError` instead of
+  building the hybrid `PosixPath` that 3.12+ builds.
 - **The reference-and-deck coverage lock now runs in the quick documentation
   job.** `tests/test_suite_docs_tool_coverage.py` was not in the `docs-locks`
   CI job, so its failures surfaced only 15-20 minutes into the three-interpreter
