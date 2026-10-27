@@ -399,9 +399,10 @@ class TestTheLicenceLockIgnoresTheCheckout:
 # ---------------------------------------------------------------------------
 
 
-#: The helper that collects every marker view in one interpreter, so the
-#: suite pays interpreter startup and the test-module imports once instead of
-#: once per view (four subprocesses cost ~35 s; this costs ~19 s).
+#: The helper that collects every marker view, one child process per view.
+#: 2.1.0 ran all five in a single interpreter and that in-process
+#: ``pytest.main`` wedged three times (once as a forty-minute cancelled CI
+#: leg); 2.1.6 gives each view its own child and a deadline instead.
 COLLECT_HELPER = REPO_ROOT / "tests" / "_collect_views.py"
 
 #: The views the helper must produce, in its own order.  Pinned here so an
@@ -418,9 +419,9 @@ EXPECTED_VIEWS = (
 def _collect_views() -> dict[str, dict[str, object]]:
     """Collect the real tree under each marker view through the real config.
 
-    The helper runs the four collections in a single interpreter; this function
-    verifies it produced every view, that each collection succeeded, and turns
-    each stdout into node-ids plus the raw text.
+    The helper runs one child process per view; this function verifies it
+    produced every view, that each collection succeeded, and turns each stdout
+    into node-ids plus the raw text.
 
     Returns:
         ``{view: {"ids": list[str], "stdout": str}}``.  The pytest summary line
@@ -442,7 +443,10 @@ def _collect_views() -> dict[str, dict[str, object]]:
         )
         assert result.returncode == 0, (
             f"collection helper failed ({result.returncode}):\n"
-            f"{result.stdout[-1500:]}\n{result.stderr[-1500:]}"
+            f"--- stdout (tail) ---\n{result.stdout[-1500:]}\n"
+            # faulthandler prints the innermost frame first, so the evidence
+            # for a wedged view is at the head of stderr, not the tail.
+            f"--- stderr (head) ---\n{result.stderr[:3000]}"
         )
         payload = json.loads(target.read_text(encoding="utf-8"))
 

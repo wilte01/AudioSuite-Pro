@@ -24,17 +24,20 @@ Versions of the tools are released together with the suite (the single
 
 ### Fixed
 
-- **The whole-tree collection helper can no longer hang the suite silently.**
-  `tests/_collect_views.py` collects the tree under every marker view in one
-  in-process `pytest.main`, and twice it wedged there: the Python 3.14 CI leg
-  sat at 6% for forty minutes and had to be cancelled, and a local 3.14 run
-  parked in the same place with the helper's own process waiting on an
-  in-process collection that never returned. Standalone the helper takes ~20
-  seconds, so it is a race - and a wedged in-process collection prints nothing
-  at all. It now arms a `faulthandler` deadline: after it, every thread's stack
-  is dumped and the helper exits non-zero, so the caller's assertion fails with
-  the frame it is stuck in instead of holding a runner until GitHub's six-hour
-  cap. An AST lock keeps the deadline in place.
+- **The whole-tree collection helper can no longer hang the suite, and each
+  view runs in its own process.** `tests/_collect_views.py` collected every
+  marker view through one in-process `pytest.main`, and it wedged there three
+  times: the Python 3.14 CI leg sat at 6% for forty minutes and had to be
+  cancelled, a local 3.14 run parked in the same place, and a third occurrence
+  - caught by the deadline below - came back with the stack inside pytest's own
+  `_do_configure` hook chain. A wedged in-process collection prints nothing at
+  all, which is what made it so expensive. Each view now runs in a child
+  process (the shape that never wedged) with a `faulthandler` deadline: a child
+  that stalls dumps every thread's stack and exits non-zero, so the caller
+  reports that view by name instead of holding a runner until GitHub's
+  six-hour cap. It costs ~20 seconds of suite time to buy that. An AST lock
+  keeps the deadline in place, and the caller's failure message now quotes the
+  head of the child's stderr, where `faulthandler` prints the innermost frame.
 - **The rate-limiter test measures a spacing the platform clock can see.**
   `test_requests_are_rate_limited_in_time` enforced 20 ms spacing over three
   requests and asserted at least 40 ms, but Windows' `time.monotonic` ticks
