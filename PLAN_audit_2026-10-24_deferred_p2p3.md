@@ -2,10 +2,10 @@
 
 **Status:** `[~]` in progress — drafted 2026-10-27. **R-15 is complete and
 runner-verified** (record in §5): the code commit `5298301` (run `40563584800`)
-and this plan's own record commit `61a19dd` (run `40568799837`) are each **green
-in all nine jobs**, `Type Check` and `Lint & Format` included, after the first
-push's `Type Check` failure was fixed; R-16's verification row is written, R-11
-and R-12 are open.
+and this plan's own record commits `61a19dd` (run `40568799837`) and `1ab0e39`
+(run `40573946202`) are each **green in all nine jobs**, `Type Check` and
+`Lint & Format` included, after the first push's `Type Check` failure was fixed;
+R-16's verification row is written, R-11 and R-12 are open.
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
 **Base state:** `main` at `85046ef` ("Record the 2.1.6 CI remediation decisions
 (2026-10-27)"), working tree clean. `v2.1.5` is the repository's only tag (at
@@ -461,21 +461,45 @@ None of the numbers above came from a local proxy: they are the runner's own
 verdicts, read from the Actions API at run `40563584800`
 (https://github.com/wilte01/AudioSuite-Pro/actions/runs/40563584800).
 
-**The tip is green as well — run `40568799837` at `61a19dd`.** That is the
-documentation-only commit carrying this record, pushed after the one above, and
-it completed `success` at 19:54:11Z with all nine jobs green. The `Test` legs
-finished last (3.14 23:19, 3.12 27:06, 3.11 27:14) and each reported the same
-**11 154 passed, 6 skipped, 35 deselected** at 90.87–90.88 % coverage;
-`Type Check` and `Lint & Format` were green again in 42 s and 20 s. Two
-consecutive runs of this window are therefore green with the floor leg in them,
-so the state is a property of the commits rather than of one lucky run.
+**The tip has been green twice since — runs `40568799837` at `61a19dd` and
+`40573946202` at `1ab0e39`.** Both are documentation-only commits carrying this
+record (`git show --stat` lists one file for each, this plan), and both
+completed `success` with every job green and **no failed step**. Job wall-clock
+durations, which is the measure these bullets use throughout:
 
-**Where the chasing stops, said out loud.** The paragraph above is itself a
-documentation-only commit, and *its* run is not awaited — recording the record
-would otherwise move the subject every time it is written. What this record
-establishes is concrete and two-part: `5298301` (code, run `40563584800`) and
-`61a19dd` (this record, run `40568799837`) are both green in all nine jobs. The
-next *code* change is the next thing whose run belongs here.
+* `61a19dd` (19:24:21Z → 19:53:26Z): `Type Check` 01:10, `Lint & Format` 00:17,
+  `Docs locks (freshness & formats)` 01:08, `Security Scan` 00:33,
+  `Compile / Pre-flight gate` and `CLI schema conformance` 00:09, `Test` 3.14
+  25:14 → 3.12 28:54 → 3.11 28:59; each leg **11 154 passed, 6 skipped,
+  35 deselected** at 90.87–90.88 % coverage.
+* `1ab0e39` (19:59:01Z → 20:28:43Z): `Type Check` 01:14, `Lint & Format` 00:14,
+  `Docs locks (freshness & formats)` 01:16, `Security Scan` 00:31,
+  `Compile / Pre-flight gate` and `CLI schema conformance` 00:09, `Test` 3.14
+  25:27 → 3.12 28:20 → 3.11 29:39; the pytest line again reads **11 154 passed,
+  6 skipped, 35 deselected**, at 90.87 % coverage on 3.14 and 90.88 % on 3.11
+  and 3.12.
+
+Three consecutive runs of this window are therefore green with the floor leg in
+them, and the 3.11 leg's verdict is identical in all three, so the state is a
+property of the commits rather than of one lucky run.
+
+**One measured consequence for R-12.** Each leg's coverage header names its own
+interpreter and platform — `platform win32, python 3.11.9-final-0`,
+`… 3.12.10-final-0`, `… 3.14.9-final-0` — so an all-green run here says nothing
+whatsoever about POSIX. That is R-12's premise, read out of the runner's own
+output rather than inferred from `ci.yml`.
+
+**Where the chasing stops, said out loud.** This note is itself a
+documentation-only commit, and its run is not awaited: recording the record
+would otherwise move the subject every time it is written, so the chain could
+never close. What the record establishes is concrete and bounded — `5298301`
+(code, run `40563584800`), `61a19dd` (run `40568799837`) and `1ab0e39`
+(run `40573946202`,
+https://github.com/wilte01/AudioSuite-Pro/actions/runs/40573946202) — each green
+in all nine jobs. The next *code* change is the next thing whose run belongs
+here; a fourth docs-only round would add nothing about the tests, since the last
+two runs already exercised byte-identical source and the same nine jobs passed
+twice over it.
 
 ---
 
