@@ -9,6 +9,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.1.5] - 2026-10-27
+
 ### Added
 
 - **The What's New panel can open the complete changelog.** The panel only
