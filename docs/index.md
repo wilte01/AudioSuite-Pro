@@ -109,8 +109,10 @@ what was deferred. They are history, not instructions — the rules that still
 apply live in the repository's `AGENTS.md` and in
 [CONTRIBUTING.md](../CONTRIBUTING.md), which ships with this documentation.
 
-* `PLAN_docs_consolidation.md` — the current plan: consolidating this
-  documentation into as few formats as possible.
+* `PLAN_ci_2026-10-27_remediation.md` — the current plan: the defects the first
+  run of the published CI workflow exposed, and the hang it could not report.
+* `PLAN_docs_consolidation.md` — the previous plan (complete): consolidating
+  this documentation into as few formats as possible.
 * `AUDIT_2026-10-06_suite_report.md` — the most recent full audit.
 * [CHANGELOG.md](../CHANGELOG.md) — the shipped history, by release.
 
