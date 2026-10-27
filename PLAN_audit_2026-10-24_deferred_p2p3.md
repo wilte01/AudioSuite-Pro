@@ -1,8 +1,10 @@
 # PLAN — Audit 2026-10-24 deferred register (P2/P3): CI policy, a POSIX leg, tooling targets, docs truth
 
-**Status:** `[~]` in progress — drafted 2026-10-27. **R-15 is complete** (record
-in §5), including the fix for the `Type Check` failure its first push exposed;
-R-16's verification row is written, R-11 and R-12 are open.
+**Status:** `[~]` in progress — drafted 2026-10-27. **R-15 is complete and
+runner-verified** (record in §5): run `40563584800` at `5298301` is **green in
+all nine jobs**, `Type Check` and `Lint & Format` included, after the first
+push's `Type Check` failure was fixed; R-16's verification row is written, R-11
+and R-12 are open.
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
 **Base state:** `main` at `85046ef` ("Record the 2.1.6 CI remediation decisions
 (2026-10-27)"), working tree clean. `v2.1.5` is the repository's only tag (at
@@ -85,7 +87,7 @@ Two further measurements the items depend on:
 | D12 | The POSIX leg is **Ubuntu only**; no macOS leg is added. | DECIDED | The audit says "Ubuntu (and ideally macOS)". Nothing in the tree claims macOS support, and macOS runners bill at a multiple of Linux minutes for a claim nobody makes. Revisit only with a support decision (recorded in §6). |
 | D13 | `platform_support.py` stays the **single source** for the caveat; the README block is regenerated, never hand-edited. | DECIDED | `MATRIX_CAVEAT` is asserted verbatim against the README by `test_platform_support.py::TestReadmeDriftLock::test_readme_states_the_caveat_verbatim`, and the generated block is compared against a fresh render. The same lock forbids the phrasings `cross-platform`, `fully cross-platform` and `works on linux and macos`, so the new wording must be narrower, not larger. |
 | D14 | The R-15 lock reads the lint job's **executed** lines, not its raw text. | DECIDED | The job's comment explains why it takes ruff from the lock and quotes `pip install ruff` while doing so, so a raw-text match failed on the explanation instead of on the wiring — the lock caught this on its first run. Stripping comment lines is the same distinction `tests/test_ci_security_audit.py` draws when it proves the audit never points at `.venv` ("a comment cannot point the audit at a directory"). Every CI-text lock added later starts from this shape. |
-| D15 | The typecheck job **stays on the 3.11 floor** after its first run failed there, and the failure is fixed in the code rather than by moving the job back to 3.12. | DECIDED | The floor leg is what the audit asked to be verified, and it caught what 3.12 could not: the lock resolves numpy 1.26.4 / scipy 1.17.1 below 3.12 and numpy 2.5.4 / scipy 1.18.1 above it, and 1.26's stubs leave ``ndarray`` generic with no defaults, so thirteen bare ``ndarray`` annotations failed ``--strict``'s ``disallow_any_generics`` *only* on the floor. Reverting the job would have kept a gate that cannot see the stack a 3.11 user installs. |
+| D15 | The typecheck job **stays on the 3.11 floor** after its first run failed there, and the failure is fixed in the code rather than by moving the job back to 3.12. | DECIDED | The floor leg is what the audit asked to be verified, and it caught what 3.12 could not: the lock resolves numpy 1.26.4 / scipy 1.17.1 below 3.12 and numpy 2.5.4 / scipy 1.18.1 above it, and 1.26's stubs leave ``ndarray`` generic with no defaults, so thirteen bare ``ndarray`` annotations failed ``--strict``'s ``disallow_any_generics`` *only* on the floor. Reverting the job would have kept a gate that cannot see the stack a 3.11 user installs. Confirmed by the runner at `5298301` (run `40563584800`): the 3.11 leg is green, so the job is deliberately the one that found this. |
 | D16 | The installer's build output (`packaging/build`, `packaging/dist`) stops being read as source: **five** tree-walking locks and mypy. | DECIDED | `tests/test_packaging.py` stages a payload there (gitignored) carrying every tool module *and* a bundled interpreter, whose own `Lib/test` corpus is deliberately not UTF-8. `test_e4_dead_code_lock.py` read it and died with `UnicodeDecodeError` (34 errors), `test_undo_gui.py`'s display-name scan failed three tests, and mypy aborted with "This file shadows library module 'typing' ... errors prevented further checking". A full `bare pytest` then found **three more of the same** — `tests/test_test_file_naming.py` and `tests/test_external_records.py` (both `UnicodeDecodeError` on the corpus) and `audio_suite_shared/tests/test_cli_helpers_ast_lock.py` (24 errors) — 26 failures/errors in total, all from one gitignored tree no lock has business judging. All are local-only: CI checks out a clean tree, so a developer who had built the installer could not run the gate the suite documents. Found while verifying R-15 and fixed in the same change. The locks' existing `tests` skip does **not** cover the corpus: its path part is `test`, singular. |
 | D17 | `[tool.bandit] exclude_dirs` gains `"packaging"`, and the entries are asserted **narrow** by a lock. | DECIDED | The security gate walks `.`, so with the installer built the documented command reported **3 690 HIGH** findings drawn from CPython's own stdlib inside the staged runtime — the gate could not pass in a state a normal developer reaches, while CI (which never builds the installer) stayed green. Bandit matches each entry as a path **substring**, which is why the entry is asserted by its consequence: a new `tests/test_tooling_targets.py` class scans the tree for a production module whose path matches any entry and fails if one exists, so widening an entry into a silent blind spot is red, not allowed. Nothing is lost today: `packaging/` ships no `.py` file (its inputs are `.iss`, `.ps1` and `.md`), and `packaging` appears in no other tracked path. The exclusion also prunes the walk: the gate went from minutes to **11 s**. |
 
@@ -422,26 +424,59 @@ this state took minutes. The three locks found after the first full-suite run
 `build`/`dist` parts, keep the existing `tests` skip — and the five pass in
 **127 tests / 15.9 s** with the tree still present.
 
-**Still open on the runner:** the `lint` job's `uv sync --extra dev` on
-`ubuntu-latest`, which replaces a single-package `pip install` and cannot be
-exercised on this host.
+**The runner settled it — run `40563584800` at `5298301` (2026-10-27).**
+`Type Check` is **green** (18:49:52 → 18:51:18): the job installed Python 3.11,
+ran `uv sync --extra dev --extra analysis --extra cd-ripping`, then
+`uv run mypy .` — every step success. That is R-15's acceptance evidence (audit
+§9.1's "3.11 typecheck leg green"), and it is the one job the previous commit
+failed: in `40547259435` the failing step was `Run uv run mypy .` while every
+other job, all three `Test` legs included, was green — so the 13 `type-arg`
+errors were the whole failure, not one symptom of several.
+`Lint & Format` is **green** in the same run (18:49:51 → 18:50:04), having run
+`pip install uv` → `uv sync --extra dev` → `uv run ruff check .` →
+`uv run ruff format --check .`: the lock-sourced install that replaced an
+unpinned `pip install ruff`, and the one step of R-15 this host could not
+exercise. `Compile / Pre-flight gate`, `CLI schema conformance`,
+`Security Scan` and `Docs locks (freshness & formats)` are green too, each in
+under a minute except the security job's 38 s.
+
+**The run as a whole is `success`** — completed 19:19:15Z with all nine jobs
+green. The three `Test` legs finished last: 3.14 at 19:15:54Z, 3.11 at
+19:17:14Z, 3.12 at 19:19:14Z (24:09 / 25:46 / 27:21). Each leg's own line reads
+**11 154 passed, 6 skipped, 35 deselected**, coverage 90.88 %.
+
+That count is the same 11 160 selected tests this host runs (11 157 passed + 3
+skipped), with three more skipped on the runner, and the difference is fully
+named rather than inferred: four ffmpeg-dependent tests skip there
+(`tests/test_refinery_pipeline.py` ×2 and
+`music_format_converter/tests/test_file_processor.py` ×2 — ffmpeg is installed on
+this host), while this host's `Symlink creation unavailable on this platform`
+skip passes there — a net of three, 11157 - 11154. The Tk slider and Unix-only
+permission skips are common to both. So the runner and this host agree on the
+suite, and the agreement is legible in the skipped set rather than assumed from
+the totals.
+
+None of the numbers above came from a local proxy: they are the runner's own
+verdicts, read from the Actions API at run `40563584800`
+(https://github.com/wilte01/AudioSuite-Pro/actions/runs/40563584800).
 
 ---
 
 ## 6. Open items, and deferrals this plan creates
 
-* **X1 — the 3.11 leg is reproducible here, but it is not the same environment.**
-  `uv python install 3.11` plus `uv sync --frozen` with the job's extras gives
-  the runner's interpreter and numeric stack (3.11.16 / numpy 1.26.4), which is
-  how the failing 13 were reproduced and the fix proved; the *development*
-  environment remains 3.14, so a defect that needs a 3.12-specific wheel is still
-  runner-only. The `lint` job's Linux `uv sync --extra dev` cannot be run here at
-  all (R-15 delivered it unrun). A
-  defect that only manifests under 3.11's installed wheels cannot be reproduced
-  locally. Note the trap while measuring: the lock resolves *different* numpy
-  and scipy legs below 3.12 (AGENTS.md, *A dependency's version can change which
-  branch runs*), so the 3.11 environment can expose a finding the proxy run
-  cannot.
+* **X1 — CLOSED as a claim; what remains is a measurement gap, not an open
+  question.** The two runner-only claims are settled: `Type Check` and
+  `Lint & Format` are green at `5298301`, and so is the rest of run
+  `40563584800` — the window's CI state is now known rather than inferred. R-15
+  is therefore complete *and* runner-verified, and the Linux
+  `uv sync --extra dev` that replaced a single-package `pip install` has run. What stays true is narrower:
+  this development host is 3.14, so the 3.11 reproduction is an environment
+  built from the lock (3.11.16 / numpy 1.26.4) rather than the runner's own, and
+  a defect that needs a 3.12-only wheel would still be runner-only. Carry the
+  measurement trap rather than the claim: the lock resolves *different* numpy and
+  scipy legs below 3.12 (AGENTS.md, *A dependency's version can change which
+  branch runs*), which is exactly how the thirteen `type-arg` errors passed this
+  host's own `mypy .` and only appeared on the floor leg.
 * **X2 — the `UP` rule set** (D11). Measured at `85046ef`: 317 findings, 314
   fixable — `UP045` 139, `UP035` 80, `UP037` 57, `UP024` 21, `UP015` 10,
   `UP033` 6, `UP007` 1, `UP031` 1, `UP012` 1, `UP009` 1. Its own change, with
