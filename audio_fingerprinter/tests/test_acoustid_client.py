@@ -1,4 +1,12 @@
-"""Tests for audio_fingerprinter.core.acoustid_client."""
+"""Tests for audio_fingerprinter.core.acoustid_client.
+
+Changed in 2.1.6: the rate limiter's arithmetic is pinned against a controlled
+clock, and the end-to-end timing check uses a spacing wide enough for the
+platform clock to measure. Windows' ``time.monotonic`` has ~15.6 ms
+granularity, so the old 20 ms spacing with a 40 ms budget measured 31 ms on a
+loaded 3.11 runner - a red leg - while 3.12 and 3.14 read the same commit as
+clean.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +19,7 @@ import requests
 from audio_fingerprinter.core.acoustid_client import (
     ACOUSTID_LOOKUP_URL,
     AcoustidClient,
+    RateLimiter,
     resolve_best_match,
 )
 from audio_fingerprinter.core.exceptions import AcoustidApiError, AcoustidAuthError
@@ -671,6 +680,81 @@ class TestReleaseCandidateParsing:
         assert best.releases[0].year is None
 
 
+class TestRateLimiter:
+    """The limiter's per-call arithmetic, against a clock the test drives.
+
+    A wall-clock assertion can only say "something waited"; with Windows'
+    ~15.6 ms ``monotonic`` granularity it cannot even say that reliably at
+    short intervals. These pin the exact delay each call requests.
+    """
+
+    @staticmethod
+    def _hand_clock(
+        monkeypatch: pytest.MonkeyPatch, start: float
+    ) -> tuple[list[float], list[float]]:
+        """Replace ``time.monotonic``/``time.sleep`` with a driven clock.
+
+        Returns:
+            ``(clock, slept)``.  ``slept`` holds each requested delay in
+            order; ``clock`` advances only by those delays plus whatever the
+            test adds, so a limiter that stops sleeping stops advancing it.
+            The clock starts well above zero the way a real monotonic one
+            does, because ``RateLimiter`` treats ``0.0`` as "no request yet".
+        """
+        clock = [start]
+        slept: list[float] = []
+
+        def fake_sleep(seconds: float) -> None:
+            slept.append(seconds)
+            clock[0] += seconds
+
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", fake_sleep)
+        return clock, slept
+
+    def test_first_request_does_not_wait(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _clock, slept = self._hand_clock(monkeypatch, 100.0)
+
+        RateLimiter(0.02).wait_for_slot()
+
+        assert slept == []
+
+    def test_following_requests_wait_the_whole_interval(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _clock, slept = self._hand_clock(monkeypatch, 100.0)
+        limiter = RateLimiter(0.02)
+
+        limiter.wait_for_slot()  # first request: records 100.0, no wait
+        limiter.wait_for_slot()  # nothing has moved: the whole interval
+        limiter.wait_for_slot()  # only that sleep moved it: the whole one again
+
+        assert slept == [pytest.approx(0.02), pytest.approx(0.02)]
+
+    def test_the_wait_is_the_remainder_of_the_interval(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Work done between requests counts towards the spacing."""
+        clock, slept = self._hand_clock(monkeypatch, 100.0)
+        limiter = RateLimiter(0.02)
+
+        limiter.wait_for_slot()
+        slept.clear()
+        clock[0] += 0.005
+        limiter.wait_for_slot()
+
+        assert slept == [pytest.approx(0.015)]
+
+    def test_no_interval_never_sleeps(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _clock, slept = self._hand_clock(monkeypatch, 100.0)
+        limiter = RateLimiter(0.0)
+
+        for _ in range(3):
+            limiter.wait_for_slot()
+
+        assert slept == []
+
+
 class TestLookupMany:
     def _client(self, requests_per_second: float = 1000.0) -> AcoustidClient:
         return AcoustidClient(
@@ -711,13 +795,22 @@ class TestLookupMany:
         assert mock_slot.call_count == 4
 
     def test_requests_are_rate_limited_in_time(self):
-        client = self._client(requests_per_second=50.0)  # 20 ms spacing
+        """Three requests must take at least two real waits.
+
+        100 ms spacing so the margin survives the platform clock: Windows'
+        ``time.monotonic`` ticks every ~15.6 ms, which is why the old 20 ms
+        spacing with a 40 ms budget measured 31 ms on a loaded runner and
+        failed the leg. The exact per-call arithmetic is pinned by
+        ``TestRateLimiter`` against a controlled clock; this one proves the
+        limiter is wired into ``lookup_many`` for real.
+        """
+        client = self._client(requests_per_second=10.0)  # 100 ms spacing
         resp = _make_response(200, {"status": "ok", "results": []})
         start = time.monotonic()
         with patch.object(client._session, "post", return_value=resp):
             client.lookup_many(self._fps(3))
         elapsed = time.monotonic() - start
-        assert elapsed >= 0.04, f"limiter spacing not enforced ({elapsed:.4f}s)"
+        assert elapsed >= 0.15, f"limiter spacing not enforced ({elapsed:.4f}s)"
 
     def test_progress_reported_per_batch(self):
         client = self._client()

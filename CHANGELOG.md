@@ -24,6 +24,26 @@ Versions of the tools are released together with the suite (the single
 
 ### Fixed
 
+- **The whole-tree collection helper can no longer hang the suite silently.**
+  `tests/_collect_views.py` collects the tree under every marker view in one
+  in-process `pytest.main`, and twice it wedged there: the Python 3.14 CI leg
+  sat at 6% for forty minutes and had to be cancelled, and a local 3.14 run
+  parked in the same place with the helper's own process waiting on an
+  in-process collection that never returned. Standalone the helper takes ~20
+  seconds, so it is a race - and a wedged in-process collection prints nothing
+  at all. It now arms a `faulthandler` deadline: after it, every thread's stack
+  is dumped and the helper exits non-zero, so the caller's assertion fails with
+  the frame it is stuck in instead of holding a runner until GitHub's six-hour
+  cap. An AST lock keeps the deadline in place.
+- **The rate-limiter test measures a spacing the platform clock can see.**
+  `test_requests_are_rate_limited_in_time` enforced 20 ms spacing over three
+  requests and asserted at least 40 ms, but Windows' `time.monotonic` ticks
+  every ~15.6 ms, so a loaded 3.11 runner measured 31 ms and went red while the
+  3.12 and 3.14 legs read the same commit as clean. The end-to-end check now
+  uses 100 ms spacing with margin, and the limiter's per-call arithmetic - the
+  first request not waiting, each later one sleeping the remainder of the
+  interval - is pinned by new tests against a clock the test drives, which is
+  both deterministic and stronger than the timing assertion it backs.
 - **The release-note lock no longer reads a line-ending conversion as a
   change.** It ran `git diff` with `core.autocrlf=false` forced, so on a
   checkout that converts line endings - GitHub's Windows runners do - every

@@ -15,15 +15,32 @@ message.
 Changed in 2.1.0: initial version — four whole-tree collect-only subprocesses
 in ``tests/test_pyproject_config.py`` became one interpreter (~35 s → ~22 s),
 and the ``worker_memory`` view joins the three that were already there.
+
+Changed in 2.1.6: the helper arms a deadline. Twice the suite wedged here -
+once on the Python 3.14 CI leg (forty minutes at 6%, cancelled) and once on a
+3.14 host, where the process tree showed this helper parked inside its own
+in-process collection. Standalone it takes ~20 s, so it is a race, and a
+wedged in-process ``pytest.main`` reports nothing at all: the run just stops.
+``faulthandler`` now dumps every thread's stack and exits non-zero after the
+deadline, so the next occurrence quotes the frame it is stuck in, and the
+caller's ``returncode == 0`` assertion fails with that evidence instead of
+hanging the leg.
 """
 
 from __future__ import annotations
 
 import contextlib
+import faulthandler
 import io
 import json
 import sys
 from pathlib import Path
+
+#: How long the whole five-view collection may take before the helper dumps
+#: its stacks and exits. Standalone it is ~20 s; the outer test's own
+#: subprocess timeout sits above this, so the traceback is what the failure
+#: reports.
+_COLLECTION_DEADLINE_SECONDS = 300
 
 #: The views collected, in the order the pytest plugin state settles best:
 #: the unfiltered collection first, then each opt-in marker on its own.
@@ -66,9 +83,13 @@ def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("usage: python tests/_collect_views.py <output.json>", file=sys.stderr)
         return 2
-    Path(argv[1]).write_text(
-        json.dumps(collect_views(), ensure_ascii=False), encoding="utf-8"
-    )
+    faulthandler.enable()
+    faulthandler.dump_traceback_later(_COLLECTION_DEADLINE_SECONDS, exit=True)
+    try:
+        payload = collect_views()
+    finally:
+        faulthandler.cancel_dump_traceback_later()
+    Path(argv[1]).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     return 0
 
 

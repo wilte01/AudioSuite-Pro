@@ -52,6 +52,7 @@ inner stdout/stderr instead of hanging the job.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -483,6 +484,42 @@ def tree_views() -> dict[str, dict[str, object]]:
     node-ids and raw stdout so every assertion works on the same tree state.
     """
     return _collect_views()
+
+
+class TestCollectHelperIsBounded:
+    """A wedged collection must say where it wedged (2.1.6)."""
+
+    def test_the_helper_arms_a_traceback_deadline(self) -> None:
+        """The helper cannot park forever without reporting anything.
+
+        Twice the suite stopped here - the 3.14 CI leg for forty minutes, and a
+        local 3.14 run - with the helper sitting in its own in-process
+        ``pytest.main`` and no output at all. Its deadline turns that into a
+        stack dump and a non-zero exit, which the caller asserts on.
+        """
+        tree = ast.parse(COLLECT_HELPER.read_text(encoding="utf-8"))
+        calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "dump_traceback_later"
+        ]
+
+        assert calls, (
+            f"{COLLECT_HELPER.name} arms no deadline: a wedged collection hangs "
+            "the leg with no evidence"
+        )
+        exit_flags = [
+            keyword
+            for call in calls
+            for keyword in call.keywords
+            if keyword.arg == "exit"
+        ]
+        assert exit_flags and all(
+            isinstance(keyword.value, ast.Constant) and keyword.value.value is True
+            for keyword in exit_flags
+        ), "the deadline must exit non-zero, or the collection still reports success"
 
 
 class TestFullTreeContract:
