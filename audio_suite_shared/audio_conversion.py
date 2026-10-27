@@ -8,6 +8,13 @@ Canonical data representation:
 
 All DSP tools should import from this module rather than implementing
 their own int→float decode or clip-to-int logic.
+
+Changed in 2.1.6: the bare ``np.ndarray`` annotations are parameterised. The
+floor leg of this project's lock resolves numpy 1.26.4, whose stubs leave
+``ndarray`` generic with no defaults, so ``--strict``'s ``disallow_any_generics``
+rejects a bare ``ndarray`` there while numpy 2.5.4's stubs accepted it: thirteen
+such annotations across three modules failed only on the 3.11 leg (R-15,
+PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
@@ -19,7 +26,7 @@ import numpy.typing as npt
 from pydub import AudioSegment
 
 
-def segment_to_numpy(audio: AudioSegment) -> tuple[np.ndarray, int]:
+def segment_to_numpy(audio: AudioSegment) -> tuple[npt.NDArray[np.float32], int]:
     """
     Convert a pydub AudioSegment to a float32 numpy array.
 
@@ -46,7 +53,7 @@ def segment_to_numpy(audio: AudioSegment) -> tuple[np.ndarray, int]:
 
 
 def numpy_to_segment(
-    audio_f32: np.ndarray,
+    audio_f32: npt.NDArray[np.floating[Any]],
     sample_rate: int,
     sample_width: int = 2,  # bytes; 2 = 16-bit, keep source depth
     num_channels: int = 2,
@@ -84,7 +91,7 @@ def numpy_to_segment(
     )
 
 
-def load_as_float32(audio: AudioSegment) -> tuple[np.ndarray, int]:
+def load_as_float32(audio: AudioSegment) -> tuple[npt.NDArray[np.float32], int]:
     """
     Alias for :func:`segment_to_numpy`.
 
@@ -194,7 +201,7 @@ def clip_bounds(sample_width: int) -> tuple[int, int]:
     )
 
 
-def pack_24bit(int32_array: np.ndarray) -> bytes:
+def pack_24bit(int32_array: npt.NDArray[np.int32]) -> bytes:
     """Pack an int32 array into 3-bytes-per-sample little-endian PCM."""
     arr = np.clip(int32_array, -(2**23), 2**23 - 1).astype(np.int32)
     lo = (arr & 0xFF).astype(np.uint8)

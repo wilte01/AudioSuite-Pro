@@ -27,6 +27,14 @@ Every extraction is checked non-empty first, and the disagreement path is
 exercised against edited copies of the real file, so neither a missing section
 nor a check that cannot fail can pass this module.
 
+The security gate is locked here for the same reason: ``packaging/build``
+(gitignored, written by the installer) stages a copy of the app *and* a bundled
+CPython, and Bandit walked it - 3690 HIGH findings from CPython's own stdlib, so
+the documented ``bandit -r . -x ./.venv -c pyproject.toml`` could not pass in a
+state a developer reaches just by building the installer.  Bandit matches
+``exclude_dirs`` entries as path *substrings*, so the entries are asserted
+narrow: an over-broad entry would drop first-party modules from the scan.
+
 Changed in 2.1.6: initial version (R-15,
 PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
@@ -78,7 +86,7 @@ def _load(path: Path | None = None) -> dict[str, Any]:
     for section in ("project", "tool"):
         assert data.get(section), f"{source.name} has no [{section}] table"
     tool = data["tool"]
-    for key in ("ruff", "mypy"):
+    for key in ("ruff", "mypy", "bandit"):
         assert tool.get(key), f"{source.name} has no [tool.{key}] table"
     return data
 
@@ -245,3 +253,71 @@ class TestTheCiJobsUseTheFloor:
 
         assert "uses: actions/checkout@v4" in executed
         assert "Changed in 2.1.6" not in executed
+
+
+#: Entries ``[tool.bandit] exclude_dirs`` must declare, and nothing wider.
+_EXPECTED_EXCLUSIONS = ("tests", "packaging")
+
+#: Directory parts the scanning guard below never reads: not source of ours.
+_GENERATED_PARTS = frozenset(
+    {".git", ".venv", "__pycache__", ".mypy_cache", ".pytest_cache", "build", "dist"}
+)
+
+#: The guard's walk must reach at least this many files, so a broken walk fails
+#: instead of passing vacuously (the floor is well under the real count).
+_MIN_PYTHON_FILES = 400
+
+
+class TestTheSecurityGateSkipsTheInstallerOutput:
+    """Bandit scans first-party Python - never the installer's output tree.
+
+    ``packaging/build`` is gitignored build output: a copy of the app plus a
+    bundled CPython.  The documented gate command walks ``.``, so it read that
+    tree and reported 3690 HIGH findings drawn from CPython's own stdlib, while
+    CI - which never builds the installer - stayed green.  Two things could
+    quietly undo the fix: dropping the exclusion again, or widening it until it
+    swallows first-party code, since Bandit matches entries as substrings.
+    """
+
+    def test_the_installer_output_is_excluded(self) -> None:
+        declared = _load()["tool"]["bandit"]["exclude_dirs"]
+
+        for entry in _EXPECTED_EXCLUSIONS:
+            assert entry in declared, (
+                f"bandit no longer excludes {entry!r}; it excludes {declared}. "
+                "Without it the security gate fails for anyone who has built "
+                "the installer"
+            )
+
+    def test_the_exclusions_cannot_swallow_first_party_code(self) -> None:
+        """Every path an entry matches must already be out of scope.
+
+        A substring entry is a blind spot as wide as its shortest match, so this
+        asserts the *consequence* rather than the entry: a production module
+        whose path contains an excluded entry fails here.  ``tests`` is the one
+        deliberate exclusion, hence the allowance for a ``tests`` part.
+        """
+        declared: list[str] = _load()["tool"]["bandit"]["exclude_dirs"]
+        examined = 0
+        swallowed: list[str] = []
+
+        for path in sorted(REPO_ROOT.rglob("*.py")):
+            parts = path.relative_to(REPO_ROOT).parts
+            if _GENERATED_PARTS.intersection(parts):
+                continue
+            examined += 1
+            relative = "/".join(parts)
+            if not any(entry in relative for entry in declared):
+                continue
+            if "tests" in parts:
+                continue
+            swallowed.append(relative)
+
+        assert examined >= _MIN_PYTHON_FILES, (
+            f"the guard reached only {examined} files - the walk is broken, so "
+            "it would pass without checking anything"
+        )
+        assert not swallowed, (
+            "these production modules match a bandit exclusion entry, so the "
+            "security gate never reads them:\n  " + "\n  ".join(swallowed)
+        )

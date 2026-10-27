@@ -35,6 +35,22 @@ Versions of the tools are released together with the suite (the single
 
 ### Fixed
 
+- **The gate no longer reads the installer's build output as source.**
+  `packaging/build` (gitignored, written by `packaging/build_installer.ps1`)
+  stages a copy of the app *and* a bundled CPython, and both were treated as
+  first-party: five tree-walking locks and mypy read it, so
+  `test_e4_dead_code_lock`, `test_undo_gui`, `test_test_file_naming` and
+  `test_external_records` died on CPython's deliberately non-UTF-8 `Lib/test`
+  corpus (26 failures and errors between them) and mypy aborted on the bundled
+  `typing.py`; `bandit -r . -x ./.venv` was worse than red, reporting 3690 HIGH
+  findings drawn from that same stdlib. CI checks out a clean tree, so none of it
+  was visible there - but a developer who had run the installer could not run the
+  documented gate at all. The walks now skip `build`/`dist`, mypy excludes the
+  tree, and bandit's `exclude_dirs` names `packaging`; the last of those is
+  asserted by what it can match, because each entry is a path substring and
+  `build` on its own would silently have deselected `utilities/build_user_guides.py`.
+  Side effect worth keeping: skipping the tree takes the security gate from
+  minutes to seconds.
 - **The whole-tree collection helper can no longer hang the suite, and each
   view runs in its own process.** `tests/_collect_views.py` collected every
   marker view through one in-process `pytest.main`, and it wedged there three

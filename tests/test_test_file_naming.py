@@ -32,7 +32,18 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-_SKIP_DIRS = frozenset({".git", ".venv", "__pycache__", "node_modules"})
+#: Directory parts the walk never reads.  ``build``/``dist`` are the installer's
+#: gitignored output (``packaging/build``), and the staged payload carries a
+#: bundled CPython whose own ``Lib/test/encoded_modules/*`` corpus is
+#: deliberately not UTF-8 - so the walk read a tree that is not the repository's
+#: source and this lock failed for any developer who had built the installer.
+#: CI never builds it, which is why it went unnoticed.  Note ``tests`` does not
+#: cover the corpus: its path part is ``test``, singular.
+#: Changed in 2.1.6 (R-15, PLAN_audit_2026-10-24_deferred_p2p3.md): the two
+#: parts are added.
+_SKIP_DIRS = frozenset(
+    {".git", ".venv", "__pycache__", "node_modules", "build", "dist"}
+)
 
 #: Deliberate non-mirroring test files, frozen at 30 entries.
 #: Key format: ``<package>/<test file stem>`` (stem includes ``test_``).

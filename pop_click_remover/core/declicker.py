@@ -51,12 +51,18 @@ Bit-depth support
 16-bit, 24-bit and 32-bit integer PCM are all handled correctly.
 pydub represents 24-bit audio internally as 32-bit integers; the clipping
 range is set accordingly.
+
+Changed in 2.1.6: the bare ``np.ndarray`` annotations are parameterised. numpy
+1.26.4's stubs - what this project's lock installs below 3.12 - leave
+``ndarray`` generic with no defaults, so ``--strict`` rejects a bare ``ndarray``
+on the floor leg while numpy 2.5.4's stubs accepted it (R-15,
+PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
 
 import logging
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -138,7 +144,9 @@ def _threshold_to_k(threshold: float) -> float:
     return _K_AGGRESSIVE + frac * (_K_GENTLE - _K_AGGRESSIVE)
 
 
-def _windowed_mad(signal: np.ndarray, half_win: int) -> np.ndarray:
+def _windowed_mad(
+    signal: npt.NDArray[np.float64], half_win: int
+) -> npt.NDArray[np.float32]:
     """
     Per-sample windowed Mean Absolute Deviation (MAD) of *signal*.
 
@@ -159,7 +167,9 @@ def _windowed_mad(signal: np.ndarray, half_win: int) -> np.ndarray:
     return result
 
 
-def _merge_regions(indices: np.ndarray, max_gap: int = 1) -> list[tuple[int, int]]:
+def _merge_regions(
+    indices: npt.NDArray[np.integer[Any]], max_gap: int = 1
+) -> list[tuple[int, int]]:
     """
     Merge spike indices into (start, end) inclusive regions, joining
     indices separated by at most *max_gap* samples.
@@ -183,7 +193,7 @@ def _merge_regions(indices: np.ndarray, max_gap: int = 1) -> list[tuple[int, int
 
 
 def _repair_region(
-    ch_samples: np.ndarray,  # float64 1-D, modified in-place
+    ch_samples: npt.NDArray[np.float64],  # 1-D, modified in-place
     start: int,
     end: int,
     max_width_samples: int,
@@ -285,7 +295,7 @@ def _repair_region(
 
 
 def _detect_and_repair_channel(
-    ch_samples: np.ndarray,  # float64 1-D, modified in-place
+    ch_samples: npt.NDArray[np.float64],  # 1-D, modified in-place
     sample_rate: int,
     threshold: float,
     max_width_samples: int,

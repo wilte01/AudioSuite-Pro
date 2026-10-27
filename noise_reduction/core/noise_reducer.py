@@ -20,6 +20,12 @@ noise floor.
 
 Both features are independent and can be applied individually or in
 sequence (hum removal first, then spectral gating).
+
+Changed in 2.1.6: the bare ``np.ndarray`` annotations are parameterised. numpy
+1.26.4's stubs - what this project's lock installs below 3.12 - leave
+``ndarray`` generic with no defaults, so ``--strict`` rejects a bare ``ndarray``
+on the floor leg while numpy 2.5.4's stubs accepted it (R-15,
+PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
@@ -28,6 +34,7 @@ import logging
 import math
 
 import numpy as np
+import numpy.typing as npt
 from pydub import AudioSegment
 from scipy.signal import iirnotch, istft, lfilter, stft
 
@@ -67,7 +74,7 @@ _MIN_NOISE_REGION_MS: int = 100
 # ── Internal helpers ─────────────────────────────────────────────────────────
 
 
-def _rms_db(audio_f64: np.ndarray) -> float:
+def _rms_db(audio_f64: npt.NDArray[np.float64]) -> float:
     """Compute RMS level in dBFS from a float64 array (any shape)."""
     rms = float(np.sqrt(np.mean(audio_f64.astype(np.float64) ** 2)))
     if rms < 1e-12:
@@ -80,12 +87,12 @@ def _build_hum_notch_filters(
     harmonics: int,
     quality: float,
     sample_rate: int,
-) -> list[tuple[np.ndarray, np.ndarray]]:
+) -> list[tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]]:
     """Design notch filter coefficients for hum and its harmonics.
 
     Returns a list of (b, a) coefficient pairs, one per harmonic.
     """
-    filters: list[tuple[np.ndarray, np.ndarray]] = []
+    filters: list[tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]] = []
     for h in range(1, harmonics + 1):
         freq = fundamental_hz * h
         if freq >= sample_rate / 2:
@@ -96,14 +103,14 @@ def _build_hum_notch_filters(
 
 
 def _spectral_gate_channel(
-    channel: np.ndarray,
+    channel: npt.NDArray[np.float64],
     fs: int,
     noise_start_ms: int,
     noise_end_ms: int,
     gate_threshold_db: float,
     n_fft: int,
     hop_length: int,
-) -> np.ndarray:
+) -> npt.NDArray[np.float64]:
     """Apply spectral gating to a single-channel float64 signal.
 
     Parameters

@@ -37,7 +37,17 @@ from pathlib import Path
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_SKIP_DIR_PARTS = frozenset({".venv", ".git", "__pycache__", "tests", ".mypy_cache"})
+#: Directory parts the walk never reads.  ``build``/``dist`` are the installer's
+#: gitignored output (``packaging/build``): the staged payload carries a copy of
+#: every first-party module *and* a bundled CPython whose ``Lib/test`` corpus is
+#: not UTF-8, so this fixture raised ``UnicodeDecodeError`` and `bare pytest`
+#: reported 24 errors in this module for any developer who had built the
+#: installer - a tree the lock has no business judging.  CI never builds it,
+#: which is why it went unnoticed.
+#: Changed in 2.1.6 (R-15, PLAN_audit_2026-10-24_deferred_p2p3.md): added.
+_SKIP_DIR_PARTS = frozenset(
+    {".venv", ".git", "__pycache__", "tests", ".mypy_cache", "build", "dist"}
+)
 
 #: Deleted outright in E1: no definition and no import reference survives.
 _REMOVED_NAMES = frozenset(

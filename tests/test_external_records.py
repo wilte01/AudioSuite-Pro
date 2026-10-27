@@ -61,7 +61,15 @@ from tests.external_records import (
     write_record,
 )
 
-_SKIP_DIRS = frozenset({".git", ".venv", "__pycache__", "node_modules"})
+#: Directory parts the walk never reads.  ``build``/``dist`` are the installer's
+#: gitignored output (``packaging/build``): the staged payload carries a bundled
+#: CPython whose own ``Lib/test`` corpus is not UTF-8, so the owner scan raised
+#: ``UnicodeDecodeError`` for any developer who had built the installer.  CI never
+#: builds it, which is why it went unnoticed.
+#: Changed in 2.1.6 (R-15, PLAN_audit_2026-10-24_deferred_p2p3.md): added.
+_SKIP_DIRS = frozenset(
+    {".git", ".venv", "__pycache__", "node_modules", "build", "dist"}
+)
 
 #: Marks a key as absent rather than set to a value, for the refusal table.
 _REMOVE = object()

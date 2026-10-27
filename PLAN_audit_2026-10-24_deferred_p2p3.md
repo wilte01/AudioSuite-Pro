@@ -1,8 +1,8 @@
 # PLAN — Audit 2026-10-24 deferred register (P2/P3): CI policy, a POSIX leg, tooling targets, docs truth
 
-**Status:** `[~]` in progress — drafted 2026-10-27. **R-15 is complete and the
-gate is green** (record in §5); R-16's verification row is written, R-11 and
-R-12 are open. Nothing is committed yet.
+**Status:** `[~]` in progress — drafted 2026-10-27. **R-15 is complete** (record
+in §5), including the fix for the `Type Check` failure its first push exposed;
+R-16's verification row is written, R-11 and R-12 are open.
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
 **Base state:** `main` at `85046ef` ("Record the 2.1.6 CI remediation decisions
 (2026-10-27)"), working tree clean. `v2.1.5` is the repository's only tag (at
@@ -85,6 +85,9 @@ Two further measurements the items depend on:
 | D12 | The POSIX leg is **Ubuntu only**; no macOS leg is added. | DECIDED | The audit says "Ubuntu (and ideally macOS)". Nothing in the tree claims macOS support, and macOS runners bill at a multiple of Linux minutes for a claim nobody makes. Revisit only with a support decision (recorded in §6). |
 | D13 | `platform_support.py` stays the **single source** for the caveat; the README block is regenerated, never hand-edited. | DECIDED | `MATRIX_CAVEAT` is asserted verbatim against the README by `test_platform_support.py::TestReadmeDriftLock::test_readme_states_the_caveat_verbatim`, and the generated block is compared against a fresh render. The same lock forbids the phrasings `cross-platform`, `fully cross-platform` and `works on linux and macos`, so the new wording must be narrower, not larger. |
 | D14 | The R-15 lock reads the lint job's **executed** lines, not its raw text. | DECIDED | The job's comment explains why it takes ruff from the lock and quotes `pip install ruff` while doing so, so a raw-text match failed on the explanation instead of on the wiring — the lock caught this on its first run. Stripping comment lines is the same distinction `tests/test_ci_security_audit.py` draws when it proves the audit never points at `.venv` ("a comment cannot point the audit at a directory"). Every CI-text lock added later starts from this shape. |
+| D15 | The typecheck job **stays on the 3.11 floor** after its first run failed there, and the failure is fixed in the code rather than by moving the job back to 3.12. | DECIDED | The floor leg is what the audit asked to be verified, and it caught what 3.12 could not: the lock resolves numpy 1.26.4 / scipy 1.17.1 below 3.12 and numpy 2.5.4 / scipy 1.18.1 above it, and 1.26's stubs leave ``ndarray`` generic with no defaults, so thirteen bare ``ndarray`` annotations failed ``--strict``'s ``disallow_any_generics`` *only* on the floor. Reverting the job would have kept a gate that cannot see the stack a 3.11 user installs. |
+| D16 | The installer's build output (`packaging/build`, `packaging/dist`) stops being read as source: **five** tree-walking locks and mypy. | DECIDED | `tests/test_packaging.py` stages a payload there (gitignored) carrying every tool module *and* a bundled interpreter, whose own `Lib/test` corpus is deliberately not UTF-8. `test_e4_dead_code_lock.py` read it and died with `UnicodeDecodeError` (34 errors), `test_undo_gui.py`'s display-name scan failed three tests, and mypy aborted with "This file shadows library module 'typing' ... errors prevented further checking". A full `bare pytest` then found **three more of the same** — `tests/test_test_file_naming.py` and `tests/test_external_records.py` (both `UnicodeDecodeError` on the corpus) and `audio_suite_shared/tests/test_cli_helpers_ast_lock.py` (24 errors) — 26 failures/errors in total, all from one gitignored tree no lock has business judging. All are local-only: CI checks out a clean tree, so a developer who had built the installer could not run the gate the suite documents. Found while verifying R-15 and fixed in the same change. The locks' existing `tests` skip does **not** cover the corpus: its path part is `test`, singular. |
+| D17 | `[tool.bandit] exclude_dirs` gains `"packaging"`, and the entries are asserted **narrow** by a lock. | DECIDED | The security gate walks `.`, so with the installer built the documented command reported **3 690 HIGH** findings drawn from CPython's own stdlib inside the staged runtime — the gate could not pass in a state a normal developer reaches, while CI (which never builds the installer) stayed green. Bandit matches each entry as a path **substring**, which is why the entry is asserted by its consequence: a new `tests/test_tooling_targets.py` class scans the tree for a production module whose path matches any entry and fails if one exists, so widening an entry into a silent blind spot is red, not allowed. Nothing is lost today: `packaging/` ships no `.py` file (its inputs are `.iss`, `.ps1` and `.md`), and `packaging` appears in no other tracked path. The exclusion also prunes the walk: the gate went from minutes to **11 s**. |
 
 ---
 
@@ -98,10 +101,13 @@ before the verdict is believed (AGENTS.md, *Verification Tooling Traps*).
 ### R-15 — the tooling targets must name the floor
 
 *Files:* `pyproject.toml` (`[tool.ruff] target-version`, `[tool.mypy]
-python_version`), the modules ruff re-sorts at a py311 target (12 `I001`
-findings),
-`spectral_viewer/core/spectrogram.py` (line 211),
-`.github/workflows/ci.yml` (`lint` and `typecheck` jobs), new
+python_version`, `[tool.mypy] exclude` for the installer's build output, and
+`[tool.bandit] exclude_dirs`), the modules ruff re-sorts at a py311 target (12
+`I001` findings),
+`spectral_viewer/core/spectrogram.py` (line 211), the thirteen bare `ndarray`
+annotations the floor's numpy stubs reject (D15),
+`.github/workflows/ci.yml` (`lint` and `typecheck` jobs), the five tree-walking
+locks that must not read `packaging/build` (D16), new
 `tests/test_tooling_targets.py`.
 
 *Defect:* three declarations disagree about which interpreter this project
@@ -155,9 +161,12 @@ touched. `python_version = "3.11"`, and
 The `typecheck` job installs `python-version: "3.11"`; the `lint` job installs
 the dev extra from `uv.lock` and runs `uv run ruff`. Fifteen files carry this
 window's `Changed in 2.1.6` note, as `tests/test_release_notes.py` requires. New
-lock `tests/test_tooling_targets.py` (9 tests). One trap, D14: a CI-text
+lock `tests/test_tooling_targets.py` (11 tests, the last two added for the
+security gate's exclusions under D17). Two traps: D14 — a CI-text
 assertion must read executed lines, because the job's comment quotes the command
-it replaced.
+it replaced; and D17 — a deselection entry in a gate's config must be asserted by
+what it can *match*, because bandit reads each entry as a substring and `build`
+alone would have silently deselected `utilities/build_user_guides.py`.
 
 ### R-16 — README tool count: verification only (already closed in 2.1.5)
 
@@ -353,10 +362,23 @@ recorded as runner-verified when they are: the 3.11 mypy leg (R-15), the
 * `python -m mypy .` — clean, **550 source files**, with
   `python_version = "3.11"`.
 * `bandit -r . -x ./.venv -c pyproject.toml` — **0 High / 0 Medium** (38 Low, the
-  documented tail).
+  documented tail), 11.5 s. With the installer's tree readable it reported
+  **3 690 High** from the staged CPython stdlib, so this number is only
+  reproducible *because* D17's exclusion is in place; the count is asserted, not
+  observed once, by `tests/test_tooling_targets.py` (below).
 * bare `pytest` — **11 155 passed, 3 skipped, 35 deselected, 905 s**, coverage
   **90.89 %**, floor 75 % reached. The 11 146 of the CI plan's record plus the
-  nine new tests in `tests/test_tooling_targets.py`.
+  nine new tests in `tests/test_tooling_targets.py`. That measurement predates
+  `packaging/build`, i.e. it is the number CI reproduces.
+* bare `pytest` again, **with the installer's build tree present and D16/D17
+  applied** — **11 157 passed, 3 skipped, 35 deselected, exit 0**, coverage
+  **90.89 %**, 2 400 s. The eleven tests of `tests/test_tooling_targets.py`, the
+  five repaired walks and none of the 26 failures/errors of the run before it.
+  Two things to read honestly: the delta is that run's 11 155 plus the two tests
+  added under D17, and the wall time is much higher than the 905 s above — this
+  record does not explain why, and it is stated rather than attributed, because
+  a 40-minute suite that used to take 15 is worth a look before it is blamed on
+  a build tree in one working copy.
 
 **Break-and-restore.** `ci.yml` was mutated to the pre-R-15 values in two
 passes — the typecheck job back to `python-version: "3.12"`, then
@@ -368,21 +390,53 @@ module, so no stale bytecode could have carried a verdict. The pyproject half is
 proved inside the lock: a py310 Ruff target, a 3.12 mypy target and a raised
 floor are each applied to an edited copy of the real file and must be reported.
 
-**Open on the runner** (X1, extended): the 3.11 `typecheck` leg, and the `lint`
-job's `uv sync --extra dev` on `ubuntu-latest` — that job used to install one
-package and now installs the locked graph on a platform this host cannot
-exercise. Both are verified by the first push, and a failure there is a finding
-for this plan rather than a defect to work around.
+**The first push failed `Type Check` — and that was the floor leg doing its job.**
+`71b260c` reported 13 errors, all `[type-arg]`: the lock resolves **numpy 1.26.4 /
+scipy 1.17.1 for `python_full_version < '3.12'`** against numpy 2.5.4 / scipy
+1.18.1 above it, and numpy 1.26's stubs leave ``ndarray`` generic with no
+defaults, so ``--strict``'s ``disallow_any_generics`` rejected bare
+``np.ndarray`` annotations that 2.5.4's stubs accept. Thirteen sites across three
+modules: four in `audio_suite_shared/audio_conversion.py`, four in
+`pop_click_remover/core/declicker.py`, five in
+`noise_reduction/core/noise_reducer.py`. Each is now parameterised from its
+callers' actual dtypes — `float32` at the decode/encode boundary, `float64` on
+the scipy DSP paths, `integer[Any]` for sample indices, and `floating[Any]` where
+the value arrives as `clip_to_range`'s declared return — never a blanket `Any`.
+
+**Reproduced and verified locally.** `uv python install 3.11` plus
+`uv sync --frozen` with the job's extras gives the runner's interpreter and
+numeric stack (3.11.16, numpy 1.26.4, scipy 1.17.1). `mypy .` is clean there and
+in the 3.14 development environment, 550 files each — the floor environment is
+where the thirteen `type-arg` errors reproduce, and it is the only environment
+in which "fixed" is a measurement rather than an inference.
+
+**Verifying it also exposed D16 and D17.** Neither is an R-15 defect and neither
+reproduces in CI (a clean checkout has no `packaging/build`) — but both are
+*local* gate failures a developer can reach by running the installer, which is
+what "the gate can be run" means. D16's five locks and mypy's `exclude` are
+fixes to the walks; D17 is a fix to a gate *command's* scope, and it was found
+last because bandit is the final step of the gate and the first run of it in
+this state took minutes. The three locks found after the first full-suite run
+(`test_test_file_naming`, `test_external_records`,
+`test_cli_helpers_ast_lock`) were fixed with the same two-part change — skip
+`build`/`dist` parts, keep the existing `tests` skip — and the five pass in
+**127 tests / 15.9 s** with the tree still present.
+
+**Still open on the runner:** the `lint` job's `uv sync --extra dev` on
+`ubuntu-latest`, which replaces a single-package `pip install` and cannot be
+exercised on this host.
 
 ---
 
 ## 6. Open items, and deferrals this plan creates
 
-* **X1 — a local 3.11/3.12 interpreter.** This host has 3.14 only (CI plan X2
-  carries forward). Every R-15 claim about the 3.11 leg is either a proxy
-  measurement (`mypy . --python-version 3.11`) or the runner's verdict, and the
-  `lint` job's Linux `uv sync --extra dev` joins that list (R-15 delivered it
-  without being able to run it here). A
+* **X1 — the 3.11 leg is reproducible here, but it is not the same environment.**
+  `uv python install 3.11` plus `uv sync --frozen` with the job's extras gives
+  the runner's interpreter and numeric stack (3.11.16 / numpy 1.26.4), which is
+  how the failing 13 were reproduced and the fix proved; the *development*
+  environment remains 3.14, so a defect that needs a 3.12-specific wheel is still
+  runner-only. The `lint` job's Linux `uv sync --extra dev` cannot be run here at
+  all (R-15 delivered it unrun). A
   defect that only manifests under 3.11's installed wheels cannot be reproduced
   locally. Note the trap while measuring: the lock resolves *different* numpy
   and scipy legs below 3.12 (AGENTS.md, *A dependency's version can change which
@@ -408,6 +462,15 @@ for this plan rather than a defect to work around.
 * **X6 — no `smoke` marker / fast profile** (audit Q-09). The POSIX leg uses an
   explicit declared selection instead of a new marker, so the two do not
   compete for the same problem.
+* **X7 — one quoted value in `AGENTS.md` is now behind the config it illustrates.**
+  The *Bandit needs `-c pyproject.toml`* rule explains the trap by quoting
+  `exclude_dirs = ["tests"]`; the real value is now
+  `["tests", "packaging"]` (D17). The rule's point is unchanged and the fix is
+  one word, but `AGENTS.md` is the frozen rule set (`tests/test_agents_md.py`
+  holds `RULE_INVENTORY`), so it belongs in a deliberate `AGENTS.md` change
+  rather than a drive-by inside an R-15 diff — the same call
+  `PLAN_ci_2026-10-27_remediation.md` D12 made. Recorded, not fixed, and not
+  silent: the value a reader greps for is the one in `pyproject.toml`.
 
 ---
 

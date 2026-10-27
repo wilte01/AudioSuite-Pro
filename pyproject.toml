@@ -141,8 +141,17 @@ override-dependencies = ["torch>=2.9"]
 # B101 (assert_used) is skipped: the suite's asserts are test/build-time
 # invariants, not runtime authorization checks.  Production code paths that
 # must raise do so via explicit exception raising, not asserts.
+# exclude_dirs entries are matched as path *substrings*, so each one must be
+# narrow enough that it cannot swallow a first-party module.  ``packaging`` is
+# the installer's inputs *and* its output: ``packaging/build`` (gitignored) holds
+# a copy of the app plus a bundled CPython, and scanning that reported 3690 HIGH
+# findings from CPython's own stdlib - a red 0/0 gate for any developer who had
+# built the installer.  Nothing is lost: ``packaging`` ships no ``.py`` file (the
+# installer inputs are ``.ps1``/``.iss``/``.md``), and the string appears in no
+# other tracked path.  Changed in 2.1.6 (R-15,
+# PLAN_audit_2026-10-24_deferred_p2p3.md).
 skips = ["B404", "B101"]
-exclude_dirs = ["tests"]
+exclude_dirs = ["tests", "packaging"]
 
 [tool.mypy]
 # Changed in 2.1.6: python_version 3.12 -> 3.11, the floor [project]
@@ -184,6 +193,17 @@ exclude = [
     # step and then `mypy .` reported 46 false errors from a copy of files that
     # are themselves excluded. Ruff skips gitignored paths; this makes mypy agree.
     "^docs/_build/",
+    # Changed in 2.1.6: the packaging suite's build tree, for the same reason
+    # and with the same evidence. `tests/test_packaging.py` stages an installer
+    # payload under `packaging/build/` (gitignored), and that payload carries a
+    # bundled runtime's `Lib/typing.py`. mypy aborts the whole run on a
+    # top-level module shadowing a standard-library one - "This file shadows
+    # library module 'typing' ... errors prevented further checking" - so a
+    # developer who had run the suite could no longer run the gate the suite
+    # documents, and the message named a file they had never touched. CI never
+    # sees it (the typecheck job checks out a clean tree), which is exactly why
+    # the exclusion belongs in the config rather than in the reader's memory.
+    "^packaging/build/",
 ]
 
 [[tool.mypy.overrides]]

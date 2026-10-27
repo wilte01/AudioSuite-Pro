@@ -132,9 +132,21 @@ class TestToolDisplayNamesMatchesManifest:
     def _production_py_files() -> list[Path]:
         root = Path(__file__).resolve().parents[2]
         files: list[Path] = []
+        # ``build``/``dist``: the installer's gitignored output
+        # (``packaging/build``, ``packaging/dist``). The staged payload carries
+        # copies of every tool module *and* a bundled interpreter, whose own
+        # ``Lib/test`` corpus is not UTF-8 - so the walk read a tree that is not
+        # the production source, and this lock failed for any developer who had
+        # built the installer. Changed in 2.1.6 (R-15,
+        # PLAN_audit_2026-10-24_deferred_p2p3.md): the two parts are added.
+        # Note ``tests`` does not cover the corpus: its path part is ``test``,
+        # singular.
         for path in root.rglob("*.py"):
             parts = path.parts
-            if any(part in {".venv", ".git", "__pycache__"} for part in parts):
+            if any(
+                part in {".venv", ".git", "__pycache__", "build", "dist"}
+                for part in parts
+            ):
                 continue
             if "tests" in parts:
                 continue
