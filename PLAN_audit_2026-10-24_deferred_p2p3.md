@@ -1,8 +1,9 @@
 # PLAN — Audit 2026-10-24 deferred register (P2/P3): CI policy, a POSIX leg, tooling targets, docs truth
 
 **Status:** `[~]` in progress — drafted 2026-10-27. **R-15 is complete and
-runner-verified** (record in §5): run `40563584800` at `5298301` is **green in
-all nine jobs**, `Type Check` and `Lint & Format` included, after the first
+runner-verified** (record in §5): the code commit `5298301` (run `40563584800`)
+and this plan's own record commit `61a19dd` (run `40568799837`) are each **green
+in all nine jobs**, `Type Check` and `Lint & Format` included, after the first
 push's `Type Check` failure was fixed; R-16's verification row is written, R-11
 and R-12 are open.
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
@@ -459,6 +460,22 @@ the totals.
 None of the numbers above came from a local proxy: they are the runner's own
 verdicts, read from the Actions API at run `40563584800`
 (https://github.com/wilte01/AudioSuite-Pro/actions/runs/40563584800).
+
+**The tip is green as well — run `40568799837` at `61a19dd`.** That is the
+documentation-only commit carrying this record, pushed after the one above, and
+it completed `success` at 19:54:11Z with all nine jobs green. The `Test` legs
+finished last (3.14 23:19, 3.12 27:06, 3.11 27:14) and each reported the same
+**11 154 passed, 6 skipped, 35 deselected** at 90.87–90.88 % coverage;
+`Type Check` and `Lint & Format` were green again in 42 s and 20 s. Two
+consecutive runs of this window are therefore green with the floor leg in them,
+so the state is a property of the commits rather than of one lucky run.
+
+**Where the chasing stops, said out loud.** The paragraph above is itself a
+documentation-only commit, and *its* run is not awaited — recording the record
+would otherwise move the subject every time it is written. What this record
+establishes is concrete and two-part: `5298301` (code, run `40563584800`) and
+`61a19dd` (this record, run `40568799837`) are both green in all nine jobs. The
+next *code* change is the next thing whose run belongs here.
 
 ---
 
