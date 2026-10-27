@@ -9,7 +9,24 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The reference-and-deck coverage lock now runs in the quick documentation
+  job.** `tests/test_suite_docs_tool_coverage.py` was not in the `docs-locks`
+  CI job, so its failures surfaced only 15-20 minutes into the three-interpreter
+  suite matrix. It joins the job's list, and the classification walk that keeps
+  that list honest recognises its name family (`test_suite_docs*`) - the file
+  was previously invisible to the walk, which is exactly how a document lock
+  could sit outside the job while every listed module passed.
+- **The coverage lock no longer reads the generated documentation build as
+  shipped prose.** It walked `docs/` on disk, so once
+  `utilities/build_docs_site.py` had staged its copies of the root documents
+  under `docs/_build/` - the historical `CHANGELOG.md` among them - the lock
+  reported that changelog's frozen counts ("26 separate windows", "27
+  registered tools") as stale and went red against files the author had not
+  touched, for anyone who had run the documented build step. The walk now
+  follows tracked documents. A regression test plants an untracked file where
+  the build puts them and asserts the walk ignores it.
 
 ## [2.1.5] - 2026-10-27
 

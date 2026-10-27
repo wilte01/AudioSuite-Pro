@@ -182,7 +182,8 @@ with:
 ```pwsh
 python -m pytest tests/test_user_guide_hygiene.py tests/test_docs_formats.py `
   tests/test_docs_index.py tests/test_guide_resolution.py tests/test_api_reference.py `
-  tests/test_readme.py tests/test_changelog_format.py --no-cov -q
+  tests/test_readme.py tests/test_changelog_format.py `
+  tests/test_suite_docs_tool_coverage.py --no-cov -q
 ```
 
 The built site is a CI artifact (`docs-html`), not a website: GitHub Pages cannot

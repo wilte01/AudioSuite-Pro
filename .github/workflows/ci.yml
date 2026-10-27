@@ -39,6 +39,13 @@ jobs:
     # matrix. Running the same files on their own turns that into a couple of
     # minutes, which is early enough to be worth fixing straight away.
     #
+    # Changed in 2.1.5: the coverage lock joins the list. Its subject is a
+    # committed document like the others', but its module name misses the
+    # families the classification walk reads, so it was never classified and
+    # ran only in the full suite. The walk now recognises that name, so a
+    # future document lock cannot sit outside this job unnoticed: it has to be
+    # listed here or deferred with a reason.
+    #
     # It adds no check the suite lacks - the same modules run there too - and
     # tests/test_docs_formats.py::TestDocsLocksRunOnTheirOwn keeps this file
     # list honest, so a lock cannot be dropped from the job silently. The
@@ -80,6 +87,7 @@ jobs:
             tests/test_api_reference.py \
             tests/test_readme.py \
             tests/test_changelog_format.py \
+            tests/test_suite_docs_tool_coverage.py \
             --no-cov -q > "$log" 2>&1
           code=$?
           set -e

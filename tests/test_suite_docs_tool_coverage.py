@@ -27,11 +27,16 @@ style fails instead of passing vacuously.
 Changed in 2.1.5: new file - the coverage lock behind the 30-tool documentation
 repair (CLI reference and new-user deck), including the tool-count claims the
 shipped prose makes.
+Changed in 2.1.5: the count-claim walk reads *tracked* documents instead of
+walking the directories, so the generated ``docs/_build/`` tree - which stages a
+copy of the root documents beside the site, the historical ``CHANGELOG.md``
+among them - is no longer mistaken for shipped prose.
 """
 
 from __future__ import annotations
 
 import re
+import subprocess
 from collections.abc import Iterator
 from dataclasses import dataclass
 from itertools import chain
@@ -55,19 +60,60 @@ TOOL_HEADING = re.compile(r"^### (.+)$", re.MULTILINE)
 #: One row of the reference's *All Commands* table: ``| `command` | Tool | ...``.
 COMMAND_ROW = re.compile(r"^\| `([^`]+)` \|", re.MULTILINE)
 
-#: Every document whose prose must quote the current tool count. Historical
-#: records are deliberately absent: ``CHANGELOG.md``, ``PLAN_*.md`` and
-#: ``AUDIT_*.md`` state the count as of the release they describe, so a tool
-#: added later must not rewrite them. ``AGENTS.md`` is absent for a different
-#: reason - its "14 tools" count is the frozen GUI completion-seam population,
-#: not the suite's tool list.
-COUNT_DOCUMENTS: tuple[Path, ...] = (
-    REPO_ROOT / "README.md",
-    REPO_ROOT / "CONTRIBUTING.md",
-    REPO_ROOT / "SECURITY.md",
-    *sorted((REPO_ROOT / "docs").rglob("*.md")),
-    *sorted((REPO_ROOT / "user_guides").rglob("*.md")),
-)
+
+def _tracked_paths() -> set[str]:
+    """Return every tracked path, POSIX-style, relative to the repository root."""
+    result = subprocess.run(
+        ["git", "ls-files"],  # B603/B607: fixed argv, shell=False
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+def _tracked_markdown_under(directory: str) -> list[Path]:
+    """Return every *tracked* Markdown document under *directory*.
+
+    Tracked rather than walked: ``utilities/build_docs_site.py`` stages a copy
+    of the repository's root documents under ``docs/_build/`` - the historical
+    ``CHANGELOG.md`` among them, whose counts are frozen on purpose. Walking the
+    directory re-admitted those generated copies, so the lock went red for
+    anyone who had run the documented build step, naming a file they had not
+    touched.
+
+    Args:
+        directory: A repo-relative directory name, e.g. ``"docs"``.
+
+    Returns:
+        Sorted paths of the tracked ``.md`` files beneath it.
+    """
+    return sorted(
+        REPO_ROOT / path
+        for path in _tracked_paths()
+        if path.endswith(".md") and path.startswith(f"{directory}/")
+    )
+
+
+def _count_documents() -> tuple[Path, ...]:
+    """Return every document whose prose must quote the current tool count.
+
+    Historical records are deliberately absent: ``CHANGELOG.md``, ``PLAN_*.md``
+    and ``AUDIT_*.md`` state the count as of the release they describe, so a
+    tool added later must not rewrite them. ``AGENTS.md`` is absent for a
+    different reason - its "14 tools" count is the frozen GUI completion-seam
+    population, not the suite's tool list.
+    """
+    return (
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "CONTRIBUTING.md",
+        REPO_ROOT / "SECURITY.md",
+        *_tracked_markdown_under("docs"),
+        *_tracked_markdown_under("user_guides"),
+    )
+
 
 #: "30 first-party tools", "26 Windows desktop tools", "each of the 30 tools".
 _TOTAL_CLAIM = re.compile(r"(\d+)\s+(?:[\w][\w-]*\s+){0,4}(?:tools|modules)\b", re.I)
@@ -148,7 +194,7 @@ class _CountClaim:
 
 def _markdown_units() -> Iterator[tuple[str, int, str]]:
     """Yield ``(source, line, text)`` for every line of every counting document."""
-    for path in COUNT_DOCUMENTS:
+    for path in _count_documents():
         source = str(path.relative_to(REPO_ROOT))
         for number, line in enumerate(
             path.read_text(encoding="utf-8").splitlines(), start=1
@@ -292,6 +338,33 @@ class TestToolCountClaims:
     the Windows-only remainder, or the category's own size - so a new tool
     fails here until the prose matches the tree.
     """
+
+    def test_generated_build_output_is_not_treated_as_shipped_prose(self) -> None:
+        """A staged copy under ``docs/_build/`` is not a document to police.
+
+        ``utilities/build_docs_site.py`` writes the site *and* stages copies of
+        the root documents beside it, so the historical ``CHANGELOG.md`` - whose
+        "26 separate windows" is correct for the release it describes - landed
+        under ``docs/`` and was read as a live claim. Ageing the deck and the
+        changelog then looked like a regression in a file the author never
+        edited. The walk follows tracked documents; this proves it by planting
+        an untracked one where the build actually puts them.
+        """
+        probe = REPO_ROOT / "docs" / "_build" / "_lock_probe.md"
+        probe.parent.mkdir(parents=True, exist_ok=True)
+        probe.write_text(
+            "A suite of 999 Windows desktop tools and 999 tools.\n", encoding="utf-8"
+        )
+        try:
+            scanned = {str(path.relative_to(REPO_ROOT)) for path in _count_documents()}
+            assert scanned, "the document walk matched nothing - the scan is vacuous"
+            assert str(probe.relative_to(REPO_ROOT)) not in scanned, (
+                f"{probe.relative_to(REPO_ROOT)} is untracked build output, but the "
+                "count-claim walk read it; the walk must follow tracked documents, "
+                "not whatever is on disk"
+            )
+        finally:
+            probe.unlink(missing_ok=True)
 
     def test_every_count_claim_matches_the_manifest(self) -> None:
         claims = _count_claims()

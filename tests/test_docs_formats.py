@@ -29,6 +29,12 @@ Changed in 2.1.0: new file - the authored-format whitelist and the
 machine-specific path scan (PLAN_docs_consolidation P4.2, P4.3).
 Changed in 2.1.0: adds ``TestDocsLocksRunOnTheirOwn``, the lock behind the
 dedicated CI job (PLAN_docs_consolidation D22).
+Changed in 2.1.5: the job also runs ``tests/test_suite_docs_tool_coverage.py``,
+and the classification walk recognises its name family. Its subject is a
+committed document - the CLI reference and the new-user deck - but the name it
+was given misses the ``test_docs*`` / ``test_user_guide*`` / ``test_guide*`` /
+``test_api_*`` families, so the walk never saw it, the file was never classified,
+and its failures stayed 15-20 minutes into the suite matrix.
 """
 
 from __future__ import annotations
@@ -64,8 +70,8 @@ SCAN_SUFFIXES = frozenset({".py", ".md", ".rst", ".toml", ".yml", ".yaml", ".jso
 
 #: The document locks CI runs together, before the full suite (D22). Each
 #: module's subject is a committed document: a guide artefact and its source,
-#: the ``docs/`` pages, the generated index and README tables, the changelog, or
-#: the Help button's path resolution.
+#: the ``docs/`` pages, the generated index and README tables, the changelog,
+#: the reference and deck's tool coverage, or the Help button's path resolution.
 DOCS_LOCKS: tuple[str, ...] = (
     "tests/test_user_guide_hygiene.py",
     "tests/test_docs_formats.py",
@@ -74,6 +80,7 @@ DOCS_LOCKS: tuple[str, ...] = (
     "tests/test_api_reference.py",
     "tests/test_readme.py",
     "tests/test_changelog_format.py",
+    "tests/test_suite_docs_tool_coverage.py",
 )
 
 #: Document-shaped modules the fast job deliberately leaves to the full suite.
@@ -213,13 +220,20 @@ def _document_lock_modules() -> set[str]:
 
     The families are named rather than derived from a list of subjects the
     files do not declare: a module about a document is called
-    ``test_docs*``/``test_user_guide*``/``test_guide*``/``test_api_*``, or it
-    locks the README or the changelog by name.
+    ``test_docs*``/``test_user_guide*``/``test_guide*``/``test_api_*``,
+    ``test_suite_docs*`` (a suite-wide document), or it locks the README or the
+    changelog by name.
 
     Returns:
         POSIX paths relative to the repository root, e.g. ``tests/test_docs_index.py``.
     """
-    prefixes = ("test_docs", "test_user_guide", "test_guide", "test_api_")
+    prefixes = (
+        "test_docs",
+        "test_user_guide",
+        "test_guide",
+        "test_api_",
+        "test_suite_docs",
+    )
     names = {
         path.name
         for path in (REPO_ROOT / "tests").glob("test_*.py")
@@ -243,7 +257,7 @@ class TestDocsLocksRunOnTheirOwn:
     def test_the_job_runs_every_lock(self) -> None:
         """Each listed lock is named in the ``docs-locks`` job's steps."""
         block = ci_job("docs-locks")
-        assert len(DOCS_LOCKS) >= 7, (
+        assert len(DOCS_LOCKS) >= 8, (
             f"{len(DOCS_LOCKS)} locks listed - the list shrank, so the job would "
             "silently stop covering a document"
         )
@@ -255,9 +269,17 @@ class TestDocsLocksRunOnTheirOwn:
         )
 
     def test_every_document_lock_is_classified(self) -> None:
-        """A new document lock joins the job, or the deferred list, deliberately."""
+        """The walk and the two lists agree, in both directions.
+
+        A module the walk finds must be listed here or deferred; and a listed
+        module must be one the walk can find. The second direction is not
+        decorative: a lock whose module name misses every family is invisible
+        to the walk, so removing a family from ``_document_lock_modules`` - or
+        naming a new lock outside them - would drop it back to "unclassified in
+        practice" with every assertion above still green.
+        """
         discovered = _document_lock_modules()
-        assert len(discovered) >= 8, (
+        assert len(discovered) >= 10, (
             f"only {len(discovered)} document lock modules found - the walk is "
             "broken, so this lock would pass vacuously"
         )
@@ -265,6 +287,14 @@ class TestDocsLocksRunOnTheirOwn:
         assert not stale, (
             "these modules are deferred from the docs-locks job but no longer "
             "exist; remove them from DOCS_LOCKS_DEFERRED:\n  " + "\n  ".join(stale)
+        )
+        invisible = sorted((set(DOCS_LOCKS) | set(DOCS_LOCKS_DEFERRED)) - discovered)
+        assert not invisible, (
+            "these locks are listed for the docs-locks job, but the "
+            "classification walk cannot see them: their module names match no "
+            "family, so they are unclassified in practice and a new file of the "
+            "same shape would go unnoticed. Add the family to "
+            "_document_lock_modules:\n  " + "\n  ".join(invisible)
         )
         unclassified = sorted(discovered - set(DOCS_LOCKS) - set(DOCS_LOCKS_DEFERRED))
         assert not unclassified, (
