@@ -28,6 +28,12 @@ all. The stall is **not reproduced** — the same commit's next run was green �
 X11 stays open, now with guards at both levels and one defect fixed: the
 whole-tree collection helper's caller waited **unbounded** and captured a pipe.
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
+**Tip state:** `origin/main` at `932b489` is **green in all eight jobs** (run
+[`40735056536`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40735056536)):
+the first fully green push since the workflow became one suite leg, and the
+first whose suite leg ran on the code that bounds the collection helper's
+caller. The stall X11 records has now been absent from two consecutive runs on
+the runner.
 **Base state:** `main` at `85046ef` ("Record the 2.1.6 CI remediation decisions
 (2026-10-27)"), working tree clean. `v2.1.5` is the repository's only tag (at
 `942c183`). `tests/test_release_notes.py` is re-baselined to `5cbe83d` with
@@ -856,6 +862,13 @@ assumed on every commit.
   would not have on a healthy run. The stall did **not** reproduce (X11), so
   R-18 remains reporting-and-bounding rather than a cure, which is what §3 says
   it is.
+* *Second runner verdict — the commit that carries the caller bound: run
+  [`40735056536`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40735056536)
+  at `932b489`.* All eight jobs green. The suite leg reports **11 218 passed, 6
+  skipped, 35 deselected in 1570.88 s (0:26:10)** — exactly one pass more than
+  the run above, which is the caller lock this commit adds, so the count moved
+  for the reason the diff says it did. The push priced at **62.8** billable
+  minutes. No stall, and neither guard fired, twice in a row.
 
 ### R-17 — measured 2026-10-28 (development host; runner verdict pending, X9)
 
