@@ -328,13 +328,13 @@ jobs:
             echo "gate fail: the selection reported no passed count" >&2
             exit 1
           fi
-          if [ "$passed" -lt 1750 ]; then
-            echo "gate fail: $passed passed, below the locked floor of 1750 -" \
+          if [ "$passed" -lt 1756 ]; then
+            echo "gate fail: $passed passed, below the locked floor of 1756 -" \
               "the selection ran almost nothing" >&2
             exit 1
           fi
-          if [ "$skipped" -gt 10 ]; then
-            echo "gate fail: $skipped skipped, over the locked ceiling of 10 -" \
+          if [ "$skipped" -gt 1 ]; then
+            echo "gate fail: $skipped skipped, over the locked ceiling of 1 -" \
               "a leg that skips wholesale is not a passing leg" >&2
             exit 1
           fi

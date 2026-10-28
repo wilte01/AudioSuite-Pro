@@ -29,9 +29,16 @@ has (Python 3.12.16 - the same build family ``actions/setup-python`` uses -
 ffmpeg and ffprobe on PATH, no display), not by reading the README's tiers.
 That run collected 1757 and reported **1756 passed, 1 skipped, 0 failed**; the
 single skip is ``tag_editor/tests/test_csv_io.py``'s Windows drive-relative
-case.  The floor sits ten below the measurement and the ceiling ten above it,
-so a collection collapse or a wholesale skip is red while a dependency's minor
-wheel difference is not.
+case.  The first landed version padded both bounds by ten; the leg's own first
+run then reported the *same* 1756 / 1, so they are now the measured values
+exactly.  Equality is the right shape here because the split is pinned three
+ways — ``uv.lock`` fixes the dependency graph, ``setup-python`` fixes the
+interpreter line, and ffmpeg is installed by an explicit step — so a deviation
+is a real change (a lock upgrade, a new Python patch that skips something) and
+worth seeing, not noise to absorb.  When that happens, the remedy is a
+deliberate edit of the constant below **with a sentence in
+PLAN_audit_2026-10-24_deferred_p2p3.md naming what moved**, never a quiet
+widening.
 
 Deriving it that way paid for itself: dropping ffmpeg first made the run say
 1 751 passed / 5 failed, and the five were one real defect in shipped code plus
@@ -97,11 +104,11 @@ MODULES: tuple[str, ...] = (
     "tag_editor/tests/test_csv_io.py",
 )
 
-#: The lowest passed count the leg accepts, and the highest skip count.  Both
-#: are measured on the derivation host (1756 passed, 1 skipped); see the module
-#: docstring for how and why the margins exist.
-PASSED_FLOOR = 1750
-SKIP_CEILING = 10
+#: The lowest passed count the leg accepts, and the highest skip count - both
+#: the leg's own first-run measurement (1756 passed, 1 skipped, run 40663662748)
+#: rather than a padded margin; the module docstring says why equality is safe.
+PASSED_FLOOR = 1756
+SKIP_CEILING = 1
 
 #: Tool packages and locks that must stay out of the selection: the CD Ripper's
 #: subsystem is Windows-only by declaration, and the registry-reading document

@@ -95,7 +95,8 @@ Two further measurements the items depend on:
 | D17 | `[tool.bandit] exclude_dirs` gains `"packaging"`, and the entries are asserted **narrow** by a lock. | DECIDED | The security gate walks `.`, so with the installer built the documented command reported **3 690 HIGH** findings drawn from CPython's own stdlib inside the staged runtime — the gate could not pass in a state a normal developer reaches, while CI (which never builds the installer) stayed green. Bandit matches each entry as a path **substring**, which is why the entry is asserted by its consequence: a new `tests/test_tooling_targets.py` class scans the tree for a production module whose path matches any entry and fails if one exists, so widening an entry into a silent blind spot is red, not allowed. Nothing is lost today: `packaging/` ships no `.py` file (its inputs are `.iss`, `.ps1` and `.md`), and  `packaging` appears in no other tracked path. The exclusion also prunes the walk: the gate went from minutes to **11 s**.
 | D18 | R-12's selection is derived on a **native Linux filesystem**, with a **static ffmpeg on PATH** and **no display** — not on the development host, and not over the `/mnt/d` 9p mount. | DECIDED | Measured: over 9p the tree-scanning modules cost 150 s each and the sweep died on timeouts, which is a property of the mount rather than of POSIX; and a host without ffmpeg reports 15 fixture errors that say nothing about portability. The accepted shape is CPython 3.12.16 (the build family `actions/setup-python` uses), ffmpeg/ffprobe 7.0.2 static, and `DISPLAY`/`WAYLAND_DISPLAY` unset — which is also how the display branch was proved: `tk.Tk()` raises `TclError` and the conftest prints **NOT VERIFIED** with *0 of 1757* display skips, so this selection costs no GUI coverage (the earlier WSLg-backed run printed VERIFIED, which would have hidden that). |
 | D19 | The five failures that derivation surfaced are **fixed in the same change**, not excluded from the selection. | DECIDED | Two are defects in shipped code: `suite_config._save` promised to swallow a failed write but let a `PermissionError` escape from an unguarded directory `glob`, and again from `tmp.exists()` in its `finally` (3.12's `exists()` ignores only `ENOENT`/`ENOTDIR`, so `EACCES` re-raises; `_try_unlink` already swallows it, making the probe redundant). The other three tests encoded Windows-only assumptions and passed vacuously on Windows: a path that is absolute only there, a read-only-file cleanup that assumes Windows refuses the unlink, and two launcher tests whose Windows-shaped launch read the real `sys.platform`. Excluding the modules would have hidden a real POSIX defect in shared config persistence — the exact over-claim R-12 exists to remove. |
-| D20 | The lock asserts the **comparison** (`-lt 1750`, `-gt 10`) and not the bare number, and both bounds are the measured values rather than the pre-derivation guesses (470/85). | DECIDED | Break-and-restore proved the trap: lowering `-lt 1750` to `-lt 10` and raising `-gt 10` to `-gt 9000` both left the lock **green**, because each step's failure message quotes the same number — D14 in a new shape. Asserting the operator plus value makes both mutations red. The bounds are 1756 passed / 1 skipped with ten of margin either way, so a collection collapse or a wholesale skip fails while a dependency's minor wheel difference does not. |
+| D20 | The lock asserts the **comparison** (`-lt 1756`, `-gt 1`) and not the bare number, and both bounds are measured values rather than the pre-derivation guesses (470/85). | DECIDED | Break-and-restore proved the trap on the padded bounds: lowering `-lt 1750` to `-lt 10` and raising `-gt 10` to `-gt 9000` both left the lock **green**, because each step's failure message quotes the same number — D14 in a new shape.  Asserting the operator plus value makes both mutations red. |
+| D21 | The bounds are the **runner's own** numbers — 1756 passed, 1 skipped — not the derivation's ten-point padding (1750/10). | DECIDED | The leg's first run (D20's window) reported exactly the numbers the local derivation produced, and the split is pinned three ways: `uv.lock` fixes the dependency graph, `setup-python` fixes the interpreter line, and the ffmpeg step fixes the binaries. A deviation is therefore a real change — a lock upgrade, a new Python patch that skips something — and the leg should say so instead of absorbing it. Widening a bound again is legitimate only as a deliberate edit with a sentence here naming what moved, and the lock's comparison assertion means a silent widening is red. |
 
 ---
 
@@ -338,7 +339,7 @@ unit tests that simulate a platform value.
 `ubuntu-latest`, Python 3.12, `uv sync --extra dev` from the lock, ffmpeg via
 apt, the two CLI smokes, then the declared **37-module** selection with
 `--no-cov -q -rf`. The verdict is the real exit code *plus* a passed floor of
-1750 and a skip ceiling of 10, and the step cats the log so the conftest's
+1756 and a skip ceiling of 1, and the step cats the log so the conftest's
 display report reaches CI. `tests/test_ci_posix_leg.py` (17 tests) pins the job,
 the selection set-equality in both directions, the absence of `xvfb`/`DISPLAY`,
 the `continue-on-error` absence, both comparisons, and that the caveat names the
@@ -585,8 +586,9 @@ behaviour : NOT VERIFIED in this run`. The selection therefore costs no GUI
 coverage, which is the honest reason the caveat does not mention a cost.
 * Before the fixes the same run said 1751 passed / 5 failed; with ffmpeg absent
 it also said 39 failed (the ffmpeg-fixture classes), which is what drove the
-`integration` markers rather than a selection change. The 1750/10 bounds in the
-job carry ten of margin either side of the measurement.
+`integration` markers rather than a selection change. The bounds landed padded
+(1750/10) and were tightened to these measured values once the runner
+reproduced them (D21).
 
 *Break-and-restore (the lock must be able to fail):* four `ci.yml` mutations —
 job renamed (11 tests red), one module removed (`test_the_job_runs_exactly_the_
@@ -602,10 +604,12 @@ the four mutations were green — D20.
 at `b7ee2f9`):* `POSIX smoke (Ubuntu)` — **success**, and its log reproduces the
 derivation **exactly**: `1756 passed, 1 skipped` of 1757 collected, `Tk display
 available : NO`, `Tests skipped for display reasons : 0 of 1757`, `GUI behaviour
-: NOT VERIFIED`, then `POSIX smoke pass: 1756 passed, 1 skipped`. Both bounds
-had room — 6 above the floor, 9 under the ceiling — so the 1750/10 margins are
-calibrated rather than tight, and Ubuntu's apt ffmpeg behaved like the static
-7.0.2 build the selection was measured with. The job ran in 1 m 2 s, which is
+: NOT VERIFIED`, then `POSIX smoke pass: 1756 passed, 1 skipped`. That run was
+still under the derivation's padded bounds (1750/10); because it reported
+exactly the measured 1756 / 1, D21 tightens the lock to those values, so the leg
+now fails on drift in either direction instead of absorbing ten. Ubuntu's apt
+ffmpeg also behaved like the static 7.0.2 build the selection was measured
+with — same passed count, same single skip. The job ran in 1 m 2 s, which is
 what makes a per-push platform check affordable. The rest of that run is green
 too — **all ten jobs**, the 3.11 / 3.12 / 3.14 test legs included, which is the
 evidence that the `suite_config` and `venv_bootstrap` changes hold on the floor
@@ -645,8 +649,8 @@ well.
   item.
 * **X8 — CLOSED: the first `posix-smoke` run is green.** Run `40663662748` at
   `b7ee2f9` reports success with `1756 passed, 1 skipped` and the display report
-  §5 quotes, so the bounds suit the runner and no POSIX defect survived the
-  fixes. What the closure does *not* claim: the leg covers 37 declared modules
+  §5 quotes, so the bounds now equal what the runner reported (D21) and no POSIX
+  defect survived the fixes. What the closure does *not* claim: the leg covers 37 declared modules
   of 1 110 collected suite-wide, and no tool has been driven end to end on
   Linux — the caveat says both. The rule that governed it still stands for
   later edits: a red leg is a POSIX defect to fix, never a selection to narrow
