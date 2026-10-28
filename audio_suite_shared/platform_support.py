@@ -31,14 +31,16 @@ The tiers
 What this module is *not*
 -------------------------
 
-A claim of cross-platform certification.  ``portable-core`` means "the
+A claim of certification for a foreign platform.  ``portable-core`` means "the
 non-Windows branch is implemented and covered by a test that runs it under a
-mocked platform value" — it does **not** mean the suite has been executed on a
-real Linux or macOS host.  It has not: the Linux CI leg added by plan item A4
-is still ``[~]`` with no recorded run, so every statement here is a statement
-about *the code and its tests*, never about a verified foreign platform.  The
-README renders this caveat verbatim; an over-claim here is the defect this
-item exists to remove.
+mocked platform value".  A declared *selection* of the suite also runs on a
+real Ubuntu host on every push — the ``posix-smoke`` CI job, plan item R-12 of
+``PLAN_audit_2026-10-24_deferred_p2p3.md`` — and it runs without a display, so
+its Tk-dependent tests skip there.  That is the whole of the foreign-host
+evidence: every other statement here is a statement about *the code and its
+tests*, no tool has been driven end to end on Linux, and macOS has not been
+exercised at all.  The README renders this caveat verbatim; an over-claim here
+is the defect this item exists to remove.
 
 Single source of truth
 ----------------------
@@ -70,6 +72,12 @@ Changed in 2.1.0: the Master Driver's duplicate ``open_help`` resolver is gone
 through the shared ``_open_help_standard``, so the private dispatch that was
 declared here no longer exists and its three rows were removed in the same
 change.
+Changed in 2.1.6: the caveat now records the one foreign-host run that exists —
+the ``posix-smoke`` job's declared selection on ``ubuntu-latest`` (R-12,
+PLAN_audit_2026-10-24_deferred_p2p3.md) — and the sentence citing plan item A4
+is gone.  That marker described the CI ffmpeg install, not a Linux leg; the
+tier definitions are unchanged, because running a real host does not
+reclassify a branch.
 
 The ``os.name`` trap: patch ``sys.platform``, not ``os.name``
 ----------------------------------------------------------------
@@ -128,11 +136,18 @@ TIER_DEFINITIONS: dict[str, str] = {
 
 #: The caveat that must accompany the rendered matrix verbatim.
 MATRIX_CAVEAT = (
-    "**No tool in this suite has been executed on a real Linux or macOS "
-    "host.** The Linux CI leg added by plan item A4 is still unrecorded, so "
-    '"Portable core" below means *the non-Windows branch is implemented and '
-    "covered by a test that runs it under a simulated platform value* — not "
-    "that a foreign platform was ever exercised."
+    "**A declared selection of this suite runs on a real Ubuntu host on every "
+    "push — and nothing else has been executed on a foreign platform.** The "
+    "`posix-smoke` CI job "
+    "(PLAN_audit_2026-10-24_deferred_p2p3.md, item R-12) runs the CLI surface "
+    "plus the module list named in `.github/workflows/ci.yml`, on "
+    "`ubuntu-latest` **with no display**, and prints what the missing display "
+    "cost — nothing today, because no module in that selection needs Tk, which "
+    "is also why it moves no tier. The tier definitions are unchanged "
+    '— "Portable core" still means *the non-Windows branch is implemented and '
+    "covered by a test that runs it under a simulated platform value* — so no "
+    "tool has been driven end to end on Linux, and macOS has not been "
+    "exercised at all."
 )
 
 

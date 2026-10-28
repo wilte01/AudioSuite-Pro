@@ -41,6 +41,12 @@ same trap. There ``Path("C:/tmp/x")`` under a patched ``os.name`` raises
 ``NotImplementedError`` (the flavour's support flag is evaluated at import)
 instead of building the hybrid PosixPath 3.12+ builds; the test now asserts
 that message rather than going red on the older legs.
+
+Changed in 2.1.6: the caveat lock now asserts what the caveat stops claiming -
+a declared selection runs on a real Ubuntu host and nothing else has been
+executed elsewhere (R-12, PLAN_audit_2026-10-24_deferred_p2p3.md), and the
+sentence citing plan item A4 is asserted **absent**, because A4 is the CI ffmpeg
+install rather than the Linux leg that wording described.
 """
 
 from __future__ import annotations
@@ -433,11 +439,22 @@ class TestReadmeDriftLock:
         )
 
     def test_readme_states_the_caveat_verbatim(self) -> None:
-        """The anti-over-claim caveat is part of the generated block."""
-        assert MATRIX_CAVEAT in README.read_text(encoding="utf-8")
-        assert "No tool in this suite has been executed on a real Linux" in (
-            README.read_text(encoding="utf-8")
-        )
+        """The anti-over-claim caveat is part of the generated block.
+
+        Both halves are load-bearing: what the caveat claims (one declared
+        selection on a real Ubuntu host) and what it refuses to claim
+        (everything else is unexecuted, and macOS not at all).  The sentence it
+        replaced is asserted absent, because it cited a Linux CI leg that never
+        existed: plan item A4 is the ffmpeg install (R-12).
+        """
+        text = README.read_text(encoding="utf-8")
+
+        assert MATRIX_CAVEAT in text
+        assert "A declared selection of this suite runs on a real Ubuntu host" in text
+        assert "nothing else has been executed on a foreign platform" in text
+        assert "no tool has been driven end to end on Linux" in text
+        assert "the Linux CI leg added by plan item A4" not in text
+        assert "never been executed on a real Linux or macOS host" not in text
 
     def test_readme_does_not_claim_cross_platform_certification(self) -> None:
         """Regression lock for the over-claim G1 was raised to remove."""

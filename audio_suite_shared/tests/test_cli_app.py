@@ -20,6 +20,13 @@ fixture's files are fake bytes, so every analysis command reports two per-file
 errors and exits 1; the old ``exit_code == 0`` assertions were the defect, not a
 clean run (PLAN D9).
 
+Changed in 2.1.6: ``test_silence_trim_dry_run`` carries the ``integration``
+marker. The silence trimmer probes each file with ffprobe, so on a host without
+the system executables the fake fixtures skip instead of erroring and the test
+failed - a defect the POSIX smoke leg surfaced (R-12,
+PLAN_audit_2026-10-24_deferred_p2p3.md). The suite's own contract is that a
+missing binary produces an attributable skip, never a red test.
+
 Changed in 2.1.6: the function-local import block is re-sorted against the
 corrected ruff target py311 — ``tomllib`` is 3.11 standard library
 (R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
@@ -222,7 +229,17 @@ class TestDryRunInvocations:
         )
         self._assert_reported_errors(result)
 
+    @pytest.mark.integration
     def test_silence_trim_dry_run(self, runner: CliRunner, temp_music_dir: str) -> None:
+        # The silence trimmer probes every file with ffprobe before it decodes
+        # it, so on a host without the declared system executables the fake
+        # fixtures are *skipped* ("No such file or directory: 'ffprobe'") rather
+        # than reported as errors, and the assertion below cannot hold. The
+        # marker is what turns that host's outcome into an attributable skip
+        # naming the missing binary, which is the contract every other
+        # ffmpeg-dependent test in the suite already follows (found by the
+        # POSIX smoke leg, plan R-12: the suite is otherwise red on any host
+        # without ffprobe, which is the opposite of what the marker promises).
         result = runner.invoke(cli, ["silence-trim", temp_music_dir, "--dry"])
         self._assert_reported_errors(result)
 

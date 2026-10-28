@@ -14,6 +14,12 @@ Covers:
   - progress_callback called for all code branches
   - stop() interruption
 
+Changed in 2.1.6: the four classes whose fixtures export a real FLAC through
+pydub carry the `integration` marker. pydub shells out to ffmpeg to write the
+fixture, so on a host without the declared system executables they errored with
+`FileNotFoundError: 'ffmpeg'` instead of skipping - the POSIX smoke leg surfaced
+it (R-12, PLAN_audit_2026-10-24_deferred_p2p3.md), and the suite's contract is
+that a missing binary produces an attributable skip, never a red test.
 Changed in 2.1.2: adds the R-03 containment tests — a `..` tag value, and a
 resolved path that escapes base_dir, must be refused in both dry and live
 runs, leaving nothing outside the destination.
@@ -806,6 +812,10 @@ def flac_factory(tmp_path: Path):
 
 
 class TestEngineRunIntegration:
+    # pydub's FLAC export shells out to ffmpeg (the fixture below), so these
+    # skip, with the missing prerequisite named, on a host without it.
+    pytestmark = pytest.mark.integration
+
     def test_copy_resolves_pattern_from_real_tags(
         self, tmp_path: Path, flac_factory
     ) -> None:
@@ -910,6 +920,8 @@ class TestEngineRunIntegration:
 
 
 class TestReadAllTagsIntegration:
+    pytestmark = pytest.mark.integration
+
     def test_populates_all_fields_from_flac(self, flac_factory) -> None:
         from file_reorganizer.core.engine import _read_all_tags
 
@@ -1013,6 +1025,8 @@ class TestPerformActionCollision:
 
 
 class TestEngineCollisionIntegration:
+    pytestmark = pytest.mark.integration
+
     def test_preexisting_destination_is_preserved(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir()
@@ -1106,7 +1120,12 @@ class TestTraversalContainment:
     ``resolve_path`` refuses ``..``/drive/UNC values, and the engine checks
     containment as the backstop. Both the dry run and the live run go through
     the same code, so both are exercised.
+
+    The fixtures are real FLACs (pydub exports them through ffmpeg), so the
+    whole class needs the declared system executables.
     """
+
+    pytestmark = pytest.mark.integration
 
     def _run(self, tmp_path: Path, tags: dict[str, str], dry_run: bool):
         src = tmp_path / "src"

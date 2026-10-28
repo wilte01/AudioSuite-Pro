@@ -42,13 +42,14 @@ with a Windows-only dependency.
 
 The command-line core (`audiosuite ...`) has no Windows-only dependency of its
 own, and the shared layer's platform-conditional code is small enough to
-enumerate in full below. But **the suite has never been executed on a real
-Linux or macOS host** — the Linux CI leg is still unrecorded — so read
-everything left of the Windows column as *unproven in practice*, not as a
-compatibility guarantee. The honest summary is: Windows is the supported
-platform, and the matrix records which code paths are deliberately portable,
-which are irrecoverably Windows-only, and which have simply never been
-exercised.
+enumerate in full below. One **declared selection** of the suite — the CLI
+surface plus the module list named in the `posix-smoke` CI job — runs on a real
+Ubuntu host on every push, without a display, so its Tk-dependent tests skip
+there. Nothing else has been executed on a foreign platform, so read everything
+left of the Windows column as *unproven in practice*, not as a compatibility
+guarantee. The honest summary is: Windows is the supported platform, and the
+matrix records which code paths are deliberately portable, which are
+irrecoverably Windows-only, and which have simply never been exercised.
 
 The matrix below is **generated from the declared classification** in
 `audio_suite_shared/platform_support.py` by
@@ -58,7 +59,7 @@ The matrix below is **generated from the declared classification** in
 
 #### What is verified, and what is not
 
-**No tool in this suite has been executed on a real Linux or macOS host.** The Linux CI leg added by plan item A4 is still unrecorded, so "Portable core" below means *the non-Windows branch is implemented and covered by a test that runs it under a simulated platform value* — not that a foreign platform was ever exercised.
+**A declared selection of this suite runs on a real Ubuntu host on every push — and nothing else has been executed on a foreign platform.** The `posix-smoke` CI job (PLAN_audit_2026-10-24_deferred_p2p3.md, item R-12) runs the CLI surface plus the module list named in `.github/workflows/ci.yml`, on `ubuntu-latest` **with no display**, and prints what the missing display cost — nothing today, because no module in that selection needs Tk, which is also why it moves no tier. The tier definitions are unchanged — "Portable core" still means *the non-Windows branch is implemented and covered by a test that runs it under a simulated platform value* — so no tool has been driven end to end on Linux, and macOS has not been exercised at all.
 
 #### Tool tiers
 

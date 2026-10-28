@@ -7,6 +7,11 @@ Security-critical: injection attempts, allowlist bypass, happy paths.
 
 Changed in 2.1.4: covers the ``text`` parameter, which lets a binary stream
 (the enhancer's raw PCM decode) use the wrapper (audit R-08, plan C3).
+Changed in 2.1.6: ``test_invalid_absolute_path_raises`` builds a path that is
+absolute on the host running it. It passed ``C:/evil`` unconditionally, which is
+relative on POSIX, so ``validate_arguments`` never resolved it and nothing
+raised - a Windows-only assumption the POSIX smoke leg exposed (R-12,
+PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 import os
@@ -392,9 +397,12 @@ class TestValidateArgumentsErrorBranches:
                 validate_arguments([long_arg])
 
     def test_invalid_absolute_path_raises(self):
+        # The resolve guard only runs for an absolute argument, and "C:/evil"
+        # is relative on POSIX - so the value follows the host, not Windows.
+        absolute = "C:/evil" if sys.platform.startswith("win") else "/evil"
         with patch.object(Path, "resolve", side_effect=OSError("bad")):
             with pytest.raises(SubprocessSecurityError, match="Invalid path"):
-                validate_arguments(["C:/evil"])
+                validate_arguments([absolute])
 
 
 class TestRunSecureSubprocessErrorBranches:

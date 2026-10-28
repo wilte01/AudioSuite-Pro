@@ -24,6 +24,13 @@ produces the normal import error instead of a launcher that silently does
 nothing.
 
 Changed in 2.1.0: initial version.
+Changed in 2.1.6: ``ensure_venv_interpreter`` takes the same ``platform``
+override ``find_venv_interpreter`` already had, so the two re-exec tests - whose
+argv, executable and ``.venv/Scripts`` fixture are all Windows-shaped - run and
+assert on a POSIX host instead of quietly returning early. Before it, the POSIX
+smoke leg found them failing because the POSIX branch looked for
+``.venv/bin/python`` and found none (R-12,
+PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
@@ -124,6 +131,7 @@ def ensure_venv_interpreter(
     prefix: str | os.PathLike[str] | None = None,
     environ: MutableMapping[str, str] | None = None,
     exec_fn: Callable[[str, list[str]], object] | None = None,
+    platform: str | None = None,
 ) -> Path | None:
     """Re-execute the launcher under ``<root>/.venv`` when that is not already
     the running interpreter.
@@ -143,6 +151,8 @@ def ensure_venv_interpreter(
         environ: Environment to read and mark; defaults to ``os.environ``.
         exec_fn: Test seam, called as ``exec_fn(path, argv)``; defaults to
             ``os.execv``.
+        platform: Value to read instead of ``sys.platform`` (tests only), so a
+            Windows-shaped launch can be verified on any host.
 
     Returns:
         The interpreter a re-exec was started with (only reachable through the
@@ -154,7 +164,7 @@ def ensure_venv_interpreter(
         return None
 
     current = Path(executable or sys.executable)
-    target = find_venv_interpreter(root, executable=str(current))
+    target = find_venv_interpreter(root, executable=str(current), platform=platform)
     if target is None:
         return None
 

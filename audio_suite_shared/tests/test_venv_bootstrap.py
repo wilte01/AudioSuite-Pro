@@ -15,6 +15,12 @@ launcher under the venv interpreter, so the properties worth locking down are:
   closes.
 
 Changed in 2.1.0: initial version.
+Changed in 2.1.6: the two re-exec tests pass ``platform="win32"``. Their argv,
+executable and ``.venv/Scripts`` fixture are Windows-shaped by design, but the
+branch that found the interpreter read the real ``sys.platform``, so on a POSIX
+host they returned None and failed their assertions - a defect the POSIX smoke
+leg surfaced (R-12, PLAN_audit_2026-10-24_deferred_p2p3.md). The module's
+existing tests-only ``platform`` seam now reaches ``ensure_venv_interpreter``.
 """
 
 from __future__ import annotations
@@ -128,6 +134,7 @@ class TestEnsureVenvInterpreter:
             prefix=r"C:\Python",
             environ=environ,
             exec_fn=fake_exec,
+            platform="win32",
         )
 
         assert target == venv_root / ".venv" / "Scripts" / "python.exe"
@@ -238,6 +245,7 @@ class TestEnsureVenvInterpreter:
                 prefix=r"C:\Python",
                 environ=environ,
                 exec_fn=explosion,
+                platform="win32",
             )
 
         assert result is None

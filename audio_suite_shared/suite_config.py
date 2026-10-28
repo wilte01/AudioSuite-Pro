@@ -21,6 +21,14 @@ Keys currently used::
 
 Changed in 1.4.1: documents ``save_font_sizes`` and renders the path and key
 notes as literal blocks, so the API reference shows them verbatim (PLAN D98).
+Changed in 2.1.6: ``_save``'s promise to swallow write failures is restored on
+a host where the config directory is unreadable. Two sites escaped it:
+``_cleanup_stale_tmps`` globbed the directory outside any handler, and the
+``finally`` block probed ``tmp.exists()`` before unlinking - and 3.12's
+``exists()`` only ignores ENOENT/ENOTDIR, so an ``EACCES`` ``PermissionError``
+propagated. ``_try_unlink`` already swallows every ``OSError``, so the probe was
+redundant. No Windows host reaches either path, which is why the POSIX smoke leg
+found them (R-12, PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
@@ -197,8 +205,10 @@ def _save(data: dict[str, Any]) -> None:
     except OSError as exc:
         _logger.error("Could not write %s: %s", CONFIG_PATH.name, exc)
     finally:
-        if tmp.exists():
-            _try_unlink(tmp)
+        # No ``tmp.exists()`` probe: 3.12's ``exists()`` re-raises EACCES, so a
+        # config directory it cannot stat would escape here. ``_try_unlink``
+        # swallows a missing file anyway (R-12).
+        _try_unlink(tmp)
     _invalidate_cache()
 
 
@@ -215,7 +225,16 @@ def _cleanup_stale_tmps() -> None:
     have been created by a prior call within the same process.
     """
     pid = os.getpid()
-    for p in CONFIG_PATH.parent.glob(_get_tmp_pattern()):
+    try:
+        stale = list(CONFIG_PATH.parent.glob(_get_tmp_pattern()))
+    except OSError:
+        # An unreadable config directory (a permission error on POSIX where
+        # the parent is not listable, a transient lock on Windows) is not this
+        # function's problem: _save promises to swallow write failures, and the
+        # caller's own write reports the real one. Globbing raises outside the
+        # per-file handler below, so it needs its own guard.
+        return
+    for p in stale:
         try:
             suffix = p.suffixes  # e.g. ['.json', '.tmp', '.1234']
             if len(suffix) >= 3 and suffix[-1].lstrip(".").isdigit():

@@ -4,6 +4,13 @@ Gap G-03: load_*/save_* round-trips, defaults, corrupt/missing file recovery
 
 Strategy: monkey-patch CONFIG_PATH so tests write to tmp_path, never the
 real suite root. Each test gets an isolated directory.
+
+Changed in 2.1.6: ``test_cleanup_swallows_unlink_errors`` restores the mode only
+when the file still exists. On POSIX a read-only file in a writable directory is
+unlinked successfully, so the restore raised FileNotFoundError; Windows refuses
+the unlink, which is what the test was written around. Both outcomes are "must
+not raise". The POSIX smoke leg surfaced it (R-12,
+PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 import json
@@ -48,7 +55,12 @@ class TestLoadSave:
         assert sc._load() == {}
 
     def test_save_does_not_raise_on_write_error(self, isolated_config, monkeypatch):
-        """_save swallows exceptions silently."""
+        """_save swallows exceptions silently.
+
+        On a POSIX host ``/root`` is not listable, so the stale-tmp glob raises
+        ``PermissionError`` before the write even starts - the case that caught
+        the unguarded glob (R-12).
+        """
         monkeypatch.setattr(
             sc, "CONFIG_PATH", Path("/root/cannot_write_here/config.json")
         )
@@ -377,7 +389,10 @@ class TestTmpFileHygiene:
         try:
             sc._cleanup_stale_tmps()  # must not raise
         finally:
-            locked.chmod(0o666)
+            # POSIX unlinks a read-only file (the directory is writable), so
+            # the stale file may be gone; Windows keeps it. Both are fine.
+            if locked.exists():
+                locked.chmod(0o666)
 
     def test_try_unlink_swallows_missing_path(self, isolated_config, tmp_path):
         sc._try_unlink(tmp_path / "definitely_not_here.json")  # must not raise

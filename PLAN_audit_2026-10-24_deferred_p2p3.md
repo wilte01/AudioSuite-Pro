@@ -5,7 +5,8 @@ runner-verified** (record in §5): the code commit `5298301` (run `40563584800`)
 and this plan's own record commits `61a19dd` (run `40568799837`) and `1ab0e39`
 (run `40573946202`) are each **green in all nine jobs**, `Type Check` and
 `Lint & Format` included, after the first push's `Type Check` failure was fixed;
-R-16's verification row is written, R-11 and R-12 are open.
+R-16's verification row is written; **R-12 is delivered and locally verified** (§5),
+with its first runner verdict still to read (X8); R-11 is open.
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
 **Base state:** `main` at `85046ef` ("Record the 2.1.6 CI remediation decisions
 (2026-10-27)"), working tree clean. `v2.1.5` is the repository's only tag (at
@@ -90,7 +91,10 @@ Two further measurements the items depend on:
 | D14 | The R-15 lock reads the lint job's **executed** lines, not its raw text. | DECIDED | The job's comment explains why it takes ruff from the lock and quotes `pip install ruff` while doing so, so a raw-text match failed on the explanation instead of on the wiring — the lock caught this on its first run. Stripping comment lines is the same distinction `tests/test_ci_security_audit.py` draws when it proves the audit never points at `.venv` ("a comment cannot point the audit at a directory"). Every CI-text lock added later starts from this shape. |
 | D15 | The typecheck job **stays on the 3.11 floor** after its first run failed there, and the failure is fixed in the code rather than by moving the job back to 3.12. | DECIDED | The floor leg is what the audit asked to be verified, and it caught what 3.12 could not: the lock resolves numpy 1.26.4 / scipy 1.17.1 below 3.12 and numpy 2.5.4 / scipy 1.18.1 above it, and 1.26's stubs leave ``ndarray`` generic with no defaults, so thirteen bare ``ndarray`` annotations failed ``--strict``'s ``disallow_any_generics`` *only* on the floor. Reverting the job would have kept a gate that cannot see the stack a 3.11 user installs. Confirmed by the runner at `5298301` (run `40563584800`): the 3.11 leg is green, so the job is deliberately the one that found this. |
 | D16 | The installer's build output (`packaging/build`, `packaging/dist`) stops being read as source: **five** tree-walking locks and mypy. | DECIDED | `tests/test_packaging.py` stages a payload there (gitignored) carrying every tool module *and* a bundled interpreter, whose own `Lib/test` corpus is deliberately not UTF-8. `test_e4_dead_code_lock.py` read it and died with `UnicodeDecodeError` (34 errors), `test_undo_gui.py`'s display-name scan failed three tests, and mypy aborted with "This file shadows library module 'typing' ... errors prevented further checking". A full `bare pytest` then found **three more of the same** — `tests/test_test_file_naming.py` and `tests/test_external_records.py` (both `UnicodeDecodeError` on the corpus) and `audio_suite_shared/tests/test_cli_helpers_ast_lock.py` (24 errors) — 26 failures/errors in total, all from one gitignored tree no lock has business judging. All are local-only: CI checks out a clean tree, so a developer who had built the installer could not run the gate the suite documents. Found while verifying R-15 and fixed in the same change. The locks' existing `tests` skip does **not** cover the corpus: its path part is `test`, singular. |
-| D17 | `[tool.bandit] exclude_dirs` gains `"packaging"`, and the entries are asserted **narrow** by a lock. | DECIDED | The security gate walks `.`, so with the installer built the documented command reported **3 690 HIGH** findings drawn from CPython's own stdlib inside the staged runtime — the gate could not pass in a state a normal developer reaches, while CI (which never builds the installer) stayed green. Bandit matches each entry as a path **substring**, which is why the entry is asserted by its consequence: a new `tests/test_tooling_targets.py` class scans the tree for a production module whose path matches any entry and fails if one exists, so widening an entry into a silent blind spot is red, not allowed. Nothing is lost today: `packaging/` ships no `.py` file (its inputs are `.iss`, `.ps1` and `.md`), and `packaging` appears in no other tracked path. The exclusion also prunes the walk: the gate went from minutes to **11 s**. |
+| D17 | `[tool.bandit] exclude_dirs` gains `"packaging"`, and the entries are asserted **narrow** by a lock. | DECIDED | The security gate walks `.`, so with the installer built the documented command reported **3 690 HIGH** findings drawn from CPython's own stdlib inside the staged runtime — the gate could not pass in a state a normal developer reaches, while CI (which never builds the installer) stayed green. Bandit matches each entry as a path **substring**, which is why the entry is asserted by its consequence: a new `tests/test_tooling_targets.py` class scans the tree for a production module whose path matches any entry and fails if one exists, so widening an entry into a silent blind spot is red, not allowed. Nothing is lost today: `packaging/` ships no `.py` file (its inputs are `.iss`, `.ps1` and `.md`), and  `packaging` appears in no other tracked path. The exclusion also prunes the walk: the gate went from minutes to **11 s**.
+| D18 | R-12's selection is derived on a **native Linux filesystem**, with a **static ffmpeg on PATH** and **no display** — not on the development host, and not over the `/mnt/d` 9p mount. | DECIDED | Measured: over 9p the tree-scanning modules cost 150 s each and the sweep died on timeouts, which is a property of the mount rather than of POSIX; and a host without ffmpeg reports 15 fixture errors that say nothing about portability. The accepted shape is CPython 3.12.16 (the build family `actions/setup-python` uses), ffmpeg/ffprobe 7.0.2 static, and `DISPLAY`/`WAYLAND_DISPLAY` unset — which is also how the display branch was proved: `tk.Tk()` raises `TclError` and the conftest prints **NOT VERIFIED** with *0 of 1757* display skips, so this selection costs no GUI coverage (the earlier WSLg-backed run printed VERIFIED, which would have hidden that). |
+| D19 | The five failures that derivation surfaced are **fixed in the same change**, not excluded from the selection. | DECIDED | Two are defects in shipped code: `suite_config._save` promised to swallow a failed write but let a `PermissionError` escape from an unguarded directory `glob`, and again from `tmp.exists()` in its `finally` (3.12's `exists()` ignores only `ENOENT`/`ENOTDIR`, so `EACCES` re-raises; `_try_unlink` already swallows it, making the probe redundant). The other three tests encoded Windows-only assumptions and passed vacuously on Windows: a path that is absolute only there, a read-only-file cleanup that assumes Windows refuses the unlink, and two launcher tests whose Windows-shaped launch read the real `sys.platform`. Excluding the modules would have hidden a real POSIX defect in shared config persistence — the exact over-claim R-12 exists to remove. |
+| D20 | The lock asserts the **comparison** (`-lt 1750`, `-gt 10`) and not the bare number, and both bounds are the measured values rather than the pre-derivation guesses (470/85). | DECIDED | Break-and-restore proved the trap: lowering `-lt 1750` to `-lt 10` and raising `-gt 10` to `-gt 9000` both left the lock **green**, because each step's failure message quotes the same number — D14 in a new shape. Asserting the operator plus value makes both mutations red. The bounds are 1756 passed / 1 skipped with ten of margin either way, so a collection collapse or a wholesale skip fails while a dependency's minor wheel difference does not. |
 
 ---
 
@@ -329,6 +333,50 @@ unit tests that simulate a platform value.
   package fails to import, which is why it is the right smoke for a host nobody
   has run before.
 
+**Delivered (2026-10-28).** `posix-smoke` runs between `compile` and `test`:
+`ubuntu-latest`, Python 3.12, `uv sync --extra dev` from the lock, ffmpeg via
+apt, the two CLI smokes, then the declared **37-module** selection with
+`--no-cov -q -rf`. The verdict is the real exit code *plus* a passed floor of
+1750 and a skip ceiling of 10, and the step cats the log so the conftest's
+display report reaches CI. `tests/test_ci_posix_leg.py` (17 tests) pins the job,
+the selection set-equality in both directions, the absence of `xvfb`/`DISPLAY`,
+the `continue-on-error` absence, both comparisons, and that the caveat names the
+job; `tests/ci_workflow.py` supplies the slicing, and every slice is asserted
+non-empty first.
+
+The measured derivation (D18) is **1757 collected, 1756 passed, 1 skipped, 0
+failed** — the skip is `tag_editor/tests/test_csv_io.py`'s Windows
+drive-relative case. Getting there fixed five things the leg exposed (D19):
+
+1. `suite_config._cleanup_stale_tmps` globbed the config directory outside any
+   handler, so on a POSIX host with an unlistable directory a `PermissionError`
+   escaped `_save`, which documents itself as swallowing write failures.
+2. `suite_config._save`'s `finally` probed `tmp.exists()` before unlinking;
+   3.12's `exists()` ignores only `ENOENT`/`ENOTDIR`, so `EACCES` re-raised.
+   `_try_unlink` already swallows every `OSError`, so the probe is gone.
+3. `test_secure_subprocess` passed `C:/evil` as an "absolute" path, which is
+   relative on POSIX, so the resolve guard never ran.
+4. `test_suite_config`'s read-only-tmp cleanup assumed Windows refuses the
+   unlink; POSIX unlinks it, so its restore now checks first.
+5. Two `test_venv_bootstrap` re-exec tests are Windows-shaped by design but read
+   the real `sys.platform`; `ensure_venv_interpreter` now takes the tests-only
+   `platform` override `find_venv_interpreter` already had.
+
+`test_reorganizer.py`'s four FLAC-fixture classes also gained the `integration`
+marker, the same defect class the silence-trim smoke had: pydub's export shells
+out to ffmpeg, so a host without it went red instead of skipping.
+
+`MATRIX_CAVEAT` now says a named selection runs on a real Ubuntu host on every
+push, that nothing else has been executed on a foreign platform, and that no
+tool has been driven end to end on Linux; the README block is regenerated by
+`utilities/generate_readme_platform_matrix.py` and the stale "Linux CI leg added
+by plan item A4" sentence is gone — `test_platform_support.py` now asserts its
+absence. **Two traps, both caught by breaking the lock on purpose (D20):** a
+CI-text assertion must name the *comparison*, because the step's own failure
+message quotes the bound and a substring match survives a lowered floor; and a
+derivation host with WSLg is **not** headless, so the display branch has to be
+forced (`DISPLAY` unset) before the "NOT VERIFIED" claim means anything.
+
 ---
 
 ## 4. Traceability
@@ -501,6 +549,58 @@ here; a fourth docs-only round would add nothing about the tests, since the last
 two runs already exercised byte-identical source and the same nine jobs passed
 twice over it.
 
+### R-12 — measured 2026-10-28 (two hosts; runner verdict pending, X8)
+
+*Development host (Windows, Python 3.14):*
+* `python -m compileall -q -f` over the 938 tracked first-party `.py` files —
+exit 0. Bare `compileall .` exits non-zero on this host only because it walks
+`packaging/build`'s staged CPython `Lib/test` corpus, whose bad-syntax fixtures
+are deliberate (D16); CI checks out a clean tree.
+* `ruff check .` — clean; `ruff format --check .` — 939 files formatted.
+* `python -m mypy .` — clean, 550 source files.
+* `bandit -r . -x ./.venv -c pyproject.toml` — **0 High / 0 Medium** (38 Low,
+the documented first-party `subprocess` tail).
+* bare `pytest` at the state committed here — **11 174 passed, 3 skipped, 35
+deselected, 0 failed**, coverage 90.88% against the 75% floor, 17 m 49 s. (A
+first attempt was discarded rather than reported: it ran while the caveat was
+being rewritten and regenerated, and its two README-drift failures were that
+race, not the tree — the module passed standalone before and after.)
+* `tests/test_ci_posix_leg.py` — 17 passed; the platform, release-notes,
+changelog and docs-format locks pass alongside it (93 in the batch).
+* The five repaired tests and their modules — 177 passed on Windows, so the
+marker and platform changes did not weaken anything the Windows gate covers.
+
+*Linux derivation host (WSL Ubuntu, CPython 3.12.16, ffmpeg 7.0.2 static, no
+display — D18), running the job's own 37 modules in one invocation:*
+* **1757 collected: 1756 passed, 1 skipped, 0 failed**, exit 0. The skip is
+`tag_editor/tests/test_csv_io.py:253` — "Windows drive-relative paths".
+* Repeated with the interpreter `uv sync --extra dev` builds inside the checkout
+— the job's own install command, so nothing from the `analysis` or `ml` extra
+leaks in and confirms base dependencies rather than my test venv: same 1757 /
+1756 / 1, exit 0.
+* The conftest report reads `Tk display available : NO — tk.Tk() raised
+TclError`, `Tests skipped for display reasons : 0 of 1757 collected`, `GUI
+behaviour : NOT VERIFIED in this run`. The selection therefore costs no GUI
+coverage, which is the honest reason the caveat does not mention a cost.
+* Before the fixes the same run said 1751 passed / 5 failed; with ffmpeg absent
+it also said 39 failed (the ffmpeg-fixture classes), which is what drove the
+`integration` markers rather than a selection change. The 1750/10 bounds in the
+job carry ten of margin either side of the measurement.
+
+*Break-and-restore (the lock must be able to fail):* four `ci.yml` mutations —
+job renamed (11 tests red), one module removed (`test_the_job_runs_exactly_the_
+declared_modules` red), floor lowered (`test_a_passed_count_is_required` red),
+skip ceiling raised (`test_the_skip_count_is_capped` red) — each from a byte
+copy restored under a SHA-256 check that reported `restored: True`. The first
+attempt of that harness **passed while proving nothing**: it swallowed its own
+assertion inside the restore's `finally`, and the second attempt showed two of
+the four mutations were green — D20.
+
+*Not verified here:* the `posix-smoke` job itself has never run. Nothing on this
+development host can prove Ubuntu's apt ffmpeg (6.x) matches the static 7.0.2 the
+selection was measured with, so the first run is the acceptance evidence and
+X8 carries it.
+
 ---
 
 ## 6. Open items, and deferrals this plan creates
@@ -530,6 +630,13 @@ twice over it.
   and this plan does not authorise the cut. R-15 lands in the window either way;
   whether R-11/R-12 ride 2.1.6 or their own 2.1.7 is a release decision, not an
   item.
+* **X8 — the `posix-smoke` leg has not run yet.** R-12 is delivered and the
+  selection is measured on a real Linux host (X8 is the only thing between it
+  and "complete"): the first push's run decides whether the 1750/10 bounds suit
+  Ubuntu's ffmpeg, and its log's display report and skip list are what the
+  verification record is updated from. A red leg is a POSIX defect to fix, never
+  a selection to narrow quietly — narrowing it is only legitimate together with
+  a sentence in this plan saying which module and why.
 * **X4 — R-13 and R-14 remain deferred.** The cache key's path+mtime identity
   and the non-ASCII console output are the register's remaining P3 defects; they
   are outside this brief and stay in the predecessor's §8.
@@ -557,8 +664,10 @@ When the items land, `CHANGELOG.md`'s `[Unreleased]` carries: R-15 under
 one real type error the old target hid is fixed); R-11 under **Changed** (the
 dependency audit is blocking, with a dated allowlist and a weekly run); R-12
 under **Added** (a POSIX smoke leg, and the platform caveat rewritten to match
-it). R-16 gets **no bullet**: it was closed by the 2.1.5 docs work this plan
-merely records.
+it) and under **Fixed** (the shared-config save that could raise where it
+promised not to, and the four Windows-only test assumptions the leg exposed).
+R-16 gets **no bullet**: it was closed by the 2.1.5 docs work this plan merely
+records.
 
 ---
 

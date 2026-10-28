@@ -9,6 +9,26 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+### Added
+
+- **A POSIX smoke leg, and a platform caveat that matches it.** Every
+  `ubuntu-latest` job until now linted, compiled, scanned or validated
+  committed files; none of them executed a tool package, so the platform
+  matrix's "Portable core" tier rested entirely on unit tests that simulate a
+  platform value. A new `posix-smoke` job installs from `uv.lock`, installs
+  ffmpeg, smoke-checks `audiosuite --help` and `audiosuite doctor`, and runs a
+  **declared** selection of the suite - the CLI surface plus the shared layer's
+  non-GUI modules - on a real Ubuntu host with no display, so a Tk-dependent
+  test would skip with an attributable reason and the run states what the
+  missing display cost (this selection, measured on a Linux host: 1757
+  collected, 1756 passed, 1 skipped - none of them for display reasons). The
+  selection is pinned by a lock so a module cannot be dropped from the leg
+  silently, and the verdict is non-vacuous: the job must report a passed count
+  and stay under a skip ceiling, because a leg that collected nothing would
+  otherwise read as green.
+  The README no longer cites a "Linux CI leg" that was in fact the ffmpeg
+  install, and it now states exactly what the new leg does and does not prove.
+
 ### Changed
 
 - **The lint and type gates now target the interpreter the project declares.**
@@ -35,6 +55,21 @@ Versions of the tools are released together with the suite (the single
 
 ### Fixed
 
+- **A shared-config save could raise where it promised to swallow the failure.**
+  `suite_config._save` is best-effort by contract: a failed write is logged and
+  the caller carries on. Two sites escaped that promise when the config
+  directory is unreadable, a state only POSIX reaches. The stale-temp cleanup
+  globbed the directory outside any handler, so a `PermissionError` from the
+  glob itself propagated; and the `finally` block probed `tmp.exists()` before
+  unlinking, which re-raises `EACCES` because `exists()` only ignores
+  `ENOENT`/`ENOTDIR`. `_try_unlink` already swallows every `OSError`, so the
+  probe was redundant. The new POSIX smoke leg found both, and the test that
+  covers them now has teeth on Linux instead of passing vacuously on Windows.
+  Four tests the same leg exposed were Windows-only assumptions rather than
+  code defects: a path that is absolute only on Windows, a read-only-file
+  cleanup that assumes Windows refuses the unlink, and two launcher tests whose
+  Windows-shaped launch read the real `sys.platform` (the module now takes the
+  same tests-only `platform` override its interpreter lookup already had).
 - **The gate no longer reads the installer's build output as source.**
   `packaging/build` (gitignored, written by `packaging/build_installer.ps1`)
   stages a copy of the app *and* a bundled CPython, and both were treated as

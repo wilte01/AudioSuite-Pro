@@ -217,6 +217,129 @@ jobs:
           python-version: "3.12"
       - run: python -X utf8 -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'
 
+  posix-smoke:
+    name: POSIX smoke (Ubuntu)
+    # Changed in 2.1.6: added this job (R-12,
+    # PLAN_audit_2026-10-24_deferred_p2p3.md). Every Ubuntu job before it
+    # linted, compiled, scanned or validated committed files, so no first-party
+    # tool package had ever been *executed* on a POSIX host and the platform
+    # matrix's "Portable core" tier rested entirely on unit tests that simulate
+    # a platform value. This job runs a declared selection on a real Ubuntu
+    # host. Four decisions it embodies, each of which a later edit could
+    # quietly undo (tests/test_ci_posix_leg.py fails if one is dropped):
+    #
+    # * The selection is *declared* and locked, not "the suite": the suite is
+    #   Windows-first and takes ~25 minutes, and the registry-reading document
+    #   locks are deliberately on Windows. The modules are named below and the
+    #   lock pins the set, so a module cannot be dropped from the leg silently.
+    # * No virtual display is installed. The root conftest.py already turns a
+    #   display-less host into a bounded, attributable skip set and prints a
+    #   summary stating that GUI behaviour was NOT verified; installing xvfb
+    #   would let this leg claim GUI verification it did not perform.
+    # * The verdict is not the exit code alone. A run that collected nothing
+    #   prints an empty report that reads like success, so a passed count is
+    #   required and the skip count is capped.
+    # * 3.12 rather than the 3.11 floor: ubuntu-latest is Ubuntu 24.04, whose
+    #   system Python is 3.12, so this leg adds the platform dimension without
+    #   also adding an interpreter no Linux user gets by default. The floor has
+    #   its own legs in the Windows matrix.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install uv
+      - run: uv sync --extra dev
+      - name: Install ffmpeg (Ubuntu)
+        # ffmpeg+ffprobe are a declared system requirement
+        # (audio_suite_shared/system_requirements.py), and `uv sync` cannot
+        # install a binary. The suite's `integration` tests run by default
+        # wherever the executables resolve, so without this the leg would
+        # silently skip them and report a green run that proved less than it
+        # looks like.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: CLI smoke
+        env:
+          PYTHONUTF8: "1"
+        # The two commands the finding names. `doctor` exits 1 on a broken
+        # install, so it is the smoke that fails loudly when a tool package
+        # cannot be imported or resolved from this checkout - which is the whole
+        # point of running first-party code on a host nobody has run before.
+        run: |
+          uv run audiosuite --help > /dev/null
+          uv run audiosuite doctor
+      - name: Portable-core selection
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          log="$(mktemp)"
+          set +e
+          uv run python -m pytest \
+            audio_suite_shared/tests/test_cli_app.py \
+            audio_suite_shared/tests/test_cli_base.py \
+            audio_suite_shared/tests/test_cli_cue.py \
+            audio_suite_shared/tests/test_cli_dataclasses.py \
+            audio_suite_shared/tests/test_cli_helpers.py \
+            audio_suite_shared/tests/test_cli_helpers_ast_lock.py \
+            audio_suite_shared/tests/test_doctor_cli.py \
+            audio_suite_shared/tests/test_suite_config.py \
+            audio_suite_shared/tests/test_exceptions.py \
+            audio_suite_shared/tests/test_project_version.py \
+            audio_suite_shared/tests/test_secure_subprocess.py \
+            audio_suite_shared/tests/test_system_requirements.py \
+            audio_suite_shared/tests/test_venv_bootstrap.py \
+            audio_suite_shared/tests/test_install_map.py \
+            audio_suite_shared/tests/test_run_outcome.py \
+            audio_suite_shared/tests/test_launcher.py \
+            audio_suite_shared/tests/test_optional_deps.py \
+            audio_suite_shared/tests/test_audio_formats.py \
+            audio_suite_shared/tests/test_constants.py \
+            audio_suite_shared/tests/test_input_validator.py \
+            audio_suite_shared/tests/test_logging_setup.py \
+            audio_suite_shared/tests/test_logging_namespacing.py \
+            audio_suite_shared/tests/test_resource_manager.py \
+            audio_suite_shared/tests/test_lrc_handler.py \
+            audio_suite_shared/tests/test_synced_lyrics.py \
+            audio_suite_shared/tests/test_cue_generator.py \
+            audio_suite_shared/tests/test_cue_parser.py \
+            audio_suite_shared/tests/test_dsp_models.py \
+            tests/test_cli_json_schema.py \
+            tests/test_cli_exit_contract.py \
+            tests/test_cli_usage_errors.py \
+            tests/test_completion_payload_published.py \
+            tests/test_run_outcome_contract.py \
+            file_reorganizer/tests/test_reorganizer.py \
+            file_reorganizer/tests/test_cli.py \
+            tag_editor/tests/test_cli.py \
+            tag_editor/tests/test_csv_io.py \
+            --no-cov -q -rf > "$log" 2>&1
+          code=$?
+          set -e
+          cat "$log"
+          if [ "$code" -ne 0 ]; then
+            exit "$code"
+          fi
+          passed=$(grep -oE '[0-9]+ passed' "$log" | tail -1 | grep -oE '[0-9]+')
+          skipped=$(grep -oE '[0-9]+ skipped' "$log" | tail -1 | grep -oE '[0-9]+')
+          skipped=${skipped:-0}
+          if [ -z "$passed" ]; then
+            echo "gate fail: the selection reported no passed count" >&2
+            exit 1
+          fi
+          if [ "$passed" -lt 1750 ]; then
+            echo "gate fail: $passed passed, below the locked floor of 1750 -" \
+              "the selection ran almost nothing" >&2
+            exit 1
+          fi
+          if [ "$skipped" -gt 10 ]; then
+            echo "gate fail: $skipped skipped, over the locked ceiling of 10 -" \
+              "a leg that skips wholesale is not a passing leg" >&2
+            exit 1
+          fi
+          echo "POSIX smoke pass: $passed passed, $skipped skipped"
+
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: windows-latest
