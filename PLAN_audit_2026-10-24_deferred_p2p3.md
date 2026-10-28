@@ -613,8 +613,13 @@ with — same passed count, same single skip. The job ran in 1 m 2 s, which is
 what makes a per-push platform check affordable. The rest of that run is green
 too — **all ten jobs**, the 3.11 / 3.12 / 3.14 test legs included, which is the
 evidence that the `suite_config` and `venv_bootstrap` changes hold on the floor
-interpreter and not only on this host. This record is itself documentation-only,
-so its own run is not awaited (the predecessor record's convention): the
+interpreter and not only on this host. The tightened bounds were then exercised
+rather than assumed: `1aceef1` (run
+[`40668180562`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40668180562))
+runs the step with `if [ "$passed" -lt 1756 ]` and `if [ "$skipped" -gt 1 ]` in
+force — visible in its log — and passes with `POSIX smoke pass: 1756 passed, 1
+skipped`, so equality holds on the runner and not just in the lock. This record
+is itself documentation-only, so its own run is not awaited (the predecessor record's convention): the
 verdicts above belong to `b7ee2f9`, and `df69bf9`'s `posix-smoke` is green as
 well.
 
