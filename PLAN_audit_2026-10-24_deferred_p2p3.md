@@ -7,7 +7,9 @@ and this plan's own record commits `61a19dd` (run `40568799837`) and `1ab0e39`
 `Lint & Format` included, after the first push's `Type Check` failure was fixed;
 R-16's verification row is written; **R-12 is complete and runner-verified** — run
 `40663662748` at `b7ee2f9` prints `POSIX smoke pass: 1756 passed, 1 skipped` (§5);
-**R-11 is delivered** (§5) with its first runner verdict still to read (X9).
+**R-11 is delivered and locally verified** (§5), but its runner verdict is
+**blocked** — at `d1027ad` no job started at all, for an account-level reason
+(X9), so the audit step is not runner-verified.
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
 **Base state:** `main` at `85046ef` ("Record the 2.1.6 CI remediation decisions
 (2026-10-27)"), working tree clean. `v2.1.5` is the repository's only tag (at
@@ -674,8 +676,23 @@ has no `continue-on-error` key and does invoke the checker.
 
 *Not demonstrated* — a genuinely new advisory failing the build. That half of
 the audit's acceptance column cannot be manufactured without publishing an
-advisory, so it is proved on a synthetic payload and named as such; the other
-half is the security job's first verdict (X9).
+advisory, so it is proved on a synthetic payload and named as such.
+
+**The runner verdict is blocked, and this is not a green (X9).** The push of
+`d1027ad` created run `40673801647` and every one of its ten jobs - the
+compile-only job included, and the POSIX leg that has been green all day -
+concluded `failure` with `steps: []`, an empty `runner_name`, and no log blob at
+all (`BlobNotFound`), i.e. no step ever began. A `rerun-failed-jobs` reproduced
+it identically on attempt 2. Three diagnostics narrow it down: the workflow's
+jobs were **created**, so the file parses (a corrupt workflow creates none);
+`/actions/permissions` reports `enabled: true`, `allowed_actions: all`;
+and githubstatus.com reports Actions operational with no incident today, while
+the previous run (`40668603600` at `8229b05`, 10:00Z) is green - so the block
+started between 10:00 and 10:39Z. The remaining explanation is account-level
+Actions minutes or a spending limit on this private repository, which only the
+owner can see (the available token carries no billing scope). **R-11 is
+therefore delivered and locally verified but not runner-verified**, and no
+reviewer should read the failed run as a defect in the audit step.
 
 ---
 
@@ -706,12 +723,18 @@ half is the security job's first verdict (X9).
   and this plan does not authorise the cut. R-15 lands in the window either way;
   whether R-11/R-12 ride 2.1.6 or their own 2.1.7 is a release decision, not an
   item.
-* **X9 — the new audit step's first runner verdict.** The checker is proved
-  locally (23 tests, three break-and-restore mutations, and a real clean audit
-  of the exported 130-package graph), but the wiring only proves itself on the
-  runner: the first push's `Security Scan` job must be green, and the weekly
-  workflow cannot run until GitHub's scheduler fires it. Both are recorded in
-  §5 when known; until then R-11 is delivered but not runner-verified.
+* **X9 — OPEN: the audit step has no runner verdict yet, because no job starts.**
+  Attempted at `d1027ad`: all ten jobs failed with zero steps and no logs, and a
+  re-run reproduced it (§5). That is an account-level block on a private
+  repository, not the step: the jobs were created from a parsing workflow, and
+  the run an hour earlier was green. The owner should check
+  Settings → Billing → Actions (minutes used / spending limit) or the account's
+  payment state; once jobs start again, **any** run at or after `d1027ad` settles
+  it, and the `Security Scan` log should print `[OK] dependency audit: 0 advisory
+  finding(s) … allowlist entries: 0`. A *new* advisory failing the build stays
+  unmanufacturable, as §3 says. Do not close this by reading a failed
+  pre-execution run as a pass, and do not weaken the step to make the job start
+  — the two are unrelated.
 * **X8 — CLOSED: the first `posix-smoke` run is green.** Run `40663662748` at
   `b7ee2f9` reports success with `1756 passed, 1 skipped` and the display report
   §5 quotes, so the bounds now equal what the runner reported (D21) and no POSIX
