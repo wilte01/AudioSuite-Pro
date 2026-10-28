@@ -5,8 +5,9 @@ runner-verified** (record in §5): the code commit `5298301` (run `40563584800`)
 and this plan's own record commits `61a19dd` (run `40568799837`) and `1ab0e39`
 (run `40573946202`) are each **green in all nine jobs**, `Type Check` and
 `Lint & Format` included, after the first push's `Type Check` failure was fixed;
-R-16's verification row is written; **R-12 is delivered and locally verified** (§5),
-with its first runner verdict still to read (X8); R-11 is open.
+R-16's verification row is written; **R-12 is complete and runner-verified** — run
+`40663662748` at `b7ee2f9` prints `POSIX smoke pass: 1756 passed, 1 skipped` (§5);
+R-11 is open.
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
 **Base state:** `main` at `85046ef` ("Record the 2.1.6 CI remediation decisions
 (2026-10-27)"), working tree clean. `v2.1.5` is the repository's only tag (at
@@ -549,7 +550,7 @@ here; a fourth docs-only round would add nothing about the tests, since the last
 two runs already exercised byte-identical source and the same nine jobs passed
 twice over it.
 
-### R-12 — measured 2026-10-28 (two hosts; runner verdict pending, X8)
+### R-12 — measured 2026-10-28 (two hosts, then the runner; X8 closed)
 
 *Development host (Windows, Python 3.14):*
 * `python -m compileall -q -f` over the 938 tracked first-party `.py` files —
@@ -596,10 +597,16 @@ attempt of that harness **passed while proving nothing**: it swallowed its own
 assertion inside the restore's `finally`, and the second attempt showed two of
 the four mutations were green — D20.
 
-*Not verified here:* the `posix-smoke` job itself has never run. Nothing on this
-development host can prove Ubuntu's apt ffmpeg (6.x) matches the static 7.0.2 the
-selection was measured with, so the first run is the acceptance evidence and
-X8 carries it.
+*Runner (2026-10-28, run
+[`40663662748`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40663662748)
+at `b7ee2f9`):* `POSIX smoke (Ubuntu)` — **success**, and its log reproduces the
+derivation **exactly**: `1756 passed, 1 skipped` of 1757 collected, `Tk display
+available : NO`, `Tests skipped for display reasons : 0 of 1757`, `GUI behaviour
+: NOT VERIFIED`, then `POSIX smoke pass: 1756 passed, 1 skipped`. Both bounds
+had room — 6 above the floor, 9 under the ceiling — so the 1750/10 margins are
+calibrated rather than tight, and Ubuntu's apt ffmpeg behaved like the static
+7.0.2 build the selection was measured with. The job ran in 1 m 2 s, which is
+what makes a per-push platform check affordable.
 
 ---
 
@@ -630,13 +637,15 @@ X8 carries it.
   and this plan does not authorise the cut. R-15 lands in the window either way;
   whether R-11/R-12 ride 2.1.6 or their own 2.1.7 is a release decision, not an
   item.
-* **X8 — the `posix-smoke` leg has not run yet.** R-12 is delivered and the
-  selection is measured on a real Linux host (X8 is the only thing between it
-  and "complete"): the first push's run decides whether the 1750/10 bounds suit
-  Ubuntu's ffmpeg, and its log's display report and skip list are what the
-  verification record is updated from. A red leg is a POSIX defect to fix, never
-  a selection to narrow quietly — narrowing it is only legitimate together with
-  a sentence in this plan saying which module and why.
+* **X8 — CLOSED: the first `posix-smoke` run is green.** Run `40663662748` at
+  `b7ee2f9` reports success with `1756 passed, 1 skipped` and the display report
+  §5 quotes, so the bounds suit the runner and no POSIX defect survived the
+  fixes. What the closure does *not* claim: the leg covers 37 declared modules
+  of 1 110 collected suite-wide, and no tool has been driven end to end on
+  Linux — the caveat says both. The rule that governed it still stands for
+  later edits: a red leg is a POSIX defect to fix, never a selection to narrow
+  quietly, and narrowing it is only legitimate together with a sentence here
+  saying which module and why.
 * **X4 — R-13 and R-14 remain deferred.** The cache key's path+mtime identity
   and the non-ASCII console output are the register's remaining P3 defects; they
   are outside this brief and stay in the predecessor's §8.
