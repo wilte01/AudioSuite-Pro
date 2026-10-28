@@ -1,5 +1,9 @@
 # Dependency-audit allowlist (R-11, PLAN_audit_2026-10-24_deferred_p2p3.md).
 #
+# Changed in 2.1.6: initial version, empty, with the schema stated below - the
+# exported lock audited clean (130 packages, 0 advisories) when the blocking
+# step landed.
+#
 # This file is the ONLY place an advisory against the shipped graph may be
 # accepted. utilities/check_dependency_audit.py reads it; CI's security job and
 # the weekly dependency-audit workflow both run that checker, and neither passes

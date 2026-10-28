@@ -105,7 +105,12 @@ lock resolve a second stale numeric stack (numpy 2.2.6 / scipy 1.15.3) behind
 1.18.0 — and the dev host (3.14.7) had no CI leg at all, so the green 3.10 leg
 certified a graph nobody shipped against. 2026-09-28: floor raised to 3.11, CI
 matrix `["3.11", "3.12", "3.14"]`, and the 3.10-only pins fell out of the lock by
-themselves. Never discover this through a broken `tomllib` import two floors up.
+themselves. 2026-10-28: that matrix cost 160.9 of a 168.0-billable-minute push
+and spent the account's monthly Actions minutes mid-session, so the suite now
+runs **once, on the floor** - the leg whose resolution below 3.12 is the graph
+nobody develops on - and `tests/test_ci_cost.py` prices every job against a
+100-minute budget. Never discover this through a broken `tomllib` import two
+floors up.
 
 ## Repository & Version Control
 

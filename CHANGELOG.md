@@ -69,6 +69,20 @@ Versions of the tools are released together with the suite (the single
   so a stuck leg fails in the run list rather than holding a runner until
   GitHub's six-hour cap. The suite takes about 25 minutes; a leg still going at
   60 is stuck.
+- **The suite now runs once, on the floor, so a push costs 64 minutes instead of
+  168.** The `test` job ran the full suite on 3.11, 3.12 and 3.14; measured from
+  the jobs' own start and completion times at GitHub's billing multipliers
+  (Linux 1x, Windows 2x), those three legs were 160.9 of a run's 168.0 billable
+  minutes while every other job cost 7.1 together - which is what exhausted this
+  account's monthly Actions minutes mid-session. The matrix is now one leg, on
+  3.11: the floor `requires-python` declares, and the only leg whose `uv.lock`
+  resolution below 3.12 installs numpy 1.26 / scipy 1.17 / sphinx 9.0.4, i.e.
+  the graph nobody develops on. 3.12 keeps running in every Ubuntu job and the
+  development host runs 3.14 for the mandatory local gate. The recorded CLI
+  payloads and the documentation site moved to that leg with it - their own
+  comment already said the files are identical on every interpreter - and a new
+  `tests/test_ci_cost.py` prices every job against a 100-minute budget, so
+  widening the matrix again is a red suite rather than a bill.
 
 ### Fixed
 

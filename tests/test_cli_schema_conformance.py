@@ -13,13 +13,15 @@ way an external consumer validates, rather than the hand-rolled subset in
 
 Changed in 1.4.1: initial version, the recorded-payload gate for the CLI JSON
 contract (PLAN D102).
+Changed in 2.1.6: the publishing-leg lock now asserts the one suite leg's steps
+carry no matrix condition, replacing the assertion that they were gated to the
+3.14 leg (R-17, PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
 
 from __future__ import annotations
 
 import copy
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -493,22 +495,33 @@ class TestTheCiGate:
         # An empty artifact must fail the job, not look like a success.
         assert "if-no-files-found: error" in test_job
 
-    def test_only_one_matrix_leg_publishes(self) -> None:
-        """The files come from the committed corpus, so one leg is enough."""
-        test_job = ci_job("test")
-        matrix = test_job.split("matrix:", 1)[1].split("steps:", 1)[0]
-        versions = re.findall(r'"(3\.\d+)"', matrix)
+    def test_the_one_suite_leg_publishes_them(self) -> None:
+        """One full-suite leg publishes, and no step carries a matrix condition.
 
-        assert "3.14" in versions, f"the gated version is not in the matrix: {matrix}"
-        gated = [
-            block
-            for block in (
-                ci_step(test_job, "Export the recorded CLI payloads"),
-                ci_action(test_job, "actions/upload-artifact@v4"),
+        The files come from the committed corpus and are identical on every
+        interpreter, so this step said as much while a 3.14 leg published them;
+        that leg is gone and the single 3.11 leg publishes now (R-17). A
+        leftover ``matrix.python-version`` condition would be dead code that
+        still reads like a rule, and ``tests/test_ci_cost.py`` is what refuses a
+        second leg.
+        """
+        test_job = ci_job("test")
+
+        assert "Run test suite" in test_job, (
+            f"the test-job slice is empty, so this lock proves nothing: {test_job!r}"
+        )
+        assert "matrix." not in test_job, (
+            "the test job reads a matrix again; one leg publishes, and a second "
+            "leg has to be priced in tests/test_ci_cost.py first"
+        )
+        for block in (
+            ci_step(test_job, "Export the recorded CLI payloads"),
+            ci_action(test_job, "actions/upload-artifact@v4"),
+        ):
+            assert "if:" not in block, (
+                "a publishing step is conditional again, so a change to the "
+                f"job's shape could stop it running while the suite passes: {block}"
             )
-            if "if: matrix.python-version == '3.14'" in block
-        ]
-        assert len(gated) == 2, "both the export and the upload must be gated"
 
     def test_the_artifact_is_only_published_after_a_green_suite(self) -> None:
         """A failing suite skips later steps, so a red run uploads nothing."""

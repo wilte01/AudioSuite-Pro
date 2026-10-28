@@ -14,6 +14,9 @@ Changed in 1.4.1: initial version, extracted from the D96 workflow lock when
 the D103 artifact lock needed the same slicing.
 Changed in 1.4.1: ``action()`` slices a step by its ``uses:`` value, because
 the artifact upload step has no ``name:`` to key on.
+Changed in 2.1.6: ``job_names()`` enumerates the jobs, so the cost ledger
+(R-17) can assert it prices every one of them instead of only the ones it
+remembered to name.
 """
 
 from __future__ import annotations
@@ -31,6 +34,28 @@ def workflow_text(path: Path | None = None) -> str:
     """Return the workflow file's text."""
     source = WORKFLOW if path is None else path
     return source.read_text(encoding="utf-8")
+
+
+def job_names(path: Path | None = None) -> tuple[str, ...]:
+    """Return every job id in the workflow, in file order.
+
+    The search starts at the ``jobs:`` key, because the trigger block's members
+    (``push``, ``pull_request``) are also two-space-indented keys and would
+    otherwise be read as jobs.
+
+    Raises:
+        AssertionError: if the workflow has no ``jobs:`` block or declares no
+            job - an empty tuple would let a lock over "every job" pass
+            vacuously.
+    """
+    text = workflow_text(path)
+    block = re.search(r"^jobs:\s*$", text, re.MULTILINE)
+    assert block is not None, "the workflow has no jobs: block"
+    names = tuple(
+        re.findall(r"^  ([A-Za-z0-9_-]+):\s*$", text[block.end() :], re.MULTILINE)
+    )
+    assert names, "the workflow declares no jobs"
+    return names
 
 
 def job(name: str, path: Path | None = None) -> str:

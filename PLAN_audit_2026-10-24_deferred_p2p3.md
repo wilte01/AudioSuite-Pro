@@ -11,6 +11,10 @@ R-16's verification row is written; **R-12 is complete and runner-verified** —
 **blocked** — at `d1027ad` and again at `d459fb0` no job started at all, for an
 account-level reason now measured at **2 651.6 billable Actions minutes consumed
 in October** (~170 a push), so the audit step is not runner-verified (X9).
+**R-17 is delivered and locally verified** (§5), and its runner verdict is
+pending for the same reason: it is the owner's response to X9, and it brings a
+push from **168.0 to a projected 68.7 billable minutes** by running the full
+suite once, on the 3.11 floor.
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
 **Base state:** `main` at `85046ef` ("Record the 2.1.6 CI remediation decisions
 (2026-10-27)"), working tree clean. `v2.1.5` is the repository's only tag (at
@@ -28,7 +32,11 @@ predecessor *record* for the `.github/workflows/ci.yml` window this plan edits
 next; its X2 and X3 carry forward here.
 **Governing scope:** four findings — R-11 (dependency audit non-blocking), R-12
 (POSIX untested), R-15 (Ruff/mypy targets below the floor), R-16 (README tool
-count). Nothing else.
+count) — plus **R-17**, added 2026-10-28 on the owner's instruction ("design a
+cheaper CI matrix … well under 100 billable minutes") once X9 measured the
+allowance ceiling. R-17 is numbered after the register's last finding because it
+is not one: it is a cost decision the audit did not contain, and D23 records
+that distinction. Nothing else.
 **Not in scope, and why:** R-13 (library cache key) and R-14 (non-ASCII console
 output) are the register's remaining P3 defects and are **not** in this brief —
 they stay deferred in the predecessor's §8 and need their own plan. The
@@ -100,6 +108,8 @@ Two further measurements the items depend on:
 | D19 | The five failures that derivation surfaced are **fixed in the same change**, not excluded from the selection. | DECIDED | Two are defects in shipped code: `suite_config._save` promised to swallow a failed write but let a `PermissionError` escape from an unguarded directory `glob`, and again from `tmp.exists()` in its `finally` (3.12's `exists()` ignores only `ENOENT`/`ENOTDIR`, so `EACCES` re-raises; `_try_unlink` already swallows it, making the probe redundant). The other three tests encoded Windows-only assumptions and passed vacuously on Windows: a path that is absolute only there, a read-only-file cleanup that assumes Windows refuses the unlink, and two launcher tests whose Windows-shaped launch read the real `sys.platform`. Excluding the modules would have hidden a real POSIX defect in shared config persistence — the exact over-claim R-12 exists to remove. |
 | D20 | The lock asserts the **comparison** (`-lt 1756`, `-gt 1`) and not the bare number, and both bounds are measured values rather than the pre-derivation guesses (470/85). | DECIDED | Break-and-restore proved the trap on the padded bounds: lowering `-lt 1750` to `-lt 10` and raising `-gt 10` to `-gt 9000` both left the lock **green**, because each step's failure message quotes the same number — D14 in a new shape.  Asserting the operator plus value makes both mutations red. |
 | D22 | The weekly workflow **duplicates** the export, payload and checker commands instead of calling `ci.yml` as a reusable workflow, and the checker's exit codes are a three-state contract (`0` pass, `1` policy, `2` unusable). | DECIDED | A reusable workflow would hide the export flags and the checker invocation behind a `uses:` line, so both locks would be reading a reference rather than the commands; two short duplicated blocks keep each file legible to `tests/ci_workflow.py` and to a reader. The third exit state is the one that matters: the probation era turned every unreadable payload into a pass, and "cannot judge" must not share a code with "judged clean". The tests hold each branch able to fail by break-and-restore, which is the only proof that a green suite means something here. |
+| D23 | R-17 reduces the test matrix to **one leg, on the 3.11 floor**, instead of 3.11 / 3.12 / 3.14 — and it is a *designed* reduction, distinct from the panic-cut X9 forbids. | DECIDED | Measured from the jobs' own timings (run `40668603600`): the three legs were **160.9 of a 168.0-minute push**, the other seven jobs 7.1 together, and the account's monthly allowance therefore bought about a dozen pushes — which is how X9 happened. The floor keeps the full suite because `uv.lock` resolves a *different* graph below 3.12 (numpy 1.26.4 / scipy 1.17.1 / sphinx 9.0.4 against 2.5.4 / 1.18.1 / 9.x), the development host runs 3.14 under the mandatory local gate, and 3.12 takes the same resolution branch as 3.14. So the legs that went were the two re-testing a graph in daily use, not the one nothing else executes. This is D15's argument applied to the suite. |
+| D24 | The budget is held by a **lock over the committed workflow** (`tests/test_ci_cost.py`) with a measured per-job ledger, not by a comment or a wiki page. | DECIDED | A cost decision written only in prose is undone by the next person who adds a leg in good faith. The ledger makes every job's price explicit (a new job without one is red), asserts one interpreter on the floor with no matrix, and proves the arithmetic rejects the doubled-leg shape — while leaving 31 minutes of headroom so ordinary suite growth does not trip it. `tests/ci_workflow.py` gained `job_names()` so the lock enumerates the real jobs instead of a remembered list. |
 | D21 | The bounds are the **runner's own** numbers — 1756 passed, 1 skipped — not the derivation's ten-point padding (1750/10). | DECIDED | The leg's first run (D20's window) reported exactly the numbers the local derivation produced, and the split is pinned three ways: `uv.lock` fixes the dependency graph, `setup-python` fixes the interpreter line, and the ffmpeg step fixes the binaries. A deviation is therefore a real change — a lock upgrade, a new Python patch that skips something — and the leg should say so instead of absorbing it. Widening a bound again is legitimate only as a deliberate edit with a sentence here naming what moved, and the lock's comparison assertion means a silent widening is red. |
 
 ---
@@ -402,6 +412,56 @@ message quotes the bound and a substring match survives a lowered floor; and a
 derivation host with WSLg is **not** headless, so the display branch has to be
 forced (`DISPLAY` unset) before the "NOT VERIFIED" claim means anything.
 
+### R-17 — one full-suite leg, because three spent the month (added 2026-10-28)
+
+*Files:* `.github/workflows/ci.yml` (the `test` job, the header comment, and two
+comments that named the matrix in the present tense), `tests/ci_workflow.py`
+(new `job_names()`), new `tests/test_ci_cost.py`,
+`tests/test_cli_schema_conformance.py` (the publishing-leg lock replaces the
+matrix-gate one), `README.md` (prerequisites), `CONTRIBUTING.md` (`docs-locks`),
+`AGENTS.md` (*The Python floor must honour its lockfile*), `CHANGELOG.md`.
+
+*Why it exists:* X9 measured an account-level block, not a defect, and its
+numbers name the cause — three full legs at **160.9 of a 168.0-minute push**
+while every other job costs **7.1** together. The suite is not what got cheaper;
+the number of times it runs on a push is. The audit's register stops at R-16, so
+this item is numbered after it and marked as a cost decision rather than a
+finding (D23).
+
+*Change:* the matrix is **one leg, on 3.11**, and it keeps everything the three
+legs did between them: the suite with `--cov-fail-under=75`, the recorded CLI
+payloads and their artifact, the documentation site build and its artifact, and
+the instruction locks. The artifact and documentation steps' own comment already
+said the files come from committed sources and are identical on every
+interpreter, which is why they move to the floor leg rather than being dropped —
+and `uv.lock` locks sphinx **9.0.4 for this interpreter**, so the floor can build
+the docs it publishes.
+
+*Why the floor keeps the full suite:* `uv.lock` resolves **two** dependency
+graphs — numpy 1.26.4 / scipy 1.17.1 / sphinx 9.0.4 below 3.12 against 2.5.4 /
+1.18.1 / 9.x above it — and the development host (3.14.7) runs the second one
+every day under the mandatory local gate. 3.12 resolves that same branch, so
+3.12 and 3.14 were re-testing the graph in daily use while 3.11 is the only place
+the floor's stack, and the promise `requires-python` makes, is executed at all.
+This is D15's argument for `typecheck`, applied to the suite. X9's rule stands:
+the reduction keeps the floor leg and the Windows OS sweep, so it is a recorded
+decision, not a green bought under duress.
+
+*What it costs, and what it no longer covers:* a push projects **68.7** billable
+minutes — 61.4 for the leg (its worst measured 60.4 plus ≤1.0 for the publishing
+steps, measured at 0.1-0.2 minutes each) and 7.3 for the rest — down from 168.0.
+CI no longer runs the full suite on 3.12 or 3.14; **X10** names exactly what that
+leaves to the local gate and the three ways to buy it back.
+
+*Evidence:* `tests/test_ci_cost.py` prices every job, asserts one interpreter on
+the floor, asserts no matrix, asserts the projection and its headroom, and
+proves the arithmetic rejects a doubled leg; it fails on a job added without a
+price, a job renamed out of the ledger, an unpriced runner (macOS bills at 10x)
+and a widened matrix. `tests/test_cli_schema_conformance.py` now asserts the
+publishing steps are **unconditional**, which is the state that replaces "gated
+to one leg". `README.md`, `CONTRIBUTING.md` and `AGENTS.md` no longer claim CI
+verifies three interpreters.
+
 ---
 
 ## 4. Traceability
@@ -412,6 +472,7 @@ forced (`DISPLAY` unset) before the "NOT VERIFIED" claim means anything.
 | R-12 — POSIX untested | P2 | §3 R-12 | green Ubuntu CLI/shared smoke run | 2.1.7 |
 | R-15 — Ruff/mypy targets below floor | P2 | §3 R-15 | 3.11 typecheck leg green | 2.1.6 |
 | R-16 — README count stale | P3 | §3 R-16 | README assertion matches `len(first_party())` | none (closed in 2.1.5) |
+| R-17 — three suite legs per push (cost) | — (not in the audit's register) | §3 R-17 | projected push ≤ 100 billable minutes, priced by a lock | 2.1.6 |
 
 ---
 
@@ -714,6 +775,96 @@ The implication for the rest of this plan is a budget one: at ~170 billable
 minutes per push, a 3 000-minute allowance funds roughly **seventeen pushes a
 month**, so runner verification has to be batched deliberately rather than
 assumed on every commit.
+### R-17 — measured 2026-10-28 (development host; runner verdict pending, X9)
+
+*The price, measured rather than estimated.* Every job's `started_at` to
+`completed_at` from run `40668603600` (`8229b05`, the last green run before the
+block), at GitHub's documented multipliers:
+
+| Job | Wall | × | Billable |
+|---|---|---|---|
+| Test (Python 3.11) | 28.3 min | 2 | 56.5 |
+| Test (Python 3.12) | 27.7 min | 2 | 55.4 |
+| Test (Python 3.14) | 24.5 min | 2 | 49.0 |
+| Docs locks (freshness & formats) | 1.4 min | 2 | 2.7 |
+| Type Check | 1.1 min | 2 | 2.1 |
+| POSIX smoke (Ubuntu) | 1.2 min | 1 | 1.2 |
+| Security Scan | 0.6 min | 1 | 0.6 |
+| Lint & Format | 0.3 min | 1 | 0.3 |
+| Compile / Pre-flight gate | 0.1 min | 1 | 0.1 |
+| CLI schema conformance | 0.1 min | 1 | 0.1 |
+| **Total** | | | **168.0** |
+
+The same sum for run `40579580275` is **172.5**, and its 3.11 leg is 30.2 min
+(**60.4** billable) — the worst observed, which is the figure the ledger keeps.
+So the three legs were **160.9 of 168.0**, and the other seven jobs **7.1**
+together: the matrix was 96% of a push, and nothing else was worth touching.
+
+*The steps the floor leg inherits.* Per-step timings on the retired 3.14 leg:
+export 0.0 min, `cli-payloads` upload 0.0, documentation build 0.1, its upload
+0.0 — so moving them to the floor leg costs **≤ 0.4** billable minutes, and the
+projection is 61.4 + 7.3 = **68.7** against the 100-minute budget (31.3 of
+headroom, so ordinary suite growth does not trip the lock; a second leg at 56.5
+would reach 125.2 and does).
+
+*Locks.* `tests/test_ci_cost.py` — 13 passed. With
+`tests/test_cli_schema_conformance.py`, `tests/test_ci_security_audit.py`,
+`tests/test_ci_posix_leg.py` and `tests/test_tooling_targets.py` the batch is
+**142 passed, 0 failed**. `job_names()` is exercised through the ledger's two
+directions, so a job added *and* a ledger entry gone stale are both red.
+
+*Break-and-restore (the lock must be able to fail).* Three mutations of the
+committed workflow, each from the byte copy restored under a SHA-256 check that
+reported `restored: True` before the next ran, and each verdict keyed on
+pytest's own `FAILED tests/test_ci_cost.py::<id>` line rather than on a word in
+the output:
+
+* a second `python-version` inside the suite leg (a matrix by another name) —
+  `TestTheSuiteRunsOnce::test_the_suite_leg_runs_on_one_interpreter` **1 failed**;
+* an `extra-leg` job added and left unpriced —
+  `TestTheLedgerCoversTheWorkflow::test_every_job_is_in_the_ledger` **1 failed**;
+* the suite leg moved to 3.14 —
+  `TestTheSuiteRunsOnce::test_the_suite_leg_installs_the_floor` **1 failed**.
+
+The first attempt of the harness **passed while proving nothing**: its anchors
+were written with `\n` while the working tree is CRLF, so all three mutations
+reported `anchor matched 0 times` and the run still exited 0. The fix was to
+express every anchor with the file's own terminator and to scope the
+`python-version` anchors to the `test` job, because `3.11` also appears in
+`typecheck` — D14's class of mistake in a third shape, and the reason the
+harness now exits non-zero when a mutation stays green.
+
+*Gate.* `compileall` exit 0 over the tracked `.py` files (bare `compileall .`
+walks the gitignored `packaging/build` corpus, which is D16's subject and not
+this one); `ruff check .` / `ruff format --check .` clean (**942** files); bare
+`mypy .` clean (**551** source files); bandit `-r . -x ./.venv -c pyproject.toml`
+**0 High / 0 Medium** (38 Low, the documented first-party `subprocess` tail; its
+exit 1 is the any-finding behaviour §3 explains). Bare `pytest` first reported
+**11 219 passed, 3 skipped, 35 deselected, 1 failed** in 39 m 20 s — see the
+defect below — and after the repair **11 220 passed, 3 skipped, 35 deselected,
+0 failed** in 32 m 14 s.
+
+*A defect the gate found, fixed in this change.* The full suite failed
+`tests/test_release_notes.py::TestPerFileChangeNote::
+test_every_changed_code_file_carries_the_note`, naming two files without the
+`Changed in 2.1.6` note every changed code/config file must carry:
+`security/pip_audit_allowlist.toml` — **from R-11's commit `d1027ad`, not from
+this one**, which is why it survived that item's gate: the note lock reads
+every file changed since the baseline, so a note missing from one earlier
+commit surfaces on the next full run — and `tests/test_cli_schema_conformance.py`
+from this change. Both gained the note; the affected lock then reported **95
+passed** with `tests/test_ci_cost.py` and the conformance suite, and the second
+bare run above is the whole suite on the repaired tree.
+
+*Not demonstrated, and deliberately so.* **No runner has executed this
+workflow.** The account's Actions minutes are still exhausted, so the first
+verdict on the new shape is unpaid-for until the spending limit is raised or the
+cycle resets (X9). The change is committed on `main` ("Run the suite once, on the
+floor, and price every CI job") and **not pushed**: a push right now would only
+add another zero-step failed run to X9's tally, so the first verdict on the new
+shape waits for the limit to move. The ledger is a measurement of the *shape* —
+one leg, on the floor, priced per job — not a promise about the runner's clock
+on the day.
 
 ---
 
@@ -766,9 +917,27 @@ assumed on every commit.
   … allowlist entries: 0`. A *new* advisory failing the build stays
   unmanufacturable, as §3 says. Do not close this by reading a failed
   pre-execution run as a pass; do not weaken the step to make the job start —
-  the two are unrelated; and do not reduce the matrix on the day the allowance
-  runs out, because a green bought by dropping the OS legs and the floor leg
-  would certify less than the suite does today.
+  the two are unrelated. The rule against cutting the matrix to make a run
+  affordable still holds as written: a green bought by dropping the OS legs and
+  the floor leg certifies less than the suite does today. **R-17 is that rule's
+  lawful shape, not an exception to it** — the Windows OS sweep and the 3.11
+  floor leg both survive with the full suite, the two legs that went were
+  re-testing the graph the development host runs daily, and the reduction is
+  D23 with a measured bill beside it. Any *later* narrowing starts from X10.
+* **X10 — the newest interpreter no longer has a CI leg; here is what that costs
+  and how to buy it back.** R-17 runs the full suite on **3.11 only**, so a
+  push no longer verifies 3.12 or 3.14 on a runner. Deliberate, for the reasons
+  D23 records (3.12 resolves the same graph as 3.14; the development host runs
+  3.14 under the mandatory local gate), but it is a real narrowing and it is not
+  left implicit: a regression that only 3.14 shows is now caught by the
+  developer's own gate rather than by CI. Three remedies, cheapest first —
+  restore the leg on a throwaway branch and run it through `workflow_dispatch`
+  when a 3.14 question needs a runner (~49 minutes, no per-push cost); add a
+  weekly scheduled run of the same leg (~56 a week, ~240 a month, which a
+  3 000-minute allowance absorbs); or halve the suite's wall time with
+  `pytest-xdist` so the second leg fits inside the 100-minute budget. None is
+  authorised here; `tests/test_ci_cost.py` is what stops the third being
+  skipped quietly.
 * **X8 — CLOSED: the first `posix-smoke` run is green.** Run `40663662748` at
   `b7ee2f9` reports success with `1756 passed, 1 skipped` and the display report
   §5 quotes, so the bounds now equal what the runner reported (D21) and no POSIX
@@ -808,7 +977,10 @@ under **Added** (a POSIX smoke leg, and the platform caveat rewritten to match
 it) and under **Fixed** (the shared-config save that could raise where it
 promised not to, and the four Windows-only test assumptions the leg exposed).
 R-16 gets **no bullet**: it was closed by the 2.1.5 docs work this plan merely
-records.
+records. R-17 goes under **Changed** (the suite runs once, on the floor, so a
+push projects 68.7 billable minutes instead of 168.0; the artifact and
+documentation steps moved to that leg, and a new cost lock prices every job
+against a 100-minute budget).
 
 ---
 
@@ -820,4 +992,5 @@ records.
 | The `posix-smoke` leg's first run fails on real POSIX defects, or worse, passes because it collected almost nothing. | The selection is declared and locked; the job asserts a passed count and prints the display summary; skips are bounded and pinned. | Narrow the selection or remove the job **in the same change** that restores the caveat. A job removed while the caveat still claims it is the exact defect R-12 exists to remove. |
 | `target-version = "py311"` surfaces more than the 12 measured findings, or `mypy` at 3.11 more than the 1. | Both were measured before the plan was written, so the size is known; anything further is fixed in the change or recorded here as a decision, never ignored. | Revert the target alone and record why — but the lock in `tests/test_tooling_targets.py` then has to be changed deliberately, which is the point. |
 | The floor environment resolves different numpy/scipy legs below 3.12 than the 3.14 host does. | X1 names it; the acceptance evidence is the 3.11 leg's verdict, not the local proxy. | None needed: this is a measurement limitation, not a defect. |
+| R-17's single leg lets a 3.12- or 3.14-only regression reach `main` without a runner verdict, since neither interpreter runs the suite in CI any more. | The floor leg keeps the full suite, the mandatory local gate runs 3.14 before anything is called done, and X10 names the three ways to buy the leg back; the ledger prices a second leg at 125.2 minutes, so it is a decision with a number, not an oversight. | Restore the leg and record it in the ledger with its measured cost — the lock makes that a deliberate edit rather than a quiet one. If a 3.14-only defect escapes, the fix is `pytest-xdist` (to make two legs fit the budget), not a wider budget. |
 | An allowlist entry is added to silence an advisory instead of fixing it. | Entries expire, staling is a failure, and the weekly run makes an expired entry red on a day nobody committed. | Remove the entry and upgrade, or renew it with a new reason and date — the renewal is a visible diff in review. |

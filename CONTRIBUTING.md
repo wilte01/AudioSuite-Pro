@@ -175,9 +175,8 @@ Two rules no generator can enforce:
   the manifest; re-run the generator instead of editing a row.
 
 `docs-locks` is the CI job that runs the document locks on their own, ahead of
-the three-interpreter suite matrix, so a stale artifact or a reintroduced format
-fails in a couple of minutes instead of fifteen. The same modules run locally
-with:
+the full suite, so a stale artifact or a reintroduced format fails in a couple
+of minutes instead of half an hour. The same modules run locally with:
 
 ```pwsh
 python -m pytest tests/test_user_guide_hygiene.py tests/test_docs_formats.py `

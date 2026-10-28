@@ -8,6 +8,11 @@
 # Changed in 1.0.1: simplified workflow header comments.
 # Changed in 1.0.1: moved typecheck job to windows-latest (Windows-specific
 # code uses Windows-only APIs and types).
+# Changed in 2.1.6: the suite runs once, on the floor interpreter, instead
+# of on 3.11 / 3.12 / 3.14 (R-17, PLAN_audit_2026-10-24_deferred_p2p3.md).
+# Three full legs were 160.9 of a 168.0-billable-minute run and exhausted
+# the account's Actions minutes (X9); tests/test_ci_cost.py now prices every
+# job in this file and fails if the projection crosses 100.
 name: CI
 
 on:
@@ -48,8 +53,9 @@ jobs:
     # document locks fail on a stale guide artefact, a binary nobody
     # classified, a reintroduced prose format or a generated table that no
     # longer matches its source - but they used to run only inside the full
-    # suite, so a stale .docx surfaced 15-20 minutes into a three-interpreter
-    # matrix. Running the same files on their own turns that into a couple of
+    # suite, so a stale .docx surfaced 15-20 minutes into the full-suite
+    # matrix (three interpreters then; one floor leg today, R-17). Running the
+    # same files on their own turns that into a couple of
     # minutes, which is early enough to be worth fixing straight away.
     #
     # Changed in 2.1.5: the coverage lock joins the list. Its subject is a
@@ -259,7 +265,8 @@ jobs:
     # * 3.12 rather than the 3.11 floor: ubuntu-latest is Ubuntu 24.04, whose
     #   system Python is 3.12, so this leg adds the platform dimension without
     #   also adding an interpreter no Linux user gets by default. The floor has
-    #   its own legs in the Windows matrix.
+    #   its own full-suite leg on Windows (R-17), so this leg is about the
+    #   platform and not the interpreter.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -358,22 +365,36 @@ jobs:
           echo "POSIX smoke pass: $passed passed, $skipped skipped"
 
   test:
-    name: Test (Python ${{ matrix.python-version }})
+    name: Test (Python 3.11, the floor)
+    # Changed in 2.1.6: one full-suite leg, on the floor, instead of three legs
+    # (R-17, PLAN_audit_2026-10-24_deferred_p2p3.md). Measured from the jobs'
+    # own start/complete times (run 40668603600 at `8229b05`, the last green run
+    # before the account's minutes ran out): 3.11 + 3.12 + 3.14 cost 56.5 + 55.4
+    # + 49.0 = 160.9 of that run's 168.0 billable minutes at GitHub's
+    # multipliers (Linux 1x, Windows 2x), while every other job in this file
+    # costs 7.1 together. A private repository's monthly allowance is 2 000
+    # (Free) or 3 000 (Pro) minutes, so the old width bought about a dozen
+    # pushes a month - which is how X9 happened. One leg bills 56.5-61.4
+    # including the artifact and documentation steps (measured: 0.1-0.2 minutes
+    # each), so a push costs ~64-69, and `tests/test_ci_cost.py` prices every
+    # job and fails if the projection crosses 100 or a second leg is added
+    # without recording what it costs.
+    #
+    # Why the *floor* keeps the full suite. `uv.lock` resolves two dependency
+    # graphs: numpy 1.26.4 / scipy 1.17.1 / sphinx 9.0.4 below 3.12 against
+    # 2.5.4 / 1.18.1 / 9.2.0 above it. The development host runs 3.14 - it is
+    # what the mandatory local gate runs - and 3.12 resolves the *same* branch
+    # as 3.14, so those two legs re-tested a graph in daily use while this leg
+    # is the only place the floor's stack, and the promise `requires-python`
+    # makes, is executed at all. That is the argument D15 settles for
+    # `typecheck`, applied to the suite. What the reduced matrix no longer
+    # covers is named in X10 rather than left implicit.
     runs-on: windows-latest
-    # Changed in 2.1.6: a deadline on the leg. The first 3.14 run wedged at 6%
-    # with no output and no timeout above it, so it would have held a runner
-    # until GitHub's six-hour cap. The suite takes ~25 minutes here; a leg that
-    # is still going at 60 is stuck, and failing it says so in the run list.
+    # A deadline on the leg. The suite takes ~27 minutes on this interpreter
+    # (3.11 measured slowest of the three), so a leg still going at 60 is stuck,
+    # and failing it says so in the run list rather than holding a runner until
+    # GitHub's six-hour cap.
     timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        # The floor is 3.11 (see [project] requires-python): 3.10 could not
-        # supply current numpy/scipy wheels, so it resolved a second, stale
-        # numeric stack that nothing was developed against.  3.14 is the
-        # interpreter the suite is actually developed and run on, so it is
-        # tested rather than assumed.
-        python-version: ["3.11", "3.12", "3.14"]
     steps:
       # fetch-depth: 0 is required by tests/test_release_notes.py, which runs
       # `git diff --name-only 0349d06` to enumerate the release's changed files;
@@ -383,7 +404,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
       - run: pip install uv
       - run: uv sync --extra dev --extra analysis --extra cd-ripping
       - name: Install ffmpeg (Windows)
@@ -401,18 +422,16 @@ jobs:
         # can be read without a checkout: one <command>.json per command, from
         # the same bytes the conformance gate validates.
         #
-        # One matrix leg is enough, and it is the newest: the files come from the
-        # committed corpus, so they are identical on every interpreter - this
-        # step only formats and writes them.  If the version list above moves,
-        # update this condition with it (tests/test_cli_schema_conformance.py
-        # asserts the two agree, so a stale condition fails the suite).
-        if: matrix.python-version == '3.14'
+        # Changed in 2.1.6: no matrix condition (R-17). The files come from the
+        # committed corpus and are identical on every interpreter - this step
+        # said so back when a 3.14 leg published them - so the one full-suite
+        # leg publishes them now, and a leftover condition would be dead code
+        # that still reads like a rule (tests/test_cli_schema_conformance.py).
         shell: bash
         env:
           PYTHONUTF8: "1"
         run: uv run python -m tests.cli_schema_conformance --export-dir cli-payloads
       - uses: actions/upload-artifact@v4
-        if: matrix.python-version == '3.14'
         with:
           name: cli-payloads
           path: cli-payloads/
@@ -426,9 +445,11 @@ jobs:
         # suite gate still owns correctness (it fails on any parser warning);
         # this step publishes what that gate certified.
         #
-        # One matrix leg is enough, and it is the newest: every page comes from
-        # committed sources, so the HTML is identical on each interpreter.
-        if: matrix.python-version == '3.14'
+        # Changed in 2.1.6: this ran on the 3.14 leg, and the matrix condition
+        # went with the matrix (R-17). Every page comes from committed sources,
+        # so the HTML is identical on each interpreter - and `uv.lock` resolves
+        # sphinx 9.0.4 for this interpreter on purpose, which is why the floor
+        # leg can build it.
         shell: bash
         env:
           PYTHONUTF8: "1"
@@ -447,7 +468,6 @@ jobs:
         # any parser warning, and it runs before this step.
         run: uv run python utilities/build_docs_site.py
       - name: Upload the documentation site
-        if: matrix.python-version == '3.14'
         uses: actions/upload-artifact@v4
         with:
           name: docs-html

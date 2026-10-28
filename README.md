@@ -12,8 +12,10 @@ and an `audiosuite` CLI subcommand where one exists.
 ## Prerequisites
 
 * **Python 3.11 or newer** (`requires-python = ">=3.11"` in `pyproject.toml`;
-  CI verifies 3.11, 3.12 and 3.14; development runs on 3.14). 3.10 is not
-  supported: current numpy and scipy publish no 3.10 wheels, so a 3.10
+  CI runs the full suite on **3.11**, the floor - the only leg whose `uv.lock`
+  resolution installs numpy 1.26 / scipy 1.17, which is the stack a 3.11 user
+  gets - while development runs on 3.14 and the Ubuntu jobs run 3.12). 3.10 is
+  not supported: current numpy and scipy publish no 3.10 wheels, so a 3.10
   install silently pins an older numeric stack than the one the audio
   processing is verified against.
 * **ffmpeg and ffprobe on `PATH`.** The suite shells out to both:
