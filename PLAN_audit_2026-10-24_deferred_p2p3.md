@@ -606,7 +606,13 @@ available : NO`, `Tests skipped for display reasons : 0 of 1757`, `GUI behaviour
 had room — 6 above the floor, 9 under the ceiling — so the 1750/10 margins are
 calibrated rather than tight, and Ubuntu's apt ffmpeg behaved like the static
 7.0.2 build the selection was measured with. The job ran in 1 m 2 s, which is
-what makes a per-push platform check affordable.
+what makes a per-push platform check affordable. The rest of that run is green
+too — **all ten jobs**, the 3.11 / 3.12 / 3.14 test legs included, which is the
+evidence that the `suite_config` and `venv_bootstrap` changes hold on the floor
+interpreter and not only on this host. This record is itself documentation-only,
+so its own run is not awaited (the predecessor record's convention): the
+verdicts above belong to `b7ee2f9`, and `df69bf9`'s `posix-smoke` is green as
+well.
 
 ---
 
