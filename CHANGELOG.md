@@ -31,6 +31,23 @@ Versions of the tools are released together with the suite (the single
 
 ### Changed
 
+- **The dependency audit now blocks, with a dated allowlist and a weekly run.**
+  The security job's audit had been "on probation for two sprints" since 1.4.1 -
+  seven release cuts ago - so a newly published advisory against `uv.lock`, the
+  graph users actually install, turned one step orange and shipped anyway. The
+  step no longer carries `continue-on-error`, and its verdict is a new
+  stdlib-only `utilities/check_dependency_audit.py` rather than pip-audit's exit
+  status: pip-audit exits 1 for any finding, which cannot express "accepted
+  until a date, with a reason". The checker reads pip-audit's JSON payload and
+  the committed `security/pip_audit_allowlist.toml` - empty today, because the
+  exported graph audits clean - and fails on an unlisted finding, an expired
+  entry, a stale entry, an entry naming a different package, and on any payload
+  it cannot judge: a verdict that cannot be computed must never read as a pass.
+  No `--ignore-vuln` is passed anywhere, so the allowlist is the only place an
+  acceptance can live. A new `dependency-audit.yml` runs the same checker
+  weekly and on demand against `main`, so an advisory published between commits
+  - or an entry passing its expiry date on a week nobody commits - surfaces
+  without one.
 - **The lint and type gates now target the interpreter the project declares.**
   Ruff was configured for 3.10 and mypy for 3.12 while `requires-python` promised
   3.11, so `ruff check .` passed only because 3.11's `tomllib` was classified as

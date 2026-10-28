@@ -191,21 +191,38 @@ jobs:
         env:
           PYTHONUTF8: "1"
         # Changed in 1.4.1: added with PLAN D96, on probation for two sprints
-        # (D2). The step reports but does not fail the job yet, so a newly
-        # published advisory surfaces as a visible warning instead of blocking
-        # unrelated work; flip continue-on-error to false when the probation
-        # ends, and remove this flag then.
+        # (D2). Changed in 2.1.6: the probation ended - this step now blocks
+        # (R-11, PLAN_audit_2026-10-24_deferred_p2p3.md). The probation outlived
+        # its two sprints by seven release cuts while every other security gate
+        # was hard, so a newly published advisory against the shipped lock went
+        # unnoticed. The verdict is check_dependency_audit.py's exit status, not
+        # pip-audit's: pip-audit exits 1 for any finding, which cannot express
+        # "accepted until a date, with a reason".
+        #
+        # No --ignore-vuln anywhere: the committed allowlist is the only
+        # suppression, so the raw advisory always reaches the log and one place
+        # holds every acceptance. pip-audit's payload is kept as a file because
+        # a verdict read from prose is a verdict read from a word.
         #
         # Audit the *exported* graph, not .venv: the virtualenv also carries
         # environment-only packages (pip) that never ship, and their advisories
         # would drown the ones that matter. `--frozen` reads uv.lock, so the
         # audit judges exactly the graph CI installs, and `--no-deps` stops
         # pip-audit from re-resolving and drifting off that graph.
-        continue-on-error: true
         run: |
           uv export --frozen --all-extras --no-emit-project \
             --format requirements-txt --no-hashes -o requirements-audit.txt
-          uvx pip-audit -r requirements-audit.txt --no-deps --desc
+          set +e
+          uvx pip-audit -r requirements-audit.txt --no-deps -f json \
+            -o pip-audit.json
+          audit=$?
+          set -e
+          cat pip-audit.json 2>/dev/null || true
+          if [ "$audit" -ge 2 ]; then
+            echo "pip-audit could not run (exit $audit) - failing loudly" >&2
+            exit "$audit"
+          fi
+          python utilities/check_dependency_audit.py --payload pip-audit.json
 
   compile:
     name: Compile / Pre-flight gate

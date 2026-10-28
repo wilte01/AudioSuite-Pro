@@ -1,0 +1,27 @@
+# Dependency-audit allowlist (R-11, PLAN_audit_2026-10-24_deferred_p2p3.md).
+#
+# This file is the ONLY place an advisory against the shipped graph may be
+# accepted. utilities/check_dependency_audit.py reads it; CI's security job and
+# the weekly dependency-audit workflow both run that checker, and neither passes
+# --ignore-vuln, so the raw advisory always reaches the log.
+#
+# It starts empty on purpose: the exported lock audits clean today, and an entry
+# is added only when a real advisory cannot be upgraded away yet. A finding that
+# can be fixed is fixed in the change that found it - urllib3>=2.8.0 landed that
+# way, with the scan re-run to prove it.
+#
+# Schema: one [[advisory]] table per accepted advisory. All four keys are
+# required, and an entry with any of them missing fails the build instead of
+# being ignored.
+#
+#   [[advisory]]
+#   id = "GHSA-xxxx-xxxx-xxxx"   # the advisory id pip-audit reports
+#   package = "urllib3"          # must match the package it is reported against
+#   reason = "why the upgrade cannot land yet, and what unblocks it"
+#   expires = "2026-12-31"       # YYYY-MM-DD; the entry fails the build after it
+#
+# An entry also fails the build when it is stale - pip-audit no longer reports
+# that advisory, so the entry has outlived its reason - and when it names a
+# different package than the finding. Both are deliberate: an allowlist that
+# never shrinks is a permanent blind spot, and one that stays green past its
+# date is not a date.

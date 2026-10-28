@@ -1,0 +1,59 @@
+name: Dependency audit
+
+# Changed in 2.1.6: initial version (R-11,
+# PLAN_audit_2026-10-24_deferred_p2p3.md).
+#
+# `ci.yml`'s security job audits the exported lock on every push, which leaves
+# two gaps a blocking gate cannot close:
+#
+# * an advisory published while nobody commits waits for the next push; and
+# * an allowlist entry can pass its expiry date on a week with no commits, so
+#   the "dated acceptance" ages invisibly instead of failing.
+#
+# This workflow runs the same checker against `main` weekly and on demand. It
+# deliberately duplicates the two commands rather than calling `ci.yml`: a
+# reusable workflow would hide the export flags from the lock that reads this
+# file, and tests/test_ci_security_audit.py asserts both files name the export,
+# the JSON payload and the same checker.
+on:
+  schedule:
+    # Mondays at 06:17 UTC - off the hour so a queued run does not pile up
+    # behind every other project's midnight cron.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install uv
+      - name: Dependency audit (exported lock)
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        # Blocking, exactly as in ci.yml: no `continue-on-error`, no
+        # `--ignore-vuln`, and the verdict is check_dependency_audit.py's exit
+        # status rather than pip-audit's.
+        run: |
+          uv export --frozen --all-extras --no-emit-project \
+            --format requirements-txt --no-hashes -o requirements-audit.txt
+          set +e
+          uvx pip-audit -r requirements-audit.txt --no-deps -f json \
+            -o pip-audit.json
+          audit=$?
+          set -e
+          cat pip-audit.json 2>/dev/null || true
+          if [ "$audit" -ge 2 ]; then
+            echo "pip-audit could not run (exit $audit) - failing loudly" >&2
+            exit "$audit"
+          fi
+          python utilities/check_dependency_audit.py --payload pip-audit.json

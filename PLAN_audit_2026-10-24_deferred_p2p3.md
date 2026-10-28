@@ -7,7 +7,7 @@ and this plan's own record commits `61a19dd` (run `40568799837`) and `1ab0e39`
 `Lint & Format` included, after the first push's `Type Check` failure was fixed;
 R-16's verification row is written; **R-12 is complete and runner-verified** — run
 `40663662748` at `b7ee2f9` prints `POSIX smoke pass: 1756 passed, 1 skipped` (§5);
-R-11 is open.
+**R-11 is delivered** (§5) with its first runner verdict still to read (X9).
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
 **Base state:** `main` at `85046ef` ("Record the 2.1.6 CI remediation decisions
 (2026-10-27)"), working tree clean. `v2.1.5` is the repository's only tag (at
@@ -96,6 +96,7 @@ Two further measurements the items depend on:
 | D18 | R-12's selection is derived on a **native Linux filesystem**, with a **static ffmpeg on PATH** and **no display** — not on the development host, and not over the `/mnt/d` 9p mount. | DECIDED | Measured: over 9p the tree-scanning modules cost 150 s each and the sweep died on timeouts, which is a property of the mount rather than of POSIX; and a host without ffmpeg reports 15 fixture errors that say nothing about portability. The accepted shape is CPython 3.12.16 (the build family `actions/setup-python` uses), ffmpeg/ffprobe 7.0.2 static, and `DISPLAY`/`WAYLAND_DISPLAY` unset — which is also how the display branch was proved: `tk.Tk()` raises `TclError` and the conftest prints **NOT VERIFIED** with *0 of 1757* display skips, so this selection costs no GUI coverage (the earlier WSLg-backed run printed VERIFIED, which would have hidden that). |
 | D19 | The five failures that derivation surfaced are **fixed in the same change**, not excluded from the selection. | DECIDED | Two are defects in shipped code: `suite_config._save` promised to swallow a failed write but let a `PermissionError` escape from an unguarded directory `glob`, and again from `tmp.exists()` in its `finally` (3.12's `exists()` ignores only `ENOENT`/`ENOTDIR`, so `EACCES` re-raises; `_try_unlink` already swallows it, making the probe redundant). The other three tests encoded Windows-only assumptions and passed vacuously on Windows: a path that is absolute only there, a read-only-file cleanup that assumes Windows refuses the unlink, and two launcher tests whose Windows-shaped launch read the real `sys.platform`. Excluding the modules would have hidden a real POSIX defect in shared config persistence — the exact over-claim R-12 exists to remove. |
 | D20 | The lock asserts the **comparison** (`-lt 1756`, `-gt 1`) and not the bare number, and both bounds are measured values rather than the pre-derivation guesses (470/85). | DECIDED | Break-and-restore proved the trap on the padded bounds: lowering `-lt 1750` to `-lt 10` and raising `-gt 10` to `-gt 9000` both left the lock **green**, because each step's failure message quotes the same number — D14 in a new shape.  Asserting the operator plus value makes both mutations red. |
+| D22 | The weekly workflow **duplicates** the export, payload and checker commands instead of calling `ci.yml` as a reusable workflow, and the checker's exit codes are a three-state contract (`0` pass, `1` policy, `2` unusable). | DECIDED | A reusable workflow would hide the export flags and the checker invocation behind a `uses:` line, so both locks would be reading a reference rather than the commands; two short duplicated blocks keep each file legible to `tests/ci_workflow.py` and to a reader. The third exit state is the one that matters: the probation era turned every unreadable payload into a pass, and "cannot judge" must not share a code with "judged clean". The tests hold each branch able to fail by break-and-restore, which is the only proof that a green suite means something here. |
 | D21 | The bounds are the **runner's own** numbers — 1756 passed, 1 skipped — not the derivation's ten-point padding (1750/10). | DECIDED | The leg's first run (D20's window) reported exactly the numbers the local derivation produced, and the split is pinned three ways: `uv.lock` fixes the dependency graph, `setup-python` fixes the interpreter line, and the ffmpeg step fixes the binaries. A deviation is therefore a real change — a lock upgrade, a new Python patch that skips something — and the leg should say so instead of absorbing it. Widening a bound again is legitimate only as a deliberate edit with a sentence here naming what moved, and the lock's comparison assertion means a silent widening is red. |
 
 ---
@@ -259,6 +260,25 @@ finding's blast radius is the shipped lock: `uv.lock` is what users install.
   advisory") cannot be manufactured by publishing an advisory, so it is
   demonstrated on a synthetic payload in the checker's own tests and named as
   such in the verification record.
+
+**Delivered (2026-10-28).** The step is blocking: no `continue-on-error`, no
+`--ignore-vuln`, and its verdict is `utilities/check_dependency_audit.py` run
+over `pip-audit -f json -o pip-audit.json` (pip-audit's payload is catted to the
+log, so the raw advisory is always visible). The checker is stdlib-only —
+`tomllib` is 3.11 standard library, so the floor already carries it — and
+returns `0` pass, `1` policy failure, `2` no computable verdict. `1` covers an
+unlisted finding, an expired entry, a stale entry, and an entry that names a
+different package than the finding; `2` covers a missing/unparsable/empty
+payload and a malformed allowlist, so a gate that cannot judge never reads as
+green. `security/pip_audit_allowlist.toml` starts empty with its schema in the
+header. `.github/workflows/dependency-audit.yml` runs the same export, payload
+and checker weekly (`cron: "17 6 * * 1"`) and on `workflow_dispatch`.
+`tests/test_ci_security_audit.py` drops `test_the_step_is_on_probation` for the
+succeeding contract — blocking, checker-driven, weekly workflow present, no
+`--ignore-vuln` in either file, allowlist parses and documents its schema — and
+the checker's own 23 tests live in `utilities/tests/test_check_dependency_audit.py`
+(that directory is already in `testpaths` and `utilities` in the coverage
+source, so nothing needed registering).
 
 ### R-12 — a POSIX leg that runs the portable core, and a caveat that matches it
 
@@ -623,6 +643,40 @@ is itself documentation-only, so its own run is not awaited (the predecessor rec
 verdicts above belong to `b7ee2f9`, and `df69bf9`'s `posix-smoke` is green as
 well.
 
+### R-11 — measured 2026-10-28 (development host; runner verdict in X9)
+
+*Checker tests* — 23 passed in `utilities/tests/test_check_dependency_audit.py`:
+a clean audit passes; an unlisted advisory fails; a listed and unexpired entry
+passes; an expired entry fails and names `2000-01-01`; a stale entry fails; an
+entry naming another package fails; a bare-list payload and a dependency with no
+`vulns` key are accepted; a missing, unparsable, empty or mis-shaped payload and
+a missing, incomplete or unparsable allowlist all exit `2`; and the expiry
+boundary accepts *on* the date and fails the day after.
+
+*Break-and-restore* — three mutations of the shipped checker, each red: the
+expiry comparison removed (2 tests), the staleness check removed (1), the empty
+payload accepted (1). Source restored under a SHA-256 check with `__pycache__`
+cleared before every verdict, so a stale `.pyc` could not produce the result.
+
+*A real audit, end to end on this host* — `uv export --frozen --all-extras
+--no-emit-project …` produced a 490-line requirements file, `uvx pip-audit -r …
+--no-deps -f json -o …` audited **130 packages with 0 advisories** ("No known
+vulnerabilities found"), and the checker printed `[OK] dependency audit: 0
+advisory finding(s), all allowlisted and unexpired; allowlist entries: 0` with
+exit 0. That is the premise the empty allowlist rests on, measured rather than
+assumed.
+
+*Locks and gate* — `tests/test_ci_security_audit.py` green with the two new
+classes (blocking contract, weekly workflow, allowlist), `ruff check` and `ruff
+format --check` clean (941 files), `mypy .` clean (551 source files), bandit 0
+High / 0 Medium. Both workflow files parse as YAML, and the parsed audit step
+has no `continue-on-error` key and does invoke the checker.
+
+*Not demonstrated* — a genuinely new advisory failing the build. That half of
+the audit's acceptance column cannot be manufactured without publishing an
+advisory, so it is proved on a synthetic payload and named as such; the other
+half is the security job's first verdict (X9).
+
 ---
 
 ## 6. Open items, and deferrals this plan creates
@@ -652,6 +706,12 @@ well.
   and this plan does not authorise the cut. R-15 lands in the window either way;
   whether R-11/R-12 ride 2.1.6 or their own 2.1.7 is a release decision, not an
   item.
+* **X9 — the new audit step's first runner verdict.** The checker is proved
+  locally (23 tests, three break-and-restore mutations, and a real clean audit
+  of the exported 130-package graph), but the wiring only proves itself on the
+  runner: the first push's `Security Scan` job must be green, and the weekly
+  workflow cannot run until GitHub's scheduler fires it. Both are recorded in
+  §5 when known; until then R-11 is delivered but not runner-verified.
 * **X8 — CLOSED: the first `posix-smoke` run is green.** Run `40663662748` at
   `b7ee2f9` reports success with `1756 passed, 1 skipped` and the display report
   §5 quotes, so the bounds now equal what the runner reported (D21) and no POSIX

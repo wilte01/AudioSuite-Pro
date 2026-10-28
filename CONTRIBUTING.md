@@ -250,25 +250,39 @@ against that file rather than against `.venv`, because the virtualenv also
 carries environment-only packages such as `pip`, whose advisories are not this
 project's to fix.
 
-Run the same scan locally:
+Run the same verdict locally:
 
 ```pwsh
 uv export --frozen --all-extras --no-emit-project --format requirements-txt --no-hashes -o requirements-audit.txt
-uvx pip-audit -r requirements-audit.txt --no-deps --desc
+uvx pip-audit -r requirements-audit.txt --no-deps -f json -o pip-audit.json
+python utilities/check_dependency_audit.py --payload pip-audit.json
 ```
 
 `--no-deps` is deliberate: the export is already resolved, and letting
 pip-audit resolve again could audit versions the lock never installs.
 
-- CI runs the step **on probation for two sprints**
-  (`continue-on-error: true`), so a newly published advisory is visible without
-  blocking unrelated work. Do not delete the step to silence it, and do not
-  move the audit onto `.venv`.
+The check is **blocking**: CI fails on any advisory that is not accepted in
+`security/pip_audit_allowlist.toml`. The step's verdict is
+`utilities/check_dependency_audit.py`, not pip-audit's exit status - pip-audit
+exits 1 for any finding, which cannot express "accepted until a date, with a
+reason". No `--ignore-vuln` is passed anywhere, so the raw advisory always
+reaches the log and the allowlist is the only place an acceptance can live.
+
+`.github/workflows/dependency-audit.yml` runs the same checker against `main`
+weekly and on demand, so an advisory published between commits surfaces without
+waiting for a push, and an entry's expiry can be exceeded on a week nobody
+commits.
+
 - A finding that can be upgraded away is fixed in the change that found it,
   with the scan re-run to prove it: `urllib3>=2.8.0` landed with the step that
   reported the three advisories against 2.7.0.
-- A finding that cannot be upgraded yet is recorded in the governing plan's
-  decision log with its advisory id and the reason, not suppressed.
+- A finding that cannot be upgraded yet gets an `[[advisory]]` entry with its
+  `id`, `package`, `reason` and an `expires` date (`YYYY-MM-DD`); the schema is
+  in that file's header. An expired entry, a stale one (pip-audit no longer
+  reports the advisory) and one naming a different package than the finding all
+  fail the build - an allowlist that never shrinks is a permanent blind spot.
+  Do not delete the step to silence a finding, and do not move the audit onto
+  `.venv`.
 
 ## Audio correctness
 
