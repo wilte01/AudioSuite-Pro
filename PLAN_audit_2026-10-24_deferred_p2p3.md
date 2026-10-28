@@ -8,8 +8,9 @@ and this plan's own record commits `61a19dd` (run `40568799837`) and `1ab0e39`
 R-16's verification row is written; **R-12 is complete and runner-verified** — run
 `40663662748` at `b7ee2f9` prints `POSIX smoke pass: 1756 passed, 1 skipped` (§5);
 **R-11 is delivered and locally verified** (§5), but its runner verdict is
-**blocked** — at `d1027ad` no job started at all, for an account-level reason
-(X9), so the audit step is not runner-verified.
+**blocked** — at `d1027ad` and again at `d459fb0` no job started at all, for an
+account-level reason now measured at **2 651.6 billable Actions minutes consumed
+in October** (~170 a push), so the audit step is not runner-verified (X9).
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
 **Base state:** `main` at `85046ef` ("Record the 2.1.6 CI remediation decisions
 (2026-10-27)"), working tree clean. `v2.1.5` is the repository's only tag (at
@@ -694,6 +695,26 @@ owner can see (the available token carries no billing scope). **R-11 is
 therefore delivered and locally verified but not runner-verified**, and no
 reviewer should read the failed run as a defect in the audit step.
 
+*Re-checked at 11:19Z on 2026-10-28: still blocked, and the cause is now measured
+rather than inferred.* Run `40674405486` at `d459fb0` (the record commit, 10:43Z)
+again created ten jobs and every one of them concluded `failure` with
+`steps: []` and an empty `runner_name`. Summing each job's `started_at` to
+`completed_at` for every October run at the multipliers GitHub bills (Linux 1×,
+Windows 2×) gives **2 651.6 billable minutes across 20 runs**, and the ten green
+runs immediately before the block cost **166–193 minutes each** — the eight
+Windows jobs bill at double, which is where most of it goes. The running total
+was **2 647 minutes** when `d1027ad` was pushed at 10:39Z, and the block begins
+exactly there: `8229b05` (ending 10:05Z, total 2 647) is green, `d1027ad` is not.
+The sum under-counts, because GitHub rounds each job *up* to the minute and this
+one does not, so the true figure is higher — consistent with a private-repo
+monthly allowance (2 000 free / 3 000 Pro minutes) rather than with a per-run
+quota, a concurrency limit or a code defect. Nothing in the workflow changed
+between the green and the blocked run, and no platform incident is reported.
+The implication for the rest of this plan is a budget one: at ~170 billable
+minutes per push, a 3 000-minute allowance funds roughly **seventeen pushes a
+month**, so runner verification has to be batched deliberately rather than
+assumed on every commit.
+
 ---
 
 ## 6. Open items, and deferrals this plan creates
@@ -723,18 +744,31 @@ reviewer should read the failed run as a defect in the audit step.
   and this plan does not authorise the cut. R-15 lands in the window either way;
   whether R-11/R-12 ride 2.1.6 or their own 2.1.7 is a release decision, not an
   item.
-* **X9 — OPEN: the audit step has no runner verdict yet, because no job starts.**
-  Attempted at `d1027ad`: all ten jobs failed with zero steps and no logs, and a
-  re-run reproduced it (§5). That is an account-level block on a private
-  repository, not the step: the jobs were created from a parsing workflow, and
-  the run an hour earlier was green. The owner should check
-  Settings → Billing → Actions (minutes used / spending limit) or the account's
-  payment state; once jobs start again, **any** run at or after `d1027ad` settles
-  it, and the `Security Scan` log should print `[OK] dependency audit: 0 advisory
-  finding(s) … allowlist entries: 0`. A *new* advisory failing the build stays
+* **X9 — OPEN: the audit step has no runner verdict yet, because no job starts,
+  and the reason is now measured: the account's Actions minutes are exhausted.**
+  Attempted at `d1027ad` (run `40673801647`) and re-checked at `d459fb0` (run
+  `40674405486`, 10:43Z): all ten jobs, in both runs, concluded `failure` with
+  `steps: []`, an empty `runner_name` and no log blob — no step ever began — and a
+  `rerun-failed-jobs` reproduced it. That is not the step: the jobs are *created*
+  from a workflow that parses, `/actions/permissions` reports `enabled: true`,
+  no platform incident is open, and the run twelve minutes earlier was green.
+  The block lands on the bank balance rather than on a defect: October usage is
+  **2 651.6 billable minutes across 20 runs**, the green runs immediately before
+  the block cost 166–193 each, and the total stood at 2 647 when the blocked push
+  happened (see §5 for the per-run table; the figure is a floor, since GitHub
+  rounds each job up to the minute). At ~170 minutes a push, this suite can be
+  runner-verified roughly seventeen times a month on a 3 000-minute allowance.
+  The owner's levers, none of them a code change: raise the spending limit
+  (Settings → Billing → Actions), wait for the cycle reset on the 1st, or make
+  the repository public, which removes the private-repo minute charge entirely.
+  Once jobs start again, **any** run at or after `d1027ad` settles this, and the
+  `Security Scan` log should print `[OK] dependency audit: 0 advisory finding(s)
+  … allowlist entries: 0`. A *new* advisory failing the build stays
   unmanufacturable, as §3 says. Do not close this by reading a failed
-  pre-execution run as a pass, and do not weaken the step to make the job start
-  — the two are unrelated.
+  pre-execution run as a pass; do not weaken the step to make the job start —
+  the two are unrelated; and do not reduce the matrix on the day the allowance
+  runs out, because a green bought by dropping the OS legs and the floor leg
+  would certify less than the suite does today.
 * **X8 — CLOSED: the first `posix-smoke` run is green.** Run `40663662748` at
   `b7ee2f9` reports success with `1756 passed, 1 skipped` and the display report
   §5 quotes, so the bounds now equal what the runner reported (D21) and no POSIX
