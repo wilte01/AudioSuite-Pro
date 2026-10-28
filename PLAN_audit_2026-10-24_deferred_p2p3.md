@@ -11,15 +11,22 @@ R-16's verification row is written; **R-12 is complete and runner-verified** —
 **blocked** — at `d1027ad` and again at `d459fb0` no job started at all, for an
 account-level reason now measured at **2 651.6 billable Actions minutes consumed
 in October** (~170 a push), so the audit step is not runner-verified (X9).
-**R-17 is delivered and locally verified** (§5), and its runner verdict is
-pending for the same reason: it is the owner's response to X9, and it brings a
-push from **168.0 to a projected 68.7 billable minutes** by running the full
-suite once, on the 3.11 floor. **X9 is CLOSED** as of run
+**R-17 is delivered, locally verified and runner-verified** (§5): run
+[`40718253254`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40718253254)
+at `27b3136` ran the full suite on the floor in **23.5 minutes** with **11 217
+passed, 6 skipped, 0 failed**, and the eight jobs came to **57.7** billable
+minutes had the account still been private (68.7 projected, 100 budgeted) — and
+**0** now, because the repository is public. **X9 is CLOSED** as of run
 [`40710792850`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40710792850)
 at `0473a6d`: the repository is public, so the minute charge is gone, all eight
 jobs started, and seven finished green — including `Security Scan`, whose log
 carries the audit line. That run's 3.11 leg did **not** finish: it stopped at 7%
-and was cancelled, which became **R-18** and **X11**.
+and was cancelled, which became **R-18** and **X11**. Its log has since been
+re-read character by character (§5): it records **two** failures, not the four
+first claimed, and the silence lasted **29 minutes** with no progress write at
+all. The stall is **not reproduced** — the same commit's next run was green — so
+X11 stays open, now with guards at both levels and one defect fixed: the
+whole-tree collection helper's caller waited **unbounded** and captured a pipe.
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
 **Base state:** `main` at `85046ef` ("Record the 2.1.6 CI remediation decisions
 (2026-10-27)"), working tree clean. `v2.1.5` is the repository's only tag (at
@@ -115,6 +122,7 @@ Two further measurements the items depend on:
 | D22 | The weekly workflow **duplicates** the export, payload and checker commands instead of calling `ci.yml` as a reusable workflow, and the checker's exit codes are a three-state contract (`0` pass, `1` policy, `2` unusable). | DECIDED | A reusable workflow would hide the export flags and the checker invocation behind a `uses:` line, so both locks would be reading a reference rather than the commands; two short duplicated blocks keep each file legible to `tests/ci_workflow.py` and to a reader. The third exit state is the one that matters: the probation era turned every unreadable payload into a pass, and "cannot judge" must not share a code with "judged clean". The tests hold each branch able to fail by break-and-restore, which is the only proof that a green suite means something here. |
 | D23 | R-17 reduces the test matrix to **one leg, on the 3.11 floor**, instead of 3.11 / 3.12 / 3.14 — and it is a *designed* reduction, distinct from the panic-cut X9 forbids. | DECIDED | Measured from the jobs' own timings (run `40668603600`): the three legs were **160.9 of a 168.0-minute push**, the other seven jobs 7.1 together, and the account's monthly allowance therefore bought about a dozen pushes — which is how X9 happened. The floor keeps the full suite because `uv.lock` resolves a *different* graph below 3.12 (numpy 1.26.4 / scipy 1.17.1 / sphinx 9.0.4 against 2.5.4 / 1.18.1 / 9.x), the development host runs 3.14 under the mandatory local gate, and 3.12 takes the same resolution branch as 3.14. So the legs that went were the two re-testing a graph in daily use, not the one nothing else executes. This is D15's argument applied to the suite. |
 | D24 | The budget is held by a **lock over the committed workflow** (`tests/test_ci_cost.py`) with a measured per-job ledger, not by a comment or a wiki page. | DECIDED | A cost decision written only in prose is undone by the next person who adds a leg in good faith. The ledger makes every job's price explicit (a new job without one is red), asserts one interpreter on the floor with no matrix, and proves the arithmetic rejects the doubled-leg shape — while leaving 31 minutes of headroom so ordinary suite growth does not trip it. `tests/ci_workflow.py` gained `job_names()` so the lock enumerates the real jobs instead of a remembered list. |
+| D25 | The cancelled leg's evidence is **re-derived from the log's characters**, and X11's named tests and "four failures" are **withdrawn** rather than repeated. The one defect it does establish — an unbounded, pipe-capturing `subprocess.run` around the whole-tree collection helper — is fixed here instead of deferred. | DECIDED | Re-reading run `40710792850` mark by mark corrects the first account: the progress stream carries **two** `F` characters, and the earlier "four at #1, #5, #317, #318" counted percentage annotations as marks. Positional identification is then **not** available either, and the proof is in the green log: `-q` produced **11 281** dots for **11 217** passed tests, so the stream is not one mark per test and a mark's index cannot name a node id. What survives is timing, which is unambiguous: the last progress write is at `14:59:37Z`, the step was cancelled at `15:28:47Z`, and the green run's largest gap between writes is 53.5 s — so those 29 minutes are a real stall, not a display lag (pytest flushes per write: the green log has **157** separately timestamped progress lines). Two shapes could hold a leg silent for longer than the helper's own 900 s watchdog — the helper outliving it, or the caller outliving the helper — and a caller bound plus a file sink closes both, so the fix does not depend on knowing which one it was. Naming a test from that log would be the same over-claim D20 and D14 were written to catch. |
 | D21 | The bounds are the **runner's own** numbers — 1756 passed, 1 skipped — not the derivation's ten-point padding (1750/10). | DECIDED | The leg's first run (D20's window) reported exactly the numbers the local derivation produced, and the split is pinned three ways: `uv.lock` fixes the dependency graph, `setup-python` fixes the interpreter line, and the ffmpeg step fixes the binaries. A deviation is therefore a real change — a lock upgrade, a new Python patch that skips something — and the leg should say so instead of absorbing it. Widening a bound again is legitimate only as a deliberate edit with a sentence here naming what moved, and the lock's comparison assertion means a silent widening is red. |
 
 ---
@@ -470,27 +478,43 @@ verifies three interpreters.
 ### R-18 — a stalled leg must say where it stalled (added 2026-10-28)
 
 *Files:* `pyproject.toml` (`[tool.pytest.ini_options] faulthandler_timeout`),
-`.github/workflows/ci.yml` (the suite step's `--maxfail=1`).
+`.github/workflows/ci.yml` (the suite step's `--maxfail=1`), and — D25 —
+`tests/test_pyproject_config.py` (a bounded caller for the collection helper).
 
 *Defect, found by the first run of R-17's workflow:* run `40710792850` at
 `0473a6d` started all eight jobs and seven finished green, then the 3.11 leg
-printed `[7%]`, **815 completed tests**, and nothing for thirty minutes. It was
-cancelled to recover the log, which shows four red tests before the stall (the
-cancelled run never prints its summary) and the stall itself at
-`tests/test_pyw_launchers.py::TestFileReorganizerImportBranch::test_import_error_is_not_masked_by_the_generic_branch`.
-All four of those tests pass on this host, so they are runner-only.
+printed its last progress chunk at **`14:59:37Z`** and then **nothing for 29
+minutes** until it was cancelled at `15:28:47Z`. That is a stall, not a lag:
+pytest flushes every progress write (the green log carries 157 separately
+timestamped progress lines), and the green run's largest gap between writes is
+53.5 s. The stream also carries **two** `F` characters before it stops — the
+earlier count of four (D25) was a mis-read, and no node id can be recovered from
+the marks, because the green log proves the stream is not one mark per test
+(11 281 dots for 11 217 passed).
 
-*Change:* `faulthandler_timeout = 600` makes any single test that exceeds ten
-minutes dump every thread's stack, and the CI step adds `--maxfail=1` so a run
-reports the failure it found instead of stopping silently at a stall. Both are
-reporting changes. Neither is claimed to fix the stall or the four failures —
-that is X11.
+*Change, first half (reporting):* `faulthandler_timeout = 600` makes any single
+test that exceeds ten minutes dump every thread's stack, and the CI step adds
+`--maxfail=1` so a run reports the failure it found instead of stopping silently
+at a stall. The green run's slowest gap is 53.5 s, so the deadline is a report
+and not a tripwire.
 
-*Evidence:* the four red marks were placed exactly by counting the log's
-progress characters against a local `--collect-only` order (815 marks; failures
-at #1, #5, #317, #318), not by guessing at percentages. `--maxfail=1` is
-visible in the step's parsed `run:` value; `faulthandler_timeout` is an ini
-option, so the command needs no new flag.
+*Change, second half (a real defect):* `_collect_views()` in
+`tests/test_pyproject_config.py` ran `tests/_collect_views.py` with
+`capture_output=True` and **no `timeout=`**. The helper arms its own 900 s
+watchdog, so the leg's 29 silent minutes outlived the only bound in the subtree:
+either the helper outlived its watchdog or the caller outlived the helper, and a
+caller bound closes both. It now writes the helper's combined output to a
+**file** (a surviving view child can hold an inherited pipe open, and
+`communicate()` then waits for an EOF no live process will write) and waits at
+most `COLLECT_VIEWS_TIMEOUT_SECONDS = 960` — above the helper's own watchdog on
+purpose, so the helper dumps its stack before the caller gives up.
+
+*Evidence:* the caller now has both properties and the lock fails when either
+is removed — `timeout=None` and dropping the `timeout` keyword are both red
+(D25's first draft passed on `timeout=None`, which is why the lock asserts the
+named constant *and* its positive integer value). `--maxfail=1` is visible in
+the step's parsed `run:` value; `faulthandler_timeout` is an ini option, so the
+command needs no new flag.
 
 ---
 
@@ -502,7 +526,8 @@ option, so the command needs no new flag.
 | R-12 — POSIX untested | P2 | §3 R-12 | green Ubuntu CLI/shared smoke run | 2.1.7 |
 | R-15 — Ruff/mypy targets below floor | P2 | §3 R-15 | 3.11 typecheck leg green | 2.1.6 |
 | R-16 — README count stale | P3 | §3 R-16 | README assertion matches `len(first_party())` | none (closed in 2.1.5) |
-| R-17 — three suite legs per push (cost) | — (not in the audit's register) | §3 R-17 | projected push ≤ 100 billable minutes, priced by a lock | 2.1.6 |
+| R-17 — three suite legs per push (cost) | — (not in the audit's register) | §3 R-17 | measured push **57.7** billable minutes (68.7 projected, 100 budgeted), priced by a lock | 2.1.6 |
+| R-18 — a stalled leg printed nothing (found by R-17's first run) | — (found by this plan's own workflow) | §3 R-18 | a stall names its frames; a failure reaches the log in minutes; the collection helper's caller is bounded | 2.1.6 |
 
 ---
 
@@ -805,18 +830,32 @@ The implication for the rest of this plan is a budget one: at ~170 billable
 minutes per push, a 3 000-minute allowance funds roughly **seventeen pushes a
 month**, so runner verification has to be batched deliberately rather than
 assumed on every commit.
-### R-18 — measured 2026-10-28 (development host; the runner evidence is X11)
+### R-18 — measured 2026-10-28 (development host, and by the runner)
 
-* `ruff check .` clean. `tests/test_pyproject_config.py`,
-  `tests/test_ci_cost.py`, `tests/test_cli_schema_conformance.py` and
-  `tests/test_pyw_launchers.py` — **133 passed**;
+* `ruff check .` clean. `tests/test_pyproject_config.py` — **24 passed** in
+  48 s, including its five whole-tree collections. With `tests/test_ci_cost.py`,
+  `tests/test_cli_schema_conformance.py` and `tests/test_pyw_launchers.py` the
+  batch was **133 passed** before this change added the caller lock;
   `tests/test_release_notes.py` with the CI locks — **37 passed**.
 * The workflow still parses, and the suite step's `run:` reads
   `uv run python -m pytest --tb=short -q --maxfail=1 \` followed by the
   coverage flags, so the flag reached the command and not just the comment.
-* *Not verified:* that either change ends the stall. The next run either names a
-  failure in minutes or dumps the wedged frames (X11); both are better than a
-  silent half hour, and neither is the fix.
+* *The caller bound, break-and-restore.* With
+  `timeout=COLLECT_VIEWS_TIMEOUT_SECONDS` mutated to `timeout=None` the new lock
+  **fails** (`1 failed in 0.17s`), and the file is restored to SHA-256
+  `38953803…56ca9ce` with `__pycache__` cleared before the verdict is believed.
+  The first draft asserted only that the `timeout` keyword *existed* and stayed
+  **green** under the same mutation (`1 passed in 0.16s`) — the
+  cannot-fail-harness trap, caught here; the lock now asserts the named constant
+  and its positive integer literal.
+* *Runner verdict — run
+  [`40718253254`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40718253254)
+  attempt 2, `27b3136`.* All eight jobs green. The 3.11 leg: **11 217 passed, 6
+  skipped, 35 deselected, 1 371 warnings in 1395.36 s (0:23:15)**, its largest
+  inter-write gap **53.5 s** — so `faulthandler_timeout = 600` did not fire and
+  would not have on a healthy run. The stall did **not** reproduce (X11), so
+  R-18 remains reporting-and-bounding rather than a cure, which is what §3 says
+  it is.
 
 ### R-17 — measured 2026-10-28 (development host; runner verdict pending, X9)
 
@@ -909,6 +948,32 @@ shape waits for the limit to move. The ledger is a measurement of the *shape* �
 one leg, on the floor, priced per job — not a promise about the runner's clock
 on the day.
 
+*Runner verdict, 2026-10-28 — the shape priced against a real push.* Run
+[`40718253254`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40718253254)
+attempt 2 at `27b3136`, all eight jobs green, wall times from the jobs' own
+`started_at`/`completed_at`:
+
+| Job | Wall | × | Billable |
+|---|---|---|---|
+| Test (Python 3.11, the floor) | 24.8 min | 2 | 49.6 |
+| POSIX smoke (Ubuntu) | 2.5 min | 1 | 2.5 |
+| Docs locks (freshness & formats) | 1.2 min | 2 | 2.4 |
+| Type Check | 0.9 min | 2 | 1.8 |
+| Security Scan | 0.6 min | 1 | 0.6 |
+| Lint & Format | 0.2 min | 2 | 0.4 |
+| Compile / Pre-flight gate | 0.1 min | 2 | 0.2 |
+| CLI schema conformance | 0.1 min | 2 | 0.2 |
+| **Total** | | | **57.7** |
+
+So the replacement shape is **57.7** against the **68.7** projection and the
+**100**-minute budget: the projection was conservative by 11 minutes because it
+priced the floor leg at the retired legs' 28–30 minutes while the one-leg
+workflow's leg took 24.8. Against the three-leg workflow's **168.0**, a push is
+**2.9×** cheaper — and today it is **0**, because public repositories are not
+charged, so what the ledger now protects is the *shape* (one leg, one OS sweep,
+no matrix) rather than a bill. The unrun risk that remains is X10's: no runner
+executes 3.12 or 3.14 any more.
+
 ---
 
 ## 6. Open items, and deferrals this plan creates
@@ -967,25 +1032,29 @@ on the day.
   floor leg both survive with the full suite, the two legs that went were
   re-testing the graph the development host runs daily, and the reduction is
   D23 with a measured bill beside it. Any *later* narrowing starts from X10.
-* **X11 — OPEN: the 3.11 suite leg has four runner-only failures and one stall,**
-  and neither is reproduced on this host. Run
+* **X11 — OPEN: the 3.11 suite leg stalled for 29 minutes once, and no test
+  name can be recovered from that log.** Run
   [`40710792850`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40710792850)
-  at `0473a6d`, cancelled to recover its log: 815 tests completed, then nothing
-  for thirty minutes at
-  `tests/test_pyw_launchers.py::TestFileReorganizerImportBranch::test_import_error_is_not_masked_by_the_generic_branch`.
-  The four failures before it are
-  `tests/security/test_input_validator.py::TestValidateFilePath::test_valid_absolute_path_accepted`,
-  `…::test_directory_traversal_rejected`,
-  `tests/test_cli_usage_errors.py::TestArgvHelpers::test_the_command_path_is_resolved[argv2-key]`
-  and `…[argv3-cue parse]`. All ten of those tests pass here; `verify_suite`
-  takes 0.16 s, the launcher test 0.18 s, and the pre-flight warning dialog
-  returns immediately with `tkinter.Tk` mocked — so the local proxies do not
-  reach either symptom. R-18 makes the next run self-reporting: it stops at the
-  first failure with its traceback, and a stall dumps the wedged frames after
-  ten minutes. The lead to test first is **accumulated state in the launcher
-  tests** — the same `.pyw` is `exec`'d five times in one process, each run
-  re-configuring logging and re-running `verify_suite` over the whole tree — but
-  that is a lead, not a finding, and nothing here should be read as one.
+  at `0473a6d` was cancelled to recover its log; the timeline is the evidence,
+  not a candidate list. Its last progress write is **`14:59:37Z`** at `[7%]` and
+  the step ran until `15:28:47Z` — **29 minutes with no write at all**, where the
+  same suite on the same commit finished in **23:15** on the next attempt with a
+  largest inter-write gap of **53.5 s**. So the leg really did stop, and it is
+  intermittent. What the log does **not** establish is *where*: the progress
+  stream carries **two** `F` characters before it stops — this replaces the four
+  named earlier (D25) — and no marks-to-node-id mapping survives scrutiny,
+  because the green run produced **11 281** dots for **11 217** passed tests. The
+  candidate list this item first carried (a launcher test, two
+  `TestValidateFilePath` cases, two `test_the_command_path_is_resolved`
+  parameters) is therefore **withdrawn as unproven**, and the "accumulated state
+  in the launcher tests" lead goes with it rather than being left to read like a
+  finding. Two guards now cover the next occurrence: `--maxfail=1` puts a
+  failure's traceback in the log in minutes, and `faulthandler_timeout = 600`
+  dumps every thread's stack for a test that runs longer, so a repeat names its
+  own frame instead of going silent. R-18 also bounded the one caller that could
+  sit silent past its helper's own watchdog. Reproducing it here is not the
+  route: the same commit went green on the runner's next attempt, and a 3.14
+  development host has no reason to wedge where a 3.11 runner did.
 * **X10 — the newest interpreter no longer has a CI leg; here is what that costs
   and how to buy it back.** R-17 runs the full suite on **3.11 only**, so a
   push no longer verifies 3.12 or 3.14 on a runner. Deliberate, for the reasons

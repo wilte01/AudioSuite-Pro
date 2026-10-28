@@ -405,6 +405,12 @@ class TestTheLicenceLockIgnoresTheCheckout:
 #: leg); 2.1.6 gives each view its own child and a deadline instead.
 COLLECT_HELPER = REPO_ROOT / "tests" / "_collect_views.py"
 
+#: How long the caller waits for the helper before failing the test itself.
+#: Above the helper's own 900 s watchdog on purpose: the point is to let the
+#: helper dump its own stack, not to race it, so this is a backstop for a
+#: helper that outlived the deadline it armed.
+COLLECT_VIEWS_TIMEOUT_SECONDS = 960
+
 #: The views the helper must produce, in its own order.  Pinned here so an
 #: edit to the helper cannot quietly drop a view and leave the lock vacuous.
 EXPECTED_VIEWS = (
@@ -433,20 +439,41 @@ def _collect_views() -> dict[str, dict[str, object]]:
     environment["PYTHONIOENCODING"] = "utf-8"
     with tempfile.TemporaryDirectory() as scratch:
         target = Path(scratch) / "collection-views.json"
-        result = subprocess.run(
-            [sys.executable, str(COLLECT_HELPER), str(target)],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            encoding="utf-8",
-            check=False,
-            env=environment,
-        )
+        log = Path(scratch) / "collection-views.log"
+        # Changed in 2.1.6: the helper's output goes to a file, not a pipe, and
+        # the wait is bounded.  The 3.11 leg sat silent for 29 minutes past the
+        # point where the helper's own 900 s watchdog should have ended it, and
+        # `capture_output=True` cannot say which side outlived which: the view
+        # children inherit the helper's stdout, so a surviving child holds the
+        # pipe open and `communicate()` waits for an EOF no live process will
+        # write.  A file has no such owner, and the timeout bounds a helper that
+        # outlived the watchdog it armed.
+        with log.open("w", encoding="utf-8") as sink:
+            try:
+                result = subprocess.run(
+                    [sys.executable, str(COLLECT_HELPER), str(target)],
+                    cwd=REPO_ROOT,
+                    stdout=sink,
+                    stderr=subprocess.STDOUT,
+                    check=False,
+                    env=environment,
+                    timeout=COLLECT_VIEWS_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired:
+                output = log.read_text(encoding="utf-8", errors="replace")
+                pytest.fail(
+                    f"{COLLECT_HELPER.name} did not finish within "
+                    f"{COLLECT_VIEWS_TIMEOUT_SECONDS}s, so the whole-tree "
+                    f"collection views are unavailable:\n"
+                    f"--- output (head) ---\n{output[:3000]}"
+                )
+        output = log.read_text(encoding="utf-8", errors="replace")
         assert result.returncode == 0, (
             f"collection helper failed ({result.returncode}):\n"
-            f"--- stdout (tail) ---\n{result.stdout[-1500:]}\n"
             # faulthandler prints the innermost frame first, so the evidence
-            # for a wedged view is at the head of stderr, not the tail.
-            f"--- stderr (head) ---\n{result.stderr[:3000]}"
+            # for a wedged view is at the head of the output, not the tail.
+            f"--- output (head) ---\n{output[:3000]}\n"
+            f"--- output (tail) ---\n{output[-1500:]}"
         )
         payload = json.loads(target.read_text(encoding="utf-8"))
 
@@ -524,6 +551,75 @@ class TestCollectHelperIsBounded:
             isinstance(keyword.value, ast.Constant) and keyword.value.value is True
             for keyword in exit_flags
         ), "the deadline must exit non-zero, or the collection still reports success"
+
+    def test_the_caller_bounds_the_helper_and_never_captures_its_pipe(self) -> None:
+        """A deadline inside the helper is only half of it (2.1.6).
+
+        The 3.11 leg sat for 29 minutes with no output at all, and its last
+        write was long before the helper's own 900 s watchdog should have ended
+        it - so either the helper outlived the watchdog or the *caller* outlived
+        the helper, and nothing in that log says which.  ``capture_output=True``
+        explains the second shape: the view children inherit the helper's
+        stdout, so a surviving child holds the pipe open and the wait ends only
+        when every writer closes it.  A bounded wait plus a file sink closes
+        both shapes, which is why the lock demands both.
+        """
+        module = ast.parse(Path(__file__).resolve().read_text(encoding="utf-8"))
+        caller = next(
+            (
+                node
+                for node in ast.walk(module)
+                if isinstance(node, ast.FunctionDef) and node.name == "_collect_views"
+            ),
+            None,
+        )
+        assert caller is not None, "the helper's caller is gone; this lock is stale"
+        runs = [
+            node
+            for node in ast.walk(caller)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "run"
+        ]
+        assert len(runs) == 1, (
+            f"expected one subprocess.run in the caller, found {len(runs)}"
+        )
+        keywords = {keyword.arg: keyword.value for keyword in runs[0].keywords}
+        assert "timeout" in keywords, (
+            "the caller waits for the helper without a bound: a wedged helper "
+            "hangs the suite instead of failing it"
+        )
+        timeout = keywords["timeout"]
+        assert isinstance(timeout, ast.Name) and timeout.id == (
+            "COLLECT_VIEWS_TIMEOUT_SECONDS"
+        ), (
+            "the bound must be the module's named constant: an inline value can "
+            "be 0 or None, which is no bound at all"
+        )
+        bound = next(
+            (
+                node
+                for node in ast.walk(module)
+                if isinstance(node, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name)
+                    and target.id == "COLLECT_VIEWS_TIMEOUT_SECONDS"
+                    for target in node.targets
+                )
+            ),
+            None,
+        )
+        assert bound is not None, "the caller's bound is referenced but never set"
+        value = bound.value
+        assert isinstance(value, ast.Constant) and isinstance(value.value, int), (
+            "the bound must be an integer literal so this lock can read it"
+        )
+        assert value.value > 0, f"a {value.value}s bound fails before the helper starts"
+        assert "capture_output" not in keywords, (
+            "the helper's output must go to a file, not a pipe: a surviving "
+            "view child inherits the pipe and the caller then waits for an EOF "
+            "nobody will write"
+        )
 
 
 class TestFullTreeContract:
