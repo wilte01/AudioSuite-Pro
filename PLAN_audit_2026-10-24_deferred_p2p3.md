@@ -1031,8 +1031,11 @@ assumed on every commit.
   `compileall` over the tracked tree exits **0**; `ruff check .` clean and
   `ruff format --check .` **942 files** formatted; bare `mypy .` **551 source
   files**, no issues; bandit **0 High / 0 Medium** (38 documented Low); bare
-  `pytest` **11 223 passed, 3 skipped, 35 deselected in 2180.10 s (0:36:20)** —
-  two more passes than the previous gate run, which are the two locks added here.
+  `pytest` on the final state — `ccff35e`, after the soxr probe — **11 223
+  passed, 3 skipped, 35 deselected in 1997.83 s (0:33:17)**. That is the same
+  count as the run before the probe, and the difference from the runner's 6
+  skips is the two soxr tests: this host has libsoxr, so they run here and skip
+  there, which is the probe doing what it was written for.
 
 ### R-20 — measured 2026-10-28 (both interpreters)
 
@@ -1041,10 +1044,20 @@ assumed on every commit.
   being this test. After the change it is **1 passed in 29.02 s**.
 * **3.14.10** (development host, where it always passed): **1 passed in 0.28 s**;
   with `CI=true`, **1 passed in 0.19 s** where it previously reported 1 skipped.
-* **Runner, first push (`e19cb4d`): 1 failed, 9 472 passed, 5 skipped in
+* ** **Runner, first push (`e19cb4d`): 1 failed, 9 472 passed, 5 skipped in
   1423.68 s (0:23:43)** — `Failed to configure output pad`, the runner's ffmpeg
   having no libsoxr. That is what turned the `CI` skip into a capability probe
-  (D28); the fix's own runner verdict is recorded once it reports.
+  (D28).
+* **Runner verdict of the fix — run
+  [`40768973129`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40768973129)
+  at `ccff35e`:** all eight jobs green, the floor leg **11 220 passed, 6 skipped,
+  35 deselected in 1577.47 s (0:26:17)**, no failure and no faulthandler dump.
+  Both soxr tests now skip there for a stated reason —
+  `the ffmpeg on PATH was built without libsoxr, so aresample=resampler=soxr
+  cannot be configured (gyan.dev essentials builds omit --enable-libsoxr)` — so
+  the leg reports the capability it lacks instead of a green skip that could
+  have been anything. Against the previous tip's 11 218, the two extra passes
+  are the locks R-19 adds.
 * Probe: **True** on this host, and its filter command returns **4294967274**
   (EINVAL) for a resampler name that does not exist, which is the same failure
   the runner's build produces — so the skip fires only where the capability is
