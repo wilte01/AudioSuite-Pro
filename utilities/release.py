@@ -434,15 +434,66 @@ def lock_declares_version(root: Path, version: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+#: How many paths one ``compileall`` invocation receives. The whole list would
+#: fit comfortably in a POSIX ``ARG_MAX`` but not in a Windows command line, and
+#: ``compileall`` has no stdin mode to fall back on.
+_COMPILE_BATCH = 100
+
+
+def compile_tracked(root: Path, python: str) -> int:
+    """Byte-compile the files git tracks, which is what "compile" means here.
+
+    ``compileall .`` walks the working tree, ignored build output included, so a
+    host that has built the installer fails this step for a reason that has
+    nothing to do with the tree: ``packaging/build/app`` stages a vendored
+    interpreter whose ``Lib/test`` fixtures are deliberately invalid Python
+    (``badsyntax_pep3120.py`` and friends), and the 2.1.6 cut stopped on exactly
+    that.  Git's index is the definition of first-party source, so the list comes
+    from ``git ls-files`` and is passed in batches.
+
+    ``compileall -`` is **not** the way to read a list from stdin: it prints
+    "Can't list '-'" and exits **0**, which would be a gate that cannot fail.
+
+    Args:
+        root: The repository root.
+        python: The interpreter carrying the dev extras.
+
+    Returns:
+        ``0`` when every tracked file compiles, else the first failing exit code.
+    """
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", "*.py"],
+        cwd=root,
+        capture_output=True,
+        check=False,
+    )
+    if listed.returncode != 0:
+        print("[ERROR] git ls-files failed, so the compile step cannot be bounded")
+        return listed.returncode
+    paths = [name.decode("utf-8") for name in listed.stdout.split(b"\0") if name]
+    if not paths:
+        print("[ERROR] git lists no Python files; refusing a vacuous compile step")
+        return 1
+    for start in range(0, len(paths), _COMPILE_BATCH):
+        batch = paths[start : start + _COMPILE_BATCH]
+        result = subprocess.run(
+            [python, "-m", "compileall", "-q", "-f", *batch], cwd=root, check=False
+        )
+        if result.returncode != 0:
+            return result.returncode
+    return 0
+
+
 def gate_commands(python: str) -> list[tuple[str, list[str]]]:
     """Return the gate's steps that are decided by their exit code.
 
     The order is AGENTS' Gate: compile, lint and format, types, then tests.
-    Security sits between types and tests and is run separately because its
-    severity block, not its exit code, expresses the verdict.
+    Compile comes first but is not listed here: it runs over the tracked file
+    list (:func:`compile_tracked`) rather than over ``.``. Security sits between
+    types and tests and is run separately because its severity block, not its
+    exit code, expresses the verdict.
     """
     return [
-        ("compileall", [python, "-m", "compileall", "-q", "-f", "."]),
         ("ruff check", [python, "-m", "ruff", "check", "."]),
         ("ruff format --check", [python, "-m", "ruff", "format", "--check", "."]),
         ("mypy", [python, "-m", "mypy", "."]),
@@ -497,6 +548,12 @@ def run_gate(root: Path, python: str) -> int:
         ``0`` when every step passed, else the first failing exit code.
     """
     print("[START] gate (compile, lint, format, types, security, tests)")
+    print("[START] compileall (tracked files)")
+    code = compile_tracked(root, python)
+    if code != 0:
+        print(f"[ERROR] compileall (exit {code})")
+        return code
+    print("[OK] compileall (tracked files)")
     steps = [*gate_commands(python)]
     for index, (label, args) in enumerate(steps):
         print(f"[START] {label}")

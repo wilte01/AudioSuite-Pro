@@ -14,6 +14,11 @@ Changed in 2.1.0: the fixture ships the shared Markdown renderer instead of a
 per-tool `generate_guide.py` (PLAN_docs_consolidation P2.4).
 Changed in 1.4.1: the cut refreshes the editable install's metadata before the
 gate, so `doctor`'s healthy-install tests see the bumped version.
+Changed in 2.1.6: the gate's compile step covers the tracked file list instead
+of ``.`` - a host that has built the installer carries a vendored interpreter
+whose ``Lib/test`` fixtures are deliberately invalid, and the 2.1.6 cut stopped
+on it. ``TestTheGateCompilesTrackedFiles`` pins both directions, because
+"ignores broken files" is only half of a gate.
 """
 
 from __future__ import annotations
@@ -494,3 +499,49 @@ class TestEndToEnd:
         assert code == 1
         assert "not an X.Y.Z version" in capsys.readouterr().err
         assert (release_repo / "pyproject.toml").read_bytes() == before
+
+
+class TestTheGateCompilesTrackedFiles:
+    """The compile step must see first-party source, not whatever is on disk.
+
+    ``compileall .`` walks ignored build output, and a host that has built the
+    installer carries ``packaging/build/app`` - a vendored interpreter whose
+    ``Lib/test`` fixtures are deliberately invalid - so the 2.1.6 cut failed a
+    gate that had nothing to do with the tree. Both directions are pinned: an
+    untracked broken file is invisible, and a tracked one still fails, because a
+    step that ignores everything would be worse than the defect.
+    """
+
+    @staticmethod
+    def _repo(tmp_path: Path) -> Path:
+        """A throwaway git repository holding one valid tracked module."""
+
+        def run(*args: str) -> None:
+            subprocess.run(
+                ["git", *args], cwd=tmp_path, capture_output=True, check=True
+            )
+
+        run("init")
+        (tmp_path / "good.py").write_text("VALUE = 1\n", encoding="utf-8")
+        run("add", "good.py")
+        return tmp_path
+
+    def test_a_broken_untracked_artefact_cannot_fail_the_gate(
+        self, tmp_path: Path
+    ) -> None:
+        repo = self._repo(tmp_path)
+        staged = repo / "packaging" / "build" / "Lib" / "test"
+        staged.mkdir(parents=True)
+        # Non-UTF-8 byte and no coding declaration: the shape that failed the cut.
+        (staged / "badsyntax_pep3120.py").write_bytes(b"print('b\xf6se')\n")
+
+        assert release.compile_tracked(repo, sys.executable) == 0
+
+    def test_a_broken_tracked_file_still_fails_it(self, tmp_path: Path) -> None:
+        repo = self._repo(tmp_path)
+        (repo / "bad.py").write_bytes(b"print('b\xf6se')\n")
+        subprocess.run(
+            ["git", "add", "bad.py"], cwd=repo, capture_output=True, check=True
+        )
+
+        assert release.compile_tracked(repo, sys.executable) != 0
