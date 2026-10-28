@@ -131,7 +131,8 @@ Two further measurements the items depend on:
 | D25 | The cancelled leg's evidence is **re-derived from the log's characters**, and X11's named tests and "four failures" are **withdrawn** rather than repeated. The one defect it does establish — an unbounded, pipe-capturing `subprocess.run` around the whole-tree collection helper — is fixed here instead of deferred. | DECIDED | Re-reading run `40710792850` mark by mark corrects the first account: the progress stream carries **two** `F` characters, and the earlier "four at #1, #5, #317, #318" counted percentage annotations as marks. Positional identification is then **not** available either, and the proof is in the green log: `-q` produced **11 281** dots for **11 217** passed tests, so the stream is not one mark per test and a mark's index cannot name a node id. What survives is timing, which is unambiguous: the last progress write is at `14:59:37Z`, the step was cancelled at `15:28:47Z`, and the green run's largest gap between writes is 53.5 s — so those 29 minutes are a real stall, not a display lag (pytest flushes per write: the green log has **157** separately timestamped progress lines). Two shapes could hold a leg silent for longer than the helper's own 900 s watchdog — the helper outliving it, or the caller outliving the helper — and a caller bound plus a file sink closes both, so the fix does not depend on knowing which one it was. Naming a test from that log would be the same over-claim D20 and D14 were written to catch. |
 | D21 | The bounds are the **runner's own** numbers — 1756 passed, 1 skipped — not the derivation's ten-point padding (1750/10). | DECIDED | The leg's first run (D20's window) reported exactly the numbers the local derivation produced, and the split is pinned three ways: `uv.lock` fixes the dependency graph, `setup-python` fixes the interpreter line, and the ffmpeg step fixes the binaries. A deviation is therefore a real change — a lock upgrade, a new Python patch that skips something — and the leg should say so instead of absorbing it. Widening a bound again is legitimate only as a deliberate edit with a sentence here naming what moved, and the lock's comparison assertion means a silent widening is red. |
 | D26 | R-19 is recorded as a **reproduction attempt with a negative result** plus **one defect fixed**, not as a cure for X11: the band is located from the *green* run's gap profile, the attempt runs on the floor's own dependency graph, and the fix is limited to the branch that was dropping evidence. | DECIDED | X11 cannot name a test from the cancelled log (D25), but the log fixes a position: `[7%]` of 11 224 collected tests is index **786**, exactly where `tests/test_pyproject_config.py` starts, and the green run makes that position worth the trip on its own — the second-largest inter-write gap in 23 minutes is **53.0 s at `[7%]`**. X11 declined the 3.14 host, so the attempt used **3.11.16** with CI's extras (`--extras dev`,`analysis`,`cd-ripping`), which resolves the below-3.12 graph the runner sees — numpy 1.26.4 / scipy 1.17.1, verified in the environment rather than assumed. 40 band iterations at 63-70 s and one full-suite run produced no wedge, so the record says that and stops there. What the attempt did establish is the defect underneath: `_collect_view_in_child`'s `TimeoutExpired` branch discarded `exc.stdout`/`exc.stderr`, the only evidence that exists when a child cannot narrate its own wedge. Fixing that is not a cure, and calling a negative reproduction a cure is exactly the over-claim D20 and D25 were written to refuse. |
-| D27 | The floor-only failure is fixed by **decoding with pydub and dropping the `CI` skip**, not by keeping the skip and recording it; the sibling soxr skips stay. | DECIDED | `wave` before 3.12 refuses `WAVE_FORMAT_EXTENSIBLE`, so the 24-bit WAV is unopenable on the floor and openable on the development host, and the `CI` skip suppressed the only reproduction — the cannot-fail shape D25 names. pydub is already this file's decoder for its own fixtures, so the fix adds no dependency and no new idiom. The two soxr tests remain skipped in CI because their subject is whether the runner's ffmpeg carries soxr: a real platform difference the leg should report as a skip, not a defect it is hiding. |
+| D27 | The floor-only failure is fixed by **decoding with pydub**, and both soxr tests skip on a **measured capability** (`SOXR_MISSING` → `_ffmpeg_can_use_soxr()`), not on `CI` and not on nothing. | DECIDED | `wave` before 3.12 refuses `WAVE_FORMAT_EXTENSIBLE`, so the 24-bit WAV is unopenable on the floor and openable on the development host, and the `CI` skip suppressed the only reproduction — the cannot-fail shape D25 names. pydub is already this file's decoder for its own fixtures, so the fix adds no dependency and no new idiom. Removing the skip *outright* was the first attempt and the runner refused it (D28): the runner's ffmpeg is a gyan.dev essentials build with no libsoxr, so the rate path cannot be configured there at all. A probe that runs the filter is the only form that keeps the test running wherever the capability exists, skips where it does not, and states which capability is missing. |
+| D28 | The first push of R-20 (`e19cb4d`) went **red on the floor leg** and the record keeps that, rather than presenting the corrected fix as if it had been designed that way. | DECIDED | The log is the argument: `1 failed, 9 472 passed, 5 skipped in 1423.68 s (0:23:43)` with `[Parsed_aresample_0] Failed to configure output pad` and the runner's ffmpeg configure line (no `--enable-libsoxr`). Two things follow. The `CI` skip was protecting a genuine capability, so removing it without a replacement was wrong on the runner even though the `wave` defect it also hid was real. And `--maxfail=1` proved itself on its first real failure: the traceback reached the log in under a minute at 83% of the suite instead of letting the leg run on. Rewriting the history here would hide both lessons. |
 
 ---
 
@@ -607,14 +608,40 @@ reproduces, skipped it. A test that skips itself in CI cannot verify anything
 about CI, and this is the same cannot-fail shape as D25.
 
 *Change:* decode through `pydub.AudioSegment`, which this file already uses for
-its fixtures, and drop the `CI` skip. The assertion keeps its subject — the
-requested rate must be the produced rate — and now names both numbers when it
-fails.
+its fixtures. The assertion keeps its subject — the requested rate must be the
+produced rate — and now names both numbers when it fails.
 
-*Evidence:* the same test is **1 passed** on 3.11.16 (29.0 s), **1 passed** on
-3.14.10 (0.28 s), and **1 passed with `CI=true`** (0.19 s), which is the case
-that used to skip. The two sibling soxr skips stay (D27): their subject is
-whether the runner's ffmpeg was built with soxr, a genuine platform difference.
+*The skip was right about a fact it did not name, and the first fix was wrong.
+The runner said so in one push.* Dropping the `CI` skip outright (commit
+`e19cb4d`) turned the floor leg **red**: `1 failed, 9 472 passed, 5 skipped in
+1423.68 s (0:23:43)`, aborted at the first failure by `--maxfail=1`, which is
+R-18's guard doing exactly its job — a failure reached the log in minutes
+instead of stopping silently. The failure was not the `wave` one: the conversion
+itself failed with `[Parsed_aresample_0] Failed to configure output pad`, because
+the runner installs ffmpeg through `choco`, which is a gyan.dev **essentials**
+build whose configure line carries **no `--enable-libsoxr`** (`RESAMPLER =
+"soxr"` is what every rate change in the chain asks for, so the conversion
+cannot be configured at all). The `CI` skip therefore protected a real
+capability gap while describing it as "ffmpeg PATH configuration may differ" —
+and, for the same reason, it hid the 3.11 `wave` failure from the only leg that
+could show it.
+
+*Final change:* a measured capability probe, `_ffmpeg_can_use_soxr()`, asks the
+resolved binary by running the smallest conversion that exercises the filter
+(48 kHz anullsrc through `aresample=resampler=soxr:osr=44100` to the null muxer);
+both soxr-dependent tests carry `SOXR_MISSING`, whose reason names the missing
+library and the build that omits it. The skip now states a capability instead of
+an environment, it cannot drift from what the converter requests, and it applies
+only where the capability is absent.
+
+*Evidence:* on this host the probe is **True** and both tests run (**5 passed**
+in `TestResamplerMeasuredOutcome`), including with `CI=true` where they used to
+skip; the same test is **1 passed** on 3.11.16 (29.0 s) and on 3.14.10 (0.28 s).
+The probe's negative path is the runner's own error: a bogus resampler name
+returns **4294967274** (EINVAL) from the identical command, which is the shape
+`Failed to configure output pad` takes. On the runner the probe is therefore
+False, and the leg reports a named missing capability rather than a red test or
+a silent skip (D27).
 
 ---
 
@@ -1011,10 +1038,17 @@ assumed on every commit.
 
 * **3.11.16** (the floor, with CI's extras): the full suite reported **1 failed,
   11 219 passed, 4 skipped, 35 deselected in 2149.90 s (0:35:49)**, the failure
-  being this test. After the change it is **1 passed in 29.02 s**, and it no
-  longer skips itself when `CI` is set.
+  being this test. After the change it is **1 passed in 29.02 s**.
 * **3.14.10** (development host, where it always passed): **1 passed in 0.28 s**;
   with `CI=true`, **1 passed in 0.19 s** where it previously reported 1 skipped.
+* **Runner, first push (`e19cb4d`): 1 failed, 9 472 passed, 5 skipped in
+  1423.68 s (0:23:43)** — `Failed to configure output pad`, the runner's ffmpeg
+  having no libsoxr. That is what turned the `CI` skip into a capability probe
+  (D28); the fix's own runner verdict is recorded once it reports.
+* Probe: **True** on this host, and its filter command returns **4294967274**
+  (EINVAL) for a resampler name that does not exist, which is the same failure
+  the runner's build produces — so the skip fires only where the capability is
+  genuinely absent.
 * The same 3.11 run doubles as R-19's full-context evidence: it executed the 7%
   band in suite order — the five whole-tree collections and three nested
   pytester runs included — and completed with no stall.

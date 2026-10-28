@@ -14,13 +14,22 @@ Changed in 2.1.2: added the ALAC output-naming and real-conversion outcome
 tests (R-02). The outcome test probes and decodes the produced file, so a
 missing muxer cannot pass as a successful conversion.
 Changed in 1.1.0: added the Ogg Speex codec case.
+
+Changed in 2.1.6: the two soxr tests no longer skip on the ``CI`` variable. The
+skip named an environment when the subject was a capability: a build without
+libsoxr fails ``aresample=resampler=soxr`` at configure time, which is why the
+rate conversion never ran on a runner and its absence read as a skip instead of
+as a missing resampler. A probe now asks the resolved binary, and the skip says
+which capability is missing (R-20).
 """
 
 import array
 import contextlib
+import functools
 import json
 import math
 import os
+import shutil
 import sqlite3
 import subprocess
 import threading
@@ -41,6 +50,67 @@ from music_format_converter.core.file_processor import (
     run_conversion,
 )
 from music_format_converter.core.formats import LOSSY_FORMATS
+
+
+@functools.lru_cache(maxsize=1)
+def _ffmpeg_can_use_soxr() -> bool:
+    """Whether the ``ffmpeg`` on PATH can configure ``resampler=soxr``.
+
+    Every rate change in the shipped chain asks for soxr
+    (``music_format_converter.core.ffmpeg_params.RESAMPLER``), and a build
+    without libsoxr fails that filter at configure time - ``Failed to configure
+    output pad on Parsed_aresample_0`` - rather than falling back, so on such a
+    host a rate test measures the build and not the converter.  The two tests
+    that need this used to skip whenever ``CI`` was set, which named an
+    environment instead of a capability: the runner's ffmpeg is a gyan.dev
+    *essentials* build with no ``--enable-libsoxr``, so the skip was right for a
+    reason it did not state, and it also hid a genuine 3.11 failure (R-20).
+
+    The check is the smallest conversion that exercises the filter, so it cannot
+    drift from what the converter asks for.
+
+    Returns:
+        True when the resolved binary completed a 48 kHz to 44.1 kHz soxr
+        resample, False when ffmpeg is absent or the filter cannot configure.
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        return False
+    try:
+        completed = subprocess.run(
+            [
+                ffmpeg,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-nostdin",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=r=48000:cl=mono",
+                "-t",
+                "0.05",
+                "-af",
+                "aresample=resampler=soxr:osr=44100",
+                "-f",
+                "null",
+                "-",
+            ],
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return completed.returncode == 0
+
+
+SOXR_MISSING = pytest.mark.skipif(
+    not _ffmpeg_can_use_soxr(),
+    reason="the ffmpeg on PATH was built without libsoxr, so "
+    "aresample=resampler=soxr cannot be configured (gyan.dev essentials builds "
+    "omit --enable-libsoxr)",
+)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1559,14 +1629,9 @@ class TestResamplerMeasuredOutcome:
         alias = self._power(s, self.ALIAS_HZ, self.OUT_RATE)
         return 10 * math.log10((alias + 1e-30) / (ref + 1e-30))
 
+    @SOXR_MISSING
     def test_shipped_chain_suppresses_the_aliased_partial(self, tmp_path):
-        """Requires soxr-enabled ffmpeg. Skipped on CI where soxr may not be
-        available."""
-        import os
-
-        # Skip on CI where ffmpeg may not have soxr resampler enabled
-        if os.environ.get("CI"):
-            pytest.skip("soxr resampler may not be available in CI ffmpeg build")
+        """Requires an ffmpeg built with libsoxr; ``SOXR_MISSING`` says why."""
         self._make_source(tmp_path)
         fixed = self._alias_db(self._run(tmp_path, "aresample=resampler=soxr"))
         # Declared floor: soxr measured -59.42 dB on this fixture.
@@ -1583,18 +1648,25 @@ class TestResamplerMeasuredOutcome:
             "no longer demonstrates the defect"
         )
 
+    @SOXR_MISSING
     def test_run_conversion_reaches_44k_output(self, tmp_path):
         """The sample-rate plumbing must actually take effect end to end.
 
         Changed in 2.1.6: this used ``wave`` to read the result and skipped
         itself whenever ``CI`` was set, so it never ran on the 3.11 floor leg -
-        where it fails.  ``wave`` accepts only ``WAVE_FORMAT_PCM`` before 3.12,
-        and a 24-bit WAV is written as ``WAVE_FORMAT_EXTENSIBLE``, so on 3.11
-        the file this test produces cannot be opened at all (``unknown format:
-        65534``); 3.12 added extensible support, which is why the development
-        host never saw it.  The skip turned a real floor-only failure into a
-        green leg.  It now decodes through pydub, as the rest of this file does,
-        and runs everywhere.
+        where, with a soxr-enabled ffmpeg, it fails.  ``wave`` accepts only
+        ``WAVE_FORMAT_PCM`` before 3.12, and a 24-bit WAV is written as
+        ``WAVE_FORMAT_EXTENSIBLE``, so on 3.11 the file this test produces cannot
+        be opened at all (``unknown format: 65534``); 3.12 added extensible
+        support, which is why the development host never saw it.  It decodes
+        through pydub now, as the rest of this file does.
+
+        The skip is the same fact stated properly: ``SOXR_MISSING`` asks the
+        binary whether it can configure the resampler, instead of asking whether
+        the run is on CI.  A runner without libsoxr cannot convert at all (the
+        conversion itself fails, before any decoding), so skipping on the
+        capability is the honest report - and it no longer reads as if a
+        missing resampler were a passing test.
         """
         self._make_source(tmp_path)
         run_conversion(
