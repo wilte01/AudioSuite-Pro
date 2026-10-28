@@ -7,10 +7,11 @@ and this plan's own record commits `61a19dd` (run `40568799837`) and `1ab0e39`
 `Lint & Format` included, after the first push's `Type Check` failure was fixed;
 R-16's verification row is written; **R-12 is complete and runner-verified** — run
 `40663662748` at `b7ee2f9` prints `POSIX smoke pass: 1756 passed, 1 skipped` (§5);
-**R-11 is delivered and locally verified** (§5), but its runner verdict is
-**blocked** — at `d1027ad` and again at `d459fb0` no job started at all, for an
-account-level reason now measured at **2 651.6 billable Actions minutes consumed
-in October** (~170 a push), so the audit step is not runner-verified (X9).
+**R-11 is delivered and runner-verified** (§5): the block that delayed its
+verdict was account-level (**2 651.6 billable Actions minutes consumed in
+October**, ~170 a push), it was lifted when the repository became public, and
+`Security Scan` — the job that runs the audit — has been green on every push
+since, `ccff35e` included. **X9 is closed** on that evidence.
 **R-17 is delivered, locally verified and runner-verified** (§5): run
 [`40718253254`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40718253254)
 at `27b3136` ran the full suite on the floor in **23.5 minutes** with **11 217
@@ -28,12 +29,14 @@ all. The stall is **not reproduced** — the same commit's next run was green �
 X11 stays open, now with guards at both levels and one defect fixed: the
 whole-tree collection helper's caller waited **unbounded** and captured a pipe.
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
-**Tip state:** `origin/main` at `932b489` is **green in all eight jobs** (run
-[`40735056536`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40735056536)):
-the first fully green push since the workflow became one suite leg, and the
-first whose suite leg ran on the code that bounds the collection helper's
-caller. The stall X11 records has now been absent from two consecutive runs on
-the runner.
+**Tip state:** `origin/main` at `625eca4` (a record-only commit); the code state
+is verified at `ccff35e` — all eight jobs green, run
+[`40768973129`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40768973129),
+floor leg **11 220 passed, 6 skipped in 26:17**. `625eca4` changes one Markdown
+plan and its own run was **cancelled deliberately** rather than spending a
+full eight-job run on a prose diff; that is not an unverified tip, and re-running
+it is one `gh workflow run` away if a doc commit ever needs its own verdict. The
+stall X11 records has now been absent from three consecutive runner runs.
 **Base state:** `main` at `85046ef` ("Record the 2.1.6 CI remediation decisions
 (2026-10-27)"), working tree clean. `v2.1.5` is the repository's only tag (at
 `942c183`). `tests/test_release_notes.py` is re-baselined to `5cbe83d` with
@@ -131,6 +134,8 @@ Two further measurements the items depend on:
 | D25 | The cancelled leg's evidence is **re-derived from the log's characters**, and X11's named tests and "four failures" are **withdrawn** rather than repeated. The one defect it does establish — an unbounded, pipe-capturing `subprocess.run` around the whole-tree collection helper — is fixed here instead of deferred. | DECIDED | Re-reading run `40710792850` mark by mark corrects the first account: the progress stream carries **two** `F` characters, and the earlier "four at #1, #5, #317, #318" counted percentage annotations as marks. Positional identification is then **not** available either, and the proof is in the green log: `-q` produced **11 281** dots for **11 217** passed tests, so the stream is not one mark per test and a mark's index cannot name a node id. What survives is timing, which is unambiguous: the last progress write is at `14:59:37Z`, the step was cancelled at `15:28:47Z`, and the green run's largest gap between writes is 53.5 s — so those 29 minutes are a real stall, not a display lag (pytest flushes per write: the green log has **157** separately timestamped progress lines). Two shapes could hold a leg silent for longer than the helper's own 900 s watchdog — the helper outliving it, or the caller outliving the helper — and a caller bound plus a file sink closes both, so the fix does not depend on knowing which one it was. Naming a test from that log would be the same over-claim D20 and D14 were written to catch. |
 | D21 | The bounds are the **runner's own** numbers — 1756 passed, 1 skipped — not the derivation's ten-point padding (1750/10). | DECIDED | The leg's first run (D20's window) reported exactly the numbers the local derivation produced, and the split is pinned three ways: `uv.lock` fixes the dependency graph, `setup-python` fixes the interpreter line, and the ffmpeg step fixes the binaries. A deviation is therefore a real change — a lock upgrade, a new Python patch that skips something — and the leg should say so instead of absorbing it. Widening a bound again is legitimate only as a deliberate edit with a sentence here naming what moved, and the lock's comparison assertion means a silent widening is red. |
 | D26 | R-19 is recorded as a **reproduction attempt with a negative result** plus **one defect fixed**, not as a cure for X11: the band is located from the *green* run's gap profile, the attempt runs on the floor's own dependency graph, and the fix is limited to the branch that was dropping evidence. | DECIDED | X11 cannot name a test from the cancelled log (D25), but the log fixes a position: `[7%]` of 11 224 collected tests is index **786**, exactly where `tests/test_pyproject_config.py` starts, and the green run makes that position worth the trip on its own — the second-largest inter-write gap in 23 minutes is **53.0 s at `[7%]`**. X11 declined the 3.14 host, so the attempt used **3.11.16** with CI's extras (`--extras dev`,`analysis`,`cd-ripping`), which resolves the below-3.12 graph the runner sees — numpy 1.26.4 / scipy 1.17.1, verified in the environment rather than assumed. 40 band iterations at 63-70 s and one full-suite run produced no wedge, so the record says that and stops there. What the attempt did establish is the defect underneath: `_collect_view_in_child`'s `TimeoutExpired` branch discarded `exc.stdout`/`exc.stderr`, the only evidence that exists when a child cannot narrate its own wedge. Fixing that is not a cure, and calling a negative reproduction a cure is exactly the over-claim D20 and D25 were written to refuse. |
+| D29 | X11 is **parked** behind "reopen only if it recurs", and while parked it opens no new items. | DECIDED | Three runner runs, 40 band iterations on the floor's graph and a full suite in suite order have all failed to reproduce the stall, and it has already generated two items (R-18, R-19) that are now closed. An unknown that keeps producing work while resisting diagnosis is a budget sink: the guards make the next occurrence self-describing, so waiting is cheaper than another hypothesis. Reopening requires an occurrence, not a theory. |
+| D30 | The **2.1.6 cut is taken now**, with R-11 and R-12 riding it rather than a separate 2.1.7. | DECIDED | `[Unreleased]` carries 15 bullets across six items and the CI plan's C0–C8, all verified; each further deferral grows a release no one has reviewed as a whole, which is a worse risk than cutting a window whose entries are individually evidenced. Splitting R-11/R-12 out would mean rewriting the same block for no user-visible gain. The tree already declares 2.1.6 (`NOTE_MARKER = "Changed in 2.1.6"`), so the version is the only stale field. Publication is deliberately excluded: the tag is created after the gate and pushed only on the owner's word. |
 | D27 | The floor-only failure is fixed by **decoding with pydub**, and both soxr tests skip on a **measured capability** (`SOXR_MISSING` → `_ffmpeg_can_use_soxr()`), not on `CI` and not on nothing. | DECIDED | `wave` before 3.12 refuses `WAVE_FORMAT_EXTENSIBLE`, so the 24-bit WAV is unopenable on the floor and openable on the development host, and the `CI` skip suppressed the only reproduction — the cannot-fail shape D25 names. pydub is already this file's decoder for its own fixtures, so the fix adds no dependency and no new idiom. Removing the skip *outright* was the first attempt and the runner refused it (D28): the runner's ffmpeg is a gyan.dev essentials build with no libsoxr, so the rate path cannot be configured there at all. A probe that runs the filter is the only form that keeps the test running wherever the capability exists, skips where it does not, and states which capability is missing. |
 | D28 | The first push of R-20 (`e19cb4d`) went **red on the floor leg** and the record keeps that, rather than presenting the corrected fix as if it had been designed that way. | DECIDED | The log is the argument: `1 failed, 9 472 passed, 5 skipped in 1423.68 s (0:23:43)` with `[Parsed_aresample_0] Failed to configure output pad` and the runner's ffmpeg configure line (no `--enable-libsoxr`). Two things follow. The `CI` skip was protecting a genuine capability, so removing it without a replacement was wrong on the runner even though the `wave` defect it also hid was real. And `--maxfail=1` proved itself on its first real failure: the traceback reached the log in under a minute at 83% of the suite instead of letting the leg run on. Rewriting the history here would hide both lessons. |
 
@@ -891,7 +896,7 @@ is itself documentation-only, so its own run is not awaited (the predecessor rec
 verdicts above belong to `b7ee2f9`, and `df69bf9`'s `posix-smoke` is green as
 well.
 
-### R-11 — measured 2026-10-28 (development host; runner verdict in X9)
+### R-11 — measured 2026-10-28 (development host; runner verdict green, X9 closed)
 
 *Checker tests* — 23 passed in `utilities/tests/test_check_dependency_audit.py`:
 a clean audit passes; an unlisted advisory fails; a listed and unexpired entry
@@ -924,7 +929,7 @@ has no `continue-on-error` key and does invoke the checker.
 the audit's acceptance column cannot be manufactured without publishing an
 advisory, so it is proved on a synthetic payload and named as such.
 
-**The runner verdict is blocked, and this is not a green (X9).** The push of
+**The block that delayed this verdict (X9, since closed).** The push of
 `d1027ad` created run `40673801647` and every one of its ten jobs - the
 compile-only job included, and the POSIX leg that has been green all day -
 concluded `failure` with `steps: []`, an empty `runner_name`, and no log blob at
@@ -936,9 +941,16 @@ and githubstatus.com reports Actions operational with no incident today, while
 the previous run (`40668603600` at `8229b05`, 10:00Z) is green - so the block
 started between 10:00 and 10:39Z. The remaining explanation is account-level
 Actions minutes or a spending limit on this private repository, which only the
-owner can see (the available token carries no billing scope). **R-11 is
-therefore delivered and locally verified but not runner-verified**, and no
-reviewer should read the failed run as a defect in the audit step.
+owner can see (the available token carries no billing scope). **R-11 was
+therefore delivered and locally verified but not runner-verified** at that point,
+and no reviewer should read those failed runs as a defect in the audit step.
+
+**The verdict, once jobs started again: green.** The repository became public, so
+the minute charge is gone and nothing is blocked at the bank; `Security Scan` has
+been green on every push since — `27b3136`, `932b489`, `ccff35e` — with the log
+carrying `bandit gate pass: 0 High / 0 Medium`, `No known vulnerabilities found`
+and `[OK] dependency audit: 0 advisory finding(s), all allowlisted and
+unexpired; allowlist entries: 0`. X9 is closed on that.
 
 *Re-checked at 11:19Z on 2026-10-28: still blocked, and the cause is now measured
 rather than inferred.* Run `40674405486` at `d459fb0` (the record commit, 10:43Z)
@@ -1066,7 +1078,7 @@ assumed on every commit.
   band in suite order — the five whole-tree collections and three nested
   pytester runs included — and completed with no stall.
 
-### R-17 — measured 2026-10-28 (development host; runner verdict pending, X9)
+### R-17 — measured 2026-10-28 (development host; runner verdict green)
 
 *The price, measured rather than estimated.* Every job's `started_at` to
 `completed_at` from run `40668603600` (`8229b05`, the last green run before the
@@ -1208,12 +1220,25 @@ executes 3.12 or 3.14 any more.
   and is not auto-fixable. `UP042` reports nothing today; if it is ever taken,
   AGENTS.md's `str`-mixin enum trap governs every interpolation site in the
   package, not just the refactored module.
-* **X3 — the 2.1.6 cut** (CI plan X3). `[Unreleased]` is written but unreleased,
-  and this plan does not authorise the cut. R-15 lands in the window either way;
-  whether R-11/R-12 ride 2.1.6 or their own 2.1.7 is a release decision, not an
-  item.
-* **X9 — OPEN: the audit step has no runner verdict yet, because no job starts,
-  and the reason is now measured: the account's Actions minutes are exhausted.**
+* **X3 — the 2.1.6 cut: DECIDED TO CUT (D30, 2026-10-28).** Deferring it a third
+  time is what grows a release nobody has read as a whole: `[Unreleased]` now
+  holds **15 bullets** covering R-11, R-12, R-17, R-18, R-19 and R-20 plus the CI
+  plan's C0–C8, and every one of them is either runner-verified or covered by the
+  local gate. R-11 and R-12 ride **2.1.6** rather than a separate 2.1.7: both are
+  CI/policy changes already written into the same block, and splitting them would
+  mean rewriting the changelog for no user-visible benefit. The tree already
+  declares this window — `tests/test_release_notes.py` is baselined to
+  `5cbe83d` with `NOTE_MARKER = "Changed in 2.1.6"` — so 2.1.5 is the only
+  version that is now *wrong*. The cut is `utilities/release.py 2.1.6
+  --date 2026-10-28` (dry run clean: bump `2.1.5 → 2.1.6`, ensure `uv.lock`
+  records it, promote `[Unreleased]` to `[2.1.6]`, regenerate **7**
+  version-labelled guides), then the four-item gate, then tag `v2.1.6`. The one
+  thing X3 does **not** decide is publication: pushing the tag is the owner's
+  call, and is the last step rather than part of the cut.
+* **X9 — CLOSED 2026-10-28: the audit step is runner-verified.** The block that
+  delayed the verdict was account-level and is lifted (the repository is public),
+  so `Security Scan` runs and passes on every push. The diagnosis below is kept
+  because it is *why* R-17 exists, not because anything is outstanding.
   Attempted at `d1027ad` (run `40673801647`) and re-checked at `d459fb0` (run
   `40674405486`, 10:43Z): all ten jobs, in both runs, concluded `failure` with
   `steps: []`, an empty `runner_name` and no log blob — no step ever began — and a
@@ -1241,6 +1266,12 @@ executes 3.12 or 3.14 any more.
   floor leg both survive with the full suite, the two legs that went were
   re-testing the graph the development host runs daily, and the reduction is
   D23 with a measured bill beside it. Any *later* narrowing starts from X10.
+  **Closure (2026-10-28):** the verdict this bullet was waiting for arrived —
+  `Security Scan` is green at `27b3136`, `932b489` and `ccff35e`, its log carrying
+  `[OK] dependency audit: 0 advisory finding(s) … allowlist entries: 0`. What it
+  still cannot show is an advisory that is *not* allowlisted failing the build;
+  §3 R-11 names that as unmanufacturable and proves the branch on a synthetic
+  payload instead.
 * **X11 — OPEN: the 3.11 suite leg stalled for 29 minutes once, and no test
   name can be recovered from that log.** Run
   [`40710792850`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40710792850)
@@ -1269,8 +1300,13 @@ executes 3.12 or 3.14 any more.
   full-suite run in the real context — and it did **not** reproduce. The item
   stays open, and the next occurrence is the one that settles it. What has
   changed is what that occurrence can print: even in the branch where a child is
-  too wedged to narrate itself, the payload now carries its dump (R-19), so a
-  repeat names frames instead of repeating this entry.
+  too wedged to narrate itself, the payload now carries its dump (R-19), soa repeat names frames instead of repeating this entry.
+  **Parked 2026-10-28 (D29): reopen only if it recurs, and while parked it spawns
+  no new items.** The two items it did spawn — R-18 and R-19 — are closed, and
+  the guards now in place are what make waiting cheaper than another attempt:
+  three consecutive runner runs, a 40-iteration band loop and a full suite on the
+  floor's graph have all failed to reproduce it, so the next occurrence carries
+  the evidence instead of another hypothesis.
 * **X10 — the newest interpreter no longer has a CI leg; here is what that costs
   and how to buy it back.** R-17 runs the full suite on **3.11 only**, so a
   push no longer verifies 3.12 or 3.14 on a runner. Deliberate, for the reasons
