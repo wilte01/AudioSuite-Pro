@@ -1586,15 +1586,16 @@ class TestResamplerMeasuredOutcome:
     def test_run_conversion_reaches_44k_output(self, tmp_path):
         """The sample-rate plumbing must actually take effect end to end.
 
-        Skipped on CI where ffmpeg path configuration may differ from local.
+        Changed in 2.1.6: this used ``wave`` to read the result and skipped
+        itself whenever ``CI`` was set, so it never ran on the 3.11 floor leg -
+        where it fails.  ``wave`` accepts only ``WAVE_FORMAT_PCM`` before 3.12,
+        and a 24-bit WAV is written as ``WAVE_FORMAT_EXTENSIBLE``, so on 3.11
+        the file this test produces cannot be opened at all (``unknown format:
+        65534``); 3.12 added extensible support, which is why the development
+        host never saw it.  The skip turned a real floor-only failure into a
+        green leg.  It now decodes through pydub, as the rest of this file does,
+        and runs everywhere.
         """
-        import os
-
-        # Skip on CI where ffmpeg may not be on PATH correctly
-        if os.environ.get("CI"):
-            pytest.skip("ffmpeg PATH configuration may differ in CI")
-        import wave as wave_mod
-
         self._make_source(tmp_path)
         run_conversion(
             input_dir=str(tmp_path),
@@ -1614,8 +1615,11 @@ class TestResamplerMeasuredOutcome:
         )
         out = tmp_path / "out" / "wide.wav"
         assert out.exists(), "conversion produced no output"
-        with wave_mod.open(str(out), "rb") as w:
-            assert w.getframerate() == self.OUT_RATE
+        decoded = AudioSegment.from_file(str(out))
+        assert decoded.frame_rate == self.OUT_RATE, (
+            f"conversion asked for {self.OUT_RATE} Hz and produced "
+            f"{decoded.frame_rate} Hz"
+        )
 
     def test_rate_change_through_the_chain_carries_the_soxr_filter(self, tmp_path):
         """End-to-end wiring lock.

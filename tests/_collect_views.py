@@ -27,7 +27,9 @@ and the ``worker_memory`` view joined the three that were already there.
 Changed in 2.1.6: one child process per view, each with a faulthandler deadline
 and a parent-side timeout. The single-interpreter version wedged three times in
 its in-process ``pytest.main``, once costing a forty-minute cancelled CI leg,
-and reported nothing when it did.
+and reported nothing when it did. A child that outlives even its own deadline
+is the one case the watchdog cannot narrate, so the parent's bound quotes what
+the child wrote instead of discarding it.
 """
 
 from __future__ import annotations
@@ -88,6 +90,36 @@ def collect_view(name: str) -> dict[str, object]:
     return {"returncode": int(code), "stdout": buffer.getvalue()}
 
 
+def _timeout_payload(name: str, exc: subprocess.TimeoutExpired) -> dict[str, object]:
+    """Report a child that outlived the parent's bound, quoting what it wrote.
+
+    The child's own deadline normally fires 30 s earlier and exits non-zero, so
+    its stack dump arrives through the branch below.  Reaching *this* branch
+    means the child could not answer even that - a wedge that also stops the
+    faulthandler watchdog, or an exit blocked behind a native call.  That is the
+    shape the 3.11 leg showed as total silence, so the captured output is the
+    only evidence there will ever be and it must not be dropped: a report that
+    says only "did not answer" costs another run to explain.
+
+    Args:
+        name: The view whose child overran.
+        exc: The timeout, carrying whatever the child wrote before the kill.
+
+    Returns:
+        ``{"returncode": -1, "stdout": str}`` with the child's own output
+        appended, innermost-first, as faulthandler writes it.
+    """
+    captured = ""
+    for part in (exc.stdout, exc.stderr):
+        if isinstance(part, bytes):
+            part = part.decode("utf-8", "replace")
+        if isinstance(part, str):
+            captured += part
+    message = f"the {name} view did not answer within {_VIEW_DEADLINE_SECONDS + 30}s"
+    output = f"{message}\n{captured}" if captured else message
+    return {"returncode": -1, "stdout": output}
+
+
 def _collect_view_in_child(name: str) -> dict[str, object]:
     """Run one view in a child process, so a wedge cannot reach this one.
 
@@ -107,16 +139,8 @@ def _collect_view_in_child(name: str) -> dict[str, object]:
             check=False,
             timeout=_VIEW_DEADLINE_SECONDS + 30,
         )
-    except subprocess.TimeoutExpired:
-        # Nothing to quote: the child's own deadline fires 30 s earlier and
-        # its stack dump comes back through the branch below, so reaching this
-        # one means the child could not answer even that.
-        return {
-            "returncode": -1,
-            "stdout": (
-                f"the {name} view did not answer within {_VIEW_DEADLINE_SECONDS + 30}s"
-            ),
-        }
+    except subprocess.TimeoutExpired as exc:
+        return _timeout_payload(name, exc)
 
     if result.returncode == 0:
         try:

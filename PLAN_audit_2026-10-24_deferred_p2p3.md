@@ -130,6 +130,8 @@ Two further measurements the items depend on:
 | D24 | The budget is held by a **lock over the committed workflow** (`tests/test_ci_cost.py`) with a measured per-job ledger, not by a comment or a wiki page. | DECIDED | A cost decision written only in prose is undone by the next person who adds a leg in good faith. The ledger makes every job's price explicit (a new job without one is red), asserts one interpreter on the floor with no matrix, and proves the arithmetic rejects the doubled-leg shape — while leaving 31 minutes of headroom so ordinary suite growth does not trip it. `tests/ci_workflow.py` gained `job_names()` so the lock enumerates the real jobs instead of a remembered list. |
 | D25 | The cancelled leg's evidence is **re-derived from the log's characters**, and X11's named tests and "four failures" are **withdrawn** rather than repeated. The one defect it does establish — an unbounded, pipe-capturing `subprocess.run` around the whole-tree collection helper — is fixed here instead of deferred. | DECIDED | Re-reading run `40710792850` mark by mark corrects the first account: the progress stream carries **two** `F` characters, and the earlier "four at #1, #5, #317, #318" counted percentage annotations as marks. Positional identification is then **not** available either, and the proof is in the green log: `-q` produced **11 281** dots for **11 217** passed tests, so the stream is not one mark per test and a mark's index cannot name a node id. What survives is timing, which is unambiguous: the last progress write is at `14:59:37Z`, the step was cancelled at `15:28:47Z`, and the green run's largest gap between writes is 53.5 s — so those 29 minutes are a real stall, not a display lag (pytest flushes per write: the green log has **157** separately timestamped progress lines). Two shapes could hold a leg silent for longer than the helper's own 900 s watchdog — the helper outliving it, or the caller outliving the helper — and a caller bound plus a file sink closes both, so the fix does not depend on knowing which one it was. Naming a test from that log would be the same over-claim D20 and D14 were written to catch. |
 | D21 | The bounds are the **runner's own** numbers — 1756 passed, 1 skipped — not the derivation's ten-point padding (1750/10). | DECIDED | The leg's first run (D20's window) reported exactly the numbers the local derivation produced, and the split is pinned three ways: `uv.lock` fixes the dependency graph, `setup-python` fixes the interpreter line, and the ffmpeg step fixes the binaries. A deviation is therefore a real change — a lock upgrade, a new Python patch that skips something — and the leg should say so instead of absorbing it. Widening a bound again is legitimate only as a deliberate edit with a sentence here naming what moved, and the lock's comparison assertion means a silent widening is red. |
+| D26 | R-19 is recorded as a **reproduction attempt with a negative result** plus **one defect fixed**, not as a cure for X11: the band is located from the *green* run's gap profile, the attempt runs on the floor's own dependency graph, and the fix is limited to the branch that was dropping evidence. | DECIDED | X11 cannot name a test from the cancelled log (D25), but the log fixes a position: `[7%]` of 11 224 collected tests is index **786**, exactly where `tests/test_pyproject_config.py` starts, and the green run makes that position worth the trip on its own — the second-largest inter-write gap in 23 minutes is **53.0 s at `[7%]`**. X11 declined the 3.14 host, so the attempt used **3.11.16** with CI's extras (`--extras dev`,`analysis`,`cd-ripping`), which resolves the below-3.12 graph the runner sees — numpy 1.26.4 / scipy 1.17.1, verified in the environment rather than assumed. 40 band iterations at 63-70 s and one full-suite run produced no wedge, so the record says that and stops there. What the attempt did establish is the defect underneath: `_collect_view_in_child`'s `TimeoutExpired` branch discarded `exc.stdout`/`exc.stderr`, the only evidence that exists when a child cannot narrate its own wedge. Fixing that is not a cure, and calling a negative reproduction a cure is exactly the over-claim D20 and D25 were written to refuse. |
+| D27 | The floor-only failure is fixed by **decoding with pydub and dropping the `CI` skip**, not by keeping the skip and recording it; the sibling soxr skips stay. | DECIDED | `wave` before 3.12 refuses `WAVE_FORMAT_EXTENSIBLE`, so the 24-bit WAV is unopenable on the floor and openable on the development host, and the `CI` skip suppressed the only reproduction — the cannot-fail shape D25 names. pydub is already this file's decoder for its own fixtures, so the fix adds no dependency and no new idiom. The two soxr tests remain skipped in CI because their subject is whether the runner's ffmpeg carries soxr: a real platform difference the leg should report as a skip, not a defect it is hiding. |
 
 ---
 
@@ -522,6 +524,98 @@ named constant *and* its positive integer value). `--maxfail=1` is visible in
 the step's parsed `run:` value; `faulthandler_timeout` is an ini option, so the
 command needs no new flag.
 
+### R-19 — a bound that reported only itself (added 2026-10-28)
+
+*Files:* `tests/_collect_views.py` (the timeout payload), and
+`tests/test_pyproject_config.py` (the per-view failure message and two new
+locks).
+
+*Narrowing the search before looping anything.* X11 refuses to name a test from
+the cancelled log, but the log does fix a position, and the position is enough:
+the last write is `[7%]`, and 7% of the run's 11 224 collected tests is index
+**786** — which is exactly where `tests/test_pyproject_config.py` starts
+(**786 = 7.00%** of the collection order). The green run then says that this is
+the only place worth looking: across 23 minutes its **second-largest gap between
+progress writes is 53.0 s, at `[7%]`** (the largest, 53.5 s, is at 74%), so that
+band is normally the slowest 72 tests in the suite and 29 minutes there is 33x
+its own baseline.
+
+*The reproduction attempt, on the floor's own graph.* X11's text declines the
+3.14 development host because it "has no reason to wedge where a 3.11 runner
+did", so this ran on **3.11.16** with the extras CI installs (`uv sync --extra
+dev --extra analysis --extra cd-ripping` into a scratch `UV_PROJECT_ENVIRONMENT`,
+leaving `.venv` untouched): the graph `uv.lock` resolves below 3.12 — **numpy
+1.26.4 / scipy 1.17.1**. The band ran **40 times** (two concurrent loops, each
+iteration CI-faithful with `--cov`) and every one finished in **63-70 s**, with no
+outlier to point at. The whole suite then ran on the same interpreter, in the
+real context of 786 tests of accumulated state before the band. **The stall did
+not reproduce**, and that is recorded as the result rather than papered over.
+
+*What faulthandler names when it can name anything.* Standing in for the stall is
+a wedge injected without touching the tree: a pytest plugin loaded through
+`PYTEST_ADDOPTS` parks in `pytest_configure`, the hook the 2.1.6 guard already
+caught a real occurrence in. The view child's own deadline fires at **120 s** and
+prints `Timeout (0:02:00)!`, naming `hang_plugin.py:18 in pytest_configure`, then
+`_collect_views.collect_view`, then `_emit_view` — precisely the chain the 3.11
+leg had no way to print. That path works, so the deadline is real evidence and
+not decoration.
+
+*The defect behind it.* `_collect_view_in_child` also has a branch for the case
+where the child cannot answer even its own deadline — the shape X11 saw as total
+silence. That branch returned `the X view did not answer within 150s` and
+**discarded `exc.stdout`/`exc.stderr`**, which in that case is the only evidence
+that will ever exist: `subprocess.run` captures everything the child wrote before
+the kill. A bound that reports nothing but its own name cannot name a test, so
+the branch now returns `_timeout_payload(name, exc)` with the captured output
+appended, and the per-view assertion quotes **both ends** of a payload — the
+head, innermost-first, where a dump begins, and the tail, where pytest's summary
+lives.
+
+*Evidence:* the lock fails on the mutation that matters. With the payload line
+reduced to `output = message` the suite is **1 failed, 3 passed** with
+`AssertionError: the child's own dump was dropped` and the payload shown as
+`'the hardware view did not answer within 150s'`; restored, **4 passed**, with the
+file back at SHA-256 `9d68cc18…2556e48b` (`match=True`). The module as a whole
+runs **26 passed** (24 before, plus the two added here).
+
+*Measured along the way, and worth not re-learning.* A **legitimately slow** test
+exceeds any short local deadline: `tests/test_docs_build.py`'s `published`
+fixture — a Sphinx build followed by the staging copy — overran **180 s** on this
+host, and the dump caught it inside `shutil.copytree` at
+`utilities/build_docs_site.py:175`. So a local `faulthandler_timeout` below ~180 s
+reports healthy tests, and CI's 600 s is the right order of magnitude rather than
+lax. Separately, **two suite runs at once corrupt each other's coverage data**
+(`sqlite3.OperationalError: no such table: file`, then `no such table: tracer`,
+with the tests still reporting their own passes and pytest exiting **3**), which
+is why the concurrent loop's iterations are ranged and none is read as a hang.
+
+### R-20 — a floor-only failure hid behind a CI skip (added 2026-10-28)
+
+*Files:* `music_format_converter/tests/test_file_processor.py`
+(`TestResamplerMeasuredOutcome::test_run_conversion_reaches_44k_output`).
+
+*Defect, found by R-19's full-suite run on the floor's graph.* That run came back
+**1 failed, 11 219 passed, 4 skipped**, and the failure is a real one CI cannot
+see. The test opens the 24-bit WAV ffmpeg produced with the stdlib `wave`
+module. Before 3.12 `wave` accepts only `WAVE_FORMAT_PCM`, and a 24-bit WAV is
+written as `WAVE_FORMAT_EXTENSIBLE`, so on the floor the file cannot be opened at
+all (`wave.Error: unknown format: 65534`); 3.12 added extensible support, which
+is why the 3.14 development host has always been green. The test also began with
+`if os.environ.get("CI"): pytest.skip("ffmpeg PATH configuration may differ in
+CI")` — so the one leg that runs the floor, and the only place the defect
+reproduces, skipped it. A test that skips itself in CI cannot verify anything
+about CI, and this is the same cannot-fail shape as D25.
+
+*Change:* decode through `pydub.AudioSegment`, which this file already uses for
+its fixtures, and drop the `CI` skip. The assertion keeps its subject — the
+requested rate must be the produced rate — and now names both numbers when it
+fails.
+
+*Evidence:* the same test is **1 passed** on 3.11.16 (29.0 s), **1 passed** on
+3.14.10 (0.28 s), and **1 passed with `CI=true`** (0.19 s), which is the case
+that used to skip. The two sibling soxr skips stay (D27): their subject is
+whether the runner's ffmpeg was built with soxr, a genuine platform difference.
+
 ---
 
 ## 4. Traceability
@@ -534,6 +628,8 @@ command needs no new flag.
 | R-16 — README count stale | P3 | §3 R-16 | README assertion matches `len(first_party())` | none (closed in 2.1.5) |
 | R-17 — three suite legs per push (cost) | — (not in the audit's register) | §3 R-17 | measured push **57.7** billable minutes (68.7 projected, 100 budgeted), priced by a lock | 2.1.6 |
 | R-18 — a stalled leg printed nothing (found by R-17's first run) | — (found by this plan's own workflow) | §3 R-18 | a stall names its frames; a failure reaches the log in minutes; the collection helper's caller is bounded | 2.1.6 |
+| R-19 — a bound discarded the evidence it exists to report (found by R-18's reproduction attempt) | — (found by this plan's own workflow) | §3 R-19 | a timed-out view child reports the dump it wrote; the 7% band reproduced 40/40 without a wedge on the floor's graph | 2.1.6 |
+| R-20 — a floor-only failure skipped itself in CI (found by R-19's floor run) | — (found by this plan's own workflow) | §3 R-20 | the rate test passes on the 3.11 floor and runs when `CI` is set | 2.1.6 |
 
 ---
 
@@ -870,6 +966,59 @@ assumed on every commit.
   for the reason the diff says it did. The push priced at **62.8** billable
   minutes. No stall, and neither guard fired, twice in a row.
 
+### R-19 — measured 2026-10-28 (development host, on the floor's graph)
+
+* Environment: **3.11.16**, `uv sync --extra dev --extra analysis --extra
+  cd-ripping` into a scratch `UV_PROJECT_ENVIRONMENT`, which is **numpy 1.26.4 /
+  scipy 1.17.1** — the branch `uv.lock` resolves below 3.12 and the one the
+  runner executes. `.venv` (3.14.10) was not touched, so the mandatory local gate
+  kept its own interpreter.
+* Band, **40 iterations**: `tests/test_pyproject_config.py`,
+  `tests/test_pyw_launchers.py`, `tests/test_readme.py`,
+  `tests/test_refinery_pipeline.py` — 88 tests, CI-faithful `--cov`, capped at
+  400 s per iteration. Every iteration finished in **63-70 s**; none reached the
+  cap and faulthandler never wrote a `Timeout (` line. Two loops ran
+  concurrently, which is itself part of the stress.
+* Five iterations are ranged rather than read: two exited **3** with
+  `coverage.exceptions.DataError: … no such table: file` and a third with
+  `no such table: tracer`, while their tests still reported **88 passed**. That
+  is two runs sharing one SQLite `.coverage` file, not a defect in the tree, and
+  the hang detector (elapsed time, faulthandler output) is untouched by it.
+* Injected wedge, no tree change: `PYTEST_ADDOPTS="-p hang_plugin"` with a
+  scratch plugin sleeping in `pytest_configure`, driven against one view child.
+  At **120 s** it printed `Timeout (0:02:00)!` naming
+  `hang_plugin.py:18 in pytest_configure`, then `_collect_views.collect_view`,
+  `_emit_view`, `main` — the chain X11 could not get.
+* Break-and-restore: with the payload reduced to `output = message` the locks are
+  **1 failed, 3 passed** (`AssertionError: the child's own dump was dropped`);
+  restored, **4 passed**, with the helper back at SHA-256 `9d68cc18…2556e48b`
+  (`match=True`) — verified byte-for-byte because these files carry CRLF.
+* Whole module: **26 passed** in 70 s (24 before, plus the two locks added here),
+  which exercises the five whole-tree collections and the three nested pytester
+  runs. `ruff check` and `ruff format --check` clean on both files.
+* Full suite on **3.11.16** in suite order (the real context, 786 tests of state
+  before the band): **1 failed, 11 219 passed, 4 skipped, 35 deselected in
+  2149.90 s (0:35:49)**. No stall, and the single failure was **R-20** — a
+  floor-only defect the `CI` skip had hidden — not the band.
+* Gate after the change (3.14.10, the host the mandatory gate runs on):
+  `compileall` over the tracked tree exits **0**; `ruff check .` clean and
+  `ruff format --check .` **942 files** formatted; bare `mypy .` **551 source
+  files**, no issues; bandit **0 High / 0 Medium** (38 documented Low); bare
+  `pytest` **11 223 passed, 3 skipped, 35 deselected in 2180.10 s (0:36:20)** —
+  two more passes than the previous gate run, which are the two locks added here.
+
+### R-20 — measured 2026-10-28 (both interpreters)
+
+* **3.11.16** (the floor, with CI's extras): the full suite reported **1 failed,
+  11 219 passed, 4 skipped, 35 deselected in 2149.90 s (0:35:49)**, the failure
+  being this test. After the change it is **1 passed in 29.02 s**, and it no
+  longer skips itself when `CI` is set.
+* **3.14.10** (development host, where it always passed): **1 passed in 0.28 s**;
+  with `CI=true`, **1 passed in 0.19 s** where it previously reported 1 skipped.
+* The same 3.11 run doubles as R-19's full-context evidence: it executed the 7%
+  band in suite order — the five whole-tree collections and three nested
+  pytester runs included — and completed with no stall.
+
 ### R-17 — measured 2026-10-28 (development host; runner verdict pending, X9)
 
 *The price, measured rather than estimated.* Every job's `started_at` to
@@ -1064,10 +1213,17 @@ executes 3.12 or 3.14 any more.
   finding. Two guards now cover the next occurrence: `--maxfail=1` puts a
   failure's traceback in the log in minutes, and `faulthandler_timeout = 600`
   dumps every thread's stack for a test that runs longer, so a repeat names its
-  own frame instead of going silent. R-18 also bounded the one caller that could
+  own frame instead of going silent.  R-18 also bounded the one caller that could
   sit silent past its helper's own watchdog. Reproducing it here is not the
   route: the same commit went green on the runner's next attempt, and a 3.14
   development host has no reason to wedge where a 3.11 runner did.
+  **R-19 has since run that experiment on the floor's own graph** — 3.11.16 with
+  numpy 1.26.4 / scipy 1.17.1, 40 iterations of the 7% band (each 63-70 s) and a
+  full-suite run in the real context — and it did **not** reproduce. The item
+  stays open, and the next occurrence is the one that settles it. What has
+  changed is what that occurrence can print: even in the branch where a child is
+  too wedged to narrate itself, the payload now carries its dump (R-19), so a
+  repeat names frames instead of repeating this entry.
 * **X10 — the newest interpreter no longer has a CI leg; here is what that costs
   and how to buy it back.** R-17 runs the full suite on **3.11 only**, so a
   push no longer verifies 3.12 or 3.14 on a runner. Deliberate, for the reasons

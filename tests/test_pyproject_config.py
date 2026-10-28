@@ -47,13 +47,17 @@ Changed in 2.1.6: the three nested pytest runs are given a deadline. They used
 ``runpytest_subprocess``'s default ``timeout=None``, so the first 3.14 CI leg
 sat at 6% for forty minutes on the first of them and had to be cancelled, with
 no output to say why. A wedged inner run now fails this test and reports the
-inner stdout/stderr instead of hanging the job.
+inner stdout/stderr instead of hanging the job. The collection helper's caller
+is bounded the same way, and its timeout payload keeps the child's own dump:
+the child's deadline is the good path, and the branch behind it is the one the
+3.11 leg reached as total silence.
 """
 
 from __future__ import annotations
 
 import ast
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -63,6 +67,7 @@ import sys
 import tempfile
 import tomllib
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -422,6 +427,27 @@ EXPECTED_VIEWS = (
 )
 
 
+def _load_collect_helper() -> ModuleType:
+    """Import the collection helper itself, to drive one of its functions.
+
+    The AST locks prove the helper's *shape*; this is for the behaviour behind
+    it. Loading by path (the technique ``tests/test_docs_build.py`` uses for the
+    staging step) keeps the import off ``tests/__init__``'s side effects and
+    fails loudly if the file is renamed.
+    """
+    assert COLLECT_HELPER.is_file(), (
+        f"the collection helper is missing: {COLLECT_HELPER}"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "collect_views_locked", COLLECT_HELPER
+    )
+    assert spec is not None and spec.loader is not None, f"cannot load {COLLECT_HELPER}"
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _collect_views() -> dict[str, dict[str, object]]:
     """Collect the real tree under each marker view through the real config.
 
@@ -489,7 +515,13 @@ def _collect_views() -> dict[str, dict[str, object]]:
         returncode = entry["returncode"]
         assert isinstance(stdout, str) and isinstance(returncode, int)
         assert returncode == 0, (
-            f"the {name} collection failed ({returncode}):\n{stdout[-1500:]}"
+            f"the {name} collection failed ({returncode}):\n"
+            # A timeout payload carries the child's dump at its head (faulthandler
+            # writes the innermost frame first); an ordinary failure carries
+            # pytest's summary at its tail. Quote both ends so neither shape is
+            # quoted from the half that does not hold the evidence.
+            f"--- head ---\n{stdout[:2000]}\n"
+            f"--- tail ---\n{stdout[-800:]}"
         )
         views[name] = {
             "ids": [line.strip() for line in stdout.splitlines() if "::" in line],
@@ -620,6 +652,45 @@ class TestCollectHelperIsBounded:
             "view child inherits the pipe and the caller then waits for an EOF "
             "nobody will write"
         )
+
+    def test_a_child_that_outlived_its_bound_still_reports_its_dump(self) -> None:
+        """The parent's bound must quote the child, not swallow it (2.1.6).
+
+        The child's own deadline is the good path: it dumps the stack and exits
+        non-zero, and the caller reports that view by name. The branch behind it
+        is the one the 3.11 leg reached as total silence - a child that outlives
+        its own watchdog - and there the captured output is the only evidence
+        that will ever exist. It used to be dropped: the branch built "did not
+        answer" and returned it alone, so the bound that exists to name a stall
+        named nothing.
+        """
+        helper = _load_collect_helper()
+        exc = subprocess.TimeoutExpired(cmd="helper", timeout=150)
+        exc.stdout = 'Timeout (0:02:00)!\n  File "x.py", line 1 in wedge\n'
+        exc.stderr = "stderr detail"
+
+        payload = helper._timeout_payload("hardware", exc)
+
+        assert payload["returncode"] == -1
+        text = payload["stdout"]
+        assert isinstance(text, str)
+        assert "the hardware view did not answer" in text
+        assert "Timeout (0:02:00)!" in text, "the child's own dump was dropped"
+        assert "in wedge" in text, "the innermost frame is the part that names it"
+        assert "stderr detail" in text, "a dump written to stderr is still evidence"
+
+    def test_a_silent_child_reports_the_bound_and_nothing_else(self) -> None:
+        """With no captured output the payload stays one clean sentence."""
+        helper = _load_collect_helper()
+
+        payload = helper._timeout_payload(
+            "hardware", subprocess.TimeoutExpired(cmd="helper", timeout=150)
+        )
+
+        assert payload == {
+            "returncode": -1,
+            "stdout": "the hardware view did not answer within 150s",
+        }, "the payload gained a trailing artefact, or the bound moved"
 
 
 class TestFullTreeContract:
