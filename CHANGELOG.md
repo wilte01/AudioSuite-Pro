@@ -9,6 +9,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.1.6] - 2026-10-28
+
 ### Added
 
 - **A POSIX smoke leg, and a platform caveat that matches it.** Every
