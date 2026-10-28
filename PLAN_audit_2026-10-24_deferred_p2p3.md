@@ -14,7 +14,12 @@ in October** (~170 a push), so the audit step is not runner-verified (X9).
 **R-17 is delivered and locally verified** (§5), and its runner verdict is
 pending for the same reason: it is the owner's response to X9, and it brings a
 push from **168.0 to a projected 68.7 billable minutes** by running the full
-suite once, on the 3.11 floor.
+suite once, on the 3.11 floor. **X9 is CLOSED** as of run
+[`40710792850`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40710792850)
+at `0473a6d`: the repository is public, so the minute charge is gone, all eight
+jobs started, and seven finished green — including `Security Scan`, whose log
+carries the audit line. That run's 3.11 leg did **not** finish: it stopped at 7%
+and was cancelled, which became **R-18** and **X11**.
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
 **Base state:** `main` at `85046ef` ("Record the 2.1.6 CI remediation decisions
 (2026-10-27)"), working tree clean. `v2.1.5` is the repository's only tag (at
@@ -462,6 +467,31 @@ publishing steps are **unconditional**, which is the state that replaces "gated
 to one leg". `README.md`, `CONTRIBUTING.md` and `AGENTS.md` no longer claim CI
 verifies three interpreters.
 
+### R-18 — a stalled leg must say where it stalled (added 2026-10-28)
+
+*Files:* `pyproject.toml` (`[tool.pytest.ini_options] faulthandler_timeout`),
+`.github/workflows/ci.yml` (the suite step's `--maxfail=1`).
+
+*Defect, found by the first run of R-17's workflow:* run `40710792850` at
+`0473a6d` started all eight jobs and seven finished green, then the 3.11 leg
+printed `[7%]`, **815 completed tests**, and nothing for thirty minutes. It was
+cancelled to recover the log, which shows four red tests before the stall (the
+cancelled run never prints its summary) and the stall itself at
+`tests/test_pyw_launchers.py::TestFileReorganizerImportBranch::test_import_error_is_not_masked_by_the_generic_branch`.
+All four of those tests pass on this host, so they are runner-only.
+
+*Change:* `faulthandler_timeout = 600` makes any single test that exceeds ten
+minutes dump every thread's stack, and the CI step adds `--maxfail=1` so a run
+reports the failure it found instead of stopping silently at a stall. Both are
+reporting changes. Neither is claimed to fix the stall or the four failures —
+that is X11.
+
+*Evidence:* the four red marks were placed exactly by counting the log's
+progress characters against a local `--collect-only` order (815 marks; failures
+at #1, #5, #317, #318), not by guessing at percentages. `--maxfail=1` is
+visible in the step's parsed `run:` value; `faulthandler_timeout` is an ini
+option, so the command needs no new flag.
+
 ---
 
 ## 4. Traceability
@@ -775,6 +805,19 @@ The implication for the rest of this plan is a budget one: at ~170 billable
 minutes per push, a 3 000-minute allowance funds roughly **seventeen pushes a
 month**, so runner verification has to be batched deliberately rather than
 assumed on every commit.
+### R-18 — measured 2026-10-28 (development host; the runner evidence is X11)
+
+* `ruff check .` clean. `tests/test_pyproject_config.py`,
+  `tests/test_ci_cost.py`, `tests/test_cli_schema_conformance.py` and
+  `tests/test_pyw_launchers.py` — **133 passed**;
+  `tests/test_release_notes.py` with the CI locks — **37 passed**.
+* The workflow still parses, and the suite step's `run:` reads
+  `uv run python -m pytest --tb=short -q --maxfail=1 \` followed by the
+  coverage flags, so the flag reached the command and not just the comment.
+* *Not verified:* that either change ends the stall. The next run either names a
+  failure in minutes or dumps the wedged frames (X11); both are better than a
+  silent half hour, and neither is the fix.
+
 ### R-17 — measured 2026-10-28 (development host; runner verdict pending, X9)
 
 *The price, measured rather than estimated.* Every job's `started_at` to
@@ -924,6 +967,25 @@ on the day.
   floor leg both survive with the full suite, the two legs that went were
   re-testing the graph the development host runs daily, and the reduction is
   D23 with a measured bill beside it. Any *later* narrowing starts from X10.
+* **X11 — OPEN: the 3.11 suite leg has four runner-only failures and one stall,**
+  and neither is reproduced on this host. Run
+  [`40710792850`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40710792850)
+  at `0473a6d`, cancelled to recover its log: 815 tests completed, then nothing
+  for thirty minutes at
+  `tests/test_pyw_launchers.py::TestFileReorganizerImportBranch::test_import_error_is_not_masked_by_the_generic_branch`.
+  The four failures before it are
+  `tests/security/test_input_validator.py::TestValidateFilePath::test_valid_absolute_path_accepted`,
+  `…::test_directory_traversal_rejected`,
+  `tests/test_cli_usage_errors.py::TestArgvHelpers::test_the_command_path_is_resolved[argv2-key]`
+  and `…[argv3-cue parse]`. All ten of those tests pass here; `verify_suite`
+  takes 0.16 s, the launcher test 0.18 s, and the pre-flight warning dialog
+  returns immediately with `tkinter.Tk` mocked — so the local proxies do not
+  reach either symptom. R-18 makes the next run self-reporting: it stops at the
+  first failure with its traceback, and a stall dumps the wedged frames after
+  ten minutes. The lead to test first is **accumulated state in the launcher
+  tests** — the same `.pyw` is `exec`'d five times in one process, each run
+  re-configuring logging and re-running `verify_suite` over the whole tree — but
+  that is a lead, not a finding, and nothing here should be read as one.
 * **X10 — the newest interpreter no longer has a CI leg; here is what that costs
   and how to buy it back.** R-17 runs the full suite on **3.11 only**, so a
   push no longer verifies 3.12 or 3.14 on a runner. Deliberate, for the reasons

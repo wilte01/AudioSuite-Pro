@@ -350,6 +350,16 @@ markers = [
     "worker_memory: marks tests that run real analysis batches to measure RSS across worker counts. Deselected by default because the figures describe the host that ran them and each batch costs ~25 s; the documented opt-in is `pytest -m worker_memory` (CONTRIBUTING).",
     "gui: marks tests that genuinely require a graphical display. Skipped with an attributable reason on a headless host; for tests that need a real Tk root without using the shared root/tk_root fixture.",
 ]
+# Changed in 2.1.6: a wedged test now dumps every thread's stack instead of
+# printing nothing. The 3.11 CI leg sat at 7% for half an hour on the platform
+# this file's own suite documents running (see tests/_collect_views.py for the
+# same treatment applied to collection), and a silent stall wastes a run: the
+# log ends mid-suite and the runner's 60-minute cap is the only thing that says
+# anything. faulthandler writes the stacks of all threads when a single test
+# exceeds this many seconds, so the next occurrence names its own frame. 600 s
+# is far above the suite's slowest real test (~90 s on a loaded runner) and far
+# below the job's timeout, which is what makes it a report rather than a bleed.
+faulthandler_timeout = 600
 addopts = '--strict-markers -ra -m "not hardware and not real_ml and not worker_memory" --cov --cov-report=term-missing'
 filterwarnings = [
     # pydub 0.25.1 (latest on PyPI) ships lazy invalid-escape regexes in

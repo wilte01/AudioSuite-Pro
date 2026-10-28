@@ -413,8 +413,18 @@ jobs:
         shell: bash
         env:
           PYTHONUTF8: "1"
+        # Changed in 2.1.6: ``--maxfail=1`` (R-18). A run that stops -
+        # a wedged test, the runner's 60-minute cap, a cancel - prints no
+        # failure text at all, and the first CI run of this workflow stopped
+        # at 7% with four red tests whose tracebacks never reached the log.
+        # Failing at the first one puts its text in the log in minutes.
+        # A green run is unchanged (every test still runs); a red one
+        # reports its first defect instead of twenty, which is what an
+        # iteration edits anyway. The local gate in AGENTS.md still runs
+        # the whole suite. Revisit once the stall itself is fixed: then a
+        # complete red log is affordable again.
         run: |
-          uv run python -m pytest --tb=short -q \
+          uv run python -m pytest --tb=short -q --maxfail=1 \
             --cov --cov-report=term-missing --cov-fail-under=75
       - name: Export the recorded CLI payloads
         # Changed in 1.4.1: added with PLAN D103. The recordings are the
