@@ -1,13 +1,14 @@
-# PLAN — functional backlog (B2, A1, F-01, F-02, F-05/F-06, F-09, F-08)
+# PLAN — functional backlog (B2, A1, F-01, F-02, F-05/F-06, F-09, F-08, F-10)
 
 **Status:** `[ ]` **planned, nothing implemented** — this plan is the decision
 record for work that has not started. Every item below is unstarted by design;
 nothing in it is in the tree.
-**Base state:** `main` at the commit that closes
-`PLAN_audit_2026-10-24_deferred_p2p3.md`, with `v2.1.6` published at `0556069`.
-The suite is green (11 225+ passed locally, the floor leg green on the runner),
-the dependency audit blocks, and the four remaining register defects (R-13, R-14,
-X12, X7) are fixed in that closing change.
+**Base state:** `main` at `9790778`, with `v2.1.6` published at `0556069`.
+The suite is green (11 236 passed locally; the floor leg 11 235 passed, 4 skipped
+on the runner, runs `40874653524` and `40878665883`), the dependency audit
+blocks, and the four remaining register defects (R-13, R-14, X12, X7) are fixed
+on `adec3b9`. The normalise defect that X12's un-skipping exposed is fixed on
+`dc1b3c5` — it is why **F-10** exists.
 **Governing scope:** capability work — the seven items the audit's §9.3 market
 backlog and the remediation plan's §8 carried as deferred. It does **not**
 re-open the defect register (closed by its D31) and it authorises no release cut.
@@ -23,6 +24,9 @@ register read as a green product. Separating them is what let that file end.
 
 - **Not a defect list.** No item here fixes wrong output. Every item adds a
   capability the suite does not have, or measures an existing approximation.
+  One deliberate exception: **F-10** is a sweep, admitted to *lock* a defect
+  class rather than to list defects (D12), and if it finds nothing it changes
+  nothing.
 - **Not a rewrite.** Each item names the module it extends, and the smallest
   version that delivers the capability.
 - **Not a release plan.** A cut is a separate decision with its own gate; this
@@ -66,6 +70,7 @@ discovered.
 | D8 | **A1's first deliverable is the measurement**, and the shipped arithmetic changes only if it fails. | DECIDED | `replaygain_analyzer/core/gain_calculator.py` uses duration-weighted energy (`10·log10(Σ 10^(Lᵢ/10)·dᵢ / Σ dᵢ)`), which is exact for equal gating and approximate otherwise. Writing a concatenated measurement and finding the approximation acceptable is a **valid outcome** and must be recorded as one. |
 | D9 | **Items do not ride each other's release.** Each gets its own `CHANGELOG` entry under the version it ships in. | DECIDED | The 2.1.6 cut accumulated fifteen bullets across six items and became a release nobody had read as a whole — the risk D30 named. Grouping is what made that happen; per-item releases keep each one reviewable. |
 | D10 | Feature work targets **2.2.0**; narrow extensions may ship as 2.1.x. | PROPOSED | F-01, F-02, F-05/F-06 and F-08 add capability (minor). B2, F-09 and A1 are bounded extensions or measurements and can ride a patch if their surface stays additive. |
+| D12 | **F-10 (the audio-writer sweep) is admitted** into a capability plan, and its deliverable is a **lock**, not a bug list. | DECIDED | The normalise defect fixed on `dc1b3c5` was found by un-skipping a test, not by a sweep, and no test in the tree asserts any writer's output format — the case passed for a release because its test measured loudness only. It sits in Wave 1 because every later audio item (F-08, F-09) is safer behind it, and it is expected to end with **no code change**, which is A1's shape (D8) rather than a defect register's. |
 | D11 | No item changes a **tag format** or a **file extension** the suite already writes without a migration note. | DECIDED | B2 adds containers the scrubber can *scrub*, not a new output format; F-09 changes a normalisation target, which is audio output — its bullet must say what a re-run does to an already-normalised file. |
 
 ---
@@ -76,6 +81,59 @@ Sizes follow the audit's scale: **S** ≤ a day, **M** a few days, **L** a week 
 more, **XL** open-ended.
 
 ### Wave 1 — bounded, evidence in one sitting
+
+#### F-10 — no audio writer may leave the output format to a default (S)
+
+*Current state.* `audio_normalizer` handed the output's sample rate, channel
+count and bit depth to FFmpeg's defaults, so every normalised file was resampled
+to `loudnorm`'s internal 192 kHz and 16-bit audio was widened to 24 bits — and on
+FFmpeg builds after 8.0 the same defaults made the stage **fail**
+(`invalid block size: 384000`). Fixed on `dc1b3c5` by pinning the source's rate
+and FLAC's depth and capping FLAC frames. Nothing stops the next writer from
+making the same choice, and no test asserts any writer's output format: the
+normalise case passed for a release precisely because its test measured loudness
+and nothing else.
+
+The other writers, as read at `9790778` rather than assumed:
+
+| Writer | How it encodes | Output format today |
+|---|---|---|
+| `audio_normalizer/core/normalizer.py` | FFmpeg argv | pinned on `dc1b3c5` |
+| `audio_enhancer/core/ffmpeg_io.py` | FFmpeg argv | already passes `-ar`/`-ac` on decode (:206) and encode (:294) |
+| `audio_suite_shared/cue_split.py` | `-c copy` (:147) | no re-encode; preserved by construction |
+| `audio_suite_shared/audio_conversion.py` | NumPy, `sample_width` = "keep source depth" | preserved by construction |
+| `pop_click_remover/core/declicker.py` | pydub segment built from `audio.frame_rate`/`sample_width` | preserved by construction |
+| `noise_reduction/core/noise_reducer.py` | ditto (:207, :237, :292, :325) | preserved by construction |
+| `audio_refinery/core/pipeline.py` | `audio.export` / `ffmpeg_write` on the decoded segment (:507-:510) | carries the segment's own parameters |
+
+So the expected result is **no further offenders**, and that is a valid outcome
+(D8): the deliverable is the lock. A writer whose output legitimately differs —
+a conversion target, a deliberate depth reduction — declares the difference in
+this table with its reason instead of being exempted silently.
+
+*Change.* One test module that takes every writer above and writes a real file
+whose rate, channel count and bit depth are deliberately **not** the values a
+tool would otherwise pick (44.1 kHz / stereo / 16-bit), decodes the result, and
+asserts all three are unchanged — plus the measured loudness where the writer
+normalises. The writer list is pinned and asserted non-empty, so a new writer
+cannot appear without a line here (`AGENTS.md`, "a verification harness that
+cannot fail").
+
+*Acceptance.*
+- Every row of the table has a test that **decodes** the written file and
+  compares rate, channels and sample width with the source, not a field the
+  writer just set.
+- The lock proves it can fail: reverting the normalise pin (`_preserve_args`
+  returning `[]`) turns it red on the 192 kHz assertion.
+- Each row is accounted for: either asserted unchanged, or listed with the
+  reason its format intentionally differs.
+
+*Files:* one test module beside the existing writer suites (root `tests/` is
+allowed to be cross-cutting); `audio_normalizer/core/normalizer.py` only if the
+sweep finds something.
+*Risk:* the lock is only as good as its fixtures — a source already at 48 kHz
+/24-bit would pass whichever choice the tool made, which is why the fixtures are
+deliberately not the defaults.
 
 #### B2 — the scrubber cannot see APEv2 containers (M)
 
@@ -303,7 +361,7 @@ no-op on clean input is an assertion rather than a nicety.
 
 | Wave | Items | Ships as | Why this order |
 |---|---|---|---|
-| 1 | B2, F-09, A1 | 2.1.7 patch (B2 needs a deliberate version note; A1 is a measurement) | Each is bounded, each produces one checkable artefact, and B2 closes a capability gap in a tool users already run. |
+| 1 | F-10, B2, F-09, A1 | 2.1.7 patch (F-10 first; B2 needs a deliberate version note; A1 is a measurement) | Each is bounded, each produces one checkable artefact, and B2 closes a capability gap in a tool users already run. F-10 goes first because F-09 edits the same filter string and would otherwise be verified against an unlocked parameter set. |
 | 2 | F-01, F-05/F-06 | 2.2.0 | User-visible features; F-01 needs a dry-run default that deserves its own release note and guide. |
 | 3 | F-02, F-08a → b → c | 2.2.x, one per sub-item | Large; each needs the scaffolding the earlier waves produce. |
 
@@ -345,6 +403,9 @@ One bullet per item, under the version it ships in — never a grouped block
 ceiling and what a re-run does to an already-normalised file; B2 states which
 containers became scrubable and that a scrub remains metadata-only; F-08a states
 the measured distortion improvement and that clean files are returned untouched.
+F-10 has **no bullet unless it changes a writer's output**; if it does, the
+bullet names the writer and the measured before/after format rather than saying
+"fixed a resampling issue".
 
 ---
 
@@ -356,4 +417,5 @@ the measured distortion improvement and that clean files are returned untouched.
 | B2 widens discovery to containers the restore path handles badly, so a scrub loses tags on `.wv` rather than not seeing the file. | One format per step, each with a scrub-and-undo round trip on a real file; the exclusion list shrinks deliberately. | Drop that format's `_LOADERS` entry and restore its line in `_UNSUPPORTED_CONTAINERS` — the test makes the reversal explicit. |
 | F-01 writes wrong tags from a mis-parse and the file looks tagged afterwards. | Dry run is the default; a negative-case table for filenames that must not match; "only fill blanks" is the default for non-empty tags. | The undo journal already exists for tag writes (`batch_undo`); the dry-run path means the blast radius is one explicit run. |
 | F-02's threshold is picked to make the fixture set pass. | The threshold is measured on declared distances and recorded in the plan; the fixture set includes a near-duplicate that must **not** cluster. | Raise the threshold and re-record; the table shows what moved. |
+| F-10's sweep passes because every fixture sits at the same defaults the tools would have picked anyway, so the lock certifies nothing. | Fixtures are deliberately 44.1 kHz/stereo/16-bit, the writer list is pinned, and the lock is proved able to fail by reverting the normalise pin. | No rollback: a test-only change. |
 | A new tool ships through half the eleven registration steps (a missing card only logs, a broken Help button only warns). | The checklist is a first-day deliverable for F-02, and the full-suite gate is the arbiter — per-package runs cannot see registration mistakes. | Complete the missing steps; there is no "temporary" exception, because the failure is silent by design. |
