@@ -1441,7 +1441,17 @@ executes 3.12 or 3.14 any more.
   being `test_normalise_reaches_target_lufs`. That is the whole point of the
   item — the test existed, asserted real audio, and had never once executed on
   the one host class that mattered. What it caught is a genuine defect in the
-  product (D32), fixed before this change was pushed again.
+  product (D32), fixed in `dc1b3c5`.
+
+  **Both tests then ran green on that leg**, and the counts say so rather than
+  the exit code: run
+  [`40874653524`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40874653524)
+  on `dc1b3c5` reports `11 235 passed, 4 skipped, 35 deselected in 1410.11 s`,
+  every job green. The suite totals 11 239, i.e. the 11 228 of the 2.1.6 tag
+  plus 8 (R-13/R-14) plus 3 (this change), and skips fell 6 → 4 while passed
+  rose by two: those two skips were the X12 pair. This is the verification the
+  item was missing, and it is why the closure above claims `34 passed, 0 skipped`
+  locally *and* the runner separately rather than inferring one from the other.
 
 ### The register is closed (2026-10-29, D31)
 
