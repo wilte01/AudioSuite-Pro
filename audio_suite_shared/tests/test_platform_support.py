@@ -47,6 +47,10 @@ a declared selection runs on a real Ubuntu host and nothing else has been
 executed elsewhere (R-12, PLAN_audit_2026-10-24_deferred_p2p3.md), and the
 sentence citing plan item A4 is asserted **absent**, because A4 is the CI ffmpeg
 install rather than the Linux leg that wording described.
+
+Changed in 2.1.7: the documentation tree is excluded from the platform walk by name
+``documentation``.
+
 """
 
 from __future__ import annotations
@@ -103,7 +107,7 @@ _EXCLUDED_DIRS = frozenset(
         "node_modules",
         "test",
         "tests",
-        "user_guides",
+        "documentation",
         "venv",
     }
 )

@@ -15,6 +15,10 @@ their verdicts an invariant instead of a coincidence.
 
 Changed in 1.4.1: extracted from ``doctor_cli`` so the CLI warning and
 ``doctor`` answer the same question with one resolver (PLAN D94).
+
+Changed in 2.1.7: the non-package documentation tree is ``documentation`` (``docs`` and
+``user_guides`` live inside it).
+
 """
 
 from __future__ import annotations
@@ -31,7 +35,7 @@ DISTRIBUTION_NAME = "audiosuite-pro"
 
 #: Directory names that never hold a first-party importable package.  Only
 #: directories with an ``__init__.py`` are candidates anyway; this keeps the
-#: deliberately non-package trees (``utilities``, ``user_guides``) and the
+#: deliberately non-package trees (``documentation``, ``utilities``) and the
 #: test package out of the report.
 _NOT_PACKAGES = frozenset({"__pycache__", ".venv", ".git", "build", "dist", "tests"})
 

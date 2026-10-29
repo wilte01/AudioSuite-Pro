@@ -45,6 +45,10 @@ importers (the ``.pyw`` launchers, ``lyrics_manager/__main__`` and
 Changed in 1.2.0: exposes :func:`get_logs_dir` so other shared modules (the
 per-tool run-outcome notes) resolve the same directory, including the
 ``AUDIOSUITE_LOG_DIR`` override, instead of re-deriving it.
+
+Changed in 2.1.7: the non-package documentation tree is ``documentation``; its
+``__init__.py`` test already excludes it.
+
 """
 
 from __future__ import annotations
@@ -159,7 +163,7 @@ def _first_party_package_names() -> list[str]:
     Every immediate subdirectory of the suite root that carries an
     ``__init__.py`` is a first-party package whose ``getLogger(__name__)``
     records belong in the suite log.  Directories without one —
-    ``.venv``, ``user_guides``, ``utilities``, ``logs`` — are excluded by
+    ``.venv``, ``documentation``, ``utilities``, ``logs`` — are excluded by
     the ``__init__.py`` test, and ``tests`` is excluded by name because its
     package does carry one and its records are test artefacts, never
     production events.

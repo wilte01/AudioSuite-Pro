@@ -10,6 +10,10 @@ a ``"4"`` worker entry — and requires each to be either derived or one of the
 documented single-worker call sites.
 
 Changed in 1.4.0: adds the worker-count literal lock for the audit follow-up.
+
+Changed in 2.1.7: ``documentation`` replaces ``user_guides`` in the scan's excluded
+directories.
+
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SKIP_PARTS = frozenset(
-    {".venv", "__pycache__", "build", "dist", "tests", "user_guides"}
+    {".venv", "__pycache__", "build", "dist", "tests", "documentation"}
 )
 _WORKER_ARGUMENTS = frozenset({"max_workers", "num_workers", "workers"})
 _WORKER_KEYS = frozenset({"max_workers", "num_workers", "workers"})

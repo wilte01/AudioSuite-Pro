@@ -37,6 +37,10 @@ so a new GUI tool must be registered here deliberately and a broken discovery
 pass cannot succeed vacuously.
 
 Changed in 2.1.0: a plugin tool with no card module is not a GUI seam.
+
+Changed in 2.1.7: ``documentation`` replaces ``user_guides`` in the walk's excluded
+directories.
+
 """
 
 from __future__ import annotations
@@ -59,7 +63,7 @@ _SKIPPED_DIRS = frozenset(
         "build",
         "dist",
         "htmlcov",
-        "user_guides",
+        "documentation",
         "plugins",
     }
 )
