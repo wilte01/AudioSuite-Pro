@@ -1,8 +1,8 @@
 # PLAN — functional backlog (B2, A1, F-01, F-02, F-05/F-06, F-09, F-08, F-10)
 
-**Status:** `[ ]` **planned, nothing implemented** — this plan is the decision
-record for work that has not started. Every item below is unstarted by design;
-nothing in it is in the tree.
+**Status:** **Wave 1 complete** — F-10 `5d4ab22`, F-09 `6642d41`, B2 `8890b73`,
+A1 `c6f54dc` and the guide sweep `6a4be7a` on `main`; see §6. Waves 2-3 remain
+`[ ]` planned and unstarted.
 **Base state:** `main` at `9790778`, with `v2.1.6` published at `0556069`.
 The suite is green (11 236 passed locally; the floor leg 11 235 passed, 4 skipped
 on the runner, runs `40874653524` and `40878665883`), the dependency audit
@@ -36,7 +36,7 @@ register read as a green product. Separating them is what let that file end.
 
 ## 2. How "done" is judged here
 
-The suite's own rules apply unchanged, and two of them decide most of the work:
+The suite's own rules apply unchanged, and three of them decide most of the work:
 
 1. **Audio correctness is release-blocking, and its evidence is the audio.**
    Every item that writes audio (B2, F-08, F-09) must decode the result and
@@ -45,6 +45,14 @@ The suite's own rules apply unchanged, and two of them decide most of the work:
 2. **A measurement is not a guess.** A1 exists because the shipped album-gain
    arithmetic is an approximation; the first deliverable there is the
    measurement, not a code change.
+3. **No item is done until its user-facing documentation has been read against
+   the change.** The rule and its procedure live once, in `AGENTS.md`,
+   *User Guides Follow the Change*; this plan only adds that it binds **per
+   item** — §6 records each wave's outcome, including "no guide describes this
+   behaviour" when that is the answer. **A1 is the evidence for enforcing it at
+   this granularity**: its arithmetic changed and the ReplayGain guide still
+   described the replaced formula in four places, because nothing in the item
+   said to look (D17).
 
 Each item also carries the registration cost `AGENTS.md` names: a new *tool* is
 eleven steps (manifest, card, CLI, arg builder, dependency graph, driver state,
@@ -71,19 +79,34 @@ discovered.
 | D9 | **Items do not ride each other's release.** Each gets its own `CHANGELOG` entry under the version it ships in. | DECIDED | The 2.1.6 cut accumulated fifteen bullets across six items and became a release nobody had read as a whole — the risk D30 named. Grouping is what made that happen; per-item releases keep each one reviewable. |
 | D10 | Feature work targets **2.2.0**; narrow extensions may ship as 2.1.x. | PROPOSED | F-01, F-02, F-05/F-06 and F-08 add capability (minor). B2, F-09 and A1 are bounded extensions or measurements and can ride a patch if their surface stays additive. |
 | D12 | **F-10 (the audio-writer sweep) is admitted** into a capability plan, and its deliverable is a **lock**, not a bug list. | DECIDED | The normalise defect fixed on `dc1b3c5` was found by un-skipping a test, not by a sweep, and no test in the tree asserts any writer's output format — the case passed for a release because its test measured loudness only. It sits in Wave 1 because every later audio item (F-08, F-09) is safer behind it, and it is expected to end with **no code change**, which is A1's shape (D8) rather than a defect register's. |
-| D20 | **The repository has one documentation tree**, `documentation/`, holding `documentation/docs/` (the Sphinx site) and `documentation/user_guides/` (the shipped guides and their Markdown sources). "Which documents does this change touch?" is answered by walking that directory instead of remembering two roots. | DECIDED (user, 2026-10-29) | 315 path references in 53 files named `user_guides/` and 232 in 35 named `docs/`; the historical `PLAN_*`/`AUDIT_*`/`CHANGELOG.md` records were left untouched, because they describe the tree as it was (a plan is a record, not an instruction). The move is not a rename: **the depth is load-bearing.** The pages sat one level from the root and now sit two, so every link to a repository-root file gained a `../` (`documentation/docs/index.md` → `../../README.md`), and because `myst_all_links_external` suppresses the warning a wrong one would otherwise be silent. The publish root therefore mirrors the checkout too - pages at `<out>/documentation/docs/`, guides at `<out>/documentation/user_guides/`, root documents at `<out>/` - or every such href would escape the artifact; `tests/test_docs_build.py`'s ~240-link self-containment walk is what proves it, and it passed unchanged apart from its paths. Three further contracts moved with it: `conf.py`'s `ROOT` is `parents[2]` (a `parent.parent` would point at `documentation/` and break autodoc for every documented module), `open_help` resolves `documentation/user_guides/individual_programs/<tool>/` at runtime for the Help button, and mypy's exclusion stayed **narrow** (`^documentation/user_guides/` + `^documentation/docs/_build/`) because excluding the whole tree silently dropped `conf.py` from the gate - 551 files became 550, which is how it was caught. The two generator-backed artefacts were re-rendered and triaged by zip entry: exactly `word/document.xml` (the logging guide's footer) and `ppt/slides/slide25.xml` (the closing slide's paths) changed, so no external-editor drift. **Supersedes** the applied-path model in `PLAN_docs_consolidation.md` §4/§5; that plan is complete and is not edited. `AGENTS.md` now states the rule as one directory walk, and `tests/test_docs_formats.py`'s format whitelist governs every tracked file under `documentation/`, so a new subdirectory there is covered without editing the test. |
 | D11 | No item changes a **tag format** or a **file extension** the suite already writes without a migration note. | DECIDED | B2 adds containers the scrubber can *scrub*, not a new output format; F-09 changes a normalisation target, which is audio output — its bullet must say what a re-run does to an already-normalised file. |
+| D13 | **F-10's sweep found one offender**, so it did not end as the no-code-change lock D12 expected. | DECIDED | Seven writers, seven decoded rows (44.1 kHz / stereo / 24-bit fixtures, deliberately none of the defaults). Six preserved the format; the shared pydub export path did not — pydub passes no sample-format argument, so FFmpeg's WAV/AIFF muxer wrote **16-bit PCM from a 24-bit source** while rate and channels survived. Fixed in `audio_suite_shared/audio_formats.py` (`source_bit_depth` / `preserve_depth_params`, applied by `get_export_args`), so `file_processor_base.py` and `audio_refinery/core/pipeline.py` inherit the pin. The lock's failure self-check reverts the normalise pin and requires the 192 kHz assertion to go red. |
+| D14 | **F-09 exposes the ceiling as `--tp`/`--lra`** (GUI spinboxes beside them), defaults unchanged at −1.5 dBTP / 11 LU, and reports the **achieved** peak per file. | DECIDED | The default path is locked byte-identical by comparing the decoded output of an unset-parameter run against an explicit `-1.5/11` run — not by reading back the argument. The achieved peak comes from loudnorm's measured output, so a ceiling the encode could not reach is visible instead of assumed; the GUI warns above −1.0 dBTP rather than silently allowing a lossy re-encode to clip. A re-run to the same target stays inside the existing tolerance check and is **skipped**, so an already-normalised file is not re-encoded. |
+| D15 | **B2 landed as three deliberate steps** (APEv2 `.wv/.ape/.mpc`, then `.spx`, then `.dsf`), with APEv2 values kept as the container's own objects and restored in place. | DECIDED | `_UNSUPPORTED_CONTAINERS` shrank from five extensions to `(".wma",)` and the test still asserts it is non-empty, so the remaining gap stays visible. The undo round trip is proved on a real `.wv`: tags restored through the preserved dict, and the decoded duration + per-channel RMS identical to before the scrub (a metadata-only operation must not touch samples). Restore mutates the loaded tags (`clear()` + `update()`) instead of rebinding, the same rule `AGENTS.md` records for FLAC. |
+| D16 | **A1 adopted the one-pass concatenated album measure**; the duration-weighted formula remains only as the fallback. | DECIDED | The approximation failed D8's test. A 20 s −10 dBFS + 20 s −35 dBFS FLAC album measures **3.00 dB** apart (weighted +2.70 dB vs combined −0.30 dB), and a mostly-silent-tail album **2.33 dB** apart; both exceed ReplayGain's ±0.5 dB expectation, because the quiet track falls under the combined signal's relative gate. Cost is one extra full decode per album (the combined signal's length), run in the existing Phase-2 folder pass. `TestAlbumGainBenchmark` pins 3.00 ± 0.3 dB and asserts the tag on disk carries the combined value; the fallback path is separately asserted. |
+| D17 | **Guide review is part of every item's definition of done**, and its outcome is recorded even when the answer is "unchanged". | DECIDED | Wave 1's first pass updated the normalizer, scrubber and CLI-reference guides with their items, but left `ReplayGain_Analyzer_User_Guide.md` describing the duration-weighted album gain A1 had just replaced — in four places (Setup, Two-Phase Processing, the values table, Troubleshooting) — and `docs/index.md` still listing this plan as unstarted. Both surfaced only when the question was asked, which is the exact silent drift this row closes: §2 rule 3 makes the review mandatory before "done", §6 gains a Guides line per wave, and "no guide describes this behaviour" must be written down rather than assumed. That pass also proved the check is mechanical: `utilities/build_user_guides.py --check` reports 32/32 artefacts current after the regeneration, so a stale `.docx` cannot hide behind an edited Markdown source. The rule itself now lives in `AGENTS.md`, *User Guides Follow the Change*, so it binds work outside this plan too; §2 rule 3 keeps only the per-item recording requirement. |
+| D18 | **Every guide was swept against the code**, and a lock now ties a stated format count to the shared set. | DECIDED | Method, in this order: every guide's `--flags` checked against the live click commands (136 options; no guide names a flag the CLI lacks); every guide default stated beside a flag compared with click's own default (no disagreement); all 51 quoted `[STATUS]` tokens checked for existence in first-party Python; every extension enumeration compared with the tool's own supported set; and the prose of the recently touched tools read for claims none of those checks measure. **Four guides carried drift**, three of them since 1.1.0 widened `SUPPORTED_EXTENSIONS` to fourteen: `Album_Art_Normalizer` and `AlbumGenre_Tagger` still said "nine" audio formats (three passages), `ASX_Playlist_Extractor` said nine extensions, and `Lyrics_Manager` documented status labels `[LIKE]`/`[ALREADY]`/`[NO MATCH]`/`[PLAIN]` that the code never emits — it emits `[TAGGED]`/`[SKIPPED]`/`[DRY RUN]`/`[ERROR]`. Before either tool's guide claimed the five new containers, artwork embedding and album-genre writes were proved on real `.wv`/`.ape`/`.mpc`/`.spx`/`.dsf` fixtures and read back through mutagen. `tests/test_guide_format_counts.py` then holds any "N suite formats/containers/extensions" claim against `len(SUPPORTED_EXTENSIONS)`, with an explicit two-entry exemption list for the deliberate subset counts (the normaliser's seven encoders, the scrubber's five added containers); it fails when a count regresses, when an exemption goes stale, and when the walk finds no claim at all. |
+| D19 | **The sweep was extended to GUI defaults and behaviour claims**, and its mechanical classes are now one lock. | DECIDED | GUI defaults exist only in the Tk declarations for half the tools, so they were read from `tk.*Var(value=...)`, the DSP slider specs and the settings models rather than from CLI options. Every claim checked **matched**: album-art sync 500 px / 0.85 / 800 / 10 s, art normaliser 800×800, Refinery declick 0.31 / width 2 ms / trim −50 dBFS / fades 500-1000 ms / target −16 / tolerance 0.5, noise reduction harmonics 1-20 / Q 1-100 / gate 3 dB, pop/click 0.01-0.40 / 1-10 ms, silence trimmer −50 dB / 500-1000 ms, the enhancer's thirteen DSP slider ranges, converter −16 LUFS, fingerprinter 30 s / 0.5 / 120 s, BPM's 40-300 and 60-400 bounds, lyrics timeout 10 s and undo retention 50. Quoted artifact names (logs, sidecars, configs, the CLI schema) all exist in code. The drift was **worker counts**: fourteen guides said "four worker slots" (or "four workers by default"), while every tool's grid is `DEFAULT_MAX_WORKERS` — one per logical CPU, capped at eight — which is **8 on this host**, so the claim was false on any machine with more than four CPUs. The guides now state the rule instead of a number. `tests/test_guide_claims.py` (the format-count lock, renamed) holds all five mechanical classes — format counts, worker counts, flags, status tokens, artifact names — each with a non-vacuity floor and exemption lists that must still match a real claim; reintroducing "four worker slots" was verified to turn it red naming the file and line. |
+| D20 | **The repository has one documentation tree**, `documentation/`, holding `documentation/docs/` (the Sphinx site) and `documentation/user_guides/` (the shipped guides and their Markdown sources). "Which documents does this change touch?" is answered by walking that directory instead of remembering two roots. | DECIDED (user, 2026-10-29) | 315 path references in 53 files named `user_guides/` and 232 in 35 named `docs/`; the historical `PLAN_*`/`AUDIT_*`/`CHANGELOG.md` records were left untouched, because they describe the tree as it was (a plan is a record, not an instruction). The move is not a rename: **the depth is load-bearing.** The pages sat one level from the root and now sit two, so every link to a repository-root file gained a `../` (`documentation/docs/index.md` → `../../README.md`), and because `myst_all_links_external` suppresses the warning a wrong one would otherwise be silent. The publish root therefore mirrors the checkout too - pages at `<out>/documentation/docs/`, guides at `<out>/documentation/user_guides/`, root documents at `<out>/` - or every such href would escape the artifact; `tests/test_docs_build.py`'s ~240-link self-containment walk is what proves it, and it passed unchanged apart from its paths. Three further contracts moved with it: `conf.py`'s `ROOT` is `parents[2]` (a `parent.parent` would point at `documentation/` and break autodoc for every documented module), `open_help` resolves `documentation/user_guides/individual_programs/<tool>/` at runtime for the Help button, and mypy's exclusion stayed **narrow** (`^documentation/user_guides/` + `^documentation/docs/_build/`) because excluding the whole tree silently dropped `conf.py` from the gate - 551 files became 550, which is how it was caught. The two generator-backed artefacts were re-rendered and triaged by zip entry: exactly `word/document.xml` (the logging guide's footer) and `ppt/slides/slide25.xml` (the closing slide's paths) changed, so no external-editor drift. **Supersedes** the applied-path model in `PLAN_docs_consolidation.md` §4/§5; that plan is complete and is not edited. `AGENTS.md` now states the rule as one directory walk, and `tests/test_docs_formats.py`'s format whitelist governs every tracked file under `documentation/`, so a new subdirectory there is covered without editing the test. A follow-up, `30c9ba2`, renamed the five walk-exclusion sets that still named the retired roots — a set naming a directory that no longer exists excludes nothing — and `audio_suite_shared/tests/test_platform_support.py` now records why its entry exists. |
 
 ---
+
 
 ## 4. Items
 
 Sizes follow the audit's scale: **S** ≤ a day, **M** a few days, **L** a week or
 more, **XL** open-ended.
 
+Each item's *Files* list is a starting point, not a limit. By §2 rule 3 the
+user guide(s) of every tool the item touches are in scope even when the list does
+not name them, and the rendered `.docx` is regenerated rather than hand-edited.
+
 ### Wave 1 — bounded, evidence in one sitting
 
 #### F-10 — no audio writer may leave the output format to a default (S)
+
+**Status:** DONE — `tests/test_audio_writer_format.py`; found and fixed the
+shared pydub depth loss (D13).
 
 *Current state.* `audio_normalizer` handed the output's sample rate, channel
 count and bit depth to FFmpeg's defaults, so every normalised file was resampled
@@ -105,7 +128,7 @@ The other writers, as read at `9790778` rather than assumed:
 | `audio_suite_shared/audio_conversion.py` | NumPy, `sample_width` = "keep source depth" | preserved by construction |
 | `pop_click_remover/core/declicker.py` | pydub segment built from `audio.frame_rate`/`sample_width` | preserved by construction |
 | `noise_reduction/core/noise_reducer.py` | ditto (:207, :237, :292, :325) | preserved by construction |
-| `audio_refinery/core/pipeline.py` | `audio.export` / `ffmpeg_write` on the decoded segment (:507-:510) | carries the segment's own parameters |
+| `audio_refinery/core/pipeline.py` | `audio.export` / `ffmpeg_write` on the decoded segment (:507-:510) | carried rate and channels, **lost a 24-bit source's depth** through the shared pydub exporter — pinned in F-10 (`get_export_args` now emits the source's PCM codec) |
 
 So the expected result is **no further offenders**, and that is a valid outcome
 (D8): the deliverable is the lock. A writer whose output legitimately differs —
@@ -137,6 +160,9 @@ sweep finds something.
 deliberately not the defaults.
 
 #### B2 — the scrubber cannot see APEv2 containers (M)
+
+**Status:** DONE — `.wv/.ape/.mpc` (APEv2), `.spx`, `.dsf`; evidence in D15
+and §6.
 
 *Current state.* `metadata_scrubber/core/scrubber.py`'s `_LOADERS` table is the
 only source of truth for both discovery (`SUPPORTED_EXTENSIONS`) and loading, and
@@ -176,6 +202,8 @@ happens rather than assuming success.
 
 #### F-09 — the true-peak ceiling is hard-coded at −1.5 dBTP (S)
 
+**Status:** DONE — `--tp`/`--lra` in CLI and GUI; evidence in D14 and §6.
+
 *Current state.* `audio_normalizer/core/loudness.py:55` and
 `audio_normalizer/core/normalizer.py:133` both interpolate the literal
 `TP=-1.5` into the `loudnorm` filter, so every delivery target gets the same
@@ -198,6 +226,9 @@ existing behaviour is unchanged unless asked, surfaced in the CLI, the GUI and
 rather than silently allow it.
 
 #### A1 — album gain is an approximation nothing has measured (M)
+
+**Status:** DONE — benchmark measured, concatenated measure adopted; evidence in
+D16 and §6.
 
 *Current state.* `replaygain_analyzer/core/gain_calculator.py:41` computes album
 loudness as duration-weighted energy. The plan that shipped it
@@ -373,21 +404,80 @@ is deliberately one item per release (D9).
 
 ## 6. Verification record
 
-Nothing has been implemented, so there is nothing to verify yet. When an item
-lands, this section gains its gate line in the form the register used:
-item, commit, the four-item gate, the full-suite count, and the evidence that is
-specific to that item (a decoded measurement for audio, a fixture table for a
-parser).
+**Wave 1 — F-10, F-09, B2, A1.** Commits `5d4ab22` (F-10), `6642d41` (F-09),
+`8890b73` (B2), `c6f54dc` (A1) and `6a4be7a` (guides) on `main`, based on
+`9790778` (after the 2.1.6 cut `0556069`) and following the documentation move's
+walk fix `30c9ba2`. The gate ran with the project's own
+`.venv` interpreter (`.venv/Scripts/python.exe`, Python 3.14): the system Python
+carries click 8.3.2, whose `No such option` wording differs from the 8.5.0 in
+`uv.lock`, so `tests/test_cli_json_schema.py::…[doctor]` fails there against an
+example that is correct for the pinned graph. That is the *Run From the
+Project's `.venv`* rule, not a defect.
 
-**Documentation layout — the one tree (D20).** Commits `ad15a51`, `f3ee8b9`
-and `1ce857c` on `main`.
+| Check | Result |
+|---|---|
+| compile | every tracked `.py` compiles (`git ls-files -z '*.py'` piped to `py_compile` — 946 files, exit 0). Plain `compileall -q -f .` exits 1 **only** on the untracked, stale PyInstaller runtime at `packaging/build/app/runtime/Lib/test/tokenizedata/`, whose files are deliberately invalid fixtures; no first-party file is involved. |
+| ruff | `ruff check .` clean; `ruff format --check .` — 946 files already formatted. |
+| mypy | bare `mypy .` — no issues in 551 source files. |
+| bandit | 0 High / 0 Medium; 41 Low, all the documented `run_secure_subprocess` call sites. |
+| pytest | bare `pytest` — **11 324 passed, 3 skipped, 35 deselected** in 23:05, exit 0, coverage 90.93%. |
+
+Item evidence:
+
+- **F-10** (`tests/test_audio_writer_format.py`): seven pinned writer rows, each
+  writing a 32 kHz / mono / 24-bit source and **decoding** the output. Six
+  preserved the format; the shared pydub exporter returned 16-bit WAV/AIFF, now
+  pinned in `audio_suite_shared.audio_formats.get_export_args` (D13). The lock's
+  failure check reverts the normalise rate pin in-process and requires the
+  decoded rate to be 192 kHz.
+- **F-09** (`TestDeliveryTargets`, `TestTruePeakCeilingOutcome`,
+  `TestDeliveryTargetsApp`, `TestDeliveryTargetOptions`): a loud fixture
+  normalised at −1.0 dBTP decodes at ≤ −1.0 and > −1.5 dBTP, at least 0.1 dB
+  above the −1.5 run, and the reported peak matches the decoded one within
+  0.1 dB. The omitted-target run is byte-identical to an explicit −1.5/11 run
+  while a −1.0 run differs — that inequality is what gives the equality teeth;
+  the first version of the test compared two explicit calls and could not fail,
+  and was corrected in this change.
+- **B2** (`TestAPEv2Scrub`, `TestDSFScrub`, the `.spx` scanner cases): a real
+  `.wv` is discovered, scrubbed and re-read through a fresh handler; undo
+  restores every preserved item; the decoded duration and per-channel RMS are
+  unchanged; `_UNSUPPORTED_CONTAINERS` is `(".wma",)` and still asserted
+  non-empty.
+- **A1** (`TestAlbumGainBenchmark`): combined vs weighted album gain is 3.00 dB
+  apart on the loud + quiet fixture (pinned ± 0.3 dB) and 2.33 dB on the
+  silent-tail probe; the tag on disk carries the combined value, and the
+  fallback route is asserted separately (D16).
+- **Guides** (§2 rule 3): the normalizer, scrubber and CLI-reference guides were
+  updated with their items; the ReplayGain guide (four passages describing the
+  replaced duration-weighted album gain) and `docs/index.md` (this plan listed
+  as unstarted) were corrected afterwards (D17). `build_user_guides.py --check`
+  reports **32/32 artefacts current**, and `test_user_guide_hygiene`,
+  `test_docs_build`, `test_docs_formats` and `test_cli_reference_hygiene` pass
+  (47 tests). F-10's behaviour change has no guide passage describing bit depth,
+  which is recorded here rather than left unstated. A later sweep of **all 32**
+  guides against the code (D18) found four with pre-existing drift — three stale
+  "nine formats" counts and one set of status labels the code never emits — and
+  corrected them. A second pass (D19) read the GUI-side defaults from the Tk
+  declarations and found fourteen guides stating "four worker slots" against a
+  grid sized from the CPU count, which is eight on this host; those now state the
+  rule. `tests/test_guide_claims.py` locks all five mechanical claim classes —
+  format counts, worker counts, flags, status tokens and artifact names.
+- **Misses the gate found, fixed in this change:** the guide lock's module
+  carried no release note. The first full-suite run after the work was committed
+  failed in `tests/test_release_notes.py`, which had been blind to the file
+  while it was untracked; the note is in `6a4be7a`, and the scan now unions
+  untracked files (`1510247`) - verified by an untracked probe module, which the
+  test names and fails on.
+
+**Documentation layout — the one tree (D20).** Commits `ad15a51`, `f3ee8b9`,
+`1ce857c`, `efabe0f`, `82ce8c3` and the walk fix `30c9ba2` on `main`.
 
 | Check | Result |
 |---|---|
 | compile | `compileall -q -f -x '(packaging|\.venv)' .` exit 0 (the unfiltered form still exits 1 only on the stale PyInstaller runtime's deliberately invalid fixtures, as recorded above). |
 | ruff | `ruff check .` clean; `ruff format --check .` — 946 files already formatted. |
 | mypy | bare `mypy .` — no issues in **551** source files, the same count as before the move (the exclusion was narrowed to keep `conf.py` in the gate). |
-| pytest | bare `pytest` — **11 323 passed, 3 skipped, 35 deselected**, exit 0, coverage 90.93%; the ten document locks separately **83 passed**, and `test_docs_build` **9 passed** including the staged-tree link walk. The run covers the whole tree, which also carries the uncommitted 2.1.7 audio work. |
+| pytest | bare `pytest` — **11 324 passed, 3 skipped, 35 deselected**, exit 0, coverage 90.93%; the ten document locks separately **83 passed**, and `test_docs_build` **9 passed** including the staged-tree link walk. That run covers the whole tree, so it is the same one the Wave-1 table above records. |
 
 Evidence for the specific contracts this move could break:
 

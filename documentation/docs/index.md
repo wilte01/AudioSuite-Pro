@@ -109,10 +109,11 @@ what was deferred. They are history, not instructions — the rules that still
 apply live in the repository's `AGENTS.md` and in
 [CONTRIBUTING.md](../../CONTRIBUTING.md), which ships with this documentation.
 
-* `PLAN_functional_backlog.md` — the current plan, and unstarted: the seven
-  capability items the audit's market backlog deferred (scrubber APEv2 support,
-  the album-gain measurement, tag-from-filename, duplicate detection, playlist
-  and Camelot export, a configurable true-peak ceiling, and restoration).
+* `PLAN_functional_backlog.md` — the current plan. Wave 1 is complete: scrubber
+  APEv2/Speex/DSF support, the measured album-gain change, a configurable
+  true-peak ceiling and loudness range, and the audio-writer output-format lock.
+  Wave 2 (tag-from-filename, playlist and Camelot export) and Wave 3 (duplicate
+  detection, restoration) are unstarted.
 * `PLAN_audit_2026-10-24_deferred_p2p3.md` — the preceding plan, closed: the
   dependency audit's CI policy, a POSIX smoke leg, the interpreter targets the
   tooling declares, and the remaining defect tail (R-13, R-14, X12, X7). Its

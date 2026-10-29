@@ -45,9 +45,48 @@ Versions of the tools are released together with the suite (the single
   means they execute on a runner that can. Un-skipping them immediately found
   the 192 kHz normalise defect above: it had been invisible to CI precisely
   because that test never ran there.
+- **A 24-bit WAV or AIFF rewritten in place came back 16-bit.** The shared
+  pydub export path passed no sample-format argument, so FFmpeg's WAV/AIFF
+  muxers wrote their 16-bit PCM default while the rate and channel count
+  survived - a silent truncation on every in-place rewrite. The exporter now
+  pins the source's PCM codec (`pcm_s24le` from a 24-bit source,
+  `pcm_s16le`/`pcm_s32le` for 16/32-bit) and leaves lossy targets alone.
+  Verified by decoding the output of all seven writers: 32 kHz, mono, 24-bit in
+  is 32 kHz, mono, 24-bit out.
+
+### Added
+
+- **The Audio Normalizer's true-peak ceiling and loudness range are
+  configurable.** `--tp` (default -1.5 dBTP) and `--lra` (default 11 LU) reach
+  both loudnorm passes from the CLI and from the Setup tab's sliders, and each
+  processed file now reports the true peak the re-encode **achieved**, so a
+  ceiling the encoder could not hold is visible instead of assumed. A ceiling
+  above -1.0 dBTP asks for confirmation first, because a lossy re-encode can
+  clip there. The defaults are unchanged, and a re-run at the same target stays
+  inside the existing tolerance check and is skipped, so no file is encoded
+  twice.
+- **The metadata scrubber can see WavPack, Monkey's Audio, Musepack, Ogg Speex
+  and DSF files.** `.wv`/`.ape`/`.mpc` scrub through their APEv2 items, `.spx`
+  through its Vorbis comments and `.dsf` through its ID3 tag; artist, album,
+  title and the flagged lyrics, album-artist and artwork items are preserved
+  and restored on undo. A scrub stays metadata-only: the decoded duration and
+  per-channel RMS are identical before and after, and the undo round trip is
+  proved on a real `.wv`. `.wma` is the only container the discovery test now
+  reports as unsupported.
 
 ### Changed
 
+- **ReplayGain album gain comes from the album's combined signal.** Album
+  loudness was a duration-weighted mean of each track's integrated loudness,
+  which is exact only when every track gates the same way. Measured off a 20 s
+  -10 dBFS + 20 s -35 dBFS pair, the weighting is 3.00 dB below the combined
+  signal's gated loudness (+2.70 dB vs -0.30 dB album gain), and 2.33 dB below
+  on a mostly-silent-tail album - both outside ReplayGain's 0.5 dB expectation,
+  because the quiet track falls under the combined signal's relative gate. The
+  folder is now measured once as a concatenated stream; the weighted formula
+  remains only as the fallback for a folder whose combined signal cannot be
+  read, and both routes are named in the folder log header. Cost is one extra
+  decode of the album.
 - `AGENTS.md`'s Bandit rule quoted `exclude_dirs = ["tests"]`; it now quotes the
   real value, `["tests", "packaging"]`, so the rule a reader greps matches
   `pyproject.toml`.
