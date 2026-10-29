@@ -203,46 +203,48 @@ The table below is **generated from the tool manifest**
 
 | Tool | What it does | Launcher | User guide | Platform |
 |---|---|---|---|---|
-| Metadata Scrubber | Scrub metadata from MP3 files | `Metadata_Scrubber.pyw` | `user_guides/individual_programs/metadata_scrubber/Metadata_Scrubber_User_Guide.docx` | Portable core |
-| Audio Fingerprinter | Fingerprint audio and identify tracks via AcoustID | `Audio_Fingerprinter.pyw` | `user_guides/individual_programs/audio_fingerprinter/Audio_Fingerprinter_User_Guide.docx` | Portable core |
-| ReplayGain Analyzer | Measure and write ReplayGain tags | `ReplayGain_Analyzer.pyw` | `user_guides/individual_programs/replaygain_analyzer/ReplayGain_Analyzer_User_Guide.docx` | Portable core |
-| Album Genre Tagger | Tag genre from album-level metadata | `AlbumGenre_Tagger.pyw` | `user_guides/individual_programs/album_genre_tagger/AlbumGenre_Tagger_User_Guide.docx` | Portable core |
-| Genre Sync | Sync genre tags from custom field hierarchy | `Genre_Sync.pyw` | `user_guides/individual_programs/genre_sync/Genre_Sync_User_Guide.docx` | Portable core |
-| BPM Analyzer | Detect and tag BPM for audio files | `BPM_Analyzer.pyw` | `user_guides/individual_programs/bpm_analyzer/BPM_Analyzer_User_Guide.docx` | Portable core |
-| Tempo Analyzer | Derive tempo markings from existing BPM tags | `Tempo_Analyzer.pyw` | `user_guides/individual_programs/tempo_analyzer/Tempo_Analyzer_User_Guide.docx` | Portable core |
-| Key Detector | Detect and tag musical key | `Key_Detector.pyw` | `user_guides/individual_programs/key_detector/Key_Detector_User_Guide.docx` | Portable core |
-| Mood Analyzer | Signal-based mood tagging (valence-arousal) | `Mood_Analyzer.pyw` | `user_guides/individual_programs/mood_analyzer/Mood_Analyzer_User_Guide.docx` | Portable core |
-| Album Art Sync | Embed and synchronise album art | `Album_Art_Synch.pyw` | `user_guides/individual_programs/album_art_sync/Album_Art_Synchronizer_User_Guide.docx` | Portable core |
-| Lyrics Manager | Fetch and embed synced & plain lyrics from online sources | `Lyrics_Manager.pyw` | `user_guides/individual_programs/lyrics_manager/Lyrics_Manager_User_Guide.docx` | Portable core |
-| Audio Refinery | DSP pipeline: declick, trim, enhance, normalise | `Audio_Refinery.pyw` | `user_guides/individual_programs/audio_refinery/Audio_Refinery_User_Guide.docx` | Portable core |
-| Music Format Converter | Convert audio files between formats | `Music_Format_Converter.pyw` | `user_guides/individual_programs/music_format_converter/Music_Format_Converter_User_Guide.docx` | Portable core |
-| ASX Playlist Extractor | Extract playlists from ASX files | `ASX_Playlist_Extractor.pyw` | `user_guides/individual_programs/asx_extractor/ASX_Playlist_Extractor_User_Guide.docx` | Portable core |
-| Album Art Normalizer | Resize and normalize embedded album artwork | `Album_Art_Normalizer.pyw` | `user_guides/individual_programs/album_art_normalizer/Album_Art_Normalizer_User_Guide.docx` | Portable core |
-| CD Ripper | Rip audio CDs | `CD_Ripper.pyw` | `user_guides/individual_programs/cd_ripper/CD_Ripper_User_Guide.docx` | Windows-only |
-| Mood Analysis Batch Tagger | Recursive signal-based batch mood analysis and tagging | `Mood_Analysis_Batch_Tagger.pyw` | `user_guides/individual_programs/mood_analysis_batch_tagger/Mood_Analysis_Batch_Tagger_User_Guide.docx` | Portable core |
-| Noise Reduction | Remove hum and broadband noise from audio files | `Noise_Reduction.pyw` | `user_guides/individual_programs/noise_reduction/Noise_Reduction_User_Guide.docx` | Portable core |
-| Audio Enhancer | Improve dynamic range and clarity of audio files | `Audio_Enhancer.pyw` | `user_guides/individual_programs/audio_enhancer/Audio_Enhancer_User_Guide.docx` | Portable core |
-| Audio Normalizer | Normalise audio loudness to a target LUFS level | `Audio_Normalizer.pyw` | `user_guides/individual_programs/audio_normalizer/Audio_Normalizer_User_Guide.docx` | Portable core |
-| Pop & Click Remover | Remove clicks and pops from audio files | `Pop_Click_Remover.pyw` | `user_guides/individual_programs/pop_click_remover/Pop_Click_Remover_User_Guide.docx` | Portable core |
-| Tag Field Updater | Scan and update tag fields | `Tag_Field_Updater.pyw` | `user_guides/individual_programs/tag_field_updater/Tag_Field_Updater_User_Guide.docx` | Portable core |
-| Silence Trimmer | Trim silence and optionally apply fades | `Silence_Trimmer.pyw` | `user_guides/individual_programs/silence_trimmer/Silence_Trimmer_User_Guide.docx` | Portable core |
-| Tag Editor | Edit common tags in an interactive grid | `Tag_Editor.pyw` | `user_guides/individual_programs/tag_editor/Tag_Editor_User_Guide.docx` | Portable core |
-| Stem Separator | Separate tracks into vocals, drums, bass and other stems | `Stem_Separator.pyw` | `user_guides/individual_programs/stem_separator/Stem_Separator_User_Guide.docx` | Portable core |
-| Library Statistics Dashboard | Read-only tag statistics dashboard | `Library_Stats.pyw` | `user_guides/individual_programs/library_stats/Library_Stats_User_Guide.docx` | Portable core |
-| Spectral Viewer | Render and export FFT spectrograms | `Spectral_Viewer.pyw` | `user_guides/individual_programs/spectral_viewer/Spectral_Viewer_User_Guide.docx` | Portable core |
-| ML Denoiser | Neural noise reduction with RNNoise (speech-trained) | `ML_Denoiser.pyw` | `user_guides/individual_programs/ml_denoiser/ML_Denoiser_User_Guide.docx` | Portable core |
-| Tag-Based File Reorganizer | Move/copy files into a tag-based folder hierarchy | `File_Reorganizer.pyw` | `user_guides/individual_programs/file_reorganizer/File_Reorganizer_User_Guide.docx` | Portable core |
-| Undo Tag Edits | Restore file tags to the way they were before a batch run | `Undo_Tag_Edits.pyw` | `user_guides/individual_programs/undo_tag_edits/Undo_Tag_Edits_User_Guide.docx` | Portable core |
+| Metadata Scrubber | Scrub metadata from MP3 files | `Metadata_Scrubber.pyw` | `documentation/user_guides/individual_programs/metadata_scrubber/Metadata_Scrubber_User_Guide.docx` | Portable core |
+| Audio Fingerprinter | Fingerprint audio and identify tracks via AcoustID | `Audio_Fingerprinter.pyw` | `documentation/user_guides/individual_programs/audio_fingerprinter/Audio_Fingerprinter_User_Guide.docx` | Portable core |
+| ReplayGain Analyzer | Measure and write ReplayGain tags | `ReplayGain_Analyzer.pyw` | `documentation/user_guides/individual_programs/replaygain_analyzer/ReplayGain_Analyzer_User_Guide.docx` | Portable core |
+| Album Genre Tagger | Tag genre from album-level metadata | `AlbumGenre_Tagger.pyw` | `documentation/user_guides/individual_programs/album_genre_tagger/AlbumGenre_Tagger_User_Guide.docx` | Portable core |
+| Genre Sync | Sync genre tags from custom field hierarchy | `Genre_Sync.pyw` | `documentation/user_guides/individual_programs/genre_sync/Genre_Sync_User_Guide.docx` | Portable core |
+| BPM Analyzer | Detect and tag BPM for audio files | `BPM_Analyzer.pyw` | `documentation/user_guides/individual_programs/bpm_analyzer/BPM_Analyzer_User_Guide.docx` | Portable core |
+| Tempo Analyzer | Derive tempo markings from existing BPM tags | `Tempo_Analyzer.pyw` | `documentation/user_guides/individual_programs/tempo_analyzer/Tempo_Analyzer_User_Guide.docx` | Portable core |
+| Key Detector | Detect and tag musical key | `Key_Detector.pyw` | `documentation/user_guides/individual_programs/key_detector/Key_Detector_User_Guide.docx` | Portable core |
+| Mood Analyzer | Signal-based mood tagging (valence-arousal) | `Mood_Analyzer.pyw` | `documentation/user_guides/individual_programs/mood_analyzer/Mood_Analyzer_User_Guide.docx` | Portable core |
+| Album Art Sync | Embed and synchronise album art | `Album_Art_Synch.pyw` | `documentation/user_guides/individual_programs/album_art_sync/Album_Art_Synchronizer_User_Guide.docx` | Portable core |
+| Lyrics Manager | Fetch and embed synced & plain lyrics from online sources | `Lyrics_Manager.pyw` | `documentation/user_guides/individual_programs/lyrics_manager/Lyrics_Manager_User_Guide.docx` | Portable core |
+| Audio Refinery | DSP pipeline: declick, trim, enhance, normalise | `Audio_Refinery.pyw` | `documentation/user_guides/individual_programs/audio_refinery/Audio_Refinery_User_Guide.docx` | Portable core |
+| Music Format Converter | Convert audio files between formats | `Music_Format_Converter.pyw` | `documentation/user_guides/individual_programs/music_format_converter/Music_Format_Converter_User_Guide.docx` | Portable core |
+| ASX Playlist Extractor | Extract playlists from ASX files | `ASX_Playlist_Extractor.pyw` | `documentation/user_guides/individual_programs/asx_extractor/ASX_Playlist_Extractor_User_Guide.docx` | Portable core |
+| Album Art Normalizer | Resize and normalize embedded album artwork | `Album_Art_Normalizer.pyw` | `documentation/user_guides/individual_programs/album_art_normalizer/Album_Art_Normalizer_User_Guide.docx` | Portable core |
+| CD Ripper | Rip audio CDs | `CD_Ripper.pyw` | `documentation/user_guides/individual_programs/cd_ripper/CD_Ripper_User_Guide.docx` | Windows-only |
+| Mood Analysis Batch Tagger | Recursive signal-based batch mood analysis and tagging | `Mood_Analysis_Batch_Tagger.pyw` | `documentation/user_guides/individual_programs/mood_analysis_batch_tagger/Mood_Analysis_Batch_Tagger_User_Guide.docx` | Portable core |
+| Noise Reduction | Remove hum and broadband noise from audio files | `Noise_Reduction.pyw` | `documentation/user_guides/individual_programs/noise_reduction/Noise_Reduction_User_Guide.docx` | Portable core |
+| Audio Enhancer | Improve dynamic range and clarity of audio files | `Audio_Enhancer.pyw` | `documentation/user_guides/individual_programs/audio_enhancer/Audio_Enhancer_User_Guide.docx` | Portable core |
+| Audio Normalizer | Normalise audio loudness to a target LUFS level | `Audio_Normalizer.pyw` | `documentation/user_guides/individual_programs/audio_normalizer/Audio_Normalizer_User_Guide.docx` | Portable core |
+| Pop & Click Remover | Remove clicks and pops from audio files | `Pop_Click_Remover.pyw` | `documentation/user_guides/individual_programs/pop_click_remover/Pop_Click_Remover_User_Guide.docx` | Portable core |
+| Tag Field Updater | Scan and update tag fields | `Tag_Field_Updater.pyw` | `documentation/user_guides/individual_programs/tag_field_updater/Tag_Field_Updater_User_Guide.docx` | Portable core |
+| Silence Trimmer | Trim silence and optionally apply fades | `Silence_Trimmer.pyw` | `documentation/user_guides/individual_programs/silence_trimmer/Silence_Trimmer_User_Guide.docx` | Portable core |
+| Tag Editor | Edit common tags in an interactive grid | `Tag_Editor.pyw` | `documentation/user_guides/individual_programs/tag_editor/Tag_Editor_User_Guide.docx` | Portable core |
+| Stem Separator | Separate tracks into vocals, drums, bass and other stems | `Stem_Separator.pyw` | `documentation/user_guides/individual_programs/stem_separator/Stem_Separator_User_Guide.docx` | Portable core |
+| Library Statistics Dashboard | Read-only tag statistics dashboard | `Library_Stats.pyw` | `documentation/user_guides/individual_programs/library_stats/Library_Stats_User_Guide.docx` | Portable core |
+| Spectral Viewer | Render and export FFT spectrograms | `Spectral_Viewer.pyw` | `documentation/user_guides/individual_programs/spectral_viewer/Spectral_Viewer_User_Guide.docx` | Portable core |
+| ML Denoiser | Neural noise reduction with RNNoise (speech-trained) | `ML_Denoiser.pyw` | `documentation/user_guides/individual_programs/ml_denoiser/ML_Denoiser_User_Guide.docx` | Portable core |
+| Tag-Based File Reorganizer | Move/copy files into a tag-based folder hierarchy | `File_Reorganizer.pyw` | `documentation/user_guides/individual_programs/file_reorganizer/File_Reorganizer_User_Guide.docx` | Portable core |
+| Undo Tag Edits | Restore file tags to the way they were before a batch run | `Undo_Tag_Edits.pyw` | `documentation/user_guides/individual_programs/undo_tag_edits/Undo_Tag_Edits_User_Guide.docx` | Portable core |
 
 <!-- TOOL INDEX: END -->
 
-Per-tool documentation lives in the linked `user_guides/individual_programs/`
-documents (rendered by the shared `utilities/build_user_guides.py` from their
-Markdown sources); the CLI
-subcommands are documented in
-`user_guides/reference/CLI_Commands_Reference.md`, which the same renderer builds
-into `CLI_Commands_Reference.docx`, and the tool guide hub is
-`user_guides/README.md`.
+Everything written for a reader lives under `documentation/`: the site's pages
+under `documentation/docs/`, the shipped guides under
+`documentation/user_guides/`. Per-tool documentation is the guide in the linked
+`documentation/user_guides/individual_programs/` folder (rendered by the shared
+`utilities/build_user_guides.py` from its Markdown source); the CLI subcommands
+are documented in
+`documentation/user_guides/reference/CLI_Commands_Reference.md`, which the same
+renderer builds into `CLI_Commands_Reference.docx`, and the tool guide hub is
+`documentation/user_guides/README.md`.
 
 ### Scripting the CLI
 
@@ -298,7 +300,8 @@ them through review. Two properties are measured and enforced on every change:
   signatures are explicitly typed end to end. The shared package's API
   reference is built from those docstrings: `uv sync --extra dev` (Sphinx is in
   the dev extra, and the build is a gate) then
-  `python -m sphinx -b html docs docs/_build/html`.
+  `python utilities/build_docs_site.py` (it builds `documentation/docs/` and
+  stages the publish tree).
 * **Audio correctness** — this suite transforms users' audio, so any change
   that could corrupt, mis-normalise or mis-convert a file is the highest
   priority class of fix. Such changes are validated by decoding the result and

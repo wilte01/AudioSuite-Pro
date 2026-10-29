@@ -34,6 +34,9 @@ Conventions (AGENTS.md "Utility Script Markers"): ASCII-only [START] /
 [OK] / [ERROR] / [DONE] status markers on stdout/stderr.
 
 Changed in 2.1.0: reads only first-party manifests.
+
+Changed in 2.1.7: rows name guides under ``documentation/user_guides/``.
+
 """
 
 from __future__ import annotations
@@ -106,8 +109,8 @@ def render_tool_index() -> str:
 
     Every row is validated before it is emitted: the derived guide name
     must be registered in ``guide_to_program``, its ``.docx`` must exist
-    under ``user_guides/individual_programs/``, and the launcher ``.pyw``
-    must exist at the suite root.  Any dead row aborts the build.
+    under ``documentation/user_guides/individual_programs/``, and the launcher
+    ``.pyw`` must exist at the suite root.  Any dead row aborts the build.
 
     Returns:
         The replacement block including both markers, or an empty string
@@ -128,7 +131,9 @@ def render_tool_index() -> str:
                 file=sys.stderr,
             )
             return ""
-        guide_path = f"user_guides/individual_programs/{folder}/{guide_name}"
+        guide_path = (
+            f"documentation/user_guides/individual_programs/{folder}/{guide_name}"
+        )
         if not (REPO_ROOT / guide_path).exists():
             print(
                 f"[ERROR] {manifest.id}: guide artifact missing: {guide_path}",

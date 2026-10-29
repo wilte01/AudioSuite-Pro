@@ -1,7 +1,7 @@
 """Lock test: CLI reference documentation matches introspected click behaviour.
 
 Plan iteration-9, item G3.1 (audit finding M2). The CLI Commands Reference
-(``user_guides/reference/CLI_Commands_Reference.md``) is a hand-maintained
+(``documentation/user_guides/reference/CLI_Commands_Reference.md``) is a hand-maintained
 document whose flag defaults and existence claims were found to be the
 opposite of actual click behaviour (``--dry`` documented as "default: dry"
 when every command's ``dry_run`` option defaults to ``False`` → live mode).
@@ -78,8 +78,8 @@ existing rules were all document-to-code, so a flag added to a command and never
 documented kept the suite green; ``fingerprint``'s ``--no-write-mbids`` had been
 in that state, named by its bullet but missing from the usage grammar.  Plugin
 commands are excluded because the reference documents the suite's own CLI and
-the plugin's contract lives in ``docs/plugins.md``; the shared flags are excluded
-because *Options every command accepts* documents them once for the whole
+the plugin's contract lives in ``documentation/docs/plugins.md``; the shared flags
+are excluded because *Options every command accepts* documents them once for the whole
 suite, and the root group's own options are required to appear there.  Section
 ownership is checked separately, because flag coverage alone cannot see it: a
 command that accepts only shared flags is fully covered by the shared block
@@ -102,6 +102,10 @@ manifest's own display name, so renaming a tool in the manifest fails here until
 the reference follows.
 
 Any mismatch is reported as the assertion message so the test names the fix.
+
+Changed in 2.1.7: the reference is
+``documentation/user_guides/reference/CLI_Commands_Reference.md``.
+
 """
 
 from __future__ import annotations
@@ -116,7 +120,13 @@ import pytest
 from click import Command, Group, Option
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-REFERENCE = REPO_ROOT / "user_guides" / "reference" / "CLI_Commands_Reference.md"
+REFERENCE = (
+    REPO_ROOT
+    / "documentation"
+    / "user_guides"
+    / "reference"
+    / "CLI_Commands_Reference.md"
+)
 
 _HEADING_RE = re.compile(r"^(#{2,3}) (.+)$")
 _FENCE_START_RE = re.compile(r"^```")

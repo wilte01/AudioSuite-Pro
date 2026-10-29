@@ -110,7 +110,7 @@ dev = [
     "python-docx>=1.1.0",
     "python-pptx>=1.0.0",
     "types-requests>=2.28.0",
-    # Dev-only: tests/test_docs_build.py builds docs/ with Sphinx and fails on
+    # Dev-only: tests/test_docs_build.py builds documentation/docs/ with Sphinx and fails on
     # any parser warning, so a malformed docstring cannot reach the API
     # reference (PLAN_feature_expansion P2).  D98 kept the docs toolchain out
     # of dev because nothing parsed docstrings; the gate is that nothing.
@@ -185,14 +185,20 @@ untyped_calls_exclude = [
 ]
 exclude = [
     "^tests/",
-    "^user_guides/",
+    # Changed in 2.1.7: the documentation tree moved under documentation/. The
+    # exclusion stays as narrow as it was: the shipped guides' generators are
+    # scripts (as `user_guides/` was), but `documentation/docs/conf.py` is
+    # stdlib-only and deliberately type-checked, so excluding the whole tree
+    # would quietly drop one file from the gate (551 -> 550).
+    "^documentation/user_guides/",
     "/tests/",
     # Changed in 2.1.1: the staged documentation tree. `utilities/build_docs_site.py`
-    # copies `user_guides/` (generators included) into `docs/_build/`, which
-    # `.gitignore` already excludes but mypy does not - so running the staging
-    # step and then `mypy .` reported 46 false errors from a copy of files that
-    # are themselves excluded. Ruff skips gitignored paths; this makes mypy agree.
-    "^docs/_build/",
+    # copies the documentation tree (generators included) into
+    # `documentation/docs/_build/`, which `.gitignore` already excludes but mypy
+    # does not - so running the staging step and then `mypy .` reported 46 false
+    # errors from a copy of files that are themselves excluded. Ruff skips
+    # gitignored paths; this makes mypy agree.
+    "^documentation/docs/_build/",
     # Changed in 2.1.6: the packaging suite's build tree, for the same reason
     # and with the same evidence. `tests/test_packaging.py` stages an installer
     # payload under `packaging/build/` (gitignored), and that payload carries a

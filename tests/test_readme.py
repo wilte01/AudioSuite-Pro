@@ -30,6 +30,9 @@ Changed in 2.1.0: the tool index now carries the plugin tool's row.
 Changed in 2.1.6: the import block is re-sorted against the corrected ruff
 target py311 — ``tomllib`` is 3.11 standard library
 (R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
+
+Changed in 2.1.7: the README's guide links resolve under ``documentation/user_guides/``.
+
 """
 
 from __future__ import annotations
@@ -203,7 +206,12 @@ class TestGuideRegistry:
                 "guide_to_program (platform_utils.py)"
             )
             path = (
-                REPO_ROOT / "user_guides" / "individual_programs" / folder / guide_name
+                REPO_ROOT
+                / "documentation"
+                / "user_guides"
+                / "individual_programs"
+                / folder
+                / guide_name
             )
             assert path.exists(), f"{manifest.id}: guide artifact {path} missing"
 

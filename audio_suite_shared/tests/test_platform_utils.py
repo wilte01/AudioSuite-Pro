@@ -17,6 +17,10 @@ Covers:
 
 Changed in 1.0.1: added signed-geometry restore tests covering Tk's
 ``WxH-X-Y`` forms that previously fell through to centering.
+
+Changed in 2.1.7: guide fixtures are created under ``documentation/user_guides/``, where
+``open_help`` looks.
+
 """
 
 from __future__ import annotations
@@ -180,7 +184,13 @@ class TestOpenHelp:
         # Build the expected directory structure
         root = tmp_path / "AudioSuite-Pro"
         root.mkdir()
-        guide_dir = root / "user_guides" / "individual_programs" / "bpm_analyzer"
+        guide_dir = (
+            root
+            / "documentation"
+            / "user_guides"
+            / "individual_programs"
+            / "bpm_analyzer"
+        )
         guide_dir.mkdir(parents=True)
         guide_file = guide_dir / "BPM_Analyzer_User_Guide.docx"
         guide_file.write_bytes(b"guide content")
@@ -199,7 +209,13 @@ class TestOpenHelp:
 
         root = tmp_path / "AudioSuite-Pro"
         root.mkdir()
-        guide_dir = root / "user_guides" / "individual_programs" / "bpm_analyzer"
+        guide_dir = (
+            root
+            / "documentation"
+            / "user_guides"
+            / "individual_programs"
+            / "bpm_analyzer"
+        )
         guide_dir.mkdir(parents=True)
         guide_file = guide_dir / "BPM_Analyzer_User_Guide.docx"
         guide_file.write_bytes(b"guide content")
@@ -223,7 +239,13 @@ class TestOpenHelp:
 
         root = tmp_path / "AudioSuite-Pro"
         root.mkdir()
-        guide_dir = root / "user_guides" / "individual_programs" / "undo_tag_edits"
+        guide_dir = (
+            root
+            / "documentation"
+            / "user_guides"
+            / "individual_programs"
+            / "undo_tag_edits"
+        )
         guide_dir.mkdir(parents=True)
         guide_file = guide_dir / "Undo_Tag_Edits_User_Guide.docx"
         guide_file.write_bytes(b"guide content")
@@ -246,7 +268,11 @@ class TestOpenHelp:
         root = tmp_path / "AudioSuite-Pro"
         root.mkdir()
         guide_dir = (
-            root / "user_guides" / "individual_programs" / "album_art_normalizer"
+            root
+            / "documentation"
+            / "user_guides"
+            / "individual_programs"
+            / "album_art_normalizer"
         )
         guide_dir.mkdir(parents=True)
         guide_file = guide_dir / "Album_Art_Normalizer_User_Guide.docx"
@@ -270,7 +296,11 @@ class TestOpenHelp:
         root = tmp_path / "AudioSuite-Pro"
         root.mkdir()
         guide_dir = (
-            root / "user_guides" / "individual_programs" / "mood_analysis_batch_tagger"
+            root
+            / "documentation"
+            / "user_guides"
+            / "individual_programs"
+            / "mood_analysis_batch_tagger"
         )
         guide_dir.mkdir(parents=True)
         guide_file = guide_dir / "Mood_Analysis_Batch_Tagger_User_Guide.docx"
@@ -293,7 +323,13 @@ class TestOpenHelp:
 
         root = tmp_path / "AudioSuite-Pro"
         root.mkdir()
-        guide_dir = root / "user_guides" / "individual_programs" / "mood_analyzer"
+        guide_dir = (
+            root
+            / "documentation"
+            / "user_guides"
+            / "individual_programs"
+            / "mood_analyzer"
+        )
         guide_dir.mkdir(parents=True)
         guide_file = guide_dir / "Mood_Analyzer_User_Guide.docx"
         guide_file.write_bytes(b"guide content")
@@ -315,7 +351,13 @@ class TestOpenHelp:
 
         root = tmp_path / "AudioSuite-Pro"
         root.mkdir()
-        guide_dir = root / "user_guides" / "individual_programs" / "tag_field_updater"
+        guide_dir = (
+            root
+            / "documentation"
+            / "user_guides"
+            / "individual_programs"
+            / "tag_field_updater"
+        )
         guide_dir.mkdir(parents=True)
         guide_file = guide_dir / "Tag_Field_Updater_User_Guide.docx"
         guide_file.write_bytes(b"guide content")
@@ -337,7 +379,13 @@ class TestOpenHelp:
 
         root = tmp_path / "AudioSuite-Pro"
         root.mkdir()
-        guide_dir = root / "user_guides" / "individual_programs" / "file_reorganizer"
+        guide_dir = (
+            root
+            / "documentation"
+            / "user_guides"
+            / "individual_programs"
+            / "file_reorganizer"
+        )
         guide_dir.mkdir(parents=True)
         guide_file = guide_dir / "File_Reorganizer_User_Guide.docx"
         guide_file.write_bytes(b"guide content")
@@ -478,7 +526,9 @@ def _build_guide_root(tmp_path: Path, program: str) -> Path:
 
     root = tmp_path / "AudioSuite-Pro"
     root.mkdir()
-    (root / "user_guides" / "individual_programs" / program).mkdir(parents=True)
+    (root / "documentation" / "user_guides" / "individual_programs" / program).mkdir(
+        parents=True
+    )
     return root
 
 
@@ -488,9 +538,13 @@ class TestOpenHelpAdditional:
 
         root = tmp_path / "AudioSuite-Pro"
         root.mkdir()
-        (root / "user_guides" / "individual_programs" / "bpm_analyzer").mkdir(
-            parents=True
-        )
+        (
+            root
+            / "documentation"
+            / "user_guides"
+            / "individual_programs"
+            / "bpm_analyzer"
+        ).mkdir(parents=True)
         old = root / "bpmanalyzer"
         old.mkdir()
         guide_file = old / "BPM_Analyzer_User_Guide.docx"
@@ -522,6 +576,7 @@ class TestOpenHelpAdditional:
         root = _build_guide_root(tmp_path, "bpm_analyzer")
         (
             root
+            / "documentation"
             / "user_guides"
             / "individual_programs"
             / "bpm_analyzer"
@@ -550,6 +605,7 @@ class TestOpenHelpAdditional:
         root = _build_guide_root(tmp_path, "bpm_analyzer")
         (
             root
+            / "documentation"
             / "user_guides"
             / "individual_programs"
             / "bpm_analyzer"

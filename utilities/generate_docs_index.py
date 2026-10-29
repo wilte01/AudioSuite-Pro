@@ -2,7 +2,7 @@
 """
 generate_docs_index.py
 
-Regenerates the tool table in ``docs/index.md`` -- the repository's single
+Regenerates the tool table in ``documentation/docs/index.md`` -- the repository's single
 documentation front door -- from the tool manifest.
 
 Why this exists
@@ -33,6 +33,10 @@ Conventions (AGENTS.md "Utility Script Markers"): ASCII-only [START] / [OK] /
 
 Changed in 2.1.0: new file - the generated tool table behind the single
 documentation index (PLAN_docs_consolidation P1.6).
+
+Changed in 2.1.7: the index lives at ``documentation/docs/index.md`` and rows name
+``documentation/user_guides/``.
+
 """
 
 from __future__ import annotations
@@ -43,7 +47,7 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-INDEX = REPO_ROOT / "docs" / "index.md"
+INDEX = REPO_ROOT / "documentation" / "docs" / "index.md"
 README_INDEX = REPO_ROOT / "utilities" / "generate_readme_tool_index.py"
 
 #: HTML comments, not RST comments: the page is Markdown since P3.1, and a
@@ -103,7 +107,9 @@ def tool_rows() -> list[tuple[str, str, str]]:
                 f"{manifest.id}: guide {guide_name!r} is not registered in "
                 "guide_to_program (audio_suite_shared/platform_utils.py)"
             )
-        guide_path = f"user_guides/individual_programs/{folder}/{guide_name}"
+        guide_path = (
+            f"documentation/user_guides/individual_programs/{folder}/{guide_name}"
+        )
         if not (REPO_ROOT / guide_path).is_file():
             raise RuntimeError(f"{manifest.id}: guide artifact missing: {guide_path}")
         if not (REPO_ROOT / manifest.pyw_filename).is_file():
@@ -135,6 +141,9 @@ def render_tool_table() -> str:
     ]
     for name, launcher, guide in tool_rows():
         source = str(Path(guide).with_suffix(".md")).replace("\\", "/")
+        # The index sits in ``documentation/docs/``, one level below the tree the
+        # guides live in, so the link prefix is unchanged by the move.
+        source = source.removeprefix("documentation/")
         lines.append(f"| {name} | `{launcher}` | [Markdown](../{source}) |")
     lines.extend(["", END_MARK])
     return "\n".join(lines)
@@ -155,7 +164,9 @@ def block_from_index(text: str) -> str:
     begin = text.find(BEGIN_MARK)
     end = text.find(END_MARK)
     if begin == -1 or end == -1 or end < begin:
-        raise RuntimeError("DOCS TOOL INDEX markers not found in docs/index.md")
+        raise RuntimeError(
+            "DOCS TOOL INDEX markers not found in documentation/docs/index.md"
+        )
     return text[begin : end + len(END_MARK)].replace("\r\n", "\n")
 
 
@@ -184,7 +195,7 @@ def main() -> int:
     Returns:
         Process exit code: 0 on success, 1 when the document or a row is invalid.
     """
-    print("[START] Regenerating the docs/index.md tool table")
+    print("[START] Regenerating the documentation/docs/index.md tool table")
     try:
         text = INDEX.read_text(encoding="utf-8")
         new_text = render_index(text)

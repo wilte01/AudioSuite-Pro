@@ -33,18 +33,23 @@ Markdown link to ``user/security.md`` is emitted verbatim by MyST - a dead link
 in the rendered site.  The role body contains a slash, so the token regex
 claimed it and the lock failed on a page that is correct; ``path_tokens`` strips
 role spans first, and a lock-step test pins both halves.
+
+Changed in 2.1.7: the index is ``documentation/docs/index.md``, and a guide's href is
+its path from the page's folder.
+
 """
 
 from __future__ import annotations
 
 import importlib.util
+import os
 import re
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-INDEX = REPO_ROOT / "docs" / "index.md"
-DOCS = REPO_ROOT / "docs"
+INDEX = REPO_ROOT / "documentation" / "docs" / "index.md"
+DOCS = REPO_ROOT / "documentation" / "docs"
 GENERATOR = REPO_ROOT / "utilities" / "generate_docs_index.py"
 
 #: The manifest ships 30 first-party tools; a table that loses rows fails here.
@@ -186,7 +191,7 @@ class TestEveryDocsPageIsReachable:
     def test_every_tool_guide_is_named_by_the_index(self) -> None:
         """Each tool's Markdown guide appears in the generated table (P4.4)."""
         guides = sorted(
-            (REPO_ROOT / "user_guides" / "individual_programs").glob(
+            (REPO_ROOT / "documentation" / "user_guides" / "individual_programs").glob(
                 "*/*_User_Guide.md"
             )
         )
@@ -195,13 +200,22 @@ class TestEveryDocsPageIsReachable:
             "this lock would pass vacuously"
         )
         text = INDEX.read_text(encoding="utf-8")
+
+        def as_written(guide: Path) -> str:
+            """Return the href the page must carry for *guide*.
+
+            The index is rendered as the link a reader's relative path needs, not
+            as the repository-relative path: it sits in ``documentation/docs/``,
+            one level below the tree both documents live in, so the href is
+            ``../user_guides/...`` (AGENTS, Documentation Formats).
+            """
+            return Path(os.path.relpath(guide, INDEX.parent)).as_posix()
+
         missing = [
-            guide.relative_to(REPO_ROOT).as_posix()
-            for guide in guides
-            if guide.relative_to(REPO_ROOT).as_posix() not in text
+            as_written(guide) for guide in guides if as_written(guide) not in text
         ]
         assert not missing, (
-            "tool guides are not linked from docs/index.md (re-run "
+            "tool guides are not linked from documentation/docs/index.md (re-run "
             "`python utilities/generate_docs_index.py`):\n  " + "\n  ".join(missing)
         )
 

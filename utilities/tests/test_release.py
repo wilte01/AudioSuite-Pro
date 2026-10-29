@@ -19,6 +19,9 @@ of ``.`` - a host that has built the installer carries a vendored interpreter
 whose ``Lib/test`` fixtures are deliberately invalid, and the 2.1.6 cut stopped
 on it. ``TestTheGateCompilesTrackedFiles`` pins both directions, because
 "ignores broken files" is only half of a gate.
+
+Changed in 2.1.7: release fixtures place guides under ``documentation/user_guides/``.
+
 """
 
 from __future__ import annotations
@@ -84,7 +87,14 @@ document = Document()
 document.add_heading("Demo Tool User Guide", level=1)
 document.add_paragraph(f"Version {version} \\u2014 November 2026")
 document.save(
-    str(root / "user_guides" / "individual_programs" / "demo" / "Demo_User_Guide.docx")
+    str(
+        root
+        / "documentation"
+        / "user_guides"
+        / "individual_programs"
+        / "demo"
+        / "Demo_User_Guide.docx"
+    )
 )
 sys.exit(0)
 '''
@@ -332,6 +342,7 @@ class TestGuideDiscovery:
     def test_finds_only_labelled_guides(self, tmp_path: Path) -> None:
         labelled = (
             tmp_path
+            / "documentation"
             / "user_guides"
             / "individual_programs"
             / "demo"
@@ -348,6 +359,7 @@ class TestGuideDiscovery:
     def test_no_labelled_guide_fails_loudly(self, tmp_path: Path) -> None:
         unlabelled = (
             tmp_path
+            / "documentation"
             / "user_guides"
             / "individual_programs"
             / "other"
@@ -364,7 +376,7 @@ def release_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A throwaway repository whose lock step never shells out to uv."""
     (tmp_path / "pyproject.toml").write_text(PYPROJECT, encoding="utf-8")
     (tmp_path / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
-    demo = tmp_path / "user_guides" / "individual_programs" / "demo"
+    demo = tmp_path / "documentation" / "user_guides" / "individual_programs" / "demo"
     demo.mkdir(parents=True)
     (demo / "Demo_User_Guide.md").write_text("# demo\n", encoding="utf-8")
     utilities = tmp_path / "utilities"
@@ -422,6 +434,7 @@ class TestEndToEnd:
         )
         guide = (
             release_repo
+            / "documentation"
             / "user_guides"
             / "individual_programs"
             / "demo"
@@ -451,6 +464,7 @@ class TestEndToEnd:
             release_repo / "CHANGELOG.md",
             release_repo / "uv.lock",
             release_repo
+            / "documentation"
             / "user_guides"
             / "individual_programs"
             / "demo"
@@ -472,6 +486,7 @@ class TestEndToEnd:
             release_repo / "pyproject.toml",
             release_repo / "CHANGELOG.md",
             release_repo
+            / "documentation"
             / "user_guides"
             / "individual_programs"
             / "demo"

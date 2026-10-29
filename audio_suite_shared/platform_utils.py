@@ -11,6 +11,10 @@ Changed in 1.3.0: registers the Spectral Viewer's guide filename in
 ``guide_to_program`` so its Help button resolves the shipped .docx.
 Changed in 2.0.0: registers the Stem Separator's guide filename.
 Changed in 2.0.0: registers the ML Denoiser's guide filename (Item 6.2).
+
+Changed in 2.1.7: ``open_help`` resolves
+``documentation/user_guides/individual_programs/<tool>/``, the one documentation tree.
+
 """
 
 import logging
@@ -75,7 +79,7 @@ def open_path(path: str) -> None:
 
 def open_help(guide_filename: str) -> None:
     """
-    Open the named user-guide document from the centralized user_guides folder.
+    Open the named user-guide document from ``documentation/user_guides/``.
     Shows a friendly warning dialog if the file is not found.
 
     Args:
@@ -153,6 +157,7 @@ def open_help(guide_filename: str) -> None:
     # Check the new centralized location first
     help_file = (
         current_dir
+        / "documentation"
         / "user_guides"
         / "individual_programs"
         / program_name
@@ -172,7 +177,7 @@ def open_help(guide_filename: str) -> None:
             "Help File Not Found",
             f"The user guide could not be found at:\n{help_file}\n\n"
             f"Please ensure '{guide_filename}' is in the "
-            f"user_guides/individual_programs/{program_name}/ folder.",
+            f"documentation/user_guides/individual_programs/{program_name}/ folder.",
         )
         return
 

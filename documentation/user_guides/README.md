@@ -18,7 +18,7 @@ and the technical notes to [docs/resilience.md](../docs/resilience.md).
 The security guide moved to [docs/user/security.md](../docs/user/security.md):
 encrypted API keys and how to recover them, safe file selection, and what each
 security message means. The threat model and reporting route stay in
-[SECURITY.md](../SECURITY.md).
+[SECURITY.md](../../SECURITY.md).
 
 Do not add a second hand-written tool list here. The table in
 `docs/index.md` is generated from the tool manifest by

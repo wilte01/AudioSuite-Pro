@@ -33,7 +33,7 @@ helpers use Args/Returns sections, so the generated API reference renders them
 without docutils errors (PLAN D98).
 Changed in 2.1.0: the user-facing wording table is a module constant
 ``USER_MESSAGES`` instead of a dict rebuilt inside ``user_message_for`` on
-every call, so ``docs/user/messages.md`` can be locked against it
+every call, so ``documentation/docs/user/messages.md`` can be locked against it
 (PLAN_docs_consolidation, §6 retirement / D21).
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
@@ -542,8 +542,8 @@ def handle_audio_errors(
 
 #: The one translation table from an error class to a user-facing sentence.
 #: Keyed by class; ``user_message_for`` walks the MRO so the most specific
-#: match wins.  ``docs/user/messages.md`` renders this table for readers and
-#: ``audio_suite_shared/tests/test_exceptions.py`` fails when the page and
+#: match wins.  ``documentation/docs/user/messages.md`` renders this table for
+#: readers and ``audio_suite_shared/tests/test_exceptions.py`` fails when the page and
 #: the table disagree.
 USER_MESSAGES: dict[type, str] = {
     AudioFileNotFoundError: (

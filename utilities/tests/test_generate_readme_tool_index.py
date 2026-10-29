@@ -9,6 +9,9 @@ artifact, missing launcher), the registry-extraction failure, and the
 The ``if __name__ == "__main__":`` guard is excluded by the coverage config.
 
 Changed in 2.1.0: the fake registry exposes ``first_party``, which the generator walks.
+
+Changed in 2.1.7: the fixture tree is ``documentation/user_guides/``.
+
 """
 
 from __future__ import annotations
@@ -96,7 +99,9 @@ class TestRenderValidation:
     ) -> None:
         guide_name = ti.guide_filename_for("mystery", "Mystery_Tool.pyw")
         folder = "mystery_folder"
-        guide_dir = tmp_path / "user_guides" / "individual_programs" / folder
+        guide_dir = (
+            tmp_path / "documentation" / "user_guides" / "individual_programs" / folder
+        )
         guide_dir.mkdir(parents=True)
         (guide_dir / guide_name).write_text("guide", encoding="utf-8")
 

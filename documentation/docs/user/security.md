@@ -2,7 +2,7 @@
 
 This page describes what the suite does to protect your files and your API
 keys, and what to do when a security message appears. The reporting policy and
-the threat model live in [SECURITY.md](../../SECURITY.md); this page is the
+the threat model live in [SECURITY.md](../../../SECURITY.md); this page is the
 user-facing half.
 
 ## What the suite blocks
@@ -139,4 +139,4 @@ argument screen are in `audio_suite_shared/secure_subprocess.py`, and new
 subprocess call sites must use it — a raw `subprocess.run` in a tool package is
 a review finding. Its public functions are documented in the API reference.
 Threat-model details, the reporting route and what is intentionally out of scope
-are in [SECURITY.md](../../SECURITY.md).
+are in [SECURITY.md](../../../SECURITY.md).

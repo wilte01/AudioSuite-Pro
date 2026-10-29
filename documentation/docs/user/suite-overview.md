@@ -49,4 +49,4 @@ tool appears in the right tab without any UI code being edited.
 | What an error message means and where the logs are | {doc}`messages` |
 | How retries, failure handling and cleanup work | {doc}`../resilience` |
 | API keys, file handling, what the suite treats as untrusted | {doc}`security` |
-| Building the suite's own code | [contributing](../../CONTRIBUTING.md), {doc}`../api`, {doc}`../plugins` |
+| Building the suite's own code | [contributing](../../../CONTRIBUTING.md), {doc}`../api`, {doc}`../plugins` |

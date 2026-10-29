@@ -2,8 +2,9 @@
 
 PLAN_docs_consolidation P1.5. ``master_driver/utils/platform_utils.py`` held a
 second ``open_help`` that resolved a guide *next to the calling script*, so it
-could not find any guide in the centralised ``user_guides/`` tree. Nothing in the
-application called it - ``master_driver/app.py`` routes its Help button through
+could not find any guide in the centralised ``documentation/user_guides/`` tree.
+Nothing in the application called it - ``master_driver/app.py`` routes its Help
+button through
 ``_open_help_standard`` to ``audio_suite_shared.platform_utils.open_help`` - yet
 the module shipped and a test kept it alive, which is how a divergent second
 resolver survives: the Help-button path is only exercised through one of them.
@@ -19,6 +20,9 @@ fails loudly instead of passing vacuously.
 
 Changed in 2.1.0: new file - the deletion lock for the duplicate guide resolver
 (PLAN_docs_consolidation P1.5).
+
+Changed in 2.1.7: the retired resolver's message names ``documentation/user_guides/``.
+
 """
 
 from __future__ import annotations
@@ -92,7 +96,7 @@ class TestRetiredResolver:
             "master_driver/utils/platform_utils.py was deleted by "
             "PLAN_docs_consolidation P1.5: it held a second `open_help` that "
             "looked for a guide beside the calling script and could not resolve "
-            "the centralised user_guides/ tree. The Master Driver uses "
+            "the centralised documentation/user_guides/ tree. The Master Driver uses "
             "audio_suite_shared.platform_utils.open_help through "
             "_open_help_standard - put new behaviour there."
         )

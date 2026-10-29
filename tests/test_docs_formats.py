@@ -61,17 +61,20 @@ CODE = frozenset({".py"})
 
 APPROVED = AUTHORED | ARTEFACTS | CODE
 
-#: The documentation trees the whitelist governs.
-DOC_TREES = ("docs", "user_guides")
+#: The documentation tree the whitelist governs. Wider on purpose: every
+#: authored document in the repository lives under ``documentation/``, so a new
+#: subdirectory there is governed without editing this tuple (plan D20).
+DOC_TREES = ("documentation",)
 
 #: Every tracked path with one of these suffixes is scanned for absolute paths.
-SCAN_TREES = ("user_guides", "utilities", "docs")
+SCAN_TREES = ("documentation", "utilities")
 SCAN_SUFFIXES = frozenset({".py", ".md", ".rst", ".toml", ".yml", ".yaml", ".json"})
 
 #: The document locks CI runs together, before the full suite (D22). Each
 #: module's subject is a committed document: a guide artefact and its source,
-#: the ``docs/`` pages, the generated index and README tables, the changelog,
-#: the reference and deck's tool coverage, or the Help button's path resolution.
+#: the ``documentation/docs/`` pages, the generated index and README tables,
+#: the changelog, the reference and deck's tool coverage, or the Help button's
+#: path resolution.
 DOCS_LOCKS: tuple[str, ...] = (
     "tests/test_user_guide_hygiene.py",
     "tests/test_docs_formats.py",
@@ -167,16 +170,38 @@ class TestAuthoredFormatWhitelist:
             + "\n  ".join(sorted(rst))
         )
 
+    def test_the_former_roots_stay_retired(self) -> None:
+        """``docs/`` and ``user_guides/`` are inside ``documentation/`` now.
+
+        A half-revert is the likely regression: a new page written to a fresh
+        top-level ``docs/`` would compile, render and pass every other lock
+        while splitting the tree the review sweep relies on. The two new roots
+        are asserted to exist first, so this cannot pass on an empty tree.
+        """
+        for root in ("documentation/docs", "documentation/user_guides"):
+            assert (REPO_ROOT / root).is_dir(), f"missing documentation root: {root}"
+        strays = sorted(
+            name for name in ("docs", "user_guides") if (REPO_ROOT / name).exists()
+        )
+        assert not strays, (
+            "a documentation root exists at the repository root again: "
+            f"{', '.join(strays)}. Every document lives under documentation/ "
+            "(plan D20) - move the files rather than reintroducing a second "
+            "root."
+        )
+
     def test_docs_holds_no_generated_artefact(self, tracked: list[str]) -> None:
         """The Sphinx tree holds pages and its config, never an artefact."""
         artefacts = [
             path
             for path in tracked
-            if path.startswith("docs/") and Path(path).suffix.lower() in ARTEFACTS
+            if path.startswith("documentation/docs/")
+            and Path(path).suffix.lower() in ARTEFACTS
         ]
         assert not artefacts, (
-            "a generated artefact lives under docs/; artefacts belong beside "
-            "their source under user_guides/ (D7):\n  " + "\n  ".join(artefacts)
+            "a generated artefact lives under documentation/docs/; artefacts "
+            "belong beside their source under documentation/user_guides/ "
+            "(D7):\n  " + "\n  ".join(artefacts)
         )
 
 

@@ -16,6 +16,9 @@ Covers:
       states the requirement with the exact canonical wording, so the dialog a
       user sees and the guide they read cannot drift apart (plan A5; AGENTS.md
       §8 "generator is the source of truth").
+
+Changed in 2.1.7: guide artefacts are read from ``documentation/user_guides/``.
+
 """
 
 from __future__ import annotations
@@ -149,7 +152,14 @@ class TestGuideWordingLock:
     def _guide_text(tool: str, filename: str) -> str:
         import docx
 
-        path = _REPO_ROOT / "user_guides" / "individual_programs" / tool / filename
+        path = (
+            _REPO_ROOT
+            / "documentation"
+            / "user_guides"
+            / "individual_programs"
+            / tool
+            / filename
+        )
         document = docx.Document(str(path))
         return "\n".join(p.text for p in document.paragraphs)
 

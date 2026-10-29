@@ -5,9 +5,9 @@ Master Driver GUI. This page is the front door: every user guide, reference
 document and the shared package's API reference hang off it.
 
 If you are installing the suite for the first time, start with the
-[README](../README.md) — it covers prerequisites, the one-command smoke test
+[README](../../README.md) — it covers prerequisites, the one-command smoke test
 and the platform support matrix. What changed in this release is in the
-[changelog](../CHANGELOG.md).
+[changelog](../../CHANGELOG.md).
 
 ## User guides
 
@@ -72,7 +72,7 @@ tool entry in the manifest.
   failing run.
 * [New-user presentation](../user_guides/suite_overview/AudioSuite-Pro_New_User_Presentation.pptx)
   — a slide walkthrough of the suite.
-* [Installer build guide](../packaging/BUILD_INSTALLER.md) — building the
+* [Installer build guide](../../packaging/BUILD_INSTALLER.md) — building the
   Windows installer from a checkout.
 
 ## Reference
@@ -96,7 +96,7 @@ tool entry in the manifest.
   docstring fails the suite.
 * {doc}`plugins` — the plugin system: manifest, extension points, and a first
   plugin.
-* [Contributing](../CONTRIBUTING.md) — the gate, the test conventions, and the
+* [Contributing](../../CONTRIBUTING.md) — the gate, the test conventions, and the
   checklist for registering a new tool.
 * {doc}`resilience` — what happens when a file, a step or a
   batch fails: backoff policy, recovery actions, and resource cleanup.
@@ -107,7 +107,7 @@ The `PLAN_*.md` and `AUDIT_*.md` files at the repository root are the
 project's decision log: each records what was decided, the evidence behind it and
 what was deferred. They are history, not instructions — the rules that still
 apply live in the repository's `AGENTS.md` and in
-[CONTRIBUTING.md](../CONTRIBUTING.md), which ships with this documentation.
+[CONTRIBUTING.md](../../CONTRIBUTING.md), which ships with this documentation.
 
 * `PLAN_functional_backlog.md` — the current plan, and unstarted: the seven
   capability items the audit's market backlog deferred (scrubber APEv2 support,
@@ -123,7 +123,7 @@ apply live in the repository's `AGENTS.md` and in
 * `PLAN_docs_consolidation.md` — the plan before that (complete): consolidating
   this documentation into as few formats as possible.
 * `AUDIT_2026-10-24_suite_report.md` — the most recent full audit.
-* [CHANGELOG.md](../CHANGELOG.md) — the shipped history, by release.
+* [CHANGELOG.md](../../CHANGELOG.md) — the shipped history, by release.
 
 ```{toctree}
 :maxdepth: 2

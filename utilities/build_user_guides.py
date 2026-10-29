@@ -4,8 +4,9 @@ build_user_guides.py
 
 Renders every user guide and every reference page from its Markdown source.
 
-Source of truth:  ``user_guides/individual_programs/<tool>/<Guide>_User_Guide.md``
-                  ``user_guides/reference/<Page>.md``
+Source of truth:  ``documentation/user_guides/individual_programs/<tool>/
+                  <Guide>_User_Guide.md``
+                  ``documentation/user_guides/reference/<Page>.md``
 Artefact:         the ``.docx`` beside each source
 
 Both trees go through this one renderer, so the suite-wide reference pages are
@@ -56,6 +57,9 @@ user guide (PLAN_docs_consolidation P2.1).
 Changed in 2.1.4: renders ``user_guides/reference/*.md`` too, so the CLI
 commands reference has a committed ``.docx`` that the same script builds and
 ``--check`` drift-checks instead of a hand-maintained binary.
+Changed in 2.1.7: every document now lives under ``documentation/`` (``docs/``
+for the site, ``user_guides/`` for the shipped Word guides), so both roots are
+derived from one ``DOCUMENTATION_ROOT``.
 """
 
 from __future__ import annotations
@@ -77,10 +81,13 @@ from docx.table import _Cell
 from docx.text.paragraph import Paragraph
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-GUIDE_ROOT = REPO_ROOT / "user_guides" / "individual_programs"
+#: Every document the suite ships lives under ``documentation/``; this module is
+#: the only writer of the Word artefacts inside it.
+DOCUMENTATION_ROOT = REPO_ROOT / "documentation"
+GUIDE_ROOT = DOCUMENTATION_ROOT / "user_guides" / "individual_programs"
 #: Suite-wide reference pages (the CLI reference) rendered the same way, so a
 #: committed Word copy has a regeneration path and is drift-checked.
-REFERENCE_ROOT = REPO_ROOT / "user_guides" / "reference"
+REFERENCE_ROOT = DOCUMENTATION_ROOT / "user_guides" / "reference"
 
 #: Colour fills, matching the helpers the retired generators used.
 CALL_OUT_FILL = "FFF4CE"
@@ -499,7 +506,7 @@ def main(argv: list[str]) -> int:
     if wanted:
         sources = [s for s in sources if s.parent.name in wanted]
     if not sources:
-        print("[ERROR] no guide sources found under user_guides/")
+        print("[ERROR] no guide sources found under documentation/user_guides/")
         return 1
 
     print(f"[START] {'Checking' if check else 'Rebuilding'} {len(sources)} user guides")

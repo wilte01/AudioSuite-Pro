@@ -1,7 +1,7 @@
 """Lock: the suite's documentation names every first-party tool, and counts them right.
 
-The README's table and ``docs/index.md`` are generated from the tool manifest,
-so a new tool appears there by construction. Two artefacts are hand-written
+The README's table and ``documentation/docs/index.md`` are generated from the tool
+manifest, so a new tool appears there by construction. Two artefacts are hand-written
 prose over the same population, and both silently drifted: the CLI reference
 documented 8 of the 30 tools' commands, and the new-user presentation named 26
 of them - a reader could not learn that Tag Editor, Stem Separator, Spectral
@@ -13,7 +13,7 @@ This lock derives the population from the manifest rather than naming tools
 itself, so a tool added later fails here until the prose covers it:
 
 * every first-party tool has its own section heading in
-  ``user_guides/reference/CLI_Commands_Reference.md``;
+  ``documentation/user_guides/reference/CLI_Commands_Reference.md``;
 * the reference's *All Commands* table lists every command the CLI registers,
   sub-commands included;
 * every first-party tool's name appears in the generated presentation;
@@ -28,9 +28,12 @@ Changed in 2.1.5: new file - the coverage lock behind the 30-tool documentation
 repair (CLI reference and new-user deck), including the tool-count claims the
 shipped prose makes.
 Changed in 2.1.5: the count-claim walk reads *tracked* documents instead of
-walking the directories, so the generated ``docs/_build/`` tree - which stages a
-copy of the root documents beside the site, the historical ``CHANGELOG.md``
-among them - is no longer mistaken for shipped prose.
+walking the directories, so the generated ``documentation/docs/_build/`` tree -
+which stages a copy of the root documents beside the site, the historical
+``CHANGELOG.md`` among them - is no longer mistaken for shipped prose.
+
+Changed in 2.1.7: the count-claim walk covers ``documentation/`` as one tree.
+
 """
 
 from __future__ import annotations
@@ -49,9 +52,10 @@ from audio_suite_shared.platform_support import windows_only_tools
 from audio_suite_shared.tool_plugin import ToolManifest, get_registry
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-REFERENCE = REPO_ROOT / "user_guides/reference/CLI_Commands_Reference.md"
+REFERENCE = REPO_ROOT / "documentation/user_guides/reference/CLI_Commands_Reference.md"
 DECK = (
-    REPO_ROOT / "user_guides/suite_overview/AudioSuite-Pro_New_User_Presentation.pptx"
+    REPO_ROOT / "documentation/user_guides/suite_overview/"
+    "AudioSuite-Pro_New_User_Presentation.pptx"
 )
 
 #: The heading level the reference gives one tool.
@@ -78,14 +82,14 @@ def _tracked_markdown_under(directory: str) -> list[Path]:
     """Return every *tracked* Markdown document under *directory*.
 
     Tracked rather than walked: ``utilities/build_docs_site.py`` stages a copy
-    of the repository's root documents under ``docs/_build/`` - the historical
-    ``CHANGELOG.md`` among them, whose counts are frozen on purpose. Walking the
-    directory re-admitted those generated copies, so the lock went red for
+    of the repository's root documents under ``documentation/docs/_build/`` - the
+    historical ``CHANGELOG.md`` among them, whose counts are frozen on purpose.
+    Walking the directory re-admitted those generated copies, so the lock went red for
     anyone who had run the documented build step, naming a file they had not
     touched.
 
     Args:
-        directory: A repo-relative directory name, e.g. ``"docs"``.
+        directory: A repo-relative directory name, e.g. ``"documentation"``.
 
     Returns:
         Sorted paths of the tracked ``.md`` files beneath it.
@@ -110,8 +114,9 @@ def _count_documents() -> tuple[Path, ...]:
         REPO_ROOT / "README.md",
         REPO_ROOT / "CONTRIBUTING.md",
         REPO_ROOT / "SECURITY.md",
-        *_tracked_markdown_under("docs"),
-        *_tracked_markdown_under("user_guides"),
+        # One tree covers both the site's pages and the shipped guides: every
+        # authored document lives under ``documentation/`` (plan D20).
+        *_tracked_markdown_under("documentation"),
     )
 
 
@@ -340,17 +345,17 @@ class TestToolCountClaims:
     """
 
     def test_generated_build_output_is_not_treated_as_shipped_prose(self) -> None:
-        """A staged copy under ``docs/_build/`` is not a document to police.
+        """A staged copy under the build tree is not a document to police.
 
         ``utilities/build_docs_site.py`` writes the site *and* stages copies of
         the root documents beside it, so the historical ``CHANGELOG.md`` - whose
         "26 separate windows" is correct for the release it describes - landed
-        under ``docs/`` and was read as a live claim. Ageing the deck and the
-        changelog then looked like a regression in a file the author never
+        under the documentation tree and was read as a live claim. Ageing the deck
+        and the changelog then looked like a regression in a file the author never
         edited. The walk follows tracked documents; this proves it by planting
         an untracked one where the build actually puts them.
         """
-        probe = REPO_ROOT / "docs" / "_build" / "_lock_probe.md"
+        probe = REPO_ROOT / "documentation" / "docs" / "_build" / "_lock_probe.md"
         probe.parent.mkdir(parents=True, exist_ok=True)
         probe.write_text(
             "A suite of 999 Windows desktop tools and 999 tools.\n", encoding="utf-8"

@@ -6,7 +6,8 @@ Sphinx, and the reference covered 11 of the 62 shared modules. A naive
 docutils-only scan is *not* a substitute — it reports Sphinx roles
 (``:func:``, ``:class:``) as unknown and Napoleon ``Args:`` blocks as broken
 indentation, so it would have failed on correct docstrings and taught everyone
-to ignore it. This test therefore runs the real builder on the real ``docs/``
+to ignore it. This test therefore runs the real builder on the real
+``documentation/docs/``
 tree, with the shipped ``conf.py`` (autodoc + napoleon configured exactly as the
 published pages are), and fails on any warning.
 
@@ -24,6 +25,10 @@ resolve. ``TestTheCertifiedBuildIsTheDelivery`` holds the workflow to that
 tree: the test job stages and uploads it, and there is deliberately no Pages
 deploy while publication is blocked (D9). `AGENTS.md` is not staged - it is the
 repository's instruction file, not an end-user document (D13).
+
+Changed in 2.1.7: the Sphinx source is ``documentation/docs/`` and the staged pages keep
+that depth, so ``../../README.md`` resolves.
+
 """
 
 from __future__ import annotations
@@ -44,7 +49,7 @@ from tests.ci_workflow import step as ci_step
 from tests.ci_workflow import workflow_text
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DOCS = REPO_ROOT / "docs"
+DOCS = REPO_ROOT / "documentation" / "docs"
 
 #: The staging step both this module and CI run (PLAN_feature_expansion D7).
 STAGER = REPO_ROOT / "utilities" / "build_docs_site.py"
@@ -60,7 +65,11 @@ MIN_CHECKED_LINKS = 200
 
 
 def _build(tmp_path: Path) -> tuple[list[str], Path]:
-    """Build ``docs/`` into *tmp_path* and return ``(warnings, outdir)``."""
+    """Build the documentation source into *tmp_path*.
+
+    Returns:
+        The Sphinx warnings and the directory the pages were written to.
+    """
     outdir = tmp_path / "html"
     doctreedir = tmp_path / "doctrees"
     status = io.StringIO()
@@ -190,7 +199,7 @@ class TestPublishedTreeIsSelfContained:
 
     def test_every_internal_link_resolves(self, published: Path) -> None:
         """No page may link outside the publish root or to a missing file."""
-        pages = sorted((published / "html").rglob("*.html"))
+        pages = sorted((published / "documentation" / "docs").rglob("*.html"))
         assert len(pages) >= 8, f"only {len(pages)} pages staged - the walk is broken"
 
         checked = 0
@@ -216,11 +225,14 @@ class TestPublishedTreeIsSelfContained:
         )
 
     def test_the_publish_root_opens_on_the_front_door(self, published: Path) -> None:
-        """The root ``index.html`` redirects into ``html/``."""
+        """The root ``index.html`` redirects to the staged pages."""
         redirect = published / "index.html"
         assert redirect.is_file(), "the publish root has no index.html"
-        assert "url=html/" in redirect.read_text(encoding="utf-8")
-        assert (published / "html" / "index.html").is_file()
+        # The pages keep the checkout's depth (documentation/docs), because the
+        # pages link repository-root files with ``../../``; a shallower publish
+        # root would make every such link escape the artifact.
+        assert "url=documentation/docs/" in redirect.read_text(encoding="utf-8")
+        assert (published / "documentation" / "docs" / "index.html").is_file()
 
     def test_every_staged_target_exists(self, published: Path) -> None:
         """Each file and directory the stager names is really in the tree."""
@@ -249,7 +261,7 @@ class TestPublishedTreeIsSelfContained:
 
     def test_the_doctrees_stay_out_of_the_publish_root(self, published: Path) -> None:
         """Sphinx's build cache must not ship in the artifact (D8)."""
-        assert not (published / "html" / ".doctrees").exists(), (
+        assert not (published / "documentation" / "docs" / ".doctrees").exists(), (
             "sphinx wrote .doctrees inside the published pages; the staging step "
             "must pass -d outside the publish root"
         )
@@ -273,7 +285,7 @@ class TestTheCertifiedBuildIsTheDelivery:
         upload = ci_step(block, "Upload the documentation site")
 
         assert "name: docs-html" in upload, upload
-        assert "path: docs/_build/" in upload, upload
+        assert "path: documentation/docs/_build/" in upload, upload
         assert "if-no-files-found: error" in upload, (
             "an empty artifact would look like success; the upload must fail"
         )

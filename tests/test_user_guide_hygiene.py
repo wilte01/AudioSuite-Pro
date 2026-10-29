@@ -5,14 +5,15 @@ reproducible from a committed generator script, and no backup or superseded
 artifact may remain tracked. These locks convert that into an enforced
 invariant so the tree cannot silently rot again:
 
-1. *Source lock* - every tracked ``.docx``/``.pptx`` under ``user_guides/``
+1. *Source lock* - every tracked ``.docx``/``.pptx`` under
+   ``documentation/user_guides/``
    is either rendered from a Markdown source beside it, or written by a
    committed generator, or one of three named files awaiting retirement. A
    hand-edited guide with no source is undetectable after the fact, which is
    how the Tempo Analyzer guide drifted out of date for years; a new binary
    fails this lock until someone gives it a source deliberately.
 2. *Backup lock* - no ``*.bak``/``*.bak*`` file is tracked anywhere under
-   ``user_guides/``. These are dead weight that can never be regenerated or
+   the documentation tree. These are dead weight that can never be regenerated or
    reviewed, and they silently mask the fact that a guide is stale.
 3. *Logging-guide lock* - no ``*_Logging_Guide.docx`` is tracked. The
    per-tool logging guides were superseded by the in-app log files and the
@@ -41,7 +42,7 @@ six ``.docx`` with no generator at all are dispositioned per file in
 PLAN_docs_consolidation (§6); the byte-level freshness check for every artefact
 lands with P4.1.
 Changed in 2.1.0: lock (1) now covers **every** tracked ``.docx``/``.pptx`` in
-``user_guides/``, not just ``individual_programs/``, so a new binary can no
+the guide tree, not just ``individual_programs/``, so a new binary can no
 longer appear outside the rendered tree (PLAN_docs_consolidation P4.1). The
 three files still awaiting retirement are listed with a reason, and the list
 length is asserted, so it cannot quietly grow. Designed artefacts (the
@@ -51,6 +52,9 @@ code, not prose, and a Markdown source for it would be a lossy duplicate.
 
 Changed in 2.1.4: the source scan also covers ``user_guides/reference/*.md``,
 so the CLI reference's Word copy is freshness-checked exactly like a tool guide.
+
+Changed in 2.1.7: the guide tree is ``documentation/user_guides/``.
+
 """
 
 from __future__ import annotations
@@ -64,7 +68,7 @@ from typing import Any
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-GUIDE_ROOT = REPO_ROOT / "user_guides" / "individual_programs"
+GUIDE_ROOT = REPO_ROOT / "documentation" / "user_guides" / "individual_programs"
 
 #: The one renderer every guide artefact comes from.
 RENDERER = REPO_ROOT / "utilities" / "build_user_guides.py"
@@ -105,7 +109,7 @@ def _markdown_sources() -> list[Path]:
     Returns:
         Source paths, sorted.
     """
-    user_guides = REPO_ROOT / "user_guides"
+    user_guides = REPO_ROOT / "documentation" / "user_guides"
     return sorted(
         [
             *user_guides.glob("individual_programs/*/*_User_Guide.md"),
@@ -153,8 +157,8 @@ class TestGeneratorHygiene:
     #: Artefacts written by a committed generator rather than a Markdown source.
     GENERATOR_BACKED: frozenset[str] = frozenset(
         {
-            "user_guides/suite_overview/LOGGING_SYSTEM_GUIDE.docx",
-            "user_guides/suite_overview/AudioSuite-Pro_New_User_Presentation.pptx",
+            "documentation/user_guides/suite_overview/LOGGING_SYSTEM_GUIDE.docx",
+            "documentation/user_guides/suite_overview/AudioSuite-Pro_New_User_Presentation.pptx",
         }
     )
 
@@ -193,7 +197,7 @@ class TestGeneratorHygiene:
         artefacts = [
             path
             for path in tracked
-            if path.startswith("user_guides/")
+            if path.startswith("documentation/user_guides/")
             and Path(path).suffix in {".docx", ".pptx"}
             # ``git ls-files`` still lists a file deleted but not yet committed;
             # a deletion cannot carry a Markdown source, so the lock judges the
@@ -277,15 +281,15 @@ class TestNoBackupArtifacts:
     """Backup copies of guides are never a deliverable."""
 
     def test_no_backup_files_tracked(self, tracked: list[str]) -> None:
-        """No ``.bak`` file is tracked under user_guides/."""
+        """No ``.bak`` file is tracked under the user-guide tree."""
         offenders = [
             path
-            for path in _under(tracked, REPO_ROOT / "user_guides")
+            for path in _under(tracked, REPO_ROOT / "documentation" / "user_guides")
             if ".bak" in Path(path).name
         ]
         assert not offenders, (
-            "tracked backup files under user_guides/ - regenerate the guide "
-            "from its generator instead of keeping a .bak copy:\n  "
+            "tracked backup files under documentation/user_guides/ - regenerate "
+            "the guide from its generator instead of keeping a .bak copy:\n  "
             + "\n  ".join(offenders)
         )
 
@@ -564,11 +568,11 @@ class TestSuiteOverviewGenerators:
     #: (generator path, artefact filename) pairs this lock holds to.
     BACKED_ARTEFACTS: tuple[tuple[str, str], ...] = (
         (
-            "user_guides/suite_overview/generate_logging_system_guide.py",
+            "documentation/user_guides/suite_overview/generate_logging_system_guide.py",
             "LOGGING_SYSTEM_GUIDE.docx",
         ),
         (
-            "user_guides/suite_overview/generate_presentation.py",
+            "documentation/user_guides/suite_overview/generate_presentation.py",
             "AudioSuite-Pro_New_User_Presentation.pptx",
         ),
     )

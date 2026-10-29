@@ -50,6 +50,10 @@ zip-entry checks are unchanged - they still judge the artefact a user opens.
 Changed in 2.1.6: the import block is re-sorted against the corrected ruff
 target py311 — ``tomllib`` is 3.11 standard library
 (R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
+
+Changed in 2.1.7: the version-labelled guide scan reads
+``documentation/user_guides/individual_programs/``.
+
 """
 
 from __future__ import annotations
@@ -313,7 +317,9 @@ def version_labelled_guides(root: Path) -> list[Path]:
             vacuously (AGENTS: an empty scan must fail loudly).
     """
     guides = sorted(
-        (root / "user_guides" / "individual_programs").glob("*/*_User_Guide.docx")
+        (root / "documentation" / "user_guides" / "individual_programs").glob(
+            "*/*_User_Guide.docx"
+        )
     )
     labelled = [path for path in guides if guide_version_label(path) is not None]
     if not labelled:

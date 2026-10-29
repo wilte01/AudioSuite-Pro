@@ -16,9 +16,12 @@ Place this file at:
     AudioSuite-Pro/audio_suite_shared/tests/test_exceptions.py
 ─────────────────────────────────────────────────────────────────────────────
 Changed in 2.1.0: ``TestUserMessagesDocumentation`` pins
-``docs/user/messages.md`` to ``USER_MESSAGES`` and to the real log filename
-and directory override, so the retired Message Guide cannot come back as a
+``documentation/docs/user/messages.md`` to ``USER_MESSAGES`` and to the real
+log filename and directory override, so the retired Message Guide cannot come back as a
 hand-written page that drifts from the code.
+
+Changed in 2.1.7: the messages page moved to ``documentation/docs/user/messages.md``.
+
 """
 
 from __future__ import annotations
@@ -1095,7 +1098,7 @@ class TestDecoratorIntegration:
 
 
 class TestUserMessagesDocumentation:
-    """``docs/user/messages.md`` renders the translation table, and cannot drift.
+    """``documentation/docs/user/messages.md`` renders it, and cannot drift.
 
     The page exists because the retired *Message Guide* `.docx` listed log files
     and dialogs that no longer exist, with nothing tying it to the code. The
@@ -1105,7 +1108,13 @@ class TestUserMessagesDocumentation:
     """
 
     #: The page a reader is sent to when a message needs explaining.
-    PAGE = Path(__file__).resolve().parents[2] / "docs" / "user" / "messages.md"
+    PAGE = (
+        Path(__file__).resolve().parents[2]
+        / "documentation"
+        / "docs"
+        / "user"
+        / "messages.md"
+    )
 
     def test_every_message_and_type_is_on_the_page(self) -> None:
         """Each entry's sentence *and* class name appear on the page."""
@@ -1123,7 +1132,7 @@ class TestUserMessagesDocumentation:
             if message not in page:
                 missing.append(f"{error_type.__name__}: {message!r} not on the page")
         assert not missing, (
-            "docs/user/messages.md is out of step with USER_MESSAGES "
+            "documentation/docs/user/messages.md is out of step with USER_MESSAGES "
             "(update the page, not the table):\n  " + "\n  ".join(missing)
         )
 

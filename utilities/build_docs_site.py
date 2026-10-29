@@ -1,17 +1,19 @@
 """Stage the documentation site: one build, one copy list, one publish root.
 
 The rendered pages link repository files with a checkout-relative prefix -
-``docs/index.md`` names ``../README.md`` and ``docs/user/security.md`` names
-``../../SECURITY.md`` - and Sphinx keeps a page's depth in the output, so those
-hrefs only resolve when the publish root has the same shape as the checkout.
-This module builds the site and stages that shape:
+``documentation/docs/index.md`` names ``../../README.md`` and
+``documentation/docs/user/security.md`` names ``../../../SECURITY.md`` - and
+Sphinx keeps a page's depth in the output, so those hrefs only resolve when the
+publish root has the same shape as the checkout. This module builds the site and
+stages that shape:
 
 ```text
-docs/_build/
-    index.html          redirect to html/ (the front door of an extracted zip)
-    html/               the Sphinx output
-    user_guides/        copied, because every tool row links ../user_guides/...
-    packaging/          copied, because the index links ../packaging/...
+documentation/docs/_build/
+    index.html              redirect to documentation/docs/ (front door of a zip)
+    documentation/docs/     the Sphinx output
+    documentation/user_guides/  copied, because every tool row links
+                            ../user_guides/... from a page one level down
+    packaging/              copied, because the index links ../../packaging/...
     README.md  CHANGELOG.md  CONTRIBUTING.md  SECURITY.md
 ```
 
@@ -41,6 +43,10 @@ self-containment lock (PLAN_feature_expansion.md D7, D8). ``AGENTS.md`` is not
 staged: it is the repository's instruction file for people working in the
 checkout, not an end-user document, and the artifact is handed to whoever opens
 the zip (D13).
+
+Changed in 2.1.7: the publish root mirrors the checkout: pages at
+``documentation/docs/``, guides at ``documentation/user_guides/``.
+
 """
 
 from __future__ import annotations
@@ -65,8 +71,11 @@ STAGED_FILES: tuple[str, ...] = (
     "SECURITY.md",
 )
 
-#: Directories copied wholesale beside ``html/``.
-STAGED_DIRS: tuple[str, ...] = ("user_guides", "packaging")
+#: Directories copied wholesale into the publish root, keyed by their
+#: repository-relative path so the published tree keeps the checkout's shape.
+#: ``documentation/user_guides`` is what a page at
+#: ``documentation/docs/<page>.html`` reaches with ``../user_guides/...``.
+STAGED_DIRS: tuple[str, ...] = ("documentation/user_guides", "packaging")
 
 #: Written at the publish root so the artifact opens at its front door. A bare
 #: project URL has no index page of its own and the pages live in ``html/``.
@@ -75,18 +84,21 @@ ROOT_REDIRECT = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <title>AudioSuite-Pro documentation</title>
-<meta http-equiv="refresh" content="0; url=html/">
-<link rel="canonical" href="html/">
+<meta http-equiv="refresh" content="0; url=documentation/docs/">
+<link rel="canonical" href="documentation/docs/">
 </head>
 <body>
-<p>The documentation is at <a href="html/">html/</a>.</p>
+<p>The documentation is at <a href="documentation/docs/">documentation/docs/</a>.</p>
 </body>
 </html>
 """
 
 
 def build_site(root: Path, out: Path) -> int:
-    """Build ``docs/`` into ``<out>/html`` and return the page count.
+    """Build the Sphinx source into ``<out>/documentation/docs``.
+
+    The output keeps the checkout's depth below the publish root, so a page's
+    ``../../README.md`` reaches the staged copy at ``<out>/README.md``.
 
     Args:
         root: The repository root.
@@ -98,7 +110,7 @@ def build_site(root: Path, out: Path) -> int:
     Raises:
         RuntimeError: If Sphinx is missing or the build fails.
     """
-    html = out / "html"
+    html = out / "documentation" / "docs"
     if html.exists():
         shutil.rmtree(html)
     doctrees = Path(tempfile.mkdtemp(prefix="audiosuite-doctrees-"))
@@ -113,7 +125,7 @@ def build_site(root: Path, out: Path) -> int:
                 "-q",
                 "-d",
                 str(doctrees),
-                str(root / "docs"),
+                str(root / "documentation" / "docs"),
                 str(html),
             ],
             cwd=str(root),
@@ -156,7 +168,7 @@ def stage(root: Path, out: Path) -> Path:
     """
     out.mkdir(parents=True, exist_ok=True)
     pages = build_site(root, out)
-    print(f"[OK] built {pages} pages into {out / 'html'}")
+    print(f"[OK] built {pages} pages into {out / 'documentation' / 'docs'}")
 
     for name in STAGED_FILES:
         source = root / name
@@ -172,11 +184,12 @@ def stage(root: Path, out: Path) -> Path:
         target = out / name
         if target.exists():
             shutil.rmtree(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(source, target)
         print(f"[OK] staged {name}/")
 
     (out / "index.html").write_text(ROOT_REDIRECT, encoding="utf-8", newline="\n")
-    print("[OK] wrote index.html (redirect to html/)")
+    print("[OK] wrote index.html (redirect to documentation/docs/)")
     return out
 
 
@@ -195,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--out",
         default=None,
-        help="Publish root (default: <root>/docs/_build)",
+        help="Publish root (default: <root>/documentation/docs/_build)",
     )
     parser.add_argument(
         "--root",
@@ -205,7 +218,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     root = Path(args.root).resolve() if args.root else REPO_ROOT
-    out = Path(args.out).resolve() if args.out else root / "docs" / "_build"
+    out = (
+        Path(args.out).resolve()
+        if args.out
+        else root / "documentation" / "docs" / "_build"
+    )
 
     print(f"[START] staging the documentation site into {out}")
     try:

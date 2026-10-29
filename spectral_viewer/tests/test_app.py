@@ -5,6 +5,9 @@ Built on a withdrawn ``Toplevel`` off the shared hidden Tk root (never a real
 spectrogram computation all run. Only the dialogs are stubbed.
 
 Changed in 1.3.0: initial version (PLAN_feature_expansion.md Item 3.1).
+
+Changed in 2.1.7: the Help guide resolves under ``documentation/user_guides/``.
+
 """
 
 from __future__ import annotations
@@ -333,6 +336,7 @@ class TestGuide:
         repo_root = Path(__file__).resolve().parents[2]
         guide = (
             repo_root
+            / "documentation"
             / "user_guides"
             / "individual_programs"
             / "spectral_viewer"

@@ -466,13 +466,19 @@ jobs:
         # Changed in 2.1.1: the build and the copy list are one implementation
         # now, utilities/build_docs_site.py (PLAN_feature_expansion D7). The
         # pages link repository files with checkout-relative prefixes, so the
-        # artifact needs the checkout's shape: html/ plus user_guides/,
-        # packaging/ and the five root documents beside it, and an index.html
-        # that lands an extracted zip on the front door (D5). Doing that in two
-        # places - a shell heredoc here and a Python fixture in the lock - is
-        # how a lock ends up certifying a tree nobody publishes. The doctrees
-        # directory is built outside the publish root: a plain sphinx-build puts
-        # 1.9 MB of pickles in html/.doctrees, which would ship (D8).
+        # artifact needs the checkout's shape: documentation/docs/ plus
+        # documentation/user_guides/, packaging/ and the root documents beside
+        # it, and an index.html that lands an extracted zip on the front door
+        # (D5). Doing that in two places - a shell heredoc here and a Python
+        # fixture in the lock - is how a lock ends up certifying a tree nobody
+        # publishes. The doctrees directory is built outside the publish root: a
+        # plain sphinx-build puts 1.9 MB of pickles beside the pages, which
+        # would ship (D8).
+        #
+        # Changed in 2.1.7: the depth is load-bearing, not cosmetic. The pages
+        # now sit at documentation/docs/ so a link to a repository-root file
+        # (../../README.md) still resolves after the docs tree moved under
+        # documentation/ - see plan D20.
         #
         # The suite still owns correctness: tests/test_docs_build.py fails on
         # any parser warning, and it runs before this step.
@@ -481,7 +487,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: docs-html
-          path: docs/_build/
+          path: documentation/docs/_build/
           # A build that produced no pages would be a green step publishing
           # nothing; fail the job instead.
           if-no-files-found: error

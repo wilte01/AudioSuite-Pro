@@ -7,11 +7,12 @@ below; there is no Markdown source because a slide layout is code rather
 than prose (PLAN_docs_consolidation D20).
 
 Usage:
-    python user_guides/suite_overview/generate_presentation.py
+    python documentation/user_guides/suite_overview/generate_presentation.py
 
 Changed in 2.1.0: the closing slide points at the pages that now own the
-content it used to name (the Suite Overview, ``docs/resilience.md`` and the
-security page); the three orphan guides it referenced were retired.
+content it used to name (the Suite Overview,
+``documentation/docs/resilience.md`` and the security page); the three orphan
+guides it referenced were retired.
 
 Changed in 2.1.5: the deck covers all 30 tools. Tag Editor, Stem Separator,
 Spectral Viewer and ML Denoiser were missing from every slide, the format
@@ -23,6 +24,9 @@ said 26 while the suite shipped 30.
 
 Changed in 1.1.0: the Audio Enhancer slide now names all four presets and
 describes the Custom DSP editor window instead of the old inline sliders.
+
+Changed in 2.1.7: the closing slide names paths inside ``documentation/``.
+
 """
 
 from __future__ import annotations
@@ -2398,7 +2402,7 @@ def slide_next_steps(prs: Presentation, number: int) -> None:
     add_title(
         slide,
         "Where to Go Next",
-        "docs/index.md is the front door - guides, reference and the API",
+        "documentation/docs/index.md is the front door - guides, reference and the API",
     )
     add_textbox(
         slide,
@@ -2410,14 +2414,14 @@ def slide_next_steps(prs: Presentation, number: int) -> None:
             Line(
                 "Each tool's own User Guide - every setting, default "
                 "value, and step-by-step walkthrough "
-                "(user_guides/individual_programs/)",
+                "(documentation/user_guides/individual_programs/)",
                 size=15,
                 space_after=10,
                 marker="\u2022",
             ),
             Line(
                 "The Suite Overview - how the 30 tools are grouped, and "
-                "which one to reach for (docs/user/suite-overview.md)",
+                "which one to reach for (documentation/docs/user/suite-overview.md)",
                 size=15,
                 space_after=10,
                 marker="\u2022",
@@ -2431,21 +2435,21 @@ def slide_next_steps(prs: Presentation, number: int) -> None:
             ),
             Line(
                 "Retries, failure handling and cleanup - what happens when "
-                "a file or a batch step fails (docs/resilience.md)",
+                "a file or a batch step fails (documentation/docs/resilience.md)",
                 size=15,
                 space_after=10,
                 marker="\u2022",
             ),
             Line(
                 "Security - API keys, credentials, and safe file handling "
-                "(docs/user/security.md)",
+                "(documentation/docs/user/security.md)",
                 size=15,
                 space_after=10,
                 marker="\u2022",
             ),
             Line(
                 "The CLI Commands Reference - every command and option "
-                "(user_guides/reference/CLI_Commands_Reference.md)",
+                "(documentation/user_guides/reference/CLI_Commands_Reference.md)",
                 size=15,
                 space_after=10,
                 marker="\u2022",
