@@ -12,6 +12,11 @@ of the tracks (ReplayGain 2.0-compatible), not the arithmetic mean of their
 integrated loudness. A 10 s -10 LUFS track and a 30 s -30 LUFS track used to
 count equally, which put a +4.0 dB album gain on a pair whose combined signal
 is -15.9 LUFS (audit R-01).
+Changed in 2.1.7: ``album_lufs`` accepts the one-pass measurement of the
+concatenated album, which is ReplayGain 2.0's actual definition. The
+duration-weighted formula remains the fallback for a folder whose combined
+signal could not be measured (A1 measured it 2.33 dB out on a silent tail and
+3.00 dB out on a loud + quiet pair).
 """
 
 import math
@@ -43,14 +48,16 @@ def calculate_album_gain(
     lufs_values: list[float],
     peak_values: list[float],
     durations_s: list[float],
+    album_lufs: float | None = None,
 ) -> tuple[float, float, str, str]:
     """
     Derive album gain and album peak from per-file measurements.
 
-    Album loudness = ``10·log10(Σ 10^(Lᵢ/10)·dᵢ / Σ dᵢ)`` — the mean-square
-    energy of the tracks, weighted by each track's duration. Album gain is
-    ``target_lufs − album loudness``; album peak is the loudest linear true
-    peak across the files.
+    Album loudness is ``album_lufs`` when the caller measured the concatenated
+    album in one pass; otherwise it is ``10·log10(Σ 10^(Lᵢ/10)·dᵢ / Σ dᵢ)`` —
+    the mean-square energy of the tracks, weighted by each track's duration.
+    Album gain is ``target_lufs − album loudness``; album peak is the loudest
+    linear true peak across the files.
 
     Args:
         target_lufs:  Desired integrated loudness level (e.g. -16.0).
@@ -60,6 +67,8 @@ def calculate_album_gain(
             ``lufs_values``.
         durations_s:  Per-file durations in seconds, one per LUFS value.
             Every entry must be finite and positive.
+        album_lufs:   Optional integrated loudness of the album's combined
+            signal, measured in one pass. Must be finite when supplied.
 
     Returns:
         (album_gain, album_peak, album_gain_str, album_peak_str).
@@ -68,8 +77,8 @@ def calculate_album_gain(
 
     Raises:
         AudioSuiteError: If a list is empty, the duration list does not match
-            ``lufs_values``, a duration is not finite/positive, or the summed
-            energy is not positive.
+            ``lufs_values``, a duration is not finite/positive, ``album_lufs``
+            is not finite, or the summed energy is not positive.
     """
     if not lufs_values:
         raise AudioSuiteError(
@@ -96,18 +105,25 @@ def calculate_album_gain(
             context={"target_lufs": target_lufs, "durations_s": durations_s},
         )
 
-    total_duration = sum(durations_s)
-    energy = sum(
-        10 ** (lufs / 10) * duration
-        for lufs, duration in zip(lufs_values, durations_s, strict=True)
-    )
-    if energy <= 0:
+    if album_lufs is not None and not math.isfinite(album_lufs):
         raise AudioSuiteError(
-            "calculate_album_gain: the summed track energy must be positive",
-            context={"target_lufs": target_lufs, "energy": energy},
+            "calculate_album_gain: album_lufs must be finite",
+            context={"target_lufs": target_lufs, "album_lufs": album_lufs},
         )
 
-    album_lufs = 10 * math.log10(energy / total_duration)
+    if album_lufs is None:
+        total_duration = sum(durations_s)
+        energy = sum(
+            10 ** (lufs / 10) * duration
+            for lufs, duration in zip(lufs_values, durations_s, strict=True)
+        )
+        if energy <= 0:
+            raise AudioSuiteError(
+                "calculate_album_gain: the summed track energy must be positive",
+                context={"target_lufs": target_lufs, "energy": energy},
+            )
+        album_lufs = 10 * math.log10(energy / total_duration)
+
     album_gain: float = target_lufs - album_lufs
     album_peak: float = max(dbfs_to_linear(peak) for peak in peak_values)
     return (

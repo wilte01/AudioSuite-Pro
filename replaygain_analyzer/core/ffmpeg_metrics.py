@@ -13,6 +13,11 @@ FFmpeg resolution order (Windows)
 
 On non-Windows the system 'ffmpeg' is always used.
 
+Changed in 2.1.7: ``measure_album_loudness`` measures a folder as one
+concatenated signal in a single pass — ReplayGain 2.0's actual album definition
+— and returns ``None`` so the caller falls back to the duration-weighted formula
+only when that read fails (A1).
+
 Changed in 2.1.2: returns the file's duration as a third measurement. Album
 ReplayGain is the loudness of the album's combined signal, so it needs each
 track's length, not just its integrated loudness (audit R-01). The duration is
@@ -26,6 +31,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 from audio_suite_shared.constants import WORKER_TIMEOUT_SECS
 from audio_suite_shared.secure_subprocess import (
@@ -128,6 +134,102 @@ def _probe_duration_seconds(file_path: str) -> float | None:
     ) as exc:
         logger.warning("Could not read the duration of %s: %s", file_path, exc)
         return None
+
+
+def _concat_list_line(path: str) -> str:
+    """Format one FFmpeg concat-demuxer ``file`` directive.
+
+    FFmpeg's demuxer uses single-quoted entries and doubles nothing: a literal
+    quote is written as ``'\\''``. Paths use forward slashes so the directive
+    is identical on Windows and POSIX hosts.
+
+    Args:
+        path: Absolute path to the audio file.
+
+    Returns:
+        One ``file '<path>'`` line, newline-terminated.
+    """
+    escaped = os.path.normpath(path).replace("\\", "/").replace("'", "'\\''")
+    return f"file '{escaped}'\n"
+
+
+def measure_album_loudness(paths: list[str]) -> float | None:
+    """Measure a folder's tracks as one combined signal, in a single pass.
+
+    ReplayGain 2.0 defines album loudness as the integrated loudness of the
+    album's combined signal, so the FFmpeg concat demuxer feeds every track
+    through ``ebur128`` as one stream. This is a second decode of the album
+    (Phase 1 already decodes each track for its own measurement), which is the
+    cost the approximation traded away; A1's benchmark measured the accuracy it
+    bought and found the weighted formula 2.33 dB out on a silent-tail album and
+    3.00 dB out on a 20 s loud + 20 s quiet pair
+    (``tests/test_file_processor.py::TestAlbumGainBenchmark``).
+
+    Args:
+        paths: Absolute paths of the folder's tracks, in album order.
+
+    Returns:
+        The combined integrated loudness in LUFS, or ``None`` when FFmpeg could
+        not measure it (the caller then falls back to the duration-weighted
+        formula rather than failing the folder's tag write).
+    """
+    if not paths:
+        return None
+
+    handle = tempfile.NamedTemporaryFile(
+        "w", suffix=".concat.txt", delete=False, encoding="utf-8"
+    )
+    try:
+        with handle as stream:
+            for path in paths:
+                stream.write(_concat_list_line(path))
+        ffmpeg = _get_ffmpeg_exe()
+        result = run_secure_subprocess(
+            ffmpeg,
+            [
+                "-hide_banner",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                handle.name,
+                "-af",
+                "ebur128=peak=true",
+                "-f",
+                "null",
+                "-",
+            ],
+            capture_output=True,
+            encoding="utf-8",
+            errors="ignore",
+            timeout=WORKER_TIMEOUT_SECS,
+            check=False,
+        )
+        matches = re.findall(r"I:\s+([-+]?\d+\.?\d*)\s+LUFS", result.stderr)
+        if not matches:
+            logger.warning(
+                "ffmpeg returned no combined album loudness for %d tracks "
+                "(exit code %d); falling back to duration weighting",
+                len(paths),
+                result.returncode,
+            )
+            return None
+        return float(matches[-1])
+    except (
+        FileNotFoundError,
+        SubprocessSecurityError,
+        OSError,
+        ValueError,
+        subprocess.TimeoutExpired,
+    ) as exc:
+        logger.warning("Could not measure the combined album signal: %s", exc)
+        return None
+    finally:
+        try:
+            os.unlink(handle.name)
+        except OSError:
+            pass
 
 
 def get_metrics(file_path: str) -> tuple[float | None, float, float | None]:

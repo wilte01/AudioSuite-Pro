@@ -14,6 +14,8 @@ Changed in 2.1.2: each measurement now carries the file's duration, and the
 per-folder album gain is energy-weighted by it instead of averaging per-track
 loudness (audit R-01). A file whose duration cannot be read is reported as a
 per-file error rather than weighted with a guessed length.
+Changed in 2.1.7: a folder is measured once as a concatenated signal (A1), and
+the energy-weighted value is only the fallback when that pass cannot run.
 """
 
 from __future__ import annotations
@@ -44,7 +46,7 @@ try:
 except ImportError:  # pragma: no cover
     from audio_suite_shared.exceptions import MutagenError  # type: ignore[assignment]
 
-from .ffmpeg_metrics import get_metrics
+from .ffmpeg_metrics import get_metrics, measure_album_loudness
 from .gain_calculator import calculate_album_gain, dbfs_to_linear
 from .tag_writer import write_replaygain_tags
 
@@ -163,15 +165,29 @@ def _write_worker(job: _WriteJob) -> None:
         peak_values = [f["peak"] for f in job.files_data]
         durations_s = [f["duration_s"] for f in job.files_data]
 
+        # ReplayGain 2.0's album loudness is the combined signal's, so measure
+        # the folder in one extra pass. The duration-weighted formula is only a
+        # fallback for a folder whose combined signal cannot be read; A1's
+        # benchmark measured it 2.33 dB out on a mostly-silent track and 3.00 dB
+        # out on a loud + quiet pair (TestAlbumGainBenchmark).
+        combined_lufs = measure_album_loudness([f["path"] for f in job.files_data])
         album_gain, album_peak, album_gain_str, album_peak_str = calculate_album_gain(
-            job.target_lufs, lufs_values, peak_values, durations_s
+            job.target_lufs,
+            lufs_values,
+            peak_values,
+            durations_s,
+            album_lufs=combined_lufs,
+        )
+        route = (
+            "combined signal"
+            if combined_lufs is not None
+            else "duration-weighted fallback"
         )
 
         log_header = (
             f"\nFOLDER: {job.folder_path}\n"
-            f"ALBUM STATS -> Gain: {album_gain_str} | Peak: {album_peak_str}\n"
-            + "-" * 65
-            + "\n"
+            f"ALBUM STATS -> Gain: {album_gain_str} | Peak: {album_peak_str}"
+            f" | measured from: {route}\n" + "-" * 65 + "\n"
         )
 
         tag_results: list[Any] = []
