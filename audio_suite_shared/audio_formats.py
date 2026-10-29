@@ -6,6 +6,10 @@ eliminating scattered definitions and ensuring format compatibility.
 
 Changed in 1.1.0: widened SUPPORTED_EXTENSIONS with .wv/.ape/.mpc/.spx/.dsf and added
 READ_ONLY_EXTENSIONS plus is_read_only_extension().
+Changed in 2.1.7: adds ``preserve_depth_params``, so a writer that re-encodes a
+lossless file pins the source's integer bit depth instead of leaving it to
+FFmpeg's encoder default (a 24-bit WAV came back as 16-bit). F-10's sweep locks
+the outcome on decoded files.
 """
 
 from __future__ import annotations
@@ -171,6 +175,69 @@ def get_export_args(ext: str) -> tuple[str, list[str]]:
         Tuple of pydub format string and ffmpeg parameter list.
     """
     return PYDUB_FORMAT.get(ext.lower(), ("mp3", ["-q:a", "0"]))
+
+
+#: Lossless extensions whose stream stores an integer bit depth, mapped to the
+#: FFmpeg PCM codec for each source depth in bytes.  FFmpeg's WAV/AIFF muxers
+#: default to 16-bit PCM, so without this pin a 24-bit source was silently
+#: truncated to 16 bits on every in-place rewrite (F-10).
+_DEPTH_CODECS: dict[str, dict[int, str]] = {
+    ".wav": {2: "pcm_s16le", 3: "pcm_s24le", 4: "pcm_s32le"},
+    ".aiff": {2: "pcm_s16be", 3: "pcm_s24be", 4: "pcm_s32be"},
+    ".aif": {2: "pcm_s16be", 3: "pcm_s24be", 4: "pcm_s32be"},
+}
+
+
+def source_bit_depth(file_path: str) -> int | None:
+    """Return a lossless file's declared integer bit depth, if readable.
+
+    Args:
+        file_path: Absolute path to the audio file.
+
+    Returns:
+        ``info.bits_per_sample`` for the containers that declare one, or
+        ``None`` when mutagen cannot read the file or the format does not
+        carry a depth.
+    """
+    try:
+        from mutagen import File as MutagenFile
+
+        audio = MutagenFile(file_path)
+    except Exception:
+        return None
+    info = getattr(audio, "info", None)
+    bits = getattr(info, "bits_per_sample", None)
+    return bits if isinstance(bits, int) and bits > 0 else None
+
+
+def preserve_depth_params(ext: str, file_path: str) -> list[str]:
+    """FFmpeg arguments that keep a lossless source's integer bit depth.
+
+    A pydub export passes no sample-format argument, so FFmpeg picks its
+    encoder default: the WAV/AIFF muxers write 16-bit PCM whatever came in.
+    This returns the codec that matches the source file's declared depth, so an
+    in-place rewrite does not reduce it.  Lossy containers carry no meaningful
+    depth and return an empty list, as does a source whose depth cannot be
+    read (the pre-pin behaviour rather than a guess).
+
+    Args:
+        ext: File extension including the leading dot (e.g. '.wav').
+        file_path: Absolute path to the source file being rewritten.
+
+    Returns:
+        Arguments to append to the export parameters; empty when no pin applies.
+    """
+    ext = ext.lower()
+    if ext not in _DEPTH_CODECS and ext != ".flac":
+        return []
+    bits = source_bit_depth(file_path)
+    if bits is None or bits <= 16:
+        return []
+    if ext == ".flac":
+        # FLAC stores at most 24 bits; s32 is FFmpeg's 24-bit sample format.
+        return ["-sample_fmt", "s32"]
+    codec = _DEPTH_CODECS[ext].get((bits + 7) // 8)
+    return ["-c:a", codec] if codec else []
 
 
 # ── Bitrate constants for MP3 VBR/CBR ────────────────────────────────────────

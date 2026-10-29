@@ -5,6 +5,10 @@ is_compressed_extension, get_format_type
 
 Changed in 1.1.0: added coverage for the five new formats and the read-only extension
 set.
+
+Changed in 2.1.7: ``preserve_depth_params``/``source_bit_depth`` are locked — a
+24-bit WAV must export as ``pcm_s24le`` and a lossy target must get no pin
+(F-10).
 """
 
 import pytest
@@ -295,3 +299,104 @@ class TestGetFormatType:
         for ext in SUPPORTED_EXTENSIONS + (".pdf", ".jpg", ""):
             result = get_format_type(f"file{ext}")
             assert result in valid, f"Unexpected return value '{result}' for file{ext}"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# preserve_depth_params (F-10): a lossless rewrite must not drop bit depth
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestPreserveDepthParams:
+    """The export arguments that keep a lossless source's integer depth."""
+
+    @pytest.mark.parametrize("ext", [".mp3", ".ogg", ".m4a", ".mp4", ".opus", ".spx"])
+    def test_lossy_containers_get_no_depth_pin(self, ext, monkeypatch):
+        from audio_suite_shared import audio_formats
+
+        monkeypatch.setattr(audio_formats, "source_bit_depth", lambda _path: 32)
+        assert audio_formats.preserve_depth_params(ext, "track" + ext) == []
+
+    @pytest.mark.parametrize("ext", [".wav", ".aiff", ".aif", ".flac"])
+    def test_unreadable_depth_gets_no_pin(self, ext, monkeypatch):
+        from audio_suite_shared import audio_formats
+
+        monkeypatch.setattr(audio_formats, "source_bit_depth", lambda _path: None)
+        assert audio_formats.preserve_depth_params(ext, "track" + ext) == []
+
+    @pytest.mark.parametrize("ext", [".wav", ".aiff", ".aif", ".flac"])
+    def test_sixteen_bit_keeps_the_encoder_default(self, ext, monkeypatch):
+        from audio_suite_shared import audio_formats
+
+        monkeypatch.setattr(audio_formats, "source_bit_depth", lambda _path: 16)
+        assert audio_formats.preserve_depth_params(ext, "track" + ext) == []
+
+    @pytest.mark.parametrize(
+        "ext,expected_codec",
+        [
+            (".wav", "pcm_s24le"),
+            (".aiff", "pcm_s24be"),
+            (".aif", "pcm_s24be"),
+        ],
+    )
+    def test_twenty_four_bit_pins_the_matching_pcm_codec(
+        self, ext, expected_codec, monkeypatch
+    ):
+        from audio_suite_shared import audio_formats
+
+        monkeypatch.setattr(audio_formats, "source_bit_depth", lambda _path: 24)
+        assert audio_formats.preserve_depth_params(ext, "track" + ext) == [
+            "-c:a",
+            expected_codec,
+        ]
+
+    @pytest.mark.parametrize("ext,expected_codec", [(".wav", "pcm_s32le")])
+    def test_thirty_two_bit_pins_the_matching_pcm_codec(
+        self, ext, expected_codec, monkeypatch
+    ):
+        from audio_suite_shared import audio_formats
+
+        monkeypatch.setattr(audio_formats, "source_bit_depth", lambda _path: 32)
+        assert audio_formats.preserve_depth_params(ext, "track" + ext) == [
+            "-c:a",
+            expected_codec,
+        ]
+
+    def test_flac_uses_the_24_bit_sample_format(self, monkeypatch):
+        from audio_suite_shared import audio_formats
+
+        monkeypatch.setattr(audio_formats, "source_bit_depth", lambda _path: 24)
+        assert audio_formats.preserve_depth_params(".flac", "track.flac") == [
+            "-sample_fmt",
+            "s32",
+        ]
+
+    def test_extension_lookup_is_case_insensitive(self, monkeypatch):
+        from audio_suite_shared import audio_formats
+
+        monkeypatch.setattr(audio_formats, "source_bit_depth", lambda _path: 24)
+        assert audio_formats.preserve_depth_params(".WAV", "track.WAV") == [
+            "-c:a",
+            "pcm_s24le",
+        ]
+
+
+class TestSourceBitDepth:
+    """``source_bit_depth`` reads the container's declared depth."""
+
+    def test_unreadable_file_returns_none(self, tmp_path):
+        from audio_suite_shared.audio_formats import source_bit_depth
+
+        bogus = tmp_path / "not-audio.wav"
+        bogus.write_bytes(b"not audio")
+        assert source_bit_depth(str(bogus)) is None
+
+    def test_non_depth_format_returns_none(self, tmp_path):
+        from pydub import AudioSegment
+
+        from audio_suite_shared.audio_formats import source_bit_depth
+
+        path = tmp_path / "track.mp3"
+        AudioSegment.silent(duration=100, frame_rate=32000).export(
+            str(path), format="mp3"
+        )
+        assert source_bit_depth(str(path)) is None

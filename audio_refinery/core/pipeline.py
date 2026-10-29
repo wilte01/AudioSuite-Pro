@@ -5,6 +5,10 @@ Single-file pipeline processor for Audio Refinery.
 Decode once → declick → trim → noise reduction → enhance → encode once →
 normalise (FFmpeg)
 
+Changed in 2.1.7: the final encode goes through ``get_export_args``, which pins
+a lossless source's PCM bit depth - a 24-bit WAV used to come back 16-bit
+(F-10).
+
 All stages operate on in-memory audio; the file is only written once,
 at the very end of the in-memory chain.  If the normaliser stage is
 active it runs FFmpeg on the already-written temp file — this is
@@ -42,7 +46,10 @@ from typing import Any, Callable, Optional
 # ── Third-party imports ─────────────────────────────────────────────────────
 from pydub import AudioSegment
 
-from audio_suite_shared.audio_formats import pydub_export_for_source
+from audio_suite_shared.audio_formats import (
+    preserve_depth_params,
+    pydub_export_for_source,
+)
 from audio_suite_shared.batch_undo import record_tag_edit_snapshot
 from audio_suite_shared.dsp_chain import (
     apply_enhancement_chain,
@@ -507,6 +514,9 @@ def _write_output(
         ffmpeg_write(audio_np, sr, tmp_path, bitrate_kbps=src_bitrate)
     else:
         fmt, params = pydub_export_for_source(ext, src_bitrate, src_is_vbr)
+        # A lossless source's depth must survive the rewrite; FFmpeg's WAV/
+        # AIFF encoders would otherwise default a 24-bit source to 16-bit.
+        params = [*params, *preserve_depth_params(ext, str(source_path))]
         audio.export(str(tmp_path), format=fmt, parameters=params)
 
 

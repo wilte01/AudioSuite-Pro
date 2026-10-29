@@ -4,6 +4,10 @@ file_processor_base.py — Base file processor class for Audio Suite application
 Provides common infrastructure for parallel file processing, eliminating duplication
 across multiple applications while preserving all existing functionality.
 
+Changed in 2.1.7: in-place writes pass ``preserve_depth_params``, so a lossless
+source keeps its bit depth instead of falling back to FFmpeg's 16-bit default
+(F-10).
+
 Changed in 1.0.1: the in-place error path now reports
 ``user_message_for(map_to_audio_error(exc))`` instead of the raw ``str(exc)``,
 so internal paths/details no longer leak into the display and log callbacks.
@@ -36,6 +40,7 @@ from .audio_formats import (
     SUPPORTED_EXTENSIONS,
     get_export_args,
     is_read_only_extension,
+    preserve_depth_params,
 )
 from .batch_undo import (
     get_active_batch_id,
@@ -755,6 +760,13 @@ class BaseFileProcessor:
                 if not is_dry_run:
                     slot_vars[slot_idx].set(f"Exporting: {name[:25]}...")
                     fmt, export_params = get_export_args(ext)
+                    # Pin a lossless source's bit depth: FFmpeg's WAV/AIFF
+                    # encoders default to 16-bit and silently truncated a
+                    # 24-bit source on every in-place rewrite (F-10).
+                    export_params = [
+                        *export_params,
+                        *preserve_depth_params(ext, full_path),
+                    ]
                     outcome.audio.export(
                         temp_output, format=fmt, parameters=export_params
                     )
