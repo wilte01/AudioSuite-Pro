@@ -7,6 +7,8 @@ BaseFileProcessor infrastructure while preserving identical behaviour.
 Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
 when not supplied (PLAN D56).
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -109,7 +111,7 @@ def _normalize_single_file(
             if updated:
                 display = f"[UPDATED] {name} → {outcome}"
                 log_line = f"[UPDATED] {name} | {outcome}\n"
-                logger.info("[UPDATED] %s — %s", name, outcome)
+                logger.info("[UPDATED] %s - %s", name, outcome)
                 with lock:
                     on_progress(
                         n_skipped=0, n_errors=0, display_text=display, log_text=log_line

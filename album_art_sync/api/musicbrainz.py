@@ -2,6 +2,8 @@
 musicbrainz.py — MusicBrainz release lookup.
 Pure network logic; logging via injected callback.
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 import logging
 from typing import Callable
@@ -40,7 +42,7 @@ def query(
         List of release-group UUID strings (may be empty on failure).
     """
     try:
-        log("  → Querying MusicBrainz...")
+        log("  -> Querying MusicBrainz...")
         response = http.get(
             "https://musicbrainz.org/ws/2/release",
             params={
@@ -62,17 +64,17 @@ def query(
         ]
 
         if rg_ids:
-            log(f"    ✓ Found {len(rg_ids)} release group(s)")
+            log(f"    [OK] Found {len(rg_ids)} release group(s)")
         else:
-            log("    ✗ No releases found")
+            log("    [X] No releases found")
         return rg_ids
 
     except requests.Timeout:
-        log("    ✗ MusicBrainz timeout")
+        log("    [X] MusicBrainz timeout")
     except requests.RequestException as exc:
-        log(f"    ✗ MusicBrainz error: {exc}")
+        log(f"    [X] MusicBrainz error: {exc}")
     except (KeyError, ValueError) as exc:
         mapped = map_to_audio_error(exc)
         logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
-        log(f"    ✗ Unexpected error: {exc}")
+        log(f"    [X] Unexpected error: {exc}")
     return []

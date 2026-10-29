@@ -3,6 +3,8 @@ itunes.py — iTunes Store album art lookup.
 Candidates are filtered and ranked via ``filter_and_rank()`` before being
 passed to the selection callback.
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -37,7 +39,7 @@ def query(
     the name filter and the minimum-dimension threshold reach *on_pick*.
     """
     try:
-        log("  → Querying iTunes Store...")
+        log("  -> Querying iTunes Store...")
         response = http.get(
             "https://itunes.apple.com/search",
             params={"term": f"{artist} {album}", "entity": "album"},
@@ -56,7 +58,7 @@ def query(
         ]
 
         if not raw_items:
-            log("    ✗ No results found")
+            log("    [X] No results found")
             return None
 
         ranked = filter_and_rank(
@@ -69,18 +71,18 @@ def query(
             log=log,
         )
         if not ranked:
-            log("    ✗ No candidates passed guardrails")
+            log("    [X] No candidates passed guardrails")
             return None
 
-        log(f"    ✓ {len(ranked)} candidate(s) passed guardrails")
+        log(f"    [OK] {len(ranked)} candidate(s) passed guardrails")
         return on_pick(ranked, artist, "iTunes Store")
 
     except requests.Timeout:
-        log("    ✗ iTunes timeout")
+        log("    [X] iTunes timeout")
     except requests.RequestException as exc:
-        log(f"    ✗ iTunes error: {exc}")
+        log(f"    [X] iTunes error: {exc}")
     except (KeyError, ValueError) as exc:
         mapped = map_to_audio_error(exc)
         logger.error("%s: %s", type(mapped).__name__, mapped, exc_info=True)
-        log(f"    ✗ Unexpected error: {exc}")
+        log(f"    [X] Unexpected error: {exc}")
     return None

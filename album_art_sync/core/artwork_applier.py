@@ -8,6 +8,8 @@ Changed in 1.0.1: the per-file and outer catches now include AudioSuiteError,
 which embed_artwork raises (via handle_audio_errors(reraise=True)), so one
 un-embeddable file no longer aborts the rest of the album.
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 # ── Standard library imports ─────────────────────────────────────────────────
 import io
@@ -115,7 +117,7 @@ def apply(
                 if i % batch_size == 0 or i == len(files) - 1:
                     on_file_progress(i + 1)
 
-            log("  ✓ Artwork embedded in all files")
+            log("  [OK] Artwork embedded in all files")
         else:
             log(f"  [Dry Run] Would embed artwork in {len(files)} files")
 
@@ -124,5 +126,5 @@ def apply(
     except (OSError, ValueError, AudioSuiteError) as exc:
         mapped = map_to_audio_error(exc, context={"operation": "artwork_apply"})
         logger.error("Artwork apply failed: %s", mapped, exc_info=True)
-        log(f"  ✗ Error applying artwork: {user_message_for(mapped)}")
+        log(f"  [X] Error applying artwork: {user_message_for(mapped)}")
         return False

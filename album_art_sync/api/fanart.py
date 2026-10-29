@@ -3,6 +3,8 @@ fanart.py — Fanart.tv album art lookup.
 Candidates are filtered and ranked via ``filter_and_rank()`` before being
 passed to the selection callback, regardless of run mode.
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -47,19 +49,19 @@ def query(
 
     app_key = fanart_config.get("app_key", "")
     if not app_key:
-        log("  → Fanart.tv: No API key configured")
+        log("  -> Fanart.tv: No API key configured")
         return None
 
     client_key = fanart_config.get("client_key", "")
 
-    log("  → Querying Fanart.tv...")
+    log("  -> Querying Fanart.tv...")
     for rg_id in mb_rg_ids:
         if cancel_flag():
             return None
 
         sanitized_rg_id = InputValidator.sanitize_api_input(rg_id)
         if not sanitized_rg_id:
-            log("    ✗ Invalid MusicBrainz ID format")
+            log("    [X] Invalid MusicBrainz ID format")
             continue
 
         try:
@@ -95,25 +97,25 @@ def query(
                         log=log,
                     )
                     if ranked:
-                        log(f"    ✓ {len(ranked)} candidate(s) passed guardrails")
+                        log(f"    [OK] {len(ranked)} candidate(s) passed guardrails")
                         img_data = on_pick(ranked, artist, "Fanart.tv")
                         if img_data:
                             return img_data
 
         except requests.exceptions.SSLError as exc:
             error_msg = SecureErrorHandler.handle_network_error(exc, "Fanart.tv")
-            log(f"    ✗ {error_msg}")
+            log(f"    [X] {error_msg}")
         except requests.exceptions.Timeout as exc:
             error_msg = SecureErrorHandler.handle_network_error(exc, "Fanart.tv")
-            log(f"    ✗ {error_msg}")
+            log(f"    [X] {error_msg}")
         except requests.exceptions.RequestException as exc:
             error_msg = SecureErrorHandler.handle_api_error(exc, "Fanart.tv")
-            log(f"    ✗ {error_msg}")
+            log(f"    [X] {error_msg}")
         except (KeyError, ValueError) as exc:
             mapped = map_to_audio_error(exc)
             logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
             error_msg = SecureErrorHandler.handle_error(exc, "Fanart.tv lookup")
-            log(f"    ✗ {error_msg}")
+            log(f"    [X] {error_msg}")
 
-    log("    ✗ No covers found on Fanart.tv")
+    log("    [X] No covers found on Fanart.tv")
     return None

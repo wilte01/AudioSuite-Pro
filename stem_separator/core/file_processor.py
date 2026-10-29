@@ -29,6 +29,8 @@ Counter semantics
 
 Changed in 2.0.0: initial version (Sprint 6, Item 6.1).
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -259,7 +261,7 @@ def run_stem_separation(
     # use, and why" without re-reading the Setup tab; the reason is what makes a
     # CPU fallback auditable (a CPU-only torch build and a missing driver are
     # different problems with different fixes).
-    logger.info("Stem separation device: %s — %s", device.label(), device.reason)
+    logger.info("Stem separation device: %s - %s", device.label(), device.reason)
     processor = _build_processor()
 
     try:

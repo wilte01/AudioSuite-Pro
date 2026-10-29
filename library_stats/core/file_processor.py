@@ -5,7 +5,12 @@ Walks a directory tree, reads existing tags from every audio file
 (via tag_helper_reader), and aggregates into a StatsReport.
 
 Supports an optional SQLite-backed cache (LibraryCache) for incremental
-scanning: only re-reads tags for files whose mtime has changed.
+scanning: only re-reads tags for files whose ``(mtime, size)`` stamp has
+changed.
+
+Changed in 2.1.7: the cached scan compares the ``(mtime, size)`` stamp
+(``get_cached_stamps``) instead of the mtime alone, so a file replaced with its
+timestamps preserved is re-read rather than reported from stale tags (R-13).
 
 All statistics are derived from tags already written by suite tools.
 No re-analysis is performed.
@@ -574,15 +579,17 @@ def _scan_directory_cached(
 
     known_paths: set[str] = {f[0] for f in current_files}
 
-    # One scoped read of every cached path→mtime, instead of one indexed
+    # One scoped read of every cached path→stamp, instead of one indexed
     # single-row query per file: 20 000 files cost 12.9 ms this way against
     # 98 ms for 20 000 ``file_is_cached`` calls.  ``normcase`` keys match a
-    # walk result to its cached row when only the case differs.
-    cached_mtimes: dict[str, float] = {}
+    # walk result to its cached row when only the case differs.  The stamp is
+    # ``(mtime, size)``: an mtime-only comparison counted a file replaced with
+    # its timestamps preserved as unchanged and served its pre-edit tags (R-13).
+    cached_stamps: dict[str, tuple[float, int | None]] = {}
     if not refresh:
-        cached_mtimes = {
-            os.path.normcase(path): mtime
-            for path, mtime in cache_obj.get_cached_mtimes(dir_path).items()
+        cached_stamps = {
+            os.path.normcase(path): stamp
+            for path, stamp in cache_obj.get_cached_stamps(dir_path).items()
         }
 
     # Read tags only on a cache miss, and commit the whole pass once rather
@@ -590,7 +597,7 @@ def _scan_directory_cached(
     # 20 000 rows).
     with cache_obj.batch():
         for full, ext, mtime, size in current_files:
-            if cached_mtimes.get(os.path.normcase(full)) == mtime:
+            if cached_stamps.get(os.path.normcase(full)) == (mtime, size):
                 continue
 
             try:

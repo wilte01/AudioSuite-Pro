@@ -12,6 +12,8 @@ the art is keyed on, so album-name fuzzy matching is skipped. A 404 is the
 service's normal "no art for this release" answer and is logged as a miss,
 not an error.
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -89,17 +91,17 @@ def query(
         lookups.append(("release-group", rg_id))
 
     if not lookups:
-        log("  → Cover Art Archive: no MusicBrainz ids available")
+        log("  -> Cover Art Archive: no MusicBrainz ids available")
         return None
 
-    log("  → Querying Cover Art Archive...")
+    log("  -> Querying Cover Art Archive...")
     for kind, mbid in lookups:
         if cancel_flag():
             return None
 
         sanitized = InputValidator.sanitize_api_input(mbid)
         if not sanitized:
-            log("    ✗ Invalid MusicBrainz ID format")
+            log("    [X] Invalid MusicBrainz ID format")
             continue
 
         try:
@@ -110,10 +112,10 @@ def query(
             )
             if response.status_code == 404:
                 # The archive's normal "no art for this release" answer.
-                log(f"    ✗ No cover art found for {kind} {sanitized}")
+                log(f"    [X] No cover art found for {kind} {sanitized}")
                 continue
             if response.status_code != 200:
-                log(f"    ✗ Cover Art Archive error (HTTP {response.status_code})")
+                log(f"    [X] Cover Art Archive error (HTTP {response.status_code})")
                 continue
             payload = response.json()
             # A well-formed body is an object; anything else (HTML error page
@@ -122,21 +124,21 @@ def query(
             images = payload.get("images", []) if isinstance(payload, dict) else []
         except requests.exceptions.SSLError as exc:
             error_msg = SecureErrorHandler.handle_network_error(exc, "CAA")
-            log(f"    ✗ {error_msg}")
+            log(f"    [X] {error_msg}")
             continue
         except requests.exceptions.Timeout as exc:
             error_msg = SecureErrorHandler.handle_network_error(exc, "CAA")
-            log(f"    ✗ {error_msg}")
+            log(f"    [X] {error_msg}")
             continue
         except requests.exceptions.RequestException as exc:
             error_msg = SecureErrorHandler.handle_api_error(exc, "CAA")
-            log(f"    ✗ {error_msg}")
+            log(f"    [X] {error_msg}")
             continue
         except (KeyError, ValueError) as exc:
             mapped = map_to_audio_error(exc)
             logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
             error_msg = SecureErrorHandler.handle_error(exc, "CAA lookup")
-            log(f"    ✗ {error_msg}")
+            log(f"    [X] {error_msg}")
             continue
 
         if not images:
@@ -155,10 +157,10 @@ def query(
             log=log,
         )
         if ranked:
-            log(f"    ✓ {len(ranked)} candidate(s) passed guardrails")
+            log(f"    [OK] {len(ranked)} candidate(s) passed guardrails")
             img_data = on_pick(ranked, artist, "Cover Art Archive")
             if img_data:
                 return img_data
 
-    log("    ✗ No covers found on Cover Art Archive")
+    log("    [X] No covers found on Cover Art Archive")
     return None

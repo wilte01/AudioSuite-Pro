@@ -52,6 +52,8 @@ Usage:
 By default this WRITES the log file directly (per user instruction — no
 dry-run by default). Pass --dry-run to preview without writing.
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -166,7 +168,7 @@ def build_log_for_directory(
 
     log_path = directory / LOG_FILENAME
     if log_path.exists():
-        print(f"  [SKIP] {log_path} already exists — not overwriting.")
+        print(f"  [SKIP] {log_path} already exists - not overwriting.")
         return 0
 
     audio_files = sorted(

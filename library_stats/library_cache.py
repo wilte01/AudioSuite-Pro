@@ -74,6 +74,14 @@ running ``INSTR`` over every row (PLAN D97).  The rule is the measured one in
 :meth:`LibraryCache.scope_plan_kind`; a wide scope keeps the sequential scan,
 because the index loses at whole-library selectivity.
 
+Changed in 2.1.7: freshness is the stamp ``(mtime, size)``, not the mtime
+alone (R-13).  A file replaced by a copy that preserves its timestamps keeps
+its mtime, so an mtime-only comparison answered "cached" for a file whose tags
+had never been read and the report served pre-edit values.  ``get_cached_stamps``
+is what a scan compares; ``file_is_cached`` takes the size as an optional third
+argument (omitting it keeps the coarse answer, which now says so in its
+docstring).
+
 Changed in 1.0.1: the cache database is created (or one-time converted on
 connect) with ``auto_vacuum=FULL``, so delete-heavy operations
 (``remove_orphans``/``clear_dir``/``clear_all``/``INSERT OR REPLACE``) return
@@ -190,6 +198,16 @@ _SCOPED_MTIMES_INDEXED = (
 )
 _SCOPED_MTIMES_SEQUENTIAL = (
     "SELECT path, mtime FROM files WHERE INSTR(LOWER(path), LOWER(?)) = 1"
+)
+# The freshness stamp a scan compares against.  ``size`` is not decoration: a
+# file replaced with an identical mtime (a copy that preserves timestamps, a
+# same-second rewrite, a restored backup) is a different file, and mtime alone
+# cannot see it (R-13).
+_SCOPED_STAMPS_INDEXED = (
+    "SELECT path, mtime, size FROM files WHERE path_fold >= ? AND path_fold < ?"
+)
+_SCOPED_STAMPS_SEQUENTIAL = (
+    "SELECT path, mtime, size FROM files WHERE INSTR(LOWER(path), LOWER(?)) = 1"
 )
 _SCOPED_HASHES_INDEXED = (
     "SELECT path_hash FROM files WHERE path_fold >= ? AND path_fold < ?"
@@ -473,13 +491,38 @@ class LibraryCache:
         else:
             conn.execute(_POPULATE_SCOPE_SEQUENTIAL, [self._path_prefix(dir_path)])
 
-    def file_is_cached(self, filepath: str, mtime: float) -> bool:
-        """Return True if *filepath* is cached and its mtime matches."""
+    def file_is_cached(
+        self, filepath: str, mtime: float, size: int | None = None
+    ) -> bool:
+        """Return True if *filepath* is cached and its stamp matches.
+
+        A freshness stamp is ``(mtime, size)``, not the mtime alone: a file
+        replaced by a copy that preserves its timestamps keeps its mtime, so an
+        mtime-only comparison answers "cached" for a file whose tags were never
+        read (R-13).
+
+        Args:
+            filepath: The file whose row is being checked.
+            mtime: The current ``st_mtime``.
+            size: The current ``st_size``.  Pass it - omitting it keeps the
+                coarse mtime-only answer, which is only appropriate when the
+                size is genuinely unknown.
+
+        Returns:
+            True when the stored row matches.  A stored ``size`` of NULL never
+            matches a supplied size, so a legacy row is re-read once and heals.
+        """
         conn = self._connect()
-        cur = conn.execute(
-            "SELECT 1 FROM files WHERE path_hash = ? AND mtime = ?",
-            [_path_hash(filepath), mtime],
-        )
+        if size is None:
+            cur = conn.execute(
+                "SELECT 1 FROM files WHERE path_hash = ? AND mtime = ?",
+                [_path_hash(filepath), mtime],
+            )
+        else:
+            cur = conn.execute(
+                "SELECT 1 FROM files WHERE path_hash = ? AND mtime = ? AND size = ?",
+                [_path_hash(filepath), mtime, size],
+            )
         return cur.fetchone() is not None
 
     def get_cached_mtimes(self, dir_path: str) -> dict[str, float]:
@@ -492,6 +535,11 @@ class LibraryCache:
 
         The statement follows :meth:`scope_plan_kind`: a narrow scope reads the
         ``path_fold`` index, a wide one keeps the sequential predicate.
+
+        This is the mtime *view*, and that is all it is: a freshness decision
+        made from it alone is the R-13 defect.  A scan compares
+        :meth:`get_cached_stamps` instead; the two share one plan and one row
+        set, so this costs nothing extra where only the mtime is wanted.
         """
         conn = self._connect()
         if self._plan_for(dir_path) == "indexed":
@@ -502,6 +550,28 @@ class LibraryCache:
         else:
             cur = conn.execute(_SCOPED_MTIMES_SEQUENTIAL, [self._path_prefix(dir_path)])
         return {row[0]: row[1] for row in cur}
+
+    def get_cached_stamps(self, dir_path: str) -> dict[str, tuple[float, int | None]]:
+        """Return ``{filepath: (mtime, size)}`` for the files under *dir_path*.
+
+        The shape a cached scan needs: one scoped read of the whole stamp, so a
+        file that was replaced with its timestamps preserved is a miss rather
+        than a stale hit (R-13).  The stored ``size`` may be NULL on a row
+        written before the column was filled, which never equals a real size -
+        that file is re-read once and the row heals.
+
+        Plan selection, cost and scope are identical to
+        :meth:`get_cached_mtimes`; the only difference is one column.
+        """
+        conn = self._connect()
+        if self._plan_for(dir_path) == "indexed":
+            prefix = _path_fold(self._path_prefix(dir_path))
+            cur = conn.execute(
+                _SCOPED_STAMPS_INDEXED, [prefix, prefix + _SCOPE_RANGE_HIGH]
+            )
+        else:
+            cur = conn.execute(_SCOPED_STAMPS_SEQUENTIAL, [self._path_prefix(dir_path)])
+        return {row[0]: (row[1], row[2]) for row in cur}
 
     def upsert_file(
         self,

@@ -15,6 +15,8 @@ Changed in 2.1.0: a live run whose Demucs install is missing no longer stops
     is also the only thing that works when the window was started by an
     interpreter other than the one ``uv sync`` installed into.
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -491,7 +493,7 @@ class StemSeparatorApp(BaseSuiteApp):
         self.start_btn.config(state="normal")
 
         logger.info(
-            "Stem separation complete — total=%d separated=%d files=%d "
+            "Stem separation complete - total=%d separated=%d files=%d "
             "skipped=%d errors=%d device=%s time=%02d:%02d",
             total,
             separated,

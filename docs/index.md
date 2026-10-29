@@ -109,11 +109,15 @@ what was deferred. They are history, not instructions — the rules that still
 apply live in the repository's `AGENTS.md` and in
 [CONTRIBUTING.md](../CONTRIBUTING.md), which ships with this documentation.
 
-* `PLAN_audit_2026-10-24_deferred_p2p3.md` — the current plan: the dependency
-  audit's CI policy, a POSIX smoke leg, the interpreter targets the tooling
-  declares, and the README's tool count. R-15 (the targets) is delivered; R-11,
-  R-12 and the R-16 verification row are open.
-* `PLAN_ci_2026-10-27_remediation.md` — the previous plan (its C1–C8 complete,
+* `PLAN_functional_backlog.md` — the current plan, and unstarted: the seven
+  capability items the audit's market backlog deferred (scrubber APEv2 support,
+  the album-gain measurement, tag-from-filename, duplicate detection, playlist
+  and Camelot export, a configurable true-peak ceiling, and restoration).
+* `PLAN_audit_2026-10-24_deferred_p2p3.md` — the preceding plan, closed: the
+  dependency audit's CI policy, a POSIX smoke leg, the interpreter targets the
+  tooling declares, and the remaining defect tail (R-13, R-14, X12, X7). Its
+  D31 stops it accepting new items and points its functional work here.
+* `PLAN_ci_2026-10-27_remediation.md` — the plan before that (its C1–C8 complete,
   X1–X3 open): the defects the first run of the published CI workflow exposed,
   and the hang it could not report.
 * `PLAN_docs_consolidation.md` — the plan before that (complete): consolidating

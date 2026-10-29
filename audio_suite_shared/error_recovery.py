@@ -10,6 +10,8 @@ detail in the DEBUG log instead of printing a traceback at the user's console;
 the caller reports the per-file outcome. Exhausted retries still log one ERROR
 line with the final reason.
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 import logging
 import time
@@ -89,7 +91,7 @@ def retry_with_backoff(
             # the outcome.  This layer keeps the detail for the debug log only,
             # so one failed file is not reported three times at ERROR.
             logger.debug(
-                "[%s] %s — traceback follows",
+                "[%s] %s - traceback follows",
                 type(mapped).__name__,
                 mapped.message,
                 exc_info=True,

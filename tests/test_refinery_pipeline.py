@@ -3,6 +3,12 @@ tests/test_refinery_pipeline.py
 
 Unit and integration tests for audio_refinery.core.pipeline.
 
+Changed in 2.1.7: the two FLAC tests are gated on a measured capability
+(``_pydub_can_round_trip_flac``) instead of ``os.environ.get("CI")`` (X12).
+The old marker named an environment rather than the capability it lacked, so a
+runner with ffmpeg skipped them anyway - and the reason string claimed a fact
+nothing checked.  ``import os`` went with it, since that was its only use.
+
 Changed in 1.0.1: skipped test_normalise_reaches_target_lufs and
 test_full_chain_all_stages on CI where pydub/ffmpeg may not be available.
 Changed in 1.0.1: fixed pytest skipif condition from os.environ.get("CI")
@@ -23,9 +29,10 @@ Run including integration tests (requires ffmpeg on PATH):
 
 from __future__ import annotations
 
+import functools
 import math
-import os
 import struct
+import tempfile
 import wave
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -37,6 +44,51 @@ from audio_refinery.core.models import FileResult, FileStatus, StageConfig
 # ===========================================================================
 # Helpers
 # ===========================================================================
+
+
+@functools.lru_cache(maxsize=1)
+def _pydub_can_round_trip_flac() -> bool:
+    """Whether this host can do what the two gated tests need: FLAC via pydub.
+
+    Both tests write a WAV, export it to FLAC through pydub and read the FLAC
+    back, so the capability is a pydub FLAC round trip - not the value of an
+    environment variable.  The gate used to be
+    ``os.environ.get("CI") is not None``, which stated an environment rather
+    than the thing it lacked: on a runner that *did* have ffmpeg the two tests
+    were skipped anyway, and the skip stayed green for a reason it never
+    measured (X12, the same defect class R-20 fixed for the soxr tests).
+
+    The probe is the smallest round trip that exercises that path, so it cannot
+    drift from what the tests ask for.
+
+    Returns:
+        True when pydub exported a WAV to FLAC and read it back; False when
+        pydub is missing or either step raised.
+    """
+    try:
+        from pydub import AudioSegment
+    except ImportError:
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        wav = Path(tmp) / "probe.wav"
+        flac = Path(tmp) / "probe.flac"
+        try:
+            AudioSegment.silent(duration=50, frame_rate=44100).export(
+                str(wav), format="wav"
+            )
+            AudioSegment.from_wav(str(wav)).export(str(flac), format="flac")
+            decoded = AudioSegment.from_file(str(flac))
+        except Exception:  # noqa: BLE001 - any failure means "cannot", not "broken"
+            return False
+    return len(decoded) > 0
+
+
+#: Capability gate for the two tests that need a FLAC round trip through pydub.
+PYDUB_FLAC_MISSING = pytest.mark.skipif(
+    not _pydub_can_round_trip_flac(),
+    reason="pydub cannot round-trip FLAC on this host (no ffmpeg, or a build "
+    "without FLAC support), which the tests below need",
+)
 
 
 def _minimal_config(**overrides) -> StageConfig:
@@ -524,10 +576,7 @@ class TestProcessFileOutcomes:
         AudioSegment.from_wav(str(wav)).export(str(flac), format="flac")
         return flac
 
-    @pytest.mark.skipif(
-        os.environ.get("CI") is not None,
-        reason="pydub requires ffmpeg, not guaranteed in CI",
-    )
+    @PYDUB_FLAC_MISSING
     def test_normalise_reaches_target_lufs(
         self, quiet_flac: Path, tmp_path: Path
     ) -> None:
@@ -556,10 +605,7 @@ class TestProcessFileOutcomes:
         duration = AudioSegment.from_file(str(out)).duration_seconds
         assert duration == pytest.approx(2.0, abs=0.05)
 
-    @pytest.mark.skipif(
-        os.environ.get("CI") is not None,
-        reason="pydub requires ffmpeg, not guaranteed in CI",
-    )
+    @PYDUB_FLAC_MISSING
     def test_full_chain_all_stages(self, tmp_path: Path) -> None:
         from pydub import AudioSegment
 

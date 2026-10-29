@@ -27,6 +27,8 @@ Changed in 2.0.0: ``NoisePopToolApp``'s progress and completion handlers accept
 by the callback-payload lock instead of hiding behind a local wrapper
 (Sprint 6, Item 6.2).
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -415,7 +417,7 @@ class AnalysisTagToolApp(UIHelperMixin):
         self.start_btn.config(state="normal")
 
         logger.info(
-            "Processing complete — total=%d tagged=%d skipped=%d "
+            "Processing complete - total=%d tagged=%d skipped=%d "
             "errors=%d time=%02d:%02d",
             total,
             tagged,

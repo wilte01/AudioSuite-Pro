@@ -14,6 +14,8 @@ as published instead of reading each field with ``kw.get(field, 0)``, so
 a renamed or dropped count raises with its name instead of rendering a
 plausible zero in the finished report (PLAN D117).
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -407,7 +409,7 @@ class ArtNormalizerApp(BaseSuiteApp):
         self.start_btn.config(state="normal")
 
         logger.info(
-            "Processing complete — total=%d updated=%d"
+            "Processing complete - total=%d updated=%d"
             " skipped=%d errors=%d time=%02d:%02d",
             total,
             updated,

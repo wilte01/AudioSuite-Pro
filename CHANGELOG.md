@@ -9,7 +9,32 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The library cache no longer trusts an mtime alone.** A file replaced by one
+  that preserves its timestamp - `cp -p`, a backup restore, a same-second
+  rewrite - kept its cached row, so the statistics report served the tags of
+  the file that no longer existed. Freshness is now the stamp `(mtime, size)`,
+  read in the same single scoped query as before; a row written before the size
+  was filled never matches, so it is re-read once and heals.
+- **Console and log output is ASCII-only.** A cp1252 console - Windows'
+  default - cannot encode an em dash, a check mark, a ballot X or an arrow, so
+  the affected tool raised `UnicodeEncodeError` mid-run instead of printing its
+  status line. 92 glyphs across 25 files were rewritten to their ASCII forms
+  (typography stays in comments and documentation, which no console renders),
+  and a lock scans every first-party output call so it cannot drift back.
+- **Two Refinery tests are gated on a measured capability, not on `CI`.**
+  `test_normalise_reaches_target_lufs` and `test_full_chain_all_stages` were
+  skipped whenever the `CI` variable was set, with a reason claiming pydub needs
+  ffmpeg - a fact nothing checked, so a runner that had ffmpeg skipped them
+  anyway. They now skip only when a real pydub FLAC round trip fails, which
+  means they execute on a runner that can.
+
+### Changed
+
+- `AGENTS.md`'s Bandit rule quoted `exclude_dirs = ["tests"]`; it now quotes the
+  real value, `["tests", "packaging"]`, so the rule a reader greps matches
+  `pyproject.toml`.
 
 ## [2.1.6] - 2026-10-28
 

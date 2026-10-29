@@ -36,6 +36,8 @@ Changed in 2.1.0: adds ``install_optional_dependency``, the one prompt-and-
 progress flow a tool uses to install an optional extra (Demucs, RNNoise) at the
 moment a run first needs it.
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 import json
 import logging
@@ -636,7 +638,7 @@ def show_message(
     """
     if threading.current_thread() is not threading.main_thread():
         _log.warning(
-            "show_message() called from non-main thread — this is a bug. "
+            "show_message() called from non-main thread - this is a bug. "
             "Use root.after(0, ...) to schedule dialog on the main thread."
         )
     dialog = tk.Toplevel(parent)

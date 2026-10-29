@@ -1,0 +1,359 @@
+# PLAN — functional backlog (B2, A1, F-01, F-02, F-05/F-06, F-09, F-08)
+
+**Status:** `[ ]` **planned, nothing implemented** — this plan is the decision
+record for work that has not started. Every item below is unstarted by design;
+nothing in it is in the tree.
+**Base state:** `main` at the commit that closes
+`PLAN_audit_2026-10-24_deferred_p2p3.md`, with `v2.1.6` published at `0556069`.
+The suite is green (11 225+ passed locally, the floor leg green on the runner),
+the dependency audit blocks, and the four remaining register defects (R-13, R-14,
+X12, X7) are fixed in that closing change.
+**Governing scope:** capability work — the seven items the audit's §9.3 market
+backlog and the remediation plan's §8 carried as deferred. It does **not**
+re-open the defect register (closed by its D31) and it authorises no release cut.
+
+Why a new plan: `AGENTS.md`, *Plan Governance* — follow-on work opens its own
+plan, and these items are capability, not defects. The defect register had begun
+absorbing polish (X2, X7) while this list sat untouched, which made a green
+register read as a green product. Separating them is what let that file end.
+
+---
+
+## 1. What this plan is not
+
+- **Not a defect list.** No item here fixes wrong output. Every item adds a
+  capability the suite does not have, or measures an existing approximation.
+- **Not a rewrite.** Each item names the module it extends, and the smallest
+  version that delivers the capability.
+- **Not a release plan.** A cut is a separate decision with its own gate; this
+  plan only says which version each item would ride.
+
+---
+
+## 2. How "done" is judged here
+
+The suite's own rules apply unchanged, and two of them decide most of the work:
+
+1. **Audio correctness is release-blocking, and its evidence is the audio.**
+   Every item that writes audio (B2, F-08, F-09) must decode the result and
+   measure it — per-channel RMS, integrated loudness, true peak — never read back
+   the field it just wrote. `AGENTS.md`, *Defects and failing checks*.
+2. **A measurement is not a guess.** A1 exists because the shipped album-gain
+   arithmetic is an approximation; the first deliverable there is the
+   measurement, not a code change.
+
+Each item also carries the registration cost `AGENTS.md` names: a new *tool* is
+eleven steps (manifest, card, CLI, arg builder, dependency graph, driver state,
+`.pyw` launcher with the pre-flight guard, user guide plus rendered `.docx`,
+`testpaths`/coverage registration, tests, callback contract). That cost is why
+the items below prefer extending a tool unless the workflow is genuinely
+different — and where a new tool is chosen, the eleven steps are budgeted, not
+discovered.
+
+---
+
+## 3. Decision log
+
+| D | Decision | Status | Rationale / evidence |
+|---|---|---|---|
+| D1 | This work lives in a **new plan**, and the defect register is closed rather than extended. | DECIDED | `AGENTS.md`, *Plan Governance*. The register's own D31 records that it stops accepting items; mixing capability work into it is what made a tooling tail look like a roadmap. |
+| D2 | Sequencing is **three waves by risk-to-value**, not by item number: correctness-adjacent and small first, then the tagging/export features, then the two large ones. | DECIDED | B2, F-09 and A1 are bounded and each produces evidence a reviewer can check in one sitting; F-02 and F-08 are large and need the earlier items' test scaffolding (fingerprint clustering, measured DSP) to be worth starting. Starting with F-08 risks an unfinishable first item. |
+| D3 | **B2 supports APEv2 containers (.wv/.ape/.mpc) first**, then Speex, then DSF — in that order, as separate steps. | DECIDED | `audio_suite_shared/tag_helper_apev2.py` already implements `APEv2Handler`, and `TagHandlerFactory` already maps `.wv`/`.ape`/`.mpc` to it (registered in 1.1.0). What is missing is the **scrubber's** raw-frame preserve/restore path, not a handler. This is materially smaller than the register's phrasing ("needs frame-level APEv2 handling") implied, and the three formats share one code path. |
+| D4 | **F-01 extends `tag_field_updater`, and does not become a 31st tool.** | DECIDED | Its `core/mapping_engine.py` is already the suite's tag-value transformation host (`should_update_value`, `update_value`); a filename source is a new *input* to the same engine, not a new workflow. A new tool would cost the eleven registration steps for a mode. |
+| D5 | **F-05/F-06 extend `library_stats`, and do not become a new tool.** | DECIDED | `library_stats/core/file_processor.py` already exports CSV (`export_csv`) from a scan that reads exactly the fields a playlist needs (path, BPM, key). Adding `m3u`/`html` and a Camelot column is a format addition to an existing report; the scanning, caching and reporting already exist. |
+| D6 | **F-02 becomes a new tool** (`duplicate_finder`), with the full registration checklist budgeted. | DECIDED | It is a distinct workflow: fingerprint every file, cluster by distance, report and optionally quarantine — it never writes audio, and it needs fpcalc, which `library_stats` does not use. Burying it in the statistics tool would couple two different failure modes (a scan error vs a fingerprint error). The eleven steps are listed as a first-day deliverable so the cost is visible. |
+| D7 | **F-08 is split into three sub-items and starts with declip.** | DECIDED | Declip has an objective target — reconstruct peaks and measure the distortion floor against a known-clipped reference — while de-reverb has no reference metric the suite could assert on, and spectral repair needs an interactive surface the suite does not have. Shipping the one that can be measured first keeps the item honest. |
+| D8 | **A1's first deliverable is the measurement**, and the shipped arithmetic changes only if it fails. | DECIDED | `replaygain_analyzer/core/gain_calculator.py` uses duration-weighted energy (`10·log10(Σ 10^(Lᵢ/10)·dᵢ / Σ dᵢ)`), which is exact for equal gating and approximate otherwise. Writing a concatenated measurement and finding the approximation acceptable is a **valid outcome** and must be recorded as one. |
+| D9 | **Items do not ride each other's release.** Each gets its own `CHANGELOG` entry under the version it ships in. | DECIDED | The 2.1.6 cut accumulated fifteen bullets across six items and became a release nobody had read as a whole — the risk D30 named. Grouping is what made that happen; per-item releases keep each one reviewable. |
+| D10 | Feature work targets **2.2.0**; narrow extensions may ship as 2.1.x. | PROPOSED | F-01, F-02, F-05/F-06 and F-08 add capability (minor). B2, F-09 and A1 are bounded extensions or measurements and can ride a patch if their surface stays additive. |
+| D11 | No item changes a **tag format** or a **file extension** the suite already writes without a migration note. | DECIDED | B2 adds containers the scrubber can *scrub*, not a new output format; F-09 changes a normalisation target, which is audio output — its bullet must say what a re-run does to an already-normalised file. |
+
+---
+
+## 4. Items
+
+Sizes follow the audit's scale: **S** ≤ a day, **M** a few days, **L** a week or
+more, **XL** open-ended.
+
+### Wave 1 — bounded, evidence in one sitting
+
+#### B2 — the scrubber cannot see APEv2 containers (M)
+
+*Current state.* `metadata_scrubber/core/scrubber.py`'s `_LOADERS` table is the
+only source of truth for both discovery (`SUPPORTED_EXTENSIONS`) and loading, and
+it lists nine containers — no `.wv`, `.ape`, `.mpc`, `.spx`, `.dsf`. The comment
+above it is explicit that they stay out until "a frame-level APEv2 handler exists
+for that restore logic", because `_collect_tags_to_preserve` captures actual
+`APIC`/`SYLT`/`USLT`/`TPE2`/`TXXX` frames and `_restore_tags` puts those same
+objects back. A WavPack or APE library is therefore invisible to the scrubber:
+not scrubbed, and — since 2.1.6's R-05 fix — not reported as unreadable either.
+Fixtures already exist: `tests/data/{silence-44-s.wv, mac-390-hdr.ape,
+mac-396.ape, mac-399.ape, click.mpc, empty.spx, with-id3.dsf, without-id3.dsf}`.
+
+*Change.* Extend the preserve/restore path to be container-aware: for APEv2,
+preserve the item dictionaries that carry our tags (replaygain, key, BPM,
+artwork) and re-apply them after the scrub, mirroring the FLAC rule in
+`AGENTS.md` — mutate the loaded tags in place, never rebind, because a rebind is
+silently discarded by some containers. Add `.wv`/`.ape`/`.mpc` to `_LOADERS`
+with the same loader `TagHandlerFactory` uses (`APEv2Handler`'s underlying
+`mutagen` class), then `.spx` and `.dsf` as separate steps.
+
+*Acceptance.*
+- A real `.wv` file with tags is discovered, scrubbed, and its tags are gone when
+  re-read through a **fresh** handler — and the audio decodes to the same
+  duration and per-channel RMS as before the scrub (a metadata-only operation
+  must not touch samples).
+- The exclusion test at `metadata_scrubber/tests/test_scrubber.py:2071`
+  (`_UNSUPPORTED_CONTAINERS`) shrinks deliberately, one format per step, so the
+  remaining gap stays visible instead of becoming an empty tuple nobody notices.
+- A scrub-and-undo round trip on `.wv` restores every preserved tag (the
+  `AGENTS.md` FLAC trap, verified on a real file rather than a fake).
+
+*Files:* `metadata_scrubber/core/scrubber.py`, `metadata_scrubber/tests/test_scrubber.py`.
+
+*Risk:* APEv2 items are byte-limited (a huge embedded cover may be refused);
+splitting the artwork item is the fallback, and the test must assert what
+happens rather than assuming success.
+
+#### F-09 — the true-peak ceiling is hard-coded at −1.5 dBTP (S)
+
+*Current state.* `audio_normalizer/core/loudness.py:55` and
+`audio_normalizer/core/normalizer.py:133` both interpolate the literal
+`TP=-1.5` into the `loudnorm` filter, so every delivery target gets the same
+ceiling. `LRA=11` is fixed the same way.
+
+*Change.* One configurable ceiling (and LRA), defaulting to the current −1.5 so
+existing behaviour is unchanged unless asked, surfaced in the CLI, the GUI and
+(reportedly, for review) the true-peak headroom actually achieved per file.
+
+*Acceptance.*
+- A file normalised with `--tp -1.0` decodes with a measured true peak ≤ −1.0 dBTP
+  and > −1.5 dBTP on a fixture that the old ceiling limited (the difference must
+  be audible in the measurement, not asserted from the argument).
+- The default path is byte-identical to today's output on the same fixture
+  (a regression lock, not a description).
+
+*Files:* `audio_normalizer/core/loudness.py`, `normalizer.py`,
+`audio_normalizer/app.py`, `audio_normalizer/cli.py`, tests beside each.
+*Risk:* a ceiling above −1.0 can clip on lossy re-encode; the GUI must warn
+rather than silently allow it.
+
+#### A1 — album gain is an approximation nothing has measured (M)
+
+*Current state.* `replaygain_analyzer/core/gain_calculator.py:41` computes album
+loudness as duration-weighted energy. The plan that shipped it
+(`PLAN_audit_2026-10-24_remediation.md` D1) states outright that this is exact
+for equal gating and an approximation otherwise, and defers "the one-pass
+concatenated album measure" as an accuracy benchmark. The existing test
+`test_album_tag_matches_concatenated_measurement` compares against a
+concatenated measurement for one fixture, which is the right shape but not a
+study.
+
+*Change.* Build the benchmark first: a fixture set with deliberately uneven
+gating (quiet intro, loud chorus, a silent tail, a track whose gating differs
+from its neighbours), measure each album both ways, and record the delta in dB.
+Then decide: keep the approximation (with the measured bound documented and
+asserted), or adopt the concatenated route (at the cost of a second full decode
+per album).
+
+*Acceptance.* A test that states the measured worst-case delta for the fixture
+set and fails if it grows; if the arithmetic changes, the old and new values for
+every fixture are in the plan's record, and the change is justified by that
+table rather than by preference.
+
+*Files:* `replaygain_analyzer/core/gain_calculator.py`,
+`replaygain_analyzer/tests/`, new fixtures under `tests/data/`.
+*Risk:* none to audio if the approximation is kept; if it is replaced, the cost
+is a full extra decode per album — measured before adoption, per
+`AGENTS.md`'s no-unmeasured-speedup rule inverted.
+
+### Wave 2 — tagging and export features
+
+#### F-01 — tag from filename, with action groups (L)
+
+*Current state.* `tag_field_updater` transforms field *values*
+(`core/mapping_engine.py`: `should_update_value`, `update_value`) but nothing
+parses a filename into fields. The audit calls this "the single biggest
+tagging-workflow gap" (§9.3, F-01), because a library whose only metadata is in
+its filenames cannot be cleaned without a spreadsheet.
+
+*Change.* Add a filename **source** to the existing engine: an ordered list of
+patterns (`%artist% - %title%`, `%track%. %artist% - %title%`, with a
+disc/track prefix variant), tried in order, each capturing named fields; then
+the existing transformation rules apply, then the existing writer. A dry run
+must print the parsed result per file. Action groups (a named set of
+pattern + rules) are what make this repeatable, and they belong in
+`audio_suite_config.json` via `suite_config` — **not** a new JSON file
+(`AGENTS.md`, *Shared Config Pattern*).
+
+*Acceptance.*
+- Pattern parsing is a pure function with a table of realistic filenames,
+  including the ones that must **not** match (a title containing " - " must not
+  be split into artist and title when the pattern's field order says otherwise).
+- End-to-end through the real writer on a real file: a dry run writes nothing
+  (bytes unchanged, verified by hash) and a live run writes exactly the parsed
+  values, read back through a fresh handler.
+- A pattern that would overwrite a non-empty tag requires the existing
+  "only fill blanks" switch to be off explicitly.
+
+*Files:* `tag_field_updater/core/mapping_engine.py` (new parsing module beside it),
+`tag_field_updater/app.py`, `tag_field_updater/cli.py`, `suite_config` keys, tests.
+*Risk:* silent mis-parses are the failure mode — a wrong split writes wrong tags
+and the file looks tagged afterwards. Hence the dry-run default and the
+negative-case table.
+
+#### F-05 / F-06 — playlist, CSV/HTML export and Camelot notation (M)
+
+*Current state.* `library_stats/core/file_processor.py:772` exports CSV from a
+`StatsReport`; that is the report's aggregates, not a per-file export a player
+could read. There is no M3U, no HTML, and no Camelot mapping anywhere in the
+tree (`grep -i camelot` finds nothing), although `key_detector` already emits
+conventional key names ("C", "Am") from `key_engine.py`.
+
+*Change.* One export surface on the scan: `--export {m3u,csv,html}` with a column
+set, plus a Camelot column option. Camelot is a pure mapping from the existing
+key spelling (8A/8B style, with enharmonic handling for the flatter spellings
+`key_engine.py` deliberately prefers).
+
+*Acceptance.*
+- Camelot mapping is a table test over every key the detector can emit, both
+  spellings, including the enharmonic pairs (G#/Ab, D#/Eb, A#/Bb) — the
+  `key_engine.py` comment says major and minor are intentionally mapped
+  differently, so a single chromatic table is wrong.
+- An exported M3U opens with the right `#EXTM3U` header and one absolute path
+  per file, in playlist order; the HTML file is self-contained (no external
+  assets) and escapes a filename containing `<`, `&` and a non-ASCII character.
+- The CSV path keeps `export_csv`'s existing contract (the current tests must
+  pass unchanged) — the new columns are additive.
+
+*Files:* `library_stats/core/file_processor.py`, a new
+`library_stats/core/playlist_export.py`, `library_stats/cli.py`, `app.py`, tests.
+*Risk:* path encoding in M3U on Windows (a playlist written with `\` is rejected
+by some players); the test must assert the separator deliberately rather than
+inherit whatever the host does.
+
+### Wave 3 — large
+
+#### F-02 — duplicate detection and merge (L)
+
+*Current state.* `audio_fingerprinter` already computes Chromaprint
+fingerprints through the committed `fpcalc.exe`, and
+`audio_fingerprinter.core.acoustid_client.resolve_best_match` already contains
+the near-tie rule from `AGENTS.md`. Nothing clusters a *local* library by
+fingerprint; the suite can say "these two files are the same recording
+according to AcoustID", not "these 40 files are 12 recordings".
+
+*Change.* A new `duplicate_finder` tool: fingerprint (or reuse cached
+fingerprints — a cache is needed or a large library re-runs fpcalc every time),
+cluster by fingerprint distance with a threshold that is **measured on fixtures**
+rather than picked, and report clusters with quality discriminator (bitrate,
+sample rate, duration, tags). Merge is **not** in the first version: the tool
+reports and can move duplicates to a quarantine folder, and deleting audio is
+never automatic.
+
+*Acceptance.*
+- A fixture set with known duplicates — the same recording at two bitrates, an
+  edited version that must **not** cluster, two different recordings that share
+  a fingerprint prefix — clusters exactly as declared, with the threshold and
+  the measured distances recorded.
+- Quarantine moves a file and leaves the original byte-identical (hash-checked);
+  a dry run moves nothing.
+- The registration checklist is complete: manifest, card, CLI, arg builder,
+  dependency graph, driver state, launcher with the pre-flight guard, user guide
+  plus rendered `.docx`, `testpaths`/coverage, tests, callback contract.
+
+*Files:* new `duplicate_finder/` package, `audio_suite_shared/tool_plugin.py`,
+`master_driver/` (four registration points), `pyproject.toml`, user guide.
+*Risk:* the expensive one is the **cache** — without it the tool is unusable on
+a real library, and with it the tool inherits the staleness question R-13 just
+answered for `library_stats`. Reuse the stamp rule; do not invent a second one.
+
+#### F-08 — restoration: declip first, then de-reverb, then spectral repair (XL)
+
+*Current state.* `noise_reduction` and `pop_click_remover` cover noise and
+clicks; there is no declipper, no de-reverb and no spectral repair. The audit
+rates this XL and calls it the gap to RX/Acoustica/SpectraLayers.
+
+*Change, split into three sub-items, shipped separately:*
+
+1. **F-08a — declip (M).** Reconstruct clipped peaks; measure THD and peak
+   level against a known-clipped reference. Acceptance is the measurement: a
+   clipped sine at −0.1 dBFS must come back with its harmonics reduced and its
+   peak restored, and a clean file must be returned **unmodified** (hash-equal
+   when the detector finds no clipping — a false positive that processes clean
+   audio is the defect to avoid).
+2. **F-08b — de-reverb (L).** No reference metric exists, so the acceptance is a
+   synthetic room impulse response: convolve a dry signal, attempt removal, and
+   assert that the measured DRR (direct-to-reverberant ratio) improves by a
+   stated margin while the dry file returns unchanged.
+3. **F-08c — spectral repair (XL).** Needs an interactive surface (select a
+   time/frequency region); the GUI contract applies — off-thread work, results
+   marshalled with `root.after`, and no `after` from a raw worker thread
+   (`AGENTS.md`, *GUI Callback Contract*). Not started until a/b have a measured
+   baseline to compare against.
+
+*Files:* new `restoration/` package (a/b), GUI surface for c.
+*Risk:* these algorithms can make audio **worse** while looking successful, which
+is why every sub-item's acceptance decodes the output and measures it, and why a
+no-op on clean input is an assertion rather than a nicety.
+
+---
+
+## 5. Sequencing and release map
+
+| Wave | Items | Ships as | Why this order |
+|---|---|---|---|
+| 1 | B2, F-09, A1 | 2.1.7 patch (B2 needs a deliberate version note; A1 is a measurement) | Each is bounded, each produces one checkable artefact, and B2 closes a capability gap in a tool users already run. |
+| 2 | F-01, F-05/F-06 | 2.2.0 | User-visible features; F-01 needs a dry-run default that deserves its own release note and guide. |
+| 3 | F-02, F-08a → b → c | 2.2.x, one per sub-item | Large; each needs the scaffolding the earlier waves produce. |
+
+`F-05`/`F-06` are grouped because they share the export surface; everything else
+is deliberately one item per release (D9).
+
+---
+
+## 6. Verification record
+
+Nothing has been implemented, so there is nothing to verify yet. When an item
+lands, this section gains its gate line in the form the register used:
+item, commit, the four-item gate, the full-suite count, and the evidence that is
+specific to that item (a decoded measurement for audio, a fixture table for a
+parser).
+
+---
+
+## 7. Open questions
+
+- **Which version do the Wave-1 items actually ride?** D10 proposes 2.1.7 for all
+  three; B2 changes what a tool advertises, which some would call minor. The
+  owner's call before the first cut, not mid-item.
+- **Does F-02 need a shared fingerprint cache in `audio_suite_shared`, or its own
+  SQLite file?** Its own file repeats R-13's stamp question; a shared cache is a
+  bigger change but one rule. Decide at the start of that item, with the R-13
+  stamp as the default.
+- **Is de-reverb (F-08b) worth the cost?** The measured-improvement acceptance is
+  achievable, but the fidelity bar for music (as opposed to dialogue) is high
+  enough that a poor result may be worse than shipping nothing. Re-evaluate after
+  declip's measurements.
+
+---
+
+## 8. Changelog mapping
+
+One bullet per item, under the version it ships in — never a grouped block
+(D9). Each audio-affecting bullet names the measurable change: F-09 states the
+ceiling and what a re-run does to an already-normalised file; B2 states which
+containers became scrubable and that a scrub remains metadata-only; F-08a states
+the measured distortion improvement and that clean files are returned untouched.
+
+---
+
+## 9. Risks and rollback
+
+| Risk | Mitigation | Rollback |
+|---|---|---|
+| A capability that writes audio makes it worse and still reports success (F-08, F-09). | Acceptance decodes and measures the output; a no-op on clean input is asserted, not assumed. | Remove the stage from the pipeline; the file-level tests already prove the chain without it. |
+| B2 widens discovery to containers the restore path handles badly, so a scrub loses tags on `.wv` rather than not seeing the file. | One format per step, each with a scrub-and-undo round trip on a real file; the exclusion list shrinks deliberately. | Drop that format's `_LOADERS` entry and restore its line in `_UNSUPPORTED_CONTAINERS` — the test makes the reversal explicit. |
+| F-01 writes wrong tags from a mis-parse and the file looks tagged afterwards. | Dry run is the default; a negative-case table for filenames that must not match; "only fill blanks" is the default for non-empty tags. | The undo journal already exists for tag writes (`batch_undo`); the dry-run path means the blast radius is one explicit run. |
+| F-02's threshold is picked to make the fixture set pass. | The threshold is measured on declared distances and recorded in the plan; the fixture set includes a near-duplicate that must **not** cluster. | Raise the threshold and re-record; the table shows what moved. |
+| A new tool ships through half the eleven registration steps (a missing card only logs, a broken Help button only warns). | The checklist is a first-day deliverable for F-02, and the full-suite gate is the arbiter — per-package runs cannot see registration mistakes. | Complete the missing steps; there is no "temporary" exception, because the failure is silent by design. |

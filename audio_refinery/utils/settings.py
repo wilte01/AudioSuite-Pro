@@ -32,6 +32,8 @@ survive a restart.
 Changed in 1.4.1: live settings move out of the checkout, with a read-only
 legacy fallback and a committed default (PLAN D101).
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -91,7 +93,7 @@ def _sanitise_target_lufs(raw: float) -> float:
     if not validate_target_lufs(raw):
         return raw
     logger.warning(
-        "Stored target_lufs %.1f is not a permitted preset %s — resetting to %.1f",
+        "Stored target_lufs %.1f is not a permitted preset %s - resetting to %.1f",
         raw,
         [f"{v:.1f}" for v in VALID_TARGET_LUFS_VALUES],
         _DEFAULT_TARGET_LUFS,
@@ -116,10 +118,10 @@ def _read_json(path: Path) -> dict[str, Any] | None:
         with open(path, "r", encoding="utf-8-sig") as fh:
             data = json.load(fh)
     except (json.JSONDecodeError, OSError, ValueError) as exc:
-        logger.warning("Could not read settings from %s (%s) — skipping it", path, exc)
+        logger.warning("Could not read settings from %s (%s) - skipping it", path, exc)
         return None
     if not isinstance(data, dict):
-        logger.warning("Settings file %s is not a JSON object — skipping it", path)
+        logger.warning("Settings file %s is not a JSON object - skipping it", path)
         return None
     return data
 
@@ -243,7 +245,7 @@ def load() -> StageConfig:
             # A value of the wrong type (a string where a number belongs) must
             # fall through to the next source, not crash the pipeline.
             logger.warning(
-                "Settings in %s are invalid (%s) — skipping it", candidate, exc
+                "Settings in %s are invalid (%s) - skipping it", candidate, exc
             )
 
     return StageConfig()

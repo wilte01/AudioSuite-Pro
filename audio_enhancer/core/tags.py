@@ -13,6 +13,8 @@ Handles:
   - M4A   : MP4 atom tags (iTunes-style)
   - WAV   : Tags if present
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -41,7 +43,7 @@ def copy_tags(src: Path, dst: Path) -> tuple[bool, int]:
     try:
         from mutagen import File as MutagenFile  # noqa: F401  (existence check)
     except ImportError:
-        logger.warning("mutagen not installed — tags will not be preserved")
+        logger.warning("mutagen not installed - tags will not be preserved")
         return False, 0
 
     if src.suffix.lower() == ".mp3":
@@ -73,7 +75,7 @@ def _copy_id3(src: Path, dst: Path) -> tuple[bool, int]:
         logger.warning("_copy_id3: source %s has no ID3 header", src.name)
         return False, 0
     except (MutagenError, OSError, ValueError) as exc:
-        logger.error("_copy_id3: cannot read %s — %s", src.name, exc, exc_info=True)
+        logger.error("_copy_id3: cannot read %s - %s", src.name, exc, exc_info=True)
         return False, 0
 
     try:
@@ -92,7 +94,7 @@ def _copy_id3(src: Path, dst: Path) -> tuple[bool, int]:
     try:
         dst_id3.save(str(dst), v2_version=src_minor, v1=2)
     except (MutagenError, OSError, ValueError) as exc:
-        logger.error("_copy_id3: save failed for %s — %s", dst.name, exc, exc_info=True)
+        logger.error("_copy_id3: save failed for %s - %s", dst.name, exc, exc_info=True)
         return False, 0
 
     _log_id3_summary(src_id3, src_minor)
@@ -111,7 +113,7 @@ def _log_id3_summary(id3: "ID3", version: int) -> None:
             standard.append(key)
 
     logger.info(
-        "ID3v2.%d — %d frame(s): %d standard, %d TXXX, %d other",
+        "ID3v2.%d - %d frame(s): %d standard, %d TXXX, %d other",
         version,
         len(id3),
         len(standard),
@@ -134,7 +136,7 @@ def _copy_generic(src: Path, dst: Path) -> tuple[bool, int]:
         src_tags = MutagenFile(str(src), easy=False)
         dst_tags = MutagenFile(str(dst), easy=False)
     except (MutagenError, OSError, ValueError) as exc:
-        logger.error("_copy_generic: cannot open files — %s", exc, exc_info=True)
+        logger.error("_copy_generic: cannot open files - %s", exc, exc_info=True)
         return False, 0
 
     if src_tags is None or dst_tags is None or not src_tags.tags:
@@ -146,12 +148,12 @@ def _copy_generic(src: Path, dst: Path) -> tuple[bool, int]:
             dst_tags[key] = val
             copied += 1
         except (MutagenError, OSError, ValueError) as exc:
-            logger.debug("_copy_generic: skipping tag %s — %s", key, exc)
+            logger.debug("_copy_generic: skipping tag %s - %s", key, exc)
 
     try:
         dst_tags.save()
     except (MutagenError, OSError, ValueError) as exc:
-        logger.error("_copy_generic: save failed — %s", exc, exc_info=True)
+        logger.error("_copy_generic: save failed - %s", exc, exc_info=True)
         return False, 0
 
     logger.info("Tags copied: %d", copied)

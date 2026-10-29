@@ -9,6 +9,8 @@ Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
 when not supplied (PLAN D56). The artist/title and existing-lyrics reads
 share one handler load instead of two (PLAN D55).
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -131,7 +133,7 @@ def process_single_file(
         artist, title = "Unknown", "Unknown"
 
     if artist == "Unknown" or title == "Unknown":
-        logger.info("[SKIPPED] %s — no artist/title tags", name)
+        logger.info("[SKIPPED] %s - no artist/title tags", name)
         _report(
             lock,
             on_progress,
@@ -145,7 +147,7 @@ def process_single_file(
     if skip_existing:
         existing = handler.read_lyrics_tags() if handler is not None else LyricsTags()
         if existing.has_any:
-            logger.info("[SKIPPED] %s — already has lyrics", name)
+            logger.info("[SKIPPED] %s - already has lyrics", name)
             _report(
                 lock,
                 on_progress,
@@ -181,7 +183,7 @@ def process_single_file(
         return
 
     if result is None or not result.has_lyrics:
-        logger.info("[SKIPPED] %s — lyrics not found", name)
+        logger.info("[SKIPPED] %s - lyrics not found", name)
         _report(
             lock,
             on_progress,
@@ -194,7 +196,7 @@ def process_single_file(
 
     if is_dry_run:
         kind = "synced" if result.synced_lyrics is not None else "plain"
-        logger.info("[DRY RUN] %s — %s lyrics found", name, kind)
+        logger.info("[DRY RUN] %s - %s lyrics found", name, kind)
         _report(
             lock,
             on_progress,
@@ -216,16 +218,16 @@ def process_single_file(
             write_synced_lyrics(full_path, result.synced_lyrics)
             status = ProcessingStatus.TAGGED
             action = "synced lyrics"
-            logger.info("[TAGGED] %s — synced lyrics", name)
+            logger.info("[TAGGED] %s - synced lyrics", name)
         except (AudioTagError, LrcParseError) as exc:
             if plain_fallback and result.plain_lyrics is not None:
                 write_plain_lyrics(full_path, result.plain_lyrics)
                 status = ProcessingStatus.TAGGED
                 action = "plain lyrics (synced unsupported)"
-                logger.info("[TAGGED] %s — plain lyrics (synced unsupported)", name)
+                logger.info("[TAGGED] %s - plain lyrics (synced unsupported)", name)
             else:
                 logger.error(
-                    "[ERROR] %s: could not embed synced lyrics — %s",
+                    "[ERROR] %s: could not embed synced lyrics - %s",
                     name,
                     exc,
                     exc_info=True,
@@ -243,10 +245,10 @@ def process_single_file(
         write_plain_lyrics(full_path, result.plain_lyrics)
         status = ProcessingStatus.TAGGED
         action = "plain lyrics"
-        logger.info("[TAGGED] %s — plain lyrics", name)
+        logger.info("[TAGGED] %s - plain lyrics", name)
     else:
         action = "plain only (plain fallback disabled)"
-        logger.info("[SKIPPED] %s — %s", name, action)
+        logger.info("[SKIPPED] %s - %s", name, action)
 
     _report(
         lock,

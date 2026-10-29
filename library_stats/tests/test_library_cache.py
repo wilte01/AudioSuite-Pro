@@ -1,5 +1,9 @@
 """Tests for library_stats.library_cache — SQLite cache CRUD and helpers.
 
+Changed in 2.1.7: adds the R-13 stamp tests — ``get_cached_stamps`` returns
+``(mtime, size)``, a size change at an unchanged mtime is a miss once the size
+is supplied, and a legacy NULL size never matches so its row heals.
+
 Changed in 1.3.0: adds the ``path_fold`` migration/lookup tests, the
 scope-selectivity rule tests (narrow scope uses ``idx_files_path_fold``, wide
 scope keeps the sequential predicate, both return identical aggregates) and
@@ -313,6 +317,48 @@ class TestRowOperations:
 
     def test_get_cached_mtimes_empty(self, cache: LibraryCache, tmp_path: Path) -> None:
         assert cache.get_cached_mtimes(str(tmp_path)) == {}
+
+    def test_get_cached_stamps_carries_mtime_and_size(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        """The scan's freshness key is ``(mtime, size)``, not the mtime (R-13)."""
+        f = tmp_path / "stamped.mp3"
+        f.write_bytes(b"12345")
+        mtime = os.path.getmtime(str(f))
+        cache.upsert_file(str(f), mtime=mtime, size=5, format_ext=".mp3")
+
+        assert cache.get_cached_stamps(str(tmp_path)) == {str(f): (mtime, 5)}
+
+    def test_file_is_cached_sees_a_size_change_at_the_same_mtime(
+        self, cache: LibraryCache, sample_file: str
+    ) -> None:
+        """A timestamp-preserving replacement is a miss once size is checked.
+
+        This is the R-13 defect at its narrowest: the row and the file agree on
+        path and mtime, and only the size says they are different files.
+        """
+        mtime = os.path.getmtime(sample_file)
+        cache.upsert_file(sample_file, mtime=mtime, size=9, format_ext=".mp3")
+
+        assert cache.file_is_cached(sample_file, mtime, 9)
+        assert not cache.file_is_cached(sample_file, mtime, 10)
+        # Omitting the size keeps the coarse answer, and its docstring says so.
+        assert cache.file_is_cached(sample_file, mtime)
+
+    def test_legacy_row_without_size_is_re_read_once(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        """A NULL size never matches, so a pre-fix row heals on its next scan."""
+        f = tmp_path / "legacy.mp3"
+        f.write_bytes(b"abc")
+        mtime = os.path.getmtime(str(f))
+        cache.upsert_file(str(f), mtime=mtime, size=3, format_ext=".mp3")
+        conn = cache._connect()
+        conn.execute("UPDATE files SET size = NULL")
+        conn.commit()
+
+        assert cache.get_cached_stamps(str(tmp_path)) == {str(f): (mtime, None)}
+        assert not cache.file_is_cached(str(f), mtime, 3)
 
     def test_upsert_replaces_existing(
         self, cache: LibraryCache, sample_file: str

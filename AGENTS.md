@@ -579,7 +579,8 @@ result set is non-empty so an empty scan fails loudly.** Evidence:
 
 - **Bandit needs `-c pyproject.toml`, UTF-8, and `-x ./.venv`.** Plain
   `bandit -r <dirs>` does not auto-load `[tool.bandit]`, so it ignores
-  `skips = ["B404", "B101"]` and `exclude_dirs = ["tests"]` and floods the report
+  `skips = ["B404", "B101"]` and `exclude_dirs = ["tests", "packaging"]` and
+  floods the report
   with hundreds of out-of-scope test-file `assert` (B101) and `/tmp` mock (B108)
   findings, while a bare `bandit -r .` descends into `.venv` and buries the 0/0
   gate. On Windows the report crashes with

@@ -3,6 +3,8 @@ deezer.py — Deezer album art lookup.
 Candidates are filtered and ranked via ``filter_and_rank()`` before being
 passed to the selection callback.
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -35,7 +37,7 @@ def query(
     the name filter and the minimum-dimension threshold reach *on_pick*.
     """
     try:
-        log("  → Querying Deezer...")
+        log("  -> Querying Deezer...")
         response = http.get(
             "https://api.deezer.com/search/album",
             params={"q": f'artist:"{artist}" album:"{album}"'},
@@ -51,7 +53,7 @@ def query(
         ]
 
         if not raw_items:
-            log("    ✗ No results found")
+            log("    [X] No results found")
             return None
 
         ranked = filter_and_rank(
@@ -64,19 +66,19 @@ def query(
             log=log,
         )
         if not ranked:
-            log("    ✗ No candidates passed guardrails")
+            log("    [X] No candidates passed guardrails")
             return None
 
-        log(f"    ✓ {len(ranked)} candidate(s) passed guardrails")
+        log(f"    [OK] {len(ranked)} candidate(s) passed guardrails")
         return on_pick(ranked, artist, "Deezer")
 
     except requests.Timeout:
         logger.warning("Deezer request timed out", exc_info=True)
-        log("    ✗ Deezer timeout")
+        log("    [X] Deezer timeout")
     except requests.RequestException as exc:
         logger.warning("Deezer request failed: %s", exc, exc_info=True)
-        log(f"    ✗ Deezer error: {exc}")
+        log(f"    [X] Deezer error: {exc}")
     except (KeyError, ValueError) as exc:
         logger.error("Deezer unexpected error: %s", exc, exc_info=True)
-        log(f"    ✗ Unexpected error: {exc}")
+        log(f"    [X] Unexpected error: {exc}")
     return None

@@ -21,6 +21,8 @@ Thread safety
 All public methods acquire a threading.Lock so workers can call
 mark_done() concurrently without corrupting the log.
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -92,7 +94,7 @@ class CompletionRegistry:
             try:
                 self._log_path.unlink(missing_ok=True)
             except OSError as exc:
-                logger.warning("Registry reset: could not delete log — %s", exc)
+                logger.warning("Registry reset: could not delete log - %s", exc)
 
     @property
     def completed_count(self) -> int:

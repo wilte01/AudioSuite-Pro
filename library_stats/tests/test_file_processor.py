@@ -10,6 +10,10 @@ All tag readers are patched on their module-level bindings
 (library_stats.core.file_processor), matching the pattern in
 test_library_stats.py; the SQLite cache uses a tmp_path database.
 
+Changed in 2.1.7: pins R-13 — a file replaced with a different size and an
+identical mtime is re-read rather than served from the cache — and that an
+unchanged stamp still hits, so the fix cannot pass by making every row a miss.
+
 Changed in 1.3.0: pins the cached-scan fast path — an unchanged library reads
 no tags and performs no per-file ``file_is_cached`` lookup — and that a
 backdated mtime re-reads only that file.
@@ -258,6 +262,55 @@ class TestCachedScan:
 
         r2["read_bpm"].assert_called()
         assert second.bpm_distribution == {"160\u2013179": 1}
+
+    def test_replaced_file_with_same_mtime_is_re_read(self, tmp_path: Path) -> None:
+        """R-13: a same-mtime replacement must not be served from the cache.
+
+        The cache's freshness key used to be the mtime alone, so a file
+        replaced by a copy that preserves timestamps (``cp -p``, a backup
+        restore, a same-second rewrite) matched and the report kept serving
+        the tags of the file that no longer existed.  The stamp is
+        ``(mtime, size)`` now, so this replacement is a miss: the tags are
+        re-read and the report moves to the new value.
+        """
+        target = tmp_path / "a.mp3"
+        target.write_bytes(b"x")
+        original_mtime = os.path.getmtime(target)
+        cache = LibraryCache(tmp_path / "cache.db")
+        with _reader_mocks() as r:
+            r["read_bpm"].return_value = 100
+            first = scan_directory(str(tmp_path), use_cache=True, cache=cache)
+        assert first.bpm_distribution == {"100\u2013119": 1}
+
+        # Different content (different size), identical mtime: exactly what a
+        # timestamp-preserving copy leaves behind.
+        target.write_bytes(b"different length")
+        os.utime(target, (original_mtime, original_mtime))
+        assert os.path.getmtime(target) == original_mtime
+
+        with _reader_mocks() as r2:
+            r2["read_bpm"].return_value = 170
+            second = scan_directory(str(tmp_path), use_cache=True, cache=cache)
+        cache.close()
+
+        r2["read_bpm"].assert_called()
+        assert second.bpm_distribution == {"160\u2013179": 1}
+
+    def test_unchanged_size_and_mtime_still_hits(self, tmp_path: Path) -> None:
+        """The stamp fix must not turn every cached row into a miss."""
+        (tmp_path / "a.mp3").write_bytes(b"x")
+        cache = LibraryCache(tmp_path / "cache.db")
+        with _reader_mocks() as r:
+            r["read_bpm"].return_value = 100
+            scan_directory(str(tmp_path), use_cache=True, cache=cache)
+
+        with _reader_mocks() as r2:
+            r2["read_bpm"].return_value = 170
+            second = scan_directory(str(tmp_path), use_cache=True, cache=cache)
+        cache.close()
+
+        r2["read_bpm"].assert_not_called()
+        assert second.bpm_distribution == {"100\u2013119": 1}
 
     def test_missing_tags_counters_from_cache(self, tmp_path: Path) -> None:
         (tmp_path / "a.mp3").write_bytes(b"x")

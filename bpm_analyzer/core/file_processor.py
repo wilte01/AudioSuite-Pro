@@ -25,6 +25,8 @@ Changed in 1.4.1: those files are also collected as structured records and
 handed to ``on_complete``, so the run summary and the CLI's ``--json`` can
 count them instead of leaving the evidence only in per-file lines (D109).
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -219,7 +221,7 @@ def process_single_file(
         reason = failure_reason(exc)
         display = f"[SKIP] {name}: {reason}"
         log = f"[SKIP] {name}: {reason}\n"
-        logger.info("[SKIP] %s — %s", name, reason)
+        logger.info("[SKIP] %s - %s", name, reason)
         with lock:
             if skipped_files is not None:
                 skipped_files.append(_skip_record(name, reason, exc))
@@ -260,14 +262,14 @@ def process_single_file(
         existing_bpm: Optional[int] = read_bpm(full_path)
         write_bpm(full_path, bpm)
         status = ProcessingStatus.TAGGED
-        logger.info("[TAGGED] %s — BPM %d%s (was %s)", name, bpm, note, existing_bpm)
+        logger.info("[TAGGED] %s - BPM %d%s (was %s)", name, bpm, note, existing_bpm)
 
         if existing_bpm and existing_bpm != bpm:
             action += f" (was {existing_bpm})"
         action += note
     else:
         action += note
-        logger.info("[DRY RUN] %s — BPM %d%s", name, bpm, note)
+        logger.info("[DRY RUN] %s - BPM %d%s", name, bpm, note)
 
     status_label: str = status.name.replace("_", " ")  # DRY_RUN → DRY RUN
     display = f"[{status_label}] {name} → {action}"
@@ -410,12 +412,12 @@ def _handle_bpm_result(
         display = f"[TAGGED] {filename} \u2192 {action}"
         log = f"[TAGGED] {filename} | BPM {bpm}{note}\n"
         logger.info(
-            "[TAGGED] %s \u2014 BPM %d%s (was %s)", filename, bpm, note, existing_bpm
+            "[TAGGED] %s - BPM %d%s (was %s)", filename, bpm, note, existing_bpm
         )
     else:
         display = f"[DRY RUN] {filename} \u2192 BPM {bpm}{note}"
         log = f"[DRY RUN] {filename} | BPM {bpm}{note}\n"
-        logger.info("[DRY RUN] %s \u2014 BPM %d%s", filename, bpm, note)
+        logger.info("[DRY RUN] %s - BPM %d%s", filename, bpm, note)
 
     with lock:
         if note and isinstance(outside_range_files, list):

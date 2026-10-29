@@ -143,6 +143,7 @@ Two further measurements the items depend on:
 | D29 | X11 is **parked** behind "reopen only if it recurs", and while parked it opens no new items. | DECIDED | Three runner runs, 40 band iterations on the floor's graph and a full suite in suite order have all failed to reproduce the stall, and it has already generated two items (R-18, R-19) that are now closed. An unknown that keeps producing work while resisting diagnosis is a budget sink: the guards make the next occurrence self-describing, so waiting is cheaper than another hypothesis. Reopening requires an occurrence, not a theory. |
 | D30 | The **2.1.6 cut is taken now**, with R-11 and R-12 riding it rather than a separate 2.1.7. Executed as `198931b` (release-gate fix) and `cbdcccc` (the cut); `v2.1.6` tagged and **published 2026-10-29** (tag peels to `0556069`, green in all eight jobs). | DECIDED | `[Unreleased]` carries 15 bullets across six items and the CI plan's C0–C8, all verified; each further deferral grows a release no one has reviewed as a whole, which is a worse risk than cutting a window whose entries are individually evidenced. Splitting R-11/R-12 out would mean rewriting the same block for no user-visible gain. The tree already declares 2.1.6 (`NOTE_MARKER = "Changed in 2.1.6"`), so the version is the only stale field. Publication is deliberately excluded from the decision itself: the tag is created after the gate and pushed only on the owner's word. That word came on 2026-10-29 — `main` and the annotated tag went out together as `625eca4..0556069`, and run [`40846766978`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40846766978) verified the tagged commit (11 222 passed, 6 skipped, 35 deselected on the floor in 25:26; POSIX 1 756 passed, 1 skipped; 0 High / 0 Medium, 0 advisory findings). |
 | D27 | The floor-only failure is fixed by **decoding with pydub**, and both soxr tests skip on a **measured capability** (`SOXR_MISSING` → `_ffmpeg_can_use_soxr()`), not on `CI` and not on nothing. | DECIDED | `wave` before 3.12 refuses `WAVE_FORMAT_EXTENSIBLE`, so the 24-bit WAV is unopenable on the floor and openable on the development host, and the `CI` skip suppressed the only reproduction — the cannot-fail shape D25 names. pydub is already this file's decoder for its own fixtures, so the fix adds no dependency and no new idiom. Removing the skip *outright* was the first attempt and the runner refused it (D28): the runner's ffmpeg is a gyan.dev essentials build with no libsoxr, so the rate path cannot be configured there at all. A probe that runs the filter is the only form that keeps the test running wherever the capability exists, skips where it does not, and states which capability is missing. |
+| D31 | The remaining four register defects are fixed **in one change** (R-13, R-14, X12, X7), and the register then **stops accepting items**. | DECIDED | Each is small, each lacked an arbiter, and none touches another's code path, so one gate proves all four and four gates would cost ~2 hours of suite time for the same evidence. The wider reason is scope: this register had begun absorbing tooling polish (X2, X7) while the functional backlog (B2, A1, F-01–F-12) sat untouched, so a green register read as a green product. `X2` is explicitly **declined** rather than deferred — 317 `UP` findings with zero behavioural benefit is review risk for a suite that is already pinned green — and the functional work moves to `PLAN_functional_backlog.md`. Reopening this file requires a new *defect* with a reproduction, not a preference. **Gate on the closing change:** tracked-file compile 0 failures (942 files; the `packaging/build` vendored-CPython noise is the documented pre-existing exclusion), `ruff check` and `ruff format --check` clean (943 files), bare `mypy .` clean (551 files - root `tests/` is excluded by config, so the new lock is out of bare scope and clean when asked directly), bandit **0 High / 0 Medium** (41 Low, unchanged class), bare `pytest` **11 233 passed, 3 skipped, 35 deselected in 19:31**, coverage 90.87%. That is exactly the previous 11 225 plus the eight new tests (5 for R-13, 3 for the R-14 lock). |
 | D28 | The first push of R-20 (`e19cb4d`) went **red on the floor leg** and the record keeps that, rather than presenting the corrected fix as if it had been designed that way. | DECIDED | The log is the argument: `1 failed, 9 472 passed, 5 skipped in 1423.68 s (0:23:43)` with `[Parsed_aresample_0] Failed to configure output pad` and the runner's ffmpeg configure line (no `--enable-libsoxr`). Two things follow. The `CI` skip was protecting a genuine capability, so removing it without a replacement was wrong on the runner even though the `wave` defect it also hid was real. And `--maxfail=1` proved itself on its first real failure: the traceback reached the log in under a minute at 83% of the suite instead of letting the leg run on. Rewriting the history here would hide both lessons. |
 
 ---
@@ -1370,32 +1371,92 @@ executes 3.12 or 3.14 any more.
   later edits: a red leg is a POSIX defect to fix, never a selection to narrow
   quietly, and narrowing it is only legitimate together with a sentence here
   saying which module and why.
-* **X4 — R-13 and R-14 remain deferred.** The cache key's path+mtime identity
-  and the non-ASCII console output are the register's remaining P3 defects; they
-  are outside this brief and stay in the predecessor's §8.
+* **X4 — CLOSED 2026-10-29: R-13 and R-14 are fixed, with the arbiter each
+  lacked.** R-13: freshness was ``mtime`` alone, so a file replaced by a copy
+  that preserved its timestamps (`cp -p`, a backup restore, a same-second
+  rewrite) kept its cached row and the report served the tags of a file that no
+  longer existed. The stamp is now ``(mtime, size)``: ``LibraryCache.get_cached_stamps``
+  returns it in the same single scoped query ``get_cached_mtimes`` used (one
+  extra column, no extra statement), ``_scan_directory_cached`` compares the
+  tuple, and ``file_is_cached`` takes the size as an optional third argument
+  whose docstring says the two-argument form is the coarse answer. A row whose
+  ``size`` is NULL never matches a real size, so a pre-fix row is re-read once
+  and heals. Two regression tests: an end-to-end scan of a replaced file with
+  its mtime forced back to the original value (fails under an mtime-only mutant,
+  verified by break-and-restore with the restore SHA-256-checked, and a
+  companion test that an unchanged stamp still hits so the fix cannot pass by
+  making every row a miss), and unit tests for the stamp, the size-aware
+  ``file_is_cached`` and the NULL-size row. R-14: the audit's C-09 sweep —
+  **92 glyphs across 25 files** (48 em dashes, 29 ballot X, 9 arrows, 6 check
+  marks) in `print`/`logger` arguments, in `utilities/` and 18 first-party
+  package modules — rewritten to ASCII (`-`, `[X]`, `->`, `[OK]`), touching only
+  string constants that reach an output call so typography stays in comments and
+  docs. Both the literal glyph and its `\uXXXX` escape spelling were handled:
+  two `bpm_analyzer` strings are written escaped, and a first pass that only
+  matched literals aborted on them rather than half-fixing the file. The arbiter
+  C-09 asked for is `tests/test_console_output_ascii.py`: it AST-walks every
+  first-party output call, fails naming file and line for any non-ASCII string,
+  asserts each one encodes to cp1252 (the codec that actually breaks), and is
+  asserted non-vacuous (>500 output strings, `utilities/` and the shared package
+  named). Proved able to fail by reintroducing one em dash, watching it name
+  `utilities/verify_refinery_log.py:249`, then restoring under a SHA-256 check.
+  The audit's own evidence reproduced during this work: the inventory probe
+  crashed with `UnicodeEncodeError: 'charmap' codec can't encode character
+  '\u2717'` until run under `PYTHONUTF8=1`.
 * **X5 — no macOS leg** (D12). Recorded as a decision, not an omission: revisit
   only with a supporting claim to make.
 * **X6 — no `smoke` marker / fast profile** (audit Q-09). The POSIX leg uses an
   explicit declared selection instead of a new marker, so the two do not
   compete for the same problem.
-* **X7 — one quoted value in `AGENTS.md` is now behind the config it illustrates.**
-  The *Bandit needs `-c pyproject.toml`* rule explains the trap by quoting
-  `exclude_dirs = ["tests"]`; the real value is now
-  `["tests", "packaging"]` (D17). The rule's point is unchanged and the fix is
-  one word, but `AGENTS.md` is the frozen rule set (`tests/test_agents_md.py`
-  holds `RULE_INVENTORY`), so it belongs in a deliberate `AGENTS.md` change
-  rather than a drive-by inside an R-15 diff — the same call
-  `PLAN_ci_2026-10-27_remediation.md` D12 made. Recorded, not fixed, and not
-  silent: the value a reader greps for is the one in `pyproject.toml`.
-* **X12 — OPEN: two tests skip on `CI` rather than on the capability they lack.**
-  Found by the published release run (`40846766978`): the floor leg reports six
-  skips, and `tests/test_refinery_pipeline.py:527` and `:559` give the reason
-  "pydub requires ffmpeg, not guaranteed in CI" — a marker keyed on the
-  *environment*, so the skip says nothing about the host's actual `ffmpeg` and
-  would silently stay green on a runner that has it. That is R-20's defect class,
-  which replaced exactly this reasoning for the two soxr tests with a measured
-  probe. Not fixed inside a publication record: a probe change belongs in a
-  change that also proves the unskipped branch runs, which needs its own run.
+* **X7 — CLOSED 2026-10-29: the quoted value matches the config it illustrates.**
+  The *Bandit needs `-c pyproject.toml`* rule now quotes
+  `exclude_dirs = ["tests", "packaging"]`, which is the real value in
+  `pyproject.toml` (D17), instead of the stale `["tests"]`. It waited for a
+  deliberate `AGENTS.md` change rather than a drive-by inside an R-15 diff — the
+  same call `PLAN_ci_2026-10-27_remediation.md` D12 made — and it rode the
+  defect-tail change that closed this register. `tests/test_agents_md.py` holds
+  `RULE_INVENTORY` and passes unchanged: no rule was added, removed or
+  renumbered, only the config value a rule quotes.
+* **X12 — CLOSED 2026-10-29: the two Refinery tests skip on a measured capability.**
+  `test_normalise_reaches_target_lufs` and `test_full_chain_all_stages` were
+  gated on `os.environ.get("CI") is not None` with the reason "pydub requires
+  ffmpeg, not guaranteed in CI" — a marker keyed on the *environment*, so it said
+  nothing about the host's `ffmpeg` and would have stayed green on a runner that
+  had it (R-20's defect class, one release later). The gate is now
+  `PYDUB_FLAC_MISSING` → `_pydub_can_round_trip_flac()`, an `lru_cache`'d probe
+  that writes a 50 ms WAV, exports it to FLAC through pydub and reads it back —
+  the smallest round trip that exercises what these two tests actually do, so the
+  probe cannot drift from them. `import os` went with the marker, since that was
+  its only use. **The unskipped branch runs here**: the file goes from 32 passed
+  / 2 skipped to **34 passed, 0 skipped** on this Windows host, which is the
+  proof X12 could not have inside the publication record. Whether the runner's
+  ffmpeg also passes them is a runner question, not a local one, and the first
+  floor leg after this change answers it (`gyan.dev` essentials has no libsoxr
+  but does have FLAC, which is the difference from D27/D28).
+
+### The register is closed (2026-10-29, D31)
+
+Every item above is now `CLOSED` or a recorded decision, and this plan opens no
+further items. What closed it: **X4** (R-13 cache staleness and R-14 console
+glyphs), **X7** (the stale `AGENTS.md` value) and **X12** (the `CI`-keyed skips),
+all in one change rather than four, because each is small, each needed an
+arbiter it did not have, and four gates for four one-line defects is how a
+register outlives its purpose. The four survivors are not work:
+
+| Item | State | Why it stays |
+|---|---|---|
+| X2 (`UP` rule set, 317 findings) | Not taken | Zero behavioural benefit; 314 are auto-fixable style, and `UP042` would walk into the `str`-mixin enum trap across every interpolation site. Recorded and declined, not forgotten. |
+| X11 (intermittent stall) | Parked | Reopens only on a recurrence, and spawns nothing while parked (D29). |
+| X10 (no 3.12/3.14 CI leg) | Decision | A measured coverage narrowing with three priced remedies; not a defect. |
+| X5/X6 (no macOS leg, no smoke marker) | Decisions | Recorded as omissions with reasons. |
+
+What the register no longer contains is the thing it was never the right home
+for: the **functional** work. B2 (APEv2/WavPack in the scrubber), A1 (the
+concatenated album-gain benchmark), F-01, F-02, F-05/F-06, F-08 and F-09 are
+capability work with their own acceptance criteria, and they move to
+[PLAN_functional_backlog.md](PLAN_functional_backlog.md). Keeping them in a
+defect register made a tooling tail look like a roadmap; separating them is what
+lets this file end.
 
 ---
 
@@ -1413,6 +1474,14 @@ records. R-17 goes under **Changed** (the suite runs once, on the floor, so a
 push projects 68.7 billable minutes instead of 168.0; the artifact and
 documentation steps moved to that leg, and a new cost lock prices every job
 against a 100-minute budget).
+
+The closing change adds three **Fixed** bullets to `[Unreleased]` — the cache
+trusting an mtime alone (R-13), non-ASCII console/log output (R-14) and the two
+`CI`-keyed Refinery skips (X12) — and one **Changed** bullet for the `AGENTS.md`
+value X7 corrected. It also re-baselines `tests/test_release_notes.py` to
+`0556069` with `NOTE_MARKER = "Changed in 2.1.7"`, because the 2.1.6 window
+closed at the release and filing this work under a shipped version would be the
+retro-fitting that lock exists to prevent.
 
 ---
 

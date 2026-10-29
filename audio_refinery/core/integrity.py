@@ -23,6 +23,8 @@ Changed in 2.1.6: existence, regular-file-ness and size now come from one
 3.11/3.12 legs an unreadable or locked file raised out of ``validate_file``
 while a 3.14 host reported the same file as merely absent.
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -112,7 +114,7 @@ class IntegrityResult:
         self.status = IntegrityStatus.FAIL
         msg = f"{name}: {detail}"
         self.failures.append(msg)
-        logger.warning("[Integrity] %s — %s", self.path.name, msg)
+        logger.warning("[Integrity] %s - %s", self.path.name, msg)
 
     def add_warning(self, name: str, detail: str) -> None:
         """Record a non-fatal warning."""
@@ -120,7 +122,7 @@ class IntegrityResult:
         self.warnings.append(msg)
         if self.status == IntegrityStatus.PASS:
             self.status = IntegrityStatus.WARN
-        logger.info("[Integrity] %s — %s", self.path.name, msg)
+        logger.info("[Integrity] %s - %s", self.path.name, msg)
 
 
 def check_magic_bytes(path: Path, result: IntegrityResult) -> None:

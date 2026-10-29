@@ -1,4 +1,6 @@
 """Candidate filtering and ranking — applied by every API module before selection."""
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -60,10 +62,10 @@ def filter_and_rank(
     Returns empty list if no candidates pass all guardrails.
     """
     if not raw_items:
-        log(f"  → {source_name}: no raw candidates returned")
+        log(f"  -> {source_name}: no raw candidates returned")
         return []
 
-    log(f"  → {source_name}: {len(raw_items)} raw candidate(s)")
+    log(f"  -> {source_name}: {len(raw_items)} raw candidate(s)")
 
     passed: list[RankedCandidate] = []
 

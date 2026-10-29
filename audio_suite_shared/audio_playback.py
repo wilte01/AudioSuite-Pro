@@ -20,6 +20,8 @@ Design notes
   missing device, file, or codec is logged and reported through the standard
   suite error plumbing without crashing the GUI thread.
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -175,7 +177,7 @@ def play_audio(
     """
     path = Path(source)
     if not _HAS_BACKEND:
-        logger.warning("Audio playback unavailable — sounddevice not installed.")
+        logger.warning("Audio playback unavailable - sounddevice not installed.")
         return False
 
     # Interrupt any in-flight audition first: a second Play click must
@@ -264,7 +266,7 @@ def _read_wav(wav_path: Path) -> tuple[npt.NDArray[np.float32], int]:
 def _play_wav(wav_path: Path, device: str | None, stop: threading.Event) -> None:
     """Actually stream a WAV to the sound device, honouring stop."""
     if _sd is None:
-        logger.warning("Audio playback unavailable — sounddevice not installed.")
+        logger.warning("Audio playback unavailable - sounddevice not installed.")
         return
 
     data, sample_rate = _read_wav(wav_path)

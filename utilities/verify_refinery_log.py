@@ -28,6 +28,8 @@ Usage:
     python verify_refinery_log.py --check-hashes --fix "D:\Music"
     python verify_refinery_log.py --check-hashes --fix --quiet "D:\Music"
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -169,7 +171,7 @@ def _fix_log(
         modified = True
         for name in sorted(orphaned):
             if not quiet:
-                print(f"  [FIX PRUNE] {name}  —  removing orphaned log entry")
+                print(f"  [FIX PRUNE] {name}  -  removing orphaned log entry")
             if not dry_run:
                 del updated_entries[name]
 
@@ -179,7 +181,7 @@ def _fix_log(
     if changed_names:
         for name in changed_names:
             if not quiet:
-                print(f"  [FIX HASH]  {name}  —  updating hash to match current file")
+                print(f"  [FIX HASH]  {name}  -  updating hash to match current file")
 
     if dry_run:
         print(
@@ -244,7 +246,7 @@ def verify_directory(
     if missing:
         issues_here = True
         for name in sorted(missing):
-            print(f"  [MISSING] {name}  —  not recorded in {LOG_FILENAME}")
+            print(f"  [MISSING] {name}  -  not recorded in {LOG_FILENAME}")
 
     # Files whose name matches but hash differs (modified since processing).
     if check_hashes:
@@ -257,7 +259,7 @@ def verify_directory(
             if disk_hash != log_entries[name]:
                 issues_here = True
                 print(
-                    f"  [CHANGED] {name}  —  content hash differs from log "
+                    f"  [CHANGED] {name}  -  content hash differs from log "
                     f"(file was modified after processing)"
                 )
 
@@ -267,12 +269,12 @@ def verify_directory(
         if orphaned:
             issues_here = True
             for name in sorted(orphaned):
-                print(f"  [ORPHAN] {name}  —  in log but file no longer exists")
+                print(f"  [ORPHAN] {name}  -  in log but file no longer exists")
 
     if not issues_here:
         if verbose or audio_files:
             print(
-                f"  [OK] {len(audio_files)} audio file(s) — "
+                f"  [OK] {len(audio_files)} audio file(s) - "
                 f"all accounted for in {LOG_FILENAME}"
             )
         return 0
@@ -442,7 +444,7 @@ def main() -> None:
         )
     else:
         print(
-            f"\nSummary: All {total_dirs_scanned} director(ies) checked — "
+            f"\nSummary: All {total_dirs_scanned} director(ies) checked - "
             f"no issues found."
         )
 

@@ -11,6 +11,8 @@ The provider overrides :meth:`search` with an additional keyword-only
 returns ``None`` — it cannot locate a sidecar without knowing the audio
 file's position on disk.
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -86,7 +88,7 @@ class SidecarProvider(LyricProvider):
             is found or *file_path* is not supplied.
         """
         if file_path is None:
-            logger.debug("sidecar: no file_path supplied — skipping")
+            logger.debug("sidecar: no file_path supplied - skipping")
             return None
 
         sidecar = Path(file_path).with_suffix(".lrc")

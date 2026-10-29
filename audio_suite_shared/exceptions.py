@@ -36,6 +36,8 @@ Changed in 2.1.0: the user-facing wording table is a module constant
 every call, so ``docs/user/messages.md`` can be locked against it
 (PLAN_docs_consolidation, §6 retirement / D21).
 """
+# Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
+# comments and docs; a cp1252 console cannot encode these glyphs.
 
 from __future__ import annotations
 
@@ -502,7 +504,7 @@ def handle_audio_errors(
                     mapped.message,
                 )
                 logger.debug(
-                    "[%s] %s: %s — traceback follows",
+                    "[%s] %s: %s - traceback follows",
                     type(mapped).__name__,
                     _ctx_label,
                     mapped.message,
@@ -652,4 +654,4 @@ def log_handled_failure(
     if exc is not None:
         # Appending to the format string keeps its placeholders intact; passing
         # an extra argument here would raise inside logging itself.
-        logger.debug(message + " — traceback follows", *args, exc_info=exc)
+        logger.debug(message + " - traceback follows", *args, exc_info=exc)
