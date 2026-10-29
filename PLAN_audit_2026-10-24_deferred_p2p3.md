@@ -29,14 +29,20 @@ all. The stall is **not reproduced** — the same commit's next run was green �
 X11 stays open, now with guards at both levels and one defect fixed: the
 whole-tree collection helper's caller waited **unbounded** and captured a pipe.
 **Status legend:** `[ ]` pending · `[~]` in progress · `[x]` done.
-**Tip state:** `origin/main` at `625eca4` (a record-only commit); the code state
-is verified at `ccff35e` — all eight jobs green, run
-[`40768973129`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40768973129),
-floor leg **11 220 passed, 6 skipped in 26:17**. `625eca4` changes one Markdown
-plan and its own run was **cancelled deliberately** rather than spending a
-full eight-job run on a prose diff; that is not an unverified tip, and re-running
-it is one `gh workflow run` away if a doc commit ever needs its own verdict. The
-stall X11 records has now been absent from three consecutive runner runs.
+**Tip state:** **`v2.1.6` is published** — the annotated tag peels to `0556069`,
+the release commit, and that commit is **green in all eight jobs**: run
+[`40846766978`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40846766978),
+floor leg **11 222 passed, 6 skipped, 35 deselected in 25:26**, `POSIX smoke pass:
+1756 passed, 1 skipped`, `Security Scan` "bandit gate pass: 0 High / 0 Medium"
+with "No known vulnerabilities found" and "0 advisory finding(s)", and
+`Tests skipped for display reasons : 0` / `GUI behaviour : VERIFIED`. The push was
+`625eca4..0556069` plus the tag in one operation, made on the owner's instruction
+after the cut. No tag-triggered workflow exists (`ci.yml` runs on
+`branches: [main]` only, `dependency-audit.yml` on a schedule), so the tagged
+commit's CI run *is* the release verdict rather than a second run beside it. A
+commit after `0556069` is record-only prose — `625eca4`'s own run was cancelled
+for exactly that reason — and the stall X11 records has been absent from every
+completed runner run since (`27b3136`, `ccff35e`, `0556069`).
 **Base state:** `main` at `85046ef` ("Record the 2.1.6 CI remediation decisions
 (2026-10-27)"), working tree clean. `v2.1.5` is the repository's only tag (at
 `942c183`). `tests/test_release_notes.py` is re-baselined to `5cbe83d` with
@@ -135,7 +141,7 @@ Two further measurements the items depend on:
 | D21 | The bounds are the **runner's own** numbers — 1756 passed, 1 skipped — not the derivation's ten-point padding (1750/10). | DECIDED | The leg's first run (D20's window) reported exactly the numbers the local derivation produced, and the split is pinned three ways: `uv.lock` fixes the dependency graph, `setup-python` fixes the interpreter line, and the ffmpeg step fixes the binaries. A deviation is therefore a real change — a lock upgrade, a new Python patch that skips something — and the leg should say so instead of absorbing it. Widening a bound again is legitimate only as a deliberate edit with a sentence here naming what moved, and the lock's comparison assertion means a silent widening is red. |
 | D26 | R-19 is recorded as a **reproduction attempt with a negative result** plus **one defect fixed**, not as a cure for X11: the band is located from the *green* run's gap profile, the attempt runs on the floor's own dependency graph, and the fix is limited to the branch that was dropping evidence. | DECIDED | X11 cannot name a test from the cancelled log (D25), but the log fixes a position: `[7%]` of 11 224 collected tests is index **786**, exactly where `tests/test_pyproject_config.py` starts, and the green run makes that position worth the trip on its own — the second-largest inter-write gap in 23 minutes is **53.0 s at `[7%]`**. X11 declined the 3.14 host, so the attempt used **3.11.16** with CI's extras (`--extras dev`,`analysis`,`cd-ripping`), which resolves the below-3.12 graph the runner sees — numpy 1.26.4 / scipy 1.17.1, verified in the environment rather than assumed. 40 band iterations at 63-70 s and one full-suite run produced no wedge, so the record says that and stops there. What the attempt did establish is the defect underneath: `_collect_view_in_child`'s `TimeoutExpired` branch discarded `exc.stdout`/`exc.stderr`, the only evidence that exists when a child cannot narrate its own wedge. Fixing that is not a cure, and calling a negative reproduction a cure is exactly the over-claim D20 and D25 were written to refuse. |
 | D29 | X11 is **parked** behind "reopen only if it recurs", and while parked it opens no new items. | DECIDED | Three runner runs, 40 band iterations on the floor's graph and a full suite in suite order have all failed to reproduce the stall, and it has already generated two items (R-18, R-19) that are now closed. An unknown that keeps producing work while resisting diagnosis is a budget sink: the guards make the next occurrence self-describing, so waiting is cheaper than another hypothesis. Reopening requires an occurrence, not a theory. |
-| D30 | The **2.1.6 cut is taken now**, with R-11 and R-12 riding it rather than a separate 2.1.7. Executed as `198931b` (release-gate fix) and `cbdcccc` (the cut); `v2.1.6` tagged, not pushed. | DECIDED | `[Unreleased]` carries 15 bullets across six items and the CI plan's C0–C8, all verified; each further deferral grows a release no one has reviewed as a whole, which is a worse risk than cutting a window whose entries are individually evidenced. Splitting R-11/R-12 out would mean rewriting the same block for no user-visible gain. The tree already declares 2.1.6 (`NOTE_MARKER = "Changed in 2.1.6"`), so the version is the only stale field. Publication is deliberately excluded: the tag is created after the gate and pushed only on the owner's word. |
+| D30 | The **2.1.6 cut is taken now**, with R-11 and R-12 riding it rather than a separate 2.1.7. Executed as `198931b` (release-gate fix) and `cbdcccc` (the cut); `v2.1.6` tagged and **published 2026-10-29** (tag peels to `0556069`, green in all eight jobs). | DECIDED | `[Unreleased]` carries 15 bullets across six items and the CI plan's C0–C8, all verified; each further deferral grows a release no one has reviewed as a whole, which is a worse risk than cutting a window whose entries are individually evidenced. Splitting R-11/R-12 out would mean rewriting the same block for no user-visible gain. The tree already declares 2.1.6 (`NOTE_MARKER = "Changed in 2.1.6"`), so the version is the only stale field. Publication is deliberately excluded from the decision itself: the tag is created after the gate and pushed only on the owner's word. That word came on 2026-10-29 — `main` and the annotated tag went out together as `625eca4..0556069`, and run [`40846766978`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40846766978) verified the tagged commit (11 222 passed, 6 skipped, 35 deselected on the floor in 25:26; POSIX 1 756 passed, 1 skipped; 0 High / 0 Medium, 0 advisory findings). |
 | D27 | The floor-only failure is fixed by **decoding with pydub**, and both soxr tests skip on a **measured capability** (`SOXR_MISSING` → `_ffmpeg_can_use_soxr()`), not on `CI` and not on nothing. | DECIDED | `wave` before 3.12 refuses `WAVE_FORMAT_EXTENSIBLE`, so the 24-bit WAV is unopenable on the floor and openable on the development host, and the `CI` skip suppressed the only reproduction — the cannot-fail shape D25 names. pydub is already this file's decoder for its own fixtures, so the fix adds no dependency and no new idiom. Removing the skip *outright* was the first attempt and the runner refused it (D28): the runner's ffmpeg is a gyan.dev essentials build with no libsoxr, so the rate path cannot be configured there at all. A probe that runs the filter is the only form that keeps the test running wherever the capability exists, skips where it does not, and states which capability is missing. |
 | D28 | The first push of R-20 (`e19cb4d`) went **red on the floor leg** and the record keeps that, rather than presenting the corrected fix as if it had been designed that way. | DECIDED | The log is the argument: `1 failed, 9 472 passed, 5 skipped in 1423.68 s (0:23:43)` with `[Parsed_aresample_0] Failed to configure output pad` and the runner's ffmpeg configure line (no `--enable-libsoxr`). Two things follow. The `CI` skip was protecting a genuine capability, so removing it without a replacement was wrong on the runner even though the `wave` defect it also hid was real. And `--maxfail=1` proved itself on its first real failure: the traceback reached the log in under a minute at 83% of the suite instead of letting the leg run on. Rewriting the history here would hide both lessons. |
 
@@ -1220,15 +1226,32 @@ executes 3.12 or 3.14 any more.
   and is not auto-fixable. `UP042` reports nothing today; if it is ever taken,
   AGENTS.md's `str`-mixin enum trap governs every interpolation site in the
   package, not just the refactored module.
-* **X3 — the 2.1.6 cut: CUT (D30, 2026-10-28).** `198931b` fixes the release
+* **X3 — the 2.1.6 cut: CLOSED, cut and published** (D30, 2026-10-28; published
+  2026-10-29). `198931b` fixes the release
   gate (below), `cbdcccc` is the cut itself — `pyproject.toml` and `uv.lock` at
   `2.1.6`, `[2.1.6] - 2026-10-28` holding the fifteen bullets, a fresh
   `[Unreleased]` placeholder, and the seven version-labelled guides relabelled.
   The gate on that state: compileall (tracked) **0**, ruff check and format
   clean, `mypy .` **551 files**, bandit **0 High / 0 Medium**, bare `pytest`
-  **11 225 passed, 3 skipped in 32:44**. `v2.1.6` is tagged on this record commit
-  and **not pushed**: publication is the owner's call, and the tag is the last
-  step rather than part of the cut. **What the cut itself exposed:** its own
+  **11 225 passed, 3 skipped in 32:44**. `v2.1.6` was tagged on this record commit
+  and held back: publication is the owner's call, and the tag is the last step
+  rather than part of the cut. **Published 2026-10-29** on that call — `main`
+  `625eca4..0556069` and the annotated tag in one push — and the tagged commit
+  then verified in run
+  [`40846766978`](https://github.com/wilte01/AudioSuite-Pro/actions/runs/40846766978):
+  all eight jobs green, floor leg **11 222 passed, 6 skipped, 35 deselected in
+  25:26**, `POSIX smoke pass: 1756 passed, 1 skipped`, bandit **0 High / 0
+  Medium**, audit **0 advisory findings**. The three fewer passes than the local
+  gate are tests the runner skips that this host runs — 11 225 + 3 and 11 222 +
+  6 are the same 11 228 tests. The runner's six: `test_refinery_pipeline`
+  527 and 559 ("pydub requires ffmpeg, not guaranteed in CI" — a `CI`-keyed
+  marker, not a capability probe), `test_setup_tab:161` (broken Tcl/Tk),
+  `test_key_manager:72` (Unix-only), and the two soxr tests by their measured
+  `libsoxr` probe. **The two `CI`-keyed skips are R-20's defect class left in
+  place** — a skip that names the environment rather than the capability it
+  lacks — and they are recorded as a follow-on rather than fixed inside a
+  publication record. **What the cut
+  itself exposed:** its own
   first gate step failed, because `compileall -q -f .` walks ignored build
   output — `packaging/build/app` stages a vendored interpreter whose `Lib/test`
   fixtures are deliberately invalid Python — so a host that has built the
@@ -1364,6 +1387,15 @@ executes 3.12 or 3.14 any more.
   rather than a drive-by inside an R-15 diff — the same call
   `PLAN_ci_2026-10-27_remediation.md` D12 made. Recorded, not fixed, and not
   silent: the value a reader greps for is the one in `pyproject.toml`.
+* **X12 — OPEN: two tests skip on `CI` rather than on the capability they lack.**
+  Found by the published release run (`40846766978`): the floor leg reports six
+  skips, and `tests/test_refinery_pipeline.py:527` and `:559` give the reason
+  "pydub requires ffmpeg, not guaranteed in CI" — a marker keyed on the
+  *environment*, so the skip says nothing about the host's actual `ffmpeg` and
+  would silently stay green on a runner that has it. That is R-20's defect class,
+  which replaced exactly this reasoning for the two soxr tests with a measured
+  probe. Not fixed inside a publication record: a probe change belongs in a
+  change that also proves the unskipped branch runs, which needs its own run.
 
 ---
 
@@ -1393,4 +1425,5 @@ against a 100-minute budget).
 | `target-version = "py311"` surfaces more than the 12 measured findings, or `mypy` at 3.11 more than the 1. | Both were measured before the plan was written, so the size is known; anything further is fixed in the change or recorded here as a decision, never ignored. | Revert the target alone and record why — but the lock in `tests/test_tooling_targets.py` then has to be changed deliberately, which is the point. |
 | The floor environment resolves different numpy/scipy legs below 3.12 than the 3.14 host does. | X1 names it; the acceptance evidence is the 3.11 leg's verdict, not the local proxy. | None needed: this is a measurement limitation, not a defect. |
 | R-17's single leg lets a 3.12- or 3.14-only regression reach `main` without a runner verdict, since neither interpreter runs the suite in CI any more. | The floor leg keeps the full suite, the mandatory local gate runs 3.14 before anything is called done, and X10 names the three ways to buy the leg back; the ledger prices a second leg at 125.2 minutes, so it is a decision with a number, not an oversight. | Restore the leg and record it in the ledger with its measured cost — the lock makes that a deliberate edit rather than a quiet one. If a 3.14-only defect escapes, the fix is `pytest-xdist` (to make two legs fit the budget), not a wider budget. |
+| A test skips because the environment is called `CI`, not because the capability is missing, so the leg's skip count certifies nothing about the runner. | R-20's fix shape is the template: probe the capability, key the marker on the probe, and keep the skip *reason* measured (X12). | Replace the marker with the probe and keep the printed reason — the reason is what makes a skip auditable. |
 | An allowlist entry is added to silence an advisory instead of fixing it. | Entries expire, staling is a failure, and the weekly run makes an expired entry red on a day nobody committed. | Remove the entry and upgrade, or renew it with a new reason and date — the renewal is a visible diff in review. |
