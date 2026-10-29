@@ -71,6 +71,7 @@ discovered.
 | D9 | **Items do not ride each other's release.** Each gets its own `CHANGELOG` entry under the version it ships in. | DECIDED | The 2.1.6 cut accumulated fifteen bullets across six items and became a release nobody had read as a whole — the risk D30 named. Grouping is what made that happen; per-item releases keep each one reviewable. |
 | D10 | Feature work targets **2.2.0**; narrow extensions may ship as 2.1.x. | PROPOSED | F-01, F-02, F-05/F-06 and F-08 add capability (minor). B2, F-09 and A1 are bounded extensions or measurements and can ride a patch if their surface stays additive. |
 | D12 | **F-10 (the audio-writer sweep) is admitted** into a capability plan, and its deliverable is a **lock**, not a bug list. | DECIDED | The normalise defect fixed on `dc1b3c5` was found by un-skipping a test, not by a sweep, and no test in the tree asserts any writer's output format — the case passed for a release because its test measured loudness only. It sits in Wave 1 because every later audio item (F-08, F-09) is safer behind it, and it is expected to end with **no code change**, which is A1's shape (D8) rather than a defect register's. |
+| D20 | **The repository has one documentation tree**, `documentation/`, holding `documentation/docs/` (the Sphinx site) and `documentation/user_guides/` (the shipped guides and their Markdown sources). "Which documents does this change touch?" is answered by walking that directory instead of remembering two roots. | DECIDED (user, 2026-10-29) | 315 path references in 53 files named `user_guides/` and 232 in 35 named `docs/`; the historical `PLAN_*`/`AUDIT_*`/`CHANGELOG.md` records were left untouched, because they describe the tree as it was (a plan is a record, not an instruction). The move is not a rename: **the depth is load-bearing.** The pages sat one level from the root and now sit two, so every link to a repository-root file gained a `../` (`documentation/docs/index.md` → `../../README.md`), and because `myst_all_links_external` suppresses the warning a wrong one would otherwise be silent. The publish root therefore mirrors the checkout too - pages at `<out>/documentation/docs/`, guides at `<out>/documentation/user_guides/`, root documents at `<out>/` - or every such href would escape the artifact; `tests/test_docs_build.py`'s ~240-link self-containment walk is what proves it, and it passed unchanged apart from its paths. Three further contracts moved with it: `conf.py`'s `ROOT` is `parents[2]` (a `parent.parent` would point at `documentation/` and break autodoc for every documented module), `open_help` resolves `documentation/user_guides/individual_programs/<tool>/` at runtime for the Help button, and mypy's exclusion stayed **narrow** (`^documentation/user_guides/` + `^documentation/docs/_build/`) because excluding the whole tree silently dropped `conf.py` from the gate - 551 files became 550, which is how it was caught. The two generator-backed artefacts were re-rendered and triaged by zip entry: exactly `word/document.xml` (the logging guide's footer) and `ppt/slides/slide25.xml` (the closing slide's paths) changed, so no external-editor drift. **Supersedes** the applied-path model in `PLAN_docs_consolidation.md` §4/§5; that plan is complete and is not edited. `AGENTS.md` now states the rule as one directory walk, and `tests/test_docs_formats.py`'s format whitelist governs every tracked file under `documentation/`, so a new subdirectory there is covered without editing the test. |
 | D11 | No item changes a **tag format** or a **file extension** the suite already writes without a migration note. | DECIDED | B2 adds containers the scrubber can *scrub*, not a new output format; F-09 changes a normalisation target, which is audio output — its bullet must say what a re-run does to an already-normalised file. |
 
 ---
@@ -377,6 +378,52 @@ lands, this section gains its gate line in the form the register used:
 item, commit, the four-item gate, the full-suite count, and the evidence that is
 specific to that item (a decoded measurement for audio, a fixture table for a
 parser).
+
+**Documentation layout — the one tree (D20).** Commits `ad15a51`, `f3ee8b9`
+and `1ce857c` on `main`.
+
+| Check | Result |
+|---|---|
+| compile | `compileall -q -f -x '(packaging|\.venv)' .` exit 0 (the unfiltered form still exits 1 only on the stale PyInstaller runtime's deliberately invalid fixtures, as recorded above). |
+| ruff | `ruff check .` clean; `ruff format --check .` — 946 files already formatted. |
+| mypy | bare `mypy .` — no issues in **551** source files, the same count as before the move (the exclusion was narrowed to keep `conf.py` in the gate). |
+| pytest | bare `pytest` — **11 323 passed, 3 skipped, 35 deselected**, exit 0, coverage 90.93%; the ten document locks separately **83 passed**, and `test_docs_build` **9 passed** including the staged-tree link walk. The run covers the whole tree, which also carries the uncommitted 2.1.7 audio work. |
+
+Evidence for the specific contracts this move could break:
+
+- **Relative depth.** `documentation/docs/index.md` now links `../../README.md`,
+  `../../CHANGELOG.md`, `../../CONTRIBUTING.md` and `../../packaging/…`;
+  `documentation/docs/user/security.md` links `../../../SECURITY.md`. The docs
+  build stays **warning-free** (`myst_all_links_external` means a wrong href is
+  *not* a warning), so the proof is `TestPublishedTreeIsSelfContained`, which
+  rebuilt the staged tree and resolved every internal link with nothing missing
+  and nothing escaping.
+- **Runtime.** `open_help` resolves the guide under
+  `documentation/user_guides/individual_programs/<tool>/`;
+  `audio_suite_shared/tests/test_platform_utils.py` (fixture roots updated) and
+  `spectral_viewer/tests/test_app.py::TestGuide::test_help_guide_is_shipped` both
+  pass against the real tree, so the Help button's path is not merely renamed in
+  the message.
+- **Artefacts.** `build_user_guides.py --check` — **32/32 current**, unchanged by
+  the move because only paths moved. The one generator-backed artefact this change
+  needs is the deck: it was regenerated and triaged by zip entry, and only
+  `ppt/slides/slide25.xml` (the closing slide's paths) differs, with an identical
+  entry set — content change, no external-tool drift. `LOGGING_SYSTEM_GUIDE.docx`
+  is the other: its footer names its own generator, so it ships regenerated with
+  the move (a separate commit), and its only differing paragraph is that footer.
+- **Guides reviewed:** the pages that describe the layout itself were updated
+  (`documentation/docs/index.md`, `documentation/user_guides/README.md`, README,
+  CONTRIBUTING, SECURITY, AGENTS) plus the deck's closing slide. No per-tool
+  guide claims a path under the old roots, so "no guide describes this change"
+  applied to none of the 32; `tests/test_suite_docs_tool_coverage.py` walks the
+  shipped tree and still resolves every artefact name the guides quote.
+- **Self-inflicted defects, fixed in this change:** the bulk path substitution
+  split four expressions across a newline (`ruff` refused to parse them — the
+  *Never Lose a Rule to a Scripted Edit* failure mode, caught before any test
+  ran); the first mypy exclusion dropped `conf.py`, caught by the file count; and
+  `test_docs_index`'s guide check compared repository-relative paths against a
+  page that must link `../user_guides/…`, so it now compares the href the reader
+  actually gets.
 
 ---
 
