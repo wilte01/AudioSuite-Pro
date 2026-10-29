@@ -11,6 +11,20 @@ Versions of the tools are released together with the suite (the single
 
 ### Fixed
 
+- **Normalising no longer resamples every file to 192 kHz - and works again on
+  current FFmpeg.** `loudnorm` computes at 192 kHz and hands its frames on at
+  that rate, and the normalise command never pinned the output rate, so a 2 s
+  16-bit 44.1 kHz FLAC came back as a 192 kHz 24-bit one at ~10x the size: a
+  silent sample-rate and bit-depth change on every normalise pass. The same
+  freedom broke the stage outright on FFmpeg builds after 8.0, whose FLAC
+  encoder rejects the 384000-sample block that rate implies
+  (`invalid block size: 384000`) - so the stage failed on every file. The
+  command now pins the source's own rate (and FLAC's bit depth), skips the pin
+  for encoders whose rate set cannot hold it - `opus` takes 8/12/16/24/48 kHz
+  only, and an explicit `-ar` also suppresses FFmpeg's own resampler - and caps
+  FLAC frames at 4096 samples without padding the last one. Verified on a
+  2 s, 44.1 kHz, 16-bit source: -30.95 to -15.95 LUFS, 44 100 Hz and 16-bit on
+  the way out, on both FFmpeg 8.0.1 and a current master build.
 - **The library cache no longer trusts an mtime alone.** A file replaced by one
   that preserves its timestamp - `cp -p`, a backup restore, a same-second
   rewrite - kept its cached row, so the statistics report served the tags of
@@ -28,7 +42,9 @@ Versions of the tools are released together with the suite (the single
   skipped whenever the `CI` variable was set, with a reason claiming pydub needs
   ffmpeg - a fact nothing checked, so a runner that had ffmpeg skipped them
   anyway. They now skip only when a real pydub FLAC round trip fails, which
-  means they execute on a runner that can.
+  means they execute on a runner that can. Un-skipping them immediately found
+  the 192 kHz normalise defect above: it had been invisible to CI precisely
+  because that test never ran there.
 
 ### Changed
 

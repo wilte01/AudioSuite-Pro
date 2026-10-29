@@ -602,8 +602,19 @@ class TestProcessFileOutcomes:
         assert loudness["input_i"] == pytest.approx(-16.0, abs=0.7)
         # The FLAC output is decoded with pydub (ffmpeg-backed); the stdlib
         # wave reader used by _decode_wav cannot read it.
-        duration = AudioSegment.from_file(str(out)).duration_seconds
-        assert duration == pytest.approx(2.0, abs=0.05)
+        decoded = AudioSegment.from_file(str(out))
+        assert decoded.duration_seconds == pytest.approx(2.0, abs=0.05)
+
+        # The output must keep the source's own audio parameters (X12 closure).
+        # Leaving them to FFmpeg silently resampled every file to loudnorm's
+        # internal 192 kHz and widened 16-bit audio to 24 bits, and current
+        # FFmpeg builds reject the resulting FLAC block size outright, so this
+        # test - the one that used to be skipped whenever CI was set - is the
+        # only thing that noticed. Decoded, not read back from our own state.
+        source = AudioSegment.from_file(str(quiet_flac))
+        assert decoded.frame_rate == source.frame_rate == 44100
+        assert decoded.channels == source.channels
+        assert decoded.sample_width == source.sample_width == 2
 
     @PYDUB_FLAC_MISSING
     def test_full_chain_all_stages(self, tmp_path: Path) -> None:

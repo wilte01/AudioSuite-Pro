@@ -2,6 +2,10 @@
 Tests for audio_normalizer.core.loudness, normalizer, and file_processor
 Gap G-35: _safe_float, measure(), _codec_args, apply(), process_single_file(),
           run_parallel_process()
+
+Changed in 2.1.7: TestApply gained the source-parameter pins - rate, FLAC bit
+depth, the FLAC frame cap, and the encoder whose rate set forbids the pin
+(audio_normalizer.core.normalizer._preserve_args).
 """
 
 import threading
@@ -17,7 +21,12 @@ from audio_normalizer.core.file_processor import (
     run_parallel_process,
 )
 from audio_normalizer.core.loudness import _safe_float, measure
-from audio_normalizer.core.normalizer import _codec_args, apply
+from audio_normalizer.core.normalizer import (
+    _codec_args,
+    _filters,
+    _preserve_args,
+    apply,
+)
 from audio_suite_shared.exceptions import AudioFormatError
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -373,6 +382,62 @@ class TestApply:
         # No .tmp.mp3 file should remain
         temp_files = list((tmp_path).glob("*.tmp*"))
         assert len(temp_files) == 0
+
+    def test_source_rate_and_depth_are_pinned(self, tmp_path):
+        """The output must keep the source's rate and FLAC bit depth.
+
+        Without these pins every normalised file came out at loudnorm's internal
+        192 kHz and 16-bit audio was widened to 24 bits; see the module comment
+        above ``_preserve_args``.
+        """
+        # Explicit 44.1 kHz/16-bit: AudioSegment.silent() defaults to 11025 Hz,
+        # so a helper-built file would not exercise the pin at all.
+        path = tmp_path / "t.flac"
+        source = AudioSegment.silent(duration=100, frame_rate=44100).set_channels(2)
+        source.export(str(path), format="flac")
+        f = str(path)
+        calls = []
+
+        def fake_run(exe, args, **kw):
+            cmd = [exe, *args]
+            calls.append(cmd)
+            open(cmd[-1], "wb").close()
+            m = MagicMock()
+            m.returncode = 0
+            return m
+
+        with (
+            patch("audio_normalizer.core.normalizer.run_secure_subprocess", fake_run),
+            patch("audio_normalizer.core.normalizer.read_tags_raw", return_value=None),
+            patch("audio_normalizer.core.normalizer.write_tags_raw"),
+        ):
+            apply(f, -16.0, MOCK_LOUDNESS)
+
+        cmd = calls[0]
+        assert cmd[cmd.index("-ar") + 1] == "44100"
+        assert cmd[cmd.index("-sample_fmt") + 1] == "s16"
+        # The frame cap is what keeps the FLAC encoder's block size legal.
+        filters = cmd[cmd.index("-af") + 1]
+        assert filters.endswith("asetnsamples=n=4096:p=0")
+
+    def test_unreadable_source_omits_the_pins(self, tmp_path):
+        """No readable source parameters means no pin - not a guessed default."""
+        f = tmp_path / "t.flac"
+        f.write_bytes(b"not audio")
+        cmd = _preserve_args(str(f), "flac")
+        assert "-ar" not in cmd
+        assert "-sample_fmt" not in cmd
+        # The block-size cap needs no source information, so it always applies.
+        assert "asetnsamples" in _filters(-16.0, MOCK_LOUDNESS, "flac")
+
+    def test_rate_is_not_pinned_for_an_encoder_that_rejects_it(self, tmp_path):
+        """opus takes 8/12/16/24/48 kHz only; pinning 44.1 kHz made it fail."""
+        flac = _make_audio(tmp_path, "t.flac")
+        opus = tmp_path / "t.opus"
+        opus.write_bytes((tmp_path / "t.flac").read_bytes())
+        assert flac.endswith("t.flac")
+        assert "-ar" not in _preserve_args(str(opus), "libopus")
+        assert "-ar" in _preserve_args(flac, "flac")
 
     def test_write_tags_raw_failure_leaves_temp_file_and_original_intact(
         self, tmp_path
