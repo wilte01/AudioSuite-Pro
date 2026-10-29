@@ -123,7 +123,8 @@ silent runtime degradation:
    `ensure_venv_interpreter()` re-exec (so `uv`-installed extras are the ones
    the tool runs with) and the `guard_or_exit()` pre-flight call.
 8. **User guide** — Markdown source
-   `user_guides/individual_programs/<module_dir>/<Guide>_User_Guide.md`, rendered
+   `documentation/user_guides/individual_programs/<module_dir>/<Guide>_User_Guide.md`,
+   rendered
    by `python utilities/build_user_guides.py <module_dir>` (the `.docx` is an
    artifact), and the filename registered in
    `audio_suite_shared/platform_utils.py` `guide_to_program`.
@@ -142,15 +143,21 @@ from the manifest and the full-suite lock tests fail if it drifts:
 
 ## Documentation
 
-Everything under `docs/` is Markdown rendered by Sphinx + MyST, and every guide
-under `user_guides/` is Markdown rendered into a Word file: the per-tool guides
-are what each Help button opens, and the suite-wide reference page (the CLI
-commands reference) is rendered by the same script. In both cases the Markdown
-is the source and the rendered thing is an artifact no one edits by hand.
+Every document lives under `documentation/`: `documentation/docs/` is Markdown
+rendered by Sphinx + MyST, and `documentation/user_guides/` is Markdown rendered
+into a Word file. The per-tool guides are what each Help button opens, and the
+suite-wide reference page (the CLI commands reference) is rendered by the same
+script. In both cases the Markdown is the source and the rendered thing is an
+artifact no one edits by hand.
+
+When you change behaviour, read the guides under `documentation/` against it:
+search the whole tree for the flag, default, count or message you changed rather
+than guessing which folder holds the prose.
 
 ```pwsh
-# the site, straight from docs/conf.py (the build gate reads the same config)
-python -m sphinx -b html docs docs/_build/html
+# the site, straight from documentation/docs/conf.py (the build gate reads the
+# same config)
+python -m sphinx -b html documentation/docs documentation/docs/_build/html
 
 # the publish-ready tree: html/ plus every file the pages link to, and a root
 # index.html that opens on the front door
@@ -168,11 +175,11 @@ python utilities/generate_readme_tool_index.py
 
 Two rules no generator can enforce:
 
-* a `.docx` or `.pptx` under `user_guides/` is never edited in Word — change the
-  `.md` beside it and re-render, because the freshness lock compares the
-  committed artifact against what the renderer produces today;
-* the tool table in `docs/index.md` and the one in `README.md` are generated from
-  the manifest; re-run the generator instead of editing a row.
+* a `.docx` or `.pptx` under `documentation/user_guides/` is never edited in
+  Word — change the `.md` beside it and re-render, because the freshness lock
+  compares the committed artifact against what the renderer produces today;
+* the tool table in `documentation/docs/index.md` and the one in `README.md` are
+  generated from the manifest; re-run the generator instead of editing a row.
 
 `docs-locks` is the CI job that runs the document locks on their own, ahead of
 the full suite, so a stale artifact or a reintroduced format fails in a couple

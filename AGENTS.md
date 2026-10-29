@@ -44,6 +44,9 @@ Four checks, in this order. Anything short of all four green is not done.
 4. **Tests** — bare `pytest`, so the configured `testpaths` apply (CI adds
    `--cov-fail-under=75`)
 
+The gate reads code, not prose. User-facing documentation is a separate
+precondition of "done": see *User Guides Follow the Change*.
+
 Windows shell note: items 1–3 are usually run in PowerShell. This repository is
 also driven from Git Bash, where the equivalents are `ruff check .`,
 `python -m mypy .` and
@@ -710,7 +713,7 @@ file exactly `{tool_id}_card.py` (e.g. `fingerprinter_card.py` for id
 The suite has one extension mechanism: `audio_suite_shared/plugin_system/`
 discovers `plugins/*/MANIFEST.toml` and validates it, and `tool_plugin` adds the
 enabled plugins' tools to the registry it freezes. The development guide is
-[docs/plugins.md](docs/plugins.md); the bundled example is
+[documentation/docs/plugins.md](documentation/docs/plugins.md); the bundled example is
 `plugins/example_plugin/`. Evidence: `PLAN_feature_expansion.md` D130-D133.
 
 - **Discovery is data; code loads only when enabled.** The manifest is parsed
@@ -770,8 +773,8 @@ a broken Help button warns):
 7. **Pyw launcher** — a top-level `<Tool_Name>.pyw` calling the pre-flight guard
    (mandatory — see *Startup Pre-Flight Guard*).
 8. **User guide** — a Markdown source
-   `user_guides/individual_programs/<module_dir>/<Guide>_User_Guide.md`, rendered
-   by `python utilities/build_user_guides.py <module_dir>`; the `.docx` beside it
+   `documentation/user_guides/individual_programs/<module_dir>/<Guide>_User_Guide.md`,
+   rendered by `python utilities/build_user_guides.py <module_dir>`; the `.docx` beside it
    is a build artefact, never hand-edited (the renderer is the one shared
    implementation, and `tests/test_user_guide_hygiene.py` fails on a stale
    artefact). Plus the filename → folder registration in
@@ -793,22 +796,37 @@ be a bare full-suite `pytest` run.
 
 ## Documentation Formats
 
-**One authored format: Markdown.** Everything else under `docs/` and
-`user_guides/` is generated, and no generated file is hand-edited.
+**There is one documentation tree: `documentation/`.** Nothing a reader is meant
+to read lives anywhere else, so "which documents does this affect?" is answered by
+one directory walk rather than by remembering a list of folders.
 
-- `docs/**/*.md` are Sphinx pages rendered by MyST (`myst-parser` in the `dev`
-  extra). `tests/test_docs_build.py` fails on any parser warning; CI publishes
-  the built HTML as the `docs-html` artifact.
-  Cross-page links inside `docs/` use the `{doc}` role; links to repository
-  files outside it stay plain relative URLs (`myst_all_links_external`), because
-  Sphinx only resolves documents inside its source directory.
-- `user_guides/individual_programs/<tool>/<Guide>_User_Guide.md` is a guide's
+```text
+documentation/
+    docs/          the Sphinx site (README, changelog and API links point out of it)
+    user_guides/   the guides the Help button opens, and their Markdown sources
+```
+
+**One authored format: Markdown.** Everything else under `documentation/` is
+generated, and no generated file is hand-edited.
+
+- `documentation/docs/**/*.md` are Sphinx pages rendered by MyST
+  (`myst-parser` in the `dev` extra). `tests/test_docs_build.py` fails on any
+  parser warning; CI publishes the built HTML as the `docs-html` artifact.
+  Cross-page links inside `documentation/docs/` use the `{doc}` role; links to
+  repository files outside it stay plain relative URLs
+  (`myst_all_links_external`), because Sphinx only resolves documents inside its
+  source directory. That exemption is why a wrong relative link is silent: a
+  page sits two levels down, so a repository-root file is `../../README.md`, and
+  `tests/test_docs_build.py::TestPublishedTreeIsSelfContained` is what proves
+  every such href resolves in the staged tree.
+- `documentation/user_guides/individual_programs/<tool>/<Guide>_User_Guide.md` is a guide's
   source. The `.docx` beside it is rendered by
   `utilities/build_user_guides.py` and is what the Help button opens: edit the
   Markdown, then run `python utilities/build_user_guides.py <module_dir>`.
   `--check` proves every artefact is current and reports drift as a differing
-  zip entry. Suite-wide reference pages ride the same path: `reference/*.md`
-  (the CLI commands reference) is rendered by the same script
+  zip entry. Suite-wide reference pages ride the same path:
+  `documentation/user_guides/reference/*.md` (the CLI commands reference) is
+  rendered by the same script
   (`python utilities/build_user_guides.py reference`) into the `.docx` beside
   it, and is drift-checked identically even though no Help button opens it.
   The renderer's dialect is small: a list, table, fence or callout needs a blank
@@ -823,16 +841,67 @@ be a bare full-suite `pytest` run.
   `tests/test_user_guide_hygiene.py` accepts exactly those two; any other
   unreproducible binary fails, and a parked one is a test failure by design.
 - User-facing error wording lives once, in `audio_suite_shared/exceptions.py`'s
-  `USER_MESSAGES`. `docs/user/messages.md` renders that table and
+  `USER_MESSAGES`. `documentation/docs/user/messages.md` renders that table and
   `audio_suite_shared/tests/test_exceptions.py` fails when the two disagree, so
   a message cannot change meaning in one place only.
-- `tests/test_docs_formats.py` is the arbiter for formats: a new `.rst`/`.txt`
-  page fails until the approved set is edited deliberately, and a
-  machine-specific absolute path in doc tooling fails the scan.
+- `tests/test_docs_formats.py` is the arbiter for formats: its whitelist
+  governs **every** tracked file under `documentation/`, so a new subdirectory
+  there is covered without editing the test. A new `.rst`/`.txt` page fails until
+  the approved set is edited deliberately, and a machine-specific absolute path
+  in doc tooling fails the scan.
+- **Do not reintroduce a second documentation root.** A new folder beside
+  `documentation/` (an `api_docs/`, a `manuals/`) splits the walk that the review
+  rules below rely on; put the pages in `documentation/docs/` and the shipped
+  guides in `documentation/user_guides/`.
+
+## User Guides Follow the Change
+
+**A change is not done until the guides for what it touches have been read
+against it.** Guides are the product's only description of behaviour, and they go
+stale silently: nothing compiles them, no test asserts what they claim, and the
+tool keeps working while the document lies about it. A1 is the worked example —
+the album-gain arithmetic was replaced and `ReplayGain_Analyzer_User_Guide.md`
+still described the old duration-weighted formula in four places (Setup, the
+processing steps, the values table and Troubleshooting); it was found only when a
+reviewer asked (`PLAN_functional_backlog.md` D17).
+
+- **Review the guides of every tool the change touches** whenever it alters an
+  option or flag, a default, a supported container or extension, a calculation,
+  a status or log line a user reads, or a workflow step. Update the Markdown,
+  then re-render: `python utilities/build_user_guides.py <module_dir>`, or
+  `python utilities/build_user_guides.py reference` for
+  `documentation/user_guides/reference/`. Authored
+  `documentation/docs/**/*.md` pages count as guides too;
+  `documentation/docs/_build/` is generated output and is never edited.
+- **The sweep is one directory, not a list of files.** Because every document
+  lives under `documentation/`, "check the guides" means reading every entry
+  under `documentation/` that describes what the change touched — the tool's
+  guide, the site pages that name the tool, the CLI reference, and the suite
+  overview whose tool count or table may quote it. Enumerate the directory
+  (`git grep -l <the option, flag, default or count> -- documentation/`) rather
+  than recalling which folders used to hold prose. `tests/test_guide_claims.py`
+  mechanically holds the claim classes it can (format counts, worker counts,
+  quoted flags, status tokens, artifact names) against the code; everything else
+  is read.
+- **Record the outcome even when nothing changes.** "No guide describes this
+  behaviour" is a valid answer and must be stated — in the governing plan's
+  verification line, the commit message, or the change's description — so a
+  skipped review is visible instead of indistinguishable from a completed one.
+- **`--check` is the mechanical proof.**
+  `python utilities/build_user_guides.py --check` compares zip entry *data*, so
+  it catches a `.docx` left behind an edited `.md` (see *User-Guide Regeneration
+  Diffs*), and `tests/test_user_guide_hygiene.py`,
+  `tests/test_cli_reference_hygiene.py` and `tests/test_docs_build.py` fail on a
+  stale or unrenderable artefact. Editing the Markdown alone is an incomplete
+  change, not a smaller one.
+- **A user-visible change with no guide passage deserves a second look.** If
+  nothing in the guide describes it, say which case it is: a fix or detail no
+  user needs to know about, or a gap where the guide should have said something
+  and now must (a new format, a changed default, a new failure message).
 
 ## User-Guide Regeneration Diffs
 
-Regenerating `user_guides/**/*.docx` / `.pptx` is **content-stable but never
+Regenerating `documentation/user_guides/**/*.docx` / `.pptx` is **content-stable but never
 byte-stable**: python-docx/pptx rebuild the zip container and every entry's
 local-header mtime changes, so `git status` reports all artifacts modified even
 when no text moved. This is why `build_user_guides.py --check` — and the release
