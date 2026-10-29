@@ -7,6 +7,10 @@ Changed in 1.4.0: the docstring no longer claims a fixed 4-worker pool; the
 count resolves from ``default_max_workers()`` (D56, D67).
 Changed in 2.1.3: discovery and loading share one ``_LOADERS`` table, so the
 scrubber can no longer advertise a container it cannot open (R-05).
+Changed in 2.1.7: APEv2 (.wv/.ape/.mpc), Ogg Speex (.spx) and DSF (.dsf) join
+the table, with a container-aware preserve/restore path (B2). APEv2 items are
+kept as the raw ``APEValue`` objects the loaded container holds; ``.spx`` uses
+the Vorbis-comment path and ``.dsf`` the ID3 path.
 """
 
 import logging
@@ -17,13 +21,18 @@ from queue import Queue
 from typing import Any, Callable, Optional, cast
 
 from mutagen.aiff import AIFF
+from mutagen.dsf import DSF
 from mutagen.flac import FLAC
 from mutagen.id3 import APIC, ID3, SYLT, TPE2, TXXX, USLT
+from mutagen.monkeysaudio import MonkeysAudio
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4
+from mutagen.musepack import Musepack
 from mutagen.oggopus import OggOpus
+from mutagen.oggspeex import OggSpeex
 from mutagen.oggvorbis import OggVorbis
 from mutagen.wave import WAVE
+from mutagen.wavpack import WavPack
 
 from audio_suite_shared.batch_undo import (
     get_active_batch_id,
@@ -50,20 +59,35 @@ from audio_suite_shared.tag_helper_base import TagHandlerFactory
 #: ``TagHandlerFactory`` is deliberately not used as the loader here: scrubbing
 #: needs the *raw* mutagen object, because ``_collect_tags_to_preserve`` captures
 #: actual ``APIC``/``SYLT``/``USLT``/``TPE2``/``TXXX`` frames and restores those
-#: same frame objects. WavPack/APE/Musepack/Speex/DSF stay out of the table until
-#: a frame-level APEv2 handler exists for that restore logic - the plan records
-#: the gap as a deferred item rather than papering over it with discovery.
+#: same frame objects. APEv2 containers are supported on the same terms: the
+#: preserved items are the raw ``APEValue`` objects (text, binary artwork or
+#: multi-value), and ``_restore_tags`` writes them back into a freshly loaded
+#: container before ``set_raw_tags`` persists it.
 _LOADERS: dict[str, Callable[[str], Any]] = {
     ".mp3": lambda path: MP3(path, ID3=ID3),
     ".flac": FLAC,
     ".ogg": OggVorbis,
     ".opus": OggOpus,
+    ".spx": OggSpeex,
     ".m4a": MP4,
     ".mp4": MP4,
     ".wav": WAVE,
     ".aiff": AIFF,
     ".aif": AIFF,
+    ".wv": WavPack,
+    ".ape": MonkeysAudio,
+    ".mpc": Musepack,
+    ".dsf": DSF,
 }
+
+#: Containers whose tags are APEv2 items (WavPack, Monkey's Audio, Musepack).
+_APEV2_EXTENSIONS: frozenset[str] = frozenset({".wv", ".ape", ".mpc"})
+
+#: Vorbis-comment containers, including Ogg Speex.
+_VORBIS_EXTENSIONS: frozenset[str] = frozenset({".flac", ".ogg", ".opus", ".spx"})
+
+#: ID3-backed containers, including DSF's ID3 chunk.
+_ID3_EXTENSIONS: frozenset[str] = frozenset({".wav", ".aiff", ".aif", ".dsf"})
 
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(_LOADERS)
 
@@ -101,6 +125,19 @@ def _load_audio(full_path: str) -> Any:
     if loader is None:
         raise ValueError(f"Unsupported audio format: {ext}")
     return loader(full_path)
+
+
+def _matching_key(mapping: Any, wanted: str) -> Optional[str]:
+    """Return the stored key matching *wanted* case-insensitively.
+
+    APEv2 (and Vorbis comments) match keys case-insensitively but remember the
+    casing they were written with, so restoring through the stored key keeps
+    the file's own canonical spelling instead of lower-casing it.
+    """
+    for key in mapping.keys():
+        if str(key).lower() == wanted.lower():
+            return str(key)
+    return None
 
 
 def _has_tags(audio: Any) -> bool:
@@ -147,7 +184,7 @@ def _collect_tags_to_preserve(
                         preserved[f"id3:TXXX:{txxx_desc}"] = frame
             except Exception as exc:
                 logger.debug("Skipping unreadable ID3 frame: %s", exc)
-    elif ext in (".flac", ".ogg", ".opus"):
+    elif ext in _VORBIS_EXTENSIONS:
         # Always preserve artist, album, title (essential tags)
         for key in ("artist", "album", "title"):
             vals = audio.tags.get(key)
@@ -173,6 +210,35 @@ def _collect_tags_to_preserve(
                     preserved[key] = list(vals)
             except Exception as exc:
                 logger.debug("Skipping unreadable Vorbis tag %s: %s", key, exc)
+    elif ext in _APEV2_EXTENSIONS:
+        # Essentials first, then the flagged/preserved items. The raw APEValue
+        # is kept (not a list of strings): a multi-value text item round-trips
+        # as one item, and a Cover Art (Front) binary item stays binary.
+        wanted_preserve = {p.lower() for p in preserve_list}
+        for wanted in ("artist", "album", "title"):
+            match_key = _matching_key(audio.tags, wanted)
+            if match_key is not None and audio.tags.get(match_key):
+                preserved[match_key] = audio.tags.get(match_key)
+        kept = {str(key).lower() for key in preserved}
+        for key in list(audio.tags.keys()):
+            try:
+                value = audio.tags.get(key)
+                if not value or str(key).lower() in kept:
+                    continue
+                lower = key.lower()
+                if preserve_lyrics and lower in ("lyrics", "syncedlyrics"):
+                    preserved[key] = value
+                elif preserve_album_artist and lower in (
+                    "albumartist",
+                    "album artist",
+                ):
+                    preserved[key] = value
+                elif preserve_embedded_art and lower == "cover art (front)":
+                    preserved[key] = value
+                elif lower in wanted_preserve:
+                    preserved[key] = value
+            except Exception as exc:
+                logger.debug("Skipping unreadable APEv2 item %s: %s", key, exc)
     elif ext in (".m4a", ".mp4"):
         # Always preserve artist, album, title (essential tags)
         for key in ("\xa9ART", "\xa9alb", "\xa9nam"):
@@ -192,8 +258,8 @@ def _collect_tags_to_preserve(
                     preserved[key] = vals
             except Exception as exc:
                 logger.debug("Skipping unreadable MP4 atom %s: %s", key, exc)
-    elif ext in (".wav", ".aiff", ".aif"):
-        # WAV/AIFF use ID3 tags, same structure as MP3
+    elif ext in _ID3_EXTENSIONS:
+        # WAV/AIFF and DSF use ID3 tags, same structure as MP3
         for fid in ("TPE1", "TALB", "TIT2"):
             frame = _get_frame_safe(audio, fid)
             if frame is not None:
@@ -233,10 +299,16 @@ def _restore_tags(audio: Any, preserved: dict[str, Any]) -> None:
                 audio.tags.add(frame)
             except Exception as exc:
                 logger.debug("Could not restore ID3 frame: %s", exc)
-    elif ext in (".flac", ".ogg", ".opus", ".m4a", ".mp4"):
+    elif ext in _VORBIS_EXTENSIONS or ext in (".m4a", ".mp4"):
         for key, vals in preserved.items():
             audio.tags[key] = vals
-    elif ext in (".wav", ".aiff", ".aif"):
+    elif ext in _APEV2_EXTENSIONS:
+        for key, value in preserved.items():
+            try:
+                audio.tags[key] = value
+            except Exception as exc:
+                logger.debug("Could not restore APEv2 item %s: %s", key, exc)
+    elif ext in _ID3_EXTENSIONS:
         for _key, frame in preserved.items():
             try:
                 audio.tags.add(frame)
@@ -260,7 +332,8 @@ def process_single_file(
     """
     Acquire a worker slot, scrub one audio file, release the slot.
 
-    Supports MP3, FLAC, OGG, Opus, M4A, MP4, WAV, AIFF, and AIF formats.
+    Supports MP3, FLAC, OGG, Opus, Speex, M4A, MP4, WAV, AIFF/AIF, WavPack,
+    Monkey's Audio, Musepack, and DSF.
 
     on_progress signature:
         on_progress(n_skipped=0, n_errors=0, display_text="", log_text="")

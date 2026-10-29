@@ -6,6 +6,9 @@ Pure logic — no tkinter imports.
 Changed in 2.1.3: discovery uses the scrubber's ``SUPPORTED_EXTENSIONS`` (the
 ``_LOADERS`` keys), not the suite-wide list, so the preserve checklist cannot
 be built from a container the scrubber is unable to open (R-05).
+Changed in 2.1.7: APEv2 items (``.wv``/``.ape``/``.mpc``), Speex comments
+(``.spx``) and DSF's ID3 frames (``.dsf``) are offered in the checklist; before
+B2 those containers were not discovered at all, and their keys were never read.
 """
 
 import logging
@@ -44,9 +47,10 @@ def is_ignored(desc: str) -> bool:
 def _extract_tag_descriptions(handler: Any) -> list[str]:
     """Extract custom tag description strings from a loaded handler.
 
-    For ID3-based formats (MP3, WAV, AIFF), returns TXXX frame descriptions.
-    For Vorbis-based formats (FLAC, OGG, Opus), returns Vorbis comment keys.
+    For ID3-based formats (MP3, WAV, AIFF, DSF), returns TXXX frame descriptions.
+    For Vorbis-based formats (FLAC, OGG, Opus, Speex), returns Vorbis comment keys.
     For MP4-based formats (M4A, MP4), returns freeform atom keys.
+    For APEv2 containers (WavPack, Monkey's Audio, Musepack), returns item keys.
     """
     raw = handler.get_raw_tags()
     if raw is None:
@@ -54,7 +58,7 @@ def _extract_tag_descriptions(handler: Any) -> list[str]:
 
     ext = os.path.splitext(handler.path)[1].lower()
 
-    if ext in (".mp3", ".wav", ".aiff", ".aif"):
+    if ext in (".mp3", ".wav", ".aiff", ".aif", ".dsf"):
         from mutagen.id3 import TXXX
 
         descriptions: list[str] = []
@@ -63,7 +67,7 @@ def _extract_tag_descriptions(handler: Any) -> list[str]:
                 descriptions.append(cast(Any, frame).desc)
         return descriptions
 
-    if ext in (".flac", ".ogg", ".opus"):
+    if ext in (".flac", ".ogg", ".opus", ".spx", ".wv", ".ape", ".mpc"):
         return list(raw.keys())
 
     if ext in (".m4a", ".mp4"):

@@ -8,6 +8,10 @@ slot_vars and slot_queue are simulated with MagicMock/Queue.
 Changed in 2.1.3: `TestFormatDiscoveryMatchesLoader` locks discovery to the
 `_LOADERS` table and proves a valid `.wv` file is no longer reported as an
 error (R-05).
+
+Changed in 2.1.7: APEv2 (`.wv`/`.ape`/`.mpc`), Speex (`.spx`) and DSF (`.dsf`)
+scrub, preserve and undo round trips are covered on real fixtures, with the
+decoded RMS unchanged (B2).
 """
 
 import shutil
@@ -17,11 +21,14 @@ from pathlib import Path
 from queue import Queue
 from unittest.mock import MagicMock
 
+import mutagen
+import numpy as np
 import pytest
 from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1, TPE2, TXXX, USLT, Encoding
 from mutagen.mp3 import MP3
 from pydub import AudioSegment
 
+from audio_suite_shared.audio_conversion import segment_to_numpy
 from metadata_scrubber.core.scrubber import (
     _collect_tags_to_preserve,
     _get_frame_safe,
@@ -2047,18 +2054,32 @@ class TestTopLevelErrorHandler:
 # ═════════════════════════════════════════════════════════════════════════════
 
 #: pydub/ffmpeg export format per advertised extension. A new loader without an
-#: entry here fails the per-extension test by KeyError: the probe has to be
-#: extended deliberately, it cannot silently skip the new format.
+#: entry here (or in ``_FIXTURE_FOR_EXT``) fails the per-extension test by
+#: KeyError: the probe has to be extended deliberately, it cannot silently skip
+#: the new format.
 _EXPORT_FORMAT = {
     ".mp3": "mp3",
     ".flac": "flac",
     ".ogg": "ogg",
     ".opus": "opus",
+    ".spx": "spx",
     ".m4a": "mp4",
     ".mp4": "mp4",
     ".wav": "wav",
     ".aiff": "aiff",
     ".aif": "aiff",
+    ".wv": "wv",
+}
+
+#: Export arguments for formats pydub cannot pick a codec for by itself.
+_EXPORT_ARGS: dict[str, dict] = {".spx": {"codec": "libspeex"}}
+
+#: Containers FFmpeg cannot encode, covered by the committed mutagen fixtures
+#: instead of a generated probe file.
+_FIXTURE_FOR_EXT = {
+    ".ape": "mac-396.ape",
+    ".mpc": "click.mpc",
+    ".dsf": "with-id3.dsf",
 }
 
 #: Containers every full ffmpeg build can encode. If none of these can be
@@ -2067,8 +2088,9 @@ _EXPORT_FORMAT = {
 _CORE_CONTAINERS = (".mp3", ".flac", ".ogg", ".wav", ".m4a")
 
 #: Containers the user's library may hold that the scrubber cannot scrub yet.
-#: Absent from discovery on purpose - see the deferred APEv2 item in the plan.
-_UNSUPPORTED_CONTAINERS = (".wv", ".ape", ".mpc", ".spx", ".dsf", ".wma")
+#: B2 removed WavPack/APE/MPC/Speex/DSF one step at a time from this tuple;
+#: keeping WMA here makes the remaining gap visible rather than an empty tuple.
+_UNSUPPORTED_CONTAINERS = (".wma",)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -2090,17 +2112,24 @@ class TestFormatDiscoveryMatchesLoader:
             _load_audio,
         )
 
-        assert set(SUPPORTED_EXTENSIONS) == set(_EXPORT_FORMAT)
+        assert set(SUPPORTED_EXTENSIONS) == set(_EXPORT_FORMAT) | set(_FIXTURE_FOR_EXT)
 
         exercised: list[str] = []
         for ext in sorted(SUPPORTED_EXTENSIONS):
             path = tmp_path / f"probe{ext}"
-            try:
-                AudioSegment.silent(duration=100).export(
-                    str(path), format=_EXPORT_FORMAT[ext]
+            if ext in _FIXTURE_FOR_EXT:
+                shutil.copyfile(
+                    _REPO_ROOT / "tests" / "data" / _FIXTURE_FOR_EXT[ext], path
                 )
-            except Exception:  # ffmpeg absent, or built without this encoder
-                continue
+            else:
+                try:
+                    AudioSegment.silent(duration=100).export(
+                        str(path),
+                        format=_EXPORT_FORMAT[ext],
+                        **_EXPORT_ARGS.get(ext, {}),
+                    )
+                except Exception:  # ffmpeg absent, or built without this encoder
+                    continue
             audio = _load_audio(str(path))
             assert isinstance(audio, mutagen.FileType), ext
             exercised.append(ext)
@@ -2112,17 +2141,19 @@ class TestFormatDiscoveryMatchesLoader:
         )
 
     def test_unsupported_containers_are_not_advertised(self):
-        """WavPack/APE/MPC/Speex/DSF/WMA stay out until a loader exists."""
+        """WMA stays out until its loader exists; B2 removed the other five."""
         from metadata_scrubber.core.scrubber import SUPPORTED_EXTENSIONS
 
         assert SUPPORTED_EXTENSIONS.isdisjoint(_UNSUPPORTED_CONTAINERS)
+        assert _UNSUPPORTED_CONTAINERS, "an empty gap tuple would certify nothing"
 
-    def test_scan_reports_no_unreadable_error_for_a_wavpack_file(self, tmp_path):
-        """A `.wv` file is not discovered, so it is neither read nor reported.
+    def test_wavpack_file_is_discovered_and_scrubbed(self, tmp_path):
+        """A `.wv` file is now discovered, scrubbed, and never unreadable.
 
         Before R-05 the suite-wide extension list offered the file and the
         missing loader turned it into a `[UNREADABLE]` error with a non-zero
-        error count, on a file that is perfectly valid.
+        error count; between R-05 and B2 it was simply invisible.  It is now a
+        supported container with its own loader.
         """
         source = _REPO_ROOT / "tests" / "data" / "silence-44-s.wv"
         assert source.is_file()
@@ -2147,10 +2178,247 @@ class TestFormatDiscoveryMatchesLoader:
             on_error=errors.append,
         )
 
-        assert not complete_calls
+        assert errors == []
+        assert complete_calls and complete_calls[0]["total"] == 1
         assert not [r for r in results if "UNREADABLE" in r.get("display_text", "")], (
             results
         )
-        # Nothing was discovered, so the run reports "no supported files" rather
-        # than a per-file error against a valid WavPack file.
-        assert errors == ["No supported audio files found in the selected directory."]
+        assert any("CLEANED" in r.get("display_text", "") for r in results), results
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# B2: APEv2 containers, Speex and DSF
+# ═════════════════════════════════════════════════════════════════════════════
+
+_APEV2_ESSENTIALS = ("Artist", "Album", "Title")
+_APEV2_JUNK = ("Genre", "Comment", "Replaygain_Track_Gain")
+
+
+def _sine_segment(seconds: float = 0.5) -> AudioSegment:
+    """A 32 kHz mono sine the scrubber can decode before and after a scrub."""
+    rate = 32000
+    t = np.arange(int(rate * seconds)) / rate
+    pcm = (0.3 * np.sin(2 * np.pi * 440 * t) * 32767).astype(np.int16)
+    return AudioSegment(pcm.tobytes(), frame_rate=rate, sample_width=2, channels=1)
+
+
+def _make_wavpack(path: Path) -> str:
+    """Write a real WavPack file carrying audio (not silence)."""
+    _sine_segment().export(str(path), format="wv")
+    return str(path)
+
+
+def _tag_apv2(path: str, *, cover: bytes | None = None) -> None:
+    """Write the suite's tags plus junk APEv2 items into a real file."""
+    from mutagen.apev2 import APEBinaryValue
+    from mutagen.wavpack import WavPack
+
+    audio = WavPack(path)
+    if audio.tags is None:
+        audio.add_tags()
+    assert audio.tags is not None
+    audio.tags["Artist"] = ["piman", "jzig"]
+    audio.tags["Album"] = "Quod Libet Test Data"
+    audio.tags["Title"] = "Silence"
+    audio.tags["Genre"] = "Silence"
+    audio.tags["Comment"] = "scrub me"
+    audio.tags["Replaygain_Track_Gain"] = "+9.27 dB"
+    if cover is not None:
+        audio.tags["Cover Art (Front)"] = APEBinaryValue(b"cover.jpg\x00" + cover)
+    audio.save()
+
+
+def _apv2_keys(path: str) -> dict[str, str]:
+    """Read a fresh APEv2 container (never the object the scrubber just wrote)."""
+    audio = mutagen.File(path, easy=False)
+    assert audio is not None and audio.tags is not None
+    return {key.lower(): key for key in audio.tags.keys()}
+
+
+def _format_and_audio(path: str) -> tuple[float, list[float]]:
+    """Return (duration seconds, per-channel RMS) decoded from *path*."""
+    segment = AudioSegment.from_file(path)
+    samples, _rate = segment_to_numpy(segment)
+    rms = [
+        float(np.sqrt(np.mean(channel.astype(np.float64) ** 2))) for channel in samples
+    ]
+    return len(segment) / 1000.0, rms
+
+
+def _run_one(path: Path, **kwargs) -> list[dict]:
+    """Run process_single_file on *path* and return its progress records."""
+    slot_vars, slot_q = _make_slot_fixtures()
+    cb, results = _collect_progress()
+    defaults = {
+        "is_dry_run": False,
+        "preserve_list": [],
+        "preserve_lyrics": False,
+        "preserve_album_artist": False,
+        "preserve_embedded_art": False,
+    }
+    defaults.update(kwargs)
+    process_single_file(
+        name=path.name,
+        dir_path=str(path.parent),
+        slot_vars=slot_vars,
+        slot_queue=slot_q,
+        lock=threading.Lock(),
+        on_progress=cb,
+        **defaults,
+    )
+    return results
+
+
+class TestAPEv2Scrub:
+    def test_scrub_removes_junk_and_preserves_essentials(self, tmp_path):
+        """WavPack is scrubbed, keeps essentials, and its samples are untouched."""
+        path = Path(_make_wavpack(tmp_path / "track.wv"))
+        _tag_apv2(str(path))
+        before_duration, before_rms = _format_and_audio(str(path))
+
+        results = _run_one(path)
+
+        assert any("CLEANED" in r.get("display_text", "") for r in results), results
+        keys = _apv2_keys(str(path))
+        for wanted in _APEV2_ESSENTIALS:
+            assert wanted.lower() in keys, (wanted, keys)
+        for junk in _APEV2_JUNK:
+            assert junk.lower() not in keys, (junk, keys)
+
+        from mutagen.wavpack import WavPack
+
+        audio = WavPack(str(path))
+        assert audio.tags is not None
+        # Multi-value APEv2 text survives as one item with both values.
+        assert list(audio.tags["Artist"]) == ["piman", "jzig"]
+
+        after_duration, after_rms = _format_and_audio(str(path))
+        assert after_duration == pytest.approx(before_duration, abs=0.05)
+        assert after_rms == pytest.approx(before_rms, rel=1e-6, abs=1e-9)
+
+    def test_scrub_preserves_cover_art_when_requested(self, tmp_path):
+        """The binary ``Cover Art (Front)`` item survives a flagged scrub."""
+        path = Path(_make_wavpack(tmp_path / "art.wv"))
+        payload = b"\xff\xd8fake-jpeg-bytes"
+        _tag_apv2(str(path), cover=payload)
+
+        results = _run_one(path, preserve_embedded_art=True)
+
+        assert any("CLEANED" in r.get("display_text", "") for r in results), results
+        from mutagen.wavpack import WavPack
+
+        audio = WavPack(str(path))
+        assert audio.tags is not None
+        item = audio.tags["Cover Art (Front)"]
+        _filename, _sep, data = bytes(item).partition(b"\x00")
+        assert data == payload
+
+    def test_scrub_undo_round_trip_restores_every_tag(self, tmp_path):
+        """A scrub-and-undo restores the APEv2 items on a real file."""
+        from audio_suite_shared.batch_undo import active_batch, revert_batch_by_id
+
+        path = Path(_make_wavpack(tmp_path / "undo.wv"))
+        _tag_apv2(str(path))
+        original = {key: str(value) for key, value in _apv2_keys(str(path)).items()}
+
+        db_path = tmp_path / "undo.db"
+        with active_batch("metadata_scrubber", "tag_edit", db_path=db_path) as batch:
+            results = _run_one(path)
+        assert any("CLEANED" in r.get("display_text", "") for r in results), results
+        assert "genre" not in _apv2_keys(str(path))
+
+        outcome = revert_batch_by_id(batch, db_path=db_path)
+
+        assert outcome.failed == 0, outcome.errors
+        assert outcome.reverted == 1
+        restored = _apv2_keys(str(path))
+        assert set(restored) == set(original), (restored, original)
+
+    @pytest.mark.parametrize(
+        "extension,fixture,loader",
+        [
+            (".ape", "mac-396.ape", "monkeysaudio.MonkeysAudio"),
+            (".mpc", "click.mpc", "musepack.Musepack"),
+        ],
+    )
+    def test_other_apev2_containers_scrub(self, tmp_path, extension, fixture, loader):
+        """APE and Musepack take the same APEv2 path as WavPack."""
+        import importlib
+
+        module_name, class_name = loader.rsplit(".", 1)
+        loader_cls = getattr(
+            importlib.import_module(f"mutagen.{module_name}"), class_name
+        )
+        target = tmp_path / f"track{extension}"
+        shutil.copyfile(_REPO_ROOT / "tests" / "data" / fixture, target)
+
+        audio = loader_cls(str(target))
+        assert audio.add_tags() is None
+        audio.tags["Artist"] = "Artist"
+        audio.tags["Album"] = "Album"
+        audio.tags["Title"] = "Title"
+        audio.tags["Genre"] = "Rock"
+        audio.save()
+
+        results = _run_one(target)
+
+        assert any("CLEANED" in r.get("display_text", "") for r in results), results
+        keys = _apv2_keys(str(target))
+        for wanted in _APEV2_ESSENTIALS:
+            assert wanted.lower() in keys, (wanted, keys)
+        assert "genre" not in keys
+
+
+class TestSpeexScrub:
+    def test_speex_scrub_removes_junk_and_keeps_essentials(self, tmp_path):
+        """`.spx` uses the Vorbis-comment path, through a fresh handler."""
+        from mutagen.oggspeex import OggSpeex
+
+        target = tmp_path / "speech.spx"
+        shutil.copyfile(_REPO_ROOT / "tests" / "data" / "empty.spx", target)
+        audio = OggSpeex(str(target))
+        if audio.tags is None:
+            audio.add_tags()
+        assert audio.tags is not None
+        audio.tags["artist"] = ["Artist"]
+        audio.tags["album"] = ["Album"]
+        audio.tags["title"] = ["Title"]
+        audio.tags["genre"] = ["Speech"]
+        audio.save()
+
+        results = _run_one(target)
+
+        assert any("CLEANED" in r.get("display_text", "") for r in results), results
+        fresh = OggSpeex(str(target))
+        assert fresh.tags is not None
+        assert fresh.tags.get("artist") == ["Artist"]
+        assert fresh.tags.get("album") == ["Album"]
+        assert fresh.tags.get("title") == ["Title"]
+        assert "genre" not in fresh.tags
+
+
+class TestDSFScrub:
+    def test_dsf_scrub_removes_junk_and_keeps_essentials(self, tmp_path):
+        """`.dsf` uses the ID3 path; preserved frames persist to the real file."""
+        from mutagen.dsf import DSF
+        from mutagen.id3 import TALB, TCON, TIT2, TPE1
+
+        target = tmp_path / "album.dsf"
+        shutil.copyfile(_REPO_ROOT / "tests" / "data" / "with-id3.dsf", target)
+        audio = DSF(str(target))
+        assert audio.tags is not None
+        audio.tags.add(TIT2(encoding=3, text=["DSF title"]))
+        audio.tags.add(TPE1(encoding=3, text=["Artist"]))
+        audio.tags.add(TALB(encoding=3, text=["Album"]))
+        audio.tags.add(TCON(encoding=3, text=["Rock"]))
+        audio.save()
+
+        results = _run_one(target)
+
+        assert any("CLEANED" in r.get("display_text", "") for r in results), results
+        fresh = DSF(str(target))
+        assert fresh.tags is not None
+        assert fresh.tags.get("TIT2") is not None
+        assert fresh.tags.get("TPE1") is not None
+        assert fresh.tags.get("TALB") is not None
+        assert fresh.tags.get("TCON") is None

@@ -7,6 +7,9 @@ Uses pydub + mutagen to create real minimal audio test fixtures for all formats.
 Changed in 2.1.3: `TestDiscoveryMatchesTheScrubber` asserts sampling uses the
 scrubber's own extension set, so the preserve checklist cannot be built from a
 container the scrubber cannot open (R-05).
+
+Changed in 2.1.7: the APEv2, Speex and DSF containers join the format sweep and
+the custom-tag sampler (B2).
 """
 
 import pytest
@@ -376,3 +379,96 @@ class TestDiscoveryMatchesTheScrubber:
         from metadata_scrubber.core import scrubber, tag_scanner
 
         assert tag_scanner.SUPPORTED_EXTENSIONS is scrubber.SUPPORTED_EXTENSIONS
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# B2: APEv2, Speex and DSF keys reach the preserve checklist
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def _make_wavpack_with_apev2(tmp_path, filename: str, items: dict) -> str:
+    """Create a minimal WavPack file with the given APEv2 items."""
+    from mutagen.wavpack import WavPack
+
+    path = tmp_path / filename
+    AudioSegment.silent(duration=100).export(str(path), format="wv")
+    audio = WavPack(str(path))
+    if audio.tags is None:
+        audio.add_tags()
+    assert audio.tags is not None
+    for key, value in items.items():
+        audio.tags[key] = value
+    audio.save()
+    return str(path)
+
+
+def _make_speex_with_vorbis(tmp_path, filename: str, vorbis_tags: dict) -> str:
+    """Create a Speex-in-Ogg file with the given Vorbis comments."""
+    import shutil
+    from pathlib import Path
+
+    from mutagen.oggspeex import OggSpeex
+
+    path = tmp_path / filename
+    fixture = Path(__file__).resolve().parents[2] / "tests" / "data" / "empty.spx"
+    shutil.copyfile(fixture, path)
+    audio = OggSpeex(str(path))
+    if audio.tags is None:
+        audio.add_tags()
+    assert audio.tags is not None
+    for key, value in vorbis_tags.items():
+        audio.tags[key] = value
+    audio.save()
+    return str(path)
+
+
+def _make_dsf_with_txxx(tmp_path, filename: str, txxx_tags: dict) -> str:
+    """Create a minimal DSF file with the given TXXX ID3 frames."""
+    import shutil
+    from pathlib import Path
+
+    from mutagen.dsf import DSF
+
+    path = tmp_path / filename
+    fixture = Path(__file__).resolve().parents[2] / "tests" / "data" / "with-id3.dsf"
+    shutil.copyfile(fixture, path)
+    audio = DSF(str(path))
+    if audio.tags is None:
+        audio.add_tags()
+    assert audio.tags is not None
+    for desc, value in txxx_tags.items():
+        audio.tags.add(TXXX(encoding=3, desc=desc, text=[value]))
+    audio.save()
+    return str(path)
+
+
+class TestScanCustomTagsNewContainers:
+    def test_wavpack_apev2_items_discovered(self, tmp_path):
+        _make_wavpack_with_apev2(tmp_path, "a.wv", {"MOOD": "Chill"})
+        result = scan_custom_tags(str(tmp_path))
+        assert "MOOD" in result
+
+    def test_wavpack_system_items_excluded(self, tmp_path):
+        _make_wavpack_with_apev2(
+            tmp_path, "a.wv", {"REPLAYGAIN_TRACK_GAIN": "+2.0 dB", "MOOD": "Chill"}
+        )
+        result = scan_custom_tags(str(tmp_path))
+        assert "REPLAYGAIN_TRACK_GAIN" not in result
+        assert "MOOD" in result
+
+    def test_speex_vorbis_items_discovered(self, tmp_path):
+        _make_speex_with_vorbis(tmp_path, "a.spx", {"mood": "Speech"})
+        result = scan_custom_tags(str(tmp_path))
+        assert "mood" in result
+
+    def test_dsf_txxx_items_discovered(self, tmp_path):
+        _make_dsf_with_txxx(tmp_path, "a.dsf", {"TITLEGENRE": "Classical"})
+        result = scan_custom_tags(str(tmp_path))
+        assert "TITLEGENRE" in result
+
+    def test_all_new_formats_scanned_together(self, tmp_path):
+        _make_wavpack_with_apev2(tmp_path, "a.wv", {"MOOD": "Chill"})
+        _make_speex_with_vorbis(tmp_path, "b.spx", {"energylevel": "5"})
+        _make_dsf_with_txxx(tmp_path, "c.dsf", {"ALBUMGENRE": "Jazz"})
+        result = scan_custom_tags(str(tmp_path))
+        assert {"MOOD", "energylevel", "ALBUMGENRE"}.issubset(result)
