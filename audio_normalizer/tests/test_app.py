@@ -11,6 +11,8 @@ instance are gated behind ``requires_display``, consistent with the pattern
 used in test_setup_tab.py.
 Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 ``run_parallel_process`` into the completion handler (PLAN D117).
+Changed in 2.1.7: covers the true-peak/LRA variables, the >-1.0 dBTP
+confirmation, and their reach into the processing call.
 """
 
 import os
@@ -580,3 +582,99 @@ class TestCompletionSeam:
 
         assert field in str(caught.value)
         assert not (tmp_path / "normalization_log.txt").exists()
+
+
+@requires_display
+class TestDeliveryTargetsApp:
+    """F-09: the GUI carries the ceiling/LRA into the run and warns above -1.0."""
+
+    def test_run_passes_the_delivery_targets(self, tmp_path: os.PathLike) -> None:
+        app, _root = _make_app()
+        app.progress = MagicMock()
+        app.stats_label = MagicMock()
+        app.overall_status = MagicMock()
+        app.file_listbox = MagicMock()
+        app.folder_path.set(str(tmp_path))
+        app.true_peak.set(-1.0)
+        app.lra.set(7.0)
+
+        with patch(
+            "audio_normalizer.app.file_processor.run_parallel_process"
+        ) as mock_run:
+            app._run()
+
+        _args, kwargs = mock_run.call_args
+        assert kwargs["true_peak"] == -1.0
+        assert kwargs["lra"] == 7.0
+
+    def test_presets_round_trip_the_delivery_targets(self) -> None:
+        app, _root = _make_app()
+        app.true_peak.set(-1.0)
+        app.lra.set(7.0)
+
+        settings = app._collect_settings()
+        assert settings["true_peak"] == -1.0
+        assert settings["lra"] == 7.0
+
+        app.true_peak.set(-1.5)
+        app.lra.set(11.0)
+        app._apply_preset(settings)
+        assert app.true_peak.get() == -1.0
+        assert app.lra.get() == pytest.approx(7.0)
+
+    def test_cli_targets_reach_the_variables(self, tmp_path: os.PathLike) -> None:
+        app, _root = _make_app()
+        with (
+            patch(
+                "audio_normalizer.app.cli_args.parse",
+                return_value=NormalizerArgs(
+                    folder_path=str(tmp_path), target_lufs=-16.0, true_peak=-2.0, lra=8
+                ),
+            ),
+            patch("audio_normalizer.app.UniversalCLIHandler") as mock_cls,
+        ):
+            mock_handler = MagicMock()
+            mock_handler.apply_cli_args.return_value = False
+            mock_cls.return_value = mock_handler
+            app._apply_cli_args()
+
+        assert app.true_peak.get() == -2.0
+        assert app.lra.get() == pytest.approx(8.0)
+
+    def test_ceiling_above_minus_one_asks_before_running(
+        self, tmp_path: os.PathLike
+    ) -> None:
+        app, _root = _make_app()
+        app.folder_path.set(str(tmp_path))
+        app.true_peak.set(-0.5)
+
+        with (
+            patch(
+                "audio_normalizer.app.messagebox.askyesno", return_value=False
+            ) as ask,
+            patch("audio_normalizer.app.threading.Thread") as thread,
+        ):
+            app.start_processing()
+
+        ask.assert_called_once()
+        thread.assert_not_called()
+
+    def test_ceiling_at_or_below_minus_one_does_not_ask(
+        self, tmp_path: os.PathLike
+    ) -> None:
+        app, _root = _make_app()
+        app.folder_path.set(str(tmp_path))
+        app.true_peak.set(-1.0)
+        app.start_btn = MagicMock()
+        app.file_listbox = MagicMock()
+        app.notebook = MagicMock()
+        app._tab_processing = MagicMock()
+        app.overall_status = MagicMock()
+
+        with (
+            patch("audio_normalizer.app.messagebox.askyesno") as ask,
+            patch("audio_normalizer.app.threading.Thread"),
+        ):
+            app.start_processing()
+
+        ask.assert_not_called()

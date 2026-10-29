@@ -6,6 +6,11 @@ Gap G-35: _safe_float, measure(), _codec_args, apply(), process_single_file(),
 Changed in 2.1.7: TestApply gained the source-parameter pins - rate, FLAC bit
 depth, the FLAC frame cap, and the encoder whose rate set forbids the pin
 (audio_normalizer.core.normalizer._preserve_args).
+
+F-09 adds the delivery-target tests: the ceiling/LRA reach both FFmpeg passes,
+the achieved peak is read back from loudnorm's summary, the defaults keep the
+previous filter string byte for byte, and a real file normalised at -1.0 dBTP
+measures louder than the same file at the default.
 """
 
 import threading
@@ -20,7 +25,11 @@ from audio_normalizer.core.file_processor import (
     process_single_file,
     run_parallel_process,
 )
-from audio_normalizer.core.loudness import _safe_float, measure
+from audio_normalizer.core.loudness import (
+    _safe_float,
+    measure,
+    parse_output_true_peak,
+)
 from audio_normalizer.core.normalizer import (
     _codec_args,
     _filters,
@@ -537,6 +546,124 @@ class TestApply:
 # ═════════════════════════════════════════════════════════════════════════════
 
 
+class TestDeliveryTargets:
+    """F-09: the true-peak ceiling and LRA are configurable, not literals."""
+
+    def test_default_filter_string_is_unchanged(self):
+        """Defaults must reproduce the previously hard-coded filter string."""
+        filters = _filters(-16.0, MOCK_LOUDNESS, "mp3")
+        assert filters == (
+            "loudnorm=I=-16.0:TP=-1.5:LRA=11"
+            ":measured_I=-18.0:measured_TP=-1.5:measured_LRA=7.0"
+            ":measured_thresh=-28.0:offset=0.0"
+            ":linear=true:print_format=summary"
+        )
+
+    def test_custom_ceiling_and_lra_reach_the_filter(self):
+        filters = _filters(-14.0, MOCK_LOUDNESS, "mp3", true_peak=-1.0, lra=7)
+        assert "TP=-1.0" in filters
+        assert "LRA=7" in filters
+
+    def test_analysis_pass_carries_the_targets(self):
+        calls = []
+
+        def fake_run(exe, args, **kw):
+            calls.append([exe, *args])
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = MOCK_STDERR
+            return result
+
+        with patch("audio_normalizer.core.loudness.run_secure_subprocess", fake_run):
+            measure("/tmp/t.flac", -16.0, true_peak=-1.0, lra=7)
+
+        filters = calls[0][calls[0].index("-af") + 1]
+        assert "TP=-1.0" in filters
+        assert "LRA=7" in filters
+
+    def test_apply_passes_the_targets_and_returns_the_achieved_peak(self, tmp_path):
+        f = _make_audio(tmp_path, "t.mp3")
+        calls = []
+        summary = (
+            "[Parsed_loudnorm_0 @ 0x1] {\n"
+            '        "input_i" : "-18.00",\n'
+            '        "output_i" : "-16.00",\n'
+            '        "output_tp" : "-1.02",\n'
+            '        "target_offset" : "0.00"\n'
+            "}\n"
+        )
+
+        def fake_run(exe, args, **kw):
+            calls.append([exe, *args])
+            open(calls[-1][-1], "wb").close()
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = summary
+            return result
+
+        with (
+            patch("audio_normalizer.core.normalizer.run_secure_subprocess", fake_run),
+            patch("audio_normalizer.core.normalizer.read_tags_raw", return_value=None),
+            patch("audio_normalizer.core.normalizer.write_tags_raw"),
+        ):
+            achieved = apply(f, -16.0, MOCK_LOUDNESS, true_peak=-1.0, lra=7)
+
+        filters = calls[0][calls[0].index("-af") + 1]
+        assert "TP=-1.0" in filters
+        assert "LRA=7" in filters
+        assert achieved == pytest.approx(-1.02)
+
+    def test_apply_returns_none_without_a_summary_block(self, tmp_path):
+        f = _make_audio(tmp_path, "t.mp3")
+
+        def fake_run(exe, args, **kw):
+            cmd = [exe, *args]
+            open(cmd[-1], "wb").close()
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = "no json here"
+            return result
+
+        with (
+            patch("audio_normalizer.core.normalizer.run_secure_subprocess", fake_run),
+            patch("audio_normalizer.core.normalizer.read_tags_raw", return_value=None),
+            patch("audio_normalizer.core.normalizer.write_tags_raw"),
+        ):
+            assert apply(f, -16.0, MOCK_LOUDNESS) is None
+
+
+class TestParseOutputTruePeak:
+    """The achieved true peak comes from loudnorm's second-pass summary."""
+
+    def test_reads_output_tp(self):
+        stderr = '{\n    "output_i" : "-16.00",\n    "output_tp" : "-1.31"\n}\n'
+        assert parse_output_true_peak(stderr) == pytest.approx(-1.31)
+
+    def test_reads_the_summary_line(self):
+        stderr = (
+            "[Parsed_loudnorm_0 @ 0x1] \n"
+            "Input True Peak:      -0.9 dBTP\n"
+            "Output True Peak:     -1.3 dBTP\n"
+        )
+        assert parse_output_true_peak(stderr) == pytest.approx(-1.3)
+
+    def test_last_block_wins(self):
+        stderr = '{"output_tp" : "-9.0"}\n{"output_tp" : "-1.25"}\n'
+        assert parse_output_true_peak(stderr) == pytest.approx(-1.25)
+
+    def test_missing_summary_returns_none(self):
+        assert parse_output_true_peak("") is None
+        assert parse_output_true_peak("no json at all") is None
+        assert parse_output_true_peak('{"input_i" : "-18.0"}') is None
+        # A mock's MagicMock stderr must not raise.
+        assert parse_output_true_peak(MagicMock()) is None
+
+    def test_infinite_peak_is_not_reported_as_a_number(self):
+        # ``_safe_float`` maps -inf to the floor, which is the honest answer for
+        # a silent output: no measurable peak rather than a bogus -inf.
+        assert parse_output_true_peak('{"output_tp" : "-inf"}') == -70.0
+
+
 class TestAudioNormalizerProcessor:
     def test_instantiates(self):
         with patch("audio_suite_shared.file_processor_base.get_resource_manager"):
@@ -946,7 +1073,7 @@ class TestUndoBatchRecording:
         shared_factory = MagicMock()
         shared_factory.get_handler.return_value = handler
 
-        def _mock_apply(file_path, target_lufs, loudness_data):
+        def _mock_apply(file_path, target_lufs, loudness_data, **_kwargs):
             write_tags_raw(str(file_path), {"original": "tags"})
 
         with (
@@ -1042,3 +1169,94 @@ class TestUndoBatchRecording:
         assert len(records) == 1
         assert records[0].file_path == f
         assert records[0].operation == "write_normalise"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# F-09 acceptance: the ceiling is audible in the decoded output
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def _write_loud_fixture(path, amplitude: float = 0.9, seconds: float = 3.0):
+    """Write a 32 kHz mono FLAC whose peak sits close to full scale.
+
+    A loud master is what makes the true-peak ceiling the limiting factor: with
+    a quiet source the requested gain never reaches either ceiling.
+    """
+    import numpy as np
+
+    rate = 32000
+    t = np.arange(int(rate * seconds)) / rate
+    pcm = (amplitude * np.sin(2 * np.pi * 440 * t) * 32767).astype(np.int16)
+    AudioSegment(pcm.tobytes(), frame_rate=rate, sample_width=2, channels=1).export(
+        str(path), format="flac"
+    )
+    return str(path)
+
+
+def _normalise_at(path: str, true_peak: float) -> tuple[float | None, float]:
+    """Normalise *path* with the given ceiling and return (reported, measured).
+
+    The target (-5 LUFS) sits above the fixture's own loudness, so the gain the
+    filter wants to apply pushes the peak into the ceiling: that is what makes
+    the two ceilings produce different output.  At a lower target the gain is
+    simply reduced and the ceiling never engages.
+    """
+    loudness = measure(path, -5.0, true_peak, 11)
+    assert loudness is not None
+    reported = apply(path, -5.0, loudness, true_peak=true_peak, lra=11)
+    after = measure(path, -5.0, true_peak, 11)
+    assert after is not None
+    return reported, after["input_tp"]
+
+
+@pytest.mark.integration
+class TestTruePeakCeilingOutcome:
+    def test_a_higher_ceiling_measures_measurably_higher(self, tmp_path):
+        """-1.0 dBTP must decode above -1.5 dBTP on a ceiling-limited file.
+
+        The old ceiling limited the fixture; the new one lets 0.5 dB more
+        through, and the difference is read back from the encoded file rather
+        than asserted from the argument.
+        """
+        default = _write_loud_fixture(tmp_path / "default.flac")
+        louder = _write_loud_fixture(tmp_path / "louder.flac")
+
+        _reported_default, measured_default = _normalise_at(default, -1.5)
+        reported_louder, measured_louder = _normalise_at(louder, -1.0)
+
+        assert measured_default <= -1.5 + 0.1, measured_default
+        assert measured_louder <= -1.0, measured_louder
+        assert measured_louder > -1.5, measured_louder
+        assert measured_louder > measured_default + 0.1
+        # The reported peak is the one decoded from the encode, not the argv.
+        assert reported_louder == pytest.approx(measured_louder, abs=0.1)
+
+    def test_default_path_is_byte_identical_to_the_explicit_defaults(self, tmp_path):
+        """Omitting the targets must equal passing -1.5 / 11 explicitly.
+
+        One run omits the keywords entirely so the function's own defaults are
+        used; the other passes them. A third run at a different ceiling must
+        **differ** in bytes, so the equality above has teeth rather than
+        comparing two identical calls.
+        """
+        implicit = _write_loud_fixture(tmp_path / "implicit.flac")
+        explicit = _write_loud_fixture(tmp_path / "explicit.flac")
+        louder = _write_loud_fixture(tmp_path / "louder.flac")
+
+        loudness = measure(implicit, -5.0)
+        assert loudness is not None
+        apply(implicit, -5.0, loudness)
+
+        loudness = measure(explicit, -5.0, -1.5, 11)
+        assert loudness is not None
+        apply(explicit, -5.0, loudness, true_peak=-1.5, lra=11)
+
+        loudness = measure(louder, -5.0, -1.0, 11)
+        assert loudness is not None
+        apply(louder, -5.0, loudness, true_peak=-1.0, lra=11)
+
+        from pathlib import Path
+
+        implicit_bytes = Path(implicit).read_bytes()
+        assert implicit_bytes == Path(explicit).read_bytes()
+        assert implicit_bytes != Path(louder).read_bytes()

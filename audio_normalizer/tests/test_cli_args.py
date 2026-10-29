@@ -5,6 +5,8 @@ Tests for Audio Normalizer CLI argument parsing and validation.
 Covers:
   - validate_args() — target LUFS preset restriction
   - parse()         — CLI entry point enforcement
+
+Changed in 2.1.7: covers ``--tp``/``--lra`` parsing and range validation.
 """
 
 from __future__ import annotations
@@ -250,3 +252,33 @@ class TestParseInvalidFolderPath:
             parse(["prog", str(missing)])
         captured = capsys.readouterr()
         assert captured.out == ""
+
+
+class TestDeliveryTargetArgs:
+    """F-09: the GUI/Driver argv parser accepts and validates --tp/--lra."""
+
+    def test_defaults_match_the_shipped_targets(self) -> None:
+        args = parse(["prog"])
+        assert args.true_peak == -1.5
+        assert args.lra == 11.0
+
+    def test_tp_and_lra_are_parsed(self, tmp_path: Path) -> None:
+        result = parse(
+            ["prog", str(tmp_path), str(VALID_LUFS[0]), "--tp", "-1.0", "--lra", "7"]
+        )
+        assert result.true_peak == -1.0
+        assert result.lra == 7.0
+
+    @pytest.mark.parametrize("value", [-10.0, 0.5])
+    def test_ceiling_outside_range_is_rejected(self, value: float) -> None:
+        errors = validate_args(NormalizerArgs(target_lufs=-16.0, true_peak=value))
+        assert any("True-peak ceiling" in e for e in errors)
+
+    @pytest.mark.parametrize("value", [0.5, 21.0])
+    def test_lra_outside_range_is_rejected(self, value: float) -> None:
+        errors = validate_args(NormalizerArgs(target_lufs=-16.0, lra=value))
+        assert any("LRA" in e for e in errors)
+
+    def test_valid_targets_are_accepted(self) -> None:
+        args = NormalizerArgs(target_lufs=-16.0, true_peak=-1.0, lra=7.0)
+        assert validate_args(args) == []

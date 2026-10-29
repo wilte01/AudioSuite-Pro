@@ -27,6 +27,7 @@ from audio_suite_shared.secure_subprocess import run_secure_subprocess
 from audio_suite_shared.tag_helper import read_tags_raw, write_tags_raw
 
 from ..utils.ffmpeg_finder import FFMPEG_PATH
+from .loudness import parse_output_true_peak
 
 # ── Format → FFmpeg codec + quality args ─────────────────────────────────────
 # Each entry: (codec, extra_args)
@@ -140,19 +141,28 @@ def _preserve_args(file_path: str, codec: str) -> list[str]:
     return args
 
 
-def _filters(target_lufs: float, loudness_data: dict[str, Any], codec: str) -> str:
+def _filters(
+    target_lufs: float,
+    loudness_data: dict[str, Any],
+    codec: str,
+    true_peak: float = -1.5,
+    lra: float = 11,
+) -> str:
     """The ``-af`` chain: loudnorm, plus FLAC's frame cap.
 
     Args:
         target_lufs: Target integrated loudness.
         loudness_data: Measurements from ``loudness.measure()``.
         codec: FFmpeg codec name chosen by ``_codec_args``.
+        true_peak: True-peak ceiling in dBTP (default -1.5, the pre-2.1.7
+            hard-coded value).
+        lra: Target loudness range in LU (default 11, likewise unchanged).
 
     Returns:
         The filtergraph string.
     """
     chain = (
-        f"loudnorm=I={target_lufs}:TP=-1.5:LRA=11"
+        f"loudnorm=I={target_lufs}:TP={true_peak}:LRA={lra}"
         f":measured_I={loudness_data['input_i']}"
         f":measured_TP={loudness_data['input_tp']}"
         f":measured_LRA={loudness_data['input_lra']}"
@@ -197,7 +207,9 @@ def apply(
     loudness_data: dict[str, Any],
     skip_tag_handling: bool = False,
     record_snapshot: bool = True,
-) -> None:
+    true_peak: float = -1.5,
+    lra: float = 11,
+) -> float | None:
     """
     Normalise a single audio file using a two-pass loudnorm approach.
 
@@ -222,6 +234,12 @@ def apply(
                             output file before re-encoding.  Set to False when
                             the caller (e.g. the Audio Refinery pipeline)
                             records the snapshot itself.
+        true_peak:          True-peak ceiling in dBTP (default -1.5).
+        lra:                Target loudness range in LU (default 11).
+
+    Returns:
+        The true peak the encode actually achieved, in dBTP, or ``None`` when
+        FFmpeg did not print a loudnorm summary.
 
     Raises:
         AudioFormatError: If the file extension has no configured codec.
@@ -259,7 +277,7 @@ def apply(
         "-i",
         file_path,
         "-af",
-        _filters(target_lufs, loudness_data, codec),
+        _filters(target_lufs, loudness_data, codec, true_peak, lra),
         "-c:a",
         codec,
         *extra,
@@ -268,11 +286,13 @@ def apply(
     ]
 
     try:
-        run_secure_subprocess(cmd[0], cmd[1:], capture_output=True, check=True)
+        encode = run_secure_subprocess(cmd[0], cmd[1:], capture_output=True, check=True)
     except Exception:
         if os.path.exists(temp_out):
             os.remove(temp_out)
         raise
+
+    achieved_peak = parse_output_true_peak(getattr(encode, "stderr", "") or "")
 
     try:
         # Restore original tags to the freshly encoded file
@@ -285,3 +305,4 @@ def apply(
         if os.path.exists(temp_out):
             os.remove(temp_out)
         raise
+    return achieved_peak

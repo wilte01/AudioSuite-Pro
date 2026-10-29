@@ -8,6 +8,9 @@ presets: -12.0, -14.0, -16.0, -18.0, -23.0. Widget-construction tests are
 gated behind ``requires_display`` (skipped on headless CI, consistent with
 audio_suite_shared's own ui_common tests). The index<->value mapping logic
 is pure and tested unconditionally.
+
+Changed in 2.1.7: covers the true-peak (dBTP) and LRA (LU) sliders, their
+save/restore round trip, and the ranges the GUI accepts.
 """
 
 from __future__ import annotations
@@ -235,3 +238,79 @@ class TestSharedControlsPanel:
         # Exactly one Mode combobox: the shared panel's. The Configuration
         # group must not duplicate the mode row.
         assert len(self._all_combos(frame)) == 1
+
+
+@requires_display
+class TestDeliveryTargetSliders:
+    """F-09: the ceiling and LRA controls are rendered when wired."""
+
+    @pytest.fixture(autouse=True)
+    @staticmethod
+    def setup_tk():
+        try:
+            root = tk.Tk()
+        except tk.TclError as exc:
+            pytest.skip(f"tkinter not available: {exc}")
+        root.withdraw()
+        yield root
+        try:
+            root.destroy()
+        except tk.TclError:
+            pass
+
+    def _scales(self, parent: tk.Frame) -> list[tk.Scale]:
+        return [
+            w
+            for row in parent.winfo_children()
+            for w in row.winfo_children()
+            if isinstance(w, tk.Scale)
+        ]
+
+    def test_two_extra_sliders_when_targets_are_wired(self, setup_tk) -> None:
+        parent = tk.Frame(setup_tk)
+        target_lufs = tk.DoubleVar(master=setup_tk, value=-16.0)
+        tolerance = tk.DoubleVar(master=setup_tk, value=0.5)
+        true_peak = tk.DoubleVar(master=setup_tk, value=-1.5)
+        lra = tk.DoubleVar(master=setup_tk, value=11.0)
+
+        build_config_panel(
+            parent, None, target_lufs, tolerance, true_peak=true_peak, lra=lra
+        )
+
+        scales = self._scales(parent)
+        assert len(scales) == 4
+        assert float(scales[2].cget("from")) == -6.0
+        assert float(scales[2].cget("to")) == 0.0
+        assert float(scales[2].cget("resolution")) == 0.1
+        assert float(scales[3].cget("from")) == 1.0
+        assert float(scales[3].cget("to")) == 20.0
+        assert float(scales[3].cget("resolution")) == 1.0
+
+    def test_sliders_write_the_shared_variables(self, setup_tk) -> None:
+        parent = tk.Frame(setup_tk)
+        target_lufs = tk.DoubleVar(master=setup_tk, value=-16.0)
+        tolerance = tk.DoubleVar(master=setup_tk, value=0.5)
+        true_peak = tk.DoubleVar(master=setup_tk, value=-1.5)
+        lra = tk.DoubleVar(master=setup_tk, value=11.0)
+
+        build_config_panel(
+            parent, None, target_lufs, tolerance, true_peak=true_peak, lra=lra
+        )
+
+        scales = self._scales(parent)
+        scales[2].set(-1.0)
+        scales[3].set(7.0)
+        setup_tk.update_idletasks()
+
+        assert true_peak.get() == pytest.approx(-1.0)
+        assert lra.get() == pytest.approx(7.0)
+
+    def test_embedded_refinery_panel_keeps_only_two_sliders(self, setup_tk) -> None:
+        parent = tk.Frame(setup_tk)
+        build_config_panel(
+            parent,
+            None,
+            tk.DoubleVar(master=setup_tk, value=-23.0),
+            tk.DoubleVar(master=setup_tk, value=0.5),
+        )
+        assert len(self._scales(parent)) == 2

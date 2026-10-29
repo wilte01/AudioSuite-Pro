@@ -4,6 +4,9 @@ Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 
 Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
 run whose only failures were per-file keeps its exit status (PLAN D92).
+
+Changed in 2.1.7: ``--tp`` and ``--lra`` expose the loudnorm delivery targets
+(F-09); both default to the previously hard-coded -1.5 dBTP / 11 LU.
 """
 
 from __future__ import annotations
@@ -47,6 +50,22 @@ def _validate_lufs(ctx: click.Context, param: click.Parameter, value: float) -> 
     "--tolerance", default=0.5, type=float, help="Tolerance in LUFS (default 0.5)."
 )
 @click.option(
+    "--tp",
+    "true_peak",
+    default=-1.5,
+    type=click.FloatRange(min=-9.0, max=0.0),
+    help=(
+        "True-peak ceiling in dBTP (default -1.5). A ceiling above -1.0 can "
+        "clip on lossy re-encode; values above 0 are rejected by loudnorm."
+    ),
+)
+@click.option(
+    "--lra",
+    default=11.0,
+    type=click.FloatRange(min=1.0, max=20.0),
+    help="Target loudness range in LU (default 11).",
+)
+@click.option(
     "--mode",
     default="normalise",
     type=click.Choice(["normalise", "lossless"], case_sensitive=False),
@@ -61,6 +80,8 @@ def normalise(
     json: bool,
     target_lufs: float,
     tolerance: float,
+    true_peak: float,
+    lra: float,
     mode: str,
 ) -> None:
     """Normalise audio loudness to target LUFS."""
@@ -73,6 +94,8 @@ def normalise(
             dir_path=directory,
             target_lufs=target_lufs,
             tolerance=tolerance,
+            true_peak=true_peak,
+            lra=lra,
             normalization_mode=mode.lower(),
             is_dry_run=dry_run,
         )

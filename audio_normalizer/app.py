@@ -10,6 +10,10 @@ Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``
 so a payload field the processor adds (D112) is ignored instead of aborting an
 otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
 completion, progress and error seams.
+
+Changed in 2.1.7: the true-peak ceiling and LRA are Tk variables plumbed into
+``run_parallel_process``; a ceiling above -1.0 dBTP asks for confirmation before
+a run, because a lossy re-encode can clip there.
 """
 
 import logging
@@ -68,6 +72,10 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
         self.run_mode = tk.StringVar(value="Dry Run")
         self.target_lufs = tk.DoubleVar(value=-14.0)
         self.tolerance = tk.DoubleVar(value=0.5)
+        # Delivery targets (F-09). Defaults are the previously hard-coded
+        # ``TP=-1.5:LRA=11``, so an untouched app produces the same output.
+        self.true_peak = tk.DoubleVar(value=-1.5)
+        self.lra = tk.DoubleVar(value=11.0)
         self.auto_start_var = tk.BooleanVar(value=False)
         self.auto_end_var = tk.BooleanVar(value=False)
         self.clear_logs_var = tk.BooleanVar(value=False)
@@ -151,6 +159,8 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
             on_save_preset=self._save_current_as_preset,
             on_delete_preset=self._delete_preset,
             on_preset_selected=self._on_preset_selected,
+            true_peak=self.true_peak,
+            lra=self.lra,
         )
 
         proc_widgets = processing_tab.build(tab_processing, self.slot_vars)
@@ -180,6 +190,8 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
         return {
             "target_lufs": self.target_lufs.get(),
             "tolerance": self.tolerance.get(),
+            "true_peak": self.true_peak.get(),
+            "lra": self.lra.get(),
             "run_mode": self.run_mode.get(),
         }
 
@@ -188,6 +200,10 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
             self.target_lufs.set(settings["target_lufs"])
         if "tolerance" in settings:
             self.tolerance.set(settings["tolerance"])
+        if "true_peak" in settings:
+            self.true_peak.set(settings["true_peak"])
+        if "lra" in settings:
+            self.lra.set(settings["lra"])
         if "run_mode" in settings:
             self.run_mode.set(settings["run_mode"])
 
@@ -221,6 +237,10 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
             self.target_lufs.set(parsed.target_lufs)
         if hasattr(parsed, "tolerance") and parsed.tolerance is not None:
             self.tolerance.set(parsed.tolerance)
+        if hasattr(parsed, "true_peak") and parsed.true_peak is not None:
+            self.true_peak.set(parsed.true_peak)
+        if hasattr(parsed, "lra") and parsed.lra is not None:
+            self.lra.set(parsed.lra)
         if parsed.live_mode is not None:
             if parsed.live_mode:
                 mode = (
@@ -273,6 +293,13 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
         if not os.path.isdir(folder):
             messagebox.showerror("Error", "Selected path is not a valid directory.")
             return
+        if self.true_peak.get() > -1.0 and not messagebox.askyesno(
+            "True-peak ceiling",
+            f"A true-peak ceiling of {self.true_peak.get():.1f} dBTP leaves less "
+            "than 1 dB of headroom and can clip on a lossy re-encode.\n\n"
+            "Continue anyway?",
+        ):
+            return
 
         self.start_btn.config(state="disabled")
         self.file_listbox.delete(0, tk.END)
@@ -296,6 +323,8 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
         )
         target_lufs = self.target_lufs.get()
         tolerance = self.tolerance.get()
+        true_peak = self.true_peak.get()
+        lra = self.lra.get()
 
         self._dir_path = dir_path
         self._log_path = os.path.join(
@@ -318,6 +347,8 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
             f"Mode: {mode_label}\n",
             f"Target LUFS: {target_lufs}\n",
             f"Tolerance: {tolerance} LUFS\n",
+            f"True peak ceiling: {true_peak:g} dBTP\n",
+            f"Loudness range: {lra:g} LU\n",
             "=" * 60 + "\n",
         ]
 
@@ -328,6 +359,8 @@ class AudioNormalizerApp(UIHelperMixin, AuditionMixin):
                 tolerance=tolerance,
                 is_dry_run=is_dry_run,
                 normalization_mode=normalization_mode,
+                true_peak=true_peak,
+                lra=lra,
                 slot_vars=self._safe_slot_vars,
                 slot_queue=self.slot_queue,
                 on_progress=self._on_progress,

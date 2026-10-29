@@ -4,6 +4,10 @@ file_processor.py - Migrated to use BaseFileProcessor for audio normalization.
 This file eliminates ~150 lines of duplicated threading and error handling code
 by using shared BaseFileProcessor infrastructure while preserving
 identical functionality.
+
+Changed in 2.1.7: ``true_peak`` and ``lra`` reach every loudnorm call, and the
+peak the re-encode actually achieved is reported in the display and log line
+instead of only the requested ceiling.
 """
 
 import logging
@@ -53,10 +57,16 @@ def process_single_file(
     lock: threading.Lock,
     on_progress: Callable[..., None],
     normalization_mode: str = "normalise",
+    true_peak: float = -1.5,
+    lra: float = 11,
     **kwargs: Any,
 ) -> None:
     """
     Process a single audio file for normalization using shared infrastructure.
+
+    ``true_peak`` and ``lra`` are the loudnorm delivery targets; they default to
+    the values the tool hard-coded before 2.1.7, so an unset driver argv keeps
+    the shipped behaviour.
     """
     slot_vars: list[Any] | None = kwargs.get("slot_vars")
 
@@ -64,7 +74,7 @@ def process_single_file(
         slot_vars[slot_idx].set(f"Analyzing: {name[:20]}...")
 
     file_path = os.path.normpath(os.path.join(dir_path, name))
-    loudness_data = measure(file_path, target_lufs)
+    loudness_data = measure(file_path, target_lufs, true_peak, lra)
 
     if not loudness_data:
         raise AudioAnalysisError(
@@ -89,11 +99,23 @@ def process_single_file(
         try:
             if slot_vars is not None:
                 slot_vars[slot_idx].set(f"Processing: {name[:20]}...")
-            _apply_normalisation(
-                file_path, target_lufs, loudness_data, gain_needed, normalization_mode
+            achieved_peak = _apply_normalisation(
+                file_path,
+                target_lufs,
+                loudness_data,
+                gain_needed,
+                normalization_mode,
+                true_peak,
+                lra,
             )
             display = f"[NORMALIZED] {name} → Applied {gain_needed:.2f} dB gain"
-            log = f"[NORMALIZED] {name} | Applied {gain_needed:.2f} dB gain\n"
+            log = f"[NORMALIZED] {name} | Applied {gain_needed:.2f} dB gain"
+            if isinstance(achieved_peak, (int, float)):
+                # The achieved peak is the only evidence the requested ceiling
+                # was met; it is reported for review, not assumed from argv.
+                display += f" (true peak {achieved_peak:+.1f} dBTP)"
+                log += f" | true peak {achieved_peak:+.1f} dBTP"
+            log += "\n"
         except Exception as exc:
             mapped = map_to_audio_error(
                 exc, context={"file": name, "operation": "normalise"}
@@ -124,7 +146,9 @@ def _apply_normalisation(
     loudness_data: dict[str, Any],
     gain_needed: float,
     normalization_mode: str,
-) -> None:
+    true_peak: float = -1.5,
+    lra: float = 11,
+) -> float | None:
     """Apply the gain to a single file using the selected strategy.
 
     In *lossless* mode, MP3 files have their ``global_gain`` adjusted
@@ -137,11 +161,20 @@ def _apply_normalisation(
         loudness_data: Measurements from loudness.measure().
         gain_needed: Target minus current loudness (dB).
         normalization_mode: ``"lossless"`` or ``"normalise"``.
+        true_peak: True-peak ceiling in dBTP for the loudnorm re-encode.
+        lra: Target loudness range in LU for the loudnorm re-encode.
+
+    Returns:
+        The true peak the encode achieved in dBTP, or ``None`` for the
+        lossless MP3 path (which re-encodes nothing) or when FFmpeg did not
+        report one.
     """
     if normalization_mode == "lossless" and is_mp3_file(file_path):
         apply_track_gain(file_path, gain_needed)
-    else:
-        apply_normalisation(file_path, target_lufs, loudness_data)
+        return None
+    return apply_normalisation(
+        file_path, target_lufs, loudness_data, true_peak=true_peak, lra=lra
+    )
 
 
 @handle_audio_errors(reraise=False, context="normalizer_run_parallel")
@@ -157,6 +190,8 @@ def run_parallel_process(
     #                                       duration_secs, log_entries)
     on_error: Callable[..., Any],  # on_error(message: str)
     normalization_mode: str = "normalise",
+    true_peak: float = -1.5,
+    lra: float = 11,
 ) -> None:
     """
     Run parallel audio normalization using shared infrastructure.
@@ -191,6 +226,8 @@ def run_parallel_process(
                 on_progress=on_progress,
                 slot_vars=slot_vars,
                 normalization_mode=normalization_mode,
+                true_peak=true_peak,
+                lra=lra,
                 **kwargs,
             )
 

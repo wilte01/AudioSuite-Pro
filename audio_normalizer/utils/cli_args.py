@@ -2,6 +2,9 @@
 cli_args.py — CLI argument parser for Audio Normalizer.
 
 BaseCLIArgs provides: folder_path, live_mode, auto_start, auto_end.
+
+Changed in 2.1.7: ``--tp`` (dBTP, default -1.5) and ``--lra`` (LU, default 11)
+carry the loudnorm delivery targets, validated before a run starts.
 """
 
 import os
@@ -26,6 +29,8 @@ ACCEPTED_HANDSHAKE = frozenset(
         "--no-clear-logs",
         "--parallel-run",
         "--no-parallel-run",
+        "--tp",
+        "--lra",
     }
 )
 
@@ -38,6 +43,8 @@ class NormalizerArgs(BaseCLIArgs):
 
     target_lufs: float = -14.0
     tolerance: float = 0.5
+    true_peak: float = -1.5
+    lra: float = 11.0
     normalization_mode: str = "normalise"
     clear_logs: bool = False
     parallel_run: bool = False
@@ -61,6 +68,13 @@ def validate_args(args: NormalizerArgs) -> list[str]:
     errors.extend(validate_target_lufs(args.target_lufs))
     if args.tolerance < 0:
         errors.append(f"Tolerance must be positive, got: {args.tolerance}")
+    if not -9.0 <= args.true_peak <= 0.0:
+        errors.append(
+            f"True-peak ceiling must be between -9.0 and 0.0 dBTP, "
+            f"got: {args.true_peak}"
+        )
+    if not 1.0 <= args.lra <= 20.0:
+        errors.append(f"LRA must be between 1 and 20 LU, got: {args.lra}")
     if args.normalization_mode not in VALID_NORMALIZATION_MODES:
         errors.append(
             "normalization_mode must be one of "
@@ -102,6 +116,18 @@ def parse(argv: list[str] | None = None) -> NormalizerArgs:
         elif arg == "--mode" and i + 1 < len(argv):
             args.normalization_mode = argv[i + 1]
             i += 2
+        elif arg == "--tp" and i + 1 < len(argv):
+            try:
+                args.true_peak = float(argv[i + 1])
+            except ValueError:
+                pass
+            i += 2
+        elif arg == "--lra" and i + 1 < len(argv):
+            try:
+                args.lra = float(argv[i + 1])
+            except ValueError:
+                pass
+            i += 2
         elif (
             arg.startswith("-")
             and arg not in ACCEPTED_HANDSHAKE
@@ -109,6 +135,8 @@ def parse(argv: list[str] | None = None) -> NormalizerArgs:
             not in [
                 "--tolerance",
                 "--mode",
+                "--tp",
+                "--lra",
             ]
         ):
             try:

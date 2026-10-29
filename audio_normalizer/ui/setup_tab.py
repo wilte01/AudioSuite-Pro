@@ -2,6 +2,10 @@
 setup_tab.py
 Builds the Setup tab for Audio Normalizer.
 Returns the Start button so the app can enable/disable it.
+
+Changed in 2.1.7: adds the true-peak (dBTP) and loudness-range (LU) sliders,
+beside the target LUFS, so the loudnorm delivery targets are adjustable instead
+of hard-coded.
 """
 
 import tkinter as tk
@@ -47,6 +51,8 @@ def build(
     on_save_preset: Callable[[str], None] | None = None,
     on_delete_preset: Callable[[str], None] | None = None,
     on_preset_selected: Callable[[str], None] | None = None,
+    true_peak: tk.DoubleVar | None = None,
+    lra: tk.DoubleVar | None = None,
 ) -> tuple[tk.Button, Callable[[list[str]], None], ttk.Combobox]:
     """
     Populate the Setup tab and return the Start button widget.
@@ -76,6 +82,8 @@ def build(
         on_preset_selected=on_preset_selected,
         target_lufs=target_lufs,
         tolerance=tolerance,
+        true_peak=true_peak,
+        lra=lra,
     )
     return (
         cast(tk.Button, frame.start_btn),
@@ -93,20 +101,31 @@ class _SetupFrame(BaseSetupFrame):
         *,
         target_lufs: tk.DoubleVar,
         tolerance: tk.DoubleVar,
+        true_peak: tk.DoubleVar | None = None,
+        lra: tk.DoubleVar | None = None,
         **kwargs: Any,
     ) -> None:
         # Tool-specific option state must be bound before super().__init__,
         # which calls _layout() -> _build_options() during construction.
         self._target_lufs = target_lufs
         self._tolerance = tolerance
+        self._true_peak = true_peak
+        self._lra = lra
         super().__init__(parent, **kwargs)
 
     def _build_options(self) -> None:
         # The shared Run Controls panel already renders the Source bar
         # (source directory + Browse) and the 3-way Mode combo; keep only
-        # the Target LUFS / tolerance configuration here.
+        # the Target LUFS / tolerance / delivery-target configuration here.
         cfg_frame = self.add_config_group("Configuration")
-        build_config_panel(cfg_frame, None, self._target_lufs, self._tolerance)
+        build_config_panel(
+            cfg_frame,
+            None,
+            self._target_lufs,
+            self._tolerance,
+            true_peak=self._true_peak,
+            lra=self._lra,
+        )
 
 
 def build_config_panel(
@@ -114,6 +133,8 @@ def build_config_panel(
     run_mode: tk.StringVar | None,
     target_lufs: tk.DoubleVar,
     tolerance: tk.DoubleVar,
+    true_peak: tk.DoubleVar | None = None,
+    lra: tk.DoubleVar | None = None,
 ) -> None:
     """Reusable configuration panel for Audio Normalizer.
 
@@ -133,6 +154,10 @@ def build_config_panel(
             in Audio Refinery) so the mode row is suppressed.
         target_lufs: DoubleVar that holds the currently selected LUFS preset.
         tolerance: DoubleVar for the skip-tolerance value.
+        true_peak: Optional DoubleVar for the loudnorm true-peak ceiling in
+            dBTP.  When omitted, no ceiling control is rendered and the
+            caller's stage default applies (Audio Refinery embeds this panel).
+        lra: Optional DoubleVar for the loudnorm target loudness range in LU.
     """
     # Mode selection (only show when not embedded)
     if run_mode is not None:
@@ -233,3 +258,13 @@ def build_config_panel(
         fg=styles.FG_SUB,
         bg=styles.BG_WHITE,
     ).pack(anchor="w", padx=5)
+
+    # Delivery targets (F-09). The ceiling defaults to the shipped -1.5 dBTP;
+    # > -1.0 is allowed but the app warns before a run, because a lossy
+    # re-encode of a file mastered that hot can clip.
+    if true_peak is not None:
+        ui_common.slider_row(
+            parent, "True peak ceiling (dBTP)", true_peak, -6.0, 0.0, 0.1
+        )
+    if lra is not None:
+        ui_common.slider_row(parent, "Loudness range (LU)", lra, 1.0, 20.0, 1.0)
