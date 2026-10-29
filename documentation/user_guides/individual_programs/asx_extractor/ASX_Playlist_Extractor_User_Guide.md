@@ -55,7 +55,7 @@ The parser reads playlist text as XML using ElementTree. An XML declaration is r
 
 - **Relative href: **Resolved relative to the directory containing the ASX file.
 - **Absolute href: **Resolved as an absolute filesystem path.
-- **Alternate-extension fallback: **If the referenced audio file is missing, the parser tries the first existing same-stem sibling file in any of the nine suite supported audio extensions (.mp3, .flac, .ogg, .m4a, .mp4, .opus, .wav, .aiff, .aif), preferring the shared SUPPORTED_EXTENSIONS order.
+- **Alternate-extension fallback: **If the referenced audio file is missing, the parser tries the first existing same-stem sibling file in any of the fourteen suite supported audio extensions (.mp3, .flac, .ogg, .m4a, .mp4, .opus, .wav, .aiff, .aif, .wv, .ape, .mpc, .spx, .dsf), preferring the shared SUPPORTED_EXTENSIONS order.
 - **Malformed XML: **Reported as INVALID XML IN ASX.
 - **DTD/entity payload: **Reported as DTD-BEARING ASX REJECTED before any parsing occurs.
 - **No reference: **Reported as NO REF LINK IN ASX.

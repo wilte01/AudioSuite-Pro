@@ -5,7 +5,7 @@ subtitle: Based on the current Audio Fingerprinter implementation
 
 ## Overview
 
-Audio Fingerprinter generates Chromaprint fingerprints with the external fpcalc utility and can identify tracks through AcoustID. It can run as a fingerprint-only analysis, identify likely recordings, or write AcoustID metadata to matched files. The selected directory is scanned recursively for supported audio files using four worker slots.
+Audio Fingerprinter generates Chromaprint fingerprints with the external fpcalc utility and can identify tracks through AcoustID. It can run as a fingerprint-only analysis, identify likely recordings, or write AcoustID metadata to matched files. The selected directory is scanned recursively for supported audio files using one worker slot per logical CPU (at most eight).
 
 ## Prerequisites
 
@@ -44,7 +44,7 @@ Setup contains the directory picker, fpcalc path, API key controls, lookup and t
 
 ## Processing and Results
 
-Processing shows total and processed counts, errors, per-file status lines, and four worker-slot labels. Each file is fingerprinted, optionally looked up, and optionally tagged. Results reports identified matches, no matches, tags written, lookup skips, errors, and elapsed time.
+Processing shows total and processed counts, errors, per-file status lines, and a worker-slot label per logical CPU (at most eight). Each file is fingerprinted, optionally looked up, and optionally tagged. Results reports identified matches, no matches, tags written, lookup skips, errors, and elapsed time.
 
 The GUI writes fingerprint_dry_run_log.txt or fingerprint_live_log.txt in the input directory. Results are sorted by file path when displayed.
 

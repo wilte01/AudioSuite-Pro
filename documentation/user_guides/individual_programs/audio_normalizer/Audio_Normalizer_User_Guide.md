@@ -48,6 +48,8 @@ The Setup tab contains the shared Source directory bar with the Mode dropdown (D
 - **Select Mode: **Dry Run previews gain changes. Normalize applies FFmpeg loudnorm re-encoding. Lossless Normalize adjusts MP3 global_gain in place and falls back to normal re-encoding for non-MP3 files.
 - **Target LUFS: **Choose one of the permitted loudness targets: -12.0, -14.0, -16.0, -18.0, or -23.0 LUFS. The app default is -14.0.
 - **Tolerance: **Choose 0.1 to 2.0 LUFS. A file whose required gain is within plus or minus this value is skipped.
+- **True peak ceiling: **Choose the loudnorm true-peak ceiling from -6.0 to 0.0 dBTP. The default is -1.5, which is the behaviour earlier versions always used. A ceiling above -1.0 leaves less than 1 dB of headroom, so the app asks before starting a run at that setting because a lossy re-encode can clip.
+- **Loudness range: **Choose the loudnorm target loudness range from 1 to 20 LU. The default is 11, matching earlier versions.
 - **Presets: **Save, load, and delete target LUFS, tolerance, and run-mode settings through shared suite preset storage.
 
 ## How a File Is Handled
@@ -64,12 +66,12 @@ The temporary-output and atomic-replace sequence means a failed encode does not 
 ## Normalization Modes
 
 - **Dry Run: **Measures every file and logs [DRY RUN] with the proposed gain. No audio or tags are written.
-- **Normalize: **Uses FFmpeg's two-pass loudnorm filter with integrated loudness target, -1.5 dB true-peak target, LRA 11, measured input values, and format-specific output codec settings.
+- **Normalize: **Uses FFmpeg's two-pass loudnorm filter with the integrated loudness target, the configured true-peak ceiling (default -1.5 dBTP), the configured loudness range (default 11 LU), measured input values, and format-specific output codec settings. Each normalised file's log line reports the true peak the encode actually achieved, so the ceiling can be checked rather than assumed.
 - **Lossless Normalize: **For MP3 files, changes global_gain in place without re-encoding. Non-MP3 files use the normal FFmpeg loudnorm path instead.
 
 ## Processing and Results
 
-Processing shows four worker slots, a progress bar, and per-file status lines. Typical statuses include SKIPPED for files within tolerance, DRY RUN with proposed gain, NORMALIZED with applied gain, and ERROR with a readable failure message.
+Processing shows one worker slot per logical CPU (at most eight), a progress bar, and per-file status lines. Typical statuses include SKIPPED for files within tolerance, DRY RUN with proposed gain, NORMALIZED with applied gain, and ERROR with a readable failure message.
 
 Results reports total files, normalized files, skipped files, errors, and elapsed time. Dry Run ends with Dry Run Complete; live modes end with Normalization Complete. The Results tab can open the source folder and provides original/result auditioning when a suitable pair is available.
 
@@ -88,7 +90,7 @@ python -m audio_suite_shared.cli_app normalise <folder> --target-lufs -14 --tole
 python -m audio_suite_shared.cli_app normalise <folder> --mode lossless\
 python -m audio_suite_shared.cli_app normalise <folder> --mode normalise --json
 
-The CLI accepts --target-lufs, --tolerance, --mode normalise|lossless, the shared dry-run option, and --json. Target LUFS is validated against the permitted values; tolerance must not be negative. Text output reports processed, skipped, errors, and elapsed time.
+The CLI accepts --target-lufs, --tolerance, --tp, --lra, --mode normalise|lossless, the shared dry-run option, and --json. Target LUFS is validated against the permitted values; tolerance must not be negative; --tp must be between -9 and 0 dBTP and --lra between 1 and 20 LU. Text output reports processed, skipped, errors, and elapsed time.
 
 ## Master Driver Use
 

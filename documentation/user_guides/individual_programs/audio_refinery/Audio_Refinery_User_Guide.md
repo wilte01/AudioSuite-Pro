@@ -7,7 +7,7 @@ subtitle: Based on the current Audio Refinery implementation
 
 Audio Refinery is a single-pass audio processing pipeline. It loads each source file once, runs the selected stages in memory, exports the result, restores the original tags, and optionally applies loudness normalization. The final file is placed in a separate output folder or atomically replaces the source when running in place.
 
-The pipeline is designed to combine several suite tools without repeatedly decoding and encoding the same file. It validates file integrity before expensive DSP work, uses four worker slots by default, retries transient failures, and records completed files in a hash-based registry.
+The pipeline is designed to combine several suite tools without repeatedly decoding and encoding the same file. It validates file integrity before expensive DSP work, sizes its worker slots from the CPU count (at most eight), retries transient failures, and records completed files in a hash-based registry.
 
 ## Supported Audio
 
@@ -81,7 +81,7 @@ The refinery stores successful completion records in _refinery_completed.log in 
 
 ## Processing and Results
 
-Processing shows four worker slots, progress, and per-file DONE, SKIP, or ERROR entries. Each completed file's log includes stage messages and metrics. Results reports processed, succeeded, skipped, errors, and elapsed time. The Results tab can compare the original and result audio when a suitable pair exists; Dry Run has no result audio to play.
+Processing shows one worker slot per logical CPU (at most eight), progress, and per-file DONE, SKIP, or ERROR entries. Each completed file's log includes stage messages and metrics. Results reports processed, succeeded, skipped, errors, and elapsed time. The Results tab can compare the original and result audio when a suitable pair exists; Dry Run has no result audio to play.
 
 ## Logs and Recovery
 

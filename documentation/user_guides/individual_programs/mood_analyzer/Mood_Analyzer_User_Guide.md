@@ -60,7 +60,7 @@ The signal mood engine scores two axes. Arousal represents energy versus calm an
 
 ## Processing and Results
 
-Processing shows four worker slots, progress, processed/skipped/error counts, and per-file status messages. Results reports total files, analyzed/tagged files, skipped files, errors, and elapsed time. The tool can open the source folder and the generated log.
+Processing shows one worker slot per logical CPU (at most eight), progress, processed/skipped/error counts, and per-file status messages. Results reports total files, analyzed/tagged files, skipped files, errors, and elapsed time. The tool can open the source folder and the generated log.
 
 ## Logs
 

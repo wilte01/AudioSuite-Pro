@@ -7,7 +7,7 @@ subtitle: Based on the current Genre Sync implementation
 
 Genre Sync derives the standard Genre field from custom genre metadata already stored in each audio file. It reads the file's TITLEGENRE, ARTISTGENRE, ALBUMGENRE, ALBUMARTISTGENRE, and Album Artist values, applies a deterministic priority tree, and can write the selected genre plus a derived-source marker.
 
-The tool processes supported audio files recursively with four worker slots. Dry Run reports the decisions without changing tags; Live Update writes changes in place.
+The tool processes supported audio files recursively with one worker slot per logical CPU (at most eight). Dry Run reports the decisions without changing tags; Live Update writes changes in place.
 
 ## Supported Input
 
@@ -63,7 +63,7 @@ On a Live Update when a source is resolved, Genre Sync writes the selected value
 
 ## Processing and Results
 
-Processing shows four worker slots, a progress bar, processed count, updated count, already-correct skips, no-genre count, errors, and per-file decision text. Work is retried through the shared processor recovery path. Results reports the same counts and elapsed time, then opens the Results tab when complete.
+Processing shows one worker slot per logical CPU (at most eight), a progress bar, processed count, updated count, already-correct skips, no-genre count, errors, and per-file decision text. Work is retried through the shared processor recovery path. Results reports the same counts and elapsed time, then opens the Results tab when complete.
 
 ## Logs
 

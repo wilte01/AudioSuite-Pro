@@ -59,7 +59,7 @@ Major keys are displayed without a suffix, while minor keys end in m. Common fla
 
 ## Processing and Results
 
-Processing shows four worker-slot statuses, a progress bar, processed/skipped/error counts, and per-file messages. Results reports total files, analyzed files, skipped files, errors, and elapsed time. The completion label distinguishes Analysis Complete from Key Tagging Complete.
+Processing shows a worker-slot status per logical CPU (at most eight), a progress bar, processed/skipped/error counts, and per-file messages. Results reports total files, analyzed files, skipped files, errors, and elapsed time. The completion label distinguishes Analysis Complete from Key Tagging Complete.
 
 ## Logs
 

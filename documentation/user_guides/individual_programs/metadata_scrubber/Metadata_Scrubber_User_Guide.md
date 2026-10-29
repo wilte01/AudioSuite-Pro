@@ -11,14 +11,16 @@ Dry Run reports what would be scrubbed without changing files. Live Update perfo
 
 ## Supported Files
 
-The scrubber works with nine containers: MP3, FLAC, OGG, Opus, M4A, MP4, WAV, AIFF, and AIF. Those are the only files it lists, samples, or processes.
+The scrubber works with fourteen containers: MP3, FLAC, OGG, Opus, M4A, MP4, WAV, AIFF, AIF, WavPack (.wv), Monkey's Audio (.ape), Musepack (.mpc), Speex (.spx), and DSD (.dsf). Those are the only files it lists, samples, or processes.
 
-Other formats the suite can convert are deliberately not offered here: WavPack (.wv), Monkey's Audio (.ape), Musepack (.mpc), Speex (.spx), DSD (.dsf), and WMA. WMA is excluded because mutagen has no ASF tag handler at all. The remaining five can be decoded for conversion, but the scrubber wipes a file's tags and then restores individual tag frames, and no frame-level tag handler exists for those containers yet — listing them would mean reporting a valid file as unreadable. A folder holding only such files reports "No supported audio files found" rather than an error per file.
+WMA is the one format the suite can read that the scrubber still refuses: mutagen has no ASF tag handler at all, so the file could not be read or rewritten. A folder holding only WMA files reports "No supported audio files found" rather than an error per file.
+
+The five containers added in 2.1.7 keep their own tag model through the wipe-and-restore cycle: WavPack, Monkey's Audio and Musepack preserve raw APEv2 items (so multi-value text stays multi-value and cover art stays binary), Speex preserves Vorbis comments like OGG does, and DSF preserves ID3 frames like WAV does. A scrub is metadata-only: the audio samples are not re-encoded.
 
 The GUI discovers custom tags by sampling up to 100 supported audio files in the selected directory. Processing then scans the supported files in that directory.
 
 - **Always preserved: **Artist, album, and title, using format-specific tag representations.
-- **Optional lyrics: **MP3 USLT/SYLT, Vorbis lyrics/syncedlyrics, and the M4A/MP4 lyrics atom where supported.
+- **Optional lyrics: **MP3 USLT/SYLT, Vorbis lyrics/syncedlyrics (including OGG Speex), APEv2 lyrics/syncedlyrics, and the M4A/MP4 lyrics atom where supported.
 - **Optional Album Artist: **MP3 TPE2 and corresponding Album Artist fields in supported containers.
 - **Optional artwork: **MP3 APIC, Vorbis metadata block picture, and MP4/M4A cover art.
 - **Custom tags: **Discovered custom fields are selectable and restored through the shared format-aware tag handler.
@@ -45,7 +47,7 @@ Setup contains the directory/run-controls panel, presets, preservation toggles, 
 
 ## Tag Discovery
 
-The GUI scans up to 100 supported audio files for custom tag descriptions: TXXX descriptions for ID3-based formats (MP3, WAV, AIFF, AIF), Vorbis comment keys for FLAC/OGG/Opus, and MP4 freeform tag names for M4A/MP4. It excludes known system or technical descriptions containing terms such as ReplayGain, BPM, Tempo, Initial Key, MusicBrainz, AcousticID, Barcode, MediaType, or OriginalDate. This keeps the checklist focused on user-defined metadata rather than fields managed by other suite tools.
+The GUI scans up to 100 supported audio files for custom tag descriptions: TXXX descriptions for ID3-based formats (MP3, WAV, AIFF, AIF, DSF), Vorbis comment keys for FLAC/OGG/Opus/Speex, APEv2 item keys for WavPack/Monkey's Audio/Musepack, and MP4 freeform tag names for M4A/MP4. It excludes known system or technical descriptions containing terms such as ReplayGain, BPM, Tempo, Initial Key, MusicBrainz, AcousticID, Barcode, MediaType, or OriginalDate. This keeps the checklist focused on user-defined metadata rather than fields managed by other suite tools.
 
 If no custom tags are found, the checklist displays No custom tags found, while the always-preserved identity tags and optional standard controls remain available.
 
@@ -58,7 +60,7 @@ If no custom tags are found, the checklist displays No custom tags found, while 
 1. Save the wiped file.
 1. Reload it, recreate tags if needed, restore the preserved fields, and save the result.
 
-The operation keeps audio content unchanged; it changes metadata containers and fields. The processing uses four worker threads and reports each file independently.
+The operation keeps audio content unchanged; it changes metadata containers and fields. The processing uses one worker thread per logical CPU (at most eight) and reports each file independently.
 
 ## Dry Run and Live Update
 
@@ -70,7 +72,7 @@ The operation keeps audio content unchanged; it changes metadata containers and 
 
 ## Processing and Results
 
-Processing shows four worker slots, processed/skipped/error counts, and per-file status messages. Results reports total files, successfully processed files, skipped files, errors, and elapsed time. The results tab can open the log and source folder.
+Processing shows one worker slot per logical CPU (at most eight), processed/skipped/error counts, and per-file status messages. Results reports total files, successfully processed files, skipped files, errors, and elapsed time. The results tab can open the log and source folder.
 
 ## Logs
 

@@ -93,7 +93,7 @@ Setup contains the input directory, output format, quality, sample rate, WAV bit
 
 ## Processing and Results
 
-Processing shows four worker slots, progress, converted/skipped/error counts, and per-file status lines. Results reports totals and elapsed time. Converted lines include source and output sizes, optional loudness-gain status, and original-deletion status.
+Processing shows one worker slot per logical CPU (at most eight), progress, converted/skipped/error counts, and per-file status lines. Results reports totals and elapsed time. Converted lines include source and output sizes, optional loudness-gain status, and original-deletion status.
 
 ## Logs
 

@@ -531,7 +531,7 @@ audiosuite enhance "D:\Music\Dull" --output-dir "D:\Music\Enhanced" --preset Agg
 Normalise audio loudness to a target LUFS level.
 
 ```bash
-audiosuite normalise <directory> [--target-lufs LUFS] [--tolerance DB] [--mode MODE] [OPTIONS]
+audiosuite normalise <directory> [--target-lufs LUFS] [--tolerance DB] [--tp DBTP] [--lra LU] [--mode MODE] [OPTIONS]
 ```
 
 **Options:**
@@ -539,6 +539,8 @@ audiosuite normalise <directory> [--target-lufs LUFS] [--tolerance DB] [--mode M
 - `--dry` / `--live` — Measure and report only, or rewrite the audio at the target loudness (default: live)
 - `--target-lufs LUFS` — target loudness, one of `-12`, `-14`, `-16`, `-18`, `-23` (default: -14)
 - `--tolerance DB` — acceptable deviation in LUFS (default: 0.5)
+- `--tp DBTP` — true-peak ceiling for the loudnorm filter, from -9.0 to 0.0 (default: -1.5); a ceiling above -1.0 can clip on a lossy re-encode
+- `--lra LU` — target loudness range for the loudnorm filter, from 1 to 20 (default: 11)
 - `--mode [normalise|lossless]` — `normalise` re-encodes through FFmpeg's loudnorm filter; `lossless` adjusts an MP3's global-gain header in place and falls back to `normalise` for other formats (default: normalise)
 
 **Examples:**

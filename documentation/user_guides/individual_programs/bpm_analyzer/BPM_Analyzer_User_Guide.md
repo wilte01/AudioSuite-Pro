@@ -50,7 +50,7 @@ For each file, librosa loads mono audio for the configured maximum duration usin
 
 ## Processing and Results
 
-Processing shows four worker-slot labels, a progress bar, processed/skipped/error counts, and per-file status lines. Results reports total files, analyzed or tagged files, skipped files, errors, and elapsed time. The completion label distinguishes Analysis Complete from BPM Tagging Complete.
+Processing shows a worker-slot label per logical CPU (at most eight), a progress bar, processed/skipped/error counts, and per-file status lines. Results reports total files, analyzed or tagged files, skipped files, errors, and elapsed time. The completion label distinguishes Analysis Complete from BPM Tagging Complete.
 
 BPM Analyzer does not treat an out-of-range detection as a skip: the value is tagged as measured and its line names the configured range. Skips are reserved for files with no discernible beat, and errors for files that could not be read.
 

@@ -48,7 +48,7 @@ Setup contains the source path, output folder, the Preset selector, and the Cust
 
 ### Processing
 
-Processing shows an overall progress bar, processed/enhanced/error counts, and per-file status lines. Four worker slots are used by default. Each worker may retry a processing operation up to three times with backoff before reporting an error. A file that disappears during processing is reported as skipped; permission and other processing failures are reported as errors.
+Processing shows an overall progress bar, processed/enhanced/error counts, and per-file status lines. One worker slot per logical CPU is used by default (at most eight). Each worker may retry a processing operation up to three times with backoff before reporting an error. A file that disappears during processing is reported as skipped; permission and other processing failures are reported as errors.
 
 ### Results
 

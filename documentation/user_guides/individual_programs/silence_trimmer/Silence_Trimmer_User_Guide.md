@@ -71,7 +71,7 @@ The core uses pydub's leading-silence detector twice: once on the original audio
 
 ## Processing and Results
 
-Processing displays four worker slots, progress, processed/succeeded/skipped/error counts, and per-file actions such as trim durations or No silence detected. Results reports total, reduced/succeeded files, skips, errors, and elapsed time. The Results tab can open the log and source folder and audition original versus result for successful Live Update output.
+Processing displays one worker slot per logical CPU (at most eight), progress, processed/succeeded/skipped/error counts, and per-file actions such as trim durations or No silence detected. Results reports total, reduced/succeeded files, skips, errors, and elapsed time. The Results tab can open the log and source folder and audition original versus result for successful Live Update output.
 
 ## Command Line
 

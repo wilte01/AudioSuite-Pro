@@ -16,6 +16,11 @@ than a file, which is why they are one module:
    ``D:\\Users\\<name>\\...``, so the committed scripts only ran on one host; a
    path like that must not come back through a renderer, a test or a page.
 
+Changed in 2.1.7: ``tests/test_guide_claims.py`` joins ``DOCS_LOCKS``, so the job
+that runs the document locks also checks the factual claims a guide makes about
+the code — format counts, worker counts, flags, status tokens and artifact
+names (functional backlog D18/D19).
+
 Both scans read the working tree and assert a non-empty result set, so a
 mis-scoped walk fails loudly instead of passing vacuously (AGENTS.md, "Never
 lose a rule to a scripted edit").
@@ -79,6 +84,7 @@ DOCS_LOCKS: tuple[str, ...] = (
     "tests/test_user_guide_hygiene.py",
     "tests/test_docs_formats.py",
     "tests/test_docs_index.py",
+    "tests/test_guide_claims.py",
     "tests/test_guide_resolution.py",
     "tests/test_api_reference.py",
     "tests/test_readme.py",

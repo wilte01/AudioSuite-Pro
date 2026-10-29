@@ -11,11 +11,11 @@ The tool is intentionally guarded by a coverage check. If too few files have TIT
 
 ## Supported Input and Output
 
-- **Input files: **Any of the nine suite audio formats in the selected directory are scanned: .mp3, .flac, .ogg, .m4a, .mp4, .opus, .wav, .aiff, and .aif.
-- **Input tag: **TITLEGENRE is read from each file through the shared, format-aware tag handler (TXXX for ID3 files, Vorbis comments for FLAC/OGG/Opus, and MP4 freeform tags for M4A/MP4).
+- **Input files: **Any of the fourteen suite audio formats in the selected directory are scanned: .mp3, .flac, .ogg, .m4a, .mp4, .opus, .wav, .aiff, .aif, .wv, .ape, .mpc, .spx, and .dsf.
+- **Input tag: **TITLEGENRE is read from each file through the shared, format-aware tag handler (TXXX for ID3 files, Vorbis comments for FLAC/OGG/Opus/Speex, APEv2 items for WavPack/Monkey's Audio/Musepack, and MP4 freeform tags for M4A/MP4).
 - **Output tag: **ALBUMGENRE receives the sorted unique genres joined with semicolons and spaces, stored through the same format-aware handler as the input.
 - **Derived flag: **ALBUMDERIVED is written as Y when the consolidation write runs.
-- **Other files: **Files outside the nine supported audio extensions and subdirectory contents are not part of this operation.
+- **Other files: **Files outside the fourteen supported audio extensions and subdirectory contents are not part of this operation.
 
 ## How Consolidation Works
 
@@ -88,7 +88,7 @@ From the Master Driver, open ENRICH and select Album Genre Tagger. The driver pa
 
 ## Troubleshooting
 
-- **No supported audio files found: **Select a directory containing files in one of the nine supported audio formats. Other file types and subdirectories are not scanned by this tool.
+- **No supported audio files found: **Select a directory containing files in one of the fourteen supported audio formats. Other file types and subdirectories are not scanned by this tool.
 - **Coverage check failed: **Add or repair TITLEGENRE tags, choose a directory with the intended album files, or lower the minimum only when the available metadata is sufficient for your workflow.
 - **Genres are missing: **The source file may have no tags, no TITLEGENRE field, or an unreadable tag. Review Phase 1 entries and the log.
 - **The result contains several genres: **That is expected when multiple unique TITLEGENRE values exist; the tool sorts them and joins them in one ALBUMGENRE string.

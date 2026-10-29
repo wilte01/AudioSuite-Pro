@@ -65,6 +65,12 @@ jobs:
     # future document lock cannot sit outside this job unnoticed: it has to be
     # listed here or deferred with a reason.
     #
+    # Changed in 2.1.7: the guide-claims lock joins the list. A guide that still
+    # says "nine suite audio formats" after the shared set widened to fourteen,
+    # or "four worker slots" when every tool sizes its grid from the CPU count,
+    # is wrong in the one place a reader trusts - and only this job catches it
+    # before the full suite (functional backlog D18/D19).
+    #
     # It adds no check the suite lacks - the same modules run there too - and
     # tests/test_docs_formats.py::TestDocsLocksRunOnTheirOwn keeps this file
     # list honest, so a lock cannot be dropped from the job silently. The
@@ -88,7 +94,7 @@ jobs:
         shell: bash
         env:
           PYTHONUTF8: "1"
-        # --no-cov keeps this run out of the coverage data: it measures seven
+        # --no-cov keeps this run out of the coverage data: it measures nine
         # lock modules, not the suite, and coverage belongs to the test job.
         # The exit code is not the whole verdict: a run that collected nothing
         # (a renamed module, an empty selection) prints an empty report that
@@ -102,6 +108,7 @@ jobs:
             tests/test_user_guide_hygiene.py \
             tests/test_docs_formats.py \
             tests/test_docs_index.py \
+            tests/test_guide_claims.py \
             tests/test_guide_resolution.py \
             tests/test_api_reference.py \
             tests/test_readme.py \

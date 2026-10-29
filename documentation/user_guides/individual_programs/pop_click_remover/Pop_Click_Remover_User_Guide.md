@@ -65,7 +65,7 @@ Sensitivity maps to an internal detector multiplier. Lower slider values produce
 
 ## Processing and Results
 
-Processing displays four worker slots, progress, succeeded/skipped/error counts, and per-file messages. Results reports total, succeeded, skipped, errors, and elapsed time. The Results tab can open the log and source folder and audition original versus repaired audio for a successful live run.
+Processing displays one worker slot per logical CPU (at most eight), progress, succeeded/skipped/error counts, and per-file messages. Results reports total, succeeded, skipped, errors, and elapsed time. The Results tab can open the log and source folder and audition original versus repaired audio for a successful live run.
 
 ## Command Line
 

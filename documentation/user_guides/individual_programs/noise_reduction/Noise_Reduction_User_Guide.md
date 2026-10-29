@@ -75,7 +75,7 @@ Broadband reduction uses a short noise-only region to estimate the mean magnitud
 
 ## Processing and Results
 
-Processing displays four worker slots, progress, succeeded/skipped/error counts, and per-file statuses such as FIXED, SKIP, or ERROR. Results reports total, reduced, skipped, errors, and elapsed time. The Results tab can open the log and source folder and audition before/after audio when a successful live result is available.
+Processing displays one worker slot per logical CPU (at most eight), progress, succeeded/skipped/error counts, and per-file statuses such as FIXED, SKIP, or ERROR. Results reports total, reduced, skipped, errors, and elapsed time. The Results tab can open the log and source folder and audition before/after audio when a successful live result is available.
 
 ## Command Line
 

@@ -11,8 +11,8 @@ The GUI also checks for folder.jpg directly inside the selected directory. When 
 
 ## Supported Input
 
-- **Embedded artwork: **Read and written format-aware: ID3 APIC frames for MP3/WAV/AIFF/AIF, Vorbis Picture blocks for FLAC/OGG/Opus, and MP4 covr atoms for M4A/MP4.
-- **Audio files: **All nine suite audio formats are processed by the embedded-art pipeline: .mp3, .flac, .ogg, .m4a, .mp4, .opus, .wav, .aiff, and .aif.
+- **Embedded artwork: **Read and written format-aware: ID3 APIC frames for MP3/WAV/AIFF/AIF/DSF, Vorbis Picture blocks for FLAC/OGG/Opus/Speex, APEv2 Cover Art (Front) items for WavPack/Monkey's Audio/Musepack, and MP4 covr atoms for M4A/MP4. A DSF file with no ID3 chunk gets one created.
+- **Audio files: **All fourteen suite audio formats are processed by the embedded-art pipeline: .mp3, .flac, .ogg, .m4a, .mp4, .opus, .wav, .aiff, .aif, .wv, .ape, .mpc, .spx, and .dsf.
 - **Images: **Embedded data and folder.jpg must be readable by Pillow.
 
 ## Quick Start
@@ -38,7 +38,7 @@ Setup contains the folder picker, embedded resolution selector, run mode, and sh
 
 ### Processing
 
-Processing shows a progress bar, live file outcomes, and counts for files examined, images updated, and errors. Work runs in background workers; the normalizer uses up to four workers by default.
+Processing shows a progress bar, live file outcomes, and counts for files examined, images updated, and errors. Work runs in background workers; the normalizer uses one worker per logical CPU by default (at most eight).
 
 ### Results
 
