@@ -12,7 +12,22 @@ one.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **The Tag Field Updater runs on the shared analysis/tag scaffold.** Its window
+  is an `AnalysisTagToolApp` with `ui/setup_tab.py`, `ui/processing_tab.py` and
+  `ui/results_tab.py`, and its scan now starts through
+  `tag_field_updater.core.processor.run_scan`, the `run_*` entry point taking
+  `on_progress` / `on_complete` / `on_error` that every other GUI tool's
+  processor exposes. The window therefore gains the shared progress and
+  completion handlers (including Auto End) instead of its own
+  `finish_scanning`, and the tool joins `EXPECTED_TOOLS` in
+  `tests/test_callback_payload_contract.py`, `EXPECTED_REQUIRED` in
+  `tests/test_completion_seam.py` and `EXPECTED_PUBLISHERS` in
+  `tests/test_completion_payload_published.py`. The launcher argv is read
+  through `read_positional_handshake` (the mode / start / end slots
+  `album_genre_tagger` uses) instead of a per-token scan. Behaviour-neutral for
+  the audio: no tag rule, format or write path changed.
 
 ## [2.2.0] - 2026-10-30
 

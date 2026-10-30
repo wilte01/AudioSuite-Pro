@@ -41,6 +41,10 @@ Changed in 2.1.0: a plugin tool with no card module is not a GUI seam.
 Changed in 2.1.7: ``documentation`` replaces ``user_guides`` in the walk's excluded
 directories.
 
+Changed in 2.2.1: registers ``tag_field_updater``, which now starts its run
+through ``processor.run_scan`` with the three shared callbacks (maintenance item
+U4).  It was the one folder tool whose window drove the scan itself, so it had
+no completion seam to check.
 """
 
 from __future__ import annotations
@@ -93,6 +97,7 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
         ("replaygain_analyzer/app.py", "ReplayGainAnalyzerApp"),
         ("silence_trimmer/app.py", "SilenceTrimmerApp"),
         ("stem_separator/app.py", "StemSeparatorApp"),
+        ("tag_field_updater/ui/app.py", "TagFieldUpdaterApp"),
         ("tempo_analyzer/app.py", "TempoAnalyzerApp"),
     }
 )

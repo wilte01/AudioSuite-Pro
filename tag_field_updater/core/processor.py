@@ -13,17 +13,24 @@ failed result as well as ``process_file`` having already counted it, so the
 summary and JSON reported one corrupt file as two errors (found while wiring
 the R-06 exit contract, which reads the same count).
 Changed in 2.2.0: the processor hosts a second *source*.  With patterns
-configured, each file's name is parsed into tag fields and written through the
-shared editable-tag API; with none, the slash rule is unchanged (F-01).  The
+configured, each file's name is parsed into tag fields and written through
+the shared editable-tag API; with none, the slash rule is unchanged (F-01).  The
 format dispatch moved into ``_dispatch_by_format`` so both sources reach the
 same plugin-processor seam.
+Changed in 2.2.1: :func:`run_scan` is the GUI's entry point (maintenance item
+U4).  It owns the three callbacks every tool's processor exposes —
+``on_progress`` / ``on_complete`` / ``on_error`` — and builds the per-file lines
+the run report is written from, so the window no longer drives the scan itself
+and the run leaves a report in the scanned folder like every peer's.
 """
 
 import logging
 import os
+import time
 from collections.abc import Callable
 from pathlib import Path
 
+from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.exceptions import (
     AudioMissingDependencyError,
     handle_audio_errors,
@@ -99,6 +106,7 @@ __all__ = [
     "TXXX",
     "WAVE",
     "TagProcessor",
+    "count_scanned_files",
     "process_aiff_file",
     "process_flac_file",
     "process_mp3_file",
@@ -107,6 +115,7 @@ __all__ = [
     "process_opus_file",
     "process_wav_file",
     "process_wma_file",
+    "run_scan",
     "should_update_value",
     "update_value",
 ]
@@ -577,3 +586,187 @@ class TagProcessor:
         if result.error:
             self.stats.error_files += 1
         return result
+
+
+def count_scanned_files(directory: str) -> int:
+    """Count the files a scan of *directory* will visit, recursively.
+
+    ``scan_directory`` walks the tree and reports progress per file, so a
+    caller cannot know the total up front.  This is the same walk without
+    opening anything — cheap next to tagging — and it is what makes the
+    progress bar a fraction of a known total instead of a decoration.
+
+    The count is of **every** file, not only the supported extensions:
+    ``ProcessingStats.processed_files`` is incremented for each file the walk
+    visits, including the ones skipped for an unsupported extension.
+    Counting only audio files sized the bar to a smaller denominator than the
+    value it was fed, so a folder holding artwork or notes beside a few tracks
+    read as complete while most of it was still unvisited.
+
+    Args:
+        directory: Root directory the scan will walk.
+
+    Returns:
+        The number of files the walk will visit; ``0`` when the directory
+        cannot be listed, which leaves the bar empty rather than failing the
+        run.
+    """
+    total = 0
+    try:
+        for _root, _dirs, files in os.walk(directory):
+            total += len(files)
+    except OSError as exc:  # pragma: no cover - os.walk swallows these
+        logger.warning("Could not count files in %s: %s", directory, exc)
+        return 0
+    return total
+
+
+def _log_line(
+    result: ProcessingResult, *, is_dry_run: bool, filename_mode: bool
+) -> str:
+    """Render one file's outcome as a line for the run report.
+
+    The report is the run's own record, so it says what happened to every file
+    the walk visited — including the ones that needed nothing — and, in
+    filename mode, what the name parsed to.  A dry run says *would*, because
+    nothing was written.
+
+    Args:
+        result: The per-file result the scan returned.
+        is_dry_run: Whether the run wrote nothing.
+        filename_mode: Whether the run parsed names instead of applying the
+            slash rule, which decides how a no-match file is described.
+
+    Returns:
+        One report line, newline-terminated.
+    """
+    name = result.file_path.name
+    if result.error:
+        return f"[ERROR]   {name}: {result.error}\n"
+
+    if result.file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+        return f"[SKIP]    {name} (unsupported format)\n"
+
+    parsed = ""
+    if result.filename_fields:
+        rendered = " ".join(f"{key}='{value}'" for key, value in result.filename_fields)
+        parsed = f" ({rendered})"
+
+    if filename_mode and not result.filename_pattern:
+        return f"[NO MATCH] {name}: no pattern matched, left unchanged\n"
+
+    if result.updated:
+        verb = "WOULD UPDATE" if is_dry_run else "UPDATED"
+        fields = ", ".join(result.tags_updated) or "no tag names reported"
+        line = f"[{verb}] {name}{parsed} -> {fields}\n"
+        if result.skipped_fields:
+            line += f"             kept existing: {', '.join(result.skipped_fields)}\n"
+        return line
+
+    return f"[UNCHANGED] {name}{parsed}\n"
+
+
+def run_scan(
+    directory: str,
+    *,
+    is_dry_run: bool,
+    patterns: tuple[str, ...] = (),
+    only_fill_blanks: bool = True,
+    plugins: bool = True,
+    on_progress: Callable[..., None],
+    on_complete: Callable[..., None],
+    on_error: Callable[[str], None],
+    processor: TagProcessor | None = None,
+) -> None:
+    """Scan *directory* and drive a GUI run through the shared callbacks.
+
+    This is the tool's ``run_*`` entry point, the shape every GUI tool's
+    processor exposes (AGENTS.md "GUI Callback Contract"): the processor owns
+    the three payloads and the window's handlers mirror them.
+
+    Args:
+        directory: Root directory to walk.
+        is_dry_run: When True the rewrites are computed and reported but
+            nothing is saved, and no undo record is created.
+        patterns: Filename patterns, tried in order; empty selects the slash
+            rule.
+        only_fill_blanks: In filename mode, never overwrite a non-empty field.
+        plugins: Whether enabled plugins' tag processors run after the built-in
+            rules.
+        on_progress: Called after each file with ``processed``, ``total``,
+            ``skipped``, ``errors``, ``display_text`` and ``updated``.
+        on_complete: Called once at the end with ``total``, ``processed``,
+            ``skipped``, ``errors``, ``duration_secs``, ``log_entries``,
+            ``updated``, ``audio_files``, ``skipped_files`` and
+            ``error_files``.
+        on_error: Called with one user-facing message if the scan itself
+            fails; per-file failures are counted and reported instead.
+        processor: The instance to scan with, so the window that shows a Stop
+            button can signal the run it started.  A fresh processor is built
+            when omitted.
+
+    Raises:
+        PatternError: If *patterns* is invalid.  Raised before any walk, so a
+            typo cannot half-tag a library; the GUI validates first and shows
+            a dialog instead of starting a run.
+    """
+    engine = processor if processor is not None else TagProcessor(plugins=plugins)
+    engine.use_filename_patterns(patterns, only_fill_blanks=only_fill_blanks)
+
+    total = count_scanned_files(directory)
+    started = time.monotonic()
+
+    def _progress(filename: str, stats: ProcessingStats) -> None:
+        """Adapt the processor's per-file ping to the shared payload."""
+        on_progress(
+            processed=stats.processed_files,
+            total=total,
+            skipped=stats.skipped_files,
+            errors=stats.error_files,
+            display_text=filename,
+            updated=stats.updated_files,
+        )
+
+    try:
+        with active_batch("tag_field_updater", "tag_edit"):
+            results = engine.scan_directory(
+                directory, dry_run=is_dry_run, progress_callback=_progress
+            )
+    except Exception as exc:  # noqa: BLE001 - the UI reports, never raises
+        mapped = map_to_audio_error(exc, context={"directory": directory})
+        logger.error(
+            "[%s] Scan failed for %s: %s",
+            type(mapped).__name__,
+            directory,
+            mapped,
+            exc_info=True,
+        )
+        on_error(user_message_for(mapped))
+        return
+
+    stats = engine.stats
+    on_complete(
+        total=total,
+        processed=stats.processed_files,
+        skipped=stats.skipped_files,
+        errors=stats.error_files,
+        duration_secs=time.monotonic() - started,
+        log_entries=[
+            _log_line(
+                result, is_dry_run=is_dry_run, filename_mode=bool(engine.patterns)
+            )
+            for result in results
+        ],
+        updated=stats.updated_files,
+        audio_files=stats.total_files,
+        skipped_files=[
+            {"filename": r.file_path.name, "reason": "no supported audio tags"}
+            for r in results
+            if not r.updated and r.error is None
+        ],
+        error_files=[
+            {"filename": r.file_path.name, "error": r.error}
+            for r in results
+            if r.error is not None
+        ],
+    )

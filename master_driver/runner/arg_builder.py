@@ -23,6 +23,9 @@ Changed in 2.0.0: adds the ``ml_denoiser`` entry, which has no required field â€
 its amount always has a value â€” so it always emits a runnable argv (Item 6.2).
 
 Changed in 2.1.0: a plugin tool's arguments follow the command its manifest declares.
+Changed in 2.2.1: ``tag_field_updater`` emits the ``--start/--no-start`` and
+``--end/--no-end`` pair like every peer, because its GUI now displays and honours
+them (functional backlog U3).
 """
 
 from __future__ import annotations
@@ -352,7 +355,7 @@ def _build_utility_tool_args(
         "noise_reduction": lambda: _build_noise_reduction_args(
             path, mode_flag, start_flag, end_flag, state
         ),
-        "tag_field_updater": lambda: [path, mode_flag],
+        "tag_field_updater": lambda: [path, mode_flag, start_flag, end_flag],
         "tag_editor": lambda: [path, mode_flag],
         "audio_enhancer": lambda: _build_audio_enhancer_args(path, state),
         "audio_normalizer": lambda: [

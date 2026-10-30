@@ -29,6 +29,9 @@ time, and importing fourteen processors to inspect a signature would make the
 lock depend on the whole audio stack.  ``EXPECTED_PUBLISHERS`` is a frozen
 table, so a new tool is registered deliberately and a broken discovery pass
 cannot succeed vacuously.
+
+Changed in 2.2.1: registers ``tag_field_updater``, whose run now starts through
+``tag_field_updater.core.processor.run_scan`` (maintenance item U4).
 """
 
 from __future__ import annotations
@@ -69,6 +72,7 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
     "replaygain_analyzer": "replaygain_analyzer.core.file_processor.run_analysis",
     "silence_trimmer": "silence_trimmer.core.file_processor.run_trimming",
     "stem_separator": "stem_separator.core.file_processor.run_stem_separation",
+    "tag_field_updater": "tag_field_updater.core.processor.run_scan",
     "tempo_analyzer": "tempo_analyzer.core.file_processor.run_analysis",
 }
 

@@ -16,7 +16,31 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **The Tag Field Updater window now matches the suite's layout, and a driven
+  run is read-only.** Its single flat column became the standard **Setup /
+  Processing / Results** tabs: Processing shows the current file, a progress
+  bar, the shared `Processed / Skipped / Errors` count and one line per file,
+  and Results carries the completion summary (still naming skipped and failed
+  files), **View Log** and **Open Folder**, so the modal dialog is gone. Setup
+  opens with the suite's **Run Controls** strip — **Browse & Scan**, a **Mode**
+  dropdown (**Dry Run** / **Live Update**), and the driver's **Auto Start**,
+  **Auto End**, **Clear Logs** and **Parallel** states — and the window now
+  starts in **Dry Run**, so writing tags is an explicit switch to Live Update.
+  A Master Driver launch locks the source and mode, and its Auto Start / Auto
+  End options take effect: a scan begins only when asked, and the window closes
+  itself once the batch's step is done instead of waiting to be closed by hand.
+
+- **The Tag Field Updater writes a run report next to the music, like every
+  other tool.** Each run leaves `tag_field_updater_dry_run_log.txt` (or
+  `tag_field_updater_sync_log.txt` in Live Update) in the folder it scanned: the
+  mode, directory, source and patterns in the header, one line per file
+  (`[UPDATED]`, `[WOULD UPDATE]`, `[UNCHANGED]`, `[SKIP]`, `[NO MATCH]`,
+  `[ERROR]`), then the summary the Results tab shows. **View Log** opens it, so
+  the per-file detail no longer lives only in the suite log. The folder chooser
+  opens where you last looked and the folder is remembered for the next launch,
+  as it is in every other tool.
 
 ## [2.2.0] - 2026-10-30
 

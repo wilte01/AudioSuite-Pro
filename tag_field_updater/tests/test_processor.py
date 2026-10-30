@@ -9,12 +9,16 @@ Changed in 2.1.0: adds the tag-processor extension-point host tests.
 Changed in 2.1.4: locks the scan-level error tally - one corrupt file is one
 error, not the two the CLI used to report (found while wiring the R-06 exit
 contract, which reads the same count).
+Changed in 2.2.1: covers ``run_scan``, the GUI's entry point (maintenance item
+U4) - the payload the three callbacks receive, and the report lines a dry run
+and a live run produce.
 """
 
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from mutagen.id3 import ID3NoHeaderError
@@ -23,6 +27,9 @@ from tag_field_updater.core.processor import (
     ProcessingResult,
     ProcessingStats,
     TagProcessor,
+    _log_line,
+    count_scanned_files,
+    run_scan,
 )
 
 # ---------------------------------------------------------------------------
@@ -1278,3 +1285,185 @@ class TestPluginTagProcessors:
             assert processor.stats.error_files == 0
         finally:
             reset_plugins_for_tests()
+
+
+# ---------------------------------------------------------------------------
+# run_scan - the GUI's entry point (maintenance item U4)
+# ---------------------------------------------------------------------------
+
+
+class TestCountScannedFiles:
+    def test_it_counts_every_file_the_walk_visits(self, tmp_path: Path) -> None:
+        """Regression (review of U1): the unit the scan's counter uses.
+
+        ``processed_files`` is incremented for each file the walk visits, so a
+        denominator counting only supported extensions read as complete while
+        artwork and notes beside a few tracks were still unvisited.
+        """
+        for name in ("one.mp3", "two.flac", "cover.jpg", "notes.txt"):
+            (tmp_path / name).write_bytes(b"")
+        (tmp_path / "cd1").mkdir()
+        (tmp_path / "cd1" / "three.mp3").write_bytes(b"")
+
+        total = count_scanned_files(str(tmp_path))
+        processor = TagProcessor()
+        with patch("tag_field_updater.core.processor.MP3") as mock_mp3_class:
+            mock_mp3_class.return_value.tags = None
+            processor.scan_directory(str(tmp_path))
+
+        assert total == 5
+        assert total == processor.stats.processed_files
+
+    def test_an_unreadable_tree_leaves_zero(self) -> None:
+        assert count_scanned_files(r"C:\definitely_not_a_directory_12345") == 0
+
+
+class TestRunScan:
+    def test_it_publishes_the_shared_payload(self, tmp_path: Path) -> None:
+        """The three callbacks receive the fields every peer's handlers read."""
+        (tmp_path / "notes.txt").write_text("x", encoding="utf-8")
+        (tmp_path / "broken.mp3").write_bytes(b"not an MPEG stream")
+        progress: list[dict[str, Any]] = []
+        completed: list[dict[str, Any]] = []
+        errors: list[str] = []
+
+        run_scan(
+            str(tmp_path),
+            is_dry_run=True,
+            on_progress=lambda **kw: progress.append(kw),
+            on_complete=lambda **kw: completed.append(kw),
+            on_error=errors.append,
+        )
+
+        assert len(progress) == 2
+        assert set(progress[0]) == {
+            "processed",
+            "total",
+            "skipped",
+            "errors",
+            "display_text",
+            "updated",
+        }
+        assert [kw["total"] for kw in progress] == [2, 2]
+        assert errors == []
+        assert len(completed) == 1
+        payload = completed[0]
+        assert payload["total"] == 2
+        assert payload["processed"] == 2
+        assert payload["skipped"] == 1
+        assert payload["errors"] == 1
+        assert payload["updated"] == 0
+        assert payload["audio_files"] == 1
+        assert len(payload["log_entries"]) == 2
+        assert payload["duration_secs"] >= 0
+
+    def test_a_failed_sweep_reports_one_message(self, tmp_path: Path) -> None:
+        """A fatal scan reaches ``on_error`` instead of raising at the caller."""
+        engine = MagicMock()
+        engine.scan_directory.side_effect = RuntimeError("boom")
+        errors: list[str] = []
+
+        run_scan(
+            str(tmp_path),
+            is_dry_run=True,
+            on_progress=MagicMock(),
+            on_complete=MagicMock(),
+            on_error=errors.append,
+            processor=engine,
+        )
+
+        # The neutral user-facing message, not the internal exception text:
+        # the UI reports a message, the log carries the traceback.
+        assert len(errors) == 1
+        assert errors[0].strip()
+
+    def test_it_uses_the_processor_it_is_given(self, tmp_path: Path) -> None:
+        """The window's Stop button signals this instance, so it must be used."""
+        engine = TagProcessor()
+        run_scan(
+            str(tmp_path),
+            is_dry_run=True,
+            on_progress=MagicMock(),
+            on_complete=MagicMock(),
+            on_error=MagicMock(),
+            processor=engine,
+        )
+
+        assert engine.stats.processed_files == 0
+        assert engine.stop_flag is False
+
+    def test_the_run_is_recorded_as_one_undo_batch(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from audio_suite_shared.batch_undo import list_recent_batches
+
+        monkeypatch.setenv("AUDIOSUITE_LOG_DIR", str(tmp_path))
+        seen: list[Any] = []
+
+        def _fake_scan(directory: str, **kwargs: Any) -> list[ProcessingResult]:
+            seen.append(list_recent_batches())
+            return []
+
+        engine = TagProcessor()
+        monkeypatch.setattr(engine, "scan_directory", _fake_scan)
+
+        run_scan(
+            str(tmp_path),
+            is_dry_run=True,
+            on_progress=MagicMock(),
+            on_complete=MagicMock(),
+            on_error=MagicMock(),
+            processor=engine,
+        )
+
+        assert seen, "the scan never ran inside an undo batch"
+
+
+class TestLogLine:
+    """The run report's per-file lines."""
+
+    def test_a_dry_run_says_would_update(self) -> None:
+        result = ProcessingResult(
+            file_path=Path("/music/a.mp3"),
+            updated=True,
+            tags_updated=("TXXX:ALBUMGENRE",),
+        )
+
+        assert _log_line(result, is_dry_run=True, filename_mode=False).startswith(
+            "[WOULD UPDATE] a.mp3"
+        )
+
+    def test_a_live_run_says_updated(self) -> None:
+        result = ProcessingResult(
+            file_path=Path("/music/a.mp3"),
+            updated=True,
+            tags_updated=("TXXX:ALBUMGENRE",),
+        )
+
+        line = _log_line(result, is_dry_run=False, filename_mode=False)
+
+        assert line.startswith("[UPDATED] a.mp3")
+        assert "TXXX:ALBUMGENRE" in line
+
+    def test_an_unsupported_file_is_a_skip(self) -> None:
+        result = ProcessingResult(file_path=Path("/music/cover.jpg"))
+
+        line = _log_line(result, is_dry_run=False, filename_mode=False)
+
+        assert line.startswith("[SKIP]")
+        assert "unsupported format" in line
+
+    def test_a_filename_mode_no_match_is_named(self) -> None:
+        result = ProcessingResult(file_path=Path("/music/a.mp3"), filename_pattern="")
+
+        line = _log_line(result, is_dry_run=False, filename_mode=True)
+
+        assert line.startswith("[NO MATCH] a.mp3")
+
+    def test_an_error_carries_its_message(self) -> None:
+        result = ProcessingResult(file_path=Path("/music/a.mp3"), error="bad header")
+
+        line = _log_line(result, is_dry_run=False, filename_mode=False)
+
+        assert line.startswith("[ERROR]")
+        assert "bad header" in line

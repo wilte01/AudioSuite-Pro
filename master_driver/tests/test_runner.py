@@ -23,6 +23,8 @@ required-field cases (no output folder, no stem selected) and the mix flag
 (Sprint 6, Item 6.1).
 Changed in 2.1.0: the two failing-step tests patch the retry backoff instead of
 waiting it out (1 s + 2 s + 3 s each); the assertions are unchanged.
+Changed in 2.2.1: pins ``tag_field_updater``'s start/end handshake flags, which
+its GUI now binds to the Run Controls strip (U3).
 """
 
 import os
@@ -797,6 +799,21 @@ class TestBuildUtilityArgs:
         state = _make_state()
         args_list = build_utility_args(state)
         assert any("Tag Field Updater" in e[1].name for e in args_list)
+
+    def test_tag_field_updater_carries_the_handshake(self):
+        """Its Run Controls strip binds Start/End to these flags (U3)."""
+        state = _make_state()
+        args_list = build_utility_args(state)
+        args = next(e for e in args_list if e[1].id == "tag_field_updater")[2]
+
+        assert args[:4] == ["/music", "--dry", "--no-start", "--no-end"]
+
+    def test_tag_field_updater_auto_flags_follow_the_strip(self):
+        state = _make_state(util_auto_start=True, util_auto_end=True)
+        args_list = build_utility_args(state)
+        args = next(e for e in args_list if e[1].id == "tag_field_updater")[2]
+
+        assert args[2:4] == ["--start", "--end"]
 
     def test_tag_editor_entry_present(self):
         state = _make_state()

@@ -44,6 +44,12 @@ Driver reported only "Module failed: Example Tool".
 Changed in 2.1.6: the import block is re-sorted against the corrected ruff
 target py311 — ``tomllib`` is 3.11 standard library
 (R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
+
+Changed in 2.2.1: ``_run_launcher`` purges the tool's cached modules and lands
+its stub on the module the launcher statically imports.  The callback-payload
+locks import every GUI app in-process, so ``tag_field_updater.ui.app`` was
+already in ``sys.modules`` and the Tag Field Updater launcher test ran the real
+window instead of its failing stub (maintenance item U4).
 """
 
 from __future__ import annotations
@@ -81,6 +87,30 @@ def launcher_sources() -> tuple[tuple[Path, str], ...]:
     )
 
 
+def _entry_import_module(path: Path, fallback: str) -> str:
+    """Return the module a launcher imports its ``main`` from, statically.
+
+    The launchers reach their entry point through different depths
+    (``from file_reorganizer.app import main``;
+    ``from tag_field_updater.ui.app import main``), and a stub has to land where
+    the launcher actually looks.
+
+    Args:
+        path: The launcher's file.
+        fallback: Module name to use when no ``import main`` is found.
+
+    Returns:
+        The dotted module name the launcher imports ``main`` from.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.module is None:
+            continue
+        if any(alias.name == "main" for alias in node.names):
+            return node.module
+    return fallback
+
+
 def _run_launcher(
     monkeypatch: pytest.MonkeyPatch,
     launcher: str,
@@ -116,19 +146,32 @@ def _run_launcher(
     else:
         monkeypatch.setattr(messagebox, "showerror", MagicMock())
 
+    path = REPO_ROOT / launcher
+    entry = _entry_import_module(path, tool_module)
+
+    # Other suites import a tool's app module in-process (the callback-payload
+    # locks import every GUI app), and an already-cached child module makes the
+    # launcher's import resolve without consulting the stub below.  Purge the
+    # tool's modules so the launcher's own import really runs.
+    for name in [
+        name
+        for name in list(sys.modules)
+        if name == tool_module or name.startswith(f"{tool_module}.")
+    ]:
+        monkeypatch.delitem(sys.modules, name, raising=False)
+
     if import_error:
-        # A None entry makes `from <tool_module> import main` raise ImportError.
+        # A None package makes the launcher's entry import raise ImportError.
         monkeypatch.setitem(sys.modules, tool_module, None)
     else:
-        failing = types.ModuleType(tool_module)
+        failing = types.ModuleType(entry)
 
         def _boom() -> None:
             raise RuntimeError("startup exploded")
 
         failing.main = _boom  # type: ignore[attr-defined]
-        monkeypatch.setitem(sys.modules, tool_module, failing)
+        monkeypatch.setitem(sys.modules, entry, failing)
 
-    path = REPO_ROOT / launcher
     namespace: dict[str, Any] = {"__name__": "__main__", "__file__": str(path)}
     exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), namespace)
 

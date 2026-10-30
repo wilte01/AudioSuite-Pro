@@ -16,10 +16,11 @@ Version 2.2.0 added the filename source. Everything in the slash-replacement sec
 ## Quick Start
 
 \1. Launch Tag_Field_Updater.pyw.\
-2. Click 'Browse...' to select your music library directory.\
-3. Click 'Start Scanning' to begin processing.\
-4. Monitor progress in real-time as files are processed.\
-5. Review the completion summary when the scan finishes.
+2. Click 'Browse & Scan' to select your music library directory.\
+3. Choose the Mode (Dry Run first, then Live Update when the report looks right).\
+4. Click 'START SCANNING' to begin processing.\
+5. Monitor progress in real-time as files are processed.\
+6. Review the completion summary when the scan finishes.
 
 ## Supported File Formats
 
@@ -120,7 +121,7 @@ Order matters. The list is tried from the top, and the first pattern that matche
 
 ### Dry Run Is the Default
 
-Filename mode runs as a **dry run** unless you pass `--live` on the command line, or untick Dry Run in the GUI after enabling the mode. The reason is the failure mode: a wrong split writes tags that look authoritative, and afterwards the file looks tagged. A dry run prints one line per file with the fields it would write, so a mis-parse is visible before it is saved:
+Filename mode runs as a **dry run** unless you pass `--live` on the command line, or choose **Live Update** in the GUI's Mode box after enabling the mode. The reason is the failure mode: a wrong split writes tags that look authoritative, and afterwards the file looks tagged. A dry run prints one line per file with the fields it would write, so a mis-parse is visible before it is saved:
 
 ```
 Filename mode defaults to a dry run; pass --live to write the parsed values.
@@ -152,53 +153,45 @@ A parsed genre goes through the same slash rule as the original mode, so `Rock/P
 
 ## Using the GUI
 
-Double-click Tag_Field_Updater.pyw to launch the graphical interface. The window is divided into the following sections:
+Double-click Tag_Field_Updater.pyw to launch the graphical interface. The window has the same three tabs as every other tool in the suite — **1. Setup**, **2. Processing** and **3. Results** — with a **Help** button at the top right that opens this guide, and it grows with the window so a deep library path and a long pattern list are read in place rather than cut off.
 
-### Music Library Directory
+### 1. Setup tab
 
-Type or paste a directory path directly, or click Browse... to open a folder chooser dialog. This is the root directory for the recursive scan.
+The tab opens with the suite's **Run Controls** strip, in the same order and with the same labels every other tool uses:
 
-### Dry Run
+**Source Music Directory: **Type or paste a directory path directly, or click **Browse & Scan** to open a folder chooser dialog. This is the root directory for the recursive scan, and the entry widens with the window. The chooser opens in the folder already in the box, and the folder you pick is remembered for the next launch.
 
-The 'Dry Run (no changes written)' checkbox controls whether the scan writes tag changes to disk. When checked (the default when launched from the Master Driver in Dry Run mode), the tool computes and reports every rewrite but persists nothing: no file is saved and no undo record is created. Uncheck it to enable live tag writing.
+**Mode: **Choose **Dry Run** or **Live Update**. Dry Run computes and reports every rewrite but persists nothing: no file is saved and no undo record is created. The window opens in Dry Run, so writing tags is a deliberate switch to Live Update.
 
-### Tag Fields to Update
+**Auto Start / Auto End: **Mirror the Master Driver's own options. Auto Start makes a driven launch begin immediately instead of waiting for the start button; Auto End closes the window two seconds after the scan finishes, which is what lets an unattended batch move on.
 
-A read-only information panel listing all target tag fields and the replacement rules. Refer to this section during a scan to understand which fields are being modified.
+**Clear Logs / Parallel (driver only): **Shown so the run's orchestration is visible, but greyed out: the Master Driver performs both, never this tool.
 
-### Tag from Filenames
+When Tag Field Updater is launched from the Master Driver, the source, Mode and Browse controls are locked. The driver owns that run — the values you see are exactly the arguments it passed — and the start button re-runs the same source and mode.
 
-**Tag from filenames: **Switches the run to the filename source described above. Enabling it also ticks Dry Run, so the first run only reports what it parsed; untick Dry Run deliberately when the parse is right.
+**Tag from Filenames: **Switches the run to the filename source described above. Enabling it also ticks Dry Run, so the first run only reports what it parsed; untick Dry Run deliberately when the parse is right.
 
-**Pattern box: **One pattern per line, tried from the top. The box opens with a sensible default list.
+**Pattern box: **One pattern per line, tried from the top. The box opens with a sensible default list, scrolls when the list is longer than the panel, and grows with the window.
 
 **Only fill blank tags: **When ticked (the default), a parsed field never overwrites a tag that already has a value.
 
 **Action group: **Pick a saved pattern set and click Load to fill the box and the write mode, or click Save as... to store the current box under a new name.
 
-### Progress
+Below the pattern controls the window names the fields it writes — the custom TXXX fields ALBUMARTISTGENRE, ALBUMGENRE and ARTISTGENRE, plus the standard TIT1 (content group) and TCON (genre) — and points at this guide for the replacement rules, which are documented in full in *Tag Fields Updated* and *Slash Replacement Rules* above instead of being repeated in the window.
 
-Shows the name of the file currently being processed, updated in real-time via a background thread.
-
-### Statistics
-
-Three counters displayed during and after the scan:
-
-**Files Processed: **Total number of files scanned
-
-**Files Updated: **Files that had at least one tag field modified
-
-**Errors: **Files that encountered processing errors
-
-### Controls
-
-**Start Scanning: **Begins the recursive scan. The button is disabled while scanning is in progress.
+**START SCANNING: **Begins the recursive scan and switches to the Processing tab. The button is disabled while scanning is in progress.
 
 **Stop: **Requests the processor to stop after the current file completes. The scan stops cooperatively between file iterations.
 
-### Completion Summary
+### 2. Processing tab
 
-When the scan finishes (or is stopped), a summary dialog appears showing Files Processed, Files Updated, Files Skipped, and Errors. The status bar at the bottom of the window changes from "Scanning..." to "Scan Complete".
+While a scan runs this tab shows the file being processed in the status line, a progress bar sized to the number of files the scan will visit (every file in the folder, since the walk reads each one to decide whether it is supported), the shared `Processed / Skipped / Errors` count, and one line per file as it is handled, updated in real-time from the background thread.
+
+### 3. Results tab
+
+When the scan finishes (or is stopped) the window switches to this tab, which shows the completion heading (**Scan Complete!** in a dry run, **Tag Update Complete!** in Live Update), the total time, and a summary of the files read, skipped and failed, plus how many of the audio files were updated — so a run that skipped or could not update files says so on screen.
+
+**View Log** opens the run report the scan wrote into the folder it scanned: `tag_field_updater_dry_run_log.txt` for a dry run and `tag_field_updater_sync_log.txt` for a live one. The report carries the header (mode, directory, source and patterns), one line per file (`[UPDATED]`, `[WOULD UPDATE]`, `[UNCHANGED]`, `[SKIP]`, `[NO MATCH]` or `[ERROR]`), and the same summary the tab shows. **Open Folder** opens the folder that was scanned.
 
 ## Command-Line Interface
 
@@ -243,7 +236,10 @@ If --directory is provided, the GUI launches with that path pre-filled and scann
 
 ## Logging
 
-The tool uses Python's standard logging module. Log output is routed to the Audio Suite unified log directory alongside other program logs.
+Two files record a run, and they answer different questions:
+
+- The **run report** (`tag_field_updater_dry_run_log.txt` / `tag_field_updater_sync_log.txt`) is written into the scanned folder. It is the per-file record of what the run did, and it is what **View Log** opens. Each run overwrites the previous report in that folder, exactly as every other tool in the suite does.
+- **`logs/tag_field_updater.log`** is this program's diagnostic log, written by the Audio Suite unified logging setup. It carries the same detail for support purposes plus tracebacks for failures.
 
 ### What Is Logged
 
@@ -283,7 +279,7 @@ The Stop button requests the processor to stop after the current file completes.
 
 No files processed: Verify the directory contains supported audio formats (.mp3, .flac, .mp4, .m4a, .ogg, .opus, .wav, .aiff, .aif, .wma). Check directory permissions.
 
-Files updated: 0: In the original mode this is normal if your files already use the semicolon-space delimiter or if none of the target fields contain a bare slash. In filename mode it also means every parsed value already matched the stored tag, or that no file name matched a pattern — the run prints a `[NO MATCH]` line for each of those. Check the log file for skip details.
+Files updated: 0: In the original mode this is normal if your files already use the semicolon-space delimiter or if none of the target fields contain a bare slash. In filename mode it also means every parsed value already matched the stored tag, or that no file name matched a pattern — the run prints a `[NO MATCH]` line for each of those. Check the run report (**View Log**) for skip details.
 
 A tag was written to the wrong field: a pattern matched a file it should not have. Run again with the pattern list narrowed, or with the specific pattern moved below a more specific one, and check the `[PARSED]` lines a dry run prints before writing. A wrong split is fixed by re-running with `--overwrite` once the patterns are right.
 
@@ -307,9 +303,11 @@ The tool is structured as a clean Python package with separated concerns:
 - **core/transformation_rules.py: **Per-format processing functions (Mutagen I/O)
 - **core/filename_patterns.py: **The filename pattern parser (pure: name in, fields out)
 - **core/filename_tags.py: **Writes parsed fields through the shared editable-tag API
-- **core/processor.py: **TagProcessor orchestrating directory scanning and file dispatch, and selecting the source
+- **core/processor.py: **TagProcessor orchestrating directory scanning and file dispatch, selecting the source, and `run_scan`, the GUI's entry point that publishes the progress/completion/error callbacks and builds the run report
 - **utils/config.py: **Action groups in the shared `audio_suite_config.json`
-- **ui/app.py: **Tkinter GUI application
+- **ui/app.py: **Tkinter GUI application, on the suite's shared analysis/tag scaffold
+- **ui/setup_tab.py, ui/processing_tab.py, ui/results_tab.py: **The three tabs, built from the suite's shared widgets
+- **utils/cli_args.py: **The Master Driver's launcher handshake
 - **cli.py: **Click CLI command registered under the audiosuite group
 
 ### Performance
