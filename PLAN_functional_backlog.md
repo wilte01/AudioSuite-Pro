@@ -88,6 +88,7 @@ discovered.
 | D18 | **Every guide was swept against the code**, and a lock now ties a stated format count to the shared set. | DECIDED | Method, in this order: every guide's `--flags` checked against the live click commands (136 options; no guide names a flag the CLI lacks); every guide default stated beside a flag compared with click's own default (no disagreement); all 51 quoted `[STATUS]` tokens checked for existence in first-party Python; every extension enumeration compared with the tool's own supported set; and the prose of the recently touched tools read for claims none of those checks measure. **Four guides carried drift**, three of them since 1.1.0 widened `SUPPORTED_EXTENSIONS` to fourteen: `Album_Art_Normalizer` and `AlbumGenre_Tagger` still said "nine" audio formats (three passages), `ASX_Playlist_Extractor` said nine extensions, and `Lyrics_Manager` documented status labels `[LIKE]`/`[ALREADY]`/`[NO MATCH]`/`[PLAIN]` that the code never emits — it emits `[TAGGED]`/`[SKIPPED]`/`[DRY RUN]`/`[ERROR]`. Before either tool's guide claimed the five new containers, artwork embedding and album-genre writes were proved on real `.wv`/`.ape`/`.mpc`/`.spx`/`.dsf` fixtures and read back through mutagen. `tests/test_guide_format_counts.py` then holds any "N suite formats/containers/extensions" claim against `len(SUPPORTED_EXTENSIONS)`, with an explicit two-entry exemption list for the deliberate subset counts (the normaliser's seven encoders, the scrubber's five added containers); it fails when a count regresses, when an exemption goes stale, and when the walk finds no claim at all. |
 | D19 | **The sweep was extended to GUI defaults and behaviour claims**, and its mechanical classes are now one lock. | DECIDED | GUI defaults exist only in the Tk declarations for half the tools, so they were read from `tk.*Var(value=...)`, the DSP slider specs and the settings models rather than from CLI options. Every claim checked **matched**: album-art sync 500 px / 0.85 / 800 / 10 s, art normaliser 800×800, Refinery declick 0.31 / width 2 ms / trim −50 dBFS / fades 500-1000 ms / target −16 / tolerance 0.5, noise reduction harmonics 1-20 / Q 1-100 / gate 3 dB, pop/click 0.01-0.40 / 1-10 ms, silence trimmer −50 dB / 500-1000 ms, the enhancer's thirteen DSP slider ranges, converter −16 LUFS, fingerprinter 30 s / 0.5 / 120 s, BPM's 40-300 and 60-400 bounds, lyrics timeout 10 s and undo retention 50. Quoted artifact names (logs, sidecars, configs, the CLI schema) all exist in code. The drift was **worker counts**: fourteen guides said "four worker slots" (or "four workers by default"), while every tool's grid is `DEFAULT_MAX_WORKERS` — one per logical CPU, capped at eight — which is **8 on this host**, so the claim was false on any machine with more than four CPUs. The guides now state the rule instead of a number. `tests/test_guide_claims.py` (the format-count lock, renamed) holds all five mechanical classes — format counts, worker counts, flags, status tokens, artifact names — each with a non-vacuity floor and exemption lists that must still match a real claim; reintroducing "four worker slots" was verified to turn it red naming the file and line. |
 | D20 | **The repository has one documentation tree**, `documentation/`, holding `documentation/docs/` (the Sphinx site) and `documentation/user_guides/` (the shipped guides and their Markdown sources). "Which documents does this change touch?" is answered by walking that directory instead of remembering two roots. | DECIDED (user, 2026-10-29) | 315 path references in 53 files named `user_guides/` and 232 in 35 named `docs/`; the historical `PLAN_*`/`AUDIT_*`/`CHANGELOG.md` records were left untouched, because they describe the tree as it was (a plan is a record, not an instruction). The move is not a rename: **the depth is load-bearing.** The pages sat one level from the root and now sit two, so every link to a repository-root file gained a `../` (`documentation/docs/index.md` → `../../README.md`), and because `myst_all_links_external` suppresses the warning a wrong one would otherwise be silent. The publish root therefore mirrors the checkout too - pages at `<out>/documentation/docs/`, guides at `<out>/documentation/user_guides/`, root documents at `<out>/` - or every such href would escape the artifact; `tests/test_docs_build.py`'s ~240-link self-containment walk is what proves it, and it passed unchanged apart from its paths. Three further contracts moved with it: `conf.py`'s `ROOT` is `parents[2]` (a `parent.parent` would point at `documentation/` and break autodoc for every documented module), `open_help` resolves `documentation/user_guides/individual_programs/<tool>/` at runtime for the Help button, and mypy's exclusion stayed **narrow** (`^documentation/user_guides/` + `^documentation/docs/_build/`) because excluding the whole tree silently dropped `conf.py` from the gate - 551 files became 550, which is how it was caught. The two generator-backed artefacts were re-rendered and triaged by zip entry: exactly `word/document.xml` (the logging guide's footer) and `ppt/slides/slide25.xml` (the closing slide's paths) changed, so no external-editor drift. **Supersedes** the applied-path model in `PLAN_docs_consolidation.md` §4/§5; that plan is complete and is not edited. `AGENTS.md` now states the rule as one directory walk, and `tests/test_docs_formats.py`'s format whitelist governs every tracked file under `documentation/`, so a new subdirectory there is covered without editing the test. A follow-up, `30c9ba2`, renamed the five walk-exclusion sets that still named the retired roots — a set naming a directory that no longer exists excludes nothing — and `audio_suite_shared/tests/test_platform_support.py` now records why its entry exists. |
+| D21 | **Wave 1 ships as 2.1.7, and the cut carries two bullets that belong to no item.** | DECIDED | This settles §7's version question in D10's favour: F-10, B2, F-09 and A1 all ride one patch, because each is bounded, additive and already gated. B2's objection (it changes what a tool advertises, which some would call minor) does not survive the alternative: a five-container discovery change alone would leave the scrubber's other two items unreleased for no gain. Two bullets are release-level rather than item-level and are recorded as such - the guide-drift corrections D17-D19 found, and the single documentation tree D20 - since D9's per-item rule governs items, not corrections to documents. The gate ran on the bumped tree and is recorded in §6, so the cut is not a claim: `release.py` promotes the changelog, re-locks, re-renders the seven version-labelled guides (each verified by zip entry, `word/document.xml` only - the subtitle, not external-tool drift) and fails on any gate step. |
 
 ---
 
@@ -515,13 +516,46 @@ Evidence for the specific contracts this move could break:
   page that must link `../user_guides/…`, so it now compares the href the reader
   actually gets.
 
+**Release — the 2.1.7 cut (D21).** Commit `a6bf049` ("Cut 2.1.7") on `main`:
+`pyproject.toml` and `uv.lock` at 2.1.7, `[Unreleased]` reopened with "Nothing
+yet.", the promoted `## [2.1.7] - 2026-10-29` section, and the seven
+version-labelled guides re-rendered. The gate below is the release script's own
+(`uv run python utilities/release.py 2.1.7 --date 2026-10-29`), run against the
+bumped tree rather than assembled from earlier runs.
+
+| Check | Result |
+|---|---|
+| compile | `compileall` over the tracked tree, exit 0. |
+| ruff | `ruff check .` clean; 946 files already formatted. |
+| mypy | bare `mypy .` - no issues in 551 source files. |
+| bandit | 0 High / 0 Medium, 41 Low (the documented `run_secure_subprocess` sites). |
+| pytest | bare `pytest` - **11 324 passed, 3 skipped, 35 deselected** in 21:02, exit 0, coverage 90.93%. The same count as the pre-bump run, so the version bump changed no test's outcome. |
+
+- **The two bullets that belong to no item** are in the section: the guide-drift
+  corrections from D18/D19 (fourteen guides' worker count, three guides' format
+  count, the Lyrics Manager's status labels) under *Fixed*, and the single
+  `documentation/` tree from D20 under *Changed*. D9's one-bullet-per-item rule
+  governs items; a document correction is recorded where a reader meets it.
+- **The seven regenerated guides** were compared by zip entry against `HEAD`:
+  identical entry sets and exactly `word/document.xml` differing, which is the
+  subtitle "Version 2.1.7 - October 2026". No external-editor drift, so all
+  seven are kept. `build_user_guides.py --check` had already reported 32/32
+  current before the cut.
+- **The cut was interrupted and resumed.** The first scripted run was killed
+  mid-gate (14%), so no file had been verified; the second run reported `[SKIP]`
+  for every file step - each is idempotent - and ran the gate from scratch. The
+  one thing the interruption cost is that the guide verification above was
+  repeated by hand against `HEAD` rather than trusted from the killed run.
+- **Tag.** `v2.1.7` is annotated on the record commit that follows `a6bf049`,
+  matching `v2.1.6`'s shape (tag on the record, not the cut).
+
 ---
 
 ## 7. Open questions
 
-- **Which version do the Wave-1 items actually ride?** D10 proposes 2.1.7 for all
-  three; B2 changes what a tool advertises, which some would call minor. The
-  owner's call before the first cut, not mid-item.
+- *(Resolved by the 2.1.7 cut - D21.)* **Which version do the Wave-1 items
+  actually ride?** D10 proposed 2.1.7 for all of them; B2 changes what a tool
+  advertises, which some would call minor. Answered as 2.1.7 for all four.
 - **Does F-02 need a shared fingerprint cache in `audio_suite_shared`, or its own
   SQLite file?** Its own file repeats R-13's stamp question; a shared cache is a
   bigger change but one rule. Decide at the start of that item, with the R-13
