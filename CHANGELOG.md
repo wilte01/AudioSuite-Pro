@@ -9,6 +9,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.2.0] - 2026-10-30
+
 ### Added
 
 - **The Tag Field Updater can tag from filenames.** A library whose only
