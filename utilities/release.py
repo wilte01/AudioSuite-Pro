@@ -54,6 +54,14 @@ target py311 — ``tomllib`` is 3.11 standard library
 Changed in 2.1.7: the version-labelled guide scan reads
 ``documentation/user_guides/individual_programs/``.
 
+Changed in 2.2.0: the gate's progress survives a redirected stdout. A cut is
+normally run from a background shell into a log, where Python block-buffers, so
+the 2.1.7 run looked stalled at 14% for most of its 21 minutes and its steps'
+lines surfaced after the output they announced. Every progress line is now
+flushed and every gate child runs with ``PYTHONUNBUFFERED=1``;
+``TestTheGateStreamsItsProgress`` pins both halves, including that a step's
+marker is on disk *before* that step finishes.
+
 """
 
 from __future__ import annotations
@@ -483,7 +491,10 @@ def compile_tracked(root: Path, python: str) -> int:
     for start in range(0, len(paths), _COMPILE_BATCH):
         batch = paths[start : start + _COMPILE_BATCH]
         result = subprocess.run(
-            [python, "-m", "compileall", "-q", "-f", *batch], cwd=root, check=False
+            [python, "-m", "compileall", "-q", "-f", *batch],
+            cwd=root,
+            check=False,
+            env=streaming_env(),
         )
         if result.returncode != 0:
             return result.returncode
@@ -543,8 +554,35 @@ def bandit_verdict(returncode: int, output: str) -> tuple[bool, str]:
     return False, f"exit {returncode} with {summary}"
 
 
+def streaming_env() -> dict[str, str]:
+    """The environment a gate child needs to stay readable while it runs.
+
+    A cut is normally launched from a background shell with stdout redirected
+    to a log, and Python block-buffers a redirected stdout. Each child (ruff,
+    mypy, pytest) then writes in 8 KiB bursts, so a 21-minute run arrives as a
+    few chunks at the end and "still working" is indistinguishable from
+    "wedged" - the 2.1.7 cut's log looked stalled at 14% for most of its
+    duration for exactly this reason. ``PYTHONUNBUFFERED`` makes every child
+    write as it goes.
+
+    The parent's own progress lines need ``flush=True`` for the same reason,
+    and they need it *separately*: a buffered ``[START] pytest`` would surface
+    after pytest's output rather than before it, which misreports the order the
+    gate ran in.
+
+    Returns:
+        A copy of the current environment with ``PYTHONUNBUFFERED`` set, so a
+        child that needs further overrides can still merge its own onto it.
+    """
+    return {**os.environ, "PYTHONUNBUFFERED": "1"}
+
+
 def run_gate(root: Path, python: str) -> int:
     """Run the full gate, stopping at the first failure.
+
+    Every progress line is flushed and every child runs unbuffered, so the log
+    of a backgrounded cut shows which step is running while it runs; see
+    :func:`streaming_env`.
 
     Args:
         root: The repository root (the gate's working directory).
@@ -553,31 +591,36 @@ def run_gate(root: Path, python: str) -> int:
     Returns:
         ``0`` when every step passed, else the first failing exit code.
     """
-    print("[START] gate (compile, lint, format, types, security, tests)")
-    print("[START] compileall (tracked files)")
+    print("[START] gate (compile, lint, format, types, security, tests)", flush=True)
+    print("[START] compileall (tracked files)", flush=True)
     code = compile_tracked(root, python)
     if code != 0:
-        print(f"[ERROR] compileall (exit {code})")
+        print(f"[ERROR] compileall (exit {code})", flush=True)
         return code
-    print("[OK] compileall (tracked files)")
+    print("[OK] compileall (tracked files)", flush=True)
     steps = [*gate_commands(python)]
     for index, (label, args) in enumerate(steps):
-        print(f"[START] {label}")
-        result = subprocess.run(args, cwd=root, check=False)
+        print(f"[START] {label}", flush=True)
+        result = subprocess.run(args, cwd=root, check=False, env=streaming_env())
         if result.returncode != 0:
-            print(f"[ERROR] {label} (exit {result.returncode})")
+            print(f"[ERROR] {label} (exit {result.returncode})", flush=True)
             return result.returncode
-        print(f"[OK] {label}")
+        print(f"[OK] {label}", flush=True)
         if index == len(steps) - 1:
             _run_security(root, python)
 
-    print("[START] pytest")
-    result = subprocess.run([python, "-m", "pytest", "-q"], cwd=root, check=False)
+    print("[START] pytest", flush=True)
+    result = subprocess.run(
+        [python, "-m", "pytest", "-q"],
+        cwd=root,
+        check=False,
+        env=streaming_env(),
+    )
     if result.returncode != 0:
-        print(f"[ERROR] pytest (exit {result.returncode})")
+        print(f"[ERROR] pytest (exit {result.returncode})", flush=True)
         return result.returncode
-    print("[OK] pytest")
-    print("[DONE] gate passed")
+    print("[OK] pytest", flush=True)
+    print("[DONE] gate passed", flush=True)
     return 0
 
 
@@ -612,7 +655,7 @@ def refresh_install_metadata(root: Path, python: str) -> None:
             f"and the gate would read the old version; run `{python} -m pip "
             "install --no-deps -e .` and re-run"
         )
-    print("[START] refresh the editable install's metadata")
+    print("[START] refresh the editable install's metadata", flush=True)
     result = subprocess.run(
         [
             uv,
@@ -638,13 +681,13 @@ def refresh_install_metadata(root: Path, python: str) -> None:
             f"{python} -m pip install --no-deps -e .` and re-run:\n"
             f"{result.stdout}{result.stderr}"
         )
-    print("[OK] editable install metadata refreshed")
+    print("[OK] editable install metadata refreshed", flush=True)
 
 
 def _run_security(root: Path, python: str) -> None:
     """Run bandit and fail the gate on 0 High / 0 Medium violations."""
-    print("[START] bandit")
-    env = {**os.environ, "PYTHONUTF8": "1"}
+    print("[START] bandit", flush=True)
+    env = {**streaming_env(), "PYTHONUTF8": "1"}
     result = subprocess.run(
         [
             python,
@@ -667,13 +710,13 @@ def _run_security(root: Path, python: str) -> None:
         env=env,
         check=False,
     )
-    print(result.stdout)
+    print(result.stdout, flush=True)
     if result.stderr:
-        print(result.stderr, file=sys.stderr)
+        print(result.stderr, file=sys.stderr, flush=True)
     ok, summary = bandit_verdict(result.returncode, result.stdout + result.stderr)
     if not ok:
         raise ReleaseError(f"bandit failed ({summary})")
-    print(f"[OK] bandit ({summary})")
+    print(f"[OK] bandit ({summary})", flush=True)
 
 
 # ---------------------------------------------------------------------------

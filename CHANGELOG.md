@@ -9,7 +9,16 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **The release gate reports its progress while it runs.** A cut is normally
+  launched from a background shell with its output redirected to a log, where
+  Python block-buffers: each step then arrives in 8 KiB bursts, so the 2.1.7
+  run read as stuck at 14% for most of its 21 minutes and its `[START]` lines
+  surfaced *after* the output they announced. Every progress line is flushed
+  now and every gate child runs unbuffered, so the log names the step that is
+  running while it runs. Developer tooling only: no analysis, tag write or
+  audio output changed.
 
 ## [2.1.7] - 2026-10-29
 

@@ -172,6 +172,12 @@ Changed in 2.1.7: re-baselined the lock for the post-2.1.6 window. BASE_COMMIT
 is now 0556069 -- the 2.1.6 release commit -- and NOTE_MARKER is ``Changed in
 2.1.7``, so 2.1.6's notes stay as each file's own history. The window's first
 narrative change is the ``[Unreleased]`` entry these four defects land under.
+Changed in 2.2.0: re-baselined the lock for the post-2.1.7 window. BASE_COMMIT
+is now 534fb86 -- the 2.1.7 release tip, which is where the ``v2.1.7`` tag
+points -- and NOTE_MARKER is ``Changed in 2.2.0``, so 2.1.7's notes stay as each
+file's own history instead of work landing after the cut being filed under a
+release it is not in. The window's first narrative change is the
+``[Unreleased]`` entry the gate-visibility fix lands under.
 Changed in 2.1.6: the diff no longer forces ``core.autocrlf=false``. On a host
 whose checkout converts line endings (GitHub's Windows runners set
 ``core.autocrlf=true``) that override made every LF-stored file look modified,
@@ -192,14 +198,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: The plan's base commit; every file changed since here must be annotated.
 #: Re-baselined per sprint (section 2.5 of the audit-remediation plan) so each
 #: release's notes are written while its work is in flight, not retro-fitted at
-#: the cut. It now sits at 0556069, the 2.1.6 release commit: that window is
+#: the cut. It now sits at 534fb86, the 2.1.7 release tip: that window is
 #: closed and its notes are written, so only work after the release does. Earlier
 #: work is documented in its own plans and CHANGELOG.md, so it does not require
 #: per-file notes here.
-BASE_COMMIT = "0556069"
+BASE_COMMIT = "534fb86"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 2.1.7"
+NOTE_MARKER = "Changed in 2.2.0"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (

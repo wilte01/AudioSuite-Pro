@@ -89,6 +89,7 @@ discovered.
 | D19 | **The sweep was extended to GUI defaults and behaviour claims**, and its mechanical classes are now one lock. | DECIDED | GUI defaults exist only in the Tk declarations for half the tools, so they were read from `tk.*Var(value=...)`, the DSP slider specs and the settings models rather than from CLI options. Every claim checked **matched**: album-art sync 500 px / 0.85 / 800 / 10 s, art normaliser 800×800, Refinery declick 0.31 / width 2 ms / trim −50 dBFS / fades 500-1000 ms / target −16 / tolerance 0.5, noise reduction harmonics 1-20 / Q 1-100 / gate 3 dB, pop/click 0.01-0.40 / 1-10 ms, silence trimmer −50 dB / 500-1000 ms, the enhancer's thirteen DSP slider ranges, converter −16 LUFS, fingerprinter 30 s / 0.5 / 120 s, BPM's 40-300 and 60-400 bounds, lyrics timeout 10 s and undo retention 50. Quoted artifact names (logs, sidecars, configs, the CLI schema) all exist in code. The drift was **worker counts**: fourteen guides said "four worker slots" (or "four workers by default"), while every tool's grid is `DEFAULT_MAX_WORKERS` — one per logical CPU, capped at eight — which is **8 on this host**, so the claim was false on any machine with more than four CPUs. The guides now state the rule instead of a number. `tests/test_guide_claims.py` (the format-count lock, renamed) holds all five mechanical classes — format counts, worker counts, flags, status tokens, artifact names — each with a non-vacuity floor and exemption lists that must still match a real claim; reintroducing "four worker slots" was verified to turn it red naming the file and line. |
 | D20 | **The repository has one documentation tree**, `documentation/`, holding `documentation/docs/` (the Sphinx site) and `documentation/user_guides/` (the shipped guides and their Markdown sources). "Which documents does this change touch?" is answered by walking that directory instead of remembering two roots. | DECIDED (user, 2026-10-29) | 315 path references in 53 files named `user_guides/` and 232 in 35 named `docs/`; the historical `PLAN_*`/`AUDIT_*`/`CHANGELOG.md` records were left untouched, because they describe the tree as it was (a plan is a record, not an instruction). The move is not a rename: **the depth is load-bearing.** The pages sat one level from the root and now sit two, so every link to a repository-root file gained a `../` (`documentation/docs/index.md` → `../../README.md`), and because `myst_all_links_external` suppresses the warning a wrong one would otherwise be silent. The publish root therefore mirrors the checkout too - pages at `<out>/documentation/docs/`, guides at `<out>/documentation/user_guides/`, root documents at `<out>/` - or every such href would escape the artifact; `tests/test_docs_build.py`'s ~240-link self-containment walk is what proves it, and it passed unchanged apart from its paths. Three further contracts moved with it: `conf.py`'s `ROOT` is `parents[2]` (a `parent.parent` would point at `documentation/` and break autodoc for every documented module), `open_help` resolves `documentation/user_guides/individual_programs/<tool>/` at runtime for the Help button, and mypy's exclusion stayed **narrow** (`^documentation/user_guides/` + `^documentation/docs/_build/`) because excluding the whole tree silently dropped `conf.py` from the gate - 551 files became 550, which is how it was caught. The two generator-backed artefacts were re-rendered and triaged by zip entry: exactly `word/document.xml` (the logging guide's footer) and `ppt/slides/slide25.xml` (the closing slide's paths) changed, so no external-editor drift. **Supersedes** the applied-path model in `PLAN_docs_consolidation.md` §4/§5; that plan is complete and is not edited. `AGENTS.md` now states the rule as one directory walk, and `tests/test_docs_formats.py`'s format whitelist governs every tracked file under `documentation/`, so a new subdirectory there is covered without editing the test. A follow-up, `30c9ba2`, renamed the five walk-exclusion sets that still named the retired roots — a set naming a directory that no longer exists excludes nothing — and `audio_suite_shared/tests/test_platform_support.py` now records why its entry exists. |
 | D21 | **Wave 1 ships as 2.1.7, and the cut carries two bullets that belong to no item.** | DECIDED | This settles §7's version question in D10's favour: F-10, B2, F-09 and A1 all ride one patch, because each is bounded, additive and already gated. B2's objection (it changes what a tool advertises, which some would call minor) does not survive the alternative: a five-container discovery change alone would leave the scrubber's other two items unreleased for no gain. Two bullets are release-level rather than item-level and are recorded as such - the guide-drift corrections D17-D19 found, and the single documentation tree D20 - since D9's per-item rule governs items, not corrections to documents. The gate ran on the bumped tree and is recorded in §6, so the cut is not a claim: `release.py` promotes the changelog, re-locks, re-renders the seven version-labelled guides (each verified by zip entry, `word/document.xml` only - the subtitle, not external-tool drift) and fails on any gate step. |
+| D22 | **The gate's log is readable while it runs**: every progress line is flushed and every gate child runs with `PYTHONUNBUFFERED=1`. | DECIDED | The 2.1.7 cut was launched from a background shell into a log, and Python block-buffers a redirected stdout, so the run arrived in a few 8 KiB chunks: the log read as stuck at 14% for most of its 21 minutes, and `[START]` lines surfaced *after* the output they announced. Flushing the parent alone is not enough (a buffered marker still misreports the order) and unbuffering the children alone is not either (their output overtakes the marker), so both halves are pinned in `TestTheGateStreamsItsProgress`: every gate child receives the variable, and `[START] pytest` is readable from a second handle *while pytest runs* - asserted against a real redirected file, because `capsys` captures regardless of flushing and would pass either way. This lands after the tag, so `tests/test_release_notes.py` re-baselines to `534fb86` with `Changed in 2.2.0` (D10's next release) rather than filing the work under a release it is not in. |
 
 ---
 
@@ -548,6 +549,47 @@ bumped tree rather than assembled from earlier runs.
   repeated by hand against `HEAD` rather than trusted from the killed run.
 - **Tag.** `v2.1.7` is annotated on the record commit that follows `a6bf049`,
   matching `v2.1.6`'s shape (tag on the record, not the cut).
+
+**Post-release — the gate's log is readable while it runs (D22).** One commit on
+`main` after `534fb86` (the `v2.1.7` tag): `utilities/release.py` flushes every
+progress line and runs every gate child with `PYTHONUNBUFFERED=1`. The gate below
+is `release.run_gate` itself, launched from a backgrounded shell with its output
+redirected to a log - the exact arrangement whose buffering it fixes - under the
+project's `.venv` interpreter.
+
+| Check | Result |
+|---|---|
+| compile | `compileall` over the tracked tree, exit 0. |
+| ruff | `ruff check .` clean; 946 files already formatted. |
+| mypy | bare `mypy .` - no issues in 551 source files. |
+| bandit | 0 High / 0 Medium, 41 Low (the documented `run_secure_subprocess` sites). |
+| pytest | bare `pytest` - **11 326 passed, 3 skipped, 35 deselected** in 16:23, exit 0, coverage 91.01%. The two above 2.1.7's 11 324 are the new tests. The 1370 warnings are pre-existing third-party ones (1369 Sphinx `napoleon` `RemovedInSphinx11Warning` inside `test_docs_build`, 1 Click `isolated_filesystem` deprecation), not this change's. |
+
+- **The gate was run twice, and the recorded one is the second.** The first run
+  passed, then the compile step's batches were given the same environment so
+  "every gate child" is literally true rather than an overstatement; the gate was
+  re-run on the final tree instead of letting the record describe a state one
+  keyword away from the commit. Both runs reported 11 326 passed / 91.01%.
+- **Both halves verified, not just the mechanism.** The negative control removed
+  one `flush=True` (`[START] pytest`) and the new test went **red**, reporting the
+  marker absent while every earlier flushed line was present; the file was then
+  restored and `sha256sum -c` confirmed it byte-identical, `__pycache__` cleared
+  first so a stale `.pyc` could not vouch for the restored source. The positive
+  control is the run above: the log carried `[START] ruff check`, `[START] mypy`,
+  `[START] bandit` and its verdict line, and `[START] pytest` while the suite was
+  still running, where the 2.1.7 run delivered the same text in a few 8 KiB
+  bursts at the end.
+- **Why `capsys` could not have proved it.** `capsys` captures whatever is
+  written regardless of flushing, so a `capsys`-based assertion passes with or
+  without the fix. The test therefore redirects `sys.stdout` to a real text file
+  and reads it from a second handle *from inside the fake pytest call* - only
+  bytes already flushed are visible there.
+- **Guides reviewed:** no user-facing guide describes the release tool, and the
+  gate's `[START]`/`[OK]` markers are not documented in the CLI reference (it
+  documents the `audiosuite` commands, not `utilities/` scripts), so no guide
+  changes. The change is recorded in `CHANGELOG.md` under `[Unreleased]` because
+  it alters how a cut behaves for anyone running one; the file's own docstring
+  carries the rationale.
 
 ---
 

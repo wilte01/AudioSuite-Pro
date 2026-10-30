@@ -21,6 +21,9 @@ on it. ``TestTheGateCompilesTrackedFiles`` pins both directions, because
 "ignores broken files" is only half of a gate.
 
 Changed in 2.1.7: release fixtures place guides under ``documentation/user_guides/``.
+Changed in 2.2.0: ``TestTheGateStreamsItsProgress`` pins the gate's visibility
+when its stdout is redirected - children unbuffered, and each step's marker on
+disk before that step finishes (the 2.1.7 cut's log looked stalled at 14%).
 
 """
 
@@ -560,3 +563,82 @@ class TestTheGateCompilesTrackedFiles:
         )
 
         assert release.compile_tracked(repo, sys.executable) != 0
+
+
+class TestTheGateStreamsItsProgress:
+    """A backgrounded cut must show which step is running while it runs.
+
+    A cut is launched with stdout redirected to a log, and Python block-buffers
+    a redirected stdout: each child then writes in 8 KiB bursts, so the 2.1.7
+    run arrived in a few chunks and read as stuck at 14% for most of 21
+    minutes. Both halves are pinned here. The children must run unbuffered, and
+    the parent's own marker must be on disk **before** the step it announces
+    runs - a buffered ``[START] pytest`` would otherwise surface after pytest's
+    output and misreport the order the gate ran in.
+    """
+
+    #: Bandit's severity block, so the security step is judged, not skipped.
+    _BANDIT = (
+        "\tTotal issues (by severity):\n"
+        "\t\tLow: 41\n"
+        "\t\tMedium: 0\n"
+        "\t\tHigh: 0\n"
+        "\tTotal issues (by confidence):\n"
+        "\t\tHigh: 18\n"
+    )
+
+    def test_every_gate_child_runs_unbuffered(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ruff, mypy, bandit and pytest all receive ``PYTHONUNBUFFERED``."""
+        calls: list[tuple[list[str], dict[str, object]]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> object:
+            calls.append((args, kwargs))
+            stdout = self._BANDIT if "bandit" in args else ""
+            return subprocess.CompletedProcess(args, 0, stdout, "")
+
+        monkeypatch.setattr(release, "compile_tracked", lambda root, python: 0)
+        monkeypatch.setattr(release.subprocess, "run", fake_run)
+
+        assert release.run_gate(tmp_path, "python") == 0
+
+        # Non-vacuity: the gate's own steps, not just the compile helper.
+        assert len(calls) >= 5, [args for args, _ in calls]
+        assert any("pytest" in args for args, _ in calls), [a for a, _ in calls]
+        for args, kwargs in calls:
+            env = kwargs.get("env")
+            assert isinstance(env, dict), args
+            assert env.get("PYTHONUNBUFFERED") == "1", args
+
+    def test_a_step_marker_is_on_disk_before_that_step_runs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``[START] pytest`` is readable while pytest is still running.
+
+        Asserted against a real, still-open text file rather than ``capsys``:
+        ``capsys`` captures regardless of flushing, so it cannot tell a
+        flushed line from a buffered one and would pass either way.
+        """
+        log = tmp_path / "gate.log"
+        seen: list[str] = []
+
+        def fake_run(args: list[str], **_kwargs: object) -> object:
+            stdout = self._BANDIT if "bandit" in args else ""
+            if "pytest" in args:
+                # A second handle sees only bytes already flushed to disk.
+                seen.append(log.read_text(encoding="utf-8"))
+            return subprocess.CompletedProcess(args, 0, stdout, "")
+
+        monkeypatch.setattr(release, "compile_tracked", lambda root, python: 0)
+        monkeypatch.setattr(release.subprocess, "run", fake_run)
+
+        with log.open("w", encoding="utf-8", newline="") as handle:
+            monkeypatch.setattr(sys, "stdout", handle)
+            assert release.run_gate(tmp_path, "python") == 0
+
+        assert seen, "the gate must reach its test step"
+        assert "[START] pytest" in seen[0]
+        assert "[OK] mypy" in seen[0], seen[0]
+        assert "[OK] pytest" not in seen[0], "pytest's result cannot precede its run"
+        assert "[DONE] gate passed" in log.read_text(encoding="utf-8")
