@@ -2,7 +2,8 @@
 
 **Status:** **Waves 1 and 2 complete** — Wave 1: F-10 `5d4ab22`, F-09 `6642d41`,
 B2 `8890b73`, A1 `c6f54dc` and the guide sweep `6a4be7a`; Wave 2: F-01 and
-F-05/F-06 in `da30298`, released as **2.2.0** (`00238e1`). See §6. Wave 3
+F-05/F-06 in `da30298`, released as **2.2.0** (`00238e1`), pushed at
+`3a32185` with the floor leg green (CI run `41060921137`). See §6. Wave 3
 remains `[ ]` planned and unstarted, and the maintenance item **U1** (the Tag
 Field Updater window) is `[ ]` queued for the next maintenance cycle.
 **Base state:** `main` at `9790778`, with `v2.1.6` published at `0556069`.
@@ -788,6 +789,45 @@ tree.
   bullet that was not there did not ship.
 - **Tag:** `v2.2.0` is annotated on the record commit that follows `00238e1`, the
   shape `v2.1.7` set (tag on the record, not the cut).
+
+**Post-release — the floor leg on the pushed tree (CI run `41060921137`).**
+`main` was pushed at `3a32185`, the 2.2.0 record commit, together with the
+annotated `v2.2.0` tag; `git ls-remote` reports `refs/tags/v2.2.0` as tag object
+`093ce9c` dereferencing to `3a32185`, so the workflow ran on the tree the
+release notes actually name, not on `00238e1`, the cut alone. All eight jobs
+succeeded and the run completed in 31:26.
+
+| Job | Result | Duration |
+|---|---|---|
+| Lint & Format | success | 9 s |
+| Compile / Pre-flight gate | success | 9 s |
+| CLI schema conformance | success | 7 s |
+| Type Check | success | 58 s |
+| Security Scan | success | 33 s |
+| Docs locks (freshness & formats) | success | 1 m 4 s |
+| POSIX smoke (Ubuntu) | success | 1 m 12 s |
+| **Test (Python 3.11, the floor)** | **success** | **29 m 20 s** |
+
+- **What this verdict rests on, and what it does not.** GitHub serves a run's job
+  list and check-run conclusions without a session but gates the log text behind
+  one, so this record rests on the floor leg's `conclusion: success` plus the
+  artifacts it published - `cli-payloads`, and `docs-html` at 1.8 MB, both
+  produced by steps that would be absent had their predecessors failed or been
+  skipped. It does **not** quote the leg's own "N passed" line. That count is
+  not missing from the record: the local run in the table above holds it
+  (11 485 passed, 91.08%), and this leg's job is the interpreter graph below the
+  dev host's 3.14, not the number. Stated plainly so a later reader does not
+  mistake the absence for an unchecked step.
+- **The only annotations are workflow-level.** Two Node.js 20 deprecation
+  warnings name `actions/checkout@v4`, `actions/setup-python@v5` and
+  `actions/upload-artifact@v4`. No test, step or first-party file is implicated,
+  and they pre-date this release.
+- **The cost budget is untouched.** `tests/test_ci_cost.py` prices a job against
+  100 minutes; the floor leg used 29:20 and the whole push 31:26, against the
+  160.9 billable minutes the three-leg matrix cost on the 2026-10-28 push
+  (`AGENTS.md`, *The Python floor must honour its lockfile*). No `concurrency` or
+  matrix change was needed to fit, which is what the once-on-the-floor decision
+  bought.
 
 ---
 
