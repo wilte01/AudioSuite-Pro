@@ -16,6 +16,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.2.1] - 2026-10-30
+
 ### Changed
 
 - **The Tag Field Updater window now matches the suite's layout, and a driven

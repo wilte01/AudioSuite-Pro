@@ -12,6 +12,10 @@ one.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.2.1] - 2026-10-30
+
 ### Changed
 
 - **The Tag Field Updater runs on the shared analysis/tag scaffold.** Its window
