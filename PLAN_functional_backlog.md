@@ -1,8 +1,10 @@
-# PLAN — functional backlog (B2, A1, F-01, F-02, F-05/F-06, F-09, F-08, F-10)
+# PLAN — functional backlog (B2, A1, F-01, F-02, F-05/F-06, F-09, F-08, F-10, U1)
 
-**Status:** **Wave 1 complete** — F-10 `5d4ab22`, F-09 `6642d41`, B2 `8890b73`,
-A1 `c6f54dc` and the guide sweep `6a4be7a` on `main`; see §6. Waves 2-3 remain
-`[ ]` planned and unstarted.
+**Status:** **Waves 1 and 2 complete** — Wave 1: F-10 `5d4ab22`, F-09 `6642d41`,
+B2 `8890b73`, A1 `c6f54dc` and the guide sweep `6a4be7a`; Wave 2: F-01 and
+F-05/F-06 in `da30298`. See §6. Wave 3 remains `[ ]` planned and unstarted,
+and the maintenance item **U1** (the Tag Field Updater window) is `[ ]` queued for
+the next maintenance cycle.
 **Base state:** `main` at `9790778`, with `v2.1.6` published at `0556069`.
 The suite is green (11 236 passed locally; the floor leg 11 235 passed, 4 skipped
 on the runner, runs `40874653524` and `40878665883`), the dependency audit
@@ -90,6 +92,10 @@ discovered.
 | D20 | **The repository has one documentation tree**, `documentation/`, holding `documentation/docs/` (the Sphinx site) and `documentation/user_guides/` (the shipped guides and their Markdown sources). "Which documents does this change touch?" is answered by walking that directory instead of remembering two roots. | DECIDED (user, 2026-10-29) | 315 path references in 53 files named `user_guides/` and 232 in 35 named `docs/`; the historical `PLAN_*`/`AUDIT_*`/`CHANGELOG.md` records were left untouched, because they describe the tree as it was (a plan is a record, not an instruction). The move is not a rename: **the depth is load-bearing.** The pages sat one level from the root and now sit two, so every link to a repository-root file gained a `../` (`documentation/docs/index.md` → `../../README.md`), and because `myst_all_links_external` suppresses the warning a wrong one would otherwise be silent. The publish root therefore mirrors the checkout too - pages at `<out>/documentation/docs/`, guides at `<out>/documentation/user_guides/`, root documents at `<out>/` - or every such href would escape the artifact; `tests/test_docs_build.py`'s ~240-link self-containment walk is what proves it, and it passed unchanged apart from its paths. Three further contracts moved with it: `conf.py`'s `ROOT` is `parents[2]` (a `parent.parent` would point at `documentation/` and break autodoc for every documented module), `open_help` resolves `documentation/user_guides/individual_programs/<tool>/` at runtime for the Help button, and mypy's exclusion stayed **narrow** (`^documentation/user_guides/` + `^documentation/docs/_build/`) because excluding the whole tree silently dropped `conf.py` from the gate - 551 files became 550, which is how it was caught. The two generator-backed artefacts were re-rendered and triaged by zip entry: exactly `word/document.xml` (the logging guide's footer) and `ppt/slides/slide25.xml` (the closing slide's paths) changed, so no external-editor drift. **Supersedes** the applied-path model in `PLAN_docs_consolidation.md` §4/§5; that plan is complete and is not edited. `AGENTS.md` now states the rule as one directory walk, and `tests/test_docs_formats.py`'s format whitelist governs every tracked file under `documentation/`, so a new subdirectory there is covered without editing the test. A follow-up, `30c9ba2`, renamed the five walk-exclusion sets that still named the retired roots — a set naming a directory that no longer exists excludes nothing — and `audio_suite_shared/tests/test_platform_support.py` now records why its entry exists. |
 | D21 | **Wave 1 ships as 2.1.7, and the cut carries two bullets that belong to no item.** | DECIDED | This settles §7's version question in D10's favour: F-10, B2, F-09 and A1 all ride one patch, because each is bounded, additive and already gated. B2's objection (it changes what a tool advertises, which some would call minor) does not survive the alternative: a five-container discovery change alone would leave the scrubber's other two items unreleased for no gain. Two bullets are release-level rather than item-level and are recorded as such - the guide-drift corrections D17-D19 found, and the single documentation tree D20 - since D9's per-item rule governs items, not corrections to documents. The gate ran on the bumped tree and is recorded in §6, so the cut is not a claim: `release.py` promotes the changelog, re-locks, re-renders the seven version-labelled guides (each verified by zip entry, `word/document.xml` only - the subtitle, not external-tool drift) and fails on any gate step. |
 | D22 | **The gate's log is readable while it runs**: every progress line is flushed and every gate child runs with `PYTHONUNBUFFERED=1`. | DECIDED | The 2.1.7 cut was launched from a background shell into a log, and Python block-buffers a redirected stdout, so the run arrived in a few 8 KiB chunks: the log read as stuck at 14% for most of its 21 minutes, and `[START]` lines surfaced *after* the output they announced. Flushing the parent alone is not enough (a buffered marker still misreports the order) and unbuffering the children alone is not either (their output overtakes the marker), so both halves are pinned in `TestTheGateStreamsItsProgress`: every gate child receives the variable, and `[START] pytest` is readable from a second handle *while pytest runs* - asserted against a real redirected file, because `capsys` captures regardless of flushing and would pass either way. This lands after the tag, so `tests/test_release_notes.py` re-baselines to `534fb86` with `Changed in 2.2.0` (D10's next release) rather than filing the work under a release it is not in. |
+| D23 | **F-01 is a second *source* in `tag_field_updater`, and its parser types its fields instead of trusting the separators.** | DECIDED | As D4 planned, the filename source is a new input to the existing engine (`core/filename_patterns.py` parses, `core/filename_tags.py` writes through the shared editable-tag API), not a 31st tool. Three rules make a mis-parse impossible rather than merely unlikely, and the first two were forced by watching the first implementation fail: **numeric fields match digits only** (`track`/`disc`/`year`), because with text-typed fields `05 - Artist - Title` parsed as `disc="05", track="-"` under the space-separated disc/track pattern; **only the last placeholder is greedy**, so `AC - DC - Song` keeps `DC - Song` whole; and **an ambiguous pattern is refused at validation** (adjacent placeholders, a repeated field, an unknown name, a stray `%`), checked for the whole list before any file is touched, so a typo is a usage error instead of a plausible half-tagged library. The extension is stripped before matching, so `Pt. 2` is a title and not a suffix. |
+| D24 | **Filename mode defaults to dry through click's parameter source, and `disc` joined the shared editable fields.** | DECIDED | The shared `--dry/--live` pair defaults to live and the slash mode depends on that, so "filename mode is dry by default" cannot be a second default on the same option: the command reads `ctx.get_parameter_source("dry_run")` and only switches to dry when the user passed neither side, printing why. The GUI reaches the same place differently — enabling the mode ticks Dry Run — because there the checkbox *is* the explicit choice. `disc` joined `EDITABLE_FIELDS` (with `TPOS`/`discnumber`/`disk`/`DISCNUMBER` mappings and one shared `_parse_number_pair`) so a parsed `%disc%` is not silently dropped; every format already had a disc *read*, only the write was missing, and the Tag Editor's UI and CLI keep their own field list, so nothing there changes. A parsed value goes through the existing slash rule for **genre only**: applying it to artist or title would rewrite `AC/DC` as `AC; DC`. Action groups live in `audio_suite_config.json` under `tag_field_updater_action_groups` (`utils/config.py`), never a tool-local file. The CLI JSON payload is unchanged — the per-file parse is text/log output, and the schema is locked, so a field is added only when a consumer asks for it. |
+| D25 | **F-05/F-06 is one export surface on the existing scan, and its CSV is additive.** | DECIDED | `--export {m3u,csv,html}` plus `--export-path`, `--export-columns` and `--camelot`, all served by `library_stats/core/playlist_export.py`; `--export-csv`/`--export-json` keep working. `export_csv` **without** a column set still writes the original ten columns in the original order — pinned by `test_default_columns_are_unchanged` — and `--camelot` alone *appends* one column to that set rather than switching formats, which is what "the new columns are additive" has to mean for an existing consumer. Camelot maps major and minor separately over every emitted spelling and both enharmonics, passes an already-Camelot value through, and leaves `UNKNOWN_KEY` empty rather than inventing a wheel position. Playlist order is album artist → album → track → filename (a walk order shuffles an album; a missing track number sorts last because "unknown" is not "track 0"), paths are absolute with forward slashes on every host, and an unknown duration is `-1`. The HTML page is self-contained and escapes every cell. `--export-columns`/`--camelot` with `m3u` is a usage error rather than a silently ignored flag. The reader's `"Unknown"` sentinel is rendered as an empty *export* cell only — the aggregates keep the bucket they have always counted. |
+| D26 | **The Tag Field Updater window's divergence from the suite layout is a queued maintenance item (U1), not part of Wave 2.** | QUEUED (user, 2026-10-30) | Wave 2 changes what the tool *does*; its window has not been revisited since 1.0.1 except for the filename section F-01 just added, so a layout rebuild shipped beside that change would be reviewed as part of it. Recorded now because the gap is invisible to the gate: nothing asserts a window's shape, `BaseSuiteApp` accepts an empty `help_guide` silently (the inherited `_open_help()` simply returns), and the guide's *Using the GUI* section describes the flat layout as though it were the design. Evidence: `tag_field_updater/ui/app.py` references `styles.` zero times and `ttk.Notebook` zero times, while `ui_common.build_processing_tab`/`build_results_tab` and the `AnalysisAppBase`/`NoisePopToolApp` scaffolds supply both to every peer; `root.rowconfigure`/`columnconfigure` are absent, so the 850×950 default window cannot reflow and the content stays pinned top-left. The item carries the guide rewrite with it, because that section describes the layout being replaced panel by panel. |
 
 ---
 
@@ -263,6 +269,10 @@ is a full extra decode per album — measured before adoption, per
 
 #### F-01 — tag from filename, with action groups (L)
 
+**Status:** DONE — the filename source in `tag_field_updater`
+(`core/filename_patterns.py`, `core/filename_tags.py`, `utils/config.py`);
+evidence in D23/D24 and §6.
+
 *Current state.* `tag_field_updater` transforms field *values*
 (`core/mapping_engine.py`: `should_update_value`, `update_value`) but nothing
 parses a filename into fields. The audit calls this "the single biggest
@@ -295,6 +305,9 @@ and the file looks tagged afterwards. Hence the dry-run default and the
 negative-case table.
 
 #### F-05 / F-06 — playlist, CSV/HTML export and Camelot notation (M)
+
+**Status:** DONE — `library_stats/core/playlist_export.py`, the `--export`
+surface, the GUI export dialog and the Camelot column; evidence in D25 and §6.
 
 *Current state.* `library_stats/core/file_processor.py:772` exports CSV from a
 `StatsReport`; that is the report's aggregates, not a per-file export a player
@@ -389,6 +402,86 @@ rates this XL and calls it the gap to RX/Acoustica/SpectraLayers.
 is why every sub-item's acceptance decodes the output and measures it, and why a
 no-op on clean input is an assertion rather than a nicety.
 
+### Maintenance cycle — queued for the next one
+
+Not capability work, and not a defect in a working feature: it is the window
+itself. Queued here so the gap is recorded rather than rediscovered, and
+deliberately kept out of Wave 2, whose items are about what the tool *does*.
+
+#### U1 — the Tag Field Updater window does not use the suite's shared layout (M)
+
+**Status:** `[ ]` queued for the next maintenance cycle — not started.
+
+*Current state.* `tag_field_updater/ui/app.py` builds its whole window by hand,
+as one flat column of `ttk.LabelFrame`s, and it shares nothing with the other
+tool windows:
+
+- **No tabs.** Nearly every peer is either a `ttk.Notebook` with
+  `" 1. Setup "` / `" 2. Processing "` / `" 3. Results "` — `metadata_scrubber`,
+  `audio_normalizer`, `library_stats` and the rest via
+  `audio_suite_shared.ui_common.build_processing_tab` / `build_results_tab` — or
+  a subclass of the shared `AnalysisAppBase` / `NoisePopToolApp`, which build
+  that same notebook for the tool. Tag Field Updater is neither: `setup_ui()`
+  grids *Music Library Directory*, *Tag Fields to Update*, *Tag from Filenames*,
+  *Progress*, *Statistics* and the buttons into one frame, so setup and result
+  share a surface.
+- **No progress surface.** There is no `ttk.Progressbar` and no per-file list,
+  only three counters, so a scan of a large library shows no completion state
+  and a file that fails is visible only in the modal shown at the end.
+- **No Help, View Log or Open Folder button.** `BaseSuiteApp` is constructed
+  without `help_guide=`, so the inherited `_open_help()` is a no-op even though
+  `Tag_Field_Updater_User_Guide.docx` exists and is registered in
+  `audio_suite_shared/platform_utils.guide_to_program`; the guide is reachable
+  only from outside the tool.
+- **Not resizable in practice.** `self.root` never gets
+  `rowconfigure(0, weight=1)` / `columnconfigure(0, weight=1)`, so the 850×950
+  default window opens with the content pinned top-left and empty space below and
+  beside it; the directory `Entry(width=60)` and the pattern `Text(width=70)` never
+  grow, so a deep library path is truncated rather than scrolled. The status line
+  is a bespoke `ttk.Label` at the root's row 1 instead of the shared one the
+  other windows drive.
+- **No palette.** The module references `audio_suite_shared.styles` nowhere, so
+  the accent-coloured Help bar and the `BG_LIGHT` tab frames every peer has are
+  absent. The *Tag Fields to Update* panel is a static paragraph of rules that
+  restates the guide — the document the Help button exists to open.
+
+*Change.* Rebuild the window on the shared pieces rather than restyling it: a
+`ttk.Notebook` with the three standard tabs, `ui_common.build_processing_tab`
+(progress bar, per-file list, current-file line) and `build_results_tab`
+(completion heading, View Log, Open Folder), the palette Help bar with
+`HELP_GUIDE = "Tag_Field_Updater_User_Guide.docx"` passed to `BaseSuiteApp`,
+grid weights so the window grows, and a scrollbar on the pattern box. The rules
+panel shrinks to a short pointer at the Help guide instead of duplicating it.
+
+*Acceptance.*
+- The window is a three-tab notebook built through the shared builders, and a
+  test asserts the tabs, the progress bar and that `help_guide` names the guide
+  `guide_to_program` maps — so the Help button cannot become a silent no-op
+  again.
+- Existing behaviour is unchanged and still locked: filename mode still ticks
+  Dry Run through `_on_filename_mode_toggled`, action groups still load and save
+  through `suite_config`, the driver caveat note is still recorded, and the
+  completion summary still names skipped files.
+- A long path and a long pattern list are usable in the window (the entry and the
+  box expand; the box scrolls) instead of being cut at a fixed width.
+- `Tag_Field_Updater_User_Guide.md`'s *Using the GUI* section is rewritten to the
+  tabs the window now has, and the `.docx` re-rendered — that section describes
+  the flat layout section by section, so it goes stale the moment the window
+  changes.
+
+*Files:* `tag_field_updater/ui/app.py`, `tag_field_updater/tests/test_app.py`, the
+user guide and its rendered `.docx`.
+*Risk:* the one real trap is F-01's dry-run default. It is currently applied in
+`_on_filename_mode_toggled`, and the rebuild must keep that the **only** place
+that sets it — a setup/processing split invites re-running the check in the start
+handler "for safety", and two places deciding the mode is how the default becomes
+a coin toss (`AGENTS.md`, *GUI (Tkinter) Testing*, the construction-time-default
+rule).
+*Scope note:* `tag_editor/ui/app.py` is the other hand-rolled window: same flat
+shape, and it too has no Help button (it does pass `help_guide`). It is **not** in
+this item — the report is about Tag Field Updater, and widening a maintenance
+cycle to two windows is a scheduling decision, not a detail of this one.
+
 ---
 
 ## 5. Sequencing and release map
@@ -398,6 +491,7 @@ no-op on clean input is an assertion rather than a nicety.
 | 1 | F-10, B2, F-09, A1 | 2.1.7 patch (F-10 first; B2 needs a deliberate version note; A1 is a measurement) | Each is bounded, each produces one checkable artefact, and B2 closes a capability gap in a tool users already run. F-10 goes first because F-09 edits the same filter string and would otherwise be verified against an unlocked parameter set. |
 | 2 | F-01, F-05/F-06 | 2.2.0 | User-visible features; F-01 needs a dry-run default that deserves its own release note and guide. |
 | 3 | F-02, F-08a → b → c | 2.2.x, one per sub-item | Large; each needs the scaffolding the earlier waves produce. |
+| M | U1 | 2.2.x patch (window only — no CLI, tag or audio change) | No user-visible behaviour changes, so it can ride any 2.2.x slot; queued rather than scheduled because it rebuilds a window F-01 has just extended, and is cheaper to review once that has settled. |
 
 `F-05`/`F-06` are grouped because they share the export surface; everything else
 is deliberately one item per release (D9).
@@ -470,6 +564,82 @@ Item evidence:
   while it was untracked; the note is in `6a4be7a`, and the scan now unions
   untracked files (`1510247`) - verified by an untracked probe module, which the
   test names and fails on.
+
+**Wave 2 — F-01, F-05/F-06.** Commit `da30298` on `main`, based on `1e999f2`
+(D22's release-note baseline) and reviewed as one change. The gate below was run
+on that tree with the project's own `.venv` interpreter (Python 3.14) and then
+re-run once more on the exact tree the commit captures, after the guide and
+reference edits it also carries:
+
+| Check | Result |
+|---|---|
+| compile | `.venv/Scripts/python.exe -m compileall -q -f -x '(packaging|\.venv)' .` exit 0, no `Error compiling` line.  The bare form still exits 1 on the untracked PyInstaller runtime's deliberately invalid fixtures, so the exclusion has to be the unanchored `packaging|\.venv` alternation: the anchored `(^|/)(\.venv|…)/` form does **not** exclude a Windows path and re-admits the whole runtime. |
+| ruff | `ruff check .` clean; `ruff format --check .` — 954 files already formatted. |
+| mypy | bare `mypy .` — no issues in **555** source files (551 before; the four new modules are `core/filename_patterns.py`, `core/filename_tags.py`, `utils/config.py` and `library_stats/core/playlist_export.py`). |
+| bandit | 0 High / 0 Medium; 41 Low, the same documented `run_secure_subprocess` call sites. |
+| pytest | bare `pytest` — **11 485 passed, 3 skipped, 35 deselected** in 16:46, exit 0, coverage 91.08% (the floor leg adds `--cov-fail-under=75`, which the configured run already exceeds). The two packages the change touches alone are **606 passed**. |
+
+Item evidence:
+
+- **F-01** (`tag_field_updater/tests/test_filename_patterns.py`,
+  `test_filename_tags.py`, `test_config.py`, the new classes in `test_app.py`
+  and the CLI cases in `test_cli.py`): the parser's contract is a name table
+  with its negative side - `AC - DC - Song` keeps `DC - Song` as the title
+  (only the last placeholder is greedy), `Artist - Pt. 2.mp3` keeps `Pt. 2`
+  (the extension is stripped before matching), and `05 - Artist - Title` cannot
+  be read as `disc="05", track="-"` because numeric fields match digits only.
+  An ambiguous pattern list (adjacent placeholders, a repeated field, an
+  unknown name, a stray `%`) is refused for the **whole** list before any file
+  is opened.  The writer is proved on a real `.flac`: a dry run leaves the
+  file's bytes and mtime untouched and the live run that follows writes the
+  parsed values, read back through a fresh handler; an existing value is kept
+  by default, replaced only with `--overwrite`, and never rewritten when it
+  already matches.  A parsed genre goes through the existing slash rule while
+  `AC/DC` does not.  Action groups round-trip through
+  `audio_suite_config.json` (save, load, replace, delete, and a malformed entry
+  is skipped rather than guessed at), and the GUI tests assert that enabling
+  the mode ticks Dry Run and that a start with an invalid pattern is refused
+  before the scan.
+- **F-05/F-06** (`library_stats/tests/test_playlist_export.py` and
+  `TestExport` in `library_stats/tests/test_app.py`): all **24** Camelot
+  positions are reachable, both spellings of each enharmonic pair agree, an
+  already-Camelot value survives a second pass, and `UNKNOWN_KEY` stays empty
+  rather than being given a wheel position.  The M3U carries `#EXTM3U`, one
+  `#EXTINF` per file with an honest `-1` duration for an untagged file, and
+  absolute forward-slash paths in album artist → album → track → filename
+  order; the HTML page is self-contained (no `http`, `src=` or external asset),
+  UTF-8, and escapes a tag value's markup and ampersands.  The CSV keeps its
+  original ten columns in the original order unless a column set is asked for,
+  and `--camelot` alone **appends** one column.  The GUI dispatches on the
+  chosen extension - a `.m3u` target writes a playlist rather than a renamed
+  CSV, which the dialog alone cannot guarantee because the name stays
+  editable - and the Camelot checkbox reaches the HTML export in both
+  directions.
+- **Guides** (§2 rule 3): both tools' guides were read against the code and
+  extended - a *Tagging from Filenames* section (patterns, what makes a name
+  match, the dry-run default, only-fill-blanks, action groups, the genre-only
+  slash rule) and, in Library Statistics, the four export shapes, playlist
+  order, the Camelot table and column selection - plus the CLI reference's
+  `tag-update`/`stats` sections and `documentation/docs/index.md`'s plan
+  summary.  The filename-mode sample output was **replaced with the CLI's own
+  output**, run against two real MP3s, after the first version of the guide
+  showed `would write: … title` and `kept existing: title` on the same file -
+  a state the code cannot produce.  `build_user_guides.py --check` reports
+  **32/32 artefacts current** and the four document locks pass (46 tests).
+- **Misses the gate found, fixed in this change:** `disc` joining
+  `EDITABLE_FIELDS` (D24) turned two frozen locks red -
+  `TestEditableTagFields::test_field_set_is_stable` and the APEv2
+  `test_editable_tags_mapping` round trip - which is what those locks are for,
+  so both were extended in lockstep rather than worked around.  The new HTML
+  test asserted an escaped artist cell for a column set it had not requested:
+  it proved escaping of a cell that was never written, and the fix was to
+  request `artist` (the assertion now covers a rendered value).
+  `tests/test_release_notes.py` named `tests/test_cli_reference_hygiene.py` as
+  changed without a note, so the null-default phrase table's new entry is
+  recorded in a `Changed in 2.2.0` paragraph, and ruff caught a duplicated
+  `from __future__ import annotations` left by the rewrite of
+  `tag_field_updater/cli.py`.  The full suite is what found the first three;
+  the package runs were green throughout.
 
 **Documentation layout — the one tree (D20).** Commits `ad15a51`, `f3ee8b9`,
 `1ce857c`, `efabe0f`, `82ce8c3` and the walk fix `30c9ba2` on `main`.
