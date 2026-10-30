@@ -9,6 +9,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.1.7] - 2026-10-29
+
 ### Fixed
 
 - **Normalising no longer resamples every file to 192 kHz - and works again on
@@ -53,6 +57,16 @@ Versions of the tools are released together with the suite (the single
   `pcm_s16le`/`pcm_s32le` for 16/32-bit) and leaves lossy targets alone.
   Verified by decoding the output of all seven writers: 32 kHz, mono, 24-bit in
   is 32 kHz, mono, 24-bit out.
+- **Fourteen guides stated the wrong worker count, and three the wrong format
+  count.** Every tool sizes its worker grid from the logical CPU count (capped
+  at eight), not the four slots those guides claimed - so on any machine with
+  more than four CPUs the guide disagreed with the window beside it - and the
+  shared format set has held fourteen containers since 1.1.0, not nine. The
+  Lyrics Manager guide also named status labels (`[LIKE]`, `[ALREADY]`,
+  `[NO MATCH]`, `[PLAIN]`) the tool never prints. All 32 guides were read
+  against the code and corrected, and the mechanical claim classes - format
+  counts, worker counts, flags, status tokens and artifact names - are now
+  locked by a test so the next drift fails instead of shipping.
 
 ### Added
 
@@ -87,6 +101,12 @@ Versions of the tools are released together with the suite (the single
   remains only as the fallback for a folder whose combined signal cannot be
   read, and both routes are named in the folder log header. Cost is one extra
   decode of the album.
+- **The documentation has one home: `documentation/`.** The Sphinx site and the
+  shipped guides moved under it from `docs/` and `user_guides/`, so "which
+  documents does this change touch?" is answered by a directory walk rather than
+  a remembered list of roots. The Help button resolves the new location
+  internally, so a tool run is unaffected; only a script that named the old
+  paths has to be updated.
 - `AGENTS.md`'s Bandit rule quoted `exclude_dirs = ["tests"]`; it now quotes the
   real value, `["tests", "packaging"]`, so the rule a reader greps matches
   `pyproject.toml`.
