@@ -25,6 +25,10 @@ Changed in 2.2.0: ``TestTheGateStreamsItsProgress`` pins the gate's visibility
 when its stdout is redirected - children unbuffered, and each step's marker on
 disk before that step finishes (the 2.1.7 cut's log looked stalled at 14%).
 
+Changed in 2.2.1: a cut promotes both change-history files, and the technical
+one is optional - a release with no developer-facing change adds no heading
+there instead of failing the cut (functional backlog U2).
+
 """
 
 from __future__ import annotations
@@ -71,6 +75,38 @@ CHANGELOG = """\
 ### Added
 
 - An older release entry.
+"""
+
+TECH_CHANGELOG = """\
+# Technical changelog
+
+## [Unreleased]
+
+### Changed
+
+- **A tooling change worth recording.** It changes how the gate runs.
+
+## [1.3.0] - 2026-10-18
+
+### Fixed
+
+- An older technical entry.
+"""
+
+#: A technical changelog with nothing to promote: a release with no
+#: developer-facing change must be legal.
+EMPTY_TECH_CHANGELOG = """\
+# Technical changelog
+
+## [Unreleased]
+
+Nothing yet.
+
+## [1.3.0] - 2026-10-18
+
+### Fixed
+
+- An older technical entry.
 """
 
 STUB_RENDERER = '''\
@@ -186,6 +222,44 @@ class TestChangelogRotation:
 
         with pytest.raises(release.ReleaseError, match="no entries"):
             release.promote_changelog(empty, "1.4.0", "2026-11-02")
+
+    def test_an_optional_file_with_nothing_to_promote_is_left_alone(self) -> None:
+        """A release with no developer-facing change must not fail the cut."""
+        empty = (
+            "# Technical changelog\n\n## [Unreleased]\n\nNothing yet.\n\n"
+            "## [1.3.0] - 2026-10-18\n\n- An older entry.\n"
+        )
+
+        text, changed = release.promote_changelog(
+            empty, "1.4.0", "2026-11-02", require_entries=False
+        )
+
+        assert changed is False
+        assert text == empty
+
+    def test_an_optional_file_still_promotes_what_it_has(self) -> None:
+        text, changed = release.promote_changelog(
+            TECH_CHANGELOG, "1.4.0", "2026-11-02", require_entries=False
+        )
+
+        assert changed
+        assert "## [1.4.0] - 2026-11-02" in text
+        released = text[text.index("[1.4.0]") :]
+        reopened = text[text.index("[Unreleased]") : text.index("[1.4.0]")]
+        assert "**A tooling change worth recording.**" in released
+        assert "Nothing yet." in reopened
+
+    def test_a_required_file_is_unchanged_by_the_optional_rule(self) -> None:
+        """The default still refuses an empty user-facing section."""
+        empty = (
+            "# Changelog\n\n## [Unreleased]\n\nNothing yet.\n\n"
+            "## [1.3.0] - 2026-10-18\n\n- An older release.\n"
+        )
+
+        with pytest.raises(release.ReleaseError, match="no entries"):
+            release.promote_changelog(
+                empty, "1.4.0", "2026-11-02", require_entries=True
+            )
 
     def test_unbounded_unreleased_section_is_an_error(self) -> None:
         text = "# Changelog\n\n## [Unreleased]\n\n- Something.\n"
@@ -379,6 +453,7 @@ def release_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A throwaway repository whose lock step never shells out to uv."""
     (tmp_path / "pyproject.toml").write_text(PYPROJECT, encoding="utf-8")
     (tmp_path / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
+    (tmp_path / "TECHNICAL_CHANGELOG.md").write_text(TECH_CHANGELOG, encoding="utf-8")
     demo = tmp_path / "documentation" / "user_guides" / "individual_programs" / "demo"
     demo.mkdir(parents=True)
     (demo / "Demo_User_Guide.md").write_text("# demo\n", encoding="utf-8")
@@ -435,6 +510,9 @@ class TestEndToEnd:
         assert "## [1.4.0] - 2026-11-02" in (release_repo / "CHANGELOG.md").read_text(
             encoding="utf-8"
         )
+        assert "## [1.4.0] - 2026-11-02" in (
+            release_repo / "TECHNICAL_CHANGELOG.md"
+        ).read_text(encoding="utf-8")
         guide = (
             release_repo
             / "documentation"
@@ -479,7 +557,7 @@ class TestEndToEnd:
         out = capsys.readouterr().out
 
         assert {path: path.read_bytes() for path in artifacts} == first
-        assert out.count("[SKIP]") == 4, out
+        assert out.count("[SKIP]") == 5, out
         assert "Demo_User_Guide.docx already labels 1.4.0" in out
 
     def test_dry_run_writes_nothing(
@@ -506,6 +584,47 @@ class TestEndToEnd:
         assert "would regenerate demo/Demo_User_Guide.docx" in out
         assert {path: path.read_bytes() for path in artifacts} == before
         assert not (release_repo / "uv.lock").exists()
+
+    def test_a_release_with_no_technical_work_still_cuts(
+        self, release_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The technical file is optional; the user-facing one is not."""
+        technical = release_repo / "TECHNICAL_CHANGELOG.md"
+        technical.write_text(EMPTY_TECH_CHANGELOG, encoding="utf-8")
+
+        code = release.main(
+            [
+                "1.4.0",
+                "--root",
+                str(release_repo),
+                "--date",
+                "2026-11-02",
+                "--skip-gate",
+            ]
+        )
+
+        out = capsys.readouterr().out
+        assert code == 0, out
+        assert "TECHNICAL_CHANGELOG.md holds no entries for [1.4.0]" in out
+        assert technical.read_text(encoding="utf-8") == EMPTY_TECH_CHANGELOG
+        assert "## [1.4.0] - 2026-11-02" in (release_repo / "CHANGELOG.md").read_text(
+            encoding="utf-8"
+        )
+
+    def test_a_user_facing_release_with_no_entries_is_still_refused(
+        self, release_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The optional rule must not make the user changelog optional."""
+        (release_repo / "CHANGELOG.md").write_text(
+            "# Changelog\n\n## [Unreleased]\n\nNothing yet.\n\n"
+            "## [1.3.0] - 2026-10-18\n\n- An older release.\n",
+            encoding="utf-8",
+        )
+
+        code = release.main(["1.4.0", "--root", str(release_repo), "--skip-gate"])
+
+        assert code == 1
+        assert "no entries" in capsys.readouterr().err
 
     def test_malformed_version_is_refused_before_any_write(
         self, release_repo: Path, capsys: pytest.CaptureFixture[str]

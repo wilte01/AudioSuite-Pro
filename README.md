@@ -350,5 +350,7 @@ the deselected hardware tests.
   hardware` opt-in for the deselected hardware tests.
 * `SECURITY.md` — how to report a vulnerability, and what the suite treats
   as untrusted input.
-* `CHANGELOG.md` — notable changes.
+* `CHANGELOG.md` — notable changes, in what a user can run or observe.
+* `TECHNICAL_CHANGELOG.md` — the developer-facing half of the same releases:
+  the gate, CI, the tests, tooling and behaviour-neutral refactors.
 * Licensed under **GPL-3.0-or-later** — see `LICENSE`.

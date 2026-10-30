@@ -7,7 +7,8 @@ document and the shared package's API reference hang off it.
 If you are installing the suite for the first time, start with the
 [README](../../README.md) — it covers prerequisites, the one-command smoke test
 and the platform support matrix. What changed in this release is in the
-[changelog](../../CHANGELOG.md).
+[changelog](../../CHANGELOG.md); its developer-facing half is in the
+[technical changelog](../../TECHNICAL_CHANGELOG.md).
 
 ## User guides
 
@@ -113,8 +114,11 @@ apply live in the repository's `AGENTS.md` and in
   scrubber APEv2/Speex/DSF support, the measured album-gain change, a
   configurable true-peak ceiling and loudness range, the audio-writer
   output-format lock, tagging from filenames with saved action groups, and the
-  M3U/HTML/Camelot export surface. Wave 3 (duplicate detection, restoration) is
-  unstarted.
+  M3U/HTML/Camelot export surface. Its maintenance cycle is complete too: the
+  Tag Field Updater window is built on the suite's shared layout, and the change
+  history is split into this file's user-facing [changelog](../../CHANGELOG.md)
+  and the [technical one](../../TECHNICAL_CHANGELOG.md). Wave 3 (duplicate
+  detection, restoration) is unstarted.
 * `PLAN_audit_2026-10-24_deferred_p2p3.md` — the preceding plan, closed: the
   dependency audit's CI policy, a POSIX smoke leg, the interpreter targets the
   tooling declares, and the remaining defect tail (R-13, R-14, X12, X7). Its
@@ -125,7 +129,11 @@ apply live in the repository's `AGENTS.md` and in
 * `PLAN_docs_consolidation.md` — the plan before that (complete): consolidating
   this documentation into as few formats as possible.
 * `AUDIT_2026-10-24_suite_report.md` — the most recent full audit.
-* [CHANGELOG.md](../../CHANGELOG.md) — the shipped history, by release.
+* [CHANGELOG.md](../../CHANGELOG.md) — the shipped history, by release: what a
+  user can run or observe.
+* [TECHNICAL_CHANGELOG.md](../../TECHNICAL_CHANGELOG.md) — the same releases'
+  developer-facing changes, kept apart so a reader deciding whether to upgrade
+  is not handed the gate, CI and test work in between.
 
 ```{toctree}
 :maxdepth: 2

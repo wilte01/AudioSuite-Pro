@@ -47,6 +47,10 @@ the zip (D13).
 Changed in 2.1.7: the publish root mirrors the checkout: pages at
 ``documentation/docs/``, guides at ``documentation/user_guides/``.
 
+Changed in 2.2.1: ``TECHNICAL_CHANGELOG.md`` is staged beside ``CHANGELOG.md``,
+so the ``documentation/docs/index.md`` link to it resolves inside the published
+artifact (functional backlog U2).
+
 """
 
 from __future__ import annotations
@@ -67,6 +71,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 STAGED_FILES: tuple[str, ...] = (
     "README.md",
     "CHANGELOG.md",
+    "TECHNICAL_CHANGELOG.md",
     "CONTRIBUTING.md",
     "SECURITY.md",
 )

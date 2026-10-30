@@ -854,6 +854,32 @@ generated, and no generated file is hand-edited.
   rules below rely on; put the pages in `documentation/docs/` and the shipped
   guides in `documentation/user_guides/`.
 
+## Change History Follows Its Audience
+
+The change history is two files, and a bullet's **subject** decides which one it
+sits in — not its wording and not its size:
+
+- `CHANGELOG.md` records what a user can run or observe: a tool's behaviour, a
+  flag or default, a supported format, an error message, a workflow step, or a
+  measured speed or size difference. It is the file the in-app *What's New*
+  panel renders (`audio_suite_shared/whats_new.py`), so something a user cannot
+  observe does not belong in it.
+- `TECHNICAL_CHANGELOG.md` carries everything else: the gate, CI, the tests,
+  tooling, behaviour-neutral refactors and dependency bumps. It sits beside
+  `CHANGELOG.md` as shipped release data and is not a second documentation root
+  (`tests/test_docs_formats.py`'s walk covers `documentation/` only).
+- `utilities/release.py` promotes **both** in one cut. The user-facing file must
+  hold an entry; the technical one may hold none, and a release with no
+  developer-facing change adds no heading there rather than an empty one.
+- `tests/test_changelog_format.py` holds the boundary mechanically: a bullet's
+  bold lead-in may not name developer work (`test`, `pytest`, `gate`, `CI`,
+  `workflow`, `ruff`, `mypy`, `coverage`, `benchmark`, `lint`), and every
+  allowlist entry records its reason. A bullet that mixes the two is **split**:
+  the user-observable statement stays, its evidence moves.
+- Evidence: `PLAN_functional_backlog.md` U2 and D29. The 2.2.0 and 2.1.7 sections
+  each carried a bullet for the release gate or a test's skip condition between
+  bullets a user cares about, and nothing separated the two audiences.
+
 ## User Guides Follow the Change
 
 **A change is not done until the guides for what it touches have been read

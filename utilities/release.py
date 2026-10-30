@@ -23,7 +23,10 @@ is therefore both *checked* and *skipped when already done*:
 * `uv lock --check` decides whether a lock is needed at all, and the new
   version is then read back out of `uv.lock` rather than assumed;
 * the changelog promotion is driven by the real `[Unreleased]` body and refuses
-  to "release" an empty one;
+  to "release" an empty one — for `CHANGELOG.md`, the user-facing history. The
+  developer-facing `TECHNICAL_CHANGELOG.md` beside it is promoted in the same
+  cut and legitimately holds nothing for a release with no developer-facing
+  change;
 * a guide is regenerated only when its subtitle does not already name the new
   version, and the regenerated `.docx` is compared zip-entry by zip-entry with
   the file it replaces - a change to anything but `word/document.xml` is
@@ -53,6 +56,11 @@ target py311 — ``tomllib`` is 3.11 standard library
 
 Changed in 2.1.7: the version-labelled guide scan reads
 ``documentation/user_guides/individual_programs/``.
+
+Changed in 2.2.1: a cut promotes both change-history files (functional backlog
+U2). ``CHANGELOG.md`` still must hold an entry; ``TECHNICAL_CHANGELOG.md`` is
+optional, so a release with no developer-facing change adds no heading there
+instead of failing the cut.
 
 Changed in 2.2.0: the gate's progress survives a redirected stdout. A cut is
 normally run from a background shell into a log, where Python block-buffers, so
@@ -210,6 +218,15 @@ def _section_end(lines: list[str], start: int) -> int:
     raise ReleaseError(f"{UNRELEASED_HEADING!r} is not followed by a version heading")
 
 
+#: The change history is two files (functional backlog U2): the user-facing
+#: ``CHANGELOG.md`` and the developer-facing ``TECHNICAL_CHANGELOG.md`` beside
+#: it. The flag is whether a cut must find an entry there.
+CHANGELOG_FILES: tuple[tuple[str, bool], ...] = (
+    ("CHANGELOG.md", True),
+    ("TECHNICAL_CHANGELOG.md", False),
+)
+
+
 def _trim_blank(lines: list[str]) -> list[str]:
     """Drop leading and trailing blank lines."""
     start = 0
@@ -226,22 +243,32 @@ def _is_meaningful(body: list[str]) -> bool:
     return any(line.lstrip().startswith(("- ", "* ")) for line in body)
 
 
-def promote_changelog(text: str, version: str, date: str) -> tuple[str, bool]:
+def promote_changelog(
+    text: str, version: str, date: str, *, require_entries: bool = True
+) -> tuple[str, bool]:
     """Promote ``[Unreleased]`` to a dated version section and reopen it.
 
     Args:
-        text: The current ``CHANGELOG.md`` source.
+        text: The current change-history source.
         version: The version being released, e.g. ``"1.4.0"``.
         date: The release date as ``YYYY-MM-DD``.
+        require_entries: Whether the ``[Unreleased]`` section must hold at
+            least one bullet. ``CHANGELOG.md`` requires one - a release with
+            nothing for a user is not a release - while
+            ``TECHNICAL_CHANGELOG.md`` does not: a release with no
+            developer-facing change is normal, and it leaves that file without
+            a heading for this version rather than an empty one.
 
     Returns:
         ``(new_text, changed)``. A changelog that already carries the version
         heading and a populated ``[Unreleased]`` placeholder is returned
-        unchanged with ``changed`` false.
+        unchanged with ``changed`` false, as is an optional file whose
+        ``[Unreleased]`` section holds nothing to promote.
 
     Raises:
         ReleaseError: If the ``[Unreleased]`` heading is missing, if it has no
-            following version heading, or if it holds no entries to release.
+            following version heading, or if it holds no entries to release
+            and *require_entries* is set.
     """
     lines = text.splitlines(keepends=True)
     heading = f"## [{version}]"
@@ -253,7 +280,7 @@ def promote_changelog(text: str, version: str, date: str) -> tuple[str, bool]:
 
     if released:
         if unreleased_at is None:
-            raise ReleaseError("CHANGELOG.md has no [Unreleased] heading")
+            raise ReleaseError("the changelog has no [Unreleased] heading")
         end = _section_end(lines, unreleased_at)
         if _trim_blank(lines[unreleased_at + 1 : end]):
             return text, False
@@ -269,10 +296,12 @@ def promote_changelog(text: str, version: str, date: str) -> tuple[str, bool]:
         return "".join(lines), True
 
     if unreleased_at is None:
-        raise ReleaseError("CHANGELOG.md has no [Unreleased] heading")
+        raise ReleaseError("the changelog has no [Unreleased] heading")
     end = _section_end(lines, unreleased_at)
     body = _trim_blank(lines[unreleased_at + 1 : end])
     if not _is_meaningful(body):
+        if not require_entries:
+            return text, False
         raise ReleaseError(
             "the [Unreleased] section holds no entries - nothing to release"
         )
@@ -761,18 +790,31 @@ def _release_lock(root: Path, version: str, offline: bool, dry_run: bool) -> Non
 
 
 def _release_changelog(root: Path, version: str, date: str, dry_run: bool) -> None:
-    """Promote ``[Unreleased]`` and reopen it."""
-    path = root / "CHANGELOG.md"
-    text = path.read_text(encoding="utf-8")
-    new_text, changed = promote_changelog(text, version, date)
-    if not changed:
-        print(f"[SKIP] CHANGELOG.md already carries [{version}] and a placeholder")
-        return
-    if dry_run:
-        print(f"[INFO] would promote CHANGELOG.md [Unreleased] to [{version}]")
-        return
-    _write(path, new_text, dry_run)
-    print(f"[OK] CHANGELOG.md [{version}] - {date}")
+    """Promote ``[Unreleased]`` in both change-history files and reopen it.
+
+    ``CHANGELOG.md`` is the user-facing history ``whats_new`` renders and must
+    hold an entry; ``TECHNICAL_CHANGELOG.md`` is the developer-facing half and
+    legitimately holds none for a release with no developer-facing change, so
+    it is promoted only when it has something to promote.
+    """
+    for name, required in CHANGELOG_FILES:
+        path = root / name
+        text = path.read_text(encoding="utf-8")
+        already = any(line.startswith(f"## [{version}]") for line in text.splitlines())
+        new_text, changed = promote_changelog(
+            text, version, date, require_entries=required
+        )
+        if not changed:
+            if already:
+                print(f"[SKIP] {name} already carries [{version}] and a placeholder")
+            else:
+                print(f"[SKIP] {name} holds no entries for [{version}]")
+            continue
+        if dry_run:
+            print(f"[INFO] would promote {name} [Unreleased] to [{version}]")
+            continue
+        _write(path, new_text, dry_run)
+        print(f"[OK] {name} [{version}] - {date}")
 
 
 def _release_guides(root: Path, version: str, python: str, dry_run: bool) -> None:
