@@ -569,10 +569,12 @@ the tree's single root and change only the toctree and staging details.
 | 1 | F-10, B2, F-09, A1 | 2.1.7 patch (F-10 first; B2 needs a deliberate version note; A1 is a measurement) | Each is bounded, each produces one checkable artefact, and B2 closes a capability gap in a tool users already run. F-10 goes first because F-09 edits the same filter string and would otherwise be verified against an unlocked parameter set. |
 | 2 | F-01, F-05/F-06 | 2.2.0 | User-visible features; F-01 needs a dry-run default that deserves its own release note and guide. |
 | 3 | F-02, F-08a → b → c | 2.2.x, one per sub-item | Large; each needs the scaffolding the earlier waves produce. |
-| M | U1 | 2.2.x patch (window only — no CLI, tag or audio change) | No user-visible behaviour changes, so it can ride any 2.2.x slot; queued rather than scheduled because it rebuilds a window F-01 has just extended, and is cheaper to review once that has settled. |
+| M | U1, U2 | One 2.2.x patch each — U1 is window-only, U2 changes the changelogs and the release tooling; neither touches a CLI, a tag or audio | Neither changes how the suite runs, so either can ride any 2.2.x slot. U1 rebuilds a window F-01 has just extended, so it is cheaper to review once that has settled. U2 is cheapest *before* the next cut: every release that ships while the two audiences are mixed adds more technical bullets to the file users read, and under U2's own rule the split is itself a technical change, so the release that lands it says nothing in `CHANGELOG.md`. |
 
 `F-05`/`F-06` are grouped because they share the export surface; everything else
-is deliberately one item per release (D9).
+is deliberately one item per release (D9). U1 and U2 share the `M` row because
+both are maintenance, **not** a version: they are independent, land in separate
+patches, and neither depends on the other.
 
 ---
 
