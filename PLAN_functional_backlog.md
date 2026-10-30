@@ -2,9 +2,9 @@
 
 **Status:** **Waves 1 and 2 complete** — Wave 1: F-10 `5d4ab22`, F-09 `6642d41`,
 B2 `8890b73`, A1 `c6f54dc` and the guide sweep `6a4be7a`; Wave 2: F-01 and
-F-05/F-06 in `da30298`. See §6. Wave 3 remains `[ ]` planned and unstarted,
-and the maintenance item **U1** (the Tag Field Updater window) is `[ ]` queued for
-the next maintenance cycle.
+F-05/F-06 in `da30298`, released as **2.2.0** (`00238e1`). See §6. Wave 3
+remains `[ ]` planned and unstarted, and the maintenance item **U1** (the Tag
+Field Updater window) is `[ ]` queued for the next maintenance cycle.
 **Base state:** `main` at `9790778`, with `v2.1.6` published at `0556069`.
 The suite is green (11 236 passed locally; the floor leg 11 235 passed, 4 skipped
 on the runner, runs `40874653524` and `40878665883`), the dependency audit
@@ -79,7 +79,7 @@ discovered.
 | D7 | **F-08 is split into three sub-items and starts with declip.** | DECIDED | Declip has an objective target — reconstruct peaks and measure the distortion floor against a known-clipped reference — while de-reverb has no reference metric the suite could assert on, and spectral repair needs an interactive surface the suite does not have. Shipping the one that can be measured first keeps the item honest. |
 | D8 | **A1's first deliverable is the measurement**, and the shipped arithmetic changes only if it fails. | DECIDED | `replaygain_analyzer/core/gain_calculator.py` uses duration-weighted energy (`10·log10(Σ 10^(Lᵢ/10)·dᵢ / Σ dᵢ)`), which is exact for equal gating and approximate otherwise. Writing a concatenated measurement and finding the approximation acceptable is a **valid outcome** and must be recorded as one. |
 | D9 | **Items do not ride each other's release.** Each gets its own `CHANGELOG` entry under the version it ships in. | DECIDED | The 2.1.6 cut accumulated fifteen bullets across six items and became a release nobody had read as a whole — the risk D30 named. Grouping is what made that happen; per-item releases keep each one reviewable. |
-| D10 | Feature work targets **2.2.0**; narrow extensions may ship as 2.1.x. | PROPOSED | F-01, F-02, F-05/F-06 and F-08 add capability (minor). B2, F-09 and A1 are bounded extensions or measurements and can ride a patch if their surface stays additive. |
+| D10 | Feature work targets **2.2.0**; narrow extensions may ship as 2.1.x. | DECIDED — settled by the 2.2.0 cut (D27) | F-01, F-02, F-05/F-06 and F-08 add capability (minor). B2, F-09 and A1 are bounded extensions or measurements and can ride a patch if their surface stays additive. |
 | D12 | **F-10 (the audio-writer sweep) is admitted** into a capability plan, and its deliverable is a **lock**, not a bug list. | DECIDED | The normalise defect fixed on `dc1b3c5` was found by un-skipping a test, not by a sweep, and no test in the tree asserts any writer's output format — the case passed for a release because its test measured loudness only. It sits in Wave 1 because every later audio item (F-08, F-09) is safer behind it, and it is expected to end with **no code change**, which is A1's shape (D8) rather than a defect register's. |
 | D11 | No item changes a **tag format** or a **file extension** the suite already writes without a migration note. | DECIDED | B2 adds containers the scrubber can *scrub*, not a new output format; F-09 changes a normalisation target, which is audio output — its bullet must say what a re-run does to an already-normalised file. |
 | D13 | **F-10's sweep found one offender**, so it did not end as the no-code-change lock D12 expected. | DECIDED | Seven writers, seven decoded rows (44.1 kHz / stereo / 24-bit fixtures, deliberately none of the defaults). Six preserved the format; the shared pydub export path did not — pydub passes no sample-format argument, so FFmpeg's WAV/AIFF muxer wrote **16-bit PCM from a 24-bit source** while rate and channels survived. Fixed in `audio_suite_shared/audio_formats.py` (`source_bit_depth` / `preserve_depth_params`, applied by `get_export_args`), so `file_processor_base.py` and `audio_refinery/core/pipeline.py` inherit the pin. The lock's failure self-check reverts the normalise pin and requires the 192 kHz assertion to go red. |
@@ -96,6 +96,7 @@ discovered.
 | D24 | **Filename mode defaults to dry through click's parameter source, and `disc` joined the shared editable fields.** | DECIDED | The shared `--dry/--live` pair defaults to live and the slash mode depends on that, so "filename mode is dry by default" cannot be a second default on the same option: the command reads `ctx.get_parameter_source("dry_run")` and only switches to dry when the user passed neither side, printing why. The GUI reaches the same place differently — enabling the mode ticks Dry Run — because there the checkbox *is* the explicit choice. `disc` joined `EDITABLE_FIELDS` (with `TPOS`/`discnumber`/`disk`/`DISCNUMBER` mappings and one shared `_parse_number_pair`) so a parsed `%disc%` is not silently dropped; every format already had a disc *read*, only the write was missing, and the Tag Editor's UI and CLI keep their own field list, so nothing there changes. A parsed value goes through the existing slash rule for **genre only**: applying it to artist or title would rewrite `AC/DC` as `AC; DC`. Action groups live in `audio_suite_config.json` under `tag_field_updater_action_groups` (`utils/config.py`), never a tool-local file. The CLI JSON payload is unchanged — the per-file parse is text/log output, and the schema is locked, so a field is added only when a consumer asks for it. |
 | D25 | **F-05/F-06 is one export surface on the existing scan, and its CSV is additive.** | DECIDED | `--export {m3u,csv,html}` plus `--export-path`, `--export-columns` and `--camelot`, all served by `library_stats/core/playlist_export.py`; `--export-csv`/`--export-json` keep working. `export_csv` **without** a column set still writes the original ten columns in the original order — pinned by `test_default_columns_are_unchanged` — and `--camelot` alone *appends* one column to that set rather than switching formats, which is what "the new columns are additive" has to mean for an existing consumer. Camelot maps major and minor separately over every emitted spelling and both enharmonics, passes an already-Camelot value through, and leaves `UNKNOWN_KEY` empty rather than inventing a wheel position. Playlist order is album artist → album → track → filename (a walk order shuffles an album; a missing track number sorts last because "unknown" is not "track 0"), paths are absolute with forward slashes on every host, and an unknown duration is `-1`. The HTML page is self-contained and escapes every cell. `--export-columns`/`--camelot` with `m3u` is a usage error rather than a silently ignored flag. The reader's `"Unknown"` sentinel is rendered as an empty *export* cell only — the aggregates keep the bucket they have always counted. |
 | D26 | **The Tag Field Updater window's divergence from the suite layout is a queued maintenance item (U1), not part of Wave 2.** | QUEUED (user, 2026-10-30) | Wave 2 changes what the tool *does*; its window has not been revisited since 1.0.1 except for the filename section F-01 just added, so a layout rebuild shipped beside that change would be reviewed as part of it. Recorded now because the gap is invisible to the gate: nothing asserts a window's shape, `BaseSuiteApp` accepts an empty `help_guide` silently (the inherited `_open_help()` simply returns), and the guide's *Using the GUI* section describes the flat layout as though it were the design. Evidence: `tag_field_updater/ui/app.py` references `styles.` zero times and `ttk.Notebook` zero times, while `ui_common.build_processing_tab`/`build_results_tab` and the `AnalysisAppBase`/`NoisePopToolApp` scaffolds supply both to every peer; `root.rowconfigure`/`columnconfigure` are absent, so the 850×950 default window cannot reflow and the content stays pinned top-left. The item carries the guide rewrite with it, because that section describes the layout being replaced panel by panel. |
+| D27 | **Wave 2 ships as 2.2.0, and the cut is the release script's own run rather than a hand-edited bump.** | DECIDED (user, 2026-10-30) | Settles D10: both Wave 2 items add capability, and neither changes a tag format nor an output extension the suite already writes (D11), so a minor is the honest label; D22's gate-progress fix rides the same section as a *Changed* bullet because it landed after the 2.1.7 tag. `utilities/release.py 2.2.0 --date 2026-10-30` did the work: bumped `pyproject.toml`, re-locked `uv.lock` and read 2.2.0 back out of it, promoted `[Unreleased]` to `## [2.2.0] - 2026-10-30` and reopened it with "Nothing yet.", then regenerated the seven version-labelled guides. Those seven were judged the way the rule requires - identical zip entry sets, only `word/document.xml` differing, and its paragraph text moving from "Version 2.1.7 — October 2026" to "Version 2.2.0 — October 2026": a subtitle, not external-editor drift, so all seven ship as rendered. The script's gate on the bumped tree found 11 485 passed, 3 skipped, exit 0, coverage 91.08% - the same count as the pre-cut run, so the bump changed no test's outcome. |
 
 ---
 
@@ -760,6 +761,33 @@ project's `.venv` interpreter.
   changes. The change is recorded in `CHANGELOG.md` under `[Unreleased]` because
   it alters how a cut behaves for anyone running one; the file's own docstring
   carries the rationale.
+
+**Release — the 2.2.0 cut (D27).** Commit `00238e1` ("Cut 2.2.0") on `main`,
+produced by `utilities/release.py 2.2.0 --date 2026-10-30` and not assembled by
+hand: `pyproject.toml` and `uv.lock` at 2.2.0, `[Unreleased]` reopened with
+"Nothing yet.", the promoted `## [2.2.0] - 2026-10-30` section, and the seven
+version-labelled guides re-rendered. The gate below is that run, on the bumped
+tree.
+
+| Check | Result |
+|---|---|
+| compile | `compileall` over the tracked files, exit 0. |
+| ruff | `ruff check .` clean; `ruff format --check .` - 954 files already formatted. |
+| mypy | bare `mypy .` - no issues in 555 source files. |
+| bandit | 0 High / 0 Medium, 41 Low (the documented `run_secure_subprocess` sites). |
+| pytest | bare `pytest` - **11 485 passed, 3 skipped, 35 deselected** in 17:02, exit 0, coverage 91.08%. |
+
+- **The seven regenerated guides** were compared by zip entry against `HEAD`:
+  identical entry sets, and only `word/document.xml` differing - the subtitle
+  "Version 2.1.7 — October 2026" becoming "Version 2.2.0 — October 2026" in each.
+  No external-tool drift, so all seven are kept as rendered, and
+  `build_user_guides.py --check` reports **32/32 current** afterwards.
+- **The section's three bullets** are D9's per-item shape: one per Wave 2 item
+  under *Added*, and D22's gate-progress fix under *Changed*. Nothing else was
+  promoted, which is what "cut from the Unreleased section" has to mean - a
+  bullet that was not there did not ship.
+- **Tag:** `v2.2.0` is annotated on the record commit that follows `00238e1`, the
+  shape `v2.1.7` set (tag on the record, not the cut).
 
 ---
 
