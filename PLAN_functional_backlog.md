@@ -1,11 +1,12 @@
-# PLAN — functional backlog (B2, A1, F-01, F-02, F-05/F-06, F-09, F-08, F-10, U1)
+# PLAN — functional backlog (B2, A1, F-01, F-02, F-05/F-06, F-09, F-08, F-10, U1, U2)
 
 **Status:** **Waves 1 and 2 complete** — Wave 1: F-10 `5d4ab22`, F-09 `6642d41`,
 B2 `8890b73`, A1 `c6f54dc` and the guide sweep `6a4be7a`; Wave 2: F-01 and
 F-05/F-06 in `da30298`, released as **2.2.0** (`00238e1`), pushed at
 `3a32185` with the floor leg green (CI run `41060921137`). See §6. Wave 3
-remains `[ ]` planned and unstarted, and the maintenance item **U1** (the Tag
-Field Updater window) is `[ ]` queued for the next maintenance cycle.
+remains `[ ]` planned and unstarted, and the maintenance items **U1** (the Tag
+Field Updater window) and **U2** (the changelog split by audience) are `[ ]`
+queued for the next maintenance cycle.
 **Base state:** `main` at `9790778`, with `v2.1.6` published at `0556069`.
 The suite is green (11 236 passed locally; the floor leg 11 235 passed, 4 skipped
 on the runner, runs `40874653524` and `40878665883`), the dependency audit
@@ -407,8 +408,9 @@ no-op on clean input is an assertion rather than a nicety.
 ### Maintenance cycle — queued for the next one
 
 Not capability work, and not a defect in a working feature: it is the window
-itself. Queued here so the gap is recorded rather than rediscovered, and
-deliberately kept out of Wave 2, whose items are about what the tool *does*.
+itself, and the change history a user reads. Queued here so the gap is recorded
+rather than rediscovered, and deliberately kept out of Wave 2, whose items are
+about what the tool *does*.
 
 #### U1 — the Tag Field Updater window does not use the suite's shared layout (M)
 
@@ -483,6 +485,80 @@ rule).
 shape, and it too has no Help button (it does pass `help_guide`). It is **not** in
 this item — the report is about Tag Field Updater, and widening a maintenance
 cycle to two windows is a scheduling decision, not a detail of this one.
+
+#### U2 — the changelog reports the suite, not the build (M)
+
+**Status:** `[ ]` queued for the next maintenance cycle — not started.
+
+*Current state.* `CHANGELOG.md` is the suite's only change history, and it is
+read by two audiences at once: someone deciding whether to upgrade a tool, and
+someone asking what happened to the build. Both are handed the same list, and
+the second audience's bullets sit between the first's. Two of them are in the
+last two releases alone:
+
+- *"The release gate reports its progress while it runs."* (2.2.0, *Changed*)
+  ends by admitting it: "Developer tooling only: no analysis, tag write or audio
+  output changed." A release note that has to say nothing changed for the user
+  is a note for somebody else.
+- *"Two Refinery tests are gated on a measured capability, not on `CI`."*
+  (2.1.7, *Fixed*) changes how two tests decide to skip. It names the defect
+  they went on to expose, which is worth telling, but no shipped behaviour
+  moved — the user-visible half of that story is the 192 kHz bullet above it.
+
+That matters because the same file is where a user looks up the defect they
+just hit: a technical bullet between two they care about costs them a paragraph
+of noise at exactly the wrong moment, and a reader scanning headings for "did
+the thing I hit get fixed" cannot tell which sections apply to them. Nothing in
+the tree separates the two audiences today. The header follows Keep a
+Changelog, which has no notion of one, and the cut promotes whatever the
+`[Unreleased]` section holds.
+
+*Change.* Split by audience rather than by dropping detail. `CHANGELOG.md`
+keeps only what a user can observe — a tool's behaviour, a flag or default, a
+supported format, an error message, a measured speed or size difference — and a
+new `TECHNICAL_CHANGELOG.md` beside it carries the rest: the gate, CI, tests,
+tooling, behaviour-neutral refactors, and dependency bumps no output sees.
+`CHANGELOG.md` gains one line pointing at the technical file, so the detail is
+moved rather than lost, and §8's mapping rule states which file a bullet goes
+to.
+
+*Acceptance.*
+- Every bullet in `CHANGELOG.md` names something a user can run or observe, and
+a lock holds the boundary instead of taste. The proposed mechanism is a
+developer-noun denylist over that file's bullets (test, pytest, gate, CI,
+workflow, ruff, mypy, coverage, benchmark) plus a narrow allowlist for each
+word that is legitimately user-facing. The lock must **fail on the two bullets
+above before they move** — that is its proof it can see them — and pass once
+they have.
+- `utilities/release.py` promotes **both** files in one cut. It raises today
+when `[Unreleased]` holds no entry (`_is_meaningful`), which would make a
+release with no technical work *fail*; the technical file's empty section has
+to be legal while its heading still reopens with the placeholder.
+- `tests/test_changelog_format.py` locks the new file too — 88 columns, the
+two-space hanging indent, no tabs, and a scan that asserts it saw the file and
+its `[Unreleased]` heading. Parameterised over both files, not copied.
+- The published site stays self-contained: `build_docs_site.py` stages
+`CHANGELOG.md` through `STAGED_FILES` and `documentation/docs/index.md` links it
+twice, so either the new file is staged beside it or it is deliberately left
+out of the site — and if it goes under `documentation/docs/` instead it needs a
+toctree entry, because the build fails on a page outside every toctree.
+
+*Files:* `CHANGELOG.md`, a new `TECHNICAL_CHANGELOG.md`, `utilities/release.py`,
+`utilities/tests/test_release.py`, `tests/test_changelog_format.py`,
+`utilities/build_docs_site.py`, `documentation/docs/index.md`, `README.md`,
+`AGENTS.md` if the mapping rule lands there too.
+*Risk:* the rule is the easy half. The split needs a **reclassification pass
+over the 216 bullets in 18 released sections**, or every release before the
+next one still mixes the two audiences and the boundary stays invisible to
+whoever reads 2.1.7 next — the same shape as a lock that cannot fail. The
+judgement is the work; the denylist only stops it drifting back. The denylist
+will also produce false positives in prose, so each allowlist entry needs its
+reason recorded in the test, the way `test_test_file_naming.py`'s does.
+*Scope note:* this governs the change history, not `AGENTS.md`'s "one
+documentation tree" rule. A root-level `TECHNICAL_CHANGELOG.md` sits beside
+`CHANGELOG.md` as shipped release data, which is not a second root of pages a
+reader is meant to read; putting it under `documentation/` instead would keep
+the tree's single root and change only the toctree and staging details.
 
 ---
 
