@@ -21,6 +21,9 @@ case-insensitively on lookup.
 Changed in 1.1.0: new APEv2 tag handler for WavPack/APE/Musepack (.wv/.ape/.mpc).
 Changed in 1.2.0: adds ``read_isrcs`` (the ``ISRC`` APEv2 item) for the Audio
 Fingerprinter's ISRC retrieval (PLAN_feature_expansion.md D29).
+Changed in 2.2.0: ``disc`` joins ``EDITABLE_FIELDS`` and maps to the
+``DISCNUMBER`` APEv2 item, so the Tag Field Updater's filename source can
+write a parsed ``%disc%`` (functional backlog F-01).
 """
 
 import logging
@@ -456,6 +459,7 @@ class APEv2Handler(BaseTagHandler):
         "album": ("ALBUM",),
         "album_artist": ("ALBUMARTIST",),
         "track": ("TRACK", "TRACKNUMBER"),
+        "disc": ("DISCNUMBER", "DISC"),
         "year": ("DATE", "YEAR"),
         "genre": ("GENRE",),
         "comment": ("COMMENT", "DESCRIPTION"),

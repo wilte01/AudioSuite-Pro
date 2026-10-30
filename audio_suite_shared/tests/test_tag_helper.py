@@ -831,6 +831,7 @@ class TestAPEv2Handler:
             "album": "Album",
             "album_artist": "Album Artist",
             "track": "02/10",
+            "disc": "1/2",
             "year": "2004",
             "genre": "Jazz",
             "comment": "a comment",
@@ -1671,12 +1672,15 @@ class TestFormatExpansionAlbumGenre:
 
 class TestEditableTagFields:
     def test_field_set_is_stable(self):
+        # Changed in 2.2.0: ``disc`` joins the frozen set (backlog F-01), so the
+        # filename source can write a parsed %disc% instead of dropping it.
         assert EDITABLE_FIELDS == (
             "title",
             "artist",
             "album",
             "album_artist",
             "track",
+            "disc",
             "year",
             "genre",
             "comment",

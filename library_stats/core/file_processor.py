@@ -30,6 +30,13 @@ Changed in 1.4.0: ``_read_file_tags`` and the CSV export read every field from
 174 ms → 23 ms per 100 files, PLAN D55), and the export reuses the shared
 reader so the duplicate-read block cannot drift from the scanner.
 
+Changed in 2.2.0: ``export_csv`` gains keyword-only ``columns``/``camelot``;
+the default output keeps its original ten columns and order, so the existing
+export contract is unchanged, while an explicit column set or the Camelot
+column is purely additive.  ``_read_file_tags`` also gained the opt-in
+``export_fields`` read (title, track, disc, comment, duration) the playlist
+exports need (functional backlog F-05/F-06).
+
 Changed in 2.1.0: this module is the host for the plugin system's ``analysis``
 extension point.  An enabled plugin's contributions run once per file with the
 tags the scan already read, and their metrics are aggregated into
@@ -44,7 +51,7 @@ import logging
 import os
 import time
 from collections import Counter
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -272,7 +279,12 @@ def _populate_report(
 
 @dataclass(frozen=True)
 class _FileTags:
-    """All tag fields read from a single audio file in one pass."""
+    """All tag fields read from a single audio file in one pass.
+
+    The five ``export_*`` fields are only populated when the caller asks for
+    them: the scanner aggregates distributions that do not include them, and a
+    library scan should not pay for tags it discards.
+    """
 
     artist_album: tuple[str, str] | None
     album_artist: str | None
@@ -282,9 +294,14 @@ class _FileTags:
     mood: str | None
     tempo_marking: str | None
     year: int | None
+    title: str | None = None
+    track: str | None = None
+    disc: str | None = None
+    comment: str | None = None
+    duration_secs: float | None = None
 
 
-def _read_file_tags(path: str) -> _FileTags:
+def _read_file_tags(path: str, *, export_fields: bool = False) -> _FileTags:
     """Read every tag field the scanners need from *path* in one pass.
 
     A year-extraction failure degrades to ``year=None`` rather than
@@ -295,6 +312,9 @@ def _read_file_tags(path: str) -> _FileTags:
 
     Args:
         path: Absolute path to an audio file.
+        export_fields: Also read the playlist/export fields (title, track,
+            disc, comment, duration) from the same loaded handler.  Off by
+            default so the scan's own aggregation pays nothing for them.
 
     Returns:
         A populated ``_FileTags``.
@@ -317,6 +337,16 @@ def _read_file_tags(path: str) -> _FileTags:
     except (ValueError, TypeError):
         year = None
 
+    title = track = disc = comment = None
+    duration_secs: float | None = None
+    if export_fields:
+        editable = handler.read_editable_tags()
+        title = editable.get("title")
+        track = editable.get("track")
+        disc = editable.get("disc")
+        comment = editable.get("comment")
+        duration_secs = handler.read_duration()
+
     return _FileTags(
         artist_album=artist_album,
         album_artist=album_artist,
@@ -326,6 +356,11 @@ def _read_file_tags(path: str) -> _FileTags:
         mood=mood,
         tempo_marking=tempo,
         year=year,
+        title=title,
+        track=track,
+        disc=disc,
+        comment=comment,
+        duration_secs=duration_secs,
     )
 
 
@@ -769,20 +804,56 @@ def _build_report_from_cache(
 # ── Export helpers ──────────────────────────────────────────────────────────
 
 
-def export_csv(report: StatsReport, output_path: str) -> None:
+def export_csv(
+    report: StatsReport,
+    output_path: str,
+    *,
+    columns: Sequence[str] | None = None,
+    camelot: bool = False,
+) -> int:
     """Export per-file metadata as CSV (one row per file).
+
+    With no *columns* the export keeps its original shape exactly (the same
+    ten columns in the same order), so an existing consumer of this file is
+    unaffected.  ``camelot`` alone appends one column to that same set, and is
+    therefore purely additive; asking for *columns* switches to the
+    column-aware writer shared with the M3U/HTML exports (functional backlog
+    F-05/F-06).
 
     Args:
         report: A populated StatsReport (used for *scan_path*).
         output_path: Destination CSV path (written in UTF-8).
+        columns: Column names to write; None keeps the original column set.
+        camelot: Append a ``camelot`` column to the original set (ignored when
+            *columns* names its own set).
+
+    Returns:
+        The number of rows written.  A caller that only wants the file ignores
+        it; a CLI that reports "exported N files" must not quote the scan's
+        total, because an unreadable file is skipped here too.
 
     Raises:
         FileNotFoundError: If *report.scan_path* does not exist.
+        ValueError: If a requested column is unknown.
     """
     import csv as csv_mod
 
+    from library_stats.core.playlist_export import camelot_for_key
+
     if not os.path.isdir(report.scan_path):
         raise AudioFileNotFoundError(f"Scan path does not exist: {report.scan_path}")
+
+    if columns is not None:
+        from library_stats.core.playlist_export import (
+            collect_export_rows,
+            resolve_columns,
+            write_csv_rows,
+        )
+
+        resolved = resolve_columns(columns, camelot=camelot)
+        rows = collect_export_rows(report.scan_path)
+        write_csv_rows(rows, output_path, resolved)
+        return len(rows)
 
     fieldnames = [
         "path",
@@ -796,7 +867,10 @@ def export_csv(report: StatsReport, output_path: str) -> None:
         "artist_album",
         "year",
     ]
+    if camelot:
+        fieldnames.append("camelot")
 
+    written = 0
     with open(output_path, "w", newline="", encoding="utf-8") as f:
         writer = csv_mod.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -835,24 +909,24 @@ def export_csv(report: StatsReport, output_path: str) -> None:
                         f"{artist_album_val[0]} / {artist_album_val[1]}"
                     )
 
-                writer.writerow(
-                    {
-                        "path": full,
-                        "format": ext,
-                        "bpm": bpm if bpm is not None else "",
-                        "key": key if key is not None else "",
-                        "genre": genre if genre is not None else "",
-                        "mood": mood if mood is not None else "",
-                        "tempo_marking": tempo_marking
-                        if tempo_marking is not None
-                        else "",
-                        "album_artist": album_artist
-                        if album_artist is not None
-                        else "",
-                        "artist_album": artist_album_display,
-                        "year": year_str,
-                    }
-                )
+                row: dict[str, object] = {
+                    "path": full,
+                    "format": ext,
+                    "bpm": bpm if bpm is not None else "",
+                    "key": key if key is not None else "",
+                    "genre": genre if genre is not None else "",
+                    "mood": mood if mood is not None else "",
+                    "tempo_marking": tempo_marking if tempo_marking is not None else "",
+                    "album_artist": album_artist if album_artist is not None else "",
+                    "artist_album": artist_album_display,
+                    "year": year_str,
+                }
+                if camelot:
+                    row["camelot"] = camelot_for_key(key) or ""
+                writer.writerow(row)
+                written += 1
+
+    return written
 
 
 def export_json(report: StatsReport, output_path: str) -> None:

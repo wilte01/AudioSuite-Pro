@@ -14,6 +14,9 @@ first tag-helper module imported in a fresh interpreter.
 Changed in 1.1.0: adds an Ogg Speex (.spx) load branch to the Vorbis handler.
 Changed in 1.2.0: adds ``read_isrcs`` (the ``ISRC`` Vorbis comment) for the
 Audio Fingerprinter's ISRC retrieval (PLAN_feature_expansion.md D29).
+Changed in 2.2.0: ``disc`` joins ``EDITABLE_FIELDS`` and maps to the
+``discnumber`` Vorbis comment, so the Tag Field Updater's filename source can
+write a parsed ``%disc%`` (functional backlog F-01).
 """
 
 import logging
@@ -530,6 +533,7 @@ class VorbisHandler(BaseTagHandler):
             "album": ("album",),
             "album_artist": ("albumartist",),
             "track": ("tracknumber",),
+            "disc": ("discnumber",),
             "year": ("date",),
             "genre": ("genre",),
             "comment": ("comment", "description"),
@@ -562,6 +566,7 @@ class VorbisHandler(BaseTagHandler):
             "album": ("album",),
             "album_artist": ("albumartist",),
             "track": ("tracknumber",),
+            "disc": ("discnumber",),
             "year": ("date",),
             "genre": ("genre",),
             "comment": ("comment", "description"),

@@ -9,6 +9,10 @@ first tag-helper module imported in a fresh interpreter.
 
 Changed in 1.2.0: adds ``read_isrcs`` (ID3 ``TSRC``) for the Audio
 Fingerprinter's ISRC retrieval (PLAN_feature_expansion.md D29).
+Changed in 2.2.0: ``disc`` joins ``EDITABLE_FIELDS`` and maps to the ``TPOS``
+frame (inherited by the WAV/AIFF and DSF handlers, which subclass this one),
+so the Tag Field Updater's filename source can write a parsed ``%disc%``
+(functional backlog F-01).
 """
 
 import logging
@@ -583,6 +587,7 @@ class MP3Handler(BaseTagHandler):
             "album": "TALB",
             "album_artist": "TPE2",
             "track": "TRCK",
+            "disc": "TPOS",
             "genre": "TCON",
         }
         result = super().read_editable_tags()
@@ -606,7 +611,17 @@ class MP3Handler(BaseTagHandler):
         Raises:
             AudioTagError: If the field is not editable for ID3 files.
         """
-        from mutagen.id3 import COMM, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TRCK
+        from mutagen.id3 import (
+            COMM,
+            TALB,
+            TCON,
+            TDRC,
+            TIT2,
+            TPE1,
+            TPE2,
+            TPOS,
+            TRCK,
+        )
 
         frame_by_field: dict[str, str] = {
             "title": "TIT2",
@@ -614,6 +629,7 @@ class MP3Handler(BaseTagHandler):
             "album": "TALB",
             "album_artist": "TPE2",
             "track": "TRCK",
+            "disc": "TPOS",
             "genre": "TCON",
         }
         if field not in frame_by_field and field not in ("year", "comment"):
@@ -639,6 +655,7 @@ class MP3Handler(BaseTagHandler):
                 "TALB": TALB,
                 "TPE2": TPE2,
                 "TRCK": TRCK,
+                "TPOS": TPOS,
                 "TCON": TCON,
             }
             frame_cls = frame_classes.get(frame_id)

@@ -10,6 +10,10 @@ Changed in 1.2.0: records the files a scan skipped (unsupported format or no
 readable tags) and the ones it could not update as the run's note, so a Master
 Driver batch reports them on the Tag Field Updater step instead of only in the
 completion dialog and the run log.
+Changed in 2.2.0: the filename source (functional backlog F-01) — a pattern
+box, the only-fill-blanks switch and saved action groups.  Turning the mode on
+checks Dry Run, so the default is the CLI's default and unchecking it is the
+explicit decision to write.
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ import os
 import sys
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from audio_suite_shared.app_bootstrap import BaseSuiteApp
 from audio_suite_shared.batch_undo import active_batch
@@ -27,8 +31,10 @@ from audio_suite_shared.exceptions import map_to_audio_error, user_message_for
 from audio_suite_shared.launcher import parse_cli_args
 from audio_suite_shared.run_outcome import record_caveats, shortfall
 
+from ..core.filename_patterns import DEFAULT_PATTERNS, PatternError
 from ..core.processor import ProcessingStats, TagProcessor
 from ..utils import cli_args
+from ..utils import config as action_config
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +59,9 @@ class TagFieldUpdaterApp(BaseSuiteApp):
         # Variables
         self.directory = tk.StringVar()
         self.dry_run = tk.BooleanVar(value=False)
+        self.filename_mode = tk.BooleanVar(value=False)
+        self.only_fill_blanks = tk.BooleanVar(value=True)
+        self.action_group = tk.StringVar()
         self.scanning = tk.BooleanVar(value=False)
         self.current_file = tk.StringVar()
         self.processed_count = tk.IntVar(value=0)
@@ -121,6 +130,8 @@ Rules:
             row=0, column=0, sticky=(tk.W, tk.E)
         )
 
+        self._build_filename_frame(main_frame)
+
         # Progress frame
         progress_frame = ttk.LabelFrame(main_frame, text="Progress", padding="5")
         progress_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
@@ -155,7 +166,7 @@ Rules:
 
         # Button frame
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=4, column=0, pady=10)
+        button_frame.grid(row=5, column=0, pady=10)
 
         self.start_button = ttk.Button(
             button_frame, text="Start Scanning", command=self.start_scanning
@@ -173,6 +184,116 @@ Rules:
             self.root, textvariable=self.status_var, relief=tk.SUNKEN
         )
         status_bar.grid(row=1, column=0, sticky=(tk.W, tk.E), padx=10, pady=(0, 5))
+
+    def _build_filename_frame(self, parent: ttk.Frame) -> None:
+        """Build the filename-source controls (F-01).
+
+        Args:
+            parent: The main frame the section is gridded into.
+        """
+        frame = ttk.LabelFrame(parent, text="Tag from Filenames", padding="5")
+        frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+
+        ttk.Checkbutton(
+            frame,
+            text="Tag from filenames (patterns below, one per line, tried in order)",
+            variable=self.filename_mode,
+            command=self._on_filename_mode_toggled,
+        ).grid(row=0, column=0, columnspan=3, sticky=tk.W)
+
+        self.patterns_text = tk.Text(frame, height=5, width=70, wrap=tk.NONE)
+        self.patterns_text.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E))
+        self.patterns_text.insert("1.0", "\n".join(DEFAULT_PATTERNS))
+
+        ttk.Checkbutton(
+            frame,
+            text="Only fill blank tags (never overwrite an existing value)",
+            variable=self.only_fill_blanks,
+        ).grid(row=2, column=0, columnspan=3, sticky=tk.W)
+
+        ttk.Label(frame, text="Action group:").grid(
+            row=3, column=0, sticky=tk.W, pady=(4, 0)
+        )
+        self.group_combo = ttk.Combobox(
+            frame, textvariable=self.action_group, state="readonly", width=28
+        )
+        self.group_combo.grid(row=3, column=1, sticky=(tk.W, tk.E), padx=(5, 5))
+        self.group_combo["values"] = sorted(action_config.load_action_groups())
+
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=(4, 0))
+        ttk.Button(buttons, text="Load", command=self.load_action_group).grid(
+            row=0, column=0, padx=(0, 5)
+        )
+        ttk.Button(buttons, text="Save as...", command=self.save_action_group).grid(
+            row=0, column=1
+        )
+
+    def _on_filename_mode_toggled(self) -> None:
+        """Make the filename mode dry by default.
+
+        A filename parse is a guess about a naming convention: a wrong split
+        writes plausible wrong tags, and the file looks tagged afterwards.  So
+        enabling the mode checks Dry Run, and writing is an explicit untick.
+        """
+        if self.filename_mode.get():
+            self.dry_run.set(True)
+            self.status_var.set(
+                "Filename mode: dry run checked. Untick Dry Run to write the "
+                "parsed values."
+            )
+
+    def _patterns_from_box(self) -> tuple[str, ...]:
+        """Return the non-blank pattern lines in the box, in order.
+
+        Returns:
+            The patterns as typed; empty when the box is blank.
+        """
+        raw = self.patterns_text.get("1.0", "end").splitlines()
+        return tuple(line.strip() for line in raw if line.strip())
+
+    def load_action_group(self) -> None:
+        """Fill the pattern box and write mode from the selected action group."""
+        name = self.action_group.get().strip()
+        if not name:
+            return
+        group = action_config.get_action_group(name)
+        if group is None:
+            messagebox.showwarning(
+                "Action Group", f"Action group {name!r} is not saved any more."
+            )
+            self.group_combo["values"] = sorted(action_config.load_action_groups())
+            return
+        self.patterns_text.delete("1.0", "end")
+        self.patterns_text.insert("1.0", "\n".join(group.patterns))
+        self.only_fill_blanks.set(group.only_fill_blanks)
+        self.filename_mode.set(True)
+        self._on_filename_mode_toggled()
+        self.status_var.set(f"Loaded action group {name!r}.")
+
+    def save_action_group(self) -> None:
+        """Save the pattern box's contents under a name the user chooses."""
+        patterns = self._patterns_from_box()
+        if not patterns:
+            messagebox.showwarning(
+                "Action Group", "Add at least one filename pattern first."
+            )
+            return
+        name = simpledialog.askstring(
+            "Save Action Group", "Name for this pattern set:", parent=self.root
+        )
+        if not name:
+            return
+        try:
+            saved = action_config.save_action_group(
+                name, patterns, only_fill_blanks=self.only_fill_blanks.get()
+            )
+        except (ValueError, OSError) as exc:
+            messagebox.showerror("Action Group", str(exc))
+            return
+        self.group_combo["values"] = sorted(action_config.load_action_groups())
+        self.action_group.set(saved.name)
+        self.status_var.set(f"Saved action group {saved.name!r}.")
 
     def browse_directory(self) -> None:
         """Open a directory chooser and populate the directory entry field."""
@@ -225,6 +346,26 @@ Rules:
         if not directory or not os.path.exists(directory):
             messagebox.showerror("Error", "Please select a valid directory.")
             return
+
+        # Configure the source before the thread starts: a bad pattern is a
+        # message here, not a half-tagged library later.
+        if self.filename_mode.get():
+            patterns = self._patterns_from_box()
+            if not patterns:
+                messagebox.showwarning(
+                    "Filename Pattern",
+                    "Add at least one filename pattern, or untick filename mode.",
+                )
+                return
+            try:
+                self.processor.use_filename_patterns(
+                    patterns, only_fill_blanks=self.only_fill_blanks.get()
+                )
+            except PatternError as exc:
+                messagebox.showerror("Filename Pattern", str(exc))
+                return
+        else:
+            self.processor.use_filename_patterns(())
 
         # Reset statistics
         self.stats = ProcessingStats()

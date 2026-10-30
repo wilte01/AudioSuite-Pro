@@ -5,7 +5,13 @@ version: auto
 
 ## Overview
 
-The Tag Field Updater is a specialised audio metadata tool that recursively scans your music library and normalises slash characters in custom TXXX genre-related tag fields. It replaces bare / (forward-slash) characters with "; " (semicolon-space) in existing tag values, while preserving values that use the " / " (space-slash-space) pattern. This standardises how multi-genre or genre-artist combinations are delimited in tag metadata across an entire library.
+The Tag Field Updater is a specialised audio metadata tool with two sources of tag values.
+
+The first is the one it shipped with: it recursively scans your music library and normalises slash characters in custom TXXX genre-related tag fields, replacing bare / (forward-slash) characters with "; " (semicolon-space) while preserving values that use the " / " (space-slash-space) pattern. This standardises how multi-genre or genre-artist combinations are delimited in tag metadata across an entire library.
+
+The second is the filename source: instead of reading existing tags, it parses each file's **name** into fields (artist, title, album, track and so on) using an ordered list of patterns, and writes those fields. It is for libraries whose only reliable metadata is in the filenames.
+
+Version 2.2.0 added the filename source. Everything in the slash-replacement sections below describes the original mode and is unchanged.
 
 ## Quick Start
 
@@ -83,6 +89,67 @@ The tool applies a smart slash-replacement algorithm. The rules are hardcoded an
 
 The algorithm also handles mixed patterns. For example, "A/B / C/D" becomes "A; B / C; D" — bare slashes are replaced while space-slash-space delimiters are preserved.
 
+## Tagging from Filenames
+
+In filename mode the tool does not look at the existing tag values at all. It matches each file's name against a list of patterns, tries them in order, and writes the fields the matching pattern captured.
+
+### Patterns
+
+A pattern is literal text with `%field%` placeholders:
+
+| Pattern | Matches |
+| --- | --- |
+| `%artist% - %title%` | Artist - Title.flac |
+| `%track%. %artist% - %title%` | 05. Artist - Title.mp3 |
+| `%track% - %artist% - %title%` | 05 - Artist - Title.mp3 |
+| `%disc%-%track% %artist% - %title%` | 1-05 Artist - Title.flac |
+| `%disc%-%track%. %artist% - %title%` | 1-05. Artist - Title.flac |
+| `%track%_%title%` | 08_bassline.wav |
+
+A pattern may capture any of `%artist%`, `%title%`, `%album%`, `%album_artist%`, `%track%`, `%disc%`, `%year%`, `%genre%` and `%comment%` — the same fields the Tag Editor can write. `%track%`, `%disc%` and `%year%` match digits only.
+
+Order matters. The list is tried from the top, and the first pattern that matches wins, so the prefixed forms must come before the bare `%artist% - %title%` form: otherwise `05 - Artist - Title` would be read with the track number as the artist. The GUI's default list is already in that order. When a pattern list is tried by the command line, supply it in the same order you would supply it in the GUI.
+
+### What Makes a Name Match
+
+- The file extension is not part of the match, so `Artist - Pt. 2.mp3` yields the title `Pt. 2`.
+- Only the last placeholder is greedy. `AC - DC - Song` under `%artist% - %title%` yields artist `AC` and title `DC - Song`: the first separator separates, and the rest of the name stays in the title.
+- A placeholder must match at least one character, so `Artist - ` is not a match with an empty title.
+- A file whose name matches no pattern is skipped and left exactly as it is. The tool never guesses a split.
+- Surrounding spaces are trimmed, so a stray space is not written into a tag.
+
+### Dry Run Is the Default
+
+Filename mode runs as a **dry run** unless you pass `--live` on the command line, or untick Dry Run in the GUI after enabling the mode. The reason is the failure mode: a wrong split writes tags that look authoritative, and afterwards the file looks tagged. A dry run prints one line per file with the fields it would write, so a mis-parse is visible before it is saved:
+
+```
+Filename mode defaults to a dry run; pass --live to write the parsed values.
+  [PARSED] 05. Artist - Title.mp3 -> track='05' artist='Artist' title='Title'
+             would write: track, artist, title
+  [PARSED] 06. Other - Song.mp3 -> track='06' artist='Other' title='Song'
+             would write: track, artist
+             kept existing: title
+```
+
+### Only Fill Blanks
+
+By default (`--only-fill-blanks`, and the GUI checkbox of the same name) a field that already carries a value is left alone; the parsed value only fills empty fields. Use `--overwrite` to replace existing values. A value that already equals the parsed one is never rewritten, so re-running over an already-correct library changes nothing.
+
+### Action Groups
+
+An action group is a saved pattern list plus its write mode, stored in the suite's shared configuration file (`audio_suite_config.json`) under the key `tag_field_updater_action_groups`. Saving a group records your library's naming convention once; loading it by name repeats the run without retyping patterns.
+
+- Save the patterns of the current run: `--save-action-group NAME`.
+- Run a saved group: `--action-group NAME`.
+- List what is saved: `--list-action-groups`.
+- In the GUI, choose a group in the Action group drop-down and click Load, or click Save as... to store the patterns currently in the box.
+
+An explicitly typed `--pattern` (and an explicitly passed `--only-fill-blanks`/`--overwrite`) wins over the group's saved values, so a group is a starting point rather than an override.
+
+### Genre Values Still Follow the Slash Rule
+
+A parsed genre goes through the same slash rule as the original mode, so `Rock/Pop` becomes `Rock; Pop`. Every other field is written exactly as parsed — in particular, an artist such as `AC/DC` is **not** rewritten, because the slash rule exists for genre lists and would mangle a name.
+
 ## Using the GUI
 
 Double-click Tag_Field_Updater.pyw to launch the graphical interface. The window is divided into the following sections:
@@ -98,6 +165,16 @@ The 'Dry Run (no changes written)' checkbox controls whether the scan writes tag
 ### Tag Fields to Update
 
 A read-only information panel listing all target tag fields and the replacement rules. Refer to this section during a scan to understand which fields are being modified.
+
+### Tag from Filenames
+
+**Tag from filenames: **Switches the run to the filename source described above. Enabling it also ticks Dry Run, so the first run only reports what it parsed; untick Dry Run deliberately when the parse is right.
+
+**Pattern box: **One pattern per line, tried from the top. The box opens with a sensible default list.
+
+**Only fill blank tags: **When ticked (the default), a parsed field never overwrites a tag that already has a value.
+
+**Action group: **Pick a saved pattern set and click Load to fill the box and the write mode, or click Save as... to store the current box under a new name.
 
 ### Progress
 
@@ -137,14 +214,24 @@ Arguments:\
     DIRECTORY          Path to the music library (required)\
 \
 Options:\
-    --dry / --live   Run without writing changes (default: --live)\
+    --dry / --live   Run without writing changes (default: --live; with a pattern it is --dry unless you pass --live)\
     --json / --text      Output format (default: --text)\
+    --no-plugin-tags     Skip tag processors contributed by enabled plugins\
+    --pattern TEXT       Filename pattern, repeatable and tried in order\
+    --action-group NAME  Load a saved pattern set from the suite config\
+    --save-action-group NAME  Save this run's patterns under this name\
+    --list-action-groups List the saved action groups and exit\
+    --only-fill-blanks / --overwrite  Keep an existing tag (default) or replace it\
     --log-level LEVEL    Logging verbosity: DEBUG, INFO, WARNING, ERROR\
 
 Examples:\
 \
     audiosuite tag-update D:\Music --dry --json\
-    audiosuite tag-update /home/user/music --log-level DEBUG
+    audiosuite tag-update /home/user/music --log-level DEBUG\
+    audiosuite tag-update D:\Music --pattern "%track%. %artist% - %title%" --dry\
+    audiosuite tag-update D:\Music --pattern "%artist% - %title%" --live\
+    audiosuite tag-update D:\Music --action-group Bandcamp --live\
+    audiosuite tag-update D:\Music --list-action-groups
 
 ### Module Entry Point
 
@@ -196,7 +283,9 @@ The Stop button requests the processor to stop after the current file completes.
 
 No files processed: Verify the directory contains supported audio formats (.mp3, .flac, .mp4, .m4a, .ogg, .opus, .wav, .aiff, .aif, .wma). Check directory permissions.
 
-Files updated: 0: This is normal if your files already use the semicolon-space delimiter or if none of the target fields contain a bare slash. Check the log file for skip details.
+Files updated: 0: In the original mode this is normal if your files already use the semicolon-space delimiter or if none of the target fields contain a bare slash. In filename mode it also means every parsed value already matched the stored tag, or that no file name matched a pattern — the run prints a `[NO MATCH]` line for each of those. Check the log file for skip details.
+
+A tag was written to the wrong field: a pattern matched a file it should not have. Run again with the pattern list narrowed, or with the specific pattern moved below a more specific one, and check the `[PARSED]` lines a dry run prints before writing. A wrong split is fixed by re-running with `--overwrite` once the patterns are right.
 
 Permission errors: Ensure you have read/write access to the music directory. On Windows, try running as administrator if files are read-only.
 
@@ -216,7 +305,10 @@ The tool is structured as a clean Python package with separated concerns:
 
 - **core/mapping_engine.py: **Tag field mappings, supported extensions, and slash-replacement logic
 - **core/transformation_rules.py: **Per-format processing functions (Mutagen I/O)
-- **core/processor.py: **TagProcessor orchestrating directory scanning and file dispatch
+- **core/filename_patterns.py: **The filename pattern parser (pure: name in, fields out)
+- **core/filename_tags.py: **Writes parsed fields through the shared editable-tag API
+- **core/processor.py: **TagProcessor orchestrating directory scanning and file dispatch, and selecting the source
+- **utils/config.py: **Action groups in the shared `audio_suite_config.json`
 - **ui/app.py: **Tkinter GUI application
 - **cli.py: **Click CLI command registered under the audiosuite group
 

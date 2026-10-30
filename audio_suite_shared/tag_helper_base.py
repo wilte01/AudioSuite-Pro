@@ -50,11 +50,18 @@ EDITABLE_FIELDS: tuple[str, ...] = (
     "album",
     "album_artist",
     "track",
+    "disc",
     "year",
     "genre",
     "comment",
 )
-"""Canonical editable tag fields exposed by the freeform Tag Editor."""
+"""Canonical editable tag fields exposed by the freeform Tag Editor.
+
+Changed in 2.2.0: ``disc`` joins the set, so the Tag Field Updater's filename
+source can write a parsed ``%disc%`` instead of dropping it.  Every format
+already had a disc *read* (``read_disc_number``); only the write mapping was
+missing.
+"""
 
 
 @dataclass(frozen=True)
@@ -278,6 +285,23 @@ class BaseTagHandler(abc.ABC):
         Returns:
             Disc number as a string, or None if absent.
         """
+        return None
+
+    def read_duration(self) -> float | None:
+        """Read the file's playing time from the already-loaded audio.
+
+        Reads mutagen's ``info.length`` on the object :meth:`load` stored, so a
+        caller that has loaded the handler once pays no second decode.  Used by
+        the playlist export, where an ``#EXTINF`` line wants seconds and an
+        unknown duration is honestly reported as None rather than guessed.
+
+        Returns:
+            Duration in seconds, or None when the loaded object exposes no
+            numeric length (or nothing is loaded yet).
+        """
+        length = getattr(getattr(self._audio, "info", None), "length", None)
+        if isinstance(length, (int, float)) and not isinstance(length, bool):
+            return float(length)
         return None
 
     def read_mood(self) -> str | None:

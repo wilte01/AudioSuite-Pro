@@ -12,6 +12,11 @@ Changed in 2.1.4: ``scan_directory`` no longer increments ``error_files`` for a
 failed result as well as ``process_file`` having already counted it, so the
 summary and JSON reported one corrupt file as two errors (found while wiring
 the R-06 exit contract, which reads the same count).
+Changed in 2.2.0: the processor hosts a second *source*.  With patterns
+configured, each file's name is parsed into tag fields and written through the
+shared editable-tag API; with none, the slash rule is unchanged (F-01).  The
+format dispatch moved into ``_dispatch_by_format`` so both sources reach the
+same plugin-processor seam.
 """
 
 import logging
@@ -54,6 +59,8 @@ from audio_suite_shared.plugin_system import (
     run_tag_processor,
 )
 
+from .filename_patterns import parse_filename, validate_patterns
+from .filename_tags import apply_filename_fields
 from .mapping_engine import (
     SUPPORTED_EXTENSIONS,
     TAG_MAPPINGS,
@@ -113,30 +120,73 @@ PluginHook = tuple[ContributionSpec, Callable[..., object]]
 class TagProcessor:
     """Core processor for tag field updates. Orchestrates scanning and dispatching.
 
+    Two sources share this one engine.  With no *patterns* the run is the
+    slash rule this tool has always applied (``TAG_MAPPINGS`` fields).  With
+    patterns it is the filename source: each file's name is parsed into fields
+    and those fields are written (functional backlog F-01).
+
     Args:
         plugins: Whether enabled plugins' tag processors run after the built-in
             rules.  A caller that wants the suite's own behaviour only — and
             the deterministic output a plugin could otherwise change — passes
             False; the CLI's ``--no-plugin-tags`` flag is that switch.
+        patterns: Ordered filename patterns.  Empty (the default) keeps the
+            slash rule.
+        only_fill_blanks: In filename mode, leave a field that already has a
+            value alone.  Previous behaviour did not exist for these fields, so
+            the safe default is on; overwriting is an explicit choice.
     """
 
     SUPPORTED_EXTENSIONS = SUPPORTED_EXTENSIONS
     TAG_MAPPINGS = TAG_MAPPINGS
 
-    def __init__(self, *, plugins: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        plugins: bool = True,
+        patterns: tuple[str, ...] = (),
+        only_fill_blanks: bool = True,
+    ) -> None:
         """Initialize the tag processor with zeroed stats and a clear stop flag.
 
         Args:
             plugins: Whether plugin tag processors run at all.
+            patterns: Filename patterns, tried in order; empty selects the
+                slash rule.  Validated here so a typo cannot half-tag a
+                library before it surfaces.
+            only_fill_blanks: In filename mode, never overwrite a non-empty
+                field.
         """
         self.stats = ProcessingStats()
         self.stop_flag = False
         self.plugins = plugins
+        #: Validated filename patterns; empty means the slash rule.
+        self.patterns: tuple[str, ...] = validate_patterns(patterns)
+        #: Whether a parsed field may overwrite an existing one.
+        self.only_fill_blanks = only_fill_blanks
         #: Files whose tags a plugin processor changed.
         self.plugin_changes = 0
         #: Plugin processors that raised (counted, never fatal to the scan).
         self.plugin_errors = 0
         self._hooks: tuple[PluginHook, ...] | None = None
+
+    def use_filename_patterns(
+        self, patterns: tuple[str, ...] | list[str], *, only_fill_blanks: bool = True
+    ) -> None:
+        """Switch this processor to the filename source (or back to the slash rule).
+
+        Args:
+            patterns: Patterns to use, in order.  An empty sequence restores
+                the slash rule.
+            only_fill_blanks: Whether a parsed field may overwrite an existing
+                tag value.
+
+        Raises:
+            PatternError: If a pattern is invalid; nothing is applied to the
+                processor in that case, so a bad list cannot half-configure it.
+        """
+        self.patterns = validate_patterns(tuple(patterns))
+        self.only_fill_blanks = only_fill_blanks
 
     def should_update_value(self, value: str) -> bool:
         """Determine if a tag value contains a bare slash and requires updating.
@@ -271,28 +321,10 @@ class TagProcessor:
 
             self.stats.total_files += 1
 
-            extension = file_path.suffix.lower()
-            if extension == ".mp3":
-                result = self._process_mp3(file_path, dry_run=dry_run)
-            elif extension == ".flac":
-                result = self._process_flac(file_path, dry_run=dry_run)
-            elif extension in [".mp4", ".m4a"]:
-                result = self._process_mp4(file_path, dry_run=dry_run)
-            elif extension == ".ogg":
-                result = self._process_ogg(file_path, dry_run=dry_run)
-            elif extension == ".opus":
-                result = self._process_opus(file_path, dry_run=dry_run)
-            elif extension == ".wav":
-                result = self._process_wav(file_path, dry_run=dry_run)
-            elif extension in (".aiff", ".aif"):
-                result = self._process_aiff(file_path, dry_run=dry_run)
-            elif extension == ".wma":
-                result = self._process_wma(file_path, dry_run=dry_run)
+            if self.patterns:
+                result = self._process_filename_source(file_path, dry_run=dry_run)
             else:
-                self.stats.skipped_files += 1
-                logger.info(
-                    "Skipped %s: unsupported format (%s)", file_path.name, extension
-                )
+                result = self._dispatch_by_format(file_path, dry_run=dry_run)
 
         except Exception as exc:
             mapped = map_to_audio_error(exc, context={"file": str(file_path)})
@@ -312,6 +344,80 @@ class TagProcessor:
             self._run_plugin_processors(file_path, dry_run=dry_run)
 
         return result
+
+    def _dispatch_by_format(self, file_path: Path, dry_run: bool) -> ProcessingResult:
+        """Route one file to the rule for its container (the slash rule).
+
+        Args:
+            file_path: Audio file whose extension selects the rule.
+            dry_run: Whether the rule may save.
+
+        Returns:
+            The rule's result, or an empty result for an unsupported extension
+            (counted as skipped).
+        """
+        extension = file_path.suffix.lower()
+        if extension == ".mp3":
+            return self._process_mp3(file_path, dry_run=dry_run)
+        if extension == ".flac":
+            return self._process_flac(file_path, dry_run=dry_run)
+        if extension in [".mp4", ".m4a"]:
+            return self._process_mp4(file_path, dry_run=dry_run)
+        if extension == ".ogg":
+            return self._process_ogg(file_path, dry_run=dry_run)
+        if extension == ".opus":
+            return self._process_opus(file_path, dry_run=dry_run)
+        if extension == ".wav":
+            return self._process_wav(file_path, dry_run=dry_run)
+        if extension in (".aiff", ".aif"):
+            return self._process_aiff(file_path, dry_run=dry_run)
+        if extension == ".wma":
+            return self._process_wma(file_path, dry_run=dry_run)
+        self.stats.skipped_files += 1
+        logger.info("Skipped %s: unsupported format (%s)", file_path.name, extension)
+        return ProcessingResult(file_path=file_path)
+
+    def _process_filename_source(
+        self, file_path: Path, dry_run: bool = False
+    ) -> ProcessingResult:
+        """Parse *file_path*'s name and write the captured fields.
+
+        A file whose name matches no pattern is counted as skipped and left
+        exactly as it is: guessing a split is the one outcome this source must
+        not produce, because a wrong tag looks like a successful run.
+
+        Args:
+            file_path: Audio file to parse and tag.
+            dry_run: Report the rewrites without saving any of them.
+
+        Returns:
+            A :class:`ProcessingResult` carrying the parsed fields, the
+            fields written and the ones left alone.
+        """
+        parsed = parse_filename(file_path.name, self.patterns)
+        if parsed is None:
+            self.stats.skipped_files += 1
+            logger.info(
+                "Skipped %s: no filename pattern matched (%s)",
+                file_path.name,
+                " | ".join(self.patterns),
+            )
+            return ProcessingResult(file_path=file_path, filename_pattern="")
+
+        outcome = apply_filename_fields(
+            file_path,
+            parsed.fields,
+            only_fill_blanks=self.only_fill_blanks,
+            dry_run=dry_run,
+        )
+        return ProcessingResult(
+            file_path=file_path,
+            updated=outcome.updated,
+            tags_updated=outcome.written,
+            filename_fields=tuple(parsed.fields.items()),
+            filename_pattern=parsed.pattern,
+            skipped_fields=outcome.skipped_existing,
+        )
 
     # ------------------------------------------------------------------
     # Plugin tag processors (the ``tag_processor`` extension point)

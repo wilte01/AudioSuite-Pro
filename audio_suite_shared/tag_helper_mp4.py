@@ -9,6 +9,11 @@ first tag-helper module imported in a fresh interpreter.
 
 Changed in 1.2.0: adds ``read_isrcs`` (the iTunes freeform ``ISRC`` atom) for
 the Audio Fingerprinter's ISRC retrieval (PLAN_feature_expansion.md D29).
+Changed in 2.2.0: ``disc`` joins ``EDITABLE_FIELDS`` and maps to the ``disk``
+atom (a ``(number, total)`` pair, like ``trkn``), so the Tag Field Updater's
+filename source can write a parsed ``%disc%`` (functional backlog F-01).
+``_parse_track_value`` became ``_parse_number_pair`` because both atoms now
+share it and its error message has to name the field it was parsing.
 """
 
 import logging
@@ -485,6 +490,7 @@ class MP4Handler(BaseTagHandler):
                     except (IndexError, TypeError, ValueError):
                         result[field] = None
             result["track"] = self._read_mp4_track()
+            result["disc"] = self.read_disc_number()
         return result
 
     def write_editable_tag(self, field: str, value: str | None) -> None:
@@ -514,8 +520,14 @@ class MP4Handler(BaseTagHandler):
             if "trkn" in self._tags:
                 del self._tags["trkn"]
             if value is not None:
-                track, total = self._parse_track_value(value)
+                track, total = self._parse_number_pair(value, "track")
                 self._tags["trkn"] = [(track, total)]
+        elif field == "disc":
+            if "disk" in self._tags:
+                del self._tags["disk"]
+            if value is not None:
+                disc, total = self._parse_number_pair(value, "disc")
+                self._tags["disk"] = [(disc, total)]
         else:
             key = keys_by_field[field]
             if key in self._tags:
@@ -548,25 +560,29 @@ class MP4Handler(BaseTagHandler):
         except (IndexError, TypeError, ValueError):
             return None
 
-    def _parse_track_value(self, value: str) -> tuple[int, int]:
-        """Parse an editor track value into an MP4 track tuple.
+    def _parse_number_pair(self, value: str, field: str) -> tuple[int, int]:
+        """Parse an editor ``"N"``/``"N/M"`` value into an MP4 atom tuple.
+
+        Both ``trkn`` (track) and ``disk`` (disc) store a ``(number, total)``
+        pair, so both fields share this parser; *field* only labels the error.
 
         Args:
-            value: Track string in ``"N"`` or ``"N/M"`` form.
+            value: Number string in ``"N"`` or ``"N/M"`` form.
+            field: Canonical field name, used in the error message.
 
         Returns:
-            Two-tuple ``(track, total)`` with zero for an absent total.
+            Two-tuple ``(number, total)`` with zero for an absent total.
 
         Raises:
             AudioTagError: If the value cannot be parsed.
         """
         parts = value.split("/", 1)
         try:
-            track = int(parts[0])
+            number = int(parts[0])
             total = int(parts[1]) if len(parts) == 2 else 0
         except ValueError as exc:
-            raise AudioTagError(f"Invalid track value for MP4: {value}") from exc
-        return track, total
+            raise AudioTagError(f"Invalid {field} value for MP4: {value}") from exc
+        return number, total
 
     def set_raw_tags(self, tags: Any) -> None:
         """Persist a raw mutagen tags object directly to the MP4 file.

@@ -17,6 +17,10 @@ fail while its launcher-stub contract is exercised. Keep it lazy.
 Changed in 1.0.1: adds the Dry Run checkbox coverage.
 Changed in 1.2.0: covers the run note a finished scan leaves for the Master
 Driver batch report (the files it skipped and the ones it could not update).
+Changed in 2.2.0: covers the filename source's GUI surface (F-01) - the mode
+checks Dry Run, the pattern box is read in order, a bad pattern is refused
+before the worker starts, and saved action groups load and save through the
+shared config.
 """
 
 from __future__ import annotations
@@ -48,6 +52,15 @@ def _make_shell_app() -> Any:
     app.root = MagicMock()
     app.directory = MagicMock()
     app.dry_run = MagicMock()
+    # Filename-source widgets (F-01): the shell must carry them or
+    # ``start_scanning`` cannot ask which source was selected.
+    app.filename_mode = MagicMock()
+    app.filename_mode.get.return_value = False
+    app.only_fill_blanks = MagicMock()
+    app.only_fill_blanks.get.return_value = True
+    app.patterns_text = MagicMock()
+    app.action_group = MagicMock()
+    app.group_combo = MagicMock()
     app.scanning = MagicMock()
     app.current_file = MagicMock()
     app.processed_count = MagicMock()
@@ -547,3 +560,177 @@ class TestRunAndMain:
 
         assert exit_exc.value.code == 1
         assert not started.is_set()
+
+
+# ---------------------------------------------------------------------------
+# The filename source's GUI surface (F-01)
+# ---------------------------------------------------------------------------
+
+
+def _filename_shell(patterns: str = "%artist% - %title%\n") -> Any:
+    """Build the shell app with the filename widgets wired to real behaviour."""
+    app = _make_shell_app()
+    app.filename_mode = MagicMock()
+    app.filename_mode.get.return_value = True
+    app.only_fill_blanks = MagicMock()
+    app.only_fill_blanks.get.return_value = True
+    app.patterns_text = MagicMock()
+    app.patterns_text.get.return_value = patterns
+    app.action_group = MagicMock()
+    app.action_group.get.return_value = ""
+    app.group_combo = MagicMock()
+    return app
+
+
+@pytest.fixture()
+def isolated_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Point the shared suite config at *tmp_path*, never the shipped file."""
+    from audio_suite_shared import suite_config
+
+    path = tmp_path / "audio_suite_config.json"
+    monkeypatch.setattr(suite_config, "CONFIG_PATH", path)
+    monkeypatch.setattr(suite_config, "_LOCK_PATH", path.with_suffix(".json.lock"))
+    suite_config._invalidate_cache()
+    yield path
+    suite_config._invalidate_cache()
+
+
+class TestFilenameModeDefaultsToDry:
+    def test_enabling_the_mode_checks_dry_run(self) -> None:
+        """A mis-parse must not be written because the mode was switched on."""
+        app = _make_shell_app()
+        app.filename_mode = MagicMock()
+        app.filename_mode.get.return_value = True
+        app.dry_run = MagicMock()
+
+        app._on_filename_mode_toggled()
+
+        app.dry_run.set.assert_called_once_with(True)
+        assert "dry run" in app.status_var.set.call_args.args[0].lower()
+
+    def test_disabling_the_mode_leaves_the_choice_alone(self) -> None:
+        app = _make_shell_app()
+        app.filename_mode = MagicMock()
+        app.filename_mode.get.return_value = False
+        app.dry_run = MagicMock()
+
+        app._on_filename_mode_toggled()
+
+        app.dry_run.set.assert_not_called()
+
+    def test_the_pattern_box_lists_patterns_in_order(self) -> None:
+        app = _filename_shell("  %track%. %artist% - %title% \n\n%artist% - %title%\n")
+        assert app._patterns_from_box() == (
+            "%track%. %artist% - %title%",
+            "%artist% - %title%",
+        )
+
+
+class TestFilenameStart:
+    def test_a_filename_run_configures_the_processor(
+        self, stubbed_dialogs, fake_thread, tmp_path: Path
+    ) -> None:
+        app = _filename_shell("%disc%-%track% %artist% - %title%\n")
+        app.directory.get.return_value = str(tmp_path)
+
+        app.start_scanning()
+
+        assert app.processor.patterns == ("%disc%-%track% %artist% - %title%",)
+        assert app.processor.only_fill_blanks is True
+        fake_thread.start.assert_called_once_with()
+
+    def test_an_empty_pattern_box_does_not_start(
+        self, stubbed_dialogs, fake_thread, tmp_path: Path
+    ) -> None:
+        messagebox, _ = stubbed_dialogs
+        app = _filename_shell("\n  \n")
+        app.directory.get.return_value = str(tmp_path)
+
+        app.start_scanning()
+
+        messagebox.showwarning.assert_called_once()
+        fake_thread.start.assert_not_called()
+        assert app.processor.patterns == ()
+
+    def test_an_invalid_pattern_is_reported_before_scanning(
+        self, stubbed_dialogs, fake_thread, tmp_path: Path
+    ) -> None:
+        messagebox, _ = stubbed_dialogs
+        app = _filename_shell("%artst% - %title%\n")
+        app.directory.get.return_value = str(tmp_path)
+
+        app.start_scanning()
+
+        messagebox.showerror.assert_called_once()
+        assert "artst" in messagebox.showerror.call_args.args[1]
+        fake_thread.start.assert_not_called()
+        assert app.processor.patterns == ()
+
+    def test_the_slash_rule_is_restored_when_the_mode_is_off(
+        self, stubbed_dialogs, fake_thread, tmp_path: Path
+    ) -> None:
+        app = _make_shell_app()
+        app.directory.get.return_value = str(tmp_path)
+        app.processor.use_filename_patterns(("%artist% - %title%",))
+
+        app.start_scanning()
+
+        assert app.processor.patterns == ()
+        fake_thread.start.assert_called_once_with()
+
+
+class TestActionGroupsInTheGui:
+    def test_saving_refuses_an_empty_pattern_box(self, stubbed_dialogs) -> None:
+        messagebox, _ = stubbed_dialogs
+        app = _filename_shell("\n")
+
+        app.save_action_group()
+
+        messagebox.showwarning.assert_called_once()
+
+    def test_saving_stores_the_box_under_the_chosen_name(
+        self, stubbed_dialogs, isolated_config: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app_module = _ui_app_module()
+        simpledialog = MagicMock()
+        simpledialog.askstring.return_value = "Bandcamp"
+        monkeypatch.setattr(app_module, "simpledialog", simpledialog)
+        app = _filename_shell("%track% %artist% - %title%\n")
+
+        app.save_action_group()
+
+        from tag_field_updater.utils import config as action_config
+
+        group = action_config.get_action_group("Bandcamp")
+        assert group is not None
+        assert group.patterns == ("%track% %artist% - %title%",)
+        app.group_combo.__setitem__.assert_called_once()
+
+    def test_loading_fills_the_box_and_checks_the_mode(
+        self, stubbed_dialogs, isolated_config: Path
+    ) -> None:
+        from tag_field_updater.utils import config as action_config
+
+        action_config.save_action_group("Bandcamp", ("%track% %artist% - %title%",))
+        app = _filename_shell()
+        app.action_group.get.return_value = "Bandcamp"
+
+        app.load_action_group()
+
+        app.patterns_text.insert.assert_called_once_with(
+            "1.0", "%track% %artist% - %title%"
+        )
+        app.filename_mode.set.assert_called_once_with(True)
+        app.dry_run.set.assert_called_once_with(True)
+
+    def test_loading_a_group_that_vanished_warns(
+        self, stubbed_dialogs, isolated_config: Path
+    ) -> None:
+        messagebox, _ = stubbed_dialogs
+        app = _filename_shell()
+        app.action_group.get.return_value = "Gone"
+
+        app.load_action_group()
+
+        messagebox.showwarning.assert_called_once()
+        app.patterns_text.insert.assert_not_called()

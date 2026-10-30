@@ -12,6 +12,10 @@ by the snapshots each scan records in the cache (PLAN D38/D40/D41).
 
 Changed in 1.0.1: parses the driver's argv and pre-fills directory, incremental/refresh
 and the CSV/JSON exports.
+Changed in 2.2.0: the Export dialog offers M3U and HTML beside CSV/JSON and
+writes the format the chosen extension names, and a "Camelot column" checkbox
+adds the harmonic-mixing key column to the CSV/HTML exports (functional
+backlog F-05/F-06).
 """
 
 from __future__ import annotations
@@ -37,7 +41,14 @@ from library_stats.core.completeness import (
 )
 from library_stats.library_cache import LibraryCache
 
-from .library_stats import StatsReport, export_csv, export_json, scan_directory
+from .library_stats import (
+    StatsReport,
+    export_csv,
+    export_html,
+    export_json,
+    export_m3u,
+    scan_directory,
+)
 from .utils import cli_args
 
 try:
@@ -212,6 +223,21 @@ class LibraryStatsApp(UIHelperMixin):
             state="disabled",
         )
         self._export_btn.pack(side=tk.LEFT, padx=(5, 0))
+
+        # Camelot column for the CSV/HTML exports (functional backlog F-06).
+        # An export is a file the user keeps, so the choice is a widget rather
+        # than a silent default: the column only appears when ticked.
+        self._camelot_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            top,
+            text="Camelot column",
+            variable=self._camelot_var,
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_APP,
+            fg=styles.FG_MAIN,
+            activebackground=styles.BG_APP,
+            selectcolor=styles.BG_WHITE,
+        ).pack(side=tk.LEFT, padx=(10, 0))
 
         # ── Status bar ───────────────────────────────────────────────────────
         self._status_var = tk.StringVar(
@@ -638,6 +664,8 @@ class LibraryStatsApp(UIHelperMixin):
         filetypes = [
             ("CSV files", "*.csv"),
             ("JSON files", "*.json"),
+            ("M3U playlist", "*.m3u"),
+            ("HTML report", "*.html"),
         ]
         path = filedialog.asksaveasfilename(
             initialdir=suite_config.load_last_directory(),
@@ -648,11 +676,17 @@ class LibraryStatsApp(UIHelperMixin):
         if not path:
             return
 
+        camelot = self._camelot_var.get()
         try:
-            if path.lower().endswith(".json"):
+            lower = path.lower()
+            if lower.endswith(".json"):
                 export_json(report, path)
+            elif lower.endswith((".m3u", ".m3u8")):
+                export_m3u(report.scan_path, path)
+            elif lower.endswith((".html", ".htm")):
+                export_html(report.scan_path, path, camelot=camelot)
             else:
-                export_csv(report, path)
+                export_csv(report, path, camelot=camelot)
             self._status_var.set(f"Exported to {os.path.basename(path)}")
         except (AudioSuiteError, OSError, ValueError) as exc:
             show_error_from_exception(exc, title="Export Error")

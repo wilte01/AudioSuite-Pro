@@ -9,6 +9,37 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+### Added
+
+- **The Tag Field Updater can tag from filenames.** A library whose only
+  metadata is in its file names could not be cleaned in this suite at all; the
+  new source parses a name into tag fields with an ordered list of patterns and
+  writes them (`audiosuite tag-update D:/Music --pattern "%track%. %artist% -
+  %title%"`). Placeholders are the fields the Tag Editor already writes
+  (artist, title, album, album artist, track, disc, year, genre, comment), and a
+  pattern that would split a name ambiguously is refused rather than guessed at:
+  numeric fields match digits only, so `05 - Artist - Title` cannot read the
+  dash as a track. The mode runs as a **dry run** unless `--live` is passed and
+  prints the parsed fields per file, because a wrong split writes tags the file
+  then looks authoritative with. `--only-fill-blanks` (the default) leaves a tag
+  that already carries a value alone; `--overwrite` replaces it. Pattern sets
+  are saved by name as action groups in the shared
+  `audio_suite_config.json`, and a parsed genre still goes through the existing
+  slash rule while an artist such as `AC/DC` does not.
+- **Playlist, HTML and Camelot exports in the Library Statistics Dashboard.**
+  The dashboard already read every tag a playlist needs and could only hand
+  them out as CSV or JSON. `audiosuite stats --export m3u` now writes an
+  extended M3U (an `#EXTM3U` header, one `#EXTINF` line and one absolute
+  forward-slash path per file, in album-then-track order, with `-1` for an
+  unknown duration), `--export html` writes a self-contained page with no
+  external assets, and `--export-columns` picks the columns while `--camelot`
+  adds the harmonic-mixing key code. The CSV export keeps its original columns
+  and order unless a column set is asked for, so existing consumers are
+  unaffected; the GUI's Export dialog gained M3U and HTML beside CSV/JSON and a
+  Camelot column checkbox. Camelot is a pure mapping from the key the Key
+  Detector already wrote, maps both spellings of each enharmonic pair to the
+  same code, and leaves a file with no key empty rather than guessing.
+
 ### Changed
 
 - **The release gate reports its progress while it runs.** A cut is normally

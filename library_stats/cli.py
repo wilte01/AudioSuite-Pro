@@ -12,11 +12,16 @@ exits 1 (PLAN D91).
 Changed in 2.1.0: ``--no-plugin-analysis`` keeps the plugin system's analysis
 contributions out of the report, and ``--json`` publishes their metrics under
 ``plugin_analysis`` / ``plugin_analysis_errors`` (Sprint 7).
+Changed in 2.2.0: ``--export {m3u,csv,html}`` adds the playlist/HTML export
+surface, with ``--export-columns`` and ``--camelot`` (functional backlog
+F-05/F-06).  The export runs before the ``--json`` branch so the two are not
+mutually exclusive.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import os
 import sqlite3
 import time
 from typing import Any
@@ -107,6 +112,30 @@ from library_stats.library_cache import LibraryCache
     default=False,
     help="Skip analysis contributions from enabled plugins.",
 )
+@click.option(
+    "--export",
+    "export_format",
+    type=click.Choice(["m3u", "csv", "html"]),
+    default=None,
+    help="Export the scan as a playlist (m3u), a column-aware CSV, or HTML.",
+)
+@click.option(
+    "--export-path",
+    default=None,
+    type=click.Path(writable=True),
+    help="Destination for --export; defaults to <folder>_library.<ext> in it.",
+)
+@click.option(
+    "--export-columns",
+    default=None,
+    help="Comma-separated columns for --export csv/html (path,artist,title,...).",
+)
+@click.option(
+    "--camelot",
+    is_flag=True,
+    default=False,
+    help="Add a Camelot key column to the CSV/HTML export.",
+)
 def stats(
     directory: str,
     json: bool,
@@ -120,6 +149,10 @@ def stats(
     history_limit: int,
     no_history: bool,
     no_plugin_analysis: bool,
+    export_format: str | None,
+    export_path: str | None,
+    export_columns: str | None,
+    camelot: bool,
 ) -> None:
     """Scan library and show aggregate tag statistics (read-only).
 
@@ -129,6 +162,11 @@ def stats(
 
     Use --export-csv PATH to write per-file metadata as a CSV spreadsheet.
     Use --export-json PATH to write the full StatsReport as a JSON file.
+
+    Use --export {m3u,csv,html} for the playlist/report export surface: an
+    extended M3U a player opens, the same column-aware CSV, or a
+    self-contained HTML page.  --export-columns picks the columns and
+    --camelot adds the harmonic-mixing (Camelot) key column.
 
     Use --completeness to additionally report what percentage of files carry
     each tag.  Add --detail <tag> to list the specific files missing a tag.
@@ -201,6 +239,19 @@ def stats(
         if cache is not None:
             cache.close()
 
+    columns = _parse_columns(export_columns)
+    if export_format is not None:
+        _run_export(
+            report,
+            export_format,
+            export_path,
+            directory=directory,
+            columns=columns,
+            camelot=camelot,
+        )
+    elif camelot:
+        click.echo("  Warning: --camelot applies to --export csv/html only.", err=True)
+
     if json:
         import json as _json
 
@@ -261,7 +312,7 @@ def stats(
 
     if export_csv:
         try:
-            _export_csv(report, export_csv)
+            _export_csv(report, export_csv, columns=columns, camelot=camelot)
             click.echo(f"\n  CSV exported to: {export_csv}", err=True)
         except (AudioSuiteError, OSError, ValueError) as exc:
             click.echo(f"  CSV export failed: {exc}", err=True)
@@ -272,6 +323,93 @@ def stats(
             click.echo(f"\n  JSON exported to: {export_json}", err=True)
         except (OSError, ValueError) as exc:
             click.echo(f"  JSON export failed: {exc}", err=True)
+
+
+def _parse_columns(value: str | None) -> tuple[str, ...] | None:
+    """Split ``--export-columns`` into a column tuple.
+
+    Args:
+        value: Comma-separated column names, or None.
+
+    Returns:
+        The requested names, or None when the flag was not given.
+
+    Raises:
+        click.UsageError: If the flag is given but names nothing, because an
+            empty column set would silently produce an empty spreadsheet.
+    """
+    if value is None:
+        return None
+    names = tuple(part.strip() for part in value.split(",") if part.strip())
+    if not names:
+        raise click.UsageError("--export-columns needs at least one column name.")
+    return names
+
+
+def _default_export_path(directory: str, export_format: str) -> str:
+    """Return the default destination for ``--export``.
+
+    Args:
+        directory: The scanned folder.
+        export_format: ``m3u``, ``csv`` or ``html``.
+
+    Returns:
+        ``<folder>/<folder-name>_library<ext>``, so the artefact sits with the
+        library it describes and is named after it.
+    """
+    root = os.path.normpath(directory)
+    name = os.path.basename(root) or "library"
+    return os.path.join(root, f"{name}_library.{export_format}")
+
+
+def _run_export(
+    report: Any,
+    export_format: str,
+    export_path: str | None,
+    *,
+    directory: str,
+    columns: tuple[str, ...] | None,
+    camelot: bool,
+) -> None:
+    """Write one ``--export`` artefact and report it on stderr.
+
+    Args:
+        report: The completed scan report.
+        export_format: ``m3u``, ``csv`` or ``html``.
+        export_path: Destination, or None for the default name.
+        directory: The scanned folder (used for the default name).
+        columns: Requested CSV/HTML columns, or None for the default set.
+        camelot: Whether to add the Camelot column.
+
+    Raises:
+        click.UsageError: If columns are requested for a playlist export, which
+            has no columns to choose; silently ignoring them would leave the
+            caller believing their selection took effect.
+    """
+    from library_stats.core.playlist_export import export_html, export_m3u
+    from library_stats.library_stats import export_csv as _export_csv
+
+    if export_format == "m3u" and (columns is not None or camelot):
+        raise click.UsageError(
+            "--export-columns/--camelot apply to csv and html exports, not to m3u."
+        )
+
+    destination = export_path or _default_export_path(directory, export_format)
+    try:
+        if export_format == "m3u":
+            count = export_m3u(report.scan_path, destination)
+        elif export_format == "html":
+            count = export_html(
+                report.scan_path, destination, columns=columns, camelot=camelot
+            )
+        else:
+            # The writer's own count, not the scan's total: an unreadable file
+            # is skipped by the export, so quoting the total would overstate it.
+            count = _export_csv(report, destination, columns=columns, camelot=camelot)
+    except (OSError, ValueError) as exc:
+        click.echo(f"  Export failed: {exc}", err=True)
+        return
+    click.echo(f"\n  Exported {count} file(s) to: {destination}", err=True)
 
 
 def _echo_completeness(report: Any, detail: str | None = None) -> None:

@@ -106,6 +106,14 @@ Any mismatch is reported as the assertion message so the test names the fix.
 Changed in 2.1.7: the reference is
 ``documentation/user_guides/reference/CLI_Commands_Reference.md``.
 
+Changed in 2.2.0: ``stats`` gained ``--export``/``--export-path``/
+``--export-columns``/``--camelot`` (backlog F-05/F-06), so the null-default
+phrase table needed the one wording the new ``--export`` bullet uses for
+"no export requested".  The lock is unchanged in what it asserts: a phrase the
+reference states that this table does not know still fails, naming the phrase
+and click's real default, so a new option cannot document its default in words
+the lock cannot read.
+
 """
 
 from __future__ import annotations
@@ -517,6 +525,7 @@ def _documented_commands() -> _Documentation:
 _NULL_DEFAULT_PHRASES: frozenset[str] = frozenset(
     {
         "all",  # --tracks: every track
+        "no export",  # --export: None means the run writes no artefact
         "source dir",  # --output: keeps each file beside its source
         "beside each source file",  # --output-dir
         "alongside the cue sheet",  # -o/--output-dir on cue

@@ -4,6 +4,11 @@ mapping_engine.py — Data types, constants, and value-transformation logic.
 This module owns the pure data layer: result types, statistics accumulator,
 format-agnostic tag mappings, and the slash-replacement utility functions.
 It has zero knowledge of Mutagen or file I/O.
+
+Changed in 2.2.0: ``ProcessingResult`` carries the filename parse (captured
+fields, the pattern that matched, the fields left alone) and
+``transform_filename_value`` routes a parsed value through the existing slash
+rule for the genre field only (functional backlog F-01).
 """
 
 import logging
@@ -25,12 +30,21 @@ class ProcessingResult:
             "already written".
         tags_updated: Names of tag keys that were modified.
         error: Human-readable error string if processing failed, else None.
+        filename_fields: In filename mode, the field values parsed from the
+            name, in the order the pattern named them.  Empty otherwise.
+        filename_pattern: In filename mode, the pattern that matched, or an
+            empty string when none did (the file is then a skip).
+        skipped_fields: In filename mode, fields left alone because they
+            already carried a value and the run only fills blanks.
     """
 
     file_path: Path
     updated: bool = False
     tags_updated: tuple[str, ...] = field(default_factory=tuple)
     error: str | None = None
+    filename_fields: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+    filename_pattern: str = ""
+    skipped_fields: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass
@@ -106,6 +120,31 @@ TAG_MAPPINGS: dict[str, dict[str, list[str]]] = {
         "standard": ["ContentGroupDescription", "Genre"],
     },
 }
+
+
+#: Fields whose filename-parsed value goes through the engine's existing
+#: slash rule.  Only ``genre`` is in the set: the rule exists to turn a genre
+#: list (``Rock/Pop``) into the suite's ``Rock; Pop`` form.  Applying it to an
+#: artist or title would rewrite ``AC/DC`` as ``AC; DC`` — a name mangled by a
+#: fix for a different problem — so those fields carry the parsed text as-is.
+_TRANSFORMED_FILENAME_FIELDS: frozenset[str] = frozenset({"genre"})
+
+
+def transform_filename_value(field: str, value: str) -> str:
+    """Apply the existing value-transformation rule to a filename-parsed value.
+
+    Args:
+        field: Canonical tag field name the value will be written to.
+        value: The value parsed from the filename.
+
+    Returns:
+        The transformed value: :func:`update_value` for the genre field, which
+        is the field the slash rule was written for, and *value* unchanged for
+        every other field.
+    """
+    if field in _TRANSFORMED_FILENAME_FIELDS:
+        return update_value(value)
+    return value
 
 
 def should_update_value(value: str) -> bool:

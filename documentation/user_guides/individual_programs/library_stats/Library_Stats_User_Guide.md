@@ -69,7 +69,39 @@ Each scan records a completeness snapshot in the Library Statistics cache, and t
 
 ## Exports
 
-After a scan, Export lets the GUI save the metadata report as CSV or JSON. The CSV is intended for spreadsheet use; JSON contains the serialized StatsReport, including distributions, missing-data counts, top lists, and scan details. Completeness has separate CSV and JSON export buttons.
+After a scan, Export lets the GUI save the same scan in four shapes, chosen by the file extension you give the dialog. The CSV is intended for spreadsheet use; JSON contains the serialized StatsReport, including distributions, missing-data counts, top lists, and scan details. Completeness has separate CSV and JSON export buttons.
+
+| Format | What it is |
+| --- | --- |
+| CSV | One row per file, for a spreadsheet |
+| JSON | The full StatsReport, for a script |
+| M3U | An extended M3U playlist a player opens |
+| HTML | A self-contained table page, with no external assets |
+
+The **Camelot column** checkbox adds the harmonic-mixing code for each file's key to the CSV and HTML exports.
+
+### Playlists and Playlist Order
+
+An M3U export opens with the `#EXTM3U` header, then one `#EXTINF` line (playing time in seconds and `Artist - Title`) and one path per file. Paths are absolute and use forward slashes on every platform, because some players reject a backslash path. An unknown duration is written as -1 rather than 0.
+
+Files are written in playlist order — album artist, then album, then track number, then filename — not in directory-walk order, so an album does not shuffle. A file with no track number sorts after the numbered files in its album, and a file with no tags at all is still listed by its filename.
+
+### The Camelot Wheel
+
+The Camelot code is a pure mapping from the key the Key Detector already wrote, so nothing extra is analyzed:
+
+| Key | Camelot | Key | Camelot |
+| --- | --- | --- | --- |
+| C | 8B | Am | 8A |
+| Ab | 4B | Fm | 4A |
+| D | 10B | Bm | 10A |
+| Ebm | 2A | F# | 2B |
+
+Both spellings of an enharmonic pair map to the same code (G#/Ab, D#/Eb, A#/Bb), and a file with no key — including one the Key Detector deliberately left untagged — gets an empty code rather than a plausible one.
+
+### Choosing Columns
+
+The command line can choose the columns (`--export-columns path,artist,title,camelot`) and adds the Camelot column with `--camelot`. The CSV export keeps its original columns unless you ask for a set; `--camelot` alone appends one column to that original set rather than replacing it. The M3U export has no columns to choose, and asking for them is an error rather than a silently ignored flag.
 
 ## Command Line
 
@@ -80,9 +112,14 @@ python -m audio_suite_shared.cli_app stats <folder> --incremental --json\
 python -m audio_suite_shared.cli_app stats <folder> --refresh --export-csv report.csv\
 python -m audio_suite_shared.cli_app stats <folder> --completeness --detail bpm\
 python -m audio_suite_shared.cli_app stats <folder> --trend --history-limit 24\
-python -m audio_suite_shared.cli_app stats <folder> --export-json report.json
+python -m audio_suite_shared.cli_app stats <folder> --export-json report.json\
+python -m audio_suite_shared.cli_app stats <folder> --export m3u\
+python -m audio_suite_shared.cli_app stats <folder> --export csv --export-columns path,artist,title,key,camelot\
+python -m audio_suite_shared.cli_app stats <folder> --export html --camelot --export-path report.html
 
-Options include --incremental, --refresh, --export-csv, --export-json, --completeness, --detail title|artist|album|track_number|year|bpm|key|genre|mood|tempo_marking|album_art|replaygain, --trend, --history-limit, --no-history, and --json. The CLI prints aggregate counts, format breakdown, missing-data percentages, optional completeness, and the recorded trend when asked for it.
+Options include --incremental, --refresh, --export-csv, --export-json, --export m3u|csv|html, --export-path, --export-columns, --camelot, --completeness, --detail title|artist|album|track_number|year|bpm|key|genre|mood|tempo_marking|album_art|replaygain, --trend, --history-limit, --no-history, and --json. The CLI prints aggregate counts, format breakdown, missing-data percentages, optional completeness, and the recorded trend when asked for it.
+
+--export writes one artefact per run: the M3U playlist, the column-aware CSV, or the HTML page. Without --export-path it is written inside the scanned folder as <folder-name>_library.<ext>, and the written path is reported. The export runs before the --json branch, so --json and --export can be combined.
 
 ## Troubleshooting
 
@@ -91,6 +128,9 @@ Options include --incremental, --refresh, --export-csv, --export-json, --complet
 - **Counts look stale: **Click Refresh to clear the selected directory's cache and rebuild it from current files.
 - **A tag appears missing: **The dashboard only reports existing readable tags; run the relevant analyzer or tagger first if the field has not been created.
 - **Export is disabled: **Complete a scan before exporting. Empty reports cannot be exported from the GUI.
+- **A playlist is in the wrong order: **Order is album artist, album, track number, then filename. A file with a missing or non-numeric track number sorts after its numbered siblings; tagging the track numbers fixes the order.
+- **A Camelot column is empty: **The file has no key tag, or the Key Detector found none worth tagging. Run the Key Detector first.
+- **An export column is rejected: **Only the documented columns exist. A misspelt name fails with the list rather than producing a file missing the column you asked for.
 
 ## Read-Only Safety
 

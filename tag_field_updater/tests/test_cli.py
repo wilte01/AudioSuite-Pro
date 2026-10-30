@@ -18,6 +18,12 @@ such a test pins whatever the implementation happened not to do.
 Changed in 2.1.4: ``TestExitContract`` pins the R-06 status (PLAN D9) — a run
 that reports a per-file error exits 1 through the real command, a tree with
 nothing to rewrite exits 0, and one unreadable file does not stop the others.
+
+Changed in 2.2.0: ``TestFilenameSource`` covers the filename source end to end
+(F-01) - the dry-run default, an explicit ``--live`` run read back off disk,
+"only fill blanks" versus ``--overwrite``, the no-match skip, a refused pattern,
+and action groups round-tripping through a redirected config.  The documented-
+example parity test now supplies the values the new value-taking flags need.
 """
 
 from __future__ import annotations
@@ -27,14 +33,16 @@ import inspect
 import json
 import re
 import sqlite3
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner, Result
-from mutagen.id3 import ID3, TCON
+from mutagen.id3 import ID3, TCON, TIT2
 from pydub import AudioSegment
 
 from audio_suite_shared.cli_app import cli
+from audio_suite_shared.tag_helper import read_editable_tags
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -282,8 +290,24 @@ class TestDocumentedExampleIsReal:
         )
         assert "audiosuite tag-update /Music --dry" in doc
 
+    #: Documented flags that take a value, with the value the example implies.
+    #: A bare ``--pattern`` is a malformed invocation, so the parity check has
+    #: to run the flag the way the example does.
+    _VALUE_FLAGS: dict[str, tuple[str, ...]] = {
+        "--pattern": ("%artist% - %title%",),
+        "--action-group": ("Doc Example",),
+        # Saving needs patterns to save, so the flag's own value comes first
+        # and the pattern follows it (click reads an option's value from the
+        # next token).
+        "--save-action-group": (
+            "Doc Example",
+            "--pattern",
+            "%artist% - %title%",
+        ),
+    }
+
     def test_every_flag_named_in_the_help_examples_actually_runs(
-        self, song: Path, undo_db: Path
+        self, song: Path, undo_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Executable documentation: each documented example exits 0.
 
@@ -292,8 +316,23 @@ class TestDocumentedExampleIsReal:
         flag that stops resolving fails here even if the docstring is
         reworded, and a docstring that starts advertising a non-flag fails
         the assertion below before it can reach a command.
+
+        Changed in 2.2.0: the block now documents value-taking flags (the
+        filename source), so the harness supplies their value and points the
+        shared config at ``tmp_path`` — running a saved group writes it, and a
+        test must never touch the shipped ``audio_suite_config.json``.
         """
+        from audio_suite_shared import suite_config
         from tag_field_updater import cli as tag_update_cli_module
+        from tag_field_updater.utils import config as action_config
+
+        config_path = tmp_path / "audio_suite_config.json"
+        monkeypatch.setattr(suite_config, "CONFIG_PATH", config_path)
+        monkeypatch.setattr(
+            suite_config, "_LOCK_PATH", config_path.with_suffix(".json.lock")
+        )
+        suite_config._invalidate_cache()
+        action_config.save_action_group("Doc Example", ("%artist% - %title%",))
 
         doc = inspect.getdoc(tag_update_cli_module.tag_update_cli) or ""
         examples = doc.split("Examples:", 1)[1]
@@ -303,10 +342,196 @@ class TestDocumentedExampleIsReal:
             "would pass without exercising any documented invocation"
         )
 
-        for flag in flags:
-            extra = ["--json"] if flag != "--json" else []
-            result = invoke(str(song.parent), flag, *extra)
-            assert result.exit_code == 0, (
-                f"documented example flag {flag} exited "
-                f"{result.exit_code}: {result.output}"
-            )
+        try:
+            for flag in flags:
+                extra = list(self._VALUE_FLAGS.get(flag, ()))
+                if flag != "--json":
+                    extra.append("--json")
+                result = invoke(str(song.parent), flag, *extra)
+                assert result.exit_code == 0, (
+                    f"documented example flag {flag} exited "
+                    f"{result.exit_code}: {result.output}"
+                )
+        finally:
+            suite_config._invalidate_cache()
+
+
+# ---------------------------------------------------------------------------
+# The filename source (F-01)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def isolated_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Generator[Path, None, None]:
+    """Point the shared suite config at *tmp_path*, never the shipped file."""
+    from audio_suite_shared import suite_config
+
+    path = tmp_path / "audio_suite_config.json"
+    monkeypatch.setattr(suite_config, "CONFIG_PATH", path)
+    monkeypatch.setattr(suite_config, "_LOCK_PATH", path.with_suffix(".json.lock"))
+    suite_config._invalidate_cache()
+    yield path
+    suite_config._invalidate_cache()
+
+
+@pytest.fixture()
+def named_song(tmp_path: Path) -> Path:
+    """A real MP3 named ``Artist - Title`` with a title already set."""
+    path = tmp_path / "tagged" / "Parsed Artist - Parsed Title.mp3"
+    path.parent.mkdir()
+    try:
+        AudioSegment.silent(duration=50).export(str(path), format="mp3")
+    except Exception as exc:  # pragma: no cover - host without the encoder
+        pytest.skip(f"this host cannot encode MP3 ({type(exc).__name__})")
+    tags = ID3()
+    tags.add(TIT2(encoding=3, text=["Existing Title"]))
+    tags.save(str(path))
+    return path
+
+
+def stored_tags(path: Path) -> dict[str, object]:
+    """Read the editable fields back off disk through a fresh handler."""
+    return dict(read_editable_tags(str(path)))
+
+
+class TestFilenameSource:
+    """``--pattern`` / ``--action-group`` end to end through the real writer."""
+
+    PATTERN = "%artist% - %title%"
+
+    def test_filename_mode_is_a_dry_run_by_default(
+        self, named_song: Path, undo_db: Path, isolated_config: Path
+    ) -> None:
+        before = digest(named_song)
+
+        result = invoke(str(named_song.parent), "--pattern", self.PATTERN)
+
+        assert result.exit_code == 0, result.output
+        assert digest(named_song) == before
+        assert "defaults to a dry run" in result.output
+        # The parse is printed: a dry run exists to make a mis-parse visible.
+        assert "[PARSED]" in result.output
+        assert "artist='Parsed Artist'" in result.output
+        assert "kept existing: title" in result.output
+
+    def test_an_explicit_live_run_writes_the_parsed_values(
+        self, named_song: Path, undo_db: Path, isolated_config: Path
+    ) -> None:
+        result = invoke(str(named_song.parent), "--pattern", self.PATTERN, "--live")
+
+        assert result.exit_code == 0, result.output
+        stored = stored_tags(named_song)
+        assert stored["artist"] == "Parsed Artist"
+        # "Only fill blanks" is the default, so the existing title survives.
+        assert stored["title"] == "Existing Title"
+
+    def test_overwrite_replaces_an_existing_tag(
+        self, named_song: Path, undo_db: Path, isolated_config: Path
+    ) -> None:
+        result = invoke(
+            str(named_song.parent), "--pattern", self.PATTERN, "--overwrite", "--live"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert stored_tags(named_song)["title"] == "Parsed Title"
+
+    def test_a_file_matching_no_pattern_is_reported_and_left_alone(
+        self, named_song: Path, undo_db: Path, isolated_config: Path
+    ) -> None:
+        before = digest(named_song)
+
+        result = invoke(
+            str(named_song.parent),
+            "--pattern",
+            "%track%. %artist% - %title%",
+            "--live",
+            "--json",
+        )
+
+        assert result.exit_code == 0, result.output
+        assert payload(result)["skipped"] == 1
+        assert digest(named_song) == before
+
+    def test_an_invalid_pattern_is_refused_before_any_write(
+        self, named_song: Path, undo_db: Path, isolated_config: Path
+    ) -> None:
+        before = digest(named_song)
+
+        result = invoke(str(named_song.parent), "--pattern", "Artist - Title", "--live")
+
+        assert result.exit_code != 0
+        assert "names no field" in result.output
+        assert digest(named_song) == before
+
+    def test_an_action_group_round_trips_through_the_shared_config(
+        self, named_song: Path, undo_db: Path, isolated_config: Path
+    ) -> None:
+        saved = invoke(
+            str(named_song.parent),
+            "--pattern",
+            self.PATTERN,
+            "--save-action-group",
+            "Bandcamp",
+            "--dry",
+        )
+        assert saved.exit_code == 0, saved.output
+        assert "Bandcamp" in saved.output
+
+        result = invoke(str(named_song.parent), "--action-group", "Bandcamp", "--live")
+        assert result.exit_code == 0, result.output
+        assert stored_tags(named_song)["artist"] == "Parsed Artist"
+
+    def test_an_unknown_action_group_lists_the_saved_ones(
+        self, named_song: Path, undo_db: Path, isolated_config: Path
+    ) -> None:
+        result = invoke(str(named_song.parent), "--action-group", "Missing")
+
+        assert result.exit_code != 0
+        assert "unknown action group" in result.output
+        assert "none" in result.output
+
+    def test_action_groups_can_be_listed(
+        self, named_song: Path, undo_db: Path, isolated_config: Path
+    ) -> None:
+        from tag_field_updater.utils import config as action_config
+
+        action_config.save_action_group("Bandcamp", (self.PATTERN,))
+
+        result = invoke(str(named_song.parent), "--list-action-groups")
+
+        assert result.exit_code == 0, result.output
+        assert "Saved action groups (1)" in result.output
+        assert self.PATTERN in result.output
+
+    def test_saving_without_patterns_is_refused(
+        self, named_song: Path, undo_db: Path, isolated_config: Path
+    ) -> None:
+        result = invoke(str(named_song.parent), "--save-action-group", "Empty")
+
+        assert result.exit_code != 0
+        assert "nothing to store" in result.output
+
+    def test_explicit_flags_beat_the_saved_group(
+        self, named_song: Path, undo_db: Path, isolated_config: Path
+    ) -> None:
+        """A group is a starting point; what the user typed wins."""
+        from tag_field_updater.utils import config as action_config
+
+        action_config.save_action_group(
+            "Fills", ("%artist% - %title%",), only_fill_blanks=True
+        )
+
+        result = invoke(
+            str(named_song.parent),
+            "--action-group",
+            "Fills",
+            "--pattern",
+            "%artist% - %title%",
+            "--overwrite",
+            "--live",
+        )
+
+        assert result.exit_code == 0, result.output
+        assert stored_tags(named_song)["title"] == "Parsed Title"

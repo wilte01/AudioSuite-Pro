@@ -578,16 +578,23 @@ Scan and update tag fields - by default replacing a bare `/` in a tag value
 with `; ` - and record an undo batch so the whole run can be reverted.
 
 ```bash
-audiosuite tag-update <directory> [--no-plugin-tags] [--dry] [--json]
+audiosuite tag-update <directory> [--no-plugin-tags] [--dry] [--json] [OPTIONS]
 ```
 
 **Options:**
 
 - `--dry` / `--live` — Compute and report the rewrites only, or write them (default: live)
 - `--no-plugin-tags` — skip tag processors contributed by enabled plugins (default: plugins run)
+- `--pattern TEXT` — filename pattern tried in order, repeatable; using one switches to the filename source
+- `--action-group NAME` — load a named pattern set saved in the suite config
+- `--save-action-group NAME` — save this run's patterns under this name
+- `--list-action-groups` — list the saved action groups and exit
+- `--only-fill-blanks` / `--overwrite` — keep a tag that already has a value (default), or replace it
 
 With `--dry` the rewrites are computed and reported but nothing is written: no
-file is saved and no undo record is created.
+file is saved and no undo record is created. With a filename pattern the run is
+a dry run unless `--live` is passed, and it prints the parsed fields for every
+file so a mis-parse is visible before it is written.
 
 **Examples:**
 
@@ -595,6 +602,10 @@ file is saved and no undo record is created.
 audiosuite tag-update "D:\Music" --dry
 audiosuite tag-update "D:\Music" --live
 audiosuite tag-update "D:\Music" --no-plugin-tags --json
+audiosuite tag-update "D:\Music" --pattern "%track%. %artist% - %title%" --dry
+audiosuite tag-update "D:\Music" --pattern "%artist% - %title%" --live
+audiosuite tag-update "D:\Music" --action-group Bandcamp --live
+audiosuite tag-update "D:\Music" --list-action-groups
 ```
 
 ### Silence Trimmer
@@ -687,6 +698,10 @@ audiosuite stats <directory> [--incremental/--full] [--refresh] [OPTIONS]
 - `--refresh` — full re-scan that rebuilds the cache from scratch
 - `--export-csv PATH` — write per-file metadata as a CSV spreadsheet
 - `--export-json PATH` — write the full report as a JSON file
+- `--export [m3u|csv|html]` — export the scan as a playlist, a column-aware CSV, or a self-contained HTML page (default: no export)
+- `--export-path PATH` — where `--export` writes; defaults to `<folder>_library.<ext>` beside the scanned folder
+- `--export-columns NAMES` — comma-separated columns for a csv/html export (path, format, artist, title, album, album_artist, track, disc, year, genre, bpm, key, camelot, mood, tempo_marking, duration)
+- `--camelot` — add the Camelot key column to the CSV/HTML export (appends to the original CSV columns; not valid with m3u)
 - `--completeness` — also report tag completeness for BPM, key, genre, mood, artwork and ReplayGain
 - `--detail [title|artist|album|track_number|year|bpm|key|genre|mood|tempo_marking|album_art|replaygain]` — with `--completeness`, list the files missing the given tag
 - `--trend` — show the recorded completeness trend for this directory
@@ -701,6 +716,9 @@ audiosuite stats "D:\Music" --completeness
 audiosuite stats "D:\Music" --incremental --completeness --detail bpm --json
 audiosuite stats "D:\Music" --trend --history-limit 6
 audiosuite stats "D:\Music" --export-csv "D:\Reports\library.csv" --json
+audiosuite stats "D:\Music" --export m3u --export-path "D:\Music\mix.m3u"
+audiosuite stats "D:\Music" --export csv --export-columns path,artist,title,camelot
+audiosuite stats "D:\Music" --export html --camelot
 ```
 
 ### Spectral Viewer

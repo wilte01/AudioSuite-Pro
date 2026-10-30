@@ -20,6 +20,9 @@ loudly instead of silently taking the fallback branch.
 Changed in 1.3.0: adds the real chart-rendering locks and makes the cache-scan
 test build its scan on the main thread (a real worker thread calling
 ``root.after`` is a race, not a scenario the suite controls).
+Changed in 2.2.0: the export failure stub takes ``export_csv``'s new
+keyword-only ``camelot`` argument, because the GUI now passes the Camelot
+checkbox through (functional backlog F-05/F-06).
 
 Changed in 1.4.0: the scan and export fixtures patch the tag-handler factory,
 so the real single-pass ``_read_file_tags`` read stays in the loop, and a
@@ -623,7 +626,11 @@ class TestExport:
         show_error = MagicMock()
         monkeypatch.setattr(app_module, "show_error_from_exception", show_error)
 
-        def _export_error(report: StatsReport, path: str) -> None:
+        def _export_error(
+            report: StatsReport, path: str, *, camelot: bool = False
+        ) -> None:
+            # Mirrors export_csv's keyword-only form: the GUI now passes the
+            # Camelot checkbox through, so a stub without it cannot stand in.
             raise OSError("cannot find scan path")
 
         monkeypatch.setattr(app_module, "export_csv", _export_error)
@@ -638,6 +645,55 @@ class TestExport:
         assert not out.exists()
         messagebox.showwarning.assert_not_called()  # valid report, write attempted
         show_error.assert_called_once()
+
+    def test_playlist_export_dispatches_on_the_extension(
+        self,
+        app: app_module.LibraryStatsApp,
+        stubbed_dialogs: tuple[MagicMock, MagicMock],
+        engine_report: StatsReport,
+        export_reads: None,
+        tmp_path: Path,
+    ) -> None:
+        """A ``.m3u`` target writes a playlist, not a CSV with a new name.
+
+        The dialog's filetypes are only a hint: the user can type any name, so
+        the extension is what selects the writer.  Without this, choosing
+        "M3U playlist" and then editing the name would silently produce CSV.
+        """
+        filedialog = stubbed_dialogs[1]
+        app._report = engine_report
+        out = tmp_path / "list.m3u"
+        filedialog.asksaveasfilename.return_value = str(out)
+
+        app._export()
+
+        page = out.read_text(encoding="utf-8")
+        assert page.startswith("#EXTM3U"), page[:80]
+        assert page.count("\n") >= 2, "header plus one line per scanned file"
+        assert "a.mp3" in page and "b.mp3" in page
+        assert app._status_var.get() == "Exported to list.m3u"
+
+    def test_html_export_takes_the_camelot_checkbox(
+        self,
+        app: app_module.LibraryStatsApp,
+        stubbed_dialogs: tuple[MagicMock, MagicMock],
+        engine_report: StatsReport,
+        export_reads: None,
+        tmp_path: Path,
+    ) -> None:
+        """The Camelot column follows the checkbox, in both directions."""
+        filedialog = stubbed_dialogs[1]
+        app._report = engine_report
+        plain = tmp_path / "plain.html"
+        wheel = tmp_path / "wheel.html"
+        filedialog.asksaveasfilename.side_effect = [str(plain), str(wheel)]
+
+        app._export()
+        app._camelot_var.set(True)
+        app._export()
+
+        assert "<th>camelot</th>" not in plain.read_text(encoding="utf-8")
+        assert "<th>camelot</th>" in wheel.read_text(encoding="utf-8")
 
     def test_cancelled_export_writes_nothing(
         self,
