@@ -1,15 +1,16 @@
-# PLAN — functional backlog (B2, A1, F-01, F-02, F-05/F-06, F-09, F-08, F-10, U1, U2)
+# PLAN — functional backlog (B2, A1, F-01, F-02, F-05/F-06, F-09, F-08, F-10, U1, U2, U3, U4, U5)
 
 **Status:** **Waves 1 and 2 complete** — Wave 1: F-10 `5d4ab22`, F-09 `6642d41`,
 B2 `8890b73`, A1 `c6f54dc` and the guide sweep `6a4be7a`; Wave 2: F-01 and
 F-05/F-06 in `da30298`, released as **2.2.0** (`00238e1`), pushed at
 `3a32185` with the floor leg green (CI run `41060921137`). See §6. Wave 3
-remains `[ ]` planned and unstarted. The maintenance cycle's three items are
-**complete** and ride **2.2.1**: **U1** (the Tag Field Updater window, D28),
-**U2** (the change history split by audience, D29) and **U3** (that window's
-Run Controls strip and driver handshake, D33) and **U4** (conformance to the
-shared scaffold, its browse dialog and its run report, D34), with the gate and
-item evidence recorded in §6.
+remains `[ ]` planned and unstarted. The maintenance cycle's **five** items are
+**complete** and **released as 2.2.1** (`05edc6d`): **U1** (the Tag Field
+Updater window, D28), **U2** (the change history split by audience, D29),
+**U3** (that window's Run Controls strip and driver handshake, D33), **U4**
+(conformance to the shared scaffold, its browse dialog and its run report,
+D34) and **U5** (the Tag Editor window to the same standard, D35), with the
+gate and item evidence recorded in §6.
 **Base state:** `main` at `9790778`, with `v2.1.6` published at `0556069`.
 The suite is green (11 236 passed locally; the floor leg 11 235 passed, 4 skipped
 on the runner, runs `40874653524` and `40878665883`), the dependency audit
@@ -1204,6 +1205,38 @@ Item evidence:
   carried no `Changed in 2.2.1` note, which `tests/test_release_notes.py` flagged
   once the full suite ran; the note was added and the lock re-run green. Two
   unused imports in the rewritten `test_app.py` were caught by `ruff check .`.
+
+**Release — the 2.2.1 cut.** Commit `05edc6d` ("Cut 2.2.1") on `main`, produced
+by `utilities/release.py 2.2.1 --date 2026-10-30` and not assembled by hand:
+`pyproject.toml` and `uv.lock` at 2.2.1, `[Unreleased]` reopened with "Nothing
+yet." in both change-history files, the promoted `## [2.2.1] - 2026-10-30`
+sections, and the seven version-labelled guides re-rendered. The gate below is
+that run, on the bumped tree.
+
+| Check | Result |
+|---|---|
+| compile | `compileall` over the tracked files, exit 0. |
+| ruff | `ruff check .` clean; `ruff format --check .` clean. |
+| mypy | bare `mypy .` — no issues in 561 source files. |
+| bandit | 0 High / 0 Medium, 41 Low (the documented `run_secure_subprocess` sites). |
+| pytest | bare `pytest` — **11 561 passed, 3 skipped, 35 deselected** in 17:09, exit 0. |
+
+- **The first cut the audience split ran through.** `TECHNICAL_CHANGELOG.md` was
+  promoted in the same run and took its own `## [2.2.1]` heading, holding the two
+  scaffold bullets that would have made the user file five bullets long before
+  D29 — so this release is the split's own evidence, not only its description.
+- **The seven regenerated guides** were compared by zip entry against `HEAD`:
+  identical entry sets, and only `word/document.xml` differing — the subtitle
+  "Version 2.2.0 — October 2026" becoming "Version 2.2.1 — October 2026" in
+  each. No external-tool drift, so all seven are kept as rendered.
+- **The section's four bullets** are the two windows' behaviour (D28/D33/D34 for
+  the Tag Field Updater, D35 for the Tag Editor), which is what `CHANGELOG.md`
+  records by subject; the two developer-facing statements behind them are the
+  technical file's.
+- **Tag:** `v2.2.1` follows the shape `v2.1.7` and `v2.2.0` set — annotated on
+  the record commit that follows `05edc6d`, not on the cut itself. It is **not
+  created yet**: the tag and the push are the next step, and this line records
+  what that tag is meant to point at.
 
 ---
 
