@@ -1,4 +1,10 @@
-"""Tests for tag_editor.core.processor."""
+"""Tests for tag_editor.core.processor.
+
+Changed in 2.2.1: covers the processor's ``run_*`` entry points and the
+cooperative stop (maintenance item U5) — the load walk's per-file progress and
+skipped/error counts, the apply run's per-file counting and per-edit report
+lines, and a stop that ends the walk after the file it is reading.
+"""
 
 from __future__ import annotations
 
@@ -441,3 +447,201 @@ class TestRealAudioRoundTrip:
         processor.apply_bulk([row], "Normalize Slashes (TXXX Rule)", "Genre")
         audio = MP3(str(mp3_file))
         assert str(audio.tags["TCON"].text[0]) == "Rock; Pop"
+
+
+class TestRunScan:
+    """The load walk's ``run_*`` entry point owns the three GUI callbacks."""
+
+    def test_progress_counts_every_visited_file(self, tmp_path: Path) -> None:
+        from tag_editor.core.processor import run_scan
+
+        (tmp_path / "a.mp3").touch()
+        (tmp_path / "notes.txt").touch()
+        progress: list[dict[str, object]] = []
+        complete: list[dict[str, object]] = []
+
+        with patch("tag_editor.core.processor.read_editable_tags", return_value={}):
+            run_scan(
+                str(tmp_path),
+                on_progress=lambda **kw: progress.append(kw),
+                on_complete=lambda **kw: complete.append(kw),
+                on_error=lambda message: pytest.fail(message),
+            )
+
+        assert [p["processed"] for p in progress] == [1, 2]
+        assert progress[-1]["skipped"] == 1
+        assert progress[-1]["display_text"] == "notes.txt (unsupported format)"
+        assert complete[0]["total"] == 2
+        assert len(complete[0]["rows"]) == 1
+
+    def test_an_unreadable_file_is_an_error_row(self, tmp_path: Path) -> None:
+        from tag_editor.core.processor import run_scan
+
+        (tmp_path / "broken.mp3").touch()
+        complete: list[dict[str, object]] = []
+
+        with patch(
+            "tag_editor.core.processor.read_editable_tags",
+            side_effect=AudioSuiteError("cannot read"),
+        ):
+            run_scan(
+                str(tmp_path),
+                on_progress=lambda **kw: None,
+                on_complete=lambda **kw: complete.append(kw),
+                on_error=lambda message: pytest.fail(message),
+            )
+
+        rows = complete[0]["rows"]
+        assert isinstance(rows, list)
+        assert rows[0].error is not None
+        assert complete[0]["errors"] == 1
+
+    def test_a_missing_directory_is_reported_once(self, tmp_path: Path) -> None:
+        from tag_editor.core.processor import run_scan
+
+        errors: list[str] = []
+        run_scan(
+            str(tmp_path / "missing"),
+            on_progress=lambda **kw: None,
+            on_complete=lambda **kw: pytest.fail("the walk cannot complete"),
+            on_error=errors.append,
+        )
+
+        assert len(errors) == 1
+        assert errors[0]
+
+
+class TestRunApply:
+    """Each apply run reports per file and logs per edit."""
+
+    def test_dry_run_logs_would_write_lines(self, tmp_path: Path) -> None:
+        from tag_editor.core.processor import run_apply
+
+        path = tmp_path / "a.mp3"
+        path.touch()
+        complete: list[dict[str, object]] = []
+        with patch(
+            "tag_editor.core.processor.read_editable_tags",
+            return_value={"title": "Old"},
+        ):
+            run_apply(
+                [FieldEdit(path, "title", "New")],
+                is_dry_run=True,
+                on_progress=lambda **kw: None,
+                on_complete=lambda **kw: complete.append(kw),
+                on_error=lambda message: pytest.fail(message),
+            )
+
+        assert complete[0]["total"] == 1
+        assert complete[0]["changed"] == 1
+        assert complete[0]["written"] == 0
+        assert complete[0]["log_entries"] == [
+            "[WOULD WRITE] a.mp3: title 'Old' -> 'New'\n"
+        ]
+
+    def test_unchanged_edits_are_skipped_not_errors(self, tmp_path: Path) -> None:
+        from tag_editor.core.processor import run_apply
+
+        path = tmp_path / "a.mp3"
+        path.touch()
+        complete: list[dict[str, object]] = []
+        with patch(
+            "tag_editor.core.processor.read_editable_tags",
+            return_value={"title": "Same"},
+        ):
+            run_apply(
+                [FieldEdit(path, "title", "Same")],
+                is_dry_run=True,
+                on_progress=lambda **kw: None,
+                on_complete=lambda **kw: complete.append(kw),
+                on_error=lambda message: pytest.fail(message),
+            )
+
+        assert complete[0]["skipped"] == 1
+        assert complete[0]["errors"] == 0
+        assert complete[0]["changed"] == 0
+        assert complete[0]["log_entries"] == [
+            "[UNCHANGED] a.mp3: title is already 'Same'\n"
+        ]
+
+    def test_counts_are_per_file_not_per_edit(self, tmp_path: Path) -> None:
+        from tag_editor.core.processor import run_apply
+
+        first = tmp_path / "a.mp3"
+        second = tmp_path / "b.mp3"
+        first.touch()
+        second.touch()
+        progress: list[dict[str, object]] = []
+        with patch(
+            "tag_editor.core.processor.read_editable_tags",
+            return_value={"title": "Old", "artist": "Old"},
+        ):
+            run_apply(
+                [
+                    FieldEdit(first, "title", "New"),
+                    FieldEdit(first, "artist", "New"),
+                    FieldEdit(second, "title", "New"),
+                ],
+                is_dry_run=True,
+                on_progress=lambda **kw: progress.append(kw),
+                on_complete=lambda **kw: None,
+                on_error=lambda message: pytest.fail(message),
+            )
+
+        assert [p["processed"] for p in progress] == [1, 2]
+        assert progress[0]["total"] == 2
+        assert progress[0]["display_text"].startswith("a.mp3: would write title")
+
+    def test_a_failed_write_is_counted_and_logged(self, tmp_path: Path) -> None:
+        from tag_editor.core.processor import run_apply
+
+        path = tmp_path / "a.mp3"
+        path.touch()
+        complete: list[dict[str, object]] = []
+        with (
+            patch(
+                "tag_editor.core.processor.read_editable_tags",
+                return_value={"title": "Old"},
+            ),
+            patch(
+                "tag_editor.core.processor.write_editable_tag",
+                side_effect=OSError("disk full"),
+            ),
+        ):
+            run_apply(
+                [FieldEdit(path, "title", "New")],
+                is_dry_run=False,
+                on_progress=lambda **kw: None,
+                on_complete=lambda **kw: complete.append(kw),
+                on_error=lambda message: pytest.fail(message),
+            )
+
+        assert complete[0]["errors"] == 1
+        line = complete[0]["log_entries"][0]
+        assert isinstance(line, str)
+        assert line.startswith("[FAILED]")
+
+
+class TestStop:
+    def test_stop_ends_the_walk_after_the_current_file(self, tmp_path: Path) -> None:
+        (tmp_path / "a.mp3").touch()
+        (tmp_path / "b.mp3").touch()
+        processor = TagEditorProcessor()
+
+        def _stop(_filename: str, _loaded: int) -> None:
+            processor.stop()
+
+        with patch("tag_editor.core.processor.read_editable_tags", return_value={}):
+            rows = processor.scan_directory(tmp_path, progress_callback=_stop)
+
+        assert len(rows) == 1
+
+    def test_a_new_scan_clears_a_previous_stop(self, tmp_path: Path) -> None:
+        (tmp_path / "a.mp3").touch()
+        processor = TagEditorProcessor()
+        processor.stop()
+
+        with patch("tag_editor.core.processor.read_editable_tags", return_value={}):
+            rows = processor.scan_directory(tmp_path)
+
+        assert len(rows) == 1

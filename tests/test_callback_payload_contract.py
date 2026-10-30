@@ -45,6 +45,9 @@ Changed in 2.2.1: registers ``tag_field_updater``, which now starts its run
 through ``processor.run_scan`` with the three shared callbacks (maintenance item
 U4).  It was the one folder tool whose window drove the scan itself, so it had
 no completion seam to check.
+
+Changed in 2.2.1: registers ``tag_editor``, which now starts its load walk and
+every apply run through ``run_scan`` / ``run_apply`` (maintenance item U5).
 """
 
 from __future__ import annotations
@@ -97,6 +100,7 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
         ("replaygain_analyzer/app.py", "ReplayGainAnalyzerApp"),
         ("silence_trimmer/app.py", "SilenceTrimmerApp"),
         ("stem_separator/app.py", "StemSeparatorApp"),
+        ("tag_editor/ui/app.py", "TagEditorApp"),
         ("tag_field_updater/ui/app.py", "TagFieldUpdaterApp"),
         ("tempo_analyzer/app.py", "TempoAnalyzerApp"),
     }

@@ -4,9 +4,12 @@
 B2 `8890b73`, A1 `c6f54dc` and the guide sweep `6a4be7a`; Wave 2: F-01 and
 F-05/F-06 in `da30298`, released as **2.2.0** (`00238e1`), pushed at
 `3a32185` with the floor leg green (CI run `41060921137`). See §6. Wave 3
-remains `[ ]` planned and unstarted, and the maintenance items **U1** (the Tag
-Field Updater window) and **U2** (the changelog split by audience) are `[ ]`
-queued for the next maintenance cycle.
+remains `[ ]` planned and unstarted. The maintenance cycle's three items are
+**complete** and ride **2.2.1**: **U1** (the Tag Field Updater window, D28),
+**U2** (the change history split by audience, D29) and **U3** (that window's
+Run Controls strip and driver handshake, D33) and **U4** (conformance to the
+shared scaffold, its browse dialog and its run report, D34), with the gate and
+item evidence recorded in §6.
 **Base state:** `main` at `9790778`, with `v2.1.6` published at `0556069`.
 The suite is green (11 236 passed locally; the floor leg 11 235 passed, 4 skipped
 on the runner, runs `40874653524` and `40878665883`), the dependency audit
@@ -99,6 +102,13 @@ discovered.
 | D25 | **F-05/F-06 is one export surface on the existing scan, and its CSV is additive.** | DECIDED | `--export {m3u,csv,html}` plus `--export-path`, `--export-columns` and `--camelot`, all served by `library_stats/core/playlist_export.py`; `--export-csv`/`--export-json` keep working. `export_csv` **without** a column set still writes the original ten columns in the original order — pinned by `test_default_columns_are_unchanged` — and `--camelot` alone *appends* one column to that set rather than switching formats, which is what "the new columns are additive" has to mean for an existing consumer. Camelot maps major and minor separately over every emitted spelling and both enharmonics, passes an already-Camelot value through, and leaves `UNKNOWN_KEY` empty rather than inventing a wheel position. Playlist order is album artist → album → track → filename (a walk order shuffles an album; a missing track number sorts last because "unknown" is not "track 0"), paths are absolute with forward slashes on every host, and an unknown duration is `-1`. The HTML page is self-contained and escapes every cell. `--export-columns`/`--camelot` with `m3u` is a usage error rather than a silently ignored flag. The reader's `"Unknown"` sentinel is rendered as an empty *export* cell only — the aggregates keep the bucket they have always counted. |
 | D26 | **The Tag Field Updater window's divergence from the suite layout is a queued maintenance item (U1), not part of Wave 2.** | QUEUED (user, 2026-10-30) | Wave 2 changes what the tool *does*; its window has not been revisited since 1.0.1 except for the filename section F-01 just added, so a layout rebuild shipped beside that change would be reviewed as part of it. Recorded now because the gap is invisible to the gate: nothing asserts a window's shape, `BaseSuiteApp` accepts an empty `help_guide` silently (the inherited `_open_help()` simply returns), and the guide's *Using the GUI* section describes the flat layout as though it were the design. Evidence: `tag_field_updater/ui/app.py` references `styles.` zero times and `ttk.Notebook` zero times, while `ui_common.build_processing_tab`/`build_results_tab` and the `AnalysisAppBase`/`NoisePopToolApp` scaffolds supply both to every peer; `root.rowconfigure`/`columnconfigure` are absent, so the 850×950 default window cannot reflow and the content stays pinned top-left. The item carries the guide rewrite with it, because that section describes the layout being replaced panel by panel. |
 | D27 | **Wave 2 ships as 2.2.0, and the cut is the release script's own run rather than a hand-edited bump.** | DECIDED (user, 2026-10-30) | Settles D10: both Wave 2 items add capability, and neither changes a tag format nor an output extension the suite already writes (D11), so a minor is the honest label; D22's gate-progress fix rides the same section as a *Changed* bullet because it landed after the 2.1.7 tag. `utilities/release.py 2.2.0 --date 2026-10-30` did the work: bumped `pyproject.toml`, re-locked `uv.lock` and read 2.2.0 back out of it, promoted `[Unreleased]` to `## [2.2.0] - 2026-10-30` and reopened it with "Nothing yet.", then regenerated the seven version-labelled guides. Those seven were judged the way the rule requires - identical zip entry sets, only `word/document.xml` differing, and its paragraph text moving from "Version 2.1.7 — October 2026" to "Version 2.2.0 — October 2026": a subtitle, not external-editor drift, so all seven ship as rendered. The script's gate on the bumped tree found 11 485 passed, 3 skipped, exit 0, coverage 91.08% - the same count as the pre-cut run, so the bump changed no test's outcome. |
+| D28 | **U1 rebuilt the window on the shared pieces, and the guide's GUI section with it.** | DECIDED | The trap the item named was kept: `_on_filename_mode_toggled` is still the **only** place that checks Dry Run, so a setup/processing split cannot turn the default into a coin toss. The window is now a palette Help bar plus a three-tab notebook built by `ui_common.build_processing_tab` / `build_results_tab`, and `HELP_GUIDE` reaches `BaseSuiteApp`, so the inherited `_open_help` opens the guide `guide_to_program` maps. Rebuilding the result surface retired four Tk variables bound to no widget (`current_file`, `processed_count`, `updated_count`, `error_count`) in favour of the shared status line, stats label and per-file list; the completion summary moved from a modal to the Results tab, still naming the skipped and failed files, and `_record_run_note` still runs before any Tk update so the driver note cannot depend on a widget. The progress bar needed a total the scan does not publish, so `_count_audio_files` counts supported files first — a metadata-only second walk, cheap next to tagging, and no progress bar at all would have left the item's "no completion state" in place. `_log_path` now names this program's log (one literal, `PROGRAM_LOG_NAME`, with `PROGRAM_NAME` derived from it) so View Log opens something, and `_out_dir` is the folder scanned so Open Folder is not `Target folder not available`. The rules panel is the field list plus a pointer at the guide, which already carries those rules; the guide's *Using the GUI* section was rewritten tab by tab and re-rendered. Evidence: `TestSharedLayout` (three tabs, shared widgets, the Help button opening the registered guide, the entry and pattern box expanding and the box scrolling), the unchanged `TestFilenameModeDefaultsToDry`, and `tests/test_guide_claims.py`, which found `tag_field_updater.log` documented but never written until the name became a code literal. |
+| D29 | **U2 splits the change history by audience, and the boundary is a lock rather than taste.** | DECIDED | The 227 bullets in 18 released sections were reclassified by **subject**, not wording: 169 stay in `CHANGELOG.md` (a tool's behaviour, a flag or default, a supported format, an error message, a workflow step, a measured speed or size difference, or a released document's content) and 58 move to `TECHNICAL_CHANGELOG.md` (the gate, CI, tests, tooling, behaviour-neutral refactors, dependency bumps and documentation tooling). The move was scripted, not retyped, so no sentence differs; the three cross-references that pointed at a moved bullet now name the file it lives in. Two bullets that genuinely mixed the audiences were **split rather than moved**: the ML extra's lead-in states the opt-in install a user sees while the `real_ml` marker detail became a technical bullet, and the BPM noise guard now opens on its user outcome ("no longer refuses genuine music as noise") with the calibration below it. `tests/test_changelog_format.py` parameterises the existing format lock over both files and adds `TestChangelogAudience`: a bullet's bold lead-in may not use a developer stem (test, pytest, gate, workflow, ruff, mypy, coverage, benchmark, lint) or `CI`, with one reason-carrying allowlist entry — Audio Refinery's *integrity gate*, which is a stage name and not the release gate. The lock is proved able to fail by a **test** that feeds it the two bullets the split exists for (2.2.0's release-gate bullet and 2.1.7's Refinery-tests bullet), not by a one-off run. `utilities/release.py` promotes both files in one cut and treats the technical one as optional (`promote_changelog(..., require_entries=False)`), so a release with no developer-facing change adds no heading there instead of failing the cut, while `CHANGELOG.md` still refuses an empty section. Both files are staged by `utilities/build_docs_site.py` so `documentation/docs/index.md`'s link resolves in the published artifact, and the mapping rule lives in `AGENTS.md`, *Change History Follows Its Audience*. |
+| D30 | **The U1 review found the progress bar measured two different things, and the unit was fixed at the denominator.** | DECIDED (review, 2026-10-30) | D28 sized the bar with `_count_audio_files`, which counted only the extensions `TagProcessor` supports, while the value fed to it was `ProcessingStats.processed_files` — incremented for **every** file the walk visits, including the ones `process_file` skips for an unsupported extension. A folder holding cover art, notes or cue files beside a few tracks therefore read as complete while most of it was still unvisited, and the bar could not report the run's own count. The count is now `_count_scanned_files`: every file the walk will visit, the same unit the scan reports. `test_the_total_is_the_unit_the_scan_counts` pins the two numbers to each other on a real walk (2 audio + 2 non-audio files, `total == processed_files == 4`), which the old count would have failed 4 ≠ 2; the guide's Processing-tab sentence now names files rather than supported audio files and its `.docx` was re-rendered. Evidence: `tag_field_updater/tests/test_app.py` (277 passed for the package), `build_user_guides.py --check` 32/32 current, bare `ruff check .`/`ruff format --check .` and bare `mypy .` clean. |
+| D31 | **The U1 review's remaining gaps are design work, and U1 is not closed by them.** | RECORDED (review, 2026-10-30) | Read against the suite rather than by impression, the rebuilt window still differs from its peers in one structural place and three smaller ones, and none is a defect, so this pass neither fixes them nor restates U1 as done. **(a) No Run Controls strip.** `DriverControlsPanel` is on 18 of the 19 tools the basesetupframe refactor counted, `cd_ripper` being the last (`PLAN_basesetupframe_refactor.md` Phase 0); Tag Field Updater was never in that count, which is the gap, and it instead hand-builds `path_row` plus a Dry Run checkbox, so the driver's mode is shown as a different control, the orchestration states are invisible, and `set_driven(True)` never runs — a driven run leaves the directory and mode editable while the batch blocks on this window's exit (`BatchOrchestrator._launch_standalone` → `process.wait()`). **(b) The driver's start/end flags are accepted and ignored.** `utils/cli_args.py` parses `--start/--no-start/--end/--no-end`, `master_driver/runner/arg_builder.py` never emits them for this tool (`["tag_field_updater"]` is `[path, mode_flag]`), and `main()` auto-starts whenever it has a directory and never sets `auto_end`, so the Utility tab's Auto Start is not honoured and Auto End cannot close the window (peers do `root.after(2000, root.destroy)`). **(c) Setup-tab conventions.** It is not a `BaseSetupFrame` (or the peer `SetupTab` shape): accent-coloured title against the suite's `FG_MAIN`, a mid-tab Start beside Stop rather than the full-width `height=2` primary button, no `Configuration` group, and a bespoke action-group row with `ttk.Button`/`simpledialog` instead of the shared preset row and `save_preset_dialog`. **(d) Browse is the raw dialog.** `browse_directory()` calls `filedialog.askdirectory()` directly, so no initial directory, no `load_last_directory()` restore and no `save_last_directory()`, unlike `UIHelperMixin._browse_folder_standard`. Also recorded: the worker thread calls `root.after` from a raw `threading.Thread`, which `AGENTS.md` (*GUI Callback Contract*) prohibits; the app is outside the shared `run_*` callback contract (`tests/test_callback_payload_contract.py` does not list it), so no lock would catch a payload drift, and `self.stats`/`self.scanning` are dead state. Evidence: `audio_suite_shared/ui_driver_controls.py`, `audio_suite_shared/ui_common.py` (`BaseSetupFrame`), `metadata_scrubber/ui/setup_tab.py` (nearest peer), `master_driver/runner/arg_builder.py` (`tag_field_updater`/`tag_editor`), `master_driver/batch_orchestrator.py::_launch_standalone`, `documentation/user_guides/individual_programs/tag_field_updater/Tag_Field_Updater_User_Guide.md` (Quick Start still names Browse...; *Using the GUI* has no Run Controls paragraph because there is no strip). |
+| D33 | **U3 adopts the Run Controls strip and makes the driver's start/end flags real, with the strip's Mode as the only dry/live writer.** | DECIDED (user, 2026-10-30) | Supersedes D31 (a) and (b) and the Setup-tab half of (c); D31 (d) still stands. The tab is now a `_SetupFrame(BaseSetupFrame)`, so the title, the source row, the Mode combobox, the inert Clear Logs/Parallel display and the full-width start button come from the same code every peer uses. `dry_run` was a second variable for the same decision, so it is gone: `run_mode` ("Dry Run"/"Live Update", the driver's own strings) is the single value, the mode combobox is its only widget, and `_on_filename_mode_toggled` remains the only place that forces Dry Run — `main()`'s argv pre-fill writes the mode the driver passed, which is not a second rule. `driver_locked` is `was_launched_from_driver()` when argv was parsed, so a driven window's source/Mode/Browse are disabled and the run uses the arguments the driver sent. The flags were already parsed and never used, so the strip would have been a display that lied: `arg_builder.py` now emits `[path, mode_flag, start_flag, end_flag]` (the Utility tab's Auto Start/Auto End), `main()` starts only when `--start` was passed, and `finish_scanning` closes the window with `after(2000, destroy)` when `--end` is set — the batch's `_launch_standalone` blocks on this process, so that is the difference between an unattended batch completing and waiting forever. The window now opens in Dry Run, matching the strip's first mode and every peer, instead of standalone live. Evidence: `TestRunControlsStrip` (real window: `DriverControlsPanel`, mode values, shared source var, standalone editable, driven locked), `TestDriverHandshake` (argv fills the strip; `--start` starts once, `--no-start` starts nothing), `test_auto_end_closes_the_window`, `TestFilenameModeDefaultsToDry` (the dry rule, unchanged in intent, now on the mode value), and `test_runner`'s two new flag pairs. Guide's Quick Start and Setup sections rewritten, `.docx` re-rendered. |
+| D34 | **U4 conforms the Tag Field Updater to the shared scaffold, and the run leaves a report in the scanned folder.** | DECIDED (user, 2026-10-30) | Supersedes D31 (d) and closes D31's callback-contract note: U3 made the strip real but left every other seam the tool's own, and the gap the user saw was the run log — peers write `<prefix>_dry_run_log.txt` / `<prefix>_sync_log.txt` into the folder they scanned and View Log opens it, while this tool wrote no per-file record at all, so the detail existed only in `logs/tag_field_updater.log` and the Results tab pointed there. The window is now an `AnalysisTagToolApp` with `ui/setup_tab.py` / `ui/processing_tab.py` / `ui/results_tab.py` (the layout 25 of 30 packages use), the browse button is `_browse_folder` (initial directory from the field, `save_last_directory`, restore on launch), and `cli_args.parse` reads the positional handshake (`mode_idx=2, start_idx=3, end_idx=4` — this enrich tool's `[path, mode, start, end]` prefix, the slots `album_genre_tagger` reads) instead of scanning tokens, so a shifted argv fails like its peers instead of reading as `--dry`. The scan starts through `core.processor.run_scan`, the `run_*` entry point taking the three callbacks, which sizes the progress bar from the file count, builds the per-file lines (`[UPDATED]` / `[WOULD UPDATE]` / `[UNCHANGED]` / `[SKIP]` / `[NO MATCH]` / `[ERROR]`) and publishes `updated` / `audio_files` beside the shared counters; the shared completion handler writes the report to `tag_field_updater_dry_run_log.txt` or `tag_field_updater_sync_log.txt` in the scanned folder and View Log opens that path. Three deliberate deviations. (1) The completion handler is `_finish_run`, not an override of `_on_complete`, because this tool's payload carries two counts the base never learns and a required field added to the supertype's signature is a type error — the wiring lambda binds it and the cross-tool locks still resolve it; (2) `main()` applies the handshake only when `argv[2]` holds a driver mode token, so any other argv (a test runner's) is not validated as a folder and exited 1. (3) The strip's preset row is not wired: action groups (F-01) already are this tool's saved settings — a pattern list plus its write mode in `audio_suite_config.json` — so a second saved-settings row would duplicate the concept rather than adopt the convention. D31 (c)'s remaining point stands on that one row and nothing else: the action-group widgets are still the tool's own row, beside the shared skeleton rather than inside a preset row. The tool is now registered in `tests/test_callback_payload_contract.py` (`EXPECTED_TOOLS`), `tests/test_completion_seam.py` (`EXPECTED_REQUIRED`) and `tests/test_completion_payload_published.py` (`EXPECTED_PUBLISHERS`); `tests/test_pyw_launchers.py::_run_launcher` now purges cached tool modules and lands its stub on the module the launcher statically imports, because the payload locks import every GUI app in-process and the cached `tag_field_updater.ui.app` made the launcher test exercise the real window instead of its stub. Evidence: `TestRunReport` (both report names, `View Log` opens the path the run wrote), `TestCompletionSeam::test_the_real_run_drives_the_bound_handler` (the real `run_scan` into the bound handler, asserting the written report), `TestRunScan`/`TestLogLine`/`TestCountScannedFiles` in `test_processor.py`, `TestBrowseUsesTheSharedDialog`, `TestDriverHandshake`, and 405 passed across the package plus the three locks and the launcher suite. |
+| D35 | **U5 brings the Tag Editor to the same standard: shared strip, shared tabs, positional argv, and a report per run.** | DECIDED (user, 2026-10-30) | The user asked for the same conformance the Tag Field Updater just received (D34), and the Tag Editor is the last window with the old shape: `grid()` into one frame, no notebook, no progress surface, `filedialog.askdirectory()` directly, and a processor the window called and read back instead of a `run_*` entry point. It is now an `AnalysisTagToolApp` with `ui/setup_tab.py` / `ui/processing_tab.py` / `ui/results_tab.py`, and its Setup tab is a `BaseSetupFrame`, so the Run Controls strip supplies the source row, the shared browse dialog, the Mode combobox and the driver's orchestration display; the grid (the tool's editing surface) is that tab's `_build_options`. Both run kinds go through the processor: `run_scan` for the load walk the START button starts, `run_apply` for Apply to Selection, Apply Bulk and Import CSV, each publishing the shared counters plus its own fields (`rows`; `results` / `changed` / `written`). Three decisions worth naming. (1) A load walk is not a dry run of an edit, so it writes `tag_editor_scan_log.txt` rather than posing as `tag_editor_dry_run_log.txt`; an apply writes the mode-named report, both into the folder the tool read, and View Log opens the latest. (2) An apply is a run, not a silent in-grid update: it moves to Processing, finishes on Results and writes its report, because that is the feedback loop every peer has and the alternative was the modal-and-status-line shape the rebuild removed. Its payload is counted per *file* (the unit the shared summary and progress bar use) while the report carries one line per *edit*. (3) `arg_builder` now emits `[path, mode, start, end]` for `tag_editor`, the contract `tag_field_updater` already had: with `[path, mode]` alone the strip's Auto Start and Auto End could never be true, which is the same inert-option class as a flag that reaches no write site. The completion handler is `_finish_scan` / `_finish_apply` bound by the wiring lambda, not `_on_complete` overrides, for D34's reason: their payloads carry fields the base never learns. The CSV row-error lines and summary rows are captured in `_pending_*` before the thread starts, so the completion signature stays the processor payload plus the report header rather than growing wiring-only parameters. Evidence: `tag_editor/tests/test_app.py` (constructor wiring, strip, load run through the real `run_scan` into the bound handler, apply runs through `run_apply`, CSV import/export, grid interaction, `TestCompletionSeam`), `TestRunScan`/`TestRunApply`/`TestStop` in `test_processor.py`, `test_cli_args.py`'s slot cases, and the three cross-tool locks at 18 tools. |
 
 ---
 
@@ -414,7 +424,8 @@ about what the tool *does*.
 
 #### U1 — the Tag Field Updater window does not use the suite's shared layout (M)
 
-**Status:** `[ ]` queued for the next maintenance cycle — not started.
+**Status:** DONE — rebuilt on the shared pieces, with its guide section rewritten;
+evidence in D28 and §6.
 
 *Current state.* `tag_field_updater/ui/app.py` builds its whole window by hand,
 as one flat column of `ttk.LabelFrame`s, and it shares nothing with the other
@@ -488,7 +499,9 @@ cycle to two windows is a scheduling decision, not a detail of this one.
 
 #### U2 — the changelog reports the suite, not the build (M)
 
-**Status:** `[ ]` queued for the next maintenance cycle — not started.
+**Status:** DONE — split into `CHANGELOG.md` and `TECHNICAL_CHANGELOG.md`, with a
+lock on the boundary and both files promoted by the release tooling; evidence in
+D29 and §6.
 
 *Current state.* `CHANGELOG.md` is the suite's only change history, and it is
 read by two audiences at once: someone deciding whether to upgrade a tool, and
@@ -560,6 +573,161 @@ documentation tree" rule. A root-level `TECHNICAL_CHANGELOG.md` sits beside
 reader is meant to read; putting it under `documentation/` instead would keep
 the tree's single root and change only the toctree and staging details.
 
+#### U3 — the Setup tab adopts the shared Run Controls strip (S)
+
+**Status:** DONE — the tab is a `BaseSetupFrame`, the strip owns the mode, and
+the driver's start/end flags reach the run; evidence in D33 and §6.
+
+*Current state.* U1 gave the tool the suite's tabs but not its control surface:
+the source was a `path_row` and the mode a Dry Run checkbox, so a driven run
+could not be locked, the driver's Auto Start/Auto End had no control to show, and
+neither was honoured. `cli_args.py` already parsed `--start/--no-start` and
+`--end/--no-end`, and the driver never sent them (`arg_builder.py` emitted
+`[path, mode_flag]`), while `main()` started on any directory and never closed —
+so the Utility tab's Auto Start was inert and an Auto End batch waited on a
+window that would not close.
+
+*Change.* `_SetupFrame(BaseSetupFrame)` supplies the title, the strip and the
+full-width start button; `run_mode` is a `StringVar` bound to the strip's Mode
+combobox and `_on_filename_mode_toggled` is still the only place that forces Dry
+Run; the four handshake flags are emitted, displayed and honoured (Auto Start
+gates the first scan, Auto End closes the window two seconds after the summary);
+a driver launch locks the panel; the window opens in Dry Run.
+
+*Acceptance.*
+- A real window's Setup tab contains a `DriverControlsPanel` whose Mode values
+  are the driver's own strings, and the start button is the suite's full-width
+  one instead of a mid-tab button beside Stop.
+- `driver_locked=True` disables the source entry, the Mode and Browse.
+- `main()` with `--live --no-start --end --clear-logs --parallel-run` fills the
+  strip and starts nothing; with `--start` it starts exactly once.
+- `build_utility_args` emits the four flags, and `test_runner` pins both the
+  false and true start/end pairs.
+- Filename mode still forces Dry Run, through the same single site.
+- The guide's Quick Start and Setup sections name the strip and the Mode, and
+  the `.docx` is re-rendered.
+
+*Files:* `tag_field_updater/ui/app.py`, `tag_field_updater/tests/test_app.py`,
+`master_driver/runner/arg_builder.py`, `master_driver/tests/test_runner.py`, the
+user guide and its rendered `.docx`, `CHANGELOG.md`.
+*Risk:* the F-01 dry-run rule again — the mode moved from a checkbox to a
+combobox, so the single writer becomes the mode variable, and the argv pre-fill
+in `main()` must not be mistaken for a second decision point.
+*Scope note:* `tag_editor` shares the old argument pair (`[path, mode_flag]`) and
+its window still ignores the flags; it is not in this item.
+
+#### U4 — the Tag Field Updater conforms in *all* respects, including its run log (M)
+
+**Status:** DONE — the window is an `AnalysisTagToolApp`, the scan runs through
+`run_scan`, and the run report is written into the scanned folder; evidence in
+D34 and §6.
+
+*Current state.* U1 and U3 gave the tool the suite's tabs and strip, and left
+every other seam its own: the app derived from `BaseSuiteApp` rather than the
+analysis/tag scaffold, `browse_directory()` called `filedialog.askdirectory()`
+directly (no initial directory, no `load_last_directory()` restore, no
+`save_last_directory()`), `cli_args.parse` scanned tokens instead of reading the
+positional handshake every folder tool reads, and the scan was driven by the
+window's own `_scan_thread`/`finish_scanning` rather than a `run_*` entry point.
+The consequence the user hit: **no run log.** Peers write
+`<prefix>_dry_run_log.txt` / `<prefix>_sync_log.txt` into the folder they scanned
+and View Log opens it; this tool wrote no per-file record at all, so
+`logs/tag_field_updater.log` (the diagnostic log) was the only place the detail
+existed and the Results tab's View Log pointed at it.
+
+*Change.* Move the window onto the pieces the majority of the suite uses: the
+app is an `AnalysisTagToolApp` with `ui/setup_tab.py` + `ui/processing_tab.py` +
+`ui/results_tab.py` (the layout 25 of 30 packages have), the browse button is
+the shared dialog, the argv is read with `read_positional_handshake` at this
+tool's own slots, and `core/processor.run_scan` is the entry point
+(`on_progress` / `on_complete` / `on_error`) that builds the per-file report
+lines and publishes the counts. The shared completion handler writes the report
+to `tag_field_updater_dry_run_log.txt` or `tag_field_updater_sync_log.txt` in
+the scanned folder, View Log opens that file, and the Results tab reports the
+shared counters plus *Audio files* and *Files updated*.
+
+*Acceptance.*
+- A run leaves the report in the scanned folder, named for the mode, containing
+the header, one line per file and the SUMMARY block; View Log opens that path
+  on a real run.
+- The window is registered in `tests/test_callback_payload_contract.py`
+  (`EXPECTED_TOOLS`), `tests/test_completion_seam.py` (`EXPECTED_REQUIRED`) and
+  `tests/test_completion_payload_published.py` (`EXPECTED_PUBLISHERS`), so a
+  payload drift fails a lock instead of a finished run.
+- Browse passes the current path as the initial directory and asks the shared
+  helper to remember the folder.
+- `main()` applies the handshake only when the argv has the driver's shape, so
+  a stray argv (a test runner's own switches) is not read as a folder path.
+- The guide's Processing, Results, Logging and Troubleshooting sections describe
+  the shared surfaces and the run report, and the `.docx` is re-rendered.
+
+*Files:* `tag_field_updater/ui/app.py`, `ui/setup_tab.py`,
+`ui/processing_tab.py`, `ui/results_tab.py`, `core/processor.py`,
+`utils/cli_args.py`, `tag_field_updater/tests/test_app.py`,
+`tag_field_updater/tests/test_processor.py`, the three cross-tool locks,
+`tests/test_pyw_launchers.py` (stub landing), the user guide and its `.docx`,
+both changelogs.
+*Risk:* the `run_*` seam is where the suite's two shipped callback defects came
+from (D112/D113), so the handler signs the payload it is handed rather than a
+subset; and the completion handler is **not** an override of `_on_complete` —
+this tool's payload carries two counts the base never learns, and a required
+field added to the supertype's signature is a type error (`_finish_run` is bound
+by the wiring lambda instead).
+*Scope note:* `tag_editor` had the same flat window and the same
+`[path, mode_flag]` pair; it is U5, below.
+
+#### U5 — the Tag Editor window conforms to the suite standard (M)
+
+**Status:** DONE — the window is an `AnalysisTagToolApp` on the shared three
+tabs and strip, both of its run kinds go through a `run_*` entry point, and each
+run writes its report into the scanned folder; evidence in D35 and §6.
+
+*Current state.* `tag_editor/ui/app.py` built its whole window with `grid()` in
+one frame: no notebook, no progress surface, no Results tab, and a raw
+`filedialog.askdirectory()`. The processor exposed `scan_directory` /
+`apply_edits` as plain calls, so the window read their return values and drove
+its own widgets, and no run left a record: a live apply's per-file outcome
+existed only in `logs/tag_editor.log`. Its `cli_args.parse` scanned tokens, and
+`arg_builder` emitted only `[path, mode_flag]`, so the strip's Auto Start and
+Auto End could never be anything but off.
+
+*Change.* Rebuild the window on the pieces the majority of the suite uses: an
+`AnalysisTagToolApp` with `ui/setup_tab.py` + `ui/processing_tab.py` +
+`ui/results_tab.py`, a `BaseSetupFrame` Setup tab whose Run Controls strip
+supplies the source row, the shared browse dialog, the Mode combobox and the
+driver's orchestration display, and the grid as that tab's tool-specific
+options. The load walk starts through `core.processor.run_scan` and every apply
+(selection, bulk, CSV) through `run_apply`, so both share the progress and
+completion handlers; each writes its report where the tool read
+(`tag_editor_scan_log.txt`, `tag_editor_dry_run_log.txt`,
+`tag_editor_sync_log.txt`) and View Log opens the latest. The argv is read with
+`read_positional_handshake` at `tag_field_updater`'s slots, and `arg_builder`
+emits `[path, mode, start, end]` for this utility so Auto Start/Auto End are
+honoured.
+
+*Acceptance.*
+- A load walk fills the grid and leaves `tag_editor_scan_log.txt` with the
+  header, one `[READ]` / `[ERROR]` line per file and the SUMMARY block; an
+  apply leaves the mode-named report with `[WRITTEN]` / `[WOULD WRITE]` /
+  `[UNCHANGED]` / `[FAILED]` lines. View Log opens the file the last run wrote.
+- The grid keeps its behaviour: a single-field edit, a bulk operation and a CSV
+  import each reach the tag API, update the row and record one undo batch.
+- Stop ends a walk after the file it is reading.
+- The tool is registered in all three cross-tool callback locks.
+- The guide's Quick Start, window, grid, Mode, run-report and Master Driver
+  sections describe the rebuilt window, and the `.docx` is re-rendered.
+
+*Files:* `tag_editor/ui/app.py`, `ui/setup_tab.py`, `ui/processing_tab.py`,
+`ui/results_tab.py`, `core/processor.py`, `utils/cli_args.py`, `Tag_Editor.pyw`,
+`master_driver/runner/arg_builder.py`, `tag_editor/tests/test_app.py`,
+`test_processor.py`, `test_cli_args.py`, the three cross-tool locks, the user
+guide and its `.docx`, both changelogs.
+*Risk:* an interactive editor is not a scan-and-write pass, so the mapping is
+deliberate — the load walk is the run the START button starts, and an apply run
+reports the same way (Processing, then Results) rather than updating the grid
+silently. The apply payload is counted per *file* while its report carries one
+line per *edit*, because the shared summary and progress bar are file-based.
+
 ---
 
 ## 5. Sequencing and release map
@@ -569,12 +737,12 @@ the tree's single root and change only the toctree and staging details.
 | 1 | F-10, B2, F-09, A1 | 2.1.7 patch (F-10 first; B2 needs a deliberate version note; A1 is a measurement) | Each is bounded, each produces one checkable artefact, and B2 closes a capability gap in a tool users already run. F-10 goes first because F-09 edits the same filter string and would otherwise be verified against an unlocked parameter set. |
 | 2 | F-01, F-05/F-06 | 2.2.0 | User-visible features; F-01 needs a dry-run default that deserves its own release note and guide. |
 | 3 | F-02, F-08a → b → c | 2.2.x, one per sub-item | Large; each needs the scaffolding the earlier waves produce. |
-| M | U1, U2 | One 2.2.x patch each — U1 is window-only, U2 changes the changelogs and the release tooling; neither touches a CLI, a tag or audio | Neither changes how the suite runs, so either can ride any 2.2.x slot. U1 rebuilds a window F-01 has just extended, so it is cheaper to review once that has settled. U2 is cheapest *before* the next cut: every release that ships while the two audiences are mixed adds more technical bullets to the file users read, and under U2's own rule the split is itself a technical change, so the release that lands it says nothing in `CHANGELOG.md`. |
+| M | U1, U2, U3, U4, U5 | **2.2.1**, all in one patch — U1, U3, U4 and U5 are window-only, U2 changes the changelogs and the release tooling; none touches a tag or audio (D28/D29/D33/D34/D35) | Neither changes how the suite runs, so either can ride any 2.2.x slot. U1 rebuilds a window F-01 has just extended, so it is cheaper to review once that has settled. U2 is cheapest *before* the next cut: every release that ships while the two audiences are mixed adds more technical bullets to the file users read, and under U2's own rule the split is itself a technical change, so the release that lands it says nothing in `CHANGELOG.md`. |
 
 `F-05`/`F-06` are grouped because they share the export surface; everything else
-is deliberately one item per release (D9). U1 and U2 share the `M` row because
-both are maintenance, **not** a version: they are independent, land in separate
-patches, and neither depends on the other.
+is deliberately one item per release (D9). U1–U3 share the `M` row because all
+three are maintenance, **not** a version: U3 depends on U1's setup/processing
+split and rides the same patch, while U2 is independent of both.
 
 ---
 
@@ -907,6 +1075,136 @@ succeeded and the run completed in 31:26.
   matrix change was needed to fit, which is what the once-on-the-floor decision
   bought.
 
+**Maintenance cycle — U1 and U2.** The gate below ran on the tree this record
+describes, with the project's own `.venv` interpreter (Python 3.14), after the
+last edit to it.
+
+| Check | Result |
+|---|---|
+| compile | `compileall -q -f -x '(packaging|\\.venv)' .` exit 0 (the unanchored alternation, because the anchored form does not exclude a Windows path). |
+| ruff | `ruff check .` clean; `ruff format --check .` — 954 files already formatted. |
+| mypy | bare `mypy .` — no issues in **555** source files. |
+| bandit | 0 High / 0 Medium, 41 Low (the documented `run_secure_subprocess` sites). |
+| pytest | bare `pytest` — **11 507 passed, 3 skipped, 35 deselected** in 36:00, coverage 91.10%. The one failure on the first run was the note lock reading this run's own log file — a scratch `pytest_*.txt`, which `.txt` classifies as code — so it was removed and `tests/test_release_notes.py` re-run green. The `docs-locks` set was also run on its own (41 passed, including the staged-tree link walk) before the full suite. |
+
+Item evidence:
+
+- **U1** (`tag_field_updater/tests/test_app.py`): `TestSharedLayout` asserts a
+  real `ttk.Notebook` with the three standard tabs, that the Processing and
+  Results tabs are the shared builders' widgets (`ttk.Progressbar`,
+  `tk.Listbox`, the three labels), that the palette **Help** button opens a guide
+  that exists at the path `open_help_guide` resolves AND equals `HELP_GUIDE`
+  (so it cannot become a silent no-op again), and that the directory entry and
+  pattern box expand with the window while the box scrolls. The locked behaviour
+  is unchanged: `TestFilenameModeDefaultsToDry` passes untouched,
+  `TestActionGroupsInTheGui` still round-trips through `suite_config`,
+  `TestRunNote` still records the skipped and failed files for the driver, and
+  the new completion path is asserted to name `Files skipped` with the counts on
+  the Results tab. `_count_scanned_files` is tested for the nested/unsupported
+  cases — and, after the U1 review (D30), asserted equal to the
+  `processed_files` count a real scan produces, so the bar's maximum and its
+  value cannot be measured in different units. Its total is asserted to be
+  marshalled before the scan, so the progress bar's maximum is measured rather
+  than invented.
+- **U2** (`tests/test_changelog_format.py`, `utilities/tests/test_release.py`):
+  the format lock runs over **both** files (column limit, tabs, trailing
+  whitespace, hanging indent, non-vacuity), and `TestChangelogAudience` rejects
+  a developer word in any user bullet's lead-in, checks that its single
+  allowlist entry still matches a real bullet, and feeds itself the two bullets
+  the split was made for. The release tooling is tested in both directions: both
+  files promoted in one cut, a technical file with nothing to promote cuts
+  successfully and is left byte-identical, and a user file with nothing to
+  promote is still refused. `TestEndToEnd`'s second-run count moved from four
+  `[SKIP]` lines to five **because** the technical file is now skipped too —
+  the assertion records the new truth rather than being relaxed.
+- **Guides** (§2 rule 3): U1 rewrote `Tag_Field_Updater_User_Guide.md`'s *Using
+  the GUI* section tab by tab (setup, processing with the progress bar and file
+  list, results with View Log / Open Folder) and re-rendered the `.docx`
+  (`build_user_guides.py --check` reports **32/32 current**; the regenerated
+  artefact differs from `HEAD` in `word/document.xml` only, with an identical
+  zip-entry set, so it is a content change and not external-tool drift). U2 changes
+  the change history itself: no per-tool guide describes it, so "no guide
+  describes this behaviour" is the recorded answer, and the documents that do
+  mention the changelog were updated — `README.md`, `documentation/docs/index.md`
+  (both links), `AGENTS.md`'s new mapping rule, and the site's staged files —
+  with `tests/test_docs_build.py`'s self-containment walk proving the new link
+  resolves in the published tree.
+- **Misses the gate found, fixed in this change:** `tests/test_guide_claims.py`
+  was red on `tag_field_updater.log` — the guide names the log, the code built
+  the name from an f-string, and the lock requires the literal — so the name
+  became one code constant rather than the guide losing a useful line. The
+  audience lock caught its own first draft too: a preamble sentence that began
+  with `-` rendered as a list item and failed the hanging-indent lock, and one
+  bullet whose lead-in ended in "opt-in tests" was split rather than
+  allowlisted. `ruff format` reflowed four of the changed files; nothing else
+  moved.
+
+**Maintenance cycle — U3.** `pytest tests/ tag_field_updater/tests
+master_driver/tests` (no coverage) reported **2 050 passed, 1 failed**: the
+per-file note lock named `master_driver/runner/arg_builder.py` and
+`master_driver/tests/test_runner.py`, both changed without a `Changed in 2.2.1`
+note. Both notes were added (the code change itself was correct) and the lock plus
+the affected suites then ran green — **1 095 passed** across
+`test_release_notes`, the package, `master_driver` and the four
+documentation/changelog locks. `ruff check .` clean, `ruff format --check .` 954
+files formatted, bare `mypy .` no issues in 555 files, `bandit` 0 High / 0 Medium
+/ 41 Low, `build_user_guides.py --check` 32/32 current with the `.docx` differing
+from `HEAD` only in `word/document.xml` (identical zip-entry set).
+
+**Maintenance cycle — U4 and U5.** The gate below ran on the tree this record
+describes, with the project's own `.venv` interpreter (Python 3.14), after the
+last edit to it.
+
+| Check | Result |
+|---|---|
+| compile | `compileall -q -f .` exits 1 **only** on the untracked PyInstaller
+runtime at `packaging/build/app/runtime/Lib/test/tokenizedata/` (deliberately
+invalid fixtures, as recorded for Wave 1); the first-party tree compiles clean —
+`compileall -q -f -x '(^|\)(\.venv|packaging|__pycache__)' .` exit 0. |
+| ruff | `ruff check .` clean; `ruff format --check .` — 960 files already formatted. |
+| mypy | bare `mypy .` — no issues in **561** source files. |
+| bandit | 0 High / 0 Medium, 41 Low (the documented `run_secure_subprocess` sites);
+the `Total issues (by confidence)` table reads 23 Medium / 18 High and is not the
+severity gate. |
+| pytest | bare `pytest` — **11 561 passed, 3 skipped, 35 deselected** in 18:24,
+exit 0, coverage 91.29%. |
+
+Item evidence:
+
+- **U5 load walk** (`tag_editor/tests/test_app.py`,
+  `test_processor.py::TestRunScan`): `start_processing` sets
+  `tag_editor_scan_log.txt` and starts the worker; driving the real `run_scan`
+  through `_run_scan` writes the report (`[READ]      a.mp3 (title='One')`,
+  `SUMMARY:`, `Audio files: 1 of 2 files`) and schedules the grid fill, which
+  then populates `_rows`.
+- **U5 apply runs** (`TestApplySelection`, `TestApplyBulk`, `TestCsvImportExport`,
+  `TestRunApply`): a selection becomes `FieldEdit`s (Clear sends `None`), the
+  strip's Mode decides the report name, the worker writes through the tag API and
+  the report carries `[WRITTEN] track.mp3: title 'Old' -> 'New'`; a refused write
+  logs `[FAILED]` and leaves the row alone. Bulk counts are per file while the
+  report is per edit.
+- **U5 stop** (`TestStop`, `test_the_walk_fills_the_grid_and_writes_the_report`):
+  a stop ends the walk after the file being read and a new scan clears the flag.
+- **U5 argv** (`TestPositionalSlots`, `TestLooksLikeDriverArgv`,
+  `master_driver/tests/test_runner.py::test_tag_editor_entry_present`): the
+  parser reads `mode_idx=2, start_idx=3, end_idx=4` and the display pair from 5;
+  a shifted argv fails the folder check instead of reading as a mode. The
+  builder now emits `[path, mode, start, end]`, which its `[:2]` / `[-2:]`
+  assertions still hold.
+- **U5 locks**: the tool is in `EXPECTED_TOOLS`, `EXPECTED_REQUIRED` and
+  `EXPECTED_PUBLISHERS` (18 tools), and `TestCompletionSeam` drives the real
+  `run_apply` into the bound handler, asserting the written report.
+- **Guides** (AGENTS.md *User Guides Follow the Change*): the Tag Editor guide's
+  Overview, Quick Start, new *The Window* and *Run Reports* sections, the grid,
+  Mode, CSV and Master Driver passages were read against the rebuilt window and
+  rewritten; `build_user_guides.py --check` reports **32/32 artefacts current**.
+  The Tag Field Updater's guide was reviewed too — no passage describes anything
+  U5 touched, so it is unchanged apart from its U4 edit.
+- **Misses the gate found, fixed in this change:** `tag_editor/tests/test_processor.py`
+  carried no `Changed in 2.2.1` note, which `tests/test_release_notes.py` flagged
+  once the full suite ran; the note was added and the lock re-run green. Two
+  unused imports in the rewritten `test_app.py` were caught by `ruff check .`.
+
 ---
 
 ## 7. Open questions
@@ -935,6 +1233,18 @@ the measured distortion improvement and that clean files are returned untouched.
 F-10 has **no bullet unless it changes a writer's output**; if it does, the
 bullet names the writer and the measured before/after format rather than saying
 "fixed a resampling issue".
+
+**Which file the bullet goes in is decided by its subject (D29).**
+`CHANGELOG.md` records what a user can run or observe; `TECHNICAL_CHANGELOG.md`
+carries the gate, CI, tests, tooling, behaviour-neutral refactors, dependency
+bumps and documentation tooling. The rule and its lock live in `AGENTS.md`,
+*Change History Follows Its Audience*, and in `tests/test_changelog_format.py`.
+Applied to this plan's own items: U1 and U3 change a window a user sees, so their
+bullet is user-facing (one bullet covers both, since they ship in the same
+patch); U2 changes the changelogs and the release tooling, so its bullet is
+technical. A bullet that genuinely mixes the two is split rather than filed
+whichever way reads better — the user-observable statement stays, its evidence
+moves.
 
 ---
 

@@ -33,8 +33,11 @@ import tkinter as tk
 from tag_editor.ui.app import TagEditorApp
 
 if __name__ == "__main__":
-    args = parse_cli_args(parse)
+    # The window applies the handshake itself, as every peer's does; parsing
+    # here validates the folder before a window is built.  A bad path exits 1
+    # with the usage line instead of opening an editor on nothing.
+    parse_cli_args(parse)
     root = tk.Tk()
     bootstrap_theme()
-    TagEditorApp(root, directory=args.folder_path, live_mode=args.live_mode)
+    TagEditorApp(root)
     root.mainloop()

@@ -42,6 +42,28 @@ Versions of the tools are released together with the suite (the single
   opens where you last looked and the folder is remembered for the next launch,
   as it is in every other tool.
 
+- **The Tag Editor window matches the suite's layout, and every edit run leaves
+  a report.** The grid window's flat layout became the standard **Setup /
+  Processing / Results** tabs. Setup opens with the suite's **Run Controls**
+  strip — **Browse & Scan**, the **Mode** dropdown (**Dry Run** / **Live
+  Update**), and the driver's **Auto Start**, **Auto End**, **Clear Logs** and
+  **Parallel** states — and keeps the edit controls and the grid below it;
+  **LOAD & SCAN LIBRARY** fills the grid, with a **Stop** button that ends the
+  walk after the file it is reading. Processing shows the progress bar, the
+  per-file lines and the shared `Processed / Skipped / Errors` counts while a
+  load or an apply runs; Results shows the finished run's summary, its total
+  time, **View Log** and **Open Folder**. Dry Run is still the default, and the
+  strip's Mode is what every apply run reads. A Master Driver launch locks the
+  source and mode, and its Auto Start / Auto End options now take effect.
+
+- **The Tag Editor writes a run report next to the music.** A load walk leaves
+  `tag_editor_scan_log.txt` in the folder it read; an apply run leaves
+  `tag_editor_dry_run_log.txt` (or `tag_editor_sync_log.txt` in Live Update).
+  Each has the run and mode in the header, one line per file or per edit
+  (`[READ]`, `[WOULD WRITE]`, `[WRITTEN]`, `[UNCHANGED]`, `[FAILED]`,
+  `[SKIPPED]`), then the summary the Results tab shows, and **View Log** opens
+  it — so what a run did to which file no longer exists only in `logs/`.
+
 ## [2.2.0] - 2026-10-30
 
 ### Added

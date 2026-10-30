@@ -41,6 +41,9 @@ Changed in 2.0.0: points at the published-payload lock; the seam itself is
 unchanged.
 Changed in 2.2.1: registers ``TagFieldUpdaterApp``, which now starts its scan
 through ``processor.run_scan`` (maintenance item U4), so the table is 17 tools.
+Changed in 2.2.1: registers ``TagEditorApp``, whose load walk and apply runs
+now start through ``run_scan`` / ``run_apply`` (maintenance item U5), so the
+table is 18 tools.
 """
 
 from __future__ import annotations
@@ -222,6 +225,20 @@ EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
             "device",
         }
     ),
+    "TagEditorApp": frozenset(
+        {
+            "header",
+            "total",
+            "processed",
+            "skipped",
+            "errors",
+            "duration_secs",
+            "log_entries",
+            "results",
+            "changed",
+            "written",
+        }
+    ),
     "TagFieldUpdaterApp": frozenset(
         {
             "header",
@@ -285,7 +302,7 @@ def _required(fn: Any) -> set[str]:
 
 def test_the_seam_table_covers_every_gui_tool() -> None:
     """A partial table would leave tools silently untested."""
-    assert len(COMPLETION_WIRINGS) == 17
+    assert len(COMPLETION_WIRINGS) == 18
     assert set(EXPECTED_REQUIRED) == set(COMPLETION_WIRINGS)
 
 

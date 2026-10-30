@@ -29,6 +29,23 @@ one.
   `album_genre_tagger` uses) instead of a per-token scan. Behaviour-neutral for
   the audio: no tag rule, format or write path changed.
 
+- **The Tag Editor runs on the shared analysis/tag scaffold.** Its window is an
+  `AnalysisTagToolApp` with `ui/setup_tab.py`, `ui/processing_tab.py` and
+  `ui/results_tab.py`; the load walk starts through
+  `tag_editor.core.processor.run_scan` and every apply through
+  `run_apply`, so the window uses the shared progress/completion handlers
+  (including Auto End) instead of reading return values and driving widgets
+  itself. Both entry points publish the shared counters plus their own fields
+  (`rows` for the walk; `results`, `changed` and `written` for an apply), and
+  the tool joins `EXPECTED_TOOLS`, `EXPECTED_REQUIRED` and `EXPECTED_PUBLISHERS`
+  in the three cross-tool callback locks. The launcher argv is read through
+  `read_positional_handshake` at the slots `tag_field_updater` reads, and
+  `arg_builder` now emits the mode / start / end triple for this utility so the
+  strip's Auto Start and Auto End are not inert. The scan gained a cooperative
+  `TagEditorProcessor.stop()`, honoured between files. Behaviour-neutral for the
+  audio: `apply_edits`, the undo batch and the tag API are untouched, and the
+  apply payload is counted per file so the shared summary keeps its unit.
+
 ## [2.2.0] - 2026-10-30
 
 ### Changed

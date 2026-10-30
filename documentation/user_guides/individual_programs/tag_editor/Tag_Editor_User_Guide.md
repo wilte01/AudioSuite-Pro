@@ -10,12 +10,29 @@ The Tag Editor is an interactive grid for common audio metadata fields. It recur
 ## Quick Start
 
 \1. Launch Tag_Editor.pyw.\
-2. Click Browse... and choose your music library folder.\
-3. Click Load Grid.\
+2. Click Browse & Scan and choose your music library folder.\
+3. Click LOAD & SCAN LIBRARY to fill the grid.\
 4. Select one or more file rows.\
 5. Choose a field, type a value, and click Apply to Selection.\
-6. Keep Dry Run checked to preview changes, or clear it to write tags.\
+6. Keep the Mode at Dry Run to preview changes, or choose Live Update to write tags.\
 7. Use Export CSV... / Import CSV... to work on the grid in a spreadsheet.
+
+## The Window
+
+The editor is a three-tab window, like the rest of the suite.
+
+| Tab | What it shows |
+| --- | --- |
+| 1. Setup | The Run Controls strip (source folder, Browse & Scan, Mode, Auto Start, Auto End), the single-field and bulk edit controls, the CSV buttons and the Library Grid. |
+| 2. Processing | The progress bar, the per-file line list and the running *Processed / Skipped / Errors* counters for the run in progress. |
+| 3. Results | The finished run's summary, its total time, and the View Log and Open Folder buttons. |
+
+The **Run Controls** strip is the suite's standard one:
+
+- **Source Music Directory** is the folder every run reads. Browse & Scan opens the suite's folder dialog at the current folder and remembers the choice for the next launch.
+- **Mode** is Dry Run or Live Update. It applies to every apply run (Apply to Selection, Apply Bulk, Import CSV), never to the load walk.
+- **Auto Start** and **Auto End** are honoured when the Master Driver passes them; **Clear Logs** and **Parallel Run** are shown as the driver set them and are executed by the driver.
+- The LOAD & SCAN LIBRARY button at the bottom of the tab starts the load walk. **Stop** ends it after the file being read, so no file is left half-loaded.
 
 ## Supported File Formats
 
@@ -48,9 +65,11 @@ The Tag Editor uses the AudioSuite shared tag handlers and supports the suite's 
 
 ## Using the Grid
 
-The File column shows each filename; the remaining columns show the current editable values. Rows can be selected individually or with the keyboard and mouse. Selecting one row loads its current value into the edit form.
+The Library Grid sits at the bottom of the Setup tab. The File column shows each filename; the remaining columns show the current editable values. Rows can be selected individually or with the keyboard and mouse (Ctrl and Shift work as usual). Selecting one row loads its current value into the edit form.
 
 Apply to Selection sends the same field edit to every highlighted file. Files whose current value already matches the requested value are reported as unchanged and are not rewritten.
+
+Every apply run — Apply to Selection, Apply Bulk and Import CSV — moves to the **Processing** tab while it runs, then reports on the **Results** tab: how many files were in the batch, how many changed, how many already matched, and how many failed. The grid keeps the values the run wrote, so the next edit works from the current state.
 
 ## Bulk Operations
 
@@ -80,11 +99,25 @@ File values may be absolute or relative to the loaded library folder, so a sprea
 
 Every file value must point inside the loaded library folder. A value that climbs out with a parent-directory reference (..), names a folder elsewhere on the machine, or uses a drive-relative path is reported as an error for that row and skipped, so a pasted spreadsheet can never retag files outside the folder you loaded. Import CSV... also refuses to run until a library folder is selected, because that folder is what file values are resolved against.
 
-Empty cells mean leave unchanged, so re-importing an exported grid never clears a tag. Unrecognised columns are ignored and listed in the status bar. Rows naming a missing or unsupported file, and cells that fail validation, are reported per row and do not stop the remaining rows from applying. Import honours the Dry Run state and records one undo batch for the whole file.
+Empty cells mean leave unchanged, so re-importing an exported grid never clears a tag. Unrecognised columns are ignored; the Results tab names them under *Ignored columns*. Rows naming a missing or unsupported file, and cells that fail validation, are reported per row and do not stop the remaining rows from applying. Import reads the strip's Mode and records one undo batch for the whole file.
 
 ## Dry Run and Live Update
 
-Dry Run is selected by default. A dry run reads current values and reports the proposed old/new comparison, but never writes tags. Clear Dry Run to write changes. When launched from the Master Driver, the utility mode selection chooses the initial Dry Run / Live Update state.
+**Mode** on the Run Controls strip selects Dry Run or Live Update, and Dry Run is the default. A dry run reads current values and reports the proposed old/new comparison without writing any tag. Choose Live Update to write changes; the strip is the only place that decides, and every apply run reads it when it starts. When launched from the Master Driver, the driver's utility mode selection sets the strip's initial value.
+
+## Run Reports
+
+Each run writes a report into the folder it read, in the same form the suite's other tools use: a header naming the run and its mode, one line per file (or per edit), and a SUMMARY block. The report is plain text and View Log on the Results tab opens it.
+
+| Run | Report file |
+| --- | --- |
+| LOAD & SCAN LIBRARY | tag_editor_scan_log.txt |
+| Apply run, Mode = Dry Run | tag_editor_dry_run_log.txt |
+| Apply run, Mode = Live Update | tag_editor_sync_log.txt |
+
+A load walk lists what it read, one `[READ]` line per audio file with the tag values it found, and an `[ERROR]` line for a file whose tags could not be read. An apply run lists `[WOULD WRITE]` (dry run) or `[WRITTEN]` per changed field with its old and new value, `[UNCHANGED]` where the value already matched, and `[FAILED]` with the reason where a write was refused. CSV rows that could not be planned are listed as `[SKIPPED]` lines.
+
+View Log opens the report of the most recent run. The diagnostic log for the program itself is `logs/tag_editor.log`; it records the same run at a lower level of detail and is not what View Log opens.
 
 ## Undo
 
@@ -104,4 +137,4 @@ With --csv, PATH is the library directory used to resolve relative file values, 
 
 ## Master Driver
 
-The Tag Editor card appears on the Utilities tab. Selecting the card and starting the selected utility opens the editor with the driver's music directory preloaded. The driver's Dry Run / Live Update mode is passed to the editor; Clear Logs and Parallel Run remain driver-owned controls.
+The Tag Editor card appears on the Utilities tab. Selecting the card and starting the selected utility opens the editor with the driver's music directory preloaded, and the Run Controls strip is locked to what the driver passed so a batch cannot be rewritten mid-run. The driver's Dry Run / Live Update mode sets the Mode value; if the driver has **Auto Start** on, the load walk starts by itself; with **Auto End** on the window closes when that run finishes. Clear Logs and Parallel Run remain driver-owned controls.

@@ -32,6 +32,10 @@ cannot succeed vacuously.
 
 Changed in 2.2.1: registers ``tag_field_updater``, whose run now starts through
 ``tag_field_updater.core.processor.run_scan`` (maintenance item U4).
+Changed in 2.2.1: registers ``tag_editor``, whose apply runs publish through
+``tag_editor.core.processor.run_apply`` (maintenance item U5).  Its load walk
+publishes from ``run_scan`` in the same module, and the apply payload is the
+one both the Results panel and the report are built from.
 """
 
 from __future__ import annotations
@@ -72,6 +76,7 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
     "replaygain_analyzer": "replaygain_analyzer.core.file_processor.run_analysis",
     "silence_trimmer": "silence_trimmer.core.file_processor.run_trimming",
     "stem_separator": "stem_separator.core.file_processor.run_stem_separation",
+    "tag_editor": "tag_editor.core.processor.run_apply",
     "tag_field_updater": "tag_field_updater.core.processor.run_scan",
     "tempo_analyzer": "tempo_analyzer.core.file_processor.run_analysis",
 }

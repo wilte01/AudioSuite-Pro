@@ -1,11 +1,21 @@
-"""processor.py — Freeform tag scanning and field editing for the Tag Editor."""
+"""processor.py — Freeform tag scanning and field editing for the Tag Editor.
+
+Changed in 2.2.1: the module owns the window's three shared callbacks
+(``on_progress`` / ``on_complete`` / ``on_error``) through :func:`run_scan`
+and :func:`run_apply`, the ``run_*`` shape every GUI tool's processor exposes
+(maintenance item U5).  The window no longer reads the processor's return
+values itself, so each run writes its report and drives the shared
+progress/completion handlers exactly as its peers do.
+"""
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import string
-from collections.abc import Callable, Iterable
+import time
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -25,6 +35,8 @@ from audio_suite_shared.tag_helper import (
     write_editable_tag,
 )
 from tag_field_updater.core.mapping_engine import update_value
+
+logger = logging.getLogger(__name__)
 
 TOOL_NAME = "tag_editor"
 MAX_TAG_VALUE_LENGTH = 4096
@@ -310,6 +322,14 @@ def build_bulk_edits(
 class TagEditorProcessor:
     """Scans supported audio files and applies validated field edits."""
 
+    def __init__(self) -> None:
+        """Create a processor whose scan can be stopped by the window."""
+        self._stop_requested = False
+
+    def stop(self) -> None:
+        """Signal the current scan to stop after the file it is reading."""
+        self._stop_requested = True
+
     def scan_directory(
         self,
         directory: str | Path,
@@ -329,32 +349,82 @@ class TagEditorProcessor:
         Raises:
             AudioDirectoryError: If *directory* is not an existing directory.
         """
+        notify: Callable[[Path, TagRow | None, int], None] | None = None
+        if progress_callback is not None:
+            report = progress_callback
+
+            def _notify(path: Path, _row: TagRow | None, loaded: int) -> None:
+                report(path.name, loaded)
+
+            notify = _notify
+
+        return self._scan(directory, on_progress=notify)
+
+    def _scan(
+        self,
+        directory: str | Path,
+        *,
+        on_progress: Callable[[Path, TagRow | None, int], None] | None = None,
+    ) -> list[TagRow]:
+        """Walk *directory* and load one row per supported audio file.
+
+        The single walk behind both :meth:`scan_directory` (whose callback
+        reports only a filename and a count) and :func:`run_scan` (which also
+        needs the unsupported files, so it can report them as skipped): the
+        callback receives ``None`` for a file it walked past.
+
+        Args:
+            directory: Root directory to scan.
+            on_progress: Called for every file visited, with the row it
+                produced (``None`` when the extension is unsupported) and the
+                number of audio rows loaded so far.
+
+        Returns:
+            One :class:`TagRow` per supported audio file, including rows whose
+            tags could not be read (``error`` is set on those rows).  A stopped
+            scan returns the rows it loaded before the stop was seen.
+
+        Raises:
+            AudioDirectoryError: If *directory* is not an existing directory.
+        """
         root = Path(directory)
         if not root.is_dir():
             raise AudioDirectoryError(f"Not a directory: {root}")
 
+        self._stop_requested = False
         rows: list[TagRow] = []
-        for current_root, dirnames, filenames in os.walk(root):
-            dirnames.sort()
-            for filename in sorted(filenames):
-                path = Path(current_root) / filename
-                if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
-                    continue
-                try:
-                    values = read_editable_tags(str(path))
-                    rows.append(TagRow(path=path, values=values))
-                except AudioSuiteError as exc:
-                    rows.append(
-                        TagRow(path=path, values={}, error=user_message_for(exc))
-                    )
-                except Exception as exc:
-                    mapped = map_to_audio_error(exc, context={"file": str(path)})
-                    rows.append(
-                        TagRow(path=path, values={}, error=user_message_for(mapped))
-                    )
-                if progress_callback is not None:
-                    progress_callback(filename, len(rows))
+        for path in _visited_files(root):
+            if self._stop_requested:
+                logger.info("Scan stopped by user after %d file(s)", len(rows))
+                break
+            if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+                if on_progress is not None:
+                    on_progress(path, None, len(rows))
+                continue
+            row = self._load_row(path)
+            rows.append(row)
+            if on_progress is not None:
+                on_progress(path, row, len(rows))
         return rows
+
+    @staticmethod
+    def _load_row(path: Path) -> TagRow:
+        """Read one file's editable tags, mapping a failure onto the row.
+
+        Args:
+            path: Audio file to read.
+
+        Returns:
+            A :class:`TagRow`; ``error`` is set when the tags could not be read.
+        """
+        try:
+            values = read_editable_tags(str(path))
+            return TagRow(path=path, values=values)
+        except AudioSuiteError as exc:
+            return TagRow(path=path, values={}, error=user_message_for(exc))
+        except Exception as exc:
+            mapped = map_to_audio_error(exc, context={"file": str(path)})
+            return TagRow(path=path, values={}, error=user_message_for(mapped))
 
     def refresh_file(self, path: Path) -> TagRow:
         """Reload one file's editable values after a write.
@@ -481,3 +551,294 @@ class TagEditorProcessor:
                         )
                         result.error = user_message_for(mapped)
         return results
+
+
+# ── Report lines ────────────────────────────────────────────────────────────
+
+
+def _value_text(value: str | None) -> str:
+    """Render a tag value for a report line.
+
+    Args:
+        value: Stored value, ``None`` for a removed field, ``""`` for a blank.
+
+    Returns:
+        A readable token: quoted text, ``(cleared)`` or ``(blank)``.
+    """
+    if value is None:
+        return "(cleared)"
+    if value == "":
+        return "(blank)"
+    return repr(value)
+
+
+def scan_log_line(row: TagRow) -> str:
+    """Return one report line for a file the load walk visited.
+
+    Args:
+        row: The row the walk produced for the file.
+
+    Returns:
+        An ``[ERROR]`` line for an unreadable file, otherwise a ``[READ]`` line
+        naming the fields that are set.
+    """
+    if row.error is not None:
+        return f"[ERROR]     {row.path.name}: {row.error}\n"
+    set_fields = [
+        f"{field}={_value_text(value)}" for field, value in row.values.items() if value
+    ]
+    detail = "; ".join(set_fields) if set_fields else "no editable tags set"
+    return f"[READ]      {row.path.name} ({detail})\n"
+
+
+def apply_log_line(result: EditResult, *, is_dry_run: bool) -> str:
+    """Return one report line for a field edit an apply run attempted.
+
+    Args:
+        result: The outcome of one requested edit.
+        is_dry_run: Whether the run was allowed to write.
+
+    Returns:
+        A ``[FAILED]``, ``[UNCHANGED]``, ``[WOULD WRITE]`` or ``[WRITTEN]``
+        line describing old and new values.
+    """
+    if result.error is not None:
+        return (
+            f"[FAILED]    {result.path.name}: {result.field} -> "
+            f"{_value_text(result.new_value)} ({result.error})\n"
+        )
+    if not result.changed:
+        return (
+            f"[UNCHANGED] {result.path.name}: {result.field} is already "
+            f"{_value_text(result.old_value)}\n"
+        )
+    verb = "WOULD WRITE" if is_dry_run else "WRITTEN"
+    return (
+        f"[{verb}] {result.path.name}: {result.field} "
+        f"{_value_text(result.old_value)} -> {_value_text(result.new_value)}\n"
+    )
+
+
+# ── Run entry points (the GUI's three callbacks) ────────────────────────────
+
+
+def _visited_files(root: Path) -> Iterator[Path]:
+    """Yield every file under *root*, sorted, in a stable recursion order.
+
+    Args:
+        root: Directory to walk.
+
+    Yields:
+        Each file path, with directory names and file names sorted so two runs
+        over the same tree report the same order.
+    """
+    for current_root, dirnames, filenames in os.walk(root):
+        dirnames.sort()
+        for filename in sorted(filenames):
+            yield Path(current_root) / filename
+
+
+def count_visited_files(directory: str | Path) -> int:
+    """Count every file a load walk will visit, supported or not.
+
+    The progress bar's denominator is the unit the walk counts (files
+    visited), so an unsupported file is visible as a skip rather than absent.
+
+    Args:
+        directory: Root directory to count.
+
+    Returns:
+        The number of files under *directory*.
+    """
+    return sum(1 for _ in _visited_files(Path(directory)))
+
+
+def run_scan(
+    directory: str,
+    *,
+    on_progress: Callable[..., None],
+    on_complete: Callable[..., None],
+    on_error: Callable[[str], None],
+    processor: TagEditorProcessor | None = None,
+) -> None:
+    """Load *directory* into the grid, driving the shared GUI callbacks.
+
+    This is the tool's load ``run_*`` entry point (AGENTS.md "GUI Callback
+    Contract"): the processor owns the three payloads and the window's handlers
+    mirror them.
+
+    Args:
+        directory: Root directory to walk.
+        on_progress: Called after each file with ``processed``, ``total``,
+            ``skipped``, ``errors`` and ``display_text``.
+        on_complete: Called once at the end with ``total``, ``processed``,
+            ``skipped``, ``errors``, ``duration_secs``, ``log_entries`` and
+            ``rows`` (the loaded grid rows).
+        on_error: Called with one user-facing message if the walk itself
+            fails; per-file read failures are rows, not fatals.
+        processor: The instance to scan with, so the window that shows a Stop
+            button can signal the run it started.  A fresh processor is built
+            when omitted.
+    """
+    engine = processor if processor is not None else TagEditorProcessor()
+    total = count_visited_files(directory)
+    started = time.monotonic()
+    counts = {"processed": 0, "skipped": 0, "errors": 0}
+
+    def _progress(path: Path, row: TagRow | None, _loaded: int) -> None:
+        """Adapt the walk's per-file ping to the shared payload."""
+        counts["processed"] += 1
+        if row is None:
+            counts["skipped"] += 1
+            text = f"{path.name} (unsupported format)"
+        elif row.error is not None:
+            counts["errors"] += 1
+            text = f"{path.name} (unreadable tags)"
+        else:
+            text = path.name
+        on_progress(
+            processed=counts["processed"],
+            total=total,
+            skipped=counts["skipped"],
+            errors=counts["errors"],
+            display_text=text,
+        )
+
+    try:
+        rows = engine._scan(directory, on_progress=_progress)
+    except Exception as exc:  # noqa: BLE001 - the UI reports, never raises
+        mapped = map_to_audio_error(exc, context={"directory": directory})
+        logger.error(
+            "[%s] Scan failed for %s: %s",
+            type(mapped).__name__,
+            directory,
+            mapped,
+            exc_info=True,
+        )
+        on_error(user_message_for(mapped))
+        return
+
+    on_complete(
+        total=total,
+        processed=counts["processed"],
+        skipped=counts["skipped"],
+        errors=counts["errors"],
+        duration_secs=time.monotonic() - started,
+        log_entries=[scan_log_line(row) for row in rows],
+        rows=rows,
+    )
+
+
+def run_apply(
+    edits: Iterable[FieldEdit],
+    *,
+    is_dry_run: bool,
+    on_progress: Callable[..., None],
+    on_complete: Callable[..., None],
+    on_error: Callable[[str], None],
+    processor: TagEditorProcessor | None = None,
+) -> None:
+    """Apply one batch of field edits, driving the shared GUI callbacks.
+
+    The whole batch goes through one :meth:`TagEditorProcessor.apply_edits`
+    call, so it is one undo batch; the counts are reported per *file* (the unit
+    the shared summary and progress bar use), while the report carries one line
+    per edit.
+
+    Args:
+        edits: Requested field edits, in apply order.
+        is_dry_run: Whether the run may write; a dry run reports the comparison
+            only and creates no undo record.
+        on_progress: Called once per file with ``processed``, ``total``,
+            ``skipped`` (files with nothing to change), ``errors`` and
+            ``display_text``.
+        on_complete: Called once at the end with ``total``, ``processed``,
+            ``skipped``, ``errors``, ``duration_secs``, ``log_entries``,
+            ``results`` (one :class:`EditResult` per edit), ``changed`` and
+            ``written``.
+        on_error: Called with one user-facing message if the batch cannot be
+            validated or applied; per-file failures are counted instead.
+        processor: The instance to apply with.  A fresh processor is built when
+            omitted.
+    """
+    engine = processor if processor is not None else TagEditorProcessor()
+    batch = list(edits)
+    started = time.monotonic()
+
+    try:
+        results = engine.apply_edits(batch, dry_run=is_dry_run)
+    except Exception as exc:  # noqa: BLE001 - the UI reports, never raises
+        mapped = map_to_audio_error(exc, context={"edits": len(batch)})
+        logger.error(
+            "[%s] Apply run failed after %d edit(s): %s",
+            type(mapped).__name__,
+            len(batch),
+            mapped,
+            exc_info=True,
+        )
+        on_error(user_message_for(mapped))
+        return
+
+    by_file: dict[Path, list[EditResult]] = {}
+    for result in results:
+        by_file.setdefault(result.path, []).append(result)
+
+    total = len(by_file)
+    processed = skipped = errors = 0
+    for path, file_results in by_file.items():
+        processed += 1
+        if any(result.error is not None for result in file_results):
+            errors += 1
+        elif not any(result.changed for result in file_results):
+            skipped += 1
+        on_progress(
+            processed=processed,
+            total=total,
+            skipped=skipped,
+            errors=errors,
+            display_text=_progress_text(path, file_results, is_dry_run=is_dry_run),
+        )
+
+    on_complete(
+        total=total,
+        processed=processed,
+        skipped=skipped,
+        errors=errors,
+        duration_secs=time.monotonic() - started,
+        log_entries=[
+            apply_log_line(result, is_dry_run=is_dry_run) for result in results
+        ],
+        results=results,
+        changed=sum(
+            1 for file_results in by_file.values() if _file_changed(file_results)
+        ),
+        written=sum(1 for result in results if result.written),
+    )
+
+
+def _file_changed(results: list[EditResult]) -> bool:
+    """Return whether any edit in one file's results changed a value."""
+    return any(result.changed for result in results)
+
+
+def _progress_text(path: Path, results: list[EditResult], *, is_dry_run: bool) -> str:
+    """Return the Processing-tab line for one file's edits.
+
+    Args:
+        path: The file the results belong to.
+        results: That file's edit outcomes.
+        is_dry_run: Whether the run may write.
+
+    Returns:
+        A single line naming the first change and how many others followed.
+    """
+    failed = [result for result in results if result.error is not None]
+    if failed:
+        return f"{path.name}: {len(failed)} edit(s) failed"
+    changes = [result for result in results if result.changed]
+    if not changes:
+        return f"{path.name}: unchanged"
+    first = changes[0]
+    verb = "would write" if is_dry_run else "wrote"
+    extra = f" (+{len(changes) - 1} more)" if len(changes) > 1 else ""
+    return f"{path.name}: {verb} {first.field} -> {_value_text(first.new_value)}{extra}"
