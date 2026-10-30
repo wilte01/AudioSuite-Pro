@@ -1234,9 +1234,46 @@ that run, on the bumped tree.
   records by subject; the two developer-facing statements behind them are the
   technical file's.
 - **Tag:** `v2.2.1` follows the shape `v2.1.7` and `v2.2.0` set — annotated on
-  the record commit that follows `05edc6d`, not on the cut itself. It is **not
-  created yet**: the tag and the push are the next step, and this line records
-  what that tag is meant to point at.
+  the record commit that follows `05edc6d`, not on the cut itself. It was
+  created on that commit and pushed with `main`; the post-release block below
+  records the run it triggered.
+
+**Post-release — the floor leg on the pushed tree (CI run `41136522813`).**
+`main` was pushed at `27e6e84`, the 2.2.1 record commit, together with the
+annotated `v2.2.1` tag; `git ls-remote` reports `refs/tags/v2.2.1` as tag object
+`118a793` dereferencing to `27e6e84`, so the workflow ran on the tree the release
+notes name, not on `05edc6d`, the cut alone. All eight jobs succeeded and the run
+completed in 28:11.
+
+| Job | Result | Duration |
+|---|---|---|
+| Lint & Format | success | 9 s |
+| Compile / Pre-flight gate | success | 8 s |
+| CLI schema conformance | success | 9 s |
+| Type Check | success | 59 s |
+| Security Scan | success | 36 s |
+| Docs locks (freshness & formats) | success | 1 m 4 s |
+| POSIX smoke (Ubuntu) | success | 1 m 16 s |
+| **Test (Python 3.11, the floor)** | **success** | **28 m 8 s** |
+
+- **What this verdict rests on, and what it does not.** GitHub serves the job
+  list and check-run conclusions without a session but gates the log text behind
+  one, so this record rests on the floor leg's `conclusion: success` plus the
+  artifacts it published — `cli-payloads` (25 KB) and `docs-html` (1.8 MB), both
+  live and both produced by steps that would be absent had their predecessors
+  failed or been skipped. It does **not** quote the leg's own "N passed" line;
+  that count is the local run in the cut table above (11 561 passed, 91.29%),
+  and this leg's job is the interpreter graph below the dev host's 3.14.
+- **The only annotations are workflow-level.** The Node.js 20 deprecation
+  warnings name the same three actions (`actions/checkout@v4`,
+  `actions/setup-python@v5`, `actions/upload-artifact@v4`) as last release and
+  pre-date this one. The new entry is a **notice**, not a failure: the
+  `ubuntu-latest` label is scheduled to migrate to Ubuntu 26 from 2026-10-19,
+  and nothing in this release pins that image.
+- **The cost budget is untouched.** `tests/test_ci_cost.py` prices a job against
+  100 minutes; the floor leg used 28:08 and the whole push 28:11, against the
+  160.9 billable minutes the three-leg matrix cost on the 2026-10-28 push
+  (`AGENTS.md`, *The Python floor must honour its lockfile*).
 
 ---
 
