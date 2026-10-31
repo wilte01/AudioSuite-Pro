@@ -26,6 +26,9 @@ Changed in 2.1.0: a plugin tool's arguments follow the command its manifest decl
 Changed in 2.2.1: ``tag_field_updater`` emits the ``--start/--no-start`` and
 ``--end/--no-end`` pair like every peer, because its GUI now displays and honours
 them (functional backlog U3).
+
+Changed in 2.3.0: builds the duplicate_finder and restoration argv their windows parse
+back (F-02, F-08a).
 """
 
 from __future__ import annotations
@@ -388,6 +391,12 @@ def _build_utility_tool_args(
         "ml_denoiser": lambda: _build_ml_denoiser_args(
             path, mode_flag, start_flag, end_flag, state
         ),
+        "duplicate_finder": lambda: _build_duplicate_finder_args(
+            path, mode_flag, start_flag, end_flag, state
+        ),
+        "restoration": lambda: _build_restoration_args(
+            path, mode_flag, start_flag, end_flag, state
+        ),
     }
     builder = builders.get(tool_id)
     if builder is None:
@@ -703,6 +712,53 @@ def _build_audio_enhancer_args(path: str, state: AppState) -> list[str]:
     if state.util_auto_end.get():
         args.append("--auto-end")
     return args
+
+
+def _build_duplicate_finder_args(
+    path: str,
+    mode_flag: str,
+    start_flag: str,
+    end_flag: str,
+    state: AppState,
+) -> list[str]:
+    """Return the CLI argument list for the Duplicate Finder.
+
+    The quarantine folder is emitted only when the card holds one: a blank
+    entry means "derive it beside the scanned folder", and passing an empty
+    path would have to be re-interpreted by the tool anyway.
+    """
+    args = [
+        path,
+        mode_flag,
+        start_flag,
+        end_flag,
+        "--threshold",
+        state.duplicate_threshold.get(),
+    ]
+    quarantine = state.duplicate_quarantine_dir.get().strip()
+    if quarantine:
+        args += ["--quarantine-dir", quarantine]
+    return args
+
+
+def _build_restoration_args(
+    path: str,
+    mode_flag: str,
+    start_flag: str,
+    end_flag: str,
+    state: AppState,
+) -> list[str]:
+    """Return the CLI argument list for the Restoration (declip) tool."""
+    return [
+        path,
+        mode_flag,
+        start_flag,
+        end_flag,
+        "--threshold",
+        state.restore_threshold.get(),
+        "--max-run-ms",
+        state.restore_max_run.get(),
+    ]
 
 
 def _build_silence_trimmer_args(

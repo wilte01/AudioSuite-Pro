@@ -33,6 +33,8 @@ target py311 — ``tomllib`` is 3.11 standard library
 
 Changed in 2.1.7: the README's guide links resolve under ``documentation/user_guides/``.
 
+
+Changed in 2.3.0: the README tool-count lock moves to 32 first-party tools.
 """
 
 from __future__ import annotations
@@ -135,7 +137,7 @@ class TestIndexGeneration:
 class TestMetadataLock:
     """The distribution metadata ships the README and its index is whole."""
 
-    def test_pyproject_ships_the_readme_and_30_tool_rows(self) -> None:
+    def test_pyproject_ships_the_readme_and_32_tool_rows(self) -> None:
         from audio_suite_shared.tool_plugin import get_registry
 
         with (REPO_ROOT / "pyproject.toml").open("rb") as fh:
@@ -147,7 +149,7 @@ class TestMetadataLock:
         assert declared_readme == README.name
         # The distribution's tool count, not the install's: a plugin adds a
         # registry entry, never a README row.
-        assert len(get_registry().first_party) == 30
+        assert len(get_registry().first_party) == 32
 
 
 class TestRegistrationLock:

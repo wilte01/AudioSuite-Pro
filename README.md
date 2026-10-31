@@ -1,6 +1,6 @@
 # AudioSuite-Pro
 
-AudioSuite-Pro is a Windows-first audio workbench of 30 first-party tools
+AudioSuite-Pro is a Windows-first audio workbench of 32 first-party tools
 that share one driver, one command line and one registry: tag enrichment
 (BPM, key, mood, lyrics, album art, ReplayGain, genre), DSP repair and
 conversion (loudness normalisation, hum/click removal, silence trimming,
@@ -66,7 +66,7 @@ The matrix below is **generated from the declared classification** in
 #### Tool tiers
 
 * **Windows-only** — `cd_ripper`. The CD subsystem it drives (Win32 SCSI pass-through, drive enumeration) has no portable implementation; the tool fails fast with a named missing requirement rather than degrading silently.
-* **Portable core** — the other 29 of 30 tools. Each has no platform-conditional code in its own package at all, so its non-Windows CLI path is the same code path as on Windows.
+* **Portable core** — the other 31 of 32 tools. Each has no platform-conditional code in its own package at all, so its non-Windows CLI path is the same code path as on Windows.
 
 #### Branch enumeration
 
@@ -231,7 +231,9 @@ The table below is **generated from the tool manifest**
 | Library Statistics Dashboard | Read-only tag statistics dashboard | `Library_Stats.pyw` | `documentation/user_guides/individual_programs/library_stats/Library_Stats_User_Guide.docx` | Portable core |
 | Spectral Viewer | Render and export FFT spectrograms | `Spectral_Viewer.pyw` | `documentation/user_guides/individual_programs/spectral_viewer/Spectral_Viewer_User_Guide.docx` | Portable core |
 | ML Denoiser | Neural noise reduction with RNNoise (speech-trained) | `ML_Denoiser.pyw` | `documentation/user_guides/individual_programs/ml_denoiser/ML_Denoiser_User_Guide.docx` | Portable core |
+| Duplicate Finder | Find duplicate recordings by fingerprint and quarantine extras | `Duplicate_Finder.pyw` | `documentation/user_guides/individual_programs/duplicate_finder/Duplicate_Finder_User_Guide.docx` | Portable core |
 | Tag-Based File Reorganizer | Move/copy files into a tag-based folder hierarchy | `File_Reorganizer.pyw` | `documentation/user_guides/individual_programs/file_reorganizer/File_Reorganizer_User_Guide.docx` | Portable core |
+| Restoration (Declip) | Reconstruct flat-topped peaks lost to clipping | `Restoration.pyw` | `documentation/user_guides/individual_programs/restoration/Restoration_User_Guide.docx` | Portable core |
 | Undo Tag Edits | Restore file tags to the way they were before a batch run | `Undo_Tag_Edits.pyw` | `documentation/user_guides/individual_programs/undo_tag_edits/Undo_Tag_Edits_User_Guide.docx` | Portable core |
 
 <!-- TOOL INDEX: END -->

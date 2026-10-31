@@ -21,6 +21,9 @@ here (and ``test_app_state.py`` freezes the expected set).
 Changed in 2.1.0: toggles are generated for ``registry.driver_manifests`` rather
 than ``registry.all``, so a plugin tool that ships only a CLI entry point gets no
 toggle (Sprint 7, Item 7.1).
+
+Changed in 2.3.0: carries the duplicate_finder and restoration module toggles (F-02,
+F-08a).
 """
 
 from __future__ import annotations
@@ -257,6 +260,20 @@ class AppState:
         # ── ML Denoiser controls ─────────────────────────────────────────────
         # A percentage, the same unit the tool's slider and CLI use.
         self.ml_denoiser_amount = tk.StringVar(master, value="100")
+
+        # ── Duplicate Finder controls ────────────────────────────────────────
+        # The threshold is the measured default (0.10 bit-error rate), and the
+        # quarantine folder is blank until the user picks one: the tool then
+        # derives ``_Duplicates`` beside the scanned folder, which is the only
+        # destination it can choose without moving files somewhere unexpected.
+        self.duplicate_threshold = tk.StringVar(master, value="0.10")
+        self.duplicate_quarantine_dir = tk.StringVar(master, value="")
+
+        # ── Restoration (declip) controls ────────────────────────────────────
+        # 0.98 of the file's own peak is the ceiling a clipped sample sits at;
+        # 50 ms is the longest plateau the reconstruction will attempt.
+        self.restore_threshold = tk.StringVar(master, value="0.98")
+        self.restore_max_run = tk.StringVar(master, value="50")
 
     # ── Backward-compatible property aliases for utility toggles ──────────────
     # These delegate to the module_toggles dict so existing card code and

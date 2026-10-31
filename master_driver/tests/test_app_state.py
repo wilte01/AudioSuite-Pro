@@ -13,6 +13,9 @@ explicitly. AppState's variables are genuine tkinter Var objects; their
 Changed in 2.0.0: the expected toggle set gains ``stem_separator``
 (Sprint 6, Item 6.1).
 
+Changed in 2.3.0: the expected toggle set gains ``duplicate_finder`` and
+``restoration`` (PLAN_functional_backlog.md F-02, F-08a).
+
 What is tested
 --------------
 AppState
@@ -710,6 +713,10 @@ class TestModuleToggles:
         "spectral_viewer",
         "stem_separator",
         "ml_denoiser",
+        # F-02 / F-08a: the registry generates a toggle for every manifest with
+        # a launcher, so a new tool appears here without an AppState edit.
+        "duplicate_finder",
+        "restoration",
         # Plugin tools (from the shipped example plugin; the registry
         # generates a toggle for every manifest with a launcher)
         "example_tool",

@@ -31,6 +31,9 @@ Changed in 2.1.4: a step whose dependency failed is now skipped in **both**
 modes, with the reason on the step, instead of being released to run against
 work that never completed (audit R-10, plan C4).  Success and completion are
 tracked separately: only a step that ran to success may satisfy a dependant.
+
+Changed in 2.3.0: orders the duplicate scan and the declip pass in the dependency graph
+(F-02, F-08a).
 """
 
 from __future__ import annotations
@@ -271,6 +274,8 @@ DEPENDENCY_GRAPH: dict[str, list[str]] = {
     "silence_trimmer": [],
     "stem_separator": [],
     "ml_denoiser": [],
+    "duplicate_finder": [],
+    "restoration": [],
     "tag_editor": [],
 }
 

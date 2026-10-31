@@ -29,6 +29,10 @@ than as its raw id.
 Changed in 2.0.0: gains ``ml_denoiser`` for the same reason (Item 6.2). Without
 it an undo row read the raw id, and its audio-overwrite records are exactly the
 ones a user needs to recognise.
+Changed in 2.3.0: gains ``duplicate_finder`` and ``restoration``.  The duplicate
+finder's batch moves files into quarantine and the declip writes audio in place,
+so both record undo rows a user has to be able to recognise; without the entries
+the rows read as raw ids.
 """
 
 from __future__ import annotations
@@ -59,6 +63,7 @@ _TOOL_DISPLAY_NAMES: dict[str, str] = {
     "audio_normalizer": "Audio Normalizer",
     "audio_refinery": "Audio Refinery",
     "bpm_analyzer": "BPM Analyzer",
+    "duplicate_finder": "Duplicate Finder",
     "file_reorganizer": "Tag-Based File Reorganizer",
     "genre_sync": "Genre Sync",
     "key_detector": "Key Detector",
@@ -71,6 +76,7 @@ _TOOL_DISPLAY_NAMES: dict[str, str] = {
     "noise_reduction": "Noise Reduction",
     "pop_click_remover": "Pop & Click Remover",
     "replaygain_analyzer": "ReplayGain Analyzer",
+    "restoration": "Restoration (Declip)",
     "silence_trimmer": "Silence Trimmer",
     "stem_separator": "Stem Separator",
     "tag_editor": "Tag Editor",

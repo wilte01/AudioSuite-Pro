@@ -51,6 +51,9 @@ install rather than the Linux leg that wording described.
 Changed in 2.1.7: the documentation tree is excluded from the platform walk by name
 ``documentation``.
 
+
+Changed in 2.3.0: the manifest count locks move to 32 tools / 31 with a subcommand / 30
+portable commands, for the two tools F-02 and F-08a add.
 """
 
 from __future__ import annotations
@@ -382,7 +385,7 @@ class TestToolTiers:
         from audio_suite_shared.tool_plugin import get_registry
 
         tools = get_registry().first_party
-        assert len(tools) == 30
+        assert len(tools) == 32
         for manifest in tools:
             assert tool_tier(manifest.id) in TIERS
 
@@ -536,9 +539,9 @@ class TestPortableCoreCLI:
         # subcommand to drive under a mocked platform. Named here so that a
         # *new* tool without one is a failure, not a silent pass.
         assert [m.id for m in tools if not m.cli_command] == ["undo_tag_edits"]
-        assert len(with_cli) == 29
-        # 28 of the 29 are portable-core; cd-rip is the Windows-only one.
-        assert len(self._portable_commands()) == 28
+        assert len(with_cli) == 31
+        # 30 of the 31 are portable-core; cd-rip is the Windows-only one.
+        assert len(self._portable_commands()) == 30
 
     @pytest.mark.parametrize("command", _portable_commands())
     def test_portable_tool_help_resolves_under_a_non_windows_platform(

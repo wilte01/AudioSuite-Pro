@@ -36,6 +36,10 @@ Changed in 2.2.1: registers ``tag_editor``, whose apply runs publish through
 ``tag_editor.core.processor.run_apply`` (maintenance item U5).  Its load walk
 publishes from ``run_scan`` in the same module, and the apply payload is the
 one both the Results panel and the report are built from.
+
+Changed in 2.3.0: registers ``duplicate_finder``, which publishes its
+completion (with ``groups``, ``duplicates`` and ``quarantined`` beside the
+shared fields) from ``run_duplicate_scan`` (F-02).
 """
 
 from __future__ import annotations
@@ -66,6 +70,7 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
     "audio_normalizer": "audio_normalizer.core.file_processor.run_parallel_process",
     "audio_refinery": "audio_refinery.core.file_processor.run_pipeline",
     "bpm_analyzer": "bpm_analyzer.core.file_processor.run_analysis",
+    "duplicate_finder": ("duplicate_finder.core.file_processor.run_duplicate_scan"),
     "genre_sync": "genre_sync.core.file_processor.run_processing",
     "lyrics_manager": "lyrics_manager.core.file_processor.run_fetch",
     "metadata_scrubber": "metadata_scrubber.core.scrubber.run_scrubbing",

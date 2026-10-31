@@ -1,6 +1,6 @@
 # Suite overview
 
-AudioSuite-Pro is 30 first-party tools behind one Click CLI and one Master
+AudioSuite-Pro is 32 first-party tools behind one Click CLI and one Master
 Driver GUI, for processing, repairing, analysing and tagging a music library.
 Every tool also runs on its own; the driver exists so a library can be handled
 as a pipeline instead of one window at a time.
@@ -16,7 +16,7 @@ The grouping is the suite's own, and it is what the Master Driver's tabs show:
 | --- | --- | --- | --- |
 | REFINE | `refinery` | Audio Refinery | The multi-stage audio pipeline: declick, trim, reduce noise, enhance, normalise in one decode/encode pass. Settings are shared with the standalone Audio Refinery window. |
 | ENRICH | `enrich` | 11 | Reading and writing metadata — scrubbing, fingerprinting, ReplayGain, genre, BPM, tempo, key, mood, artwork, lyrics. |
-| UTIL | `utility` | 18 | Everything else: conversion, extraction, ripping, editing, and the batch tools that do not fit either pipeline stage. |
+| UTIL | `utility` | 20 | Everything else: conversion, extraction, ripping, editing, duplicate detection, audio repair, and the batch tools that do not fit either pipeline stage. |
 
 The counts come from the tool registry, which also generates the table on
 {doc}`../index`. A tool's category decides which card it gets; a new

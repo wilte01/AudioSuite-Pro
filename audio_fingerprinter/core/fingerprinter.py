@@ -15,6 +15,14 @@ line-by-line rather than via mutagen or any Python fingerprint library.
 Changed in 1.4.0: adds the committed ``fpcalc.exe`` as the final fallback, so
 ``audiosuite fingerprint`` works from a plain checkout without ``--fpcalc`` or
 a PATH entry.  An explicit path, ``FPCALC`` and PATH still win.
+
+Changed in 2.3.0: ``generate_fingerprint`` takes ``raw=True``, which passes
+``-raw`` to fpcalc and yields the sub-fingerprints as comma-separated decimal
+words.  The default is unchanged: fpcalc's own output is URL-safe base64 of
+Chromaprint's *compressed* encoding, which is what the AcoustID API consumes but
+is not directly comparable word by word.  The duplicate finder (functional
+backlog F-02) needs the words to measure a distance, and it reuses this one
+fpcalc resolution path rather than shelling out itself (D38).
 """
 
 from __future__ import annotations
@@ -145,6 +153,7 @@ def generate_fingerprint(
     *,
     fpcalc_path: str | None = None,
     max_length: int = DEFAULT_MAX_LENGTH,
+    raw: bool = False,
 ) -> Fingerprint:
     """Generate a Chromaprint fingerprint for a single audio file.
 
@@ -154,6 +163,11 @@ def generate_fingerprint(
             ``resolve_fpcalc`` for the fallback order).
         max_length: Maximum analysed duration in seconds passed to
             ``fpcalc -length``.
+        raw: Pass ``-raw`` so the fingerprint is the sub-fingerprints as
+            comma-separated decimal words instead of fpcalc's default URL-safe
+            base64 of Chromaprint's compressed encoding.  The AcoustID lookup
+            path must keep the default; a local comparison (the duplicate
+            finder) needs the words.
 
     Returns:
         A ``Fingerprint`` carrying the file duration and fingerprint string.
@@ -163,11 +177,15 @@ def generate_fingerprint(
             unparseable output.
     """
     executable = resolve_fpcalc(fpcalc_path)
+    argv = ["-length", str(int(max_length))]
+    if raw:
+        argv.insert(0, "-raw")
+    argv.append(file_path)
 
     try:
         completed = run_secure_subprocess(
             executable,
-            ["-length", str(int(max_length)), file_path],
+            argv,
             timeout=_FPCALC_TIMEOUT_SECS,
             capture_output=True,
             check=False,

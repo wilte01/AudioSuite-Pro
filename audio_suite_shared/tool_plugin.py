@@ -37,6 +37,8 @@ freeze still means "no late registrations"), a plugin that cannot be registered
 is recorded instead of raised, and ``first_party`` / ``plugins`` /
 ``driver_manifests`` let the shipped-artifact locks and the Master Driver ask
 for exactly the population they mean (Sprint 7, Item 7.1).
+
+Changed in 2.3.0: adds the duplicate_finder and restoration manifests (F-02, F-08a).
 """
 
 from __future__ import annotations
@@ -550,6 +552,26 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="denoise",
         standalone=True,
         order=53,
+    ),
+    ToolManifest(
+        id="duplicate_finder",
+        name="Duplicate Finder",
+        category="utility",
+        pyw_filename="Duplicate_Finder.pyw",
+        description="Find duplicate recordings by fingerprint and quarantine extras",
+        cli_command="duplicates",
+        standalone=True,
+        order=54,
+    ),
+    ToolManifest(
+        id="restoration",
+        name="Restoration (Declip)",
+        category="utility",
+        pyw_filename="Restoration.pyw",
+        description="Reconstruct flat-topped peaks lost to clipping",
+        cli_command="declip",
+        standalone=True,
+        order=56,
     ),
     ToolManifest(
         id="tag_editor",

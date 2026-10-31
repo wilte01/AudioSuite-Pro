@@ -12,6 +12,9 @@ Changed in 1.3.0: registers the Spectral Viewer's guide filename in
 Changed in 2.0.0: registers the Stem Separator's guide filename.
 Changed in 2.0.0: registers the ML Denoiser's guide filename (Item 6.2).
 
+Changed in 2.3.0: registers the Duplicate Finder's and the Restoration
+(declip) tool's guide filenames (functional backlog F-02, F-08a).
+
 Changed in 2.1.7: ``open_help`` resolves
 ``documentation/user_guides/individual_programs/<tool>/``, the one documentation tree.
 
@@ -136,6 +139,8 @@ def open_help(guide_filename: str) -> None:
         "Pop_Click_Remover_User_Guide.docx": "pop_click_remover",
         "ReplayGain_Analyzer_User_Guide.docx": "replaygain_analyzer",
         "Silence_Trimmer_User_Guide.docx": "silence_trimmer",
+        "Duplicate_Finder_User_Guide.docx": "duplicate_finder",
+        "Restoration_User_Guide.docx": "restoration",
         "Spectral_Viewer_User_Guide.docx": "spectral_viewer",
         "Stem_Separator_User_Guide.docx": "stem_separator",
         "Tag_Field_Updater_User_Guide.docx": "tag_field_updater",

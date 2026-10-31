@@ -35,7 +35,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "audiosuite-pro"
-version = "2.2.1"
+version = "2.3.0"
 readme = "README.md"
 requires-python = ">=3.11"
 # Plan iteration 5 E2 (audit #11), decision D1: GPL-3.0, chosen because the
@@ -339,6 +339,8 @@ testpaths = [
     "spectral_viewer/tests",
     "stem_separator/tests",
     "ml_denoiser/tests",
+    "duplicate_finder/tests",
+    "restoration/tests",
     "tag_editor/tests",
     "tag_field_updater/tests",
     "tempo_analyzer/tests",
@@ -417,6 +419,8 @@ source = [
     "spectral_viewer",
     "stem_separator",
     "ml_denoiser",
+    "duplicate_finder",
+    "restoration",
     "tag_editor",
     "tag_field_updater",
     "tempo_analyzer",
@@ -495,5 +499,8 @@ audio_suite_shared = ["cli_schema.json"]
 # Changed in 2.2.0: bumped [project] version 2.1.7 -> 2.2.0
 # (release cut by utilities/release.py).
 # Changed in 2.2.1: bumped [project] version 2.2.0 -> 2.2.1
+# (release cut by utilities/release.py).
+
+# Changed in 2.3.0: bumped [project] version 2.2.1 -> 2.3.0
 # (release cut by utilities/release.py).
 audio_refinery = ["refinery_settings.default.json"]

@@ -36,6 +36,9 @@ entry (Sprint 6, Item 6.1).
 
 Changed in 2.1.0: adds the ``plugins list`` / ``enable`` / ``disable`` usage cases their
 schema entries require.
+
+Changed in 2.3.0: adds the ``declip`` and ``duplicates`` cases their schema
+entries require, so the table still covers exactly ``set(TOOL_IDS)``.
 """
 
 from __future__ import annotations
@@ -78,6 +81,9 @@ _USAGE_CASES: dict[str, dict[str, list[str]]] = {
     "cue parse": {"missing": [], "invalid": [MISSING_PATH]},
     "cue split": {"missing": [], "invalid": [MISSING_PATH]},
     "declick": {"missing": [], "invalid": [MISSING_PATH]},
+    # Both new tools bound their options in Click, so an out-of-type value is
+    # rejected before the body touches the settings object.
+    "declip": {"missing": [], "invalid": [LIBRARY, "--threshold", "bogus"]},
     # ``denoise`` has no required option; ``--amount`` is a bounded float, so a
     # percentage outside 1-100 is rejected before the body runs.
     "denoise": {"missing": [], "invalid": [LIBRARY, "--amount", "0"]},
@@ -85,6 +91,7 @@ _USAGE_CASES: dict[str, dict[str, list[str]]] = {
     # invocation itself: an option it does not know and a positional it does
     # not accept.  Both must publish a document like every other command.
     "doctor": {"missing": ["--no-such-option"], "invalid": ["stray-argument"]},
+    "duplicates": {"missing": [], "invalid": [LIBRARY, "--threshold", "bogus"]},
     "enhance": {"missing": [LIBRARY], "invalid": [MISSING_PATH]},
     "fingerprint": {"missing": [], "invalid": [LIBRARY, "--mb-auth", "bogus"]},
     "genre-sync": {"missing": [], "invalid": [MISSING_PATH]},

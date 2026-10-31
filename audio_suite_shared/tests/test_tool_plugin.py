@@ -10,6 +10,9 @@ Changed in 2.0.0: the expected sets add the ``stem_separator`` manifest and
 its ``stems`` command (Sprint 6, Item 6.1).
 
 Changed in 2.1.0: the registry now holds plugin manifests beside the first-party ones.
+
+Changed in 2.3.0: the expected sets add the ``duplicate_finder`` and
+``restoration`` manifests (F-02, F-08a in ``PLAN_functional_backlog.md``).
 """
 
 import pytest
@@ -171,7 +174,7 @@ class TestDefaultRegistry:
     def test_registry_is_populated(self):
         r = get_registry()
         assert len(r) >= 16  # all first-party tools
-        assert len(r.first_party) == 30  # 11 enrich + 18 utility + 1 refinery
+        assert len(r.first_party) == 32  # 11 enrich + 20 utility + 1 refinery
         # A plugin adds a registry entry, never a first-party one.
         assert len(r) == len(r.first_party) + len(r.plugins)
         assert r.plugins, "the shipped example plugin did not register"
@@ -234,6 +237,8 @@ class TestDefaultRegistry:
             "spectral_viewer",
             "stem_separator",
             "ml_denoiser",
+            "duplicate_finder",
+            "restoration",
         }
         assert ids == expected
 
@@ -274,6 +279,8 @@ class TestDefaultRegistry:
             "spectrogram",
             "denoise",
             "stems",
+            "duplicates",
+            "declip",
             # Plan G2: the CLI subcommand is `refine`, and the manifest now
             # says so instead of leaving audio_refinery CLI-less by omission.
             "refine",
@@ -301,6 +308,8 @@ class TestDefaultRegistry:
             "spectral_viewer",
             "stem_separator",
             "ml_denoiser",
+            "duplicate_finder",
+            "restoration",
         }
         assert standalone == expected
 

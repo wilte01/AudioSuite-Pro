@@ -48,6 +48,14 @@ no completion seam to check.
 
 Changed in 2.2.1: registers ``tag_editor``, which now starts its load walk and
 every apply run through ``run_scan`` / ``run_apply`` (maintenance item U5).
+
+Changed in 2.3.0: registers ``DuplicateFinderApp``, whose scan starts through
+``core.file_processor.run_duplicate_scan`` with the three shared callbacks
+(F-02).  ``RestorationApp`` wires its completion and error callbacks through
+local closures -- the ``NoisePopToolApp`` peer shape ``pop_click_remover`` and
+``noise_reduction`` use, which this AST pass cannot resolve to a handler -- so it
+is locked by its own ``TestCompletionSeam`` in ``restoration/tests/test_app.py``
+rather than by a row here.
 """
 
 from __future__ import annotations
@@ -92,6 +100,7 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
         ("audio_normalizer/app.py", "AudioNormalizerApp"),
         ("audio_refinery/app.py", "AudioRefineryApp"),
         ("bpm_analyzer/app.py", "BPMAnalyzerApp"),
+        ("duplicate_finder/ui/app.py", "DuplicateFinderApp"),
         ("genre_sync/app.py", "GenreSetterApp"),
         ("lyrics_manager/app.py", "LyricsManagerApp"),
         ("metadata_scrubber/app.py", "MetadataScrubberApp"),

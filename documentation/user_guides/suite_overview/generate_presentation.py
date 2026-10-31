@@ -14,6 +14,10 @@ content it used to name (the Suite Overview,
 ``documentation/docs/resilience.md`` and the security page); the three orphan
 guides it referenced were retired.
 
+Changed in 2.3.0: the tool count and the format table are read/sized from the
+manifest, so Duplicate Finder and Restoration (Declip) appear without a slide
+edit; the closing slide's count uses ``TOOL_COUNT`` instead of a literal.
+
 Changed in 2.1.5: the deck covers all 30 tools. Tag Editor, Stem Separator,
 Spectral Viewer and ML Denoiser were missing from every slide, the format
 matrix and the task chooser; they now have their own two slides plus matrix and
@@ -568,6 +572,24 @@ FORMAT_ROWS: list[list[str]] = [
         YES,
         YES,
         "Plus MP4, WAV, AIFF - RNNoise model, speech-trained",
+    ],
+    [
+        "Restoration (Declip)",
+        YES,
+        YES,
+        YES,
+        YES,
+        YES,
+        "Rebuilds clipped peaks in place - all shared suite formats",
+    ],
+    [
+        "Duplicate Finder",
+        YES,
+        YES,
+        YES,
+        YES,
+        YES,
+        "Read-only scan: fingerprints the shared formats, never writes audio",
     ],
 ]
 
@@ -2420,7 +2442,7 @@ def slide_next_steps(prs: Presentation, number: int) -> None:
                 marker="\u2022",
             ),
             Line(
-                "The Suite Overview - how the 30 tools are grouped, and "
+                f"The Suite Overview - how the {TOOL_COUNT} tools are grouped, and "
                 "which one to reach for (documentation/docs/user/suite-overview.md)",
                 size=15,
                 space_after=10,

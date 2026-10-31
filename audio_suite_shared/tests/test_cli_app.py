@@ -30,6 +30,9 @@ missing binary produces an attributable skip, never a red test.
 Changed in 2.1.6: the function-local import block is re-sorted against the
 corrected ruff target py311 — ``tomllib`` is 3.11 standard library
 (R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
+
+Changed in 2.3.0: the discoverability lock counts move to 32 tools and 31 with a
+subcommand, so the two new commands are covered by the help-text claim.
 """
 
 from __future__ import annotations
@@ -529,18 +532,18 @@ class TestDiscoverabilityContract:
     ) -> None:
         """The acceptance criterion, stated without inventing a feature.
 
-        Plan G2 asks that ``--help`` list every tool.  29 of the 30 have a
-        subcommand and so are listed; the 30th (``undo_tag_edits``) is a
+        Plan G2 asks that ``--help`` list every tool.  31 of the 32 have a
+        subcommand and so are listed; the 32nd (``undo_tag_edits``) is a
         declared GUI-only gap, and listing it would mean building the CLI
         command the plan explicitly does not ask for.  It is therefore
         covered by ``test_no_undeclared_gap_below`` instead of by help text.
         """
         tools = get_registry().first_party
-        assert len(tools) == 30
+        assert len(tools) == 32
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         with_subcommand = [m for m in tools if m.cli_command]
-        assert len(with_subcommand) == 29
+        assert len(with_subcommand) == 31
         for manifest in with_subcommand:
             assert manifest.cli_command in result.output, (
                 f"{manifest.id}: '{manifest.cli_command}' is not listed in "

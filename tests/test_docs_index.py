@@ -37,6 +37,8 @@ role spans first, and a lock-step test pins both halves.
 Changed in 2.1.7: the index is ``documentation/docs/index.md``, and a guide's href is
 its path from the page's folder.
 
+
+Changed in 2.3.0: ``REQUIRED_TOOL_ROWS`` moves to 32, the regenerated table's row count.
 """
 
 from __future__ import annotations
@@ -52,8 +54,8 @@ INDEX = REPO_ROOT / "documentation" / "docs" / "index.md"
 DOCS = REPO_ROOT / "documentation" / "docs"
 GENERATOR = REPO_ROOT / "utilities" / "generate_docs_index.py"
 
-#: The manifest ships 30 first-party tools; a table that loses rows fails here.
-REQUIRED_TOOL_ROWS = 30
+#: The manifest ships 32 first-party tools; a table that loses rows fails here.
+REQUIRED_TOOL_ROWS = 32
 
 #: A MyST role span, e.g. ``{doc}`user/security```. Its body is a docname, not a
 #: repository path, even when it contains a slash.

@@ -572,6 +572,62 @@ audiosuite declick "D:\Music\Vinyl" --dry
 audiosuite declick "D:\Music\Vinyl" --sensitivity 0.31 --max-width 2
 ```
 
+### Restoration (Declip)
+
+Reconstruct the flat-topped peaks a clipped recording lost, by interpolating
+through the clean samples either side of each plateau. A file with nothing to
+repair is skipped and not rewritten.
+
+```bash
+audiosuite declip <directory> [--threshold F] [--max-run-ms MS] [OPTIONS]
+```
+
+**Options:**
+
+- `--dry` / `--live` — Report the files that would be repaired only, or write the repairs (default: live)
+- `--threshold F` — fraction of the file's own peak that counts as clipped, 0.0-1.0 (default: 0.98)
+- `--max-run-ms MS` — longest flat top to reconstruct, in milliseconds (default: 50)
+
+A threshold outside 0-1 or a width below 1 ms is refused as a usage error. A
+threshold close to 1.0 only considers samples at the very top of the file, which
+is how a limiter ceiling below full scale is still found.
+
+**Examples:**
+
+```bash
+audiosuite declip "D:\Music\Loud" --dry
+audiosuite declip "D:\Music\Loud" --live --threshold 0.95 --max-run-ms 20
+```
+
+### Duplicate Finder
+
+Find the files that are the same recording by comparing audio fingerprints, and
+move the extra copies into a quarantine folder. Nothing is deleted, and the
+kept copy is never written.
+
+```bash
+audiosuite duplicates <directory> [--threshold F] [--quarantine-dir DIR] [--cache PATH] [OPTIONS]
+```
+
+**Options:**
+
+- `--dry` / `--live` — Report the duplicate groups only, or move the extra copies (default: live)
+- `--threshold F` — maximum bit-error rate for two fingerprints to count as one recording (default: 0.1)
+- `--quarantine-dir DIR` — where a live run moves duplicates; defaults to a `duplicate_quarantine` folder inside the scanned directory
+- `--cache PATH` — the fingerprint cache file; defaults to `duplicate_cache.db` in the suite's cache directory
+
+Nothing is deleted: a live run moves the non-keepers and records each move in the
+suite's undo history, so the whole run is reversible. The JSON payload adds
+`groups`, `duplicates` and `quarantined` to the shared counters.
+
+**Examples:**
+
+```bash
+audiosuite duplicates "D:\Music" --dry
+audiosuite duplicates "D:\Music" --live --quarantine-dir "D:\Quarantine"
+audiosuite duplicates "D:\Music" --dry --threshold 0.08 --json
+```
+
 ### Tag Field Updater
 
 Scan and update tag fields - by default replacing a bare `/` in a tag value
@@ -939,7 +995,7 @@ audiosuite cue split "D:\Music\Album\Album.cue" -o "D:\Music\Album\Tracks"
 ## All Commands
 
 Every command the CLI ships, including the suite commands that operate on the
-installation rather than on a folder of audio. Each of the 30 tools appears
+installation rather than on a folder of audio. Each of the 32 tools appears
 here, and each tool's own section above documents its flags.
 
 | Command | Tool | Category |
@@ -948,6 +1004,8 @@ here, and each tool's own section above documents its flags.
 | `album-genre` | Album Genre Tagger | Enrich |
 | `artnormalize` | Album Art Normalizer | Util |
 | `asx-extract` | ASX Playlist Extractor | Util |
+| `declip` | Restoration (Declip) | Util |
+| `duplicates` | Duplicate Finder | Util |
 | `bpm` | BPM Analyzer | Enrich |
 | `cd-rip` | CD Ripper | Util |
 | `convert` | Music Format Converter | Util |

@@ -18,6 +18,42 @@ Versions of the tools are released together with the suite (the single
 
 Nothing yet.
 
+## [2.3.0] - 2026-10-31
+
+### Added
+
+- **Duplicate Finder finds the files that are the same recording, and deletes
+  nothing.** A new utility tool fingerprints every file in a folder, groups the
+  ones that are the same recording, and reports each group with the copy it
+  proposes to keep — chosen by measured quality (lossless, then bitrate, then
+  sample rate, then length), never by tags. The default similarity threshold of
+  0.10 is the measured one: four encodings of one recording scored
+  0.0000–0.0002 on the reference set, while the closest pair that must stay
+  apart scored 0.1580. A live run **moves** the extra copies into a quarantine
+  folder and records every move for undo; the kept copy is left byte-identical,
+  a dry run moves nothing, and a second scan skips the quarantine folder so it
+  cannot re-find what it moved. Fingerprints are cached, so a rescan of an
+  unchanged library does not repeat the work.
+
+- **Restoration (Declip) rebuilds the peaks a clipped recording lost.** A new
+  utility tool finds the flat-topped runs a ceiling left behind — measured
+  against the file's own peak, so a limiter set below full scale is found as
+  readily as a 0 dBFS master — and reconstructs each one by interpolating
+  through the clean samples either side. On the reference tone the measured
+  harmonic distortion falls from −21.38 dB to −46.82 dB and the peak returns
+  from −1.938 dBFS to −0.188 dBFS against the original's −0.100. A file with
+  nothing to repair is **skipped and not rewritten**, a square wave (whose
+  waveform is itself flat) is refused rather than rounded, and a repair keeps
+  the source's tags, sample rate, channel count and bit depth — a 24-bit source
+  stays 24-bit.
+
+- **Two new CLI commands and two new windows.** `audiosuite duplicates` reports
+  duplicate groups (its JSON payload adds `groups`, `duplicates` and
+  `quarantined`) and `audiosuite declip` repairs clipping; both are in the
+  Master Driver with their own cards, and both have a standalone window
+  (`Duplicate_Finder.pyw`, `Restoration.pyw`) with the suite's three tabs, Run
+  Controls strip and undo-backed live writes.
+
 ## [2.2.1] - 2026-10-30
 
 ### Changed

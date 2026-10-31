@@ -114,6 +114,9 @@ progress already goes to stderr and to the log for a human watching.  The
 behaviour is locked rather than merely documented:
 ``tests/test_cli_json_schema.py::TestSingleDocument`` asserts the document
 starts at byte 0 of stdout and nothing follows it, for every run it drives.
+
+Changed in 2.3.0: declares the ``duplicates`` and ``declip`` JSON payloads (F-02,
+F-08a).
 """
 
 from __future__ import annotations
@@ -158,10 +161,12 @@ TOOL_IDS: Final[Mapping[str, str]] = {
     "cue parse": "cue",
     "cue split": "cue",
     "declick": "pop_click_remover",
+    "declip": "restoration",
     "denoise": "ml_denoiser",
     # ``doctor`` is the install check rather than a tool, so its id has no
     # ``ToolManifest`` entry; it is declared here the way ``cue`` is.
     "doctor": "doctor",
+    "duplicates": "duplicate_finder",
     "enhance": "audio_enhancer",
     "fingerprint": "fingerprinter",
     "genre-sync": "genre_sync",
@@ -316,6 +321,13 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
         "files_written": int,
         "output_dir": str,
         "device": str,
+    },
+    "duplicates": {
+        # The scan's own counts: how many recordings it grouped, how many extra
+        # copies those groups hold, and how many of those a live run moved.
+        "groups": int,
+        "duplicates": int,
+        "quarantined": int,
     },
     "cd-rip": {
         "drive": str,

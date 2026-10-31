@@ -44,6 +44,11 @@ through ``processor.run_scan`` (maintenance item U4), so the table is 17 tools.
 Changed in 2.2.1: registers ``TagEditorApp``, whose load walk and apply runs
 now start through ``run_scan`` / ``run_apply`` (maintenance item U5), so the
 table is 18 tools.
+
+Changed in 2.3.0: registers ``DuplicateFinderApp``, whose completion handler
+declares the three counts its report and Results panel render (``groups``,
+``duplicates``, ``quarantined``) beside the shared fields, so the table is 19
+tools (F-02).
 """
 
 from __future__ import annotations
@@ -98,6 +103,20 @@ EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
             "errors",
             "duration_secs",
             "log_entries",
+        }
+    ),
+    "DuplicateFinderApp": frozenset(
+        {
+            "header",
+            "total",
+            "processed",
+            "skipped",
+            "errors",
+            "duration_secs",
+            "log_entries",
+            "groups",
+            "duplicates",
+            "quarantined",
         }
     ),
     "FingerprinterApp": frozenset(
@@ -302,7 +321,7 @@ def _required(fn: Any) -> set[str]:
 
 def test_the_seam_table_covers_every_gui_tool() -> None:
     """A partial table would leave tools silently untested."""
-    assert len(COMPLETION_WIRINGS) == 18
+    assert len(COMPLETION_WIRINGS) == 19
     assert set(EXPECTED_REQUIRED) == set(COMPLETION_WIRINGS)
 
 

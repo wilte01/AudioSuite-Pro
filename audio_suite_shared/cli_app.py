@@ -66,6 +66,10 @@ Usage::
                            [--stems vocals,drums,bass,other] [--mix]
                            [--device auto] [--dry] [--json]
     audiosuite denoise /path/to/dir [--amount 100] [--dry] [--json]
+    audiosuite duplicates /path/to/dir [--threshold 0.10]
+                           [--quarantine-dir DIR] [--dry] [--json]
+    audiosuite declip /path/to/dir [--threshold 0.98] [--max-run-ms 50]
+                           [--dry] [--json]
     audiosuite cd-rip <drive> --output-dir DIR [--format flac] [--tracks N]
                            [--cue] [--verify twice] [--detect-read-offset]
                            [--dry] [--json]
@@ -129,6 +133,8 @@ Changed in 2.1.0: registers the ``plugins`` group (list / enable / disable) and
 one command per enabled plugin tool.  A plugin command resolves its entry point
 when invoked, so a broken plugin costs its own command and nothing else
 (Sprint 7, Item 7.1).
+
+Changed in 2.3.0: registers the ``duplicates`` and ``declip`` commands (F-02, F-08a).
 """
 
 from __future__ import annotations
@@ -169,6 +175,7 @@ _TOOL_CLI_MODULES: tuple[tuple[str, str], ...] = (
     ("audio_suite_shared.cue_cli", "cue"),
     ("bpm_analyzer.cli", "bpm"),
     ("cd_ripper.cli", "cd-rip"),
+    ("duplicate_finder.cli", "duplicates"),
     ("file_reorganizer.cli", "reorganize"),
     ("genre_sync.cli", "genre-sync"),
     ("key_detector.cli", "key"),
@@ -182,6 +189,7 @@ _TOOL_CLI_MODULES: tuple[tuple[str, str], ...] = (
     ("noise_reduction.cli", "reduce"),
     ("pop_click_remover.cli", "declick"),
     ("replaygain_analyzer.cli", "replaygain"),
+    ("restoration.cli", "declip"),
     ("silence_trimmer.cli", "silence-trim"),
     ("spectral_viewer.cli", "spectrogram"),
     ("stem_separator.cli", "stems"),

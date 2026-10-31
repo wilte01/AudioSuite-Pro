@@ -14,6 +14,45 @@ one.
 
 Nothing yet.
 
+## [2.3.0] - 2026-10-31
+
+### Changed
+
+- **The two new tools are locked by measurement, not by shape.**
+  `duplicate_finder/tests` drives the real `fpcalc` path over a declared fixture
+  set and asserts the recorded distances (0.0000–0.0002 inside one recording,
+  0.1580 for the nearest pair that must stay apart) and that quarantine leaves
+  the keeper's SHA-256 unchanged; `restoration/tests` decodes the written file
+  and measures harmonic distortion and peak against a known-clipped reference
+  (25.45 dB improvement, peak within 0.05 of the original), and asserts a clean
+  file's bytes and mtime are untouched. 240 tests between them.
+
+- **`duplicates` and `declip` joined the locked CLI schema**
+  (`cli_schema.TOOL_IDS`/`EXTRA_TYPES`), so their `--json` payloads are part of
+  the suite's contract rather than an ad-hoc dict, and both commands refuse an
+  out-of-range option with Click's exit-2 usage message instead of a traceback
+  from the settings object.
+
+- **`restoration.core.file_processor` builds a headless slot pool** when no
+  window supplies one. The shared in-place workflow takes its worker index from
+  a queue and blocks until one is free, so an empty pool hung every caller that
+  passed none instead of failing; `_resolve_pool` sizes the pool from the
+  processor, and a regression test runs the batch with neither argument.
+
+- **`duplicate_finder`'s status tokens are bracketed constants** (`"[CACHED]"`,
+  `"[KEEP]"`, …) interpolated without extra brackets, because the guide-claims
+  lock searches the source text for the literal a guide quotes and an f-string
+  that adds the brackets itself never matches.
+
+- **The new-user deck takes its tool count from the manifest** (the closing
+  slide used a literal "30 tools"), and its format table names both new tools,
+  so a new manifest entry cannot leave the deck behind.
+
+- **The generated documentation indexes were regenerated** from the manifest:
+  `documentation/docs/index.md` (32 rows) and the README tool index, plus the
+  hand-written counts they sit beside in `README.md`, `suite-overview.md` and
+  the CLI reference.
+
 ## [2.2.1] - 2026-10-30
 
 ### Changed
