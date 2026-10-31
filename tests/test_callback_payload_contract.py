@@ -366,3 +366,70 @@ def test_the_scan_flags_a_narrow_handler() -> None:
     assert by_seam["progress"].has_var_keyword is False
     assert by_seam["error"].positional_params == ()
     assert by_seam["error"].has_var_positional is False
+
+
+#: The Tk marshalling call: ``widget.after(ms, fn, *args)`` takes positional
+#: arguments only.
+_AFTER = "after"
+
+
+def _after_calls_with_keywords(
+    sources: Sequence[tuple[Path, ast.Module]] | None = None,
+) -> list[str]:
+    """Return every ``.after(...)`` call in first-party source that passes keywords.
+
+    ``Misc.after`` is ``after(ms, func, *args)``: forwarding a published keyword
+    payload as ``after(0, fn, **kw)`` raises ``TypeError: after() got an
+    unexpected keyword argument`` *inside* the completion call, so the work
+    finished and the window reported nothing.  Two shipped tools
+    (``noise_reduction``, ``pop_click_remover``) had exactly that shape until
+    F-02's new window showed the difference; the payload is bound into the call
+    with ``functools.partial`` instead.
+
+    Args:
+        sources: Parsed modules to scan; defaults to the first-party tree.
+
+    Returns:
+        One ``path:line`` label per offending call.
+    """
+    offenders: list[str] = []
+    for path, tree in SOURCE_CACHE if sources is None else sources:
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == _AFTER
+                and node.keywords
+            ):
+                offenders.append(
+                    f"{path.relative_to(REPO_ROOT).as_posix()}:{node.lineno}"
+                )
+    return offenders
+
+
+def test_after_is_never_called_with_keywords() -> None:
+    """A marshalled callback binds its payload positionally, never as keywords."""
+    assert any(wiring.seam == "complete" for wiring in WIRINGS), (
+        "no completion seam discovered; the scan is broken"
+    )
+    offenders = _after_calls_with_keywords()
+
+    assert not offenders, (
+        "root.after(ms, fn, *args) takes positional arguments only; **kwargs "
+        "raises TypeError inside the call and the run reports nothing "
+        "(use functools.partial):\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_the_after_scan_flags_a_keyword_call() -> None:
+    """Prove the marshalling scan can fail, on the shape it exists to catch."""
+    demo = REPO_ROOT / "demo" / "app.py"
+    source = ast.parse(
+        "def run():\n"
+        "    root.after(0, self._on_complete, **kw)\n"
+        "    root.after(0, partial(self._on_progress, **kw))\n"
+    )
+
+    offenders = _after_calls_with_keywords([(demo, source)])
+
+    assert offenders == ["demo/app.py:2"], offenders

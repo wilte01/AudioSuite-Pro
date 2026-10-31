@@ -1,13 +1,17 @@
 """
 app.py
 PopClickRemoverApp — thin orchestrator for the Pop & Click Remover tool.
+
+Changed in 2.3.0: the completion payload is marshalled positionally - ``after()`` takes
+no keywords (found while wiring the F-02 window).
 """
 
 from __future__ import annotations
 
 import logging
 import tkinter as tk
-from typing import Any, cast
+from functools import partial
+from typing import Any
 
 from audio_suite_shared.tool_app_base import NoisePopToolApp
 
@@ -66,7 +70,11 @@ class PopClickRemoverApp(NoisePopToolApp):
         width = self.max_width.get()
 
         def _complete(**kw: Any) -> None:
-            self.root.after(0, cast(Any, self._on_complete), **kw)
+            # ``Misc.after`` takes positional arguments only: forwarding the
+            # published keyword payload as ``after(0, fn, **kw)`` raises
+            # ``TypeError`` inside the completion call, so a finished batch
+            # reported nothing.  Bind it into the callback instead.
+            self.root.after(0, partial(self._on_complete, **kw))
 
         def _fail(msg: str) -> None:
             self.root.after(0, self._on_error, msg)

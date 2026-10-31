@@ -178,12 +178,14 @@ points -- and NOTE_MARKER is ``Changed in 2.2.0``, so 2.1.7's notes stay as each
 file's own history instead of work landing after the cut being filed under a
 release it is not in. The window's first narrative change is the
 ``[Unreleased]`` entry the gate-visibility fix lands under.
-Changed in 2.2.1: re-baselined the lock for the post-2.2.0 window. BASE_COMMIT
-is now 3a32185 -- the 2.2.0 release record, which is where the ``v2.2.0`` tag
-points -- and NOTE_MARKER is ``Changed in 2.2.1``, so 2.2.0's notes stay as each
-file's own history instead of work landing after the cut being filed under a
-release it is not in. The window's first narrative change is the
-maintenance-cycle split of the change history (functional backlog U2).
+Changed in 2.3.0: re-baselined the lock for the post-2.2.1 window. BASE_COMMIT
+is now 0b83b3e -- the last commit of the 2.2.1 window, which is where the
+``v2.2.1`` tag's release record ends -- and NOTE_MARKER is ``Changed in 2.3.0``,
+so 2.2.1's notes stay as each file's own history. The window holds the two new
+tools of functional backlog Wave 3: Duplicate Finder (F-02) and Restoration /
+Declip (F-08a), whose 53 new modules each carry the note this re-baseline
+checks. Its first narrative change is the ``CHANGELOG.md`` entry those two
+tools land under, so the scan cannot be vacuous here.
 Changed in 2.1.6: the diff no longer forces ``core.autocrlf=false``. On a host
 whose checkout converts line endings (GitHub's Windows runners set
 ``core.autocrlf=true``) that override made every LF-stored file look modified,
@@ -204,14 +206,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: The plan's base commit; every file changed since here must be annotated.
 #: Re-baselined per sprint (section 2.5 of the audit-remediation plan) so each
 #: release's notes are written while its work is in flight, not retro-fitted at
-#: the cut. It now sits at 3a32185, the 2.2.0 release tip: that window is closed
-#: and its notes are written, so only work after the release does. Earlier work
-#: is documented in its own plans and the changelogs, so it does not require
-#: per-file notes here.
-BASE_COMMIT = "3a32185"
+#: the cut. It now sits at 0b83b3e, the last commit of the 2.2.1 window: that
+#: window is closed and its notes are written, so only work after it does.
+#: Earlier work is documented in its own plans and the changelogs, so it does
+#: not require per-file notes here.
+BASE_COMMIT = "0b83b3e"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 2.2.1"
+NOTE_MARKER = "Changed in 2.3.0"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (
