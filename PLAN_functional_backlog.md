@@ -1,10 +1,17 @@
 # PLAN — functional backlog (B2, A1, F-01, F-02, F-05/F-06, F-09, F-08, F-10, U1, U2, U3, U4, U5)
 
-**Status:** **Waves 1 and 2 complete** — Wave 1: F-10 `5d4ab22`, F-09 `6642d41`,
+**Status:** **Waves 1, 2 and 3 complete** — Wave 1: F-10 `5d4ab22`, F-09 `6642d41`,
 B2 `8890b73`, A1 `c6f54dc` and the guide sweep `6a4be7a`; Wave 2: F-01 and
 F-05/F-06 in `da30298`, released as **2.2.0** (`00238e1`), pushed at
-`3a32185` with the floor leg green (CI run `41060921137`). See §6. Wave 3
-remains `[ ]` planned and unstarted. The maintenance cycle's **five** items are
+`3a32185` with the floor leg green (CI run `41060921137`); Wave 3: F-02
+(Duplicate Finder) and F-08a (Restoration / Declip), cut as the **2.3.0** minor
+off `0b83b3e` — the tip of the 2.2.1 window —
+with the items' measured evidence, the guide sweep, the artefact triage and the
+gate in §6. The work landed as two reviewable commits - the callback fix
+`a93d11b` and the 2.3.0 feature release `adbd38d` - with this record in its own
+commit after them; nothing was tagged or pushed. The re-baselined
+`tests/test_release_notes.py` (`Changed in 2.3.0`) is satisfied by those commits.
+The maintenance cycle's **five** items are
 **complete** and **released as 2.2.1** (`05edc6d`): **U1** (the Tag Field
 Updater window, D28), **U2** (the change history split by audience, D29),
 **U3** (that window's Run Controls strip and driver handshake, D33), **U4**
@@ -110,6 +117,11 @@ discovered.
 | D33 | **U3 adopts the Run Controls strip and makes the driver's start/end flags real, with the strip's Mode as the only dry/live writer.** | DECIDED (user, 2026-10-30) | Supersedes D31 (a) and (b) and the Setup-tab half of (c); D31 (d) still stands. The tab is now a `_SetupFrame(BaseSetupFrame)`, so the title, the source row, the Mode combobox, the inert Clear Logs/Parallel display and the full-width start button come from the same code every peer uses. `dry_run` was a second variable for the same decision, so it is gone: `run_mode` ("Dry Run"/"Live Update", the driver's own strings) is the single value, the mode combobox is its only widget, and `_on_filename_mode_toggled` remains the only place that forces Dry Run — `main()`'s argv pre-fill writes the mode the driver passed, which is not a second rule. `driver_locked` is `was_launched_from_driver()` when argv was parsed, so a driven window's source/Mode/Browse are disabled and the run uses the arguments the driver sent. The flags were already parsed and never used, so the strip would have been a display that lied: `arg_builder.py` now emits `[path, mode_flag, start_flag, end_flag]` (the Utility tab's Auto Start/Auto End), `main()` starts only when `--start` was passed, and `finish_scanning` closes the window with `after(2000, destroy)` when `--end` is set — the batch's `_launch_standalone` blocks on this process, so that is the difference between an unattended batch completing and waiting forever. The window now opens in Dry Run, matching the strip's first mode and every peer, instead of standalone live. Evidence: `TestRunControlsStrip` (real window: `DriverControlsPanel`, mode values, shared source var, standalone editable, driven locked), `TestDriverHandshake` (argv fills the strip; `--start` starts once, `--no-start` starts nothing), `test_auto_end_closes_the_window`, `TestFilenameModeDefaultsToDry` (the dry rule, unchanged in intent, now on the mode value), and `test_runner`'s two new flag pairs. Guide's Quick Start and Setup sections rewritten, `.docx` re-rendered. |
 | D34 | **U4 conforms the Tag Field Updater to the shared scaffold, and the run leaves a report in the scanned folder.** | DECIDED (user, 2026-10-30) | Supersedes D31 (d) and closes D31's callback-contract note: U3 made the strip real but left every other seam the tool's own, and the gap the user saw was the run log — peers write `<prefix>_dry_run_log.txt` / `<prefix>_sync_log.txt` into the folder they scanned and View Log opens it, while this tool wrote no per-file record at all, so the detail existed only in `logs/tag_field_updater.log` and the Results tab pointed there. The window is now an `AnalysisTagToolApp` with `ui/setup_tab.py` / `ui/processing_tab.py` / `ui/results_tab.py` (the layout 25 of 30 packages use), the browse button is `_browse_folder` (initial directory from the field, `save_last_directory`, restore on launch), and `cli_args.parse` reads the positional handshake (`mode_idx=2, start_idx=3, end_idx=4` — this enrich tool's `[path, mode, start, end]` prefix, the slots `album_genre_tagger` reads) instead of scanning tokens, so a shifted argv fails like its peers instead of reading as `--dry`. The scan starts through `core.processor.run_scan`, the `run_*` entry point taking the three callbacks, which sizes the progress bar from the file count, builds the per-file lines (`[UPDATED]` / `[WOULD UPDATE]` / `[UNCHANGED]` / `[SKIP]` / `[NO MATCH]` / `[ERROR]`) and publishes `updated` / `audio_files` beside the shared counters; the shared completion handler writes the report to `tag_field_updater_dry_run_log.txt` or `tag_field_updater_sync_log.txt` in the scanned folder and View Log opens that path. Three deliberate deviations. (1) The completion handler is `_finish_run`, not an override of `_on_complete`, because this tool's payload carries two counts the base never learns and a required field added to the supertype's signature is a type error — the wiring lambda binds it and the cross-tool locks still resolve it; (2) `main()` applies the handshake only when `argv[2]` holds a driver mode token, so any other argv (a test runner's) is not validated as a folder and exited 1. (3) The strip's preset row is not wired: action groups (F-01) already are this tool's saved settings — a pattern list plus its write mode in `audio_suite_config.json` — so a second saved-settings row would duplicate the concept rather than adopt the convention. D31 (c)'s remaining point stands on that one row and nothing else: the action-group widgets are still the tool's own row, beside the shared skeleton rather than inside a preset row. The tool is now registered in `tests/test_callback_payload_contract.py` (`EXPECTED_TOOLS`), `tests/test_completion_seam.py` (`EXPECTED_REQUIRED`) and `tests/test_completion_payload_published.py` (`EXPECTED_PUBLISHERS`); `tests/test_pyw_launchers.py::_run_launcher` now purges cached tool modules and lands its stub on the module the launcher statically imports, because the payload locks import every GUI app in-process and the cached `tag_field_updater.ui.app` made the launcher test exercise the real window instead of its stub. Evidence: `TestRunReport` (both report names, `View Log` opens the path the run wrote), `TestCompletionSeam::test_the_real_run_drives_the_bound_handler` (the real `run_scan` into the bound handler, asserting the written report), `TestRunScan`/`TestLogLine`/`TestCountScannedFiles` in `test_processor.py`, `TestBrowseUsesTheSharedDialog`, `TestDriverHandshake`, and 405 passed across the package plus the three locks and the launcher suite. |
 | D35 | **U5 brings the Tag Editor to the same standard: shared strip, shared tabs, positional argv, and a report per run.** | DECIDED (user, 2026-10-30) | The user asked for the same conformance the Tag Field Updater just received (D34), and the Tag Editor is the last window with the old shape: `grid()` into one frame, no notebook, no progress surface, `filedialog.askdirectory()` directly, and a processor the window called and read back instead of a `run_*` entry point. It is now an `AnalysisTagToolApp` with `ui/setup_tab.py` / `ui/processing_tab.py` / `ui/results_tab.py`, and its Setup tab is a `BaseSetupFrame`, so the Run Controls strip supplies the source row, the shared browse dialog, the Mode combobox and the driver's orchestration display; the grid (the tool's editing surface) is that tab's `_build_options`. Both run kinds go through the processor: `run_scan` for the load walk the START button starts, `run_apply` for Apply to Selection, Apply Bulk and Import CSV, each publishing the shared counters plus its own fields (`rows`; `results` / `changed` / `written`). Three decisions worth naming. (1) A load walk is not a dry run of an edit, so it writes `tag_editor_scan_log.txt` rather than posing as `tag_editor_dry_run_log.txt`; an apply writes the mode-named report, both into the folder the tool read, and View Log opens the latest. (2) An apply is a run, not a silent in-grid update: it moves to Processing, finishes on Results and writes its report, because that is the feedback loop every peer has and the alternative was the modal-and-status-line shape the rebuild removed. Its payload is counted per *file* (the unit the shared summary and progress bar use) while the report carries one line per *edit*. (3) `arg_builder` now emits `[path, mode, start, end]` for `tag_editor`, the contract `tag_field_updater` already had: with `[path, mode]` alone the strip's Auto Start and Auto End could never be true, which is the same inert-option class as a flag that reaches no write site. The completion handler is `_finish_scan` / `_finish_apply` bound by the wiring lambda, not `_on_complete` overrides, for D34's reason: their payloads carry fields the base never learns. The CSV row-error lines and summary rows are captured in `_pending_*` before the thread starts, so the completion signature stays the processor payload plus the report header rather than growing wiring-only parameters. Evidence: `tag_editor/tests/test_app.py` (constructor wiring, strip, load run through the real `run_scan` into the bound handler, apply runs through `run_apply`, CSV import/export, grid interaction, `TestCompletionSeam`), `TestRunScan`/`TestRunApply`/`TestStop` in `test_processor.py`, `test_cli_args.py`'s slot cases, and the three cross-tool locks at 18 tools. |
+| D36 | **F-02 ships as the `duplicate_finder` tool: fingerprints clustered at a *measured* 0.10 threshold, keepers chosen by measured quality, and quarantine-with-undo instead of any delete.** | DECIDED | The threshold is a measurement, not a pick: on the declared fixture set the same recording as FLAC and as MP3 96/128/320 kbit/s measures **0.0000-0.0002**, while the nearest pair that must stay apart - two arrangements that share a 10 s intro - measures **0.1580**, so 0.10 sits between them with a ~490x margin below and 1.58x above. A pair is only compared when the durations agree within 2 s and the aligned overlap covers 0.6 of the longer fingerprint, and the alignment is searched over ±32 sub-fingerprint words (~4 s), because a four-minute track and a 30 s clip of it are not duplicates however close the bits are. The keeper is chosen by **measured quality** - lossless before bitrate, then sample rate, then length - and never by tags, which are exactly what a bad rip gets wrong. A live run *moves* the non-keepers into `duplicate_quarantine/` and records every move in `batch_undo`, so the operation is reversible; the kept copy is hash-checked byte-identical, a dry run moves nothing, and the walk skips the quarantine folder so a second scan cannot re-find what the first moved. Merge and deletion are **not** in this version (the item's own scope), so no run can lose audio outright. `audiosuite duplicates` publishes `groups`/`duplicates`/`quarantined` in its `--json` payload, declared in `audio_suite_shared/cli_schema.py`. Evidence: `test_clustering.py` (the declared fixture set and its negative pair), `test_file_processor.py` (quarantine, undo, keeper SHA-256, dry run, second scan), `test_fingerprint_cache.py` (the stamp), `test_app.py` (the window) and `test_cli.py` (payload and schema). |
+| D37 | **F-08a ships as `restoration`'s declip: detection against the file's *own* peak, a plateau rule that rejects a merely curved peak, and spline reconstruction that is refused when it cannot beat the original.** | DECIDED | Measuring the ceiling against the file's own peak - not full scale - is what lets the tool find a limiter set at -1.9 dBFS without the user naming the number. Three checks keep a false positive out of a repair that would make clean audio worse: only samples at or above `0.98` x the file's peak are candidates; inside a candidate region only samples within 1e-4 of the region's highest magnitude form the plateau, so a curved peak (one sample at that height) yields a one-sample plateau and is rejected; and a run needs eight clean samples of context either side plus a reconstruction that rises above the plateau by 1e-3 and stays inside full scale. The plateau is rebuilt by cubic-spline interpolation through that clean context, whose natural overshoot *is* the restoration. **Measured** on a 1 kHz tone mastered to -0.1 dBFS and hard-clipped at 0.8 (a limiter ceiling): harmonic distortion falls from **-21.38 dB to -46.82 dB** and the peak returns from **-1.938 dBFS to -0.188 dBFS** against the original's -0.100. A run that cannot improve is counted skipped and left **byte-identical**, a square wave (flat by nature) is refused rather than rounded, a 0 dBFS hard clip whose true peak is unrepresentable is reported and left alone, and a second pass finds nothing because the result is capped at full scale. A clean file is not rewritten at all (hash and mtime asserted), the source's tags, rate and channels survive, and a 24-bit source stays 24-bit. Defaults **0.98 / 50 ms**, exposed as `--threshold`/`--max-run-ms`. Evidence: `test_declipper.py` (the THD and peak measurements, the skipped and refused runs, idempotency, 24-bit), `test_file_processor.py` (clean file untouched, tags, counts), `test_app.py` and `test_cli.py`. |
+| D38 | **Wave 3 ships as 2.3.0, a minor, not the 2.2.x patch §5 predicted.** | DECIDED (user, 2026-10-31) | Both items add capability a user can run - two tools, two commands, two windows - so a patch number would misdescribe the release; the brief was explicit that this is new functionality rather than a fix, and Semantic Versioning agrees. `utilities/release.py 2.3.0 --date 2026-10-31` performed the cut on the tree: `pyproject.toml` bumped, `uv.lock` re-locked and read back (2.2.1 → 2.3.0), `[Unreleased]` promoted to `## [2.3.0] - 2026-10-31` in **both** changelogs and reopened with "Nothing yet.", and the seven version-labelled guides re-rendered. Those seven were triaged by zip entry the way the rule requires - identical entry sets, one differing entry (`word/document.xml`) and one changed paragraph in each, the subtitle "Version 2.2.1 - October 2026" becoming "Version 2.3.0 - October 2026" - so they ship as rendered rather than as external-tool drift. `CHANGELOG.md` carries the three user bullets (§8) and `TECHNICAL_CHANGELOG.md` the three developer ones (the two tools' measurement locks, the CLI-schema registration, the headless slot pool). The cut is committed as `adbd38d`, the 2.3.0 feature release; no tag and no push were requested, so §6 records the gate against that commit rather than against a published run. |
+| D39 | **F-02's fingerprint cache is its own SQLite file, with the R-13 ``(mtime, size)`` stamp rather than a second freshness rule.** | DECIDED | §7 asked the question and the answer is the item's own file: the fingerprint payload is ~700 bytes per file and grows with a library, while `library_stats`' cache is a tag-metadata store with its own schema and migration history - one table for both would make one tool's migration edit the other's. What must not fork is the **stamp**: mtime alone answers "cached" for a file replaced by a copy that preserved its timestamps, which is exactly R-13, so the cache compares ``(mtime, size)`` and fingerprints again when either disagrees. Connection creation is serialised by a module-level lock shared by every instance (a per-instance lock cannot serialise two connections to one file), a competing writer is waited out rather than raising `database is locked`, and `auto_vacuum=FULL` keeps a delete-heavy cache from growing for ever - the pattern `batch_undo` and `library_cache` already use. `AUDIOSUITE_DUPLICATE_CACHE` overrides the default path, so tests do not write the user's cache. Evidence: `test_fingerprint_cache.py` pins the stamp's negative case (same mtime, different size ⇒ fingerprint again), the round trip of every record field, and the environment override. |
+| D40 | **A defect found while wiring F-02's window is fixed in two shipped tools: `root.after(0, fn, **kw)` raises inside the completion call.** | DECIDED (defect, fixed in this change) | `NoiseReductionApp` and `PopClickRemoverApp` forwarded the published completion payload as ``self.root.after(0, cast(Any, self._on_complete), **kw)``. `tkinter.Misc.after` takes positional arguments only, so the call raised `TypeError: after() got an unexpected keyword argument` **inside** the callback and a finished batch reported nothing - the same silent-report class as D112/D113 one layer lower. Both now bind the payload with `functools.partial`, and `tests/test_callback_payload_contract.py` gained `_after_calls_with_keywords`, which walks every first-party module for an `after(...)` call carrying keywords, plus `test_the_after_scan_flags_a_keyword_call`, which feeds it a keyword call and requires it to fail - a scan that cannot fail is worse than none (`AGENTS.md`, *Defects and failing checks*). The class is recorded here because nothing else would have caught it: the payload locks check the handler's signature, not how the payload reaches it. |
 
 ---
 
@@ -355,6 +367,10 @@ inherit whatever the host does.
 
 #### F-02 — duplicate detection and merge (L)
 
+**Status:** DONE — `duplicate_finder/` with the measured 0.10 threshold, the
+measured-quality keeper, quarantine + undo and its own stamp-checked cache;
+evidence in D36 and D39, §6.
+
 *Current state.* `audio_fingerprinter` already computes Chromaprint
 fingerprints through the committed `fpcalc.exe`, and
 `audio_fingerprinter.core.acoustid_client.resolve_best_match` already contains
@@ -388,6 +404,9 @@ a real library, and with it the tool inherits the staleness question R-13 just
 answered for `library_stats`. Reuse the stamp rule; do not invent a second one.
 
 #### F-08 — restoration: declip first, then de-reverb, then spectral repair (XL)
+
+**Status:** **F-08a DONE**; F-08b and F-08c not started. Declip ships as
+`restoration/`, with its THD and peak measurements in D37 and §6.
 
 *Current state.* `noise_reduction` and `pop_click_remover` cover noise and
 clicks; there is no declipper, no de-reverb and no spectral repair. The audit
@@ -737,7 +756,7 @@ line per *edit*, because the shared summary and progress bar are file-based.
 |---|---|---|---|
 | 1 | F-10, B2, F-09, A1 | 2.1.7 patch (F-10 first; B2 needs a deliberate version note; A1 is a measurement) | Each is bounded, each produces one checkable artefact, and B2 closes a capability gap in a tool users already run. F-10 goes first because F-09 edits the same filter string and would otherwise be verified against an unlocked parameter set. |
 | 2 | F-01, F-05/F-06 | 2.2.0 | User-visible features; F-01 needs a dry-run default that deserves its own release note and guide. |
-| 3 | F-02, F-08a → b → c | 2.2.x, one per sub-item | Large; each needs the scaffolding the earlier waves produce. |
+| 3 | F-02, F-08a → b → c | **2.3.0**, a minor, carrying F-02 and F-08a together (D38); b and c remain unstarted | Large; each needs the scaffolding the earlier waves produce. |
 | M | U1, U2, U3, U4, U5 | **2.2.1**, all in one patch — U1, U3, U4 and U5 are window-only, U2 changes the changelogs and the release tooling; none touches a tag or audio (D28/D29/D33/D34/D35) | Neither changes how the suite runs, so either can ride any 2.2.x slot. U1 rebuilds a window F-01 has just extended, so it is cheaper to review once that has settled. U2 is cheapest *before* the next cut: every release that ships while the two audiences are mixed adds more technical bullets to the file users read, and under U2's own rule the split is itself a technical change, so the release that lands it says nothing in `CHANGELOG.md`. |
 
 `F-05`/`F-06` are grouped because they share the export surface; everything else
@@ -1275,6 +1294,89 @@ completed in 28:11.
   160.9 billable minutes the three-leg matrix cost on the 2026-10-28 push
   (`AGENTS.md`, *The Python floor must honour its lockfile*).
 
+**Wave 3 — F-02, F-08a.** One 2.3.0 minor (D38) on `main`, based on `0b83b3e`
+(the tip of the 2.2.1 window), committed in two steps: the callback defect
+`a93d11b` and the release itself `adbd38d`, with this record after them. No tag
+and no push were requested, so the evidence below is the gate on `adbd38d`'s
+tree, not on a published run. `tests/test_release_notes.py` is re-baselined to
+`0b83b3e` with `Changed in 2.3.0`, and the release commit carries the
+**72** per-file notes the window already holds - every changed or added `.py`
+and `.toml` in it. The gate below ran on that tree with the
+project's own `.venv` interpreter (Python 3.14), on the second full-suite run:
+the first one found 33 registration gaps, they were fixed, and the run was
+repeated rather than assumed.
+
+| Check | Result |
+|---|---|
+| compile | `.venv/Scripts/python.exe -m compileall -q -f -x '(packaging|\.venv)' .` exit 0, no `Error compiling` line. The bare form still exits 1 on the untracked PyInstaller runtime's deliberately invalid fixtures, and the anchored `-x '(^|/)(\.venv|\.git)/'` form does not exclude a Windows path - the unanchored alternation is the one that works (Wave 2's row already records this). |
+| ruff | `ruff check .` clean; `ruff format --check .` - 1008 files already formatted. |
+| mypy | bare `mypy .` - no issues in **591** source files (561 before the two packages). |
+| bandit | 0 High / 0 Medium; 43 Low, against 41 before. The two new ones are `B105` on the `--threshold` option string in each new `utils/cli_args.py`, the class `bpm_analyzer`, `lyrics_manager` and `replaygain_analyzer` already carry; `run_gate.ps1` and `AGENTS.md` both define the bar as 0 High / 0 Medium. |
+| pytest | bare `pytest` - **11 826 passed, 3 skipped, 35 deselected** in 18:03, exit 0, coverage **91.23%**. The two new packages alone are **240 passed**. |
+
+Item evidence:
+
+- **F-02** (`duplicate_finder/tests`, `master_driver/tests`, the cross-tool
+  locks): `test_clustering.py` declares the fixture set and asserts the measured
+  distances rather than a count of groups - the same recording as FLAC and as
+  MP3 96/128/320 kbit/s clusters at 0.0000-0.0002, the two arrangements that
+  share a 10 s intro stay apart at 0.1580, the 30 s clip of a track is not a
+  duplicate of it (overlap gate), and a 4 s length difference is not compared
+  (duration gate). `test_file_processor.py` proves the outcome on a real tree: a
+  live run moves the extra copies into `duplicate_quarantine/` and leaves the
+  keeper's SHA-256 **unchanged**, the undo journal restores every moved file, a
+  dry run moves nothing, and a second scan does not re-find what the first moved.
+  `test_fingerprint_cache.py` pins the `(mtime, size)` stamp (same mtime,
+  different size ⇒ fingerprint again), the round trip of every record field and
+  the `AUDIOSUITE_DUPLICATE_CACHE` override. `test_cli_args.py` reads the driver's
+  option pairs and refuses an out-of-range threshold, `test_app.py` drives the
+  window (strip, three tabs, probe, dry/live, the report it writes),
+  `test_cli.py` locks the `--json` payload and the schema,
+  `TestBuildUtilityArgs`/`TestDependencyGraph`/`test_app_state.py` cover the four
+  driver registration points, and the launcher, card, guide and
+  `testpaths`/coverage entries are all in place (the eleven-step checklist).
+- **F-08a** (`restoration/tests`): `test_declipper.py` measures the audio, not a
+  field - a known-clipped tone's THD falls 25.4 dB and its peak returns to
+  -0.188 dBFS against the original's -0.100, a clean file's bytes **and mtime**
+  are untouched, a square wave and an unrepresentable 0 dBFS clip are reported
+  and left alone, a long flat top is skipped, a second pass changes nothing, and
+  a 24-bit source stays 24-bit. `test_file_processor.py` runs the shared in-place
+  workflow over a real folder (one repaired, one clean, tags and format kept,
+  counts named) and covers the headless slot pool the technical changelog
+  records. `test_cli_args.py`, `test_cli.py`, `test_app.py` and the four driver
+  registration locks mirror F-02's.
+- **D40's defect** was found here and fixed here: two shipped windows forwarded
+  the completion payload through `root.after(..., **kw)`, which raises inside
+  the callback; `tests/test_callback_payload_contract.py` now scans for that
+  shape across the tree and has a test that proves the scan can fail.
+- **Guides and generated artefacts** (§2 rule 3): two new guides
+  (`Duplicate_Finder_User_Guide.md`, `Restoration_User_Guide.md`) were written
+  and rendered, the CLI reference gained both commands' sections and was
+  re-rendered, and the README, `documentation/docs/index.md` and the suite
+  overview/deck were taken from the **manifest** - 32 tool rows, 33 registered
+  guides - instead of being edited by hand. `build_user_guides.py --check`
+  reports **34/34 artefacts current**. The deck was triaged by zip entry: four
+  slides, all semantic (the count 30 → 32 on three of them and the two new rows
+  on the feature slide), no external-tool drift.
+- **The cut's seven version-labelled guides** were compared entry by entry with
+  their `HEAD` blobs: identical entry sets, one differing entry
+  (`word/document.xml`) each, and its only changed text the subtitle
+  "Version 2.2.1 - October 2026" → "Version 2.3.0 - October 2026". Kept as
+  rendered (D38).
+- **Misses the first gate run found, fixed in this change:** 33 failures, all of
+  them registration or derived-artefact gaps the new tools exposed - the README
+  and docs-index row counts (regenerated from the manifest, then the two locks
+  moved 30 → 32), `undo_gui._TOOL_DISPLAY_NAMES` missing both ids, the platform
+  tier counts (30/29/28 → 32/31/30), the `--help` discoverability count, the
+  usage-error table (both commands added), the CLI schema corpus and the
+  committed `cli_schema.json` (re-recorded with
+  `python -m tests.cli_schema_conformance --record`, not hand-patched), the
+  doctor's healthy-install check (the editable distribution still said 2.2.1
+  after the bump; `uv sync --all-extras` re-installed it as 2.3.0), and one mypy
+  error - `duplicate_finder` declared `PRESET_KEY_PREFIX` as an instance
+  variable over a `ClassVar` on the base. Every lock was updated in lockstep
+  rather than relaxed; nothing was skipped, xfailed or suppressed.
+
 ---
 
 ## 7. Open questions
@@ -1282,10 +1384,12 @@ completed in 28:11.
 - *(Resolved by the 2.1.7 cut - D21.)* **Which version do the Wave-1 items
   actually ride?** D10 proposed 2.1.7 for all of them; B2 changes what a tool
   advertises, which some would call minor. Answered as 2.1.7 for all four.
-- **Does F-02 need a shared fingerprint cache in `audio_suite_shared`, or its own
-  SQLite file?** Its own file repeats R-13's stamp question; a shared cache is a
-  bigger change but one rule. Decide at the start of that item, with the R-13
-  stamp as the default.
+- *(Resolved at F-02 - D39.)* **Does F-02 need a shared fingerprint cache in
+  `audio_suite_shared`, or its own SQLite file?** Its own file, with the R-13
+  `(mtime, size)` stamp: the payload is ~700 bytes per file and grows with the
+  library, while `library_stats`' cache is a tag-metadata store with its own
+  schema and migration history, so one table for both would make one tool's
+  migration edit the other's.
 - **Is de-reverb (F-08b) worth the cost?** The measured-improvement acceptance is
   achievable, but the fidelity bar for music (as opposed to dialogue) is high
   enough that a poor result may be worse than shipping nothing. Re-evaluate after
