@@ -8,8 +8,9 @@ F-05/F-06 in `da30298`, released as **2.2.0** (`00238e1`), pushed at
 off `0b83b3e` — the tip of the 2.2.1 window —
 with the items' measured evidence, the guide sweep, the artefact triage and the
 gate in §6. The work landed as two reviewable commits - the callback fix
-`a93d11b` and the 2.3.0 feature release `adbd38d` - with this record in its own
-commit after them; nothing was tagged or pushed. The re-baselined
+`a93d11b` and the 2.3.0 feature release `adbd38d` - and was tagged `v2.3.0`
+and pushed at `2403e2a`, with the floor leg green (CI run `41213423144`,
+§6). The re-baselined
 `tests/test_release_notes.py` (`Changed in 2.3.0`) is satisfied by those commits.
 The maintenance cycle's **five** items are
 **complete** and **released as 2.2.1** (`05edc6d`): **U1** (the Tag Field
@@ -119,7 +120,7 @@ discovered.
 | D35 | **U5 brings the Tag Editor to the same standard: shared strip, shared tabs, positional argv, and a report per run.** | DECIDED (user, 2026-10-30) | The user asked for the same conformance the Tag Field Updater just received (D34), and the Tag Editor is the last window with the old shape: `grid()` into one frame, no notebook, no progress surface, `filedialog.askdirectory()` directly, and a processor the window called and read back instead of a `run_*` entry point. It is now an `AnalysisTagToolApp` with `ui/setup_tab.py` / `ui/processing_tab.py` / `ui/results_tab.py`, and its Setup tab is a `BaseSetupFrame`, so the Run Controls strip supplies the source row, the shared browse dialog, the Mode combobox and the driver's orchestration display; the grid (the tool's editing surface) is that tab's `_build_options`. Both run kinds go through the processor: `run_scan` for the load walk the START button starts, `run_apply` for Apply to Selection, Apply Bulk and Import CSV, each publishing the shared counters plus its own fields (`rows`; `results` / `changed` / `written`). Three decisions worth naming. (1) A load walk is not a dry run of an edit, so it writes `tag_editor_scan_log.txt` rather than posing as `tag_editor_dry_run_log.txt`; an apply writes the mode-named report, both into the folder the tool read, and View Log opens the latest. (2) An apply is a run, not a silent in-grid update: it moves to Processing, finishes on Results and writes its report, because that is the feedback loop every peer has and the alternative was the modal-and-status-line shape the rebuild removed. Its payload is counted per *file* (the unit the shared summary and progress bar use) while the report carries one line per *edit*. (3) `arg_builder` now emits `[path, mode, start, end]` for `tag_editor`, the contract `tag_field_updater` already had: with `[path, mode]` alone the strip's Auto Start and Auto End could never be true, which is the same inert-option class as a flag that reaches no write site. The completion handler is `_finish_scan` / `_finish_apply` bound by the wiring lambda, not `_on_complete` overrides, for D34's reason: their payloads carry fields the base never learns. The CSV row-error lines and summary rows are captured in `_pending_*` before the thread starts, so the completion signature stays the processor payload plus the report header rather than growing wiring-only parameters. Evidence: `tag_editor/tests/test_app.py` (constructor wiring, strip, load run through the real `run_scan` into the bound handler, apply runs through `run_apply`, CSV import/export, grid interaction, `TestCompletionSeam`), `TestRunScan`/`TestRunApply`/`TestStop` in `test_processor.py`, `test_cli_args.py`'s slot cases, and the three cross-tool locks at 18 tools. |
 | D36 | **F-02 ships as the `duplicate_finder` tool: fingerprints clustered at a *measured* 0.10 threshold, keepers chosen by measured quality, and quarantine-with-undo instead of any delete.** | DECIDED | The threshold is a measurement, not a pick: on the declared fixture set the same recording as FLAC and as MP3 96/128/320 kbit/s measures **0.0000-0.0002**, while the nearest pair that must stay apart - two arrangements that share a 10 s intro - measures **0.1580**, so 0.10 sits between them with a ~490x margin below and 1.58x above. A pair is only compared when the durations agree within 2 s and the aligned overlap covers 0.6 of the longer fingerprint, and the alignment is searched over ±32 sub-fingerprint words (~4 s), because a four-minute track and a 30 s clip of it are not duplicates however close the bits are. The keeper is chosen by **measured quality** - lossless before bitrate, then sample rate, then length - and never by tags, which are exactly what a bad rip gets wrong. A live run *moves* the non-keepers into `duplicate_quarantine/` and records every move in `batch_undo`, so the operation is reversible; the kept copy is hash-checked byte-identical, a dry run moves nothing, and the walk skips the quarantine folder so a second scan cannot re-find what the first moved. Merge and deletion are **not** in this version (the item's own scope), so no run can lose audio outright. `audiosuite duplicates` publishes `groups`/`duplicates`/`quarantined` in its `--json` payload, declared in `audio_suite_shared/cli_schema.py`. Evidence: `test_clustering.py` (the declared fixture set and its negative pair), `test_file_processor.py` (quarantine, undo, keeper SHA-256, dry run, second scan), `test_fingerprint_cache.py` (the stamp), `test_app.py` (the window) and `test_cli.py` (payload and schema). |
 | D37 | **F-08a ships as `restoration`'s declip: detection against the file's *own* peak, a plateau rule that rejects a merely curved peak, and spline reconstruction that is refused when it cannot beat the original.** | DECIDED | Measuring the ceiling against the file's own peak - not full scale - is what lets the tool find a limiter set at -1.9 dBFS without the user naming the number. Three checks keep a false positive out of a repair that would make clean audio worse: only samples at or above `0.98` x the file's peak are candidates; inside a candidate region only samples within 1e-4 of the region's highest magnitude form the plateau, so a curved peak (one sample at that height) yields a one-sample plateau and is rejected; and a run needs eight clean samples of context either side plus a reconstruction that rises above the plateau by 1e-3 and stays inside full scale. The plateau is rebuilt by cubic-spline interpolation through that clean context, whose natural overshoot *is* the restoration. **Measured** on a 1 kHz tone mastered to -0.1 dBFS and hard-clipped at 0.8 (a limiter ceiling): harmonic distortion falls from **-21.38 dB to -46.82 dB** and the peak returns from **-1.938 dBFS to -0.188 dBFS** against the original's -0.100. A run that cannot improve is counted skipped and left **byte-identical**, a square wave (flat by nature) is refused rather than rounded, a 0 dBFS hard clip whose true peak is unrepresentable is reported and left alone, and a second pass finds nothing because the result is capped at full scale. A clean file is not rewritten at all (hash and mtime asserted), the source's tags, rate and channels survive, and a 24-bit source stays 24-bit. Defaults **0.98 / 50 ms**, exposed as `--threshold`/`--max-run-ms`. Evidence: `test_declipper.py` (the THD and peak measurements, the skipped and refused runs, idempotency, 24-bit), `test_file_processor.py` (clean file untouched, tags, counts), `test_app.py` and `test_cli.py`. |
-| D38 | **Wave 3 ships as 2.3.0, a minor, not the 2.2.x patch §5 predicted.** | DECIDED (user, 2026-10-31) | Both items add capability a user can run - two tools, two commands, two windows - so a patch number would misdescribe the release; the brief was explicit that this is new functionality rather than a fix, and Semantic Versioning agrees. `utilities/release.py 2.3.0 --date 2026-10-31` performed the cut on the tree: `pyproject.toml` bumped, `uv.lock` re-locked and read back (2.2.1 → 2.3.0), `[Unreleased]` promoted to `## [2.3.0] - 2026-10-31` in **both** changelogs and reopened with "Nothing yet.", and the seven version-labelled guides re-rendered. Those seven were triaged by zip entry the way the rule requires - identical entry sets, one differing entry (`word/document.xml`) and one changed paragraph in each, the subtitle "Version 2.2.1 - October 2026" becoming "Version 2.3.0 - October 2026" - so they ship as rendered rather than as external-tool drift. `CHANGELOG.md` carries the three user bullets (§8) and `TECHNICAL_CHANGELOG.md` the three developer ones (the two tools' measurement locks, the CLI-schema registration, the headless slot pool). The cut is committed as `adbd38d`, the 2.3.0 feature release; no tag and no push were requested, so §6 records the gate against that commit rather than against a published run. |
+| D38 | **Wave 3 ships as 2.3.0, a minor, not the 2.2.x patch §5 predicted.** | DECIDED (user, 2026-10-31) | Both items add capability a user can run - two tools, two commands, two windows - so a patch number would misdescribe the release; the brief was explicit that this is new functionality rather than a fix, and Semantic Versioning agrees. `utilities/release.py 2.3.0 --date 2026-10-31` performed the cut on the tree: `pyproject.toml` bumped, `uv.lock` re-locked and read back (2.2.1 → 2.3.0), `[Unreleased]` promoted to `## [2.3.0] - 2026-10-31` in **both** changelogs and reopened with "Nothing yet.", and the seven version-labelled guides re-rendered. Those seven were triaged by zip entry the way the rule requires - identical entry sets, one differing entry (`word/document.xml`) and one changed paragraph in each, the subtitle "Version 2.2.1 - October 2026" becoming "Version 2.3.0 - October 2026" - so they ship as rendered rather than as external-tool drift. `CHANGELOG.md` carries the three user bullets (§8) and `TECHNICAL_CHANGELOG.md` the three developer ones (the two tools' measurement locks, the CLI-schema registration, the headless slot pool). The cut is committed as `adbd38d`, the 2.3.0 feature release, tagged `v2.3.0` (annotated; tag object `2c39b10` dereferencing to `2403e2a`) and pushed with `main`; §6's post-release block records the floor leg's verdict. |
 | D39 | **F-02's fingerprint cache is its own SQLite file, with the R-13 ``(mtime, size)`` stamp rather than a second freshness rule.** | DECIDED | §7 asked the question and the answer is the item's own file: the fingerprint payload is ~700 bytes per file and grows with a library, while `library_stats`' cache is a tag-metadata store with its own schema and migration history - one table for both would make one tool's migration edit the other's. What must not fork is the **stamp**: mtime alone answers "cached" for a file replaced by a copy that preserved its timestamps, which is exactly R-13, so the cache compares ``(mtime, size)`` and fingerprints again when either disagrees. Connection creation is serialised by a module-level lock shared by every instance (a per-instance lock cannot serialise two connections to one file), a competing writer is waited out rather than raising `database is locked`, and `auto_vacuum=FULL` keeps a delete-heavy cache from growing for ever - the pattern `batch_undo` and `library_cache` already use. `AUDIOSUITE_DUPLICATE_CACHE` overrides the default path, so tests do not write the user's cache. Evidence: `test_fingerprint_cache.py` pins the stamp's negative case (same mtime, different size ⇒ fingerprint again), the round trip of every record field, and the environment override. |
 | D40 | **A defect found while wiring F-02's window is fixed in two shipped tools: `root.after(0, fn, **kw)` raises inside the completion call.** | DECIDED (defect, fixed in this change) | `NoiseReductionApp` and `PopClickRemoverApp` forwarded the published completion payload as ``self.root.after(0, cast(Any, self._on_complete), **kw)``. `tkinter.Misc.after` takes positional arguments only, so the call raised `TypeError: after() got an unexpected keyword argument` **inside** the callback and a finished batch reported nothing - the same silent-report class as D112/D113 one layer lower. Both now bind the payload with `functools.partial`, and `tests/test_callback_payload_contract.py` gained `_after_calls_with_keywords`, which walks every first-party module for an `after(...)` call carrying keywords, plus `test_the_after_scan_flags_a_keyword_call`, which feeds it a keyword call and requires it to fail - a scan that cannot fail is worse than none (`AGENTS.md`, *Defects and failing checks*). The class is recorded here because nothing else would have caught it: the payload locks check the handler's signature, not how the payload reaches it. |
 
@@ -1296,9 +1297,10 @@ completed in 28:11.
 
 **Wave 3 — F-02, F-08a.** One 2.3.0 minor (D38) on `main`, based on `0b83b3e`
 (the tip of the 2.2.1 window), committed in two steps: the callback defect
-`a93d11b` and the release itself `adbd38d`, with this record after them. No tag
-and no push were requested, so the evidence below is the gate on `adbd38d`'s
-tree, not on a published run. `tests/test_release_notes.py` is re-baselined to
+`a93d11b` and the release itself `adbd38d`, with this record after them. It was tagged `v2.3.0` and pushed at `2403e2a`,
+so the evidence is the gate below on that tree **and** the floor leg's
+verdict in the post-release block at the end of this section.
+`tests/test_release_notes.py` is re-baselined to
 `0b83b3e` with `Changed in 2.3.0`, and the release commit carries the
 **72** per-file notes the window already holds - every changed or added `.py`
 and `.toml` in it. The gate below ran on that tree with the
@@ -1376,6 +1378,45 @@ Item evidence:
   error - `duplicate_finder` declared `PRESET_KEY_PREFIX` as an instance
   variable over a `ClassVar` on the base. Every lock was updated in lockstep
   rather than relaxed; nothing was skipped, xfailed or suppressed.
+
+**Post-release - the floor leg on the pushed tree (CI run `41213423144`).**
+`main` was pushed at `2403e2a`, the Wave 3 record commit, together with the
+annotated `v2.3.0` tag; `git ls-remote` reports `refs/tags/v2.3.0` as tag object
+`2c39b10` dereferencing to `2403e2a`, so the workflow ran on the tree the release
+notes name, not on `adbd38d`, the feature commit alone. All eight jobs succeeded
+and the run completed in 30:16.
+
+| Job | Result | Duration |
+|---|---|---|
+| Lint & Format | success | 10 s |
+| Compile / Pre-flight gate | success | 7 s |
+| CLI schema conformance | success | 8 s |
+| Type Check | success | 56 s |
+| Security Scan | success | 40 s |
+| Docs locks (freshness & formats) | success | 1 m 6 s |
+| POSIX smoke (Ubuntu) | success | 56 s |
+| **Test (Python 3.11, the floor)** | **success** | **30 m 13 s** |
+
+- **What this verdict rests on, and what it does not.** GitHub serves the job
+  list and check-run conclusions without a session but gates the log text behind
+  one, so this record rests on the floor leg's `conclusion: success` plus the
+  artifacts it published - `cli-payloads` (26.3 KB) and `docs-html` (1.8 MB),
+  both live and both produced by steps that would be absent had their
+  predecessors failed or been skipped. It does **not** quote the leg's own
+  "N passed" line; that count is the local run in the cut table above (11 826
+  passed, 91.23%), and this leg's job is the interpreter graph below the dev
+  host's 3.14.
+- **The only annotations are workflow-level.** The Node.js 20 deprecation
+  warnings name the same three actions (`actions/checkout@v4`,
+  `actions/setup-python@v5`, `actions/upload-artifact@v4`) as last release, plus
+  the `ubuntu-latest` -> Ubuntu 26 migration **notice**. Nine check-runs
+  reported `success` and none carried an error.
+- **The cost budget is untouched.** `tests/test_ci_cost.py` prices a job against
+  100 minutes; the floor leg used 30:13 and the whole push 30:16, against the
+  160.9 billable minutes the three-leg matrix cost on the 2026-10-28 push
+  (`AGENTS.md`, *The Python floor must honour its lockfile*). That is 2:05
+  longer than 2.2.1's 28:08 - the shape the two new packages' 240 tests predict,
+  not a runner regression.
 
 ---
 
