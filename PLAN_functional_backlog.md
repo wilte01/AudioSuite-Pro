@@ -1467,6 +1467,47 @@ that no longer matches its source, which is exactly what a guide commit risks.
   guide changes; `AGENTS.md`'s *Python floor* paragraph states the rule, since that is
   where a contributor reads what CI runs.
 
+#### Measured, after landing (2026-11-01)
+
+The projection above is now a measurement. Run `41317592510` at `14c3bc9` - the
+push carrying D41, this record and the REFINE no-op contract - classified its own
+change set from a full checkout and published `suite=true`: **23 changed paths,
+15 of them code** (`first: .github/workflows/ci.yml`), the rest documents. All
+nine jobs went green; the run closed in 32 m 24 s, and the push billed **70.1**
+minutes against the **69.1** projection.
+
+| job | runner | wall (min) | x | billable |
+|---|---|---|---|---|
+| Change classification | ubuntu | 0.1 | 1 | 0.1 |
+| Compile / Pre-flight gate | ubuntu | 0.1 | 1 | 0.1 |
+| CLI schema conformance | ubuntu | 0.1 | 1 | 0.1 |
+| Lint & Format | ubuntu | 0.2 | 1 | 0.2 |
+| Security Scan | ubuntu | 0.4 | 1 | 0.4 |
+| POSIX smoke | ubuntu | 1.0 | 1 | 1.0 |
+| Docs locks | windows | 0.9 | 2 | 1.9 |
+| Type Check | windows | 1.0 | 2 | 1.9 |
+| Test (Python 3.11, the floor) | windows | 32.2 | 2 | 64.3 |
+| **Total** | | | | **70.1** |
+
+- **The classifier answered from the real range, not from a test fixture.** The
+  `changes` job's log prints one line per path (`[document] PLAN_restoration_2026-10-31.md`,
+  `[runs] utilities/ci_changed_paths.py`, ...) and closes with
+  `suite=true - 15 of 23 changed path(s) are not documentation`; the gated leg
+  then ran. Nothing about this push's cost was inferred.
+- **Rows are rounded to 0.1 for reading**; the total sums the unrounded times,
+  which is why the column adds to 70.0. GitHub's own invoice rounds each job up
+  to a whole minute and would bill **75** for the same run - the ledger's
+  fractional sum is the comparable figure, so both the projection and this
+  measurement use it.
+- **What moved is the suite leg, and the ledger keeps its number.** The floor leg
+  measured 32.2 minutes against the 30.7 its 61.4 entry was priced at, because the
+  suite grew: this push adds the REFINE no-op locks and the classifier's own 32
+  tests to 11 876. `tests/test_ci_cost.py` is deliberately **not** re-cut for it -
+  its docstring prices a ceiling on *structure*, a minute of suite growth is
+  inside the 100-minute budget (29.9 spare), and editing code to record a figure
+  the budget already allows would have bought another full-suite push to do it.
+  The next structural change is what re-prices the ledger.
+
 ---
 
 ## 7. Open questions
