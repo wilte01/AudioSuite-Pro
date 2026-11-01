@@ -181,7 +181,7 @@ derives the rule from the tree and is the authority on exceptions:
 - root `tests/` is **exempt by scope** (its files are cross-cutting by design),
   and so is `utilities/tests` (that package has no `__init__.py`);
 - everything else must mirror, *or* appear in that file's frozen `ALLOWLIST` of
-  deliberate composites/contract locks (30 entries, length asserted).
+  deliberate composites/contract locks (31 entries, length asserted).
 
 So "there is one exception" is wrong: there are two blanket exemptions plus a
 frozen allowlist. To add a legitimate exception, add it to `ALLOWLIST` with a

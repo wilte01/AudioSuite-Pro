@@ -19,9 +19,14 @@ Classifier (embedded here so it can be re-derived at any time):
 3. A scanned file whose stem minus the ``test_`` prefix is not in
    ``src_stems`` is a naming violation unless it appears in ``ALLOWLIST``.
 
-The allowlist freezes the 30 deliberate composites/contract locks that
-existed at the time the lock landed (iteration-9 G5.2); its length is
-asserted so new violations cannot be smuggled in as "one more composite".
+The allowlist freezes the deliberate composites/contract locks that existed
+at the time the lock landed (iteration-9 G5.2); its length is asserted so new
+violations cannot be smuggled in as "one more composite".
+
+Changed in 2.3.1 (U-02): ``audio_refinery/test_pipeline_noop`` is the 31st
+entry. The restoration plan names that file for the no-op/Dry Run contract,
+which ``test_pipeline.py`` cannot host because the refinery's pipeline tests
+already split across the two composite suites below.
 """
 
 from __future__ import annotations
@@ -45,7 +50,7 @@ _SKIP_DIRS = frozenset(
     {".git", ".venv", "__pycache__", "node_modules", "build", "dist"}
 )
 
-#: Deliberate non-mirroring test files, frozen at 30 entries.
+#: Deliberate non-mirroring test files, frozen at 31 entries.
 #: Key format: ``<package>/<test file stem>`` (stem includes ``test_``).
 ALLOWLIST: dict[str, str] = {
     "album_art_sync/test_album_art_sync": "whole-package smoke composite",
@@ -53,6 +58,9 @@ ALLOWLIST: dict[str, str] = {
     "asx_extractor/test_asx_core": "core-package composite",
     "audio_normalizer/test_normalizer_core": "core-package composite",
     "audio_refinery/test_convert_and_pipeline": "core-package composite",
+    "audio_refinery/test_pipeline_noop": (
+        "U-02 no-op/Dry Run contract lock, named by the restoration plan"
+    ),
     "audio_refinery/test_pipeline_stages": "core-package composite",
     "audio_refinery/test_target_lufs_restriction": (
         "named-by-concern LUFS contract lock"
@@ -221,8 +229,8 @@ class TestMatcher:
 
 class TestAllowlistFrozen:
     def test_allowlist_is_frozen_at_thirty_entries(self) -> None:
-        assert len(ALLOWLIST) == 30, (
-            "ALLOWLIST must stay at exactly 30 entries — add new violations "
+        assert len(ALLOWLIST) == 31, (
+            "ALLOWLIST must stay at exactly 31 entries — add new violations "
             "by fixing the test file's name, not by growing the allowlist"
         )
 
