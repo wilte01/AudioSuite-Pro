@@ -9,25 +9,31 @@ Changed in 2.1.7: the final encode goes through ``get_export_args``, which pins
 a lossless source's PCM bit depth - a 24-bit WAV used to come back 16-bit
 (F-10).
 
-All stages operate on in-memory audio; the file is only written once,
-at the very end of the in-memory chain.  If the normaliser stage is
-active it runs FFmpeg on the already-written temp file — this is
-unavoidable given FFmpeg's architecture, but still results in only
-a single encode for the lossy format portion of the chain.
+Changed in 2.3.1 (U-02): a file no enabled stage changed is left
+byte-identical (no export, tag rewrite, snapshot or replace), the Dry Run runs
+the enabled stages' detection instead of only loading the file, and a
+normalise-only run applies FFmpeg loudnorm directly to the source in one pass.
+
+All stages operate on in-memory audio; a run that changed something writes
+the file once, at the end of the in-memory chain.  The normaliser needs a
+file, so a mixed run writes the processed audio to a temp file and then
+normalises that file; when the normaliser is the only stage with work to do,
+it runs on the source directly, which is one encode instead of two.
 
 Failure model
 -------------
-Any exception in any stage aborts the pipeline for that file.  The
-original file is never touched until the final atomic os.replace().
-If anything fails before that point the temp file is deleted and the
-original is left completely intact.
+Any exception in any stage aborts the pipeline for that file.  A write is
+always atomic and always preceded by its undo snapshot: the direct-normalise
+path swaps the source only after loudnorm succeeded, and every other run
+replaces the destination with the finished temp file at the very end.  If
+anything fails the temp file is deleted and the original is left intact.
 
 Tag handling
 ------------
-Tags are read once from the original file before processing begins
-and written once to the output file after all stages complete.
-The normaliser's own tag handling is deliberately bypassed within
-the pipeline since we manage tags ourselves.
+Tags are read once from the original file before processing begins and
+written once to the output file after all stages complete.  A direct
+normalise reuses ``audio_normalizer``'s own tag preservation because FFmpeg
+strips them while re-encoding.
 
 Changed in 1.1.0: the enhance stage now runs through
 apply_enhancement_chain; the preset supplies the base fields while
@@ -39,6 +45,7 @@ from __future__ import annotations
 # ── Standard library imports ─────────────────────────────────────────────────
 import logging
 import os
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -132,6 +139,28 @@ def _inspect_source_bitrate(source_path: Path) -> tuple[int, bool]:
 ProgressCallback = Callable[[str, str], None]
 
 
+def _same_file(source_path: Path, output_path: Path) -> bool:
+    """Return ``True`` when the run replaces *source_path* in place."""
+    try:
+        return os.path.normcase(str(source_path.resolve())) == os.path.normcase(
+            str(output_path.resolve())
+        )
+    except OSError:  # pragma: no cover - defensive on odd Windows paths
+        return source_path == output_path
+
+
+def _has_processing_stage(config: StageConfig) -> bool:
+    """Return ``True`` when a stage that writes audio is enabled."""
+    return bool(config.declick or config.trim or config.reduce_noise or config.enhance)
+
+
+def _no_op_reason(config: StageConfig) -> str:
+    """Explain why a run wrote nothing, for the skipped-file log line."""
+    if not _has_processing_stage(config) and not config.normalise:
+        return "No stages enabled - file left untouched"
+    return "No changes needed - file left untouched"
+
+
 def process_file(
     source_path: Path,
     output_path: Path,  # final destination (may equal source for in-place)
@@ -140,6 +169,12 @@ def process_file(
 ) -> FileResult:
     """
     Run the full pipeline on a single file.
+
+    A run that changed nothing leaves the destination byte-identical: no
+    export, tag rewrite, undo snapshot or replace.  The exception is a
+    copy-out run (``output_path`` differs from ``source_path``), which always
+    produces its destination file, copying the source bytes when no stage
+    modified the audio.
 
     Parameters
     ----------
@@ -153,7 +188,8 @@ def process_file(
 
     Returns
     -------
-    FileResult describing every stage outcome.
+    FileResult describing every stage outcome.  A no-op run is SKIPPED with
+    the reason in ``error``; a Dry Run is DONE and never writes.
     """
     result = FileResult(path=source_path)
 
@@ -163,12 +199,23 @@ def process_file(
             on_progress(stage, msg)
 
     ext = source_path.suffix.lower()
+    in_place = _same_file(source_path, output_path)
     # The work file must live on the same volume as output_path —
-    # os.replace() cannot move a file across drives (WinError 17).
+    # os.replace() cannot move a file across drives (WinError 17).  It is
+    # created lazily so a Dry Run and a no-op leave no temp file at all.
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=ext, dir=str(output_path.parent))
-    os.close(tmp_fd)
-    tmp_path = Path(tmp_path_str)
+    tmp_path: Optional[Path] = None
+
+    def _temp_path() -> Path:
+        """Create (once) and return the temp file beside the destination."""
+        nonlocal tmp_path
+        if tmp_path is None:
+            tmp_fd, tmp_path_str = tempfile.mkstemp(
+                suffix=ext, dir=str(output_path.parent)
+            )
+            os.close(tmp_fd)
+            tmp_path = Path(tmp_path_str)
+        return tmp_path
 
     try:
         # ── 0. Integrity pre-flight check ──────────────────────────────────────
@@ -183,54 +230,86 @@ def process_file(
         # ── 1. Read tags and decode audio ─────────────────────────────────────
         original_tags, audio = _load_source(source_path, _emit)
 
-        # ── DRY RUN: measure only, skip all modification stages and export ────
+        # ── 2. Dry run: detect with every enabled stage, write nothing ────────
         if config.dry_run:
-            rms_before = compute_rms_db(segment_to_numpy(audio)[0])
-            result.add_stage(
-                "DryRun",
-                FileStatus.DONE,
-                f"Loaded OK (RMS: {rms_before:.1f} dBFS, "
-                f"{len(audio)}ms, {audio.channels}ch)",
-            )
-            _emit("DryRun", f"Skipped all stages (dry run). RMS={rms_before:.1f} dBFS")
+            _run_dry_run(audio, source_path, config, result, _emit)
+            result.status = FileStatus.DONE
+            result.was_modified = False
             return result
 
-        # ── 2. Pop & Click Removal ────────────────────────────────────────────
+        # ── 3. Pop & Click Removal ────────────────────────────────────────────
+        modified = False
         if config.declick:
-            audio, msg = _run_declick_stage(audio, config, _emit)
+            audio, msg, changed = _run_declick_stage(audio, config, _emit)
+            modified = modified or changed
             result.add_stage("Declick", FileStatus.DONE, msg)
 
-        # ── 3. Silence Trimming / Fading ──────────────────────────────────────
+        # ── 4. Silence Trimming / Fading ──────────────────────────────────────
         if config.trim:
-            audio, msg = _run_trim_stage(audio, config, _emit)
+            audio, msg, changed = _run_trim_stage(audio, config, _emit)
+            modified = modified or changed
             result.add_stage("Trim", FileStatus.DONE, msg)
 
-        # ── 4. Noise Reduction ────────────────────────────────────────────
+        # ── 5. Noise Reduction ────────────────────────────────────────────
         if config.reduce_noise:
-            audio, msg = _run_noise_reduction_stage(audio, config, _emit)
+            audio, msg, changed = _run_noise_reduction_stage(audio, config, _emit)
+            modified = modified or changed
             result.add_stage("Noise Reduction", FileStatus.DONE, msg)
 
-        # ── 5. Audio Enhancement ──────────────────────────────────────────────
+        # ── 6. Audio Enhancement ──────────────────────────────────────────────
         if config.enhance:
             audio, msg, metrics = _run_enhance_stage(audio, config, _emit)
+            # The DSP chain always applies, so an enabled Enhance stage is a
+            # change even when the level barely moves.
+            modified = True
             result.add_stage("Enhance", FileStatus.DONE, msg, metrics=metrics)
 
-        # ── 6. Write temp file (single encode, bitrate-aware) ─────────────────
-        _write_output(audio, tmp_path, source_path, ext, _emit)
+        # ── 7. Nothing changed: normalise directly, or write nothing ─────────
+        if not modified:
+            if in_place:
+                if config.normalise:
+                    msg, modified = _run_normalise_in_place(source_path, config, _emit)
+                    result.add_stage("Normalise", FileStatus.DONE, msg)
+                if not modified:
+                    result.status = FileStatus.SKIPPED
+                    result.error = _no_op_reason(config)
+                    _emit("Done", result.error)
+                    return result
+                _emit("Done", "Complete ✓")
+                result.status = FileStatus.DONE
+                result.was_modified = True
+                return result
 
-        # ── 7. Restore tags ───────────────────────────────────────────────────
+            # Copy-out: the destination is the deliverable, so produce it —
+            # a byte copy when nothing changed, then one loudnorm pass on it.
+            _emit("Export", "Copying to output folder...")
+            record_tag_edit_snapshot(str(output_path), "refinery_edit")
+            shutil.copy2(source_path, output_path)
+            if config.normalise:
+                msg, _applied = _run_normalise_stage(output_path, config, _emit)
+                result.add_stage("Normalise", FileStatus.DONE, msg)
+            _emit("Done", "Complete ✓")
+            result.status = FileStatus.DONE
+            result.was_modified = True
+            return result
+
+        # ── 8. Write temp file (single encode, bitrate-aware) ─────────────────
+        staged = _temp_path()
+        _write_output(audio, staged, source_path, ext, _emit)
+
+        # ── 9. Restore tags ───────────────────────────────────────────────────
         _emit("Export", "Restoring tags...")
-        write_tags_raw(str(tmp_path), original_tags, record_snapshot=False)
+        write_tags_raw(str(staged), original_tags, record_snapshot=False)
 
-        # ── 8. Normalisation (FFmpeg on temp file, with retry) ────────────────
+        # ── 10. Normalisation (FFmpeg on temp file, with retry) ────────────────
         if config.normalise:
-            msg = _run_normalise_stage(tmp_path, config, _emit)
+            msg, _applied = _run_normalise_stage(staged, config, _emit)
             result.add_stage("Normalise", FileStatus.DONE, msg)
 
-        # ── 9. Atomic replace ─────────────────────────────────────────────────
+        # ── 11. Atomic replace ────────────────────────────────────────────────
         _emit("Done", "Complete ✓")
         record_tag_edit_snapshot(str(output_path), "refinery_edit")
-        os.replace(str(tmp_path), str(output_path))
+        os.replace(str(staged), str(output_path))
         result.status = FileStatus.DONE
         result.was_modified = True
 
@@ -244,12 +323,13 @@ def process_file(
         _emit("Error", user_message_for(mapped))
 
     finally:
-        try:
-            tmp_path.unlink(missing_ok=True)
-        except OSError as exc:
-            logger.debug(
-                "Temp cleanup could not remove %s: %s", tmp_path, exc, exc_info=True
-            )
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.debug(
+                    "Temp cleanup could not remove %s: %s", tmp_path, exc, exc_info=True
+                )
 
     return result
 
@@ -307,8 +387,11 @@ def _run_declick_stage(
     audio: AudioSegment,
     config: StageConfig,
     emit: Callable[..., Any],
-) -> tuple[AudioSegment, str]:
-    """Detect and repair clicks, returning ``(audio, stage_message)``.
+) -> tuple[AudioSegment, str, bool]:
+    """Detect and repair clicks, returning ``(audio, message, modified)``.
+
+    ``modified`` is the engine's own verdict, which is what lets a run that
+    found no clicks leave the file untouched (U-02).
 
     Raises:
         AudioProcessingError: If the stage fails; preserves the original
@@ -332,7 +415,7 @@ def _run_declick_stage(
         else:
             msg = "No clicks found - audio already clean"
         emit("Declick", msg)
-        return dc_result.audio, msg
+        return dc_result.audio, msg, bool(dc_result.was_modified)
     except Exception as exc:
         mapped = map_to_audio_error(exc)
         logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
@@ -347,11 +430,12 @@ def _run_trim_stage(
     audio: AudioSegment,
     config: StageConfig,
     emit: Callable[..., Any],
-) -> tuple[AudioSegment, str]:
+) -> tuple[AudioSegment, str, bool]:
     """Trim leading/trailing silence (and optionally fade).
 
     Returns:
-        ``(audio, stage_message)``.
+        ``(audio, stage_message, modified)``; ``modified`` is false when the
+        trimmer found no silence, so the file can be left byte-identical.
 
     Raises:
         AudioProcessingError: If the stage fails; preserves the original
@@ -384,7 +468,7 @@ def _run_trim_stage(
         else:
             msg = "No silence detected - original length maintained"
         emit("Trim", msg)
-        return audio, msg
+        return audio, msg, tr_result.trimmed is not None
     except Exception as exc:
         mapped = map_to_audio_error(exc)
         logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
@@ -399,8 +483,11 @@ def _run_noise_reduction_stage(
     audio: AudioSegment,
     config: StageConfig,
     emit: Callable[..., Any],
-) -> tuple[AudioSegment, str]:
-    """Remove hum and broadband noise, returning ``(audio, stage_message)``.
+) -> tuple[AudioSegment, str, bool]:
+    """Remove hum and broadband noise, returning ``(audio, message, modified)``.
+
+    ``modified`` is the engine's own verdict, so a file with no detectable
+    noise is left byte-identical (U-02).
 
     Raises:
         AudioProcessingError: If the stage fails; preserves the original
@@ -424,7 +511,7 @@ def _run_noise_reduction_stage(
         else:
             msg = "No noise detected — audio already clean"
         emit("Noise Reduction", msg)
-        return audio, msg
+        return audio, msg, bool(nr_result.was_modified)
     except Exception as exc:
         mapped = map_to_audio_error(exc)
         logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
@@ -520,15 +607,50 @@ def _write_output(
         audio.export(str(tmp_path), format=fmt, parameters=params)
 
 
+def _normalise_message(
+    loudness_data: dict[str, float] | None,
+    config: StageConfig,
+    applied: bool,
+) -> str:
+    """Build the Normalise stage message for one measurement outcome."""
+    target_lufs = config.normalise_params.target_lufs
+    if loudness_data:
+        before_lufs = float(loudness_data.get("input_i", 0.0))
+        if applied:
+            return (
+                f"Adjusted loudness from {before_lufs:.1f} to {target_lufs:.1f} "
+                f"LUFS for playlist consistency"
+            )
+        return (
+            f"Loudness already within tolerance ({before_lufs:.1f} LUFS) "
+            f"\u2014 no adjustment needed"
+        )
+    if applied:
+        return f"Adjusted loudness to {target_lufs} LUFS for playlist consistency"
+    return "Loudness measurement failed — normalization skipped"
+
+
+def _normalise_stage_error(exc: Exception) -> AudioProcessingError:
+    """Wrap a normalise failure with the stage context and original cause."""
+    mapped = map_to_audio_error(exc)
+    logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
+    return AudioProcessingError(
+        f"Normalise stage failed: {exc}",
+        context={"stage": "normalise"},
+        original=exc,
+    )
+
+
 def _run_normalise_stage(
     tmp_path: Path,
     config: StageConfig,
     emit: Callable[..., Any],
-) -> str:
+) -> tuple[str, bool]:
     """Measure loudness and run FFmpeg normalisation with retry.
 
     Returns:
-        The human-readable stage message for the result record.
+        ``(stage_message, applied)`` — ``applied`` is false when the file was
+        already within tolerance or the measurement failed.
 
     Raises:
         AudioProcessingError: If the stage fails; preserves the original
@@ -552,42 +674,130 @@ def _run_normalise_stage(
             loudness_data,
         )
 
-        # Create appropriate message based on whether normalization was applied
-        if loudness_data:
-            before_lufs = loudness_data.get("input_i", 0.0)
-            target_lufs = config.normalise_params.target_lufs
-            if normalization_applied:
-                msg = (
-                    f"Adjusted loudness from"
-                    f" {before_lufs:.1f} to"
-                    f" {target_lufs:.1f} "
-                    f"LUFS for playlist consistency"
-                )
-            else:
-                msg = (
-                    f"Loudness already within tolerance"
-                    f" ({before_lufs:.1f} LUFS) "
-                    f"\u2014 no adjustment needed"
-                )
-        else:
-            # Fallback if measurement failed
-            target_lufs = config.normalise_params.target_lufs
-            if normalization_applied:
-                msg = (
-                    f"Adjusted loudness to {target_lufs} LUFS for playlist consistency"
-                )
-            else:
-                msg = "Loudness measurement failed — normalization skipped"
+        msg = _normalise_message(loudness_data, config, normalization_applied)
         emit("Normalise", msg)
-        return msg
+        return msg, normalization_applied
     except Exception as exc:
-        mapped = map_to_audio_error(exc)
-        logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
-        raise AudioProcessingError(
-            f"Normalise stage failed: {exc}",
-            context={"stage": "normalise"},
-            original=exc,
-        ) from exc
+        raise _normalise_stage_error(exc) from exc
+
+
+def _run_normalise_in_place(
+    source_path: Path,
+    config: StageConfig,
+    emit: Callable[..., Any],
+) -> tuple[str, bool]:
+    """Normalise the source directly — one FFmpeg pass, no staging encode.
+
+    Used when no in-memory stage has audio to write (U-02): exporting first
+    would encode the file a second time.  The undo snapshot is taken only
+    once the measurement says an adjustment is needed, so a no-op run leaves
+    no undo record behind.
+
+    Returns:
+        ``(stage_message, applied)``.
+
+    Raises:
+        AudioProcessingError: If measuring or applying fails.
+    """
+    emit("Normalise", "Measuring loudness…")
+    try:
+        from audio_normalizer.core.loudness import measure
+
+        loudness_data = measure(str(source_path), config.normalise_params.target_lufs)
+        applied = False
+        if loudness_data:
+            current = float(loudness_data.get("input_i", 0.0))
+            target = config.normalise_params.target_lufs
+            tolerance = config.normalise_params.tolerance
+            if abs(current - target) > tolerance:
+                # Snapshot before the FFmpeg swap replaces the source bytes.
+                record_tag_edit_snapshot(str(source_path), "refinery_edit")
+                applied = retry_with_backoff(
+                    _run_normalise,
+                    _DEFAULT_RETRY,
+                    "normalise",
+                    source_path,
+                    config,
+                    emit,
+                    loudness_data,
+                )
+
+        msg = _normalise_message(loudness_data, config, applied)
+        emit("Normalise", msg)
+        return msg, applied
+    except Exception as exc:
+        raise _normalise_stage_error(exc) from exc
+
+
+def _preview_normalise(
+    source_path: Path,
+    config: StageConfig,
+    emit: Callable[..., Any],
+) -> str:
+    """Report what the Normalise stage would do, without writing anything.
+
+    Measures the source (never a staging copy) and names the projected
+    outcome, matching the preview the standalone normalizer gives.
+    """
+    target = config.normalise_params.target_lufs
+    emit("Normalise", f"Measuring loudness (target {target} LUFS)…")
+    try:
+        from audio_normalizer.core.loudness import measure
+
+        loudness_data = measure(str(source_path), target)
+    except Exception as exc:  # preview must not abort the dry run
+        logger.error("Dry-run loudness measurement failed: %s", exc, exc_info=True)
+        loudness_data = None
+
+    if not loudness_data:
+        msg = "Loudness measurement failed — normalisation would be skipped"
+    else:
+        current = float(loudness_data.get("input_i", 0.0))
+        if abs(current - target) <= config.normalise_params.tolerance:
+            msg = f"Loudness already within tolerance ({current:.1f} LUFS) — no change"
+        else:
+            msg = f"Would adjust loudness from {current:.1f} to {target:.1f} LUFS"
+    emit("Normalise", msg)
+    return msg
+
+
+def _run_dry_run(
+    audio: AudioSegment,
+    source_path: Path,
+    config: StageConfig,
+    result: FileResult,
+    emit: Callable[..., Any],
+) -> None:
+    """Run the enabled stages' detection and record what they found.
+
+    Nothing is written: the stages work on the decoded audio in memory, the
+    normalise stage measures the source, and the temp file is never created.
+    """
+    rms_before = compute_rms_db(segment_to_numpy(audio)[0])
+    result.add_stage(
+        "DryRun",
+        FileStatus.DONE,
+        f"Loaded OK (RMS: {rms_before:.1f} dBFS, {len(audio)}ms, {audio.channels}ch)",
+    )
+    emit("DryRun", f"Detecting enabled stages (dry run). RMS={rms_before:.1f} dBFS")
+
+    if config.declick:
+        audio, msg, _changed = _run_declick_stage(audio, config, emit)
+        result.add_stage("Declick", FileStatus.DONE, msg)
+    if config.trim:
+        audio, msg, _changed = _run_trim_stage(audio, config, emit)
+        result.add_stage("Trim", FileStatus.DONE, msg)
+    if config.reduce_noise:
+        audio, msg, _changed = _run_noise_reduction_stage(audio, config, emit)
+        result.add_stage("Noise Reduction", FileStatus.DONE, msg)
+    if config.enhance:
+        audio, msg, metrics = _run_enhance_stage(audio, config, emit)
+        result.add_stage("Enhance", FileStatus.DONE, msg, metrics=metrics)
+    if config.normalise:
+        msg = _preview_normalise(source_path, config, emit)
+        result.add_stage("Normalise", FileStatus.DONE, msg)
+
+    emit("DryRun", "Dry run complete — nothing written")
 
 
 # ── Enhancement stage helper ──────────────────────────────────────────────────

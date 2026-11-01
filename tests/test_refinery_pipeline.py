@@ -3,6 +3,10 @@ tests/test_refinery_pipeline.py
 
 Unit and integration tests for audio_refinery.core.pipeline.
 
+Changed in 2.3.1 (U-02): the tag-contract test enables Enhance, because the
+refinery now writes nothing for a run that changed nothing; the test is about
+the read-once/write-once tag path, which only exists when there is a write.
+
 Changed in 2.1.7: the two FLAC tests are gated on a measured capability
 (``_pydub_can_round_trip_flac``) instead of ``os.environ.get("CI")`` (X12).
 The old marker named an environment rather than the capability it lacked, so a
@@ -345,9 +349,14 @@ class TestProcessFile:
     ):
         from audio_refinery.core.pipeline import process_file
 
-        mock_audioseg.from_file.return_value = self._mock_segment()
-        config = _minimal_config()
-        process_file(audio_file, output_file, config)
+        segment = self._mock_segment()
+        mock_audioseg.from_file.return_value = segment
+        config = _minimal_config(enhance=True)
+        with patch(
+            "audio_refinery.core.pipeline._run_enhance",
+            return_value=(segment, -15.0, -13.0),
+        ):
+            process_file(audio_file, output_file, config)
         assert mock_read_tags.call_count == 1
         assert mock_write_tags.call_count == 1
 

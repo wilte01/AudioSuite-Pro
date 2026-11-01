@@ -11,6 +11,10 @@ Unit tests for the pipeline entry-points:
 Plus doc locks for the module's stage-order contract (the documented
 pipeline chain and the numbered step comments).
 
+Changed in 2.3.1 (U-02): each stage helper returns whether it modified the
+audio, a run that changed nothing is SKIPPED without writing, and the
+normalise stage reports whether it applied.
+
 Synthetic AudioSegments are built with NumPy so no real audio files or
 external binaries are required.  All third-party tool imports that would
 need a full suite installation are patched at the module boundary.
@@ -134,7 +138,9 @@ class TestProcessFile:
         from audio_refinery.core.pipeline import process_file
 
         if config is None:
-            config = _config_all_off()
+            # A stage must be enabled for the run to have work: a no-op is
+            # SKIPPED and writes nothing (U-02).
+            config = _config_enhance_only()
         if audio is None:
             audio = _sine()
 
@@ -145,6 +151,10 @@ class TestProcessFile:
             patch("audio_refinery.core.pipeline.read_tags_raw", return_value={}),
             patch("audio_refinery.core.pipeline.write_tags_raw"),
             patch("audio_refinery.core.pipeline.AudioSegment") as mock_seg_cls,
+            patch(
+                "audio_refinery.core.pipeline._run_enhance",
+                return_value=(audio, -15.0, -13.0),
+            ),
         ):
             mock_seg_cls.from_file.return_value = audio
             audio.export = MagicMock()  # silence pydub export
@@ -165,11 +175,12 @@ class TestProcessFile:
         result = self._run(tmp_path)
         assert isinstance(result, FileResult)
 
-    def test_status_done_when_no_stages(self, tmp_path):
+    def test_status_skipped_when_no_stages(self, tmp_path):
         from audio_refinery.core.models import FileStatus
 
-        result = self._run(tmp_path)
-        assert result.status == FileStatus.DONE
+        result = self._run(tmp_path, config=_config_all_off())
+        assert result.status == FileStatus.SKIPPED
+        assert result.was_modified is False
 
     def test_was_modified_true_on_success(self, tmp_path):
         result = self._run(tmp_path)
@@ -215,6 +226,10 @@ class TestProcessFile:
             patch("audio_refinery.core.pipeline.read_tags_raw", return_value={}),
             patch("audio_refinery.core.pipeline.write_tags_raw"),
             patch("audio_refinery.core.pipeline.AudioSegment") as mock_seg_cls,
+            patch(
+                "audio_refinery.core.pipeline._run_enhance",
+                side_effect=lambda seg, cfg, emit: (seg, -15.0, -13.0),
+            ),
         ):
             mock_seg_cls.from_file.return_value = _sine()
             audio = _sine()
@@ -224,7 +239,7 @@ class TestProcessFile:
             result = process_file(
                 source_path=src,
                 output_path=out_dir / "track.flac",
-                config=_config_all_off(),
+                config=_config_enhance_only(),
                 on_progress=_noop_emit,
             )
 
@@ -300,13 +315,17 @@ class TestProcessFile:
             patch("audio_refinery.core.pipeline.read_tags_raw", return_value={}),
             patch("audio_refinery.core.pipeline.write_tags_raw"),
             patch("audio_refinery.core.pipeline.AudioSegment") as mock_seg_cls,
+            patch(
+                "audio_refinery.core.pipeline._run_enhance",
+                return_value=(_sine(), -15.0, -13.0),
+            ),
         ):
             mock_seg_cls.from_file.return_value = _sine()
             _sine().export = MagicMock()
             process_file(
                 src,
                 src,
-                _config_all_off(),
+                _config_enhance_only(),
                 on_progress=lambda s, m: calls.append((s, m)),
             )
 
@@ -343,13 +362,17 @@ class TestProcessFile:
             patch(
                 "audio_suite_shared.tag_helper_base.TagHandlerFactory", shared_factory
             ),
+            patch(
+                "audio_refinery.core.pipeline._run_enhance",
+                return_value=(audio, -15.0, -13.0),
+            ),
         ):
             mock_seg_cls.from_file.return_value = audio
             with active_batch("audio_refinery", "tag_edit", db_path=undo_db):
                 result = process_file(
                     source_path=src,
                     output_path=src,
-                    config=_config_all_off(),
+                    config=_config_enhance_only(),
                     on_progress=_noop_emit,
                 )
 
@@ -480,6 +503,10 @@ class TestProcessFile:
             patch(
                 "audio_refinery.core.pipeline._run_normalise",
                 side_effect=RuntimeError("normalise crashed"),
+            ),
+            patch(
+                "audio_normalizer.core.loudness.measure",
+                return_value={"input_i": -23.0},
             ),
         ):
             mock_seg_cls.from_file.return_value = _sine()
@@ -839,10 +866,11 @@ class TestRunTrim:
         with patch(
             "silence_trimmer.core.trimmer.trim_and_fade", return_value=self._result()
         ):
-            _, msg = _run_trim_stage(
+            _, msg, changed = _run_trim_stage(
                 AudioSegment.silent(duration=2000), _config_trim_only(), MagicMock()
             )
 
+        assert changed is True
         assert msg == (
             "-120ms / -340ms (opaque-9f2c telemetry), improved flow between sections"
         )
@@ -857,7 +885,7 @@ class TestRunTrim:
             "silence_trimmer.core.trimmer.trim_and_fade",
             return_value=self._result(apply_fade=True),
         ):
-            _, msg = _run_trim_stage(
+            _, msg, _ = _run_trim_stage(
                 AudioSegment.silent(duration=2000), _config_trim_only(), MagicMock()
             )
 
@@ -868,11 +896,12 @@ class TestRunTrim:
 
         result = self._result()
         with patch("silence_trimmer.core.trimmer.trim_and_fade", return_value=result):
-            audio, _ = _run_trim_stage(
+            audio, _, changed = _run_trim_stage(
                 AudioSegment.silent(duration=2000), _config_trim_only(), MagicMock()
             )
 
         assert audio is result.trimmed
+        assert changed is True
 
     def test_no_silence_reports_original_length_maintained(self) -> None:
         """has_silence=False yields trimmed=None and the skip message."""
@@ -887,12 +916,13 @@ class TestRunTrim:
                 action="No silence detected",
             ),
         ):
-            audio, msg = _run_trim_stage(
+            audio, msg, changed = _run_trim_stage(
                 AudioSegment.silent(duration=2000), _config_trim_only(), MagicMock()
             )
 
         assert msg == "No silence detected - original length maintained"
         assert len(audio) == 2000
+        assert changed is False
 
     def test_trim_failure_is_wrapped_with_stage_context(self) -> None:
         from audio_refinery.core.pipeline import _run_trim_stage

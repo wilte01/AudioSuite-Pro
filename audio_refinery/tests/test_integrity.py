@@ -2,6 +2,10 @@
 tests/test_integrity.py
 Unit tests for the File Integrity Checker (core/integrity.py).
 
+Changed in 2.3.1 (U-02): the pipeline Dry Run test disables every stage,
+because a Dry Run now runs the enabled stages' detection instead of only
+loading the file.
+
 Tests cover:
   - File existence and readability checks
   - File size validation (empty, too small, too large)
@@ -442,7 +446,15 @@ class TestPipelineIntegration:
         valid = tmp_path / "valid.wav"
         valid.write_bytes(b"RIFF" + b"\x00" * 200)
 
-        config = StageConfig(dry_run=True)
+        # A dry run now detects with the enabled stages, so a synthetic
+        # MagicMock segment (no real samples) must run none of them.
+        config = StageConfig(
+            dry_run=True,
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=False,
+        )
 
         mock_audio = MagicMock()
         mock_audio.frame_rate = 44100

@@ -16,7 +16,17 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **A REFINE run that changes nothing now leaves the file byte-identical.** When
+  no enabled stage finds anything to repair — no clicks, no silence, no noise,
+  and loudness already inside tolerance — the file is reported SKIPPED instead
+  of being re-encoded, re-tagged and replaced, and it is not added to the
+  completion registry. A file that does need work is still written as before.
+  Dry Run now reports what the enabled stages would detect (clicks, trimmed
+  silence, noise, the enhancement's projected gain, and the loudness Normalise
+  would apply) instead of only loading the file, and a normalise-only run makes
+  one FFmpeg pass instead of two.
 
 ## [2.3.0] - 2026-10-31
 

@@ -8,6 +8,10 @@ callbacks so this module has no tkinter dependency.
 
 Changed in 1.1.0: read-only formats (APE/MPC/DSF) are skipped with a clear message
 instead of being rewritten in place.
+
+Changed in 2.3.1 (U-02): a worker records completion only for a run that
+actually wrote the file, so a Dry Run or a no-op cannot mask a later run with
+different settings.
 """
 
 from __future__ import annotations
@@ -103,7 +107,10 @@ def _worker_process(
                 on_progress=_progress,
             )
 
-            if result.status == FileStatus.DONE:
+            # Only a run that actually wrote the file is progress.  A Dry Run
+            # is DONE by design and a no-op is SKIPPED, but recording either
+            # would mask a later run with different settings (U-02).
+            if result.status == FileStatus.DONE and result.was_modified:
                 completion_hash = (
                     registry.hash_file(out_path)
                     if output_dir == source_dir

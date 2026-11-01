@@ -38,7 +38,7 @@ Setup contains source and output paths, presets, the shared run controls, five s
 
 - **Source folder: **Required directory containing supported audio files. The application validates the directory and checks for audio before starting.
 - **Output folder: **Optional. Blank means in-place replacement; a selected existing directory receives results with the source filenames.
-- **Dry Run: **Validates and decodes files, reports RMS and duration information, and skips all modification and export stages.
+- **Dry Run: **Validates and decodes each file, then runs the enabled stages' detection without writing anything: clicks found, silence found, noise measured, the enhancement's projected gain, and the loudness Normalise would apply. No output, tag write, undo snapshot, or temp file is produced.
 - **Live Update: **Runs the selected stages and writes results. The embedded Refinery always uses live stage processing after its driver-level dry-run decision.
 - **Presets: **Save, load, and delete the complete stage configuration, including stage toggles and parameters.
 - **Reset Progress: **Clears the source folder's completion registry so every file can be processed again.
@@ -53,9 +53,9 @@ When enabled, stages run in this implementation order:
 1. Silence Trimming / Fading: removes silence using a dBFS threshold and can apply fade-in and fade-out.
 1. Noise Reduction: optionally removes mains hum and/or broadband noise using its noise profile and gate settings.
 1. Audio Enhancement: applies the Mild, Moderate, Aggressive, or Custom DSP preset; Custom adds per-effect toggles (reverse, karaoke, phaser, flanger, chorus).
-1. Export: writes the processed audio once using format-appropriate encoding settings.
-1. Normalise: optionally measures loudness and applies the configured LUFS target and tolerance.
-1. Finish: restores tags, records an undo snapshot, and atomically replaces or creates the output file.
+1. Export: writes the processed audio once using format-appropriate encoding settings — only when a stage changed the audio.
+1. Normalise: optionally measures loudness and applies the configured LUFS target and tolerance. When no earlier stage changed the audio, FFmpeg normalises the source directly in one pass.
+1. Finish: restores tags, records an undo snapshot, and atomically replaces or creates the output file. A file no stage changed is left byte-identical and reported SKIPPED.
 
 ## Stage Controls
 
@@ -71,13 +71,13 @@ When enabled, stages run in this implementation order:
 
 ## Dry Run and Output Safety
 
-In Dry Run, each valid file is loaded and measured, then the pipeline returns without running modification stages or writing an output. Results include a DryRun stage with RMS, duration, and channel information.
+In Dry Run, each valid file is loaded and the enabled stages run their detection on the decoded audio without writing anything: the click, silence, noise, and enhancement stages report what they found, and Normalise measures the source and reports the loudness it would apply. No output is written, no temp file is left behind, and no completion record is created. Results include a DryRun stage with RMS, duration, and channel information, plus one entry per stage detection.
 
-In live processing, each file is written to a temporary file in the output directory. Tags are restored to that temporary file, and only then is it atomically moved into the final output path. If a stage or export fails, the temporary file is removed and the original remains intact.
+A live run that changes nothing is reported SKIPPED and leaves the file byte-identical: no re-encode, tag rewrite, undo snapshot, or replace. A lossy source is therefore not re-encoded just because a stage was enabled. A file that does change is written to a temporary file in the output directory, tagged, and only then atomically moved into the final output path. If a stage or export fails, the temporary file is removed and the original remains intact.
 
 ## Completion Registry
 
-The refinery stores successful completion records in _refinery_completed.log in the source folder. Each record contains a SHA-256 hash and filename. A file is skipped only when both its name and pre-processing hash match a recorded completion, so a renamed or modified file is eligible for processing again. Use Reset Progress to clear all records for the selected source folder.
+The refinery stores successful completion records in _refinery_completed.log in the source folder. Each record contains a SHA-256 hash and filename. A file is skipped only when both its name and pre-processing hash match a recorded completion, so a renamed or modified file is eligible for processing again. Only a run that wrote the file records a completion: a file left unchanged or seen in a Dry Run is not recorded, so a later run with different settings still processes it. Use Reset Progress to clear all records for the selected source folder.
 
 ## Processing and Results
 

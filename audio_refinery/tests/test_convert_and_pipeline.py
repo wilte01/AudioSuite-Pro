@@ -4,6 +4,10 @@ Tests for audio_refinery.core.convert (G-36 convert)
 
 Changed in 1.1.0: added a regression test proving read-only formats are skipped and
 process_file is never called.
+
+Changed in 2.3.1 (U-02): the mocked process results set ``was_modified=True``,
+because the worker now records completion only for a run that really wrote the
+file.
 """
 
 from queue import Queue
@@ -271,10 +275,13 @@ class TestRunPipeline:
         if mock_process_result is None:
 
             def _default_result(source_path, output_path, config, on_progress):
+                # DONE and was_modified together mean "this run wrote the
+                # file": the worker only records completion for a real write.
                 return FileResult(
                     path=source_path,
                     status=FileStatus.DONE,
                     stages=[StageResult(stage="declick", message="ok")],
+                    was_modified=True,
                 )
 
             mock_process_result = _default_result
@@ -473,6 +480,9 @@ class TestUndoBatchRecording:
             path=source_path,
             status=FileStatus.DONE,
             stages=[StageResult(stage="declick", message="ok")],
+            # A real write; without this the worker (correctly) refuses to
+            # record completion, and the second run would not be skipped.
+            was_modified=True,
         )
 
     def _run(self, tmp_path):
