@@ -55,11 +55,18 @@ so the CLI reference's Word copy is freshness-checked exactly like a tool guide.
 
 Changed in 2.1.7: the guide tree is ``documentation/user_guides/``.
 
+Changed in 2.3.1: the freshness lock no longer treats a guide's generation
+month as drift. ``version: auto`` stamps the *rendering* month into the
+subtitle, so from 2026-11-01 every guide rendered in October reported as stale
+on a tree with no unrendered edit in it; the comparison now masks that month
+and keeps the version number.
+
 """
 
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -275,6 +282,55 @@ class TestGeneratorHygiene:
             "committed user-guide artefacts are stale; run "
             "`python utilities/build_user_guides.py`:\n  " + "\n  ".join(problems)
         )
+
+    def test_a_month_boundary_is_not_guide_drift(self, tmp_path: Path) -> None:
+        """A current artefact stays current when the calendar moves on.
+
+        The subtitle carries the *generation* month, so a verbatim comparison
+        reported seven guides stale on 2026-11-01 without a single edited
+        source. Rendering a committed guide under a future month must still
+        find it current, and a real source edit must still be reported - the
+        mask removes the clock, not the check.
+        """
+        from datetime import date
+        from unittest import mock
+
+        renderer = _load_renderer()
+        source = GUIDE_ROOT / "lyrics_manager" / "Lyrics_Manager_User_Guide.md"
+        assert source.is_file(), f"no guide to check at {source}"
+
+        with mock.patch("datetime.date") as fake_date:
+            fake_date.today.return_value = date(2027, 1, 1)
+            assert renderer.check_guide(source) == []
+
+        # Counter-case: an edited source is still drift with the month masked.
+        copied = tmp_path / source.name
+        shutil.copy2(source, copied)
+        shutil.copy2(source.with_suffix(".docx"), copied.with_suffix(".docx"))
+        copied.write_text(
+            copied.read_text(encoding="utf-8") + "\n## Amended section\n",
+            encoding="utf-8",
+        )
+        with mock.patch.object(renderer, "REPO_ROOT", tmp_path):
+            problems = renderer.check_guide(copied)
+        assert any("word/document.xml differs" in problem for problem in problems), (
+            f"an edited source must still report drift; got {problems}"
+        )
+
+    def test_the_month_mask_keeps_the_version_number(self) -> None:
+        """Only the month is masked, so a stale version label still fails."""
+        renderer = _load_renderer()
+        november = renderer.stable_document_xml(
+            b"<w:t>Version 2.3.0 \xe2\x80\x94 November 2026</w:t>"
+        )
+        january = renderer.stable_document_xml(
+            b"<w:t>Version 2.3.0 \xe2\x80\x94 January 2027</w:t>"
+        )
+        bumped = renderer.stable_document_xml(
+            b"<w:t>Version 2.4.0 \xe2\x80\x94 November 2026</w:t>"
+        )
+        assert november == january, "the generation month must not be compared"
+        assert november != bumped, "the version number must still be compared"
 
 
 class TestNoBackupArtifacts:

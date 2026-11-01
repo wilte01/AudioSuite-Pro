@@ -12,7 +12,20 @@ one.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The user-guide freshness lock no longer fails on a month boundary.**
+  `version: auto` renders `Version <declared> - <Month YYYY>` from
+  `date.today()`, so the generation month is ambient rather than derived from the
+  Markdown source - and `check_guide()` compared `word/document.xml` verbatim,
+  which reported all seven such guides stale on 2026-11-01 with no unrendered
+  edit in the tree (`--check` and
+  `test_user_guide_hygiene.py::test_artefacts_match_their_sources` both red).
+  `stable_document_xml()` masks the month on both sides before comparing and
+  keeps the version number, so a real bump or a body-text edit still fails;
+  `test_a_month_boundary_is_not_guide_drift` renders under a future month and
+  asserts the current artefact passes, with an edited copy as the counter-case.
+  No artefact changed: the seven committed October guides are current again.
 
 ## [2.3.0] - 2026-10-31
 

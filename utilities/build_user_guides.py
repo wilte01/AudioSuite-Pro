@@ -60,6 +60,11 @@ commands reference has a committed ``.docx`` that the same script builds and
 Changed in 2.1.7: every document now lives under ``documentation/`` (``docs/``
 for the site, ``user_guides/`` for the shipped Word guides), so both roots are
 derived from one ``DOCUMENTATION_ROOT``.
+Changed in 2.3.1: the freshness check masks the generation month in a
+``version: auto`` subtitle. The month is ambient - it comes from the clock, not
+from the Markdown source - so comparing it verbatim reported every guide as
+stale from the first day of the next month (seven on 2026-11-01), and
+``--check`` failed on a tree with no unrendered edit in it.
 """
 
 from __future__ import annotations
@@ -99,6 +104,11 @@ _BULLET = re.compile(r"^- (.+)$")
 _NUMBERED = re.compile(r"^\d+\. (.+)$")
 _TABLE_ROW = re.compile(r"^\|(.*)\|$")
 _BOLD_SPAN = re.compile(r"\*\*(.+?)\*\*")
+
+#: The ambient part of a ``version: auto`` subtitle.  A guide rendered in one
+#: month is not stale because the calendar moved, so the freshness comparison
+#: masks the month the document was generated in.
+_VERSION_MONTH = re.compile(r"(Version \S+ \u2014 )[A-Z][a-z]+ \d{4}")
 
 
 @dataclass
@@ -448,6 +458,28 @@ def entry_data(path: Path) -> dict[str, bytes]:
         return {name: archive.read(name) for name in archive.namelist()}
 
 
+def stable_document_xml(data: bytes | None) -> bytes | None:
+    """Return ``word/document.xml`` with the version subtitle's month masked.
+
+    ``version: auto`` renders ``Version <declared> - <Month YYYY>`` from the
+    *generation* date, so the month is ambient rather than derived from the
+    Markdown source.  Comparing it verbatim made every such guide report as
+    stale on the first day of the following month, which is drift the author
+    never caused and cannot fix without re-rendering.  The version number
+    itself is kept, so a real bump still fails the check.
+
+    Args:
+        data: The ``word/document.xml`` entry, or ``None`` when absent.
+
+    Returns:
+        The same bytes with ``Version <v> - <Month YYYY>`` reduced to
+        ``Version <v> - <month>``, or ``None`` for ``None``.
+    """
+    if data is None:
+        return None
+    return _VERSION_MONTH.sub(r"\1<month>", data.decode("utf-8")).encode("utf-8")
+
+
 def check_guide(source: Path) -> list[str]:
     """Verify that a guide's committed artefact matches its source.
 
@@ -472,7 +504,9 @@ def check_guide(source: Path) -> list[str]:
             f"{target.relative_to(REPO_ROOT)}: container entries differ "
             f"(+{sorted(set(after) - set(before))} -{sorted(set(before) - set(after))})"
         )
-    if before.get("word/document.xml") != after.get("word/document.xml"):
+    if stable_document_xml(before.get("word/document.xml")) != stable_document_xml(
+        after.get("word/document.xml")
+    ):
         problems.append(
             f"{target.relative_to(REPO_ROOT)}: word/document.xml differs from "
             f"{source.name}; run `python utilities/build_user_guides.py`"
