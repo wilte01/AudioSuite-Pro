@@ -38,6 +38,13 @@ moves, the remedy is to record the new measurement here with a sentence in
 `PLAN_audit_2026-10-24_deferred_p2p3.md` — never to raise the budget to fit a
 second leg.
 
+Changed in 2.3.1: the `changes` job is priced (0.4). It is a Linux job whose
+only work is a full checkout and a `git diff`, priced from the compile job's
+0.2 - same runner, same `uv`-free shape - plus half a minute for the deeper
+checkout, because a budget is a ceiling. That job is what makes a
+documentation-only push cost 7.7 instead of 69.1: the suite leg is skipped, and
+`tests/test_ci_changed_paths.py` holds the rule and the gate.
+
 Changed in 2.1.6: initial version (R-17,
 PLAN_audit_2026-10-24_deferred_p2p3.md).
 """
@@ -61,6 +68,7 @@ RUNNER_MULTIPLIERS: dict[str, float] = {"ubuntu-latest": 1.0, "windows-latest": 
 #: Measured billable minutes per job for one push, all of that job's legs
 #: included. See the module docstring for the runs these come from.
 MEASURED_BILLABLE: dict[str, float] = {
+    "changes": 0.4,
     "compile": 0.2,
     "docs-locks": 2.7,
     "lint": 0.3,
@@ -235,4 +243,18 @@ class TestTheBudgetHolds:
             f"{sum(doubled.values()):.1f} minutes and would pass the budget - "
             "the arithmetic cannot catch the change R-17 removed, so this lock "
             "proves nothing"
+        )
+
+    def test_the_gated_leg_is_the_cost_the_gate_saves(self) -> None:
+        """Skipping the suite on a documentation push must be worth doing."""
+        suite = MEASURED_BILLABLE["test"]
+        rest = sum(MEASURED_BILLABLE.values()) - suite
+
+        assert suite == max(MEASURED_BILLABLE.values()), (
+            "the suite leg is no longer the most expensive job, so gating it on "
+            f"a documentation-only change saves nothing: {MEASURED_BILLABLE}"
+        )
+        assert rest < 15.0, (
+            f"the seven jobs a documentation push still runs cost {rest:.1f} "
+            "minutes, so the classifier is protecting a small remainder"
         )

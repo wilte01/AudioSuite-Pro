@@ -12,6 +12,18 @@ one.
 
 ## [Unreleased]
 
+### Changed
+
+- **A documentation-only push no longer runs the full suite.** A new `changes`
+  job classifies the pushed change set and the floor leg is gated on its answer,
+  so a commit that touches only Markdown or the `documentation/` tree runs the
+  seven cheap jobs - Docs locks included, because a guide commit is exactly when
+  a stale artefact needs catching - and skips the ~61 billable minutes the suite
+  costs. Any code, test, configuration, workflow or fixture path runs it, and so
+  does a range git cannot diff or a classifier that fails. The 2.3.0 record
+  commit `d753c6e`, six lines of a PLAN file, billed 30 m 56 s before this;
+  `tests/test_ci_changed_paths.py` holds the rule and the gate.
+
 ### Fixed
 
 - **The user-guide freshness lock no longer fails on a month boundary.**

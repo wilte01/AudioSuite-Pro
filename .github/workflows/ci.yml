@@ -13,6 +13,11 @@
 # Three full legs were 160.9 of a 168.0-billable-minute run and exhausted
 # the account's Actions minutes (X9); tests/test_ci_cost.py now prices every
 # job in this file and fails if the projection crosses 100.
+# Changed in 2.3.1: a documentation-only change set no longer runs the floor
+# leg. The `changes` job classifies the push and the `test` job is gated on it,
+# so a plan-or-guide commit buys the seven cheap jobs instead of ~61 billable
+# minutes and half an hour of runner time. tests/test_ci_changed_paths.py
+# holds the rule and the gate.
 name: CI
 
 on:
@@ -22,6 +27,72 @@ on:
     branches: [main]
 
 jobs:
+  changes:
+    name: Change classification
+    # Changed in 2.3.0: added, so a documentation-only push stops paying for the
+    # full suite. The 2.3.0 record commit `d753c6e` - six lines of Markdown in a
+    # PLAN file - took 30 m 56 s for a gate that could not have failed
+    # differently, which is the whole cost of one push spent on prose.
+    #
+    # Why only the suite leg is gated, and not the workflow. `paths-ignore` on
+    # the trigger would skip every job, and the jobs a documentation change most
+    # needs are the cheap ones: Docs locks is what proves the rendered `.docx`
+    # and the generated index tables still match their sources, and lint, type
+    # check, security and compile still apply to a tree whose prose changed.
+    # Trading 61 minutes for a class of drift that only the next code push would
+    # catch is not a saving.
+    #
+    # Fail-open by construction. A ref that did not exist before (a new branch,
+    # the push that created `main`), a git that cannot diff, a classifier that
+    # raises, and an empty change set all answer "run the suite" and print why;
+    # only a non-empty set of documents can answer "skip".
+    runs-on: ubuntu-latest
+    outputs:
+      suite: ${{ steps.classify.outputs.suite }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The diff needs the pushed range. The default shallow checkout holds
+          # one commit, so `git diff $before $after` would fail and every push
+          # would fall back to running the suite - correct, and pointless.
+          fetch-depth: 0
+      - name: Classify the change set
+        id: classify
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        # The classifier is stdlib-only and reads the paths on stdin, so this job
+        # installs nothing - the same choice the compile and schema jobs make.
+        run: |
+          base="$PUSH_BEFORE"
+          head="$PUSH_AFTER"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base="$PR_BASE"
+            head="$PR_HEAD"
+          fi
+          if [ -z "$base" ] || [ -z "$head" ] || \
+            [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            echo "no usable range ($base..$head) - running the suite"
+            echo "suite=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! diff_output="$(git diff --name-only "$base" "$head" 2>&1)"; then
+            echo "could not diff $base..$head - running the suite"
+            printf '%s\n' "$diff_output"
+            echo "suite=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! printf '%s\n' "$diff_output" | \
+            python utilities/ci_changed_paths.py --github-output "$GITHUB_OUTPUT"; then
+            echo "the classifier failed - running the suite"
+            echo "suite=true" >> "$GITHUB_OUTPUT"
+          fi
+
   lint:
     name: Lint & Format
     # Changed in 2.1.6: the linter comes from uv.lock instead of `pip install
@@ -373,6 +444,14 @@ jobs:
 
   test:
     name: Test (Python 3.11, the floor)
+    # Changed in 2.3.0: gated on the `changes` job. A documentation-only change
+    # set skips this leg and runs every other job, so the docs locks still
+    # verify a guide commit while the suite - the cost this reduction exists to
+    # avoid - is not paid for prose. Any code, test, configuration, workflow or
+    # fixture path runs it, and so does any classification the `changes` job
+    # could not make.
+    needs: changes
+    if: needs.changes.outputs.suite == 'true'
     # Changed in 2.1.6: one full-suite leg, on the floor, instead of three legs
     # (R-17, PLAN_audit_2026-10-24_deferred_p2p3.md). Measured from the jobs'
     # own start/complete times (run 40668603600 at `8229b05`, the last green run

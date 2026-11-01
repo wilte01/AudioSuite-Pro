@@ -112,15 +112,22 @@ what was deferred. They are history, not instructions — the rules that still
 apply live in the repository's `AGENTS.md` and in
 [CONTRIBUTING.md](../../CONTRIBUTING.md), which ships with this documentation.
 
-* `PLAN_functional_backlog.md` — the current plan. Waves 1 and 2 are complete:
-  scrubber APEv2/Speex/DSF support, the measured album-gain change, a
-  configurable true-peak ceiling and loudness range, the audio-writer
+* `PLAN_restoration_2026-10-31.md` — **the successor plan, drafted and not
+  started**: Restoration's de-reverb and spectral repair, opening with the
+  measurement each one must satisfy (a synthetic room impulse response over a
+  known dry recording, and a damaged region compared against the original).
+* `PLAN_functional_backlog.md` — the most recent plan, **closed 2026-10-31**.
+  Waves 1 and 2: scrubber APEv2/Speex/DSF support, the measured album-gain
+  change, a configurable true-peak ceiling and loudness range, the audio-writer
   output-format lock, tagging from filenames with saved action groups, and the
-  M3U/HTML/Camelot export surface. Its maintenance cycle is complete too: the
-  Tag Field Updater window is built on the suite's shared layout, and the change
-  history is split into this file's user-facing [changelog](../../CHANGELOG.md)
-  and the [technical one](../../TECHNICAL_CHANGELOG.md). Wave 3 (duplicate
-  detection, restoration) is unstarted.
+  M3U/HTML/Camelot export surface. Wave 3: duplicate detection, clustered at a
+  measured threshold, and Restoration's declip. Its maintenance cycle rebuilt
+  the Tag Field Updater and Tag Editor windows on the suite's shared layout and
+  split the change history into this file's user-facing
+  [changelog](../../CHANGELOG.md) and the
+  [technical one](../../TECHNICAL_CHANGELOG.md). Two sub-items were never
+  started and carry forward to a successor plan rather than counting as
+  delivered: **F-08b** (de-reverb) and **F-08c** (spectral repair).
 * `PLAN_audit_2026-10-24_deferred_p2p3.md` — the preceding plan, closed: the
   dependency audit's CI policy, a POSIX smoke leg, the interpreter targets the
   tooling declares, and the remaining defect tail (R-13, R-14, X12, X7). Its

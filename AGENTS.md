@@ -112,7 +112,13 @@ themselves. 2026-10-28: that matrix cost 160.9 of a 168.0-billable-minute push
 and spent the account's monthly Actions minutes mid-session, so the suite now
 runs **once, on the floor** - the leg whose resolution below 3.12 is the graph
 nobody develops on - and `tests/test_ci_cost.py` prices every job against a
-100-minute budget. Never discover this through a broken `tomllib` import two
+100-minute budget. Since 2.3.0 a **documentation-only** change set (Markdown, or
+anything under `documentation/` except Sphinx's `conf.py`) runs the other jobs
+and skips that leg: the `changes` job classifies the pushed range and gates it.
+Any code, test, config, workflow or fixture path still runs the suite, and any
+range the classifier cannot read falls back to running it, so a green docs-only
+run proves the locks, not the product.
+Never discover this through a broken `tomllib` import two
 floors up.
 
 ## Repository & Version Control

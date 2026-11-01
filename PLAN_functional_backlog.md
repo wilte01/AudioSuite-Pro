@@ -1,7 +1,13 @@
 # PLAN — functional backlog (B2, A1, F-01, F-02, F-05/F-06, F-09, F-08, F-10, U1, U2, U3, U4, U5)
 
-**Status:** **Waves 1, 2 and 3 complete** — Wave 1: F-10 `5d4ab22`, F-09 `6642d41`,
-B2 `8890b73`, A1 `c6f54dc` and the guide sweep `6a4be7a`; Wave 2: F-01 and
+**Status:** `[x]` **COMPLETE (2026-10-31)** — every item this plan declares is
+delivered and released: Waves 1, 2 and 3, plus the five maintenance items. One
+gap is **deferred rather than done**, and is named here instead of left to be
+inferred from a closed plan: F-08 was split three ways (D7) and only **F-08a**
+(declip) ships, while **F-08b (de-reverb) and F-08c (spectral repair) were never
+started** and carry forward to a successor plan (D42), drafted as
+`PLAN_restoration_2026-10-31.md`. Wave 1: F-10 `5d4ab22`,
+F-09 `6642d41`, B2 `8890b73`, A1 `c6f54dc` and the guide sweep `6a4be7a`; Wave 2: F-01 and
 F-05/F-06 in `da30298`, released as **2.2.0** (`00238e1`), pushed at
 `3a32185` with the floor leg green (CI run `41060921137`); Wave 3: F-02
 (Duplicate Finder) and F-08a (Restoration / Declip), cut as the **2.3.0** minor
@@ -123,6 +129,8 @@ discovered.
 | D38 | **Wave 3 ships as 2.3.0, a minor, not the 2.2.x patch §5 predicted.** | DECIDED (user, 2026-10-31) | Both items add capability a user can run - two tools, two commands, two windows - so a patch number would misdescribe the release; the brief was explicit that this is new functionality rather than a fix, and Semantic Versioning agrees. `utilities/release.py 2.3.0 --date 2026-10-31` performed the cut on the tree: `pyproject.toml` bumped, `uv.lock` re-locked and read back (2.2.1 → 2.3.0), `[Unreleased]` promoted to `## [2.3.0] - 2026-10-31` in **both** changelogs and reopened with "Nothing yet.", and the seven version-labelled guides re-rendered. Those seven were triaged by zip entry the way the rule requires - identical entry sets, one differing entry (`word/document.xml`) and one changed paragraph in each, the subtitle "Version 2.2.1 - October 2026" becoming "Version 2.3.0 - October 2026" - so they ship as rendered rather than as external-tool drift. `CHANGELOG.md` carries the three user bullets (§8) and `TECHNICAL_CHANGELOG.md` the three developer ones (the two tools' measurement locks, the CLI-schema registration, the headless slot pool). The cut is committed as `adbd38d`, the 2.3.0 feature release, tagged `v2.3.0` (annotated; tag object `2c39b10` dereferencing to `2403e2a`) and pushed with `main`; §6's post-release block records the floor leg's verdict. |
 | D39 | **F-02's fingerprint cache is its own SQLite file, with the R-13 ``(mtime, size)`` stamp rather than a second freshness rule.** | DECIDED | §7 asked the question and the answer is the item's own file: the fingerprint payload is ~700 bytes per file and grows with a library, while `library_stats`' cache is a tag-metadata store with its own schema and migration history - one table for both would make one tool's migration edit the other's. What must not fork is the **stamp**: mtime alone answers "cached" for a file replaced by a copy that preserved its timestamps, which is exactly R-13, so the cache compares ``(mtime, size)`` and fingerprints again when either disagrees. Connection creation is serialised by a module-level lock shared by every instance (a per-instance lock cannot serialise two connections to one file), a competing writer is waited out rather than raising `database is locked`, and `auto_vacuum=FULL` keeps a delete-heavy cache from growing for ever - the pattern `batch_undo` and `library_cache` already use. `AUDIOSUITE_DUPLICATE_CACHE` overrides the default path, so tests do not write the user's cache. Evidence: `test_fingerprint_cache.py` pins the stamp's negative case (same mtime, different size ⇒ fingerprint again), the round trip of every record field, and the environment override. |
 | D40 | **A defect found while wiring F-02's window is fixed in two shipped tools: `root.after(0, fn, **kw)` raises inside the completion call.** | DECIDED (defect, fixed in this change) | `NoiseReductionApp` and `PopClickRemoverApp` forwarded the published completion payload as ``self.root.after(0, cast(Any, self._on_complete), **kw)``. `tkinter.Misc.after` takes positional arguments only, so the call raised `TypeError: after() got an unexpected keyword argument` **inside** the callback and a finished batch reported nothing - the same silent-report class as D112/D113 one layer lower. Both now bind the payload with `functools.partial`, and `tests/test_callback_payload_contract.py` gained `_after_calls_with_keywords`, which walks every first-party module for an `after(...)` call carrying keywords, plus `test_the_after_scan_flags_a_keyword_call`, which feeds it a keyword call and requires it to fail - a scan that cannot fail is worse than none (`AGENTS.md`, *Defects and failing checks*). The class is recorded here because nothing else would have caught it: the payload locks check the handler's signature, not how the payload reaches it. |
+| D41 | **A documentation-only change set skips the floor leg - and only that leg.** | DECIDED (user, 2026-10-31) | The Wave 3 record commit `d753c6e` (six lines of this plan) billed 30 m 56 s, projected at 69.1 of a push's billable minutes, for a gate that could not have gone another way, so the owner asked that this class of push stop paying for it. A new `changes` job diffs the pushed range (`git diff --name-only "$before" "$after"`, `fetch-depth: 0`) and pipes the paths into `utilities/ci_changed_paths.py`, whose one rule is that a path is documentation when it is Markdown or sits under `documentation/` except Sphinx's `conf.py`; the `test` job now carries `needs: changes` and `if: needs.changes.outputs.suite == 'true'`. **Only that leg is gated.** A `paths-ignore` on the trigger would have skipped the whole workflow, and Docs locks is the job a guide commit most needs - it is what proves a re-rendered `.docx` and the generated index tables still match their sources - so the other seven jobs still run, at 7.7 projected. The gate fails open in four places (a ref that did not exist, a diff git refuses, a classifier that raises, an empty change set), because skipping is safe only when the change is provably documentation. Locked by `tests/test_ci_changed_paths.py` (the rule as a pure function, the YAML gate, and a mutated block proving the gate check can fail) and priced in `tests/test_ci_cost.py` (`changes` = 0.4, projection 69.1 of 100). The shell half was run against this repository's own history rather than assumed: `2403e2a..d753c6e` answers `suite=false` naming the plan file, `adbd38d~1..adbd38d` (93 files, the release) answers `suite=true`, and the zero-`before` and unresolvable-revision guards both answer `suite=true`. **What is not measured yet** is the real figure for a documentation push: 7.7 is the ledger's projection, and the first such push after this lands is what confirms it.
+| D42 | **This plan closes as complete, with F-08b/F-08c deferred rather than declared done.** | DECIDED (user, 2026-10-31) | Checked item by item before closing rather than by impression: every Wave 1, 2 and 3 item and all five maintenance items are DONE, and the last of them shipped as 2.2.1 and 2.3.0 with the floor leg green (§6). The one gap is F-08, which D7 split three ways - F-08a (declip) ships in `restoration/`, while **F-08b (de-reverb) and F-08c (spectral repair) were never started**, so §7's cost question has no answer in this plan. They are **carried forward, not counted as delivered**: a successor plan owns them when the owner wants that work (`AGENTS.md`, *Plan Governance* - follow-on work opens its own plan), and the status header, F-08's status line, §5's row 3 and §7 all say so, because a plan marked complete is exactly where a reader would otherwise assume de-reverb had been built. The plan also carries one item that landed **after** its last release - D41, the documentation-only CI skip - recorded in `TECHNICAL_CHANGELOG.md`'s `[Unreleased]` section and shipping with whatever cut follows. Closing is a record-keeping act, not a release: `v2.3.0` stays the latest tag and nothing is re-cut. `documentation/docs/index.md`'s decision-record bullet was corrected with it - it still described Wave 3 as unstarted, which is D17's drift in the one place a reader looks the plans up.
 
 ---
 
@@ -406,8 +414,11 @@ answered for `library_stats`. Reuse the stamp rule; do not invent a second one.
 
 #### F-08 — restoration: declip first, then de-reverb, then spectral repair (XL)
 
-**Status:** **F-08a DONE**; F-08b and F-08c not started. Declip ships as
-`restoration/`, with its THD and peak measurements in D37 and §6.
+**Status:** **F-08a DONE** (2.3.0); **F-08b and F-08c DEFERRED, never started** —
+they carry forward to a successor plan (D42), `PLAN_restoration_2026-10-31.md`,
+rather than counting toward this one's completion. Declip ships as
+`restoration/`, with its THD and peak
+measurements in D37 and §6.
 
 *Current state.* `noise_reduction` and `pop_click_remover` cover noise and
 clicks; there is no declipper, no de-reverb and no spectral repair. The audit
@@ -1418,6 +1429,44 @@ and the run completed in 30:16.
   longer than 2.2.1's 28:08 - the shape the two new packages' 240 tests predict,
   not a runner regression.
 
+### CI cost - a documentation-only push skips the suite leg (2026-10-31)
+
+*Trigger, measured.* Run `41217001751` at `d753c6e` - the commit carrying the
+Wave 3 post-release block, six lines of this file - completed in 30 m 56 s, of
+which the floor leg was 30 m 52 s: the full price of a push, spent on prose. The
+suite could not have failed differently because no path it executes had changed.
+
+*Rule, and why only the leg.* `utilities/ci_changed_paths.py` classifies the
+change set (Markdown anywhere, or `documentation/` except `conf.py`) and the
+`changes` job publishes the answer; `tests/test_ci_changed_paths.py` holds both
+halves. A documentation push now projects **7.7** billable minutes against 69.1,
+and keeps Docs locks - the job that catches a stale `.docx` or a generated table
+that no longer matches its source, which is exactly what a guide commit risks.
+
+| Case, run against this repository's history | Answer |
+|---|---|
+| `2403e2a..d753c6e` (the plan record, 1 path) | `suite=false`, naming the file |
+| `adbd38d~1..adbd38d` (93 files, the release) | `suite=true` |
+| `before` all zeros (a new branch) | `suite=true`, and says why |
+| unresolvable revision | `suite=true`, and says why |
+
+- **Two consequences, stated rather than discovered later.** The suite's artifacts
+  (`cli-payloads`, `docs-html`) do not refresh on a documentation-only push, so the
+  published site lags until the next code push; and the `test` check now reports
+  **`skipped`**, not `success`, on such a push - a branch-protection setting must
+  accept that conclusion if this repository ever makes the leg a required check.
+- **Gate on the change.** Tracked-file compile clean (the `packaging/build`
+  vendored-CPython `tokenizedata` noise is the documented pre-existing exclusion),
+  `ruff check` and `ruff format --check` clean (1 010 files), bare `mypy .` clean
+  (592 files), bandit **0 High / 0 Medium** (43 Low, none in the new modules), bare
+  `pytest` **11 859 passed, 3 skipped, 35 deselected in 18:49**, coverage **91.24%** -
+  33 tests more than the 2.3.0 cut's 11 826 - 32 in the new lock and one added to the
+  cost ledger.
+- **Guides.** No user guide describes CI cost or the workflow (`git grep -l`
+  `ci.yml`/`Actions minutes` over `documentation/` finds nothing), so no rendered
+  guide changes; `AGENTS.md`'s *Python floor* paragraph states the rule, since that is
+  where a contributor reads what CI runs.
+
 ---
 
 ## 7. Open questions
@@ -1431,10 +1480,13 @@ and the run completed in 30:16.
   library, while `library_stats`' cache is a tag-metadata store with its own
   schema and migration history, so one table for both would make one tool's
   migration edit the other's.
-- **Is de-reverb (F-08b) worth the cost?** The measured-improvement acceptance is
-  achievable, but the fidelity bar for music (as opposed to dialogue) is high
-  enough that a poor result may be worse than shipping nothing. Re-evaluate after
-  declip's measurements.
+- **Is de-reverb (F-08b) worth the cost?** *(Carried forward unresolved - D42.)*
+  The measured-improvement acceptance is achievable, but the fidelity bar for
+  music (as opposed to dialogue) is high enough that a poor result may be worse
+  than shipping nothing. Declip's measurements are in (D37: THD -21.38 →
+  -46.82 dB, peak restored to within 0.088 dBFS of the original), so the answer
+  now depends on the successor plan's appetite for an L-sized DSP item, not on
+  missing evidence.
 
 ---
 
