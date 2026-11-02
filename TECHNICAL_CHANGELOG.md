@@ -18,6 +18,11 @@ Nothing yet.
 
 ### Changed
 
+- **The POSIX leg's test floor is re-measured at 1740 passed / 1 skipped.** The
+  five retired DSP tools removed the per-subcommand cases the CLI-surface
+  parametrisations generated, so `posix-smoke` refused its first run on the 2.3.1
+  cut at the old 1756 floor with 1740 passing and nothing failing; the lock now
+  holds the leg's own numbers (`PLAN_restoration_2026-10-31.md` D20).
 - **The five retired tools are gone from the documentation too, not only from the
   code.** The manifest registers 27 first-party tools, so the CLI reference lost
   their five sections and five *All Commands* rows, the new-user deck lost their

@@ -430,8 +430,15 @@ jobs:
             echo "gate fail: the selection reported no passed count" >&2
             exit 1
           fi
-          if [ "$passed" -lt 1756 ]; then
-            echo "gate fail: $passed passed, below the locked floor of 1756 -" \
+          # Changed in 2.3.1: the five retired DSP tools took their
+          # per-subcommand cases out of the selection (test_cli_app.py,
+          # test_cli_usage_errors.py, test_cli_json_schema.py,
+          # test_completion_payload_published.py and test_constants.py), so
+          # the floor is re-measured at the leg's own 1740 passed / 1
+          # skipped rather than left to fail on a surface that no longer
+          # ships. A deviation is still a real change worth seeing.
+          if [ "$passed" -lt 1740 ]; then
+            echo "gate fail: $passed passed, below the locked floor of 1740 -" \
               "the selection ran almost nothing" >&2
             exit 1
           fi

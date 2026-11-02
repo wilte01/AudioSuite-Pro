@@ -31,7 +31,14 @@ That run collected 1757 and reported **1756 passed, 1 skipped, 0 failed**; the
 single skip is ``tag_editor/tests/test_csv_io.py``'s Windows drive-relative
 case.  The first landed version padded both bounds by ten; the leg's own first
 run then reported the *same* 1756 / 1, so they are now the measured values
-exactly.  Equality is the right shape here because the split is pinned three
+exactly.  The 2.3.1 retirement of the five standalone DSP tools moved it: the
+selection's CLI-surface parametrisations generated a case per retired
+subcommand, so ``test_cli_app.py``, ``test_cli_usage_errors.py``,
+``test_cli_json_schema.py``, ``test_completion_payload_published.py`` and
+``test_constants.py`` collect fewer tests, the leg now measures **1740
+passed, 1 skipped** of 1741 collected - the same single skip - and the
+bounds follow it down.  Equality is the right shape here because the split
+is pinned three
 ways — ``uv.lock`` fixes the dependency graph, ``setup-python`` fixes the
 interpreter line, and ffmpeg is installed by an explicit step — so a deviation
 is a real change (a lock upgrade, a new Python patch that skips something) and
@@ -45,6 +52,10 @@ Deriving it that way paid for itself: dropping ffmpeg first made the run say
 four tests that only Windows could pass.
 
 Changed in 2.1.6: initial version (R-12, PLAN_audit_2026-10-24_deferred_p2p3.md).
+
+Changed in 2.3.1: the five retired DSP tools shrank the selection's
+parametrisations, so the floor is re-measured at 1740 passed / 1 skipped and
+PLAN_restoration_2026-10-31.md D20 names what moved.
 """
 
 from __future__ import annotations
@@ -105,9 +116,9 @@ MODULES: tuple[str, ...] = (
 )
 
 #: The lowest passed count the leg accepts, and the highest skip count - both
-#: the leg's own first-run measurement (1756 passed, 1 skipped, run 40663662748)
+#: the leg's own measurement, re-taken on the 2.3.1 cut (1740 passed, 1 skipped)
 #: rather than a padded margin; the module docstring says why equality is safe.
-PASSED_FLOOR = 1756
+PASSED_FLOOR = 1740
 SKIP_CEILING = 1
 
 #: Tool packages and locks that must stay out of the selection: the CD Ripper's
