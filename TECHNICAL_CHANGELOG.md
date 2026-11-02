@@ -19,6 +19,8 @@ one.
   exist, `--no-publish` opts out and `--offline` stops at the local tag. 2.3.1
   shipped with no tag at all, and no release in this repository had ever had a
   Releases-page entry, because that step lived only in the release checklist.
+  The process is also described in the docs site for the first time - nothing
+  under `documentation/` had ever mentioned it.
 
 ## [2.3.1] - 2026-11-02
 

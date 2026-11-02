@@ -94,6 +94,8 @@ tool entry in the manifest.
   docstring fails the suite.
 * {doc}`plugins` — the plugin system: manifest, extension points, and a first
   plugin.
+* {doc}`release` — how a version is cut: the two runs, the flags, what each step
+  refuses, and how the older tags got their release pages.
 * [Contributing](../../CONTRIBUTING.md) — the gate, the test conventions, and the
   checklist for registering a new tool.
 * {doc}`resilience` — what happens when a file, a step or a
@@ -145,6 +147,7 @@ apply live in the repository's `AGENTS.md` and in
 
 api
 plugins
+release
 resilience
 user/messages
 user/security
