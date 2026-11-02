@@ -48,6 +48,9 @@ short-lived ``driver_card`` flag (U-03) had no user left to delete it.
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+
+Changed in 2.4.0: Duplicate Finder's manifest description covers its new
+delete and ASX-stub dispositions.
 """
 
 from __future__ import annotations
@@ -517,7 +520,10 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         name="Duplicate Finder",
         category="utility",
         pyw_filename="Duplicate_Finder.pyw",
-        description="Find duplicate recordings by fingerprint and quarantine extras",
+        description=(
+            "Find duplicate recordings by fingerprint and quarantine, delete or "
+            "stub extras"
+        ),
         cli_command="duplicates",
         standalone=True,
         order=54,
