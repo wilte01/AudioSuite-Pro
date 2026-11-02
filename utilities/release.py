@@ -871,7 +871,10 @@ def head_version(root: Path, runner: Runner) -> str | None:
 
 def _working_tree_dirty(root: Path, runner: Runner) -> bool | None:
     """Whether *root* has uncommitted changes; ``None`` outside a repository."""
-    result = runner(["git", "status", "--porcelain"], root)
+    # Untracked files (a stray log, `.cloud-attachments/`) are not part of
+    # the release; only an uncommitted change to a tracked file means the
+    # cut itself is still sitting in the working tree.
+    result = runner(["git", "status", "--porcelain", "--untracked-files=no"], root)
     if result.returncode != 0:
         return None
     return bool(result.stdout.strip())

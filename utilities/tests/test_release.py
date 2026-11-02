@@ -783,12 +783,14 @@ class FakeCommands:
         *,
         head: str = "1.4.0",
         dirty: bool = False,
+        untracked: bool = False,
         git_repo: bool = True,
         tags: tuple[str, ...] = (),
         releases: tuple[str, ...] = (),
     ) -> None:
         self.head = head
         self.dirty = dirty
+        self.untracked = untracked
         self.git_repo = git_repo
         self.tags = list(tags)
         self.releases = list(releases)
@@ -800,7 +802,10 @@ class FakeCommands:
             if not self.git_repo:
                 return _completed(args, 128, "", "fatal: not a git repository")
             if args[1:3] == ["status", "--porcelain"]:
-                return _completed(args, 0, " M pyproject.toml\n" if self.dirty else "")
+                reported = " M pyproject.toml\n" if self.dirty else ""
+                if self.untracked and "--untracked-files=no" not in args:
+                    reported += "?? scratch.py\n"
+                return _completed(args, 0, reported)
             if args[1] == "show":
                 return _completed(args, 0, f'[project]\nversion = "{self.head}"\n')
             if args[1:3] == ["tag", "--list"]:
@@ -914,6 +919,25 @@ class TestPublishing:
         assert fake.tags == [], out
         assert fake.called("git", "tag") == [], out
         assert "commit the cut" in out
+
+    def test_an_untracked_scratch_file_does_not_block_publishing(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A stray log or ``.cloud-attachments/`` is not part of the cut."""
+        fake = FakeCommands(head="1.3.0", untracked=True)
+
+        release.publish_version(
+            publish_repo,
+            "1.3.0",
+            dry_run=False,
+            offline=False,
+            publish=True,
+            runner=fake,
+        )
+
+        out = capsys.readouterr().out
+        assert fake.tags == ["v1.3.0"], out
+        assert fake.releases == ["v1.3.0"], out
 
     def test_a_head_that_declares_another_version_is_not_tagged(
         self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
