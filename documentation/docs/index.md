@@ -109,10 +109,14 @@ what was deferred. They are history, not instructions — the rules that still
 apply live in the repository's `AGENTS.md` and in
 [CONTRIBUTING.md](../../CONTRIBUTING.md), which ships with this documentation.
 
-* `PLAN_restoration_2026-10-31.md` — **the successor plan, drafted and not
-  started**: Restoration's de-reverb and spectral repair, opening with the
-  measurement each one must satisfy (a synthetic room impulse response over a
-  known dry recording, and a damaged region compared against the original).
+* `PLAN_restoration_2026-10-31.md` — **closed 2026-11-02, nothing shipped**:
+  Restoration's de-reverb and spectral repair, each opening with the measurement
+  it must satisfy (a synthetic room impulse response over a known dry
+  recording, and a damaged region compared against the original). Both items
+  were built and measured against their bars and **both were deferred on that
+  evidence** — no blind single-channel de-reverb cleared the bar or beat a
+  plain gain change, and spectral repair reproduced a clean tone and left every
+  sample outside its region bit-identical yet missed both region-error bars.
 * `PLAN_functional_backlog.md` — the most recent plan, **closed 2026-10-31**.
   Waves 1 and 2: scrubber APEv2/Speex/DSF support, the measured album-gain
   change, a configurable true-peak ceiling and loudness range, the audio-writer

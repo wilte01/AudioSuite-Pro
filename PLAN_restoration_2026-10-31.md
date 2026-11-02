@@ -1,9 +1,17 @@
 # PLAN — Restoration, part two (F-08b de-reverb, F-08c spectral repair)
 
-**Status:** `[~]` **IN PROGRESS** — opened 2026-10-31 to carry the two
-sub-items the functional backlog deferred rather than delivered. T-01, L-01,
-T-03, T-02, U-02 and U-03 are **COMPLETE (2026-11-01)**; F-08b and F-08c are not
-started.
+**Status:** `[x]` **COMPLETE (2026-11-02) — nothing shipped.** Opened
+2026-10-31 to carry the two sub-items the functional backlog deferred rather
+than delivered. T-01, L-01, T-03, T-02, U-02 and U-03 are **COMPLETE
+(2026-11-01)**; F-08b is **deferred**
+(2026-11-02, D23) after two measured rounds that rejected the algorithm, then
+any fixture repair to rescue it (D21, D22), and F-08c is **deferred**
+(2026-11-02, D24) after one measured round: the repair reproduces
+predictable content and leaves every other sample bit-identical, but both
+of its region-error bars are unmet and the dropout bar sits above the
+ceiling of the method class on the real-music fixture. No F-08c code
+exists, so the 2.4.0 slot stays free. Both capability items are closed by
+measurement rather than delivery, so reopening either one is a new plan.
 
 **Base state:** `main` at `d753c6e`, with `v2.3.0` tagged at `2403e2a` and
 green on the floor leg (CI run `41213423144`, `41217001751`). `restoration/`
@@ -43,7 +51,8 @@ audio defect found by the study), and **U-03**, the card retirement itself.
 **U-02 is COMPLETE (2026-11-01)** — the no-op, Dry Run and single-pass contract
 is in and its evidence is in §6, so the card retirement it gated can start;
 **U-03 is not started**. Order after U-01: T-01 → L-01 → T-03 → U-02 → U-03 →
-T-02 → F-08b → F-08c (D9, D14).
+T-02 → F-08b → F-08c (D9, D14). F-08b is deferred (D23), so F-08c is the next
+open item in that order.
 
 **Scope addition (2026-11-01, maintainer request, third):** one **layout
 defect** — **L-01**, §12 — is recorded in this plan. In the Master Driver's
@@ -60,6 +69,11 @@ never ridden together, per the parent plan's one-item-per-release rule (its D9).
 U-01 was a study and takes no slot. U-02 is a defect fix and joins the **2.3.1**
 patch with the theme items; U-03 is the retirement and is its own **2.6.0**
 minor. Neither rides the F-08 releases.
+
+**F-08c's release was settled at 2.4.0, not the 2.5.0 tabled below**, at
+the maintainer's direction (2026-11-02): 2.3.1 is the last cut, so the next
+minor is 2.4.0. Because the item is deferred on its measurement (D24),
+neither number is consumed.
 
 ---
 
@@ -92,14 +106,30 @@ alongside the existing `sine`/`thd_db`/`peak`/`channel` helpers:
   content for a spectral method to act on, and a repair that only survives a
   sine has proved nothing. FLAC so the worked file is lossless and the reference
   is the same decoded samples.
-- **`synthetic_rir(delay_ms=5.0, t60_s=0.6, drr_db=0.0, seed=…)`** — a direct
-  impulse at `delay_ms`, plus a diffuse tail of seeded noise shaped by an
-  exponential decay whose Schroeder backward integral is **verified** to be
-  `t60_s`, scaled so `10·log10(E_direct / E_tail) = drr_db`. Seeded and
-  deterministic, so the fixture is a constant a future edit cannot drift.
-- **`wet(dry, rir)`** — `scipy.signal.fftconvolve`, truncated to the dry length.
-  The dry reference is one file; the wet input is a second file beside it, so a
-  failure names which one it read.
+- **`synthetic_rir(delay_ms=5.0, t60_s=0.6, drr_db=0.0, seed=…,
+  tail_onset_ms=60.0, early_energy_frac=0.05)`** — a **late-dominated** impulse
+  response: a direct impulse at `delay_ms`; five discrete early reflections at
+  9, 14, 21, 31.5 and 44 ms carrying `early_energy_frac` of the reverberant
+  energy; and a diffuse tail of seeded noise, shaped by an exponential decay
+  whose Schroeder backward integral is **verified** to be `t60_s`, that begins
+  at `tail_onset_ms` with a 3 ms raised-cosine onset and carries the remaining
+  95 %. The reverberant part as a whole is scaled so
+  `10·log10(E_direct / E_reverberant) = drr_db`, measured on the built RIR.
+  Seeded and deterministic, so the fixture is a constant a future edit cannot
+  drift. **The structure is the point** (D21, D22): a tail that starts *after*
+  the prediction delay is what a real room does — the early field arrives over
+  tens of milliseconds and the diffuse field builds behind it — and it is the
+  only structure in which a delay-line method has anything separable to act on.
+  A tail that begins at the direct and spends 75 % of its energy inside 60 ms is
+  not a room, it is a filter no delayed predictor can invert.
+- **`wet(dry, rir)`** — `scipy.signal.fftconvolve`, then **sliced from the RIR's
+  direct index** so the result is `direct + reverberation` on the *dry* timeline,
+  truncated to the dry length. The alignment is by construction, not by
+  cross-correlation: without the slice the wet lags the dry by `delay_ms`, and
+  §1.2's `Σ(wet − dry)²` then subtracts the direct path from itself, which
+  produces meaningless ERLE figures with no error to warn you. The dry
+  reference is one file; the wet input is a second file beside it, so a failure
+  names which one it read.
 
 Every metric below is computed on **decoded audio**: the processor's return
 values are never the evidence (`AGENTS.md`, *Defects and failing checks*).
@@ -235,6 +265,10 @@ own tests.
 | D18 | **T-02's lock is a static walk plus a runtime build, and the sweep writes explicit keywords because bare mypy rejects a `**dict` spread into a tk widget.** | DECIDED (2026-11-01) | The two halves answer different questions and neither covers the other: the AST walk reaches widgets no test builds (a dialog opened on demand, a tab no test constructs) and cannot see a keyword whose *value* is wrong for the theme, while the runtime build measures what the user sees and cannot see a widget behind a dialog. Both were red before the sweep — 17 violations, and ratios of 2.04:1, 2.50:1, 3.19:1 and 3.54:1 — and both are green after it, so neither passes vacuously. **`text_colors()` is the contract, not a spread**: `tk.Checkbutton(parent, **styles.text_colors("toggle"))` fails bare `mypy` with eleven `arg-type` errors, because typeshed types every tk option individually (`Literal[...]`, `Variable`, `int`) and a `dict[str, str]` matches none of them; the plan's "factor the triple into one helper" therefore became a tested, documented helper plus explicit keyword lines at the call sites, rather than a cast or a `# type: ignore` at 48 sites. **Scope held at what the plan enumerated plus what the same walk found**: the 31 `activeforeground` holes are the hover half of the reported defect (the pointer repaints the label over the themed card), so they are swept; a *Button*'s active colours are the same shape of omission but are not in the plan's set, so they are recorded in §7 rather than swept in this item. The three pre-existing contrast defects the runtime half surfaced (the ⚙ SET grey, `AMBER`, the settings footer note) are fixed here under *Defects and failing checks*. |
 | D19 | **The 17 red locks the five-tool retirement left behind are one defect - the tools outlived their code in the docs - and they are reconciled against the manifest in one pass.** | DONE (2026-11-01) | The manifest registers 27 first-party tools, all with live commands except `undo_tag_edits`, so the retired five exist nowhere in code; their documentation did, in four places: `CLI_Commands_Reference.md` (five sections, five *All Commands* rows, and the sentence promising that `declick`, `silence-trim`, `reduce`, `enhance` and `normalise` "run exactly the same processors"), the new-user deck (two slides, five format rows, three chooser rows, four pipeline labels), README/docs counts (32 -> 27, UTIL 20 -> 15) and `AGENTS.md`'s completion-seam citation of a test file that removal deleted. **The `FileNotFoundError` cluster was a working-tree artefact, not a code defect**: the guide-hygiene, guide-claims and tool-coverage locks walk `git ls-files`, so 71 files deleted in the tree but still tracked read as guides nobody could open; `git add -u` on the deletion set was the root fix and weakened no assertion. **Removing the dead sections unmasked two real reference errors the old `problems` short-circuit had hidden**: `refine`'s `--target-lufs` was documented as `-16.0` against click's `-14.0`, and `--true-peak`, `--lra` and `--normalise-mode` - the Audio Normalizer's controls REFINE absorbed - were documented nowhere; all four are fixed, and the master driver and refinery guides no longer promise standalone windows that were retired. **The lock's vacuity floors moved to their measured values** (33 documented commands, 31 sections, 29 families, 26 manifest commands, 103 default claims, 159 options) rather than being left to fail on a surface that no longer ships; they still fail on a parser break or a gutted document, and the deck and three guides were regenerated rather than hand-edited. **Verified:** the full suite passes 11,129 tests (3 skipped, 35 deselected, coverage 91.18%), bare `mypy .` is clean across 553 files, ruff check and format are clean, bandit reports 0 High / 0 Medium, and `build_user_guides.py --check` reports 29/29 artefacts current. |
 | D20 | **The POSIX leg's 1756-test floor was a pre-retirement measurement; the 2.3.1 cut legitimately shrank the selection to 1740, so the lock follows the leg's own numbers down and the movement is named.** | DONE (2026-11-02) | The pushed cut's first `posix-smoke` run collected 1741 and reported **1740 passed, 1 skipped, 0 failed** - nothing failed; the step refused the run at its floor, which is the lock working. The 37-module selection is unchanged and every module still exists, so the loss is inside the CLI-surface parametrisations that generated a case per subcommand: a `--co` diff between `b22abaa` (pre-retirement) and the cut puts all of it in `test_cli_app.py`, `test_cli_usage_errors.py`, `test_completion_payload_published.py`, `test_constants.py` and `test_cli_json_schema.py` (-22/-22/-9/-3/-3 on Windows; the leg's 16 is the same five modules, where platform-conditional cases differ), and no other module moved. Lowering to the runner's own measurement is the D21 rule rather than a widening: the skip count is unmoved at 1 (`tag_editor/tests/test_csv_io.py`'s Windows drive-relative case), the floor still fails on a parser break or a gutted selection, and `tests/test_ci_posix_leg.py` asserts the comparison operator alongside the value so a silent edit is red. |
+| D21 | **F-08b is blocked on its own acceptance: §1.2's bars sit above what any method in the practical class reaches on the §1.1 fixture, so no audio code shipped.** | MEASURED (2026-11-02); maintainer decision pending | Measured before any DSP was written, as §1 directs. The fixture is exactly §1.1's and its RIR is verified: direct at sample 220, 26 460-sample seeded noise tail, measured DRR **0.00 / 6.00 dB** and T60 **0.605 s** by the −5…−25 dB EDC regression (**0.570 s** at the full −60 dB point); `wet` is trimmed to the direct so dry, wet and output share one timeline, and the output's own lag against the input is 0. The hard case's wet is **+4.60 dB** over dry with LSD **8.90 dB**. Measured ERLE (hard \| mild): WPE at the plan's own framing, 64 ms/16 ms with a 60 ms prediction delay, **0.19 \| 0.07 dB**; the best WPE across 25 frame/hop/delay/order/iteration combinations (8 ms frame, 2 ms hop, 48 taps, 4 iterations, 10 ms delay), **3.94 \| 0.48 dB** at level −1.21 \| −3.57; spectral subtraction, §1.2's designated fallback, across 12 over-subtraction/floor/resolution variants, **1.72 \| 1.17 dB**. Two reference-oracle filters bound the class: an ideal per-frame Wiener gain taken from the dry signal reaches **5.29 \| 2.57 dB** (level −0.31 \| −0.22, LSD 5.69 \| 4.58, i.e. a **3.2 dB** LSD improvement) and WPE plus an oracle residual gain **5.41 \| 2.28 dB**. So the 6 dB and 3 dB bars are above the ceiling, and the LSD clause (≥6 dB better than 8.90 dB) is unmet by every method including the oracles. The cause is the fixture's physics, not the code: at T60 0.6 s the tail's energy time constant is 43 ms, so at DRR 0 dB **75 %** of the reverb's energy is generated by direct sound *inside* a 60 ms prediction delay and **31 %** inside a single 16 ms hop — a delayed linear predictor cannot separate that from the direct, and a per-bin gain is incoherent, which is exactly the Wiener bound. §1.2 forbids lowering the bar and D3 revisits only the algorithm, so the item stops rather than shipping a tool that fails its documented acceptance. Options for the maintainer: **(a)** keep the bars and give §1.1's RIR a late-dominated structure (a diffuse tail that begins after the prediction delay); **(b)** keep the fixture and set the bars to the measured ceiling; **(c)** defer F-08b. The probes were deleted per *Bug-Hunt Triage Discipline*; every parameter they used is recorded here so the next session rebuilds them in `restoration/tests/conftest.py` without re-deriving the numbers. |
+| D22 | **Option (a) was implemented and F-08b still fails — and now the constraint is provably the algorithm class, not the fixture: with a late-dominated RIR no blind formulation reaches the bars, and none even beats a plain gain change.** | MEASURED (2026-11-02); recommendation: defer F-08b (D21's option c) | §1.1's RIR is re-specified as accepted: direct at 5 ms, five early reflections at 9/14/21/31.5/44 ms holding **5 %** of the reverberant energy, a diffuse seeded tail beginning at **60 ms** with a 3 ms onset holding **95 %**, and `wet` sliced from the direct index so all three signals share one timeline. The built RIR verifies to **DRR 0.00 / 6.00 dB** and **T60 0.605 s**, and `wet` measures +4.96 \| +2.12 dB over dry with LSD **8.93 \| 6.33 dB**. Because a perfect inversion would leave only the early reflections, this fixture's ceiling is **13.0 dB** — the bars *are* reachable in principle, so the fixture is no longer the obstacle. Measured (hard \| mild; ERLE / level / LSD / the **gain-only ERLE** that merely scales wet to the same output level): textbook STFT WPE, target the observed signal with weights from the current early estimate, **2.68 \| 0.94 dB**, level +1.33 \| −1.41, LSD 7.50 \| 5.31, against a gain-only baseline of **3.44 \| 2.20 dB** — i.e. *worse than turning the file down*; the same WPE with **oracle weights taken from the dry signal** 3.68 \| 3.22 dB, still at the baseline; full-band time-domain LS predictors at Δ=60 ms over 2048/4096/8192 taps **2.07/2.41/2.58 \| 0.14/0.28/0.31 dB**, every one at or below it. The diagnosis is structural and matches theory. Linear prediction of a reverberant signal returns that signal's *innovation* — the direct path through a whitening filter — so it shortens the effective RIR instead of removing it, which is why the residual is not `dry` and why every method lands at the attenuation floor. And a 0.6 s diffuse tail decorrelates at ~**1.7 Hz** while a 2048-sample STFT bin is **21.5 Hz** wide, so a per-bin filter cannot represent the room's transfer function at any frame/hop setting; the earlier oracle-Wiener bound of 5.29 dB is the same wall seen from the spectral side. That is the well-known few-dB ceiling of single-channel WPE. Because every candidate does worse than a gain change, shipping one would ship exactly the fabricated-value class §1.2's level clause exists to catch. Recommendation: **defer F-08b (option c) with this negative result recorded**, or re-scope it explicitly as *tail shortening* with bars set by measurement — which is a maintainer policy decision, because that is the bar moved to meet the result that §1.2 forbids, and no trained model may be shipped (D3). |
+| D23 | **F-08b is deferred, not shipped, at the maintainer's direction; the negative result is the deliverable.** | RECORDED (user, 2026-11-02) | Chosen from D22's options after the measurement had already rejected both fixture repairs: a correct fixture proved the §1.2 bars unreachable by single-channel blind de-reverb, and every candidate measured at or below a plain gain change. **What is deferred is the capability, not the record** — §1.1's fixture model (direct, early reflections, diffuse tail behind the prediction delay, `wet` sliced to the direct), its verified DRR/T60, the ERLE/level/LSD bars and the measurements that bound them stay in this plan as the evidence a future attempt has to beat. Reopening it therefore needs a new premise — a multichannel workflow, or a trained model whose licence and size this plan has not accepted (D3) — or an explicit maintainer decision to re-scope the bar; never a quiet re-run of the same three formulations. **The release slot is released**: 2.4.0 is not consumed by a deferred item and does not pass to another item by default, and F-08c's own minor is settled at its cut rather than renumbered here. **Guide outcome: nothing needed rewriting** — `Restoration_User_Guide.md` already says de-reverb is not part of this tool, which is exactly what a deferred capability is, and the declaration file `restoration/__init__.py` says F-08b was deliberately not started, which stays true; no source file changed, so the release-note lock has nothing new to annotate and the gate has no new code to read. **It does move F-08c's dependency**, which is recorded on that item: the fixture and metric helpers it was to inherit must now be built there. |
+| D24 | **F-08c is deferred on its own measurement, and its code is removed rather than shipped unmeasured.** | MEASURED (2026-11-02); RECORDED (user, 2026-11-02) | The §1.3 fixture was built and every number below is measured on the **decoded written file**, never on an array the function returned. What the design does: the selection's sinusoidal partials are tracked by least-squares matching pursuit over the frames either side (a Hann window's own leakage is rejected against the residual, which took one 1 kHz tone from 9 partials to 1), each partial's amplitude and phase are fitted at **both** boundary samples, the phase is stitched from one boundary to the other with the cycle count snapped to the measured frequency, only the selected band is replaced, and a 2 ms cross-fade lives **inside** the selection. Measured and passing: a clean 1 kHz tone in a 60 ms selection comes back at **−91.8 dB** against the original (bar −40 dB); every sample outside the selection is **bit-identical** on both fixtures; a run with no selection is Click's exit 2 and a dry run writes nothing while naming the region; and the completion line carries the region and the share of it rewritten. Measured and failing: the 60 ms burst improves its region error by **4.1 dB** against a 10 dB bar (−16.09 → −20.14 dB against the reference) and the 40 ms dropout by **−1.5 dB** against 8 dB (−22.29 → −20.76 dB) — the dropout lands *farther* from the truth than digital silence. The cause is the fixture's content, not a defect in the estimator: an oracle model fitted to the truth (exact frequencies, amplitudes and phases) still leaves **34 %** of the burst region's and **24 %** of the dropout region's energy unexplained, which caps the class at ~11.4 dB for the burst and **~6.3 dB for the dropout — below its 8 dB bar**. That unexplained share is broadband and transient (a drum-heavy CC0 recording) and §1.3's metric is full-band waveform error against the truth, so a method that reproduces only the predictable part cannot clear it. §1 forbids moving the bar, and the alternatives would ship a test silence passes (a louder burst) or one that cannot tell repair from deletion (muting the region). **Nothing ships**: the DSP module, the selection tab, the `spectral-repair` command and its tests were removed in the same session, so `restoration/` still ships declip only, no registered command changed, the release-note lock has nothing new to annotate, and no guide claims a capability that does not exist. What a future attempt has to beat is on this page: the fixture and its oracle bound, the tracking/stitching design, and the −91.8 dB predictable-content result. |
 
 ---
 
@@ -242,8 +276,17 @@ own tests.
 
 ### F-08b — de-reverb (L)
 
-**Status:** `[ ]` not started. Work order **7 of 8** (§5). Awaits the §1.2
-fixture before any DSP is written.
+**Status:** `[x]` **DEFERRED (2026-11-02, D23) after two measured rounds.** Work
+order **7 of 8** (§5). Round one (D21) built the §1.1 fixture and measured every
+method on it; round two (D22) — option (a), adopted at the maintainer's direction
+— re-specified that RIR as late-dominated and re-measured. The rebuilt fixture
+verifies at DRR 0.00/6.00 dB and T60 0.605 s and puts a perfect inversion at
+**13 dB**, so it is not what blocks the item: every blind formulation tested
+scores **at or below the gain-only baseline** on it, which attributes the
+blocker to single-channel blind de-reverb itself. The maintainer deferred the
+item rather than move the bar (D23). **No audio code exists for this item** —
+nothing in `restoration/` reads, estimates or removes reverberation — and the
+*Change* and *Risk* text below is the design record for whoever reopens it.
 
 *Current state.* `restoration/` ships declip only: `core/declipper.py` (peak
 reconstruction), `core/file_processor.py` (the shared in-place batch),
@@ -284,8 +327,17 @@ hash assertion rather than a counter.
 
 ### F-08c — spectral repair (XL)
 
-**Status:** `[ ]` not started. Work order **8 of 8** (§5). Awaits F-08b's
-measured pipeline (D6) and the selection contract in D4.
+**Status:** `[x]` **DEFERRED (2026-11-02, D24) after one measured round.**
+Work order **8 of 8** (§5). The §1.3 fixture was built and both damages were
+measured on decoded audio before anything shipped: the repair reproduces a
+clean tone to −91.8 dB and leaves every other sample bit-identical, but its
+two region-error bars are unmet (burst 4.1 dB against 10, dropout −1.5 dB
+against 8) and the oracle bound puts the dropout bar above the class on this
+fixture. The maintainer deferred the item rather than move the bar, so **no
+code exists for it** — the DSP module, the selection surface, the command and
+its tests were removed with the decision. The *Change*, *Acceptance* and
+*Risk* text below is the design record for whoever reopens it; the fixture
+model and the numbers to beat are D24.
 
 *Current state.* No tool can repair a time-frequency region. `spectral_viewer`
 renders a spectrogram and lets the user *look*; nothing writes. The window
@@ -354,8 +406,8 @@ added on 2026-11-01 from a reported symptom and takes the second slot (D14):
 | **4** | U-02 — REFINE's Dry Run and no-op contract (§11) | **M** | one pipeline's modification flags, a real Dry Run and a single-pass normalise | **2.3.1** patch | **COMPLETE 2026-11-01** (§6). The defect U-01 found, and the gate on U-03: the cards are being replaced by REFINE, so REFINE had to stop rewriting a file that needed nothing before the shortcut goes. |
 | **5** | U-03 — retire the five Utilities cards (§11) | **M** | one manifest flag plus the deletion of five cards, their arg-builder and graph entries, state keys and card tests | **2.6.0** minor | **COMPLETE 2026-11-01** (§6). Mechanical but wide: the five ids were pinned in six test modules, and the guide describes the tab. Before T-02 because it deletes five of the files the sweep would otherwise colour. |
 | **6** | T-02 — theme-conformance sweep and lock (§10) | **M** | 7 files of keyword additions, a `styles` helper, an AST lock and a four-state runtime test | **2.3.1** patch | **COMPLETE 2026-11-01** (§6). Wide but shallow: nothing here is hard to write, there is just a lot of it, and every edit is invisible to compile/ruff/mypy — the cost is review. After T-01/T-03 so the sweep fixes what is left rather than redoing them, after U-03 so it does not colour five card files the retirement deletes, and so its lock asserts an existing fix. |
-| **7** | F-08b — de-reverb (§4) | **L** | new DSP module, CLI mode and gate, the §1.2 reference fixture | **2.4.0** minor | The largest item whose deliverable is a number: a predictor, a reference fixture, four measurements and a no-op hash. It also produces the fixture and metric helpers F-08c reuses, so it cannot move behind F-08c. |
-| **8** | F-08c — spectral repair (§4) | **XL** | DSP plus a selection surface, a window run lifecycle and the region contract | **2.5.0** minor | Hardest by a margin: the only item that builds an interactive surface, a worker hand-off over `queue.SimpleQueue`, and a pixels-to-seconds/Hz conversion that must not drift. Last by difficulty *and* by dependency — it needs F-08b's pipeline and D4's selection contract. |
+| **7** | F-08b — de-reverb (§4) | **L** | new DSP module, CLI mode and gate, the §1.2 reference fixture | **not shipped** — 2.4.0 stays free (D23) | **DEFERRED 2026-11-02 (D23).** The largest item whose deliverable is a number — and the number came back negative twice (D21, D22): no blind single-channel formulation beats a plain gain change on a correct fixture, so the bars were not met and the maintainer deferred the capability rather than lower them. The §1.1 fixture model it produced is kept for whoever reopens it. |
+| **8** | F-08c — spectral repair (§4) | **XL** | DSP plus a selection surface, a window run lifecycle and the region contract | **not shipped** — 2.4.0 stays free (D24) | **DEFERRED 2026-11-02 (D24).** The only item that builds an interactive surface, a worker hand-off over `queue.SimpleQueue` and a pixels-to-seconds/Hz conversion that must not drift — and the one whose acceptance came back above what the method reaches on its own fixture: the tone, the bit-identity, the usage-error and the dry-run clauses pass, the two region-error bars do not, and the dropout bar sits above the stationary-partial ceiling measured against the truth. |
 
 **Difficulty is the sort key; five sequences are hard.** T-02 comes after T-01
 because its repo-wide lock generalises T-01's contrast helper, and F-08c comes
@@ -373,7 +425,9 @@ finishes — it touches none of the same files.
 
 **The release slots do not follow the work order.** The three theme items and
 U-02 make up the **2.3.1** patch (§10, §11) — all four are fixes, and a patch
-groups fixes; F-08b is **2.4.0**, F-08c **2.5.0** (D6), and U-03 is **2.6.0**.
+groups fixes; F-08c is **2.5.0** (D6), and U-03 is **2.6.0**. **2.4.0 is not
+claimed**: F-08b was its item and it is deferred (D23), so the slot stays free
+rather than moving to another item by default.
 The one-item-per-release rule governs features, and none of these is one.
 Neither F-08 item is a patch: both add capability a user runs, and both change
 what a re-run does to an already-processed file, which the release note must say
@@ -394,8 +448,47 @@ evidence, the gate (compile, ruff, bare mypy, bandit 0 High/0 Medium, bare
 pytest with its counts and coverage), and the guide outcome including "no guide
 describes this behaviour" when that is the answer.
 
-**F-08b —** to be recorded.
-**F-08c —** to be recorded.**U-01 — COMPLETE 2026-10-31.** The parity table (§11.1) was built by reading
+**F-08b — MEASURED, BLOCKED, DEFERRED (2026-11-02; D21, D22, D23). No audio
+code shipped, and none exists.** The
+§1.1 fixture was built and its RIR verified (DRR 0.00/6.00 dB, T60 0.605 s), and
+all four §1.2 measurements were taken on decoded audio against the dry reference
+before any DSP was written. Measured ERLE (hard \| mild): WPE at the plan's
+framing 0.19 \| 0.07 dB; best WPE 3.94 \| 0.48 dB; spectral subtraction
+1.72 \| 1.17 dB; reference-oracle per-frame Wiener gain 5.29 \| 2.57 dB; WPE plus
+oracle residual gain 5.41 \| 2.28 dB — against bars of 6 \| 3 dB, a ±0.5 dB level
+tolerance and a 6 dB LSD improvement that even the oracles miss (3.2 dB). The
+level and no-op clauses were never reached because the verdict clause fails
+first, so no hash or mtime claim is made here. Gate: no source file changed —
+the tree is the 2.3.1 state and the suite is unchanged. Guide outcome:
+`Restoration_User_Guide.md` still says de-reverb is not part of this tool, and
+because nothing shipped that statement remains true, so no guide passage was
+rewritten. The blocking evidence and the three options are D21. Under D22's
+late-dominated fixture, adopted on 2026-11-02, the re-measurement is: textbook
+STFT WPE 2.68 \| 0.94 dB against a **3.44 \| 2.20 dB gain-only baseline**,
+oracle-weighted WPE 3.68 \| 3.22 dB, full-band LS predictors 2.07-2.58 \|
+0.14-0.31 dB, against a fixture ceiling of 13 dB for a perfect inversion — so
+the verdict is unchanged and is now attributed to the method class rather than
+the fixture. Still no source file changed: the gate is the 2.3.1 tree, and the
+guide's "de-reverb is not part of this tool yet" also remains true.
+**F-08c — MEASURED, DEFERRED (2026-11-02; D24). No code shipped, and none
+exists.** The §1.3 fixture was built from the §1.1 reference (mono 44.1 kHz,
+first 4 s, peak-normalised to −3 dBFS, written to FLAC) with the burst (60 ms
+of seeded noise at 1.20 s) and the dropout (1.20-1.24 s zeroed) beside it, and
+both damages were measured on the decoded written file. Passing: **tone
+reproduction −91.8 dB** (bar −40 dB), **bit-identical outside the selection**
+on both fixtures, **no selection = Click exit 2**, a dry run that writes
+nothing and names the region, and a completion line carrying the region and
+the share rewritten. Failing: **burst 4.1 dB** against 10 (−16.09 → −20.14 dB)
+and **dropout −1.5 dB** against 8 (−22.29 → −20.76 dB). The oracle that fitted
+the truth left **34 % / 24 %** of the two regions unexplained, capping the
+class at ~11.4 dB / **~6.3 dB** — the second below its own bar. Gate: the tree
+is the 2.3.1 state. The item's source files were removed with the decision, so
+no code, no command, no schema entry and no guide changed; `compileall` and
+`pytest restoration/tests` are the checks that apply, and they were run after
+the removal. Guide outcome: `Restoration_User_Guide.md` already says spectral
+repair is not part of this tool, which stays true, so no guide passage was
+rewritten and `build_user_guides.py --check` cannot drift.
+**U-01 — COMPLETE 2026-10-31.** The parity table (§11.1) was built by reading
 both surfaces for each of the five tools; every row names the code it compared.
 The chosen option is **B** (D11). No code changed and nothing was measured
 beyond the table; its follow-ons are U-02 and U-03.
@@ -714,9 +807,11 @@ more tests than the previous run, which are the two new guards.
 - **2.4.0** — de-reverb: what it does to a reverberant recording, what the
   `--strength`/`--tail-ms` options mean, the fact that a recording the tool
   finds no reverb in is left untouched, and what a second run does.
-- **2.5.0** — spectral repair: how a region is selected in the window and on the
-  CLI, that only the selected region changes, and that nothing is written until
-  the region is given.
+- **2.4.0** — spectral repair: **no bullet is written.** The item is deferred
+  (D24), and its release — settled at 2.4.0 rather than the 2.5.0 tabled here —
+  stays free. A future attempt writes this bullet when it clears §1.3: how a
+  region is selected in the window and on the CLI, that only the selected region
+  changes, and that nothing is written until the region is given.
 - **2.3.1** (patch, §10, §11, §12) — three fix groups. (a) The card and Run
   Controls text that ignored the chosen theme now follows it, so a Dark or
   `System`(Dark) window stops showing black or washed-out grey on a dark surface,
