@@ -12,6 +12,10 @@ one.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.3.1] - 2026-11-02
+
 ### Changed
 
 - **The five retired tools are gone from the documentation too, not only from the

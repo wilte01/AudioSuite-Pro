@@ -16,6 +16,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.3.1] - 2026-11-02
+
 ### Changed
 
 - **The UTILITIES tab no longer offers five audio-processing cards, and REFINE
