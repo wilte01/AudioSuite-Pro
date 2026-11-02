@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """Model types for the duplicate finder.
 
 A *fingerprint record* is everything one file contributes to the decision:
@@ -13,6 +14,8 @@ clustering, cache and quarantine.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
+from .disposition import DEFAULT_DISPOSITION, normalize
 
 #: Default bit-error-rate threshold for "the same recording".
 #:
@@ -56,7 +59,12 @@ class ScanSettings:
             overlap must cover.
         max_shift_words: Alignment search width, in sub-fingerprint words.
         quarantine_dir: Where a live run moves the duplicates it found.  An
-            empty value means this run only reports.
+            empty value means this run only reports.  Used only by the
+            ``quarantine`` disposition.
+        disposition: What a live run does with each duplicate: ``quarantine``
+            (the default), ``delete`` or ``asx-stub``.  Validated here so a
+            hand-built settings object cannot reach the file loop with an
+            unknown action.
     """
 
     threshold: float = DEFAULT_THRESHOLD
@@ -64,6 +72,7 @@ class ScanSettings:
     min_overlap_ratio: float = DEFAULT_MIN_OVERLAP_RATIO
     max_shift_words: int = DEFAULT_MAX_SHIFT_WORDS
     quarantine_dir: str = ""
+    disposition: str = DEFAULT_DISPOSITION
 
     def __post_init__(self) -> None:
         """Reject values the distance and clustering code cannot honour.
@@ -87,6 +96,7 @@ class ScanSettings:
             raise ValueError(
                 f"max_shift_words must be >= 0, got {self.max_shift_words}"
             )
+        object.__setattr__(self, "disposition", normalize(self.disposition))
 
 
 @dataclass(frozen=True)
@@ -192,6 +202,8 @@ class ScanOutcome:
         groups: The duplicate groups found.
         duplicates: Files identified as duplicates (not counting keepers).
         quarantined: Files actually moved (always ``0`` in a dry run).
+        deleted: Files moved to the operating system's Recycle Bin.
+        stubbed: Files replaced by a verified ASX stub and moved to the Trash.
         missing_fingerprint: Files fpcalc could not fingerprint.
         log_entries: One line per file, in run order.
     """
@@ -199,5 +211,7 @@ class ScanOutcome:
     groups: list[DuplicateGroup] = field(default_factory=list)
     duplicates: int = 0
     quarantined: int = 0
+    deleted: int = 0
+    stubbed: int = 0
     missing_fingerprint: int = 0
     log_entries: list[str] = field(default_factory=list)

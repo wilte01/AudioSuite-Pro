@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """
 app.py
 ASXExtractorTool — thin orchestrator.
@@ -35,6 +36,7 @@ class ASXExtractorTool(UIHelperMixin):
         root: tk.Tk,
         initial_directory: str | None = None,
         initial_mode: str | None = None,
+        recursive: bool = False,
         auto_start: bool = False,
         auto_end: bool = False,
         clear_logs: bool = False,
@@ -54,6 +56,7 @@ class ASXExtractorTool(UIHelperMixin):
         # ── Tk variables ─────────────────────────────────────────────────────
         self.current_folder = tk.StringVar()
         self.asx_action_mode = tk.StringVar(value="Dry Run (Simulated)")
+        self.recursive_var = tk.BooleanVar(value=recursive)
 
         # Driver-mirrored run controls (Clear Logs / Parallel are display-only)
         self.auto_start_var = tk.BooleanVar(value=auto_start)
@@ -128,6 +131,7 @@ class ASXExtractorTool(UIHelperMixin):
             auto_end_var=self.auto_end_var,
             clear_logs_var=self.clear_logs_var,
             parallel_var=self.parallel_var,
+            recursive_var=self.recursive_var,
             on_browse=self._browse_folder,
             on_start=self.start_extraction,
             preset_names=suite_config.list_presets(TOOL_ID),
@@ -233,12 +237,13 @@ class ASXExtractorTool(UIHelperMixin):
         time.sleep(0.5)
 
         # Set prevents duplicates on case-insensitive filesystems (Windows)
-        asx_files = list(
-            {
-                f
-                for f in source_dir.iterdir()
-                if f.is_file() and f.suffix.lower() == ".asx"
-            }
+        recursive_var = getattr(self, "recursive_var", None)
+        use_recursive = (
+            bool(recursive_var.get()) if recursive_var is not None else False
+        )
+        candidates = source_dir.rglob("*") if use_recursive else source_dir.iterdir()
+        asx_files = sorted(
+            {f for f in candidates if f.is_file() and f.suffix.lower() == ".asx"}
         )
         asx_count = len(asx_files)
         self.root.after(0, lambda: step(0, "done", f" ({asx_count} found)"))
@@ -262,12 +267,20 @@ class ASXExtractorTool(UIHelperMixin):
         time.sleep(0.5)
         self.root.after(0, lambda: step(3, "active"))
 
-        copy_failed_paths: set[Path] = set()
+        copy_failed_paths: dict[Path, str] = {}
         if not is_dry_run:
             with active_batch("asx_extractor", "file_reorg"):
                 for item in successes:
-                    if not file_ops.copy_audio_file(item["audio_path"], source_dir):
-                        copy_failed_paths.add(item["asx_path"])
+                    if item.get("stub") is not None:
+                        ok, reason = file_ops.recreate_from_stub(
+                            item["asx_path"], item["audio_path"], item["stub"]
+                        )
+                        if not ok:
+                            copy_failed_paths[item["asx_path"]] = (
+                                f"RECREATE FAILED: {reason}"
+                            )
+                    elif not file_ops.copy_audio_file(item["audio_path"], source_dir):
+                        copy_failed_paths[item["asx_path"]] = "COPY FAILED"
 
         self.root.after(0, lambda: step(3, "done"))
 
@@ -287,7 +300,7 @@ class ASXExtractorTool(UIHelperMixin):
                         {
                             "asx_fn": item["asx_fn"],
                             "audio_path": str(item["audio_path"]),
-                            "reason": "COPY FAILED",
+                            "reason": copy_failed_paths[item["asx_path"]],
                         }
                     )
                     continue

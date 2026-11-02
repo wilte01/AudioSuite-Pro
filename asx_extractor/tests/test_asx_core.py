@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """
 Tests for asx_extractor.core.asx_parser and asx_extractor.core.file_ops
 Gap G-09: process_asx_file(), get_fallback_audio_path()
@@ -192,24 +193,22 @@ class TestProcessAsxFileSuccess:
 
 
 class TestProcessAsxFileKnownEdgeCase:
-    """Documents (does not fix) a discovered edge case: Path.exists()
-    returns True for directories, not only regular files. If an href
-    ever resolves to a directory, process_asx_file currently reports
-    success. Whether this is reachable with Terry's real ASX data is
-    unconfirmed (Data Premise Verification Rule) — this test only pins
-    down current behaviour so a future change is a deliberate decision,
-    not an accidental regression."""
+    """A reference must resolve to a regular audio file.
 
-    def test_href_pointing_to_a_directory_is_reported_as_success(self, tmp_path):
+    ``Path.exists()`` is also true for a directory, so the parser used to
+    report a directory as a successful extraction target.  The extractor now
+    requires a regular file with a supported audio extension.
+    """
+
+    def test_href_pointing_to_a_directory_is_refused(self, tmp_path):
         dir_target = tmp_path / "not_actually_a_file"
         dir_target.mkdir()
         asx = _write_asx(tmp_path / "x.asx", str(dir_target.resolve()))
 
         result = process_asx_file(asx, tmp_path)
 
-        # Current behaviour — flagged to Terry, not silently changed.
-        assert result["success"] is True
-        assert result["audio_path"] == dir_target.resolve()
+        assert result["success"] is False
+        assert result["reason"] == "NOT AN AUDIO FILE"
 
 
 # ── process_asx_file — failure paths ─────────────────────────────────────

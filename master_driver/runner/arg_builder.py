@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """
 arg_builder.py — Constructs the CLI argument list for each child module.
 
@@ -287,6 +288,7 @@ def _build_utility_tool_args(
             else "Dry Run (Simulated)",
             start_flag,
             end_flag,
+            "--recursive" if state.asx_recursive.get() else "--no-recursive",
         ],
         "album_art_normalizer": lambda: [
             path,
@@ -651,6 +653,8 @@ def _build_duplicate_finder_args(
         mode_flag,
         start_flag,
         end_flag,
+        "--on-duplicate",
+        state.duplicate_disposition.get(),
         "--threshold",
         state.duplicate_threshold.get(),
     ]

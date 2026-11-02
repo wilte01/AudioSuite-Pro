@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """
 cli_args.py — CLI argument parser for ASX Playlist Extractor.
 
@@ -23,6 +24,7 @@ class ASXExtractorArgs(BaseCLIArgs):
 
     directory: str | None = None
     mode: str | None = None
+    recursive: bool = False
     clear_logs: bool = False  # Display only — driver-owned orchestration flag
     parallel_run: bool = False  # Display only — driver-owned orchestration flag
 
@@ -105,6 +107,14 @@ def parse(argv: list[str] | None = None) -> ASXExtractorArgs:
     )
     parser.add_argument("--no-parallel-run", dest="parallel_run", action="store_false")
     parser.add_argument(
+        "--recursive",
+        dest="recursive",
+        action="store_true",
+        default=False,
+        help="Also process .asx playlists in sub-folders.",
+    )
+    parser.add_argument("--no-recursive", dest="recursive", action="store_false")
+    parser.add_argument(
         "directory",
         nargs="?",
         default=None,
@@ -114,6 +124,7 @@ def parse(argv: list[str] | None = None) -> ASXExtractorArgs:
     args = ASXExtractorArgs(
         directory=ns.directory,
         mode=ns.mode,
+        recursive=ns.recursive,
         auto_start=ns.auto_start,
         auto_end=ns.auto_end,
         clear_logs=ns.clear_logs,

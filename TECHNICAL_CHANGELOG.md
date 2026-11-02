@@ -22,6 +22,33 @@ one.
   The process is also described in the docs site for the first time - nothing
   under `documentation/` had ever mentioned it.
 
+## [2.4.0] - 2026-11-02
+
+### Added
+
+- **`send2trash` is a declared runtime dependency.** Delete and ASX-stub route
+  every removal through `duplicate_finder/core/trash.py`; the seam has no
+  `unlink` fallback, and a missing backend refuses the run before fingerprinting
+  starts.
+- **The ASX stub schema lives in `audio_suite_shared/asx_stub.py`.** One
+  versioned implementation writes and reads the nine canonical fields, MBIDs,
+  ISRCs, base64 lyrics and JPEG artwork; a literal XML fixture pins the writer's
+  element order, and the reader rejects an unknown version instead of guessing.
+
+### Changed
+
+- **The completion contract for Duplicate Finder gained `deleted` and
+  `stubbed`.** `tests/test_completion_seam.py`, the publisher lock, the CLI
+  schema corpus (`tests/data/cli_payloads.json`, `audio_suite_shared/
+  cli_schema.json`), the driver argument expectations and the AppState/UI-card
+  locks move with the CLI surface.
+- **The ASX extractor's parser and restore path carry their own regression
+  tests.** `asx_extractor/tests/test_file_ops.py` measures the recreated audio,
+  name and tags on disk, exercises the tag-write failure and missing-keeper
+  paths, and covers recursive discovery.
+- **`tests/test_release_notes.py` is re-baselined to the 2.4.0 window.**
+  `BASE_COMMIT` is `a9afe78` and `NOTE_MARKER` is `Changed in 2.4.0`.
+
 ## [2.3.1] - 2026-11-02
 
 ### Changed

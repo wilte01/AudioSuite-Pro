@@ -218,10 +218,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: window is closed and its notes are written, so only work after it does.
 #: Earlier work is documented in its own plans and the changelogs, so it does
 #: not require per-file notes here.
-BASE_COMMIT = "d753c6e"
+BASE_COMMIT = "a9afe78"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 2.3.1"
+NOTE_MARKER = "Changed in 2.4.0"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (

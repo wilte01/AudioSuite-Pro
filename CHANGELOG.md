@@ -18,6 +18,52 @@ Versions of the tools are released together with the suite (the single
 
 Nothing yet.
 
+## [2.4.0] - 2026-11-02
+
+### Added
+
+- **Duplicate Finder can now delete duplicates or replace them with a
+  restorable ASX stub.** The new **On duplicate** control offers **Move to
+  quarantine** (the default, unchanged), **Delete (Recycle Bin)**, and
+  **Replace with an ASX stub**. Delete and stub both send the duplicate to the
+  operating system's Recycle Bin - there is no permanent-delete path - and an
+  interactive live run asks for confirmation first. The stub is written beside
+  the duplicate, points at the kept file, and carries the duplicate's title,
+  artist, album, album artist, track, disc, year, genre and comment plus its
+  MusicBrainz IDs, ISRCs, lyrics and JPEG cover art. A dry run reports what it
+  would do and changes nothing. The CLI gains `--on-duplicate` and the summary
+  adds `deleted` and `stubbed`.
+
+- **Delete and ASX-stub runs install Recycle Bin support automatically.** If
+  the interpreter running the tool does not have `send2trash` yet, the first
+  such run installs it into that interpreter, so the user is not asked to run
+  a package command. If the install cannot be completed, the run stops before
+  touching a file and says so.
+
+- **ASX Playlist Extractor restores a stub's original name and tags.** Running
+  it on a folder containing a suite stub recreates the removed file from the
+  kept audio: the stub's stem with the keeper's extension, and the duplicate's
+  tag snapshot applied after clearing the copy's inherited tags. The restore is
+  built at a temporary path and renamed into place only after its tags are
+  written and its audio is verified against the keeper, so a failure leaves no
+  half-restored file and keeps the stub. ReplayGain, custom frames, chapters
+  and PNG cover art are not carried; the guide records why.
+
+### Changed
+
+- **The ASX Playlist Extractor can include subfolders.** **Include subfolders**
+  (or `--recursive` on the command line) finds `.asx` files below the selected
+  folder as well as in it; it is off by default, so the existing top-level
+  behaviour is unchanged.
+
+### Fixed
+
+- **An ASX playlist written with uppercase `<REF HREF="...">` is now read.**
+  The parser matched only the lowercase element name, so a valid playlist from
+  a Windows Media-era writer was reported `NO REF LINK IN ASX`. Element and
+  attribute names are now matched case-insensitively, and a reference must
+  resolve to a regular file with a supported audio extension.
+
 ## [2.3.1] - 2026-11-02
 
 ### Changed

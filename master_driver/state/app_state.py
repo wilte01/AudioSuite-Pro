@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """
 app_state.py — Single container for all Master Driver tk variables.
 
@@ -240,6 +241,12 @@ class AppState:
         # destination it can choose without moving files somewhere unexpected.
         self.duplicate_threshold = tk.StringVar(master, value="0.10")
         self.duplicate_quarantine_dir = tk.StringVar(master, value="")
+        self.duplicate_disposition = tk.StringVar(master, value="quarantine")
+
+        # ── ASX Playlist Extractor controls ──────────────────────────────────
+        # Off by default, matching the extractor's CLI and preserving today's
+        # top-level-only discovery unless the user asks for a library sweep.
+        self.asx_recursive = tk.BooleanVar(master, value=False)
 
         # ── Restoration (declip) controls ────────────────────────────────────
         # 0.98 of the file's own peak is the ceiling a clipped sample sits at;

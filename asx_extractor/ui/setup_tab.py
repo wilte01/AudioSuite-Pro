@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """setup_tab.py — Setup tab for ASX Playlist Extractor."""
 
 import tkinter as tk
@@ -27,6 +28,7 @@ def build(
     on_delete_preset: Callable[[str], None] | None = None,
     on_preset_selected: Callable[[str], None] | None = None,
     driver_locked: bool = False,
+    recursive_var: tk.BooleanVar | None = None,
 ) -> dict[str, Any]:
     """Populate the Setup tab.
 
@@ -38,6 +40,8 @@ def build(
         auto_end_var: Mirrors the driver's Auto End.
         clear_logs_var: Mirrors the driver's Clear Logs (display only).
         parallel_var: Mirrors the driver's Parallel option (display only).
+        recursive_var: Bound to the Include subfolders checkbox; ``None``
+            creates a default-off variable for a direct caller.
         on_browse: Callback for the Browse button.
         on_start: Callback for the start button.
         preset_names: Saved preset names to show initially.
@@ -62,6 +66,7 @@ def build(
         auto_end_var=auto_end_var,
         clear_logs_var=clear_logs_var,
         parallel_var=parallel_var,
+        recursive_var=recursive_var,
         on_browse=on_browse,
         driver_locked=driver_locked,
         preset_names=preset_names,
@@ -79,3 +84,31 @@ def build(
 
 class _SetupFrame(BaseSetupFrame):
     """ASX Playlist Extractor Setup tab built on the shared BaseSetupFrame."""
+
+    def __init__(
+        self,
+        parent: tk.Frame,
+        *,
+        recursive_var: tk.BooleanVar | None,
+        **kwargs: Any,
+    ) -> None:
+        self._recursive_var = (
+            recursive_var if recursive_var is not None else tk.BooleanVar(value=False)
+        )
+        super().__init__(parent, **kwargs)
+
+    def _build_options(self) -> None:
+        """Offer the library-wide discovery switch beside the run controls."""
+        group = self.add_config_group("Scope")
+        tk.Checkbutton(
+            group,
+            text="Include subfolders (find .asx playlists in sub-folders)",
+            variable=self._recursive_var,
+            font=styles.FONT_BODY,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            selectcolor=styles.BG_WHITE,
+            activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
+            anchor="w",
+        ).pack(fill="x", pady=2)

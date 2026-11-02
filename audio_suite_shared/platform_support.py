@@ -101,6 +101,9 @@ Two consequences, both visible in the table above:
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+Changed in 2.4.0: declares `utilities/release.py`'s pre-existing Windows-only
+`gh` discovery probe as Unverified, so the enumeration lock stays an exact
+bijection with the tree.
 """
 
 from __future__ import annotations
@@ -556,6 +559,20 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
             "platform gets the DejaVu/Liberation fallback, which is computed "
             "at import time and so is not re-evaluated by a patched "
             "sys.platform."
+        ),
+        evidence="none",
+    ),
+    # ── Release tooling ───────────────────────────────────────────────────────
+    PlatformBranch(
+        module="utilities/release.py",
+        source='if sys.platform == "win32":',
+        tier=UNVERIFIED,
+        subsystem="GitHub CLI discovery for release publication",
+        behaviour=(
+            'The release cut first asks `shutil.which("gh")`; only when that '
+            "finds nothing does Windows probe `%ProgramFiles%\\GitHub CLI\\gh.exe`. "
+            "No test runs the Program Files probe, so the Windows-only fallback "
+            "is untested rather than unsupported."
         ),
         evidence="none",
     ),

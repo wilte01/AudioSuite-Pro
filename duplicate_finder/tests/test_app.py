@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """Tests for the Duplicate Finder window.
 
 The window is an ``AnalysisTagToolApp`` on the shared three tabs, so what is
@@ -18,6 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from duplicate_finder.core.disposition import DEFAULT_DISPOSITION
 from duplicate_finder.core.models import DEFAULT_THRESHOLD
 from duplicate_finder.ui import app as app_module
 from duplicate_finder.ui.app import (
@@ -36,6 +38,7 @@ def shell(
     folder: str = "",
     threshold: float = DEFAULT_THRESHOLD,
     quarantine: str = "",
+    disposition: str = DEFAULT_DISPOSITION,
 ) -> DuplicateFinderApp:
     """Return a window object without building any widgets.
 
@@ -45,6 +48,7 @@ def shell(
         folder: The source folder the entry holds.
         threshold: The similarity threshold the slider holds.
         quarantine: The quarantine folder the entry holds.
+        disposition: The duplicate-handling value the combobox holds.
 
     Returns:
         The shell, ready for a handler call.
@@ -59,6 +63,10 @@ def shell(
     app.threshold.get.return_value = threshold
     app.quarantine_dir = MagicMock()
     app.quarantine_dir.get.return_value = quarantine
+    app.disposition = MagicMock()
+    app.disposition.get.return_value = disposition
+    app._launched_from_driver = False
+    app._setup_frame = MagicMock()
     app.auto_end = False
     app._summary_rows = ()
     app._log_path = str(tmp_path / "report.txt") if tmp_path is not None else ""
@@ -99,6 +107,8 @@ class TestCompletionRows:
             groups=1,
             duplicates=3,
             quarantined=0,
+            deleted=0,
+            stubbed=0,
         )
 
         assert app._summary_extras() == [
@@ -127,6 +137,8 @@ class TestCompletionRows:
             groups=1,
             duplicates=3,
             quarantined=3,
+            deleted=0,
+            stubbed=0,
         )
 
         rows = dict(app._summary_extras())
@@ -155,6 +167,8 @@ class TestCompletionRows:
             groups=0,
             duplicates=0,
             quarantined=0,
+            deleted=0,
+            stubbed=0,
             unexpected="ignored",
         )
 
@@ -187,6 +201,8 @@ class TestCompletionRows:
             groups=2,
             duplicates=5,
             quarantined=0,
+            deleted=0,
+            stubbed=0,
         )
         app._finish_run(
             header=[],
@@ -199,6 +215,8 @@ class TestCompletionRows:
             groups=0,
             duplicates=0,
             quarantined=0,
+            deleted=0,
+            stubbed=0,
         )
 
         assert dict(app._summary_extras())["Duplicate groups"] == "0"
@@ -312,6 +330,7 @@ class TestStartValidation:
                 True,
                 DEFAULT_THRESHOLD,
                 str(tmp_path / "duplicate_quarantine"),
+                DEFAULT_DISPOSITION,
             )
         ]
         assert thread.start.call_count == 1
@@ -326,7 +345,12 @@ class TestDriverOptions:
         app = shell()
 
         app._apply_tool_cli_options(
-            MagicMock(threshold=0.05, quarantine_dir="D:/q", auto_end=True)
+            MagicMock(
+                threshold=0.05,
+                quarantine_dir="D:/q",
+                disposition="delete",
+                auto_end=True,
+            )
         )
 
         app.threshold.set.assert_called_once_with(0.05)
@@ -337,12 +361,76 @@ class TestDriverOptions:
         app = shell()
 
         app._apply_tool_cli_options(
-            MagicMock(threshold=0.0, quarantine_dir="", auto_end=False)
+            MagicMock(
+                threshold=0.0,
+                quarantine_dir="",
+                disposition=DEFAULT_DISPOSITION,
+                auto_end=False,
+            )
         )
 
         app.threshold.set.assert_not_called()
         app.quarantine_dir.set.assert_not_called()
         assert app.auto_end is False
+
+
+class TestDispositionPrefill:
+    """Every route reaches the same update function and the same state."""
+
+    def test_the_update_function_sets_the_variable_and_dependent_controls(
+        self,
+    ) -> None:
+        app = shell()
+
+        DuplicateFinderApp._set_disposition(app, "asx-stub")
+
+        app.disposition.set.assert_called_once_with("asx-stub")
+        app._setup_frame.apply_disposition.assert_called_once_with("asx-stub")
+
+    def test_driver_argv_applies_the_disposition(self) -> None:
+        app = shell()
+
+        app._apply_tool_cli_options(
+            MagicMock(
+                threshold=0.0, quarantine_dir="", disposition="delete", auto_end=False
+            )
+        )
+
+        app.disposition.set.assert_called_once_with("delete")
+        app._setup_frame.apply_disposition.assert_called_once_with("delete")
+
+    def test_a_preset_without_the_key_loads_as_quarantine(self) -> None:
+        app = shell(disposition="delete")
+
+        DuplicateFinderApp._apply_preset(app, {"run_mode": DRY_RUN})
+
+        app.disposition.set.assert_called_once_with("quarantine")
+
+    def test_a_delete_run_asks_before_it_starts(
+        self, tmp_path: Path, dialogs: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = shell(folder=str(tmp_path), mode=LIVE_UPDATE, disposition="delete")
+        dialogs.askyesno.return_value = False
+        thread = MagicMock()
+        monkeypatch.setattr(app_module, "threading", MagicMock(Thread=thread))
+
+        DuplicateFinderApp.start_processing(app)
+
+        dialogs.askyesno.assert_called_once()
+        thread.assert_not_called()
+
+    def test_a_driven_delete_run_does_not_block_on_a_dialog(
+        self, tmp_path: Path, dialogs: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = shell(folder=str(tmp_path), mode=LIVE_UPDATE, disposition="delete")
+        app._launched_from_driver = True
+        thread = MagicMock()
+        monkeypatch.setattr(app_module, "threading", MagicMock(Thread=thread))
+
+        DuplicateFinderApp.start_processing(app)
+
+        dialogs.askyesno.assert_not_called()
+        thread.assert_called_once()
 
 
 class TestPresets:

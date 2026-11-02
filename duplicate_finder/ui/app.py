@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """Tkinter window for the Duplicate Finder.
 
 The window is an ``AnalysisTagToolApp`` on the suite's three standard tabs, with
@@ -30,6 +31,12 @@ from audio_suite_shared.run_outcome import record_caveats, shortfall
 from audio_suite_shared.styles import bootstrap_theme
 from audio_suite_shared.tool_app_base import AnalysisTagToolApp
 
+from ..core.disposition import (
+    DEFAULT_DISPOSITION,
+    label_for,
+    normalize,
+    uses_trash,
+)
 from ..core.file_processor import (
     UNDO_OPERATION,
     default_quarantine_dir,
@@ -67,7 +74,7 @@ class DuplicateFinderApp(AnalysisTagToolApp):
     #: either grouped or kept, so the shared "processed" count is "files scanned".
     TAGGED_LABEL: str = "Files scanned"
     DRY_COMPLETE_LABEL: str = "Duplicate Scan Complete!"
-    LIVE_COMPLETE_LABEL: str = "Quarantine Complete!"
+    LIVE_COMPLETE_LABEL: str = "Duplicate Handling Complete!"
 
     #: Config-key prefix for the shared preset methods.  A ``ClassVar`` on the
     #: base, so it must stay one here: an instance annotation is an incompatible
@@ -98,6 +105,7 @@ class DuplicateFinderApp(AnalysisTagToolApp):
         self.run_mode: tk.StringVar = tk.StringVar(value=DRY_RUN)
         self.threshold: tk.DoubleVar = tk.DoubleVar(value=DEFAULT_THRESHOLD)
         self.quarantine_dir: tk.StringVar = tk.StringVar()
+        self.disposition: tk.StringVar = tk.StringVar(value=DEFAULT_DISPOSITION)
 
         self.auto_start_var = tk.BooleanVar(value=False)
         self.auto_end_var = tk.BooleanVar(value=False)
@@ -158,12 +166,14 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             run_mode=self.run_mode,
             threshold=self.threshold,
             quarantine_dir=self.quarantine_dir,
+            disposition=self.disposition,
             auto_start_var=self.auto_start_var,
             auto_end_var=self.auto_end_var,
             clear_logs_var=self.clear_logs_var,
             parallel_var=self.parallel_var,
             on_browse=self._browse_folder,
             on_browse_quarantine=self._browse_quarantine_folder,
+            on_disposition_changed=self._set_disposition,
             on_start=self.start_processing,
             preset_names=_suite_config.list_presets(self.TOOL_ID),
             on_save_preset=self._save_current_as_preset,
@@ -174,6 +184,8 @@ class DuplicateFinderApp(AnalysisTagToolApp):
         self.start_btn: tk.Button = setup_widgets["start_btn"]
         self._preset_combo = setup_widgets.get("preset_combo")
         self._refresh_preset_list = setup_widgets.get("refresh_preset_list")
+        self._setup_frame = setup_widgets.get("setup_frame")
+        self._set_disposition(DEFAULT_DISPOSITION)
 
         proc_widgets: dict[str, Any] = processing_tab.build(tab_processing)
         self.progress: ttk.Progressbar = proc_widgets["progress"]
@@ -202,6 +214,22 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             save_last_dir=False,
         )
 
+    def _set_disposition(self, value: str) -> None:
+        """Apply a disposition everywhere the choice is reflected.
+
+        Every route that writes the value — the combobox event, a preset load
+        and the driver argv — calls this one function, so the variable and the
+        dependent controls cannot disagree.
+
+        Args:
+            value: The selected disposition (raw or an alias).
+        """
+        canonical = normalize(value)
+        self.disposition.set(canonical)
+        frame = getattr(self, "_setup_frame", None)
+        if frame is not None:
+            frame.apply_disposition(canonical)
+
     def _apply_tool_cli_options(self, parsed: Any) -> None:
         """Mirror this tool's driver flags onto the Setup controls.
 
@@ -217,6 +245,7 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             self.threshold.set(float(parsed.threshold))
         if parsed.quarantine_dir:
             self.quarantine_dir.set(parsed.quarantine_dir)
+        self._set_disposition(str(getattr(parsed, "disposition", DEFAULT_DISPOSITION)))
         self.auto_end = bool(parsed.auto_end)
 
     # ── Run ───────────────────────────────────────────────────────────────
@@ -246,15 +275,28 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             return
 
         dry_run = self.run_mode.get() == DRY_RUN
-        quarantine = self.quarantine_dir.get().strip() or default_quarantine_dir(folder)
-        if not dry_run and os.path.normcase(os.path.abspath(quarantine)) == (
-            os.path.normcase(os.path.abspath(folder))
-        ):
-            messagebox.showerror(
-                "Invalid Quarantine Folder",
-                "The quarantine folder cannot be the folder being scanned.",
+        disposition = normalize(self.disposition.get())
+        quarantine = ""
+        if disposition == DEFAULT_DISPOSITION:
+            quarantine = self.quarantine_dir.get().strip() or default_quarantine_dir(
+                folder
             )
-            return
+            if not dry_run and os.path.normcase(os.path.abspath(quarantine)) == (
+                os.path.normcase(os.path.abspath(folder))
+            ):
+                messagebox.showerror(
+                    "Invalid Quarantine Folder",
+                    "The quarantine folder cannot be the folder being scanned.",
+                )
+                return
+
+        if not dry_run and uses_trash(disposition) and not self._launched_from_driver:
+            if not messagebox.askyesno(
+                "Remove duplicates?",
+                f"{label_for(disposition)} sends every duplicate to the "
+                "Recycle Bin. The kept copy is never modified. Continue?",
+            ):
+                return
 
         self._log_path = os.path.join(
             folder, RUN_REPORT_DRY_RUN if dry_run else RUN_REPORT_LIVE
@@ -273,7 +315,7 @@ class DuplicateFinderApp(AnalysisTagToolApp):
 
         threading.Thread(
             target=self._run_scan,
-            args=(folder, dry_run, threshold, quarantine),
+            args=(folder, dry_run, threshold, quarantine, disposition),
             daemon=True,
         ).start()
 
@@ -284,6 +326,7 @@ class DuplicateFinderApp(AnalysisTagToolApp):
         is_dry_run: bool,
         threshold: float,
         quarantine: str,
+        disposition: str,
     ) -> None:
         """Background thread: run the scan inside this run's undo batch.
 
@@ -295,9 +338,15 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             folder: The directory to scan.
             is_dry_run: Whether the run may move files.
             threshold: Bit-error threshold for this run.
-            quarantine: Destination folder for a live run.
+            quarantine: Destination folder for a live run; blank when the
+                disposition does not use it.
+            disposition: What the live run does with each duplicate.
         """
-        settings = ScanSettings(threshold=threshold, quarantine_dir=quarantine)
+        settings = ScanSettings(
+            threshold=threshold,
+            quarantine_dir=quarantine,
+            disposition=disposition,
+        )
         with active_batch(self.TOOL_ID, UNDO_OPERATION):
             run_duplicate_scan(
                 folder,
@@ -322,6 +371,8 @@ class DuplicateFinderApp(AnalysisTagToolApp):
         groups: int,
         duplicates: int,
         quarantined: int,
+        deleted: int,
+        stubbed: int,
         **_extra: Any,
     ) -> None:
         """Record this run's rows and note, then finish as every peer does.
@@ -344,17 +395,31 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             groups: Duplicate groups found.
             duplicates: Files identified as duplicates.
             quarantined: Files actually moved (always 0 in a dry run).
+            deleted: Files moved to the Recycle Bin.
+            stubbed: Files replaced by a verified ASX stub.
             **_extra: Other completion fields; ignored here rather than
                 rejected, so a payload that grows cannot abort a finished run.
         """
-        verb = "would quarantine" if self.run_mode.get() == DRY_RUN else "quarantined"
+        disposition = normalize(self.disposition.get())
+        dry_run = self.run_mode.get() == DRY_RUN
+        if disposition == DEFAULT_DISPOSITION:
+            verb = "would quarantine" if dry_run else "quarantined"
+            handled = quarantined
+        elif disposition == "delete":
+            verb = "would delete" if dry_run else "deleted"
+            handled = deleted
+        else:
+            verb = "would stub" if dry_run else "stubbed"
+            handled = stubbed
         self._summary_rows = (
             ("Duplicate groups", str(groups)),
             ("Duplicate files", str(duplicates)),
-            (f"Files {verb}", str(quarantined)),
+            (f"Files {verb}", str(handled)),
             ("Without a fingerprint", str(skipped)),
         )
-        self._record_run_note(total=total, skipped=skipped, errors=errors)
+        self._record_run_note(
+            total=total, skipped=skipped, errors=errors, disposition=disposition
+        )
         super()._on_complete(
             header=header,
             total=total,
@@ -370,17 +435,25 @@ class DuplicateFinderApp(AnalysisTagToolApp):
         """Return this run's rows for the report and the Results panel."""
         return list(self._summary_rows)
 
-    def _record_run_note(self, *, total: int, skipped: int, errors: int) -> None:
+    def _record_run_note(
+        self, *, total: int, skipped: int, errors: int, disposition: str = ""
+    ) -> None:
         """Record what this run could not fingerprint or move, for the driver.
 
         Args:
             total: Files the walk visited.
             skipped: Files without a fingerprint.
             errors: Files that could not be moved.
+            disposition: The run's disposition, used in the caveat wording.
         """
+        action = {
+            "quarantine": "quarantined",
+            "delete": "deleted",
+            "asx-stub": "stubbed",
+        }.get(normalize(disposition or self.disposition.get()), "handled")
         record_caveats(
             DRIVER_TOOL_ID,
-            shortfall(errors, total, "file", "could not be quarantined")
+            shortfall(errors, total, "file", f"could not be {action}")
             if errors
             else "",
             shortfall(skipped, total, "file", "had no readable fingerprint")
@@ -395,6 +468,7 @@ class DuplicateFinderApp(AnalysisTagToolApp):
         return {
             "threshold": float(self.threshold.get()),
             "quarantine_dir": self.quarantine_dir.get(),
+            "disposition": normalize(self.disposition.get()),
             "run_mode": self.run_mode.get(),
         }
 
@@ -404,6 +478,7 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             self.threshold.set(float(settings["threshold"]))
         if "quarantine_dir" in settings:
             self.quarantine_dir.set(str(settings["quarantine_dir"]))
+        self._set_disposition(str(settings.get("disposition", DEFAULT_DISPOSITION)))
         if "run_mode" in settings:
             self.run_mode.set(str(settings["run_mode"]))
 

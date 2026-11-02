@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """
 file_ops.py
 File operations for ASX Extractor: copy audio, remove ASX playlists,
@@ -17,11 +18,14 @@ failure log instead of mis-reporting them as successful extractions.
 """
 
 import datetime
+import hashlib
 import logging
+import os
 import shutil
 from pathlib import Path
 from typing import Any
 
+from audio_suite_shared.asx_stub import StubMetadata, apply_tags, derive_restore_name
 from audio_suite_shared.batch_undo import record_file_reorg_snapshot
 from audio_suite_shared.exceptions import map_to_audio_error, user_message_for
 
@@ -33,6 +37,76 @@ except ImportError:
     SEND2TRASH_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+
+def _sha256(path: Path) -> str:
+    """Return the file's hex SHA-256 digest.
+
+    Args:
+        path: File to hash.
+
+    Returns:
+        The digest.
+    """
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _audio_digest(path: Path) -> str:
+    """Return a digest of the file's decoded audio samples.
+
+    A tag write necessarily changes a file's container bytes, so the restored
+    file can never be byte-identical to the keeper.  The invariant that matters
+    is that its *audio* is unchanged; this decodes both files and hashes the
+    raw PCM.
+
+    Args:
+        path: The audio file to decode.
+
+    Returns:
+        The SHA-256 of the decoded sample data.
+    """
+    from pydub import AudioSegment
+
+    return hashlib.sha256(AudioSegment.from_file(path).raw_data).hexdigest()
+
+
+def recreate_from_stub(
+    asx_path: Path, keeper_path: Path, metadata: StubMetadata
+) -> tuple[bool, str]:
+    """Recreate the stubbed file from the keeper and the stub's tags.
+
+    The copy is built at a temporary path in the destination folder, its tags
+    are written there, its bytes are checked against the keeper, and only then
+    is it atomically renamed to the final name.  On any failure the temporary
+    file is removed and the stub is left untouched.
+
+    Args:
+        asx_path: The stub being restored.
+        keeper_path: The audio the stub points at.
+        metadata: The tag snapshot read from the stub.
+
+    Returns:
+        ``(True, "")`` on success, or ``(False, reason)`` when nothing was
+        finalised.
+    """
+    destination = derive_restore_name(asx_path, keeper_path)
+    # Keep the real extension on the temporary file: the tag handler is chosen
+    # by suffix, and a ``.tmp`` staging name is not a supported audio format.
+    temporary = destination.with_name(f".{destination.stem}.tmp{destination.suffix}")
+    try:
+        shutil.copy2(keeper_path, temporary)
+        apply_tags(temporary, metadata)
+        if _audio_digest(temporary) != _audio_digest(keeper_path):
+            raise ValueError("the recreated audio does not match the kept file")
+        os.replace(temporary, destination)
+    except Exception as exc:
+        temporary.unlink(missing_ok=True)
+        logger.error(
+            "recreate_from_stub failed for %s: %s", asx_path, exc, exc_info=True
+        )
+        return False, str(exc)
+    record_file_reorg_snapshot(str(keeper_path), str(destination), "copy")
+    return True, ""
 
 
 def copy_audio_file(audio_path: Path, destination_dir: Path) -> bool:

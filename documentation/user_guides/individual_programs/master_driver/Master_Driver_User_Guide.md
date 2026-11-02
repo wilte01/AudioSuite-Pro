@@ -74,7 +74,7 @@ SETTINGS contains the Colour Palette, Theme Mode, and Typography controls. Use S
 ## Utility Tools
 
 - **Music Format Converter: **Detects the input format, then converts to a selected output format and quality. Card options add sample rate, bit depth, MP3 normalisation target LUFS, an optional output directory, and delete-originals. Mixed input formats are rejected by format detection.
-- **ASX Playlist Extractor: **Extracts audio streams from ASX playlist files; Live Update uses permanent extraction.
+- **ASX Playlist Extractor: **Extracts audio streams from ASX playlist files, restores files replaced by a Duplicate Finder stub, and can include subfolders; Live Update uses permanent extraction.
 - **Album Art Normalizer: **Resizes and normalizes embedded artwork with a selectable target size and supports folder.jpg normalization.
 - **CD Ripper: **Rips CDs to WAV, MP3, FLAC, OGG, M4A, or Opus with MusicBrainz metadata lookup. Card options cover the output directory, output format, a specific track list, and CUE sheet generation.
 - **Mood Analysis Batch Tagger: **Recursively analyses audio and applies signal-based batch mood tags.

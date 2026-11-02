@@ -183,6 +183,10 @@ fails on any parser warning, so a malformed docstring cannot ship either.
 :members:
 ```
 
+```{automodule} audio_suite_shared.asx_stub
+:members:
+```
+
 ## Tag reading and writing
 
 ```{automodule} audio_suite_shared.tag_helper

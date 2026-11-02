@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """CLI command for ASX Playlist Extractor.
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
@@ -30,6 +31,27 @@ from audio_suite_shared.cli_base import (
 logger = logging.getLogger(__name__)
 
 
+def _discover_asx_files(source_dir: Path, recursive: bool) -> list[Path]:
+    """Return the ASX playlists to process, sorted.
+
+    Args:
+        source_dir: The selected directory.
+        recursive: Whether to include sub-folders.
+
+    Returns:
+        Playlist paths; the default is the top level only, preserving the
+        extractor's existing behaviour.
+    """
+    candidates = source_dir.rglob("*") if recursive else source_dir.iterdir()
+    return sorted(
+        {
+            path
+            for path in candidates
+            if path.is_file() and path.suffix.lower() == ".asx"
+        }
+    )
+
+
 def _no_op(**kwargs: Any) -> None:
     pass
 
@@ -41,6 +63,7 @@ def _no_op_error(msg: str) -> None:
 def run_cli_extraction(
     dir_path: str,
     is_dry_run: bool = False,
+    recursive: bool = False,
     on_progress: Callable[..., None] | None = None,
     on_complete: Callable[..., None] | None = None,
     on_error: Callable[[str], None] | None = None,
@@ -50,6 +73,7 @@ def run_cli_extraction(
     from asx_extractor.core.asx_parser import process_asx_file
     from asx_extractor.core.file_ops import (
         copy_audio_file,
+        recreate_from_stub,
         remove_asx_file,
         write_extraction_log,
     )
@@ -70,13 +94,7 @@ def run_cli_extraction(
         on_progress(display_text=msg)
 
     try:
-        asx_files = list(
-            {
-                f
-                for f in source_dir.iterdir()
-                if f.is_file() and f.suffix.lower() == ".asx"
-            }
-        )
+        asx_files = _discover_asx_files(source_dir, recursive)
         total = len(asx_files)
         _log(f"Found {total} ASX file(s) in {source_dir}")
         on_progress(processed=0, total=total, display_text="Scanning ASX files...")
@@ -107,11 +125,21 @@ def run_cli_extraction(
 
         if not is_dry_run:
             with active_batch("asx_extractor", "file_reorg"):
-                copy_failed: set[Path] = set()
+                copy_failed: dict[Path, str] = {}
+                recreated = 0
                 _log("Copying audio files...")
                 for item in successes:
-                    if not copy_audio_file(item["audio_path"], source_dir):
-                        copy_failed.add(item["asx_path"])
+                    if item.get("stub") is not None:
+                        ok, reason = recreate_from_stub(
+                            item["asx_path"], item["audio_path"], item["stub"]
+                        )
+                        if not ok:
+                            copy_failed[item["asx_path"]] = f"RECREATE FAILED: {reason}"
+                            _log(f"  [RECREATE FAIL] {item['asx_fn']}: {reason}")
+                        else:
+                            recreated += 1
+                    elif not copy_audio_file(item["audio_path"], source_dir):
+                        copy_failed[item["asx_path"]] = "COPY FAILED"
                         _log(f"  [COPY FAIL] {item['audio_path'].name}")
 
                 remaining_successes = []
@@ -122,7 +150,7 @@ def run_cli_extraction(
                             {
                                 "asx_fn": item["asx_fn"],
                                 "audio_path": str(item["audio_path"]),
-                                "reason": "COPY FAILED",
+                                "reason": copy_failed[item["asx_path"]],
                             }
                         )
                         continue
@@ -138,6 +166,7 @@ def run_cli_extraction(
                     remaining_successes.append(item)
                 successes = remaining_successes
         else:
+            recreated = 0
             _log("[Dry Run] Would copy audio and remove ASX files")
 
         log_path = source_dir / "Extraction_Log.txt"
@@ -161,6 +190,7 @@ def run_cli_extraction(
             log_entries=log_entries,
             successes=len(successes),
             failures=len(failures),
+            recreated=recreated,
         )
     except (OSError, ValueError) as exc:
         elapsed = time.monotonic() - start
@@ -179,13 +209,20 @@ def run_cli_extraction(
 @_opt_dir
 @_opt_dry_run
 @_opt_json
-def asx_extract(directory: str, dry_run: bool, json: bool) -> None:
+@click.option(
+    "--recursive/--no-recursive",
+    default=False,
+    show_default=True,
+    help="Also process .asx playlists in sub-folders.",
+)
+def asx_extract(directory: str, dry_run: bool, json: bool, recursive: bool) -> None:
     """Extract audio files from ASX playlists."""
     result = _run_tool(
         "ASX Playlist Extractor",
         run_cli_extraction,
         dir_path=directory,
         is_dry_run=dry_run,
+        recursive=recursive,
     )
     if json:
         click.echo(
@@ -194,8 +231,10 @@ def asx_extract(directory: str, dry_run: bool, json: bool) -> None:
     else:
         ok = result.extra.get("successes", 0)
         fail = result.extra.get("failures", 0)
+        recreated = result.extra.get("recreated", 0)
         click.echo(
             f"  Summary: {result.total} ASX files, {ok} extracted, "
-            f"{fail} failed, {result.errors} errors in {result.duration_secs:.1f}s"
+            f"{recreated} recreated, {fail} failed, "
+            f"{result.errors} errors in {result.duration_secs:.1f}s"
         )
     finish_run(result)

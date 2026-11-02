@@ -394,16 +394,28 @@ audiosuite convert "D:\Music\WAV" --format flac --bit-depth 24 --sample-rate 960
 
 ### ASX Playlist Extractor
 
-Extract audio files from ASX playlists.
+Extract audio files from ASX playlists, or restore a file that Duplicate Finder
+replaced with a suite stub.
 
 ```bash
-audiosuite asx-extract <directory> [--dry] [--json]
+audiosuite asx-extract <directory> [--recursive] [--dry] [--json]
 ```
+
+**Options:**
+
+- `--recursive` / `--no-recursive` — also process `.asx` playlists in sub-folders (default: off)
+
+A plain playlist copies its referenced audio and removes the playlist as
+before. A playlist carrying the `AudioSuite:stub-version` marker is restored:
+the kept audio is copied under the stub's stem and the keeper's extension, the
+stub's tag snapshot is applied, and the stub is removed only after the final
+file exists. A failed restore leaves the stub in place.
 
 **Examples:**
 
 ```bash
 audiosuite asx-extract "D:\Playlists" --dry
+audiosuite asx-extract "D:\Music" --recursive
 audiosuite asx-extract "D:\Playlists" --json
 ```
 
@@ -505,30 +517,35 @@ audiosuite declip "D:\Music\Loud" --live --threshold 0.95 --max-run-ms 20
 
 ### Duplicate Finder
 
-Find the files that are the same recording by comparing audio fingerprints, and
-move the extra copies into a quarantine folder. Nothing is deleted, and the
-kept copy is never written.
+Find the files that are the same recording by comparing audio fingerprints, then
+move, delete or replace the extra copies. The kept copy is never written.
 
 ```bash
-audiosuite duplicates <directory> [--threshold F] [--quarantine-dir DIR] [--cache PATH] [OPTIONS]
+audiosuite duplicates <directory> [--on-duplicate MODE] [--threshold F] [--quarantine-dir DIR] [--cache PATH] [OPTIONS]
 ```
 
 **Options:**
 
-- `--dry` / `--live` — Report the duplicate groups only, or move the extra copies (default: live)
+- `--dry` / `--live` — Report the duplicate groups only, or handle the extra copies (default: live)
+- `--on-duplicate [quarantine|delete|asx-stub]` — what a live run does with each duplicate (default: quarantine): move it to the quarantine folder, send it to the Recycle Bin, or replace it with a restorable ASX stub
 - `--threshold F` — maximum bit-error rate for two fingerprints to count as one recording (default: 0.1)
 - `--quarantine-dir DIR` — where a live run moves duplicates; defaults to a `duplicate_quarantine` folder inside the scanned directory
 - `--cache PATH` — the fingerprint cache file; defaults to `duplicate_cache.db` in the suite's cache directory
 
-Nothing is deleted: a live run moves the non-keepers and records each move in the
-suite's undo history, so the whole run is reversible. The JSON payload adds
-`groups`, `duplicates` and `quarantined` to the shared counters.
+Quarantine moves the non-keepers and records each move in the suite's undo
+history. Delete and `asx-stub` send them to the Recycle Bin instead; neither
+calls a permanent delete, and the stub can be restored later with `asx-extract`.
+The first Delete or `asx-stub` run installs Recycle Bin support automatically.
+The JSON payload adds `groups`, `duplicates`, `quarantined`, `deleted` and
+`stubbed` to the shared counters.
 
 **Examples:**
 
 ```bash
 audiosuite duplicates "D:\Music" --dry
 audiosuite duplicates "D:\Music" --live --quarantine-dir "D:\Quarantine"
+audiosuite duplicates "D:\Music" --live --on-duplicate delete
+audiosuite duplicates "D:\Music" --live --on-duplicate asx-stub
 audiosuite duplicates "D:\Music" --dry --threshold 0.08 --json
 ```
 

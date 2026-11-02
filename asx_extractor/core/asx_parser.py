@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """
 asx_parser.py
 Parse a single ASX playlist file and resolve its referenced audio path.
@@ -15,6 +16,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Optional
 
+from audio_suite_shared.asx_stub import NotAStubError, StubError, read_stub
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.exceptions import map_to_audio_error
 
@@ -48,7 +50,7 @@ def get_fallback_audio_path(audio_path: Path) -> Optional[Path]:
         if ext == original_ext:
             continue
         candidate = parent / f"{stem}{ext}"
-        if candidate.exists():
+        if candidate.is_file():
             return candidate
     return None
 
@@ -121,10 +123,17 @@ def process_asx_file(asx_file: Path, source_dir: Path) -> dict[str, Any]:
                 "reason": "INVALID XML IN ASX",
             }
 
-        # Find the first <ref> element with an href attribute
+        # Find the first <ref> element with an href attribute.  Element and
+        # attribute names are matched case-insensitively: ASX writers,
+        # including Windows Media's own, commonly emit <REF HREF="...">.
         href: str | None = None
-        for ref in root.iter("ref"):
-            href = ref.get("href")
+        for ref in root.iter():
+            if ref.tag.rsplit("}", 1)[-1].lower() != "ref":
+                continue
+            href = next(
+                (value for key, value in ref.attrib.items() if key.lower() == "href"),
+                None,
+            )
             if href:
                 break
 
@@ -136,19 +145,39 @@ def process_asx_file(asx_file: Path, source_dir: Path) -> dict[str, Any]:
                 "reason": "NO REF LINK IN ASX",
             }
 
+        # A suite stub is a normal ASX playlist plus metadata.  A plain ASX
+        # keeps today's copy/remove path; a malformed or unknown-version stub
+        # is a per-file failure instead of being silently treated as plain.
+        stub_metadata = None
+        try:
+            stub_metadata = read_stub(asx_file)
+        except NotAStubError:
+            stub_metadata = None
+        except StubError as exc:
+            return {
+                "success": False,
+                "asx_fn": asx_filename,
+                "audio_path": "N/A",
+                "reason": f"STUB ERROR: {exc}",
+            }
+
         href_path = Path(href)
         if href_path.is_absolute():
             audio_path = href_path.resolve()
         else:
             audio_path = (asx_file.parent / href_path).resolve()
 
-        # Primary path found
-        if audio_path.exists():
+        # Primary path found.  A directory or a non-audio target is not a
+        # playable reference, even though Path.exists() returns True for it.
+        if audio_path.is_file() and audio_path.suffix.lower() in {
+            extension.lower() for extension in SUPPORTED_EXTENSIONS
+        }:
             return {
                 "success": True,
                 "asx_fn": asx_filename,
                 "asx_path": asx_file,
                 "audio_path": audio_path,
+                "stub": stub_metadata,
             }
 
         # Try an alternate same-stem sibling in any supported extension
@@ -159,14 +188,16 @@ def process_asx_file(asx_file: Path, source_dir: Path) -> dict[str, Any]:
                 "asx_fn": asx_filename,
                 "asx_path": asx_file,
                 "audio_path": fallback,
+                "stub": stub_metadata,
             }
 
         # Determine the most useful failure reason
-        reason = (
-            "DIRECTORY NOT FOUND"
-            if not audio_path.parent.exists()
-            else "FILE NOT FOUND"
-        )
+        if not audio_path.parent.exists():
+            reason = "DIRECTORY NOT FOUND"
+        elif audio_path.exists():
+            reason = "NOT AN AUDIO FILE"
+        else:
+            reason = "FILE NOT FOUND"
 
         return {
             "success": False,

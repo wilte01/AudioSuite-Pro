@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """Every GUI tool's completion handler must fail loudly when a field it needs is gone.
 
 Changed in 1.4.1: added, one seam case per GUI tool plus the frozen field table.
@@ -106,6 +107,8 @@ EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
             "groups",
             "duplicates",
             "quarantined",
+            "deleted",
+            "stubbed",
         }
     ),
     "FingerprinterApp": frozenset(

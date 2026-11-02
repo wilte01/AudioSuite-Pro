@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """cli_args.py — Launcher argument parsing for the Duplicate Finder.
 
 The Master Driver's argv layout is the shared positional one every folder tool
@@ -8,7 +9,8 @@ reads, with this tool's two options appended after the positional block:
     argv[2]  - '--live' | '--dry'
     argv[3]  - '--start' | '--no-start'
     argv[4]  - '--end'   | '--no-end'
-    argv[5+] - '--threshold' <float>, '--quarantine-dir' <path>, and the
+    argv[5+] - '--threshold' <float>, '--quarantine-dir' <path>,
+               '--on-duplicate' <quarantine|delete|asx-stub>, and the
                display-only --clear-logs/--parallel-run pair
 
 The slots match the argument list ``master_driver.runner.arg_builder`` emits for
@@ -36,6 +38,7 @@ from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
 
+from ..core.disposition import DEFAULT_DISPOSITION, normalize
 from ..core.models import DEFAULT_THRESHOLD
 
 logger = logging.getLogger(__name__)
@@ -61,6 +64,7 @@ class DuplicateFinderArgs(BaseCLIArgs):
 
     threshold: float = DEFAULT_THRESHOLD
     quarantine_dir: str = ""
+    disposition: str = DEFAULT_DISPOSITION
     clear_logs: bool = False
     parallel_run: bool = False
 
@@ -93,13 +97,24 @@ def _read_options(argv: list[str], args: DuplicateFinderArgs) -> None:
     index = 5
     while index < len(argv):
         token = argv[index]
-        if token in {"--threshold", "--quarantine-dir"} and index + 1 < len(argv):
+        if token in {
+            "--threshold",
+            "--quarantine-dir",
+            "--on-duplicate",
+        } and index + 1 < len(argv):
             value = argv[index + 1]
             if token == "--threshold":
                 try:
                     args.threshold = float(value)
                 except ValueError:
                     logger.warning("Ignoring non-numeric --threshold %r", value)
+            elif token == "--on-duplicate":
+                try:
+                    args.disposition = normalize(value)
+                except ValueError:
+                    # Keep the raw value so validation below reports it once,
+                    # with the allowed set, instead of exiting here.
+                    args.disposition = value
             else:
                 args.quarantine_dir = value
             index += 2
@@ -135,6 +150,10 @@ def parse(argv: list[str] | None = None) -> DuplicateFinderArgs:
     errors = validate_folder_path(args.folder_path)
     if not 0.0 < args.threshold <= 1.0:
         errors.append(f"--threshold must be in (0.0, 1.0], got {args.threshold}")
+    try:
+        args.disposition = normalize(args.disposition)
+    except ValueError as exc:
+        errors.append(str(exc))
     if errors:
         for error in errors:
             print_tool_usage_error("Duplicate Finder", error)

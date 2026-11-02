@@ -1,15 +1,18 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """duplicate_finder_card.py — Duplicate Finder module card.
 
 Changed in 2.3.0: Duplicate Finder's Master Driver card (F-02).
 """
 
 import tkinter as tk
+from tkinter import ttk
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ...state.app_state import AppState
 
 from audio_suite_shared import styles
+from duplicate_finder.core.disposition import DISPOSITIONS
 from master_driver.ui.cards._card_base import build_card_shell
 
 
@@ -34,6 +37,26 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             bg=styles.BG_WHITE,
             fg=styles.FG_MAIN,
             insertbackground=styles.FG_MAIN,
+        ).pack(side=tk.LEFT, padx=6)
+
+        r2 = tk.Frame(body, bg=styles.BG_WHITE)
+        r2.pack(fill="x", pady=(4, 1))
+        tk.Label(
+            r2,
+            text="On duplicate:",
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            width=26,
+            anchor="w",
+        ).pack(side=tk.LEFT)
+        ttk.Combobox(
+            r2,
+            textvariable=state.duplicate_disposition,
+            state="readonly",
+            width=18,
+            font=styles.FONT_BODY,
+            values=DISPOSITIONS,
         ).pack(side=tk.LEFT, padx=6)
 
         r1 = tk.Frame(body, bg=styles.BG_WHITE)

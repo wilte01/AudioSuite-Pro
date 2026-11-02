@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """
 ASX_Playlist_Extractor.pyw — Launcher for ASX Playlist Extractor.
 """
@@ -28,6 +29,7 @@ if __name__ == "__main__":
         kwargs = {
             "initial_directory": parsed.directory,
             "initial_mode": parsed.mode,
+            "recursive": parsed.recursive,
             "auto_start": parsed.auto_start,
             "auto_end": parsed.auto_end,
             "clear_logs": parsed.clear_logs,

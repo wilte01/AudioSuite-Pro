@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """CLI command for the Duplicate Finder.
 
 A live run moves the duplicates it found into the quarantine folder and records
@@ -23,6 +24,7 @@ from audio_suite_shared.cli_base import (
     finish_run,
 )
 
+from .core.disposition import DISPOSITIONS
 from .core.models import DEFAULT_THRESHOLD, ScanSettings
 
 
@@ -43,6 +45,18 @@ from .core.models import DEFAULT_THRESHOLD, ScanSettings
     help="Where a live run moves duplicates (default: <folder>/duplicate_quarantine).",
 )
 @click.option(
+    "--on-duplicate",
+    "on_duplicate",
+    type=click.Choice(DISPOSITIONS),
+    default="quarantine",
+    show_default=True,
+    help=(
+        "What a live run does with each duplicate: move it to quarantine "
+        "(default), delete it to the Recycle Bin, or replace it with an "
+        "ASX stub that the ASX Playlist Extractor can restore."
+    ),
+)
+@click.option(
     "--cache",
     "cache_path",
     default="",
@@ -54,6 +68,7 @@ def duplicates(
     json: bool,
     threshold: float,
     quarantine_dir: str,
+    on_duplicate: str,
     cache_path: str,
 ) -> None:
     """Find duplicate recordings by fingerprint and quarantine the extra copies."""
@@ -67,7 +82,11 @@ def duplicates(
             "must be greater than 0 and at most 1",
             param_hint="'--threshold'",
         )
-    settings = ScanSettings(threshold=threshold, quarantine_dir=quarantine_dir)
+    settings = ScanSettings(
+        threshold=threshold,
+        quarantine_dir=quarantine_dir,
+        disposition=on_duplicate,
+    )
     with active_batch("duplicate_finder", "file_reorg"):
         result = _run_tool(
             "Duplicate Finder",
@@ -86,6 +105,8 @@ def duplicates(
             f"  Summary: {result.total} files, {result.extra.get('groups', 0)} groups, "
             f"{result.extra.get('duplicates', 0)} duplicates, "
             f"{result.extra.get('quarantined', 0)} quarantined, "
+            f"{result.extra.get('deleted', 0)} deleted, "
+            f"{result.extra.get('stubbed', 0)} stubbed, "
             f"{result.skipped} without a fingerprint, "
             f"{result.errors} errors in {result.duration_secs:.1f}s"
         )

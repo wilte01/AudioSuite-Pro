@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 # Changed in 1.0.1: bumped [project] version 1.0.0 -> 1.0.1 (first maintenance
 # release; PLAN_bughunt_remediation.md G8.4). This is the single source of truth
 # for the suite version (audio_suite_shared/project_version.py reads it).
@@ -35,7 +36,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "audiosuite-pro"
-version = "2.3.1"
+version = "2.4.0"
 readme = "README.md"
 requires-python = ">=3.11"
 # Plan iteration 5 E2 (audit #11), decision D1: GPL-3.0, chosen because the
@@ -58,6 +59,10 @@ dependencies = [
     "scipy>=1.7.0",
     "sounddevice>=0.4.0",
     "requests>=2.28.0",
+    # Delete and ASX-stub dispositions move a duplicate to the operating
+    # system's Recycle Bin; there is no permanent-delete fallback, so the
+    # package is a runtime dependency rather than an optional import.
+    "send2trash>=1.8.0",
     # 2.8.0 is the fix for PYSEC-2026-4175/-4176/-4177 (TLS proxy context
     # confusion, chunked/deflate streaming loops). CI's exported-lock audit and
     # tests/test_ci_security_audit.py keep the resolver from drifting back

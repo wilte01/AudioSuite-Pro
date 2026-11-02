@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """Tests for the duplicate scan: walk, cache reuse, and the quarantine move.
 
 The outcome that matters is on disk, not in the counters: a dry run must leave
@@ -18,14 +19,30 @@ from typing import Any
 
 import pytest
 
+from audio_suite_shared.asx_stub import read_stub
+from audio_suite_shared.optional_deps import InstallOutcome
+from audio_suite_shared.tag_helper_reader import (
+    read_editable_tags,
+    read_isrcs,
+    read_lyrics_tags,
+    read_musicbrainz_ids,
+)
+from audio_suite_shared.tag_helper_writer import (
+    write_editable_tag,
+    write_isrc,
+    write_musicbrainz_ids,
+    write_plain_lyrics,
+)
 from duplicate_finder.core import file_processor
 from duplicate_finder.core.file_processor import (
     STATUS_CACHED,
+    STATUS_DELETED,
     STATUS_DUPLICATE,
     STATUS_ERROR,
     STATUS_KEEP,
     STATUS_MOVED,
     STATUS_NO_FINGERPRINT,
+    STATUS_STUBBED,
     UNDO_OPERATION,
     default_quarantine_dir,
     discover_files,
@@ -539,3 +556,344 @@ class TestCompletionPayload:
         assert payload["total"] == 1
         assert payload["skipped"] == 1
         assert payload["groups"] == 0
+
+
+class _TrashRecorder:
+    """Stand in for the Recycle Bin: record the path and remove the file."""
+
+    def __init__(self) -> None:
+        """Create an empty recorder."""
+        self.paths: list[str] = []
+
+    def __call__(self, path: str) -> None:
+        """Record one path and remove it, as a successful Trash would."""
+        self.paths.append(path)
+        Path(path).unlink()
+
+
+def _install_trash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> _TrashRecorder:
+    """Make the Trash seam available and record its calls.
+
+    Args:
+        monkeypatch: The test's patcher.
+
+    Returns:
+        The recorder holding every path the run trashed.
+    """
+    recorder = _TrashRecorder()
+    monkeypatch.setattr(file_processor, "trash_available", lambda: True)
+    monkeypatch.setattr(file_processor, "move_to_trash", recorder)
+    return recorder
+
+
+class TestDeleteDisposition:
+    """Delete removes every duplicate through the Trash seam and nothing else."""
+
+    @pytest.mark.integration
+    def test_the_duplicates_are_trashed_and_the_keeper_survives(
+        self, library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        trashed = _install_trash(monkeypatch)
+        keeper = library / "song.flac"
+        before = sha256(keeper)
+        recorder = Recorder()
+
+        run_duplicate_scan(
+            str(library),
+            False,
+            ScanSettings(disposition="delete"),
+            on_complete=recorder.on_complete,
+            on_error=recorder.on_error,
+        )
+
+        assert recorder.errors == []
+        payload = recorder.completion
+        assert payload["deleted"] == 3
+        assert payload["quarantined"] == 0
+        assert payload["duplicates"] == 3
+        assert payload["errors"] == 0
+        assert sha256(keeper) == before
+        assert sorted(path.name for path in library.iterdir()) == [
+            "shared_a.mp3",
+            "shared_b.mp3",
+            "song.flac",
+            "take2.mp3",
+        ]
+        assert sorted(Path(path).name for path in trashed.paths) == [
+            "song_128.mp3",
+            "song_320.mp3",
+            "song_96.mp3",
+        ]
+        assert not any(Path(path).name == "song.flac" for path in trashed.paths)
+        assert not (library / file_processor.QUARANTINE_DIRNAME).exists()
+        deleted = [
+            line for line in payload["log_entries"] if line.startswith(STATUS_DELETED)
+        ]
+        assert len(deleted) == 3
+
+    @pytest.mark.integration
+    def test_a_dry_run_reports_the_delete_and_trashes_nothing(
+        self, library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        trashed = _install_trash(monkeypatch)
+        before = {path.name: sha256(path) for path in library.iterdir()}
+        recorder = Recorder()
+
+        run_duplicate_scan(
+            str(library),
+            True,
+            ScanSettings(disposition="delete"),
+            on_complete=recorder.on_complete,
+        )
+
+        assert trashed.paths == []
+        assert recorder.completion["deleted"] == 0
+        assert {path.name: sha256(path) for path in library.iterdir()} == before
+        assert any(
+            line.startswith(STATUS_DELETED) and "(dry run)" in line
+            for line in recorder.completion["log_entries"]
+        )
+
+    @pytest.mark.integration
+    def test_a_backend_that_cannot_be_installed_refuses_before_any_file_is_touched(
+        self, library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        before = {path.name: sha256(path) for path in library.iterdir()}
+        monkeypatch.setattr(file_processor, "trash_available", lambda: False)
+        monkeypatch.setattr(
+            file_processor,
+            "ensure_trash_available",
+            lambda: InstallOutcome(
+                False, "Recycle Bin support could not be installed."
+            ),
+        )
+        recorder = Recorder()
+
+        run_duplicate_scan(
+            str(library),
+            False,
+            ScanSettings(disposition="delete"),
+            on_complete=recorder.on_complete,
+            on_error=recorder.on_error,
+        )
+
+        assert len(recorder.errors) == 1
+        assert "could not be prepared automatically" in recorder.errors[0]
+        assert "no files were changed" in recorder.errors[0]
+        assert "send2trash" not in recorder.errors[0]
+        assert "Install it" not in recorder.errors[0]
+        assert recorder.completions == []
+        assert {path.name: sha256(path) for path in library.iterdir()} == before
+
+    @pytest.mark.integration
+    def test_a_missing_backend_is_installed_before_the_first_file(
+        self, library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        available = {"value": False}
+        trashed = _TrashRecorder()
+        installs: list[bool] = []
+        monkeypatch.setattr(file_processor, "move_to_trash", trashed)
+        monkeypatch.setattr(
+            file_processor, "trash_available", lambda: available["value"]
+        )
+
+        def _install() -> InstallOutcome:
+            installs.append(True)
+            available["value"] = True
+            return InstallOutcome(True, "Recycle Bin support is ready.")
+
+        monkeypatch.setattr(file_processor, "ensure_trash_available", _install)
+        recorder = Recorder()
+
+        run_duplicate_scan(
+            str(library),
+            False,
+            ScanSettings(disposition="delete"),
+            on_complete=recorder.on_complete,
+            on_error=recorder.on_error,
+        )
+
+        assert installs == [True]
+        assert recorder.completion["deleted"] == 3
+        assert len(trashed.paths) == 3
+
+
+class TestStubDisposition:
+    """A stub is written and verified before the duplicate reaches the Trash."""
+
+    @pytest.mark.integration
+    def test_every_duplicate_becomes_a_verified_stub(
+        self, library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        trashed = _install_trash(monkeypatch)
+        duplicate = library / "song_128.mp3"
+        write_editable_tag(str(duplicate), "title", "Test Title")
+        write_editable_tag(str(duplicate), "artist", "Test Artist")
+        write_editable_tag(str(duplicate), "album", "Test Album")
+        write_editable_tag(str(duplicate), "comment", "line one\nline two")
+        write_musicbrainz_ids(
+            str(duplicate),
+            {"MUSICBRAINZ_TRACKID": "00000000-0000-0000-0000-000000000001"},
+        )
+        write_isrc(str(duplicate), ["GBAYE1234567"])
+        write_plain_lyrics(str(duplicate), "first line\nsecond line")
+        expected_fields = read_editable_tags(str(duplicate))
+        expected_mbids = read_musicbrainz_ids(str(duplicate))
+        expected_isrcs = read_isrcs(str(duplicate))
+        expected_lyrics = read_lyrics_tags(str(duplicate))
+
+        keeper = library / "song.flac"
+        before = sha256(keeper)
+        recorder = Recorder()
+
+        run_duplicate_scan(
+            str(library),
+            False,
+            ScanSettings(disposition="asx-stub"),
+            on_complete=recorder.on_complete,
+            on_error=recorder.on_error,
+        )
+
+        assert recorder.errors == []
+        payload = recorder.completion
+        assert payload["stubbed"] == 3
+        assert payload["deleted"] == 0
+        assert payload["quarantined"] == 0
+        assert payload["errors"] == 0
+        assert sha256(keeper) == before
+        assert sorted(Path(path).name for path in trashed.paths) == [
+            "song_128.mp3",
+            "song_320.mp3",
+            "song_96.mp3",
+        ]
+        assert not any(Path(path).name == "song.flac" for path in trashed.paths)
+
+        stubs = sorted(library.glob("song_*.asx"))
+        assert [path.name for path in stubs] == [
+            "song_128.asx",
+            "song_320.asx",
+            "song_96.asx",
+        ]
+        for stub in stubs:
+            metadata = read_stub(stub)
+            assert metadata.stub_version == 1
+            assert metadata.original_name == f"{stub.stem}.mp3"
+            assert metadata.keeper_name == "song.flac"
+            href = Path(metadata.reference)
+            resolved = href if href.is_absolute() else stub.parent / href
+            assert resolved.resolve() == keeper.resolve()
+
+        tagged = read_stub(library / "song_128.asx")
+        assert tagged.fields == {
+            name: value or "" for name, value in expected_fields.items()
+        }
+        assert tagged.mbids == expected_mbids
+        assert tagged.isrcs == expected_isrcs
+        assert tagged.lyrics_plain == expected_lyrics.plain
+        assert tagged.lyrics_synced == expected_lyrics.synced
+
+    @pytest.mark.integration
+    def test_a_stub_write_failure_leaves_the_audio_alone(
+        self, library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        trashed = _install_trash(monkeypatch)
+
+        def _fail(*_args: object, **_kwargs: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(file_processor, "write_stub", _fail)
+        recorder = Recorder()
+
+        run_duplicate_scan(
+            str(library),
+            False,
+            ScanSettings(disposition="asx-stub"),
+            on_complete=recorder.on_complete,
+            on_error=recorder.on_error,
+        )
+
+        assert recorder.errors == []
+        assert trashed.paths == []
+        assert sorted(path.name for path in library.iterdir()) == sorted(
+            [
+                "song.flac",
+                "song_96.mp3",
+                "song_128.mp3",
+                "song_320.mp3",
+                "take2.mp3",
+                "shared_a.mp3",
+                "shared_b.mp3",
+            ]
+        )
+        assert recorder.completion["stubbed"] == 0
+        assert recorder.completion["errors"] == 3
+        assert list(library.glob("*.asx")) == []
+
+    @pytest.mark.integration
+    def test_an_existing_stub_name_is_never_overwritten(
+        self, library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _install_trash(monkeypatch)
+        existing = library / "song_96.asx"
+        existing.write_text("keep me", encoding="utf-8")
+        recorder = Recorder()
+
+        run_duplicate_scan(
+            str(library),
+            False,
+            ScanSettings(disposition="asx-stub"),
+            on_complete=recorder.on_complete,
+        )
+
+        assert existing.read_text(encoding="utf-8") == "keep me"
+        assert (library / "song_96 (2).asx").exists()
+        assert recorder.completion["stubbed"] == 3
+
+    @pytest.mark.integration
+    def test_a_dry_run_writes_no_stub_and_trashes_nothing(
+        self, library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        trashed = _install_trash(monkeypatch)
+        before = {path.name: sha256(path) for path in library.iterdir()}
+        recorder = Recorder()
+
+        run_duplicate_scan(
+            str(library),
+            True,
+            ScanSettings(disposition="asx-stub"),
+            on_complete=recorder.on_complete,
+        )
+
+        assert trashed.paths == []
+        assert list(library.glob("*.asx")) == []
+        assert recorder.completion["stubbed"] == 0
+        assert {path.name: sha256(path) for path in library.iterdir()} == before
+        assert any(
+            line.startswith(STATUS_STUBBED) and "(dry run)" in line
+            for line in recorder.completion["log_entries"]
+        )
+
+    @pytest.mark.integration
+    def test_a_second_scan_ignores_the_stubs(
+        self, library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _install_trash(monkeypatch)
+        run_duplicate_scan(
+            str(library),
+            False,
+            ScanSettings(disposition="asx-stub"),
+            on_complete=Recorder().on_complete,
+        )
+        recorder = Recorder()
+
+        run_duplicate_scan(
+            str(library),
+            True,
+            ScanSettings(disposition="asx-stub"),
+            on_complete=recorder.on_complete,
+        )
+
+        assert recorder.completion["groups"] == 0
+        assert recorder.completion["duplicates"] == 0

@@ -1,3 +1,4 @@
+# Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """The duplicate scan: fingerprinter, reporter and quarantine mover.
 
 One entry point, :func:`run_duplicate_scan`, drives the whole run and publishes
@@ -11,12 +12,15 @@ What a run does
 2. Reuse a cached fingerprint when the file's ``(mtime, size)`` stamp still
    matches; otherwise fingerprint it with fpcalc.
 3. Cluster the fingerprints at the configured bit-error threshold.
-4. In a **live** run, move every non-keeper into the quarantine folder and
-   record the move in the undo journal.  A dry run moves nothing.
+4. In a **live** run, apply the configured disposition to every non-keeper:
+   move it into the quarantine folder and record the move (the default), move
+   it to the operating system's Recycle Bin, or write a verified ASX stub
+   beside it and then move it to the Recycle Bin.  A dry run applies nothing.
 
-Nothing is deleted, ever, and the keeper is never opened for writing: the only
-file operation a live run performs on it is a read.  That is why a live run
-leaves the kept copy byte-identical, which the tests assert by hashing it.
+The keeper is never opened for writing: the only file operation a live run
+performs on it is a read.  That is why a live run leaves the kept copy
+byte-identical, which the tests assert by hashing it.  Delete and ASX-stub
+never call ``unlink`` on audio; their only removal path is the Trash seam.
 
 Changed in 2.3.0: new duplicate-detection tool (backlog F-02): fingerprint distance,
 clustering, cache and quarantine.
@@ -29,8 +33,16 @@ import os
 import shutil
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
+from audio_suite_shared.asx_stub import (
+    read_stub,
+    snapshot_tags,
+    stub_path_for,
+    with_keeper,
+    write_stub,
+)
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
 from audio_suite_shared.batch_undo import (
     get_active_batch_id,
@@ -39,6 +51,7 @@ from audio_suite_shared.batch_undo import (
 from audio_suite_shared.exceptions import map_to_audio_error, user_message_for
 
 from .clustering import cluster_records
+from .disposition import Disposition, label_for, uses_trash
 from .fingerprint_cache import FingerprintCache
 from .fingerprinting import build_record
 from .models import (
@@ -47,6 +60,9 @@ from .models import (
     ScanOutcome,
     ScanSettings,
 )
+from .trash import TrashUnavailableError, move_to_trash
+from .trash import available as trash_available
+from .trash import ensure_available as ensure_trash_available
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +77,8 @@ STATUS_ERROR = "[ERROR]"
 STATUS_KEEP = "[KEEP]"
 STATUS_DUPLICATE = "[DUPLICATE]"
 STATUS_MOVED = "[MOVED]"
+STATUS_DELETED = "[DELETED]"
+STATUS_STUBBED = "[STUBBED]"
 
 #: Undo operation type for a batch that moved files rather than edited tags.
 UNDO_OPERATION = "file_reorg"
@@ -252,6 +270,26 @@ def _group_lines(group: DuplicateGroup) -> list[str]:
     return lines
 
 
+def _verify_stub(stub_path: Path, keeper_path: str) -> None:
+    """Re-read a written stub and prove its reference reaches the keeper.
+
+    Args:
+        stub_path: The stub just written beside the duplicate.
+        keeper_path: The copy the stub must point at.
+
+    Raises:
+        ValueError: If the stub has no reference or it does not resolve to the
+            keeper.  The caller leaves the duplicate in place.
+    """
+    metadata = read_stub(stub_path)
+    if not metadata.reference:
+        raise ValueError("the stub has no reference")
+    href = Path(metadata.reference)
+    resolved = href if href.is_absolute() else stub_path.parent / href
+    if resolved.resolve() != Path(keeper_path).resolve():
+        raise ValueError("the stub does not point at the kept file")
+
+
 def run_duplicate_scan(
     dir_path: str,
     is_dry_run: bool,
@@ -298,18 +336,35 @@ def run_duplicate_scan(
         error(f"Not a directory: {dir_path}")
         return
 
-    quarantine_dir = active_settings.quarantine_dir or default_quarantine_dir(dir_path)
-    if not is_dry_run:
-        try:
-            os.makedirs(quarantine_dir, exist_ok=True)
-        except OSError as exc:
-            error(f"Cannot create the quarantine folder: {exc}")
+    disposition = active_settings.disposition
+    if not is_dry_run and uses_trash(disposition) and not trash_available():
+        install = ensure_trash_available()
+        if not install.ok:
+            logger.error(
+                "Recycle Bin support could not be enabled: %s\n%s",
+                install.message,
+                install.detail,
+            )
+            error(
+                "The Recycle Bin could not be prepared automatically, so no "
+                "files were changed. Check your internet connection and try "
+                "again."
+            )
             return
-    if os.path.normcase(os.path.abspath(quarantine_dir)) == os.path.normcase(
-        os.path.abspath(dir_path)
-    ):
-        error("The quarantine folder cannot be the folder being scanned.")
-        return
+
+    quarantine_dir = active_settings.quarantine_dir or default_quarantine_dir(dir_path)
+    if disposition == Disposition.QUARANTINE.value:
+        if not is_dry_run:
+            try:
+                os.makedirs(quarantine_dir, exist_ok=True)
+            except OSError as exc:
+                error(f"Cannot create the quarantine folder: {exc}")
+                return
+        if os.path.normcase(os.path.abspath(quarantine_dir)) == os.path.normcase(
+            os.path.abspath(dir_path)
+        ):
+            error("The quarantine folder cannot be the folder being scanned.")
+            return
 
     files = discover_files(dir_path, quarantine_dir)
     if not files:
@@ -323,9 +378,11 @@ def run_duplicate_scan(
         f"Mode: {'DRY RUN' if is_dry_run else 'LIVE UPDATE'}\n",
         f"Directory: {os.path.abspath(dir_path)}\n",
         f"Threshold: {active_settings.threshold:.2f} bit-error rate\n",
-        f"Quarantine: {quarantine_dir}\n",
-        "=" * 60 + "\n",
+        f"Disposition: {label_for(disposition)}\n",
     ]
+    if disposition == Disposition.QUARANTINE.value:
+        header.append(f"Quarantine: {quarantine_dir}\n")
+    header.append("=" * 60 + "\n")
 
     with FingerprintCache(cache_path) as cache:
         records = _fingerprint_files(files, dir_path, cache, progress, outcome)
@@ -334,23 +391,76 @@ def run_duplicate_scan(
     outcome.groups = groups
     outcome.duplicates = sum(len(group.duplicates) for group in groups)
 
-    quarantine_errors = 0
+    action_errors = 0
     for group in groups:
         outcome.log_entries.extend(_group_lines(group))
         for member in group.duplicates:
             if is_dry_run:
+                if disposition == Disposition.DELETE.value:
+                    outcome.log_entries.append(
+                        f"{STATUS_DELETED} {member.record.path} -> Recycle Bin "
+                        "(dry run)\n"
+                    )
+                elif disposition == Disposition.ASX_STUB.value:
+                    outcome.log_entries.append(
+                        f"{STATUS_STUBBED} {member.record.path} -> "
+                        f"{stub_path_for(member.record.path)} "
+                        f"(keeper: {group.keeper.path}) (dry run)\n"
+                    )
                 continue
+
+            path = member.record.path
+            if disposition == Disposition.QUARANTINE.value:
+                try:
+                    destination = quarantine_file(path, quarantine_dir)
+                except OSError as exc:
+                    action_errors += 1
+                    outcome.log_entries.append(
+                        f"{STATUS_ERROR} {path} | move failed: {exc}\n"
+                    )
+                    continue
+                outcome.quarantined += 1
+                outcome.log_entries.append(f"{STATUS_MOVED} {path} -> {destination}\n")
+                continue
+
+            if disposition == Disposition.DELETE.value:
+                try:
+                    move_to_trash(path)
+                except (OSError, TrashUnavailableError) as exc:
+                    action_errors += 1
+                    outcome.log_entries.append(
+                        f"{STATUS_ERROR} {path} | Trash failed: {exc}\n"
+                    )
+                    continue
+                outcome.deleted += 1
+                outcome.log_entries.append(f"{STATUS_DELETED} {path} -> Recycle Bin\n")
+                continue
+
+            stub_path = stub_path_for(path)
             try:
-                destination = quarantine_file(member.record.path, quarantine_dir)
-            except OSError as exc:
-                quarantine_errors += 1
+                metadata = with_keeper(snapshot_tags(path), group.keeper.path)
+                write_stub(stub_path, metadata)
+                _verify_stub(stub_path, group.keeper.path)
+            except Exception as exc:
+                stub_path.unlink(missing_ok=True)
+                action_errors += 1
                 outcome.log_entries.append(
-                    f"{STATUS_ERROR} {member.record.path} | move failed: {exc}\n"
+                    f"{STATUS_ERROR} {path} | stub not written: {exc}\n"
                 )
                 continue
-            outcome.quarantined += 1
+            try:
+                move_to_trash(path)
+            except (OSError, TrashUnavailableError) as exc:
+                action_errors += 1
+                outcome.log_entries.append(
+                    f"{STATUS_ERROR} {path} | stub written but the duplicate "
+                    f"was not removed: {exc}\n"
+                )
+                continue
+            outcome.stubbed += 1
             outcome.log_entries.append(
-                f"{STATUS_MOVED} {member.record.path} -> {destination}\n"
+                f"{STATUS_STUBBED} {path} -> {stub_path} "
+                f"(keeper: {group.keeper.path})\n"
             )
 
     if not groups:
@@ -358,23 +468,28 @@ def run_duplicate_scan(
 
     duration = time.monotonic() - started
     logger.info(
-        "Duplicate scan: %d files, %d groups, %d duplicates, %d quarantined",
+        "Duplicate scan: %d files, %d groups, %d duplicates, %d quarantined, "
+        "%d deleted, %d stubbed",
         len(files),
         len(groups),
         outcome.duplicates,
         outcome.quarantined,
+        outcome.deleted,
+        outcome.stubbed,
     )
     complete(
         header=header,
         total=len(files),
         processed=len(files),
         skipped=outcome.missing_fingerprint,
-        errors=quarantine_errors,
+        errors=action_errors,
         duration_secs=duration,
         log_entries=outcome.log_entries,
         groups=len(groups),
         duplicates=outcome.duplicates,
         quarantined=outcome.quarantined,
+        deleted=outcome.deleted,
+        stubbed=outcome.stubbed,
     )
 
 
