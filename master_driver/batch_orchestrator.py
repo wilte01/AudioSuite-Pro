@@ -34,6 +34,9 @@ tracked separately: only a step that ran to success may satisfy a dependant.
 
 Changed in 2.3.0: orders the duplicate scan and the declip pass in the dependency graph
 (F-02, F-08a).
+
+Changed in 2.3.1 (U-03, released in 2.6.0): the five DSP tools REFINE absorbed
+lose their graph nodes, because the driver no longer schedules them.
 """
 
 from __future__ import annotations
@@ -261,17 +264,12 @@ DEPENDENCY_GRAPH: dict[str, list[str]] = {
     "album_art_normalizer": [],
     "cd_ripper": [],
     "mood_analysis_batch": [],
-    "noise_reduction": [],
     "library_stats": [],
     "spectral_viewer": [],
     "file_reorganizer": [],
     "lyrics_manager": [],
     "audio_refinery": [],
-    "audio_enhancer": [],
-    "audio_normalizer": [],
-    "pop_click_remover": [],
     "tag_field_updater": [],
-    "silence_trimmer": [],
     "stem_separator": [],
     "ml_denoiser": [],
     "duplicate_finder": [],

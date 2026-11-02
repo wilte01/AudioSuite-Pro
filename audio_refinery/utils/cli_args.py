@@ -11,6 +11,9 @@ GUI launcher injection does not cause errors.
 
 Display-only flags: --clear-logs|--no-clear-logs,
                     --parallel-run|--no-parallel-run
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -22,6 +25,8 @@ from audio_suite_shared.cli_dataclasses import validate_target_lufs
 from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
+
+from ..core.models import NORMALISATION_MODES
 
 
 @dataclass(frozen=True)
@@ -70,8 +75,11 @@ class RefineryArgs:
     preset: str = "Moderate"
 
     # Normalise
-    target_lufs: float = -16.0
+    target_lufs: float = -14.0
     tolerance: float = 0.5
+    true_peak: float = -1.5
+    lra: float = 11.0
+    normalise_mode: str = "normalise"
 
 
 def parse(argv: list[str] | None = None) -> RefineryArgs:
@@ -279,11 +287,11 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
     parser.add_argument(
         "--target-lufs",
         type=float,
-        default=-16.0,
+        default=-14.0,
         metavar="LUFS",
         help=(
             "Normalisation target in LUFS. Must be one of: -12, -14, -16, -18, -23 "
-            "(default -16.0)."
+            "(default -14.0)."
         ),
     )
     parser.add_argument(
@@ -293,6 +301,29 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         metavar="DB",
         help="Skip normalisation if within this tolerance (default 0.5).",
     )
+    parser.add_argument(
+        "--true-peak",
+        type=float,
+        default=-1.5,
+        metavar="DBTP",
+        help="loudnorm true-peak ceiling in dBTP, -9.0..0.0 (default -1.5).",
+    )
+    parser.add_argument(
+        "--lra",
+        type=float,
+        default=11.0,
+        metavar="LU",
+        help="loudnorm loudness-range target in LU, 1..20 (default 11).",
+    )
+    parser.add_argument(
+        "--normalise-mode",
+        default="normalise",
+        choices=list(NORMALISATION_MODES),
+        help=(
+            "normalise re-encodes through loudnorm; lossless rewrites an MP3's "
+            "global gain instead (default normalise)."
+        ),
+    )
 
     args, _ = parser.parse_known_args(args=argv)
 
@@ -300,6 +331,15 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
     lufs_errors = validate_target_lufs(args.target_lufs)
     if lufs_errors:
         parser.error(lufs_errors[0])
+
+    # The delivery targets are bounded the same way the standalone normalizer's
+    # CLI bounded them, so an impossible ceiling is refused before a run.
+    if not -9.0 <= args.true_peak <= 0.0:
+        parser.error(
+            f"--true-peak must be between -9.0 and 0.0 dBTP, got {args.true_peak}"
+        )
+    if not 1.0 <= args.lra <= 20.0:
+        parser.error(f"--lra must be between 1 and 20 LU, got {args.lra}")
 
     return RefineryArgs(
         source=args.source,
@@ -325,6 +365,9 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         preset=args.preset,
         target_lufs=args.target_lufs,
         tolerance=args.tolerance,
+        true_peak=args.true_peak,
+        lra=args.lra,
+        normalise_mode=args.normalise_mode,
         clear_logs=args.clear_logs and not args.no_clear_logs,
         parallel_run=args.parallel_run and not args.no_parallel_run,
     )

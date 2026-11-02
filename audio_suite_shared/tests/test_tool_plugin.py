@@ -13,7 +13,18 @@ Changed in 2.1.0: the registry now holds plugin manifests beside the first-party
 
 Changed in 2.3.0: the expected sets add the ``duplicate_finder`` and
 ``restoration`` manifests (F-02, F-08a in ``PLAN_functional_backlog.md``).
+
+Changed in 2.6.0 (U-04): the five DSP tools REFINE runs as pipeline stages
+stopped shipping a launcher, CLI command and guide, so they leave the
+registry entirely (32 manifests -> 27).  The lock below asserts their
+absence from every surface and that the pipeline still runs their cores
+(``PLAN_restoration_2026-10-31.md``).
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
+
+from pathlib import Path
 
 import pytest
 
@@ -174,7 +185,7 @@ class TestDefaultRegistry:
     def test_registry_is_populated(self):
         r = get_registry()
         assert len(r) >= 16  # all first-party tools
-        assert len(r.first_party) == 32  # 11 enrich + 20 utility + 1 refinery
+        assert len(r.first_party) == 27  # 11 enrich + 15 utility + 1 refinery
         # A plugin adds a registry entry, never a first-party one.
         assert len(r) == len(r.first_party) + len(r.plugins)
         assert r.plugins, "the shipped example plugin did not register"
@@ -228,12 +239,7 @@ class TestDefaultRegistry:
             "file_reorganizer",
             "tag_field_updater",
             "tag_editor",
-            "noise_reduction",
             "undo_tag_edits",
-            "audio_enhancer",
-            "audio_normalizer",
-            "pop_click_remover",
-            "silence_trimmer",
             "spectral_viewer",
             "stem_separator",
             "ml_denoiser",
@@ -270,12 +276,7 @@ class TestDefaultRegistry:
             "mood-analysis-batch",
             "tag-update",
             "tag-edit",
-            "reduce",
             "lyrics",
-            "enhance",
-            "normalise",
-            "declick",
-            "silence-trim",
             "spectrogram",
             "denoise",
             "stems",
@@ -299,12 +300,7 @@ class TestDefaultRegistry:
             "file_reorganizer",
             "tag_field_updater",
             "tag_editor",
-            "noise_reduction",
             "undo_tag_edits",
-            "audio_enhancer",
-            "audio_normalizer",
-            "pop_click_remover",
-            "silence_trimmer",
             "spectral_viewer",
             "stem_separator",
             "ml_denoiser",
@@ -351,6 +347,103 @@ class TestDefaultRegistry:
             assert dataclasses.is_dataclass(m)
             with pytest.raises(dataclasses.FrozenInstanceError):
                 m.name = "tampered"  # type: ignore[misc]
+
+
+#: The five DSP tools REFINE runs as pipeline stages, and the stage each one
+#: became.  They are not tools any more: no manifest, launcher, CLI command,
+#: window or guide - only the library REFINE imports (U-04).
+REMOVED_TOOLS: dict[str, str] = {
+    "pop_click_remover": "declick",
+    "silence_trimmer": "trim",
+    "noise_reduction": "reduce_noise",
+    "audio_enhancer": "enhance",
+    "audio_normalizer": "normalise",
+}
+
+
+class TestRemovedStandaloneTools:
+    """U-04: five tools leave every surface, and REFINE keeps their work.
+
+    The first test is the removal; the rest prove it was a removal and not a
+    half-one, and that the capability did not go with it.
+    """
+
+    def test_the_five_are_not_registered(self):
+        r = get_registry()
+        ids = {m.id for m in r.all}
+
+        assert ids.isdisjoint(REMOVED_TOOLS), sorted(ids & set(REMOVED_TOOLS))
+        for tool_id in REMOVED_TOOLS:
+            assert r.get(tool_id) is None, tool_id
+
+    def test_the_utilities_tab_loses_them_with_the_registry(self):
+        """15 first-party utilities, and the tab offers every one."""
+        r = get_registry()
+        utilities = [m.id for m in r.by_category("utility") if not m.plugin]
+        cards = [m.id for m in r.driver_by_category("utility") if not m.plugin]
+
+        assert len(utilities) == 15, utilities
+        assert sorted(cards) == sorted(utilities)
+
+    def test_no_launcher_and_no_command_survive(self):
+        from audio_suite_shared.cli_app import cli
+
+        root = Path(__file__).resolve().parents[2]
+        commands = set(cli.commands)
+
+        for tool_id, _stage in REMOVED_TOOLS.items():
+            lowered = tool_id.replace("_", "-")
+            launchers = [
+                path
+                for path in root.glob("*.pyw")
+                if lowered.replace("-", "_") in path.stem.lower().replace("-", "_")
+            ]
+            assert launchers == [], f"{tool_id}: launcher(s) {launchers} still ship"
+            assert lowered not in commands, tool_id
+
+    def test_no_card_and_no_package_app_survive(self):
+        """A deleted card or window leaves no module a lazy import could find."""
+        import importlib
+
+        for tool_id in REMOVED_TOOLS:
+            for module in (
+                f"master_driver.ui.cards.{tool_id}_card",
+                f"{tool_id}.app",
+                f"{tool_id}.cli",
+            ):
+                with pytest.raises(ModuleNotFoundError):
+                    importlib.import_module(module)
+
+    def test_each_package_still_exposes_only_its_library(self):
+        """The package is REFINE's library now, not an application."""
+        import importlib
+
+        for tool_id in REMOVED_TOOLS:
+            package = importlib.import_module(tool_id)
+            assert package.__all__ == [], tool_id
+            assert not hasattr(package, "NoiseReductionApp"), tool_id
+
+    def test_refine_runs_every_core_the_tools_shipped(self):
+        """The capability moved into the pipeline; it did not disappear."""
+        from audio_refinery.core import pipeline
+        from audio_refinery.core.models import StageConfig
+
+        source = Path(pipeline.__file__).read_text(encoding="utf-8")
+        for module in (
+            "pop_click_remover.core.declicker",
+            "silence_trimmer.core.trimmer",
+            "noise_reduction.core.noise_reducer",
+            "audio_enhancer.core.models",
+            "audio_normalizer.core.normalizer",
+        ):
+            assert module in source, f"REFINE no longer imports {module}"
+
+        config = StageConfig()
+        assert config.declick is True
+        assert config.trim is True
+        assert config.enhance is True
+        assert config.normalise is True
+        assert config.reduce_noise in (True, False)
 
 
 class TestPluginRegistration:

@@ -20,6 +20,12 @@ builder returned no arguments (the Stem Separator with no output folder, the
 Audio Enhancer with no output directory) is reported and not launched; the
 argless launch opened the tool standalone with its Mode defaulted, which is how
 a Live Update driver produced a Dry Run Stem Separator.
+
+Changed in 2.3.1 (U-03, released in 2.6.0): ``launch_utility`` classifies
+against ``driver_by_category``, so the five tools retired from the UTILITIES tab
+- and the Audio Enhancer case above with them - are no longer part of this
+launch. Their standalone windows and CLI commands are covered by their own
+suites.
 """
 
 from __future__ import annotations
@@ -156,20 +162,6 @@ class TestLaunchUtilityValidation:
         launch_mocks.show_message.assert_not_called()
         launch_mocks.thread.assert_called_once()
 
-    def test_audio_enhancer_without_an_output_dir_is_reported_not_launched(
-        self, state: AppState, launch_mocks: SimpleNamespace, tmp_path
-    ) -> None:
-        """The same empty-argv rule covers the other required-output module."""
-        state.dir_path.set(str(tmp_path))
-        state.module_toggles["audio_enhancer"].set(True)
-        assert state.enhancer_output_dir.get() == ""
-
-        launch_utility(state, MagicMock(), MagicMock())
-
-        assert launch_mocks.show_message.call_args.args[1] == "Settings Required"
-        assert "Audio Enhancer" in launch_mocks.show_message.call_args.args[2]
-        launch_mocks.thread.assert_not_called()
-
     def test_thread_is_daemonised(
         self, state: AppState, launch_mocks: SimpleNamespace
     ) -> None:
@@ -182,10 +174,16 @@ class TestLaunchUtilityValidation:
         assert kwargs.get("daemon") is True
 
     def test_registry_and_toggles_stay_in_sync(self, state: AppState) -> None:
-        """Every utility manifest id has a matching toggle variable."""
+        """Every card the tab offers has a matching toggle variable.
+
+        ``driver_by_category`` is the tab's population, so a manifest retired
+        with ``driver_card=False`` (U-03) is correctly absent from both sides;
+        an offered card whose toggle is missing - the KeyError this guards -
+        fails here instead of at launch.
+        """
         from audio_suite_shared.tool_plugin import get_registry
 
-        utility_ids = {m.id for m in get_registry().by_category("utility")}
+        utility_ids = {m.id for m in get_registry().driver_by_category("utility")}
         assert utility_ids <= set(state.module_toggles.keys())
 
 

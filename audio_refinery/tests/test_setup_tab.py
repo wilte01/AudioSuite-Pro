@@ -1,6 +1,9 @@
 """Tests for audio_refinery.ui.setup_tab.
 Changed in 1.1.0: added EnhancementParams field-parity tests and a
 slider-to-config sync regression test (D24).
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -8,7 +11,11 @@ from __future__ import annotations
 import gc
 import itertools
 import tkinter as tk
+from tkinter import ttk
+from typing import Any
 from unittest.mock import MagicMock
+
+import pytest
 
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 
@@ -32,6 +39,181 @@ def _make_app() -> object:
     app.clear_logs_var = tk.BooleanVar(value=False)
     app.parallel_var = tk.BooleanVar(value=False)
     return app
+
+
+class TestStagePanelSync:
+    """Declick, Trim and Normalise controls write back into the stage params.
+
+    Regression (U-04): until 2.6.0 each of those three panels bound a
+    throwaway Tk variable, so moving REFINE's Click Sensitivity, Trim
+    Threshold or Target LUFS slider changed a value the pipeline never read and
+    the run used the stored setting. The panels' variables are captured here
+    through the shared builders they hand their widgets, then set, and the
+    config the pipeline reads is asserted.
+    """
+
+    def _build(self, root: tk.Tk, config: Any) -> dict[str, Any]:
+        from audio_refinery.ui import setup_tab
+
+        return setup_tab.build(
+            parent=tk.Frame(root),
+            source_path=tk.StringVar(),
+            output_path=None,
+            config=config,
+            on_browse_src=lambda: None,
+            on_browse_out=lambda: None,
+            on_start=lambda: None,
+            on_reset=lambda: None,
+        )
+
+    def _capture(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+        """Record the variables each embedded panel binds its widgets to."""
+        import audio_normalizer.ui.setup_tab as normalise_ui
+        import pop_click_remover.ui.setup_tab as declick_ui
+        import silence_trimmer.ui.setup_tab as trim_ui
+
+        captured: dict[str, Any] = {}
+
+        original_declick = declick_ui.build_config_panel
+        original_trim = trim_ui.build_config_panel
+        original_normalise = normalise_ui.build_config_panel
+
+        def capture_declick(
+            parent: tk.Misc,
+            run_mode: tk.StringVar | None,
+            sensitivity: tk.DoubleVar,
+            max_width: tk.IntVar,
+        ) -> None:
+            captured["sensitivity"] = sensitivity
+            captured["max_width"] = max_width
+            return original_declick(parent, run_mode, sensitivity, max_width)
+
+        def capture_trim(
+            parent: tk.Misc,
+            run_mode: tk.StringVar | None,
+            threshold: tk.IntVar,
+            fade: tk.BooleanVar,
+            fade_in: tk.IntVar,
+            fade_out: tk.IntVar,
+        ) -> None:
+            captured["threshold"] = threshold
+            captured["fade"] = fade
+            captured["fade_in"] = fade_in
+            captured["fade_out"] = fade_out
+            return original_trim(parent, run_mode, threshold, fade, fade_in, fade_out)
+
+        def capture_normalise(
+            parent: tk.Misc,
+            run_mode: tk.StringVar | None,
+            target_lufs: tk.DoubleVar,
+            tolerance: tk.DoubleVar,
+            true_peak: tk.DoubleVar | None = None,
+            lra: tk.DoubleVar | None = None,
+        ) -> None:
+            captured["target_lufs"] = target_lufs
+            captured["tolerance"] = tolerance
+            captured["true_peak"] = true_peak
+            captured["lra"] = lra
+            return original_normalise(
+                parent,
+                run_mode,
+                target_lufs,
+                tolerance,
+                true_peak=true_peak,
+                lra=lra,
+            )
+
+        monkeypatch.setattr(declick_ui, "build_config_panel", capture_declick)
+        monkeypatch.setattr(trim_ui, "build_config_panel", capture_trim)
+        monkeypatch.setattr(normalise_ui, "build_config_panel", capture_normalise)
+        return captured
+
+    def test_declick_sliders_write_back(
+        self, root: tk.Tk, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        captured = self._capture(monkeypatch)
+        self._build(root, config)
+
+        captured["sensitivity"].set(0.05)
+        captured["max_width"].set(7)
+
+        assert config.declick_params.sensitivity == 0.05
+        assert config.declick_params.max_width_ms == 7
+
+    def test_trim_controls_write_back(
+        self, root: tk.Tk, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        captured = self._capture(monkeypatch)
+        self._build(root, config)
+
+        captured["threshold"].set(-35)
+        captured["fade"].set(True)
+        captured["fade_in"].set(250)
+        captured["fade_out"].set(750)
+
+        assert config.trim_params.threshold == -35
+        assert config.trim_params.apply_fade is True
+        assert config.trim_params.fade_in_ms == 250
+        assert config.trim_params.fade_out_ms == 750
+
+    def test_normalise_controls_write_back(
+        self, root: tk.Tk, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        captured = self._capture(monkeypatch)
+        self._build(root, config)
+
+        captured["target_lufs"].set(-18.0)
+        captured["tolerance"].set(1.2)
+        captured["true_peak"].set(-3.0)
+        captured["lra"].set(7.0)
+
+        assert config.normalise_params.target_lufs == -18.0
+        assert config.normalise_params.tolerance == 1.2
+        assert config.normalise_params.true_peak == -3.0
+        assert config.normalise_params.lra == 7.0
+
+    def test_normalise_strategy_choice_writes_back(
+        self, root: tk.Tk, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from audio_refinery.core.models import StageConfig
+        from audio_refinery.ui import setup_tab
+
+        config = StageConfig()
+        self._capture(monkeypatch)
+        # Build into this test's own frame so the session-scoped root's other
+        # widgets (other tests' mode combos) cannot match the search.
+        frame = tk.Frame(root)
+        setup_tab.build(
+            parent=frame,
+            source_path=tk.StringVar(),
+            output_path=None,
+            config=config,
+            on_browse_src=lambda: None,
+            on_browse_out=lambda: None,
+            on_start=lambda: None,
+            on_reset=lambda: None,
+        )
+
+        combos: list[ttk.Combobox] = [
+            widget
+            for widget in _walk(frame, ttk.Combobox)
+            if isinstance(widget, ttk.Combobox)
+            and "Lossless (MP3 global gain)" in tuple(widget.cget("values"))
+        ]
+        assert len(combos) == 1
+
+        combos[0].set("Lossless (MP3 global gain)")
+
+        assert config.normalise_params.mode == "lossless"
 
 
 class TestSetupTabBuild:

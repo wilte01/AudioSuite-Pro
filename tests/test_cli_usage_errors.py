@@ -39,6 +39,9 @@ schema entries require.
 
 Changed in 2.3.0: adds the ``declip`` and ``duplicates`` cases their schema
 entries require, so the table still covers exactly ``set(TOOL_IDS)``.
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -66,7 +69,7 @@ MISSING_PATH = "{missing_path}"
 
 #: One usage-error invocation per schema command.  ``missing`` omits the
 #: required input; ``invalid`` supplies a value Click must reject before the
-#: command body runs.  ``enhance``/``reorganize`` omit their required
+#: command body runs.  ``reorganize`` omits its required
 #: ``--output-dir``, and ``cd-rip`` omits it after the drive argument, which
 #: the command raises itself (both are still usage errors, exit 2).
 _USAGE_CASES: dict[str, dict[str, list[str]]] = {
@@ -80,7 +83,6 @@ _USAGE_CASES: dict[str, dict[str, list[str]]] = {
     "cue generate": {"missing": [], "invalid": [MISSING_PATH]},
     "cue parse": {"missing": [], "invalid": [MISSING_PATH]},
     "cue split": {"missing": [], "invalid": [MISSING_PATH]},
-    "declick": {"missing": [], "invalid": [MISSING_PATH]},
     # Both new tools bound their options in Click, so an out-of-type value is
     # rejected before the body touches the settings object.
     "declip": {"missing": [], "invalid": [LIBRARY, "--threshold", "bogus"]},
@@ -92,25 +94,21 @@ _USAGE_CASES: dict[str, dict[str, list[str]]] = {
     # not accept.  Both must publish a document like every other command.
     "doctor": {"missing": ["--no-such-option"], "invalid": ["stray-argument"]},
     "duplicates": {"missing": [], "invalid": [LIBRARY, "--threshold", "bogus"]},
-    "enhance": {"missing": [LIBRARY], "invalid": [MISSING_PATH]},
     "fingerprint": {"missing": [], "invalid": [LIBRARY, "--mb-auth", "bogus"]},
     "genre-sync": {"missing": [], "invalid": [MISSING_PATH]},
     "key": {"missing": [], "invalid": [MISSING_PATH]},
     "lyrics": {"missing": [], "invalid": [MISSING_PATH]},
     "mood-analysis-batch": {"missing": [], "invalid": [MISSING_PATH]},
     "mood-analyzer": {"missing": [], "invalid": [MISSING_PATH]},
-    "normalise": {"missing": [], "invalid": [LIBRARY, "--mode", "bogus"]},
     # ``plugins list`` takes no argument, like ``doctor``; ``enable``/``disable``
     # reject an id no discovered plugin declares, which is a usage error.
     "plugins disable": {"missing": [], "invalid": [MISSING_PATH]},
     "plugins enable": {"missing": [], "invalid": [MISSING_PATH]},
     "plugins list": {"missing": ["--no-such-option"], "invalid": ["stray-argument"]},
-    "reduce": {"missing": [], "invalid": [LIBRARY, "--hum-frequency", "42"]},
     "refine": {"missing": [], "invalid": [MISSING_PATH]},
     "reorganize": {"missing": [LIBRARY], "invalid": [MISSING_PATH]},
     "replaygain": {"missing": [], "invalid": [MISSING_PATH]},
     "scrub": {"missing": [], "invalid": [MISSING_PATH]},
-    "silence-trim": {"missing": [], "invalid": [MISSING_PATH]},
     "spectrogram": {"missing": [], "invalid": [MISSING_PATH]},
     "stats": {"missing": [], "invalid": [LIBRARY, "--detail", "bogus"]},
     # ``stems`` requires ``--output-dir``, so the bare invocation is already a
@@ -316,11 +314,6 @@ class TestBodyUsageErrors:
 
     #: (argv before ``--json``, command key, expected message fragment)
     _CASES = [
-        (
-            ["enhance", LIBRARY, "--output-dir", "{out}", "--preset", "Nope"],
-            "enhance",
-            "Unknown preset",
-        ),
         (["convert", LIBRARY, "--preset", "nope"], "convert", "Unknown preset"),
         (["convert", LIBRARY, "--format", "xyz"], "convert", "Unsupported format"),
         (["tempo", LIBRARY, "--scheme", "nope"], "tempo", "Unknown scheme"),

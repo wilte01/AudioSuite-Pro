@@ -12,6 +12,9 @@ Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``
 so a payload field the processor adds (D112) is ignored instead of aborting an
 otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
 completion, progress and error seams.
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -313,6 +316,9 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             "chorus": p.enhance_params.chorus,
             "target_lufs": p.normalise_params.target_lufs,
             "tolerance": p.normalise_params.tolerance,
+            "true_peak": p.normalise_params.true_peak,
+            "lra": p.normalise_params.lra,
+            "normalise_mode": p.normalise_params.mode,
         }
 
     def _apply_preset(self, settings: dict[str, Any]) -> None:
@@ -385,6 +391,12 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             p.normalise_params.target_lufs = settings["target_lufs"]
         if "tolerance" in settings:
             p.normalise_params.tolerance = settings["tolerance"]
+        if "true_peak" in settings:
+            p.normalise_params.true_peak = settings["true_peak"]
+        if "lra" in settings:
+            p.normalise_params.lra = settings["lra"]
+        if "normalise_mode" in settings:
+            p.normalise_params.mode = settings["normalise_mode"]
 
         # Keep the enhancer stage's Custom DSP editor in step with the loaded
         # preset. The editor's values are the source for every later edit, so a
@@ -750,6 +762,9 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         self.config.enhance_params.preset = args.preset
         self.config.normalise_params.target_lufs = args.target_lufs
         self.config.normalise_params.tolerance = args.tolerance
+        self.config.normalise_params.true_peak = args.true_peak
+        self.config.normalise_params.lra = args.lra
+        self.config.normalise_params.mode = args.normalise_mode
 
         if should_auto_start:
             self.root.after(1500, self.start_processing)

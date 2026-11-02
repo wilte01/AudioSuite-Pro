@@ -19,6 +19,9 @@ Covers:
 
 Changed in 2.1.7: guide artefacts are read from ``documentation/user_guides/``.
 
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -39,17 +42,16 @@ from audio_suite_shared.system_requirements import (
 #: grepping first-party non-test code for ffmpeg/ffprobe/pydub/AudioSegment;
 #: update this table in lockstep when a tool gains or loses the dependency —
 #: the wording lock below then enforces its guide states the requirement.
+#:
+#: Five entries left in 2.6.0 (U-04): the enhancer, normalizer, noise
+#: reduction, declicker and trimmer are REFINE stages now, so their work — and
+#: the guide stating the dependency — lives in the Audio Refinery's.
 FFMPEG_DEPENDENT_TOOLS: tuple[tuple[str, str], ...] = (
-    ("audio_enhancer", "Audio_Enhancer_User_Guide.docx"),
-    ("audio_normalizer", "Audio_Normalizer_User_Guide.docx"),
     ("audio_refinery", "Audio_Refinery_User_Guide.docx"),
     ("cd_ripper", "CD_Ripper_User_Guide.docx"),
     ("ml_denoiser", "ML_Denoiser_User_Guide.docx"),
     ("music_format_converter", "Music_Format_Converter_User_Guide.docx"),
-    ("noise_reduction", "Noise_Reduction_User_Guide.docx"),
-    ("pop_click_remover", "Pop_Click_Remover_User_Guide.docx"),
     ("replaygain_analyzer", "ReplayGain_Analyzer_User_Guide.docx"),
-    ("silence_trimmer", "Silence_Trimmer_User_Guide.docx"),
     ("stem_separator", "Stem_Separator_User_Guide.docx"),
 )
 

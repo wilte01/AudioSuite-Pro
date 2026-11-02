@@ -24,6 +24,10 @@ toggle (Sprint 7, Item 7.1).
 
 Changed in 2.3.0: carries the duplicate_finder and restoration module toggles (F-02,
 F-08a).
+
+Changed in 2.3.1 (U-03, released in 2.6.0): the five DSP tools' option variables
+(``declick_*``, ``trimmer_*``, ``nr_*``, ``enhancer_*``, ``normalizer_*``) go with
+their cards; the toggles follow ``driver_manifests``, so they go too.
 """
 
 from __future__ import annotations
@@ -181,16 +185,6 @@ class AppState:
         self.fingerprinter_fpcalc = tk.StringVar(master, value="")
         self.fingerprinter_api_key = tk.StringVar(master, value="")
 
-        # ── Noise Reduction controls ──────────────────────────────────────────
-        self.nr_reduce_hum = tk.BooleanVar(master, value=False)
-        self.nr_reduce_broadband = tk.BooleanVar(master, value=False)
-        self.nr_hum_frequency = tk.StringVar(master, value="60")
-        self.nr_hum_harmonics = tk.StringVar(master, value="8")
-        self.nr_hum_quality = tk.StringVar(master, value="30.0")
-        self.nr_noise_start = tk.StringVar(master, value="0")
-        self.nr_noise_end = tk.StringVar(master, value="500")
-        self.nr_gate_threshold = tk.StringVar(master, value="3.0")
-
         # ── Converter extra controls ──────────────────────────────────────────
         self.converter_sample_rate = tk.StringVar(master, value="source")
         self.converter_bit_depth = tk.StringVar(master, value="auto")
@@ -222,28 +216,6 @@ class AppState:
         self.cd_ripper_format = tk.StringVar(master, value="flac")
         self.cd_ripper_tracks = tk.StringVar(master, value="")
         self.cd_ripper_cue = tk.BooleanVar(master, value=False)
-
-        # ── Audio Enhancer controls ──────────────────────────────────────────
-        self.enhancer_output_dir = tk.StringVar(master, value="")
-        self.enhancer_preset = tk.StringVar(master, value="Moderate")
-
-        # ── Audio Normalizer controls ────────────────────────────────────────
-        self.normalizer_target_lufs = tk.StringVar(master, value="-14.0")
-        self.normalizer_tolerance = tk.StringVar(master, value="0.5")
-        self.normalizer_mode = tk.StringVar(master, value="normalise")
-
-        # ── Pop & Click Remover controls ─────────────────────────────────────
-        self.declick_sensitivity = tk.StringVar(master, value="0.25")
-        self.declick_max_width = tk.StringVar(master, value="5")
-
-        # ── Silence Trimmer controls ─────────────────────────────────────────
-        # Fade defaults are the GUI app's own valid defaults (500/1000 ms),
-        # not the click CLI's 25/25 — the GUI parser validates 100–3000 /
-        # 100–5000 and would SystemExit at launch on out-of-range values.
-        self.trimmer_threshold = tk.StringVar(master, value="-50")
-        self.trimmer_apply_fade = tk.BooleanVar(master, value=False)
-        self.trimmer_fade_in_ms = tk.StringVar(master, value="500")
-        self.trimmer_fade_out_ms = tk.StringVar(master, value="1000")
 
         # ── Stem Separator controls ──────────────────────────────────────────
         # No output directory default: a separation writes whole new trees, so

@@ -47,7 +47,10 @@
     "chorus": false
   },
   "normalise_params": {
-    "target_lufs": -16.0,
-    "tolerance": 0.5
+    "target_lufs": -14.0,
+    "tolerance": 0.5,
+    "true_peak": -1.5,
+    "lra": 11.0,
+    "mode": "normalise"
   }
 }

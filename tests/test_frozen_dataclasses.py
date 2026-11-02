@@ -4,6 +4,9 @@ Each parametrised entry constructs the class with its minimal field set and
 asserts that assigning to an attribute raises ``FrozenInstanceError``. The
 construction doubles as the non-vacuity proof that the field set still
 matches the class definition.
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -16,7 +19,6 @@ from typing import Any
 import pytest
 
 import audio_refinery.utils.cli_args as refinery_cli_args
-from audio_enhancer.utils.cli_args import CliArgs
 from audio_refinery.core.models import StageMetrics, StageResult
 from audio_suite_shared.error_recovery import RetryConfig
 from master_driver.batch_orchestrator import BatchProgress, BatchReport
@@ -56,7 +58,6 @@ _FROZEN_CASES: list[tuple[type[Any], dict[str, Any], str]] = [
     (StageResult, {"stage": "Declick"}, "message"),
     (RetryConfig, {}, "max_retries"),
     (TagRow, {"path": Path("x.mp3"), "values": {}}, "error"),
-    (CliArgs, {}, "source"),
     (refinery_cli_args.RefineryArgs, {}, "source"),
 ]
 
@@ -76,7 +77,9 @@ def test_newly_frozen_dataclass_rejects_assignment(
 
 def test_frozen_case_list_covers_all_newly_frozen_classes() -> None:
     """The parametrised list is the C1 freeze list — never silently shrunk."""
-    assert len(_FROZEN_CASES) == 9
+    # Eight since 2.6.0: the Audio Enhancer's CLI (and its frozen CliArgs)
+    # went with the standalone window (U-04).
+    assert len(_FROZEN_CASES) == 8
     assert _IDS == [
         "ScanResult",
         "BatchProgress",
@@ -85,6 +88,5 @@ def test_frozen_case_list_covers_all_newly_frozen_classes() -> None:
         "StageResult",
         "RetryConfig",
         "TagRow",
-        "CliArgs",
         "RefineryArgs",
     ]

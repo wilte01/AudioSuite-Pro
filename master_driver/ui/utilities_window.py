@@ -12,8 +12,18 @@ window before the last four cards and the launch button, so the tab now fits
 and the primary action never scrolls out of reach (PLAN_feature_expansion.md
 D119).
 
+Changed in 2.3.1 (U-03, released in 2.6.0): fifteen cards, not twenty.  The grid
+renders ``driver_by_category``, so the five DSP tools REFINE now runs as
+pipeline stages lose their shortcut here while keeping their launcher and CLI
+command (PLAN_restoration_2026-10-31.md).
+
 Changed in 2.1.0: a plugin tool without a card module gets the generic plugin card, and
 select-all includes plugin tools.
+
+Changed in 2.3.1: an expanded card always starts a fresh row at column 0, so a
+card opened from the right column spans the window like one opened from the
+left instead of filling only the right half (PLAN_restoration_2026-10-31.md
+L-01).
 """
 
 from __future__ import annotations
@@ -41,7 +51,7 @@ _CARD_MODULE_OVERRIDES: dict[str, str] = {
 
 
 #: Cards per row inside the scroll area.  Two columns halve the stacked
-#: height, which is what a seventeen-card list needs.
+#: height, which is what a fifteen-card list needs.
 _CARD_COLUMNS = 2
 
 
@@ -128,6 +138,14 @@ def build(
         row = column = 0
         for cell in cells:
             span = _CARD_COLUMNS if expanded.get(cell, False) else 1
+            if span > 1 and column > 0:
+                # A spanning card must start at the left edge.  Gridded at
+                # column 1 it would claim columns 1 and 2, and column 2 is an
+                # implicit third column no ``columnconfigure`` weights - so a
+                # right-column card's Settings filled the right half of the
+                # window instead of all of it (it must wrap to a fresh row).
+                column = 0
+                row += 1
             cell.grid(row=row, column=column, columnspan=span, sticky="new")
             column += span
             if column >= _CARD_COLUMNS:

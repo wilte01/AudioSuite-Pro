@@ -9,6 +9,14 @@ coupling to the individual tools' internal models.
 Changed in 1.1.0: extended EnhanceParams with the five Sprint 1
 effect toggles plus karaoke_strength (kept field-parity with the
 shared and enhancer classes).
+
+Changed in 2.6.0 (U-04): ``NormaliseParams`` carries the standalone Audio
+Normalizer's whole delivery set — true-peak ceiling, LRA target and the
+lossless MP3 path — and defaults to the tool's -14 LUFS target, because the
+standalone window that used to hold the -16 default is gone.
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -73,12 +81,30 @@ class EnhanceParams:
     chorus: bool = False
 
 
+#: The two normalisation strategies: an FFmpeg loudnorm re-encode, or the
+#: lossless MP3 path that rewrites the frame ``global_gain`` in place.  Kept
+#: here rather than in a tool package so the CLI, the settings loader and the
+#: stage validator cannot drift apart.
+NORMALISATION_MODES: tuple[str, ...] = ("normalise", "lossless")
+
+
 @dataclass
 class NormaliseParams:
-    """Parameters for loudness normalisation stage."""
+    """Parameters for loudness normalisation stage.
 
-    target_lufs: float = -16.0
+    ``true_peak`` and ``lra`` are the loudnorm delivery targets the standalone
+    Audio Normalizer carried (U-04); without a window to open, they have to be
+    settable here or a file normalised by the pipeline could never honour a
+    ceiling.  ``mode`` selects the strategy: ``"lossless"`` rewrites an MP3's
+    ``global_gain`` in place instead of re-encoding it, and falls back to the
+    re-encode for every other format.
+    """
+
+    target_lufs: float = -14.0
     tolerance: float = 0.5
+    true_peak: float = -1.5
+    lra: float = 11.0
+    mode: str = "normalise"
 
 
 @dataclass

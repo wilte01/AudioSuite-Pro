@@ -39,6 +39,15 @@ is recorded instead of raised, and ``first_party`` / ``plugins`` /
 for exactly the population they mean (Sprint 7, Item 7.1).
 
 Changed in 2.3.0: adds the duplicate_finder and restoration manifests (F-02, F-08a).
+
+Changed in 2.6.0 (U-04): the five DSP tools the Audio Refinery runs as pipeline
+stages (Pop & Click Remover, Silence Trimmer, Noise Reduction, Audio Enhancer,
+Audio Normalizer) are no longer tools at all - their windows, launchers and CLI
+commands are gone - so this registry holds 27 manifests rather than 32, and the
+short-lived ``driver_card`` flag (U-03) had no user left to delete it.
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -117,11 +126,11 @@ class ToolManifest:
 
     @property
     def is_driver_tool(self) -> bool:
-        """Return whether the Master Driver can launch this tool.
+        """Return whether the Master Driver offers this tool a card.
 
-        Every first-party tool has a launcher; a plugin may ship only a CLI
-        command, in which case the driver has no window to open and must not
-        create a toggle whose argument list would be empty.
+        A plugin may ship only a CLI command, in which case there is no window
+        to open and a toggle would carry an empty argument list.  Every
+        first-party tool ships a launcher, so this is the whole test.
         """
         return bool(self.pyw_filename)
 
@@ -482,56 +491,6 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="tag-update",
         standalone=True,
         order=45,
-    ),
-    ToolManifest(
-        id="noise_reduction",
-        name="Noise Reduction",
-        category="utility",
-        pyw_filename="Noise_Reduction.pyw",
-        description="Remove hum and broadband noise from audio files",
-        cli_command="reduce",
-        standalone=True,
-        order=42,
-    ),
-    ToolManifest(
-        id="audio_enhancer",
-        name="Audio Enhancer",
-        category="utility",
-        pyw_filename="Audio_Enhancer.pyw",
-        description="Improve dynamic range and clarity of audio files",
-        cli_command="enhance",
-        standalone=True,
-        order=43,
-    ),
-    ToolManifest(
-        id="audio_normalizer",
-        name="Audio Normalizer",
-        category="utility",
-        pyw_filename="Audio_Normalizer.pyw",
-        description="Normalise audio loudness to a target LUFS level",
-        cli_command="normalise",
-        standalone=True,
-        order=44,
-    ),
-    ToolManifest(
-        id="pop_click_remover",
-        name="Pop & Click Remover",
-        category="utility",
-        pyw_filename="Pop_Click_Remover.pyw",
-        description="Remove clicks and pops from audio files",
-        cli_command="declick",
-        standalone=True,
-        order=45,
-    ),
-    ToolManifest(
-        id="silence_trimmer",
-        name="Silence Trimmer",
-        category="utility",
-        pyw_filename="Silence_Trimmer.pyw",
-        description="Trim silence and optionally apply fades",
-        cli_command="silence-trim",
-        standalone=True,
-        order=46,
     ),
     ToolManifest(
         id="stem_separator",

@@ -18,6 +18,9 @@ Changed in 2.3.0: registers the Duplicate Finder's and the Restoration
 Changed in 2.1.7: ``open_help`` resolves
 ``documentation/user_guides/individual_programs/<tool>/``, the one documentation tree.
 
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 import logging
@@ -118,9 +121,7 @@ def open_help(guide_filename: str) -> None:
         "Album_Art_Synchronizer_User_Guide.docx": "album_art_sync",
         "AlbumGenre_Tagger_User_Guide.docx": "album_genre_tagger",
         "ASX_Playlist_Extractor_User_Guide.docx": "asx_extractor",
-        "Audio_Enhancer_User_Guide.docx": "audio_enhancer",
         "Audio_Fingerprinter_User_Guide.docx": "audio_fingerprinter",
-        "Audio_Normalizer_User_Guide.docx": "audio_normalizer",
         "Audio_Refinery_User_Guide.docx": "audio_refinery",
         "BPM_Analyzer_User_Guide.docx": "bpm_analyzer",
         "CD_Ripper_User_Guide.docx": "cd_ripper",
@@ -135,10 +136,7 @@ def open_help(guide_filename: str) -> None:
         "Mood_Analyzer_User_Guide.docx": "mood_analyzer",
         "Music_Format_Converter_User_Guide.docx": "music_format_converter",
         "ML_Denoiser_User_Guide.docx": "ml_denoiser",
-        "Noise_Reduction_User_Guide.docx": "noise_reduction",
-        "Pop_Click_Remover_User_Guide.docx": "pop_click_remover",
         "ReplayGain_Analyzer_User_Guide.docx": "replaygain_analyzer",
-        "Silence_Trimmer_User_Guide.docx": "silence_trimmer",
         "Duplicate_Finder_User_Guide.docx": "duplicate_finder",
         "Restoration_User_Guide.docx": "restoration",
         "Spectral_Viewer_User_Guide.docx": "spectral_viewer",

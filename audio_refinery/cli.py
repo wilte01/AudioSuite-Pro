@@ -6,6 +6,9 @@ Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 
 Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
 run whose only failures were per-file keeps its exit status (PLAN D92).
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from pathlib import Path
 
 import click
 
+from audio_refinery.core.models import NORMALISATION_MODES
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_base import (
     _opt_dir,
@@ -128,16 +132,37 @@ def _validate_lufs(ctx: click.Context, param: click.Parameter, value: float) -> 
 @click.option("--chorus", is_flag=True, default=False, help="Apply a chorus effect.")
 @click.option(
     "--target-lufs",
-    default=-16.0,
+    default=-14.0,
     type=float,
     callback=_validate_lufs,
-    help=("Normalisation target LUFS (default -16.0; one of -12, -14, -16, -18, -23)."),
+    help=("Normalisation target LUFS (default -14.0; one of -12, -14, -16, -18, -23)."),
 )
 @click.option(
     "--tolerance",
     default=0.5,
     type=float,
     help="Normalisation tolerance LUFS (default 0.5).",
+)
+@click.option(
+    "--true-peak",
+    default=-1.5,
+    type=click.FloatRange(-9.0, 0.0),
+    help="loudnorm true-peak ceiling in dBTP (default -1.5).",
+)
+@click.option(
+    "--lra",
+    default=11.0,
+    type=click.FloatRange(1.0, 20.0),
+    help="loudnorm loudness-range target in LU (default 11).",
+)
+@click.option(
+    "--normalise-mode",
+    type=click.Choice(NORMALISATION_MODES),
+    default="normalise",
+    help=(
+        "normalise re-encodes through loudnorm; lossless rewrites an MP3's "
+        "global gain instead (default normalise)."
+    ),
 )
 def refine(
     directory: str,
@@ -168,6 +193,9 @@ def refine(
     chorus: bool,
     target_lufs: float,
     tolerance: float,
+    true_peak: float,
+    lra: float,
+    normalise_mode: str,
 ) -> None:
     """Run the multi-stage audio refinement pipeline."""
     from audio_refinery.core.file_processor import run_pipeline
@@ -207,7 +235,13 @@ def refine(
             flanger=flanger,
             chorus=chorus,
         ),
-        normalise_params=NormaliseParams(target_lufs=target_lufs, tolerance=tolerance),
+        normalise_params=NormaliseParams(
+            target_lufs=target_lufs,
+            tolerance=tolerance,
+            true_peak=true_peak,
+            lra=lra,
+            mode=normalise_mode,
+        ),
         noise_reduction_params=NoiseReductionParams(
             reduce_hum=reduce_hum,
             hum_frequency=hum_frequency,

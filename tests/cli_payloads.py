@@ -23,6 +23,9 @@ recorded payload is what a real separation writes rather than a dry-run plan
 Changed in 2.1.0: the recording interpreter is normalised to ``<python>``, so
 the corpus stays machine-independent now that ``doctor`` reports the
 interpreter it ran under.
+Changed in 2.3.1: documented that a recorded fatal reason is Click's own
+wording, so a re-recording refreshes it rather than pinning it
+(PLAN_restoration_2026-10-31.md D16).
 """
 
 from __future__ import annotations
@@ -365,6 +368,13 @@ def record_error_payloads() -> dict[str, dict[str, Any]]:
     Each run must exit with Click's usage-error status and print a document
     whose counters are zero, ``errors`` is 1 and ``error`` is a non-empty
     string; anything else means the recording measured the wrong thing.
+
+    The reason itself is ``ClickException.format_message()``, i.e. Click's
+    sentence rather than the suite's: a recording captures the wording of the
+    Click that ran it, and a Click release that rephrases a usage error makes
+    the committed message old, not wrong.  Nothing asserts that wording - the
+    live lock compares the document without it (D16) - so re-recording after
+    such a bump is documentation upkeep, not a repair.
 
     Returns:
         Command path to its fatal-error document, for every command the schema

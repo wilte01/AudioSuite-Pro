@@ -34,6 +34,14 @@ plugin's own commands) now that the registry also holds plugins.
 Changed in 2.1.6: the import block is re-sorted against the corrected ruff
 target py311 — ``tomllib`` is 3.11 standard library
 (R-15, PLAN_audit_2026-10-24_deferred_p2p3.md).
+
+Changed in 2.3.1: the fatal-error lock no longer compares the reason text.
+A fatal document's ``error`` is ``ClickException.format_message()`` — Click's own
+prose (8.5 prints ``No such option '--x'.``, 8.3.2 ``No such option: --x``) — so
+comparing it byte for byte pinned the installed Click version and went red
+twice (PLAN_feature_expansion.md D10, PLAN_restoration_2026-10-31.md D15, D16).
+The document is compared field by field without it, and the reason is checked
+for presence and for naming the value it rejected.
 """
 
 from __future__ import annotations
@@ -43,7 +51,9 @@ import tempfile
 import tomllib
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -89,6 +99,18 @@ def _committed_schema() -> dict[str, Any]:
         Path(__file__).resolve().parents[1] / "audio_suite_shared" / "cli_schema.json"
     )
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _without_reason(document: dict[str, Any]) -> dict[str, Any]:
+    """Return *document* without the free-text reason a dependency renders.
+
+    A fatal document's ``error`` is Click's ``format_message()`` output, not the
+    suite's own sentence, so its wording is a property of the installed Click
+    version.  Comparing it byte for byte pinned that version instead of the
+    contract (D16), so the reason is checked separately: present, non-empty, and
+    naming the value that was rejected.  Every other field is compared exactly.
+    """
+    return {key: value for key, value in document.items() if key != "error"}
 
 
 def _schema_variant(document: dict[str, Any], command: str) -> dict[str, Any]:
@@ -435,6 +457,13 @@ class TestFatalErrorExamples:
     run still carries the core keys with ``errors`` at 1 and the reason in
     ``error``.  The example is a real recording, so it shows the message the
     CLI actually writes, not a hand-written placeholder.
+
+    The message's *wording* belongs to Click: the field is
+    ``ClickException.format_message()``, which Click has already rephrased once
+    between the versions this project has run on.  So the wording is the one
+    thing the live comparison does not compare — a Click release that rephrases
+    a usage error is a recording refresh, not a protocol change — while the
+    field's presence and the value it names still are.
     """
 
     def test_every_variant_publishes_the_recorded_failure(self) -> None:
@@ -471,10 +500,62 @@ class TestFatalErrorExamples:
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp) / "run"
             work.mkdir()
-            exit_code, stdout, stderr = capture(command, error_argv_for(command, work))
+            argv = error_argv_for(command, work)
+            exit_code, stdout, stderr = capture(command, argv)
 
         assert exit_code == 2, stderr
-        assert json.loads(stdout) == published
+        actual = json.loads(stdout)
+        assert _without_reason(actual) == _without_reason(published), (
+            f"{command}: a real failure does not print the published document"
+        )
+        # The reason is Click's sentence, so its wording is not compared.  What
+        # this suite owns is that the document carries one at all, and that it
+        # names the value the run rejected - which is why the example exists.
+        assert actual["error"].strip(), f"{command}: the run reported no reason"
+        assert argv[0] in actual["error"], (
+            f"{command}: the reason does not name the rejected value {argv[0]!r}: "
+            f"{actual['error']!r}"
+        )
+
+    def test_a_reworded_reason_leaves_the_lock_green(self) -> None:
+        """Click's prose is not the contract: a reword must not redden this lock.
+
+        The corpus has carried two wordings so far - 8.5's
+        ``No such option '--no-such-option'.`` and 8.3.2's
+        ``No such option: --no-such-option`` - so the run is patched to emit a
+        third, and the comparison above must still hold.  The stand-in is a
+        wording no release prints, on purpose: the proof then holds whichever
+        Click is installed, instead of degenerating when the host already
+        prints the one named above.  Without this, a green result cannot tell
+        "Click did not change" from "nothing is compared".
+        """
+        published = _schema_variant(_committed_schema(), "doctor")["examples"][1]
+        reworded = "Unrecognised option '--no-such-option'."
+
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp) / "run"
+            work.mkdir()
+            with mock.patch.object(
+                click.exceptions.NoSuchOption, "format_message", lambda _exc: reworded
+            ):
+                exit_code, stdout, stderr = capture(
+                    "doctor", error_argv_for("doctor", work)
+                )
+
+        assert exit_code == 2, stderr
+        actual = json.loads(stdout)
+        assert actual["error"] == reworded, "the patch did not reach the document"
+        assert actual != published, "the patch left the document unchanged"
+        assert _without_reason(actual) == _without_reason(published)
+
+    def test_the_comparison_ignores_only_the_reason(self) -> None:
+        """A helper that dropped a second field would weaken the lock silently."""
+        published = _schema_variant(_committed_schema(), "doctor")["examples"][1]
+
+        assert set(_without_reason(published)) == set(published) - {"error"}
+        assert _without_reason({**published, "processed": 1}) != _without_reason(
+            published
+        )
 
 
 class TestSingleDocument:

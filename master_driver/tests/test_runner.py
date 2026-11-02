@@ -25,6 +25,10 @@ Changed in 2.1.0: the two failing-step tests patch the retry backoff instead of
 waiting it out (1 s + 2 s + 3 s each); the assertions are unchanged.
 Changed in 2.2.1: pins ``tag_field_updater``'s start/end handshake flags, which
 its GUI now binds to the Run Controls strip (U3).
+
+Changed in 2.3.1 (U-03, released in 2.6.0): removes the five retired DSP tools'
+argument-shape tests with their builders; the remaining entries' handshakes stay
+pinned.
 """
 
 import os
@@ -103,10 +107,6 @@ def _make_state(
         "asx_extractor",
         "cd_ripper",
         "library_stats",
-        "audio_enhancer",
-        "audio_normalizer",
-        "pop_click_remover",
-        "silence_trimmer",
         "stem_separator",
         "ml_denoiser",
         "tag_editor",
@@ -766,35 +766,6 @@ class TestBuildUtilityArgs:
         assert "--specific-pattern" in reorg_entry[2]
         assert "--various-pattern" in reorg_entry[2]
 
-    def test_noise_reduction_reduce_hum_flags(self):
-        state = _make_state()
-        state.nr_reduce_hum = _bool_var(True)
-        state.nr_hum_frequency = _str_var("50")
-        state.nr_hum_harmonics = _str_var("4")
-        args_list = build_utility_args(state)
-        nr_entry = next(e for e in args_list if "Noise Reduction" in e[1].name)
-        args = nr_entry[2]
-        assert "--reduce-hum" in args
-        assert "50" == args[args.index("--hum-frequency") + 1]
-        assert "4" == args[args.index("--hum-harmonics") + 1]
-
-    def test_noise_reduction_reduce_broadband_flags(self):
-        state = _make_state()
-        state.nr_reduce_broadband = _bool_var(True)
-        state.nr_noise_start = _str_var("100")
-        args_list = build_utility_args(state)
-        nr_entry = next(e for e in args_list if "Noise Reduction" in e[1].name)
-        args = nr_entry[2]
-        assert "--reduce-broadband" in args
-        assert "100" == args[args.index("--noise-start") + 1]
-
-    def test_noise_reduction_no_flags_when_off(self):
-        state = _make_state()
-        args_list = build_utility_args(state)
-        nr_entry = next(e for e in args_list if "Noise Reduction" in e[1].name)
-        assert "--reduce-hum" not in nr_entry[2]
-        assert "--reduce-broadband" not in nr_entry[2]
-
     def test_tag_field_updater_entry_present(self):
         state = _make_state()
         args_list = build_utility_args(state)
@@ -821,110 +792,6 @@ class TestBuildUtilityArgs:
         entry = next(e for e in args_list if e[1].id == "tag_editor")
         assert entry[2][:2] == ["/music", "--dry"]
         assert entry[2][-2:] == ["--no-clear-logs", "--no-parallel-run"]
-
-    def test_enhancer_returns_empty_args_without_output_dir(self):
-        state = _make_state()
-        state.enhancer_output_dir = _str_var("")
-        args_list = build_utility_args(state)
-        enh_entry = next(e for e in args_list if "Audio Enhancer" in e[1].name)
-        assert enh_entry[2] == []
-
-    def test_enhancer_emits_source_output_preset(self):
-        state = _make_state()
-        state.enhancer_output_dir = _str_var("/out/enhanced")
-        state.enhancer_preset = _str_var("Mild")
-        args_list = build_utility_args(state)
-        enh_entry = next(e for e in args_list if "Audio Enhancer" in e[1].name)
-        args = enh_entry[2]
-        assert "--source" in args
-        assert "/music" == args[args.index("--source") + 1]
-        assert "--output" in args
-        assert "/out/enhanced" == args[args.index("--output") + 1]
-        assert "--preset" in args
-        assert "Mild" == args[args.index("--preset") + 1]
-
-    def test_enhancer_skips_driver_display_flags(self):
-        """The enhancer GUI uses strict parse_args — display handshake
-        flags would fatal at launch, so they must never be emitted."""
-        state = _make_state()
-        state.enhancer_output_dir = _str_var("/out/enhanced")
-        state.util_clear_logs_var = _bool_var(True)
-        state.parallel_var = _bool_var(True)
-        args_list = build_utility_args(state)
-        enh_entry = next(e for e in args_list if "Audio Enhancer" in e[1].name)
-        assert "--clear-logs" not in enh_entry[2]
-        assert "--parallel-run" not in enh_entry[2]
-
-    def test_enhancer_auto_flags_when_set(self):
-        state = _make_state(util_auto_start=True)
-        state.util_auto_end = _bool_var(True)
-        state.enhancer_output_dir = _str_var("/out/enhanced")
-        args_list = build_utility_args(state)
-        enh_entry = next(e for e in args_list if "Audio Enhancer" in e[1].name)
-        assert "--auto-start" in enh_entry[2]
-        assert "--auto-end" in enh_entry[2]
-
-    def test_normalizer_args_shape(self):
-        state = _make_state()
-        args_list = build_utility_args(state)
-        norm_entry = next(e for e in args_list if "Audio Normalizer" in e[1].name)
-        args = norm_entry[2]
-        assert args[0] == "/music"
-        assert args[1] == "-14.0"
-        assert args[args.index("--tolerance") + 1] == "0.5"
-        assert args[args.index("--mode") + 1] == "normalise"
-
-    def test_normalizer_target_lufs_and_mode_from_state(self):
-        state = _make_state()
-        state.normalizer_target_lufs = _str_var("-23.0")
-        state.normalizer_mode = _str_var("lossless")
-        args_list = build_utility_args(state)
-        norm_entry = next(e for e in args_list if "Audio Normalizer" in e[1].name)
-        args = norm_entry[2]
-        assert args[1] == "-23.0"
-        assert "lossless" == args[args.index("--mode") + 1]
-
-    def test_pop_click_args_use_width_not_max_width(self):
-        """The GUI parser's grass width flag is --width (the click CLI's
-        --max-width would be silently discarded)."""
-        state = _make_state()
-        state.declick_sensitivity = _str_var("0.15")
-        state.declick_max_width = _str_var("3")
-        args_list = build_utility_args(state)
-        pc_entry = next(e for e in args_list if "Pop & Click" in e[1].name)
-        args = pc_entry[2]
-        assert "--sensitivity" in args
-        assert "0.15" == args[args.index("--sensitivity") + 1]
-        assert "--width" in args
-        assert "3" == args[args.index("--width") + 1]
-        assert "--max-width" not in args
-
-    def test_silence_trimmer_threshold_in_args(self):
-        state = _make_state()
-        args_list = build_utility_args(state)
-        trim_entry = next(e for e in args_list if "Silence Trimmer" in e[1].name)
-        args = trim_entry[2]
-        assert "--threshold" in args
-        assert "-50" == args[args.index("--threshold") + 1]
-
-    def test_silence_trimmer_fade_flags_only_when_enabled(self):
-        state = _make_state()
-        state.trimmer_apply_fade = _bool_var(True)
-        state.trimmer_fade_in_ms = _str_var("800")
-        state.trimmer_fade_out_ms = _str_var("2000")
-        args_list = build_utility_args(state)
-        trim_entry = next(e for e in args_list if "Silence Trimmer" in e[1].name)
-        args = trim_entry[2]
-        assert "--fade" in args
-        assert "800" == args[args.index("--fade-in") + 1]
-        assert "2000" == args[args.index("--fade-out") + 1]
-
-    def test_silence_trimmer_no_fade_when_disabled(self):
-        state = _make_state()
-        args_list = build_utility_args(state)
-        trim_entry = next(e for e in args_list if "Silence Trimmer" in e[1].name)
-        assert "--fade" not in trim_entry[2]
-        assert "--fade-in" not in trim_entry[2]
 
     def test_stem_separator_emits_output_model_stems_and_device(self):
         state = _make_state()

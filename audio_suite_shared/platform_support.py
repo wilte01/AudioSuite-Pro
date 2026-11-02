@@ -98,6 +98,9 @@ Two consequences, both visible in the table above:
   is self-consistent.
 * Branches keyed on ``sys.platform`` are sound to simulate, because
   ``pathlib`` never reads it.
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -412,7 +415,9 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
             "and module-local discovery still apply on every platform."
         ),
         evidence="audio_normalizer/tests/test_ffmpeg_finder.py",
-        tool="audio_normalizer",
+        # The module is REFINE's loudness measurement dependency since
+        # 2.6.0 (U-04); it no longer backs a tool of its own.
+        tool=None,
     ),
     PlatformBranch(
         module="audio_normalizer/utils/ffmpeg_finder.py",
@@ -421,7 +426,9 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
         subsystem="ffmpeg discovery",
         behaviour="Binary filename extension only.",
         evidence="audio_normalizer/tests/test_ffmpeg_finder.py",
-        tool="audio_normalizer",
+        # The module is REFINE's loudness measurement dependency since
+        # 2.6.0 (U-04); it no longer backs a tool of its own.
+        tool=None,
     ),
     PlatformBranch(
         module="replaygain_analyzer/core/ffmpeg_metrics.py",

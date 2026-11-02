@@ -14,6 +14,11 @@ byte-identical (no export, tag rewrite, snapshot or replace), the Dry Run runs
 the enabled stages' detection instead of only loading the file, and a
 normalise-only run applies FFmpeg loudnorm directly to the source in one pass.
 
+Changed in 2.6.0 (U-04): the normalise stage carries the standalone Audio
+Normalizer's delivery set — a true-peak ceiling, an LRA target and the
+lossless MP3 ``global_gain`` path — because the standalone window that used to
+offer them is gone.
+
 All stages operate on in-memory audio; a run that changed something writes
 the file once, at the end of the in-memory chain.  The normaliser needs a
 file, so a mixed run writes the processed audio to a temp file and then
@@ -69,6 +74,7 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
+from audio_suite_shared.lossless_gain import apply_track_gain, is_mp3_file
 from audio_suite_shared.tag_helper import read_tags_raw, write_tags_raw
 
 from .convert import numpy_to_segment, segment_to_numpy
@@ -607,19 +613,35 @@ def _write_output(
         audio.export(str(tmp_path), format=fmt, parameters=params)
 
 
+def _lossless_gain_applies(path: Path, config: StageConfig) -> bool:
+    """Return whether *path* can take the lossless normalisation path.
+
+    The path only exists for MP3: it rewrites each frame's ``global_gain`` and
+    never decodes the audio.  Every other format falls back to the loudnorm
+    re-encode, so the stage reports what it actually did.
+    """
+    return config.normalise_params.mode == "lossless" and is_mp3_file(str(path))
+
+
 def _normalise_message(
     loudness_data: dict[str, float] | None,
     config: StageConfig,
     applied: bool,
+    lossless: bool = False,
 ) -> str:
-    """Build the Normalise stage message for one measurement outcome."""
+    """Build the Normalise stage message for one measurement outcome.
+
+    ``lossless`` names the strategy that actually ran: the MP3 ``global_gain``
+    rewrite (which re-encodes nothing) rather than the loudnorm pass.
+    """
     target_lufs = config.normalise_params.target_lufs
     if loudness_data:
         before_lufs = float(loudness_data.get("input_i", 0.0))
         if applied:
+            how = " (lossless MP3 gain)" if lossless else ""
             return (
                 f"Adjusted loudness from {before_lufs:.1f} to {target_lufs:.1f} "
-                f"LUFS for playlist consistency"
+                f"LUFS for playlist consistency{how}"
             )
         return (
             f"Loudness already within tolerance ({before_lufs:.1f} LUFS) "
@@ -658,10 +680,12 @@ def _run_normalise_stage(
     """
     emit("Normalise", "Measuring loudness…")
     try:
-        # Measure loudness BEFORE normalization
+        # Measure loudness BEFORE normalization.  The ceiling and LRA reach the
+        # analysis pass too: loudnorm's target offset depends on both.
         from audio_normalizer.core.loudness import measure
 
-        loudness_data = measure(str(tmp_path), config.normalise_params.target_lufs)
+        n = config.normalise_params
+        loudness_data = measure(str(tmp_path), n.target_lufs, n.true_peak, n.lra)
 
         # Run normalization with retry for transient I/O failures
         normalization_applied = retry_with_backoff(
@@ -674,7 +698,12 @@ def _run_normalise_stage(
             loudness_data,
         )
 
-        msg = _normalise_message(loudness_data, config, normalization_applied)
+        msg = _normalise_message(
+            loudness_data,
+            config,
+            normalization_applied,
+            lossless=_lossless_gain_applies(tmp_path, config),
+        )
         emit("Normalise", msg)
         return msg, normalization_applied
     except Exception as exc:
@@ -703,26 +732,37 @@ def _run_normalise_in_place(
     try:
         from audio_normalizer.core.loudness import measure
 
-        loudness_data = measure(str(source_path), config.normalise_params.target_lufs)
+        n = config.normalise_params
+        loudness_data = measure(str(source_path), n.target_lufs, n.true_peak, n.lra)
         applied = False
+        lossless = _lossless_gain_applies(source_path, config)
         if loudness_data:
             current = float(loudness_data.get("input_i", 0.0))
-            target = config.normalise_params.target_lufs
-            tolerance = config.normalise_params.tolerance
+            target = n.target_lufs
+            tolerance = n.tolerance
             if abs(current - target) > tolerance:
-                # Snapshot before the FFmpeg swap replaces the source bytes.
+                # Snapshot before the swap replaces the source bytes.
                 record_tag_edit_snapshot(str(source_path), "refinery_edit")
-                applied = retry_with_backoff(
-                    _run_normalise,
-                    _DEFAULT_RETRY,
-                    "normalise",
-                    source_path,
-                    config,
-                    emit,
-                    loudness_data,
-                )
+                if lossless:
+                    emit(
+                        "Normalise",
+                        f"Applying {target - current:+.2f} dB to MP3 global gain "
+                        "(lossless)…",
+                    )
+                    apply_track_gain(str(source_path), target - current)
+                    applied = True
+                else:
+                    applied = retry_with_backoff(
+                        _run_normalise,
+                        _DEFAULT_RETRY,
+                        "normalise",
+                        source_path,
+                        config,
+                        emit,
+                        loudness_data,
+                    )
 
-        msg = _normalise_message(loudness_data, config, applied)
+        msg = _normalise_message(loudness_data, config, applied, lossless=lossless)
         emit("Normalise", msg)
         return msg, applied
     except Exception as exc:
@@ -744,7 +784,8 @@ def _preview_normalise(
     try:
         from audio_normalizer.core.loudness import measure
 
-        loudness_data = measure(str(source_path), target)
+        n = config.normalise_params
+        loudness_data = measure(str(source_path), target, n.true_peak, n.lra)
     except Exception as exc:  # preview must not abort the dry run
         logger.error("Dry-run loudness measurement failed: %s", exc, exc_info=True)
         loudness_data = None
@@ -756,7 +797,12 @@ def _preview_normalise(
         if abs(current - target) <= config.normalise_params.tolerance:
             msg = f"Loudness already within tolerance ({current:.1f} LUFS) — no change"
         else:
-            msg = f"Would adjust loudness from {current:.1f} to {target:.1f} LUFS"
+            how = (
+                " (lossless MP3 gain)"
+                if _lossless_gain_applies(source_path, config)
+                else ""
+            )
+            msg = f"Would adjust loudness from {current:.1f} to {target:.1f} LUFS{how}"
     emit("Normalise", msg)
     return msg
 
@@ -921,11 +967,12 @@ def _run_normalise(
     from audio_normalizer.core.loudness import measure
     from audio_normalizer.core.normalizer import apply
 
-    target = config.normalise_params.target_lufs
+    n = config.normalise_params
+    target = n.target_lufs
 
     if loudness_data is None:
         emit("Normalise", f"Measuring loudness (target {target} LUFS)…")
-        loudness_data = measure(str(tmp_path), target)
+        loudness_data = measure(str(tmp_path), target, n.true_peak, n.lra)
     if loudness_data is None:
         # FFmpeg returned no usable data (e.g. very quiet or unusual encoding).
         # Warn and skip rather than aborting the whole file.
@@ -934,14 +981,32 @@ def _run_normalise(
         return False
 
     current_i = loudness_data.get("input_i", 0.0)
-    tolerance = config.normalise_params.tolerance
+    tolerance = n.tolerance
     if abs(current_i - target) <= tolerance:
         emit("Normalise", f"Already within tolerance ({current_i:.1f} LUFS) — skipped")
         return False
 
+    if _lossless_gain_applies(tmp_path, config):
+        # An MP3's global_gain is a per-frame field: rewriting it changes the
+        # level without decoding, so nothing is re-encoded here.
+        emit(
+            "Normalise",
+            f"Applying {target - current_i:+.2f} dB to MP3 global gain (lossless)…",
+        )
+        apply_track_gain(str(tmp_path), target - current_i)
+        emit("Normalise", "Normalisation complete (lossless)")
+        return True
+
     emit("Normalise", f"Normalising {current_i:.1f} → {target} LUFS…")
     # apply() handles its own temp-file swap and tag restoration internally.
     # The pipeline records the undo snapshot itself, so apply() must not.
-    apply(str(tmp_path), target, loudness_data, record_snapshot=False)
+    apply(
+        str(tmp_path),
+        target,
+        loudness_data,
+        record_snapshot=False,
+        true_peak=n.true_peak,
+        lra=n.lra,
+    )
     emit("Normalise", "Normalisation complete")
     return True

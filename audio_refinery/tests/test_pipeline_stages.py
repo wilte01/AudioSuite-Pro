@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -1342,6 +1343,152 @@ class TestRunEnhance:
         assert ep.phaser is False
         assert ep.flanger is False
         assert ep.chorus is False
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Normalise delivery set (U-04)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def _normalise_config(
+    *,
+    target_lufs: float = -14.0,
+    tolerance: float = 0.5,
+    true_peak: float = -1.5,
+    lra: float = 11.0,
+    mode: str = "normalise",
+) -> Any:
+    """A normalise-only StageConfig with the given delivery settings."""
+    from audio_refinery.core.models import NormaliseParams, StageConfig
+
+    config = StageConfig(declick=False, trim=False, enhance=False, normalise=True)
+    config.normalise_params = NormaliseParams(
+        target_lufs=target_lufs,
+        tolerance=tolerance,
+        true_peak=true_peak,
+        lra=lra,
+        mode=mode,
+    )
+    return config
+
+
+class TestNormaliseDelivery:
+    """The true-peak ceiling and LRA reach loudnorm; lossless rewrites gain.
+
+    The standalone Audio Normalizer was the only surface carrying these, so
+    dropping its window without them would leave no way to honour a ceiling
+    (U-04).
+    """
+
+    def test_measure_receives_the_ceiling_and_lra(self, tmp_path: Path) -> None:
+        from audio_refinery.core.pipeline import _run_normalise
+
+        config = _normalise_config(true_peak=-2.0, lra=7.0)
+        source = tmp_path / "audio.flac"
+        source.write_bytes(b"\x00" * 64)
+
+        with (
+            patch(
+                "audio_normalizer.core.loudness.measure",
+                return_value={"input_i": -20.0},
+            ) as mock_measure,
+            patch("audio_normalizer.core.normalizer.apply"),
+        ):
+            _run_normalise(source, config, _noop_emit)
+
+        args = mock_measure.call_args.args
+        assert args[1] == -14.0
+        assert args[2] == -2.0
+        assert args[3] == 7.0
+
+    def test_apply_receives_the_ceiling_and_lra(self, tmp_path: Path) -> None:
+        from audio_refinery.core.pipeline import _run_normalise
+
+        config = _normalise_config(true_peak=-3.0, lra=5.0)
+        source = tmp_path / "audio.flac"
+        source.write_bytes(b"\x00" * 64)
+
+        with (
+            patch(
+                "audio_normalizer.core.loudness.measure",
+                return_value={"input_i": -30.0},
+            ),
+            patch("audio_normalizer.core.normalizer.apply") as mock_apply,
+        ):
+            _run_normalise(source, config, _noop_emit)
+
+        assert mock_apply.call_args.kwargs["true_peak"] == -3.0
+        assert mock_apply.call_args.kwargs["lra"] == 5.0
+
+    def test_lossless_mode_raises_an_mp3_level_and_skips_loudnorm(
+        self, tmp_path: Path
+    ) -> None:
+        """Measure the decoded result, not the flag that asked for it."""
+        from audio_refinery.core.pipeline import _run_normalise
+
+        source = tmp_path / "quiet.mp3"
+        _sine(duration_ms=600).apply_gain(-18).export(str(source), format="mp3")
+        before = AudioSegment.from_file(str(source)).max_dBFS
+
+        config = _normalise_config(target_lufs=-14.0, mode="lossless")
+        with (
+            patch(
+                "audio_normalizer.core.loudness.measure",
+                return_value={"input_i": -30.0, "input_tp": -18.0},
+            ),
+            patch(
+                "audio_normalizer.core.normalizer.apply",
+                side_effect=AssertionError("loudnorm must not run for lossless MP3"),
+            ),
+        ):
+            applied = _run_normalise(source, config, _noop_emit)
+
+        assert applied is True
+        after = AudioSegment.from_file(str(source)).max_dBFS
+        # Measured -30 LUFS against a -14 target is +16 dB of gain; MP3 global
+        # gain is quantised in 1.5 dB steps, so the decoded peak moves by close
+        # to that rather than exactly it.
+        assert 14.0 <= after - before <= 17.5
+
+    def test_lossless_mode_falls_back_to_loudnorm_for_lossless_formats(
+        self, tmp_path: Path
+    ) -> None:
+        from audio_refinery.core.pipeline import _run_normalise
+
+        source = tmp_path / "audio.flac"
+        source.write_bytes(b"\x00" * 64)
+        config = _normalise_config(mode="lossless")
+
+        with (
+            patch(
+                "audio_normalizer.core.loudness.measure",
+                return_value={"input_i": -30.0},
+            ),
+            patch("audio_normalizer.core.normalizer.apply") as mock_apply,
+        ):
+            applied = _run_normalise(source, config, _noop_emit)
+
+        assert applied is True
+        mock_apply.assert_called_once()
+
+    def test_dry_run_preview_names_the_lossless_strategy(self, tmp_path: Path) -> None:
+        from audio_refinery.core.pipeline import _preview_normalise
+
+        source = tmp_path / "song.mp3"
+        source.write_bytes(b"\x00" * 64)
+        config = _normalise_config(mode="lossless")
+        messages: list[tuple[str, str]] = []
+
+        with patch(
+            "audio_normalizer.core.loudness.measure",
+            return_value={"input_i": -24.0},
+        ):
+            msg = _preview_normalise(
+                source, config, lambda s, m: messages.append((s, m))
+            )
+
+        assert "lossless MP3 gain" in msg
+        assert "Would adjust loudness from -24.0 to -14.0" in msg
 
 
 # ═════════════════════════════════════════════════════════════════════════════

@@ -250,13 +250,17 @@ def test_normalise_within_tolerance_leaves_file_untouched(tmp_path: Path) -> Non
     src = _source(tmp_path)
     before = _fingerprint(src)
 
+    config = _config(normalise=True)
+    # Stated explicitly: since 2.6.0 the shipped target is -14.0 (U-04).
+    config.normalise_params.target_lufs = -16.0
+
     with (
         _pipeline(_sine(), measure_value={"input_i": -16.2}),
         patch("audio_refinery.core.pipeline._run_normalise") as apply_mock,
         patch("audio_refinery.core.pipeline._write_output") as write,
         patch("audio_refinery.core.pipeline.record_tag_edit_snapshot") as snapshot,
     ):
-        result = process_file(src, src, _config(normalise=True))
+        result = process_file(src, src, config)
 
     assert result.status is FileStatus.SKIPPED
     assert result.was_modified is False
@@ -327,9 +331,9 @@ def test_normalise_only_real_audio_reaches_target(tmp_path: Path) -> None:
     assert abs(len(decoded) - duration_before) <= 50
     assert decoded.frame_rate == FS
     assert decoded.channels == 1
-    measured = measure(str(src), -16.0)
+    measured = measure(str(src), -14.0)
     assert measured is not None
-    assert abs(measured["input_i"] - (-16.0)) <= 1.0
+    assert abs(measured["input_i"] - (-14.0)) <= 1.0
     tags = read_tags_raw(str(src))
     assert any("Quiet Tone" in str(value) for value in tags.values())
 
@@ -413,7 +417,7 @@ def test_dry_run_detects_without_writing_anything(tmp_path: Path) -> None:
     messages = {stage.stage: stage.message for stage in result.stages}
     assert "repaired 3 click" in messages["Declick"]
     assert "No silence detected" in messages["Trim"]
-    assert messages["Normalise"] == "Would adjust loudness from -23.0 to -16.0 LUFS"
+    assert messages["Normalise"] == "Would adjust loudness from -23.0 to -14.0 LUFS"
     write.assert_not_called()
     snapshot.assert_not_called()
     # No file changed, and no temp file was left behind.

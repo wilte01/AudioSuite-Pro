@@ -25,8 +25,6 @@ Usage::
     audiosuite fingerprint /path/to/dir [--write-tags] [--threshold 0.5]
                            [--max-length 120] [--album-mode] [--musicbrainz]
                            [--write-isrc] [--dry] [--json]
-    audiosuite normalise /path/to/dir [--target-lufs -14] [--tolerance 0.5]
-                           [--mode lossless] [--dry] [--json]
     audiosuite scrub /path/to/dir [--preserve-lyrics] [--preserve-album-artist]
                            [--preserve-embedded-art] [--dry] [--json]
     audiosuite tag-edit /path/to/track.mp3 --field comment --clear [--dry] [--json]
@@ -52,16 +50,8 @@ Usage::
                            [--sample-rate 44100] [--bit-depth 24]
                            [--output-dir DIR] [--normalize-mp3] [--dry] [--json]
     audiosuite refine /path/to/dir [--output FILE] [--stages declick,trim]
-                           [--preset Moderate] [--target-lufs -16]
+                           [--preset Moderate] [--target-lufs -14]
                            [--tolerance 0.5] [--dry] [--json]
-    audiosuite reduce /path/to/dir [--reduce-hum] [--reduce-broadband]
-                           [--hum-frequency 60] [--dry] [--json]
-    audiosuite declick /path/to/dir [--sensitivity 0.25] [--max-width 5]
-                           [--dry] [--json]
-    audiosuite silence-trim /path/to/dir [--threshold -50] [--fade]
-                           [--fade-in 25] [--fade-out 25] [--dry] [--json]
-    audiosuite enhance /path/to/dir --output-dir DIR [--preset Moderate]
-                           [--dry] [--json]
     audiosuite stems /path/to/dir --output-dir DIR [--model htdemucs]
                            [--stems vocals,drums,bass,other] [--mix]
                            [--device auto] [--dry] [--json]
@@ -135,6 +125,9 @@ when invoked, so a broken plugin costs its own command and nothing else
 (Sprint 7, Item 7.1).
 
 Changed in 2.3.0: registers the ``duplicates`` and ``declip`` commands (F-02, F-08a).
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -168,9 +161,7 @@ _TOOL_CLI_MODULES: tuple[tuple[str, str], ...] = (
     ("album_art_sync.cli", "album-art"),
     ("album_genre_tagger.cli", "album-genre"),
     ("asx_extractor.cli", "asx-extract"),
-    ("audio_enhancer.cli", "enhance"),
     ("audio_fingerprinter.cli", "fingerprint"),
-    ("audio_normalizer.cli", "normalise"),
     ("audio_refinery.cli", "refine"),
     ("audio_suite_shared.cue_cli", "cue"),
     ("bpm_analyzer.cli", "bpm"),
@@ -186,11 +177,8 @@ _TOOL_CLI_MODULES: tuple[tuple[str, str], ...] = (
     ("mood_analysis_batch_tagger.cli", "mood-analysis-batch"),
     ("mood_analyzer.cli", "mood-analyzer"),
     ("music_format_converter.cli", "convert"),
-    ("noise_reduction.cli", "reduce"),
-    ("pop_click_remover.cli", "declick"),
     ("replaygain_analyzer.cli", "replaygain"),
     ("restoration.cli", "declip"),
-    ("silence_trimmer.cli", "silence-trim"),
     ("spectral_viewer.cli", "spectrogram"),
     ("stem_separator.cli", "stems"),
     ("tag_editor.cli", "tag-edit"),

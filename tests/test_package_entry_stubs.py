@@ -11,19 +11,24 @@ must execute in the suite:
   statements are the two import lines, then the ``if __name__ == "__main__"``
   guard (coverage-excluded). The test executes each shipped file under a
   non-``__main__`` name, so no GUI is built.
-- ``lyrics_manager/__main__.py`` and ``audio_enhancer/main.py`` launch a real
-  Tk root, so the launcher's real path is executed with ``tk.Tk`` and the app
-  class mocked - the same ``exec``-the-shipped-source pattern
-  ``tests/test_pyw_launchers.py`` established. (The plan D1 sketch proposed
-  ``python -m lyrics_manager --help``; that is invalid for this suite: the
-  module ignores argv and opens a real GUI, which would hang a headless run.
-  The exec form exercises the exact same launch path with no hang risk.)
+- ``lyrics_manager/__main__.py`` launches a real Tk root, so the launcher's
+  real path is executed with ``tk.Tk`` and the app class mocked - the same
+  ``exec``-the-shipped-source pattern ``tests/test_pyw_launchers.py``
+  established. (The plan D1 sketch proposed ``python -m lyrics_manager
+  --help``; that is invalid for this suite: the module ignores argv and
+  opens a real GUI, which would hang a headless run.  The exec form
+  exercises the exact same launch path with no hang risk.)  The enhancer's
+  ``main.py`` was the other such entry point until 2.6.0, when its window
+  went (U-04).
 - ``tag_field_updater/__main__.py`` *does* parse argv (argparse
   ``--directory``), so its ``--help``/default/``--directory`` contracts are
   tested directly.
 
 Changed in 2.0.0: adds ``stem_separator`` to the first-party module set the
 exec probe restores (Sprint 6, Item 6.1).
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -190,28 +195,6 @@ class TestAlbumArtNormalizerMainStub:
         path = REPO_ROOT / "album_art_normalizer" / "__main__.py"
         namespace = _exec_entry(path, "aos_entry_probe")
         assert "ArtNormalizerApp" in namespace
-
-
-class TestAudioEnhancerMainBootstrap:
-    """``audio_enhancer/main.py`` builds the app and enters the loop."""
-
-    def test_main_builds_app_and_mainloops(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        import tkinter
-
-        import audio_enhancer.app as app_pkg
-
-        fake_root = MagicMock()
-        fake_app = MagicMock()
-        monkeypatch.setattr(tkinter, "Tk", lambda: fake_root)
-        monkeypatch.setattr(app_pkg, "AudioEnhancerApp", fake_app)
-
-        namespace = _exec_entry(REPO_ROOT / "audio_enhancer" / "main.py", "__main__")
-
-        fake_app.assert_called_once_with(fake_root)
-        fake_root.mainloop.assert_called_once_with()
-        assert "main" in namespace
 
 
 class TestLyricsManagerMainBootstrap:

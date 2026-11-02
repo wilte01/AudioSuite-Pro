@@ -1,6 +1,9 @@
 """
 scrubber_card.py — Metadata Scrubber module card.
 Collapsible panel matching the REFINE section style.
+
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 import tkinter as tk
@@ -24,6 +27,7 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             fg=styles.FG_MAIN,
             selectcolor=styles.BG_WHITE,
             activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
         ).pack(anchor="w")
 
         tk.Checkbutton(
@@ -35,6 +39,7 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             fg=styles.FG_MAIN,
             selectcolor=styles.BG_WHITE,
             activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
         ).pack(anchor="w")
 
         tk.Checkbutton(
@@ -46,6 +51,7 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             fg=styles.FG_MAIN,
             selectcolor=styles.BG_WHITE,
             activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
         ).pack(anchor="w")
 
     build_card_shell(

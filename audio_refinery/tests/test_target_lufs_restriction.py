@@ -10,6 +10,9 @@ Covers:
 Changed in 1.4.1: an autouse fixture isolates all three settings sources, and
 the write-error test targets a directory now that a save creates its parent
 (PLAN D101).
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -155,7 +158,7 @@ class TestRefinerySettingsLoad:
         with patch.object(refinery_settings, "_SETTINGS_FILE", missing):
             config = refinery_settings.load()
         assert isinstance(config, StageConfig)
-        assert config.normalise_params.target_lufs == -16.0
+        assert config.normalise_params.target_lufs == -14.0
 
     def test_corrupt_json_returns_default_config(self, tmp_path: Path) -> None:
         settings_file = tmp_path / "refinery_settings.json"

@@ -8,6 +8,11 @@ Changed in 2.1.0: an enabled module whose builder returned no arguments is
 reported instead of launched.  Launching it passed the script zero arguments,
 so it opened as a bare standalone window — no directory, Mode defaulted — which
 is how a Stem Separator launched from a Live Update driver opened in Dry Run.
+
+Changed in 2.3.1 (U-03, released in 2.6.0): the validation gate classifies
+against ``driver_by_category``.  It read every utility manifest and indexed
+``module_toggles`` by id, which raised ``KeyError`` as soon as a tool shipped
+without a card - the five DSP tools REFINE absorbed.
 """
 
 from __future__ import annotations
@@ -42,8 +47,8 @@ def _unconfigured(
     """Return the enabled modules whose builder produced no argument list.
 
     ``arg_builder`` returns an empty list when a module cannot run as
-    configured — the Stem Separator with no output folder or no stem ticked,
-    the Audio Enhancer with no output directory.  Launching anyway passes the
+    configured — the Stem Separator with no output folder or no stem ticked.
+    Launching anyway passes the
     script no arguments at all, which opens it as a bare standalone window:
     no source folder, and every run setting left at its own default, the Mode
     included.  That is how a Stem Separator launched from a Live Update driver
@@ -73,8 +78,8 @@ def _show_unconfigured(root: tk.Tk, blocked: Sequence[ToolManifest]) -> None:
         "Settings Required",
         f"These modules are selected but not ready to run:\n\n{names}\n\n"
         "Open each one's Settings on its card and fill in what it requires "
-        "(the Stem Separator needs an output folder and at least one stem; "
-        "the Audio Enhancer needs an output directory), then launch again.",
+        "(the Stem Separator needs an output folder and at least one stem), "
+        "then launch again.",
         icon="\u26a0",
         icon_color="#d97706",
     )
@@ -355,7 +360,12 @@ def launch_utility(
     # Classification is derived from the registry manifests so newly
     # registered tools are picked up automatically: tools flagged
     # standalone open their own window; all others need a directory path.
-    utility_manifests = get_registry().by_category("utility")
+    #
+    # ``driver_by_category``, not ``by_category``: a manifest may ship with
+    # ``driver_card=False`` and therefore no toggle on the tab (U-03), and a
+    # tool the tab does not offer cannot be part of this launch.  Reading the
+    # wider population would raise KeyError on its missing toggle.
+    utility_manifests = get_registry().driver_by_category("utility")
     needs_dir = any(
         state.module_toggles[m.id].get() for m in utility_manifests if not m.standalone
     )

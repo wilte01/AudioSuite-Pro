@@ -1,6 +1,9 @@
 """
 palette_card.py — Colour Palette settings card.
 Collapsible panel matching the ENRICH section style.
+
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 import logging
@@ -123,6 +126,7 @@ def _build_palette_row(
         selectcolor=styles.BG_WHITE,
         width=10,
         anchor="w",
+        activeforeground=styles.FG_MAIN,
     )
     rb.pack(side=tk.LEFT)
 

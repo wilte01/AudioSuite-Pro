@@ -16,6 +16,10 @@ Changed in 2.0.0: the expected toggle set gains ``stem_separator``
 Changed in 2.3.0: the expected toggle set gains ``duplicate_finder`` and
 ``restoration`` (PLAN_functional_backlog.md F-02, F-08a).
 
+Changed in 2.3.1 (U-03, released in 2.6.0): the five retired DSP tools leave
+the expected toggle set with their card options, because the toggles are
+generated from ``driver_manifests``.
+
 What is tested
 --------------
 AppState
@@ -273,32 +277,6 @@ class TestAppStateAttributeExistence:
     def test_fingerprinter_api_key_exists(self, state):
         assert hasattr(state, "fingerprinter_api_key")
 
-    # ── Noise Reduction ────────────────────────────────────────────────────
-
-    def test_nr_reduce_hum_exists(self, state):
-        assert hasattr(state, "nr_reduce_hum")
-
-    def test_nr_reduce_broadband_exists(self, state):
-        assert hasattr(state, "nr_reduce_broadband")
-
-    def test_nr_hum_frequency_exists(self, state):
-        assert hasattr(state, "nr_hum_frequency")
-
-    def test_nr_hum_harmonics_exists(self, state):
-        assert hasattr(state, "nr_hum_harmonics")
-
-    def test_nr_hum_quality_exists(self, state):
-        assert hasattr(state, "nr_hum_quality")
-
-    def test_nr_noise_start_exists(self, state):
-        assert hasattr(state, "nr_noise_start")
-
-    def test_nr_noise_end_exists(self, state):
-        assert hasattr(state, "nr_noise_end")
-
-    def test_nr_gate_threshold_exists(self, state):
-        assert hasattr(state, "nr_gate_threshold")
-
     # ── Converter extras ───────────────────────────────────────────────────
 
     def test_converter_sample_rate_exists(self, state):
@@ -359,47 +337,6 @@ class TestAppStateAttributeExistence:
 
     def test_cd_ripper_cue_exists(self, state):
         assert hasattr(state, "cd_ripper_cue")
-
-    # ── Audio Enhancer ────────────────────────────────────────────────────
-
-    def test_enhancer_output_dir_exists(self, state):
-        assert hasattr(state, "enhancer_output_dir")
-
-    def test_enhancer_preset_exists(self, state):
-        assert hasattr(state, "enhancer_preset")
-
-    # ── Audio Normalizer ──────────────────────────────────────────────────
-
-    def test_normalizer_target_lufs_exists(self, state):
-        assert hasattr(state, "normalizer_target_lufs")
-
-    def test_normalizer_tolerance_exists(self, state):
-        assert hasattr(state, "normalizer_tolerance")
-
-    def test_normalizer_mode_exists(self, state):
-        assert hasattr(state, "normalizer_mode")
-
-    # ── Pop & Click Remover ───────────────────────────────────────────────
-
-    def test_declick_sensitivity_exists(self, state):
-        assert hasattr(state, "declick_sensitivity")
-
-    def test_declick_max_width_exists(self, state):
-        assert hasattr(state, "declick_max_width")
-
-    # ── Silence Trimmer ───────────────────────────────────────────────────
-
-    def test_trimmer_threshold_exists(self, state):
-        assert hasattr(state, "trimmer_threshold")
-
-    def test_trimmer_apply_fade_exists(self, state):
-        assert hasattr(state, "trimmer_apply_fade")
-
-    def test_trimmer_fade_in_ms_exists(self, state):
-        assert hasattr(state, "trimmer_fade_in_ms")
-
-    def test_trimmer_fade_out_ms_exists(self, state):
-        assert hasattr(state, "trimmer_fade_out_ms")
 
 
 # ===========================================================================
@@ -566,30 +503,6 @@ class TestAppStateDefaults:
     def test_fingerprinter_api_key_default_empty(self, state):
         assert state.fingerprinter_api_key.get() == ""
 
-    def test_nr_reduce_hum_default_false(self, state):
-        assert state.nr_reduce_hum.get() is False
-
-    def test_nr_reduce_broadband_default_false(self, state):
-        assert state.nr_reduce_broadband.get() is False
-
-    def test_nr_hum_frequency_default(self, state):
-        assert state.nr_hum_frequency.get() == "60"
-
-    def test_nr_hum_harmonics_default(self, state):
-        assert state.nr_hum_harmonics.get() == "8"
-
-    def test_nr_hum_quality_default(self, state):
-        assert state.nr_hum_quality.get() == "30.0"
-
-    def test_nr_noise_start_default(self, state):
-        assert state.nr_noise_start.get() == "0"
-
-    def test_nr_noise_end_default(self, state):
-        assert state.nr_noise_end.get() == "500"
-
-    def test_nr_gate_threshold_default(self, state):
-        assert state.nr_gate_threshold.get() == "3.0"
-
     def test_converter_sample_rate_default(self, state):
         assert state.converter_sample_rate.get() == "source"
 
@@ -641,39 +554,6 @@ class TestAppStateDefaults:
     def test_cd_ripper_cue_default_false(self, state):
         assert state.cd_ripper_cue.get() is False
 
-    def test_enhancer_output_dir_default_empty(self, state):
-        assert state.enhancer_output_dir.get() == ""
-
-    def test_enhancer_preset_default_moderate(self, state):
-        assert state.enhancer_preset.get() == "Moderate"
-
-    def test_normalizer_target_lufs_default(self, state):
-        assert state.normalizer_target_lufs.get() == "-14.0"
-
-    def test_normalizer_tolerance_default(self, state):
-        assert state.normalizer_tolerance.get() == "0.5"
-
-    def test_normalizer_mode_default(self, state):
-        assert state.normalizer_mode.get() == "normalise"
-
-    def test_declick_sensitivity_default(self, state):
-        assert state.declick_sensitivity.get() == "0.25"
-
-    def test_declick_max_width_default(self, state):
-        assert state.declick_max_width.get() == "5"
-
-    def test_trimmer_threshold_default(self, state):
-        assert state.trimmer_threshold.get() == "-50"
-
-    def test_trimmer_apply_fade_default_false(self, state):
-        assert state.trimmer_apply_fade.get() is False
-
-    def test_trimmer_fade_in_ms_default_is_gui_valid(self, state):
-        assert state.trimmer_fade_in_ms.get() == "500"
-
-    def test_trimmer_fade_out_ms_default_is_gui_valid(self, state):
-        assert state.trimmer_fade_out_ms.get() == "1000"
-
 
 # ===========================================================================
 # AppState — module_toggles
@@ -703,13 +583,8 @@ class TestModuleToggles:
         "file_reorganizer",
         "tag_field_updater",
         "tag_editor",
-        "noise_reduction",
         "lyrics_manager",
         "undo_tag_edits",
-        "audio_enhancer",
-        "audio_normalizer",
-        "pop_click_remover",
-        "silence_trimmer",
         "spectral_viewer",
         "stem_separator",
         "ml_denoiser",

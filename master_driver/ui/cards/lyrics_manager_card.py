@@ -1,4 +1,10 @@
-"""Lyrics Manager card for Master Driver UI."""
+"""Lyrics Manager card for Master Driver UI.
+
+Changed in 2.3.1: the card's three option Checkbuttons carry the full palette
+(``fg``/``activeforeground``/``selectcolor``/``disabledforeground``), not just a
+themed background, so their text follows a Dark or System(Dark) theme instead
+of staying Tk's black default (PLAN_restoration_2026-10-31.md T-01).
+"""
 
 import tkinter as tk
 from typing import TYPE_CHECKING
@@ -72,7 +78,11 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             text="Skip files that already have lyrics",
             font=styles.FONT_CAPTION,
             bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            activeforeground=styles.FG_MAIN,
             activebackground=styles.BG_WHITE,
+            selectcolor=styles.BG_WHITE,
+            disabledforeground=styles.FG_SUB,
         ).pack(anchor="w", pady=1)
 
         tk.Checkbutton(
@@ -81,7 +91,11 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             text="Store plain lyrics when no synced lyrics are available",
             font=styles.FONT_CAPTION,
             bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            activeforeground=styles.FG_MAIN,
             activebackground=styles.BG_WHITE,
+            selectcolor=styles.BG_WHITE,
+            disabledforeground=styles.FG_SUB,
         ).pack(anchor="w", pady=1)
 
         r2 = tk.Frame(body, bg=styles.BG_WHITE)
@@ -92,7 +106,11 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             text="Parallel Processing",
             font=styles.FONT_CAPTION,
             bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            activeforeground=styles.FG_MAIN,
             activebackground=styles.BG_WHITE,
+            selectcolor=styles.BG_WHITE,
+            disabledforeground=styles.FG_SUB,
         ).pack(side=tk.LEFT)
         tk.Label(
             r2,

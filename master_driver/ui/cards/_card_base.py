@@ -18,6 +18,8 @@ optional ``on_card_expand`` hook on the frame they are built into, so the
 Utilities tab can give the open card the full two-column width; and
 ``build_card_shell`` can render without a module checkbox, which is what the
 Undo Tag Edits card needs (PLAN_feature_expansion.md D119).
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 from __future__ import annotations
@@ -174,7 +176,11 @@ def build_simple_card(
         header,
         variable=_state_var(state, spec.toggle),
         bg=styles.BG_LIGHT,
+        fg=styles.FG_MAIN,
         activebackground=styles.BG_LIGHT,
+        activeforeground=styles.FG_MAIN,
+        selectcolor=styles.BG_LIGHT,
+        disabledforeground=styles.FG_SUB,
     ).pack(side=tk.LEFT)
 
     tk.Label(
@@ -258,6 +264,7 @@ def build_simple_card(
                 fg=styles.FG_MAIN,
                 selectcolor=styles.BG_WHITE,
                 activebackground=styles.BG_WHITE,
+                activeforeground=styles.FG_MAIN,
             ).pack(side=tk.LEFT)
             tk.Label(
                 check_frame,
@@ -363,7 +370,11 @@ def build_card_shell(
             header,
             variable=toggle_var,
             bg=styles.BG_LIGHT,
+            fg=styles.FG_MAIN,
             activebackground=styles.BG_LIGHT,
+            activeforeground=styles.FG_MAIN,
+            selectcolor=styles.BG_LIGHT,
+            disabledforeground=styles.FG_SUB,
         )
         if toggle_command is not None:
             toggle.configure(command=toggle_command)

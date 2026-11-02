@@ -24,6 +24,9 @@ tests/test_cli.py`` and ``cd_ripper/tests/test_cli.py`` - so this file is the ne
 not the only evidence.
 
 Changed in 2.1.4: initial version (plan item C1, decision D22).
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -158,7 +161,8 @@ class TestRegistryIsEnumerated:
             f"commands declared in the JSON schema are not reachable from the "
             f"group, so the contract scan would skip them: {missing}"
         )
-        assert len(commands) >= 37, (
+        # 34 since 2.6.0: the five DSP tools lost their commands (U-04).
+        assert len(commands) >= 34, (
             f"only {len(commands)} commands discovered - cli_app's registration "
             "did not run, so the scan would pass vacuously"
         )

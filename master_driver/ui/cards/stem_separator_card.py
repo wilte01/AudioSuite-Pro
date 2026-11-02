@@ -8,6 +8,9 @@ Changed in 2.1.0: the Output Folder row gains a Browse button, so the
     destination is picked the same way it is on the tool's own Setup tab
     instead of having to be typed, and the card states the required-field rule
     the arg builder enforces (an output folder and at least one stem).
+
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 import os
@@ -123,6 +126,7 @@ def build(parent: tk.Frame, state: "AppState") -> None:
                 fg=styles.FG_MAIN,
                 selectcolor=styles.BG_WHITE,
                 activebackground=styles.BG_WHITE,
+                activeforeground=styles.FG_MAIN,
             ).pack(side=tk.LEFT, padx=(0, 4))
 
         tk.Checkbutton(
@@ -134,6 +138,7 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             fg=styles.FG_MAIN,
             selectcolor=styles.BG_WHITE,
             activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
         ).pack(anchor="w", pady=(4, 0))
 
     build_card_shell(

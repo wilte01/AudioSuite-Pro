@@ -2,6 +2,9 @@
 
 Changed in 1.2.0: adds the MusicBrainz enrichment and ISRC tag-write
 toggles.
+
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 import tkinter as tk
@@ -37,6 +40,7 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             fg=styles.FG_MAIN,
             selectcolor=styles.BG_WHITE,
             activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
         ).pack(side=tk.LEFT)
 
         r1 = tk.Frame(body, bg=styles.BG_WHITE)
@@ -50,6 +54,7 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             fg=styles.FG_MAIN,
             selectcolor=styles.BG_WHITE,
             activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
         ).pack(side=tk.LEFT)
 
         r1b = tk.Frame(body, bg=styles.BG_WHITE)
@@ -63,6 +68,7 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             fg=styles.FG_MAIN,
             selectcolor=styles.BG_WHITE,
             activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
         ).pack(side=tk.LEFT)
 
         r1c = tk.Frame(body, bg=styles.BG_WHITE)
@@ -76,6 +82,7 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             fg=styles.FG_MAIN,
             selectcolor=styles.BG_WHITE,
             activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
         ).pack(side=tk.LEFT)
 
         r2 = tk.Frame(body, bg=styles.BG_WHITE)

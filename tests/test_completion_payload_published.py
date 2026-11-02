@@ -40,6 +40,9 @@ one both the Results panel and the report are built from.
 Changed in 2.3.0: registers ``duplicate_finder``, which publishes its
 completion (with ``groups``, ``duplicates`` and ``quarantined`` beside the
 shared fields) from ``run_duplicate_scan`` (F-02).
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -63,11 +66,9 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
         "album_art_normalizer.core.file_processor.run_normalization"
     ),
     "album_genre_tagger": "album_genre_tagger.core.consolidator.run_analysis",
-    "audio_enhancer": "audio_enhancer.core.file_processor.run_enhancement",
     "audio_fingerprinter": (
         "audio_fingerprinter.core.file_processor.run_fingerprinting"
     ),
-    "audio_normalizer": "audio_normalizer.core.file_processor.run_parallel_process",
     "audio_refinery": "audio_refinery.core.file_processor.run_pipeline",
     "bpm_analyzer": "bpm_analyzer.core.file_processor.run_analysis",
     "duplicate_finder": ("duplicate_finder.core.file_processor.run_duplicate_scan"),
@@ -79,7 +80,6 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
         "music_format_converter.core.file_processor.run_conversion"
     ),
     "replaygain_analyzer": "replaygain_analyzer.core.file_processor.run_analysis",
-    "silence_trimmer": "silence_trimmer.core.file_processor.run_trimming",
     "stem_separator": "stem_separator.core.file_processor.run_stem_separation",
     "tag_editor": "tag_editor.core.processor.run_apply",
     "tag_field_updater": "tag_field_updater.core.processor.run_scan",

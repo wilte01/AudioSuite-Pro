@@ -31,6 +31,9 @@ karaoke, karaoke_strength, phaser, flanger, chorus) so GUI effect toggles
 survive a restart.
 Changed in 1.4.1: live settings move out of the checkout, with a read-only
 legacy fallback and a committed default (PLAN D101).
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -49,6 +52,7 @@ from audio_suite_shared.cli_dataclasses import (
 from noise_reduction.core.models import NoiseReductionParams
 
 from ..core.models import (
+    NORMALISATION_MODES,
     DeclickParams,
     EnhanceParams,
     NormaliseParams,
@@ -74,7 +78,7 @@ _LEGACY_FILE = Path(__file__).resolve().parents[1] / _SETTINGS_NAME
 _DEFAULT_FILE = Path(__file__).resolve().parents[1] / "refinery_settings.default.json"
 
 # Fallback preset used when a stored LUFS value is no longer valid.
-_DEFAULT_TARGET_LUFS: float = -16.0
+_DEFAULT_TARGET_LUFS: float = -14.0
 
 #: Logged once per process when the legacy file is adopted, so a migrated
 #: install says why its old settings are in effect without repeating it.
@@ -201,9 +205,15 @@ def _from_dict(data: dict[str, Any]) -> StageConfig:
     # Normalise params — validate stored LUFS against permitted presets.
     d = data.get("normalise_params", {})
     raw_lufs = d.get("target_lufs", _DEFAULT_TARGET_LUFS)
+    stored_mode = d.get("mode", "normalise")
     config.normalise_params = NormaliseParams(
         target_lufs=_sanitise_target_lufs(raw_lufs),
         tolerance=d.get("tolerance", 0.5),
+        true_peak=d.get("true_peak", -1.5),
+        lra=d.get("lra", 11.0),
+        # An unknown strategy falls back to the re-encode rather than writing
+        # a file with a mode no stage implements.
+        mode=stored_mode if stored_mode in NORMALISATION_MODES else "normalise",
     )
     return config
 
@@ -219,7 +229,7 @@ def load() -> StageConfig:
     Returns:
         The first readable source's configuration, or defaults when no source
         is usable.  Any stored target_lufs value that is not one of the
-        permitted presets is reset to the default (-16.0) with a warning.
+        permitted presets is reset to the default (-14.0) with a warning.
     """
     global _legacy_notice_emitted
 
@@ -319,6 +329,9 @@ def _to_dict(config: StageConfig) -> dict[str, Any]:
         "normalise_params": {
             "target_lufs": n.target_lufs,
             "tolerance": n.tolerance,
+            "true_peak": n.true_peak,
+            "lra": n.lra,
+            "mode": n.mode,
         },
     }
 

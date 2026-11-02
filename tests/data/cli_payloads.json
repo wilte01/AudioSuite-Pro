@@ -256,22 +256,6 @@
       "output_dir": "<run>\\out",
       "tracks": []
     },
-    "declick": {
-      "schema_version": 1,
-      "tool": "pop_click_remover",
-      "command": "declick",
-      "dry_run": true,
-      "total": 1,
-      "processed": 1,
-      "succeeded": 0,
-      "skipped": 1,
-      "errors": 0,
-      "duration_secs": 0.014,
-      "duration_str": "0.0s",
-      "log_entries": [
-        "[SKIP] track.wav | Clean — no defects found\n"
-      ]
-    },
     "declip": {
       "schema_version": 1,
       "tool": "restoration",
@@ -630,21 +614,6 @@
       "duplicates": 0,
       "quarantined": 0
     },
-    "enhance": {
-      "schema_version": 1,
-      "tool": "audio_enhancer",
-      "command": "enhance",
-      "dry_run": true,
-      "total": 1,
-      "processed": 1,
-      "succeeded": 1,
-      "skipped": 0,
-      "errors": 0,
-      "duration_secs": 0.009,
-      "duration_str": "0.0s",
-      "log_entries": [],
-      "done": 1
-    },
     "fingerprint": {
       "schema_version": 1,
       "tool": "fingerprinter",
@@ -770,22 +739,6 @@
         "[SKIP] track.wav: Audio is too short to analyse (0.05s).\n"
       ]
     },
-    "normalise": {
-      "schema_version": 1,
-      "tool": "audio_normalizer",
-      "command": "normalise",
-      "dry_run": true,
-      "total": 1,
-      "processed": 1,
-      "succeeded": 1,
-      "skipped": 0,
-      "errors": 0,
-      "duration_secs": 0.067,
-      "duration_str": "0.1s",
-      "log_entries": [
-        "[DRY RUN] track.wav | Would apply 56.00 dB gain\n"
-      ]
-    },
     "plugins disable": {
       "schema_version": 1,
       "tool": "plugins",
@@ -866,22 +819,6 @@
         }
       ]
     },
-    "reduce": {
-      "schema_version": 1,
-      "tool": "noise_reduction",
-      "command": "reduce",
-      "dry_run": true,
-      "total": 1,
-      "processed": 1,
-      "succeeded": 0,
-      "skipped": 1,
-      "errors": 0,
-      "duration_secs": 0.019,
-      "duration_str": "0.0s",
-      "log_entries": [
-        "[SKIP] track.wav | Clean — no noise detected\n"
-      ]
-    },
     "refine": {
       "schema_version": 1,
       "tool": "audio_refinery",
@@ -943,22 +880,6 @@
       "duration_str": "0.0s",
       "log_entries": [
         "[DRY RUN] track.wav | Would scrub metadata\n"
-      ]
-    },
-    "silence-trim": {
-      "schema_version": 1,
-      "tool": "silence_trimmer",
-      "command": "silence-trim",
-      "dry_run": true,
-      "total": 1,
-      "processed": 1,
-      "succeeded": 0,
-      "skipped": 1,
-      "errors": 0,
-      "duration_secs": 0.018,
-      "duration_str": "0.0s",
-      "log_entries": [
-        "[SKIP] track.wav | Entire file is silence - skipped\n"
       ]
     },
     "spectrogram": {
@@ -1217,7 +1138,7 @@
       "duration_secs": 0.0,
       "duration_str": "0.0s",
       "log_entries": [],
-      "error": "No such option '--no-such-option'."
+      "error": "No such option: --no-such-option"
     },
     "convert": {
       "schema_version": 1,
@@ -1279,21 +1200,6 @@
       "log_entries": [],
       "error": "Invalid value for 'CUE_FILE': File 'no-such-input' does not exist."
     },
-    "declick": {
-      "schema_version": 1,
-      "tool": "pop_click_remover",
-      "command": "declick",
-      "dry_run": true,
-      "total": 0,
-      "processed": 0,
-      "succeeded": 0,
-      "skipped": 0,
-      "errors": 1,
-      "duration_secs": 0.0,
-      "duration_str": "0.0s",
-      "log_entries": [],
-      "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
-    },
     "declip": {
       "schema_version": 1,
       "tool": "restoration",
@@ -1337,27 +1243,12 @@
       "duration_secs": 0.0,
       "duration_str": "0.0s",
       "log_entries": [],
-      "error": "No such option '--no-such-option'."
+      "error": "No such option: --no-such-option"
     },
     "duplicates": {
       "schema_version": 1,
       "tool": "duplicate_finder",
       "command": "duplicates",
-      "dry_run": true,
-      "total": 0,
-      "processed": 0,
-      "succeeded": 0,
-      "skipped": 0,
-      "errors": 1,
-      "duration_secs": 0.0,
-      "duration_str": "0.0s",
-      "log_entries": [],
-      "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
-    },
-    "enhance": {
-      "schema_version": 1,
-      "tool": "audio_enhancer",
-      "command": "enhance",
       "dry_run": true,
       "total": 0,
       "processed": 0,
@@ -1459,21 +1350,6 @@
       "log_entries": [],
       "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
     },
-    "normalise": {
-      "schema_version": 1,
-      "tool": "audio_normalizer",
-      "command": "normalise",
-      "dry_run": true,
-      "total": 0,
-      "processed": 0,
-      "succeeded": 0,
-      "skipped": 0,
-      "errors": 1,
-      "duration_secs": 0.0,
-      "duration_str": "0.0s",
-      "log_entries": [],
-      "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
-    },
     "plugins disable": {
       "schema_version": 1,
       "tool": "plugins",
@@ -1517,22 +1393,7 @@
       "duration_secs": 0.0,
       "duration_str": "0.0s",
       "log_entries": [],
-      "error": "No such option '--no-such-option'."
-    },
-    "reduce": {
-      "schema_version": 1,
-      "tool": "noise_reduction",
-      "command": "reduce",
-      "dry_run": true,
-      "total": 0,
-      "processed": 0,
-      "succeeded": 0,
-      "skipped": 0,
-      "errors": 1,
-      "duration_secs": 0.0,
-      "duration_str": "0.0s",
-      "log_entries": [],
-      "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
+      "error": "No such option: --no-such-option"
     },
     "refine": {
       "schema_version": 1,
@@ -1583,21 +1444,6 @@
       "schema_version": 1,
       "tool": "scrubber",
       "command": "scrub",
-      "dry_run": true,
-      "total": 0,
-      "processed": 0,
-      "succeeded": 0,
-      "skipped": 0,
-      "errors": 1,
-      "duration_secs": 0.0,
-      "duration_str": "0.0s",
-      "log_entries": [],
-      "error": "Invalid value for 'DIRECTORY': Directory 'no-such-input' does not exist."
-    },
-    "silence-trim": {
-      "schema_version": 1,
-      "tool": "silence_trimmer",
-      "command": "silence-trim",
       "dry_run": true,
       "total": 0,
       "processed": 0,

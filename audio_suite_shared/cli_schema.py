@@ -117,6 +117,9 @@ starts at byte 0 of stdout and nothing follows it, for every run it drives.
 
 Changed in 2.3.0: declares the ``duplicates`` and ``declip`` JSON payloads (F-02,
 F-08a).
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -160,21 +163,18 @@ TOOL_IDS: Final[Mapping[str, str]] = {
     "cue generate": "cue",
     "cue parse": "cue",
     "cue split": "cue",
-    "declick": "pop_click_remover",
     "declip": "restoration",
     "denoise": "ml_denoiser",
     # ``doctor`` is the install check rather than a tool, so its id has no
     # ``ToolManifest`` entry; it is declared here the way ``cue`` is.
     "doctor": "doctor",
     "duplicates": "duplicate_finder",
-    "enhance": "audio_enhancer",
     "fingerprint": "fingerprinter",
     "genre-sync": "genre_sync",
     "key": "key",
     "lyrics": "lyrics_manager",
     "mood-analysis-batch": "mood_analysis_batch",
     "mood-analyzer": "mood_analyzer",
-    "normalise": "audio_normalizer",
     # The plugin management commands belong to the plugin system rather than
     # to a tool; like ``doctor`` and ``cue`` they are declared here because
     # they publish a payload.  A *plugin's own* command is deliberately absent:
@@ -182,12 +182,10 @@ TOOL_IDS: Final[Mapping[str, str]] = {
     "plugins disable": "plugins",
     "plugins enable": "plugins",
     "plugins list": "plugins",
-    "reduce": "noise_reduction",
     "refine": "audio_refinery",
     "reorganize": "file_reorganizer",
     "replaygain": "replaygain",
     "scrub": "scrubber",
-    "silence-trim": "silence_trimmer",
     "spectrogram": "spectral_viewer",
     "stats": "library_stats",
     "stems": "stem_separator",
@@ -230,9 +228,6 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
     "asx-extract": {
         "successes": int,
         "failures": int,
-    },
-    "enhance": {
-        "done": int,
     },
     "genre-sync": {
         "updated": int,

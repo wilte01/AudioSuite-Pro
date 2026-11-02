@@ -1,6 +1,6 @@
 """Tests for ``master_driver.ui.utilities_window`` layout.
 
-The Utilities tab is a grid, not a stack: seventeen cards in two weighted
+The Utilities tab is a grid, not a stack: fifteen cards in two weighted
 columns, the card whose Settings are open spanning both, and the LAUNCH
 button pinned below the scrolling area.  These tests build the real tab with
 the real :class:`AppState` and assert the resulting geometry *structure*
@@ -11,6 +11,14 @@ Changed in 2.0.0: initial version - locks the two-column reflow and the
 pinned launch button (PLAN_feature_expansion.md D119).
 Changed in 2.1.0: locks the plugin card path - the plugin's own ``ui`` entry,
 its generic fallback and the fallback when that entry raises (Sprint 7).
+Changed in 2.3.1: an expanded card always starts a fresh row at column 0, so
+the right column's Settings span the window too; the reflow tests now assert
+that cell's column and rendered width, not only its span (L-01).
+
+Changed in 2.3.1 (U-03, released in 2.6.0): the card population is
+``driver_by_category`` (the fifteen manifests with ``driver_card=True``), not
+every utility manifest, so the five retired DSP cards no longer count towards
+the grid's cells.
 """
 
 from __future__ import annotations
@@ -29,8 +37,11 @@ from audio_suite_shared.tool_plugin import ToolManifest, get_registry
 from master_driver.state.app_state import AppState
 from master_driver.ui import utilities_window
 
+#: The cards the tab renders, in registry order.  It is the driver's utility
+#: population, not every utility manifest: five DSP tools still ship (and are
+#: still in ``by_category``) without a card, because REFINE runs their work.
 _UTILITY_IDS: tuple[str, ...] = tuple(
-    manifest.id for manifest in get_registry().by_category("utility")
+    manifest.id for manifest in get_registry().driver_by_category("utility")
 )
 
 
@@ -147,7 +158,7 @@ def _ancestors(widget: tk.Misc) -> list[tk.Misc]:
 
 
 class TestCardGrid:
-    """Seventeen cards cost nine rows, not seventeen."""
+    """Fifteen cards cost eight rows, not fifteen."""
 
     def test_one_cell_per_registry_card(self, tab) -> None:
         assert len(_cells(tab)) == len(_UTILITY_IDS)
@@ -207,6 +218,66 @@ class TestExpansionReflow:
         assert first.grid_info()["columnspan"] == 1
         assert (second.grid_info()["row"], second.grid_info()["column"]) == (0, 1)
 
+    def test_a_right_column_card_opens_across_the_window(self, tab) -> None:
+        """L-01: a card opened from the right column spans like the left one.
+
+        A spanning cell gridded at column 1 claims columns 1 and 2, and column
+        2 is an implicit third column nothing weights, so the card kept the
+        right half - measured as 274 px of a 548 px host before the fix.
+        Asserting the rendered width (not only the span) is what catches that.
+        """
+        right = _cell_at(tab, 1)
+        host = _grid_host(tab)
+
+        _expand_button(right).invoke()
+        tab.frame.update_idletasks()
+
+        assert right.grid_info()["column"] == 0
+        assert right.grid_info()["columnspan"] == utilities_window._CARD_COLUMNS
+        assert host.winfo_width() > 0, "no rendered geometry to measure"
+        assert right.winfo_x() == 0
+        assert right.winfo_width() == host.winfo_width()
+
+    def test_a_left_column_card_opens_across_the_window(self, tab) -> None:
+        """Counter-case for L-01: the left column's numbers must not move."""
+        left = _cell_at(tab, 0)
+        host = _grid_host(tab)
+
+        _expand_button(left).invoke()
+        tab.frame.update_idletasks()
+
+        assert left.grid_info()["column"] == 0
+        assert left.grid_info()["columnspan"] == utilities_window._CARD_COLUMNS
+        assert host.winfo_width() > 0, "no rendered geometry to measure"
+        assert left.winfo_x() == 0
+        assert left.winfo_width() == host.winfo_width()
+
+    def test_the_cards_after_a_right_column_card_reflow(self, tab) -> None:
+        """The wrapped card takes a fresh row and the pair behind it follows."""
+        first, second, third, fourth = (_cell_at(tab, index) for index in range(4))
+
+        _expand_button(second).invoke()
+        tab.frame.update_idletasks()
+
+        assert (first.grid_info()["row"], first.grid_info()["column"]) == (0, 0)
+        assert (second.grid_info()["row"], second.grid_info()["column"]) == (1, 0)
+        assert (third.grid_info()["row"], third.grid_info()["column"]) == (2, 0)
+        assert (fourth.grid_info()["row"], fourth.grid_info()["column"]) == (2, 1)
+
+    def test_collapsing_a_right_column_card_restores_the_pairing(self, tab) -> None:
+        """Collapsing the right card pairs the first row again, as the left does."""
+        first, second = (_cell_at(tab, index) for index in range(2))
+        settings = _expand_button(second)
+
+        settings.invoke()
+        tab.frame.update_idletasks()
+        settings.invoke()
+        tab.frame.update_idletasks()
+
+        assert second.grid_info()["columnspan"] == 1
+        assert (first.grid_info()["row"], first.grid_info()["column"]) == (0, 0)
+        assert (second.grid_info()["row"], second.grid_info()["column"]) == (0, 1)
+
     def test_two_cards_open_at_once_still_span(self, tab) -> None:
         """Expansion is per card: opening a second one does not narrow the first."""
         first, second = (_cell_at(tab, index) for index in range(2))
@@ -218,6 +289,8 @@ class TestExpansionReflow:
 
         assert first.grid_info()["columnspan"] == utilities_window._CARD_COLUMNS
         assert second.grid_info()["columnspan"] == utilities_window._CARD_COLUMNS
+        assert first.grid_info()["column"] == 0
+        assert second.grid_info()["column"] == 0
         assert first.grid_info()["row"] < second.grid_info()["row"]
 
 

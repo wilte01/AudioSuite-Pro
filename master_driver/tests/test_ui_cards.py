@@ -33,13 +33,22 @@ Changed in 2.1.0: adds the Stem Separator card's variables to the shared state
 stub, and locks its new Browse button: the chosen folder reaches the state
 variable, a re-browse starts from the current value only when it is a real
 folder, and a cancelled dialog leaves the entry alone.
+
+Changed in 2.3.1: locks the effective text contrast of the BPM Analyzer and
+Lyrics Manager cards in all four theme states, so a themed background with no
+foreground cannot ship again (PLAN_restoration_2026-10-31.md T-01).
 """
 
 import sys
 import tkinter as tk
+from collections.abc import Iterator
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from audio_suite_shared import styles
+from master_driver.state.app_state import AppState
 
 # ---------------------------------------------------------------------------
 # Headless Tk setup
@@ -85,11 +94,6 @@ def _make_state(root_widget):
             "library_stats",
             "tag_field_updater",
             "tag_editor",
-            "audio_enhancer",
-            "audio_normalizer",
-            "pop_click_remover",
-            "silence_trimmer",
-            "noise_reduction",
             "fingerprinter",
             "file_reorganizer",
             "mood_analysis_batch",
@@ -143,27 +147,6 @@ def _make_state(root_widget):
 
     state.asx_extractor_toggle = tk.BooleanVar(root_widget, value=False)
     state.cd_ripper_toggle = tk.BooleanVar(root_widget, value=False)
-
-    state.enhancer_output_dir = tk.StringVar(root_widget, value="")
-    state.enhancer_preset = tk.StringVar(root_widget, value="Moderate")
-    state.normalizer_target_lufs = tk.StringVar(root_widget, value="-14.0")
-    state.normalizer_tolerance = tk.StringVar(root_widget, value="0.5")
-    state.normalizer_mode = tk.StringVar(root_widget, value="normalise")
-    state.declick_sensitivity = tk.StringVar(root_widget, value="0.25")
-    state.declick_max_width = tk.StringVar(root_widget, value="5")
-    state.trimmer_threshold = tk.StringVar(root_widget, value="-50")
-    state.trimmer_apply_fade = tk.BooleanVar(root_widget, value=False)
-    state.trimmer_fade_in_ms = tk.StringVar(root_widget, value="500")
-    state.trimmer_fade_out_ms = tk.StringVar(root_widget, value="1000")
-
-    state.nr_reduce_hum = tk.BooleanVar(root_widget, value=False)
-    state.nr_hum_frequency = tk.StringVar(root_widget, value="60")
-    state.nr_hum_harmonics = tk.StringVar(root_widget, value="8")
-    state.nr_hum_quality = tk.StringVar(root_widget, value="30.0")
-    state.nr_reduce_broadband = tk.BooleanVar(root_widget, value=False)
-    state.nr_noise_start = tk.StringVar(root_widget, value="0")
-    state.nr_noise_end = tk.StringVar(root_widget, value="500")
-    state.nr_gate_threshold = tk.StringVar(root_widget, value="3.0")
 
     state.fingerprinter_lookup = tk.BooleanVar(root_widget, value=True)
     state.fingerprinter_write_tags = tk.BooleanVar(root_widget, value=False)
@@ -704,227 +687,6 @@ class TestAsxCard:
         btns = _find_checkbuttons(parent)
         variables = [str(b.cget("variable")) for b in btns]
         assert any(str(state.asx_extractor_toggle) in v for v in variables)
-
-
-# ---------------------------------------------------------------------------
-# audio_enhancer_card
-# ---------------------------------------------------------------------------
-
-
-class TestAudioEnhancerCard:
-    @staticmethod
-    @pytest.fixture()
-    def _import():
-        from master_driver.ui.cards import audio_enhancer_card
-
-        return audio_enhancer_card
-
-    def test_build_does_not_raise(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-
-    def test_checkbutton_uses_enhancer_toggle(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-        btns = _find_checkbuttons(parent)
-        variables = [str(b.cget("variable")) for b in btns]
-        assert any(str(state.module_toggles["audio_enhancer"]) in v for v in variables)
-
-    def test_preset_selector_lists_every_shared_preset(self, parent, root, _import):
-        """Custom is selectable here too — the card must not under-offer it."""
-        from tkinter import ttk
-
-        from audio_suite_shared.dsp_models import PresetName
-
-        state = _make_state(root)
-        _import.build(parent, state)
-        combos = [
-            combo
-            for combo in _find_widgets_by_class(parent, ttk.Combobox)
-            if str(combo.cget("textvariable")) == str(state.enhancer_preset)
-        ]
-        assert len(combos) == 1
-        assert list(combos[0].cget("values")) == [preset.value for preset in PresetName]
-        assert "Custom" in combos[0].cget("values")
-
-    def test_output_dir_entry_wired_to_state(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-        entries = _find_entries(parent)
-        var_names = [str(e.cget("textvariable")) for e in entries]
-        assert any(str(state.enhancer_output_dir) in v for v in var_names)
-
-    def test_expand_button_present(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-        assert len(_find_buttons_with_textvariable(parent)) >= 1
-
-    def test_build_idempotent(self, root, _import):
-        state = _make_state(root)
-        p1 = tk.Frame(root)
-        p2 = tk.Frame(root)
-        _import.build(p1, state)
-        _import.build(p2, state)
-        p1.destroy()
-        p2.destroy()
-
-
-# ---------------------------------------------------------------------------
-# audio_normalizer_card
-# ---------------------------------------------------------------------------
-
-
-class TestAudioNormalizerCard:
-    @staticmethod
-    @pytest.fixture()
-    def _import():
-        from master_driver.ui.cards import audio_normalizer_card
-
-        return audio_normalizer_card
-
-    def test_build_does_not_raise(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-
-    def test_checkbutton_uses_normalizer_toggle(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-        btns = _find_checkbuttons(parent)
-        variables = [str(b.cget("variable")) for b in btns]
-        assert any(
-            str(state.module_toggles["audio_normalizer"]) in v for v in variables
-        )
-
-    def test_lufs_combobox_wired_to_state(self, parent, root, _import):
-        from tkinter import ttk
-
-        state = _make_state(root)
-        _import.build(parent, state)
-        combos = []
-
-        def _collect(w):
-            if isinstance(w, ttk.Combobox):
-                combos.append(w)
-            for child in w.winfo_children():
-                _collect(child)
-
-        _collect(parent)
-        combo_var_names = [str(c.cget("textvariable")) for c in combos]
-        assert any(str(state.normalizer_target_lufs) in v for v in combo_var_names)
-
-    def test_tolerance_entry_wired_to_state(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-        entries = _find_entries(parent)
-        var_names = [str(e.cget("textvariable")) for e in entries]
-        assert any(str(state.normalizer_tolerance) in v for v in var_names)
-
-    def test_build_idempotent(self, root, _import):
-        state = _make_state(root)
-        p1 = tk.Frame(root)
-        p2 = tk.Frame(root)
-        _import.build(p1, state)
-        _import.build(p2, state)
-        p1.destroy()
-        p2.destroy()
-
-
-# ---------------------------------------------------------------------------
-# pop_click_remover_card
-# ---------------------------------------------------------------------------
-
-
-class TestPopClickRemoverCard:
-    @staticmethod
-    @pytest.fixture()
-    def _import():
-        from master_driver.ui.cards import pop_click_remover_card
-
-        return pop_click_remover_card
-
-    def test_build_does_not_raise(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-
-    def test_checkbutton_uses_declick_toggle(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-        btns = _find_checkbuttons(parent)
-        variables = [str(b.cget("variable")) for b in btns]
-        assert any(
-            str(state.module_toggles["pop_click_remover"]) in v for v in variables
-        )
-
-    def test_sensitivity_entry_wired_to_state(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-        entries = _find_entries(parent)
-        var_names = [str(e.cget("textvariable")) for e in entries]
-        assert any(str(state.declick_sensitivity) in v for v in var_names)
-
-    def test_width_entry_wired_to_state(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-        entries = _find_entries(parent)
-        var_names = [str(e.cget("textvariable")) for e in entries]
-        assert any(str(state.declick_max_width) in v for v in var_names)
-
-    def test_build_idempotent(self, root, _import):
-        state = _make_state(root)
-        p1 = tk.Frame(root)
-        p2 = tk.Frame(root)
-        _import.build(p1, state)
-        _import.build(p2, state)
-        p1.destroy()
-        p2.destroy()
-
-
-# ---------------------------------------------------------------------------
-# silence_trimmer_card
-# ---------------------------------------------------------------------------
-
-
-class TestSilenceTrimmerCard:
-    @staticmethod
-    @pytest.fixture()
-    def _import():
-        from master_driver.ui.cards import silence_trimmer_card
-
-        return silence_trimmer_card
-
-    def test_build_does_not_raise(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-
-    def test_checkbutton_uses_trimmer_toggle(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-        btns = _find_checkbuttons(parent)
-        variables = [str(b.cget("variable")) for b in btns]
-        assert any(str(state.module_toggles["silence_trimmer"]) in v for v in variables)
-
-    def test_threshold_entry_wired_to_state(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-        entries = _find_entries(parent)
-        var_names = [str(e.cget("textvariable")) for e in entries]
-        assert any(str(state.trimmer_threshold) in v for v in var_names)
-
-    def test_apply_fade_checkbutton_wired_to_state(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-        btns = _find_checkbuttons(parent)
-        variables = [str(b.cget("variable")) for b in btns]
-        assert any(str(state.trimmer_apply_fade) in v for v in variables)
-
-    def test_build_idempotent(self, root, _import):
-        state = _make_state(root)
-        p1 = tk.Frame(root)
-        p2 = tk.Frame(root)
-        _import.build(p1, state)
-        _import.build(p2, state)
-        p1.destroy()
-        p2.destroy()
 
 
 # ---------------------------------------------------------------------------
@@ -1476,35 +1238,6 @@ class TestTypographyCard:
 # ---------------------------------------------------------------------------
 
 
-class TestNoiseReductionCardExecuted:
-    @staticmethod
-    @pytest.fixture()
-    def _import():
-        from master_driver.ui.cards import noise_reduction_card
-
-        return noise_reduction_card
-
-    def test_build_does_not_raise(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-
-    def checkbutton_refuses_toggle_key_or_attr_name(self, parent, root, _import):
-        state = _make_state(root)
-        _import.build(parent, state)
-        btns = _find_checkbuttons(parent)
-        variables = [str(b.cget("variable")) for b in btns]
-        assert any(str(state.module_toggles["noise_reduction"]) in v for v in variables)
-
-    def test_build_idempotent(self, root, _import):
-        state = _make_state(root)
-        p1 = tk.Frame(root)
-        p2 = tk.Frame(root)
-        _import.build(p1, state)
-        _import.build(p2, state)
-        p1.destroy()
-        p2.destroy()
-
-
 class TestLibraryStatsCardExecuted:
     @staticmethod
     @pytest.fixture()
@@ -1744,3 +1477,201 @@ class TestStemSeparatorCard:
         with patch.object(_import.filedialog, "askdirectory", return_value=""):
             self._browse_button(parent).invoke()
         assert state.stem_separator_output_dir.get() == str(tmp_path)
+
+
+# ── Theme-conformance: effective text contrast (T-01) ────────────────────────
+#
+# These two cards hand-build their bodies instead of going through
+# ``build_simple_card``, and both forgot the foreground half of a Checkbutton's
+# palette: a themed ``bg`` with no ``fg`` keeps Tk's own default
+# (``SystemWindowText``, black), which measures 1.26:1 on the Dark body while
+# its neighbours pass ``fg=styles.FG_MAIN``.  The assertions below read the
+# *effective* pair back off each widget and resolve it through ``winfo_rgb()``,
+# so a symbolic default is measured as the colour the display actually paints;
+# asserting the ``styles`` constants would pass on the broken build, because the
+# bug is precisely a keyword the code did not pass.
+#
+# Changed in 2.3.1: locks the four-theme-state text contrast for the BPM
+# Analyzer and Lyrics Manager cards (PLAN_restoration_2026-10-31.md T-01).
+
+#: WCAG AA for body text.
+_MIN_TEXT_CONTRAST = 4.5
+
+#: ``(theme mode, what the OS reports)``.  ``None`` leaves the real probe in
+#: place; the two ``System`` states patch ``styles._get_system_theme`` rather
+#: than ``os.name`` (AGENTS.md, *Verification Tooling Traps*).
+_CARD_THEME_STATES: tuple[tuple[str, str | None], ...] = (
+    ("Light", None),
+    ("Dark", None),
+    ("System", "Light"),
+    ("System", "Dark"),
+)
+
+
+@contextmanager
+def _default_palette() -> Iterator[None]:
+    """Pin the shipped default palette while the four states are measured.
+
+    A live Windows-accent palette is read from the OS registry by another
+    module's tests, and its light tint then decides ``BG_LIGHT`` - so the same
+    assertion would measure a different suite in Light depending on test order.
+    The pairs this module locks are the theme's; contrast across every palette
+    is a separate sweep.
+    """
+    previous = styles.get_active_palette_name()
+    styles.set_active_palette(styles.DEFAULT_PALETTE)
+    try:
+        yield
+    finally:
+        # Restoring the palette re-applies whatever theme is current, so this
+        # must run after the caller has restored the theme it changed.
+        styles.set_active_palette(previous)
+
+
+def _resolved_rgb(widget: tk.Misc, colour: str) -> tuple[int, int, int]:
+    """The 8-bit RGB a colour name paints as, symbolic names included."""
+    red, green, blue = widget.winfo_rgb(colour)
+    return (red // 256, green // 256, blue // 256)
+
+
+def _relative_luminance(colour: tuple[int, int, int]) -> float:
+    """WCAG relative luminance of an 8-bit sRGB triple."""
+    linear: list[float] = []
+    for value in colour:
+        scaled = value / 255
+        linear.append(
+            scaled / 12.92 if scaled <= 0.03928 else ((scaled + 0.055) / 1.055) ** 2.4
+        )
+    red, green, blue = linear
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def _contrast_ratio(widget: tk.Misc, foreground: str, background: str) -> float:
+    """How far *foreground* sits from *background* on *widget*'s display."""
+    lighter, darker = sorted(
+        (
+            _relative_luminance(_resolved_rgb(widget, foreground)),
+            _relative_luminance(_resolved_rgb(widget, background)),
+        ),
+        reverse=True,
+    )
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _text_widgets(widget: tk.Misc) -> list[tk.Misc]:
+    """Every widget at or under *widget* that paints text the user reads."""
+    found: list[tk.Misc] = []
+    keys = widget.keys()
+    label = str(widget.cget("text")) if "text" in keys else ""
+    variable = str(widget.cget("textvariable")) if "textvariable" in keys else ""
+    if label.strip() or variable.strip():
+        found.append(widget)
+    elif widget.winfo_class() in {"Entry", "Text"}:
+        found.append(widget)
+    for child in widget.winfo_children():
+        found.extend(_text_widgets(child))
+    return found
+
+
+def _text_states(widget: tk.Misc) -> list[tuple[str, str, str]]:
+    """``(state, foreground, background)`` pairs *widget* can show text in."""
+    foreground = str(widget.cget("foreground"))
+    background = str(widget.cget("background"))
+    states = [("normal", foreground, background)]
+    # Only the toggle widgets: an Entry's disabled colours belong to the
+    # repo-wide sweep (T-02), and the reported defect is a Checkbutton's.
+    if widget.winfo_class() in {"Checkbutton", "Radiobutton"}:
+        states.append(
+            (
+                "active",
+                str(widget.cget("activeforeground")),
+                str(widget.cget("activebackground")),
+            )
+        )
+        states.append(("disabled", str(widget.cget("disabledforeground")), background))
+    return states
+
+
+def _widget_name(widget: tk.Misc) -> str:
+    """A short, human-readable identification of *widget* for a failure line."""
+    keys = widget.keys()
+    text = str(widget.cget("text")) if "text" in keys else ""
+    if not text.strip() and "textvariable" in keys:
+        text = f"<{widget.cget('textvariable')}>"
+    text = text.splitlines()[0][:48] if text.splitlines() else ""
+    return f"{widget.winfo_class()} {text!r}"
+
+
+class TestCardTextFollowsTheTheme:
+    """Both hand-built cards clear WCAG AA in all four theme states."""
+
+    @staticmethod
+    def _build(card_name: str, parent: tk.Frame, state: AppState) -> None:
+        """Build the named card into *parent* through its real entry point."""
+        import importlib
+
+        card = importlib.import_module(f"master_driver.ui.cards.{card_name}_card")
+        card.build(parent, state)
+
+    @pytest.mark.parametrize("card_name", ("bpm", "lyrics_manager"))
+    @pytest.mark.parametrize(
+        ("mode", "os_theme"),
+        _CARD_THEME_STATES,
+        ids=("Light", "Dark", "System->Light", "System->Dark"),
+    )
+    def test_every_text_widget_meets_wcag_aa(
+        self,
+        parent: tk.Frame,
+        root: tk.Tk,
+        monkeypatch: pytest.MonkeyPatch,
+        card_name: str,
+        mode: str,
+        os_theme: str | None,
+    ) -> None:
+        """A themed background without a matching foreground is unreadable."""
+        if os_theme is not None:
+            monkeypatch.setattr(styles, "_get_system_theme", lambda: os_theme)
+        theme_before = styles.THEME_MODE
+        with _default_palette():
+            styles.set_theme_mode(mode)
+            try:
+                self._build(card_name, parent, AppState(root))
+                measured = [
+                    (
+                        widget,
+                        name,
+                        foreground,
+                        background,
+                        _contrast_ratio(widget, foreground, background),
+                    )
+                    for widget in _text_widgets(parent)
+                    for name, foreground, background in _text_states(widget)
+                ]
+            finally:
+                styles.set_theme_mode(theme_before)
+
+        assert measured, f"the {card_name} card rendered no text to measure"
+        failures = [
+            f"{_widget_name(widget)} ({state_name}): "
+            f"{foreground} on {background} = {ratio:.2f}:1"
+            for widget, state_name, foreground, background, ratio in measured
+            if ratio < _MIN_TEXT_CONTRAST
+        ]
+        state_label = f"{mode} (OS reports {os_theme})" if os_theme else mode
+        assert not failures, (
+            f"{card_name} card in {state_label} - text below "
+            f"{_MIN_TEXT_CONTRAST}:1:\n  " + "\n  ".join(failures)
+        )
+
+    def test_the_system_dark_state_really_goes_dark(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Guard: the ``System``->Dark case must not measure the Light palette."""
+        monkeypatch.setattr(styles, "_get_system_theme", lambda: "Dark")
+        theme_before = styles.THEME_MODE
+        styles.set_theme_mode("System")
+        try:
+            assert styles.BG_WHITE == "#1e1e1e"
+            assert styles.FG_MAIN == "#ffffff"
+        finally:
+            styles.set_theme_mode(theme_before)

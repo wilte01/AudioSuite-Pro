@@ -1,6 +1,9 @@
 """
 theme_card.py — Theme Mode settings card.
 Collapsible panel matching the ENRICH section style.
+
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 import tkinter as tk
@@ -85,6 +88,7 @@ def _build_theme_row(parent: tk.Frame, mode: str, theme_var: tk.StringVar) -> No
         activebackground=styles.BG_WHITE,
         selectcolor=styles.BG_WHITE,
         anchor="w",
+        activeforeground=styles.FG_MAIN,
     )
     rb.pack(side=tk.LEFT)
 

@@ -33,6 +33,9 @@ corrected ruff target py311 — ``tomllib`` is 3.11 standard library
 
 Changed in 2.3.0: the discoverability lock counts move to 32 tools and 31 with a
 subcommand, so the two new commands are covered by the help-text claim.
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -114,12 +117,9 @@ HELP_FLAGS: list[tuple[str, str]] = [
     ("tempo", "Derive tempo markings"),
     ("replaygain", "write ReplayGain tags"),
     ("genre-sync", "Sync genre tags"),
-    ("normalise", "Normalise audio loudness"),
     ("scrub", "Scrub metadata"),
     ("convert", "Convert audio files"),
-    ("silence-trim", "Trim silence"),
-    ("declick", "Remove pops and clicks"),
-    ("enhance", "Enhance audio"),
+    ("refine", "multi-stage"),
     ("stats", "aggregate tag statistics"),
 ]
 
@@ -202,49 +202,9 @@ class TestDryRunInvocations:
         )
         self._assert_reported_errors(result)
 
-    def test_normalise_dry_run(self, runner: CliRunner, temp_music_dir: str) -> None:
-        result = runner.invoke(cli, ["normalise", temp_music_dir, "--dry"])
-        self._assert_reported_errors(result)
-
-    def test_normalise_json_flag(self, runner: CliRunner, temp_music_dir: str) -> None:
-        """--json must emit the shared document for the same reported errors."""
-        result = runner.invoke(cli, ["normalise", temp_music_dir, "--dry", "--json"])
-
-        assert result.exit_code == 1, result.output
-        assert json.loads(result.stdout)["errors"] == 2
-
     def test_scrub_dry_run(self, runner: CliRunner, temp_music_dir: str) -> None:
         result = runner.invoke(cli, ["scrub", temp_music_dir, "--dry"])
         assert result.exit_code == 0
-
-    def test_declick_dry_run(self, runner: CliRunner, temp_music_dir: str) -> None:
-        result = runner.invoke(
-            cli,
-            [
-                "declick",
-                temp_music_dir,
-                "--dry",
-                "--sensitivity",
-                "0.3",
-                "--max-width",
-                "5",
-            ],
-        )
-        self._assert_reported_errors(result)
-
-    @pytest.mark.integration
-    def test_silence_trim_dry_run(self, runner: CliRunner, temp_music_dir: str) -> None:
-        # The silence trimmer probes every file with ffprobe before it decodes
-        # it, so on a host without the declared system executables the fake
-        # fixtures are *skipped* ("No such file or directory: 'ffprobe'") rather
-        # than reported as errors, and the assertion below cannot hold. The
-        # marker is what turns that host's outcome into an attributable skip
-        # naming the missing binary, which is the contract every other
-        # ffmpeg-dependent test in the suite already follows (found by the
-        # POSIX smoke leg, plan R-12: the suite is otherwise red on any host
-        # without ffprobe, which is the opposite of what the marker promises).
-        result = runner.invoke(cli, ["silence-trim", temp_music_dir, "--dry"])
-        self._assert_reported_errors(result)
 
 
 # ── convert subcommand ────────────────────────────────────────────────────────
@@ -265,37 +225,6 @@ class TestConvert:
         )
         assert result.exit_code != 0
         assert "Unsupported format" in result.output
-
-
-# ── enhance subcommand ────────────────────────────────────────────────────────
-
-
-class TestEnhance:
-    def test_enhance_requires_output_dir(
-        self, runner: CliRunner, temp_music_dir: str
-    ) -> None:
-        result = runner.invoke(cli, ["enhance", temp_music_dir])
-        assert result.exit_code != 0
-        assert "Missing option" in result.output or "required" in result.output
-
-    def test_enhance_unknown_preset(
-        self, runner: CliRunner, temp_music_dir: str, tmp_path: pytest.TempPathFactory
-    ) -> None:
-        out = tmp_path / "out"
-        out.mkdir()
-        result = runner.invoke(
-            cli,
-            [
-                "enhance",
-                temp_music_dir,
-                "--output-dir",
-                str(out),
-                "--preset",
-                "Unknown",
-            ],
-        )
-        assert result.exit_code != 0
-        assert "Unknown preset" in result.output
 
 
 # ── stats subcommand ──────────────────────────────────────────────────────────
@@ -532,18 +461,21 @@ class TestDiscoverabilityContract:
     ) -> None:
         """The acceptance criterion, stated without inventing a feature.
 
-        Plan G2 asks that ``--help`` list every tool.  31 of the 32 have a
-        subcommand and so are listed; the 32nd (``undo_tag_edits``) is a
+        Plan G2 asks that ``--help`` list every tool.  26 of the 27 have a
+        subcommand and so are listed; the 27th (``undo_tag_edits``) is a
         declared GUI-only gap, and listing it would mean building the CLI
         command the plan explicitly does not ask for.  It is therefore
         covered by ``test_no_undeclared_gap_below`` instead of by help text.
+
+        The count fell from 32 to 27 in 2.6.0: the five DSP tools REFINE runs
+        as pipeline stages no longer ship their own commands (U-04).
         """
         tools = get_registry().first_party
-        assert len(tools) == 32
+        assert len(tools) == 27
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         with_subcommand = [m for m in tools if m.cli_command]
-        assert len(with_subcommand) == 31
+        assert len(with_subcommand) == 26
         for manifest in with_subcommand:
             assert manifest.cli_command in result.output, (
                 f"{manifest.id}: '{manifest.cli_command}' is not listed in "
@@ -975,18 +907,6 @@ class TestDocumentedFlagParity:
                 real.update(param.secondary_opts)
         return real
 
-    def test_the_known_missing_dry_flags_are_real(self) -> None:
-        """The audit's exact repro must now resolve, exit 0, and write nothing."""
-        runner = CliRunner()
-        with runner.isolated_filesystem():
-            result = runner.invoke(
-                cli, ["enhance", ".", "--output-dir", "out", "--dry"]
-            )
-            assert result.exit_code == 0, result.output
-            assert not (Path("out").exists() and any(Path("out").iterdir())), (
-                "a dry run must not write output files"
-            )
-
 
 # ── Every _run_tool target must actually accept _run_tool's kwargs ───────────
 
@@ -1017,16 +937,12 @@ class TestRunToolTargetsAcceptItsKwargs:
         "asx-extract": "asx_extractor.cli.run_cli_extraction",
         "bpm": "bpm_analyzer.core.file_processor.run_analysis",
         "convert": "music_format_converter.core.file_processor.run_conversion",
-        "declick": "pop_click_remover.core.file_processor.run_declicking",
-        "enhance": "audio_enhancer.core.file_processor.run_enhancement",
         "fingerprint": "audio_fingerprinter.core.file_processor.run_fingerprinting",
         "key": "key_detector.core.file_processor.run_analysis",
         "lyrics": "lyrics_manager.core.file_processor.run_fetch",
         "mood-analyzer": "mood_analyzer.core.file_processor.run_analysis",
-        "normalise": "audio_normalizer.core.file_processor.run_parallel_process",
         "replaygain": "replaygain_analyzer.core.file_processor.run_analysis",
         "scrub": "metadata_scrubber.core.scrubber.run_scrubbing",
-        "silence-trim": "silence_trimmer.core.file_processor.run_trimming",
         "tempo": "tempo_analyzer.core.file_processor.run_analysis",
     }
 

@@ -56,6 +56,9 @@ local closures -- the ``NoisePopToolApp`` peer shape ``pop_click_remover`` and
 ``noise_reduction`` use, which this AST pass cannot resolve to a handler -- so it
 is locked by its own ``TestCompletionSeam`` in ``restoration/tests/test_app.py``
 rather than by a row here.
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -95,9 +98,7 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
     {
         ("album_art_normalizer/app.py", "ArtNormalizerApp"),
         ("album_genre_tagger/app.py", "GenreConsolidatorApp"),
-        ("audio_enhancer/app.py", "AudioEnhancerApp"),
         ("audio_fingerprinter/app.py", "FingerprinterApp"),
-        ("audio_normalizer/app.py", "AudioNormalizerApp"),
         ("audio_refinery/app.py", "AudioRefineryApp"),
         ("bpm_analyzer/app.py", "BPMAnalyzerApp"),
         ("duplicate_finder/ui/app.py", "DuplicateFinderApp"),
@@ -107,7 +108,6 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
         ("ml_denoiser/app.py", "MlDenoiserApp"),
         ("music_format_converter/app.py", "MusicFormatConverterApp"),
         ("replaygain_analyzer/app.py", "ReplayGainAnalyzerApp"),
-        ("silence_trimmer/app.py", "SilenceTrimmerApp"),
         ("stem_separator/app.py", "StemSeparatorApp"),
         ("tag_editor/ui/app.py", "TagEditorApp"),
         ("tag_field_updater/ui/app.py", "TagFieldUpdaterApp"),

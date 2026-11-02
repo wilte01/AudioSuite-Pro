@@ -20,6 +20,9 @@ opens, and the notice it shows when the installation has no changelog.
 Changed in 2.1.6: the Help-menu helper resolves Help's position in the menubar
 instead of reusing its position among the cascade labels, which pointed at a
 different entry on the Tk 8.6 legs (their menubar carried a tear-off entry).
+Changed in 2.3.1 (U-03, released in 2.6.0): the select-all lock walks
+``driver_by_category``, the population the tab actually offers, so the five
+retired DSP tools are not expected to have a checkbox.
 
 Regression background
 ---------------------
@@ -154,7 +157,9 @@ class TestUtilSelectAll:
         ) as detect:
             driver._apply_util_select_all(True)
 
-        for manifest in get_registry().by_category("utility"):
+        # ``driver_by_category`` is the tab's population: a manifest retired
+        # with ``driver_card=False`` (U-03) has no checkbox to select.
+        for manifest in get_registry().driver_by_category("utility"):
             if manifest.id == "undo_tag_edits":
                 continue
             assert driver.state.module_toggles[manifest.id].get() is True, manifest.id
@@ -194,7 +199,7 @@ class TestUtilSelectAll:
         with patch("master_driver.app.utilities_window.update_format_detection"):
             driver._apply_util_select_all(False)
 
-        for manifest in get_registry().by_category("utility"):
+        for manifest in get_registry().driver_by_category("utility"):
             if manifest.id == "undo_tag_edits":
                 continue
             assert driver.state.module_toggles[manifest.id].get() is False, manifest.id

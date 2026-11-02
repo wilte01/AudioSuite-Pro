@@ -25,13 +25,15 @@ of those is an encoder default, so a writer cannot pass by agreeing with one.
 
 Changed in 2.1.7: initial version, adopting F-10 from the functional backlog and
 finding the shared pydub exporter's 24-bit-to-16-bit loss.
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
 
 import shutil
 import subprocess
-import threading
 from pathlib import Path
 from queue import Queue
 from typing import Any
@@ -69,11 +71,13 @@ WRITER_ROWS: dict[str, str] = {
     "audio_suite_shared.audio_conversion.numpy_to_segment": (
         "TestAudioConversionFormat.test_conversion_round_trip_keeps_segment_format"
     ),
+    # The declicker and the noise reducer write through the pipeline now, so
+    # their rows name the pipeline's writer and the cases that drive it (U-04).
     "pop_click_remover.core.declicker.declick_audio": (
-        "TestPopClickFormat.test_declick_keeps_rate_channels_and_depth"
+        "TestStageWriteFormat.test_declick_keeps_rate_channels_and_depth"
     ),
     "noise_reduction.core.noise_reducer.reduce_noise": (
-        "TestNoiseReductionFormat.test_noise_reduction_keeps_rate_channels_and_depth"
+        "TestStageWriteFormat.test_noise_reduction_keeps_rate_channels_and_depth"
     ),
     "audio_refinery.core.pipeline._write_output": (
         "TestAudioRefineryFormat.test_refinery_export_keeps_rate_channels_and_depth"
@@ -346,13 +350,42 @@ class TestAudioConversionFormat:
         )
 
 
-# ── pop_click_remover ─────────────────────────────────────────────────────────
+# ── audio_refinery (the writer the five stage tools now use) ───────────────────
 
 
-class TestPopClickFormat:
+class TestStageWriteFormat:
+    """The declicker and noise reducer write through REFINE now (U-04).
+
+    These two tools lost their own batch processors in 2.6.0, so the writer
+    that has to preserve a 24-bit mono 32 kHz source's format is the
+    pipeline's.  Each case damages the fixture so the stage really rewrites the
+    file instead of reporting SKIPPED.
+    """
+
+    @staticmethod
+    def _config(*, declick: bool = False, reduce_noise: bool = False) -> Any:
+        from audio_refinery.core.models import StageConfig
+        from noise_reduction.core.models import NoiseReductionParams
+
+        return StageConfig(
+            declick=declick,
+            trim=False,
+            enhance=False,
+            normalise=False,
+            reduce_noise=reduce_noise,
+            # The stage does nothing unless a reducer is selected: the panel's
+            # two checkboxes are the on switch, not the stage toggle.
+            noise_reduction_params=NoiseReductionParams(
+                reduce_hum=reduce_noise,
+                hum_frequency=60,
+                hum_harmonics=3,
+            ),
+        )
+
     def test_declick_keeps_rate_channels_and_depth(self, tmp_path: Path) -> None:
         """A live declick write keeps a 32 kHz mono 24-bit WAV's format."""
-        from pop_click_remover.core.file_processor import process_single_file
+        from audio_refinery.core.models import FileStatus
+        from audio_refinery.core.pipeline import process_file
 
         source = _write_sine(tmp_path / "clicky.wav")
         segment = _decoded_segment(source)
@@ -362,40 +395,19 @@ class TestPopClickFormat:
             str(source), format="wav", parameters=["-c:a", "pcm_s24le"]
         )
         assert _format_of(source) == (FIXTURE_RATE, 1, 24)
-        temp_dir = tmp_path / "tmp"
-        temp_dir.mkdir()
-        slots, queue = _slot_fixtures()
-        records: list[tuple[str, str, str]] = []
 
-        process_single_file(
-            name=source.name,
-            dir_path=str(tmp_path),
-            is_dry_run=False,
-            sensitivity=0.05,
-            max_width=2,
-            temp_dir=str(temp_dir),
-            slot_vars=slots,
-            slot_queue=queue,
-            lock=threading.Lock(),
-            on_progress=lambda **kw: records.append(
-                (kw["status"], kw["display_text"], kw["log_text"])
-            ),
-        )
+        result = process_file(source, source, self._config(declick=True))
 
-        assert [status for status, _text, _log in records] == ["FIXED"], records
+        assert result.status is FileStatus.DONE, result.error
+        assert result.was_modified is True
         assert _format_of(source) == (FIXTURE_RATE, 1, 24)
 
-
-# ── noise_reduction ───────────────────────────────────────────────────────────
-
-
-class TestNoiseReductionFormat:
     def test_noise_reduction_keeps_rate_channels_and_depth(
         self, tmp_path: Path
     ) -> None:
         """A live hum removal keeps a 32 kHz mono 24-bit WAV's format."""
-        from noise_reduction.core.file_processor import process_single_file
-        from noise_reduction.core.models import NoiseReductionParams
+        from audio_refinery.core.models import FileStatus
+        from audio_refinery.core.pipeline import process_file
 
         # A 60 Hz-dominated signal guarantees the hum notch changes the audio,
         # so the live write path (not the SKIP branch) is what this locks.
@@ -406,27 +418,11 @@ class TestNoiseReductionFormat:
             hum.tobytes(), frame_rate=FIXTURE_RATE, sample_width=4, channels=1
         ).export(str(source), format="wav", parameters=["-c:a", "pcm_s24le"])
         assert _format_of(source) == (FIXTURE_RATE, 1, 24)
-        temp_dir = tmp_path / "tmp"
-        temp_dir.mkdir()
-        slots, queue = _slot_fixtures()
-        records: list[tuple[str, str, str]] = []
 
-        process_single_file(
-            name=source.name,
-            dir_path=str(tmp_path),
-            params=NoiseReductionParams(
-                reduce_hum=True, hum_frequency=60, hum_harmonics=3
-            ),
-            temp_dir=str(temp_dir),
-            slot_vars=slots,
-            slot_queue=queue,
-            lock=threading.Lock(),
-            on_progress=lambda **kw: records.append(
-                (kw["status"], kw["display_text"], kw["log_text"])
-            ),
-        )
+        result = process_file(source, source, self._config(reduce_noise=True))
 
-        assert [status for status, _text, _log in records] == ["FIXED"], records
+        assert result.status is FileStatus.DONE, result.error
+        assert result.was_modified is True
         assert _format_of(source) == (FIXTURE_RATE, 1, 24)
 
 

@@ -18,6 +18,9 @@ failures are retried, and the reported status) is unchanged.
 Changed in 2.1.4: adds the dependency-failure tests — a failed step skips its
 dependants in both modes instead of releasing them, and the skip reason reaches
 the step, the panel and the report (audit R-10, plan C4).
+
+Changed in 2.3.1 (U-03, released in 2.6.0): the graph-coverage lock counts the
+driver's population, so a tool retired from the tab stops demanding a node.
 """
 
 from __future__ import annotations
@@ -775,9 +778,15 @@ class TestDependencyGraph:
 
     @staticmethod
     def _registered() -> set[str]:
+        """The first-party tools a batch can schedule a step for.
+
+        ``is_driver_tool``, not merely "first-party": a manifest with
+        ``driver_card=False`` (U-03's five DSP tools) has no toggle on the tab
+        and no argument builder, so a graph node for it would be unreachable.
+        """
         from audio_suite_shared.tool_plugin import get_registry
 
-        return {m.id for m in get_registry().first_party}
+        return {m.id for m in get_registry().first_party if m.is_driver_tool}
 
     def test_graph_covers_every_batch_eligible_tool(self):
         """set(manifest ids) == set(DEPENDENCY_GRAPH keys | EXCLUDED).
@@ -863,12 +872,14 @@ class TestDependencyGraph:
         assert len(DEPENDENCY_GRAPH) == len(set(DEPENDENCY_GRAPH))
 
     def test_new_ids_have_no_unstated_dependencies(self):
-        """The three ids added by iteration-8 C4 read only path/mode/start/end.
+        """The ids added by iteration-8 C4 read only path/mode/start/end.
 
         Each was verified against its arg-builder signature: none consumes
         another tool's output, so `[]` is the correct declared dependency set.
+        ``noise_reduction`` was the third; U-03 retired its card and with it
+        the graph node, so only the two the tab still offers remain.
         """
-        for tool_id in ("mood_analyzer", "noise_reduction", "tag_field_updater"):
+        for tool_id in ("mood_analyzer", "tag_field_updater"):
             assert tool_id in DEPENDENCY_GRAPH
             assert DEPENDENCY_GRAPH[tool_id] == []
 

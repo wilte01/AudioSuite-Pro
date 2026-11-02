@@ -49,6 +49,9 @@ Changed in 2.3.0: registers ``DuplicateFinderApp``, whose completion handler
 declares the three counts its report and Results panel render (``groups``,
 ``duplicates``, ``quarantined``) beside the shared fields, so the table is 19
 tools (F-02).
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -68,20 +71,6 @@ from tests.test_callback_payload_contract import REPO_ROOT, WIRINGS
 EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
     "ArtNormalizerApp": frozenset(
         {"total", "processed", "skipped", "errors", "duration_secs", "log_entries"}
-    ),
-    "AudioEnhancerApp": frozenset(
-        {"total", "done", "errors", "duration_secs", "results"}
-    ),
-    "AudioNormalizerApp": frozenset(
-        {
-            "header",
-            "total",
-            "processed",
-            "skipped",
-            "errors",
-            "duration_secs",
-            "log_entries",
-        }
     ),
     "AudioRefineryApp": frozenset(
         {
@@ -209,17 +198,6 @@ EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
             "log_entries",
         }
     ),
-    "SilenceTrimmerApp": frozenset(
-        {
-            "header",
-            "total",
-            "processed",
-            "skipped",
-            "errors",
-            "duration_secs",
-            "log_entries",
-        }
-    ),
     "MlDenoiserApp": frozenset(
         {
             "total",
@@ -321,7 +299,9 @@ def _required(fn: Any) -> set[str]:
 
 def test_the_seam_table_covers_every_gui_tool() -> None:
     """A partial table would leave tools silently untested."""
-    assert len(COMPLETION_WIRINGS) == 19
+    # 16 since 2.6.0: the enhancer, normalizer and trimmer windows are gone
+    # (U-04), so their completion seams went with them.
+    assert len(COMPLETION_WIRINGS) == 16
     assert set(EXPECTED_REQUIRED) == set(COMPLETION_WIRINGS)
 
 
