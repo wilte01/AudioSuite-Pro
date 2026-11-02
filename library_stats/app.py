@@ -16,6 +16,8 @@ Changed in 2.2.0: the Export dialog offers M3U and HTML beside CSV/JSON and
 writes the format the chosen extension names, and a "Camelot column" checkbox
 adds the harmonic-mixing key column to the CSV/HTML exports (functional
 backlog F-05/F-06).
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 from __future__ import annotations
@@ -196,6 +198,8 @@ class LibraryStatsApp(UIHelperMixin):
             bg=styles.BG_APP,
             fg=styles.FG_MAIN,
             selectcolor=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
+            activebackground=styles.BG_APP,
         )
         self._cache_cb.pack(side=tk.LEFT, padx=(5, 0))
 
@@ -218,6 +222,7 @@ class LibraryStatsApp(UIHelperMixin):
             font=styles.FONT_BUTTON,
             bg=styles.get_main(),
             fg="white",
+            disabledforeground=styles.FG_ON_ACCENT_LOCKED,
             relief="flat",
             padx=10,
             state="disabled",
@@ -237,6 +242,7 @@ class LibraryStatsApp(UIHelperMixin):
             fg=styles.FG_MAIN,
             activebackground=styles.BG_APP,
             selectcolor=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
         ).pack(side=tk.LEFT, padx=(10, 0))
 
         # ── Status bar ───────────────────────────────────────────────────────
@@ -444,6 +450,7 @@ class LibraryStatsApp(UIHelperMixin):
             font=styles.FONT_BUTTON,
             bg=styles.get_main(),
             fg="white",
+            disabledforeground=styles.FG_ON_ACCENT_LOCKED,
             relief="flat",
             padx=8,
             state="disabled",
@@ -456,6 +463,7 @@ class LibraryStatsApp(UIHelperMixin):
             font=styles.FONT_BUTTON,
             bg=styles.get_main(),
             fg="white",
+            disabledforeground=styles.FG_ON_ACCENT_LOCKED,
             relief="flat",
             padx=8,
             state="disabled",

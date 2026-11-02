@@ -3,6 +3,8 @@ setup_tab.py — Setup tab for Metadata Scrubber.
 
 The dynamic tag-checkbox panel is managed here.
 get_preserve_list() is the only bridge to the core layer.
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 import tkinter as tk
@@ -186,6 +188,7 @@ class SetupTab:
             text="BEGIN SCRUBBING",
             bg=styles.get_main(),
             fg="white",
+            disabledforeground=styles.FG_ON_ACCENT_LOCKED,
             font=styles.FONT_BUTTON,
             height=2,
             state="disabled",

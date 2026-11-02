@@ -3,6 +3,14 @@ styles.py — Canonical colour palettes and ttk style setup for the Audio Suite.
 
 Changed in 1.4.1: documents the palette, typography and style entry points, so
 the generated API reference lists the contract a tool author calls (PLAN D98).
+
+Changed in 2.3.1: adds the locked-field surface (``BG_READONLY``), the locked
+text for an accent-filled button (``FG_ON_ACCENT_LOCKED``) and the ttk disabled
+mappings, so a control the driver locks stops falling through to Tk's symbolic
+greys (PLAN_restoration_2026-10-31.md T-03).
+Changed in 2.3.1: adds :func:`text_colors`, the keyword set a text-bearing widget
+takes, so a themed ``bg`` cannot arrive without the foreground and disabled
+colours for the states it can be seen in (T-02).
 """
 
 import logging
@@ -173,8 +181,21 @@ FG_SUB = "#555555"
 BG_APP = "#f4f4f9"
 BG_HEADER = "#e8e8f0"
 BG_ITEM = "#ffffff"
+#: Surface of a value field the caller has locked (the driver's read-only
+#: control strip, and every other ``state="disabled"`` value field).  A locked
+#: value has to read as one: a disabled ``tk.Entry`` paints its
+#: ``-disabledbackground``, whose default is the symbolic ``SystemButtonFace``
+#: (#f0f0f0 in *both* themes), which left the driver's Source Music Directory
+#: value at 2.04:1 inside a dark window.  Refreshed by :func:`set_theme_mode`.
+BG_READONLY = "#f0f0f0"
 COLOR_ERROR = "#cc0000"
 COLOR_SUCCESS = "#28a745"
+
+#: Text on the palette's accent fill while a control is locked.  White would
+#: clear WCAG AA but reads as enabled; this grey stays above 4.5:1 on every
+#: shipped palette's accent.  Tk has no disabled background for ``tk.Button``,
+#: so the locked state is carried by this foreground alone.
+FG_ON_ACCENT_LOCKED = "#e8e8e8"
 
 
 def _get_system_theme() -> str:
@@ -204,7 +225,8 @@ def _get_system_theme() -> str:
 def set_theme_mode(mode: str) -> None:
     """Updates the global theme mode and adapts BG/FG colors."""
     global THEME_MODE, BG_LIGHT, BG_WHITE, FG_MAIN, FG_SUB
-    global BG_APP, BG_HEADER, BG_ITEM, COLOR_ERROR, COLOR_SUCCESS
+    global BG_APP, BG_HEADER, BG_ITEM, BG_READONLY, COLOR_ERROR, COLOR_SUCCESS
+    global AMBER
     THEME_MODE = mode
 
     effective_mode = mode
@@ -219,8 +241,10 @@ def set_theme_mode(mode: str) -> None:
         BG_APP = "#1a1a1e"
         BG_HEADER = "#2d2d33"
         BG_ITEM = "#25252b"
+        BG_READONLY = "#121212"
         COLOR_ERROR = "#ff6b6b"
         COLOR_SUCCESS = "#51cf66"
+        AMBER = "#d97706"
     else:
         # Revert to palette values or Light defaults
         palette = _resolve_palette(get_active_palette_name())
@@ -231,8 +255,10 @@ def set_theme_mode(mode: str) -> None:
         BG_APP = "#f4f4f9"
         BG_HEADER = "#e8e8f0"
         BG_ITEM = "#ffffff"
+        BG_READONLY = palette["bg_light"]
         COLOR_ERROR = "#cc0000"
         COLOR_SUCCESS = "#28a745"
+        AMBER = "#9a4a08"
 
 
 from . import suite_config  # noqa: E402
@@ -387,15 +413,116 @@ def apply_styles(style: ttk.Style) -> None:
         "TSpinbox", fieldbackground=BG_WHITE, foreground=FG_MAIN, insertcolor=FG_MAIN
     )
 
+    # A disabled ttk field has no per-widget ``disabledbackground``, so the
+    # locked surface and its text are declared on the style.  Without these
+    # entries a locked TEntry/TCombobox keeps the editable surface and reads as
+    # an ordinary field (T-03).  ``disabled`` is listed before ``readonly`` and
+    # ``readonly`` before the plain fallback: ttk takes the first matching
+    # state spec, and a locked combobox must not match the readonly branch.
+    style.map(
+        "TEntry",
+        fieldbackground=[("disabled", BG_READONLY)],
+        foreground=[("disabled", FG_SUB)],
+    )
+    style.map(
+        "TSpinbox",
+        fieldbackground=[("disabled", BG_READONLY)],
+        foreground=[("disabled", FG_SUB)],
+    )
     # Map for Combobox to handle selection colors better in Dark Mode
-    style.map("TCombobox", fieldbackground=[("readonly", BG_WHITE)])
-    style.map("TCombobox", foreground=[("readonly", FG_MAIN)])
+    style.map(
+        "TCombobox",
+        fieldbackground=[
+            ("disabled", BG_READONLY),
+            ("readonly", BG_WHITE),
+        ],
+        foreground=[("disabled", FG_SUB), ("readonly", FG_MAIN)],
+    )
+
+
+#: The widget families :func:`text_colors` has a keyword set for.
+TEXT_COLOR_KINDS = ("label", "toggle", "field", "accent")
+
+
+def text_colors(
+    kind: str = "label", *, background: str | None = None
+) -> dict[str, str]:
+    """The colour keywords a text-bearing widget of *kind* has to carry.
+
+    A themed ``bg`` on its own leaves the text on Tk's own default, which is
+    the symbolic ``SystemWindowText``: black, whatever the theme says, and
+    1.26:1 on the dark body.  Tk's symbolic colours ignore the suite theme in
+    both directions, so the same omission is unreadable in Dark and merely
+    foreign-looking in Light.  One call returns every keyword that family
+    accepts, already keyed to the active theme, so the next widget cannot get
+    the set half right.
+
+    Args:
+        kind: One of :data:`TEXT_COLOR_KINDS`.  ``"label"`` for a plain
+            ``tk.Label``/``tk.Message``; ``"toggle"`` for a
+            ``tk.Checkbutton``/``tk.Radiobutton`` (its indicator square needs
+            ``selectcolor``, whose default is the symbolic ``SystemWindow``);
+            ``"field"`` for a ``tk.Entry``/``tk.Text`` value; ``"accent"`` for
+            the accent-filled primary button.
+        background: The surface the widget sits on.  ``None`` means
+            :data:`BG_WHITE`, the palette's card surface.  Pass
+            :data:`BG_LIGHT` on a card header or :data:`BG_ITEM` inside a
+            value panel so the widget matches what it is packed into.
+
+    Returns:
+        Tk option names mapped to colour specs, suitable for
+        ``tk.Widget(parent, **styles.text_colors("toggle", background=...))``.
+        Only options that family accepts are included, so expanding the result
+        into a constructor never raises for an unsupported keyword.
+
+    Raises:
+        ValueError: If *kind* is not one of :data:`TEXT_COLOR_KINDS`.
+    """
+    surface = BG_WHITE if background is None else background
+    if kind == "label":
+        return {
+            "background": surface,
+            "foreground": FG_MAIN,
+            "disabledforeground": FG_SUB,
+        }
+    if kind == "toggle":
+        return {
+            "background": surface,
+            "foreground": FG_MAIN,
+            "activebackground": surface,
+            "activeforeground": FG_MAIN,
+            "selectcolor": surface,
+            "disabledforeground": FG_SUB,
+        }
+    if kind == "field":
+        return {
+            "background": surface,
+            "foreground": FG_MAIN,
+            "insertbackground": FG_MAIN,
+            "disabledbackground": BG_READONLY,
+            "disabledforeground": FG_SUB,
+        }
+    if kind == "accent":
+        return {
+            "background": get_main(),
+            "foreground": "#ffffff",
+            "activebackground": get_dark(),
+            "activeforeground": "#ffffff",
+            "disabledforeground": FG_ON_ACCENT_LOCKED,
+        }
+    raise ValueError(
+        f"unknown text colour kind {kind!r}; expected one of {TEXT_COLOR_KINDS}"
+    )
 
 
 # ── Master Driver Specific Constants & Helpers ──────────────────────────────
 # These are consolidated here to provide a consistent suite-wide UI standard.
 
-AMBER = "#d97706"
+#: Caveat-text amber.  Refreshed by :func:`set_theme_mode` like the other
+#: foregrounds: #d97706 measures 3.19:1 on the light card while #9a4a08
+#: measures 6.2:1, and on the dark card that relationship inverts, so no
+#: single fixed value is legible in both themes (T-02).
+AMBER = "#9a4a08"
 # BG_APP is now dynamic above
 # BG_WHITE is already defined above as "#ffffff"
 
@@ -422,6 +549,9 @@ def tab_inactive() -> str:
 
 TAB_FG = "#ffffff"
 
-# Settings tab specific neutral greys
+# Settings tab specific neutral greys.  The inactive fill carries white text on
+# the driver's UTIL/SETTINGS strip, so it has to clear WCAG AA: #888888 measured
+# 3.54:1, #666666 measures 5.74:1 while staying recognisably lighter than the
+# active grey.
 SETTINGS_TAB_ACTIVE = "#444444"
-SETTINGS_TAB_INACTIVE = "#888888"
+SETTINGS_TAB_INACTIVE = "#666666"

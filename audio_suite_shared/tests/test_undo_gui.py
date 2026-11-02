@@ -6,6 +6,9 @@ preview / result summary) and the Tk window behaviour via the project's
 ``object.__new__`` + ``MagicMock`` pattern so no real Tk instance is needed
 for logic tests.  A session-scoped Tk root is used where actual widget
 construction is exercised.
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -202,15 +205,27 @@ class TestToolDisplayNamesMatchesManifest:
         )
         assert missing == [], f"undo-log tool ids without a display name: {missing}"
 
-    def test_four_newly_covered_ids_are_collected(self) -> None:
+    def test_the_newly_covered_ids_are_collected(self) -> None:
         collected = self._collected_ids()
         for tool_id in (
             "audio_fingerprinter",
             "lyrics_manager",
-            "silence_trimmer",
             "tag_editor",
         ):
             assert tool_id in collected
+            assert tool_id in _TOOL_DISPLAY_NAMES
+
+    def test_a_retired_tool_s_id_is_no_longer_collected(self) -> None:
+        """REFINE's stages record under their own id, not the old tools'."""
+        collected = self._collected_ids()
+        for tool_id in (
+            "noise_reduction",
+            "pop_click_remover",
+            "silence_trimmer",
+        ):
+            assert tool_id not in collected, tool_id
+            # The display name stays: an undo log written before 2.6.0 still
+            # holds these ids and must keep rendering a readable name.
             assert tool_id in _TOOL_DISPLAY_NAMES
 
     def test_display_values_match_manifest(self) -> None:

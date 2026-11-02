@@ -3,6 +3,8 @@ cd_ripper/ui/setup_tab.py — Setup tab container (decomposed).
 
 Changed in 1.0.1: pre-fills the setup widgets from argv and filters the rip list by
 ``--tracks``.
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 import os
@@ -43,6 +45,7 @@ class SetupTab:
             text="PROCEED TO RIP  ▶",
             bg=styles.get_main(),
             fg="white",
+            disabledforeground=styles.FG_ON_ACCENT_LOCKED,
             font=styles.FONT_BUTTON,
             height=2,
             command=self._proceed,
@@ -93,7 +96,7 @@ class SetupTab:
         self._fmt_panel = FormatConfigPanel(outer)
         self._fmt_panel.frame.pack(fill="x")
 
-        info_frame = tk.Frame(outer, bg="#e8f4f8", relief=tk.RIDGE, bd=1)
+        info_frame = tk.Frame(outer, bg=styles.BG_HEADER, relief=tk.RIDGE, bd=1)
         info_frame.pack(fill="x", pady=8)
         tk.Label(
             info_frame,
@@ -106,7 +109,9 @@ class SetupTab:
                 "• Administrator rights are required for raw CD audio extraction."
             ),
             font=styles.FONT_CAPTION,
-            bg="#e8f4f8",
+            bg=styles.BG_HEADER,
+            fg=styles.FG_MAIN,
+            disabledforeground=styles.FG_SUB,
             justify=tk.LEFT,
             wraplength=700,
         ).pack(padx=10, pady=6)

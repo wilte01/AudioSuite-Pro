@@ -1,5 +1,7 @@
 """
 cd_ripper/ui/format_config_panel.py — Output format/quality configuration.
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 import os
@@ -132,6 +134,9 @@ class FormatConfigPanel:
             bg=styles.BG_WHITE,
             fg=styles.FG_MAIN,
             activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
+            selectcolor=styles.BG_WHITE,
+            disabledforeground=styles.FG_SUB,
             anchor="w",
         ).pack(anchor="w", pady=(8, 0))
 

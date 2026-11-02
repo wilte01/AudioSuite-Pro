@@ -17,6 +17,13 @@ Two launch modes are supported:
   stay editable; Auto Start is greyed out because auto-start can only
   be requested by the driver; Clear Logs / Parallel are driver-only
   orchestration options and are permanently inert.
+
+Changed in 2.3.1: a locked strip stays legible and reads as locked.  The source
+entry paints the suite's read-only surface instead of Tk's symbolic
+``SystemButtonFace`` (which left the driver-inherited path at 2.04:1 under a
+dark theme), and the accent-filled Browse button carries the locked accent text
+instead of the symbolic ``SystemDisabledText`` (1.13:1)
+(PLAN_restoration_2026-10-31.md T-03).
 """
 
 import tkinter as tk
@@ -90,6 +97,9 @@ class DriverControlsPanel(tk.Frame):
             fg=styles.FG_MAIN,
             insertbackground=styles.FG_MAIN,
             disabledforeground=styles.FG_SUB,
+            # A disabled tk.Entry paints with this; its default is the
+            # symbolic SystemButtonFace, which ignores the theme entirely.
+            disabledbackground=styles.BG_READONLY,
         )
         self.source_entry.pack(side=tk.LEFT, fill="x", expand=True, padx=(0, 10))
 
@@ -101,6 +111,10 @@ class DriverControlsPanel(tk.Frame):
                 bg=styles.get_main(),
                 fg="white",
                 font=styles.FONT_BUTTON,
+                # Locked, the button keeps its accent fill, so its text must
+                # stay legible on the accent rather than take Tk's symbolic
+                # SystemDisabledText grey.
+                disabledforeground=styles.FG_ON_ACCENT_LOCKED,
                 command=on_browse,
             )
             self.browse_btn.pack(side=tk.RIGHT)

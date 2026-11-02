@@ -7,6 +7,8 @@ export) to callbacks the app supplies, which is also what lets the GUI tests
 assert the wiring without a real mainloop.
 
 Changed in 1.3.0: initial version (PLAN_feature_expansion.md Item 3.1).
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 from __future__ import annotations
@@ -233,6 +235,7 @@ def build_controls(
         font=styles.FONT_BUTTON,
         bg=styles.get_main(),
         fg="white",
+        disabledforeground=styles.FG_ON_ACCENT_LOCKED,
         relief="flat",
         padx=10,
         state="disabled",

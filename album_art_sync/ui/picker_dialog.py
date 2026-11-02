@@ -8,6 +8,8 @@ show_threadsafe() is called from a background thread and blocks it
 Candidates are received pre-filtered and quality-ranked from the API
 modules, so they are shown in resolution order with mismatched album
 names already removed.
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 # ── Standard library imports ─────────────────────────────────────────────────
@@ -103,7 +105,9 @@ class PickerDialog:
         # Handle window-manager close (X button) the same as REJECT
         win.protocol("WM_DELETE_WINDOW", win.destroy)
 
-        lbl_img = tk.Label(win, bg="#eee", width=320, height=320, font=styles.FONT_BODY)
+        lbl_img = tk.Label(
+            win, bg=styles.BG_LIGHT, width=320, height=320, font=styles.FONT_BODY
+        )
         lbl_img.pack(pady=10)
         lbl_info = tk.Label(win, text="Loading...", font=styles.FONT_BODY)
         lbl_info.pack()

@@ -35,6 +35,9 @@ Layers:
 
 Changed in 1.4.0: adds the typed worker-count cap lock (D66 follow-up) and
 requires its ``unattended=`` argument so unattended launches never block (D70).
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -444,9 +447,11 @@ class TestSlotGridSourceLock:
     def test_the_scan_finds_every_grid(self) -> None:
         """An empty or truncated scan must fail loudly, not pass vacuously."""
         tools = _manifest_tools()
-        assert len(tools) >= 20, f"manifest discovery collapsed: {sorted(tools)}"
+        assert len(tools) >= 15, f"manifest discovery collapsed: {sorted(tools)}"
         own = _own_grid_tools()
-        assert len(own) >= 10, f"tool-owned grid scan collapsed: {sorted(own)}"
+        # 9 since 2.6.0: the five stage tools' worker grids went with their
+        # windows (U-04).
+        assert len(own) >= 9, f"tool-owned grid scan collapsed: {sorted(own)}"
         shared = {
             (_REPO_ROOT / module_path).resolve()
             for module_path, _ in _SHARED_BASES.values()
@@ -500,7 +505,7 @@ class TestTypedWorkerCountIsCapped:
     def test_the_scan_finds_typed_worker_inputs(self) -> None:
         """An empty scan fails loudly; every site is owned like a grid."""
         sites = _typed_worker_sites()
-        assert len(sites) >= 5, "typed worker-input discovery collapsed: " + ", ".join(
+        assert len(sites) >= 4, "typed worker-input discovery collapsed: " + ", ".join(
             path.name for path in sites
         )
         names = {path.relative_to(_REPO_ROOT).as_posix() for path in sites}

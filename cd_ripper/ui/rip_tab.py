@@ -6,6 +6,8 @@ Style matches Music Format Converter processing_tab.py.
 Changed in 1.2.0: a result row is recorded by track number (so a re-rip
 replaces it instead of appending a duplicate) and ``re_rip`` re-runs only the
 flagged track numbers through a fresh session (PLAN_feature_expansion.md D30).
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 import os
@@ -136,6 +138,7 @@ class RipTab:
             text="⛔  Cancel",
             bg="#888888",
             fg="white",
+            disabledforeground=styles.FG_ON_ACCENT_LOCKED,
             font=styles.FONT_LABEL,
             command=self._cancel,
             state="disabled",

@@ -6,6 +6,9 @@ shared Run Controls strip supplies the source row, the Browse dialog, the
 Mode combobox and the driver's orchestration display, and the start button is
 the suite's full-width one.  The grid — this tool's editing surface — is
 tool-specific and lives in ``_build_options``.
+
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 from __future__ import annotations
@@ -250,6 +253,7 @@ class _SetupFrame(BaseSetupFrame):
             activebackground=styles.BG_WHITE,
             selectcolor=styles.BG_WHITE,
             font=styles.FONT_BODY,
+            activeforeground=styles.FG_MAIN,
         ).pack(side=tk.LEFT, padx=(0, 10))
 
         ttk.Button(

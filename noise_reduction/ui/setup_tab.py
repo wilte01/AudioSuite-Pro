@@ -4,6 +4,9 @@ Setup tab for Noise Reduction tool.
 
 Provides controls for hum removal (frequency, harmonics, Q) and
 broadband noise reduction (noise profile region, gate threshold).
+
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 from __future__ import annotations
@@ -117,6 +120,7 @@ class _SetupFrame(BaseSetupFrame):
             fg=styles.FG_MAIN,
             selectcolor=styles.BG_WHITE,
             activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
         ).pack(anchor="w")
 
         freq_frame = tk.Frame(hum_frame, bg=styles.BG_WHITE)
@@ -141,6 +145,7 @@ class _SetupFrame(BaseSetupFrame):
                 fg=styles.FG_MAIN,
                 selectcolor=styles.BG_WHITE,
                 activebackground=styles.BG_WHITE,
+                activeforeground=styles.FG_MAIN,
             ).pack(side=tk.LEFT, padx=5)
 
         slider_row(hum_frame, "Harmonics (1-20)", self._hum_harmonics, 1, 20, 1)
@@ -158,6 +163,7 @@ class _SetupFrame(BaseSetupFrame):
             fg=styles.FG_MAIN,
             selectcolor=styles.BG_WHITE,
             activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
         ).pack(anchor="w")
 
         slider_row(bb_frame, "Noise Start (ms)", self._noise_start_ms, 0, 5000, 100)

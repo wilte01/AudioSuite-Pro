@@ -5,6 +5,8 @@ Setup tab for ReplayGain Analyzer.
 Builds the shared Run Controls panel (mirroring the Master Driver),
 LUFS target picker, preset management, and the primary Start button.
 No business logic — purely view.
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 import tkinter as tk
@@ -143,7 +145,11 @@ class _SetupFrame(BaseSetupFrame):
                 self,
                 text="Apply track gain losslessly to MP3 files (MP3Gain-style)",
                 font=styles.FONT_BODY,
-                fg=styles.FG_MAIN,
                 bg=styles.BG_WHITE,
+                fg=styles.FG_MAIN,
+                activebackground=styles.BG_WHITE,
+                activeforeground=styles.FG_MAIN,
+                selectcolor=styles.BG_WHITE,
+                disabledforeground=styles.FG_SUB,
                 variable=self._apply_lossless_gain_var,
             ).pack(anchor="w", pady=(10, 0))

@@ -33,6 +33,8 @@ Changed in 2.3.0: gains ``duplicate_finder`` and ``restoration``.  The duplicate
 finder's batch moves files into quarantine and the declip writes audio in place,
 so both record undo rows a user has to be able to recognise; without the entries
 the rows read as raw ids.
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 from __future__ import annotations
@@ -470,6 +472,7 @@ class UndoTagEditsApp:
             font=styles.FONT_BUTTON,
             bg=styles.get_main(),
             fg="white",
+            disabledforeground=styles.FG_ON_ACCENT_LOCKED,
             relief=tk.RAISED,
             state="disabled",
             cursor="hand2",

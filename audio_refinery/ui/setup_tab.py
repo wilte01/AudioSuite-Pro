@@ -18,6 +18,16 @@ Output Gain in the Enhancer panel is hidden when the Normaliser is active.
 Changed in 1.1.0: added the Sprint 1 effect controls to the enhancer
 panel and fixed the Custom-mode sliders so they write back to
 config.enhance_params (D24).
+
+Changed in 2.6.0 (U-04): the Declick, Trim and Normalise panels write their
+controls back into the stage params the way the enhancer panel already did.
+Before, each panel bound a throwaway Tk variable, so moving REFINE's Click
+Sensitivity, Trim Threshold or Target LUFS slider changed a value nobody read
+and the run used the stored setting. The Normalise panel also gained the
+standalone Audio Normalizer's true-peak ceiling, LRA target and lossless MP3
+strategy, which have no other surface once the standalone window is gone.
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 from __future__ import annotations
@@ -328,6 +338,16 @@ def _delete_preset_action(
 
 # ── Stage panel builders ──────────────────────────────────────────────────────
 
+#: The two normalisation strategies, labelled for the panel.  Keys are the
+#: values ``NormaliseParams.mode`` stores; the labels are what a user picks.
+_NORMALISE_MODE_LABELS: dict[str, str] = {
+    "normalise": "Normalise (FFmpeg loudnorm)",
+    "lossless": "Lossless (MP3 global gain)",
+}
+_NORMALISE_MODE_VALUES: dict[str, str] = {
+    label: mode for mode, label in _NORMALISE_MODE_LABELS.items()
+}
+
 
 def _build_declick_panel(
     parent: tk.Frame,
@@ -341,6 +361,18 @@ def _build_declick_panel(
     if embedded:
         run_mode = None
 
+    # The panel's widgets own these variables, so they are traced back into the
+    # stage params — a copied value would leave the slider controlling nothing.
+    sensitivity_var = tk.DoubleVar(value=p.sensitivity)
+    width_var = tk.IntVar(value=p.max_width_ms)
+
+    def _write_back(*_trace: Any) -> None:
+        p.sensitivity = round(float(sensitivity_var.get()), 2)
+        p.max_width_ms = int(width_var.get())
+
+    sensitivity_var.trace_add("write", _write_back)
+    width_var.trace_add("write", _write_back)
+
     _stage_panel(
         parent,
         "Pop & Click Remover",
@@ -350,8 +382,8 @@ def _build_declick_panel(
         lambda body: declick_ui.build_config_panel(
             body,
             run_mode,
-            tk.DoubleVar(value=p.sensitivity),
-            tk.IntVar(value=p.max_width_ms),
+            sensitivity_var,
+            width_var,
         ),
         stage_vars=stage_vars,
     )
@@ -371,6 +403,20 @@ def _build_trim_panel(
     if embedded:
         run_mode = None
 
+    threshold_var = tk.IntVar(value=p.threshold)
+    fade_var = tk.BooleanVar(value=p.apply_fade)
+    fade_in_var = tk.IntVar(value=p.fade_in_ms)
+    fade_out_var = tk.IntVar(value=p.fade_out_ms)
+
+    def _write_back(*_trace: Any) -> None:
+        p.threshold = int(threshold_var.get())
+        p.apply_fade = bool(fade_var.get())
+        p.fade_in_ms = int(fade_in_var.get())
+        p.fade_out_ms = int(fade_out_var.get())
+
+    for _var in (threshold_var, fade_var, fade_in_var, fade_out_var):
+        _var.trace_add("write", _write_back)
+
     _stage_panel(
         parent,
         "Silence Trimmer / Fader",
@@ -380,10 +426,10 @@ def _build_trim_panel(
         lambda body: trim_ui.build_config_panel(
             body,
             run_mode,
-            tk.IntVar(value=p.threshold),
-            tk.BooleanVar(value=p.apply_fade),
-            tk.IntVar(value=p.fade_in_ms),
-            tk.IntVar(value=p.fade_out_ms),
+            threshold_var,
+            fade_var,
+            fade_in_var,
+            fade_out_var,
         ),
         stage_vars=stage_vars,
     )
@@ -415,6 +461,7 @@ def _build_noise_reduction_panel(
             selectcolor=styles.BG_WHITE,
             activebackground=styles.BG_WHITE,
             command=_set_hum,
+            activeforeground=styles.FG_MAIN,
         ).pack(anchor="w")
 
         freq_frame = tk.Frame(body, bg=styles.BG_WHITE)
@@ -446,6 +493,7 @@ def _build_noise_reduction_panel(
                 fg=styles.FG_MAIN,
                 selectcolor=styles.BG_WHITE,
                 activebackground=styles.BG_WHITE,
+                activeforeground=styles.FG_MAIN,
             ).pack(side=tk.LEFT, padx=5)
 
         harmonics_var = tk.IntVar(value=p.hum_harmonics)
@@ -477,6 +525,7 @@ def _build_noise_reduction_panel(
             selectcolor=styles.BG_WHITE,
             activebackground=styles.BG_WHITE,
             command=_set_broadband,
+            activeforeground=styles.FG_MAIN,
         ).pack(anchor="w")
 
         start_var = tk.IntVar(value=p.noise_start_ms)
@@ -603,11 +652,72 @@ def _build_normalise_panel(
     # always runs in Live Update mode
     run_mode = None if embedded else tk.StringVar(value="Normalize")
 
+    # Traced back into the stage params (U-04): the target, tolerance, ceiling,
+    # LRA and strategy all reach the pipeline from here.
+    target_var = tk.DoubleVar(value=p.target_lufs)
+    tolerance_var = tk.DoubleVar(value=p.tolerance)
+    peak_var = tk.DoubleVar(value=p.true_peak)
+    lra_var = tk.DoubleVar(value=p.lra)
+    mode_var = tk.StringVar(value=_NORMALISE_MODE_LABELS.get(p.mode, ""))
+
+    def _write_back(*_trace: Any) -> None:
+        p.target_lufs = float(target_var.get())
+        p.tolerance = float(tolerance_var.get())
+        p.true_peak = float(peak_var.get())
+        p.lra = float(lra_var.get())
+        mode = _NORMALISE_MODE_VALUES.get(mode_var.get())
+        if mode is not None:
+            p.mode = mode
+
+    for _var in (target_var, tolerance_var, peak_var, lra_var, mode_var):
+        _var.trace_add("write", _write_back)
+
     def _on_check_change(enabled: bool) -> None:
         config.normalise = enabled
         cb = state.get("normalise_toggle_cb")
         if cb:
             cb()
+
+    def _extra(body: tk.Frame) -> None:
+        normalise_ui.build_config_panel(
+            body,
+            run_mode,
+            target_var,
+            tolerance_var,
+            true_peak=peak_var,
+            lra=lra_var,
+        )
+        strategy_row = tk.Frame(body, bg=styles.BG_WHITE)
+        strategy_row.pack(fill="x", pady=(4, 0))
+        tk.Label(
+            strategy_row,
+            text="Strategy:",
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            width=28,
+            anchor="w",
+        ).pack(side=tk.LEFT)
+        ttk.Combobox(
+            strategy_row,
+            textvariable=mode_var,
+            values=list(_NORMALISE_MODE_LABELS.values()),
+            state="readonly",
+            font=styles.FONT_CAPTION,
+            width=30,
+        ).pack(side=tk.LEFT, padx=6)
+        tk.Label(
+            body,
+            text=(
+                "Lossless rewrites an MP3's global gain and re-encodes nothing; "
+                "other formats fall back to the loudnorm re-encode."
+            ),
+            font=styles.FONT_CAPTION,
+            fg=styles.FG_SUB,
+            bg=styles.BG_WHITE,
+            wraplength=520,
+            justify="left",
+        ).pack(anchor="w", padx=5)
 
     _stage_panel(
         parent,
@@ -615,12 +725,7 @@ def _build_normalise_panel(
         config,
         "normalise",
         [],
-        lambda body: normalise_ui.build_config_panel(
-            body,
-            run_mode,
-            tk.DoubleVar(value=p.target_lufs),
-            tk.DoubleVar(value=p.tolerance),
-        ),
+        _extra,
         on_check_change=_on_check_change,
         stage_vars=stage_vars,
     )
@@ -669,7 +774,11 @@ def _stage_panel(
         variable=enabled_var,
         command=_on_check,
         bg=styles.BG_LIGHT,
+        fg=styles.FG_MAIN,
         activebackground=styles.BG_LIGHT,
+        activeforeground=styles.FG_MAIN,
+        selectcolor=styles.BG_LIGHT,
+        disabledforeground=styles.FG_SUB,
     ).pack(side=tk.LEFT)
 
     tk.Label(

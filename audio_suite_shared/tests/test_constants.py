@@ -4,6 +4,9 @@ Covers presence, value, and type of every named constant and verifies that
 the consumer-facing magic-number constants are actually referenced by their
 consuming modules (import-level assertion).
 Changed in 1.4.0: adds the default_max_workers() ceiling/fallback tests.
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -125,7 +128,12 @@ class TestWindowGeometry:
 
 
 class TestConsumerReferences:
-    """Magic-number constants are consumed by their owning modules."""
+    """Magic-number constants are consumed by their owning modules.
+
+    One consumer left in 2.6.0 (U-04): the enhancer, noise reduction and
+    declicker stopped shipping a batch processor, so the fingerprinter is the
+    remaining in-place tool that reads DEFAULT_MAX_WORKERS.
+    """
 
     def test_jpeg_quality_is_consumed_by_art_processor(self) -> None:
         import album_art_normalizer.core.art_processor as consumer
@@ -141,20 +149,5 @@ class TestConsumerReferences:
         self,
     ) -> None:
         import audio_fingerprinter.core.file_processor as consumer
-
-        assert consumer.DEFAULT_MAX_WORKERS == constants.DEFAULT_MAX_WORKERS
-
-    def test_default_max_workers_is_consumed_by_audio_enhancer(self) -> None:
-        import audio_enhancer.core.file_processor as consumer
-
-        assert consumer.DEFAULT_MAX_WORKERS == constants.DEFAULT_MAX_WORKERS
-
-    def test_default_max_workers_is_consumed_by_noise_reduction(self) -> None:
-        import noise_reduction.core.file_processor as consumer
-
-        assert consumer.DEFAULT_MAX_WORKERS == constants.DEFAULT_MAX_WORKERS
-
-    def test_default_max_workers_is_consumed_by_pop_click_remover(self) -> None:
-        import pop_click_remover.core.file_processor as consumer
 
         assert consumer.DEFAULT_MAX_WORKERS == constants.DEFAULT_MAX_WORKERS

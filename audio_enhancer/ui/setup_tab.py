@@ -33,6 +33,9 @@ was not mapped at all, and maximising could not help: ~988 px of tab area on
 a 1081 px-tall screen). The tab now keeps a one-line summary plus a
 "Configure Custom DSP..." button, the editor owns the controls, and the start
 button is packed before the options so it can never be clipped.
+
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 from __future__ import annotations
@@ -984,6 +987,7 @@ def build_effect_controls(
             selectcolor=styles.BG_WHITE,
             activebackground=styles.BG_WHITE,
             anchor="w",
+            activeforeground=styles.FG_MAIN,
         ).pack(fill="x", anchor="w")
         effect_vars[field_name] = bool_var
 

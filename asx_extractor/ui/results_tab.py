@@ -1,3 +1,5 @@
+# Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+# Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """results_tab.py — Results tab for ASX Playlist Extractor."""
 
 import tkinter as tk
@@ -27,6 +29,7 @@ def build(
         width=30,
         bg=styles.get_main(),
         fg=styles.BG_WHITE,
+        disabledforeground=styles.FG_ON_ACCENT_LOCKED,
         pady=10,
         state="disabled",
         font=styles.FONT_BUTTON,

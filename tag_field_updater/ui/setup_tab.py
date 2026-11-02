@@ -7,6 +7,9 @@ Receives parent frame and tk variables; returns a dict of widgets.
 Changed in 2.2.1: extracted from ``ui/app.py`` into the module layout every
 peer uses (maintenance item U4), with the tool-specific options emitted by
 ``_SetupFrame._build_options``.
+
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 from __future__ import annotations
@@ -212,6 +215,7 @@ class _SetupFrame(BaseSetupFrame):
             selectcolor=styles.BG_WHITE,
             font=styles.FONT_BODY,
             anchor="w",
+            activeforeground=styles.FG_MAIN,
         ).pack(fill="x", anchor="w")
 
         # The box grows with the window and scrolls: a long pattern list is
@@ -249,6 +253,7 @@ class _SetupFrame(BaseSetupFrame):
             selectcolor=styles.BG_WHITE,
             font=styles.FONT_BODY,
             anchor="w",
+            activeforeground=styles.FG_MAIN,
         ).pack(fill="x", anchor="w")
 
         group_row = tk.Frame(frame, bg=styles.BG_WHITE)

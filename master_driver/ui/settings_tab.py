@@ -3,6 +3,9 @@ settings_tab.py — Builds the ⚙ Settings tab content.
 
 Provides palette selection. The chosen palette is written to
 audio_suite_config.json and takes effect when each tool is next launched.
+
+Changed in 2.3.1: the footer note takes its grey from the theme instead of a
+hardcoded #999999, which measured 2.50:1 on the light footer (T-02).
 """
 
 import tkinter as tk
@@ -13,9 +16,6 @@ from ..state.app_state import AppState
 from .cards import palette_card, theme_card, typography_card
 
 # Locate suite root (file → ui/ → master_driver/ → tool_root/ → suite_root/)
-
-
-_NOTE_FG = "#999999"
 
 
 def build(parent: tk.Frame, state: "AppState") -> None:
@@ -69,7 +69,7 @@ def build(parent: tk.Frame, state: "AppState") -> None:
         footer,
         text="⚠  Changes take effect when each tool is next opened.",
         font=styles.FONT_BODY,
-        fg=_NOTE_FG,
+        fg=styles.FG_SUB,
         bg=styles.BG_LIGHT,
     ).pack(side="left", anchor="w")
 

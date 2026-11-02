@@ -8,6 +8,9 @@ actually reported, so a CPU-only torch build is visible before a run starts
 rather than only in the log afterwards.
 
 Changed in 2.0.0: initial version (Sprint 6, Item 6.1).
+
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 from __future__ import annotations
@@ -123,6 +126,7 @@ class _SetupFrame(BaseSetupFrame):
                 fg=styles.FG_MAIN,
                 selectcolor=styles.BG_WHITE,
                 activebackground=styles.BG_WHITE,
+                activeforeground=styles.FG_MAIN,
             ).pack(side=tk.LEFT, padx=(0, 14))
         tk.Checkbutton(
             stems_group,
@@ -133,6 +137,7 @@ class _SetupFrame(BaseSetupFrame):
             fg=styles.FG_MAIN,
             selectcolor=styles.BG_WHITE,
             activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
         ).pack(anchor="w", pady=(6, 0))
 
         model_group = self.add_config_group("Model and device")

@@ -7,6 +7,8 @@ its AccurateRip confidence) and adds the manual "Re-rip flagged tracks"
 action (PLAN_feature_expansion.md D30).
 Changed in 2.1.4: eject and reveal go through ``core/drive_control`` - no
 PowerShell command string, no raw ``subprocess.Popen`` (audit R-08, plan C3).
+Changed in 2.3.1: the widget's text colours follow the suite theme instead of
+Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 """
 
 import os
@@ -33,7 +35,12 @@ class ResultsTab:
         outer.pack(expand=True, fill="both")
 
         tk.Label(
-            outer, text="Rip Complete!", font=styles.FONT_TITLE, bg=styles.BG_WHITE
+            outer,
+            text="Rip Complete!",
+            font=styles.FONT_TITLE,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            disabledforeground=styles.FG_SUB,
         ).pack(pady=(0, 4))
 
         self._summary_lbl = tk.Label(
@@ -90,6 +97,7 @@ class ResultsTab:
             text="⟲  Re-rip flagged tracks",
             bg="#4a7a9b",
             fg="white",
+            disabledforeground=styles.FG_ON_ACCENT_LOCKED,
             font=styles.FONT_LABEL_B,
             command=self._rerip,
             state="disabled",
