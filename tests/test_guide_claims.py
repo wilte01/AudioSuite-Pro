@@ -25,6 +25,9 @@ effect on the audio.
 Changed in 2.1.7: new - it locks the claim classes the D18/D19 sweeps found drift
 in, so a guide that states a stale format count, worker count, flag, status
 token or artifact name fails here instead of waiting for a reader to notice.
+
+Changed in 2.3.1: drops the normaliser guide's stale format-count
+exemption, which named a guide the standalone window's removal deleted.
 """
 
 from __future__ import annotations
@@ -89,12 +92,9 @@ ARTIFACT = re.compile(r"`([\w./\\-]+\.(?:txt|log|json|csv|m3u8?|db))`")
 
 #: guide file name -> {number word: why that format count is a deliberate subset}.
 SUBSET_FORMAT_CLAIMS: dict[str, dict[str, str]] = {
-    "Audio_Normalizer_User_Guide.md": {
-        "seven": (
-            "the normaliser re-encodes only the seven extensions its codec table "
-            "carries; every other format is rejected, and the guide says so"
-        ),
-    },
+    # The normaliser guide's "seven" entry went with that tool's standalone
+    # window: the guide is deleted, so the exemption asserted a claim no guide
+    # makes any more.
     "Metadata_Scrubber_User_Guide.md": {
         "five": "the containers added in 2.1.7, named as a subset of the shared set",
     },

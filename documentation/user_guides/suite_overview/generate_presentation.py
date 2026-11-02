@@ -31,6 +31,15 @@ describes the Custom DSP editor window instead of the old inline sliders.
 
 Changed in 2.1.7: the closing slide names paths inside ``documentation/``.
 
+
+Changed in 2.3.1: the deck was rebuilt for the 27-tool suite. The five
+retired tools lost their format rows, their two dedicated slides (the
+Repair Workhorses and the UTIL audio-altering cards), their chooser and
+pipeline labels - which now name the Refinery stages instead - and the
+remaining slides are renumbered so the footers stay consecutive. The
+committed ``.pptx`` was regenerated from this script, which is the only
+way it changes: ``TOOL_COUNT`` reads the manifest, so the deck's counts
+were 32 against a 27-tool suite until the file was rebuilt.
 """
 
 from __future__ import annotations
@@ -409,18 +418,6 @@ FORMAT_HEADERS = ["Tool", "MP3", "FLAC", "OGG", "M4A", "Opus", "Notes"]
 
 FORMAT_ROWS: list[list[str]] = [
     ["Audio Refinery", YES, YES, YES, YES, YES, "Plus WAV, AIFF/AIF"],
-    ["Audio Enhancer", YES, YES, YES, YES, YES, "Plus WAV, AIFF/AIF"],
-    ["Audio Normalizer", YES, YES, YES, YES, YES, "Plus WAV, AIFF"],
-    [
-        "Pop & Click Remover",
-        YES,
-        YES,
-        YES,
-        YES,
-        YES,
-        "Plus WAV, AIFF/AIF - existing ID3 tags preserved through re-encode",
-    ],
-    ["Silence Trimmer", YES, YES, YES, YES, YES, "Plus WAV, AIFF"],
     ["BPM Analyzer", YES, YES, YES, YES, YES, "Plus WAV, AIFF"],
     [
         "Tempo Analyzer",
@@ -509,7 +506,6 @@ FORMAT_ROWS: list[list[str]] = [
         YES,
         "Resolves .asx refs to any supported audio format",
     ],
-    ["Noise Reduction", YES, YES, YES, YES, YES, "Plus WAV, AIFF"],
     [
         "Audio Fingerprinter",
         YES,
@@ -602,11 +598,11 @@ CHOOSER_ROWS: list[list[str]] = [
     ],
     [
         "Clean up vinyl rip clicks and pops",
-        "Pop & Click Remover (or Audio Refinery's Declick stage)",
+        "Audio Refinery's Declick stage",
     ],
     [
         "Make all tracks the same loudness, permanently",
-        "Audio Normalizer, or the Normalise stage in Audio Refinery",
+        "Audio Refinery's Normalise stage",
     ],
     [
         "Consistent volume without altering the audio",
@@ -631,7 +627,7 @@ CHOOSER_ROWS: list[list[str]] = [
     ["Recover audio referenced by old .asx playlists", "ASX Playlist Extractor"],
     [
         "Remove mains hum or hiss/background noise",
-        "Noise Reduction (or the Reduce Noise stage in Audio Refinery)",
+        "Audio Refinery's Reduce Noise stage",
     ],
     [
         "Fix one tag by hand, or apply a spreadsheet of edits",
@@ -712,15 +708,15 @@ PIPELINE_ROWS: list[list[str]] = [
     ],
     ["2 - Load", "Original tags are read and the source audio is decoded"],
     [
-        "3 - Pop & Click Remover",
+        "3 - Declick",
         "Detects and repairs clicks using sensitivity and maximum defect width",
     ],
     [
-        "4 - Silence Trimming / Fading",
+        "4 - Trim / Fade",
         "Removes silence using a dBFS threshold; optional fade-in and fade-out",
     ],
-    ["5 - Noise Reduction", "Optional removal of mains hum and/or broadband noise"],
-    ["6 - Audio Enhancement", "Mild, Moderate, Aggressive, or Custom DSP preset"],
+    ["5 - Reduce Noise", "Optional removal of mains hum and/or broadband noise"],
+    ["6 - Enhance", "Mild, Moderate, Aggressive, or Custom DSP preset"],
     ["7 - Export", "Processed audio written once with format-appropriate encoding"],
     [
         "8 - Normalise",
@@ -1178,83 +1174,6 @@ def slide_pipeline_steps(prs: Presentation, number: int) -> None:
         [3.0, 9.2],
         font_size=12,
         accent=REFINE,
-    )
-    add_footer(slide, number)
-
-
-def slide_workhorses(prs: Presentation, number: int) -> None:
-    """Build the Audio Enhancer and Noise Reduction cards."""
-    slide = new_slide(prs)
-    add_title(
-        slide,
-        "The Repair Workhorses",
-        "Also available standalone, or as pieces of the Refinery pipeline",
-        REFINE,
-    )
-    add_card(
-        slide,
-        0.55,
-        1.35,
-        6.0,
-        5.35,
-        "Audio Enhancer",
-        [
-            Line(
-                "Seven-stage DSP chain: noise gate to limiter with EQ, "
-                "presence peak, and output gain in between",
-                marker="\u2022",
-            ),
-            Line(
-                "Mild / Moderate / Aggressive presets, or Custom with "
-                "thirteen sliders and five effects in a separate editor window",
-                marker="\u2022",
-            ),
-            Line(
-                "Tags are read before and restored after processing",
-                marker="\u2022",
-            ),
-            Line(
-                "For dull or dynamically flat recordings",
-                marker="\u2022",
-            ),
-        ],
-        REFINE,
-        REFINE_LIGHT,
-        title_size=16,
-        body_size=13,
-    )
-    add_card(
-        slide,
-        6.75,
-        1.35,
-        6.0,
-        5.35,
-        "Noise Reduction",
-        [
-            Line(
-                "Mains hum: 50/60 Hz and harmonics, removed with high-Q "
-                "IIR notch filters",
-                marker="\u2022",
-            ),
-            Line(
-                "Broadband noise: hiss, tape noise, room ambience, via "
-                "spectral gating on a learned noise profile",
-                marker="\u2022",
-            ),
-            Line(
-                "Both engines can be enabled independently",
-                marker="\u2022",
-            ),
-            Line(
-                "Runs standalone, from the CLI (audiosuite reduce), or as "
-                "Refinery stage 3",
-                marker="\u2022",
-            ),
-        ],
-        REFINE,
-        REFINE_LIGHT,
-        title_size=16,
-        body_size=13,
     )
     add_footer(slide, number)
 
@@ -1785,106 +1704,6 @@ def slide_cleaning(prs: Presentation, number: int) -> None:
         ],
         ENRICH,
         ENRICH_LIGHT,
-        title_size=14,
-        body_size=12,
-    )
-    add_footer(slide, number)
-
-
-def slide_util_audio(prs: Presentation, number: int) -> None:
-    """Build the audio-altering tools in UTIL slide."""
-    slide = new_slide(prs)
-    add_title(
-        slide,
-        "Audio-Altering Tools in UTIL",
-        "Standalone tools that change the audio itself",
-        UTIL,
-    )
-    add_card(
-        slide,
-        0.55,
-        1.25,
-        3.9,
-        5.4,
-        "Pop & Click Remover",
-        [
-            Line(
-                "Repairs vinyl-rip pops and clicks using a windowed "
-                "Median Absolute Deviation detector and cubic-spline "
-                "interpolation",
-                marker="\u2022",
-            ),
-            Line(
-                "Local 20 ms detection window stays reliable across wide dynamic range",
-                marker="\u2022",
-            ),
-            Line(
-                "Idempotent: repeated runs converge to zero changes",
-                marker="\u2022",
-            ),
-            Line(
-                "16/24/32-bit PCM handled correctly",
-                marker="\u2022",
-            ),
-        ],
-        UTIL,
-        UTIL_LIGHT,
-        title_size=14,
-        body_size=12,
-    )
-    add_card(
-        slide,
-        4.7,
-        1.25,
-        3.9,
-        5.4,
-        "Silence Trimmer & Fader",
-        [
-            Line(
-                "Removes leading/trailing silence using a configurable dB threshold",
-                marker="\u2022",
-            ),
-            Line(
-                "Applies optional fade-in and fade-out",
-                marker="\u2022",
-            ),
-            Line(
-                "Processes through an isolated temporary copy - the "
-                "original is untouched until the result is verified",
-                marker="\u2022",
-            ),
-            Line(
-                "Supports MP3, FLAC, OGG, M4A, Opus, WAV, and AIFF",
-                marker="\u2022",
-            ),
-        ],
-        UTIL,
-        UTIL_LIGHT,
-        title_size=14,
-        body_size=12,
-    )
-    add_card(
-        slide,
-        8.85,
-        1.25,
-        3.9,
-        5.4,
-        "Audio Normalizer",
-        [
-            Line(
-                "Loudness normalisation to a target LUFS using FFmpeg's "
-                "two-pass loudnorm filter (EBU R128)",
-                marker="\u2022",
-            ),
-            Line(
-                "The simpler standalone tool - use the Normalise stage "
-                "in Audio Refinery if you are running that pipeline "
-                "anyway",
-                marker="\u2022",
-            ),
-        ],
-        UTIL,
-        UTIL_LIGHT,
         title_size=14,
         body_size=12,
     )
@@ -2561,9 +2380,8 @@ def build_deck() -> Presentation:
         "normalise loudness - before anything is tagged.",
         REFINE,
     )
-    slide_refinery(prs, 6)
-    slide_pipeline_steps(prs, 7)
-    slide_workhorses(prs, 8)
+    slide_refinery(prs, 5)
+    slide_pipeline_steps(prs, 6)
     add_divider(
         prs,
         "Stage 2",
@@ -2571,12 +2389,12 @@ def build_deck() -> Presentation:
         "Analyse and tag - BPM, tempo, key, mood, genre, artwork, lyrics.",
         ENRICH,
     )
-    slide_enrich_order(prs, 10)
-    slide_analysers(prs, 11)
-    slide_tag_chain(prs, 12)
-    slide_mood_chain(prs, 13)
-    slide_genre_chain(prs, 14)
-    slide_cleaning(prs, 15)
+    slide_enrich_order(prs, 7)
+    slide_analysers(prs, 8)
+    slide_tag_chain(prs, 9)
+    slide_mood_chain(prs, 10)
+    slide_genre_chain(prs, 11)
+    slide_cleaning(prs, 12)
     add_divider(
         prs,
         "Stage 3",
@@ -2584,15 +2402,14 @@ def build_deck() -> Presentation:
         "Convert, extract, rip, and batch-process - day-to-day library maintenance.",
         UTIL,
     )
-    slide_util_audio(prs, 17)
-    slide_model_tools(prs, 18)
-    slide_inspect_edit(prs, 19)
-    slide_conversion(prs, 20)
-    slide_maintenance(prs, 21)
-    slide_formats(prs, 22)
-    slide_chooser(prs, 23)
-    slide_getting_started(prs, 24)
-    slide_next_steps(prs, 25)
+    slide_model_tools(prs, 13)
+    slide_inspect_edit(prs, 14)
+    slide_conversion(prs, 15)
+    slide_maintenance(prs, 16)
+    slide_formats(prs, 17)
+    slide_chooser(prs, 18)
+    slide_getting_started(prs, 19)
+    slide_next_steps(prs, 20)
     slide_closing(prs)
     return prs
 

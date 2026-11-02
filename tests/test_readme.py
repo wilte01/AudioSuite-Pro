@@ -35,6 +35,12 @@ Changed in 2.1.7: the README's guide links resolve under ``documentation/user_gu
 
 
 Changed in 2.3.0: the README tool-count lock moves to 32 first-party tools.
+Changed in 2.6.0: 27 first-party tools, because the five DSP tools REFINE
+runs as stages stopped shipping a launcher, command and guide (U-04).
+
+Changed in 2.3.1 (U-03, released in 2.6.0): the card assertion skips a manifest
+with ``driver_card=False``, and a new lock keeps that exemption honest - the
+launcher and CLI command still exist and the card module really is gone.
 """
 
 from __future__ import annotations
@@ -137,7 +143,7 @@ class TestIndexGeneration:
 class TestMetadataLock:
     """The distribution metadata ships the README and its index is whole."""
 
-    def test_pyproject_ships_the_readme_and_32_tool_rows(self) -> None:
+    def test_pyproject_ships_the_readme_and_27_tool_rows(self) -> None:
         from audio_suite_shared.tool_plugin import get_registry
 
         with (REPO_ROOT / "pyproject.toml").open("rb") as fh:
@@ -149,7 +155,7 @@ class TestMetadataLock:
         assert declared_readme == README.name
         # The distribution's tool count, not the install's: a plugin adds a
         # registry entry, never a README row.
-        assert len(get_registry().first_party) == 32
+        assert len(get_registry().first_party) == 27
 
 
 class TestRegistrationLock:
@@ -188,6 +194,34 @@ class TestRegistrationLock:
 
         for manifest in get_registry().first_party:
             self._assert_surface(manifest, card_overrides)
+
+    def test_the_five_stage_tools_are_not_tools(self) -> None:
+        """U-04: no launcher, no card, no guide, no registry row.
+
+        The reverse lock: a manifest row, a stale launcher or a leftover guide
+        for a tool REFINE now runs as a stage would be a second, confusing way
+        to do the same work.
+        """
+        from audio_suite_shared.tool_plugin import get_registry
+
+        registry_ids = {m.id for m in get_registry().first_party}
+        guides = list((REPO_ROOT / "documentation" / "user_guides").rglob("*.md"))
+        assert guides, "the guide walk found nothing; the lock would pass vacuously"
+
+        removed = {
+            "pop_click_remover": "Pop_Click_Remover.pyw",
+            "silence_trimmer": "Silence_Trimmer.pyw",
+            "noise_reduction": "Noise_Reduction.pyw",
+            "audio_enhancer": "Audio_Enhancer.pyw",
+            "audio_normalizer": "Audio_Normalizer.pyw",
+        }
+        for tool_id, launcher in removed.items():
+            assert tool_id not in registry_ids, tool_id
+            assert not (REPO_ROOT / launcher).exists(), f"{launcher} still ships"
+            card = REPO_ROOT / "master_driver" / "ui" / "cards" / f"{tool_id}_card.py"
+            assert not card.exists(), f"{tool_id}: card still on disk"
+            named = [path for path in guides if tool_id in path.parts]
+            assert not named, f"{tool_id}: guide(s) still ship: {named}"
 
 
 class TestGuideRegistry:

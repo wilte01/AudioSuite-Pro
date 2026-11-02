@@ -39,6 +39,9 @@ its path from the page's folder.
 
 
 Changed in 2.3.0: ``REQUIRED_TOOL_ROWS`` moves to 32, the regenerated table's row count.
+
+Changed in 2.3.1: carries this window's change for its module (see
+CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 """
 
 from __future__ import annotations
@@ -54,8 +57,9 @@ INDEX = REPO_ROOT / "documentation" / "docs" / "index.md"
 DOCS = REPO_ROOT / "documentation" / "docs"
 GENERATOR = REPO_ROOT / "utilities" / "generate_docs_index.py"
 
-#: The manifest ships 32 first-party tools; a table that loses rows fails here.
-REQUIRED_TOOL_ROWS = 32
+#: The manifest ships 27 first-party tools; a table that loses rows fails here.
+#: (32 until 2.6.0, when the five stage tools lost their guides: U-04.)
+REQUIRED_TOOL_ROWS = 27
 
 #: A MyST role span, e.g. ``{doc}`user/security```. Its body is a docname, not a
 #: repository path, even when it contains a slash.
@@ -197,7 +201,7 @@ class TestEveryDocsPageIsReachable:
                 "*/*_User_Guide.md"
             )
         )
-        assert len(guides) >= 30, (
+        assert len(guides) >= 26, (
             f"only {len(guides)} guide sources found - the walk is broken, so "
             "this lock would pass vacuously"
         )

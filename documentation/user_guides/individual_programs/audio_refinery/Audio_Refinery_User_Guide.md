@@ -64,7 +64,7 @@ When enabled, stages run in this implementation order:
 - **Trim threshold: **Default -50 dBFS; defines silence for trimming.
 - **Fades: **Optional fade-in default 500 ms and fade-out default 1000 ms after trimming.
 - **Noise reduction: **Optional hum removal and broadband reduction. Defaults include 60 Hz hum, 8 harmonics, Q 30, a 0-500 ms noise profile, and a 3 dB gate threshold.
-- **Enhancement preset: **Mild, Moderate, Aggressive, or Custom. Selecting Custom shows a Configure Custom DSP button that opens the same non-modal editor the standalone Audio Enhancer uses, so the stage itself stays compact and every control is reachable; changes apply to the run as you make them. When Normalise is active, the refinery suppresses enhancement output gain so final loudness is controlled by the normalizer.
+- **Enhancement preset: **Mild, Moderate, Aggressive, or Custom. Selecting Custom shows a Configure Custom DSP button that opens the stage's own non-modal editor, so the stage itself stays compact and every control is reachable; changes apply to the run as you make them. When Normalise is active, the refinery suppresses enhancement output gain so final loudness is controlled by the normalizer.
 - **Enhancement effects: **Relevant to the Custom preset: Reverse audio, Karaoke (centre-vocal removal with a 0.0-1.0 strength), Phaser, Flanger, and Chorus. Each is off by default, and the built-in Mild, Moderate, and Aggressive presets leave them off.
 - **Target LUFS: **Permitted targets are -12, -14, -16, -18, and -23 LUFS; default -16.0.
 - **Tolerance: **Default 0.5 LUFS; used by the normalization stage to avoid unnecessary adjustment when loudness is already close to target.

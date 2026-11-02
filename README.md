@@ -1,6 +1,6 @@
 # AudioSuite-Pro
 
-AudioSuite-Pro is a Windows-first audio workbench of 32 first-party tools
+AudioSuite-Pro is a Windows-first audio workbench of 27 first-party tools
 that share one driver, one command line and one registry: tag enrichment
 (BPM, key, mood, lyrics, album art, ReplayGain, genre), DSP repair and
 conversion (loudness normalisation, hum/click removal, silence trimming,
@@ -66,7 +66,7 @@ The matrix below is **generated from the declared classification** in
 #### Tool tiers
 
 * **Windows-only** — `cd_ripper`. The CD subsystem it drives (Win32 SCSI pass-through, drive enumeration) has no portable implementation; the tool fails fast with a named missing requirement rather than degrading silently.
-* **Portable core** — the other 31 of 32 tools. Each has no platform-conditional code in its own package at all, so its non-Windows CLI path is the same code path as on Windows.
+* **Portable core** — the other 26 of 27 tools. Each has no platform-conditional code in its own package at all, so its non-Windows CLI path is the same code path as on Windows.
 
 #### Branch enumeration
 
@@ -80,8 +80,8 @@ Every one of the 32 distinct branches below was found by an AST scan of the firs
 |---|---|---|---|---|
 | Portable core | `album_art_normalizer/album_art_normalizer.py` (tool `album_art_normalizer`) | Open the containing folder | The Windows arm of the three-way dispatch above. | album_art_normalizer/tests/test_album_art_normalizer.py |
 | Portable core | `album_art_normalizer/album_art_normalizer.py` (tool `album_art_normalizer`) | Open the containing folder | Dispatches on platform.system() to os.startfile / `open` / `xdg-open`. | album_art_normalizer/tests/test_album_art_normalizer.py |
-| Portable core | `audio_normalizer/utils/ffmpeg_finder.py` (tool `audio_normalizer`) | ffmpeg discovery | Adds the Windows-only `C:\ffmpeg\bin` fallback location; PATH and module-local discovery still apply on every platform. | audio_normalizer/tests/test_ffmpeg_finder.py |
-| Portable core | `audio_normalizer/utils/ffmpeg_finder.py` (tool `audio_normalizer`) | ffmpeg discovery | Binary filename extension only. | audio_normalizer/tests/test_ffmpeg_finder.py |
+| Portable core | `audio_normalizer/utils/ffmpeg_finder.py` | ffmpeg discovery | Adds the Windows-only `C:\ffmpeg\bin` fallback location; PATH and module-local discovery still apply on every platform. | audio_normalizer/tests/test_ffmpeg_finder.py |
+| Portable core | `audio_normalizer/utils/ffmpeg_finder.py` | ffmpeg discovery | Binary filename extension only. | audio_normalizer/tests/test_ffmpeg_finder.py |
 | Portable core | `audio_suite_shared/platform_utils.py` | Open a file or folder (Help / Open buttons) | The macOS arm; the Linux/POSIX fallback follows it. | audio_suite_shared/tests/test_platform_utils.py |
 | Portable core | `audio_suite_shared/platform_utils.py` | Open a file or folder (Help / Open buttons) | win32 uses os.startfile; darwin shells out to `open`; every other platform uses `xdg-open`. All three arms are implemented. | audio_suite_shared/tests/test_platform_utils.py |
 | Portable core | `audio_suite_shared/platform_utils.py` | Open a file or folder (Help / Open buttons) | The win32 arm of the three-way dispatch above. | audio_suite_shared/tests/test_platform_utils.py |
@@ -220,12 +220,7 @@ The table below is **generated from the tool manifest**
 | Album Art Normalizer | Resize and normalize embedded album artwork | `Album_Art_Normalizer.pyw` | `documentation/user_guides/individual_programs/album_art_normalizer/Album_Art_Normalizer_User_Guide.docx` | Portable core |
 | CD Ripper | Rip audio CDs | `CD_Ripper.pyw` | `documentation/user_guides/individual_programs/cd_ripper/CD_Ripper_User_Guide.docx` | Windows-only |
 | Mood Analysis Batch Tagger | Recursive signal-based batch mood analysis and tagging | `Mood_Analysis_Batch_Tagger.pyw` | `documentation/user_guides/individual_programs/mood_analysis_batch_tagger/Mood_Analysis_Batch_Tagger_User_Guide.docx` | Portable core |
-| Noise Reduction | Remove hum and broadband noise from audio files | `Noise_Reduction.pyw` | `documentation/user_guides/individual_programs/noise_reduction/Noise_Reduction_User_Guide.docx` | Portable core |
-| Audio Enhancer | Improve dynamic range and clarity of audio files | `Audio_Enhancer.pyw` | `documentation/user_guides/individual_programs/audio_enhancer/Audio_Enhancer_User_Guide.docx` | Portable core |
-| Audio Normalizer | Normalise audio loudness to a target LUFS level | `Audio_Normalizer.pyw` | `documentation/user_guides/individual_programs/audio_normalizer/Audio_Normalizer_User_Guide.docx` | Portable core |
-| Pop & Click Remover | Remove clicks and pops from audio files | `Pop_Click_Remover.pyw` | `documentation/user_guides/individual_programs/pop_click_remover/Pop_Click_Remover_User_Guide.docx` | Portable core |
 | Tag Field Updater | Scan and update tag fields | `Tag_Field_Updater.pyw` | `documentation/user_guides/individual_programs/tag_field_updater/Tag_Field_Updater_User_Guide.docx` | Portable core |
-| Silence Trimmer | Trim silence and optionally apply fades | `Silence_Trimmer.pyw` | `documentation/user_guides/individual_programs/silence_trimmer/Silence_Trimmer_User_Guide.docx` | Portable core |
 | Tag Editor | Edit common tags in an interactive grid | `Tag_Editor.pyw` | `documentation/user_guides/individual_programs/tag_editor/Tag_Editor_User_Guide.docx` | Portable core |
 | Stem Separator | Separate tracks into vocals, drums, bass and other stems | `Stem_Separator.pyw` | `documentation/user_guides/individual_programs/stem_separator/Stem_Separator_User_Guide.docx` | Portable core |
 | Library Statistics Dashboard | Read-only tag statistics dashboard | `Library_Stats.pyw` | `documentation/user_guides/individual_programs/library_stats/Library_Stats_User_Guide.docx` | Portable core |

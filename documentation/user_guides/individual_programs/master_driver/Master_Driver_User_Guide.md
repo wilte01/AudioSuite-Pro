@@ -30,7 +30,7 @@ Use this sequence for a normal batch operation:
 
 ### REFINE
 
-REFINE embeds the Audio Refinery setup. Choose a source folder and, if needed, an output folder. A blank output folder means process in place. Select one or more stages: declick, trim, enhance, normalise, and reduce noise. SELECT ALL changes all five stage selections together. The embedded controls also provide Dry Run, Auto Start, Auto End, and Clear Logs. The Refinery does not use the shared Parallel option. Reset Progress clears the completion record for the selected source so files are eligible for another run. At least one stage and a valid source directory are required. In the Audio Enhancer stage, selecting Custom opens the same Custom DSP editor window the standalone Audio Enhancer uses, so the stage stays compact and every control is reachable.
+REFINE embeds the Audio Refinery setup. Choose a source folder and, if needed, an output folder. A blank output folder means process in place. Select one or more stages: declick, trim, enhance, normalise, and reduce noise. SELECT ALL changes all five stage selections together. The embedded controls also provide Dry Run, Auto Start, Auto End, and Clear Logs. The Refinery does not use the shared Parallel option. Reset Progress clears the completion record for the selected source so files are eligible for another run. At least one stage and a valid source directory are required. In the enhancement stage, selecting Custom opens the Custom DSP editor the stage itself carries, so the stage stays compact and every control is reachable.
 
 ### ENRICH
 
@@ -38,7 +38,9 @@ ENRICH displays the registered tag and metadata tools as cards in a scrollable l
 
 ### UTIL
 
-UTIL displays the registered utility cards and the LAUNCH UTILITY PROCESS button. Most utilities use the shared directory bar. Standalone utilities such as CD Ripper, Library Statistics Dashboard, Tag-Based File Reorganizer, Mood Analysis Batch Tagger, Noise Reduction, and Undo Tag Edits open their own window or workflow. Undo Tag Edits is opened with its Open Undo button and is not part of a batch run.
+UTIL displays the registered utility cards and the LAUNCH UTILITY PROCESS button. Most utilities use the shared directory bar. Standalone utilities such as CD Ripper, Library Statistics Dashboard, Tag-Based File Reorganizer, Mood Analysis Batch Tagger, and Undo Tag Edits open their own window or workflow. Undo Tag Edits is opened with its Open Undo button and is not part of a batch run.
+
+Five audio-processing utilities are no longer shipped as separate tools: Pop & Click Remover, Silence Trimmer, Noise Reduction, Audio Enhancer, and Audio Normalizer were retired, so neither their windows nor their launchers nor their own commands exist any more. REFINE runs their work as the declick, trim, reduce noise, enhance, and normalise stages, and REFINE's Dry Run reports what each enabled stage would change. The stages carry the controls those tools had - including the normalise stage's true-peak ceiling, loudness-range target and lossless mode - so nothing needs a second window to be reached.
 
 ### SETTINGS
 
@@ -76,8 +78,6 @@ SETTINGS contains the Colour Palette, Theme Mode, and Typography controls. Use S
 - **Album Art Normalizer: **Resizes and normalizes embedded artwork with a selectable target size and supports folder.jpg normalization.
 - **CD Ripper: **Rips CDs to WAV, MP3, FLAC, OGG, M4A, or Opus with MusicBrainz metadata lookup. Card options cover the output directory, output format, a specific track list, and CUE sheet generation.
 - **Mood Analysis Batch Tagger: **Recursively analyses audio and applies signal-based batch mood tags.
-- **Noise Reduction: **Provides independent hum removal (mains frequency, harmonics, notch quality) and broadband noise reduction (noise profile window and gate threshold).
-- **Audio Enhancer: **Enhances each file with the DSP chain. The card requires an output folder and offers Mild, Moderate, Aggressive, or Custom. Custom runs with the tool's currently loaded DSP values, which are tuned in the Audio Enhancer window's Custom DSP editor.
 - **Tag Field Updater: **Scans and updates tag fields.
 - **Library Statistics Dashboard: **Reads existing tags and presents read-only library statistics. Card options select a full or incremental scan, cache refresh, and CSV/JSON export paths.
 - **Tag-Based File Reorganizer: **Moves or copies files into a folder hierarchy based on tags, with configurable output directory, action, and artist-specific and Various Artists patterns.
@@ -116,3 +116,5 @@ While a batch runs, the control strip shows the current step (for example, Step 
 ## Related Launchers
 
 Every registered tool also has its own suite launcher where one exists. The Master Driver uses the registry's script filename and category to decide how to launch it; direct launchers are useful when a tool needs its own dedicated workflow or window.
+
+The five DSP utilities REFINE absorbed are the exception: they no longer have launchers of their own. Their full option sets live on REFINE's stages - the Custom DSP editor on the enhancement stage, and the true-peak, loudness-range and lossless controls on the normalise stage - and the command-line route is audiosuite refine with the stage selected.

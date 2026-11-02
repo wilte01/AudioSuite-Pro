@@ -46,12 +46,7 @@ tool entry in the manifest.
 | Album Art Normalizer | `Album_Art_Normalizer.pyw` | [Markdown](../user_guides/individual_programs/album_art_normalizer/Album_Art_Normalizer_User_Guide.md) |
 | CD Ripper | `CD_Ripper.pyw` | [Markdown](../user_guides/individual_programs/cd_ripper/CD_Ripper_User_Guide.md) |
 | Mood Analysis Batch Tagger | `Mood_Analysis_Batch_Tagger.pyw` | [Markdown](../user_guides/individual_programs/mood_analysis_batch_tagger/Mood_Analysis_Batch_Tagger_User_Guide.md) |
-| Noise Reduction | `Noise_Reduction.pyw` | [Markdown](../user_guides/individual_programs/noise_reduction/Noise_Reduction_User_Guide.md) |
-| Audio Enhancer | `Audio_Enhancer.pyw` | [Markdown](../user_guides/individual_programs/audio_enhancer/Audio_Enhancer_User_Guide.md) |
-| Audio Normalizer | `Audio_Normalizer.pyw` | [Markdown](../user_guides/individual_programs/audio_normalizer/Audio_Normalizer_User_Guide.md) |
-| Pop & Click Remover | `Pop_Click_Remover.pyw` | [Markdown](../user_guides/individual_programs/pop_click_remover/Pop_Click_Remover_User_Guide.md) |
 | Tag Field Updater | `Tag_Field_Updater.pyw` | [Markdown](../user_guides/individual_programs/tag_field_updater/Tag_Field_Updater_User_Guide.md) |
-| Silence Trimmer | `Silence_Trimmer.pyw` | [Markdown](../user_guides/individual_programs/silence_trimmer/Silence_Trimmer_User_Guide.md) |
 | Tag Editor | `Tag_Editor.pyw` | [Markdown](../user_guides/individual_programs/tag_editor/Tag_Editor_User_Guide.md) |
 | Stem Separator | `Stem_Separator.pyw` | [Markdown](../user_guides/individual_programs/stem_separator/Stem_Separator_User_Guide.md) |
 | Library Statistics Dashboard | `Library_Stats.pyw` | [Markdown](../user_guides/individual_programs/library_stats/Library_Stats_User_Guide.md) |
@@ -66,7 +61,7 @@ tool entry in the manifest.
 
 ## Suite-wide guides
 
-* {doc}`user/suite-overview` — how the 32 tools are grouped, what
+* {doc}`user/suite-overview` — how the 27 tools are grouped, what
   each Master Driver tab runs, and how a batch is ordered.
 * {doc}`user/security` — encrypted API keys and how
   to recover them, safe file selection, and what each security message means.

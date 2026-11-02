@@ -304,9 +304,11 @@ audiosuite lyrics "D:\Music\Unknown-Arm" --provider sidecar --json
 ### Audio Refinery
 
 Run the single-pass Refinery pipeline. Stages are selected with the
-`--stages` comma-separated list (order is fixed), and each stage's own tool is
-also available standalone - `declick`, `silence-trim`, `reduce`, `enhance` and
-`normalise` below run exactly the same processors.
+`--stages` comma-separated list (order is fixed), and the declick, trim,
+reduce-noise, enhance and normalise stages run the same processors the
+standalone pop/click, silence, noise, enhancement and loudness windows
+used to: REFINE is now the only way to reach them, since those windows and
+their own commands were retired.
 
 ```bash
 audiosuite refine <directory> [--stages LIST] [OPTIONS]
@@ -338,8 +340,11 @@ audiosuite refine <directory> [--stages LIST] [OPTIONS]
 - `--phaser` — Apply a phaser effect (default: off)
 - `--flanger` — Apply a flanger effect (default: off)
 - `--chorus` — Apply a chorus effect (default: off)
-- `--target-lufs LUFS` — Normalisation target, one of `-12`, `-14`, `-16`, `-18`, `-23` (default: -16.0)
+- `--target-lufs LUFS` — Normalisation target, one of `-12`, `-14`, `-16`, `-18`, `-23` (default: -14.0)
 - `--tolerance DB` — Normalisation tolerance (default: 0.5)
+- `--true-peak DBTP` — True-peak ceiling for the normalise stage, -9 to 0 (default: -1.5)
+- `--lra LU` — Loudness-range target for the normalise stage, 1–20 (default: 11.0)
+- `--normalise-mode [normalise|lossless]` — `normalise` re-encodes through loudnorm; `lossless` rewrites an MP3's global gain instead (default: normalise)
 
 **Examples:**
 
@@ -471,107 +476,6 @@ audiosuite mood-analysis-batch "D:\Music" --dry --json
 audiosuite mood-analysis-batch "D:\Music" --parallel --workers 8
 ```
 
-### Noise Reduction
-
-Remove mains-frequency hum and broadband background noise from audio files.
-
-```bash
-audiosuite reduce <directory> [--reduce-hum] [--reduce-broadband] [OPTIONS]
-```
-
-**Options:**
-
-- `--reduce-hum` — Enable hum removal via notch filtering
-- `--hum-frequency [50|60]` — Mains frequency in Hz (default: 60)
-- `--hum-harmonics N` — Harmonics to filter, 1–20 (default: 8)
-- `--hum-quality Q` — Notch Q factor, 1–100 (default: 30)
-- `--reduce-broadband` — Enable broadband noise reduction
-- `--noise-start MS` — Noise profile start in ms (default: 0)
-- `--noise-end MS` — Noise profile end in ms (default: 500)
-- `--gate-threshold DB` — Gate threshold above the noise floor in dB (default: 3.0)
-
-**Examples:**
-
-```bash
-audiosuite reduce "D:\Music" --reduce-hum --hum-frequency 50
-audiosuite reduce "D:\Music" --reduce-broadband --dry --json
-```
-
-### Audio Enhancer
-
-Improve dynamic range and clarity with the seven-stage DSP chain (noise gate,
-EQ, presence peak, output gain and more), either from a preset or the Custom
-settings the GUI editor stores.
-
-```bash
-audiosuite enhance <directory> --output-dir DIR [OPTIONS]
-```
-
-**Options:**
-
-- `--dry` / `--live` — Analyse the files and report, or write the enhanced copies (default: live)
-- `--output-dir DIR` — Destination folder (required: the enhancer writes a new file rather than overwriting the source)
-- `--preset NAME` — Enhancement preset: Mild, Moderate, Aggressive, Custom (default: Moderate)
-- `--karaoke` / `--no-karaoke` — Remove centre-panned content (lead vocals) (default: no-karaoke)
-- `--karaoke-strength F` — Karaoke removal strength, 0.0–1.0 (default: 1.0)
-- `--reverse` — Reverse the audio (default: off)
-- `--phaser` — Apply a phaser effect (default: off)
-- `--flanger` — Apply a flanger effect (default: off)
-- `--chorus` — Apply a chorus effect (default: off)
-
-**Examples:**
-
-```bash
-audiosuite enhance "D:\Music\Dull" --output-dir "D:\Music\Enhanced" --preset Moderate --dry
-audiosuite enhance "D:\Music\Dull" --output-dir "D:\Music\Enhanced" --preset Aggressive --json
-```
-
-### Audio Normalizer
-
-Normalise audio loudness to a target LUFS level.
-
-```bash
-audiosuite normalise <directory> [--target-lufs LUFS] [--tolerance DB] [--tp DBTP] [--lra LU] [--mode MODE] [OPTIONS]
-```
-
-**Options:**
-
-- `--dry` / `--live` — Measure and report only, or rewrite the audio at the target loudness (default: live)
-- `--target-lufs LUFS` — target loudness, one of `-12`, `-14`, `-16`, `-18`, `-23` (default: -14)
-- `--tolerance DB` — acceptable deviation in LUFS (default: 0.5)
-- `--tp DBTP` — true-peak ceiling for the loudnorm filter, from -9.0 to 0.0 (default: -1.5); a ceiling above -1.0 can clip on a lossy re-encode
-- `--lra LU` — target loudness range for the loudnorm filter, from 1 to 20 (default: 11)
-- `--mode [normalise|lossless]` — `normalise` re-encodes through FFmpeg's loudnorm filter; `lossless` adjusts an MP3's global-gain header in place and falls back to `normalise` for other formats (default: normalise)
-
-**Examples:**
-
-```bash
-audiosuite normalise "D:\Music\Album" --target-lufs -16 --dry
-audiosuite normalise "D:\Music\Album" --mode lossless --json
-```
-
-### Pop & Click Remover
-
-Remove clicks and pops from audio files with the same windowed detector the
-Refinery's declick stage uses.
-
-```bash
-audiosuite declick <directory> [--sensitivity F] [--max-width MS] [OPTIONS]
-```
-
-**Options:**
-
-- `--dry` / `--live` — Report the detected clicks only, or repair the audio (default: live)
-- `--sensitivity F` — click detection sensitivity (default: 0.25)
-- `--max-width MS` — maximum click width in milliseconds (default: 5)
-
-**Examples:**
-
-```bash
-audiosuite declick "D:\Music\Vinyl" --dry
-audiosuite declick "D:\Music\Vinyl" --sensitivity 0.31 --max-width 2
-```
-
 ### Restoration (Declip)
 
 Reconstruct the flat-topped peaks a clipped recording lost, by interpolating
@@ -662,29 +566,6 @@ audiosuite tag-update "D:\Music" --pattern "%track%. %artist% - %title%" --dry
 audiosuite tag-update "D:\Music" --pattern "%artist% - %title%" --live
 audiosuite tag-update "D:\Music" --action-group Bandcamp --live
 audiosuite tag-update "D:\Music" --list-action-groups
-```
-
-### Silence Trimmer
-
-Trim leading and trailing silence, optionally applying fades.
-
-```bash
-audiosuite silence-trim <directory> [--threshold DB] [--fade/--no-fade] [OPTIONS]
-```
-
-**Options:**
-
-- `--dry` / `--live` — Report what would be trimmed, or write the trimmed audio (default: live)
-- `--threshold DB` — silence threshold in dBFS (default: -50)
-- `--fade` / `--no-fade` — apply fade in/out (default: no-fade)
-- `--fade-in MS` — fade-in length (default: 25)
-- `--fade-out MS` — fade-out length (default: 25)
-
-**Examples:**
-
-```bash
-audiosuite silence-trim "D:\Music\Album" --dry
-audiosuite silence-trim "D:\Music\Album" --fade --fade-in 100 --fade-out 250
 ```
 
 ### Tag Editor
@@ -995,7 +876,7 @@ audiosuite cue split "D:\Music\Album\Album.cue" -o "D:\Music\Album\Tracks"
 ## All Commands
 
 Every command the CLI ships, including the suite commands that operate on the
-installation rather than on a folder of audio. Each of the 32 tools appears
+installation rather than on a folder of audio. Each of the 27 tools appears
 here, and each tool's own section above documents its flags.
 
 | Command | Tool | Category |
@@ -1012,10 +893,8 @@ here, and each tool's own section above documents its flags.
 | `cue generate` | CUE sheet generator | Suite |
 | `cue parse` | CUE sheet parser | Suite |
 | `cue split` | CUE sheet splitter | Suite |
-| `declick` | Pop & Click Remover | Util |
 | `denoise` | ML Denoiser | Util |
 | `doctor` | Install check | Suite |
-| `enhance` | Audio Enhancer | Util |
 | `example` | Example Tool (plugin) | Plugin |
 | `fingerprint` | Audio Fingerprinter | Enrich |
 | `genre-sync` | Genre Sync | Enrich |
@@ -1023,16 +902,13 @@ here, and each tool's own section above documents its flags.
 | `lyrics` | Lyrics Manager | Enrich |
 | `mood-analysis-batch` | Mood Analysis Batch Tagger | Util |
 | `mood-analyzer` | Mood Analyzer | Enrich |
-| `normalise` | Audio Normalizer | Util |
 | `plugins disable` | Plugin manager | Suite |
 | `plugins enable` | Plugin manager | Suite |
 | `plugins list` | Plugin manager | Suite |
-| `reduce` | Noise Reduction | Util |
 | `refine` | Audio Refinery | Refinery |
 | `reorganize` | Tag-Based File Reorganizer | Util |
 | `replaygain` | ReplayGain Analyzer | Enrich |
 | `scrub` | Metadata Scrubber | Enrich |
-| `silence-trim` | Silence Trimmer | Util |
 | `spectrogram` | Spectral Viewer | Util |
 | `stats` | Library Statistics Dashboard | Util |
 | `stems` | Stem Separator | Util |

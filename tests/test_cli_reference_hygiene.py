@@ -114,6 +114,17 @@ reference states that this table does not know still fails, naming the phrase
 and click's real default, so a new option cannot document its default in words
 the lock cannot read.
 
+
+Changed in 2.3.1: the vacuity floors follow the 27-tool surface. Five
+standalone tools were retired with their windows, launchers and commands,
+so the reference now documents 33 commands in 31 sections over 29 tool
+families instead of 38 in 36. Each floor moved to its measured value -
+33 documented commands, 31 sections, 29 families, 26 manifest commands,
+103 default claims, 159 options checked - so the lock still fails on a
+parser break or a gutted document, but no longer on a surface that no
+longer ships. It also reads the Refinery's absorbed normaliser options
+(``--true-peak``, ``--lra``, ``--normalise-mode``) after they were
+documented.
 """
 
 from __future__ import annotations
@@ -914,7 +925,7 @@ class TestDocumentedDefaultClaims:
         )
         stages = [claim for claim in claims if claim.flag == "--stages"]
 
-        assert len(claims) >= 110, f"only {len(claims)} command defaults scanned"
+        assert len(claims) >= 103, f"only {len(claims)} command defaults scanned"
         assert len(shared) >= 3, f"only {len(shared)} shared defaults scanned"
         assert max(len(s.owners) for s in shared) >= 20, (
             "the shared defaults no longer expand across the whole CLI: "
@@ -1065,10 +1076,10 @@ class TestEveryOptionIsDocumented:
                     if flag in opt.secondary_opts:
                         secondary += 1
 
-        assert len(documented) >= 34, (
+        assert len(documented) >= 33, (
             f"only {len(documented)} documented commands found: {sorted(documented)}"
         )
-        assert checked >= 160, f"only {checked} options checked for documentation"
+        assert checked >= 159, f"only {checked} options checked for documentation"
         assert secondary >= 20, (
             f"only {secondary} secondary/negative options checked - a switch "
             "pair now only needs its positive half"
@@ -1292,10 +1303,10 @@ class TestEveryCommandHasItsOwnSection:
         expected = _expected_families()
 
         assert not docs.problems, "\n".join(docs.problems)
-        assert len(expected) >= 30, (
+        assert len(expected) >= 29, (
             f"only {len(expected)} first-party tool families found: {sorted(expected)}"
         )
-        assert len(docs.sections) >= 32, (
+        assert len(docs.sections) >= 31, (
             f"only {len(docs.sections)} sections document a command: "
             f"{sorted(record.title for record in docs.sections.values())}"
         )
@@ -1385,11 +1396,11 @@ class TestSectionHeadingsNameTheirTool:
         )
 
         assert not docs.problems, "\n".join(docs.problems)
-        assert len(manifest) >= 27, (
+        assert len(manifest) >= 26, (
             f"only {len(manifest)} tools declare a CLI command, so the heading "
             "check reads almost nothing from the manifest"
         )
-        assert len(manifest_bound) >= 29, (
+        assert len(manifest_bound) >= 26, (
             f"only {len(manifest_bound)} headings are tied to the manifest: "
             f"{sorted(manifest_bound)}"
         )

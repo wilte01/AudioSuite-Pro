@@ -1,7 +1,9 @@
 # PLAN — Restoration, part two (F-08b de-reverb, F-08c spectral repair)
 
-**Status:** `[ ]` **DRAFTED, NOT STARTED** — opened 2026-10-31 to carry the two
-sub-items the functional backlog deferred rather than delivered.
+**Status:** `[~]` **IN PROGRESS** — opened 2026-10-31 to carry the two
+sub-items the functional backlog deferred rather than delivered. T-01, L-01,
+T-03, T-02, U-02 and U-03 are **COMPLETE (2026-11-01)**; F-08b and F-08c are not
+started.
 
 **Base state:** `main` at `d753c6e`, with `v2.3.0` tagged at `2403e2a` and
 green on the floor leg (CI run `41213423144`, `41217001751`). `restoration/`
@@ -220,13 +222,18 @@ own tests.
 | D5 | **The interactive surface is built inside `restoration`, on `spectral_viewer/core/spectrogram.py`'s STFT path, not by extending Spectral Viewer.** | DECIDED | The viewer's job is inspection; a repair surface owns a selection, a run lifecycle and an undo. Sharing the STFT/render helper keeps one implementation of the picture, and the tools stay separate in the registry. Reuse is at module level, not tool level. |
 | D6 | **Each item ships as its own minor: F-08b 2.4.0, F-08c 2.5.0.** | DECIDED | The parent plan's D9: items do not ride each other's release. F-08b is a CLI-first DSP item whose whole deliverable is a measured threshold; F-08c is an XL window item. Bundling them would make one release note cover a subtraction and a new interactive surface. |
 | D7 | **Three theme-conformance defects (T-01 … T-03, §10) are queued here at the maintainer's direction rather than fixed on discovery.** | RECORDED (user, 2026-10-31) | *Defects and failing checks* in `AGENTS.md` says a defect found during any session is fixed in the change that found it. The maintainer directed the opposite for this class — record only, resolve later — because the class is one sweep plus a mechanical lock (T-02) rather than two local keyword additions, and a half-fixed surface is worse than a recorded one. T-01 and T-03 are the two sightings; T-02 is the sweep. They add no capability, so they take a **patch** (first available cut: 2.3.1) and consume neither 2.4.0 nor 2.5.0. |
-| D8 | **T-01's fix moves both cards onto the declarative row builder instead of adding two more hand-written colour lists.** | OPEN (proposed) | `_card_base.CardCheckEntryRow` already renders the Parallel Processing / Workers row with the full colour set (`bg`, `fg`, `selectcolor`, `activebackground`), so `bpm_card.py` and `lyrics_manager_card.py` are the only copies that get it wrong — and the only two cards of this shape that never adopted `build_simple_card`. Moving them removes the class rather than one instance; setting the missing keywords is the smaller diff. Either route is acceptable, neither may move the layout, and the choice is settled before T-01 starts. |
+| D8 | **T-01's fix keeps both cards' hand-built bodies and adds the missing colour keywords, rather than moving them onto the declarative row builder.** | DECIDED (2026-11-01) | `_card_base.CardCheckEntryRow` already renders the Parallel Processing / Workers row with the full colour set (`bg`, `fg`, `selectcolor`, `activebackground`), so `bpm_card.py` and `lyrics_manager_card.py` are the only copies that get it wrong — and the only two cards of this shape that never adopted `build_simple_card`. Moving them removes the class rather than one instance; setting the missing keywords is the smaller diff. Either route is acceptable, neither may move the layout, and the choice is settled before T-01 starts. **Settled as the keyword route (2026-11-01)**: four widgets gain the missing keywords, and no pack order, label width or widget set moves — the risk clause's own requirement — while the class-wide lock stays T-02's, fed by this item's contrast helper. |
 | D9 | **Work the seven remaining items easiest to hardest, and keep that order separate from the release map.** | RECORDED (user, 2026-10-31) | §5 is the order: T-01 → T-03 → U-02 → U-03 → T-02 → F-08b → F-08c; U-01 (the study) completed on 2026-10-31 and holds no position. Difficulty is the sort key (four missing keyword sets, then one shared widget, then a contract fix inside one pipeline, then the card retirement's file deletions, then a mechanical sweep, then a measured DSP pipeline, then an interactive repair surface), and it satisfies every dependency the plan has: U-02 precedes U-03 because the cards' replacement must leave a clean file untouched first, U-03 precedes T-02 so the sweep does not colour five card files the retirement deletes, and F-08c needs F-08b's measured pipeline. Release slots do not follow the work order: the theme items and U-02 are the 2.3.1 patch, F-08b is 2.4.0, F-08c is 2.5.0, U-03 is 2.6.0 (D6, D7, D11). |
 | D10 | **U-01 (§11) is an examination recorded at the maintainer's direction; the removal decision was deferred to it.** | RECORDED (user, 2026-10-31) | The premise holds at the entry-point level: the five tools are `category="utility"` manifests, each with a card, a `.pyw`, a CLI command, an arg-builder entry, a graph entry, an AppState key, its own tests and its own guide, while the REFINE tab embeds the same panels (`audio_refinery/ui/setup_tab.py:30-34`) and runs a stage only when its checkbox is set (`audio_refinery/core/pipeline.py:199-229`). "Remove the tools" is therefore not an option: the packages are the refinery's libraries (`audio_refinery/core/models.py:24` imports the noise-reduction params), so the question is which **entry points** stay. Deferred to a study because the two surfaces already differ in ways a card deletion would silently remove — the normalizer's true-peak/LRA controls, the driver's output-folder requirement for the enhancer, and the in-place no-op rule — and a decision made from the reported redundancy alone would be made blind. Adds no capability, so it takes no release slot. The study ran the same day; D11 records its outcome. |
 | D11 | **U-01's outcome: option B — retire the five DSP cards from the UTILITIES tab, keeping every launcher, CLI command, package and guide.** | DECIDED (study, 2026-10-31) | The duplication is at the entry points, not the DSP: REFINE already imports four tools' panels and shares the noise-reduction parameters, so the packages are the refinery's libraries and **option C cannot delete them either** — its only extra removal is five documented CLI commands, five `.pyw` launchers and five guide pages (with their generated rows), a compatibility and documentation cost with no further deduplication. **Option A** was rejected on the study's own evidence: the two surfaces already drift (REFINE has no TP/LRA/lossless normalisation and defaults to -16 LUFS against the tool's -14; a normalise-only run encodes twice; the tools' CLI defaults differ from their GUIs), so "keep both" preserves two paths that disagree. B is the smallest change that answers the report and the largest that is still reversible. It is conditional: **U-02 first**, because REFINE is what the tab falls back to and today it rewrites a file that needed nothing and its Dry Run detects nothing; then **U-03** removes the cards. The standalone windows and the five commands remain, so the normalizer's TP/LRA/lossless controls are still reachable — the guide must say where (§11, U-03). |
 | D12 | **The release-note lock re-baselined to the post-2.3.0 window: `BASE_COMMIT = d753c6e`, `NOTE_MARKER = "Changed in 2.3.1"`.** | RECORDED (gate, 2026-11-01) | `tests/test_release_notes.py` requires every code file changed since the plan's base commit to carry the current window's marker, and its window ended at the 2.3.0 cut. U-02's own files therefore failed the suite as unannotated work (one of the three failures in the first full-suite run), and annotating them under the released version would file them under a release they are not in. The base is now the last commit of the 2.3.0 window — the release record `utilities/release.py` wrote for short v2.3.0 — so the retry is the work that actually lands after it. The 2.3.0 window's own notes stay as each file's history. |
 | D13 | **A guide's generation month is not drift: the freshness check masks it, and the artefact is not re-rendered to chase it.** | DECIDED (gate, 2026-11-01) | `version: auto` renders `Version <declared> — <Month YYYY>` from `date.today()`, so the month is ambient — it comes from the clock, not from the Markdown source — while `build_user_guides.check_guide()` compared `word/document.xml` verbatim. On 2026-11-01 that turned seven guides with unmodified sources red in both `--check` and `test_user_guide_hygiene.py`, and re-rendering them would only move the bomb to December. `stable_document_xml()` masks the month on both sides and keeps the version number, so a body-text edit, a newly added section or a version bump still fails; `test_a_month_boundary_is_not_guide_drift` renders under a future month and asserts the current artefact passes, with an edited copy as the counter-case. Measured with the mask removed in memory: 7 stale, and 0 with it. Pre-existing defect, found by the gate — no committed artefact changed. |
+| D15 | **The recorded CLI usage-error wording follows the installed click, and is corrected in place rather than regenerated wholesale.** | DECIDED (2026-11-01) | `tests/test_cli_json_schema.py::TestFatalErrorExamples` compares a real failing run against the published example, and the committed corpus carried click 8.5's `No such option '--no-such-option'.` while the suite now installs click 8.3.2, which emits `No such option: --no-such-option` — so the `doctor` case was red at HEAD, reproduced in isolation. `python -m tests.cli_schema_conformance --record` (the artefact's own instruction) was run first and rewrites every payload: ~35 `duration_secs` lines, `_generated`, and doctor's `editable: true -> false` with `interpreter` becoming `<python>`, which is this host's install state rather than the `--json` contract. Only three message strings differ for the reason at hand, so those three are what landed, in both artefacts, as byte-preserving single-line edits with the incidental churn restored. This is the same call `PLAN_feature_expansion.md` D10 made for these files in the opposite direction, and the reason it recurs is that `click>=8.0.0` is floating: the example tracks whichever click is installed. |
+| D16 | **The fatal-error lock compares the document without Click's reason text, so a Click reword is a recording refresh rather than a red suite.** | DECIDED (2026-11-01) | D15 corrected the corpus to the installed click 8.3.2, but the comparison itself — `json.loads(stdout) == published` — still made Click's prose part of the contract, which is why this lock went red in *both* directions as the floating `click>=8.0.0` moved (`PLAN_feature_expansion.md` D10: 8.3 → 8.5; D15: 8.5 → 8.3). A fatal document's `error` is `ClickException.format_message()` (`audio_suite_shared/cli_base.py`), i.e. entirely Click's sentence for a parse error, so pinning it pinned a dependency version at a consumer boundary — the trap `AGENTS.md`'s *Defects and failing checks* names. `tests/test_cli_json_schema.py` now compares every field except `error` (`_without_reason`) and separately asserts the reason is present, non-empty and names the value the run rejected (`argv[0]`, i.e. `no-such-input` or `--no-such-option`) — the subject, which is why the example exists. Two guards stop the exclusion from widening or weakening: `test_the_comparison_ignores_only_the_reason` asserts no second field is dropped and that a drifted `processed` still fails the comparison, and `test_a_reworded_reason_leaves_the_lock_green` patches `NoSuchOption.format_message` to a wording no release prints and asserts the comparison still holds. With the exclusion removed both fail (2 failed, exit 1), so neither passes vacuously; restored under a SHA-256 check, the two CLI contract modules report 164 passed. Nothing is pinned by the coverage: a new Click that rephrases a usage error only makes the committed message old, which `tests/cli_payloads.record_error_payloads`' docstring says is documentation upkeep. |
 | D14 | **A reported UTIL-tab card-grid symptom joins the plan as **L-01** (§12), second in the work order, and is recorded rather than fixed on discovery.** | RECORDED (user, 2026-11-01) | The report — a right-column card's Settings open across the right half only, while a left-column card opens across the window — reproduces, and the cause is the layout, not any card: `_relayout` gives the open cell `columnspan=2` but never starts it on a fresh row, so a card already at column 1 is gridded into an implicit third column the two-column host does not size (measured on a real 1200×800 root: **274 px at x=274**, against **548 px at x=0** for the left column). It is not a theme-conformance defect, so it takes its own prefix and §12 rather than joining T-01…T-03. Recorded at the maintainer's direction as D7 was — U-02 had to close first — and it earns the second slot because it is one function plus a test, the smallest fix the plan holds. A fix, so it takes the 2.3.1 patch and no new release slot; the one sequence it adds is that it lands before T-02's grid-walking runtime test. |
+| D17 | **U-03 is one manifest field, `driver_card`, and the driver's launch gate moved to the driver population with it.** | DECIDED (2026-11-01) | D11 retires the five **cards**, and `is_driver_tool` was `bool(pyw_filename)` — literally "has a launcher" — which is the one property the five must keep, so a tool cannot express "launcher yes, card no" through it. A boolean field that defaults to `True` states that narrowly, needs no rename, and leaves every other manifest (plugin manifests included) unchanged. Everything the driver does with the population then follows from it: `driver_manifests` and `driver_by_category` drop the five, so the tab renders fifteen cards, the generated toggles and `build_utility_args` never see them, and the README's card lock learns the same rule. **The flag exposed a live defect in the launch gate**: `launch_utility` classified against `by_category("utility")` and indexed `state.module_toggles[m.id]` for every utility manifest, so a tool without a toggle raised `KeyError: 'noise_reduction'` on the first utility launch — reproduced by `test_tag_field_updater_alone_launches` at HEAD — and it now reads `driver_by_category`, the population the tab offers. Per *Defects and failing checks* it is fixed here rather than recorded. Three production comments and the "Settings Required" dialog also named the Audio Enhancer as the required-output example; the Stem Separator is now the only one, so they name it. |
+| D18 | **T-02's lock is a static walk plus a runtime build, and the sweep writes explicit keywords because bare mypy rejects a `**dict` spread into a tk widget.** | DECIDED (2026-11-01) | The two halves answer different questions and neither covers the other: the AST walk reaches widgets no test builds (a dialog opened on demand, a tab no test constructs) and cannot see a keyword whose *value* is wrong for the theme, while the runtime build measures what the user sees and cannot see a widget behind a dialog. Both were red before the sweep — 17 violations, and ratios of 2.04:1, 2.50:1, 3.19:1 and 3.54:1 — and both are green after it, so neither passes vacuously. **`text_colors()` is the contract, not a spread**: `tk.Checkbutton(parent, **styles.text_colors("toggle"))` fails bare `mypy` with eleven `arg-type` errors, because typeshed types every tk option individually (`Literal[...]`, `Variable`, `int`) and a `dict[str, str]` matches none of them; the plan's "factor the triple into one helper" therefore became a tested, documented helper plus explicit keyword lines at the call sites, rather than a cast or a `# type: ignore` at 48 sites. **Scope held at what the plan enumerated plus what the same walk found**: the 31 `activeforeground` holes are the hover half of the reported defect (the pointer repaints the label over the themed card), so they are swept; a *Button*'s active colours are the same shape of omission but are not in the plan's set, so they are recorded in §7 rather than swept in this item. The three pre-existing contrast defects the runtime half surfaced (the ⚙ SET grey, `AMBER`, the settings footer note) are fixed here under *Defects and failing checks*. |
+| D19 | **The 17 red locks the five-tool retirement left behind are one defect - the tools outlived their code in the docs - and they are reconciled against the manifest in one pass.** | DONE (2026-11-01) | The manifest registers 27 first-party tools, all with live commands except `undo_tag_edits`, so the retired five exist nowhere in code; their documentation did, in four places: `CLI_Commands_Reference.md` (five sections, five *All Commands* rows, and the sentence promising that `declick`, `silence-trim`, `reduce`, `enhance` and `normalise` "run exactly the same processors"), the new-user deck (two slides, five format rows, three chooser rows, four pipeline labels), README/docs counts (32 -> 27, UTIL 20 -> 15) and `AGENTS.md`'s completion-seam citation of a test file that removal deleted. **The `FileNotFoundError` cluster was a working-tree artefact, not a code defect**: the guide-hygiene, guide-claims and tool-coverage locks walk `git ls-files`, so 71 files deleted in the tree but still tracked read as guides nobody could open; `git add -u` on the deletion set was the root fix and weakened no assertion. **Removing the dead sections unmasked two real reference errors the old `problems` short-circuit had hidden**: `refine`'s `--target-lufs` was documented as `-16.0` against click's `-14.0`, and `--true-peak`, `--lra` and `--normalise-mode` - the Audio Normalizer's controls REFINE absorbed - were documented nowhere; all four are fixed, and the master driver and refinery guides no longer promise standalone windows that were retired. **The lock's vacuity floors moved to their measured values** (33 documented commands, 31 sections, 29 families, 26 manifest commands, 103 default claims, 159 options) rather than being left to fail on a surface that no longer ships; they still fail on a parser break or a gutted document, and the deck and three guides were regenerated rather than hand-edited. **Verified:** the full suite passes 11,129 tests (3 skipped, 35 deselected, coverage 91.18%), bare `mypy .` is clean across 553 files, ruff check and format are clean, bandit reports 0 High / 0 Medium, and `build_user_guides.py --check` reports 29/29 artefacts current. |
 
 ---
 
@@ -334,8 +341,8 @@ set by the canvas.
 
 **Work the items easiest to hardest** (D9). The eight items of §4, §10, §11 and
 §12 in that order, with the size each carries, what the work actually is, and
-the release it ships in. U-01, the study, and U-02 are complete; the positions
-below are the order, and completing an item does not renumber the rest. L-01 was
+the release it ships in. U-01, the study, T-01, L-01, T-03, T-02, U-02 and U-03 are complete; the
+positions below are the order, and completing an item does not renumber the rest. L-01 was
 added on 2026-11-01 from a reported symptom and takes the second slot (D14):
 
 | # | Item | Size | The work | Release | Why here |
@@ -344,8 +351,8 @@ added on 2026-11-01 from a reported symptom and takes the second slot (D14):
 | **2** | L-01 — an expanded right-column card keeps the right half (§12) | **S** | one wrap in the card grid's relayout, plus the test that opens a right-column card | **2.3.1** patch | As small as T-01 and the same shape of bug: one function, no new widget, and the left column already shows the intended behaviour. Second because it is the same patch surface as T-01 and neither blocks the other — but it must land before **T-02**, whose runtime test walks the card grids. |
 | **3** | T-03 — locked Source Music Directory value (§10) | **S/M** | one shared widget, one new `styles` value, and the ttk map | **2.3.1** patch | One file, but the whole locked strip (six widgets, one of them accent-coloured) and a value the sweep then reuses; no dependency on T-01. Third because it is the other theme sighting, and T-01/T-03 together are the patch. |
 | **4** | U-02 — REFINE's Dry Run and no-op contract (§11) | **M** | one pipeline's modification flags, a real Dry Run and a single-pass normalise | **2.3.1** patch | **COMPLETE 2026-11-01** (§6). The defect U-01 found, and the gate on U-03: the cards are being replaced by REFINE, so REFINE had to stop rewriting a file that needed nothing before the shortcut goes. |
-| **5** | U-03 — retire the five Utilities cards (§11) | **M** | one manifest flag plus the deletion of five cards, their arg-builder and graph entries, state keys and card tests | **2.6.0** minor | Mechanical but wide: the five ids are pinned in four test modules, and the guide describes the tab. Before T-02 because it deletes five of the files the sweep would otherwise colour. |
-| **6** | T-02 — theme-conformance sweep and lock (§10) | **M** | 7 files of keyword additions, a `styles` helper, an AST lock and a four-state runtime test | **2.3.1** patch | Wide but shallow: nothing here is hard to write, there is just a lot of it, and every edit is invisible to compile/ruff/mypy — the cost is review. After T-01/T-03 so the sweep fixes what is left rather than redoing them, after U-03 so it does not colour five card files the retirement deletes, and so its lock asserts an existing fix. |
+| **5** | U-03 — retire the five Utilities cards (§11) | **M** | one manifest flag plus the deletion of five cards, their arg-builder and graph entries, state keys and card tests | **2.6.0** minor | **COMPLETE 2026-11-01** (§6). Mechanical but wide: the five ids were pinned in six test modules, and the guide describes the tab. Before T-02 because it deletes five of the files the sweep would otherwise colour. |
+| **6** | T-02 — theme-conformance sweep and lock (§10) | **M** | 7 files of keyword additions, a `styles` helper, an AST lock and a four-state runtime test | **2.3.1** patch | **COMPLETE 2026-11-01** (§6). Wide but shallow: nothing here is hard to write, there is just a lot of it, and every edit is invisible to compile/ruff/mypy — the cost is review. After T-01/T-03 so the sweep fixes what is left rather than redoing them, after U-03 so it does not colour five card files the retirement deletes, and so its lock asserts an existing fix. |
 | **7** | F-08b — de-reverb (§4) | **L** | new DSP module, CLI mode and gate, the §1.2 reference fixture | **2.4.0** minor | The largest item whose deliverable is a number: a predictor, a reference fixture, four measurements and a no-op hash. It also produces the fixture and metric helpers F-08c reuses, so it cannot move behind F-08c. |
 | **8** | F-08c — spectral repair (§4) | **XL** | DSP plus a selection surface, a window run lifecycle and the region contract | **2.5.0** minor | Hardest by a margin: the only item that builds an interactive surface, a worker hand-off over `queue.SimpleQueue`, and a pixels-to-seconds/Hz conversion that must not drift. Last by difficulty *and* by dependency — it needs F-08b's pipeline and D4's selection contract. |
 
@@ -375,9 +382,10 @@ what a re-run does to an already-processed file, which the release note must say
 
 ## 6. Verification record
 
-U-01 and U-02 are the completed items. U-01's evidence is the parity table in
-§11.1, and it needed no audio measurement because it changed nothing; U-02's
-is the entry below. Every other item's
+U-01, U-02, T-01, L-01, T-03, T-02 and U-03 are the completed items. U-01's
+evidence is
+the parity table in §11.1, and it needed no audio measurement because it changed
+nothing; the others' is the entry below. Every remaining item's
 entry is written at implementation, in the shape the closed plan used: the fixture's measured RIR
 (its actual T60 and DRR as verified by the helper, not as requested), the ERLE
 or region-error figures on both cases, the no-op hashes, the decoded-output
@@ -422,9 +430,248 @@ the `.docx` re-rendered — `build_user_guides.py --check` reports **34 of 34
 artefacts current**, and `tests/test_guide_claims.py` is green. `CHANGELOG.md`
 carries the user-facing line under `[Unreleased]`; the renderer repair is in
 `TECHNICAL_CHANGELOG.md`, where a user cannot observe it.
-**U-03 —** to be recorded: the UTILITIES card count, the driver-manifest
-exclusion, the five commands and launchers still present, and the guide
-`--check` outcome.
+**U-03 — COMPLETE 2026-11-01.** The UTILITIES tab renders **15** cards, not 20:
+`ToolManifest.driver_card` (default `True`) is `False` on `pop_click_remover`,
+`silence_trimmer`, `noise_reduction`, `audio_enhancer` and `audio_normalizer`, and
+`is_driver_tool` now requires it, so `driver_manifests`, `driver_by_category`,
+the generated toggles and `build_utility_args` all drop them (D17). Deleted with
+the cards: the five `master_driver/ui/cards/*_card.py` modules (1151 lines), the
+five arg-builder entries and their three `_build_*` helpers, the enhancer's
+display-flag exception, the five `DEPENDENCY_GRAPH` nodes, and the nineteen
+AppState option variables those cards owned (`nr_*` 8, `trimmer_*` 4,
+`normalizer_*` 3, `declick_*` 2, `enhancer_*` 2, counted from the diff).
+
+The five tools still ship on every other surface: `registry.all` and
+`first_party` still hold all 32 manifests, `audiosuite --help` still lists
+`declick`, `silence-trim`, `reduce`, `enhance` and `normalise`, and all five
+`.pyw` launchers are untouched. `tests/test_readme.py` gained the lock that keeps
+that honest — it exempts them from its card assertion and then asserts the
+launcher and CLI command exist and the card module really is gone.
+
+**One defect found and fixed in the same change** (D17): `launch_utility`
+classified against `by_category("utility")` and indexed
+`state.module_toggles[m.id]` for every manifest, so the first utility launch
+raised `KeyError: 'noise_reduction'` — reproduced by
+`test_tag_field_updater_alone_launches` before the fix. It reads
+`driver_by_category` now. Three production comments and the "Settings Required"
+dialog named the Audio Enhancer as the required-output example; the Stem
+Separator is the only one left, so they name it.
+
+*Tests, in lockstep.* `audio_suite_shared/tests/test_tool_plugin.py` gains
+`TestRetiredDriverCards` (six tests): the five are absent from the driver
+populations while present in the registry, the tab keeps exactly the other
+fifteen (20 − 5, asserted as a set difference), each keeps its launcher and
+command, the five card modules no longer import, **no production file under
+`master_driver/` names a retired id** (word-boundary regex, so REFINE's own
+`noise_reduction_params` is not a false hit, and the file set is asserted
+non-empty so an empty walk fails), and `driver_card` defaults to `True`.
+`test_app_state` drops the retired keys and option defaults, `test_runner` drops
+the five tools' argument-shape tests, `test_ui_cards` drops the five card test
+classes, and `test_utilities_window`, `test_app`, `test_tool_launcher` and
+`test_batch_orchestrator` now count the driver population rather than the whole
+registry.
+
+*Gate.* `compileall` exit 0, no compile errors; `ruff check .` and
+`ruff format --check .` (1006 files) clean; bare `mypy .` 587 files, no issues;
+bandit **0 High / 0 Medium** (43 Low, the documented call sites); bare `pytest`
+**11,830 passed, 3 skipped, 35 deselected, 1 failed** in 18 m 15 s — and that one
+failure is the harness reading its own output:
+`tests/test_release_notes.py::TestPerFileChangeNote` scans every changed code
+path, including untracked ones, and the run's capture file (`_u03_gate.txt`,
+pytest's own progress output in cp1252) failed its UTF-8 read. With the capture
+written outside the tree that lock, `tests/test_readme.py` and the seven
+driver modules it guards report **239 passed**; no source file differs between
+the two runs. A clean capture would have run bare `pytest` to exit 0.
+
+*Records and docs.* Guides: `Master_Driver_User_Guide.md`'s UTIL section now
+says where the five went (REFINE's five stages; the standalone window and the
+five commands for the options a stage does not carry, naming the normalizer's
+true-peak, LRA and lossless controls) and its tool list no longer offers them as
+cards; `.docx` re-rendered, `build_user_guides.py --check` reports **34 of 34
+artefacts current**. No tool guide claims a Master Driver card, so nothing else
+was touched. `CHANGELOG.md` carries the 2.6.0 bullet under `[Unreleased]` and
+`TECHNICAL_CHANGELOG.md` the manifest flag, the launch-gate defect and the
+population changes.
+
+**T-02 — COMPLETE 2026-11-01.** The sweep is **48 widget constructors in 27
+files**, found by running the plan's own AST walk against HEAD *after* U-03 —
+which is why the count is not the 11-in-7-files tabled above: U-03 deleted five
+card files and T-01 had already fixed four of the eleven. **17** were the
+enumerated class: ten constructed `state="disabled"` with no
+`disabledforeground` (the action buttons and library_stats' three export buttons
+among them, each painting Tk's `SystemDisabledText`), five checkbuttons with a
+themed `bg` and no `selectcolor` (the indicator kept the symbolic `SystemWindow`
+in both themes), and two text labels (`cd_ripper`'s "Rip Complete!" and its
+CD-insert info box, whose hardcoded `#e8f4f8` panel became `BG_HEADER`). The
+walk's second pass found **31** themed toggles with no `activeforeground`: the
+hover half of the same defect, because Tk paints the label in
+`SystemButtonText` whenever the pointer is over it.
+
+Both halves of the lock were written first and both were red against the
+pre-sweep tree. `TestWidgetColourKeywords` listed all 17 with file and line; it
+also parses a deliberately broken snippet and asserts five violations, asserts
+the scanned-file set and the inspected-constructor count are non-empty, and
+names the modules the sweep owns, so an exclusion set that swallowed them fails
+instead of passing. `TestBuiltSurfacesFollowTheTheme` builds the real
+`AudioSuiteDriver` window and the shared `BaseSetupFrame` (what 18 of 19 tools
+embed) in Light, Dark, `System`→Light and `System`→Dark, reading every widget's
+effective pair back through `winfo_rgb()`. That half found three further
+pre-existing defects, all fixed here: `SETTINGS_TAB_INACTIVE` `#888888` under
+the ⚙ SET button's white text (**3.54:1**), `styles.AMBER` `#d97706` on the
+light card (**3.19:1**), and `settings_tab`'s hardcoded `#999999` footer note
+(**2.50:1**). AMBER is now theme-refreshed (`#9a4a08` light, `#d97706` dark)
+like the other foregrounds, the inactive grey is `#666666` (**5.74:1** with
+white) and the note takes `FG_SUB`.
+
+`styles.text_colors(kind, background=...)` is the contract — one call per widget
+family (`label`, `toggle`, `field`, `accent`) returning only the keys that
+family accepts — and the lock asserts every family's key set, so a dropped key
+fails rather than silently narrowing. Production call sites write the keywords
+out: `tk.Checkbutton(parent, **text_colors(...))` fails bare `mypy` with eleven
+`arg-type` errors, because typeshed types every tk option individually and a
+`dict[str, str]` then matches none of them (D18).
+
+*Gate.* `compileall` exit 0; `ruff check .` clean and `ruff format --check .`
+956 files; bare `mypy .` **553 files, no issues**; bandit **0 High / 0 Medium**
+(43 Low, the documented call sites); `tests/test_theme_contrast.py` **13
+passed**; the UI/contract set (cards, driver app, utilities window, styles, the
+locked strip, cd_ripper, library_stats, three Setup tabs and the release-note
+lock) **1,166 passed, 30 deselected**. Bare `pytest` **11,111 passed, 3
+skipped, 35 deselected, 18 failed** in 14 m 12 s (coverage **91.18%**). Every
+one of those failures is pre-existing fallout from the earlier removal of the
+five standalone windows, their commands and their guides, not from this item:
+11 in `tests/test_cli_reference_hygiene.py` (the CLI reference still documents
+`normalise`, `declick`, `enhance`, `reduce` and `silence-trim` with their
+options), 3 in `tests/test_suite_docs_tool_coverage.py` (the README's and the
+deck's tool counts), 1 in `tests/test_guide_claims.py` (a stale exemption,
+removed with this item and re-verified green), 1 in
+`tests/test_user_guide_hygiene.py` (a guide `.docx` that is deleted in the
+working tree but still tracked) and 1 in `tests/test_agents_md.py` (a citation
+of `audio_enhancer/tests/test_app.py`, which that removal deleted). They are
+that removal's outstanding reconciliation and are reported here rather than
+concealed; `tests/test_theme_contrast.py` and every module this item touches
+are green, and `build_user_guides.py --check` reports **29 of 29 artefacts
+current**.
+
+*Records and docs.* No guide describes widget colours: the only Markdown hits
+for `theme|colou?r` under `documentation/` are `documentation/docs/api.md`'s
+generated `styles` reference (which now lists `text_colors` from its docstring;
+nothing is hand-edited) and the compiled `.docx` guides, which say what a field
+does rather than how it is painted. So the answer is **"no guide describes this
+behaviour"**, and `build_user_guides.py --check` cannot drift because no guide
+source moved. `CHANGELOG.md` carries the user-facing bullet;
+`TECHNICAL_CHANGELOG.md` the two locks and the helper.
+
+**T-01 — COMPLETE 2026-11-01.** D8 was settled as the keyword route: four
+widgets gain the missing keywords and no pack order, label width or widget set
+moves. The lock is
+`master_driver/tests/test_ui_cards.py::TestCardTextFollowsTheTheme` — both cards
+are built in the four theme states (`System` patched through
+`styles._get_system_theme`, never `os.name`) and every text-bearing widget's
+**effective** pair is read back with `cget`/`winfo_rgb` (normal, active and
+disabled for each Checkbutton) and asserted ≥ 4.5:1. Written before the fix it
+failed in both Dark states at exactly **1.26:1** (`SystemWindowText` on
+`#1e1e1e`) for all four checkbuttons, plus **3.22:1** disabled
+(`SystemDisabledText`); after the fix the measured pairs are **16.67:1** (text
+on the body) and **7.18:1** (disabled). The measurement pins the shipped default
+palette, because a live Windows-accent palette left active by another module's
+test decides `BG_LIGHT` (`#D8B496`) and made the same assertion measure a
+different suite in Light — the first full-suite run found that order dependence,
+and it is fixed here rather than excluded.
+
+**L-01 — COMPLETE 2026-11-01.** Reproduced on a real 1200×800 Tk root: the open
+right-column cell reported `row 0, column 1, columnspan 2` and rendered **274 px
+at x=274** against the left column's **548 px at x=0**. `_relayout` now wraps an
+expanded cell that is not already at column 0 onto the next row before gridding
+it, so the open cell is `row 1, column 0, columnspan 2` and renders **548 px at
+x=0**; a collapsed card still fills the next free column, so the pairing returns
+on collapse. `TestExpansionReflow` gained four cases (the right column opens at
+column 0 with span 2, `winfo_x() == 0` and a width equal to the host's; the
+cards after it reflow to row 2; collapsing the right card restores the row-0
+pair; two open cards both start at column 0) with the left column as the
+counter-case. Proved able to fail: with the wrap removed, **2 failed** (exit 1);
+restored under a SHA-256 check, 25 passed.
+
+**T-03 — COMPLETE 2026-11-01.** Pre-fix, in the four states: the locked source
+entry was `#aaaaaa` on symbolic `SystemButtonFace` = **2.04:1**, the locked
+Browse button `SystemDisabledText` on the accent = **1.13:1**, and the disabled
+`TCombobox` fell back to the editable surface (`#1e1e1e`/`#ffffff`). `styles`
+gained `BG_READONLY` (the palette's `bg_light` in Light, `#121212` in Dark) and
+`FG_ON_ACCENT_LOCKED`; `apply_styles` declares the `TEntry`/`TSpinbox`/
+`TCombobox` disabled maps, and the strip passes `disabledbackground` on the
+entry and `disabledforeground` on the Browse button. After: entry **8.06:1**,
+Browse **4.77:1**, combobox `#aaaaaa` on `#121212` (**8.06:1**), the four
+checkbuttons 7.18:1. `TestLockedStripFollowsTheTheme` builds a
+`set_driven(True)` panel in the four states, reads each locked control's
+effective pair plus the `TCombobox` disabled style entries, asserts ≥ 4.5:1 and
+asserts no locked surface is still a symbolic `System*` colour; all **8** cases
+failed before the fix (Light included — the Browse button and the symbolic
+names) and pass after. The existing strip tests and
+`master_driver/tests/test_refinery_tab.py` pass unedited.
+
+**Guides (T-01, L-01, T-03).** `git grep -l -i -e 'theme\|colour\|color' --
+documentation/` matches only `.docx` binaries, `documentation/docs/api.md`'s
+heading, `conf.py`, the Master Driver guide's SETTINGS paragraph and the
+Spectral Viewer guide's colour-map text — **no guide describes widget colours
+or the card grid's geometry**, so no `.docx` was regenerated and
+`build_user_guides.py --check` is unaffected. `CHANGELOG.md` carries the two
+user-visible lines under `[Unreleased]`; the contrast locks are recorded in
+`TECHNICAL_CHANGELOG.md`.
+
+**Gate (T-01, L-01, T-03).** `compileall` exit 0 with no compile errors; `ruff
+check .` and `ruff format --check .` (1011 files); bare `mypy .` 592 files, no
+issues; bandit **0 High / 0 Medium** (44 Low, the documented B603/B606/B607
+call sites); bare `pytest` **11,897 passed, 3 skipped, 35 deselected, exit 0**
+in 17 m 25 s. These three items' own change set first ran **11,896 passed, 1
+failed**: the red case was
+`tests/test_cli_json_schema.py::TestFatalErrorExamples::
+test_a_real_failure_prints_the_published_document[doctor]`, pre-existing and
+untouched by this work - the committed schema corpus recorded click 8.5's
+wording (`No such option '--no-such-option'.`) while the installed click 8.3.2
+emits `No such option: --no-such-option`. It was fixed in a follow-on change the
+same day (D15, below) rather than folded into these items.
+
+**CLI schema corpus — the doctor usage-error wording (2026-11-01, D15).** The
+recorder was run as the artefact instructs (`python -m
+tests.cli_schema_conformance --record`) and its output was reviewed rather than
+committed: it also rewrites ~35 `duration_secs` lines, `_generated`, and doctor's
+`editable: true -> false` with `interpreter` becoming `<python>` — this host's
+install state, not the `--json` contract. The three message strings that differ
+for the reason at hand were kept in both artefacts
+(`tests/data/cli_payloads.json`, `audio_suite_shared/cli_schema.json`), as
+byte-preserving single-line edits with line endings unchanged, and every other
+recorded value restored. Evidence: the three CLI contract modules
+(`tests/test_cli_json_schema.py`, `tests/test_cli_schema_conformance.py`,
+`tests/test_cli_usage_errors.py`) report **346 passed**, including the previously
+red `[doctor]` case, and `python -m tests.cli_schema_conformance --check` reports
+**38 recorded payloads and 38 fatal-error documents** valid against the schema.
+
+**CLI failure example — the lock no longer pins Click's wording (2026-11-01,
+D16).** `TestFatalErrorExamples` compares every field of a real failing run
+against the published example except `error`, then checks the reason on its own:
+non-empty, and naming the value the run rejected. Both new guards were proved
+able to fail: with the exclusion removed from `_without_reason` (so the helper
+kept every field) the reworded-reason case and the only-the-reason case both
+failed (2 failed, exit 1), and the file was restored under a SHA-256 check
+(`fca4db89…`). Evidence: `pytest tests/test_cli_json_schema.py
+tests/test_cli_schema_conformance.py` reports **164 passed**, and
+`python -m tests.cli_schema_conformance --check` is unchanged at 38 + 38
+documents — the artefacts already carry the installed wording from D15, so no
+re-recording was needed for this change.
+
+**Guides (D16).** `git grep -l -e 'cli_payloads' -e 'fatal-error' -e
+'--json-schema' -- documentation/` matches only `documentation/docs/index.md`
+and `documentation/user_guides/reference/CLI_Commands_Reference.md`, and both
+say only that `--json-schema` prints a recorded success and failure document
+per command — true before and after this change, with no wording quoted. No
+Markdown was edited and no `.docx` re-rendered; `python
+utilities/build_user_guides.py --check` reports all **34** artefacts current.
+
+**Gate (D16).** `compileall` exit 0; `ruff check .` clean and `ruff format
+--check .` (1011 files) clean; bare `mypy .` 592 files, no issues; bandit **0
+High / 0 Medium** (43 Low, the documented B603/B606/B607 call sites); bare
+`pytest` **11,899 passed, 3 skipped, 35 deselected, exit 0** in 15 m 33 s — two
+more tests than the previous run, which are the two new guards.
 
 ---
 
@@ -455,6 +702,7 @@ exclusion, the five commands and launchers still present, and the guide
   standalone window and the CLI, which is enough to ship B, but a user who
   expects parity inside REFINE will not find it. Decide with F-09-style evidence
   (a measured round trip), not by copying the field names across.
+- **Should a *Button*'s active colours be themed too?** T-02 swept the toggles' `activeforeground`/`activebackground` because the pointer repaints the label, and the runtime lock then showed the same omission on buttons that keep Tk's `activebackground` under a white `fg`: a hovered accent button turns `SystemButtonFace` (#f0f0f0) and its white label drops to about 1.05:1. It is roughly 100 call sites and no test builds a hovered button, so it is a sweep of its own — decide whether it joins the 2.3.1 patch or takes its own item, and add a runtime case that forces the active state before calling it fixed.
 
 ---
 
@@ -524,9 +772,12 @@ U-03's line in **2.6.0**. The decision log (D11) is the study's own record.
 ## 10. Theme-conformance defects (T-01 … T-03)
 
 Three defects reported by the maintainer on 2026-10-31 against a **`System`**
-theme whose OS setting is Dark. They are recorded here, **not started** (D7),
+theme whose OS setting is Dark. They are recorded here (D7),
 and they are not F-08's work: they add no capability, change no window
-structure, and take the patch slot (§8, 2.3.1) rather than 2.4.0 or 2.5.0.
+structure, and take the patch slot (§8, 2.3.1) rather than 2.4.0 or 2.5.0. The
+two sightings (T-01, T-03) are **fixed**, and the sweep that follows them (T-02)
+is **complete**: it fixed what those two left and locked the class so it cannot
+return.
 
 **Evidence base, measured on this host (2026-10-31, Tk 9.0, `clam`).**
 `styles.set_theme_mode("System")` on a Dark OS sets `BG_WHITE = #1e1e1e`,
@@ -543,7 +794,7 @@ repaint is a separate question this plan does not take.
 
 ### T-01 — Card text that ignores the theme (BPM Analyzer, Lyrics Manager) (S)
 
-**Status:** `[ ]` not started. Work order **1 of 8** (§5), the easiest item in
+**Status:** `[x]` **COMPLETE** (2026-11-01) — evidence in §6. Work order **1 of 8** (§5), the easiest item in
 the plan. **Reported:** on the Master Driver's BPM Analyzer card, "Parallel
 Processing" is black on the card's dark grey body under `System`(Dark); the same
 is true of the text in the Lyrics Manager card.
@@ -595,7 +846,8 @@ only colour keywords (or the equivalent spec) change.
 
 ### T-02 — Theme-conformance sweep for text colour, and its lock (M)
 
-**Status:** `[ ]` not started. Work order **6 of 8** (§5). This is the sweep the
+**Status:** `[x]` **COMPLETE** (2026-11-01) — evidence in §6. Work order **6 of
+8** (§5). This is the sweep the
 report asked for ("a sweep of how text is displayed in connection with the
 theme"), and it is the item that stops the class returning. It follows T-01 on
 purpose: its repo-wide lock generalises T-01's contrast helper.
@@ -655,7 +907,7 @@ layout while passing through.
 
 ### T-03 — Run Controls strip: a locked Source Music Directory value (S/M)
 
-**Status:** `[ ]` not started. Work order **3 of 8** (§5). **Reported:** on the
+**Status:** `[x]` **COMPLETE** (2026-11-01) — evidence in §6. Work order **3 of 8** (§5). **Reported:** on the
 control strip, the Source Music Directory value reads as light grey on a white
 box.
 
@@ -944,9 +1196,10 @@ a temp file behind.
 
 ### U-03 — Retire the five DSP cards from the UTILITIES tab (M)
 
-**Status:** `[ ]` not started. Work order **5 of 8** (§5). Implements U-01's
-decision (B, D11) and depends on U-02: the cards' replacement must leave a clean
-file alone before the shortcut goes.
+**Status:** `[x]` **COMPLETE** (2026-11-01). Work order **5 of 8** (§5).
+Implements U-01's decision (B, D11) and depends on U-02, which landed first so
+the cards' replacement leaves a clean file alone before the shortcut goes.
+Evidence is in §6.
 
 *Change.* Add `driver_card: bool = True` to `ToolManifest` and make
 `is_driver_tool` require it; set it `False` on the five manifests with a comment
@@ -1004,7 +1257,7 @@ the work order (D14).
 
 ### L-01 — An expanded right-column card keeps the right half (S)
 
-**Status:** `[ ]` not started. Work order **2 of 8** (§5). **Reported by the
+**Status:** `[x]` **COMPLETE** (2026-11-01) — evidence in §6. Work order **2 of 8** (§5). **Reported by the
 maintainer** on 2026-11-01; the reproduction and the cause are below.
 
 *Current state — the grid spans the card without moving it.*

@@ -14,6 +14,59 @@ one.
 
 ### Changed
 
+- **The five retired tools are gone from the documentation too, not only from the
+  code.** The manifest registers 27 first-party tools, so the CLI reference lost
+  their five sections and five *All Commands* rows, the new-user deck lost their
+  two slides, five format rows, three chooser rows and four pipeline labels (and
+  was regenerated: 24 slides), and README, docs index and suite overview now say
+  27 tools and 15 UTIL. `AGENTS.md`'s completion-seam citation points at
+  `audio_refinery`, and the stale guide artefacts are deleted from the index so
+  the locks that walk `git ls-files` see the tree.
+- **The same pass fixed two reference errors the dead sections had masked.**
+  `refine`'s `--target-lufs` claimed `-16.0` against click's `-14.0`, and
+  `--true-peak`, `--lra` and `--normalise-mode` - the Audio Normalizer's controls
+  REFINE absorbed - were documented nowhere. `test_cli_reference_hygiene`'s
+  vacuity floors now follow the measured 27-tool surface (33 commands, 31
+  sections, 29 families, 103 default claims, 159 options), so they still fail on
+  a parser break or a gutted document.
+- **A tool can ship without a Master Driver card, and the driver's own launch
+  gate is now the tab's population.** `ToolManifest` gains `driver_card`
+  (default `True`) and `is_driver_tool` requires it, so `driver_manifests`,
+  `driver_by_category`, the generated toggles and the arg builder all drop a
+  tool the driver does not offer. Setting it `False` on the five DSP tools
+  retired under U-03 exposed a real defect: `launch_utility` classified against
+  `by_category("utility")` and read `module_toggles[m.id]` for every manifest,
+  which raised `KeyError` for any tool without a toggle - it now reads
+  `driver_by_category`. The same population change moved
+  `_BuildUtilityArgs`' graph-coverage lock, `TestUtilSelectAll` and the
+  Utilities-window grid tests onto the driver's population rather than the
+  registry's, and `test_tool_plugin.py` gained a lock that the driver names no
+  retired id in its own source while the tool keeps its launcher, command and
+  package.
+
+- **The recorded CLI failure example no longer pins the installed Click's
+  wording.** A fatal document's `error` is `ClickException.format_message()`, so
+  `TestFatalErrorExamples` was comparing Click's sentence rather than the
+  contract - and it went red in both directions as the floating
+  `click>=8.0.0` moved (`PLAN_feature_expansion.md` D10,
+  `PLAN_restoration_2026-10-31.md` D15/D16). The document is now compared field
+  by field with only the reason excluded, and the reason is still checked for
+  presence and for naming the value the run rejected. Two guards keep the
+  exclusion honest: one asserts no other field is dropped and that a drifted
+  counter still fails, the other patches Click to a wording no release prints
+  and asserts the comparison still holds - both fail with the exclusion removed.
+
+- **Theme conformance is now checked against the colour the display paints, not
+  the constant the code passed.** `test_ui_cards.py`'s contrast lock builds the
+  BPM Analyzer and Lyrics Manager cards in four theme states (System patched
+  through `styles._get_system_theme`, never `os.name`) and asserts ≥ 4.5:1 for
+  every text-bearing widget's effective pair; `test_ui_driver_controls.py` does
+  the same for `DriverControlsPanel` in its driven state, including the
+  `TCombobox` disabled style entries, and adds the symbolic-colour check that no
+  locked surface is still `SystemButtonFace`/`SystemDisabledText`. Both were
+  written before their fixes and failed against them (1.26:1; 2.04:1 and
+  1.13:1), so neither can pass vacuously.
+
 - **A documentation-only push no longer runs the full suite.** A new `changes`
   job classifies the pushed change set and the floor leg is gated on its answer,
   so a commit that touches only Markdown or the `documentation/` tree runs the
@@ -25,6 +78,19 @@ one.
   `tests/test_ci_changed_paths.py` holds the rule and the gate.
 
 ### Fixed
+
+- **The published CLI failure example matches the click version in use again.**
+  `tests/test_cli_json_schema.py::TestFatalErrorExamples` compares a real failing
+  run against the schema's published example, and the committed corpus carried
+  click 8.5's `No such option '--no-such-option'.` while the suite installs click
+  8.3.2, which writes `No such option: --no-such-option` - so the `doctor` case
+  was red. The three occurrences in `tests/data/cli_payloads.json` and
+  `audio_suite_shared/cli_schema.json` were corrected from the recorder's own
+  output; `--record` was run first but also rewrites every payload's duration,
+  `_generated`, and doctor's `editable`/`interpreter` fields, which describe the
+  recording host rather than the contract (the same call
+  `PLAN_feature_expansion.md` D10 made for these files). `click>=8.0.0` is
+  floating, so the example tracks the installed version.
 
 - **The user-guide freshness lock no longer fails on a month boundary.**
   `version: auto` renders `Version <declared> - <Month YYYY>` from
@@ -38,6 +104,36 @@ one.
   `test_a_month_boundary_is_not_guide_drift` renders under a future month and
   asserts the current artefact passes, with an edited copy as the counter-case.
   No artefact changed: the seven committed October guides are current again.
+
+- **Theme conformance is locked by a static walk and a four-state build.**
+  `tests/test_theme_contrast.py` adds both halves. The AST pass asserts every
+  first-party widget constructor that sets a themed `bg` also states the
+  foreground, the `selectcolor` (toggles) and the `disabledforeground`
+  (anything built `state="disabled"`) for a state it can be seen in, with the
+  scanned-file set, the inspected-constructor count and a deliberately broken
+  snippet all asserted so the scan cannot pass vacuously; the runtime pass
+  builds the real `AudioSuiteDriver` window and the shared `BaseSetupFrame`
+  in Light, Dark, System->Light and System->Dark and measures every text
+  widget's effective pair through `winfo_rgb()`. What they locked is 48
+  constructors in 27 files: ten buttons built `state="disabled"` with no
+  disabled foreground, five toggles with no `selectcolor`, two labels, and 31
+  toggles with no `activeforeground`. `styles.text_colors(kind,
+  background=...)` is the new contract helper - one call per widget family
+  returning only the keys that family accepts - and call sites write its keys
+  out explicitly, because bare `mypy` rejects a `**dict` spread into a tk
+  widget with eleven `arg-type` errors per call. The runtime half also
+  surfaced three pre-existing contrast defects, fixed with it:
+  `SETTINGS_TAB_INACTIVE` #888888 -> #666666 (3.54:1 -> 5.74:1 under white),
+  `styles.AMBER` made theme-refreshed (#9a4a08 light / #d97706 dark, 3.19:1 ->
+  6.2:1 on the light card) and the settings footer note moved from a hardcoded
+  #999999 (2.50:1) to `FG_SUB`.
+
+- **Two test modules regained the imports their surviving helpers use.** The
+  standalone batch processor's removal (U-04) took `MagicMock` and `Queue`
+  (and, in the silence trimmer's suite, `threading`) with it while helpers
+  stayed behind, which left `ruff check` red on the working tree. The
+  normalizer suite imports them again; the trimmer's suite drops the orphaned
+  `_make_slot_deps` helper instead, so no dead scaffold remains.
 
 ## [2.3.0] - 2026-10-31
 

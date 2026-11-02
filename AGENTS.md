@@ -319,7 +319,7 @@ required parameters in `EXPECTED_REQUIRED` and asserts that dropping any one
 of them raises. Neither lock can prove the processor still *sends* every
 field; only a test driving the real `run_*` into the bound handler does, and
 it asserts the written outcome — the pattern is
-`audio_enhancer/tests/test_app.py::TestCompletionSeam`.
+`audio_refinery/tests/test_app.py::TestCompletionSeam`.
 
 ## Run From the Project's `.venv`
 

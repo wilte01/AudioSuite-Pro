@@ -16,7 +16,39 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+### Changed
+
+- **The UTILITIES tab no longer offers five audio-processing cards, and REFINE
+  runs that work instead.** Pop & Click Remover, Silence Trimmer, Noise
+  Reduction, Audio Enhancer, and Audio Normalizer have moved out of the tab to
+  REFINE's matching stages - declick, trim, reduce noise, enhance, and normalise
+  - so one pipeline run covers them, with REFINE's Dry Run reporting what each
+  enabled stage would detect. The five are no longer shipped separately: their
+  standalone windows, their launchers and their own commands (declick,
+  silence-trim, reduce, enhance, normalise) are gone, and REFINE's stages carry
+  their full option sets - including the normalise stage's true-peak ceiling,
+  loudness-range limit and lossless mode - so nothing needs a second window to
+  be reached.
+
 ### Fixed
+
+- **Card text and every tool's Run Controls now follow the chosen theme.** With
+  Theme Mode set to Dark, or to System on a dark OS, the Parallel Processing
+  checkbox in the Master Driver's BPM Analyzer card and the three option
+  checkboxes in its Lyrics Manager card were black on the dark card body
+  (measured 1.26:1) and are now legible. In each tool's Run Controls strip the
+  driver-locked Source Music Directory value painted Tk's own light-grey box -
+  light grey text on near-white, inside a dark window (2.04:1) - and a locked
+  Browse button was worse still (1.13:1); a locked control now shows the suite's
+  read-only surface with readable text, and a locked Mode dropdown is no longer
+  drawn like an editable one. All four theme states are covered: Light, Dark,
+  and System on both.
+
+- **A card's Settings opened from the Utilities tab's right-hand column now
+  fill the window.** Before, opening a card from the right column showed its
+  settings across the right half only, while a card in the left column filled
+  the tab; both columns now open across the window, and the remaining cards
+  reflow below the open one as before.
 
 - **A REFINE run that changes nothing now leaves the file byte-identical.** When
   no enabled stage finds anything to repair — no clicks, no silence, no noise,
@@ -27,6 +59,15 @@ Versions of the tools are released together with the suite (the single
   silence, noise, the enhancement's projected gain, and the loudness Normalise
   would apply) instead of only loading the file, and a normalise-only run makes
   one FFmpeg pass instead of two.
+
+- **Text follows the chosen theme in the states the theme used to miss.**
+  Dark - or System on a dark OS - no longer leaves text black on a dark box:
+  the CD Ripper's "Rip Complete!" heading and its CD-insert instructions, the
+  Master Driver's caveat notes and its settings footer, the SETTINGS strip
+  button, and a checkbox's label while the pointer is over it all now use the
+  suite's colours. Buttons that are unavailable until a run starts show
+  readable text instead of Tk's own grey, and a checkbox's indicator box is
+  drawn in the colour of the card it sits on rather than a fixed white square.
 
 ## [2.3.0] - 2026-10-31
 
