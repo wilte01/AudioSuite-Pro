@@ -12,7 +12,13 @@ one.
 
 ## [Unreleased]
 
-Nothing yet.
+- **A release cut now tags the version and publishes its GitHub release page.**
+  `utilities/release.py` re-run on a clean tree whose `HEAD` declares the
+  version creates the annotated tag, pushes it and creates the release from the
+  `CHANGELOG.md` section; `--backfill-releases` publishes the tags that already
+  exist, `--no-publish` opts out and `--offline` stops at the local tag. 2.3.1
+  shipped with no tag at all, and no release in this repository had ever had a
+  Releases-page entry, because that step lived only in the release checklist.
 
 ## [2.3.1] - 2026-11-02
 

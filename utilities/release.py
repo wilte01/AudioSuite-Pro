@@ -70,6 +70,14 @@ flushed and every gate child runs with ``PYTHONUNBUFFERED=1``;
 ``TestTheGateStreamsItsProgress`` pins both halves, including that a step's
 marker is on disk *before* that step finishes.
 
+Changed in 2.3.1: the cut no longer leaves the version untagged. Re-running
+the same version on a clean tree whose ``HEAD`` declares it creates the
+annotated tag, pushes it and creates the GitHub release from the
+``CHANGELOG.md`` section; ``--backfill-releases`` publishes the tags that
+already exist and ``--no-publish`` opts out. 2.3.1 shipped with no tag at
+all, and no release in this project had ever had a Releases-page entry,
+because that step lived only in the release checklist.
+
 """
 
 from __future__ import annotations
@@ -81,8 +89,10 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -749,6 +759,337 @@ def _run_security(root: Path, python: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Publishing the tag and the GitHub release
+# ---------------------------------------------------------------------------
+
+#: Tags are what a GitHub release hangs off, and every release so far used this
+#: prefix, so the tag and the release page cannot drift apart.
+TAG_PREFIX = "v"
+
+#: The product name a tag subject and a release title open with.
+RELEASE_TITLE_PREFIX = "AudioSuite-Pro "
+
+#: A command runner: ``(argv, cwd) -> completed process``. It is injected so the
+#: publishing decisions are tested without a real ``git`` or ``gh``.
+Runner = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
+
+
+def _run(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Run *args* in *cwd* and return the completed process."""
+    return subprocess.run(
+        args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+
+
+def changelog_section(text: str, version: str) -> str | None:
+    """Return the body of a released ``CHANGELOG.md`` section.
+
+    The release page's notes are the changelog's own words, so the two cannot
+    describe a release differently.
+
+    Args:
+        text: The full ``CHANGELOG.md`` source.
+        version: The released version, e.g. ``"2.3.1"``.
+
+    Returns:
+        The section body without its heading, or ``None`` when the file carries
+        no section for *version*.
+    """
+    lines = text.splitlines()
+    heading = f"## [{version}]"
+    start = next((i for i, line in enumerate(lines) if line.startswith(heading)), None)
+    if start is None:
+        return None
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        if lines[index].startswith("## "):
+            end = index
+            break
+    body = _trim_blank(lines[start + 1 : end])
+    return "\n".join(body).rstrip() or None
+
+
+def tag_message(version: str, notes: str) -> str:
+    """Return the annotated tag's message: the release subject and its notes."""
+    return f"{RELEASE_TITLE_PREFIX}{version}\n\n{notes}".rstrip() + "\n"
+
+
+def gh_executable() -> str | None:
+    """Return the ``gh`` CLI's path, or ``None`` when it is not installed.
+
+    ``shutil.which`` is the contract. The Windows install-directory probe is a
+    fallback for the case that produced a tagless 2.3.1: the CLI is installed
+    under ``Program Files`` but its directory was never added to ``PATH``, so a
+    plain ``which`` says "no gh" for a machine that has one.
+    """
+    found = shutil.which("gh")
+    if found is not None:
+        return found
+    if sys.platform == "win32":
+        programs = os.environ.get("ProgramFiles")
+        if programs:
+            candidate = Path(programs) / "GitHub CLI" / "gh.exe"
+            if candidate.is_file():
+                return str(candidate)
+    return None
+
+
+def _git_lines(root: Path, args: list[str], runner: Runner) -> list[str]:
+    """Return the non-blank stdout lines of a git command, or ``[]`` on failure."""
+    result = runner(["git", *args], root)
+    if result.returncode != 0:
+        return []
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def tag_exists(root: Path, tag: str, runner: Runner) -> bool:
+    """Whether *tag* exists in *root*'s repository."""
+    return tag in _git_lines(root, ["tag", "--list", tag], runner)
+
+
+def release_exists(root: Path, tag: str, gh: str, runner: Runner) -> bool:
+    """Whether GitHub already carries a release for *tag*."""
+    return runner([gh, "release", "view", tag], root).returncode == 0
+
+
+def head_version(root: Path, runner: Runner) -> str | None:
+    """Return the version ``HEAD`` declares, or ``None`` outside a repository."""
+    result = runner(["git", "show", "HEAD:pyproject.toml"], root)
+    if result.returncode != 0:
+        return None
+    try:
+        return declared_version(result.stdout)
+    except tomllib.TOMLDecodeError:
+        return None
+
+
+def _working_tree_dirty(root: Path, runner: Runner) -> bool | None:
+    """Whether *root* has uncommitted changes; ``None`` outside a repository."""
+    result = runner(["git", "status", "--porcelain"], root)
+    if result.returncode != 0:
+        return None
+    return bool(result.stdout.strip())
+
+
+def _create_release(
+    root: Path,
+    tag: str,
+    version: str,
+    notes: str,
+    gh: str,
+    dry_run: bool,
+    runner: Runner,
+) -> None:
+    """Create the GitHub release for *tag* from *notes*.
+
+    Raises:
+        ReleaseError: If ``gh release create`` fails.
+    """
+    title = f"{RELEASE_TITLE_PREFIX}{version}"
+    if dry_run:
+        print(f"[INFO] would create the GitHub release {tag} ({title})")
+        return
+    with tempfile.TemporaryDirectory() as staging:
+        notes_file = Path(staging) / "notes.md"
+        notes_file.write_text(notes, encoding="utf-8")
+        result = runner(
+            [
+                gh,
+                "release",
+                "create",
+                tag,
+                "--title",
+                title,
+                "--notes-file",
+                str(notes_file),
+            ],
+            root,
+        )
+    if result.returncode != 0:
+        raise ReleaseError(
+            f"gh release create {tag} failed (exit {result.returncode}): "
+            f"{result.stderr.strip()}"
+        )
+    print(f"[OK] GitHub release {tag} created")
+
+
+def publish_version(
+    root: Path,
+    version: str,
+    *,
+    dry_run: bool,
+    offline: bool,
+    publish: bool,
+    runner: Runner = _run,
+) -> None:
+    """Tag the release commit and create its GitHub release page.
+
+    A tag has to point at a commit that already contains the cut, so this step
+    acts only on a clean tree whose ``HEAD`` declares *version*. The cut's own
+    run therefore reports the next step instead of tagging uncommitted files,
+    and re-running the same command after the commit does the publishing - the
+    same idempotency contract every other step follows.
+
+    Args:
+        root: The repository root.
+        version: The released version, e.g. ``"2.3.1"``.
+        dry_run: Report the plan instead of acting.
+        offline: Create the tag locally but push and publish nothing.
+        publish: ``False`` for ``--no-publish``, which leaves the tag and the
+            release page alone entirely.
+        runner: The command runner, injected by tests.
+
+    Raises:
+        ReleaseError: If the changelog has no section for *version*, or if a
+            git or gh command fails, or if ``gh`` is not installed.
+    """
+    if not publish:
+        print("[SKIP] release publishing disabled (--no-publish)")
+        return
+    dirty = _working_tree_dirty(root, runner)
+    if dirty is None:
+        print(f"[INFO] {root} is not a git checkout - nothing to tag")
+        return
+    if dirty:
+        print(
+            f"[TODO] {root} has uncommitted changes - commit the cut, then re-run "
+            f"`python utilities/release.py {version}` to tag {TAG_PREFIX}{version} "
+            "and publish its release page"
+        )
+        return
+    head = head_version(root, runner)
+    if head != version:
+        print(
+            f"[TODO] HEAD declares {head}, not {version} - commit the cut, then "
+            f"re-run to tag {TAG_PREFIX}{version}"
+        )
+        return
+
+    notes = changelog_section(
+        (root / "CHANGELOG.md").read_text(encoding="utf-8"), version
+    )
+    if notes is None:
+        raise ReleaseError(f"CHANGELOG.md has no [{version}] section to publish")
+
+    tag = f"{TAG_PREFIX}{version}"
+    if tag_exists(root, tag, runner):
+        print(f"[SKIP] tag {tag} already exists")
+    else:
+        if dry_run:
+            print(f"[INFO] would create the annotated tag {tag}")
+        else:
+            with tempfile.TemporaryDirectory() as staging:
+                message_file = Path(staging) / "tag.txt"
+                message_file.write_text(tag_message(version, notes), encoding="utf-8")
+                created = runner(
+                    ["git", "tag", "-a", tag, "-F", str(message_file), "HEAD"], root
+                )
+            if created.returncode != 0:
+                raise ReleaseError(
+                    f"git tag {tag} failed (exit {created.returncode}): "
+                    f"{created.stderr.strip()}"
+                )
+            print(f"[OK] tag {tag}")
+        if offline:
+            print(f"[SKIP] tag {tag} not pushed (--offline)")
+        elif dry_run:
+            print(f"[INFO] would push {tag} to origin")
+        else:
+            pushed = runner(["git", "push", "origin", tag], root)
+            if pushed.returncode != 0:
+                raise ReleaseError(
+                    f"git push origin {tag} failed (exit {pushed.returncode}): "
+                    f"{pushed.stderr.strip()}"
+                )
+            print(f"[OK] tag {tag} pushed")
+
+    gh = gh_executable()
+    if gh is None:
+        raise ReleaseError(
+            "gh is not on PATH, so the GitHub release cannot be created; install "
+            "GitHub's CLI (https://cli.github.com) or pass --no-publish"
+        )
+    if release_exists(root, tag, gh, runner):
+        print(f"[SKIP] GitHub release {tag} already exists")
+        return
+    if offline:
+        print(f"[SKIP] GitHub release {tag} not created (--offline)")
+        return
+    _create_release(root, tag, version, notes, gh, dry_run, runner)
+
+
+def _version_sort_key(tag: str) -> tuple[int, ...]:
+    """Sort tags by their numeric version, not lexically."""
+    parts = tag.removeprefix(TAG_PREFIX).split(".")
+    return tuple(int(part) for part in parts if part.isdigit())
+
+
+def backfill_releases(
+    root: Path, *, dry_run: bool, offline: bool, runner: Runner = _run
+) -> int:
+    """Create a GitHub release for every version tag that lacks one.
+
+    The tags already exist - some of them for months - and nothing ever made
+    the release pages, so the repository's Releases tab stayed empty while the
+    changelog described eight releases. This walks the tags in version order and
+    publishes the ones that are missing, skipping a tag the changelog cannot
+    describe rather than inventing notes for it.
+
+    Args:
+        root: The repository root.
+        dry_run: Report the plan instead of acting.
+        offline: Refused, because every case here needs GitHub.
+        runner: The command runner, injected by tests.
+
+    Returns:
+        ``0`` when the walk completed, ``1`` when there are no version tags at
+        all (a vacuous run must fail loudly).
+
+    Raises:
+        ReleaseError: If ``gh`` is missing, ``--offline`` was passed, or a
+            release could not be created.
+    """
+    tags = [
+        tag
+        for tag in _git_lines(root, ["tag", "--list"], runner)
+        if tag.startswith(TAG_PREFIX)
+        and _VERSION_RE.match(tag.removeprefix(TAG_PREFIX))
+    ]
+    if not tags:
+        print("[ERROR] no version tags found; refusing a vacuous release backfill")
+        return 1
+    if offline:
+        raise ReleaseError("--offline cannot create GitHub releases")
+    gh = gh_executable()
+    if gh is None:
+        raise ReleaseError(
+            "gh is not on PATH, so the release pages cannot be created; install "
+            "GitHub's CLI (https://cli.github.com)"
+        )
+    text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    created = 0
+    for tag in sorted(tags, key=_version_sort_key):
+        version = tag.removeprefix(TAG_PREFIX)
+        if release_exists(root, tag, gh, runner):
+            print(f"[SKIP] GitHub release {tag} already exists")
+            continue
+        notes = changelog_section(text, version)
+        if notes is None:
+            print(f"[SKIP] {tag} has no CHANGELOG.md section to publish")
+            continue
+        _create_release(root, tag, version, notes, gh, dry_run, runner)
+        created += 1
+    print(f"[DONE] {created} release page(s) created")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Command
 # ---------------------------------------------------------------------------
 
@@ -867,7 +1208,11 @@ def main(argv: list[str] | None = None) -> int:
         description="Cut a release: bump, re-lock, rotate the changelog, "
         "regenerate the version-labelled guides and run the gate."
     )
-    parser.add_argument("version", help="The version to release, e.g. 1.4.0")
+    parser.add_argument(
+        "version",
+        nargs="?",
+        help="The version to release, e.g. 1.4.0",
+    )
     parser.add_argument(
         "--date",
         default=dt.date.today().isoformat(),
@@ -896,7 +1241,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--offline",
         action="store_true",
-        help="Pass --offline to uv (no dependency graph changes expected)",
+        help="Pass --offline to uv, and stop before pushing or publishing",
+    )
+    parser.add_argument(
+        "--no-publish",
+        action="store_true",
+        help="Cut the files without tagging the version or creating its GitHub release",
+    )
+    parser.add_argument(
+        "--backfill-releases",
+        action="store_true",
+        help="Create the GitHub release page for every version tag that "
+        "lacks one, then exit",
     )
     args = parser.parse_args(argv)
 
@@ -904,6 +1260,15 @@ def main(argv: list[str] | None = None) -> int:
     if not (root / "pyproject.toml").is_file():
         print(f"[ERROR] {root} has no pyproject.toml", file=sys.stderr)
         return 1
+
+    if args.backfill_releases:
+        try:
+            return backfill_releases(root, dry_run=args.dry_run, offline=args.offline)
+        except ReleaseError as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            return 1
+    if args.version is None:
+        parser.error("a version is required unless --backfill-releases is given")
 
     try:
         _validate(args.version, args.date)
@@ -915,12 +1280,29 @@ def main(argv: list[str] | None = None) -> int:
             print("[DONE] dry run - nothing was written")
             return 0
         if args.skip_gate:
+            publish_version(
+                root,
+                args.version,
+                dry_run=False,
+                offline=args.offline,
+                publish=not args.no_publish,
+            )
             print("[DONE] release files updated (gate skipped)")
             return 0
         # The gate reads the *installed* version through doctor; a bump that
         # leaves the editable install stale would fail its own gate.
         refresh_install_metadata(root, args.python)
-        return run_gate(root, args.python)
+        code = run_gate(root, args.python)
+        if code != 0:
+            return code
+        publish_version(
+            root,
+            args.version,
+            dry_run=False,
+            offline=args.offline,
+            publish=not args.no_publish,
+        )
+        return 0
     except ReleaseError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 1

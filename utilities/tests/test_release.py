@@ -29,6 +29,12 @@ Changed in 2.2.1: a cut promotes both change-history files, and the technical
 one is optional - a release with no developer-facing change adds no heading
 there instead of failing the cut (functional backlog U2).
 
+Changed in 2.3.1: the cut tags the release commit and publishes the GitHub
+release, and ``--backfill-releases`` fills in the tags that predate it. The
+tests drive a recorded ``git``/``gh`` stand-in, so a dirty tree, a HEAD that
+declares another version, a missing ``gh`` and an already-published tag are
+each pinned without touching a real repository or the network.
+
 """
 
 from __future__ import annotations
@@ -75,6 +81,12 @@ CHANGELOG = """\
 ### Added
 
 - An older release entry.
+
+## [1.2.0] - 2026-10-17
+
+### Added
+
+- An even older release entry.
 """
 
 TECH_CHANGELOG = """\
@@ -761,3 +773,322 @@ class TestTheGateStreamsItsProgress:
         assert "[OK] mypy" in seen[0], seen[0]
         assert "[OK] pytest" not in seen[0], "pytest's result cannot precede its run"
         assert "[DONE] gate passed" in log.read_text(encoding="utf-8")
+
+
+class FakeCommands:
+    """A ``git``/``gh`` stand-in that records the argv it was handed."""
+
+    def __init__(
+        self,
+        *,
+        head: str = "1.4.0",
+        dirty: bool = False,
+        git_repo: bool = True,
+        tags: tuple[str, ...] = (),
+        releases: tuple[str, ...] = (),
+    ) -> None:
+        self.head = head
+        self.dirty = dirty
+        self.git_repo = git_repo
+        self.tags = list(tags)
+        self.releases = list(releases)
+        self.calls: list[list[str]] = []
+
+    def __call__(self, args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        self.calls.append(args)
+        if args[0] == "git":
+            if not self.git_repo:
+                return _completed(args, 128, "", "fatal: not a git repository")
+            if args[1:3] == ["status", "--porcelain"]:
+                return _completed(args, 0, " M pyproject.toml\n" if self.dirty else "")
+            if args[1] == "show":
+                return _completed(args, 0, f'[project]\nversion = "{self.head}"\n')
+            if args[1:3] == ["tag", "--list"]:
+                name = args[3] if len(args) > 3 else ""
+                found = [tag for tag in self.tags if tag.startswith(name)]
+                return _completed(args, 0, "".join(f"{tag}\n" for tag in found))
+            if args[1] == "tag":
+                self.tags.append(args[3])
+                return _completed(args, 0)
+            if args[1] == "push":
+                return _completed(args, 0)
+            return _completed(args, 1, "", f"unexpected git call: {args}")
+        if Path(args[0]).name.startswith("gh"):
+            if args[1:3] == ["release", "view"]:
+                return _completed(args, 0 if args[3] in self.releases else 1)
+            if args[1:3] == ["release", "create"]:
+                self.releases.append(args[3])
+                return _completed(args, 0, "release created\n")
+        return _completed(args, 1, "", f"unexpected call: {args}")
+
+    def called(self, *prefix: str) -> list[list[str]]:
+        """Return the recorded calls that start with *prefix*."""
+        return [call for call in self.calls if call[: len(prefix)] == list(prefix)]
+
+
+def _completed(
+    args: list[str], code: int = 0, out: str = "", err: str = ""
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(args, code, out, err)
+
+
+@pytest.fixture()
+def publish_repo(tmp_path: Path) -> Path:
+    """A repository root holding a changelog with two released sections."""
+    (tmp_path / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
+    return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def _fake_gh(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never let a test reach the machine's real ``gh``."""
+    monkeypatch.setattr(release, "gh_executable", lambda: "/usr/bin/gh")
+
+
+class TestChangelogSection:
+    """The release notes are the committed changelog's own words."""
+
+    def test_a_released_section_is_returned_without_its_heading(self) -> None:
+        text = (
+            "# Changelog\n\n## [Unreleased]\n\nNothing yet.\n\n"
+            "## [1.4.0] - 2026-11-02\n\n### Added\n\n- **A feature.** It ships.\n\n"
+            "## [1.3.0] - 2026-10-18\n\n- An older entry.\n"
+        )
+
+        assert release.changelog_section(text, "1.4.0") == (
+            "### Added\n\n- **A feature.** It ships."
+        )
+
+    def test_an_absent_version_has_no_section(self) -> None:
+        text = "# Changelog\n\n## [Unreleased]\n\nNothing yet.\n"
+
+        assert release.changelog_section(text, "9.9.9") is None
+
+    def test_the_subject_names_the_product_and_the_version(self) -> None:
+        message = release.tag_message("1.4.0", "### Added\n\n- **A feature.**")
+
+        assert message.startswith("AudioSuite-Pro 1.4.0\n\n### Added")
+        assert message.endswith("\n")
+        assert not message.endswith("\n\n")
+
+
+class TestPublishing:
+    """A cut tags its release commit and publishes the release page."""
+
+    def test_a_clean_tree_tags_pushes_and_creates_the_release(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        fake = FakeCommands(head="1.3.0")
+
+        release.publish_version(
+            publish_repo,
+            "1.3.0",
+            dry_run=False,
+            offline=False,
+            publish=True,
+            runner=fake,
+        )
+
+        out = capsys.readouterr().out
+        assert fake.tags == ["v1.3.0"], out
+        assert fake.releases == ["v1.3.0"], out
+        assert fake.called("git", "push", "origin", "v1.3.0"), out
+        assert "GitHub release v1.3.0 created" in out
+
+    def test_an_uncommitted_cut_is_not_tagged(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A tag must point at a commit that already contains the cut."""
+        fake = FakeCommands(head="1.3.0", dirty=True)
+
+        release.publish_version(
+            publish_repo,
+            "1.3.0",
+            dry_run=False,
+            offline=False,
+            publish=True,
+            runner=fake,
+        )
+
+        out = capsys.readouterr().out
+        assert fake.tags == [], out
+        assert fake.called("git", "tag") == [], out
+        assert "commit the cut" in out
+
+    def test_a_head_that_declares_another_version_is_not_tagged(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        fake = FakeCommands(head="1.2.0")
+
+        release.publish_version(
+            publish_repo,
+            "1.3.0",
+            dry_run=False,
+            offline=False,
+            publish=True,
+            runner=fake,
+        )
+
+        out = capsys.readouterr().out
+        assert fake.tags == [], out
+        assert "HEAD declares 1.2.0" in out
+
+    def test_a_second_run_publishes_nothing_twice(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        fake = FakeCommands(head="1.3.0", tags=("v1.3.0",), releases=("v1.3.0",))
+
+        release.publish_version(
+            publish_repo,
+            "1.3.0",
+            dry_run=False,
+            offline=False,
+            publish=True,
+            runner=fake,
+        )
+
+        out = capsys.readouterr().out
+        assert fake.called("git", "push") == [], out
+        assert fake.called("/usr/bin/gh", "release", "create") == [], out
+        assert "tag v1.3.0 already exists" in out
+        assert "GitHub release v1.3.0 already exists" in out
+
+    def test_offline_stops_at_a_local_tag(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        fake = FakeCommands(head="1.3.0")
+
+        release.publish_version(
+            publish_repo,
+            "1.3.0",
+            dry_run=False,
+            offline=True,
+            publish=True,
+            runner=fake,
+        )
+
+        out = capsys.readouterr().out
+        assert fake.tags == ["v1.3.0"], out
+        assert fake.called("git", "push") == [], out
+        assert fake.releases == [], out
+        assert "not pushed (--offline)" in out
+
+    def test_no_publish_touches_nothing(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        fake = FakeCommands(head="1.3.0")
+
+        release.publish_version(
+            publish_repo,
+            "1.3.0",
+            dry_run=False,
+            offline=False,
+            publish=False,
+            runner=fake,
+        )
+
+        assert fake.calls == []
+        assert "--no-publish" in capsys.readouterr().out
+
+    def test_a_directory_outside_git_is_reported_not_crashed(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        fake = FakeCommands(git_repo=False)
+
+        release.publish_version(
+            publish_repo,
+            "1.3.0",
+            dry_run=False,
+            offline=False,
+            publish=True,
+            runner=fake,
+        )
+
+        assert fake.tags == []
+        assert "not a git checkout" in capsys.readouterr().out
+
+    def test_a_missing_gh_fails_loudly(
+        self,
+        publish_repo: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Silence here is how 2.3.1 shipped without a release page."""
+        monkeypatch.setattr(release, "gh_executable", lambda: None)
+        fake = FakeCommands(head="1.3.0", tags=("v1.3.0",))
+
+        with pytest.raises(release.ReleaseError, match="gh is not on PATH"):
+            release.publish_version(
+                publish_repo,
+                "1.3.0",
+                dry_run=False,
+                offline=False,
+                publish=True,
+                runner=fake,
+            )
+
+
+class TestBackfillReleases:
+    """Every existing tag gets the release page it never had."""
+
+    def test_every_missing_release_is_created_in_version_order(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        fake = FakeCommands(tags=("v1.3.0", "v1.2.0"))
+
+        code = release.backfill_releases(
+            publish_repo, dry_run=False, offline=False, runner=fake
+        )
+
+        out = capsys.readouterr().out
+        assert code == 0, out
+        assert fake.releases == ["v1.2.0", "v1.3.0"], out
+        assert "2 release page(s) created" in out
+
+    def test_an_existing_release_is_left_alone(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        fake = FakeCommands(tags=("v1.2.0", "v1.3.0"), releases=("v1.2.0",))
+
+        release.backfill_releases(
+            publish_repo, dry_run=False, offline=False, runner=fake
+        )
+
+        out = capsys.readouterr().out
+        assert fake.releases == ["v1.2.0", "v1.3.0"], out
+        assert "GitHub release v1.2.0 already exists" in out
+
+    def test_a_tag_the_changelog_cannot_describe_is_skipped(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        fake = FakeCommands(tags=("v1.3.0", "v9.9.9"))
+
+        release.backfill_releases(
+            publish_repo, dry_run=False, offline=False, runner=fake
+        )
+
+        out = capsys.readouterr().out
+        assert fake.releases == ["v1.3.0"], out
+        assert "v9.9.9 has no CHANGELOG.md section" in out
+
+    def test_no_version_tag_fails_loudly(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        fake = FakeCommands(tags=())
+
+        code = release.backfill_releases(
+            publish_repo, dry_run=False, offline=False, runner=fake
+        )
+
+        assert code == 1
+        assert "vacuous" in capsys.readouterr().out
+
+    def test_offline_is_refused(
+        self, publish_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        fake = FakeCommands(tags=("v1.3.0",))
+
+        with pytest.raises(release.ReleaseError, match="offline"):
+            release.backfill_releases(
+                publish_repo, dry_run=False, offline=True, runner=fake
+            )
