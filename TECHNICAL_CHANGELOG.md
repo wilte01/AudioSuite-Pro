@@ -12,6 +12,22 @@ one.
 
 ## [Unreleased]
 
+- **One driver handshake.** `audio_suite_shared/cli_helpers.py` now owns the
+  grammar every child tool reads the Master Driver's argv with: a frozen
+  `DriverHandshake`, one `scan_value_options` scanner, one
+  `parse_driver_handshake` reader and one `looks_like_driver_argv`;
+  `BaseCLIArgs` gains `apply_handshake` and `parse_driver_handshake`, and
+  `apply_str_options` writes a scanned option table onto an args record. The
+  nine tools that each carried a private copy (`cd_ripper`,
+  `file_reorganizer`, `library_stats`, `spectral_viewer`, `album_art_sync`,
+  `duplicate_finder`, `restoration`, `tag_editor`, `tag_field_updater`) now
+  delegate. `looks_like_driver_argv` requires a mode flag plus an
+  orchestration token, so a bare `--dry` is no longer read as a handshake.
+  `tests/test_driver_handshake_contract.py` covers the first-party registry
+  exactly, round-trips the real `arg_builder` argv through nine real parsers,
+  runs two real `.pyw` launchers, and locks the finding that four builders
+  launch no mode flag at all.
+
 - **Dead code removed and the last slot-var clone retired.** WP-3 deletes
   `noise_reduction/ui/setup_tab.py` (173 lines no shipped module imported
   once the tool became a Refinery stage), the root `Tag_Field_Updater.py`

@@ -16,6 +16,10 @@ BaseCLIArgs provides: folder_path (unused), live_mode, auto_start, auto_end.
 
 Changed in 1.0.1: adds the driver argv parser
 (``--output-dir``/``--format``/``--tracks``/``--cue``).
+
+Changed in 2.4.1: reads the driver argv through the shared
+``scan_value_options`` / ``parse_driver_handshake`` grammar instead of
+its own scanner (WP-4, C-M8).
 """
 
 from __future__ import annotations
@@ -24,7 +28,11 @@ import sys
 from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
-from audio_suite_shared.cli_helpers import apply_handshake_segment
+from audio_suite_shared.cli_helpers import (
+    apply_str_options,
+    parse_driver_handshake,
+    scan_value_options,
+)
 from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
@@ -74,23 +82,6 @@ class CdRipperArgs(BaseCLIArgs):
     parallel_run: bool = False
 
 
-def _scan_value_options(tokens: list[str], args: CdRipperArgs) -> None:
-    """Fill value options from *tokens*, skipping unknown tokens.
-
-    Args:
-        tokens: The argv tail after the program name.
-        args: The args instance mutated in place.
-    """
-    index = 0
-    while index < len(tokens):
-        attr = _VALUE_OPTIONS.get(tokens[index])
-        if attr is not None and index + 1 < len(tokens):
-            setattr(args, attr, tokens[index + 1])
-            index += 2
-            continue
-        index += 1
-
-
 def parse_track_selection(raw: str) -> set[int]:
     """Parse a comma-separated track-number string into a set of ints.
 
@@ -124,6 +115,9 @@ def parse(argv: list[str] | None = None) -> CdRipperArgs:
     args = CdRipperArgs()
     tail = argv[1:]
     args.cue = "--cue" in tail
-    _scan_value_options(tail, args)
-    apply_handshake_segment(tail, args, accepted=ACCEPTED_HANDSHAKE)
+    values, _ = scan_value_options(tail, _VALUE_OPTIONS)
+    apply_str_options(args, values, _VALUE_OPTIONS)
+    # CD Ripper's argv carries no positional path — its destination is
+    # ``--output-dir`` — so the handshake supplies only the flags.
+    args.apply_handshake(parse_driver_handshake(argv, _VALUE_OPTIONS))
     return args

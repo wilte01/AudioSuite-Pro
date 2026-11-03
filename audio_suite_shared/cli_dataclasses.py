@@ -6,11 +6,20 @@ duplication across multiple applications while maintaining type safety.
 
 Changed in 1.4.0: ``BPMArgs`` and ``LyricsArgs`` default ``max_workers`` to
 ``default_max_workers()`` (evaluated per instance) instead of a literal 4.
+
+Changed in 2.4.1: ``BaseCLIArgs`` carries the display-only pair and
+applies a shared ``DriverHandshake`` (``apply_handshake`` /
+``parse_driver_handshake``), so a tool no longer re-reads the flags
+itself (WP-4, C-M8).
 """
 
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Self
 
+from .cli_helpers import DriverHandshake
+from .cli_helpers import parse_driver_handshake as _parse_driver_handshake
 from .constants import default_max_workers
 
 
@@ -39,6 +48,57 @@ class BaseCLIArgs:
     live_mode: bool = False
     auto_start: bool = False
     auto_end: bool = False
+    clear_logs: bool = False
+    parallel_run: bool = False
+
+    def apply_handshake(self, handshake: DriverHandshake) -> None:
+        """Write one shared handshake reading onto this argument record.
+
+        Args:
+            handshake: The reading produced by
+                :func:`audio_suite_shared.cli_helpers.parse_driver_handshake`.
+                A display-only field the argv does not mention stays False,
+                which is the value every tool displayed before the handshake
+                was shared.
+        """
+        self.folder_path = handshake.path
+        self.live_mode = handshake.live_mode
+        self.auto_start = handshake.auto_start
+        self.auto_end = handshake.auto_end
+        self.clear_logs = bool(handshake.clear_logs)
+        self.parallel_run = bool(handshake.parallel_run)
+
+    @classmethod
+    def parse_driver_handshake(
+        cls,
+        argv: Sequence[str],
+        value_options: Collection[str] = (),
+        *,
+        positional_index: int = 0,
+        path_option: str | None = None,
+    ) -> Self:
+        """Build this argument record from the Master Driver's argv.
+
+        Args:
+            argv: Full argument vector (index 0 is the program name).
+            value_options: Flags that consume the token following them.
+            positional_index: Which positional token is the path.
+            path_option: Option holding the path, for tools with no positional.
+
+        Returns:
+            An instance with the handshake fields applied and every other
+            field at its declared default.
+        """
+        args = cls()
+        args.apply_handshake(
+            _parse_driver_handshake(
+                argv,
+                value_options,
+                positional_index=positional_index,
+                path_option=path_option,
+            )
+        )
+        return args
 
 
 @dataclass

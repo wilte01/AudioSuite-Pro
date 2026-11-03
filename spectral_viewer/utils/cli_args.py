@@ -17,6 +17,10 @@ Master Driver handshake layout:
 it is the shared handshake's name and the viewer accepts both.
 
 Changed in 1.3.0: initial version (PLAN_feature_expansion.md Item 3.1 / D42).
+
+Changed in 2.4.1: reads the driver argv through the shared
+``scan_value_options`` / ``parse_driver_handshake`` grammar instead of
+its own scanner (WP-4, C-M8).
 """
 
 from __future__ import annotations
@@ -26,7 +30,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs, CLIValidationError
-from audio_suite_shared.cli_helpers import apply_handshake_segment
+from audio_suite_shared.cli_helpers import (
+    parse_driver_handshake,
+    scan_value_options,
+)
 from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
@@ -58,6 +65,9 @@ _VALUE_OPTIONS: tuple[tuple[str, str, type], ...] = (
     ("--db-range", "db_range", float),
     ("--cmap", "cmap", str),
 )
+
+#: The same options as bare flag names, for the shared scanner.
+_VALUE_FLAGS: tuple[str, ...] = tuple(flag for flag, _attr, _caster in _VALUE_OPTIONS)
 
 #: Bounds the GUI enforces so an out-of-range driver value cannot reach the
 #: FFT (a 4-sample window is not a spectrogram).
@@ -105,37 +115,6 @@ def validate_args(args: SpectralViewerArgs) -> list[str]:
     return errors
 
 
-def _scan_value_options(tokens: list[str], args: SpectralViewerArgs) -> None:
-    """Fill value options from *tokens*, skipping unknown tokens.
-
-    Args:
-        tokens: The argv tail after the positional path.
-        args: The args instance mutated in place.
-
-    Raises:
-        CLIValidationError: If a named option's value cannot be coerced, or the
-            option is given with no value at all.
-    """
-    index = 0
-    by_flag = {flag: (attr, caster) for flag, attr, caster in _VALUE_OPTIONS}
-    while index < len(tokens):
-        option = by_flag.get(tokens[index])
-        if option is None:
-            index += 1
-            continue
-        attr, caster = option
-        if index + 1 >= len(tokens):
-            raise CLIValidationError(f"{tokens[index]} requires a value.")
-        raw = tokens[index + 1]
-        try:
-            setattr(args, attr, caster(raw))
-        except ValueError as exc:
-            raise CLIValidationError(
-                f"{tokens[index]} expects a {caster.__name__}, got {raw!r}."
-            ) from exc
-        index += 2
-
-
 def parse(argv: list[str] | None = None) -> SpectralViewerArgs:
     """Parse launcher arguments passed by the Master Driver or a user.
 
@@ -153,10 +132,20 @@ def parse(argv: list[str] | None = None) -> SpectralViewerArgs:
     args = SpectralViewerArgs()
     if len(argv) < 2:
         return args
-    args.folder_path = argv[1]
-    tail = argv[2:]
-    _scan_value_options(tail, args)
-    apply_handshake_segment(tail, args, accepted=ACCEPTED_HANDSHAKE)
+    args.apply_handshake(parse_driver_handshake(argv, _VALUE_FLAGS))
+    values, _ = scan_value_options(argv[1:], _VALUE_FLAGS)
+    for flag, attr, caster in _VALUE_OPTIONS:
+        if flag not in values:
+            continue
+        raw = values[flag]
+        if raw is None:
+            raise CLIValidationError(f"{flag} requires a value.")
+        try:
+            setattr(args, attr, caster(raw))
+        except ValueError as exc:
+            raise CLIValidationError(
+                f"{flag} expects a {caster.__name__}, got {raw!r}."
+            ) from exc
     errors = validate_args(args)
     if errors:
         raise CLIValidationError("; ".join(errors))

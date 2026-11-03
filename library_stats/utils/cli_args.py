@@ -16,6 +16,10 @@ Master Driver handshake layout:
 BaseCLIArgs provides: folder_path, live_mode, auto_start, auto_end.
 
 Changed in 1.0.1: adds the driver argv parser.
+
+Changed in 2.4.1: reads the driver argv through the shared
+``scan_value_options`` / ``parse_driver_handshake`` grammar instead of
+its own scanner (WP-4, C-M8).
 """
 
 from __future__ import annotations
@@ -25,8 +29,10 @@ from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs, validate_folder_path
 from audio_suite_shared.cli_helpers import (
-    apply_handshake_segment,
+    apply_str_options,
+    parse_driver_handshake,
     print_tool_usage_error,
+    scan_value_options,
 )
 from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
@@ -66,23 +72,6 @@ class LibraryStatsArgs(BaseCLIArgs):
     parallel_run: bool = False
 
 
-def _scan_value_options(tokens: list[str], args: LibraryStatsArgs) -> None:
-    """Fill value options from *tokens*, skipping unknown tokens.
-
-    Args:
-        tokens: The argv tail after the positional directory path.
-        args: The args instance mutated in place.
-    """
-    index = 0
-    while index < len(tokens):
-        attr = _VALUE_OPTIONS.get(tokens[index])
-        if attr is not None and index + 1 < len(tokens):
-            setattr(args, attr, tokens[index + 1])
-            index += 2
-            continue
-        index += 1
-
-
 def parse(argv: list[str] | None = None) -> LibraryStatsArgs:
     """Parse launcher arguments passed by the Master Driver or a user.
 
@@ -100,12 +89,12 @@ def parse(argv: list[str] | None = None) -> LibraryStatsArgs:
     args = LibraryStatsArgs()
     if len(argv) < 2:
         return args
-    args.folder_path = argv[1]
-    tail = argv[2:]
+    args.apply_handshake(parse_driver_handshake(argv, _VALUE_OPTIONS))
+    tail = argv[1:]
     args.incremental = "--incremental" in tail
     args.refresh = "--refresh" in tail
-    _scan_value_options(tail, args)
-    apply_handshake_segment(tail, args, accepted=ACCEPTED_HANDSHAKE)
+    values, _ = scan_value_options(tail, _VALUE_OPTIONS)
+    apply_str_options(args, values, _VALUE_OPTIONS)
     errors = validate_folder_path(args.folder_path)
     if errors:
         for error in errors:

@@ -20,6 +20,10 @@ peers instead of being silently read as "no mode passed".
 
 Changed in 2.3.0: new duplicate-detection tool (backlog F-02): fingerprint distance,
 clustering, cache and quarantine.
+
+Changed in 2.4.1: ``looks_like_driver_argv`` delegates to the one
+shared implementation, which requires a mode flag plus an
+orchestration token (WP-4, C-M8).
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ from audio_suite_shared.cli_helpers import (
     print_tool_usage_error,
     read_positional_handshake,
 )
+from audio_suite_shared.cli_helpers import looks_like_driver_argv as _shared_looks_like
 from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
@@ -52,10 +57,6 @@ ACCEPTED_HANDSHAKE = frozenset(
         "--no-parallel-run",
     }
 )
-
-#: The tokens the driver puts in the mode slot; its argv always carries one,
-#: which is what lets the window tell a handshake from any other argv.
-_DRIVER_MODE_TOKENS = frozenset({"--live", "--dry"})
 
 
 @dataclass
@@ -84,7 +85,7 @@ def looks_like_driver_argv(argv: list[str] | None = None) -> bool:
     """
     if argv is None:
         argv = sys.argv
-    return len(argv) > 2 and argv[2] in _DRIVER_MODE_TOKENS
+    return _shared_looks_like(argv)
 
 
 def _read_options(argv: list[str], args: DuplicateFinderArgs) -> None:

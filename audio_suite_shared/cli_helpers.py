@@ -7,11 +7,17 @@ Provides standardized implementations for common CLI operations:
 - The Master Driver display-flag handshake segment shared by every tool
 
 This reduces code duplication across all Audio Suite applications.
+
+Changed in 2.4.1: one driver grammar — ``DriverHandshake``,
+``scan_value_options``, ``parse_driver_handshake`` and the single
+``looks_like_driver_argv`` every tool now delegates to (WP-4, C-M8).
 """
 
 from __future__ import annotations
 
 import sys
+from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 # Parsed CLI arguments: argparse.Namespace or a per-tool args dataclass.
@@ -226,6 +232,212 @@ def apply_handshake_membership(
     args.auto_end = "--end" in argv
     args.clear_logs = "--clear-logs" in argv
     args.parallel_run = "--parallel-run" in argv
+
+
+#: The two tokens the Master Driver puts in the run-mode slot.
+DRIVER_MODE_TOKENS: frozenset[str] = frozenset({"--live", "--dry"})
+
+#: The orchestration tokens that travel beside a mode flag when the driver, not
+#: a person, built the argv.
+HANDSHAKE_ORCHESTRATION_TOKENS: frozenset[str] = frozenset(
+    {
+        "--start",
+        "--no-start",
+        "--end",
+        "--no-end",
+        "--clear-logs",
+        "--no-clear-logs",
+        "--parallel-run",
+        "--no-parallel-run",
+    }
+)
+
+
+@dataclass(frozen=True)
+class DriverHandshake:
+    """One reading of the Master Driver's argv, in the terms every tool shares.
+
+    Attributes:
+        path: The directory (or file) the driver is pointed at, or ``""`` when
+            the tool's argv carries none.
+        mode: ``"live"``, ``"dry"``, or ``""`` when no mode flag was passed.
+        auto_start: True when the argv carries ``--start``.
+        auto_end: True when the argv carries ``--end``.
+        clear_logs: The display-only state, or None when the argv is silent.
+        parallel_run: The display-only state, or None when the argv is silent.
+    """
+
+    path: str = ""
+    mode: str = ""
+    auto_start: bool = False
+    auto_end: bool = False
+    clear_logs: bool | None = None
+    parallel_run: bool | None = None
+
+    @property
+    def live_mode(self) -> bool:
+        """Return True when the driver asked for a live run.
+
+        Returns:
+            True for ``--live``; False for ``--dry`` and for no mode flag.
+        """
+        return self.mode == "live"
+
+
+def scan_value_options(
+    argv: Sequence[str],
+    value_options: Collection[str],
+) -> tuple[dict[str, str | None], tuple[str, ...]]:
+    """Walk *argv* once, separating named-option values from positionals.
+
+    The single scanner every tool uses, so an option value can never be read as
+    the positional path: a path that happens to look like a flag, or an option
+    placed before the directory, both resolve the same way in every tool.
+
+    Args:
+        argv: The tokens to scan, without the program name.
+        value_options: Flags that consume the token following them.
+
+    Returns:
+        Two values: a mapping from each option flag present to its value (None
+        when the flag was given with nothing after it), and the positional
+        tokens in order. A token is positional when it does not start with
+        ``-`` and was not consumed as an option's value.
+    """
+    known = set(value_options)
+    values: dict[str, str | None] = {}
+    positionals: list[str] = []
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token in known:
+            following = argv[index + 1] if index + 1 < len(argv) else None
+            if following is not None and following not in known:
+                values[token] = following
+                index += 2
+                continue
+            values[token] = None
+            index += 1
+            continue
+        if not token.startswith("-"):
+            positionals.append(token)
+        index += 1
+    return values, tuple(positionals)
+
+
+def apply_str_options(
+    args: Any,
+    values: Mapping[str, str | None],
+    option_attrs: Mapping[str, str],
+) -> None:
+    """Write each scanned string option onto *args*.
+
+    The companion to :func:`scan_value_options` for tools whose options are
+    plain strings: the scanner owns the argv walk, this owns the attribute
+    write, and a tool declares neither.
+
+    Args:
+        args: The argument record whose fields are written.
+        values: The mapping :func:`scan_value_options` returned.
+        option_attrs: Flag to attribute name, in the tool's declaration order.
+    """
+    for flag, attr in option_attrs.items():
+        value = values.get(flag)
+        if value is not None:
+            setattr(args, attr, value)
+
+
+def parse_driver_handshake(
+    argv: Sequence[str],
+    value_options: Collection[str] = (),
+    *,
+    positional_index: int = 0,
+    path_option: str | None = None,
+) -> DriverHandshake:
+    """Read the Master Driver's argv through the one shared grammar.
+
+    Args:
+        argv: Full argument vector (index 0 is the program name).
+        value_options: Flags that consume the token following them, so their
+            values are not mistaken for the positional path.
+        positional_index: Which positional token is the path. The default
+            (0) is the driver's ``argv[1]``; tools that place another
+            positional first raise it.
+        path_option: Name of the option holding the path, for tools whose
+            argv carries no positional path at all. When given it wins over
+            *positional_index*.
+
+    Returns:
+        The handshake. Every flag is read by the spelling it was given, so the
+        last spelling of a pair wins rather than the positive one.
+    """
+    values, positionals = scan_value_options(list(argv[1:]), value_options)
+    if path_option is not None:
+        path = values.get(path_option) or ""
+    elif 0 <= positional_index < len(positionals):
+        path = positionals[positional_index]
+    else:
+        path = ""
+
+    mode = ""
+    auto_start = False
+    auto_end = False
+    clear_logs: bool | None = None
+    parallel_run: bool | None = None
+    for token in argv[1:]:
+        if token == "--live":
+            mode = "live"
+        elif token == "--dry":
+            mode = "dry"
+        elif token == "--start":
+            auto_start = True
+        elif token == "--no-start":
+            auto_start = False
+        elif token == "--end":
+            auto_end = True
+        elif token == "--no-end":
+            auto_end = False
+        elif token == "--clear-logs":
+            clear_logs = True
+        elif token == "--no-clear-logs":
+            clear_logs = False
+        elif token == "--parallel-run":
+            parallel_run = True
+        elif token == "--no-parallel-run":
+            parallel_run = False
+
+    return DriverHandshake(
+        path=path,
+        mode=mode,
+        auto_start=auto_start,
+        auto_end=auto_end,
+        clear_logs=clear_logs,
+        parallel_run=parallel_run,
+    )
+
+
+def looks_like_driver_argv(argv: list[str] | None = None) -> bool:
+    """Return whether *argv* carries the Master Driver's handshake.
+
+    A handshake is a run-mode flag plus at least one orchestration token: the
+    driver always emits the mode, the start pair and the end pair, while an
+    interpreter's own switches (``pytest -q``) carry neither and a person's
+    ``Tool.pyw D:/music`` carries no mode. Reading the tokens by presence
+    rather than by fixed slot is what makes a shifted argv still readable,
+    which is the opposite failure to the one the slot readers guard.
+
+    Args:
+        argv: Full argument vector; defaults to ``sys.argv``.
+
+    Returns:
+        True when a mode flag and at least one orchestration token are present.
+    """
+    if argv is None:
+        argv = sys.argv
+    tail = argv[1:]
+    if not any(token in DRIVER_MODE_TOKENS for token in tail):
+        return False
+    return any(token in HANDSHAKE_ORCHESTRATION_TOKENS for token in tail)
 
 
 class UniversalCLIHandler:

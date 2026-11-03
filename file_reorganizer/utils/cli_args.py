@@ -16,6 +16,10 @@ Master Driver handshake layout:
 BaseCLIArgs provides: folder_path, live_mode, auto_start, auto_end.
 
 Changed in 1.0.1: adds the driver argv parser.
+
+Changed in 2.4.1: reads the driver argv through the shared
+``scan_value_options`` / ``parse_driver_handshake`` grammar instead of
+its own scanner (WP-4, C-M8).
 """
 
 from __future__ import annotations
@@ -25,8 +29,10 @@ from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs, validate_folder_path
 from audio_suite_shared.cli_helpers import (
-    apply_handshake_segment,
+    apply_str_options,
+    parse_driver_handshake,
     print_tool_usage_error,
+    scan_value_options,
 )
 from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
@@ -70,23 +76,6 @@ class FileReorganizerArgs(BaseCLIArgs):
     parallel_run: bool = False
 
 
-def _scan_value_options(tokens: list[str], args: FileReorganizerArgs) -> None:
-    """Fill value options from *tokens*, skipping unknown tokens.
-
-    Args:
-        tokens: The argv tail after the positional source path.
-        args: The args instance mutated in place.
-    """
-    index = 0
-    while index < len(tokens):
-        attr = _VALUE_OPTIONS.get(tokens[index])
-        if attr is not None and index + 1 < len(tokens):
-            setattr(args, attr, tokens[index + 1])
-            index += 2
-            continue
-        index += 1
-
-
 def validate_args(args: FileReorganizerArgs) -> list[str]:
     """Validate launcher arguments.
 
@@ -119,10 +108,9 @@ def parse(argv: list[str] | None = None) -> FileReorganizerArgs:
     args = FileReorganizerArgs()
     if len(argv) < 2:
         return args
-    args.folder_path = argv[1]
-    tail = argv[2:]
-    _scan_value_options(tail, args)
-    apply_handshake_segment(tail, args, accepted=ACCEPTED_HANDSHAKE)
+    args.apply_handshake(parse_driver_handshake(argv, _VALUE_OPTIONS))
+    values, _ = scan_value_options(argv[1:], _VALUE_OPTIONS)
+    apply_str_options(args, values, _VALUE_OPTIONS)
     errors = validate_args(args)
     if errors:
         for error in errors:

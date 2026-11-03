@@ -22,6 +22,10 @@ Changed in 2.2.1: reads the fixed positional slots through
 ``read_positional_handshake`` (U4).  The old parser scanned every token, so it
 accepted a layout the driver does not produce and would have read a shifted
 argv as "no mode passed" instead of failing the way its peers do.
+
+Changed in 2.4.1: ``looks_like_driver_argv`` delegates to the one
+shared implementation, which requires a mode flag plus an
+orchestration token (WP-4, C-M8).
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ from audio_suite_shared.cli_helpers import (
     print_tool_usage_error,
     read_positional_handshake,
 )
+from audio_suite_shared.cli_helpers import looks_like_driver_argv as _shared_looks_like
 from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
@@ -63,12 +68,6 @@ class TagFieldUpdaterArgs(BaseCLIArgs):
     parallel_run: bool = False
 
 
-#: The tokens the driver puts in the mode slot.  Its argv always carries one
-#: (``arg_builder`` emits the mode flag for every tool), which is what lets a
-#: launcher tell a handshake from any other argv it may be handed.
-_DRIVER_MODE_TOKENS = frozenset({"--live", "--dry"})
-
-
 def looks_like_driver_argv(argv: list[str] | None = None) -> bool:
     """Return whether *argv* carries the Master Driver's handshake layout.
 
@@ -86,7 +85,7 @@ def looks_like_driver_argv(argv: list[str] | None = None) -> bool:
     """
     if argv is None:
         argv = sys.argv
-    return len(argv) > 2 and argv[2] in _DRIVER_MODE_TOKENS
+    return _shared_looks_like(argv)
 
 
 def parse(argv: list[str] | None = None) -> TagFieldUpdaterArgs:

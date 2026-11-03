@@ -16,6 +16,10 @@ Master Driver handshake layout::
                         --parallel-run|--no-parallel-run
 
 BaseCLIArgs provides: folder_path, live_mode, auto_start, auto_end.
+
+Changed in 2.4.1: reads the driver argv through the shared
+``scan_value_options`` / ``parse_driver_handshake`` grammar instead of
+its own scanner (WP-4, C-M8).
 """
 
 import os
@@ -24,8 +28,9 @@ from dataclasses import dataclass
 
 from audio_suite_shared.cli_dataclasses import BaseCLIArgs
 from audio_suite_shared.cli_helpers import (
-    apply_handshake_membership,
+    parse_driver_handshake,
     print_tool_usage_error,
+    scan_value_options,
 )
 from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
@@ -40,6 +45,14 @@ from ..config.settings import ALBUM_MATCH_THRESHOLD, MIN_ART_DIMENSION
 
 VALID_EMBED_SIZES: frozenset[int] = frozenset({600, 800, 1000, 1200})
 
+#: The options that consume the token following them, read by the shared
+#: scanner so an option placed before the folder cannot be read as the path.
+_VALUE_OPTIONS: tuple[str, ...] = (
+    "--embed-size",
+    "--min-dimension",
+    "--match-threshold",
+)
+
 
 @dataclass
 class ArtArgs(BaseCLIArgs):
@@ -51,16 +64,6 @@ class ArtArgs(BaseCLIArgs):
     album_match_threshold: float = ALBUM_MATCH_THRESHOLD
     clear_logs: bool = False  # Display only — driver-owned orchestration flag
     parallel_run: bool = False  # Display only — driver-owned orchestration flag
-
-
-def _flag_value(argv: list[str], name: str) -> str | None:
-    """Return the token following *name* in *argv*, or None when absent."""
-    if name not in argv:
-        return None
-    idx = argv.index(name)
-    if idx + 1 >= len(argv):
-        return None
-    return argv[idx + 1]
 
 
 def validate_args(args: ArtArgs) -> list[str]:
@@ -132,14 +135,13 @@ def parse(argv: list[str] | None = None) -> ArtArgs:
     args = ArtArgs()
     if len(argv) < 2:
         return args
-    args.folder_path = argv[1]
-    apply_handshake_membership(argv, args)
+    args.apply_handshake(parse_driver_handshake(argv, _VALUE_OPTIONS))
+    values, _ = scan_value_options(argv[1:], _VALUE_OPTIONS)
     args.purge = "--no-purge" not in argv
-    if "--embed-size" in argv:
-        idx = argv.index("--embed-size")
-        if idx + 1 < len(argv):
-            args.embed_size = argv[idx + 1]
-    raw_min_dim = _flag_value(argv, "--min-dimension")
+    embed_size = values.get("--embed-size")
+    if embed_size is not None:
+        args.embed_size = embed_size
+    raw_min_dim = values.get("--min-dimension")
     if raw_min_dim is not None:
         try:
             args.min_art_dimension = int(raw_min_dim)
@@ -149,7 +151,7 @@ def parse(argv: list[str] | None = None) -> ArtArgs:
                 f"Min dimension must be numeric, got: {raw_min_dim}",
             )
             raise SystemExit(1) from None
-    raw_threshold = _flag_value(argv, "--match-threshold")
+    raw_threshold = values.get("--match-threshold")
     if raw_threshold is not None:
         try:
             args.album_match_threshold = float(raw_threshold)

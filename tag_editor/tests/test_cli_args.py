@@ -3,6 +3,9 @@
 Changed in 2.2.1: the parser reads the driver's fixed positional slots
 (``[path, mode, start, end]``) through the shared reader, so these cases pin the
 slot layout instead of token-scan tolerance (maintenance item U5).
+
+Changed in 2.4.1: ``looks_like_driver_argv`` now requires the mode flag plus
+an orchestration token, so a bare ``--dry`` is no longer a handshake (WP-4).
 """
 
 from __future__ import annotations
@@ -126,8 +129,17 @@ class TestParse:
 
 class TestLooksLikeDriverArgv:
     def test_a_driver_mode_slot_is_a_handshake(self, tmp_path: Path) -> None:
-        assert looks_like_driver_argv(["prog", str(tmp_path), "--dry"]) is True
-        assert looks_like_driver_argv(["prog", str(tmp_path), "--live"]) is True
+        assert (
+            looks_like_driver_argv(["prog", str(tmp_path), "--dry", "--no-start"])
+            is True
+        )
+        assert (
+            looks_like_driver_argv(["prog", str(tmp_path), "--live", "--end"]) is True
+        )
+
+    def test_a_mode_alone_is_not_a_handshake(self, tmp_path: Path) -> None:
+        """A person may type ``--dry``; the driver also emits the pairs."""
+        assert looks_like_driver_argv(["prog", str(tmp_path), "--dry"]) is False
 
     def test_a_shorter_or_other_argv_is_not(self, tmp_path: Path) -> None:
         assert looks_like_driver_argv(["prog"]) is False

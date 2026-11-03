@@ -6,6 +6,9 @@ after it.  The spellings are the click command's own, so a user reading
 
 Changed in 2.3.0: new declip tool (backlog F-08a): peak reconstruction over the shared
 in-place workflow.
+
+Changed in 2.4.1: ``looks_like_driver_argv`` now requires the mode flag plus
+an orchestration token, so a bare ``--dry`` is no longer a handshake (WP-4).
 """
 
 from __future__ import annotations
@@ -130,8 +133,12 @@ class TestLooksLikeDriverArgv:
     """The window's guard against treating any argv as a handshake."""
 
     def test_a_driver_mode_slot_is_recognised(self) -> None:
-        assert looks_like_driver_argv(["app.pyw", "D:/music", "--dry"])
+        assert looks_like_driver_argv(["app.pyw", "D:/music", "--dry", "--no-end"])
         assert looks_like_driver_argv(["app.pyw", "D:/music", "--live", "--start"])
+
+    def test_a_mode_alone_is_not_a_handshake(self) -> None:
+        """A person may type ``--dry``; the driver also emits the pairs."""
+        assert not looks_like_driver_argv(["app.pyw", "D:/music", "--dry"])
 
     def test_any_other_argv_is_not_a_handshake(self) -> None:
         assert not looks_like_driver_argv(["app.pyw"])
