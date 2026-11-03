@@ -214,14 +214,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: The plan's base commit; every file changed since here must be annotated.
 #: Re-baselined per sprint (section 2.5 of the audit-remediation plan) so each
 #: release's notes are written while its work is in flight, not retro-fitted at
-#: the cut. It now sits at d753c6e, the last commit of the 2.3.0 window: that
-#: window is closed and its notes are written, so only work after it does.
+#: the cut. It now sits at c124142, the 2.4.0 release commit (where the
+#: v2.4.0 tag points): that window is closed and its notes are written, so
+#: only work after it does.
 #: Earlier work is documented in its own plans and the changelogs, so it does
 #: not require per-file notes here.
-BASE_COMMIT = "a9afe78"
+BASE_COMMIT = "c124142"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 2.4.0"
+NOTE_MARKER = "Changed in 2.4.1"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (

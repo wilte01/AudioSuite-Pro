@@ -28,6 +28,11 @@ standalone Audio Normalizer's true-peak ceiling, LRA target and lossless MP3
 strategy, which have no other surface once the standalone window is gone.
 Changed in 2.3.1: the widget's text colours follow the suite theme instead of
 Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
+
+Changed in 2.4.1: the enhancer panel's preset combobox values are built
+with ``preset_text(preset)`` - the shared model's single display
+accessor - instead of ``preset.value``, so an enum-base change cannot
+rewrite a label. The rendered strings are unchanged (WP-0).
 """
 
 from __future__ import annotations
@@ -43,7 +48,12 @@ import pop_click_remover.ui.setup_tab as declick_ui
 import silence_trimmer.ui.setup_tab as trim_ui
 from audio_refinery.core.models import StageConfig
 from audio_suite_shared import styles, ui_common
-from audio_suite_shared.dsp_models import PRESETS, EnhancementParams, PresetName
+from audio_suite_shared.dsp_models import (
+    PRESETS,
+    EnhancementParams,
+    PresetName,
+    preset_text,
+)
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 
 _MODE_VAR_IDS = itertools.count()
@@ -578,7 +588,7 @@ def _build_enhance_panel(
         combo = ttk.Combobox(
             row,
             textvariable=preset_var,
-            values=[preset.value for preset in PresetName],
+            values=[preset_text(preset) for preset in PresetName],
             font=styles.FONT_BODY,
             state="readonly",
             width=12,

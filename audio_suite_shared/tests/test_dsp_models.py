@@ -6,6 +6,12 @@ Covers:
     • EnhancementParams default field values and DSP safety constraints
     • PRESETS dictionary keys, completeness, and per-preset constraint validation
     • Dataclass mutability and field independence between instances
+
+Changed in 2.4.1: added the rendering locks (``f-string``, ``str``,
+``format`` and ``json.dumps`` for every member, plus equality to the
+plain value), the ``preset_text`` cases and the canonical
+``output_gain_db`` default, so an enum-base or table change cannot pass
+silently (WP-0).
 """
 
 from __future__ import annotations
@@ -276,3 +282,67 @@ class TestPresets:
 
         replace(PRESETS[PresetName.MILD], output_gain_db=999.0)
         assert PRESETS[PresetName.MILD].output_gain_db != 999.0
+
+
+# ---------------------------------------------------------------------------
+# PresetName rendering, preset_text() and the canonical default (2.4.1 WP-0)
+# ---------------------------------------------------------------------------
+
+
+class TestPresetNameRendersAsItsValue:
+    """Every display route yields the value, never ``PresetName.MEMBER``.
+
+    A ``(str, Enum)`` mixin compares equal to its value while rendering
+    ``PresetName.MILD`` in an f-string on 3.11-3.14, so a label can test
+    correct and display wrong (the AGENTS ``FingerprintStatus`` trap).
+    ``StrEnum`` keeps all four routes agreeing with the comparison.
+    """
+
+    @pytest.mark.parametrize("member", list(PresetName))
+    def test_fstring_renders_the_value(self, member: PresetName) -> None:
+        assert f"{member}" == member.value
+
+    @pytest.mark.parametrize("member", list(PresetName))
+    def test_str_renders_the_value(self, member: PresetName) -> None:
+        assert str(member) == member.value
+
+    @pytest.mark.parametrize("member", list(PresetName))
+    def test_format_renders_the_value(self, member: PresetName) -> None:
+        assert format(member) == member.value
+
+    @pytest.mark.parametrize("member", list(PresetName))
+    def test_json_dumps_serialises_the_value(self, member: PresetName) -> None:
+        import json
+
+        assert json.loads(json.dumps(member)) == member.value
+
+    def test_a_member_compares_equal_to_its_value(self) -> None:
+        """Settings files and ``PRESETS`` keys rely on this equality."""
+        assert PresetName.CUSTOM == "Custom"
+        assert PresetName("Moderate") is PresetName.MODERATE
+
+
+class TestPresetText:
+    """``preset_text`` is the one display accessor, so the base can change."""
+
+    def test_every_member_renders_its_value(self) -> None:
+        from audio_suite_shared.dsp_models import preset_text
+
+        rendered = [preset_text(member) for member in PresetName]
+        assert rendered == [member.value for member in PresetName]
+
+    def test_labels_stay_distinct(self) -> None:
+        from audio_suite_shared.dsp_models import preset_text
+
+        labels = {preset_text(member) for member in PresetName}
+        assert len(labels) == len(list(PresetName)) == 4
+
+
+class TestCanonicalEnhancementDefault:
+    """D-1: the canonical default is the value the applied path already uses."""
+
+    def test_output_gain_defaults_to_four_db(self) -> None:
+        assert EnhancementParams().output_gain_db == 4.0
+
+    def test_the_default_is_a_float(self) -> None:
+        assert isinstance(EnhancementParams().output_gain_db, float)

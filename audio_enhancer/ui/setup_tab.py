@@ -36,6 +36,11 @@ button is packed before the options so it can never be clipped.
 
 Changed in 2.3.1: the widget's text colours follow the suite theme instead of
 Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
+
+Changed in 2.4.1: the built-in preset labels are built with
+``preset_text(preset)`` - the shared model's single display accessor -
+instead of ``preset.value``, so an enum-base change cannot rewrite a
+label the window shows. The rendered strings are unchanged (WP-0).
 """
 
 from __future__ import annotations
@@ -47,7 +52,12 @@ from tkinter import messagebox, ttk
 from typing import Any, Callable, cast
 
 from audio_suite_shared import styles, ui_common
-from audio_suite_shared.dsp_models import PRESETS, EnhancementParams, PresetName
+from audio_suite_shared.dsp_models import (
+    PRESETS,
+    EnhancementParams,
+    PresetName,
+    preset_text,
+)
 from audio_suite_shared.ui_common import BaseSetupFrame
 
 #: Editor window sizing. The height is capped to the display so the dialog also
@@ -59,7 +69,7 @@ _DIALOG_MIN_WIDTH = 640
 _DIALOG_MIN_HEIGHT = 320
 
 #: Built-in DSP presets, in selector order. These change DSP values only.
-_BUILTIN_NAMES: tuple[str, ...] = tuple(p.value for p in PresetName)
+_BUILTIN_NAMES: tuple[str, ...] = tuple(preset_text(p) for p in PresetName)
 
 #: Display-only divider between the built-in presets and the saved ones. The
 #: selector handler restores the previous choice if it is picked, so it reads

@@ -12,6 +12,25 @@ one.
 
 ## [Unreleased]
 
+- **The per-file change-note lock is re-baselined to the 2.4.1 window.**
+  `tests/test_release_notes.py` pins `BASE_COMMIT` to `c124142` - the 2.4.0
+  release commit the `v2.4.0` tag points at - and `NOTE_MARKER` to
+  `Changed in 2.4.1`, following the per-release procedure its own
+  docstring records, so 2.4.0's notes remain as each file's history.
+- **One DSP model behind the enhancement presets.** `audio_enhancer/core/models.py`
+  is now a re-export of `audio_suite_shared/dsp_models.py` instead of a second
+  definition: the two copies had drifted on the class default (`output_gain_db`
+  0.0 against 4.0) and on the enum base. `PresetName` is a `StrEnum` - the only
+  base whose f-string, `str()`, `format()` and `json.dumps()` all render the label on
+  3.11-3.14 - and `preset_text()` is the single display accessor, used by both
+  preset combos, so an enum-base change cannot rewrite a label again.
+- **The preset model is locked by measured audio, not field read-back.**
+  `audio_enhancer/tests/test_models.py` asserts `PRESETS is` the shared table,
+  compares every preset field by field, and measures the Moderate preset's
+  declared 4.0 dB gain from a decoded WAV (a 0.0 dB twin differs by a measured
+  4.000 dB); 22 rendering/default locks join
+  `audio_suite_shared/tests/test_dsp_models.py`.
+
 - **A release cut now tags the version and publishes its GitHub release page.**
   `utilities/release.py` re-run on a clean tree whose `HEAD` declares the
   version creates the annotated tag, pushes it and creates the release from the

@@ -1,23 +1,55 @@
 """
 dsp_models.py — Shared DSP parameter models and presets for the Audio Suite.
 
-Changed in 1.1.0: extended EnhancementParams with the five Sprint 1
-effect toggles plus karaoke_strength (validated 0.0-1.0).
+This module is the only definition of the enhancement model: the Audio Enhancer
+stage, the Refinery pipeline and their UIs all read these names, so a second
+copy cannot apply a different preset than the one a window displays.
+
+``PresetName`` is a ``StrEnum``, so ``f"{preset}"``, ``str(preset)``,
+``format(preset)`` and ``json.dumps(preset)`` all render the label ("Mild").
+A plain ``(str, Enum)`` mixin compares equal to its value but renders
+``PresetName.MILD`` through those four routes on 3.11-3.14, which is how a
+label tests correct and displays wrong. Display code reads
+:func:`preset_text`.
+
+Changed in 2.4.1: this is now the only definition of the enhancement
+model. ``audio_enhancer/core/models.py`` re-exports these names instead
+of keeping a second copy that had drifted (class default
+``output_gain_db`` 0.0 against 4.0, a ``(str, Enum)`` base against a
+plain ``Enum``). ``PresetName`` is a ``StrEnum`` and :func:`preset_text`
+is the single display accessor both preset combos read
+(PLAN_2026-11-03_2.4.1_stop_the_drift.md WP-0).
 """
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from audio_suite_shared.exceptions import AudioConfigValueError
 
 
-class PresetName(Enum):
+class PresetName(StrEnum):
     """DSP enhancement preset names."""
 
     MILD = "Mild"
     MODERATE = "Moderate"
     AGGRESSIVE = "Aggressive"
     CUSTOM = "Custom"
+
+
+def preset_text(preset: PresetName) -> str:
+    """Return the user-facing label for *preset*.
+
+    The single display accessor: a widget, a log line or a settings file reads
+    this rather than ``preset.value``, so changing the enum's base class cannot
+    silently alter a label again (the ``FingerprintStatus`` trap).
+
+    Args:
+        preset: The preset to render.
+
+    Returns:
+        The label, e.g. ``"Mild"``.
+    """
+    return preset.value
 
 
 @dataclass(frozen=True)
@@ -35,7 +67,7 @@ class EnhancementParams:
     presence_freq_hz: float = 3500.0
     high_shelf_gain_db: float = 4.0
     high_shelf_freq_hz: float = 7000.0
-    output_gain_db: float = 0.0
+    output_gain_db: float = 4.0
     limiter_threshold_db: float = -0.5
     # Effects (Sprint 1, Item 1.2). All default off so presets and the
     # existing chain output are unchanged unless a caller opts in.

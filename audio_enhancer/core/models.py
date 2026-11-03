@@ -2,9 +2,15 @@
 core/models.py
 Data classes and enumerations shared across the application.
 
-Changed in 1.1.0: extended EnhancementParams with the five Sprint 1
-effect toggles (reverse, karaoke, phaser, flanger, chorus) plus
-karaoke_strength, all defaulting off/1.0.
+Changed in 2.4.1: ``PresetName``, ``EnhancementParams`` and ``PRESETS`` are
+re-exported from ``audio_suite_shared.dsp_models`` instead of being defined
+here. The two definitions had drifted — class default ``output_gain_db`` of 0.0
+here against 4.0 in the shared copy, and a ``(str, Enum)`` base against a plain
+``Enum`` — so the pipeline could apply a preset whose label and gain disagreed
+with the table the UI displayed
+(PLAN_2026-11-03_2.4.1_stop_the_drift.md WP-0).
+
+The processing-result types below stay here for now; their removal is WP-3.
 """
 
 from __future__ import annotations
@@ -13,14 +19,11 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-
-class PresetName(str, Enum):
-    """Audio enhancement preset names."""
-
-    MILD = "Mild"
-    MODERATE = "Moderate"
-    AGGRESSIVE = "Aggressive"
-    CUSTOM = "Custom"
+from audio_suite_shared.dsp_models import PRESETS as PRESETS
+from audio_suite_shared.dsp_models import (
+    EnhancementParams as EnhancementParams,
+)
+from audio_suite_shared.dsp_models import PresetName as PresetName
 
 
 class JobStatus(str, Enum):
@@ -32,106 +35,6 @@ class JobStatus(str, Enum):
     ERROR = "Error"
     FAILED = "Failed"
     SKIPPED = "Skipped"
-
-
-@dataclass(frozen=True)
-class EnhancementParams:
-    """All DSP parameters for one enhancement pass."""
-
-    noise_gate_threshold_db: float = -65.0
-    compressor_threshold_db: float = -22.0
-    compressor_ratio: float = 3.5
-    compressor_attack_ms: float = 8.0
-    compressor_release_ms: float = 120.0
-    low_shelf_gain_db: float = 2.5
-    low_shelf_freq_hz: float = 100.0
-    presence_gain_db: float = 2.5
-    presence_freq_hz: float = 3500.0
-    high_shelf_gain_db: float = 4.0
-    high_shelf_freq_hz: float = 7000.0
-    output_gain_db: float = 4.0
-    limiter_threshold_db: float = -0.5
-    # Effects (Sprint 1, Item 1.2). All default off so presets and the
-    # existing chain output are unchanged unless a caller opts in.
-    reverse: bool = False
-    karaoke: bool = False
-    karaoke_strength: float = 1.0
-    phaser: bool = False
-    flanger: bool = False
-    chorus: bool = False
-
-    def __post_init__(self) -> None:
-        """Validate critical DSP parameters to prevent runtime errors."""
-        if self.compressor_ratio <= 0:
-            raise ValueError(
-                f"compressor_ratio must be > 0, got {self.compressor_ratio}"
-            )
-        if self.compressor_attack_ms <= 0:
-            raise ValueError(
-                f"compressor_attack_ms must be > 0, got {self.compressor_attack_ms}"
-            )
-        if self.compressor_release_ms <= 0:
-            raise ValueError(
-                f"compressor_release_ms must be > 0, got {self.compressor_release_ms}"
-            )
-        if self.limiter_threshold_db > 0:
-            raise ValueError(
-                f"limiter_threshold_db must be <= 0, got {self.limiter_threshold_db}"
-            )
-        if not 0.0 <= self.karaoke_strength <= 1.0:
-            raise ValueError(
-                f"karaoke_strength must be within [0.0, 1.0],"
-                f" got {self.karaoke_strength}"
-            )
-
-
-PRESETS: dict[PresetName, EnhancementParams] = {
-    PresetName.MILD: EnhancementParams(
-        noise_gate_threshold_db=-70,
-        compressor_threshold_db=-18,
-        compressor_ratio=2.5,
-        compressor_attack_ms=10,
-        compressor_release_ms=150,
-        low_shelf_gain_db=1.5,
-        low_shelf_freq_hz=120,
-        presence_gain_db=1.5,
-        presence_freq_hz=3000,
-        high_shelf_gain_db=2.0,
-        high_shelf_freq_hz=8000,
-        output_gain_db=2.0,
-        limiter_threshold_db=-1.0,
-    ),
-    PresetName.MODERATE: EnhancementParams(
-        noise_gate_threshold_db=-65,
-        compressor_threshold_db=-22,
-        compressor_ratio=3.5,
-        compressor_attack_ms=8,
-        compressor_release_ms=120,
-        low_shelf_gain_db=2.5,
-        low_shelf_freq_hz=100,
-        presence_gain_db=2.5,
-        presence_freq_hz=3500,
-        high_shelf_gain_db=4.0,
-        high_shelf_freq_hz=7000,
-        output_gain_db=4.0,
-        limiter_threshold_db=-0.5,
-    ),
-    PresetName.AGGRESSIVE: EnhancementParams(
-        noise_gate_threshold_db=-60,
-        compressor_threshold_db=-26,
-        compressor_ratio=5.0,
-        compressor_attack_ms=5,
-        compressor_release_ms=80,
-        low_shelf_gain_db=3.5,
-        low_shelf_freq_hz=80,
-        presence_gain_db=3.5,
-        presence_freq_hz=4000,
-        high_shelf_gain_db=6.0,
-        high_shelf_freq_hz=6000,
-        output_gain_db=6.0,
-        limiter_threshold_db=-0.3,
-    ),
-}
 
 
 @dataclass
