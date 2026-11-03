@@ -12,6 +12,21 @@ one.
 
 ## [Unreleased]
 
+- **One format capability matrix.** `audio_suite_shared/audio_formats.py`
+  now holds a frozen `FormatCapability` row per container in
+  `FORMAT_MATRIX`, and `SUPPORTED_EXTENSIONS`, `READ_ONLY_EXTENSIONS`,
+  `LOSSLESS_EXTENSIONS`, `COMPRESSED_EXTENSIONS`, `PYDUB_FORMAT` and
+  `_DEPTH_CODECS` are projections of it; the converter's
+  `LOSSY_FORMATS`/`LOSSLESS_FORMATS`/`ALL_FORMATS`/
+  `UNSUPPORTED_OUTPUT_FORMATS`/`OUTPUT_EXTENSIONS` derive from the same
+  table through `CODEC_TO_EXTENSION`. ALAC is classified by
+  `LOSSLESS_CODECS`, because it is a lossless codec in a lossy-capable
+  container.
+- **`get_export_args` raises instead of writing MP3.** The MP3 fallback for
+  an unknown or read-only extension encoded the source stream as MP3 into a
+  file named for another container. It now raises `AudioFormatError`, and
+  `tests/test_format_capabilities.py` holds the refusal plus a measured
+  round trip for every writable row (`ffprobe` reads the codec back).
 - **The per-file change-note lock is re-baselined to the 2.4.1 window.**
   `tests/test_release_notes.py` pins `BASE_COMMIT` to `c124142` - the 2.4.0
   release commit the `v2.4.0` tag points at - and `NOTE_MARKER` to

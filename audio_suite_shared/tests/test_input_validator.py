@@ -9,6 +9,9 @@ Covers all 7 public methods of InputValidator:
     • validate_filename
     • sanitize_api_input
     • validate_audio_file_path
+
+Changed in 2.4.1: ``.wma`` is a suite container, so the
+rejected-extension case moved to ``.webm``/``.m4b``/``.m3u``.
 """
 
 from __future__ import annotations
@@ -454,11 +457,13 @@ class TestValidateAudioFilePath:
         f.write_bytes(b"data")
         assert InputValidator.validate_audio_file_path(str(f)) is True
 
-    @pytest.mark.parametrize("ext", [".wma", ".aac", ".webm", ".m4b"])
+    @pytest.mark.parametrize("ext", [".webm", ".m4b", ".m3u"])
     def test_unsupported_extensions_are_rejected(
         self, tmp_path: Path, ext: str
     ) -> None:
-        """``.wma`` was accepted by the hardcoded set but is not supported."""
+        """``.webm`` is not a suite container: the hardcoded set admitted formats the
+        shared vocabulary never declared, and ``.wma`` has since become a
+        supported one."""
         f = tmp_path / f"track{ext}"
         f.write_bytes(b"data")
         assert InputValidator.validate_audio_file_path(str(f)) is False

@@ -16,7 +16,19 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+- **WMA is now a first-class format, not a converter-only one.** Every tool
+  that lists the suite's formats now finds and converts `.wma` files, which
+  until now were visible only inside the Music Format Converter. Writing one
+  produces a real Windows Media Audio file (wmav2 audio in an ASF container);
+  tag writing is not offered yet, so a tagging tool reports the file as
+  skipped rather than damaging it.
+- **Raw AAC (`.aac`) is recognised as an input.** Such files are listed and
+  converted; tags are not written, because raw ADTS carries no usable tag
+  block. Use `.m4a` when tags matter.
+- **An unsupported target extension is refused.** Previously the shared
+  export path silently wrote MP3 audio into a file named for the other
+  extension, so a file could open fine while its name and its audio
+  disagreed. It now reports an error instead.
 
 ## [2.4.0] - 2026-11-02
 

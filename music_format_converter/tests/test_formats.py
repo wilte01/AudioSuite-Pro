@@ -7,6 +7,10 @@ Gap G-05: format_info, is_lossy, detect_format, can_convert,
 Changed in 2.1.2: added the OUTPUT_EXTENSIONS/output_extension contract that
 names ALAC output as `.m4a` (FFmpeg picks its muxer from the extension).
 Changed in 1.1.0: made the lossless-input test skip every unsupported output format.
+
+Changed in 2.4.1: added the matrix-projection locks - every converter
+list derives from ``audio_suite_shared.audio_formats.FORMAT_MATRIX``,
+including ALAC's codec-level losslessness.
 """
 
 import os
@@ -672,3 +676,45 @@ class TestDiscoverInputFiles:
             files = discover_input_files(str(tmp_path))
 
         assert "real.mp3" in files
+
+
+# -- Matrix projection (2.4.1 WP-1) ----------------------------------------
+
+
+class TestDerivedFromTheSharedMatrix:
+    """Every converter list projects the one shared format matrix."""
+
+    @staticmethod
+    def _row(name: str):
+        """Return the matrix row behind a converter format name."""
+        from audio_suite_shared.audio_formats import (
+            CODEC_TO_EXTENSION,
+            FORMAT_MATRIX,
+        )
+
+        return FORMAT_MATRIX.get("." + name) or FORMAT_MATRIX[CODEC_TO_EXTENSION[name]]
+
+    def test_every_name_covers_a_suite_extension(self) -> None:
+        from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
+
+        names = {ext.lstrip(".") for ext in SUPPORTED_EXTENSIONS}
+        assert names <= set(ALL_FORMATS), sorted(names - set(ALL_FORMATS))
+
+    def test_lossless_projects_the_row_and_the_codec_fact(self) -> None:
+        from audio_suite_shared.audio_formats import LOSSLESS_CODECS
+
+        for name in ALL_FORMATS:
+            expected = name in LOSSLESS_CODECS or self._row(name).lossless
+            assert (name in LOSSLESS_FORMATS) is expected, name
+
+    def test_unsupported_outputs_are_the_rows_with_no_encoder(self) -> None:
+        expected = {
+            name
+            for name in ALL_FORMATS
+            if not self._row(name).writable and name not in OUTPUT_EXTENSIONS
+        }
+        assert set(UNSUPPORTED_OUTPUT_FORMATS) == expected
+
+    def test_output_extension_comes_from_the_matrix_row(self) -> None:
+        for name, ext in OUTPUT_EXTENSIONS.items():
+            assert ext == self._row(name).output_extension.lstrip(".")

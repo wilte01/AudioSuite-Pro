@@ -24,6 +24,9 @@ mocked so the suite runs quickly and standalone.
 Changed in 1.1.0: extended the test extension set to the five new formats.
 Changed in 1.4.0: the corrupt-file docstring now points at the loader's
 plain-language decode message rather than the decoder's own text.
+
+Changed in 2.4.1: the extension fixture gained ``.wma`` and ``.aac``, so
+it still covers every container the shared matrix declares.
 """
 
 from __future__ import annotations
@@ -77,6 +80,8 @@ _TEST_EXTENSIONS = (
     ".ape",
     ".mpc",
     ".dsf",
+    ".wma",
+    ".aac",
 )
 
 

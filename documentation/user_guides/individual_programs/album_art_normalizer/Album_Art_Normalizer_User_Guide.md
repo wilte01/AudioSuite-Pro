@@ -12,7 +12,7 @@ The GUI also checks for folder.jpg directly inside the selected directory. When 
 ## Supported Input
 
 - **Embedded artwork: **Read and written format-aware: ID3 APIC frames for MP3/WAV/AIFF/AIF/DSF, Vorbis Picture blocks for FLAC/OGG/Opus/Speex, APEv2 Cover Art (Front) items for WavPack/Monkey's Audio/Musepack, and MP4 covr atoms for M4A/MP4. A DSF file with no ID3 chunk gets one created.
-- **Audio files: **All fourteen suite audio formats are processed by the embedded-art pipeline: .mp3, .flac, .ogg, .m4a, .mp4, .opus, .wav, .aiff, .aif, .wv, .ape, .mpc, .spx, and .dsf.
+- **Audio files: **All sixteen suite audio formats are processed by the embedded-art pipeline: .mp3, .flac, .ogg, .m4a, .mp4, .opus, .wav, .aiff, .aif, .wv, .ape, .mpc, .spx, .dsf, .wma, and .aac.
 - **Images: **Embedded data and folder.jpg must be readable by Pillow.
 
 ## Quick Start

@@ -9,15 +9,31 @@ set.
 Changed in 2.1.7: ``preserve_depth_params``/``source_bit_depth`` are locked — a
 24-bit WAV must export as ``pcm_s24le`` and a lossy target must get no pin
 (F-10).
+
+Changed in 2.4.1: hosts the format-capability locks (WP-1): the matrix
+invariant, the ``tag_writable``/``TagHandlerFactory`` agreement, the
+export refusal that replaced the MP3 fallback, and a measured round trip
+per writable row. They live here rather than in a composite file because
+this module is the one under test.
 """
+
+import shutil
+import subprocess
+from pathlib import Path
 
 import pytest
 
+from audio_suite_shared import audio_formats
 from audio_suite_shared.audio_formats import (
+    CODEC_TO_EXTENSION,
     COMPRESSED_EXTENSIONS,
+    FORMAT_MATRIX,
     LOSSLESS_EXTENSIONS,
+    PYDUB_FORMAT,
     READ_ONLY_EXTENSIONS,
     SUPPORTED_EXTENSIONS,
+    FormatCapability,
+    get_export_args,
     get_format_type,
     is_compressed_extension,
     is_lossless_extension,
@@ -400,3 +416,282 @@ class TestSourceBitDepth:
             str(path), format="mp3"
         )
         assert source_bit_depth(str(path)) is None
+
+
+# =============================================================================
+# One format capability matrix (2.4.1 WP-1)
+# =============================================================================
+
+FFMPEG = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
+
+requires_ffmpeg = pytest.mark.skipif(
+    not FFMPEG, reason="ffmpeg/ffprobe are required for the round-trip lock"
+)
+
+#: The suite's format count. Frozen so a format added without its guide update
+#: (and without this constant) fails instead of silently widening discovery.
+EXPECTED_FORMAT_COUNT = 16
+
+#: Encoder name -> the codec ``ffprobe`` reports for a file it produced.
+_PROBE_CODEC: dict[str, str] = {
+    "libmp3lame": "mp3",
+    "flac": "flac",
+    "libvorbis": "vorbis",
+    "aac": "aac",
+    "libopus": "opus",
+    "pcm_s16le": "pcm_s16le",
+    "pcm_s16be": "pcm_s16be",
+    "wavpack": "wavpack",
+    "libspeex": "speex",
+    "wmav2": "wmav2",
+}
+
+#: Rows the pydub export path can write (an encoder *and* a pydub muxer name).
+_EXPORTABLE = tuple(
+    ext
+    for ext, cap in FORMAT_MATRIX.items()
+    if cap.writable and cap.pydub_format is not None
+)
+
+
+class TestMatrixIsTheVocabulary:
+    """The table and the projections cannot disagree."""
+
+    def test_the_matrix_is_non_empty(self) -> None:
+        assert FORMAT_MATRIX, "the matrix is empty - the scan would pass vacuously"
+
+    def test_supported_extensions_are_exactly_the_matrix_rows(self) -> None:
+        assert set(SUPPORTED_EXTENSIONS) == set(FORMAT_MATRIX)
+        assert len(SUPPORTED_EXTENSIONS) == EXPECTED_FORMAT_COUNT
+        assert len(set(SUPPORTED_EXTENSIONS)) == len(SUPPORTED_EXTENSIONS)
+
+    def test_every_row_is_keyed_by_its_own_extension(self) -> None:
+        for key, capability in FORMAT_MATRIX.items():
+            assert isinstance(capability, FormatCapability)
+            assert capability.extension == key
+            assert key.startswith(".")
+            assert capability.display_name
+
+    def test_read_only_projection_is_the_unwritable_rows(self) -> None:
+        assert set(READ_ONLY_EXTENSIONS) == {
+            ext for ext, cap in FORMAT_MATRIX.items() if not cap.writable
+        }
+        assert READ_ONLY_EXTENSIONS, "no read-only row - the projection is unused"
+
+    def test_lossless_and_compressed_project_the_lossless_flag(self) -> None:
+        assert set(LOSSLESS_EXTENSIONS) == {
+            ext for ext, cap in FORMAT_MATRIX.items() if cap.lossless
+        }
+        assert set(COMPRESSED_EXTENSIONS) == {
+            ext for ext, cap in FORMAT_MATRIX.items() if not cap.lossless
+        }
+        assert not set(LOSSLESS_EXTENSIONS) & set(COMPRESSED_EXTENSIONS)
+
+    def test_every_extension_is_lossless_or_compressed(self) -> None:
+        classified = set(LOSSLESS_EXTENSIONS) | set(COMPRESSED_EXTENSIONS)
+        assert set(SUPPORTED_EXTENSIONS) == classified
+
+    def test_pydub_format_projects_exactly_the_exportable_rows(self) -> None:
+        assert set(PYDUB_FORMAT) == set(_EXPORTABLE)
+        for ext in _EXPORTABLE:
+            capability = FORMAT_MATRIX[ext]
+            assert PYDUB_FORMAT[ext] == (
+                capability.pydub_format,
+                list(capability.export_args),
+            )
+
+    def test_output_extension_is_the_container_itself(self) -> None:
+        for ext, capability in FORMAT_MATRIX.items():
+            assert capability.output_extension == ext
+
+    def test_depth_codecs_are_only_on_integer_pcm_containers(self) -> None:
+        for ext, capability in FORMAT_MATRIX.items():
+            if capability.depth_codecs:
+                assert capability.lossless, f"{ext} pins a depth but is lossy"
+                assert capability.writable, f"{ext} pins a depth but cannot be written"
+                assert set(capability.depth_codecs) <= {2, 3, 4}, ext
+
+    def test_lossless_codecs_are_codec_names_not_rows(self) -> None:
+        """ALAC is lossless although the M4A row it lands in is not."""
+        assert audio_formats.LOSSLESS_CODECS
+        for codec in audio_formats.LOSSLESS_CODECS:
+            assert codec in CODEC_TO_EXTENSION, codec
+            assert codec not in FORMAT_MATRIX, codec
+
+    def test_codec_names_map_onto_matrix_rows(self) -> None:
+        assert CODEC_TO_EXTENSION, "no codec mapping - ALAC could not be written"
+        for codec, ext in CODEC_TO_EXTENSION.items():
+            assert ext in FORMAT_MATRIX, f"{codec} maps to unknown {ext}"
+            assert codec and not codec.startswith(".")
+
+
+class TestTagWritabilityIsHonest:
+    """``tag_writable`` must match the handler a writer will actually get."""
+
+    def test_tag_writable_agrees_with_the_handler_factory(self) -> None:
+        from audio_suite_shared.tag_helper_base import TagHandlerFactory
+
+        handled = set(TagHandlerFactory._handlers)
+        claimed = {ext for ext, cap in FORMAT_MATRIX.items() if cap.tag_writable}
+        assert claimed, "no row claims tag support - the scan would pass vacuously"
+        assert claimed == handled, (
+            "FORMAT_MATRIX.tag_writable disagrees with TagHandlerFactory: "
+            f"claims-without-handler={sorted(claimed - handled)}, "
+            f"handler-without-claim={sorted(handled - claimed)}"
+        )
+
+    def test_formats_beyond_the_handlers_refuse_rather_than_lie(self) -> None:
+        for ext in (".wma", ".aac"):
+            assert ext in FORMAT_MATRIX
+            assert FORMAT_MATRIX[ext].tag_writable is False
+
+
+class TestExportRefusesWhatItCannotWrite:
+    """The old MP3 fallback wrote a mislabelled codec into the target file."""
+
+    @pytest.mark.parametrize("ext", sorted(READ_ONLY_EXTENSIONS))
+    def test_read_only_extension_raises(self, ext: str) -> None:
+        with pytest.raises(audio_formats.AudioFormatError):
+            get_export_args(ext)
+
+    @pytest.mark.parametrize("ext", [".xyz", ".txt", ""])
+    def test_unknown_extension_raises(self, ext: str) -> None:
+        with pytest.raises(audio_formats.AudioFormatError):
+            get_export_args(ext)
+
+    def test_refusal_is_not_a_silent_mp3(self) -> None:
+        with pytest.raises(audio_formats.AudioFormatError) as excinfo:
+            get_export_args(".xyz")
+        assert "mp3" not in str(excinfo.value).lower()
+
+    @pytest.mark.parametrize("ext", sorted(_EXPORTABLE))
+    def test_every_exportable_row_still_returns_arguments(self, ext: str) -> None:
+        fmt, args = get_export_args(ext)
+        assert fmt == FORMAT_MATRIX[ext].pydub_format
+        assert isinstance(args, list)
+
+    def test_case_insensitive(self) -> None:
+        assert get_export_args(".MP3") == get_export_args(".mp3")
+
+
+@pytest.fixture(scope="module")
+def source_tone(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """One 1-second 440 Hz WAV the round-trip lock reuses for every format."""
+    from pydub.generators import Sine
+
+    path = tmp_path_factory.mktemp("format_caps") / "tone.wav"
+    Sine(440).to_audio_segment(duration=1000, volume=-6).export(str(path), format="wav")
+    return path
+
+
+@requires_ffmpeg
+class TestWritableFormatsRoundTrip:
+    """Every writable row survives the shared export arguments, measured."""
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize("ext", sorted(_EXPORTABLE))
+    def test_the_declared_encoder_is_what_lands_in_the_file(
+        self, ext: str, source_tone: Path, tmp_path: Path
+    ) -> None:
+        from pydub import AudioSegment
+
+        capability = FORMAT_MATRIX[ext]
+        out = tmp_path / f"tone{ext}"
+        fmt, args = get_export_args(ext)
+        AudioSegment.from_file(str(source_tone)).export(
+            str(out), format=fmt, parameters=args
+        )
+
+        assert out.exists() and out.stat().st_size > 0
+        probe = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=codec_name",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(out),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert capability.ffmpeg_encoder is not None
+        expected = _PROBE_CODEC[capability.ffmpeg_encoder]
+        assert probe.stdout.strip() == expected, (
+            f"{ext} wrote {probe.stdout.strip()!r}, not {expected!r} - "
+            "a silently mislabelled encode"
+        )
+
+        # Decoding proves the container is readable, not just present.
+        decoded = AudioSegment.from_file(str(out))
+        assert len(decoded) > 500, f"{ext} decoded to {len(decoded)} ms"
+
+    @pytest.mark.integration
+    def test_wma_is_a_real_asf_container(
+        self, source_tone: Path, tmp_path: Path
+    ) -> None:
+        """The D-4 decision rests on this: wmav2 inside an ASF container."""
+        from pydub import AudioSegment
+
+        out = tmp_path / "tone.wma"
+        fmt, args = get_export_args(".wma")
+        AudioSegment.from_file(str(source_tone)).export(
+            str(out), format=fmt, parameters=args
+        )
+        probe = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=format_name",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(out),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert probe.stdout.strip().split(",")[0] == "asf"
+
+    @pytest.mark.integration
+    def test_wma_is_the_only_new_extension_on_the_disk(
+        self, source_tone: Path, tmp_path: Path
+    ) -> None:
+        """A conversion to .wma writes .wma and nothing else."""
+        from pydub import AudioSegment
+
+        fmt, args = get_export_args(".wma")
+        AudioSegment.from_file(str(source_tone)).export(
+            str(tmp_path / "tone.wma"), format=fmt, parameters=args
+        )
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["tone.wma"]
+
+
+class TestDiscoverySeesWma:
+    """The user-observable fix: one discovery, not the converter's private one."""
+
+    def test_converter_discovery_finds_a_wma_file(self, tmp_path: Path) -> None:
+        from music_format_converter.core.formats import discover_input_files
+
+        (tmp_path / "track.wma").write_bytes(b"not real audio")
+        assert discover_input_files(str(tmp_path)) == ["track.wma"]
+
+    def test_shared_discovery_finds_a_wma_file(self, tmp_path: Path) -> None:
+        from audio_suite_shared.file_processor_base import BaseFileProcessor
+
+        (tmp_path / "track.wma").write_bytes(b"not real audio")
+        processor = BaseFileProcessor.__new__(BaseFileProcessor)
+        found = processor.discover_audio_files(str(tmp_path))
+        assert [Path(p).name for p in found] == ["track.wma"]
+
+    def test_is_supported_format_accepts_wma(self) -> None:
+        assert audio_formats.is_supported_format("track.wma") is True
+        assert audio_formats.is_supported_format("TRACK.WMA") is True
+        assert audio_formats.is_supported_format("track.wma.bak") is False

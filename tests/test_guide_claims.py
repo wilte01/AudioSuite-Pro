@@ -28,6 +28,12 @@ token or artifact name fails here instead of waiting for a reader to notice.
 
 Changed in 2.3.1: drops the normaliser guide's stale format-count
 exemption, which named a guide the standalone window's removal deleted.
+
+Changed in 2.4.1: the number-word table learned 'sixteen' for the
+widened suite format set, so a guide stating the count is still checked. The
+Metadata Scrubber's 'fourteen containers' became a reasoned exemption: the
+scrubber discovers from its own loader table, which has no ASF or ADTS path, so
+its count is a deliberate subset of the suite's rather than drift.
 """
 
 from __future__ import annotations
@@ -63,6 +69,7 @@ NUMBER_WORDS = {
     "thirteen": 13,
     "fourteen": 14,
     "fifteen": 15,
+    "sixteen": 16,
 }
 SUPPORTED_COUNT = len(SUPPORTED_EXTENSIONS)
 
@@ -97,6 +104,10 @@ SUBSET_FORMAT_CLAIMS: dict[str, dict[str, str]] = {
     # makes any more.
     "Metadata_Scrubber_User_Guide.md": {
         "five": "the containers added in 2.1.7, named as a subset of the shared set",
+        "fourteen": (
+            "the scrubber's own loader set: it has no ASF or ADTS path, so it "
+            "processes fewer containers than the suite supports"
+        ),
     },
 }
 

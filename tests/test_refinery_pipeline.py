@@ -29,6 +29,10 @@ Run all unit tests:
 
 Run including integration tests (requires ffmpeg on PATH):
     pytest tests/test_refinery_pipeline.py
+
+Changed in 2.4.1: the shared export lock now asserts a refusal for an
+unknown extension; it used to pin the MP3 fallback, which wrote MP3
+audio into a file named for another container.
 """
 
 from __future__ import annotations
@@ -128,11 +132,12 @@ class TestPydubExportArgs:
         assert fmt == "wav"
         assert args == []
 
-    def test_unknown_extension_falls_back_to_mp3(self):
+    def test_unknown_extension_is_refused_rather_than_written_as_mp3(self):
         from audio_suite_shared.audio_formats import get_export_args
+        from audio_suite_shared.exceptions import AudioFormatError
 
-        fmt, _ = get_export_args(".xyz")
-        assert fmt == "mp3"
+        with pytest.raises(AudioFormatError):
+            get_export_args(".xyz")
 
     def test_case_insensitive(self):
         from audio_suite_shared.audio_formats import get_export_args

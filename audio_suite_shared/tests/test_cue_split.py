@@ -1,5 +1,8 @@
 """
 tests/test_cue_split.py — tests for audio_suite_shared/cue_split.py.
+
+Changed in 2.4.1: the unsupported-image case moved to ``.m4b``;
+``.wma`` is a suite container now, so it is a valid split target.
 """
 
 from __future__ import annotations
@@ -156,11 +159,11 @@ class TestSplitCueFile:
             split_cue_file(cue, tmp_path / "out")
 
     def test_unsupported_image_format_raises(self, tmp_path: Path):
-        image = tmp_path / "Album.wma"
-        image.write_bytes(b"wma data")
-        cue = tmp_path / "wma.cue"
+        image = tmp_path / "Album.m4b"
+        image.write_bytes(b"m4b data")
+        cue = tmp_path / "m4b.cue"
         cue.write_text(
-            'FILE "Album.wma" WMA\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n',
+            'FILE "Album.m4b" M4B\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n',
             encoding="utf-8",
         )
         with pytest.raises(ValueError, match="not a supported split target"):

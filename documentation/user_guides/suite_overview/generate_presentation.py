@@ -40,6 +40,9 @@ remaining slides are renumbered so the footers stay consecutive. The
 committed ``.pptx`` was regenerated from this script, which is the only
 way it changes: ``TOOL_COUNT`` reads the manifest, so the deck's counts
 were 32 against a 27-tool suite until the file was rebuilt.
+
+Changed in 2.4.1: the format-matrix slide reports the sixteen suite
+containers.
 """
 
 from __future__ import annotations
@@ -486,7 +489,7 @@ FORMAT_ROWS: list[list[str]] = [
         YES,
         YES,
         YES,
-        "Plus WMA, MP4, ALAC, APE, AIFF/AIF, WavPack - 14 total",
+        "Plus WMA, MP4, ALAC, APE, AIFF/AIF, WavPack - 16 total",
     ],
     [
         "CD Ripper",

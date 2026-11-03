@@ -8,6 +8,9 @@ silently break the checks.
 
 Run:
     pytest tests/security/test_input_validator.py
+
+Changed in 2.4.1: the security gate now accepts ``.wma`` because the
+shared format matrix declares it; a non-audio ``.webm`` stays rejected.
 """
 
 from __future__ import annotations
@@ -274,7 +277,7 @@ class TestValidateAudioFilePath:
                 f"Expected {ext} to be accepted"
             )
 
-        for ext in (".wma", ".txt"):
+        for ext in (".webm", ".txt"):
             p = tmp_path / f"track{ext}"
             p.touch()
             assert InputValidator.validate_audio_file_path(str(p)) is False, (

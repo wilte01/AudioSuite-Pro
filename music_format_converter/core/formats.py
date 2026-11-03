@@ -11,6 +11,12 @@ is named for its container, not its codec: ALAC is written as `.m4a`, which
 is the extension FFmpeg needs to pick the MP4 muxer.
 Changed in 1.1.0: classified the new formats (spx lossy; wv/ape/mpc/dsf lossless) and
 added the unsupported-output set.
+Changed in 2.4.1: every list here is a projection of the shared
+``audio_suite_shared.audio_formats.FORMAT_MATRIX`` (WP-1 of
+PLAN_2026-11-03_2.4.1_stop_the_drift.md), so the converter cannot offer a
+container the rest of the suite disagrees about. The converter speaks codec
+names as well as container names, and ``CODEC_TO_EXTENSION`` is what maps the
+two ("alac" is a codec stored in an M4A container).
 """
 
 import logging
@@ -18,34 +24,46 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional
 
+from audio_suite_shared.audio_formats import (
+    CODEC_TO_EXTENSION,
+    FORMAT_MATRIX,
+    LOSSLESS_CODECS,
+)
 from audio_suite_shared.exceptions import map_to_audio_error
 
 logger = logging.getLogger(__name__)
 
 # ── Format lists ──────────────────────────────────────────────────────────────
 
-LOSSY_FORMATS: list[str] = ["mp3", "aac", "m4a", "ogg", "opus", "mp4", "wma", "spx"]
+#: Converter format name -> the matrix extension that backs it. Every suite
+#: extension is a name in its own right; CODEC_TO_EXTENSION adds the codecs
+#: that are written into someone else's container (ALAC into M4A).
+_NAME_TO_EXTENSION: dict[str, str] = {ext.lstrip("."): ext for ext in FORMAT_MATRIX}
+_NAME_TO_EXTENSION.update(CODEC_TO_EXTENSION)
+
+
+def _is_lossless_name(name: str, ext: str) -> bool:
+    """True when *name* is lossless, by codec fact or container row."""
+    return name in LOSSLESS_CODECS or FORMAT_MATRIX[ext].lossless
+
+
+LOSSY_FORMATS: list[str] = [
+    name for name, ext in _NAME_TO_EXTENSION.items() if not _is_lossless_name(name, ext)
+]
 LOSSLESS_FORMATS: list[str] = [
-    "flac",
-    "wav",
-    "alac",
-    "ape",
-    "aiff",
-    "aif",
-    "wv",
-    "mpc",
-    "dsf",
+    name for name, ext in _NAME_TO_EXTENSION.items() if _is_lossless_name(name, ext)
 ]
 ALL_FORMATS: list[str] = LOSSY_FORMATS + LOSSLESS_FORMATS
 
 # Formats that can be detected/read as input but cannot be correctly
-# *produced* as output by this tool. FFmpeg has no encoder and no muxer
-# for Monkey's Audio (APE), Musepack (MPC), or DSD Store (DSF), so an
-# output target in this set would silently fall back to stream-copy (or
-# worse, the MP3 fallback of shared get_export_args) and mislabel the
-# source codec. Excluded from every output-format list below; left in
-# the LOSSY/LOSSLESS lists so their files are still detected as input.
-UNSUPPORTED_OUTPUT_FORMATS: list[str] = ["ape", "mpc", "dsf"]
+# *produced* as output by this tool: the matrix rows with no encoder (Monkey's
+# Audio, Musepack, DSD Store). A target in this set would fall through to
+# stream-copy (or a silently mislabelled encode) and mislabel the source codec.
+# Excluded from every output-format list below; left in the LOSSY/LOSSLESS
+# lists so their files are still detected as input.
+UNSUPPORTED_OUTPUT_FORMATS: list[str] = [
+    name for name, ext in _NAME_TO_EXTENSION.items() if not FORMAT_MATRIX[ext].writable
+]
 
 # All formats minus those that cannot be produced as output (see above).
 # Used as the "no input scanned yet / no files detected" fallback.
@@ -53,12 +71,17 @@ ALL_OUTPUT_FORMATS: list[str] = [
     f for f in ALL_FORMATS if f not in UNSUPPORTED_OUTPUT_FORMATS
 ]
 
-# Format name -> file extension actually written for it. FFmpeg selects its
-# muxer from the output file's extension, so a format whose name is not a
-# muxer-able extension must be mapped: ALAC is a codec, and its container is
-# M4A (the `ipod`/mov muxer). Naming the output `song.alac` made FFmpeg fail
-# with "Unable to choose an output format" for every file.
-OUTPUT_EXTENSIONS: dict[str, str] = {"alac": "m4a"}
+# Format name -> file extension actually written for it, for the names whose
+# container is not their own. FFmpeg selects its muxer from the output file's
+# extension, so a format whose name is not a muxer-able extension must be
+# mapped: ALAC is a codec, and its container is M4A (the `ipod`/mov muxer).
+# Naming the output `song.alac` made FFmpeg fail with "Unable to choose an
+# output format" for every file.
+OUTPUT_EXTENSIONS: dict[str, str] = {
+    name: FORMAT_MATRIX[ext].output_extension.lstrip(".")
+    for name, ext in _NAME_TO_EXTENSION.items()
+    if FORMAT_MATRIX[ext].output_extension.lstrip(".") != name
+}
 
 
 def output_extension(fmt: str) -> str:
@@ -102,6 +125,10 @@ def format_info(fmt: str) -> str:
         "alac": (
             "\nℹ ALAC is stored in an M4A container; the output file uses the "
             ".m4a extension."
+        ),
+        "wma": (
+            "\n⚠ WMA is written to an ASF container; this suite converts and "
+            "tags it, and other tools read it as .wma only."
         ),
         "mp3": "\n✓ MP3 fully supports ID3 tags for metadata",
         "flac": "\n✓ FLAC fully supports Vorbis comments for metadata",

@@ -1,8 +1,12 @@
 """
 audio_formats.py — Standardized audio format definitions for Audio Suite.
 
-Provides consistent audio file extension constants across all applications,
-eliminating scattered definitions and ensuring format compatibility.
+:data:`FORMAT_MATRIX` is the single source of truth: one frozen row per
+container says whether it can be read, written and tagged, which FFmpeg encoder
+and muxer produce it, and whether it is lossless. Every other constant in this
+module is a projection of that table, so a format cannot be writable in one tool
+and invisible in another — the drift that left ``.wma`` a converter input that
+every ``is_supported_format`` caller ignored.
 
 Changed in 1.1.0: widened SUPPORTED_EXTENSIONS with .wv/.ape/.mpc/.spx/.dsf and added
 READ_ONLY_EXTENSIONS plus is_read_only_extension().
@@ -10,76 +14,278 @@ Changed in 2.1.7: adds ``preserve_depth_params``, so a writer that re-encodes a
 lossless file pins the source's integer bit depth instead of leaving it to
 FFmpeg's encoder default (a 24-bit WAV came back as 16-bit). F-10's sweep locks
 the outcome on decoded files.
+Changed in 2.4.1: ``FORMAT_MATRIX`` replaces the separate extension/quality
+tables (WP-1 of PLAN_2026-11-03_2.4.1_stop_the_drift.md); ``.wma`` is completed
+as a readable *and* writable container (measured: pydub ``asf`` + ``wmav2``
+round-trips, so the old read-only absence was a gap, not a limit), ``.aac`` is
+declared writable but untaggable, and :func:`get_export_args` refuses an unknown
+extension instead of silently writing MP3.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
+
+from audio_suite_shared.exceptions import AudioFormatError
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
-# Standard audio file extensions supported across the suite
-SUPPORTED_EXTENSIONS: tuple[str, ...] = (
-    ".mp3",  # MPEG-1 Audio Layer 3
-    ".flac",  # Free Lossless Audio Codec
-    ".ogg",  # Ogg Vorbis
-    ".m4a",  # MPEG-4 Audio
-    ".mp4",  # MPEG-4 Container (AAC audio)
-    ".opus",  # Opus Audio Codec
-    ".wav",  # Waveform Audio File Format
-    ".aiff",  # Audio Interchange File Format
-    ".aif",  # Audio Interchange File Format (short extension)
-    ".wv",  # WavPack (decode + encode — ffmpeg wavpack encoder)
-    ".ape",  # Monkey's Audio (decode only — no ffmpeg encoder/muxer)
-    ".mpc",  # Musepack (decode only — no ffmpeg encoder/muxer)
-    ".spx",  # Speex in Ogg (decode + encode — ffmpeg libspeex encoder)
-    ".dsf",  # DSD Store (decode only — DSD->PCM via ffmpeg dsd2pcm)
+
+@dataclass(frozen=True)
+class FormatCapability:
+    """Everything the suite knows about one audio container.
+
+    Attributes:
+        extension: File extension including the leading dot (``".wma"``).
+        display_name: Human-readable name shown in status lines (``"WMA"``).
+        pydub_format: pydub/FFmpeg muxer name used by the pydub export path, or
+            ``None`` when the container has no pydub export (a read-only
+            container, or one this suite writes through FFmpeg directly).
+        ffmpeg_encoder: Audio encoder FFmpeg needs to produce the container.
+        ffmpeg_muxer: FFmpeg muxer name for the container.
+        lossless: True when the container stores lossless audio.
+        readable: True when the suite can decode the container.
+        writable: True when the suite can encode the container. A read-only row
+            must never be passed to :func:`get_export_args`.
+        tag_writable: True when ``TagHandlerFactory`` has a handler for the
+            extension, so a writer can save tags to it. Declaring this honestly
+            is what stops a tool from discovering a file it cannot tag.
+        depth_codecs: Integer-PCM containers only: source bit depth in bytes ->
+            the FFmpeg PCM codec that preserves it. Empty otherwise.
+        output_extension: Extension to write for this container. Equal to
+            ``extension`` for every row; a codec written *into* another
+            container (ALAC into M4A) is expressed by
+            :data:`CODEC_TO_EXTENSION`, not here.
+        export_args: Quality arguments the pydub export path appends.
+    """
+
+    extension: str
+    display_name: str
+    pydub_format: str | None
+    ffmpeg_encoder: str | None
+    ffmpeg_muxer: str | None
+    lossless: bool
+    readable: bool = True
+    writable: bool = True
+    tag_writable: bool = True
+    depth_codecs: dict[int, str] = field(default_factory=dict)
+    output_extension: str = ""
+    export_args: tuple[str, ...] = ()
+
+
+#: The suite's format vocabulary: one row per container, in discovery order
+#: (``SUPPORTED_EXTENSIONS`` keeps that order, and the ASX extractor probes
+#: same-stem siblings in it).
+FORMAT_MATRIX: dict[str, FormatCapability] = {
+    ".mp3": FormatCapability(
+        extension=".mp3",
+        display_name="MP3",
+        pydub_format="mp3",
+        ffmpeg_encoder="libmp3lame",
+        ffmpeg_muxer="mp3",
+        lossless=False,
+        output_extension=".mp3",
+        export_args=("-q:a", "0"),
+    ),
+    ".flac": FormatCapability(
+        extension=".flac",
+        display_name="FLAC",
+        pydub_format="flac",
+        ffmpeg_encoder="flac",
+        ffmpeg_muxer="flac",
+        lossless=True,
+        output_extension=".flac",
+        export_args=("-compression_level", "8"),
+    ),
+    ".ogg": FormatCapability(
+        extension=".ogg",
+        display_name="OGG",
+        pydub_format="ogg",
+        ffmpeg_encoder="libvorbis",
+        ffmpeg_muxer="ogg",
+        lossless=False,
+        output_extension=".ogg",
+        export_args=("-q:a", "6"),
+    ),
+    ".m4a": FormatCapability(
+        extension=".m4a",
+        display_name="M4A",
+        pydub_format="mp4",
+        ffmpeg_encoder="aac",
+        ffmpeg_muxer="mp4",
+        lossless=False,
+        output_extension=".m4a",
+        export_args=("-b:a", "256k"),
+    ),
+    ".mp4": FormatCapability(
+        extension=".mp4",
+        display_name="MP4",
+        pydub_format="mp4",
+        ffmpeg_encoder="aac",
+        ffmpeg_muxer="mp4",
+        lossless=False,
+        output_extension=".mp4",
+        export_args=("-b:a", "256k"),
+    ),
+    ".opus": FormatCapability(
+        extension=".opus",
+        display_name="Opus",
+        pydub_format="opus",
+        ffmpeg_encoder="libopus",
+        ffmpeg_muxer="opus",
+        lossless=False,
+        output_extension=".opus",
+        export_args=("-b:a", "192k"),
+    ),
+    ".wav": FormatCapability(
+        extension=".wav",
+        display_name="WAV",
+        pydub_format="wav",
+        ffmpeg_encoder="pcm_s16le",
+        ffmpeg_muxer="wav",
+        lossless=True,
+        depth_codecs={2: "pcm_s16le", 3: "pcm_s24le", 4: "pcm_s32le"},
+        output_extension=".wav",
+    ),
+    ".aiff": FormatCapability(
+        extension=".aiff",
+        display_name="AIFF",
+        pydub_format="aiff",
+        ffmpeg_encoder="pcm_s16be",
+        ffmpeg_muxer="aiff",
+        lossless=True,
+        depth_codecs={2: "pcm_s16be", 3: "pcm_s24be", 4: "pcm_s32be"},
+        output_extension=".aiff",
+    ),
+    ".aif": FormatCapability(
+        extension=".aif",
+        display_name="AIF",
+        pydub_format="aiff",
+        ffmpeg_encoder="pcm_s16be",
+        ffmpeg_muxer="aiff",
+        lossless=True,
+        depth_codecs={2: "pcm_s16be", 3: "pcm_s24be", 4: "pcm_s32be"},
+        output_extension=".aif",
+    ),
+    ".wv": FormatCapability(
+        extension=".wv",
+        display_name="WavPack",
+        pydub_format="wv",
+        ffmpeg_encoder="wavpack",
+        ffmpeg_muxer="wv",
+        lossless=True,
+        output_extension=".wv",
+    ),
+    ".ape": FormatCapability(
+        extension=".ape",
+        display_name="Monkey's Audio",
+        pydub_format=None,
+        ffmpeg_encoder=None,
+        ffmpeg_muxer=None,
+        lossless=True,
+        writable=False,
+        output_extension=".ape",
+    ),
+    ".mpc": FormatCapability(
+        extension=".mpc",
+        display_name="Musepack",
+        pydub_format=None,
+        ffmpeg_encoder=None,
+        ffmpeg_muxer=None,
+        lossless=True,
+        writable=False,
+        output_extension=".mpc",
+    ),
+    ".spx": FormatCapability(
+        extension=".spx",
+        display_name="Speex",
+        pydub_format="spx",
+        ffmpeg_encoder="libspeex",
+        ffmpeg_muxer="ogg",
+        lossless=False,
+        output_extension=".spx",
+        export_args=("-c:a", "libspeex", "-q:a", "8"),
+    ),
+    ".dsf": FormatCapability(
+        extension=".dsf",
+        display_name="DSF",
+        pydub_format=None,
+        ffmpeg_encoder=None,
+        ffmpeg_muxer=None,
+        lossless=True,
+        writable=False,
+        output_extension=".dsf",
+    ),
+    ".wma": FormatCapability(
+        extension=".wma",
+        display_name="WMA",
+        pydub_format="asf",
+        ffmpeg_encoder="wmav2",
+        ffmpeg_muxer="asf",
+        lossless=False,
+        # Completing the container is the whole point of WP-1's D-4 decision:
+        # the converter could already read it while every is_supported_format
+        # caller ignored it. Measured on FFmpeg 8.0.1 (wmav2 encoder + asf
+        # muxer present); the probe is in tests/test_format_capabilities.py.
+        output_extension=".wma",
+        export_args=("-c:a", "wmav2", "-b:a", "192k"),
+        # No ASF handler in TagHandlerFactory yet, so a writer must refuse
+        # rather than discover a file it cannot tag (WP-6 adds the handler).
+        tag_writable=False,
+    ),
+    ".aac": FormatCapability(
+        extension=".aac",
+        display_name="AAC",
+        pydub_format=None,
+        ffmpeg_encoder="aac",
+        ffmpeg_muxer="adts",
+        lossless=False,
+        output_extension=".aac",
+        # Raw ADTS carries no usable tag block; write it through FFmpeg's own
+        # argument table (the converter does), never the pydub export path.
+        tag_writable=False,
+    ),
+}
+
+#: Codec names the converter speaks that are not one-to-one with a container.
+#: ALAC is a codec stored in an M4A container, so "alac" is not an extension.
+CODEC_TO_EXTENSION: dict[str, str] = {
+    "alac": ".m4a",
+    "aac": ".aac",
+}
+
+#: Codec names that are lossless whatever container they are written into:
+#: ALAC lives in an M4A container, and M4A is otherwise an AAC container, so
+#: the container row cannot answer this. Codec names outside this set take
+#: their classification from their container's row.
+LOSSLESS_CODECS: frozenset[str] = frozenset({"alac"})
+
+#: Every extension the suite can read, in discovery order.
+SUPPORTED_EXTENSIONS: tuple[str, ...] = tuple(FORMAT_MATRIX)
+
+#: Containers with no encoder: readable, never writable.
+READ_ONLY_EXTENSIONS: tuple[str, ...] = tuple(
+    ext for ext, cap in FORMAT_MATRIX.items() if not cap.writable
 )
 
-# Extensions that may be read/converted *from* but never written in place or
-# converted *to*: ffmpeg has no encoder and no muxer for these containers, so
-# any same-ext write would silently fall through get_export_args()'s MP3
-# fallback and corrupt the file (see get_export_args below).
-READ_ONLY_EXTENSIONS: tuple[str, ...] = (".ape", ".mpc", ".dsf")
-
-# Lossless audio formats
-LOSSLESS_EXTENSIONS: tuple[str, ...] = (
-    ".flac",
-    ".wav",
-    ".aiff",
-    ".aif",
-    ".wv",
-    ".ape",
-    ".mpc",
-    ".dsf",
+#: Lossless containers.
+LOSSLESS_EXTENSIONS: tuple[str, ...] = tuple(
+    ext for ext, cap in FORMAT_MATRIX.items() if cap.lossless
 )
 
-# Compressed/lossy audio formats
-COMPRESSED_EXTENSIONS: tuple[str, ...] = (
-    ".mp3",
-    ".ogg",
-    ".m4a",
-    ".mp4",
-    ".opus",
-    ".spx",
+#: Compressed/lossy containers.
+COMPRESSED_EXTENSIONS: tuple[str, ...] = tuple(
+    ext for ext, cap in FORMAT_MATRIX.items() if not cap.lossless
 )
 
-# pydub export format string + ffmpeg quality params per extension.
-# WAV and AIFF are uncompressed PCM containers; no bitrate/quality params apply.
-# Read-only extensions (.ape/.mpc/.dsf) are deliberately absent — see
-# READ_ONLY_EXTENSIONS above.
+#: pydub export format string + ffmpeg quality params per writable extension.
+#: Read-only containers and the FFmpeg-direct ones (.aac) are absent: asking
+#: for their export arguments raises rather than guessing.
 PYDUB_FORMAT: dict[str, tuple[str, list[str]]] = {
-    ".mp3": ("mp3", ["-q:a", "0"]),
-    ".flac": ("flac", ["-compression_level", "8"]),
-    ".ogg": ("ogg", ["-q:a", "6"]),
-    ".m4a": ("mp4", ["-b:a", "256k"]),
-    ".mp4": ("mp4", ["-b:a", "256k"]),
-    ".opus": ("opus", ["-b:a", "192k"]),
-    ".wav": ("wav", []),
-    ".aiff": ("aiff", []),
-    ".aif": ("aiff", []),
-    ".wv": ("wv", []),
-    ".spx": ("spx", ["-c:a", "libspeex", "-q:a", "8"]),
+    ext: (cap.pydub_format, list(cap.export_args))
+    for ext, cap in FORMAT_MATRIX.items()
+    if cap.pydub_format is not None
 }
 
 
@@ -168,13 +374,29 @@ def get_export_args(ext: str) -> tuple[str, list[str]]:
     This is the single source of truth for export parameters used across
     the suite (pipeline, pop-click remover, silence trimmer).
 
+    An extension the matrix does not cover — or a read-only container — raises
+    instead of falling back to MP3. The old fallback encoded the *source
+    stream as MP3 into a file named for another container*, which is the
+    "silently mislabelled codec" defect: the file opens in a player and is
+    not what its extension says.
+
     Args:
         ext: File extension including the leading dot (e.g. '.mp3').
 
     Returns:
         Tuple of pydub format string and ffmpeg parameter list.
+
+    Raises:
+        AudioFormatError: When *ext* is unknown or read-only.
     """
-    return PYDUB_FORMAT.get(ext.lower(), ("mp3", ["-q:a", "0"]))
+    lowered = ext.lower()
+    capability = FORMAT_MATRIX.get(lowered)
+    if capability is None or capability.pydub_format is None:
+        reason = "not a writable suite container" if capability else "unknown"
+        raise AudioFormatError(
+            f"No export path for {ext!r}: the extension is {reason}."
+        )
+    return capability.pydub_format, list(capability.export_args)
 
 
 #: Lossless extensions whose stream stores an integer bit depth, mapped to the
@@ -182,9 +404,9 @@ def get_export_args(ext: str) -> tuple[str, list[str]]:
 #: default to 16-bit PCM, so without this pin a 24-bit source was silently
 #: truncated to 16 bits on every in-place rewrite (F-10).
 _DEPTH_CODECS: dict[str, dict[int, str]] = {
-    ".wav": {2: "pcm_s16le", 3: "pcm_s24le", 4: "pcm_s32le"},
-    ".aiff": {2: "pcm_s16be", 3: "pcm_s24be", 4: "pcm_s32be"},
-    ".aif": {2: "pcm_s16be", 3: "pcm_s24be", 4: "pcm_s32be"},
+    ext: dict(cap.depth_codecs)
+    for ext, cap in FORMAT_MATRIX.items()
+    if cap.depth_codecs
 }
 
 
@@ -292,6 +514,10 @@ def pydub_export_for_source(
 
     Returns:
         Tuple of pydub format string and ffmpeg parameter list.
+
+    Raises:
+        AudioFormatError: When *ext* is unknown or read-only (see
+            :func:`get_export_args`).
     """
     if ext.lower() == ".mp3" and source_bitrate_kbps > 0:
         fmt = "mp3"
