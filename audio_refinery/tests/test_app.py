@@ -2,6 +2,9 @@
 Changed in 1.1.0: added effect-field settings collect/apply coverage.
 Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 ``run_pipeline`` into the completion handler (PLAN D117).
+
+Changed in 2.4.1: the slot-var scheduling contract now runs against the
+shared ``ThreadSafeSlotVar``; the app's local clone is gone (WP-3).
 """
 
 from __future__ import annotations
@@ -16,8 +19,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import audio_refinery.app as ar_mod
-from audio_refinery.app import AudioRefineryApp, _ThreadSafeSlotVar
+from audio_refinery.app import AudioRefineryApp
 from audio_refinery.core.models import StageConfig
+from audio_suite_shared.thread_safe_slot_var import ThreadSafeSlotVar
 
 
 def _make_app_stub() -> object:
@@ -299,7 +303,7 @@ class TestRealAppConstructionD3:
         tkinter timer dispatched inside another test's modal wait_window
         (TestShowMessage then blocked forever)."""
         t_var = tk.StringVar(app_root, value="IDLE")
-        wrapper = _ThreadSafeSlotVar(app_root, t_var)
+        wrapper = ThreadSafeSlotVar(app_root, t_var)
         after_mock = MagicMock()
         monkeypatch.setattr(app_root, "after", after_mock)
 

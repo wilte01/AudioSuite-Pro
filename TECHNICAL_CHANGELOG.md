@@ -12,6 +12,18 @@ one.
 
 ## [Unreleased]
 
+- **Dead code removed and the last slot-var clone retired.** WP-3 deletes
+  `noise_reduction/ui/setup_tab.py` (173 lines no shipped module imported
+  once the tool became a Refinery stage), the root `Tag_Field_Updater.py`
+  legacy shim (no `[project.scripts]` entry, no test, and only the `.pyw`
+  launcher is documented), and `JobStatus`/`AudioFileInfo`/
+  `ProcessingResult` from `audio_enhancer/core/models.py` (zero importers
+  once the enhancer became a stage). Both remaining local
+  `_ThreadSafeSlotVar` clones are retired behind `make_safe_slot_vars`.
+  `tests/test_ui_module_usage.py` is the new lock: it resolves every
+  import in every shipped `.py` and `.pyw` module, so a `*/ui/` module
+  nothing imports fails instead of sitting dead.
+
 - **The tag-handler factory is a leaf module.** `TagHandlerFactory`
   moved out of `tag_helper_base` into
   `audio_suite_shared/tag_handler_factory.py`, which imports its six

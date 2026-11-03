@@ -15,6 +15,10 @@ completion, progress and error seams.
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+
+Changed in 2.4.1: the local ``_ThreadSafeSlotVar`` clone is retired
+behind ``audio_suite_shared.thread_safe_slot_var.make_safe_slot_vars``,
+the helper four sibling tools already used (WP-3).
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
+from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 from audio_suite_shared.ui_audition import AuditionMixin
 from audio_suite_shared.ui_helpers import UIHelperMixin
 
@@ -53,20 +58,6 @@ from .utils.settings import save as save_settings
 logger = logging.getLogger(__name__)
 
 _TOOL_ID = "audio_refinery"
-
-
-class _ThreadSafeSlotVar:
-    """Wrap a tk.StringVar so that .set() is always scheduled on the main thread."""
-
-    def __init__(self, root: tk.Tk, var: tk.StringVar) -> None:
-        self._root = root
-        self._var = var
-
-    def set(self, value: str) -> None:
-        self._root.after(0, self._var.set, value)
-
-    def get(self) -> str:
-        return self._var.get()
 
 
 class AudioRefineryApp(UIHelperMixin, AuditionMixin):
@@ -117,9 +108,7 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         self.slot_vars = [
             tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
         ]
-        self._safe_slot_vars = [
-            _ThreadSafeSlotVar(self.root, v) for v in self.slot_vars
-        ]
+        self._safe_slot_vars = make_safe_slot_vars(self.root, self.slot_vars)
         self.slot_queue: Queue[Any] = Queue()
         for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)

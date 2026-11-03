@@ -10,6 +10,10 @@ Changed in 1.4.0: the saved worker default and slot grid resolve through
 ``default_max_workers()`` / ``DEFAULT_MAX_WORKERS`` (PLAN D56), and a typed
 count above the grid is capped before it is persisted (D66); the notice is
 logged instead of shown when the launch is unattended (D70).
+
+Changed in 2.4.1: the local ``_ThreadSafeSlotVar`` clone is retired
+behind ``audio_suite_shared.thread_safe_slot_var.make_safe_slot_vars``,
+the helper four sibling tools already used (WP-3).
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from audio_suite_shared import platform_utils, styles, suite_config
 from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS, default_max_workers
+from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 from audio_suite_shared.ui_common import cap_typed_workers
 from audio_suite_shared.ui_helpers import UIHelperMixin
 from mood_analysis_batch_tagger.core import batch_analysis_engine
@@ -37,20 +42,6 @@ logger = logging.getLogger(__name__)
 
 _TOOL_TITLE = "Mood Analysis Batch Tagger"
 TOOL_ID = "mood_analysis_batch_tagger"
-
-
-class _ThreadSafeSlotVar:
-    """Wrap a tk.StringVar so that .set() is always scheduled on the main thread."""
-
-    def __init__(self, root: tk.Tk, var: tk.StringVar) -> None:
-        self._root = root
-        self._var = var
-
-    def set(self, value: str) -> None:
-        self._root.after(0, self._var.set, value)
-
-    def get(self) -> str:
-        return self._var.get()
 
 
 def _saved_worker_count(saved: object) -> int:
@@ -120,9 +111,7 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
         self.slot_vars = [
             tk.StringVar(value="IDLE") for _ in range(DEFAULT_MAX_WORKERS)
         ]
-        self._safe_slot_vars = [
-            _ThreadSafeSlotVar(self.root, v) for v in self.slot_vars
-        ]
+        self._safe_slot_vars = make_safe_slot_vars(self.root, self.slot_vars)
 
         self._build_ui()
         self._apply_cli_args()
