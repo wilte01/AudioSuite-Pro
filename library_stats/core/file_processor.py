@@ -42,6 +42,10 @@ extension point.  An enabled plugin's contributions run once per file with the
 tags the scan already read, and their metrics are aggregated into
 ``StatsReport.plugin_analysis`` — counted apart from the suite's own figures so
 a plugin's numbers stay attributable (Sprint 7).
+
+Changed in 2.4.1: takes ``TagHandlerFactory`` from
+``audio_suite_shared.tag_handler_factory``, the leaf module that owns the
+handler table (WP-2).
 """
 
 from __future__ import annotations
@@ -66,7 +70,7 @@ from audio_suite_shared.plugin_system import (
     resolved_contributions,
     run_analysis,
 )
-from audio_suite_shared.tag_helper_base import TagHandlerFactory
+from audio_suite_shared.tag_handler_factory import TagHandlerFactory
 
 logger = logging.getLogger(__name__)
 

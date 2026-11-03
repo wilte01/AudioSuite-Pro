@@ -6,6 +6,9 @@ and handle errors uniformly.
 
 Changed in 1.2.0: adds ``read_isrcs``, the reader for the ISRC retrieval added
 by the Audio Fingerprinter's MusicBrainz integration (D29).
+
+Changed in 2.4.1: imports ``TagHandlerFactory`` from the leaf
+``tag_handler_factory`` module rather than from ``tag_helper_base`` (WP-2).
 """
 
 from __future__ import annotations
@@ -14,7 +17,8 @@ from typing import Any
 
 from .audio_formats import SUPPORTED_EXTENSIONS
 from .exceptions import handle_audio_errors
-from .tag_helper_base import EDITABLE_FIELDS, LyricsTags, TagHandlerFactory
+from .tag_handler_factory import TagHandlerFactory
+from .tag_helper_base import EDITABLE_FIELDS, LyricsTags
 
 
 @handle_audio_errors(reraise=False, return_on_error=False, context="tag_read")

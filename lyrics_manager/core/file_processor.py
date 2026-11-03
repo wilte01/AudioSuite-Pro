@@ -8,6 +8,10 @@ per batch, so worker threads never share provider state.
 Changed in 1.4.0: the worker count resolves from ``default_max_workers()``
 when not supplied (PLAN D56). The artist/title and existing-lyrics reads
 share one handler load instead of two (PLAN D55).
+
+Changed in 2.4.1: takes ``TagHandlerFactory`` from
+``audio_suite_shared.tag_handler_factory``, the leaf module that owns the
+handler table (WP-2).
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -28,10 +32,10 @@ from audio_suite_shared.constants import cap_workers_to_slot_grid, default_max_w
 from audio_suite_shared.exceptions import AudioTagError, handle_audio_errors
 from audio_suite_shared.file_processor_base import BaseFileProcessor
 from audio_suite_shared.lrc_handler import LrcParseError
+from audio_suite_shared.tag_handler_factory import TagHandlerFactory
 from audio_suite_shared.tag_helper_base import (
     BaseTagHandler,
     LyricsTags,
-    TagHandlerFactory,
 )
 from audio_suite_shared.tag_helper_writer import write_plain_lyrics, write_synced_lyrics
 

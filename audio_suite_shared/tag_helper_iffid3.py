@@ -4,9 +4,14 @@ tag_helper_iffid3.py — WAV/AIFF (RIFF ID3) tag handler.
 The ``IFFID3Handler`` implementation, relocated verbatim from
 ``tag_helper_base.py`` by iteration-7 C2 (plan-governed god-file split).
 It subclasses ``MP3Handler`` (tag_helper_mp3.py). Import the public surface
-through ``audio_suite_shared.tag_helper_base``: this module participates in
-the facade import cycle and must not be the first tag-helper module imported
-in a fresh interpreter.
+through ``audio_suite_shared.tag_helper_base``: this module may be the
+first tag-helper module imported in a fresh
+interpreter: the factory imports this module inside its builder, never at
+module level (2.4.1 WP-2).
+
+Changed in 2.4.1: drops the import-order warning — the factory imports
+this module inside its builder, so it may be the first tag-helper import
+in a fresh interpreter (WP-2).
 """
 
 import logging

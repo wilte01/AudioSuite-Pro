@@ -12,6 +12,18 @@ one.
 
 ## [Unreleased]
 
+- **The tag-handler factory is a leaf module.** `TagHandlerFactory`
+  moved out of `tag_helper_base` into
+  `audio_suite_shared/tag_handler_factory.py`, which imports its six
+  handler modules inside the builder that fills the table;
+  `tag_helper_base` resolves the factory and the handler classes through a
+  module-level `__getattr__` (PEP 562), so the cycle that made a handler
+  module an invalid *first* import is gone. `tests/test_import_isolation.py`
+  imports each handler module first in a fresh interpreter subprocess and
+  asserts the factory alone loads no handler module; both fail on the old
+  layout (the handler case dies with `ImportError: cannot import name
+  'MP3Handler' from partially initialized module`).
+
 - **One format capability matrix.** `audio_suite_shared/audio_formats.py`
   now holds a frozen `FormatCapability` row per container in
   `FORMAT_MATRIX`, and `SUPPORTED_EXTENSIONS`, `READ_ONLY_EXTENSIONS`,
@@ -25,8 +37,9 @@ one.
 - **`get_export_args` raises instead of writing MP3.** The MP3 fallback for
   an unknown or read-only extension encoded the source stream as MP3 into a
   file named for another container. It now raises `AudioFormatError`, and
-  `tests/test_format_capabilities.py` holds the refusal plus a measured
-  round trip for every writable row (`ffprobe` reads the codec back).
+  `audio_suite_shared/tests/test_audio_formats.py` holds the refusal, a
+  measured round trip for every writable row (`ffprobe` reads the codec
+  back), and the ``tag_writable``/factory agreement.
 - **The per-file change-note lock is re-baselined to the 2.4.1 window.**
   `tests/test_release_notes.py` pins `BASE_COMMIT` to `c124142` - the 2.4.0
   release commit the `v2.4.0` tag points at - and `NOTE_MARKER` to

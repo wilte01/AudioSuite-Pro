@@ -227,7 +227,8 @@ FORMAT_MATRIX: dict[str, FormatCapability] = {
         # Completing the container is the whole point of WP-1's D-4 decision:
         # the converter could already read it while every is_supported_format
         # caller ignored it. Measured on FFmpeg 8.0.1 (wmav2 encoder + asf
-        # muxer present); the probe is in tests/test_format_capabilities.py.
+        # muxer present); the probe and the round trip live in
+        # audio_suite_shared/tests/test_audio_formats.py.
         output_extension=".wma",
         export_args=("-c:a", "wmav2", "-b:a", "192k"),
         # No ASF handler in TagHandlerFactory yet, so a writer must refuse

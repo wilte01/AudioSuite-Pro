@@ -22,6 +22,10 @@ status — the edit is supplementary and the files are already tagged.
 
 Changed in 1.4.0: artist/title and album reads of one file share a single
 handler load (PLAN D55).
+
+Changed in 2.4.1: takes ``TagHandlerFactory`` from
+``audio_suite_shared.tag_handler_factory``, the leaf module that owns the
+handler table (WP-2).
 """
 
 from __future__ import annotations
@@ -45,7 +49,7 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.file_processor_base import BaseFileProcessor
-from audio_suite_shared.tag_helper import TagHandlerFactory
+from audio_suite_shared.tag_handler_factory import TagHandlerFactory
 from audio_suite_shared.tag_helper_reader import read_isrcs
 
 from .acoustid_client import AcoustidClient, resolve_best_match

@@ -9,8 +9,9 @@ TXXX, TPE1, TPE2, TALB, APIC, etc.) is therefore inherited unchanged from
 :class:`MP3Handler`; only the format-specific ``load()`` differs.
 
 Import the public surface through ``audio_suite_shared.tag_helper_base``:
-this module participates in the facade import cycle and must not be the
-first tag-helper module imported in a fresh interpreter.
+this module may be the first tag-helper module imported in a fresh
+interpreter: the factory imports this module inside its builder, never at
+module level (2.4.1 WP-2).
 
 Note (empirically pinned, D20): ``mutagen.dsf.DSF`` accepts only ``ID3``
 *Frame* instances (e.g. ``TBPM(...)``) via ``tags.add``; assigning a plain
@@ -18,6 +19,10 @@ Note (empirically pinned, D20): ``mutagen.dsf.DSF`` accepts only ``ID3``
 usage.
 
 Changed in 1.1.0: new DSF (ID3-backed) tag handler for .dsf.
+
+Changed in 2.4.1: drops the import-order warning — the factory imports
+this module inside its builder, so it may be the first tag-helper import
+in a fresh interpreter (WP-2).
 """
 
 import logging

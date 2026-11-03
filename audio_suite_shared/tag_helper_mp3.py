@@ -4,8 +4,9 @@ tag_helper_mp3.py — MP3 (ID3) tag handler.
 The ``MP3Handler`` implementation, relocated verbatim from
 ``tag_helper_base.py`` by iteration-7 C2 (plan-governed god-file split).
 Import the public surface through ``audio_suite_shared.tag_helper_base``:
-this module participates in the facade import cycle and must not be the
-first tag-helper module imported in a fresh interpreter.
+this module may be the first tag-helper module imported in a fresh
+interpreter: the factory imports this module inside its builder, never at
+module level (2.4.1 WP-2).
 
 Changed in 1.2.0: adds ``read_isrcs`` (ID3 ``TSRC``) for the Audio
 Fingerprinter's ISRC retrieval (PLAN_feature_expansion.md D29).
@@ -13,6 +14,10 @@ Changed in 2.2.0: ``disc`` joins ``EDITABLE_FIELDS`` and maps to the ``TPOS``
 frame (inherited by the WAV/AIFF and DSF handlers, which subclass this one),
 so the Tag Field Updater's filename source can write a parsed ``%disc%``
 (functional backlog F-01).
+
+Changed in 2.4.1: drops the import-order warning — the factory imports
+this module inside its builder, so it may be the first tag-helper import
+in a fresh interpreter (WP-2).
 """
 
 import logging

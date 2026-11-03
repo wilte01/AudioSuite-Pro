@@ -13,6 +13,9 @@ Changed in 1.1.0: treats .dsf as ID3-backed so tag writes route through the ID3 
 path.
 Changed in 1.2.0: adds ``write_isrc`` — the ISRC storage half of the Audio
 Fingerprinter's MusicBrainz integration (PLAN_feature_expansion.md D29).
+
+Changed in 2.4.1: imports ``TagHandlerFactory`` from the leaf
+``tag_handler_factory`` module rather than from ``tag_helper_base`` (WP-2).
 """
 
 import os
@@ -22,7 +25,7 @@ from typing import Any
 from audio_suite_shared.exceptions import AudioTagError, handle_audio_errors
 
 from .batch_undo import record_tag_edit_snapshot
-from .tag_helper_base import TagHandlerFactory
+from .tag_handler_factory import TagHandlerFactory
 
 _ID3_BACKED_EXTENSIONS: tuple[str, ...] = (".mp3", ".wav", ".aiff", ".aif", ".dsf")
 _MP4_BACKED_EXTENSIONS: tuple[str, ...] = (".m4a", ".mp4")

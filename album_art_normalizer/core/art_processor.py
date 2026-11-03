@@ -11,6 +11,10 @@ The per-format processors (process_mp3_artwork, process_flac_artwork) import
 their mutagen dependencies from ``album_art_normalizer`` at call time so that
 tests can patch ``album_art_normalizer.MP3`` / ``album_art_normalizer.FLAC`` via
 ``unittest.mock.patch`` without requiring a circular-import workaround.
+
+Changed in 2.4.1: keeps its function-local ``TagHandlerFactory`` import
+from ``tag_helper_base``: that name is the seam the dry-run locks patch,
+and the leaf ``tag_handler_factory`` is reached through the shim (WP-2).
 """
 
 import io

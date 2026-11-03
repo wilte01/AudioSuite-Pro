@@ -14,6 +14,10 @@ refuses ``..``, drive and UNC values, so this is the defence-in-depth layer
 that also covers a future resolver change; a violation is a ``PatternError``,
 which the existing handler reports as "PATTERN ERROR" and counts in
 ``stats.errors``.
+
+Changed in 2.4.1: takes ``TagHandlerFactory`` from
+``audio_suite_shared.tag_handler_factory``, the leaf module that owns the
+handler table (WP-2).
 """
 
 from __future__ import annotations
@@ -26,8 +30,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from audio_suite_shared.constants import VARIOUS_ARTISTS_ALIASES
+from audio_suite_shared.tag_handler_factory import TagHandlerFactory
 from audio_suite_shared.tag_helper import SUPPORTED_EXTENSIONS
-from audio_suite_shared.tag_helper_base import TagHandlerFactory
 
 try:
     from mutagen import MutagenError

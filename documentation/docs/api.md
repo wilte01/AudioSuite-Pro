@@ -194,6 +194,10 @@ fails on any parser warning, so a malformed docstring cannot ship either.
 :exclude-members: AudioTagError
 ```
 
+```{automodule} audio_suite_shared.tag_handler_factory
+:members:
+```
+
 ```{automodule} audio_suite_shared.tag_helper_base
 :members:
 ```

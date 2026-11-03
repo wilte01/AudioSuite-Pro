@@ -10,6 +10,10 @@ argument, so the CLI/batch path and the GUI resolve the same file (audit R-04,
 plan B1). The call used to pass ``__file__`` and therefore read
 ``album_art_sync/core/album_art_config.json``, which is empty on an install
 where the keys were entered in the GUI.
+
+Changed in 2.4.1: takes ``TagHandlerFactory`` from
+``audio_suite_shared.tag_handler_factory``, the leaf module that owns the
+handler table (WP-2).
 """
 
 from __future__ import annotations
@@ -27,7 +31,8 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
-from audio_suite_shared.tag_helper import SUPPORTED_EXTENSIONS, TagHandlerFactory
+from audio_suite_shared.tag_handler_factory import TagHandlerFactory
+from audio_suite_shared.tag_helper import SUPPORTED_EXTENSIONS
 
 from ..api import source_resolver
 from ..config.settings import CONFIG, load_config

@@ -4,8 +4,9 @@ tag_helper_mp4.py — M4A / MP4 (iTunes atom) tag handler.
 The ``MP4Handler`` implementation, relocated verbatim from
 ``tag_helper_base.py`` by iteration-7 C2 (plan-governed god-file split).
 Import the public surface through ``audio_suite_shared.tag_helper_base``:
-this module participates in the facade import cycle and must not be the
-first tag-helper module imported in a fresh interpreter.
+this module may be the first tag-helper module imported in a fresh
+interpreter: the factory imports this module inside its builder, never at
+module level (2.4.1 WP-2).
 
 Changed in 1.2.0: adds ``read_isrcs`` (the iTunes freeform ``ISRC`` atom) for
 the Audio Fingerprinter's ISRC retrieval (PLAN_feature_expansion.md D29).
@@ -14,6 +15,10 @@ atom (a ``(number, total)`` pair, like ``trkn``), so the Tag Field Updater's
 filename source can write a parsed ``%disc%`` (functional backlog F-01).
 ``_parse_track_value`` became ``_parse_number_pair`` because both atoms now
 share it and its error message has to name the field it was parsing.
+
+Changed in 2.4.1: drops the import-order warning — the factory imports
+this module inside its builder, so it may be the first tag-helper import
+in a fresh interpreter (WP-2).
 """
 
 import logging

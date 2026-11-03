@@ -20,6 +20,9 @@ Run with:
 
 Changed in 1.1.0: updated the factory registry and public-name locks for the new tag
 handlers.
+
+Changed in 2.4.1: ``os`` and ``AudioFormatError`` left the facade with the
+factory, so the frozen public-name set no longer lists them (WP-2).
 """
 
 from __future__ import annotations
@@ -715,7 +718,6 @@ class TestFacadeSurface:
         {
             "APEv2Handler",
             "Any",
-            "AudioFormatError",
             "AudioTagError",
             "BaseTagHandler",
             "Callable",
@@ -733,7 +735,6 @@ class TestFacadeSurface:
             "dataclass",
             "logger",
             "logging",
-            "os",
         }
     )
 

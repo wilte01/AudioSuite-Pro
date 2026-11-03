@@ -10,24 +10,30 @@ Monkey's Audio, Musepack, Speex, DSF
 Each format handler lives in its own module (``tag_helper_mp3.py``,
 ``tag_helper_iffid3.py``, ``tag_helper_vorbis.py``, ``tag_helper_mp4.py``,
 ``tag_helper_apev2.py``, ``tag_helper_dsf.py``); this module keeps the
-shared base and the factory and re-exports the handler classes so every
-existing importer keeps working unchanged.
+shared base and resolves the handler classes and the factory lazily, on
+first access, so every existing importer keeps working while no handler
+module has to be imported here at import time. These are the rules that make
+the tag helpers authoritative; each names the module that owns it.
 
 Changed in 1.1.0: registers the APEv2 (.wv/.ape/.mpc), DSF (.dsf) and Ogg Speex (.spx)
 tag handlers.
 Changed in 1.2.0: adds ``read_isrcs`` to the handler interface — the ISRC
 retrieval half of the Audio Fingerprinter's MusicBrainz integration
 (PLAN_feature_expansion.md D29).
+
+Changed in 2.4.1: the six handler imports and ``TagHandlerFactory`` moved
+out of this module; handler classes and the factory are resolved lazily by
+``__getattr__``, so any tag-helper module may be the first import (WP-2).
 """
 
 import abc
 import logging
-import os
 from collections.abc import Callable as Callable
 from dataclasses import dataclass
+from importlib import import_module as _import_module
 from typing import TYPE_CHECKING, Any, Union
 
-from .exceptions import AudioFormatError, AudioTagError
+from .exceptions import AudioTagError
 
 if TYPE_CHECKING:
     from mutagen.aiff import AIFF
@@ -466,61 +472,47 @@ class BaseTagHandler(abc.ABC):
         self._tags = tags
 
 
-# ── Facade re-exports / handler registry inputs ─────────────────────────
-# The per-format handler modules import BaseTagHandler from this module,
-# so they cannot be imported while this module is still initialising; the
-# imports therefore sit here, after the base class is fully defined (the
-# redundant-alias form marks them as explicit re-exports for type
-# checkers). Consequence: in a fresh interpreter the FIRST import of this
-# cluster must be tag_helper_base (or any module that reaches it), never
-# a handler module directly — direct-first-entry would find the handler
-# module only partially initialised.
-from .tag_helper_apev2 import APEv2Handler as APEv2Handler  # noqa: E402
-from .tag_helper_dsf import DSFID3Handler as DSFID3Handler  # noqa: E402
-from .tag_helper_iffid3 import IFFID3Handler as IFFID3Handler  # noqa: E402
-from .tag_helper_mp3 import MP3Handler as MP3Handler  # noqa: E402
-from .tag_helper_mp4 import MP4Handler as MP4Handler  # noqa: E402
-from .tag_helper_vorbis import VorbisHandler as VorbisHandler  # noqa: E402
+# ── Lazy re-exports ──────────────────────────────
+# The handler modules subclass BaseTagHandler, so importing them here made
+# this module unimportable unless it were the first one imported: that is the
+# cycle that made a handler module an invalid first import (2.4.1 WP-2). The
+# names below are resolved on first access instead (PEP 562). The factory
+# lives in the leaf ``tag_handler_factory`` module and is listed here so an
+# in-tree or third-party import of it from this module keeps working for this
+# release; drop that entry once a minor has passed.
+_LAZY_REEXPORTS: dict[str, str] = {
+    "APEv2Handler": "tag_helper_apev2",
+    "DSFID3Handler": "tag_helper_dsf",
+    "IFFID3Handler": "tag_helper_iffid3",
+    "MP3Handler": "tag_helper_mp3",
+    "MP4Handler": "tag_helper_mp4",
+    "TagHandlerFactory": "tag_handler_factory",
+    "VorbisHandler": "tag_helper_vorbis",
+}
 
 
-class TagHandlerFactory:
-    """Factory for obtaining the appropriate tag handler for a file."""
+def __getattr__(name: str) -> Any:
+    """Resolve a re-exported name on first access.
 
-    _handlers: dict[str, type[BaseTagHandler]] = {
-        ".mp3": MP3Handler,
-        ".flac": VorbisHandler,
-        ".ogg": VorbisHandler,
-        ".opus": VorbisHandler,
-        ".spx": VorbisHandler,
-        ".m4a": MP4Handler,
-        ".mp4": MP4Handler,
-        ".wav": IFFID3Handler,
-        ".aiff": IFFID3Handler,
-        ".aif": IFFID3Handler,
-        ".wv": APEv2Handler,
-        ".ape": APEv2Handler,
-        ".mpc": APEv2Handler,
-        ".dsf": DSFID3Handler,
-    }
+    Args:
+        name: Attribute requested from this module.
 
-    @classmethod
-    def get_handler(cls, path: str) -> BaseTagHandler:
-        """Return a loaded handler appropriate for the file's extension.
+    Returns:
+        The attribute, taken from the module named in ``_LAZY_REEXPORTS``.
 
-        Args:
-            path: Path to the audio file.
+    Raises:
+        AttributeError: When the name is not one of the lazy re-exports.
+    """
+    module_name = _LAZY_REEXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(_import_module(f".{module_name}", __package__), name)
 
-        Returns:
-            A fully loaded ``BaseTagHandler`` subclass instance.
 
-        Raises:
-            ValueError: If the file extension has no registered handler.
-        """
-        ext = os.path.splitext(path)[1].lower()
-        handler_cls = cls._handlers.get(ext)
-        if not handler_cls:
-            raise AudioFormatError(f"Unsupported format: {ext}")
+def __dir__() -> list[str]:
+    """List this module's attributes, including the lazy re-exports.
 
-        handler = handler_cls(path)
-        handler.load()
-        return handler
+    Returns:
+        Sorted attribute names.
+    """
+    return sorted(set(globals()) | set(_LAZY_REEXPORTS))

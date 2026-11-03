@@ -2,6 +2,10 @@
 tag_reader.py
 Reads the TITLEGENRE custom tag from a single audio file.
 Pure function — no tkinter imports, no side effects.
+
+Changed in 2.4.1: takes ``TagHandlerFactory`` from
+``audio_suite_shared.tag_handler_factory``, the leaf module that owns the
+handler table (WP-2).
 """
 
 import logging
@@ -10,7 +14,7 @@ from typing import Optional
 from mutagen import MutagenError
 
 from audio_suite_shared.exceptions import map_to_audio_error
-from audio_suite_shared.tag_helper import TagHandlerFactory
+from audio_suite_shared.tag_handler_factory import TagHandlerFactory
 
 logger = logging.getLogger(__name__)
 

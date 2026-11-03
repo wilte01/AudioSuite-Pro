@@ -8,8 +8,9 @@ Speex (``.spx``) support was added by Sprint 1 of
 exposes the same Vorbis-comment tag surface as ``OggVorbis`` (verified in
 D20), so it shares this handler with only a new ``load()`` branch.
 Import the public surface through ``audio_suite_shared.tag_helper_base``:
-this module participates in the facade import cycle and must not be the
-first tag-helper module imported in a fresh interpreter.
+this module may be the first tag-helper module imported in a fresh
+interpreter: the factory imports this module inside its builder, never at
+module level (2.4.1 WP-2).
 
 Changed in 1.1.0: adds an Ogg Speex (.spx) load branch to the Vorbis handler.
 Changed in 1.2.0: adds ``read_isrcs`` (the ``ISRC`` Vorbis comment) for the
@@ -17,6 +18,10 @@ Audio Fingerprinter's ISRC retrieval (PLAN_feature_expansion.md D29).
 Changed in 2.2.0: ``disc`` joins ``EDITABLE_FIELDS`` and maps to the
 ``discnumber`` Vorbis comment, so the Tag Field Updater's filename source can
 write a parsed ``%disc%`` (functional backlog F-01).
+
+Changed in 2.4.1: drops the import-order warning — the factory imports
+this module inside its builder, so it may be the first tag-helper import
+in a fresh interpreter (WP-2).
 """
 
 import logging

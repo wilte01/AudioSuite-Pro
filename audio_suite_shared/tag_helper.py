@@ -8,6 +8,9 @@ that existing callers rely on.
 Changed in 1.1.0: re-exports the new APEv2 and DSF tag handlers.
 Changed in 1.2.0: re-exports ``read_isrcs`` / ``write_isrc`` (ISRC retrieval
 and storage for the Audio Fingerprinter, D29).
+
+Changed in 2.4.1: ``TagHandlerFactory`` is re-exported from the leaf
+``tag_handler_factory`` module (WP-2).
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ if TYPE_CHECKING:
     from mutagen.id3 import ID3
 
 from .audio_formats import SUPPORTED_EXTENSIONS
+from .tag_handler_factory import TagHandlerFactory
 from .tag_helper_art import embed_artwork
 from .tag_helper_base import (
     EDITABLE_FIELDS,
@@ -29,7 +33,6 @@ from .tag_helper_base import (
     IFFID3Handler,
     MP3Handler,
     MP4Handler,
-    TagHandlerFactory,
     VorbisHandler,
 )
 from .tag_helper_reader import (

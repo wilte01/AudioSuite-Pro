@@ -7,8 +7,9 @@ added by Sprint 1 of ``PLAN_feature_expansion.md`` item 1.1 (D15): ``.wv``
 store tags in an APEv2 container (``mutagen.apev2``).
 
 Import the public surface through ``audio_suite_shared.tag_helper_base``:
-this module participates in the facade import cycle and must not be the
-first tag-helper module imported in a fresh interpreter.
+this module may be the first tag-helper module imported in a fresh
+interpreter: the factory imports this module inside its builder, never at
+module level (2.4.1 WP-2).
 
 APEv2 value semantics (empirically pinned against mutagen 1.48, D20):
 ``tags[key]`` returns an ``APETextValue`` (a ``str`` subclass whose
@@ -24,6 +25,10 @@ Fingerprinter's ISRC retrieval (PLAN_feature_expansion.md D29).
 Changed in 2.2.0: ``disc`` joins ``EDITABLE_FIELDS`` and maps to the
 ``DISCNUMBER`` APEv2 item, so the Tag Field Updater's filename source can
 write a parsed ``%disc%`` (functional backlog F-01).
+
+Changed in 2.4.1: drops the import-order warning — the factory imports
+this module inside its builder, so it may be the first tag-helper import
+in a fresh interpreter (WP-2).
 """
 
 import logging

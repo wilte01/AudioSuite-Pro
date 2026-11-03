@@ -10,6 +10,10 @@ canonical list shared across the suite)
 
 Changed in 1.4.0: the three per-file tag reads share one handler load
 (PLAN D55).
+
+Changed in 2.4.1: takes ``TagHandlerFactory`` from
+``audio_suite_shared.tag_handler_factory``, the leaf module that owns the
+handler table (WP-2).
 """
 
 import logging
@@ -28,9 +32,9 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.file_processor_base import BaseFileProcessor
+from audio_suite_shared.tag_handler_factory import TagHandlerFactory
 from audio_suite_shared.tag_helper import (
     SUPPORTED_EXTENSIONS,
-    TagHandlerFactory,
     write_genre_sync_result,
 )
 
