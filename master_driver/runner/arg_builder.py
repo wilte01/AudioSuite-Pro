@@ -1,3 +1,5 @@
+# Changed in 2.4.1: every utility builder emits the shared run-mode and
+# start/end handshake; four of them emitted none (F-WP4-1).
 # Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """
 arg_builder.py — Constructs the CLI argument list for each child module.
@@ -299,12 +301,14 @@ def _build_utility_tool_args(
             "--size",
             state.art_normalizer_size.get(),
         ],
-        "cd_ripper": lambda: _build_cd_ripper_args(state),
+        "cd_ripper": lambda: _build_cd_ripper_args(
+            state, mode_flag, start_flag, end_flag
+        ),
         "mood_analysis_batch": lambda: _build_mood_analysis_batch_args(
             path, mode_flag, start_flag, end_flag, state
         ),
         "library_stats": lambda: (
-            [path]
+            [path, mode_flag, start_flag, end_flag]
             + (
                 ["--incremental"]
                 if state.library_stats_incremental.get() == "incremental"
@@ -344,6 +348,9 @@ def _build_utility_tool_args(
         "file_reorganizer": lambda: (
             [
                 path,
+                mode_flag,
+                start_flag,
+                end_flag,
                 "--output-dir",
                 state.file_reorg_output_dir.get(),
                 "--action",
@@ -776,9 +783,18 @@ def _build_mood_analysis_batch_args(
     return args
 
 
-def _build_cd_ripper_args(state: AppState) -> list[str]:
-    """Return the CLI argument list for the CD Ripper."""
-    args: list[str] = []
+def _build_cd_ripper_args(
+    state: AppState,
+    mode_flag: str,
+    start_flag: str,
+    end_flag: str,
+) -> list[str]:
+    """Return the CLI argument list for the CD Ripper.
+
+    The CD Ripper has no positional folder — its destination is
+    ``--output-dir`` — so the shared run-mode/start/end tokens lead the list.
+    """
+    args: list[str] = [mode_flag, start_flag, end_flag]
     output_dir = state.cd_ripper_output_dir.get()
     if output_dir:
         args += ["--output-dir", output_dir]

@@ -26,7 +26,9 @@ one.
   `tests/test_driver_handshake_contract.py` covers the first-party registry
   exactly, round-trips the real `arg_builder` argv through nine real parsers,
   runs two real `.pyw` launchers, and locks the finding that four builders
-  launch no mode flag at all.
+  launched no mode flag at all — fixed in the same release: every utility
+  builder now emits the mode and the pair, except the ASX Extractor, whose
+  argv carries it as the label its own dropdown displays.
 
 - **Dead code removed and the last slot-var clone retired.** WP-3 deletes
   `noise_reduction/ui/setup_tab.py` (173 lines no shipped module imported

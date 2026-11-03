@@ -17,10 +17,11 @@ This file holds the contract:
    builder is the shipped one — and each one's **real** ``parse()`` must report
    the same reading the shared grammar takes from that argv. Agreeing with the
    grammar is the contract; reading it *differently* is the drift being closed.
-3. The builder's own gap is recorded, not smoothed over: three tools are
-   launched with no mode flag at all (finding F-WP4-1 in the plan's decision
-   log). That test fails the day ``arg_builder`` starts emitting the mode, so
-   the row cannot rot.
+3. Every launched tool is told the driver's mode and its auto-start/auto-end
+   pair, so no builder can silently drop the handshake (finding F-WP4-1,
+   fixed in decision D-30). The ASX Extractor is the one named exception:
+   its argv carries the mode as the label its own dropdown displays, so a
+   shared-mode token there would be a second source nothing reads.
 4. Two real ``.pyw`` launchers are executed with a handshake argv and must
    reach window construction.
 
@@ -171,7 +172,14 @@ HANDSHAKE_TOOLS: dict[str, ToolSpec] = {
     "art": ToolSpec("album_art_sync.utils.cli_args"),
     "lyrics_manager": ToolSpec(reason=_UNCHANGED),
     "converter": ToolSpec(reason=_UNCHANGED),
-    "asx_extractor": ToolSpec(reason=_UNCHANGED),
+    "asx_extractor": ToolSpec(
+        reason=(
+            "parses through argparse and conveys the mode as the label for "
+            "its own --mode dropdown, which its window displays, instead of "
+            "the shared --live/--dry token; a second token would be a source "
+            "nothing reads. Its own test_cli_args.py locks the parse"
+        )
+    ),
     "album_art_normalizer": ToolSpec(reason=_UNCHANGED),
     "mood_analysis_batch": ToolSpec(reason=_UNCHANGED),
     "library_stats": ToolSpec("library_stats.utils.cli_args"),
@@ -210,13 +218,9 @@ DRIVEN_TOOLS: tuple[str, ...] = tuple(
     tool_id for tool_id, spec in HANDSHAKE_TOOLS.items() if not spec.reason
 )
 
-#: Tools the driver launches with no mode flag at all (finding F-WP4-1).
-NO_MODE_IN_ARGV: tuple[str, ...] = (
-    "asx_extractor",
-    "cd_ripper",
-    "file_reorganizer",
-    "library_stats",
-)
+#: Tools the driver launches with no shared mode flag. The ASX Extractor
+#: carries the mode as its dropdown label instead (D-30 names why).
+NO_MODE_IN_ARGV: tuple[str, ...] = ("asx_extractor",)
 
 
 def _builder_argv(directory: Path) -> dict[str, list[str]]:
@@ -279,19 +283,14 @@ class TestTheParserAgreesWithTheGrammar:
         assert args.auto_end is reading.auto_end, f"{tool_id}: auto-end"
         assert args.clear_logs is bool(reading.clear_logs), f"{tool_id}: logs"
 
-    def test_the_driven_tools_carry_the_drivers_mode(self) -> None:
-        """Three of the nine carry it; the rest are the builder's gap."""
-        gap = {t for t in DRIVEN_TOOLS if t in NO_MODE_IN_ARGV}
-        assert len(gap) == 3, gap
-
 
 class TestTheBuilderEmitsAHandshake:
-    def test_four_tools_are_launched_with_no_mode_flag(self, tmp_path: Path) -> None:
-        """Finding F-WP4-1: the driver never says which mode it is in.
+    def test_every_launched_tool_carries_a_mode_flag(self, tmp_path: Path) -> None:
+        """Every launched tool is told which mode the driver is in.
 
-        A defect the contract exposed, not a property worth keeping. When
-        ``arg_builder`` starts emitting the mode for these tools this test
-        fails, and the row moves off the finding list.
+        The contract found three builders that emitted no mode flag at all, so
+        their windows could not display the driver's live/dry choice. This is
+        the lock (F-WP4-1, fixed in D-30): a builder that drops it fails here.
         """
         built = _builder_argv(tmp_path)
         missing = sorted(
