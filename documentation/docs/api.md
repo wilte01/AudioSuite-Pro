@@ -242,6 +242,10 @@ fails on any parser warning, so a malformed docstring cannot ship either.
 :members:
 ```
 
+```{automodule} audio_suite_shared.tag_field_engine
+:members:
+```
+
 ```{automodule} audio_suite_shared.lrc_handler
 :members:
 ```

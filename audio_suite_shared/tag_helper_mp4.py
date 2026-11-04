@@ -19,6 +19,10 @@ share it and its error message has to name the field it was parsing.
 Changed in 2.4.1: drops the import-order warning — the factory imports
 this module inside its builder, so it may be the first tag-helper import
 in a fresh interpreter (WP-2).
+
+Changed in 2.4.2: declares ``convention = "mp4"`` and implements
+``read_field_key`` / ``set_field_key``, which stores a freeform key as the
+canonical ``MP4FreeForm`` payload instead of a bare string (WP-6).
 """
 
 import logging
@@ -39,6 +43,8 @@ logger = logging.getLogger("audio_suite.audio_suite_shared.tag_helper_base")
 class MP4Handler(BaseTagHandler):
     """Handler for M4A/MP4 files using iTunes-style atoms."""
 
+    convention = "mp4"
+
     def load(self) -> None:
         """Load the MP4/M4A file and its atom-based tags."""
         from mutagen.mp4 import MP4
@@ -56,6 +62,53 @@ class MP4Handler(BaseTagHandler):
         if self._tags is None:
             self._audio.add_tags()
             self._tags = self._audio.tags
+
+    def read_field_key(self, key: str) -> str | None:
+        """Read one MP4 atom or freeform key.
+
+        Args:
+            key: Atom key (``©grp``) or freeform key
+                (``----:TXXX:ALBUMGENRE``).
+
+        Returns:
+            The stored text, or None when the key is absent.  A freeform value
+            is stored as bytes and decoded here, which is what a comparison
+            against the requested string needs.
+        """
+        if self._tags is None or key not in self._tags:
+            return None
+        values = self._tags[key]
+        if not values:
+            return None
+        first = values[0]
+        if isinstance(first, bytes):
+            return first.decode("utf-8", "replace")
+        return str(first)
+
+    def set_field_key(self, key: str, value: str | None) -> None:
+        """Store or remove one MP4 atom or freeform key, without saving.
+
+        A freeform key stores the canonical ``MP4FreeForm`` payload rather than
+        a bare string, so the atom survives mutagen's render step whatever the
+        caller assigned.
+
+        Args:
+            key: Atom key or ``----:mean:name`` freeform key.
+            value: Value to store, or None to remove the key.
+        """
+        from mutagen.mp4 import MP4FreeForm
+
+        self._ensure_tags()
+        if self._tags is None:  # pragma: no cover - _ensure_tags creates one
+            raise AudioTagError(f"Could not create an MP4 container in {self.path}")
+        if key in self._tags:
+            del self._tags[key]
+        if value is None:
+            return
+        if key.startswith("----:"):
+            self._tags[key] = [MP4FreeForm(value.encode("utf-8"))]
+        else:
+            self._tags[key] = [value]
 
     def read_bpm(self) -> int | None:
         """Read BPM from the ``tmpo`` MP4 atom.

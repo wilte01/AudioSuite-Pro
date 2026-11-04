@@ -22,6 +22,11 @@ write a parsed ``%disc%`` (functional backlog F-01).
 Changed in 2.4.1: drops the import-order warning — the factory imports
 this module inside its builder, so it may be the first tag-helper import
 in a fresh interpreter (WP-2).
+
+Changed in 2.4.2: declares ``convention = "vorbis"`` and implements
+``read_field_key`` / ``set_field_key`` against the loaded comment dict, so the
+shared field engine can drive Vorbis comments without its own container code
+(WP-6).
 """
 
 import logging
@@ -42,6 +47,8 @@ logger = logging.getLogger("audio_suite.audio_suite_shared.tag_helper_base")
 
 class VorbisHandler(BaseTagHandler):
     """Handler for Vorbis-comment files: FLAC, OGG, Opus, and Speex."""
+
+    convention = "vorbis"
 
     def load(self) -> None:
         """Load the audio file and its Vorbis comment tags."""
@@ -77,6 +84,41 @@ class VorbisHandler(BaseTagHandler):
         if self._audio.tags is None:
             self._audio.add_tags()
         self._tags = self._audio.tags
+
+    def read_field_key(self, key: str) -> str | None:
+        """Read one Vorbis comment by name, case-insensitively.
+
+        Args:
+            key: Comment name (``GENRE``, ``CONTENTGROUP`` …).
+
+        Returns:
+            The comment's first value, or None when absent or empty.
+        """
+        if self._audio is None or key not in self._audio:
+            return None
+        values = self._audio[key]
+        if not values:
+            return None
+        return str(values[0])
+
+    def set_field_key(self, key: str, value: str | None) -> None:
+        """Store or remove one Vorbis comment, without saving.
+
+        The comment dict loaded by ``load()`` is mutated in place: mutagen's
+        FLAC serialises the dict it captured into its metadata blocks, so
+        rebinding it would silently drop the write.
+
+        Args:
+            key: Comment name.
+            value: Value to store, or None to remove the comment.
+        """
+        if self._audio is None:
+            raise AudioTagError(f"{self.path} is not loaded")
+        self._ensure_tags()
+        if key in self._audio:
+            del self._audio[key]
+        if value is not None:
+            self._audio[key] = [value]
 
     def read_bpm(self) -> int | None:
         """Read BPM from the ``bpm`` Vorbis comment field.

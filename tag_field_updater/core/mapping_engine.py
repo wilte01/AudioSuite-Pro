@@ -1,19 +1,33 @@
 """
 mapping_engine.py — Data types, constants, and value-transformation logic.
 
-This module owns the pure data layer: result types, statistics accumulator,
-format-agnostic tag mappings, and the slash-replacement utility functions.
-It has zero knowledge of Mutagen or file I/O.
+This module owns the pure data layer: result types, statistics accumulator, the
+slash rule's field list, and the slash-replacement utility functions.  It has
+zero knowledge of Mutagen or file I/O.
 
 Changed in 2.2.0: ``ProcessingResult`` carries the filename parse (captured
 fields, the pattern that matched, the fields left alone) and
 ``transform_filename_value`` routes a parsed value through the existing slash
 rule for the genre field only (functional backlog F-01).
+
+Changed in 2.4.2: ``TAG_MAPPINGS`` is gone.  It described the same three custom
+genre fields and two standard ones per container, in a second copy of the keys
+the tag handlers already knew, and the two copies were free to drift.  The keys
+now live once, in ``audio_suite_shared.tag_field_engine.FIELD_RULES``, and this
+module keeps only the tool's own statement of *which* canonical fields the slash
+rule rewrites (``SLASH_FIELDS``); ``update_value`` / ``should_update_value``
+delegate to that module so there is one slash rule in the suite (plan WP-6,
+C-M2).
 """
 
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from audio_suite_shared.tag_field_engine import (
+    needs_slash_genre_split,
+    split_slash_genre,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,45 +95,21 @@ SUPPORTED_EXTENSIONS: tuple[str, ...] = (
     ".wma",
 )
 
-# Tag field mappings by format
-TAG_MAPPINGS: dict[str, dict[str, list[str]]] = {
-    "mp3": {
-        "txxx": ["TXXX:ALBUMARTISTGENRE", "TXXX:ALBUMGENRE", "TXXX:ARTISTGENRE"],
-        "standard": ["TIT1", "TCON"],
-    },
-    "flac": {
-        "txxx": ["ALBUMARTISTGENRE", "ALBUMGENRE", "ARTISTGENRE"],
-        "standard": ["CONTENTGROUP", "GENRE"],
-    },
-    "mp4": {
-        "txxx": [
-            "----:TXXX:ALBUMARTISTGENRE",
-            "----:TXXX:ALBUMGENRE",
-            "----:TXXX:ARTISTGENRE",
-        ],
-        "standard": ["©grp", "©gen"],
-    },
-    "ogg": {
-        "txxx": ["ALBUMARTISTGENRE", "ALBUMGENRE", "ARTISTGENRE"],
-        "standard": ["CONTENTGROUP", "GENRE"],
-    },
-    "opus": {
-        "txxx": ["ALBUMARTISTGENRE", "ALBUMGENRE", "ARTISTGENRE"],
-        "standard": ["CONTENTGROUP", "GENRE"],
-    },
-    "wav": {
-        "txxx": ["TXXX:ALBUMARTISTGENRE", "TXXX:ALBUMGENRE", "TXXX:ARTISTGENRE"],
-        "standard": ["TIT1", "TCON"],
-    },
-    "aiff": {
-        "txxx": ["TXXX:ALBUMARTISTGENRE", "TXXX:ALBUMGENRE", "TXXX:ARTISTGENRE"],
-        "standard": ["TIT1", "TCON"],
-    },
-    "wma": {
-        "txxx": ["ALBUMARTISTGENRE", "ALBUMGENRE", "ARTISTGENRE"],
-        "standard": ["ContentGroupDescription", "Genre"],
-    },
-}
+#: Canonical fields the slash rule rewrites, in the order the per-format rules
+#: walked them: the three suite genre fields, then the content group, then the
+#: standard genre.  The per-container keys live in
+#: ``audio_suite_shared.tag_field_engine``; naming a field here that the table
+#: cannot place in a container fails in that table, not silently at run time.
+#: ``.wma`` stays in ``SUPPORTED_EXTENSIONS`` so a scan reports the refusal the
+#: format matrix gives it (``tag_writable = False``) rather than skipping the
+#: file without a word.
+SLASH_FIELDS: tuple[str, ...] = (
+    "album_artist_genre",
+    "album_genre",
+    "artist_genre",
+    "content_group",
+    "genre",
+)
 
 
 #: Fields whose filename-parsed value goes through the engine's existing
@@ -138,12 +128,11 @@ def transform_filename_value(field: str, value: str) -> str:
         value: The value parsed from the filename.
 
     Returns:
-        The transformed value: :func:`update_value` for the genre field, which
-        is the field the slash rule was written for, and *value* unchanged for
-        every other field.
+        The transformed value: the slash rule for the genre field, which is the
+        field it was written for, and *value* unchanged for every other field.
     """
     if field in _TRANSFORMED_FILENAME_FIELDS:
-        return update_value(value)
+        return split_slash_genre(value)
     return value
 
 
@@ -156,7 +145,7 @@ def should_update_value(value: str) -> bool:
     Returns:
         True if ``value`` contains at least one ``'/'`` character.
     """
-    return "/" in value
+    return needs_slash_genre_split(value)
 
 
 def update_value(value: str) -> str:
@@ -172,14 +161,4 @@ def update_value(value: str) -> str:
         The transformed string with bare ``'/'`` replaced by ``'; '``.
         Values containing no ``'/'`` are returned unchanged.
     """
-    if " / " in value:
-        parts = value.split(" / ")
-        updated_parts = [
-            part.replace("/", "; ") if "/" in part else part for part in parts
-        ]
-        return " / ".join(updated_parts)
-
-    if "/" in value:
-        return value.replace("/", "; ")
-
-    return value
+    return split_slash_genre(value)

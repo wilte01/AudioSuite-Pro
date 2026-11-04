@@ -12,6 +12,15 @@ contract, which reads the same count).
 Changed in 2.2.1: covers ``run_scan``, the GUI's entry point (maintenance item
 U4) - the payload the three callbacks receive, and the report lines a dry run
 and a live run produce.
+
+Changed in 2.4.2: the per-format mock suite is gone because the per-format
+rules are.  ``TestFormatProcessors`` asserted what each ``process_*_file`` did to
+a mocked mutagen object; that container work now belongs to
+``audio_suite_shared.tag_field_engine`` and is tested against real files in
+``audio_suite_shared/tests/test_tag_field_engine.py`` and
+``test_transformation_rules.py``.  What remains here is this tool's own
+contract: extension dispatch, skip/error accounting, the plugin seam and the
+undo snapshot (plan WP-6, C-M2).
 """
 
 from __future__ import annotations
@@ -21,7 +30,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from mutagen.id3 import ID3NoHeaderError
+import pytest
 
 from tag_field_updater.core.processor import (
     ProcessingResult,
@@ -132,14 +141,22 @@ class TestTagProcessorInitialization:
         for ext in expected:
             assert ext in processor.SUPPORTED_EXTENSIONS
 
-    def test_tag_mappings_structure(self) -> None:
-        """Every format entry has 'txxx' and 'standard' list keys."""
+    def test_slash_fields_are_engine_rules(self) -> None:
+        """The tool's field list is a subset of the engine's one table.
+
+        The per-format key maps this replaced were a second copy of the
+        container keys; the tool now names only the canonical fields it
+        rewrites, and a field the engine cannot place fails in the engine's own
+        table test rather than silently doing nothing here.
+        """
+        from audio_suite_shared.tag_field_engine import FIELD_RULES
+
         processor = TagProcessor()
-        for fmt, mappings in processor.TAG_MAPPINGS.items():
-            assert "txxx" in mappings, f"Missing 'txxx' key for format '{fmt}'"
-            assert "standard" in mappings, f"Missing 'standard' key for format '{fmt}'"
-            assert isinstance(mappings["txxx"], list)
-            assert isinstance(mappings["standard"], list)
+        names = {rule.name for rule in FIELD_RULES}
+        assert processor.SLASH_FIELDS, "the tool declares no fields"
+        assert set(processor.SLASH_FIELDS) <= names, (
+            f"unknown field(s): {sorted(set(processor.SLASH_FIELDS) - names)}"
+        )
 
     def test_stop_flag_transitions(self) -> None:
         """stop() sets stop_flag to True."""
@@ -344,11 +361,10 @@ class TestScanDirectory:
 
             processor = TagProcessor()
 
-            with patch("tag_field_updater.core.processor.MP3") as mock_mp3_class:
-                mock_mp3 = MagicMock()
-                mock_mp3.tags = None
-                mock_mp3_class.return_value = mock_mp3
-
+            with patch(
+                "tag_field_updater.core.processor.process_file",
+                return_value=ProcessingResult(file_path=Path("unused")),
+            ):
                 results = processor.scan_directory(tmpdir)
 
             assert len(results) == 2
@@ -390,7 +406,8 @@ class TestProcessFile:
         processor = TagProcessor()
 
         with patch(
-            "tag_field_updater.core.processor.MP3", side_effect=Exception("Read error")
+            "tag_field_updater.core.processor.process_file",
+            side_effect=Exception("Read error"),
         ):
             result = processor.process_file(Path("/test/file.mp3"))
 
@@ -402,573 +419,44 @@ class TestProcessFile:
         processor = TagProcessor()
 
         with patch(
-            "tag_field_updater.core.processor.MP3", side_effect=Exception("boom")
+            "tag_field_updater.core.processor.process_file",
+            side_effect=Exception("boom"),
         ):
             result = processor.process_file(Path("/test/file.mp3"))
 
         assert result.updated is False
 
-    def test_m4a_dispatches_to_mp4_processor(self) -> None:
-        """.m4a files are dispatched to the MP4 format processor."""
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "file.mp3",
+            "file.flac",
+            "file.m4a",
+            "file.mp4",
+            "file.ogg",
+            "file.opus",
+            "file.wav",
+            "file.aiff",
+            "file.aif",
+        ],
+    )
+    def test_every_supported_extension_reaches_the_one_rule(self, name: str) -> None:
+        """Every supported extension reaches the same rule, exactly once.
+
+        The eight per-format delegates are gone; a container that stopped
+        reaching the rule would still be counted as processed, so this asserts
+        the call as well as the count.
+        """
         processor = TagProcessor()
 
-        with patch.object(
-            processor,
-            "_process_mp4",
-            return_value=ProcessingResult(file_path=Path("/test/file.m4a")),
-        ) as mock_process_mp4:
-            result = processor.process_file(Path("/test/file.m4a"))
+        with patch(
+            "tag_field_updater.core.processor.process_file",
+            return_value=ProcessingResult(file_path=Path("/test") / name),
+        ) as mock_rule:
+            processor.process_file(Path("/test") / name)
 
-        mock_process_mp4.assert_called_once()
-        assert result.updated is False
+        mock_rule.assert_called_once()
         assert processor.stats.total_files == 1
-
-    def test_opus_dispatches_to_opus_processor(self) -> None:
-        """.opus files are dispatched to the Opus format processor."""
-        processor = TagProcessor()
-
-        with patch.object(
-            processor,
-            "_process_opus",
-            return_value=ProcessingResult(file_path=Path("/test/file.opus")),
-        ) as mock_process_opus:
-            result = processor.process_file(Path("/test/file.opus"))
-
-        mock_process_opus.assert_called_once()
-        assert result.updated is False
-        assert processor.stats.total_files == 1
-
-    def test_wav_dispatches_to_wav_processor(self) -> None:
-        """.wav files are dispatched to the WAV format processor."""
-        processor = TagProcessor()
-
-        with patch.object(
-            processor,
-            "_process_wav",
-            return_value=ProcessingResult(file_path=Path("/test/file.wav")),
-        ) as mock_process_wav:
-            result = processor.process_file(Path("/test/file.wav"))
-
-        mock_process_wav.assert_called_once()
-        assert result.updated is False
-        assert processor.stats.total_files == 1
-
-    def test_aiff_dispatches_to_aiff_processor(self) -> None:
-        """.aiff files are dispatched to the AIFF format processor."""
-        processor = TagProcessor()
-
-        with patch.object(
-            processor,
-            "_process_aiff",
-            return_value=ProcessingResult(file_path=Path("/test/file.aiff")),
-        ) as mock_process_aiff:
-            result = processor.process_file(Path("/test/file.aiff"))
-
-        mock_process_aiff.assert_called_once()
-        assert result.updated is False
-        assert processor.stats.total_files == 1
-
-
-# ---------------------------------------------------------------------------
-# Format processors
-# ---------------------------------------------------------------------------
-
-
-class TestFormatProcessors:
-    """Tests for _process_mp3, _process_flac, _process_mp4,
-    _process_ogg, _process_wma."""
-
-    # --- MP3 ---
-
-    def test_process_mp3_no_tags(self) -> None:
-        """MP3 with no ID3 tags is skipped cleanly."""
-        processor = TagProcessor()
-        mock_mp3 = MagicMock()
-        mock_mp3.tags = None
-
-        with patch("tag_field_updater.core.processor.MP3", return_value=mock_mp3):
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-                result = processor._process_mp3(Path(tmp.name))
-
-        assert result.updated is False
-        assert result.error is None
-        assert processor.stats.skipped_files == 1
-
-    def test_process_mp3_no_matching_tags(self) -> None:
-        """MP3 whose tags contain none of the target keys is not updated."""
-        processor = TagProcessor()
-        mock_tags = MagicMock()
-        mock_tags.__contains__ = MagicMock(return_value=False)
-        mock_tags.version = (2, 3)
-        mock_mp3 = MagicMock()
-        mock_mp3.tags = mock_tags
-
-        with patch("tag_field_updater.core.processor.MP3", return_value=mock_mp3):
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-                result = processor._process_mp3(Path(tmp.name))
-
-        assert result.updated is False
-        mock_mp3.save.assert_not_called()
-
-    def test_process_mp3_error_captured(self) -> None:
-        """An exception in MP3 processing populates result.error."""
-        processor = TagProcessor()
-
-        with patch(
-            "tag_field_updater.core.processor.MP3", side_effect=Exception("corrupt")
-        ):
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-                result = processor._process_mp3(Path(tmp.name))
-
-        assert result.error is not None
-        assert result.updated is False
-        assert processor.stats.error_files == 1
-
-    def test_process_mp3_updates_tags(self) -> None:
-        """MP3 with a matching tag containing '/' is updated and saved."""
-        processor = TagProcessor()
-        mock_tags = MagicMock()
-        mock_tags.__contains__ = MagicMock(return_value=True)
-        mock_tags.__getitem__ = MagicMock(return_value="Rock/Pop")
-        mock_tags.version = (2, 3)
-        mock_mp3 = MagicMock()
-        mock_mp3.tags = mock_tags
-
-        with patch("tag_field_updater.core.processor.MP3", return_value=mock_mp3):
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-                result = processor._process_mp3(Path(tmp.name))
-
-        mock_mp3.save.assert_called_once()
-        assert result.updated is True
-        assert len(result.tags_updated) > 0
-        assert processor.stats.skipped_files == 0
-
-    def test_process_mp3_id3_no_header_error(self) -> None:
-        """ID3NoHeaderError is caught and counted as skipped, not error."""
-        processor = TagProcessor()
-
-        with patch(
-            "tag_field_updater.core.processor.MP3",
-            side_effect=ID3NoHeaderError("No ID3 header"),
-        ):
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-                result = processor._process_mp3(Path(tmp.name))
-
-        assert result.updated is False
-        assert result.error is None
-        assert processor.stats.skipped_files == 1
-        assert processor.stats.error_files == 0
-
-    # --- FLAC ---
-
-    def test_process_flac_updates_tags(self) -> None:
-        """FLAC with a matching tag containing '/' is updated and saved."""
-        processor = TagProcessor()
-        mock_flac = MagicMock()
-        mock_flac.__contains__ = MagicMock(return_value=True)
-        mock_flac.__getitem__ = MagicMock(return_value="Rock/Pop")
-
-        with patch("tag_field_updater.core.processor.FLAC", return_value=mock_flac):
-            with tempfile.NamedTemporaryFile(suffix=".flac", delete=False) as tmp:
-                result = processor._process_flac(Path(tmp.name))
-
-        mock_flac.save.assert_called_once()
-        assert result.updated is True
-
-    def test_process_flac_no_matching_tags(self) -> None:
-        """FLAC with no matching keys is not saved."""
-        processor = TagProcessor()
-        mock_flac = MagicMock()
-        mock_flac.__contains__ = MagicMock(return_value=False)
-
-        with patch("tag_field_updater.core.processor.FLAC", return_value=mock_flac):
-            with tempfile.NamedTemporaryFile(suffix=".flac", delete=False) as tmp:
-                result = processor._process_flac(Path(tmp.name))
-
-        mock_flac.save.assert_not_called()
-        assert result.updated is False
-
-    def test_process_flac_error_captured(self) -> None:
-        """An exception in FLAC processing populates result.error."""
-        processor = TagProcessor()
-
-        with patch(
-            "tag_field_updater.core.processor.FLAC", side_effect=Exception("bad flac")
-        ):
-            with tempfile.NamedTemporaryFile(suffix=".flac", delete=False) as tmp:
-                result = processor._process_flac(Path(tmp.name))
-
-        assert result.error is not None
-        assert result.updated is False
-
-    def test_process_flac_value_no_slash_no_update(self) -> None:
-        """FLAC with matching tag but no '/' in value is not saved."""
-        processor = TagProcessor()
-        mock_flac = MagicMock()
-        mock_flac.__contains__ = MagicMock(return_value=True)
-        mock_flac.__getitem__ = MagicMock(return_value="Rock")
-
-        with patch("tag_field_updater.core.processor.FLAC", return_value=mock_flac):
-            with tempfile.NamedTemporaryFile(suffix=".flac", delete=False) as tmp:
-                result = processor._process_flac(Path(tmp.name))
-
-        mock_flac.save.assert_not_called()
-        assert result.updated is False
-        assert result.tags_updated == ()
-
-    # --- MP4 ---
-
-    def test_process_mp4_updates_tags(self) -> None:
-        """MP4 with a matching tag containing '/' is updated and saved."""
-        processor = TagProcessor()
-        mock_mp4 = MagicMock()
-        mock_mp4.__contains__ = MagicMock(return_value=True)
-        mock_mp4.__getitem__ = MagicMock(return_value="Rock/Pop")
-
-        with patch("tag_field_updater.core.processor.MP4", return_value=mock_mp4):
-            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
-                result = processor._process_mp4(Path(tmp.name))
-
-        mock_mp4.save.assert_called_once()
-        assert result.updated is True
-
-    def test_process_mp4_no_matching_tags(self) -> None:
-        """MP4 with no matching keys is not saved."""
-        processor = TagProcessor()
-        mock_mp4 = MagicMock()
-        mock_mp4.__contains__ = MagicMock(return_value=False)
-
-        with patch("tag_field_updater.core.processor.MP4", return_value=mock_mp4):
-            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
-                result = processor._process_mp4(Path(tmp.name))
-
-        mock_mp4.save.assert_not_called()
-        assert result.updated is False
-
-    def test_process_mp4_error_captured(self) -> None:
-        """An exception in MP4 processing populates result.error."""
-        processor = TagProcessor()
-
-        with patch(
-            "tag_field_updater.core.processor.MP4", side_effect=Exception("bad mp4")
-        ):
-            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
-                result = processor._process_mp4(Path(tmp.name))
-
-        assert result.error is not None
-        assert result.updated is False
-
-    def test_process_mp4_value_no_slash_no_update(self) -> None:
-        """MP4 with matching tag but no '/' in value is not saved."""
-        processor = TagProcessor()
-        mock_mp4 = MagicMock()
-        mock_mp4.__contains__ = MagicMock(return_value=True)
-        mock_mp4.__getitem__ = MagicMock(return_value="Rock")
-
-        with patch("tag_field_updater.core.processor.MP4", return_value=mock_mp4):
-            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
-                result = processor._process_mp4(Path(tmp.name))
-
-        mock_mp4.save.assert_not_called()
-        assert result.updated is False
-        assert result.tags_updated == ()
-
-    # --- OGG ---
-
-    def test_process_ogg_updates_tags(self) -> None:
-        """OGG with a matching tag containing '/' is updated and saved."""
-        processor = TagProcessor()
-        mock_ogg = MagicMock()
-        mock_ogg.__contains__ = MagicMock(return_value=True)
-        mock_ogg.__getitem__ = MagicMock(return_value="Rock/Pop")
-
-        with patch("tag_field_updater.core.processor.OggVorbis", return_value=mock_ogg):
-            with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
-                result = processor._process_ogg(Path(tmp.name))
-
-        mock_ogg.save.assert_called_once()
-        assert result.updated is True
-
-    def test_process_ogg_no_matching_tags(self) -> None:
-        """OGG with no matching keys is not saved."""
-        processor = TagProcessor()
-        mock_ogg = MagicMock()
-        mock_ogg.__contains__ = MagicMock(return_value=False)
-
-        with patch("tag_field_updater.core.processor.OggVorbis", return_value=mock_ogg):
-            with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
-                result = processor._process_ogg(Path(tmp.name))
-
-        mock_ogg.save.assert_not_called()
-        assert result.updated is False
-
-    def test_process_ogg_error_captured(self) -> None:
-        """An exception in OGG processing populates result.error."""
-        processor = TagProcessor()
-
-        with patch(
-            "tag_field_updater.core.processor.OggVorbis",
-            side_effect=Exception("bad ogg"),
-        ):
-            with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
-                result = processor._process_ogg(Path(tmp.name))
-
-        assert result.error is not None
-        assert result.updated is False
-
-    def test_process_ogg_value_no_slash_no_update(self) -> None:
-        """OGG with matching tag but no '/' in value is not saved."""
-        processor = TagProcessor()
-        mock_ogg = MagicMock()
-        mock_ogg.__contains__ = MagicMock(return_value=True)
-        mock_ogg.__getitem__ = MagicMock(return_value="Rock")
-
-        with patch("tag_field_updater.core.processor.OggVorbis", return_value=mock_ogg):
-            with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
-                result = processor._process_ogg(Path(tmp.name))
-
-        mock_ogg.save.assert_not_called()
-        assert result.updated is False
-        assert result.tags_updated == ()
-
-    # --- WMA ---
-
-    def test_process_wma_updates_tags(self) -> None:
-        """WMA with a matching tag containing '/' is updated and saved."""
-        processor = TagProcessor()
-        mock_wma = MagicMock()
-        mock_wma.__contains__ = MagicMock(return_value=True)
-        mock_wma.__getitem__ = MagicMock(return_value="Rock/Pop")
-
-        with patch("tag_field_updater.core.processor.ASF", return_value=mock_wma):
-            with tempfile.NamedTemporaryFile(suffix=".wma", delete=False) as tmp:
-                result = processor._process_wma(Path(tmp.name))
-
-        mock_wma.save.assert_called_once()
-        assert result.updated is True
-
-    def test_process_wma_no_matching_tags(self) -> None:
-        """WMA with no matching keys is not saved."""
-        processor = TagProcessor()
-        mock_wma = MagicMock()
-        mock_wma.__contains__ = MagicMock(return_value=False)
-
-        with patch("tag_field_updater.core.processor.ASF", return_value=mock_wma):
-            with tempfile.NamedTemporaryFile(suffix=".wma", delete=False) as tmp:
-                result = processor._process_wma(Path(tmp.name))
-
-        mock_wma.save.assert_not_called()
-        assert result.updated is False
-
-    def test_process_wma_error_captured(self) -> None:
-        """An exception in WMA processing populates result.error."""
-        processor = TagProcessor()
-
-        with patch(
-            "tag_field_updater.core.processor.ASF", side_effect=Exception("bad wma")
-        ):
-            with tempfile.NamedTemporaryFile(suffix=".wma", delete=False) as tmp:
-                result = processor._process_wma(Path(tmp.name))
-
-        assert result.error is not None
-        assert result.updated is False
-
-    def test_process_wma_value_no_slash_no_update(self) -> None:
-        """WMA with matching tag but no '/' in value is not saved."""
-        processor = TagProcessor()
-        mock_wma = MagicMock()
-        mock_wma.__contains__ = MagicMock(return_value=True)
-        mock_wma.__getitem__ = MagicMock(return_value="Rock")
-
-        with patch("tag_field_updater.core.processor.ASF", return_value=mock_wma):
-            with tempfile.NamedTemporaryFile(suffix=".wma", delete=False) as tmp:
-                result = processor._process_wma(Path(tmp.name))
-
-        mock_wma.save.assert_not_called()
-        assert result.updated is False
-        assert result.tags_updated == ()
-
-    # --- Opus ---
-
-    def test_process_opus_updates_tags(self) -> None:
-        """Opus with a matching tag containing '/' is updated and saved."""
-        processor = TagProcessor()
-        mock_opus = MagicMock()
-        mock_opus.__contains__ = MagicMock(return_value=True)
-        mock_opus.__getitem__ = MagicMock(return_value="Rock/Pop")
-
-        with patch("tag_field_updater.core.processor.OggOpus", return_value=mock_opus):
-            with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as tmp:
-                result = processor._process_opus(Path(tmp.name))
-
-        mock_opus.save.assert_called_once()
-        assert result.updated is True
-
-    def test_process_opus_no_matching_tags(self) -> None:
-        """Opus with no matching keys is not saved."""
-        processor = TagProcessor()
-        mock_opus = MagicMock()
-        mock_opus.__contains__ = MagicMock(return_value=False)
-
-        with patch("tag_field_updater.core.processor.OggOpus", return_value=mock_opus):
-            with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as tmp:
-                result = processor._process_opus(Path(tmp.name))
-
-        mock_opus.save.assert_not_called()
-        assert result.updated is False
-
-    def test_process_opus_error_captured(self) -> None:
-        """An exception in Opus processing populates result.error."""
-        processor = TagProcessor()
-
-        with patch(
-            "tag_field_updater.core.processor.OggOpus",
-            side_effect=Exception("bad opus"),
-        ):
-            with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as tmp:
-                result = processor._process_opus(Path(tmp.name))
-
-        assert result.error is not None
-        assert result.updated is False
-
-    def test_process_opus_value_no_slash_no_update(self) -> None:
-        """Opus with matching tag but no '/' in value is not saved."""
-        processor = TagProcessor()
-        mock_opus = MagicMock()
-        mock_opus.__contains__ = MagicMock(return_value=True)
-        mock_opus.__getitem__ = MagicMock(return_value="Rock")
-
-        with patch("tag_field_updater.core.processor.OggOpus", return_value=mock_opus):
-            with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as tmp:
-                result = processor._process_opus(Path(tmp.name))
-
-        mock_opus.save.assert_not_called()
-        assert result.updated is False
-        assert result.tags_updated == ()
-
-    # --- WAV ---
-
-    def test_process_wav_updates_tags(self) -> None:
-        """WAV with a matching tag containing '/' is updated and saved."""
-        processor = TagProcessor()
-        mock_tags = MagicMock()
-        mock_tags.__contains__ = MagicMock(return_value=True)
-        mock_tags.__getitem__ = MagicMock(return_value="Rock/Pop")
-        mock_tags.version = (2, 3)
-        mock_wav = MagicMock()
-        mock_wav.tags = mock_tags
-
-        with patch("tag_field_updater.core.processor.WAVE", return_value=mock_wav):
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                result = processor._process_wav(Path(tmp.name))
-
-        mock_wav.save.assert_called_once()
-        assert result.updated is True
-
-    def test_process_wav_no_tags(self) -> None:
-        """WAV with no ID3 tags is skipped cleanly."""
-        processor = TagProcessor()
-        mock_wav = MagicMock()
-        mock_wav.tags = None
-
-        with patch("tag_field_updater.core.processor.WAVE", return_value=mock_wav):
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                result = processor._process_wav(Path(tmp.name))
-
-        assert result.updated is False
-        assert result.error is None
-        assert processor.stats.skipped_files == 1
-
-    def test_process_wav_no_matching_tags(self) -> None:
-        """WAV whose tags contain none of the target keys is not updated."""
-        processor = TagProcessor()
-        mock_tags = MagicMock()
-        mock_tags.__contains__ = MagicMock(return_value=False)
-        mock_tags.version = (2, 3)
-        mock_wav = MagicMock()
-        mock_wav.tags = mock_tags
-
-        with patch("tag_field_updater.core.processor.WAVE", return_value=mock_wav):
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                result = processor._process_wav(Path(tmp.name))
-
-        assert result.updated is False
-
-    def test_process_wav_error_captured(self) -> None:
-        """An exception in WAV processing populates result.error."""
-        processor = TagProcessor()
-
-        with patch(
-            "tag_field_updater.core.processor.WAVE", side_effect=Exception("corrupt")
-        ):
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                result = processor._process_wav(Path(tmp.name))
-
-        assert result.error is not None
-        assert result.updated is False
-        assert processor.stats.error_files == 1
-
-    # --- AIFF ---
-
-    def test_process_aiff_updates_tags(self) -> None:
-        """AIFF with a matching tag containing '/' is updated and saved."""
-        processor = TagProcessor()
-        mock_tags = MagicMock()
-        mock_tags.__contains__ = MagicMock(return_value=True)
-        mock_tags.__getitem__ = MagicMock(return_value="Rock/Pop")
-        mock_tags.version = (2, 3)
-        mock_aiff = MagicMock()
-        mock_aiff.tags = mock_tags
-
-        with patch("tag_field_updater.core.processor.AIFF", return_value=mock_aiff):
-            with tempfile.NamedTemporaryFile(suffix=".aiff", delete=False) as tmp:
-                result = processor._process_aiff(Path(tmp.name))
-
-        mock_aiff.save.assert_called_once()
-        assert result.updated is True
-
-    def test_process_aiff_no_tags(self) -> None:
-        """AIFF with no ID3 tags is skipped cleanly."""
-        processor = TagProcessor()
-        mock_aiff = MagicMock()
-        mock_aiff.tags = None
-
-        with patch("tag_field_updater.core.processor.AIFF", return_value=mock_aiff):
-            with tempfile.NamedTemporaryFile(suffix=".aiff", delete=False) as tmp:
-                result = processor._process_aiff(Path(tmp.name))
-
-        assert result.updated is False
-        assert result.error is None
-        assert processor.stats.skipped_files == 1
-
-    def test_process_aiff_no_matching_tags(self) -> None:
-        """AIFF whose tags contain none of the target keys is not updated."""
-        processor = TagProcessor()
-        mock_tags = MagicMock()
-        mock_tags.__contains__ = MagicMock(return_value=False)
-        mock_tags.version = (2, 3)
-        mock_aiff = MagicMock()
-        mock_aiff.tags = mock_tags
-
-        with patch("tag_field_updater.core.processor.AIFF", return_value=mock_aiff):
-            with tempfile.NamedTemporaryFile(suffix=".aiff", delete=False) as tmp:
-                result = processor._process_aiff(Path(tmp.name))
-
-        assert result.updated is False
-
-    def test_process_aiff_error_captured(self) -> None:
-        """An exception in AIFF processing populates result.error."""
-        processor = TagProcessor()
-
-        with patch(
-            "tag_field_updater.core.processor.AIFF", side_effect=Exception("corrupt")
-        ):
-            with tempfile.NamedTemporaryFile(suffix=".aiff", delete=False) as tmp:
-                result = processor._process_aiff(Path(tmp.name))
-
-        assert result.error is not None
-        assert result.updated is False
-        assert processor.stats.error_files == 1
 
 
 # ---------------------------------------------------------------------------
@@ -991,11 +479,10 @@ class TestIntegration:
             def track_progress(filename: str, stats: ProcessingStats) -> None:
                 progress_calls.append((filename, stats.processed_files))
 
-            with patch("tag_field_updater.core.processor.MP3") as mock_mp3_class:
-                mock_mp3 = MagicMock()
-                mock_mp3.tags = None
-                mock_mp3_class.return_value = mock_mp3
-
+            with patch(
+                "tag_field_updater.core.processor.process_file",
+                return_value=ProcessingResult(file_path=Path("unused")),
+            ):
                 processor.scan_directory(tmpdir, progress_callback=track_progress)
 
             assert len(progress_calls) == 3
@@ -1004,9 +491,9 @@ class TestIntegration:
     def test_mixed_extensions_only_audio_processed(self) -> None:
         """Only supported audio extensions reach the format processor.
 
-        The .jpg and .txt files are skipped at the extension check.
-        The .mp3 with tags=None is skipped inside _process_mp3, so
-        skipped_files == 3 total; total_files counts only the mp3.
+        The .jpg and .txt files are skipped at the extension check; the .mp3
+        has no ID3 container, which the rule reports as a skip, so
+        skipped_files == 3 and total_files counts only the mp3.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             Path(tmpdir, "track.mp3").write_bytes(b"audio")
@@ -1015,11 +502,12 @@ class TestIntegration:
 
             processor = TagProcessor()
 
-            with patch("tag_field_updater.core.processor.MP3") as mock_mp3_class:
-                mock_mp3 = MagicMock()
-                mock_mp3.tags = None
-                mock_mp3_class.return_value = mock_mp3
+            from tag_field_updater.core.transformation_rules import _SkipFile
 
+            with patch(
+                "tag_field_updater.core.processor.process_file",
+                side_effect=_SkipFile("no ID3 tags found"),
+            ):
                 processor.scan_directory(tmpdir)
 
             assert processor.stats.total_files == 1  # mp3 only
@@ -1032,33 +520,31 @@ class TestIntegration:
 
 
 class TestUndoBatchRecording:
+    """The snapshot is recorded once, at the engine's write site."""
+
+    @staticmethod
+    def _slashed_mp3(directory: Path) -> Path:
+        """Build a real MP3 whose genre carries a bare slash."""
+        from mutagen.id3 import ID3, TCON
+        from pydub import AudioSegment
+
+        path = directory / "slashed.mp3"
+        AudioSegment.silent(duration=200).export(str(path), format="mp3")
+        tags = ID3(str(path))
+        tags.add(TCON(encoding=3, text="Rock/Pop"))
+        tags.save(str(path))
+        return path
+
     def test_mp3_save_records_snapshot_into_active_batch(self, tmp_path: Path) -> None:
-        """An MP3 save inside an active undo batch must log a tag snapshot."""
+        """A live rule run inside a batch logs one snapshot for the file."""
         from audio_suite_shared.batch_undo import active_batch, list_recent_batches
-        from tag_field_updater.core.transformation_rules import process_mp3_file
+        from tag_field_updater.core.transformation_rules import process_file
 
         undo_db = tmp_path / "undo_log.db"
+        path = self._slashed_mp3(tmp_path)
 
-        mock_tags = MagicMock()
-        mock_tags.__contains__ = MagicMock(return_value=True)
-        mock_tags.__getitem__ = MagicMock(return_value="Rock/Pop")
-        mock_tags.version = (2, 3)
-        mock_mp3 = MagicMock()
-        mock_mp3.tags = mock_tags
-
-        handler = MagicMock()
-        handler.get_raw_tags.return_value = {"TCON": "Rock/Pop"}
-
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            with patch(
-                "audio_suite_shared.tag_helper_base.TagHandlerFactory"
-            ) as factory:
-                factory.get_handler.return_value = handler
-                with patch(
-                    "tag_field_updater.core.processor.MP3", return_value=mock_mp3
-                ):
-                    with active_batch("tag_field_updater", "tag_edit", db_path=undo_db):
-                        result = process_mp3_file(Path(tmp.name))
+        with active_batch("tag_field_updater", "tag_edit", db_path=undo_db):
+            result = process_file(path)
 
         assert result.updated is True
         batches = list_recent_batches(limit=10, db_path=undo_db)
@@ -1068,24 +554,15 @@ class TestUndoBatchRecording:
         assert batches[0].record_count == 1
 
     def test_no_batch_records_nothing(self, tmp_path: Path) -> None:
-        """Without an active batch the snapshot call is a zero-overhead no-op."""
+        """Without an active batch the snapshot call is a no-op."""
         from audio_suite_shared.batch_undo import BatchUndoLog
-        from tag_field_updater.core.transformation_rules import process_mp3_file
-
-        mock_tags = MagicMock()
-        mock_tags.__contains__ = MagicMock(return_value=True)
-        mock_tags.__getitem__ = MagicMock(return_value="Rock/Pop")
-        mock_tags.version = (2, 3)
-        mock_mp3 = MagicMock()
-        mock_mp3.tags = mock_tags
+        from tag_field_updater.core.transformation_rules import process_file
 
         undo_db = tmp_path / "undo_log.db"
+        path = self._slashed_mp3(tmp_path)
+
         with BatchUndoLog(db_path=undo_db) as log:
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-                with patch(
-                    "tag_field_updater.core.processor.MP3", return_value=mock_mp3
-                ):
-                    result = process_mp3_file(Path(tmp.name))
+            result = process_file(path)
             assert result.updated is True
             assert log.list_batches() == []
 
@@ -1307,8 +784,10 @@ class TestCountScannedFiles:
 
         total = count_scanned_files(str(tmp_path))
         processor = TagProcessor()
-        with patch("tag_field_updater.core.processor.MP3") as mock_mp3_class:
-            mock_mp3_class.return_value.tags = None
+        with patch(
+            "tag_field_updater.core.processor.process_file",
+            return_value=ProcessingResult(file_path=Path("unused")),
+        ):
             processor.scan_directory(str(tmp_path))
 
         assert total == 5

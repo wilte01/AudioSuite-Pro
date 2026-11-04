@@ -29,6 +29,10 @@ write a parsed ``%disc%`` (functional backlog F-01).
 Changed in 2.4.1: drops the import-order warning — the factory imports
 this module inside its builder, so it may be the first tag-helper import
 in a fresh interpreter (WP-2).
+
+Changed in 2.4.2: declares ``convention = "apev2"`` and implements
+``read_field_key`` / ``set_field_key``, deleting an existing item by
+case-insensitive name so a rewrite cannot leave a duplicate behind (WP-6).
 """
 
 import logging
@@ -51,6 +55,8 @@ _COVER_ART_KEY = "Cover Art (Front)"
 
 class APEv2Handler(BaseTagHandler):
     """Handler for APEv2-tagged files: WavPack, Monkey's Audio, Musepack."""
+
+    convention = "apev2"
 
     def load(self) -> None:
         """Load the audio file and its APEv2 tags.
@@ -96,6 +102,35 @@ class APEv2Handler(BaseTagHandler):
             self._audio.add_tags()
             self._tags = self._audio.tags
         return self._tags
+
+    def read_field_key(self, key: str) -> str | None:
+        """Read one APEv2 text item by name.
+
+        Args:
+            key: APEv2 item name.
+
+        Returns:
+            The item's first value, or None when absent.
+        """
+        return self._read_text(key)
+
+    def set_field_key(self, key: str, value: str | None) -> None:
+        """Store or remove one APEv2 item, without saving.
+
+        APEv2 item names are case-insensitive, so the existing item is found by
+        an upper-case comparison rather than an exact one; otherwise rewriting
+        ``Genre`` would leave a second ``GENRE`` item behind.
+
+        Args:
+            key: APEv2 item name.
+            value: Value to store, or None to remove the item.
+        """
+        tags = self._ensure_tags()
+        for existing in list(tags.keys()):
+            if str(existing).upper() == key.upper():
+                del tags[existing]
+        if value is not None:
+            tags[key] = value
 
     def _read_text(self, *keys: str) -> str | None:
         """Return the first value of the first present APEv2 text item.

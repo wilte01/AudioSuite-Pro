@@ -12,6 +12,27 @@ one.
 
 ## [Unreleased]
 
+- **One tag layer.** `audio_suite_shared/tag_field_engine.py` is the
+  suite's single field table — `FieldRule` + `FIELD_RULES` (the nine
+  editable fields, plus the five key rules for the `TXXX`/Vorbis/
+  MP4-freeform genre keys and `TCON`/`GENRE`/`©gen`/`Genre`) — and
+  `TagFieldEngine`, whose `read_fields`, `diff`, `raw_updates`,
+  `write_fields(dry_run)`, `delete_fields` and `has_tags` save once per
+  file. `tag_helper_mp3`/`vorbis`/`mp4`/`apev2` gained `convention` and
+  `read_field_key`/`set_field_key`, so container knowledge stays with the
+  handler that owns it. `tag_field_updater` is a consumer:
+  `mapping_engine.TAG_MAPPINGS` and the eight `process_*_file` rules
+  collapse to `SLASH_FIELDS` and one `process_file`, and `tag_editor`'s
+  cross-tool import became `split_slash_genre`. The mapping rules are
+  locked by `tests/test_tag_equality_across_tools.py` (the same edit
+  through both tools on `.mp3`/`.flac`/`.m4a`/`.wav`, compared decoded
+  and atom by atom), by
+  `tag_field_updater/tests/test_transformation_rules.py` (the dry-run
+  gate, measured on disk) and by `metadata_scrubber`'s raw-frame lock.
+  The per-format mock suites were deleted with the per-format rules they
+  tested; `.wma` is refused, a user-visible change recorded in
+  `CHANGELOG.md`.
+
 - **One measurement path.** `audio_suite_shared/audio_probe.py` now owns the
   suite's FFmpeg measurement — `probe_stream`, `measure_levels`,
   `measure_loudness`, `measure_album_loudness` and `decoded_duration` — with the

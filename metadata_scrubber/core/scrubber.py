@@ -11,6 +11,13 @@ Changed in 2.1.7: APEv2 (.wv/.ape/.mpc), Ogg Speex (.spx) and DSF (.dsf) join
 the table, with a container-aware preserve/restore path (B2). APEv2 items are
 kept as the raw ``APEValue`` objects the loaded container holds; ``.spx`` uses
 the Vorbis-comment path and ``.dsf`` the ID3 path.
+Changed in 2.4.2: this module deliberately does **not** go through
+``audio_suite_shared.tag_field_engine``.  The engine models the canonical
+fields a tag *editor* writes; a scrubber must preserve and restore arbitrary
+frames the table does not describe — an ``APIC`` block, a vendor string, an
+unrecognised ``TXXX`` — so it keeps its raw-frame path.  The exception is
+locked by ``metadata_scrubber/tests/test_scrubber.py::TestRawFrameException``
+(plan WP-6).
 """
 
 import logging

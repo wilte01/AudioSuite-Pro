@@ -22,6 +22,11 @@ U4).  It owns the three callbacks every tool's processor exposes —
 ``on_progress`` / ``on_complete`` / ``on_error`` — and builds the per-file lines
 the run report is written from, so the window no longer drives the scan itself
 and the run leaves a report in the scanned folder like every peer's.
+
+Changed in 2.4.2: the direct mutagen imports, the ``__all__`` re-exports of
+them and the eight per-format delegates are gone.  The processor is a consumer
+of ``audio_suite_shared.tag_field_engine``: one rule for every container, and
+the container work lives in the tag handler that owns it (plan WP-6, C-M2).
 """
 
 import logging
@@ -32,31 +37,10 @@ from pathlib import Path
 
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.exceptions import (
-    AudioMissingDependencyError,
     handle_audio_errors,
     map_to_audio_error,
     user_message_for,
 )
-
-try:
-    from mutagen.aiff import AIFF  # noqa: F401
-    from mutagen.asf import ASF  # noqa: F401
-    from mutagen.flac import FLAC  # noqa: F401
-    from mutagen.id3 import TCON, TIT1, TXXX, ID3NoHeaderError  # noqa: F401
-    from mutagen.mp3 import MP3  # noqa: F401
-    from mutagen.mp4 import MP4  # noqa: F401
-    from mutagen.oggopus import OggOpus  # noqa: F401
-    from mutagen.oggvorbis import OggVorbis  # noqa: F401
-    from mutagen.wave import WAVE  # noqa: F401
-# mutagen is a declared hard dependency (pyproject); this typed failure exists
-# only to give a broken install an actionable message, so it cannot run in a
-# correctly installed suite (plan D2).
-except ImportError as e:  # pragma: no cover
-    raise AudioMissingDependencyError(
-        "Mutagen library not found. Please install with: pip install mutagen",
-        dependency="mutagen",
-    ) from e
-
 from audio_suite_shared.plugin_system import (
     ContributionSpec,
     PluginError,
@@ -69,52 +53,23 @@ from audio_suite_shared.plugin_system import (
 from .filename_patterns import parse_filename, validate_patterns
 from .filename_tags import apply_filename_fields
 from .mapping_engine import (
+    SLASH_FIELDS,
     SUPPORTED_EXTENSIONS,
-    TAG_MAPPINGS,
     ProcessingResult,
     ProcessingStats,
     should_update_value,
     update_value,
 )
-from .transformation_rules import (
-    _SkipFile,
-    process_aiff_file,
-    process_flac_file,
-    process_mp3_file,
-    process_mp4_file,
-    process_ogg_file,
-    process_opus_file,
-    process_wav_file,
-    process_wma_file,
-)
+from .transformation_rules import _SkipFile, process_file
 
 __all__ = [
-    "AIFF",
-    "ASF",
-    "FLAC",
-    "ID3NoHeaderError",
-    "MP3",
-    "MP4",
-    "OggOpus",
-    "OggVorbis",
+    "SLASH_FIELDS",
     "ProcessingResult",
     "ProcessingStats",
     "SUPPORTED_EXTENSIONS",
-    "TAG_MAPPINGS",
-    "TCON",
-    "TIT1",
-    "TXXX",
-    "WAVE",
     "TagProcessor",
     "count_scanned_files",
-    "process_aiff_file",
-    "process_flac_file",
-    "process_mp3_file",
-    "process_mp4_file",
-    "process_ogg_file",
-    "process_opus_file",
-    "process_wav_file",
-    "process_wma_file",
+    "process_file",
     "run_scan",
     "should_update_value",
     "update_value",
@@ -130,7 +85,7 @@ class TagProcessor:
     """Core processor for tag field updates. Orchestrates scanning and dispatching.
 
     Two sources share this one engine.  With no *patterns* the run is the
-    slash rule this tool has always applied (``TAG_MAPPINGS`` fields).  With
+    slash rule this tool has always applied (``SLASH_FIELDS`` fields).  With
     patterns it is the filename source: each file's name is parsed into fields
     and those fields are written (functional backlog F-01).
 
@@ -147,7 +102,7 @@ class TagProcessor:
     """
 
     SUPPORTED_EXTENSIONS = SUPPORTED_EXTENSIONS
-    TAG_MAPPINGS = TAG_MAPPINGS
+    SLASH_FIELDS = SLASH_FIELDS
 
     def __init__(
         self,
@@ -355,10 +310,17 @@ class TagProcessor:
         return result
 
     def _dispatch_by_format(self, file_path: Path, dry_run: bool) -> ProcessingResult:
-        """Route one file to the rule for its container (the slash rule).
+        """Route one file to the slash rule (the one rule every container uses).
+
+        The per-format delegates this used to call are gone: the container keys
+        belong to ``audio_suite_shared.tag_field_engine`` now, so the dispatch
+        is the extension check plus the skip/error accounting this class owns.
+        A container the format matrix refuses (``.wma``) reaches the rule and
+        comes back as a per-file error naming it, rather than vanishing as an
+        unsupported-extension skip.
 
         Args:
-            file_path: Audio file whose extension selects the rule.
+            file_path: Audio file to process.
             dry_run: Whether the rule may save.
 
         Returns:
@@ -366,25 +328,23 @@ class TagProcessor:
             (counted as skipped).
         """
         extension = file_path.suffix.lower()
-        if extension == ".mp3":
-            return self._process_mp3(file_path, dry_run=dry_run)
-        if extension == ".flac":
-            return self._process_flac(file_path, dry_run=dry_run)
-        if extension in [".mp4", ".m4a"]:
-            return self._process_mp4(file_path, dry_run=dry_run)
-        if extension == ".ogg":
-            return self._process_ogg(file_path, dry_run=dry_run)
-        if extension == ".opus":
-            return self._process_opus(file_path, dry_run=dry_run)
-        if extension == ".wav":
-            return self._process_wav(file_path, dry_run=dry_run)
-        if extension in (".aiff", ".aif"):
-            return self._process_aiff(file_path, dry_run=dry_run)
-        if extension == ".wma":
-            return self._process_wma(file_path, dry_run=dry_run)
-        self.stats.skipped_files += 1
-        logger.info("Skipped %s: unsupported format (%s)", file_path.name, extension)
-        return ProcessingResult(file_path=file_path)
+        if extension not in self.SUPPORTED_EXTENSIONS:
+            self.stats.skipped_files += 1
+            logger.info(
+                "Skipped %s: unsupported format (%s)", file_path.name, extension
+            )
+            return ProcessingResult(file_path=file_path)
+
+        try:
+            result = process_file(file_path, dry_run=dry_run)
+        except _SkipFile as skip:
+            self.stats.skipped_files += 1
+            logger.info("Skipped %s: %s", file_path.name, skip.reason)
+            return ProcessingResult(file_path=file_path)
+
+        if result.error:
+            self.stats.error_files += 1
+        return result
 
     def _process_filename_source(
         self, file_path: Path, dry_run: bool = False
@@ -489,103 +449,6 @@ class TagProcessor:
                     file_path.name,
                     outcome.message or "no reason given",
                 )
-
-    # ------------------------------------------------------------------
-    # Private delegate methods (backward-compatible dispatch targets)
-    # ------------------------------------------------------------------
-
-    def _process_mp3(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
-        """Process an MP3 file via the standalone transformation rule.
-
-        Handles skip/error stats that the standalone function cannot
-        because it has no reference to ``self.stats``.
-        """
-        try:
-            result = process_mp3_file(file_path, dry_run=dry_run)
-        except ID3NoHeaderError:
-            self.stats.skipped_files += 1
-            logger.info("Skipped %s: no ID3 header", file_path.name)
-            return ProcessingResult(file_path=file_path)
-        except _SkipFile as skip:
-            self.stats.skipped_files += 1
-            logger.info("Skipped %s: %s", file_path.name, skip.reason)
-            return ProcessingResult(file_path=file_path)
-
-        if result.error:
-            self.stats.error_files += 1
-
-        return result
-
-    def _process_flac(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
-        """Process a FLAC file via the standalone transformation rule."""
-        result = process_flac_file(file_path, dry_run=dry_run)
-        if result.error:
-            self.stats.error_files += 1
-        return result
-
-    def _process_mp4(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
-        """Process an MP4/M4A file via the standalone transformation rule."""
-        result = process_mp4_file(file_path, dry_run=dry_run)
-        if result.error:
-            self.stats.error_files += 1
-        return result
-
-    def _process_ogg(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
-        """Process an OGG file via the standalone transformation rule."""
-        result = process_ogg_file(file_path, dry_run=dry_run)
-        if result.error:
-            self.stats.error_files += 1
-        return result
-
-    def _process_opus(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
-        """Process an Opus file via the standalone transformation rule."""
-        result = process_opus_file(file_path, dry_run=dry_run)
-        if result.error:
-            self.stats.error_files += 1
-        return result
-
-    def _process_wav(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
-        """Process a WAV file via the standalone transformation rule."""
-        try:
-            result = process_wav_file(file_path, dry_run=dry_run)
-        except ID3NoHeaderError:
-            self.stats.skipped_files += 1
-            logger.info("Skipped %s: no ID3 header", file_path.name)
-            return ProcessingResult(file_path=file_path)
-        except _SkipFile as skip:
-            self.stats.skipped_files += 1
-            logger.info("Skipped %s: %s", file_path.name, skip.reason)
-            return ProcessingResult(file_path=file_path)
-
-        if result.error:
-            self.stats.error_files += 1
-
-        return result
-
-    def _process_aiff(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
-        """Process an AIFF file via the standalone transformation rule."""
-        try:
-            result = process_aiff_file(file_path, dry_run=dry_run)
-        except ID3NoHeaderError:
-            self.stats.skipped_files += 1
-            logger.info("Skipped %s: no ID3 header", file_path.name)
-            return ProcessingResult(file_path=file_path)
-        except _SkipFile as skip:
-            self.stats.skipped_files += 1
-            logger.info("Skipped %s: %s", file_path.name, skip.reason)
-            return ProcessingResult(file_path=file_path)
-
-        if result.error:
-            self.stats.error_files += 1
-
-        return result
-
-    def _process_wma(self, file_path: Path, dry_run: bool = False) -> ProcessingResult:
-        """Process a WMA file via the standalone transformation rule."""
-        result = process_wma_file(file_path, dry_run=dry_run)
-        if result.error:
-            self.stats.error_files += 1
-        return result
 
 
 def count_scanned_files(directory: str) -> int:

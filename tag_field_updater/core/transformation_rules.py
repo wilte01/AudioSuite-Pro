@@ -1,35 +1,41 @@
 """
-transformation_rules.py — Per-format audio tag processing functions.
+transformation_rules.py — the slash rule, applied through the shared field engine.
 
-Each ``process_*_file`` function encapsulates the Mutagen-specific logic
-for one audio format.  They are pure in the sense that they accept a file
-path, return a :class:`ProcessingResult`, and handle their own I/O errors.
-No mutable processor state is touched — that responsibility lives in
-:mod:`tag_field_updater.core.processor`.
+This module used to hold eight near-identical ``process_*_file`` functions, one
+per container family, each opening its own mutagen object, walking its own key
+list and calling ``save()`` itself.  They were the second copy of the mapping
+``audio_suite_shared.tag_field_engine`` now owns: five formats × five keys,
+written out by hand, plus the WAV/AIFF and DSF duplicates of the MP3 rule.
+:func:`process_file` replaces all eight.  The engine resolves the container keys
+and performs the write; this module keeps only what belongs to *this tool* —
+which canonical fields the slash rule touches, and what a skip or a failure is
+reported as.
 
-All Mutagen imports are performed lazily (inside each function body) so
-that external patches on ``tag_field_updater.core.processor.MP3`` etc.
-are correctly picked up at call time.
+A file is a skip when it has no ID3 tag container at all (the old
+``_SkipFile("no ID3 tags found")`` path) and an unchanged file when its
+container exists but carries none of the five fields, or carries them without a
+bare slash.  Both outcomes are the ones the per-format rules reported, so a
+scan's counts do not move.
 
-Every rule takes a ``dry_run`` flag and gates **both** persisted effects on
-it: the undo snapshot (:func:`~audio_suite_shared.batch_undo.record_tag_edit_snapshot`)
-and ``audio.save()``.  The in-memory tag rewrite still happens and the
-returned :class:`ProcessingResult` still reports ``updated=True``, so a dry
-run reports what *would* change without touching the file on disk.
+Every write is gated on ``dry_run`` at the write site (the engine), and the undo
+snapshot is recorded by the engine once per file: a dry run persists nothing and
+records nothing, so its bytes and mtime are untouched.
+
+Changed in 2.4.2: the eight rules become one engine-driven rule; the mutagen
+imports and per-format branches are gone (plan WP-6, C-M2).
 """
 
 import logging
 from pathlib import Path
 
-from audio_suite_shared.batch_undo import record_tag_edit_snapshot
 from audio_suite_shared.exceptions import map_to_audio_error, user_message_for
-
-from .mapping_engine import (
-    TAG_MAPPINGS,
-    ProcessingResult,
-    should_update_value,
-    update_value,
+from audio_suite_shared.tag_field_engine import (
+    ID3,
+    TagFieldEngine,
+    needs_slash_genre_split,
 )
+
+from .mapping_engine import SLASH_FIELDS, ProcessingResult
 
 logger = logging.getLogger(__name__)
 
@@ -37,665 +43,80 @@ logger = logging.getLogger(__name__)
 class _SkipFile(Exception):
     """Internal signal: file should be counted as skipped upstream.
 
-    Raised inside a ``process_*_file`` function for conditions such as
-    "no ID3 tags found".  The calling delegate method catches this to
-    increment ``skipped_files`` and return an empty result.
+    Raised for conditions such as "no ID3 tags found".  The calling delegate
+    catches this to increment ``skipped_files`` and return an empty result.
     """
 
     def __init__(self, reason: str = "") -> None:
+        """Store the human-readable reason the file was skipped.
+
+        Args:
+            reason: Short phrase appended to the "Skipped <file>: " log line.
+        """
         self.reason = reason
         super().__init__(reason)
 
 
-def process_mp3_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
-    """Process an MP3 file and rewrite qualifying ID3 tags.
-
-    Preserves the original ID3 version encoding (Latin-1 for v2.3,
-    UTF-8 for v2.4).  Handles TXXX, TIT1, and TCON frames individually
-    because each requires a distinct mutagen constructor call.
+def process_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
+    """Rewrite bare slashes in this file's genre-style tags.
 
     Args:
-        file_path: Path to the ``.mp3`` file.
-        dry_run: When True, compute the rewrite and report it but neither
+        file_path: Path to the audio file.
+        dry_run: When True, compute the rewrite and report it, but neither
             snapshot the undo log nor save the file.
 
     Returns:
-        A :class:`ProcessingResult` indicating which tags were updated.
+        A :class:`ProcessingResult` naming the container keys that were
+        rewritten, or that would be.
 
     Raises:
-        :class:`mutagen.id3.ID3NoHeaderError`: Re-raised for the caller to
-            handle the skip/stats logic.
-        :class:`_SkipFile`: Raised when the file has no ID3 tags at all.
+        _SkipFile: When an ID3-backed file carries no tag container, which the
+            processor counts as a skip rather than an error.
     """
-    from tag_field_updater.core.processor import (
-        MP3,
-        TCON,
-        TIT1,
-        TXXX,
-        ID3NoHeaderError,
-    )
-
     result = ProcessingResult(file_path=file_path)
 
     try:
-        audio = MP3(file_path)
-        if audio.tags is None:
+        engine = TagFieldEngine(file_path)
+        if engine.convention == ID3 and not engine.has_tags():
             raise _SkipFile("no ID3 tags found")
 
-        original_version = getattr(audio.tags, "version", (2, 3))
-        encoding = 3 if original_version >= (2, 4) else 1
+        stored = engine.read_fields()
+        pending: dict[str, str] = {}
+        for name in SLASH_FIELDS:
+            value = stored.get(name)
+            if isinstance(value, str) and needs_slash_genre_split(value):
+                # The engine applies the rule's own transform, so the raw
+                # stored value is what it needs: passing an already-transformed
+                # one would make the rule depend on the caller remembering it.
+                pending[name] = value
 
-        tags_updated: list[str] = []
-        tag_keys = TAG_MAPPINGS["mp3"]["txxx"] + TAG_MAPPINGS["mp3"]["standard"]
-
-        for tag_key in tag_keys:
-            if tag_key in audio.tags:
-                original_value = str(audio.tags[tag_key])
-                if should_update_value(original_value):
-                    new_value = update_value(original_value)
-                    if new_value != original_value:
-                        if tag_key == "TIT1":
-                            del audio.tags[tag_key]
-                            audio.tags.add(TIT1(encoding=encoding, text=new_value))
-                        elif tag_key == "TCON":
-                            del audio.tags[tag_key]
-                            audio.tags.add(TCON(encoding=encoding, text=new_value))
-                        elif tag_key.startswith("TXXX:"):
-                            txxx_name = tag_key[5:]
-                            del audio.tags[tag_key]
-                            audio.tags.add(
-                                TXXX(
-                                    encoding=encoding,
-                                    desc=txxx_name,
-                                    text=new_value,
-                                )
-                            )
-                        else:
-                            audio.tags[tag_key] = new_value
-
-                        tags_updated.append(tag_key)
-                        logger.info(
-                            "Updated %s in %s: '%s' -> '%s'",
-                            tag_key,
-                            file_path.name,
-                            original_value,
-                            new_value,
-                        )
-
-        if tags_updated:
-            if dry_run:
-                logger.info(
-                    "Dry run: %s not written (would update %s)",
-                    file_path.name,
-                    ", ".join(tags_updated),
-                )
-            else:
-                record_tag_edit_snapshot(str(file_path), "tag_field_update")
-                audio.save()
-            result = ProcessingResult(
-                file_path=file_path,
-                updated=True,
-                tags_updated=tuple(tags_updated),
-            )
-        else:
+        if not pending:
             logger.info("Skipped %s: no target tags found to update", file_path.name)
+            return result
 
-    except ID3NoHeaderError:
-        raise
+        write = engine.write_fields(pending, dry_run=dry_run)
+        if not write.updated:
+            logger.info("Skipped %s: no target tags found to update", file_path.name)
+            return result
+
+        result = ProcessingResult(
+            file_path=file_path,
+            updated=True,
+            tags_updated=write.keys or write.changed,
+        )
+
     except _SkipFile:
         raise
     except Exception as exc:
         mapped = map_to_audio_error(
-            exc, context={"file": str(file_path), "format": "mp3"}
+            exc,
+            context={
+                "file": str(file_path),
+                "format": file_path.suffix.lower().lstrip("."),
+            },
         )
         logger.error(
-            "[%s] MP3 processing error for %s: %s",
-            type(mapped).__name__,
-            file_path.name,
-            mapped,
-            exc_info=True,
-        )
-        result = ProcessingResult(file_path=file_path, error=user_message_for(mapped))
-
-    return result
-
-
-def process_flac_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
-    """Process a FLAC file and rewrite qualifying Vorbis comment fields.
-
-    Args:
-        file_path: Path to the ``.flac`` file.
-        dry_run: When True, compute the rewrite and report it but neither
-            snapshot the undo log nor save the file.
-
-    Returns:
-        A :class:`ProcessingResult` indicating which tags were updated.
-    """
-    from tag_field_updater.core.processor import FLAC
-
-    result = ProcessingResult(file_path=file_path)
-
-    try:
-        audio = FLAC(file_path)
-        tags_updated: list[str] = []
-        tag_keys = TAG_MAPPINGS["flac"]["txxx"] + TAG_MAPPINGS["flac"]["standard"]
-
-        for tag_key in tag_keys:
-            if tag_key in audio:
-                original_value = str(audio[tag_key])
-                if should_update_value(original_value):
-                    new_value = update_value(original_value)
-                    if new_value != original_value:
-                        audio[tag_key] = new_value
-                        tags_updated.append(tag_key)
-                        logger.info(
-                            "Updated %s in %s: '%s' -> '%s'",
-                            tag_key,
-                            file_path.name,
-                            original_value,
-                            new_value,
-                        )
-
-        if tags_updated:
-            if dry_run:
-                logger.info(
-                    "Dry run: %s not written (would update %s)",
-                    file_path.name,
-                    ", ".join(tags_updated),
-                )
-            else:
-                record_tag_edit_snapshot(str(file_path), "tag_field_update")
-                audio.save()
-            result = ProcessingResult(
-                file_path=file_path,
-                updated=True,
-                tags_updated=tuple(tags_updated),
-            )
-
-    except Exception as exc:
-        mapped = map_to_audio_error(
-            exc, context={"file": str(file_path), "format": "flac"}
-        )
-        logger.error(
-            "[%s] FLAC processing error for %s: %s",
-            type(mapped).__name__,
-            file_path.name,
-            mapped,
-            exc_info=True,
-        )
-        result = ProcessingResult(file_path=file_path, error=user_message_for(mapped))
-
-    return result
-
-
-def process_mp4_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
-    """Process an MP4/M4A file and rewrite qualifying atom tag fields.
-
-    Args:
-        file_path: Path to the ``.mp4`` or ``.m4a`` file.
-        dry_run: When True, compute the rewrite and report it but neither
-            snapshot the undo log nor save the file.
-
-    Returns:
-        A :class:`ProcessingResult` indicating which tags were updated.
-    """
-    from tag_field_updater.core.processor import MP4
-
-    result = ProcessingResult(file_path=file_path)
-
-    try:
-        audio = MP4(file_path)
-        tags_updated: list[str] = []
-        tag_keys = TAG_MAPPINGS["mp4"]["txxx"] + TAG_MAPPINGS["mp4"]["standard"]
-
-        for tag_key in tag_keys:
-            if tag_key in audio:
-                original_value = str(audio[tag_key])
-                if should_update_value(original_value):
-                    new_value = update_value(original_value)
-                    if new_value != original_value:
-                        audio[tag_key] = new_value
-                        tags_updated.append(tag_key)
-                        logger.info(
-                            "Updated %s in %s: '%s' -> '%s'",
-                            tag_key,
-                            file_path.name,
-                            original_value,
-                            new_value,
-                        )
-
-        if tags_updated:
-            if dry_run:
-                logger.info(
-                    "Dry run: %s not written (would update %s)",
-                    file_path.name,
-                    ", ".join(tags_updated),
-                )
-            else:
-                record_tag_edit_snapshot(str(file_path), "tag_field_update")
-                audio.save()
-            result = ProcessingResult(
-                file_path=file_path,
-                updated=True,
-                tags_updated=tuple(tags_updated),
-            )
-
-    except Exception as exc:
-        mapped = map_to_audio_error(
-            exc, context={"file": str(file_path), "format": "mp4"}
-        )
-        logger.error(
-            "[%s] MP4 processing error for %s: %s",
-            type(mapped).__name__,
-            file_path.name,
-            mapped,
-            exc_info=True,
-        )
-        result = ProcessingResult(file_path=file_path, error=user_message_for(mapped))
-
-    return result
-
-
-def process_ogg_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
-    """Process an OGG Vorbis file and rewrite qualifying comment fields.
-
-    Args:
-        file_path: Path to the ``.ogg`` file.
-        dry_run: When True, compute the rewrite and report it but neither
-            snapshot the undo log nor save the file.
-
-    Returns:
-        A :class:`ProcessingResult` indicating which tags were updated.
-    """
-    from tag_field_updater.core.processor import OggVorbis
-
-    result = ProcessingResult(file_path=file_path)
-
-    try:
-        audio = OggVorbis(file_path)
-        tags_updated: list[str] = []
-        tag_keys = TAG_MAPPINGS["ogg"]["txxx"] + TAG_MAPPINGS["ogg"]["standard"]
-
-        for tag_key in tag_keys:
-            if tag_key in audio:
-                original_value = str(audio[tag_key])
-                if should_update_value(original_value):
-                    new_value = update_value(original_value)
-                    if new_value != original_value:
-                        audio[tag_key] = new_value
-                        tags_updated.append(tag_key)
-                        logger.info(
-                            "Updated %s in %s: '%s' -> '%s'",
-                            tag_key,
-                            file_path.name,
-                            original_value,
-                            new_value,
-                        )
-
-        if tags_updated:
-            if dry_run:
-                logger.info(
-                    "Dry run: %s not written (would update %s)",
-                    file_path.name,
-                    ", ".join(tags_updated),
-                )
-            else:
-                record_tag_edit_snapshot(str(file_path), "tag_field_update")
-                audio.save()
-            result = ProcessingResult(
-                file_path=file_path,
-                updated=True,
-                tags_updated=tuple(tags_updated),
-            )
-
-    except Exception as exc:
-        mapped = map_to_audio_error(
-            exc, context={"file": str(file_path), "format": "ogg"}
-        )
-        logger.error(
-            "[%s] OGG processing error for %s: %s",
-            type(mapped).__name__,
-            file_path.name,
-            mapped,
-            exc_info=True,
-        )
-        result = ProcessingResult(file_path=file_path, error=user_message_for(mapped))
-
-    return result
-
-
-def process_opus_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
-    """Process an Opus file and rewrite qualifying Vorbis comment fields.
-
-    Args:
-        file_path: Path to the ``.opus`` file.
-        dry_run: When True, compute the rewrite and report it but neither
-            snapshot the undo log nor save the file.
-
-    Returns:
-        A :class:`ProcessingResult` indicating which tags were updated.
-    """
-    from tag_field_updater.core.processor import OggOpus
-
-    result = ProcessingResult(file_path=file_path)
-
-    try:
-        audio = OggOpus(file_path)
-        tags_updated: list[str] = []
-        tag_keys = TAG_MAPPINGS["opus"]["txxx"] + TAG_MAPPINGS["opus"]["standard"]
-
-        for tag_key in tag_keys:
-            if tag_key in audio:
-                original_value = str(audio[tag_key])
-                if should_update_value(original_value):
-                    new_value = update_value(original_value)
-                    if new_value != original_value:
-                        audio[tag_key] = new_value
-                        tags_updated.append(tag_key)
-                        logger.info(
-                            "Updated %s in %s: '%s' -> '%s'",
-                            tag_key,
-                            file_path.name,
-                            original_value,
-                            new_value,
-                        )
-
-        if tags_updated:
-            if dry_run:
-                logger.info(
-                    "Dry run: %s not written (would update %s)",
-                    file_path.name,
-                    ", ".join(tags_updated),
-                )
-            else:
-                record_tag_edit_snapshot(str(file_path), "tag_field_update")
-                audio.save()
-            result = ProcessingResult(
-                file_path=file_path,
-                updated=True,
-                tags_updated=tuple(tags_updated),
-            )
-
-    except Exception as exc:
-        mapped = map_to_audio_error(
-            exc, context={"file": str(file_path), "format": "opus"}
-        )
-        logger.error(
-            "[%s] Opus processing error for %s: %s",
-            type(mapped).__name__,
-            file_path.name,
-            mapped,
-            exc_info=True,
-        )
-        result = ProcessingResult(file_path=file_path, error=user_message_for(mapped))
-
-    return result
-
-
-def process_wav_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
-    """Process a WAV file and rewrite qualifying ID3 tags.
-
-    WAV files with ID3 tags use the same frame structure as MP3.
-
-    Args:
-        file_path: Path to the ``.wav`` file.
-        dry_run: When True, compute the rewrite and report it but neither
-            snapshot the undo log nor save the file.
-
-    Returns:
-        A :class:`ProcessingResult` indicating which tags were updated.
-    """
-    from tag_field_updater.core.processor import (
-        TCON,
-        TIT1,
-        TXXX,
-        WAVE,
-        ID3NoHeaderError,
-    )
-
-    result = ProcessingResult(file_path=file_path)
-
-    try:
-        audio = WAVE(file_path)
-        if audio.tags is None:
-            raise _SkipFile("no ID3 tags found")
-
-        tags_updated: list[str] = []
-        tag_keys = TAG_MAPPINGS["wav"]["txxx"] + TAG_MAPPINGS["wav"]["standard"]
-
-        for tag_key in tag_keys:
-            if tag_key in audio.tags:
-                original_value = str(audio.tags[tag_key])
-                if should_update_value(original_value):
-                    new_value = update_value(original_value)
-                    if new_value != original_value:
-                        if tag_key == "TIT1":
-                            del audio.tags[tag_key]
-                            audio.tags.add(TIT1(encoding=1, text=new_value))
-                        elif tag_key == "TCON":
-                            del audio.tags[tag_key]
-                            audio.tags.add(TCON(encoding=1, text=new_value))
-                        elif tag_key.startswith("TXXX:"):
-                            txxx_name = tag_key[5:]
-                            del audio.tags[tag_key]
-                            audio.tags.add(
-                                TXXX(
-                                    encoding=1,
-                                    desc=txxx_name,
-                                    text=new_value,
-                                )
-                            )
-                        else:
-                            audio.tags[tag_key] = new_value
-
-                        tags_updated.append(tag_key)
-                        logger.info(
-                            "Updated %s in %s: '%s' -> '%s'",
-                            tag_key,
-                            file_path.name,
-                            original_value,
-                            new_value,
-                        )
-
-        if tags_updated:
-            if dry_run:
-                logger.info(
-                    "Dry run: %s not written (would update %s)",
-                    file_path.name,
-                    ", ".join(tags_updated),
-                )
-            else:
-                record_tag_edit_snapshot(str(file_path), "tag_field_update")
-                audio.save()
-            result = ProcessingResult(
-                file_path=file_path,
-                updated=True,
-                tags_updated=tuple(tags_updated),
-            )
-        else:
-            logger.info("Skipped %s: no target tags found to update", file_path.name)
-
-    except ID3NoHeaderError:
-        raise
-    except _SkipFile:
-        raise
-    except Exception as exc:
-        mapped = map_to_audio_error(
-            exc, context={"file": str(file_path), "format": "wav"}
-        )
-        logger.error(
-            "[%s] WAV processing error for %s: %s",
-            type(mapped).__name__,
-            file_path.name,
-            mapped,
-            exc_info=True,
-        )
-        result = ProcessingResult(file_path=file_path, error=user_message_for(mapped))
-
-    return result
-
-
-def process_aiff_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
-    """Process an AIFF file and rewrite qualifying ID3 tags.
-
-    AIFF files with ID3 tags use the same frame structure as MP3.
-
-    Args:
-        file_path: Path to the ``.aiff`` or ``.aif`` file.
-        dry_run: When True, compute the rewrite and report it but neither
-            snapshot the undo log nor save the file.
-
-    Returns:
-        A :class:`ProcessingResult` indicating which tags were updated.
-    """
-    from tag_field_updater.core.processor import (
-        AIFF,
-        TCON,
-        TIT1,
-        TXXX,
-        ID3NoHeaderError,
-    )
-
-    result = ProcessingResult(file_path=file_path)
-
-    try:
-        audio = AIFF(file_path)
-        if audio.tags is None:
-            raise _SkipFile("no ID3 tags found")
-
-        tags_updated: list[str] = []
-        tag_keys = TAG_MAPPINGS["aiff"]["txxx"] + TAG_MAPPINGS["aiff"]["standard"]
-
-        for tag_key in tag_keys:
-            if tag_key in audio.tags:
-                original_value = str(audio.tags[tag_key])
-                if should_update_value(original_value):
-                    new_value = update_value(original_value)
-                    if new_value != original_value:
-                        if tag_key == "TIT1":
-                            del audio.tags[tag_key]
-                            audio.tags.add(TIT1(encoding=1, text=new_value))
-                        elif tag_key == "TCON":
-                            del audio.tags[tag_key]
-                            audio.tags.add(TCON(encoding=1, text=new_value))
-                        elif tag_key.startswith("TXXX:"):
-                            txxx_name = tag_key[5:]
-                            del audio.tags[tag_key]
-                            audio.tags.add(
-                                TXXX(
-                                    encoding=1,
-                                    desc=txxx_name,
-                                    text=new_value,
-                                )
-                            )
-                        else:
-                            audio.tags[tag_key] = new_value
-
-                        tags_updated.append(tag_key)
-                        logger.info(
-                            "Updated %s in %s: '%s' -> '%s'",
-                            tag_key,
-                            file_path.name,
-                            original_value,
-                            new_value,
-                        )
-
-        if tags_updated:
-            if dry_run:
-                logger.info(
-                    "Dry run: %s not written (would update %s)",
-                    file_path.name,
-                    ", ".join(tags_updated),
-                )
-            else:
-                record_tag_edit_snapshot(str(file_path), "tag_field_update")
-                audio.save()
-            result = ProcessingResult(
-                file_path=file_path,
-                updated=True,
-                tags_updated=tuple(tags_updated),
-            )
-        else:
-            logger.info("Skipped %s: no target tags found to update", file_path.name)
-
-    except ID3NoHeaderError:
-        raise
-    except _SkipFile:
-        raise
-    except Exception as exc:
-        mapped = map_to_audio_error(
-            exc, context={"file": str(file_path), "format": "aiff"}
-        )
-        logger.error(
-            "[%s] AIFF processing error for %s: %s",
-            type(mapped).__name__,
-            file_path.name,
-            mapped,
-            exc_info=True,
-        )
-        result = ProcessingResult(file_path=file_path, error=user_message_for(mapped))
-
-    return result
-
-
-def process_wma_file(file_path: Path, dry_run: bool = False) -> ProcessingResult:
-    """Process a WMA file and rewrite qualifying ASF metadata fields.
-
-    Args:
-        file_path: Path to the ``.wma`` file.
-        dry_run: When True, compute the rewrite and report it but neither
-            snapshot the undo log nor save the file.
-
-    Returns:
-        A :class:`ProcessingResult` indicating which tags were updated.
-    """
-    from tag_field_updater.core.processor import ASF
-
-    result = ProcessingResult(file_path=file_path)
-
-    try:
-        audio = ASF(file_path)
-        tags_updated: list[str] = []
-        tag_keys = TAG_MAPPINGS["wma"]["txxx"] + TAG_MAPPINGS["wma"]["standard"]
-
-        for tag_key in tag_keys:
-            if tag_key in audio:
-                original_value = str(audio[tag_key])
-                if should_update_value(original_value):
-                    new_value = update_value(original_value)
-                    if new_value != original_value:
-                        audio[tag_key] = new_value
-                        tags_updated.append(tag_key)
-                        logger.info(
-                            "Updated %s in %s: '%s' -> '%s'",
-                            tag_key,
-                            file_path.name,
-                            original_value,
-                            new_value,
-                        )
-
-        if tags_updated:
-            if dry_run:
-                logger.info(
-                    "Dry run: %s not written (would update %s)",
-                    file_path.name,
-                    ", ".join(tags_updated),
-                )
-            else:
-                record_tag_edit_snapshot(str(file_path), "tag_field_update")
-                audio.save()
-            result = ProcessingResult(
-                file_path=file_path,
-                updated=True,
-                tags_updated=tuple(tags_updated),
-            )
-
-    except Exception as exc:
-        mapped = map_to_audio_error(
-            exc, context={"file": str(file_path), "format": "wma"}
-        )
-        logger.error(
-            "[%s] WMA processing error for %s: %s",
+            "[%s] Tag processing error for %s: %s",
             type(mapped).__name__,
             file_path.name,
             mapped,

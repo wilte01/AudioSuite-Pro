@@ -24,6 +24,11 @@ retrieval half of the Audio Fingerprinter's MusicBrainz integration
 Changed in 2.4.1: the six handler imports and ``TagHandlerFactory`` moved
 out of this module; handler classes and the factory are resolved lazily by
 ``__getattr__``, so any tag-helper module may be the first import (WP-2).
+
+Changed in 2.4.2: ``read_field_key`` / ``set_field_key`` join the handler
+interface and each handler declares its ``convention`` — the two primitives
+``audio_suite_shared.tag_field_engine`` needs so one field table can drive
+every container without the engine touching mutagen (WP-6).
 """
 
 import abc
@@ -63,6 +68,13 @@ EDITABLE_FIELDS: tuple[str, ...] = (
 )
 """Canonical editable tag fields exposed by the freeform Tag Editor.
 
+This tuple is also the canonical set
+``audio_suite_shared.tag_field_engine`` builds its field table from, so a field
+added here is a field the engine can read and write (and a field it cannot
+place in a container fails loudly rather than silently).  ``genre`` carries a
+key rule of its own in that table because the Tag Field Updater rewrites its
+container key directly, preserving a v2.3 file's Latin-1 encoding.
+
 Changed in 2.2.0: ``disc`` joins the set, so the Tag Field Updater's filename
 source can write a parsed ``%disc%`` instead of dropping it.  Every format
 already had a disc *read* (``read_disc_number``); only the write mapping was
@@ -93,6 +105,12 @@ class LyricsTags:
 
 class BaseTagHandler(abc.ABC):
     """Abstract base class for format-specific tag handling."""
+
+    #: The tag convention this handler speaks: ``"id3"``, ``"vorbis"``,
+    #: ``"mp4"`` or ``"apev2"``.  ``audio_suite_shared.tag_field_engine`` reads
+    #: it to pick a field's container key, so a new handler must declare it and
+    #: implement the two key primitives below.
+    convention: str = ""
 
     def __init__(self, path: str) -> None:
         """Initialise the handler with the path to the audio file.
@@ -454,6 +472,44 @@ class BaseTagHandler(abc.ABC):
             AudioTagError: If the handler cannot delete tags.
         """
         raise AudioTagError(f"delete_tags is not supported for {type(self).__name__}")
+
+    def read_field_key(self, key: str) -> str | None:
+        """Read one container key in this handler's own convention.
+
+        The base implementation refuses: a handler that has not said how its
+        container stores a key cannot be driven by the field engine, and a
+        silent ``None`` would look like an absent tag.
+
+        Args:
+            key: Container key in this convention (an ID3 frame id or
+                ``TXXX:desc``, a Vorbis comment name, an MP4 atom/freeform key,
+                or an APEv2 item name).
+
+        Returns:
+            The stored value, or None when the key is absent.
+
+        Raises:
+            AudioTagError: If this handler does not implement key access.
+        """
+        raise AudioTagError(
+            f"read_field_key is not supported for {type(self).__name__}"
+        )
+
+    def set_field_key(self, key: str, value: str | None) -> None:
+        """Store or remove one container key, without saving.
+
+        Mutation only: the caller batches several fields and calls ``save()``
+        once, so a five-field rewrite is one container write rather than five.
+
+        Args:
+            key: Container key in this convention.
+            value: Value to store, or None to remove the key.
+
+        Raises:
+            AudioTagError: If this handler does not implement key access, or
+                the key is not one this container can hold.
+        """
+        raise AudioTagError(f"set_field_key is not supported for {type(self).__name__}")
 
     def get_raw_tags(self) -> Any:
         """Return the raw mutagen tags object for direct manipulation.

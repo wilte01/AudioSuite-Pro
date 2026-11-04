@@ -12,6 +12,10 @@ error (R-05).
 Changed in 2.1.7: APEv2 (`.wv`/`.ape`/`.mpc`), Speex (`.spx`) and DSF (`.dsf`)
 scrub, preserve and undo round trips are covered on real fixtures, with the
 decoded RMS unchanged (B2).
+
+Changed in 2.4.2: the raw-frame exception is now locked by TestRawFrameException
+(plan WP-6), so a later refactor cannot route the scrubber through the
+editable-field engine and drop the frames it exists to preserve.
 """
 
 import shutil
@@ -2422,3 +2426,40 @@ class TestDSFScrub:
         assert fresh.tags.get("TPE1") is not None
         assert fresh.tags.get("TALB") is not None
         assert fresh.tags.get("TCON") is None
+
+
+# ---------------------------------------------------------------------------
+# The raw-frame exception (plan WP-6)
+# ---------------------------------------------------------------------------
+
+
+class TestRawFrameException:
+    """The scrubber keeps its own frame path, and says why.
+
+    ``audio_suite_shared.tag_field_engine`` models the canonical fields a tag
+    *editor* writes.  A scrubber must preserve and restore arbitrary frames the
+    table does not describe — an ``APIC`` block, a vendor string, an
+    unrecognised ``TXXX`` — so routing it through the editable-field table would
+    silently drop exactly the payload it exists to keep.  This lock fails if a
+    later refactor "unifies" it anyway, because the next reviewer needs the
+    argument, not a diff.
+    """
+
+    def test_the_scrubber_does_not_import_the_field_engine(self) -> None:
+        """No module in the scrubber reaches for the editable-field table."""
+        from metadata_scrubber.core import scrubber
+
+        assert scrubber.__doc__ is not None
+        assert "raw-frame" in scrubber.__doc__, (
+            "the scrubber's docstring lost the note explaining its exception"
+        )
+        imports = [
+            line.strip()
+            for line in Path(scrubber.__file__).read_text(encoding="utf-8").splitlines()
+            if line.lstrip().startswith(("from ", "import "))
+            and "tag_field_engine" in line
+        ]
+        assert imports == [], (
+            "the scrubber now imports the editable-field engine; preserve/restore "
+            f"must stay on the raw frames (see this class's docstring): {imports}"
+        )

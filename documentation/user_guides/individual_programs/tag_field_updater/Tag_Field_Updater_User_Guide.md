@@ -24,7 +24,11 @@ Version 2.2.0 added the filename source. Everything in the slash-replacement sec
 
 ## Supported File Formats
 
-The tool processes the following audio formats:
+The tool processes the following audio formats. A `.wma` file is
+listed but not rewritten: WMA's ASF tags have no writer in the suite's
+shared tag layer, so the run reports
+`Unsupported format: .wma (WMA carries no tag writer)` and leaves the
+file untouched.
 
 | Format | Extensions | Tag Type |
 | --- | --- | --- |
@@ -35,7 +39,7 @@ The tool processes the following audio formats:
 | Opus | .opus | Vorbis Comments |
 | WAV | .wav | ID3 (v2.4) |
 | AIFF / AIF | .aiff, .aif | ID3 (v2.4) |
-| WMA | .wma | ASF |
+| WMA | .wma | — not processed |
 |  |  |  |
 
 ## Tag Fields Updated
@@ -63,7 +67,7 @@ On non-ID3 formats these custom fields are stored with the format-equivalent con
 | Opus | CONTENTGROUP | GENRE |  |
 | WAV | TIT1 (Content Group) | TCON (Genre) |  |
 | AIFF / AIF | TIT1 (Content Group) | TCON (Genre) |  |
-| WMA | ContentGroupDescription | Genre |  |
+| WMA | — | — |  |
 |  |  |  |  |
 
 ## Slash Replacement Rules
@@ -277,7 +281,7 @@ The Stop button requests the processor to stop after the current file completes.
 
 ## Troubleshooting
 
-No files processed: Verify the directory contains supported audio formats (.mp3, .flac, .mp4, .m4a, .ogg, .opus, .wav, .aiff, .aif, .wma). Check directory permissions.
+No files processed: Verify the directory contains supported audio formats (.mp3, .flac, .mp4, .m4a, .ogg, .opus, .wav, .aiff, .aif). Check directory permissions.
 
 Files updated: 0: In the original mode this is normal if your files already use the semicolon-space delimiter or if none of the target fields contain a bare slash. In filename mode it also means every parsed value already matched the stored tag, or that no file name matched a pattern — the run prints a `[NO MATCH]` line for each of those. Check the run report (**View Log**) for skip details.
 

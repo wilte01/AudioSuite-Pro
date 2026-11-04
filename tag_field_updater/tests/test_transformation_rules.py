@@ -1,26 +1,27 @@
 """
-test_transformation_rules.py — the ``dry_run`` gate on every format rule.
+test_transformation_rules.py — one rule, every container, gated at the write site.
 
-Audit H1 (plan A1) found that all eight ``process_*_file`` rules in
-:mod:`tag_field_updater.core.transformation_rules` called
+Audit H1 (plan A1) found that all eight ``process_*_file`` rules called
 ``record_tag_edit_snapshot(...)`` and ``audio.save()`` unconditionally: the
-``dry_run`` argument the CLI accepted never reached them.  The rule was the
-*only* place the write could be withheld, so a future ninth rule that forgot
-the gate would ship the same defect invisibly.
+``dry_run`` argument the CLI accepted never reached them.  The eight rules are
+now one :func:`process_file` over ``audio_suite_shared.tag_field_engine``, so
+the gate has one place to be right and one place to be tested — the engine's
+``write_fields`` — but *this* module still has to hand the flag over.  A rule
+that dropped ``dry_run`` would still look fine in the engine's own suite, so
+the sweep below drives the rule itself and asserts the outcome on disk.
 
-These tests therefore sweep **every** rule twice over:
+Two halves, and the pairing is the point:
 
-* against **real encoded files** for every format pydub can produce, asserting
-  the outcome on disk — SHA-256, mtime, and the re-read tag;
-* against a **marker-writing stand-in** for the remaining two formats (``.mp4``
-  needs an AAC encoder this suite does not require, ``.wma`` is not encodable
-  at all), where the stand-in's ``save()`` leaves a marker file.  The marker's
-  presence or absence is then an artifact-level statement about the gate rather
-  than a mock's call log, and it works uniformly across all eight rules.
+* against **real encoded files** for every container this host can produce,
+  asserting SHA-256, mtime and the tag read back through mutagen;
+* against a **recording stand-in** for the engine, for the one thing a real file
+  cannot show — that the rule passes the caller's ``dry_run`` value into
+  ``write_fields`` verbatim.
 
-Each sweep is paired with its **live** counterpart on the same fixture.  The
-contrast is what makes the dry-run half meaningful: without it, "the marker
-file does not exist" would also hold if the write path were simply broken.
+Changed in 2.4.2: the per-rule table, its marker-writing stand-ins and the
+``process_*_file`` sweep are replaced by the one rule's real-file sweep plus an
+engine stand-in; the ``TAG_MAPPINGS`` import is gone with the table it read
+(plan WP-6, C-M2).
 """
 
 from __future__ import annotations
@@ -28,21 +29,24 @@ from __future__ import annotations
 import hashlib
 import inspect
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from mutagen.aiff import AIFF
 from mutagen.flac import FLAC
-from mutagen.id3 import ID3, TCON, TXXX
+from mutagen.id3 import ID3, TCON
 from mutagen.mp3 import MP3
 from mutagen.oggopus import OggOpus
 from mutagen.oggvorbis import OggVorbis
 from mutagen.wave import WAVE
 from pydub import AudioSegment
 
-from tag_field_updater.core import processor
+from audio_suite_shared.tag_field_engine import FIELD_RULES
+from audio_suite_shared.tag_field_engine import ID3 as ID3_CONVENTION
 from tag_field_updater.core import transformation_rules as rules
-from tag_field_updater.core.mapping_engine import TAG_MAPPINGS
+from tag_field_updater.core.mapping_engine import SLASH_FIELDS, SUPPORTED_EXTENSIONS
+from tag_field_updater.core.transformation_rules import _SkipFile, process_file
 
 # ---------------------------------------------------------------------------
 # Fixture data
@@ -51,9 +55,11 @@ from tag_field_updater.core.mapping_engine import TAG_MAPPINGS
 ORIGINAL_VALUE = "Rock/Pop"
 REWRITTEN_VALUE = "Rock; Pop"
 
-#: Bytes the stand-in audio objects write from ``save()``.  Its presence is the
-#: proof that a rule reached its write site.
-_SAVE_MARKER = b"saved-by-transformation-rule"
+#: The ID3-backed containers, keyed by extension: each opens its own class.
+_ID3_OPENERS: dict[str, Any] = {".mp3": MP3, ".wav": WAVE, ".aiff": AIFF}
+
+#: Vorbis-comment containers.
+_VORBIS_OPENERS: dict[str, Any] = {".flac": FLAC, ".ogg": OggVorbis, ".opus": OggOpus}
 
 
 def digest(path: Path) -> str:
@@ -61,361 +67,286 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-# ---------------------------------------------------------------------------
-# The rule table — the sweep's single index
-# ---------------------------------------------------------------------------
+def _encode(path: Path, exporter: str) -> bool:
+    """Encode a short silent file, reporting whether this host can."""
+    try:
+        AudioSegment.silent(duration=200).export(str(path), format=exporter)
+    except Exception:  # pragma: no cover - host without the encoder
+        return False
+    return True
 
-#: ``(rule name, mutagen attribute on the processor module, format key, kind)``.
-#: ``kind`` selects the tag container shape the rule drives: ``"id3"`` for the
-#: three rules that go through ``audio.tags``, ``"mapping"`` for the five that
-#: treat the mutagen object itself as a mapping.
-RULE_TABLE: list[tuple[str, str, str, str]] = [
-    ("process_mp3_file", "MP3", "mp3", "id3"),
-    ("process_flac_file", "FLAC", "flac", "mapping"),
-    ("process_mp4_file", "MP4", "mp4", "mapping"),
-    ("process_ogg_file", "OggVorbis", "ogg", "mapping"),
-    ("process_opus_file", "OggOpus", "opus", "mapping"),
-    ("process_wav_file", "WAVE", "wav", "id3"),
-    ("process_aiff_file", "AIFF", "aiff", "id3"),
-    ("process_wma_file", "ASF", "wma", "mapping"),
+
+def _write_genre(path: Path, extension: str) -> None:
+    """Store :data:`ORIGINAL_VALUE` as the genre, in the container's own shape."""
+    if extension in _ID3_OPENERS:
+        audio = _ID3_OPENERS[extension](str(path))
+        if audio.tags is None:
+            audio.add_tags()
+        audio.tags.add(TCON(encoding=3, text=ORIGINAL_VALUE))
+        audio.save()
+        return
+    audio = _VORBIS_OPENERS[extension](str(path))
+    audio["genre"] = [ORIGINAL_VALUE]
+    audio.save()
+
+
+def _read_genre(path: Path, extension: str) -> str | None:
+    """Read the genre back through mutagen, whatever the convention."""
+    if extension in _ID3_OPENERS:
+        audio = _ID3_OPENERS[extension](str(path))
+        frames = audio.tags.getall("TCON") if audio.tags else []
+        return str(frames[0]) if frames else None
+    audio = _VORBIS_OPENERS[extension](str(path))
+    values = audio.get("genre") or []
+    return str(values[0]) if values else None
+
+
+def _strip_id3(path: Path) -> None:
+    """Remove the tag container pydub's MP3 encoder leaves behind."""
+    ID3(str(path)).delete()
+
+
+#: ``(extension, pydub exporter)`` for every container this suite can build.
+REAL_CONTAINERS: list[tuple[str, str]] = [
+    (".mp3", "mp3"),
+    (".flac", "flac"),
+    (".ogg", "ogg"),
+    (".opus", "opus"),
+    (".wav", "wav"),
+    (".aiff", "aiff"),
 ]
 
-RULE_IDS = [name for name, _attr, _fmt, _kind in RULE_TABLE]
 
-#: Mutagen opener per format key, for the real-file sweep.
-_OPENERS: dict[str, Any] = {
-    "mp3": MP3,
-    "flac": FLAC,
-    "mp4": None,  # not encodable here — marker sweep only
-    "ogg": OggVorbis,
-    "opus": OggOpus,
-    "wav": WAVE,
-    "aiff": AIFF,
-    "wma": None,  # not encodable at all — marker sweep only
-}
-
-#: Formats the real-file sweep can build: the two whose encoder is absent are
-#: covered by the marker sweep instead.
-REAL_FORMATS = ["mp3", "flac", "ogg", "opus", "wav", "aiff"]
-
-
-def _rule_params() -> list[pytest.Param]:
-    """One parametrised case per rule in :data:`RULE_TABLE`."""
-    return [
-        pytest.param(name, attr, fmt, kind, id=name)
-        for name, attr, fmt, kind in RULE_TABLE
-    ]
-
-
-# ---------------------------------------------------------------------------
-# Marker-writing stand-ins for the two formats the suite cannot encode
-# ---------------------------------------------------------------------------
-
-
-class _MarkerMappingAudio(dict[str, str]):
-    """A Vorbis/MP4/ASF-shaped tag mapping whose ``save`` writes a marker.
-
-    The five mapping-backed rules (``flac``, ``mp4``, ``ogg``, ``opus``,
-    ``wma``) only use ``key in audio``, ``audio[key] = value`` and
-    ``audio.save()``, so a ``dict`` subclass carrying a ``save`` reproduces
-    their whole interaction with mutagen.
-    """
-
-    def __init__(self, values: dict[str, str], marker: Path) -> None:
-        super().__init__(values)
-        self._marker = marker
-
-    def save(self) -> None:
-        """Stand in for mutagen's container rewrite."""
-        self._marker.write_bytes(_SAVE_MARKER)
-
-
-class _MarkerID3Audio:
-    """An ID3-shaped mutagen object whose ``save`` writes a marker.
-
-    The ``mp3``/``wav``/``aiff`` rules read ``audio.tags`` and drive a real
-    :class:`mutagen.id3.ID3` container, so this hands them a genuine one.
-    """
-
-    def __init__(self, tags: ID3, marker: Path) -> None:
-        self.tags = tags
-        self._marker = marker
-
-    def save(self) -> None:
-        """Stand in for mutagen's container rewrite."""
-        self._marker.write_bytes(_SAVE_MARKER)
-
-
-def _build_fake_audio(kind: str, fmt: str, marker: Path) -> Any:
-    """Build the tag payload a rule of *kind* will drive for *fmt*."""
-    if kind == "id3":
-        tags = ID3()
-        tags.add(TCON(encoding=3, text=ORIGINAL_VALUE))
-        tags.add(TXXX(encoding=3, desc="ALBUMGENRE", text=ORIGINAL_VALUE))
-        return _MarkerID3Audio(tags, marker)
-
-    mapping = TAG_MAPPINGS[fmt]
-    keys = [*mapping["txxx"], *mapping["standard"]]
-    return _MarkerMappingAudio(dict.fromkeys(keys, ORIGINAL_VALUE), marker)
-
-
-@pytest.fixture()
-def fake_source(tmp_path: Path) -> Path:
-    """A stand-in container file with known pre-run bytes."""
-    source = tmp_path / "source.bin"
-    source.write_bytes(b"original container bytes")
-    return source
-
-
-# ---------------------------------------------------------------------------
-# Sweep 1 — every rule honours the gate
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("rule_name", "attr", "fmt", "kind"), _rule_params(), ids=lambda v: str(v)
-)
-class TestEveryRuleGatesItsWrite:
-    """No rule may reach ``save()`` — the sweep a future ninth rule joins."""
-
-    @staticmethod
-    def _patch(
-        monkeypatch: pytest.MonkeyPatch, attr: str, fmt: str, kind: str, marker: Path
-    ) -> Any:
-        audio = _build_fake_audio(kind, fmt, marker)
-        # The rules resolve ``MP3``/``FLAC``/… with a *function-local* import out
-        # of the processor module, so that module is where the name must be
-        # rebound (AGENTS.md: patch the module named in the ``from … import``).
-        monkeypatch.setattr(processor, attr, lambda _path, bound=audio: bound)
-        return audio
-
-    def test_dry_run_reports_the_rewrite_without_writing(
-        self,
-        rule_name: str,
-        attr: str,
-        fmt: str,
-        kind: str,
-        fake_source: Path,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        marker = tmp_path / f"{fmt}.marker"
-        self._patch(monkeypatch, attr, fmt, kind, marker)
-
-        result = getattr(rules, rule_name)(fake_source, dry_run=True)
-
-        assert result.error is None, f"{rule_name} failed on a valid fixture"
-        assert result.updated is True
-        assert result.tags_updated, f"{rule_name} found no tag to rewrite"
-        assert not marker.exists(), (
-            f"{rule_name} reached save() in dry-run mode — this rule has no gate"
-        )
-
-    def test_live_run_writes_through_the_same_gate(
-        self,
-        rule_name: str,
-        attr: str,
-        fmt: str,
-        kind: str,
-        fake_source: Path,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """The contrast half: without it the dry-run half proves nothing."""
-        marker = tmp_path / f"{fmt}.marker"
-        self._patch(monkeypatch, attr, fmt, kind, marker)
-
-        result = getattr(rules, rule_name)(fake_source)
-
-        assert result.error is None
-        assert result.updated is True
-        assert marker.read_bytes() == _SAVE_MARKER
-
-    def test_dry_run_records_no_undo_snapshot(
-        self,
-        rule_name: str,
-        attr: str,
-        fmt: str,
-        kind: str,
-        fake_source: Path,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """A snapshot for a change that never happened is an undo that lies."""
-        marker = tmp_path / f"{fmt}.marker"
-        recorded: list[str] = []
-        monkeypatch.setattr(
-            rules,
-            "record_tag_edit_snapshot",
-            lambda path, operation: recorded.append(path),
-        )
-        rule = getattr(rules, rule_name)
-
-        # A fresh stand-in per half: the dry run rewrites the payload in memory,
-        # so reusing it would leave the live half nothing left to change.
-        self._patch(monkeypatch, attr, fmt, kind, marker)
-        rule(fake_source, dry_run=True)
-        assert recorded == []
-
-        self._patch(monkeypatch, attr, fmt, kind, marker)
-        rule(fake_source)
-        assert recorded == [str(fake_source)]
-
-
-def test_the_sweep_covers_every_exported_rule() -> None:
-    """Non-vacuity: the table above must not drift away from the module.
-
-    ``processor.__all__`` re-exports every rule, so it is the authoritative
-    list of write sites.  If a rule is added and not added to
-    :data:`RULE_TABLE`, this fails instead of the sweep silently narrowing.
-    """
-    exported = {
-        name
-        for name in processor.__all__
-        if name.startswith("process_") and name.endswith("_file")
-    }
-    assert exported == set(RULE_IDS), (
-        "the dry-run sweep does not cover every exported rule — "
-        f"uncovered {sorted(exported - set(RULE_IDS))}, "
-        f"stale {sorted(set(RULE_IDS) - exported)}"
-    )
-
-
-@pytest.mark.parametrize("rule_name", RULE_IDS)
-def test_every_rule_declares_the_dry_run_parameter(rule_name: str) -> None:
-    """The gate is only reachable if every rule accepts ``dry_run`` at all."""
-    signature = inspect.signature(getattr(rules, rule_name))
-    assert "dry_run" in signature.parameters, (
-        f"{rule_name} has no dry_run parameter, so the CLI flag cannot reach it"
-    )
-    assert signature.parameters["dry_run"].default is False, (
-        f"{rule_name}'s dry_run does not default to False — a caller that "
-        f"forgot the flag would silently stop writing"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Sweep 2 — real encoded files, outcome on disk
-# ---------------------------------------------------------------------------
-
-
-def _make_real(path: Path, fmt: str) -> Path:
-    """Export a real audio file of *fmt* and give it slash-bearing tags.
-
-    Raises the exporter's own error when the host lacks the encoder; callers
-    turn that into an attributable skip.
-    """
-    AudioSegment.silent(duration=20).export(str(path), format=fmt)
-    opener = _OPENERS[fmt]
-    audio = opener(str(path))
-    if audio.tags is None:
-        audio.add_tags()
-    if fmt in ("mp3", "wav", "aiff"):
-        audio.tags.add(TCON(encoding=3, text=ORIGINAL_VALUE))
-        audio.tags.add(TXXX(encoding=3, desc="ALBUMGENRE", text=ORIGINAL_VALUE))
-    else:
-        for key in TAG_MAPPINGS[fmt]["standard"] + TAG_MAPPINGS[fmt]["txxx"]:
-            audio[key] = ORIGINAL_VALUE
-    audio.save()
+@pytest.fixture(params=REAL_CONTAINERS, ids=lambda item: item[0])
+def tagged_file(request: pytest.FixtureRequest, tmp_path: Path) -> Path:
+    """A real file in the requested container whose genre carries a bare slash."""
+    extension, exporter = request.param
+    path = tmp_path / f"source{extension}"
+    if not _encode(path, exporter):
+        pytest.skip(f"this host cannot encode {extension}")
+    _write_genre(path, extension)
     return path
 
 
-def _read_value(path: Path, fmt: str) -> str:
-    """Re-read one rewritten value from disk with a fresh mutagen handle.
-
-    Mutagen is inconsistent about list-valued tags: Vorbis comments return a
-    one-element list, an MP4 atom returns a scalar, and an ID3 frame exposes a
-    ``text`` list.  This normalises all three to the single string the suite's
-    own ``update_value`` operates on, so a comparison never depends on which
-    container happens to wrap the value.
-    """
-    audio = _OPENERS[fmt](str(path))
-    if fmt in ("mp3", "wav", "aiff"):
-        assert audio.tags is not None
-        raw = audio.tags["TCON"]
-        text = getattr(raw, "text", None)
-        if text is not None:
-            return str(text[0])
-        return str(raw)
-    raw = audio[TAG_MAPPINGS[fmt]["standard"][-1]]
-    return str(raw[0]) if isinstance(raw, list) and raw else str(raw)
+# ---------------------------------------------------------------------------
+# The gate, measured on disk
+# ---------------------------------------------------------------------------
 
 
-def _build_real(tmp_path: Path, fmt: str, name: str) -> Path:
-    """Build the real-file fixture, skipping with a reason if unencodable."""
-    path = tmp_path / name
-    try:
-        return _make_real(path, fmt)
-    except Exception as exc:  # pragma: no cover - host without the encoder
-        pytest.skip(
-            f"this host cannot encode {fmt} for the real-file dry-run check "
-            f"({type(exc).__name__}) — the marker sweep still covers the rule"
+class TestTheDryRunGateHoldsOnRealFiles:
+    """A dry run computes the rewrite and leaves the file byte-identical."""
+
+    def test_dry_run_changes_nothing(self, tagged_file: Path) -> None:
+        """Bytes, mtime and the read-back tag all survive a dry run."""
+        extension = tagged_file.suffix
+        before_digest = digest(tagged_file)
+        before_mtime = tagged_file.stat().st_mtime_ns
+
+        result = process_file(tagged_file, dry_run=True)
+
+        assert result.error is None, f"the rule failed on {extension}: {result.error}"
+        assert result.updated is True, (
+            f"the rule found nothing to rewrite in {extension}"
+        )
+        assert result.tags_updated, f"the rule named no rewritten key for {extension}"
+        assert _read_genre(tagged_file, extension) == ORIGINAL_VALUE
+        assert digest(tagged_file) == before_digest, (
+            f"a dry run rewrote {extension} — the flag did not reach the write site"
+        )
+        assert tagged_file.stat().st_mtime_ns == before_mtime
+
+    def test_live_run_rewrites_the_same_fixture(self, tagged_file: Path) -> None:
+        """The contrast half: without it the dry-run half proves nothing."""
+        extension = tagged_file.suffix
+        before_digest = digest(tagged_file)
+
+        result = process_file(tagged_file)
+
+        assert result.error is None, f"the rule failed on {extension}: {result.error}"
+        assert result.updated is True
+        assert _read_genre(tagged_file, extension) == REWRITTEN_VALUE
+        assert digest(tagged_file) != before_digest, (
+            f"a live run did not rewrite {extension}, so its dry run proved nothing"
         )
 
+    def test_a_second_live_run_is_an_unchanged_file(self, tagged_file: Path) -> None:
+        """Once the slash is gone the rule reports an unchanged file, not an edit."""
+        process_file(tagged_file)
 
-@pytest.mark.parametrize("fmt", REAL_FORMATS)
-class TestDryRunLeavesRealFilesUntouched:
-    """The outcome-correctness evidence: nothing on disk moved."""
-
-    def test_the_fixture_really_carries_a_slash(self, tmp_path: Path, fmt: str) -> None:
-        """Guard the guard: a fixture with nothing to rewrite proves nothing."""
-        path = _build_real(tmp_path, fmt, f"fixture.{fmt}")
-        assert "/" in _read_value(path, fmt)
-
-    def test_dry_run_preserves_bytes_and_mtime(self, tmp_path: Path, fmt: str) -> None:
-        rule = getattr(rules, f"process_{fmt}_file")
-        path = _build_real(tmp_path, fmt, f"real.{fmt}")
-
-        before_digest = digest(path)
-        before_mtime = path.stat().st_mtime_ns
-
-        result = rule(path, dry_run=True)
+        result = process_file(tagged_file)
 
         assert result.error is None
-        assert result.updated is True
-        assert result.tags_updated
-        assert digest(path) == before_digest
-        assert path.stat().st_mtime_ns == before_mtime
-        assert _read_value(path, fmt) == ORIGINAL_VALUE
-
-    def test_live_run_rewrites_the_real_file(self, tmp_path: Path, fmt: str) -> None:
-        """The contrast half on real audio."""
-        rule = getattr(rules, f"process_{fmt}_file")
-        path = _build_real(tmp_path, fmt, f"live.{fmt}")
-        before_digest = digest(path)
-
-        result = rule(path)
-
-        assert result.updated is True
-        assert digest(path) != before_digest
-        assert REWRITTEN_VALUE in _read_value(path, fmt)
-
-
-@pytest.mark.parametrize("fmt", REAL_FORMATS)
-def test_dry_run_then_live_leaves_the_file_actionable(tmp_path: Path, fmt: str) -> None:
-    """A dry run must leave the file in a state a later live run can act on."""
-    rule = getattr(rules, f"process_{fmt}_file")
-    path = _build_real(tmp_path, fmt, f"sequence.{fmt}")
-
-    rule(path, dry_run=True)
-    assert _read_value(path, fmt) == ORIGINAL_VALUE
-
-    rule(path)
-    assert REWRITTEN_VALUE in _read_value(path, fmt)
-
-
-def test_a_rule_with_no_pending_change_is_unaffected_by_the_flag(
-    tmp_path: Path,
-) -> None:
-    """The gate must not turn a no-op file into an error or a phantom update."""
-    path = _build_real(tmp_path, "mp3", "clean.mp3")
-    tags = ID3()
-    tags.add(TCON(encoding=3, text="Rock"))
-    tags.save(str(path))
-
-    for dry_run in (True, False):
-        result = rules.process_mp3_file(path, dry_run=dry_run)
         assert result.updated is False
         assert result.tags_updated == ()
+        assert _read_genre(tagged_file, tagged_file.suffix) == REWRITTEN_VALUE
+
+
+# ---------------------------------------------------------------------------
+# Skip and refusal semantics
+# ---------------------------------------------------------------------------
+
+
+class TestSkipAndRefusal:
+    """The three outcomes a scan counts must not move with the refactor."""
+
+    def test_mp3_without_a_tag_container_is_a_skip(self, tmp_path: Path) -> None:
+        """An untagged MP3 is a skip, not an error (the old ``_SkipFile`` path)."""
+        path = tmp_path / "untagged.mp3"
+        if not _encode(path, "mp3"):
+            pytest.skip("this host cannot encode .mp3")
+        _strip_id3(path)
+
+        with pytest.raises(_SkipFile) as caught:
+            process_file(path, dry_run=True)
+
+        assert caught.value.reason == "no ID3 tags found"
+
+    def test_a_file_with_no_slash_is_unchanged(self, tmp_path: Path) -> None:
+        """A tagged file with no bare slash is untouched and reported unchanged."""
+        path = tmp_path / "clean.mp3"
+        if not _encode(path, "mp3"):
+            pytest.skip("this host cannot encode .mp3")
+        _write_genre(path, ".mp3")
+        audio = MP3(str(path))
+        audio.tags.add(TCON(encoding=3, text="Rock; Pop"))
+        audio.save()
+        before = digest(path)
+
+        result = process_file(path)
+
         assert result.error is None
-        assert _read_value(path, "mp3") == "Rock"
+        assert result.updated is False
+        assert digest(path) == before
+
+    def test_a_corrupt_container_is_an_error_not_a_skip(self, tmp_path: Path) -> None:
+        """Undecodable bytes in a writable container are reported, never ignored.
+
+        The engine raises whatever the decoder raised; mapping it to a user
+        message is this module's job, and a scan that silently skipped the file
+        would leave a corrupt track in the library with no line in the report.
+        """
+        path = tmp_path / "corrupt.dsf"
+        path.write_bytes(b"not really audio")
+        before = digest(path)
+
+        result = process_file(path)
+
+        assert result.error, "a corrupt file was reported as clean"
+        assert digest(path) == before
+
+    def test_wma_is_refused_and_left_alone(self, tmp_path: Path) -> None:
+        """``.wma`` has no tag writer, so the rule reports an error and writes nothing.
+
+        The container stays in ``SUPPORTED_EXTENSIONS`` on purpose: reaching the
+        rule and being refused is visible in the report, while dropping it would
+        make every WMA file vanish as a silent skip (WP-1's matrix marks the
+        container ``tag_writable = False``).
+        """
+        path = tmp_path / "refused.wma"
+        if not _encode(path, "asf"):
+            pytest.skip("this host cannot encode .wma")
+        assert path.suffix in SUPPORTED_EXTENSIONS
+        before = digest(path)
+
+        result = process_file(path)
+
+        assert result.error, "the rule reported no error for a container it cannot tag"
+        assert digest(path) == before
+
+
+# ---------------------------------------------------------------------------
+# The flag reaches the write site
+# ---------------------------------------------------------------------------
+
+
+class _RecordingEngine:
+    """An engine stand-in that records how the rule called it."""
+
+    def __init__(self, path: Path, calls: list[tuple[dict[str, str], bool]]) -> None:
+        self.path = path
+        self.calls = calls
+        self.convention = ID3_CONVENTION
+
+    def has_tags(self) -> bool:
+        """Claim a tag container so the rule takes its normal path."""
+        return True
+
+    def read_fields(self) -> dict[str, str]:
+        """Return the one field the slash rule reads."""
+        return {"genre": ORIGINAL_VALUE}
+
+    def write_fields(
+        self, pending: dict[str, str], dry_run: bool = False
+    ) -> SimpleNamespace:
+        """Record the call and report the write the engine would have made."""
+        self.calls.append((dict(pending), dry_run))
+        return SimpleNamespace(updated=True, keys=["genre"], changed=["genre"])
+
+
+class TestTheRuleHandsTheFlagOver:
+    """``dry_run`` must arrive at ``write_fields`` exactly as the caller sent it."""
+
+    @pytest.mark.parametrize("dry_run", [True, False])
+    def test_write_fields_receives_the_callers_flag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dry_run: bool
+    ) -> None:
+        """Both halves, because a stand-in that always sees ``True`` cannot fail."""
+        calls: list[tuple[dict[str, str], bool]] = []
+
+        def factory(path: Path) -> _RecordingEngine:
+            return _RecordingEngine(path, calls)
+
+        monkeypatch.setattr(rules, "TagFieldEngine", factory)
+
+        result = process_file(tmp_path / "any.flac", dry_run=dry_run)
+
+        assert result.error is None
+        assert result.updated is True
+        assert len(calls) == 1, "the rule wrote more than once per file"
+        pending, received = calls[0]
+        assert received is dry_run, (
+            "the rule dropped or rewrote dry_run on the way to the write site"
+        )
+        assert pending == {"genre": ORIGINAL_VALUE}, (
+            "the rule handed the engine a transformed value, not the stored one"
+        )
+
+    def test_default_is_a_live_run(self) -> None:
+        """A caller that says nothing gets the write, as every rule did before."""
+        parameter = inspect.signature(process_file).parameters["dry_run"]
+        assert parameter.default is False
+
+
+# ---------------------------------------------------------------------------
+# Non-vacuity: there is one rule and it owns every field the tool names
+# ---------------------------------------------------------------------------
+
+
+class TestTheModuleHasOneRule:
+    """The eight ``process_*_file`` names are gone, and nothing re-adds them."""
+
+    def test_no_per_format_rule_survives(self) -> None:
+        """A reintroduced per-format rule would be the second copy all over again."""
+        leftovers = sorted(
+            name
+            for name in dir(rules)
+            if name.startswith("process_") and name != "process_file"
+        )
+        assert leftovers == [], f"per-format rules reintroduced: {leftovers}"
+
+    def test_the_module_imports_no_mutagen(self) -> None:
+        """Container knowledge lives in the engine; this module must stay free of it."""
+        source = Path(rules.__file__).read_text(encoding="utf-8")
+        imported = [
+            line
+            for line in source.splitlines()
+            if line.startswith(("import mutagen", "from mutagen"))
+        ]
+        assert imported == [], f"mutagen re-entered the rule module: {imported}"
+
+    def test_every_slash_field_is_an_engine_rule(self) -> None:
+        """Each field the tool rewrites resolves to a rule in the one table."""
+        names = {rule.name for rule in FIELD_RULES}
+        assert SLASH_FIELDS, "the tool declares no fields"
+        missing = sorted(set(SLASH_FIELDS) - names)
+        assert missing == [], f"fields with no engine rule: {missing}"

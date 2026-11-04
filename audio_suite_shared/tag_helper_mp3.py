@@ -18,6 +18,11 @@ so the Tag Field Updater's filename source can write a parsed ``%disc%``
 Changed in 2.4.1: drops the import-order warning — the factory imports
 this module inside its builder, so it may be the first tag-helper import
 in a fresh interpreter (WP-2).
+
+Changed in 2.4.2: declares ``convention = "id3"`` and implements
+``read_field_key`` / ``set_field_key``, so the shared field engine drives ID3
+frames instead of each tool walking mutagen itself (WP-6).  The WAV/AIFF and DSF
+handlers inherit both through this class.
 """
 
 import logging
@@ -38,6 +43,8 @@ logger = logging.getLogger("audio_suite.audio_suite_shared.tag_helper_base")
 
 class MP3Handler(BaseTagHandler):
     """Handler for MP3 files using ID3 tags."""
+
+    convention = "id3"
 
     def load(self) -> None:
         """Load the MP3 file and its ID3 tags.
@@ -71,6 +78,57 @@ class MP3Handler(BaseTagHandler):
         if self._tags is None:
             self._audio.add_tags()
             self._tags = self._audio.tags
+
+    def read_field_key(self, key: str) -> str | None:
+        """Read one ID3 key: a ``TXXX:desc`` frame or a plain frame id.
+
+        Args:
+            key: ``TXXX:DESC`` for a user-text frame, otherwise a four-character
+                frame id (``TIT1``, ``TCON`` …).
+
+        Returns:
+            The frame's first text value, or None when the frame is absent.
+        """
+        if key.startswith("TXXX:"):
+            return self.read_custom_field(key[5:])
+        return self._read_id3_frame_text(key)
+
+    def set_field_key(self, key: str, value: str | None) -> None:
+        """Store or remove one ID3 frame, without saving.
+
+        The encoding follows the container's own ID3 version — Latin-1 for a
+        v2.3 file, UTF-8 for v2.4 — which is what the per-format tag rules did
+        before they were consolidated, so a migrated run does not silently
+        re-encode a v2.3 library.
+
+        Args:
+            key: ``TXXX:DESC`` or a four-character frame id.
+            value: Text to store, or None to remove the frame.
+
+        Raises:
+            AudioTagError: If the frame id is not one mutagen knows.
+        """
+        from mutagen.id3 import TXXX, Frames
+
+        self._ensure_tags()
+        if self._tags is None:  # pragma: no cover - _ensure_tags creates one
+            raise AudioTagError(f"Could not create an ID3 container in {self.path}")
+
+        if key.startswith("TXXX:"):
+            self._tags.delall(key)
+            if value is not None:
+                self._tags.add(TXXX(encoding=3, desc=key[5:], text=[value]))
+            return
+
+        frame_cls = Frames.get(key)
+        if frame_cls is None:
+            raise AudioTagError(f"Unsupported ID3 frame: {key}")
+
+        version = getattr(self._tags, "version", (2, 3)) or (2, 3)
+        encoding = 3 if version >= (2, 4) else 1
+        self._tags.delall(key)
+        if value is not None:
+            self._tags.add(frame_cls(encoding=encoding, text=[value]))
 
     def read_bpm(self) -> int | None:
         """Read the BPM from the TBPM ID3 frame.

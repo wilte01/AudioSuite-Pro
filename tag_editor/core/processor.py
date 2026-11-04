@@ -6,6 +6,13 @@ and :func:`run_apply`, the ``run_*`` shape every GUI tool's processor exposes
 (maintenance item U5).  The window no longer reads the processor's return
 values itself, so each run writes its report and drives the shared
 progress/completion handlers exactly as its peers do.
+
+Changed in 2.4.2: the editor's writes already went through the shared tag layer
+(``read_editable_tags`` / ``write_editable_tag``), so moving the slash rule into
+``audio_suite_shared.tag_field_engine`` needed one import change here — the
+cross-tool import of ``tag_field_updater``'s transform is gone — and no write
+path changed.  Its nine-field edit is the second half of the cross-tool
+equality lock in ``tests/test_tag_equality_across_tools.py`` (plan WP-6).
 """
 
 from __future__ import annotations
@@ -29,12 +36,12 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.security.input_validator import InputValidator
+from audio_suite_shared.tag_field_engine import split_slash_genre
 from audio_suite_shared.tag_helper import (
     EDITABLE_FIELDS,
     read_editable_tags,
     write_editable_tag,
 )
-from tag_field_updater.core.mapping_engine import update_value
 
 logger = logging.getLogger(__name__)
 
@@ -313,7 +320,7 @@ def build_bulk_edits(
                     edits.append(FieldEdit(row.path, primary, converted))
         elif bulk_operation == "apply_txxx_rule":
             if current is not None:
-                normalized_value = update_value(current)
+                normalized_value = split_slash_genre(current)
                 if normalized_value != current:
                     edits.append(FieldEdit(row.path, primary, normalized_value))
     return edits
