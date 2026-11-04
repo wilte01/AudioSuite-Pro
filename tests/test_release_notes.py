@@ -194,6 +194,13 @@ tools of functional backlog Wave 3: Duplicate Finder (F-02) and Restoration /
 Declip (F-08a), whose 53 new modules each carry the note this re-baseline
 checks. Its first narrative change is the ``CHANGELOG.md`` entry those two
 tools land under, so the scan cannot be vacuous here.
+Changed in 2.4.2: re-baselined the lock for the post-2.4.1 window. BASE_COMMIT
+is now ce4363f -- the 2.4.1 release commit, which is where the ``v2.4.1`` tag
+points -- and NOTE_MARKER is ``Changed in 2.4.2``, so 2.4.1's notes stay as each
+file's own history and only the 2.4.2 work needs a note. The asserted
+non-empty exception category stays the narrative ``.md`` documents: this
+re-baseline lands with the plan row and changelog entry that record it, so the
+scan cannot be vacuous here.
 Changed in 2.1.6: the diff no longer forces ``core.autocrlf=false``. On a host
 whose checkout converts line endings (GitHub's Windows runners set
 ``core.autocrlf=true``) that override made every LF-stored file look modified,
@@ -214,15 +221,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: The plan's base commit; every file changed since here must be annotated.
 #: Re-baselined per sprint (section 2.5 of the audit-remediation plan) so each
 #: release's notes are written while its work is in flight, not retro-fitted at
-#: the cut. It now sits at c124142, the 2.4.0 release commit (where the
-#: v2.4.0 tag points): that window is closed and its notes are written, so
+#: the cut. It now sits at ce4363f, the 2.4.1 release commit (where the
+#: v2.4.1 tag points): that window is closed and its notes are written, so
 #: only work after it does.
 #: Earlier work is documented in its own plans and the changelogs, so it does
 #: not require per-file notes here.
-BASE_COMMIT = "c124142"
+BASE_COMMIT = "ce4363f"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 2.4.1"
+NOTE_MARKER = "Changed in 2.4.2"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (

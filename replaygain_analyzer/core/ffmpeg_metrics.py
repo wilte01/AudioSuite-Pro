@@ -1,7 +1,6 @@
 """
 ffmpeg_metrics.py
-Measures integrated loudness (LUFS), true peak (dBFS) and duration of an
-audio file using FFmpeg's ebur128 filter.
+ReplayGain's Loudness (LUFS), true peak (dBFS) and duration figures.
 
 Pure function — no tkinter imports, no global state.
 Also owns get_resource_path() for PyInstaller compatibility.
@@ -13,6 +12,14 @@ FFmpeg resolution order (Windows)
 
 On non-Windows the system 'ffmpeg' is always used.
 
+Changed in 2.4.2: the measurement moved to
+``audio_suite_shared.audio_probe``; ``get_metrics`` and
+``measure_album_loudness`` are now adapters that keep this tool's return shapes
+and failure contract (``None`` loudness, ``0.0`` peak, ``None`` duration) while
+the FFmpeg argument lists and the stderr parsing live in one place.  The
+equality lock against the previous implementation is
+``replaygain_analyzer/tests/_legacy_metrics.py``.
+
 Changed in 2.1.7: ``measure_album_loudness`` measures a folder as one
 concatenated signal in a single pass — ReplayGain 2.0's actual album definition
 — and returns ``None`` so the caller falls back to the duration-weighted formula
@@ -20,24 +27,17 @@ only when that read fails (A1).
 
 Changed in 2.1.2: returns the file's duration as a third measurement. Album
 ReplayGain is the loudness of the album's combined signal, so it needs each
-track's length, not just its integrated loudness (audit R-01). The duration is
-parsed from the same ebur128 run's stderr; only a missing Duration line costs a
-second `ffprobe` call, and a probe failure is reported as None (the caller
-counts that file as an error rather than weighting it with a guessed length).
+track's length, not just its integrated loudness (audit R-01).
 """
 
 import logging
 import os
-import re
 import subprocess
 import sys
-import tempfile
 
-from audio_suite_shared.constants import WORKER_TIMEOUT_SECS
-from audio_suite_shared.secure_subprocess import (
-    SubprocessSecurityError,
-    run_secure_subprocess,
-)
+from audio_suite_shared import audio_probe
+from audio_suite_shared.exceptions import AudioExternalToolError, AudioSuiteError
+from audio_suite_shared.secure_subprocess import SubprocessSecurityError
 from audio_suite_shared.subprocess_utils import get_startupinfo
 
 # Re-export the canonical Windows STARTUPINFO helper under this module's
@@ -45,6 +45,14 @@ from audio_suite_shared.subprocess_utils import get_startupinfo
 _get_startupinfo = get_startupinfo
 
 logger = logging.getLogger(__name__)
+
+#: The one warning FFmpeg's absence deserves: it names the binary, the two
+#: places it is looked for, and what the user can do about it.
+_FFMPEG_MISSING_HINT = (
+    "Install ffmpeg and ensure it is on the system PATH, "
+    "or place the ffmpeg binary alongside the "
+    "replaygain_analyzer/core/ module."
+)
 
 
 def get_resource_path(relative_path: str) -> str:
@@ -80,89 +88,14 @@ def _get_ffmpeg_exe() -> str:
     return "ffmpeg"
 
 
-def _duration_from_stderr(stderr: str) -> float | None:
-    """Return the input duration FFmpeg printed in its banner, in seconds.
-
-    Args:
-        stderr: FFmpeg's stderr from the ebur128 run.
-
-    Returns:
-        The duration in seconds, or ``None`` when no ``Duration:`` line was
-        printed (a pipe input or an unreadable container).
-    """
-    match = re.search(r"Duration:\s+(\d+):(\d+):(\d+(?:\.\d+)?)", stderr)
-    if match is None:
-        return None
-    hours, minutes, seconds = match.groups()
-    return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
-
-
-def _probe_duration_seconds(file_path: str) -> float | None:
-    """Ask ffprobe for the container duration when FFmpeg printed none.
-
-    Args:
-        file_path: Absolute path to the audio file.
-
-    Returns:
-        The duration in seconds, or ``None`` when the probe cannot supply one.
-    """
-    try:
-        result = run_secure_subprocess(
-            "ffprobe",
-            [
-                "-v",
-                "error",
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "default=noprint_wrappers=1:nokey=1",
-                os.path.normpath(file_path),
-            ],
-            capture_output=True,
-            timeout=WORKER_TIMEOUT_SECS,
-            check=False,
-            log_failure=False,
-        )
-        text = (result.stdout or "").strip()
-        return float(text) if text else None
-    except (
-        FileNotFoundError,
-        SubprocessSecurityError,
-        OSError,
-        ValueError,
-        subprocess.TimeoutExpired,
-    ) as exc:
-        logger.warning("Could not read the duration of %s: %s", file_path, exc)
-        return None
-
-
-def _concat_list_line(path: str) -> str:
-    """Format one FFmpeg concat-demuxer ``file`` directive.
-
-    FFmpeg's demuxer uses single-quoted entries and doubles nothing: a literal
-    quote is written as ``'\\''``. Paths use forward slashes so the directive
-    is identical on Windows and POSIX hosts.
-
-    Args:
-        path: Absolute path to the audio file.
-
-    Returns:
-        One ``file '<path>'`` line, newline-terminated.
-    """
-    escaped = os.path.normpath(path).replace("\\", "/").replace("'", "'\\''")
-    return f"file '{escaped}'\n"
-
-
 def measure_album_loudness(paths: list[str]) -> float | None:
     """Measure a folder's tracks as one combined signal, in a single pass.
 
-    ReplayGain 2.0 defines album loudness as the integrated loudness of the
-    album's combined signal, so the FFmpeg concat demuxer feeds every track
-    through ``ebur128`` as one stream. This is a second decode of the album
+    The album figure is the integrated loudness of the concatenated album,
+    which is ReplayGain 2.0's definition. This is a second decode of the album
     (Phase 1 already decodes each track for its own measurement), which is the
-    cost the approximation traded away; A1's benchmark measured the accuracy it
-    bought and found the weighted formula 2.33 dB out on a silent-tail album and
-    3.00 dB out on a 20 s loud + 20 s quiet pair
+    cost the approximation traded away; A1's benchmark measured it 2.33 dB out on
+    a silent-tail album and 3.00 dB out on a 20 s loud + 20 s quiet pair
     (``tests/test_file_processor.py::TestAlbumGainBenchmark``).
 
     Args:
@@ -175,61 +108,20 @@ def measure_album_loudness(paths: list[str]) -> float | None:
     """
     if not paths:
         return None
-
-    handle = tempfile.NamedTemporaryFile(
-        "w", suffix=".concat.txt", delete=False, encoding="utf-8"
-    )
     try:
-        with handle as stream:
-            for path in paths:
-                stream.write(_concat_list_line(path))
-        ffmpeg = _get_ffmpeg_exe()
-        result = run_secure_subprocess(
-            ffmpeg,
-            [
-                "-hide_banner",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                handle.name,
-                "-af",
-                "ebur128=peak=true",
-                "-f",
-                "null",
-                "-",
-            ],
-            capture_output=True,
-            encoding="utf-8",
-            errors="ignore",
-            timeout=WORKER_TIMEOUT_SECS,
-            check=False,
+        combined = audio_probe.measure_album_loudness(paths, ffmpeg=_get_ffmpeg_exe())
+    except AudioSuiteError as exc:
+        logger.warning(
+            "ffmpeg returned no combined album loudness for %d tracks (%s); "
+            "falling back to duration weighting",
+            len(paths),
+            exc.message,
         )
-        matches = re.findall(r"I:\s+([-+]?\d+\.?\d*)\s+LUFS", result.stderr)
-        if not matches:
-            logger.warning(
-                "ffmpeg returned no combined album loudness for %d tracks "
-                "(exit code %d); falling back to duration weighting",
-                len(paths),
-                result.returncode,
-            )
-            return None
-        return float(matches[-1])
-    except (
-        FileNotFoundError,
-        SubprocessSecurityError,
-        OSError,
-        ValueError,
-        subprocess.TimeoutExpired,
-    ) as exc:
+        return None
+    except (OSError, subprocess.TimeoutExpired) as exc:
         logger.warning("Could not measure the combined album signal: %s", exc)
         return None
-    finally:
-        try:
-            os.unlink(handle.name)
-        except OSError:
-            pass
+    return combined.integrated_lufs
 
 
 def get_metrics(file_path: str) -> tuple[float | None, float, float | None]:
@@ -248,64 +140,37 @@ def get_metrics(file_path: str) -> tuple[float | None, float, float | None]:
         never as zero.
     """
     ffmpeg = _get_ffmpeg_exe()
-
-    cmd = [
-        ffmpeg,
-        "-hide_banner",
-        "-i",
-        os.path.normpath(file_path),
-        "-af",
-        "ebur128=peak=true",
-        "-f",
-        "null",
-        "-",
-    ]
-
     try:
-        result = run_secure_subprocess(
-            ffmpeg,
-            cmd[1:],
-            capture_output=True,
-            encoding="utf-8",
-            errors="ignore",
-            timeout=WORKER_TIMEOUT_SECS,
-            check=False,
-        )
-
-        lufs_matches = re.findall(r"I:\s+([-+]?\d+\.?\d*)\s+LUFS", result.stderr)
-        peak_matches = re.findall(r"Peak:\s+([-+]?\d+\.?\d*)\s+dBFS", result.stderr)
-
-        lufs: float | None = float(lufs_matches[-1]) if lufs_matches else None
-        peak: float = float(peak_matches[-1]) if peak_matches else 0.0
-        duration_s = _duration_from_stderr(result.stderr)
-        if duration_s is None:
-            duration_s = _probe_duration_seconds(file_path)
-
-        if lufs is None:
-            logger.warning(
-                "ffmpeg returned no LUFS measurement for %s (exit code %d).\n"
-                "ffmpeg stderr: %s",
-                file_path,
-                result.returncode,
-                result.stderr[-500:] if result.stderr else "(empty)",
+        metrics = audio_probe.measure_loudness(file_path, ffmpeg=ffmpeg)
+    except AudioExternalToolError as exc:
+        if isinstance(exc.original, FileNotFoundError):
+            logger.error(
+                "ffmpeg executable not found at '%s'. %s", ffmpeg, _FFMPEG_MISSING_HINT
             )
-
-        return lufs, peak, duration_s
-
-    except (FileNotFoundError, SubprocessSecurityError):
-        logger.error(
-            "ffmpeg executable not found at '%s'. "
-            "Install ffmpeg and ensure it is on the system PATH, "
-            "or place the ffmpeg binary alongside the "
-            "replaygain_analyzer/core/ module.",
-            ffmpeg,
+        elif isinstance(exc.original, subprocess.TimeoutExpired):
+            logger.warning("ffmpeg timed out processing: %s", file_path)
+        else:
+            logger.error(
+                "Unexpected error measuring %s: %s", file_path, exc, exc_info=True
+            )
+        return None, 0.0, None
+    except AudioSuiteError as exc:
+        logger.warning(
+            "ffmpeg returned no LUFS measurement for %s: %s", file_path, exc.message
         )
         return None, 0.0, None
-
-    except subprocess.TimeoutExpired:
-        logger.warning("ffmpeg timed out processing: %s", file_path)
-        return None, 0.0, None
-
-    except (OSError, subprocess.CalledProcessError) as exc:
+    except (
+        OSError,
+        ValueError,
+        SubprocessSecurityError,
+        subprocess.TimeoutExpired,
+        subprocess.CalledProcessError,
+    ) as exc:
         logger.error("Unexpected error measuring %s: %s", file_path, exc, exc_info=True)
         return None, 0.0, None
+
+    return (
+        metrics.integrated_lufs,
+        metrics.true_peak_dbtp if metrics.true_peak_dbtp is not None else 0.0,
+        metrics.duration_sec,
+    )

@@ -14,6 +14,12 @@ Changed in 1.0.1: updates the peak/probe assertions for the linear (not dBFS) pe
 Changed in 2.1.2: get_metrics returns a third value (duration), the ebur128
 fixtures carry a Duration line, and the measurement mocks supply durations so
 the energy-weighted album path is exercised (audit R-01).
+Changed in 2.4.2: the measurement mocks patch
+``audio_suite_shared.audio_probe.run_secure_subprocess``. ReplayGain's
+``ffmpeg_metrics`` now delegates to the shared probe, so the subprocess seam
+moved with the implementation; leaving the old patch target would have made
+every mock inert and the assertions below meaningless. The assertions
+themselves are unchanged.
 """
 
 import os
@@ -148,7 +154,7 @@ class TestGetMetrics:
         f = tmp_path / "t.mp3"
         f.write_bytes(b"x")
         with patch(
-            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            "audio_suite_shared.audio_probe.run_secure_subprocess",
             return_value=self._mock_run(MOCK_STDERR_GOOD),
         ):
             result = get_metrics(str(f))
@@ -158,7 +164,7 @@ class TestGetMetrics:
         f = tmp_path / "t.mp3"
         f.write_bytes(b"x")
         with patch(
-            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            "audio_suite_shared.audio_probe.run_secure_subprocess",
             return_value=self._mock_run(MOCK_STDERR_GOOD),
         ):
             lufs, peak, _duration = get_metrics(str(f))
@@ -169,7 +175,7 @@ class TestGetMetrics:
         f = tmp_path / "t.mp3"
         f.write_bytes(b"x")
         with patch(
-            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            "audio_suite_shared.audio_probe.run_secure_subprocess",
             return_value=self._mock_run(MOCK_STDERR_GOOD),
         ):
             lufs, peak, _duration = get_metrics(str(f))
@@ -184,7 +190,7 @@ class TestGetMetrics:
         f = tmp_path / "t.mp3"
         f.write_bytes(b"x")
         with patch(
-            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            "audio_suite_shared.audio_probe.run_secure_subprocess",
             return_value=self._mock_run(MOCK_STDERR_GOOD),
         ):
             _, _, duration = get_metrics(str(f))
@@ -203,7 +209,7 @@ class TestGetMetrics:
             return self._mock_run(MOCK_STDERR_NO_PEAK)
 
         with patch(
-            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            "audio_suite_shared.audio_probe.run_secure_subprocess",
             fake_run,
         ):
             _, _, duration = get_metrics(str(f))
@@ -214,7 +220,7 @@ class TestGetMetrics:
         f = tmp_path / "t.mp3"
         f.write_bytes(b"x")
         with patch(
-            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            "audio_suite_shared.audio_probe.run_secure_subprocess",
             return_value=self._mock_run(MOCK_STDERR_NO_PEAK),
         ):
             lufs, _, duration = get_metrics(str(f))
@@ -225,7 +231,7 @@ class TestGetMetrics:
         f = tmp_path / "t.mp3"
         f.write_bytes(b"x")
         with patch(
-            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            "audio_suite_shared.audio_probe.run_secure_subprocess",
             return_value=self._mock_run(MOCK_STDERR_NO_LUFS),
         ):
             lufs, peak, _duration = get_metrics(str(f))
@@ -236,7 +242,7 @@ class TestGetMetrics:
         f = tmp_path / "t.mp3"
         f.write_bytes(b"x")
         with patch(
-            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            "audio_suite_shared.audio_probe.run_secure_subprocess",
             side_effect=FileNotFoundError("ffmpeg not found"),
         ):
             lufs, peak, _duration = get_metrics(str(f))
@@ -249,7 +255,7 @@ class TestGetMetrics:
         f = tmp_path / "t.mp3"
         f.write_bytes(b"x")
         with patch(
-            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            "audio_suite_shared.audio_probe.run_secure_subprocess",
             side_effect=subprocess.TimeoutExpired(cmd="ffmpeg", timeout=300),
         ):
             lufs, peak, _duration = get_metrics(str(f))
@@ -260,7 +266,7 @@ class TestGetMetrics:
         f = tmp_path / "t.mp3"
         f.write_bytes(b"x")
         with patch(
-            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            "audio_suite_shared.audio_probe.run_secure_subprocess",
             side_effect=OSError("unexpected"),
         ):
             lufs, peak, _duration = get_metrics(str(f))
@@ -277,7 +283,7 @@ class TestGetMetrics:
             return self._mock_run(MOCK_STDERR_GOOD)
 
         with patch(
-            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            "audio_suite_shared.audio_probe.run_secure_subprocess",
             fake_run,
         ):
             get_metrics(str(f))
@@ -291,7 +297,7 @@ class TestGetMetrics:
             "  I:  -18.20 LUFS\n"  # final summary
         )
         with patch(
-            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            "audio_suite_shared.audio_probe.run_secure_subprocess",
             return_value=self._mock_run(stderr),
         ):
             lufs, _, _ = get_metrics(str(f))
@@ -301,7 +307,7 @@ class TestGetMetrics:
         f = tmp_path / "t.mp3"
         f.write_bytes(b"x")
         with patch(
-            "replaygain_analyzer.core.ffmpeg_metrics.run_secure_subprocess",
+            "audio_suite_shared.audio_probe.run_secure_subprocess",
             return_value=self._mock_run(MOCK_STDERR_NO_PEAK),
         ):
             lufs, peak, _duration = get_metrics(str(f))

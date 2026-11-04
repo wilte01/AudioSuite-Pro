@@ -12,7 +12,23 @@ one.
 
 ## [Unreleased]
 
-Nothing yet.
+- **One measurement path.** `audio_suite_shared/audio_probe.py` now owns the
+  suite's FFmpeg measurement — `probe_stream`, `measure_levels`,
+  `measure_loudness`, `measure_album_loudness` and `decoded_duration` — with the
+  decode policy in one place: every call goes through the secure subprocess
+  wrapper, `ffprobe` describes the stream, `ffmpeg -f null -` decodes it, no
+  pydub sits in the path, and a non-finite reading is reported as absent rather
+  than as a plausible `0.0`. ReplayGain's `ffmpeg_metrics.get_metrics` and
+  `measure_album_loudness` are now thin adapters that keep their return shapes
+  and failure contract. `replaygain_analyzer/tests/_legacy_metrics.py` freezes
+  the 2.4.1 implementation and `test_ffmpeg_metrics.py` measures nine files
+  twice — generated tones, three CC0 recordings and one read-only `.ape` —
+  asserting agreement within 0.05 dB loudness, 0.05 dB peak and 1 ms duration,
+  with the album rule locked the same way;
+  `tests/test_loudness_agreement.py` holds the cross-tool criterion that
+  `ebur128` and `loudnorm` agree within 0.1 dB on the same file. Thirteen mocks
+  that patched ReplayGain's `run_secure_subprocess` were retargeted to the
+  probe, because that seam moved with the implementation.
 
 ## [2.4.1] - 2026-11-04
 
