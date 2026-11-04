@@ -846,6 +846,12 @@ a broken Help button warns):
     `on_error`) and the tool is added to
     `tests/test_callback_payload_contract.py`'s `EXPECTED_TOOLS`.
 
+12. **Run report** — the tool writes a report beside the files it scanned
+    (`<prefix>_{dry_run,sync}_log.txt`) in the shape *Run Reports vs Program
+    Logs* describes, names it in `_log_path` when a run starts, and has a test
+    that reads the written file back. Its View Log must open that report, never
+    `logs/<program>.log`.
+
 **Verification:** a per-package `pytest <pkg>/tests` is NOT sufficient proof —
 the integration tests in `master_driver/tests/` and `audio_suite_shared/tests/`
 catch registration mistakes a package's own tests cannot see. The final gate MUST

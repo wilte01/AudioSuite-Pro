@@ -12,6 +12,16 @@ one.
 
 ## [Unreleased]
 
+- **One implementation of the "no log yet" branch, and the checklist names it.**
+  `mood_analysis_batch_tagger` kept its own copy of the View Log branch (its own
+  dialog title, its own wording) beside `ui_helpers.open_log_file`, so the one
+  GUI tool outside the shared handler could drift unnoticed; `_on_open_log` now
+  delegates, and its two tests patch the shared helper's namespace.
+  `tests/test_log_button_contract.py` scans first-party Python and fails if the
+  message appears anywhere but `audio_suite_shared/ui_helpers.py`.
+  *Registering a New Tool* gains item 12: write the run report, name it in
+  `_log_path` when a run starts, and lock it with a test that reads the file.
+
 - **The run-report contract is a rule with an artefact lock.** `AGENTS.md` gains
   *Run Reports vs Program Logs* — which file View Log opens, the report's shape
   and location, why `_log_path` is empty until a run names its report, and that

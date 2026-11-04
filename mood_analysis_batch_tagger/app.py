@@ -14,6 +14,11 @@ logged instead of shown when the launch is unattended (D70).
 Changed in 2.4.1: the local ``_ThreadSafeSlotVar`` clone is retired
 behind ``audio_suite_shared.thread_safe_slot_var.make_safe_slot_vars``,
 the helper four sibling tools already used (WP-3).
+
+Changed in 2.4.3: ``_on_open_log`` delegates to
+``ui_helpers.open_log_file`` instead of carrying its own copy of the
+open/no-log branch, so the button's target and wording are the suite's one
+implementation (PLAN_2026-11-03_2.4.3_structure.md D-16, D-19).
 """
 
 from __future__ import annotations
@@ -32,7 +37,7 @@ from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS, default_max_workers
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 from audio_suite_shared.ui_common import cap_typed_workers
-from audio_suite_shared.ui_helpers import UIHelperMixin
+from audio_suite_shared.ui_helpers import UIHelperMixin, open_log_file
 from mood_analysis_batch_tagger.core import batch_analysis_engine
 from mood_analysis_batch_tagger.ui import processing_tab, results_tab, setup_tab
 from mood_analysis_batch_tagger.utils import cli_args
@@ -448,12 +453,12 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
             self.root.after(1500, self.root.destroy)
 
     def _on_open_log(self) -> None:
-        if self._log_path and os.path.isfile(self._log_path):
-            platform_utils.open_path(self._log_path)
-        else:
-            platform_utils.messagebox.showinfo(
-                _TOOL_TITLE, "No log file available yet."
-            )
+        """Open this run's report through the suite's one log-button helper.
+
+        The branch was previously a local copy, so the wording and the
+        behaviour behind View Log could differ from every other tool's.
+        """
+        open_log_file(self._log_path)
 
     def _on_open_folder(self) -> None:
         root = self.root_path.get().strip()

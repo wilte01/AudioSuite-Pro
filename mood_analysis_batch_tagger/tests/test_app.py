@@ -8,6 +8,9 @@ Changed in 1.4.0: covers the saved worker-count fallback resolving the shared
 default instead of a literal (D67).
 Changed in 1.4.0: covers a typed worker count above the slot grid being
 capped (with a warning) before it is saved (D66).
+
+Changed in 2.4.3: the two View Log cases patch the shared helper's namespace,
+because ``_on_open_log`` now delegates to ``ui_helpers.open_log_file`` (D-19).
 """
 
 from __future__ import annotations
@@ -462,22 +465,28 @@ class TestOnDurationChange:
 
 
 class TestOpenLogAndFolder:
-    def test_open_log_calls_open_path_when_exists(self, tmp_path) -> None:
+    def test_open_log_delegates_to_the_shared_helper(self, tmp_path) -> None:
+        """View Log goes through ``ui_helpers.open_log_file``, not a local copy.
+
+        A local copy is how two tools ended up with different wording (and one
+        with a different target) behind the same button.
+        """
         app = _make_app()
         log_file = tmp_path / "mood_analysis_batch_log.txt"
         log_file.write_text("log")
         app._log_path = str(log_file)
-        with patch(f"{APP}.platform_utils") as mock_platform:
+        with patch("audio_suite_shared.ui_helpers.platform_utils") as mock_platform:
             app._on_open_log()
         mock_platform.open_path.assert_called_once_with(str(log_file))
 
-    def test_open_log_shows_info_when_missing(self) -> None:
+    def test_open_log_shows_the_shared_no_log_message(self) -> None:
         app = _make_app()
         app._log_path = ""
-        with patch(f"{APP}.platform_utils") as mock_platform:
+        with patch("audio_suite_shared.ui_helpers.messagebox") as mock_messagebox:
             app._on_open_log()
-        mock_platform.open_path.assert_not_called()
-        mock_platform.messagebox.showinfo.assert_called_once()
+        mock_messagebox.showinfo.assert_called_once_with(
+            "Log File", "No log file available yet."
+        )
 
     def test_open_folder_calls_open_path_when_valid(self, tmp_path) -> None:
         app = _make_app()
