@@ -14,6 +14,12 @@ Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``
 so a payload field the processor adds (D112) is ignored instead of aborting an
 otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
 completion, progress and error seams.
+
+Changed in 2.4.3: the window is built by ``audio_suite_shared.suite_app.SuiteApp``
+(WP-8).  This module keeps the Setup tab's settings, the presets, the run and the
+report it writes; the Help bar, notebook, Processing and Results tabs and the
+help/log/folder handlers come from the shell.  No control, tab name or report
+line changed.
 """
 
 import logging
@@ -24,8 +30,7 @@ from queue import Queue
 from tkinter import messagebox, ttk
 from typing import Any
 
-from audio_suite_shared import styles, suite_config
-from audio_suite_shared.app_bootstrap import bootstrap_tool_app
+from audio_suite_shared import suite_config
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_helpers import UniversalCLIHandler
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
@@ -35,8 +40,8 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.run_outcome import record_caveats, shortfall
+from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
-from audio_suite_shared.ui_helpers import UIHelperMixin
 
 from .core import file_processor
 from .core.formats import (
@@ -44,7 +49,7 @@ from .core.formats import (
     LOSSY_FORMATS,
     scan_input_directory,
 )
-from .ui import processing_tab, results_tab, setup_tab
+from .ui import setup_tab
 from .utils import cli_args
 from .utils.ffmpeg_check import check_ffmpeg
 
@@ -58,19 +63,21 @@ TOOL_ID = "music_format_converter"
 DRIVER_TOOL_ID = "converter"
 
 
-class MusicFormatConverterApp(UIHelperMixin):
+class MusicFormatConverterApp(SuiteApp):
     """Music Format Converter application GUI."""
 
     HELP_GUIDE = "Music_Format_Converter_User_Guide.docx"
 
+    # The shared shell reads its identity from these.  HELP_GUIDE stays because
+    # the Help button's filename registration keys off it.
+    title = "Music Format Converter"
+    window_key = "music_format_converter_window"
+    program_name = TOOL_ID
+    guide_name = HELP_GUIDE
+    completion_text = "Conversion Complete!"
+
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.error_logger, _ = bootstrap_tool_app(
-            self.root,
-            "Music Format Converter",
-            "music_format_converter_window",
-            TOOL_ID,
-        )
 
         # ── Tk variables ──────────────────────────────────────────────────────
         self.folder_path = tk.StringVar()
@@ -112,8 +119,8 @@ class MusicFormatConverterApp(UIHelperMixin):
         for i in range(DEFAULT_MAX_WORKERS):
             self.slot_queue.put(i)
 
-        # ── Build UI ──────────────────────────────────────────────────────────
-        self._build_ui()
+        # ── Build the shared shell (Help bar, notebook, Processing, Results) ──
+        super().__init__(root)
 
         # ── Apply CLI arguments ───────────────────────────────────────────────
         self._apply_cli_args()
@@ -127,33 +134,10 @@ class MusicFormatConverterApp(UIHelperMixin):
 
     # ── UI construction ───────────────────────────────────────────────────────
 
-    def _build_ui(self) -> None:
-        help_frame = tk.Frame(self.root, bg=styles.BG_LIGHT)
-        help_frame.pack(fill="x", padx=10, pady=(10, 0))
-        tk.Button(
-            help_frame,
-            text="Help",
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BODY,
-            padx=15,
-            pady=3,
-            command=self._open_help,
-        ).pack(side=tk.RIGHT)
-
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
-
-        tab_setup = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_processing = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-        tab_results = tk.Frame(self.notebook, bg=styles.BG_LIGHT)
-
-        self.notebook.add(tab_setup, text=" 1. Setup ")
-        self.notebook.add(tab_processing, text=" 2. Processing ")
-        self.notebook.add(tab_results, text=" 3. Results ")
-
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit this tool's Setup tab; the shared shell owns the notebook."""
         widgets = setup_tab.build(
-            tab_setup,
+            parent,
             folder_path=self.folder_path,
             output_folder=self.output_folder,
             output_format=self.output_format,
@@ -182,30 +166,12 @@ class MusicFormatConverterApp(UIHelperMixin):
             on_preset_selected=self._on_preset_selected,
         )
         self.start_btn = widgets["start_btn"]
+        self.controls_panel = widgets["controls_panel"]
         self._update_detected_label = widgets["update_detected_label"]
         self._update_format_menu = widgets["update_format_menu"]
         self._update_format_info = widgets["update_format_info"]
         self._refresh_preset_list = widgets["refresh_preset_list"]
         self._preset_combo = widgets["preset_combo"]
-
-        proc_widgets = processing_tab.build(tab_processing, self.slot_vars)
-        self.overall_status: tk.StringVar = proc_widgets["overall_status"]
-        self.progress: ttk.Progressbar = proc_widgets["progress"]
-        self.stats_label: tk.Label = proc_widgets["stats_label"]
-        self.file_listbox: tk.Listbox = proc_widgets["file_listbox"]
-
-        res_widgets = results_tab.build(
-            tab_results,
-            on_open_log=self._open_log,
-            on_open_folder=self._open_output_folder,
-        )
-        self.completion_label: tk.Label = res_widgets["completion_label"]
-        self.summary_label: tk.Label = res_widgets["summary_label"]
-        self.time_label: tk.Label = res_widgets["time_label"]
-
-        self._tab_setup = tab_setup
-        self._tab_processing = tab_processing
-        self._tab_results = tab_results
 
     # ── Presets ───────────────────────────────────────────────────────────────
 
@@ -355,12 +321,6 @@ class MusicFormatConverterApp(UIHelperMixin):
             save_last_dir=False,
         )
 
-    def _open_log(self) -> None:
-        self._open_log_standard()
-
-    def _open_output_folder(self) -> None:
-        self._open_folder_standard()
-
     def start_processing(self) -> None:
         """Start processing with enhanced validation and error handling."""
         try:
@@ -457,7 +417,7 @@ class MusicFormatConverterApp(UIHelperMixin):
 
             self.start_btn.config(state="disabled")
             self.file_listbox.delete(0, tk.END)
-            self.notebook.select(self._tab_processing)
+            self.notebook.select(self.processing_frame)
             self.overall_status.set(f"Converting to {output_format.upper()}...")
 
             threading.Thread(target=self._run, daemon=True).start()
@@ -552,13 +512,12 @@ class MusicFormatConverterApp(UIHelperMixin):
         display_text: str,
         **_extra: Any,
     ) -> None:
-        self.progress["maximum"] = total
-        self.progress["value"] = processed
         self.stats_label.config(
             text=f"Converted: {converted} | Skipped: {skipped} | Errors: {errors}"
         )
-        self.file_listbox.insert(tk.END, display_text)
-        self.file_listbox.see(tk.END)
+        self.render_progress(
+            processed=processed, total=total, display_text=display_text
+        )
 
     def _on_complete(
         self,
@@ -577,7 +536,6 @@ class MusicFormatConverterApp(UIHelperMixin):
     ) -> None:
         minutes = int(duration_secs // 60)
         seconds = int(duration_secs % 60)
-        self._out_dir = output_dir
 
         summary: list[str] = [
             "\n" + "=" * 60 + "\n",
@@ -610,7 +568,6 @@ class MusicFormatConverterApp(UIHelperMixin):
                 f"Could not write log file:\n{user_message_for(mapped)}",
             )
 
-        self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")
         summary_text = (
             f"Total: {total} files\n"
             f"Converted: {converted}\n"
@@ -628,9 +585,7 @@ class MusicFormatConverterApp(UIHelperMixin):
             )
             summary_text += f"\nInput: {total} files ({breakdown})"
         self.summary_label.config(text=summary_text)
-        self.completion_label.config(text="Conversion Complete!")
-        self.notebook.select(self._tab_results)
-        self.start_btn.config(state="normal")
+        self.render_completion(duration_secs=duration_secs, output_dir=output_dir)
         self._record_run_note(total=total, skipped=skipped, errors=errors)
 
     def _record_run_note(self, *, total: int, skipped: int, errors: int) -> None:
@@ -658,11 +613,3 @@ class MusicFormatConverterApp(UIHelperMixin):
             if skipped
             else "",
         )
-
-    def _on_error(self, message: str) -> None:
-        messagebox.showerror("Error", message)
-        self.start_btn.config(state="normal")
-
-    def _open_help(self) -> None:
-        """Open the help guide for Music Format Converter."""
-        self._open_help_standard(self.HELP_GUIDE)

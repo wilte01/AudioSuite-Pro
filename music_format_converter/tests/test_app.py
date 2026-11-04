@@ -11,6 +11,10 @@ Changed in 1.2.0: covers the run note a finished conversion leaves for the
 Master Driver batch report (the files it skipped and the ones that failed).
 Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
 ``run_conversion`` into the completion handler (PLAN D117).
+Changed in 2.4.3: ``_make_app_stub`` builds a real (uninitialised) app instance
+with mocked widgets instead of a bare ``MagicMock``, because the completion
+handler now calls the shared shell's tail and ``super()``-style binding needs an
+instance of the class.  No assertion changed.
 """
 
 import os
@@ -83,7 +87,11 @@ def _make_app_stub(tmp_path):
     a live Tk root, ffmpeg probing, CLI parsing, etc.) while still exercising
     the actual production code path.
     """
-    stub = MagicMock()
+    # A real instance, not a bare MagicMock: ``_on_complete`` chains into the
+    # shared shell's tail and ``super()`` needs an instance of this class.  The
+    # widgets stay mocks; every assertion below is unchanged.
+    stub = object.__new__(MusicFormatConverterApp)
+    stub.root = MagicMock()
     stub._log_path = str(tmp_path / "conversion_live_log_mp3.txt")
     stub._out_dir = ""
     stub.time_label = MagicMock()

@@ -306,6 +306,10 @@ fails on any parser warning, so a malformed docstring cannot ship either.
 
 ## Tk helpers
 
+```{automodule} audio_suite_shared.suite_app
+:members:
+```
+
 ```{automodule} audio_suite_shared.ui_common
 :members:
 ```

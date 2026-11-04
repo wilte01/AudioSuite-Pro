@@ -12,7 +12,27 @@ one.
 
 ## [Unreleased]
 
-Nothing yet.
+- **One batch-window shell.** `audio_suite_shared/suite_app.py` adds
+  `SuiteApp`, which composes the window every batch transformer built by hand:
+  the Help bar, the notebook, the shared Processing tab
+  (`ui_common.build_processing_tab`, worker grid included) and Results tab
+  (`build_results_tab`), and the progress/complete/error handlers, all obeying
+  the callback contract. A tool supplies its identity (`title`, `window_key`,
+  `program_name`, `guide_name`, `completion_text`), its worker slots and
+  `_build_setup_tab(parent)`; it overrides a payload handler only where the
+  payload is its own and calls `super()` for the shell's tail.
+  `music_format_converter` is the first adopter: its own `_build_ui`, Help bar,
+  notebook, three tab frames, Processing/Results wiring and its
+  `_open_log`/`_open_output_folder`/`_on_error` copies and its now-unreferenced
+  `ui/processing_tab.py`/`ui/results_tab.py` wrappers are gone (the shared
+  builders render those tabs, so the wrappers lost every importer), while its
+  report, presets, CLI handling, validation and run note are unchanged.
+  `tests/test_suite_app_contract.py` builds each adopter's real window and
+  locks the declared tabs, the shared Processing/Results widgets, the
+  Help/View Log/Open Folder wiring (invoked, not read from `cget("command")`),
+  the Mode/Auto Start/Auto End controls, the single title and the identity the
+  shell receives; its `MIGRATED` table is frozen and a tool that reintroduces
+  its own `_build_ui` fails it.
 
 ## [2.4.2] - 2026-11-04
 
