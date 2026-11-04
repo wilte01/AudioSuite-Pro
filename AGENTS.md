@@ -165,6 +165,25 @@ list) the task is **bounded reproduction, not innocence proof**:
   or left in the tree.
 - **Record the disconfirming evidence.** Never silently drop a lead — a closed
   non-defect and a fixed defect are both valid outcomes.
+- **Read the working sibling before designing the fix.** When the defect is a
+  cross-cutting convention — a log button, a progress line, a preset, a status
+  string — the failing tool says what is broken and the tool that already does
+  it right says what "fixed" means. Diff against that one first. Inventing a
+  mechanism from the failing code is how a defect turns into a convention:
+  WP-8's View Log was "repaired" by aiming it at the diagnostic log, which
+  silenced the complaint and left the run report still unbuilt, until a
+  comparison with BPM Analyzer showed the intended shape (D-16 in
+  `PLAN_2026-11-03_2.4.3_structure.md`).
+- **A fallback that makes the symptom disappear is not a fix.** Making a button
+  open *some* file removes the complaint and hides the gap. Ask what the button
+  is *for*: View Log exists to show the run's own record, so a path to a
+  different file is the defect wearing the fix's clothes.
+- **A test that passes on the unfixed tree does not lock the defect.** Run every
+  new lock against the pre-fix code before claiming it holds. The first View Log
+  test asserted `_log_path == logs/<tool>.log` and passed while the real defect
+  (a finished run with no report) was present. Assert the product artefact the
+  user opens — a file and its contents — not the internal pointer that may aim
+  at the wrong file.
 
 ## Test File Naming
 
@@ -320,6 +339,38 @@ of them raises. Neither lock can prove the processor still *sends* every
 field; only a test driving the real `run_*` into the bound handler does, and
 it asserts the written outcome — the pattern is
 `audio_refinery/tests/test_app.py::TestCompletionSeam`.
+
+## Run Reports vs Program Logs
+
+Every GUI tool writes two logs for two audiences, and the Results tab's **View
+Log** opens exactly one of them: the run report.
+
+- **`<scanned folder>/<prefix>_{dry_run,sync}_log.txt` is the run report**, and
+  it is what `_log_path` must point at. It records the run the user started:
+  `<TOOL> REPORT`, `Mode: DRY RUN` / `LIVE UPDATE`, that run's settings, a
+  `=`×60 rule, one line per file (resolved path, `SKIPPED (...)`, error), then
+  `SUMMARY:` with the counters and `Time: MM:SS`. The reference implementation
+  is BPM Analyzer's `_run_analysis` plus the shared
+  `AnalysisAppBase`/`ToolAppBase` `_on_complete`; `file_reorganizer/app.py`
+  carries the standalone version (`_begin_run`/`_write_run_log`).
+- **`logs/<program>.log` is the diagnostic log** `configure_logging` writes for
+  triage. It is never what View Log opens.
+- **`_log_path` is empty until a run names its report.** View Log therefore
+  answers "No log file available yet" before the first run in a window. That is
+  correct behaviour, not a defect — do not "fix" it by pointing the button at
+  the diagnostic log (a dry run and a live run write different files, so a
+  preview beside the last live run cannot be mistaken for it).
+- **A failed report write is logged, never raised.** By the time the report is
+  serialised the audio work has already happened.
+
+A tool satisfies the contract in three steps: name `_log_path` when a run starts
+(never in a constructor), serialise the report at completion, and prove it with
+a test that reads the written file rather than the field the writer just set.
+`audio_suite_shared/suite_app.py::SuiteApp` is the window every shell adopter
+composes, and `tests/test_suite_app_contract.py` holds each adopter to that
+artefact by driving its completion and reading the report back from disk. The
+rule exists because WP-8's reorganiser migration dropped the report entirely,
+so a finished live copy left the button claiming no log existed (D-16).
 
 ## Run From the Project's `.venv`
 

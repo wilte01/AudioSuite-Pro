@@ -12,6 +12,16 @@ one.
 
 ## [Unreleased]
 
+- **The run-report contract is a rule with an artefact lock.** `AGENTS.md` gains
+  *Run Reports vs Program Logs* — which file View Log opens, the report's shape
+  and location, why `_log_path` is empty until a run names its report, and that
+  a program log is never the target — plus three bug-hunt rules drawn from the
+  same defect: read the working sibling before designing a fix, a fallback that
+  silences a symptom is not a fix, and a test that passes on the unfixed tree
+  locks nothing. `tests/test_suite_app_contract.py` now drives each shell
+  adopter's completion and reads the report back from disk, so a tool that only
+  assigns `_log_path` fails instead of passing.
+
 - **One batch-window shell.** `audio_suite_shared/suite_app.py` adds
   `SuiteApp`, which composes the window every batch transformer built by hand:
   the Help bar, the notebook, the shared Processing tab
