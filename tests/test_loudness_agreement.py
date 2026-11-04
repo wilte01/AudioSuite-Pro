@@ -5,8 +5,8 @@ Audio Normalizer and the new probe agree within 0.1 dB on the same file, because
 that is what a user notices: the same track reported at two loudness values by
 two tools.  The two chains are different filters (``ebur128`` versus
 ``loudnorm``), so this is a real comparison — unlike comparing the probe with
-ReplayGain, which now share one implementation and are checked as a wiring
-identity at the tighter tolerance.
+ReplayGain or with the normaliser's analysis pass, both of which now share its
+implementation and are checked as wiring identities at the tighter tolerance.
 
 Changed in 2.4.2: new cross-tool lock (WP-5.1).
 """

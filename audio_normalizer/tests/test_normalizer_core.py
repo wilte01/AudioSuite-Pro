@@ -17,8 +17,17 @@ measures louder than the same file at the default.
 
 Changed in 2.3.1: restores the imports its surviving helpers use after the
 standalone batch processor was removed (U-04).
+
+Changed in 2.4.2: ``measure`` and ``parse_output_true_peak`` run through
+``audio_suite_shared.audio_probe`` (WP-5.2), so the three sites that patched
+this module's ``run_secure_subprocess`` patch the probe's instead, and
+``TestMeasureEquality``/``TestParseOutputTruePeakEquality`` hold the adapter to
+the frozen 2.4.2 implementation on real files.
 """
 
+import math
+import wave
+from pathlib import Path
 from queue import Queue
 from unittest.mock import MagicMock, patch
 
@@ -36,6 +45,7 @@ from audio_normalizer.core.normalizer import (
     _preserve_args,
     apply,
 )
+from audio_normalizer.tests import _legacy_loudness as legacy
 from audio_suite_shared.exceptions import AudioFormatError
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -131,7 +141,7 @@ class TestSafeFloat:
 class TestMeasure:
     def _mock_run(self, stderr, returncode=0):
         with patch(
-            "audio_normalizer.core.loudness.run_secure_subprocess",
+            "audio_suite_shared.audio_probe.run_secure_subprocess",
             return_value=_mock_result(stderr, returncode),
         ):
             return measure("/tmp/test.mp3", -16.0)
@@ -203,7 +213,7 @@ class TestMeasure:
     def test_ffmpeg_subprocess_uses_correct_target(self):
         calls = []
         with patch(
-            "audio_normalizer.core.loudness.run_secure_subprocess",
+            "audio_suite_shared.audio_probe.run_secure_subprocess",
             side_effect=lambda exe, args, **kw: (
                 calls.append([exe, *args]),
                 _mock_result(),
@@ -574,7 +584,7 @@ class TestDeliveryTargets:
             result.stderr = MOCK_STDERR
             return result
 
-        with patch("audio_normalizer.core.loudness.run_secure_subprocess", fake_run):
+        with patch("audio_suite_shared.audio_probe.run_secure_subprocess", fake_run):
             measure("/tmp/t.flac", -16.0, true_peak=-1.0, lra=7)
 
         filters = calls[0][calls[0].index("-af") + 1]
@@ -662,3 +672,119 @@ class TestParseOutputTruePeak:
         # ``_safe_float`` maps -inf to the floor, which is the honest answer for
         # a silent output: no measurable peak rather than a bogus -inf.
         assert parse_output_true_peak('{"output_tp" : "-inf"}') == -70.0
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# The probe migration (WP-5.2)
+# ═════════════════════════════════════════════════════════════════════════════
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+#: Float noise only: the adapter and the frozen 2.4.2 pass read the same analysis
+#: block, so a tolerance here can never excuse a different filter chain.
+LOUDNESS_TOLERANCE_DB = 0.01
+
+#: Real recordings (CC0, see tests/data/bpm_corpus/ATTRIBUTION.md) plus one
+#: read-only container — the normaliser can measure an APE file even though it
+#: has no encoder for one.
+CORPUS_FILES = (
+    REPO_ROOT / "tests" / "data" / "bpm_corpus" / "hiphop_86.ogg",
+    REPO_ROOT / "tests" / "data" / "bpm_corpus" / "ambient_pulse_60.ogg",
+    REPO_ROOT / "tests" / "data" / "mac-390-hdr.ape",
+)
+
+
+def _write_tone(path, *, seconds=1.0, amplitude=0.5):
+    """Write a mono sine tone as a real PCM WAV file."""
+    frames = int(44100 * seconds)
+    peak = int(amplitude * 32767)
+    payload = bytearray()
+    for index in range(frames):
+        sample = int(peak * math.sin(2 * math.pi * 440.0 * index / 44100))
+        payload += sample.to_bytes(2, "little", signed=True)
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(44100)
+        handle.writeframes(bytes(payload))
+    return str(path)
+
+
+@pytest.fixture(scope="module")
+def equality_files(tmp_path_factory):
+    """Files measured twice: two tone levels, digital silence and the corpus."""
+    folder = tmp_path_factory.mktemp("wp52_loudness")
+    silence = folder / "silence.wav"
+    AudioSegment.silent(duration=1000, frame_rate=44100).export(
+        str(silence), format="wav"
+    )
+    cases = [
+        ("loud tone", _write_tone(folder / "loud.wav")),
+        ("quiet tone", _write_tone(folder / "quiet.wav", amplitude=0.1)),
+        # Digital silence: FFmpeg prints ``-inf``, so this is the floor path.
+        ("digital silence", str(silence)),
+        *[(path.name, str(path)) for path in CORPUS_FILES],
+    ]
+    return cases
+
+
+@pytest.mark.integration
+class TestMeasureEquality:
+    """The probe-backed adapter reports what the 2.4.2 pass reported."""
+
+    def test_every_file_measures_the_same(self, equality_files):
+        for name, path in equality_files:
+            through_probe = measure(path, -16.0)
+            assert through_probe is not None, f"{name}: the probe measured nothing"
+            frozen = legacy.measure(path, -16.0)
+            assert frozen is not None, f"{name}: the frozen pass measured nothing"
+            assert set(through_probe) == set(frozen)
+            for key, expected in frozen.items():
+                assert through_probe[key] == pytest.approx(
+                    expected, abs=LOUDNESS_TOLERANCE_DB
+                ), f"{name}: {key} is {through_probe[key]} vs {expected}"
+
+    def test_one_measurement_is_one_process_with_the_callers_targets(self):
+        """The adapter must neither double the decode nor drop a target."""
+        calls = []
+
+        def fake_run(exe, args, **kw):
+            calls.append([exe, *args])
+            return _mock_result()
+
+        with patch("audio_suite_shared.audio_probe.run_secure_subprocess", fake_run):
+            measure("/tmp/t.flac", -16.0, true_peak=-1.0, lra=7)
+
+        assert len(calls) == 1
+        chain = calls[0][calls[0].index("-af") + 1]
+        assert chain == "loudnorm=I=-16.0:TP=-1.0:LRA=7:print_format=json"
+
+    def test_an_unreadable_container_is_still_no_measurement(self, tmp_path):
+        """A container the matrix cannot read has always meant ``None`` here."""
+        unsupported = tmp_path / "song.webm"
+        unsupported.write_bytes(b"not really a webm")
+        assert measure(str(unsupported), -16.0) is None
+
+
+class TestParseOutputTruePeakEquality:
+    """One parser now, still reporting the same figures."""
+
+    @pytest.mark.parametrize(
+        "stderr",
+        [
+            '{\n    "output_i" : "-16.00",\n    "output_tp" : "-1.31"\n}\n',
+            "Input True Peak:      -0.9 dBTP\nOutput True Peak:     -1.3 dBTP\n",
+            '{"output_tp" : "-9.0"}\n{"output_tp" : "-1.25"}\n',
+            '{"output_tp" : "-inf"}',
+            '{"output_tp" : "inf"}',
+            '{"output_tp" : "nonsense"}',
+            "",
+            "no json at all",
+            '{"input_i" : "-18.0"}',
+        ],
+    )
+    def test_the_two_parsers_agree(self, stderr):
+        assert parse_output_true_peak(stderr) == legacy.parse_output_true_peak(stderr)
+
+    def test_a_non_string_is_none(self):
+        assert parse_output_true_peak(MagicMock()) is None

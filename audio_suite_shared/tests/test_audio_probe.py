@@ -1,7 +1,9 @@
 """test_audio_probe.py — the suite's one FFmpeg measurement path.
 
 Changed in 2.4.2: new lock for ``audio_suite_shared.audio_probe``
-(``PLAN_2026-11-03_2.4.2_audio_foundation.md`` WP-5.1).
+(``PLAN_2026-11-03_2.4.2_audio_foundation.md`` WP-5.1, extended in WP-5.2 with
+the ``loudnorm`` figures the Audio Normalizer feeds its second pass and the
+achieved-peak parser it reports).
 
 Every assertion here decodes a real file and measures it.  A test that re-read
 a value the probe parsed from its own output would pass with FFmpeg given the
@@ -15,6 +17,7 @@ import dataclasses
 import math
 import wave
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -185,6 +188,138 @@ class TestMeasureLoudness:
         assert loudnorm.integrated_lufs == pytest.approx(
             ebur128.integrated_lufs, abs=0.1
         )
+
+
+#: One ``loudnorm`` analysis block, as FFmpeg prints it (two decimals, strings).
+MOCK_ANALYSIS_BLOCK = (
+    "[Parsed_loudnorm_0 @ 0x1] {\n"
+    '    "input_i" : "-18.00",\n'
+    '    "input_tp" : "-1.50",\n'
+    '    "input_lra" : "7.00",\n'
+    '    "input_thresh" : "-28.00",\n'
+    '    "target_offset" : "-0.25"\n'
+    "}\n"
+)
+
+
+def _mock_analysis(monkeypatch: pytest.MonkeyPatch, stderr: str) -> list[list[str]]:
+    """Replace the subprocess seam with one canned pass; return its calls."""
+    calls: list[list[str]] = []
+
+    def _fake_run(executable: str, args: list[str], **_kwargs: Any) -> Any:
+        calls.append([executable, *args])
+        return SimpleNamespace(returncode=0, stdout="", stderr=stderr)
+
+    monkeypatch.setattr(audio_probe, "run_secure_subprocess", _fake_run)
+    return calls
+
+
+class TestLoudnormInputs:
+    """The normaliser's raw figures: one pass, five keys, absence as ``None``."""
+
+    def test_reads_every_figure_the_second_pass_needs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = write_tone(tmp_path / "tone.wav")
+        _mock_analysis(monkeypatch, MOCK_ANALYSIS_BLOCK)
+        figures = audio_probe.loudnorm_inputs(path, target=-16.0)
+        assert figures == {
+            "input_i": -18.0,
+            "input_tp": -1.5,
+            "input_lra": 7.0,
+            "input_thresh": -28.0,
+            "target_offset": -0.25,
+        }
+
+    def test_the_chain_carries_the_callers_targets(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = write_tone(tmp_path / "tone.wav")
+        calls = _mock_analysis(monkeypatch, MOCK_ANALYSIS_BLOCK)
+        audio_probe.loudnorm_inputs(path, target=-14.0, true_peak=-1.0, lra=7)
+        assert calls[0][calls[0].index("-af") + 1] == (
+            "loudnorm=I=-14.0:TP=-1.0:LRA=7:print_format=json"
+        )
+
+    def test_one_pass_per_measurement(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = write_tone(tmp_path / "tone.wav")
+        calls = _mock_analysis(monkeypatch, MOCK_ANALYSIS_BLOCK)
+        audio_probe.loudnorm_inputs(path, target=-16.0)
+        assert len(calls) == 1
+
+    def test_no_analysis_block_is_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = write_tone(tmp_path / "tone.wav")
+        _mock_analysis(monkeypatch, "no json here")
+        assert audio_probe.loudnorm_inputs(path, target=-16.0) is None
+
+    def test_a_non_loudnorm_block_is_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = write_tone(tmp_path / "tone.wav")
+        _mock_analysis(monkeypatch, '{"codec_name" : "mp3"}')
+        assert audio_probe.loudnorm_inputs(path, target=-16.0) is None
+
+    def test_a_non_finite_figure_is_absent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = write_tone(tmp_path / "tone.wav")
+        _mock_analysis(
+            monkeypatch,
+            '{"input_i" : "-inf", "input_tp" : "-inf", "input_lra" : "0.00",'
+            ' "input_thresh" : "-inf", "target_offset" : "0.00"}',
+        )
+        figures = audio_probe.loudnorm_inputs(path, target=-16.0)
+        assert figures is not None
+        assert figures["input_i"] is None
+        assert figures["input_tp"] is None
+        assert figures["input_lra"] == 0.0
+
+
+@pytest.mark.integration
+class TestLoudnormInputsOnRealAudio:
+    def test_the_figures_match_the_targeted_measurement(self, tone: str) -> None:
+        """The raw block and ``measure_loudness(target=...)`` are one pass."""
+        figures = audio_probe.loudnorm_inputs(tone, target=-16.0)
+        metrics = audio_probe.measure_loudness(tone, target=-16.0)
+        assert figures is not None
+        assert figures["input_i"] == pytest.approx(metrics.integrated_lufs, abs=0.01)
+        assert figures["input_tp"] == pytest.approx(
+            metrics.true_peak_dbtp or 0.0, abs=0.01
+        )
+        assert figures["input_lra"] == pytest.approx(
+            metrics.loudness_range_lu or 0.0, abs=0.01
+        )
+
+
+class TestAchievedTruePeak:
+    """The second pass's own peak: two printed forms, one parser."""
+
+    def test_reads_the_summary_line(self) -> None:
+        assert audio_probe.achieved_true_peak(
+            "Input True Peak:      -0.9 dBTP\nOutput True Peak:     -1.3 dBTP\n"
+        ) == pytest.approx(-1.3)
+
+    def test_reads_the_json_figure(self) -> None:
+        assert audio_probe.achieved_true_peak('{"output_tp" : "-1.31"}') == (
+            pytest.approx(-1.31)
+        )
+
+    def test_the_last_block_wins(self) -> None:
+        stderr = '{"output_tp" : "-9.0"}\n{"output_tp" : "-1.25"}\n'
+        assert audio_probe.achieved_true_peak(stderr) == pytest.approx(-1.25)
+
+    def test_a_non_finite_peak_reports_the_floor(self) -> None:
+        """A silent pass publishes the floor, which is what reports show today."""
+        assert audio_probe.achieved_true_peak('{"output_tp" : "-inf"}') == -70.0
+
+    def test_no_summary_is_none(self) -> None:
+        assert audio_probe.achieved_true_peak("") is None
+        assert audio_probe.achieved_true_peak("no json at all") is None
+        assert audio_probe.achieved_true_peak('{"input_i" : "-18.0"}') is None
 
 
 @pytest.mark.integration

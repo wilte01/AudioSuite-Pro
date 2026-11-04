@@ -1,8 +1,10 @@
 """audio_probe.py — the suite's one FFmpeg measurement path.
 
 Changed in 2.4.2: new module (``PLAN_2026-11-03_2.4.2_audio_foundation.md``
-WP-5.1).  ReplayGain is the first caller; the Audio Normalizer follows, and
-F-E1/F-S7 consume it rather than adding a seventh FFmpeg measurement path.
+WP-5.1, extended in WP-5.2).  ReplayGain and the Audio Normalizer both measure
+through it now - the second needs ``loudnorm``'s raw input figures, which is
+what :func:`loudnorm_inputs` exposes - and F-E1/F-S7 consume it rather than
+adding a seventh FFmpeg measurement path.
 
 Why one module
 --------------
@@ -533,26 +535,12 @@ def measure_loudness(
         AudioExternalToolError: FFmpeg could not be run.
     """
     _require_readable(path)
-    executable = ffmpeg or FFMPEG_EXECUTABLE
     if target is None:
         chain = _EBUR128_CHAIN
     else:
-        chain = f"loudnorm=I={target}:TP={true_peak}:LRA={lra}:print_format=json"
+        chain = _loudnorm_chain(target, true_peak, lra)
 
-    result = _run(
-        executable,
-        [
-            "-hide_banner",
-            "-i",
-            os.path.normpath(path),
-            "-af",
-            chain,
-            "-f",
-            "null",
-            "-",
-        ],
-        path=path,
-    )
+    result = _filter_pass(path, chain, ffmpeg)
     stderr = result.stderr or ""
     duration = _duration_seconds(stderr, path)
 
@@ -611,6 +599,7 @@ def _loudnorm_figures(stderr: str) -> dict[str, float | None] | None:
             "input_tp": _finite_or_none(parsed.get("input_tp")),
             "input_lra": _finite_or_none(parsed.get("input_lra")),
             "input_thresh": _finite_or_none(parsed.get("input_thresh")),
+            "target_offset": _finite_or_none(parsed.get("target_offset")),
         }
     return None
 
@@ -627,6 +616,140 @@ def _finite_or_none(value: Any) -> float | None:
         return None
     if number != number or number in (float("inf"), float("-inf")):
         return None
+    return number
+
+
+#: What a peak FFmpeg printed as ``-inf`` becomes.  A digital-silence pass
+#: reports no measurable peak; the normaliser has always published the floor
+#: for that case, and changing a shipped report value is not this migration's
+#: business.
+_LOUDNORM_PEAK_FLOOR_DB = -70.0
+
+#: ``loudnorm``'s second-pass summary prints this line on current FFmpeg; some
+#: builds print the figure as a JSON ``output_tp`` instead.
+_OUTPUT_TRUE_PEAK_RE = re.compile(
+    r"Output True Peak:\s*(-?(?:\d+(?:\.\d+)?|inf))\s*dBTP"
+)
+
+
+def _loudnorm_chain(target: float, true_peak: float, lra: float) -> str:
+    """Return the ``loudnorm`` analysis chain for these targets."""
+    return f"loudnorm=I={target}:TP={true_peak}:LRA={lra}:print_format=json"
+
+
+def _filter_pass(
+    path: str, chain: str, ffmpeg: str | None
+) -> subprocess.CompletedProcess[str]:
+    """Decode one file through one filter chain and return the process.
+
+    Args:
+        path: Path to the audio file.
+        chain: The ``-af`` filtergraph.
+        ffmpeg: Executable to use; defaults to ``ffmpeg`` on ``PATH``.
+
+    Returns:
+        The completed process; a measurement reads its stderr.
+    """
+    return _run(
+        ffmpeg or FFMPEG_EXECUTABLE,
+        [
+            "-hide_banner",
+            "-i",
+            os.path.normpath(path),
+            "-af",
+            chain,
+            "-f",
+            "null",
+            "-",
+        ],
+        path=path,
+    )
+
+
+def loudnorm_inputs(
+    path: str,
+    *,
+    target: float,
+    true_peak: float = -1.5,
+    lra: float = 11,
+    ffmpeg: str | None = None,
+) -> dict[str, float | None] | None:
+    """Read the ``loudnorm`` analysis block for one file.
+
+    This is the raw figures, keyed as FFmpeg prints them (``input_i``,
+    ``input_tp``, ``input_lra``, ``input_thresh``, ``target_offset``), because
+    the Audio Normalizer feeds every one of them into its second pass.  A
+    non-finite figure is ``None``; the whole result is ``None`` when FFmpeg
+    printed no analysis block at all.
+
+    :func:`measure_loudness` is the same pass with an error contract applied
+    (a file it cannot measure raises): this entry point is for a caller that
+    has a defined answer for an absent figure, which is what the normaliser's
+    floor defaults are.
+
+    Args:
+        path: Path to the audio file.
+        target: Integrated-loudness target for the analysis.
+        true_peak: True-peak ceiling for the analysis.
+        lra: Loudness-range target for the analysis.
+        ffmpeg: Executable to use; defaults to ``ffmpeg`` on ``PATH``.
+
+    Returns:
+        The input figures, or ``None`` when no analysis block was printed.
+
+    Raises:
+        AudioFormatError: The container is not readable.
+        AudioExternalToolError: FFmpeg could not be run.
+    """
+    _require_readable(path)
+    result = _filter_pass(path, _loudnorm_chain(target, true_peak, lra), ffmpeg)
+    figures = _loudnorm_figures(result.stderr or "")
+    if figures is None:
+        logger.warning("FFmpeg printed no loudnorm analysis for %s", path)
+    return figures
+
+
+def achieved_true_peak(stderr: str) -> float | None:
+    """Read the true peak ``loudnorm``'s second pass reports.
+
+    The second pass runs with ``print_format=summary``, which prints either an
+    ``Output True Peak: -1.3 dBTP`` line (current FFmpeg) or a JSON block
+    carrying ``output_tp`` (some builds).  Two passes with different ceilings
+    can measure the same input, so this figure is the only evidence that the
+    requested ceiling was reached and retained.
+
+    Args:
+        stderr: FFmpeg's stderr from the encode pass.
+
+    Returns:
+        The achieved true peak in dBTP, ``_LOUDNORM_PEAK_FLOOR_DB`` when FFmpeg
+        printed a non-finite one, or ``None`` when it printed no output peak.
+    """
+    if not isinstance(stderr, str):
+        return None
+
+    text_match = _OUTPUT_TRUE_PEAK_RE.search(stderr)
+    if text_match:
+        return _printed_peak(text_match.group(1))
+
+    for block in reversed(re.findall(r"\{[^{}]*\}", stderr)):
+        try:
+            parsed: Any = json.loads(block)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(parsed, dict) and "output_tp" in parsed:
+            return _printed_peak(parsed.get("output_tp"))
+    return None
+
+
+def _printed_peak(value: Any) -> float:
+    """Return a printed peak, mapping a non-finite one to the floor."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return _LOUDNORM_PEAK_FLOOR_DB
+    if number != number or number in (float("inf"), float("-inf")):
+        return _LOUDNORM_PEAK_FLOOR_DB
     return number
 
 

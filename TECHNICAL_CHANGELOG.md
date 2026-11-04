@@ -30,6 +30,21 @@ one.
   that patched ReplayGain's `run_secure_subprocess` were retargeted to the
   probe, because that seam moved with the implementation.
 
+- **One loudnorm parser.** The Audio Normalizer's analysis pass now runs
+  through the same probe: `audio_normalizer/core/loudness.measure` maps
+  `loudnorm_inputs` onto its published five-key dict (same keys, same `-70.0`
+  floor for a silent file) and `parse_output_true_peak` delegates to
+  `achieved_true_peak`. The probe gained `loudnorm_inputs` — the raw input
+  figures with absence reported as `None`, which is what the normaliser's
+  second pass needs — and now reads `target_offset` as well, since dropping it
+  would have silently removed `offset=` from the filtergraph.
+  `audio_normalizer/tests/_legacy_loudness.py` freezes the 2.4.2 implementation
+  and `test_normalizer_core.py` measures two tone levels, digital silence, two
+  CC0 recordings and one read-only `.ape` twice, requiring the same values
+  within 0.01 dB; a one-digit change to the silence floor fails that lock. Three
+  mocks that patched the normaliser's `run_secure_subprocess` were retargeted to
+  the probe, because that seam moved with the implementation.
+
 ## [2.4.1] - 2026-11-04
 
 - **Broad catches are a triaged baseline.** Ruff's `BLE` rules are enabled, with

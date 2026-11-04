@@ -8,26 +8,37 @@ Pure function: no tkinter imports, no global state.
 Changed in 2.1.7: the true-peak ceiling and LRA target are parameters instead
 of the literal ``TP=-1.5:LRA=11`` every delivery target used to get, and
 ``parse_output_true_peak`` reads the peak the second pass actually achieved.
+
+Changed in 2.4.2: the analysis pass runs through
+:func:`audio_suite_shared.audio_probe.loudnorm_inputs` and the achieved peak
+through :func:`audio_suite_shared.audio_probe.achieved_true_peak`, so the suite
+parses loudnorm once instead of once per tool.  Both functions keep their
+published contract: ``measure`` returns the same keys with the same floor
+defaults (and ``None`` when FFmpeg printed no analysis), and
+``parse_output_true_peak`` returns the same figure, including the ``-70.0``
+floor it has always reported for a non-finite peak.
 """
 
-import json
 import math
-import re
 from typing import Any, Optional
 
+from audio_suite_shared.audio_probe import achieved_true_peak, loudnorm_inputs
 from audio_suite_shared.error_logger import get_logger
-from audio_suite_shared.secure_subprocess import run_secure_subprocess
+from audio_suite_shared.exceptions import AudioFormatError
 
 from ..utils.ffmpeg_finder import FFMPEG_PATH
-
-# Add suite root to path for ErrorLogger
-
 
 logger = get_logger("audio_normalizer")
 
 # Named dict type for clarity in calling code
 # keys: input_i, input_tp, input_lra, input_thresh, target_offset
 LoudnessData = dict[str, Any]
+
+#: What loudnorm's ``-inf`` becomes.  The filter prints ``-inf`` for digital
+#: silence, and this adapter has always published the floor rather than a figure
+#: it did not measure — which matters, because the second pass receives these
+#: values as its ``measured_*`` parameters.
+_SILENCE_FLOOR_DB = -70.0
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -46,7 +57,7 @@ def measure(
     lra: float = 11,
 ) -> Optional[LoudnessData]:
     """
-    Run the FFmpeg loudnorm filter in analysis mode and parse the JSON output.
+    Run the FFmpeg loudnorm filter in analysis mode and return its figures.
 
     Args:
         file_path:   Absolute path to the audio file.
@@ -58,65 +69,36 @@ def measure(
     Returns:
         A dict with loudness measurements, or None if detection failed.
     """
-    cmd = [
-        FFMPEG_PATH,
-        "-hide_banner",
-        "-i",
-        file_path,
-        "-af",
-        f"loudnorm=I={target_lufs}:TP={true_peak}:LRA={lra}:print_format=json",
-        "-f",
-        "null",
-        "-",
-    ]
+    try:
+        figures = loudnorm_inputs(
+            file_path,
+            target=target_lufs,
+            true_peak=true_peak,
+            lra=lra,
+            ffmpeg=FFMPEG_PATH,
+        )
+    # A container the capability matrix cannot read is a measurement that did
+    # not happen, which is what this function has always reported as ``None``.
+    # A missing or failing FFmpeg stays an exception, as it was before.
+    except AudioFormatError as exc:
+        logger.log_error(
+            "WARNING", f"No loudness measurement for {file_path}: {exc}", show_gui=False
+        )
+        return None
 
-    result = run_secure_subprocess(
-        cmd[0],
-        cmd[1:],
-        capture_output=True,
-        errors="ignore",
-        check=False,
-    )
-
-    # FFmpeg stderr can contain earlier {…} blocks (stream info, metadata)
-    # before the loudnorm JSON.  Take the LAST match, which is always the
-    # loudnorm output block.
-    json_matches = re.findall(r"\{[^{}]*\}", result.stderr)
-    if not json_matches:
+    if figures is None:
         logger.log_error(
             "INFO", f"FFmpeg returned no JSON for: {file_path}", show_gui=False
         )
-        logger.log_error(
-            "DEBUG", f"stderr tail: {result.stderr[-400:]}", show_gui=False
-        )
         return None
 
-    try:
-        data = json.loads(json_matches[-1])
-        # Verify it looks like loudnorm output
-        if "input_i" not in data:
-            logger.log_error(
-                "WARNING",
-                f"Last JSON block is not loudnorm data for: {file_path}",
-                show_gui=False,
-            )
-            return None
-        return {
-            "input_i": _safe_float(data.get("input_i"), -70.0),
-            "input_tp": _safe_float(data.get("input_tp"), -70.0),
-            "input_lra": _safe_float(data.get("input_lra"), 0.0),
-            "input_thresh": _safe_float(data.get("input_thresh"), -70.0),
-            "target_offset": _safe_float(data.get("target_offset"), 0.0),
-        }
-
-    except (json.JSONDecodeError, ValueError, KeyError) as exc:
-        logger.log_error(
-            "ERROR", f"JSON parse error for {file_path}: {exc}", show_gui=False
-        )
-        logger.log_error(
-            "DEBUG", f"Attempted to parse: {json_matches[-1][:200]}", show_gui=False
-        )
-        return None
+    return {
+        "input_i": _safe_float(figures.get("input_i"), _SILENCE_FLOOR_DB),
+        "input_tp": _safe_float(figures.get("input_tp"), _SILENCE_FLOOR_DB),
+        "input_lra": _safe_float(figures.get("input_lra"), 0.0),
+        "input_thresh": _safe_float(figures.get("input_thresh"), _SILENCE_FLOOR_DB),
+        "target_offset": _safe_float(figures.get("target_offset"), 0.0),
+    }
 
 
 def parse_output_true_peak(stderr: str) -> Optional[float]:
@@ -135,20 +117,4 @@ def parse_output_true_peak(stderr: str) -> Optional[float]:
         The achieved true peak in dBTP, or ``None`` when FFmpeg reported no
         output peak (a build without loudnorm's summary).
     """
-    if not isinstance(stderr, str):
-        return None
-
-    text_match = re.search(
-        r"Output True Peak:\s*(-?(?:\d+(?:\.\d+)?|inf))\s*dBTP", stderr
-    )
-    if text_match:
-        return _safe_float(text_match.group(1), -70.0)
-
-    for block in reversed(re.findall(r"\{[^{}]*\}", stderr)):
-        try:
-            data = json.loads(block)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if "output_tp" in data:
-            return _safe_float(data.get("output_tp"), -70.0)
-    return None
+    return achieved_true_peak(stderr)
