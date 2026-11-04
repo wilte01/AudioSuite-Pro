@@ -16,6 +16,16 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+- **File Reorganizer writes a run report, and View Log opens it.** Every run
+  now writes `reorganizer_dry_run_log.txt` (Preview, or Execute while Mode is
+  Dry Run) or `reorganizer_sync_log.txt` (Execute in Live Update) into the
+  scanned Source Music Directory: the run's settings, one line for every
+  resolved path, skip or pattern error, and a SUMMARY block with the four
+  counters and the elapsed time. The Results tab's View Log opens that report.
+  Before this, the tool wrote no run record at all — the per-file detail only
+  reached `logs/file_reorganizer.log`, the program's diagnostic log — so View
+  Log answered "No log file available yet" even after a live copy.
+
 - **File Reorganizer works in one window of three tabs.** Setup holds the source
   directory with its Mode / Auto Start / Auto End strip, the presets, the
   destination, the Copy/Move choice and both pattern templates; the planned

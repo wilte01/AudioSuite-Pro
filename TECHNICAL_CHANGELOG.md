@@ -49,6 +49,19 @@ one.
   but previously dropped — now reach the panel. The shared contract test gains
   the second adopter plus a per-tool process-edge stub table (`_STUB_EDGES`).
 
+- **The reorganiser writes a run report; View Log never opens the debug log.**
+  `file_reorganizer/app.py` now builds the suite's report shape —
+  `FILE REORGANIZER REPORT`, `Mode: DRY RUN|LIVE UPDATE`, the run's settings, a
+  60-`=` rule, the per-file lines and a `SUMMARY:` block with the counters and
+  `Time: MM:SS` — into `<source>/reorganizer_{dry_run,sync}_log.txt`, and sets
+  `_log_path` when a run starts. That is the convention BPM Analyzer and
+  `AnalysisAppBase`/`ToolAppBase` follow, where the path is empty until the run
+  names its report; the per-program log stays diagnostic. `SuiteApp` therefore
+  keeps `_log_path` empty instead of seeding the debug log, and
+  `logging_setup.program_log_path` is not introduced. `TestRunReport` reads the
+  written file (header, per-file lines, summary), so a writer that sets fields
+  without serialising them fails.
+
 ## [2.4.2] - 2026-11-04
 
 - **One tag layer.** `audio_suite_shared/tag_field_engine.py` is the

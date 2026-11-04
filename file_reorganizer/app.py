@@ -29,6 +29,14 @@ destination, action and pattern widgets.
 Changed in 1.0.1: fixed type annotation from tk.Event[ttk.Combobox] to
 tk.Event for Python 3.11 compatibility (Event is not subscriptable in 3.11).
 
+Changed in 2.4.3: writes a per-run report, ``reorganizer_dry_run_log.txt`` or
+``reorganizer_sync_log.txt``, into the scanned Source Music Directory and
+points ``_log_path`` at it — the shape BPM Analyzer and the shared analysis
+bases use (header, one line per file, ``SUMMARY:`` block).  Until this change
+the tool wrote no run record at all: per-file detail only reached
+``logs/file_reorganizer.log``, so the Results tab's View Log had nothing to
+open after a live copy.  The program log stays diagnostic.
+
 Changed in 2.4.3: adopts ``SuiteApp`` (PLAN_2026-11-03_2.4.3_structure.md
 WP-8).  The single-pane layout becomes the shell's Setup / Processing /
 Results tabs, the Dry Run checkbox becomes the run-controls Mode, the preview
@@ -39,6 +47,7 @@ flags, parsed but previously dropped, now reach the panel they belong to.
 
 from __future__ import annotations
 
+import logging
 import os
 import queue
 import threading
@@ -67,6 +76,11 @@ from .utils import cli_args
 from .utils.config import load_settings, save_settings
 
 TOOL_ID = "file_reorganizer"
+
+logger = logging.getLogger(__name__)
+
+#: Run-report file prefix: ``<prefix>_dry_run_log.txt`` / ``<prefix>_sync_log.txt``.
+_REPORT_PREFIX = "reorganizer"
 
 #: The run-controls strip's two modes; ``Dry Run`` is the safe default.
 DRY_RUN_MODE = "Dry Run"
@@ -155,6 +169,7 @@ class FileReorganizerApp(SuiteApp):
         self._poll_id: str = ""
         self._closing = False
         self._run_started = 0.0
+        self._log_entries: list[str] = []
 
         # ── Build the shared shell (Help bar, notebook, Processing, Results) ──
         super().__init__(root)
@@ -572,11 +587,10 @@ class FileReorganizerApp(SuiteApp):
             return
 
         specific_pat, various_pat = self._sync_patterns()
-        self._reset_processing_tab("Previewing...")
+        self._begin_run("Previewing...", dry_run=True)
         self.preview_btn.config(state=tk.DISABLED)
         self._save_settings()
 
-        self._run_started = time.monotonic()
         self._thread = threading.Thread(
             target=self._preview_thread,
             args=(src, dst, specific_pat, various_pat),
@@ -632,13 +646,12 @@ class FileReorganizerApp(SuiteApp):
 
         specific_pat, various_pat = self._sync_patterns()
         self.running.set(True)
-        self._reset_processing_tab("Executing...")
+        self._begin_run("Executing...", dry_run=bool(self.dry_run.get()))
         self.preview_btn.config(state=tk.DISABLED)
         self.execute_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
         self._save_settings()
 
-        self._run_started = time.monotonic()
         self._thread = threading.Thread(
             target=self._execute_thread,
             args=(src, dst, specific_pat, various_pat),
@@ -711,6 +724,74 @@ class FileReorganizerApp(SuiteApp):
             self.execute_btn.config(state=tk.NORMAL)
             self._on_error(event.message)
 
+    def _begin_run(self, status: str, *, dry_run: bool) -> None:
+        """Clear the Processing tab and point ``_log_path`` at this run's report.
+
+        A dry run and a live run write different reports, next to the files
+        that were scanned: ``reorganizer_dry_run_log.txt`` and
+        ``reorganizer_sync_log.txt``.  That is the suite's convention (BPM
+        Analyzer, ``AnalysisAppBase``/``ToolAppBase``), and it is why ``_log_path``
+        is empty until a run starts rather than aimed at the diagnostic log.
+
+        Args:
+            status: The Processing tab's opening status line.
+            dry_run: Whether this run only plans paths.
+        """
+        self._log_entries = []
+        self._log_path = os.path.join(
+            self.source_dir.get().strip(),
+            f"{_REPORT_PREFIX}_{'dry_run' if dry_run else 'sync'}_log.txt",
+        )
+        self._run_started = time.monotonic()
+        self._reset_processing_tab(status)
+
+    def _write_run_log(self, *, dry_run: bool) -> None:
+        """Write this run's report: settings, one line per file, then the summary.
+
+        Mirrors the suite's report shape — ``<TOOL> REPORT``, ``Mode:``, the
+        run's settings, a rule, the per-file entries and a ``SUMMARY:`` block —
+        so a reorganiser report reads like every other tool's.  A failed write
+        is logged rather than raised: the run has already happened.
+
+        Args:
+            dry_run: Whether the run planned paths only.
+        """
+        if not self._log_path:
+            return
+        specific, various = self._sync_patterns()
+        elapsed = max(0.0, time.monotonic() - self._run_started)
+        minutes = int(elapsed // 60)
+        seconds = int(elapsed % 60)
+        lines = [
+            "FILE REORGANIZER REPORT\n",
+            f"Mode: {'DRY RUN' if dry_run else 'LIVE UPDATE'}\n",
+            f"Source: {self.source_dir.get().strip()}\n",
+            f"Destination: {self.dest_dir.get().strip()}\n",
+            f"Action: {self.action.get().upper()}\n",
+            f"Specific Pattern: {' '.join(specific.split())}\n",
+            f"Various Pattern: {' '.join(various.split())}\n",
+            "=" * 60 + "\n",
+            *self._log_entries,
+            "\n" + "=" * 60 + "\n",
+            "SUMMARY:\n",
+            f"Total files: {self.stats.files_scanned}\n",
+            f"Processed: {self.stats.files_processed}\n",
+            f"Skipped: {self.stats.files_skipped}\n",
+            f"Errors: {self.stats.errors}\n",
+            f"Time: {minutes:02d}:{seconds:02d}\n",
+        ]
+        try:
+            with open(self._log_path, "w", encoding="utf-8") as report:
+                report.writelines(lines)
+            logger.info("Run report written to '%s'", self._log_path)
+        except OSError as exc:
+            logger.error(
+                "Could not write the run report '%s': %s",
+                self._log_path,
+                exc,
+                exc_info=True,
+            )
+
     def _reset_processing_tab(self, status: str) -> None:
         """Clear the Processing tab for a new run."""
         self.overall_status.set(status)
@@ -733,11 +814,13 @@ class FileReorganizerApp(SuiteApp):
         )
         self.progress["maximum"] = max(stats.files_scanned, 1)
         self.progress["value"] = stats.files_processed
+        self._log_entries.append(f"{path_info}\n")
         self.file_listbox.insert(tk.END, path_info)
         self.file_listbox.see(tk.END)
 
     def _preview_finished(self) -> None:
-        """Restore the buttons once a preview scan has finished."""
+        """Write the dry-run report and restore the buttons."""
+        self._write_run_log(dry_run=True)
         self.overall_status.set("Preview complete")
         self.preview_btn.config(state=tk.NORMAL)
         self.execute_btn.config(state=tk.NORMAL)
@@ -774,6 +857,7 @@ class FileReorganizerApp(SuiteApp):
         self.execute_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
         self.overall_status.set("Complete")
+        self._write_run_log(dry_run=bool(self.dry_run.get()))
         self.summary_label.config(text=self._summary_text())
         self.render_completion(
             duration_secs=time.monotonic() - self._run_started,

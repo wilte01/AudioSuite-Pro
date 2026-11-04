@@ -18,7 +18,7 @@ The workflow is preview-first: Mode is set to Dry Run on launch and shows the pl
 1. Choose Copy or Move and leave Mode on Dry Run.
 1. Click Preview and review the planned paths on the Processing tab.
 1. Switch Mode to Live Update and click Execute only after checking the planned paths.
-1. Open the Results tab to see the final counters; View Log opens this tool's log and Open Folder opens the destination.
+1. Open the Results tab to see the final counters; View Log opens this run's report and Open Folder opens the destination.
 
 ## Setup and Actions
 
@@ -92,11 +92,20 @@ A pattern that resolves to a `.` or `..` path component, a drive-qualified value
 
 ## Progress and Statistics
 
-The Processing tab reports the current file in its status line, a progress bar that fills as scanned files are processed, and four counters: Scanned, Processed, Skipped, and Errors. Each resolved destination path, skip notice or pattern error is appended to the path list below the counters. Skips include files with no usable album/title tags, files whose pattern resolves to an empty path, and files whose destination path already exists. Pattern parsing failures and operating-system/value errors increment Errors.
+The Processing tab reports the current file in its status line, a progress bar that fills as scanned files are processed, and four counters: Scanned, Processed, Skipped, and Errors. Each resolved destination path, skip notice or pattern error is appended to the path list below the counters, and the same lines make up the body of the run report. Skips include files with no usable album/title tags, files whose pattern resolves to an empty path, and files whose destination path already exists. Pattern parsing failures and operating-system/value errors increment Errors.
 
 ## Results
 
-When an execute run finishes, the window switches to the Results tab. It shows the completion heading, the total time, the four final counters, a View Log button for this tool's log and an Open Folder button for the destination directory. A preview leaves the window on the Processing tab so its planned paths stay visible.
+When an execute run finishes, the window switches to the Results tab. It shows the completion heading, the total time, the four final counters, a View Log button for this run's report and an Open Folder button for the destination directory. A preview leaves the window on the Processing tab so its planned paths stay visible.
+
+Every run writes its report into the Source Music Directory, beside the files it scanned:
+
+- `reorganizer_dry_run_log.txt` for a Preview, and for Execute while Mode is Dry Run.
+- `reorganizer_sync_log.txt` for Execute in Live Update.
+
+The report is plain text. It opens with `FILE REORGANIZER REPORT`, the Mode, the source and destination directories, the action, both pattern templates, and a rule; then one line per file - the resolved destination path, a `SKIPPED (...)` notice, or a pattern/operating-system error; and closes with a SUMMARY block holding the four counters and the elapsed time. Each run overwrites the previous report of the same mode, so the two modes keep separate histories.
+
+View Log opens the most recent run's report. The program's own diagnostic log is `logs/file_reorganizer.log`; it records the same run at a lower level of detail and is not what View Log opens.
 
 ## Command Line
 
@@ -121,6 +130,7 @@ From the Master Driver, open UTIL and select Tag-Based File Reorganizer. The uti
 - **Destination is empty: **Select a valid destination directory in the GUI or pass --output-dir on the CLI.
 - **Files did not move: **Mode may still be Dry Run. Switch it to Live Update only after reviewing the planned paths.
 - **A move needs recovery: **Use the suite's Undo Tag Edits/file-reorganization workflow when a snapshot is available, and retain backups for important libraries.
+- **View Log says no log file is available: **No run has finished in this window yet. The report is written when Preview or Execute completes, into the Source Music Directory; run one of them first.
 
 ## Configuration and Recovery
 

@@ -326,6 +326,8 @@ def _shell_app() -> Any:
     app._poll_id = ""
     app._closing = False
     app._run_started = 0.0
+    app._log_entries: list[str] = []
+    app._log_path = ""
     app._reorganizer = None
     app._thread = None
     return app
@@ -723,6 +725,105 @@ class TestWorkerHandoff:
         shown.assert_called_once_with("Preview failed.")
         assert app.preview_btn.config.call_args.kwargs["state"] == "normal"
         assert app.execute_btn.config.call_args.kwargs["state"] == "normal"
+
+
+class TestRunReport:
+    """Every run writes a report beside the files it scanned, like BPM's.
+
+    The report is the file View Log opens: the program log
+    (``logs/file_reorganizer.log``) stays diagnostic, so a run must write its
+    own record or the button has nothing to show.  These tests read the file
+    the writer produced rather than the fields it set.
+    """
+
+    @staticmethod
+    def _run_app(tmp_path: Path) -> Any:
+        app = _shell_app()
+        (tmp_path / "src").mkdir()
+        app.source_dir.get.return_value = str(tmp_path / "src")
+        app.dest_dir.get.return_value = str(tmp_path / "dst")
+        app.specific_text.get.return_value = "%artist%/%album%"
+        app.various_text.get.return_value = "Various/%album%"
+        app.action.get.return_value = "move"
+        return app
+
+    def test_preview_writes_the_dry_run_report(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = self._run_app(tmp_path)
+        monkeypatch.setattr("file_reorganizer.app.threading", MagicMock())
+        monkeypatch.setattr("file_reorganizer.app.save_settings", MagicMock())
+
+        app._preview()
+
+        report = Path(app._log_path)
+        assert report == tmp_path / "src" / "reorganizer_dry_run_log.txt"
+
+        app.stats = ReorganizerStats(
+            files_scanned=3, files_processed=2, files_skipped=1, errors=0
+        )
+        app._log_entries = [
+            "Artist/Album/01 a.mp3\n",
+            "SKIPPED (destination exists): b.mp3\n",
+        ]
+        app._preview_finished()
+
+        text = report.read_text(encoding="utf-8")
+        assert text.startswith("FILE REORGANIZER REPORT\n")
+        assert "Mode: DRY RUN\n" in text
+        assert f"Source: {tmp_path / 'src'}\n" in text
+        assert f"Destination: {tmp_path / 'dst'}\n" in text
+        assert "Action: MOVE\n" in text
+        assert "Specific Pattern: %artist%/%album%\n" in text
+        assert "Various Pattern: Various/%album%\n" in text
+        assert "Artist/Album/01 a.mp3\n" in text
+        assert "SKIPPED (destination exists): b.mp3\n" in text
+        assert "SUMMARY:\n" in text
+        assert "Total files: 3\n" in text
+        assert "Processed: 2\n" in text
+        assert "Skipped: 1\n" in text
+        assert "Errors: 0\n" in text
+
+    def test_execute_in_live_mode_writes_the_sync_report(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        app = self._run_app(tmp_path)
+        app.dry_run.get.return_value = False
+        monkeypatch.setattr("file_reorganizer.app.threading", MagicMock())
+        monkeypatch.setattr("file_reorganizer.app.save_settings", MagicMock())
+
+        app._execute()
+
+        report = Path(app._log_path)
+        assert report == tmp_path / "src" / "reorganizer_sync_log.txt"
+
+        app.stats = ReorganizerStats(files_scanned=1, files_processed=1)
+        app._log_entries = ["Artist/Album/01 a.mp3\n"]
+        app._finish()
+
+        text = report.read_text(encoding="utf-8")
+        assert "Mode: LIVE UPDATE\n" in text
+        assert "Action: MOVE\n" in text
+        assert "Total files: 1\n" in text
+
+    def test_progress_lines_are_kept_for_the_report(self) -> None:
+        app = _shell_app()
+        app._log_entries = []
+
+        app._update_ui(
+            "Artist/Album/01 a.mp3",
+            ReorganizerStats(files_scanned=1, files_processed=1),
+        )
+
+        assert app._log_entries == ["Artist/Album/01 a.mp3\n"]
+
+    def test_an_unwritable_report_is_logged_not_raised(self, tmp_path: Path) -> None:
+        app = _shell_app()
+        app._log_path = str(tmp_path / "missing" / "reorganizer_dry_run_log.txt")
+        app.specific_text.get.return_value = "s"
+        app.various_text.get.return_value = "v"
+
+        app._write_run_log(dry_run=True)
 
 
 class TestCloseLifecycle:
