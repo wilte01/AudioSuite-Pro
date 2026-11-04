@@ -16,6 +16,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.4.2] - 2026-11-04
+
 - **WMA files are reported as unsupported by Tag Field Updater.**
   Rewriting a `.wma` file's genre fields needed an ASF tag writer the
   suite's shared tag layer does not have, so the tool now leaves the file

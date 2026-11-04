@@ -12,6 +12,10 @@ one.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.4.2] - 2026-11-04
+
 - **One tag layer.** `audio_suite_shared/tag_field_engine.py` is the
   suite's single field table — `FieldRule` + `FIELD_RULES` (the nine
   editable fields, plus the five key rules for the `TXXX`/Vorbis/
