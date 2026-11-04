@@ -160,7 +160,9 @@ def check_decode(path: Path, result: IntegrityResult) -> None:
         result.sample_rate = audio.frame_rate
         result.channels = audio.channels
         result.duration_ms = float(len(audio))
-    except Exception as exc:
+    # Changed in 2.4.1: BLE001 triage (WP-7 of
+    # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+    except Exception as exc:  # noqa: BLE001 - pydub decode must be flagged, not fatal
         # Broad net is intentional: pydub raises several distinct types for
         # a corrupt file, and decode must be flagged, not crash the scan.
         # add_failure() below logs the failure unconditionally.

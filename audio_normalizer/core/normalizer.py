@@ -20,6 +20,7 @@ import os
 from typing import Any
 
 from mutagen import File as MutagenFile
+from mutagen import MutagenError
 
 from audio_suite_shared.batch_undo import record_tag_edit_snapshot
 from audio_suite_shared.exceptions import AudioFormatError
@@ -106,7 +107,9 @@ def _source_parameters(file_path: str) -> tuple[int | None, int | None]:
     """
     try:
         audio = MutagenFile(file_path)
-    except Exception:
+    # Changed in 2.4.1: BLE001 triage (WP-7 of
+    # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+    except (OSError, MutagenError):
         return (None, None)
     info = getattr(audio, "info", None)
     if info is None:

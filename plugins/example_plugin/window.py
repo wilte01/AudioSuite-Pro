@@ -150,7 +150,10 @@ class ExamplePluginApp:
         """
         try:
             lines = summarise(folder)
-        except Exception as exc:  # a plugin must not die on one bad folder
+        # Changed in 2.4.1: BLE001 triage (WP-7 of
+        # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+        # BLE001 boundary: the run's error is shown in the window
+        except Exception as exc:  # noqa: BLE001
             self._results.put((None, f"{type(exc).__name__}: {exc}"))
         else:
             self._results.put((lines, None))

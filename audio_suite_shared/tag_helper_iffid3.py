@@ -71,7 +71,10 @@ class IFFID3Handler(MP3Handler):
         try:
             self._audio = audio_cls(self.path)
             self._tags = self._audio.tags
-        except Exception as _id3_exc:
+        # Changed in 2.4.1: BLE001 triage (WP-7 of
+        # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+        # BLE001 boundary: a malformed ID3 falls back to tagless
+        except Exception as _id3_exc:  # noqa: BLE001
             logger.debug(
                 "ID3 load failed for %s, retrying without tags: %s",
                 self.path,

@@ -296,3 +296,72 @@ class TestHandlerSurface:
     def test_facade_round_trip_through_the_factory(self, mp3_file: str):
         write_isrc(mp3_file, [ISRC])
         assert TagHandlerFactory.get_handler(mp3_file).read_isrcs() == (ISRC,)
+
+
+# Changed in 2.4.1: WP-7's in-place, tag-write and narrowed-tuple locks live
+# here rather than in files of their own names: the test-naming lock
+# (tests/test_test_file_naming.py) mirrors test_<module>.py and its
+# allowlist is frozen, so the arbiter decides the home (plan D-33).
+
+
+class TestTagWriteFailure:
+    """WP-7 (D-31, D-32): the failure outcome, not the handler's shape."""
+
+    def test_failed_write_reports_the_error_and_records_no_snapshot(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        from audio_suite_shared.batch_undo import BatchUndoLog, use_batch
+        from audio_suite_shared.exceptions import AudioTagError
+        from audio_suite_shared.tag_handler_factory import TagHandlerFactory
+        from audio_suite_shared.tag_helper_writer import write_editable_tag
+
+        log = BatchUndoLog(db_path=tmp_path / "undo.db")
+        batch_id = log.start_batch("test_tool", "tag_edit")
+        path = tmp_path / "song.mp3"
+        handler = MagicMock()
+        handler.get_raw_tags.return_value = {"TIT2": "Old title"}
+        handler.write_editable_tag.side_effect = AudioTagError("tag write refused")
+        monkeypatch.setattr(TagHandlerFactory, "get_handler", lambda _path: handler)
+
+        with use_batch(batch_id, log.db_path):
+            with pytest.raises(AudioTagError):
+                write_editable_tag(str(path), "title", "New title")
+
+        handler.write_editable_tag.assert_called_once_with("title", "New title")
+        # The snapshot was read (the facade must see the pre-run tags) and then
+        # discarded, because the file never changed.
+        handler.get_raw_tags.assert_called_once_with()
+        assert [
+            record
+            for record in log.get_batch_records(batch_id)
+            if record.file_path == str(path)
+        ] == []
+
+    def test_unreadable_snapshot_never_blocks_the_write(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Bucket (a): a boundary handler reports, and the write still happens."""
+        from unittest.mock import MagicMock
+
+        from audio_suite_shared.batch_undo import BatchUndoLog, use_batch
+        from audio_suite_shared.tag_handler_factory import TagHandlerFactory
+        from audio_suite_shared.tag_helper_writer import write_editable_tag
+
+        log = BatchUndoLog(db_path=tmp_path / "undo.db")
+        batch_id = log.start_batch("test_tool", "tag_edit")
+        path = tmp_path / "song.mp3"
+        handler = MagicMock()
+        handler.get_raw_tags.side_effect = RuntimeError("no tag container")
+        monkeypatch.setattr(TagHandlerFactory, "get_handler", lambda _path: handler)
+
+        with use_batch(batch_id, log.db_path):
+            write_editable_tag(str(path), "title", "New title")
+
+        handler.write_editable_tag.assert_called_once_with("title", "New title")
+        assert [
+            record
+            for record in log.get_batch_records(batch_id)
+            if record.file_path == str(path)
+        ] == []

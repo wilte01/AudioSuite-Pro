@@ -506,7 +506,10 @@ class GenreConsolidatorApp(UIHelperMixin):
         try:
             with open(self._log_path, "w", encoding="utf-8") as f:
                 f.writelines(log_entries)
-        except Exception as exc:
+        # Changed in 2.4.1: BLE001 triage (WP-7 of
+        # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+        # BLE001 boundary: the log file is best effort, results stand
+        except Exception as exc:  # noqa: BLE001
             mapped = map_to_audio_error(exc)
             self.error_logger.log_error(
                 type(exc).__name__, f"Error: {mapped}", include_traceback=True

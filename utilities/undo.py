@@ -66,7 +66,9 @@ def _cmd_list(args: argparse.Namespace) -> int:
     """Handle the ``list`` subcommand."""
     try:
         batches = list_recent_batches(limit=args.limit, db_path=args.db)
-    except Exception as exc:  # nosec B110 - reported to the user
+    # Changed in 2.4.1: BLE001 triage (WP-7 of
+    # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+    except Exception as exc:  # noqa: BLE001 - reported as [ERROR], exit 1  # nosec B110
         print(f"  [ERROR] Could not read undo log: {exc}", file=sys.stderr)
         return 1
     _print_batches(batches)
@@ -81,7 +83,7 @@ def _cmd_show(args: argparse.Namespace) -> int:
     try:
         with BatchUndoLog(db_path=args.db) as log:
             records = log.get_batch_records(args.batch_id)
-    except Exception as exc:  # nosec B110 - reported to the user
+    except Exception as exc:  # noqa: BLE001 - reported as [ERROR], exit 1  # nosec B110
         print(f"  [ERROR] Could not read undo log: {exc}", file=sys.stderr)
         return 1
     if not records:
@@ -129,7 +131,7 @@ def _cmd_undo(args: argparse.Namespace) -> int:
     print(f"  [INFO] Reverting batch {args.batch_id} ...")
     try:
         result = revert_batch_by_id(args.batch_id, db_path=args.db)
-    except Exception as exc:  # nosec B110 - reported to the user
+    except Exception as exc:  # noqa: BLE001 - reported as [ERROR], exit 1  # nosec B110
         print(f"  [ERROR] Revert failed: {exc}", file=sys.stderr)
         return 1
     return _print_revert_result(result)

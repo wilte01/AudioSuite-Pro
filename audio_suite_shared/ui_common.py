@@ -1347,7 +1347,10 @@ def install_optional_dependency(
     def _install() -> None:
         try:
             outcome = ensure(requirement)
-        except Exception as exc:  # pragma: no cover - defensive
+        # Changed in 2.4.1: BLE001 triage (WP-7 of
+        # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+        # BLE001 boundary: becomes the outcome dialog
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover
             outcome = InstallOutcome(
                 False, f"{requirement.label} could not be installed: {exc}"
             )

@@ -16,6 +16,12 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+- **Undo no longer lists a file whose tag write failed.** A tagging tool that
+  could not write a file still added it to the run's undo list, so Undo offered a
+  file it could do nothing for — and reverting it only rewrote the tags the file
+  already had. The failed file is now reported as an error and left out of the
+  undo list; files the same run did change are unaffected.
+
 - **WMA is now a first-class format, not a converter-only one.** Every tool
   that lists the suite's formats now finds and converts `.wma` files, which
   until now were visible only inside the Music Format Converter. Writing one

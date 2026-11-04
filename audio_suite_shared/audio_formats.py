@@ -424,9 +424,12 @@ def source_bit_depth(file_path: str) -> int | None:
     """
     try:
         from mutagen import File as MutagenFile
+        from mutagen import MutagenError
 
         audio = MutagenFile(file_path)
-    except Exception:
+    # Changed in 2.4.1: BLE001 triage (WP-7 of
+    # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+    except (OSError, MutagenError):
         return None
     info = getattr(audio, "info", None)
     bits = getattr(info, "bits_per_sample", None)

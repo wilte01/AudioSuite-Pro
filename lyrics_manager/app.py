@@ -319,7 +319,10 @@ class LyricsManagerApp(AnalysisTagToolApp):
 
             try:
                 get_provider(provider_name)
-            except Exception as exc:
+            # Changed in 2.4.1: BLE001 triage (WP-7 of
+            # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+            # BLE001 boundary: an unknown source is named in a dialog
+            except Exception as exc:  # noqa: BLE001
                 mapped = map_to_audio_error(exc, context={"provider": provider_name})
                 messagebox.showerror(
                     "Unknown Lyric Source",

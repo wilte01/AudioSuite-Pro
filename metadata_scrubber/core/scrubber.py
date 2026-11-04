@@ -182,7 +182,10 @@ def _collect_tags_to_preserve(
                     txxx_desc = cast(Any, frame).desc
                     if txxx_desc in preserve_list:
                         preserved[f"id3:TXXX:{txxx_desc}"] = frame
-            except Exception as exc:
+            # Changed in 2.4.1: BLE001 triage (WP-7 of
+            # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+            # BLE001 boundary: one bad frame must not lose the rest
+            except Exception as exc:  # noqa: BLE001
                 logger.debug("Skipping unreadable ID3 frame: %s", exc)
     elif ext in _VORBIS_EXTENSIONS:
         # Always preserve artist, album, title (essential tags)
@@ -208,7 +211,7 @@ def _collect_tags_to_preserve(
                     preserved[key] = list(vals)
                 elif key.lower() in {p.lower() for p in preserve_list}:
                     preserved[key] = list(vals)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - one bad Vorbis tag is skipped
                 logger.debug("Skipping unreadable Vorbis tag %s: %s", key, exc)
     elif ext in _APEV2_EXTENSIONS:
         # Essentials first, then the flagged/preserved items. The raw APEValue
@@ -237,7 +240,7 @@ def _collect_tags_to_preserve(
                     preserved[key] = value
                 elif lower in wanted_preserve:
                     preserved[key] = value
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - one bad APEv2 item is skipped
                 logger.debug("Skipping unreadable APEv2 item %s: %s", key, exc)
     elif ext in (".m4a", ".mp4"):
         # Always preserve artist, album, title (essential tags)
@@ -256,7 +259,7 @@ def _collect_tags_to_preserve(
                     preserved[key] = vals
                 elif key.lower() in {p.lower() for p in preserve_list}:
                     preserved[key] = vals
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - one bad MP4 atom is skipped
                 logger.debug("Skipping unreadable MP4 atom %s: %s", key, exc)
     elif ext in _ID3_EXTENSIONS:
         # WAV/AIFF and DSF use ID3 tags, same structure as MP3
@@ -278,7 +281,8 @@ def _collect_tags_to_preserve(
                         txxx_desc = cast(Any, frame).desc
                         if txxx_desc in preserve_list:
                             preserved[f"id3:TXXX:{txxx_desc}"] = frame
-                except Exception as exc:
+                # BLE001 boundary: one bad frame must not lose the rest
+                except Exception as exc:  # noqa: BLE001
                     logger.debug("Skipping unreadable ID3 frame: %s", exc)
 
     return preserved
@@ -297,7 +301,8 @@ def _restore_tags(audio: Any, preserved: dict[str, Any]) -> None:
         for _key, frame in preserved.items():
             try:
                 audio.tags.add(frame)
-            except Exception as exc:
+            # BLE001 boundary: a frame that cannot restore is skipped
+            except Exception as exc:  # noqa: BLE001
                 logger.debug("Could not restore ID3 frame: %s", exc)
     elif ext in _VORBIS_EXTENSIONS or ext in (".m4a", ".mp4"):
         for key, vals in preserved.items():
@@ -306,13 +311,15 @@ def _restore_tags(audio: Any, preserved: dict[str, Any]) -> None:
         for key, value in preserved.items():
             try:
                 audio.tags[key] = value
-            except Exception as exc:
+            # BLE001 boundary: an item that cannot restore is skipped
+            except Exception as exc:  # noqa: BLE001
                 logger.debug("Could not restore APEv2 item %s: %s", key, exc)
     elif ext in _ID3_EXTENSIONS:
         for _key, frame in preserved.items():
             try:
                 audio.tags.add(frame)
-            except Exception as exc:
+            # BLE001 boundary: a frame that cannot restore is skipped
+            except Exception as exc:  # noqa: BLE001
                 logger.debug("Could not restore ID3 frame: %s", exc)
 
 

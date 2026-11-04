@@ -71,7 +71,10 @@ def missing_dependency_reason() -> str | None:
             f"RNNoise is not installed ({exc}). The ML Denoiser installs it on "
             f"first use; a headless run needs the 'ml' extra: {ML_EXTRA_HINT}."
         )
-    except Exception as exc:  # pragma: no cover - broken installs only
+    # Changed in 2.4.1: BLE001 triage (WP-7 of
+    # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+    # BLE001 boundary: a broken install is reported as a reason
+    except Exception as exc:  # noqa: BLE001  # pragma: no cover
         return f"RNNoise is installed but failed to import: {exc}"
     return None
 

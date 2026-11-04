@@ -12,6 +12,20 @@ one.
 
 ## [Unreleased]
 
+- **Broad catches are a triaged baseline.** Ruff's `BLE` rules are enabled, with
+  test trees the only `per-file-ignores` exemption. The rule flagged 55
+  production handlers that swallowed a failure with no traceback anywhere: five
+  now name the exceptions their call actually raises (`source_bit_depth` in
+  `audio_formats`, the mutagen source read in `audio_normalizer`, the stream
+  info read in `duplicate_finder`, the AccurateRip payload parse, and the
+  run-mode preference save) and the other fifty name the boundary they are.
+  `tests/test_ble_baseline.py` fails if the rule is unselected, if an exemption
+  ever matches a production path, or if an annotation loses its reason. Three
+  fault-injection locks prove outcomes rather than handler shape: a failed
+  in-place write is that file's error and the batch continues, a refused tag
+  write leaves no undo snapshot, and a narrowed tuple no longer swallows an
+  unexpected exception.
+
 - **One driver handshake.** `audio_suite_shared/cli_helpers.py` now owns the
   grammar every child tool reads the Master Driver's argv with: a frozen
   `DriverHandshake`, one `scan_value_options` scanner, one

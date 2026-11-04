@@ -50,7 +50,10 @@ class MP3Handler(BaseTagHandler):
         try:
             self._audio = MP3(self.path, ID3=ID3)
             self._tags = self._audio.tags
-        except Exception as _id3_exc:
+        # Changed in 2.4.1: BLE001 triage (WP-7 of
+        # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+        # BLE001 boundary: a malformed ID3 falls back to tagless
+        except Exception as _id3_exc:  # noqa: BLE001
             # ID3 header unreadable — fall back to tagless MP3 load
             logger.debug(
                 "ID3 load failed for %s, falling back: %s", self.path, _id3_exc

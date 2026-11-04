@@ -210,7 +210,10 @@ def load_enabled_map() -> dict[str, bool]:
 
     try:
         stored = suite_config.load_value(ENABLED_CONFIG_KEY, {})
-    except Exception as exc:  # pragma: no cover - defensive, config is atomic
+    # Changed in 2.4.1: BLE001 triage (WP-7 of
+    # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+    # BLE001 boundary: a config read falls back to disabled
+    except Exception as exc:  # noqa: BLE001  # pragma: no cover
         logger.warning("Could not read %s: %s", ENABLED_CONFIG_KEY, exc)
         return {}
     if not isinstance(stored, dict):

@@ -1823,3 +1823,99 @@ class TestAllEntryPointsSharePreFlightAndCompletion:
             on_error=errors.append,
         )
         assert errors == ["No supported audio files found in the selected directory."]
+
+
+# Changed in 2.4.1: WP-7's in-place, tag-write and narrowed-tuple locks live
+# here rather than in files of their own names: the test-naming lock
+# (tests/test_test_file_naming.py) mirrors test_<module>.py and its
+# allowlist is frozen, so the arbiter decides the home (plan D-33).
+
+
+class TestInplaceWriteFailureSurfaces:
+    """WP-7 (D-31): a failed in-place write is that file's error, not a skip.
+
+    The shared workflow rewrites the processed audio over the source file, so a
+    write failure reported as a skip would tell the user their file was clean
+    while the DSP had changed it and the copy-back had not happened.
+    """
+
+    def test_oserror_on_export_errors_that_file_and_the_batch_continues(
+        self, inplace_processor: BaseFileProcessor, tmp_path: Path
+    ) -> None:
+        names = ["a.wav", "b.wav", "c.wav"]
+        for index, name in enumerate(names):
+            _write_wav(tmp_path / name, freq_hz=440.0 + index * 20.0)
+        before = {name: (tmp_path / name).read_bytes() for name in names}
+
+        real_export = AudioSegment.export
+        calls = {"export": 0}
+
+        def _failing_export(
+            self: AudioSegment, out_f: Any = None, **kwargs: Any
+        ) -> Any:
+            calls["export"] += 1
+            if calls["export"] == 2:  # the second discovered file: b.wav
+                raise OSError("no space left on device")
+            return real_export(self, out_f, **kwargs)
+
+        progress: list[dict[str, Any]] = []
+        complete: list[dict[str, Any]] = []
+        fatal: list[str] = []
+
+        def _make_worker(temp_dir: str, lock: threading.Lock, on_progress: Any) -> Any:
+            slot_vars, slot_queue = _slot_pool(1)
+
+            def worker(name: str) -> None:
+                inplace_processor.process_audio_file_inplace(
+                    name,
+                    str(tmp_path),
+                    temp_dir,
+                    slot_vars,
+                    slot_queue,
+                    lock,
+                    on_progress,
+                    run_dsp=_repairing_dsp,
+                    dsp_label="Testing",
+                    tag_operation="test_edit",
+                    is_dry_run=False,
+                )
+
+            return worker
+
+        with (
+            patch.object(AudioSegment, "export", _failing_export),
+            patch(
+                "audio_suite_shared.file_processor_base.record_audio_overwrite_snapshot"
+            ),
+        ):
+            inplace_processor.run_inplace_dsp_batch(
+                str(tmp_path),
+                _make_worker,
+                lambda **kw: progress.append(kw),
+                lambda **kw: complete.append(kw),
+                fatal.append,
+            )
+
+        assert fatal == [], "a per-file write failure is not a fatal batch error"
+        assert len(progress) == 3
+        assert [entry["processed"] for entry in progress] == [1, 2, 3]
+        failed = [
+            entry for entry in progress if entry["display_text"].startswith("[ERROR]")
+        ]
+        assert len(failed) == 1, progress
+        assert "b.wav" in failed[0]["display_text"]
+        assert "DONE" not in failed[0]["display_text"]
+        assert failed[0]["errors"] == 1
+        summary = complete[0]
+        assert summary["total"] == 3
+        assert summary["errors"] == 1
+        assert summary["succeeded"] == 2
+        assert summary["skipped"] == 0
+        assert (tmp_path / "b.wav").read_bytes() == before["b.wav"]
+        assert (tmp_path / "a.wav").read_bytes() != before["a.wav"]
+        assert (tmp_path / "c.wav").read_bytes() != before["c.wav"]
+        failed_lines = [
+            line for line in summary["log_entries"] if line.startswith("[ERROR] b.wav")
+        ]
+        assert len(failed_lines) == 1
+        assert "DONE" not in failed_lines[0]

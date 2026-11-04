@@ -431,7 +431,9 @@ class AccurateRipClient:
 
         try:
             entries = parse_db_payload(response.content)
-        except Exception as exc:
+        # Changed in 2.4.1: BLE001 triage (WP-7 of
+        # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+        except (ValueError, KeyError, TypeError, IndexError) as exc:
             logger.warning("AccurateRip payload unparseable for %s: %s", url, exc)
             return LookupOffline(reason=f"Malformed AccurateRip payload: {exc}")
         if not entries:

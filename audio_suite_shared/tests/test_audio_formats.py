@@ -695,3 +695,36 @@ class TestDiscoverySeesWma:
         assert audio_formats.is_supported_format("track.wma") is True
         assert audio_formats.is_supported_format("TRACK.WMA") is True
         assert audio_formats.is_supported_format("track.wma.bak") is False
+
+
+# Changed in 2.4.1: WP-7's in-place, tag-write and narrowed-tuple locks live
+# here rather than in files of their own names: the test-naming lock
+# (tests/test_test_file_naming.py) mirrors test_<module>.py and its
+# allowlist is frozen, so the arbiter decides the home (plan D-33).
+
+
+class TestNarrowedTupleIsLoadBearing:
+    """WP-7 bucket (b): the narrowed tuple changes the outcome, both ways."""
+
+    def test_a_mutagen_error_is_an_unknown_depth(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        import mutagen
+
+        from audio_suite_shared.audio_formats import source_bit_depth
+
+        path = tmp_path / "song.flac"
+        path.write_bytes(b"not really a flac")
+        with patch("mutagen.File", side_effect=mutagen.MutagenError("no header")):
+            assert source_bit_depth(str(path)) is None
+
+    def test_an_unexpected_error_is_not_swallowed(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        from audio_suite_shared.audio_formats import source_bit_depth
+
+        path = tmp_path / "song.flac"
+        path.write_bytes(b"not really a flac")
+        with patch("mutagen.File", side_effect=RuntimeError("programming error")):
+            with pytest.raises(RuntimeError):
+                source_bit_depth(str(path))

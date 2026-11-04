@@ -281,7 +281,9 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
 
         try:
             save_run_mode("", self.run_mode.get())
-        except Exception:
+        # Changed in 2.4.1: BLE001 triage (WP-7 of
+        # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+        except (OSError, ValueError, TypeError):
             platform_utils.messagebox.showwarning(
                 _TOOL_TITLE,
                 "Run-mode preference could not be saved; processing will continue.",

@@ -393,7 +393,7 @@ class BatchUndoLog:
         file_path: str,
         operation: str,
         old_tags: Any,
-    ) -> None:
+    ) -> bool:
         """Record a tag edit with a full snapshot of the previous tags.
 
         At most one snapshot per file is kept in a batch: the undo list and
@@ -409,6 +409,10 @@ class BatchUndoLog:
             operation:  Name of the write operation (e.g. ``"write_bpm"``).
             old_tags:   Raw mutagen tags object *before* modification, or
                 ``None`` when the file had no tag container.
+
+        Returns:
+            True when this call inserted the snapshot, False when the batch
+            already held one for the file (or no batch is active).
         """
         snapshot = pickle.dumps(old_tags, protocol=pickle.HIGHEST_PROTOCOL)
         conn = self._connect()
@@ -423,12 +427,37 @@ class BatchUndoLog:
                     file_path,
                     batch_id,
                 )
-                return
+                return False
             conn.execute(
                 "INSERT INTO undo_records "
                 "(batch_id, file_path, operation, old_tags_snapshot) "
                 "VALUES (?, ?, ?, ?)",
                 [batch_id, file_path, operation, snapshot],
+            )
+            conn.commit()
+        return True
+
+    def discard_tag_edit(self, batch_id: str, file_path: str) -> None:
+        """Remove the tag snapshot recorded for *file_path* in *batch_id*.
+
+        Used when the write the snapshot was taken for failed: the file is
+        unchanged, so the record would offer an undo entry that can only
+        rewrite the tags the file already has (WP-7, D-32).
+
+        Only tag-edit rows are removed. A byte-level overwrite row for the same
+        file has ``file_action = 'overwrite'`` and is left alone, because it
+        restores audio that really was rewritten.
+
+        Args:
+            batch_id:  The batch holding the record.
+            file_path: Absolute path to the audio file.
+        """
+        conn = self._connect()
+        with self._lock:
+            conn.execute(
+                "DELETE FROM undo_records "
+                "WHERE batch_id = ? AND file_path = ? AND file_action IS NULL",
+                [batch_id, file_path],
             )
             conn.commit()
 
@@ -593,7 +622,10 @@ class BatchUndoLog:
                         result.skipped += 1
                 else:
                     result.skipped += 1
-            except Exception as exc:
+            # Changed in 2.4.1: BLE001 triage (WP-7 of
+            # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+            # BLE001 boundary: a bad record is counted, the run goes on
+            except Exception as exc:  # noqa: BLE001
                 msg = f"[record {record_id}] {file_path}: {exc}"
                 result.errors.append(msg)
                 result.failed += 1
@@ -917,7 +949,7 @@ def is_undo_enabled() -> bool:
     return getattr(_thread_local, "enabled", False)
 
 
-def record_tag_edit_snapshot(file_path: str, operation: str) -> None:
+def record_tag_edit_snapshot(file_path: str, operation: str) -> bool:
     """Snapshot the current tags of *file_path* into the active batch.
 
     This is a no-op when no batch is active (zero overhead for normal
@@ -928,10 +960,14 @@ def record_tag_edit_snapshot(file_path: str, operation: str) -> None:
     Args:
         file_path: Path to the audio file.
         operation: Name of the write operation about to happen.
+
+    Returns:
+        True when this call inserted the snapshot, False when no batch is
+        active, the file already had one, or the snapshot itself failed.
     """
     batch_id = get_active_batch_id()
     if batch_id is None:
-        return
+        return False
 
     try:
         from .tag_helper_base import TagHandlerFactory
@@ -939,11 +975,41 @@ def record_tag_edit_snapshot(file_path: str, operation: str) -> None:
         handler = TagHandlerFactory.get_handler(file_path)
         old_tags = handler.get_raw_tags()
         log: BatchUndoLog | None = getattr(_thread_local, "log", None)
-        if log is not None:
-            log.record_tag_edit(batch_id, file_path, operation, old_tags)
+        if log is None:
+            return False
+        return log.record_tag_edit(batch_id, file_path, operation, old_tags)
     except Exception:
         # Snapshot failure must never block the actual write operation.
         logger.debug("Failed to snapshot tags for %s", file_path, exc_info=True)
+        return False
+
+
+def discard_tag_edit_snapshot(file_path: str) -> None:
+    """Drop the tag snapshot recorded for *file_path* because its write failed.
+
+    The snapshot is taken *before* the write, because it has to describe the
+    file's pre-run state.  When the write then raises, the file is unchanged,
+    so keeping the record would offer the user an undo entry that can only
+    rewrite the tags the file already has (WP-7, D-32).
+
+    A no-op when no batch is active, and never fatal: a stale record is a
+    cosmetic problem, whereas failing here would mask the write error.
+
+    Args:
+        file_path: Path to the audio file whose write failed.
+    """
+    batch_id = get_active_batch_id()
+    if batch_id is None:
+        return
+    log: BatchUndoLog | None = getattr(_thread_local, "log", None)
+    if log is None:
+        return
+    try:
+        log.discard_tag_edit(batch_id, file_path)
+    except Exception:
+        logger.debug(
+            "Failed to discard the tag snapshot for %s", file_path, exc_info=True
+        )
 
 
 def record_audio_overwrite_snapshot(file_path: str, operation: str) -> None:
@@ -1174,7 +1240,7 @@ def _load_max_entries() -> int:
                 return parsed
     except (TypeError, ValueError) as exc:
         logger.debug("Invalid undo_max_entries config: %s", exc)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - unreadable config uses the default
         logger.debug("Could not read undo_max_entries config: %s", exc)
     return _DEFAULT_MAX_ENTRIES
 
@@ -1193,6 +1259,6 @@ def _load_max_bytes() -> int:
                 return parsed
     except (TypeError, ValueError) as exc:
         logger.debug("Invalid undo_max_bytes config: %s", exc)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - unreadable config uses the default
         logger.debug("Could not read undo_max_bytes config: %s", exc)
     return _DEFAULT_MAX_BYTES

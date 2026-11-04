@@ -101,7 +101,9 @@ def _build_card(tool_id: str, parent: tk.Frame, state: AppState) -> None:
         try:
             get_plugins().resolve(manifest.ui_entry)(parent, state)
             return
-        except Exception as exc:  # a third-party card must not kill the tab
+        # Changed in 2.4.1: BLE001 triage (WP-7 of
+        # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+        except Exception as exc:  # noqa: BLE001 - a plugin card must not kill the tab
             _log.warning(
                 "Plugin card for %r failed (%s); using the generic card",
                 manifest.id,

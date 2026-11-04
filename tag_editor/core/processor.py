@@ -422,7 +422,10 @@ class TagEditorProcessor:
             return TagRow(path=path, values=values)
         except AudioSuiteError as exc:
             return TagRow(path=path, values={}, error=user_message_for(exc))
-        except Exception as exc:
+        # Changed in 2.4.1: BLE001 triage (WP-7 of
+        # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+        # BLE001 boundary: a read failure becomes this row's error
+        except Exception as exc:  # noqa: BLE001
             mapped = map_to_audio_error(exc, context={"file": str(path)})
             return TagRow(path=path, values={}, error=user_message_for(mapped))
 
@@ -524,7 +527,8 @@ class TagEditorProcessor:
                     written=False,
                     error=user_message_for(exc),
                 )
-            except Exception as exc:
+            # BLE001 boundary: a write failure becomes this row's error
+            except Exception as exc:  # noqa: BLE001
                 mapped = map_to_audio_error(exc, context={"file": str(edit.path)})
                 result = EditResult(
                     path=edit.path,
@@ -545,7 +549,8 @@ class TagEditorProcessor:
                         result.written = True
                     except AudioSuiteError as exc:
                         result.error = user_message_for(exc)
-                    except Exception as exc:
+                    # BLE001 boundary: a field write failure is per row
+                    except Exception as exc:  # noqa: BLE001
                         mapped = map_to_audio_error(
                             exc, context={"file": str(edit.path)}
                         )

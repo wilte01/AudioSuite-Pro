@@ -194,7 +194,10 @@ def resolve_and_apply(
             handler = TagHandlerFactory.get_handler(first_file)
             artist, album = handler.read_artist_album()
             album_artist = handler.read_album_artist()
-        except Exception as exc:
+        # Changed in 2.4.1: BLE001 triage (WP-7 of
+        # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+        # BLE001 boundary: an unreadable source reports a failure
+        except Exception as exc:  # noqa: BLE001
             mapped = map_to_audio_error(exc)
             _log(f"Error reading file metadata: {user_message_for(mapped)}")
             return ArtSyncReport(

@@ -123,7 +123,9 @@ def summarise(directory: str | Path) -> list[str]:
     for path in files:
         try:
             tags = read_editable_tags(str(path))
-        except Exception:  # a plugin must not die on one unreadable file
+        # Changed in 2.4.1: BLE001 triage (WP-7 of
+        # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+        except Exception:  # noqa: BLE001 - one unreadable file is skipped
             continue
         if tags.get("genre"):
             with_genre += 1

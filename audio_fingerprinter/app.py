@@ -251,7 +251,9 @@ class FingerprinterApp(UIHelperMixin):
             return
         try:
             api_key_store.save_api_key(value)
-        except Exception as exc:
+        # Changed in 2.4.1: BLE001 triage (WP-7 of
+        # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+        except Exception as exc:  # noqa: BLE001 - a save failure is shown in a dialog
             mapped = map_to_audio_error(exc)
             messagebox.showerror(
                 "Save Failed",
@@ -281,7 +283,7 @@ class FingerprinterApp(UIHelperMixin):
             return
         try:
             mb_token_store.save_token(value)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - a save failure is shown in a dialog
             mapped = map_to_audio_error(exc)
             messagebox.showerror(
                 "Save Failed",
@@ -322,7 +324,8 @@ class FingerprinterApp(UIHelperMixin):
         """Show whether the fpcalc binary resolves, and where it was found."""
         try:
             path = resolve_fpcalc(self.fpcalc_path.get().strip() or None)
-        except Exception as exc:
+        # BLE001 boundary: the status line reports missing fpcalc
+        except Exception as exc:  # noqa: BLE001
             message = f"fpcalc not found: {user_message_for(map_to_audio_error(exc))}"
             self._update_fpcalc_status_cb(message, False)
             return
@@ -444,7 +447,8 @@ class FingerprinterApp(UIHelperMixin):
 
             try:
                 resolve_fpcalc(self.fpcalc_path.get().strip() or None)
-            except Exception as exc:
+            # BLE001 boundary: the dialog names the missing binary
+            except Exception as exc:  # noqa: BLE001
                 messagebox.showerror(
                     "fpcalc Required",
                     "fpcalc is not available.\n\n"

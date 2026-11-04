@@ -624,7 +624,10 @@ def _register_plugin_tools(registry: ToolRegistry) -> None:
 
     try:
         plugins = get_plugins()
-    except Exception as exc:  # pragma: no cover - discovery is total by design
+    # Changed in 2.4.1: BLE001 triage (WP-7 of
+    # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+    # BLE001 boundary: discovery records the problem, never raises
+    except Exception as exc:  # noqa: BLE001  # pragma: no cover
         registry.record_plugin_problem(
             f"plugin discovery failed: {type(exc).__name__}: {exc}"
         )

@@ -340,7 +340,10 @@ class RipTab:
                 written = split_cue_file(
                     filename, out_dir, progress_cb=self._on_split_progress
                 )
-            except Exception as exc:  # surface any split failure in a dialog
+            # Changed in 2.4.1: BLE001 triage (WP-7 of
+            # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+            # BLE001 boundary: a split failure is routed to the dialog
+            except Exception as exc:  # noqa: BLE001
                 self.frame.after(0, self._on_split_error, exc)
             else:
                 self.frame.after(0, self._on_split_done, written)

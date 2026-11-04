@@ -90,7 +90,9 @@ class KeyManager:
                 # The bytes on disk may still be a perfectly good key that
                 # merely could not be read, so the copy is worth restoring.
                 recoverable = True
-            except Exception as e:
+            # Changed in 2.4.1: BLE001 triage (WP-7 of
+            # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+            except Exception as e:  # noqa: BLE001 - an unreadable key is replaced
                 logger.warning("Key file invalid, generating new key: %s", e)
                 # The stored key was already unusable; copying it preserves
                 # evidence, not the ability to decrypt anything.

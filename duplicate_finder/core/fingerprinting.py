@@ -61,7 +61,9 @@ def _stream_properties(path: str, duration: float, size: int) -> tuple[int, int,
             sample_rate = int(getattr(info, "sample_rate", 0) or 0)
             channels = int(getattr(info, "channels", 0) or 0)
             bitrate_kbps = float(getattr(info, "bitrate", 0) or 0) / 1000.0
-    except Exception as exc:  # mutagen raises per-format errors; none is fatal
+    # Changed in 2.4.1: BLE001 triage (WP-7 of
+    # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+    except (mutagen.MutagenError, OSError, ValueError) as exc:
         logger.debug("mutagen could not read stream info for %s: %s", path, exc)
     if bitrate_kbps <= 0.0 and duration > 0:
         bitrate_kbps = (size * 8.0) / duration / 1000.0

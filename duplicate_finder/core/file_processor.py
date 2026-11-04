@@ -214,7 +214,9 @@ def _fingerprint_files(
 
                 try:
                     record = build_record(path, stat.st_mtime, stat.st_size)
-                except Exception as exc:
+                # Changed in 2.4.1: BLE001 triage (WP-7 of
+                # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+                except Exception as exc:  # noqa: BLE001 - a counted per-file outcome
                     mapped = map_to_audio_error(exc)
                     reason = user_message_for(mapped)
                     outcome.missing_fingerprint += 1
@@ -441,7 +443,7 @@ def run_duplicate_scan(
                 metadata = with_keeper(snapshot_tags(path), group.keeper.path)
                 write_stub(stub_path, metadata)
                 _verify_stub(stub_path, group.keeper.path)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - stub failure is logged per file
                 stub_path.unlink(missing_ok=True)
                 action_errors += 1
                 outcome.log_entries.append(

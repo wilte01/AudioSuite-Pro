@@ -308,9 +308,22 @@ select = [
     "PLW0127",  # self-assignment
     "PLW0129",  # assert on a string literal
     "PLW0131",  # named-expression reuse leak
+    "BLE",      # blind except: see [tool.ruff.lint.per-file-ignores] and plan SS7
 ]
 unfixable = []
 ignore = []
+
+# Changed in 2.4.1: WP-7 of PLAN_2026-11-03_2.4.1_stop_the_drift.md. BLE001
+# (blind `except Exception`) is the rule that catches a DSP or tag write failure
+# being swallowed as a "skip". Every production site is triaged into one of three
+# buckets -- a named boundary (`# noqa: BLE001 - <reason>`), a narrowed exception
+# tuple, or a deleted handler -- and the triage is recorded in that plan's SS10.
+# A per-file ignore for "later" is the blanket suppression this repo forbids.
+[tool.ruff.lint.per-file-ignores]
+# Tests deliberately exercise failure paths -- they raise the exception they are
+# asserting on, and a broad catch there is the subject of the test, not the risk.
+"tests/*" = ["BLE001"]
+"*/tests/*" = ["BLE001"]
 
 [tool.pytest.ini_options]
 testpaths = [

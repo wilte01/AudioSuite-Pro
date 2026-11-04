@@ -75,7 +75,10 @@ def _import_torch() -> Any | None:
         import torch
     except ImportError:
         return None
-    except Exception as exc:  # pragma: no cover - broken installs only
+    # Changed in 2.4.1: BLE001 triage (WP-7 of
+    # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+    # BLE001 boundary: a broken install falls back to the CPU
+    except Exception as exc:  # noqa: BLE001  # pragma: no cover
         logger.warning("torch is installed but failed to import: %s", exc)
         return None
     return torch
@@ -118,7 +121,8 @@ def detect_device(prefer_gpu: bool = True) -> DeviceInfo:
 
     try:
         available = bool(torch.cuda.is_available())
-    except Exception as exc:  # pragma: no cover - defensive
+    # BLE001 boundary: a CUDA query falls back to the CPU
+    except Exception as exc:  # noqa: BLE001  # pragma: no cover
         logger.warning("torch.cuda.is_available() failed: %s", exc)
         return DeviceInfo(
             device=CPU,
@@ -147,7 +151,8 @@ def detect_device(prefer_gpu: bool = True) -> DeviceInfo:
         name = str(torch.cuda.get_device_name(0))
         total = float(torch.cuda.get_device_properties(0).total_memory)
         memory = f"{total / (1024**3):.1f} GB"
-    except Exception:  # pragma: no cover - driver hiccups
+    # BLE001 boundary: device name and memory are cosmetic
+    except Exception:  # noqa: BLE001  # pragma: no cover
         name, memory = "CUDA device", "unknown memory"
     return DeviceInfo(
         device=CUDA,

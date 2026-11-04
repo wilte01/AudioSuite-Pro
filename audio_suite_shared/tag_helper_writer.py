@@ -24,7 +24,7 @@ from typing import Any
 
 from audio_suite_shared.exceptions import AudioTagError, handle_audio_errors
 
-from .batch_undo import record_tag_edit_snapshot
+from .batch_undo import discard_tag_edit_snapshot, record_tag_edit_snapshot
 from .tag_handler_factory import TagHandlerFactory
 
 _ID3_BACKED_EXTENSIONS: tuple[str, ...] = (".mp3", ".wav", ".aiff", ".aif", ".dsf")
@@ -204,8 +204,16 @@ def write_editable_tag(path: str, field: str, value: str | None) -> None:
         field: Canonical field name from ``EDITABLE_FIELDS``.
         value: String value to store, or ``None`` to remove the field.
     """
-    record_tag_edit_snapshot(path, "write_editable_tag")
-    TagHandlerFactory.get_handler(path).write_editable_tag(field, value)
+    recorded = record_tag_edit_snapshot(path, "write_editable_tag")
+    try:
+        TagHandlerFactory.get_handler(path).write_editable_tag(field, value)
+    except Exception:
+        # The file is unchanged, so the snapshot describes a write that never
+        # happened: keeping it would offer an undo entry that can only rewrite
+        # the tags the file already has (WP-7, D-32).
+        if recorded:
+            discard_tag_edit_snapshot(path)
+        raise
 
 
 def write_tags_raw(path: str, tags: Any, record_snapshot: bool = True) -> None:

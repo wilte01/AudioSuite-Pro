@@ -509,7 +509,9 @@ def _process_file(job: _FingerprintJob, full_path: str) -> FingerprintFileResult
     try:
         handler = TagHandlerFactory.get_handler(full_path)
         artist_tag, title_tag = handler.read_artist_title()
-    except Exception as exc:
+    # Changed in 2.4.1: BLE001 triage (WP-7 of
+    # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+    except Exception as exc:  # noqa: BLE001 - tie-break tags are optional evidence
         logger.debug("Could not read tags from %s: %s", full_path, exc)
         handler = None
         artist_tag, title_tag = "Unknown", "Unknown"

@@ -161,7 +161,10 @@ def process_single_file(
     try:
         processor.run_with_retry(_process_file, label=f"mood_{safe_name}")
 
-    except Exception as exc:
+    # Changed in 2.4.1: BLE001 triage (WP-7 of
+    # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+    # BLE001 boundary: a per-file outcome is reported, not raised
+    except Exception as exc:  # noqa: BLE001
         mapped = map_to_audio_error(exc)
         reason = failure_reason(mapped)
         log_handled_failure(logger, "[%s] %s", type(mapped).__name__, reason, exc=exc)
@@ -210,7 +213,8 @@ def _analyze_mood_cpu(
             "confidence": float(analysis.confidence),
             "energy": int(analysis.energy),
         }
-    except Exception as exc:
+    # BLE001 boundary: a per-file outcome is reported, not raised
+    except Exception as exc:  # noqa: BLE001
         reason = failure_reason(exc)
         log_handled_failure(
             logger,

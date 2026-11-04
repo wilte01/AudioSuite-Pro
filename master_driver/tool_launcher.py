@@ -91,7 +91,9 @@ def _get_current_accent() -> str | None:
         import winaccent
 
         return cast(str, winaccent.accent_normal)
-    except Exception as _exc:
+    # Changed in 2.4.1: BLE001 triage (WP-7 of
+    # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+    except Exception as _exc:  # noqa: BLE001 - optional accent module, default colour
         _log.debug("winaccent unavailable: %s", _exc)
         return None
 
