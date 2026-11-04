@@ -16,7 +16,16 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+- **File Reorganizer works in one window of three tabs.** Setup holds the source
+  directory with its Mode / Auto Start / Auto End strip, the presets, the
+  destination, the Copy/Move choice and both pattern templates; the planned
+  paths, a progress bar and the four counters are on Processing; a Results tab
+  replaces the old completion dialog and adds View Log and Open Folder. Dry Run
+  is now the Mode selector and still starts selected, so Execute stays
+  read-only until you switch to Live Update. Launching it from the Master
+  Driver now fills in the `--live`, `--start` and `--end` options instead of
+  ignoring them, and saved presets — including ones saved before this change —
+  still restore the dry-run state.
 
 ## [2.4.2] - 2026-11-04
 

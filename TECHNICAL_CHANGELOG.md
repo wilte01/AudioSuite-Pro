@@ -34,6 +34,21 @@ one.
   shell receives; its `MIGRATED` table is frozen and a tool that reintroduces
   its own `_build_ui` fails it.
 
+- **The reorganiser adopts the shell, and its scan thread stops touching Tk.**
+  `file_reorganizer/app.py` is now a `SuiteApp` adopter: the single-pane
+  composer is gone, the Setup tab carries the run-controls strip, presets,
+  destination, action and pattern editors, and the Processing/Results tabs come
+  from `ui_common`. Its engine progress callback ran on the scan thread and
+  called `root.after` from there — the `threading.Thread` + `after` defect class
+  recorded in AGENTS.md (D136, which raises `main thread is not in main loop` on
+  3.14) — so workers now post `_RunEvent`s to a `queue.SimpleQueue` and a
+  Tk-thread poller drains them; the tests assert a worker never calls
+  `root.after`. The Dry Run checkbox became the strip's Mode, with `dry_run`
+  derived from it in one direction only and the legacy `dry_run` preset key
+  still honoured, and the driver's `--live`/`--start`/`--end` flags — parsed
+  but previously dropped — now reach the panel. The shared contract test gains
+  the second adopter plus a per-tool process-edge stub table (`_STUB_EDGES`).
+
 ## [2.4.2] - 2026-11-04
 
 - **One tag layer.** `audio_suite_shared/tag_field_engine.py` is the

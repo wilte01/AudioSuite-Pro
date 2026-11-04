@@ -3,8 +3,9 @@
 PLAN_2026-11-03_2.4.3_structure.md WP-8 replaces eighteen hand-written window
 composers with one ``SuiteApp``.  This module is the contract that migration
 keeps: for every adopter it builds the *real* window (only the process edge —
-bootstrap, CLI parsing, the restored last directory — is stubbed) and reads the
-widgets back, rather than asserting that a class calls a builder.
+bootstrap, CLI parsing, the restored last directory, the persisted settings —
+is stubbed) and reads the widgets back, rather than asserting that a class
+calls a builder.
 
 What is locked, and why each one is not visible to another check:
 
@@ -25,13 +26,19 @@ What is locked, and why each one is not visible to another check:
 plan migrates one tool per commit), and a tool that drifts back to its own
 ``_build_ui`` fails the last test instead of passing silently.
 
-Changed in 2.4.3: initial version (WP-8).
+Each adopter may need its own *process edge* stubs, because the tools differ in
+where they read it: the converter parses its launcher argv inside the
+constructor, the reorganiser receives it as keyword arguments and reads its
+persisted settings on construction.  Those stubs are named in ``_stub_edges``
+and nowhere else, so a tool cannot opt out of an assertion by stubbing it.
+
+Changed in 2.4.3: initial version (WP-8); WP-8 order #2 adds the reorganiser.
 """
 
 from __future__ import annotations
 
 import tkinter as tk
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from tkinter import ttk
 from types import SimpleNamespace
 from typing import Any
@@ -40,13 +47,44 @@ from unittest.mock import MagicMock
 import pytest
 
 from audio_suite_shared import suite_app
+from file_reorganizer import app as reorganizer_app
+from file_reorganizer.app import FileReorganizerApp
 from music_format_converter import app as converter_app
 from music_format_converter.app import MusicFormatConverterApp
 from music_format_converter.utils.cli_args import ConverterArgs
 
 #: The tools that have adopted the shared shell, in migration order.
-MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (MusicFormatConverterApp,)
+MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
+    MusicFormatConverterApp,
+    FileReorganizerApp,
+)
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
+
+
+def _stub_converter_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the converter's launcher parse."""
+    monkeypatch.setattr(converter_app.cli_args, "parse", lambda: ConverterArgs())
+
+
+def _stub_reorganizer_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the reorganiser's persisted settings (it reads them on construction)."""
+    monkeypatch.setattr(
+        reorganizer_app,
+        "load_settings",
+        lambda: {
+            "dest_dir": "",
+            "action": "copy",
+            "specific_pattern": "specific",
+            "various_pattern": "various",
+        },
+    )
+
+
+#: Process-edge stubs per adopter; a tool with none still gets the shared ones.
+_STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]] = {
+    MusicFormatConverterApp: _stub_converter_edges,
+    FileReorganizerApp: _stub_reorganizer_edges,
+}
 
 
 def _walk(widget: tk.Misc) -> Iterator[tk.Misc]:
@@ -97,13 +135,21 @@ def window(
     monkeypatch.setattr(cls, "_open_help", _record("help"))
     monkeypatch.setattr(cls, "_open_log", _record("log"))
     monkeypatch.setattr(cls, "_open_folder", _record("folder"))
-    monkeypatch.setattr(converter_app.cli_args, "parse", lambda: ConverterArgs())
-    monkeypatch.setattr(converter_app.suite_config, "load_last_directory", lambda: "")
+    # Both tools import the same module object, so one patch covers the pair.
+    monkeypatch.setattr(reorganizer_app.suite_config, "load_last_directory", lambda: "")
+    stub_edges = _STUB_EDGES.get(cls)
+    if stub_edges is not None:
+        stub_edges(monkeypatch)
 
     app = cls(root)
     try:
         yield SimpleNamespace(app=app, cls=cls, calls=calls, bootstrapped=bootstrapped)
     finally:
+        app._closing = True
+        poll_id = getattr(app, "_poll_id", "")
+        if poll_id:
+            app.root.after_cancel(poll_id)
+            app._poll_id = ""
         for frame in (app.setup_frame, app.processing_frame, app.results_frame):
             frame.destroy()
 
@@ -179,7 +225,7 @@ def test_the_shell_is_given_the_tools_identity(window: SimpleNamespace) -> None:
 
 def test_the_migrated_table_is_frozen() -> None:
     """Only the tools the plan has migrated adopt the shell, and they keep it."""
-    assert MIGRATED_NAMES == ("MusicFormatConverterApp",)
+    assert MIGRATED_NAMES == ("MusicFormatConverterApp", "FileReorganizerApp")
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)
         assert "_build_setup_tab" in cls.__dict__, (

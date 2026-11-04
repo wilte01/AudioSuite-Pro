@@ -7,27 +7,31 @@ subtitle: Based on the current File Reorganizer implementation
 
 File Reorganizer scans supported audio files recursively, reads their metadata, evaluates a user-defined path template, and copies or moves each file into the resolved destination hierarchy. It has separate templates for named album artists and Various Artists releases, selected from the album artist tag.
 
-The workflow is preview-first: Dry Run is enabled by default and shows the planned paths without performing file operations.
+The window has three tabs. Setup holds the source directory and its run controls, the presets, the destination, the action choice and both pattern templates. Processing shows the planned or completed paths with a progress bar and the four counters. Results appears when a run finishes and offers the log and the destination folder.
+
+The workflow is preview-first: Mode is set to Dry Run on launch and shows the planned paths without performing file operations.
 
 ## Quick Start
 
 1. Open File_Reorganizer.pyw.
-1. Select the Source Directory containing your audio files.
-1. Select the Destination Directory where the organized files should go.
-1. Choose Copy or Move and leave Dry Run enabled.
-1. Review the Preview list after the scan completes.
-1. Disable Dry Run and click Execute only after checking the planned paths.
+1. On the Setup tab, set the Source Music Directory and the Destination Directory.
+1. Choose Copy or Move and leave Mode on Dry Run.
+1. Click Preview and review the planned paths on the Processing tab.
+1. Switch Mode to Live Update and click Execute only after checking the planned paths.
+1. Open the Results tab to see the final counters; View Log opens this tool's log and Open Folder opens the destination.
 
 ## Setup and Actions
 
-- **Source Directory: **Root folder to scan recursively. The last suite directory may be restored on startup.
+- **Source Music Directory: **Root folder to scan recursively. It sits in the Run Controls strip at the top of the Setup tab; Browse records the folder as the suite-wide last-used directory, and the last suite directory may be restored on startup.
+- **Mode: **Dry Run (the default) evaluates every path without writing anything; Live Update performs the selected copy or move. The Preview button always runs a dry scan, whatever the Mode says.
+- **Auto Start / Auto End: **Mirror the Master Driver's orchestration options. Auto Start is driver-only, and a launch from the driver locks the strip so the inherited values stay visible but cannot be changed inside the tool.
 - **Destination Directory: **Base directory prepended to each resolved pattern path. It is required by the CLI and selected in the GUI.
 - **Copy: **Copies files with shutil.copy2, preserving file metadata such as timestamps and attributes.
 - **Move: **Moves files with shutil.move. Across volumes this may behave as copy followed by delete.
-- **Dry Run: **Evaluates paths and updates progress without copying or moving anything. Enabled by default.
-- **Preview: **Runs the scan and populates the planned destination paths. A successful preview enables Execute.
+- **Preview: **Runs the scan and populates the planned destination paths on the Processing tab. A successful preview enables Execute.
+- **Execute: **Performs the copy or move, or a dry run if Mode is still Dry Run. It is disabled until a preview has finished.
 - **Stop: **Requests that the active scan stop at the next file boundary.
-- **Presets: **Save and restore source/destination paths, action, dry-run state, and both pattern templates through shared suite configuration.
+- **Presets: **Save and restore the source and destination paths, the action, the Mode (dry-run state) and both pattern templates through shared suite configuration.
 
 ## File Selection and Tags
 
@@ -80,15 +84,19 @@ A pattern that resolves to a `.` or `..` path component, a drive-qualified value
 
 ## Dry Run, Copy, and Move
 
-- **Dry Run: **Logs source-to-target plans and increments scan/processed statistics without touching files.
+- **Dry Run: **Logs source-to-target plans and increments scan/processed statistics without touching files. It is the default Mode.
 - **Copy: **Creates destination directories as needed and copies the source file with metadata preservation.
 - **Move: **Creates destination directories as needed and moves the source file.
 - **Undo: **Live copy and move operations are recorded in the suite file-reorganization undo context.
-- **Conflict behavior: **A copy or move whose destination path already exists is skipped and reported in the Skipped counter; the existing file is never overwritten. Review the Preview and resolve conflicts before Execute.
+- **Conflict behavior: **A copy or move whose destination path already exists is skipped and reported in the Skipped counter; the existing file is never overwritten. Review the planned paths and resolve conflicts before Execute.
 
 ## Progress and Statistics
 
-The GUI reports the current file and four counters: Scanned, Processed, Skipped, and Errors. Skips include files with no usable album/title tags, files whose pattern resolves to an empty path, and files whose destination path already exists. Pattern parsing failures and operating-system/value errors increment Errors.
+The Processing tab reports the current file in its status line, a progress bar that fills as scanned files are processed, and four counters: Scanned, Processed, Skipped, and Errors. Each resolved destination path, skip notice or pattern error is appended to the path list below the counters. Skips include files with no usable album/title tags, files whose pattern resolves to an empty path, and files whose destination path already exists. Pattern parsing failures and operating-system/value errors increment Errors.
+
+## Results
+
+When an execute run finishes, the window switches to the Results tab. It shows the completion heading, the total time, the four final counters, a View Log button for this tool's log and an Open Folder button for the destination directory. A preview leaves the window on the Processing tab so its planned paths stay visible.
 
 ## Command Line
 
@@ -103,17 +111,17 @@ CLI options include --output-dir, --action copy|move, --dry/--live, --specific-p
 
 ## Master Driver Use
 
-From the Master Driver, open UTIL and select Tag-Based File Reorganizer. The utility is standalone and opens its own workflow. The selected directory is passed through the driver launch context; use the reorganizer's Destination, Action, Pattern Templates, Preview, and Execute controls for the operation.
+From the Master Driver, open UTIL and select Tag-Based File Reorganizer. The utility is standalone and opens its own workflow in the same three tabs. The selected directory, the Mode and the Auto Start / Auto End options are passed through the driver launch context and appear in the Run Controls strip, which is locked while the tool is driven; use the reorganizer's Destination, Action, Pattern Templates, Preview, Execute and Stop controls for the operation.
 
 ## Troubleshooting
 
 - **Files are skipped: **Confirm that the file has usable album/title metadata, that the pattern produces a non-empty path, and that the destination file does not already exist.
-- **The path is unexpected: **Use Preview, inspect the source tags, and check whether Various Artists classification or prefix swapping selected a different branch.
+- **The path is unexpected: **Preview, inspect the source tags on the Processing tab, and check whether Various Artists classification or prefix swapping selected a different branch.
 - **Pattern error: **Check parentheses, commas, function names, tag references, and numeric arguments. The file is counted as an error and the scan continues.
 - **Destination is empty: **Select a valid destination directory in the GUI or pass --output-dir on the CLI.
-- **Files did not move: **Dry Run may still be enabled. Disable it only after reviewing Preview.
+- **Files did not move: **Mode may still be Dry Run. Switch it to Live Update only after reviewing the planned paths.
 - **A move needs recovery: **Use the suite's Undo Tag Edits/file-reorganization workflow when a snapshot is available, and retain backups for important libraries.
 
 ## Configuration and Recovery
 
-Destination, action, and pattern settings are persisted in the shared audio_suite_config.json. The tool can migrate an older reorganizer_config.json once, then remove the legacy file. Live operations are recorded in the suite's file-reorganization batch context.
+Destination, action, Mode and pattern settings are persisted in the shared audio_suite_config.json. The tool can migrate an older reorganizer_config.json once, then remove the legacy file. Live operations are recorded in the suite's file-reorganization batch context.

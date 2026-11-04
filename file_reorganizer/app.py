@@ -1,42 +1,113 @@
 """
+app.py
 Tkinter GUI for Tag-Based File Reorganizer.
 
-Provides two pattern fields (Specific Artists / Various Artists),
-source and destination directory selection, action radio buttons,
-and a Preview/Execute workflow.  Styled to match AudioSuite-Pro
-look and feel.
+Scans a source tree, evaluates the two path templates against each file's
+tags, and previews (dry run) or performs the copy/move into the resolved
+destination hierarchy.
+
+The window is built by ``audio_suite_shared.suite_app.SuiteApp``: the Help bar,
+the Setup / Processing / Results notebook and the Processing and Results tabs
+come from the shell.  This module supplies the Setup tab (run-controls strip,
+presets, destination picker, action choice, pattern editors and the
+Preview/Execute/Stop buttons), the run itself, and the four counters the
+Processing tab reports.
+
+Dry Run is the run-controls strip's **Mode** (``Dry Run`` / ``Live Update``),
+and it defaults to ``Dry Run``: Execute therefore stays safe until the mode is
+switched, exactly as the former Dry Run checkbox did.  The ``dry_run``
+BooleanVar is derived from the mode in one direction only, so a preset or the
+driver's ``--live``/``--dry`` flag moves the mode and the derived flag follows.
+
+Worker threads never touch a widget.  The engine's progress callback runs on
+the scan thread, so every message is posted to a ``SimpleQueue`` and a poller
+the Tk thread owns drains it (``root.after`` from a raw ``threading.Thread``
+raises ``RuntimeError: main thread is not in main loop`` — AGENTS.md, D136).
 
 Changed in 1.0.1: accepts the driver's argv as kwargs and pre-fills the source,
 destination, action and pattern widgets.
 Changed in 1.0.1: fixed type annotation from tk.Event[ttk.Combobox] to
 tk.Event for Python 3.11 compatibility (Event is not subscriptable in 3.11).
+
+Changed in 2.4.3: adopts ``SuiteApp`` (PLAN_2026-11-03_2.4.3_structure.md
+WP-8).  The single-pane layout becomes the shell's Setup / Processing /
+Results tabs, the Dry Run checkbox becomes the run-controls Mode, the preview
+list becomes the shared Processing list and the completion modal becomes the
+shared Results tab.  The driver handshake's ``--live``/``--start``/``--end``
+flags, parsed but previously dropped, now reach the panel they belong to.
 """
 
 from __future__ import annotations
 
 import os
+import queue
 import threading
+import time
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
-from typing import Any, Callable
+from collections.abc import Callable
+from dataclasses import dataclass
+from tkinter import filedialog, ttk
+from typing import Any
 
 from audio_suite_shared import styles, suite_config, ui_common
-from audio_suite_shared.app_bootstrap import BaseSuiteApp
 from audio_suite_shared.batch_undo import active_batch
-from audio_suite_shared.exceptions import AudioSuiteError, handle_audio_errors
+from audio_suite_shared.exceptions import (
+    AudioSuiteError,
+    handle_audio_errors,
+    map_to_audio_error,
+    user_message_for,
+)
 from audio_suite_shared.launcher import parse_cli_args
-from audio_suite_shared.ui_helpers import show_error_from_exception
+from audio_suite_shared.suite_app import SuiteApp
+from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 
 from .core.defaults import DEFAULT_SPECIFIC, DEFAULT_VARIOUS
 from .core.engine import FileReorganizer, ReorganizerStats
 from .utils import cli_args
 from .utils.config import load_settings, save_settings
 
+TOOL_ID = "file_reorganizer"
 
-class FileReorganizerApp(BaseSuiteApp):
+#: The run-controls strip's two modes; ``Dry Run`` is the safe default.
+DRY_RUN_MODE = "Dry Run"
+LIVE_UPDATE_MODE = "Live Update"
+
+#: How often the Tk-thread poller drains the worker queue, in milliseconds.
+_POLL_MS = 50
+
+
+@dataclass(frozen=True)
+class _RunEvent:
+    """One message a scan thread hands to the Tk thread.
+
+    The worker only ever constructs these and puts them on the queue; the
+    poller turns them into widget writes and dialogs on the Tk thread.
+
+    Attributes:
+        kind: ``"progress"``, ``"preview_done"``, ``"execute_done"`` or
+            ``"error"``.
+        path_info: The line the engine published for one file.
+        stats: The engine's counters at that point.
+        message: The user-facing text of a run failure.
+    """
+
+    kind: str
+    path_info: str = ""
+    stats: ReorganizerStats | None = None
+    message: str = ""
+
+
+class FileReorganizerApp(SuiteApp):
     """Tkinter GUI application for Tag-Based File Reorganizer."""
 
-    _TOOL_ID = "file_reorganizer"
+    _TOOL_ID = TOOL_ID
+
+    #: Identity the shared shell reads (Help bar, window, log file).
+    title = "Tag-Based File Reorganizer"
+    window_key = "file_reorganizer_window"
+    program_name = TOOL_ID
+    guide_name = "File_Reorganizer_User_Guide.docx"
+    completion_text = "Reorganization Complete!"
 
     def __init__(
         self,
@@ -47,31 +118,47 @@ class FileReorganizerApp(BaseSuiteApp):
         action: str = "",
         specific_pattern: str = "",
         various_pattern: str = "",
+        live_mode: bool = False,
+        auto_start: bool = False,
+        auto_end: bool = False,
+        clear_logs: bool = False,
+        parallel_run: bool = False,
     ) -> None:
-        super().__init__(
-            root,
-            "Tag-Based File Reorganizer",
-            "file_reorganizer_window",
-            "file_reorganizer",
-        )
+        self.root = root
 
+        # ── Tk variables (created before the shell builds the tabs) ───────────
         self.source_dir = tk.StringVar()
         self.dest_dir = tk.StringVar()
         self.action = tk.StringVar(value="copy")
-        self.dry_run = tk.BooleanVar(value=True)
+        self.run_mode = tk.StringVar(
+            value=LIVE_UPDATE_MODE if live_mode else DRY_RUN_MODE
+        )
+        # Derived, never written directly: the strip's Mode is the control.
+        self.dry_run = tk.BooleanVar(value=not live_mode)
+        self.run_mode.trace_add("write", self._on_mode_changed)
+
+        # Driver-mirrored run controls (Clear Logs / Parallel stay display-only)
+        self.auto_start_var = tk.BooleanVar(value=auto_start)
+        self.auto_end_var = tk.BooleanVar(value=auto_end)
+        self.clear_logs_var = tk.BooleanVar(value=clear_logs)
+        self.parallel_var = tk.BooleanVar(value=parallel_run)
+        self._launched_from_driver = cli_args.was_launched_from_driver()
+
         self.running = tk.BooleanVar(value=False)
-
-        self._preset_combo: "ttk.Combobox | None" = None
-        self._refresh_preset_list: "Callable[..., Any] | None" = None
-
         self.stats = ReorganizerStats()
-        self.files_scanned = tk.IntVar(value=0)
-        self.files_processed = tk.IntVar(value=0)
-        self.files_skipped = tk.IntVar(value=0)
-        self.errors = tk.IntVar(value=0)
-        self.current_file = tk.StringVar()
+        self.controls_panel: DriverControlsPanel | None = None
+        self._preset_combo: ttk.Combobox | None = None
+        self._refresh_preset_list: Callable[[list[str]], None] | None = None
+        self._reorganizer: FileReorganizer | None = None
+        self._thread: threading.Thread | None = None
+        self._events: queue.SimpleQueue[_RunEvent] = queue.SimpleQueue()
+        self._poll_id: str = ""
+        self._closing = False
+        self._run_started = 0.0
 
-        self.setup_ui()
+        # ── Build the shared shell (Help bar, notebook, Processing, Results) ──
+        super().__init__(root)
+
         self._load_settings()
         self._seed_source_from_last_directory()
         self._apply_cli_args(
@@ -81,62 +168,82 @@ class FileReorganizerApp(BaseSuiteApp):
             specific_pattern=specific_pattern,
             various_pattern=various_pattern,
         )
-        self._reorganizer: FileReorganizer | None = None
-        self._thread: threading.Thread | None = None
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    def setup_ui(self) -> None:
-        frame = tk.Frame(self.root, padx=30, pady=30, bg=styles.BG_WHITE)
+    # ── UI construction ───────────────────────────────────────────────────────
+
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit this tool's Setup tab; the shared shell owns the notebook.
+
+        Args:
+            parent: The Setup tab frame the shell created.
+        """
+        frame = tk.Frame(parent, padx=30, pady=20, bg=styles.BG_WHITE)
         frame.pack(expand=True, fill="both")
 
         tk.Label(
             frame,
-            text="Tag-Based File Reorganizer",
+            text=self.title,
             font=styles.FONT_TITLE,
             fg=styles.FG_MAIN,
             bg=styles.BG_WHITE,
         ).pack(pady=(0, 20))
 
-        # ── Presets ───────────────────────────────────────────────────────────────
-        self._preset_combo = ttk.Combobox(
+        # ── Run controls (source directory + Mode / Auto Start / Auto End) ────
+        panel = DriverControlsPanel(
             frame,
+            source_var=self.source_dir,
+            mode_var=self.run_mode,
+            auto_start_var=self.auto_start_var,
+            auto_end_var=self.auto_end_var,
+            clear_logs_var=self.clear_logs_var,
+            parallel_var=self.parallel_var,
+            on_browse=self._browse_source,
+            modes=(DRY_RUN_MODE, LIVE_UPDATE_MODE),
+        )
+        panel.pack(fill="x", pady=(0, 15))
+        panel.set_driven(self._launched_from_driver)
+        self.controls_panel = panel
+
+        # ── Presets ───────────────────────────────────────────────────────────
+        preset_row = tk.Frame(frame, bg=styles.BG_WHITE)
+        preset_row.pack(fill="x", pady=(0, 15), anchor="w")
+        tk.Label(
+            preset_row,
+            text="Presets:",
+            font=styles.FONT_BODY,
+            fg=styles.FG_MAIN,
+            bg=styles.BG_WHITE,
+        ).pack(side=tk.LEFT, padx=(0, 5))
+
+        combo = ttk.Combobox(
+            preset_row,
             state="readonly",
             font=styles.FONT_BODY,
             width=28,
         )
-        self._preset_combo["values"] = suite_config.list_presets(self._TOOL_ID) or []
-        self._preset_combo.pack(anchor="w", pady=(0, 8))
+        combo["values"] = suite_config.list_presets(self._TOOL_ID) or []
+        combo.pack(side=tk.LEFT, padx=(0, 5))
+        combo.bind("<<ComboboxSelected>>", self._on_preset_selected)
+        self._preset_combo = combo
 
         def _refresh_preset_list(names: list[str]) -> None:
-            assert self._preset_combo is not None
-            self._preset_combo["values"] = names
+            combo["values"] = names
 
         self._refresh_preset_list = _refresh_preset_list
 
-        def _on_preset_select(_event: tk.Event | None = None) -> None:
-            assert self._preset_combo is not None
-            name = self._preset_combo.get()
-            if name:
-                settings = suite_config.load_preset(self._TOOL_ID, name)
-                if settings:
-                    self._apply_preset(settings)
-
-        self._preset_combo.bind("<<ComboboxSelected>>", _on_preset_select)
-
-        btn_row_presets = tk.Frame(frame, bg=styles.BG_WHITE)
-        btn_row_presets.pack(fill="x", pady=(0, 10), anchor="w")
         tk.Button(
-            btn_row_presets,
-            text="Save Preset",
+            preset_row,
+            text="Save",
             command=self._save_preset_dialog,
             bg=styles.get_main(),
             fg="white",
             font=styles.FONT_BODY,
             padx=8,
-        ).pack(side=tk.LEFT, padx=(0, 5))
+        ).pack(side=tk.LEFT, padx=(0, 3))
         tk.Button(
-            btn_row_presets,
-            text="Delete Preset",
+            preset_row,
+            text="Delete",
             command=self._delete_preset_action,
             bg="#cc5555",
             fg="white",
@@ -144,21 +251,14 @@ class FileReorganizerApp(BaseSuiteApp):
             padx=8,
         ).pack(side=tk.LEFT)
 
-        # ── Directories ──
-        dir_frame = tk.Frame(frame, bg=styles.BG_WHITE)
-        dir_frame.pack(fill="x", pady=5)
-
-        ui_common.path_row(
-            dir_frame, "Source Directory:", self.source_dir, self._browse_source
-        )
-
+        # ── Destination ───────────────────────────────────────────────────────
         dest_frame = tk.Frame(frame, bg=styles.BG_WHITE)
         dest_frame.pack(fill="x", pady=5)
         ui_common.path_row(
             dest_frame, "Destination Directory:", self.dest_dir, self._browse_dest
         )
 
-        # ── Action ──
+        # ── Action ────────────────────────────────────────────────────────────
         action_frame = tk.LabelFrame(
             frame,
             text=" Action ",
@@ -169,45 +269,29 @@ class FileReorganizerApp(BaseSuiteApp):
         )
         action_frame.pack(fill="x", pady=(15, 5))
 
-        tk.Radiobutton(
-            action_frame,
-            text="Copy",
-            variable=self.action,
-            value="copy",
-            bg=styles.BG_WHITE,
-            fg=styles.FG_MAIN,
-            selectcolor=styles.BG_WHITE,
-            activebackground=styles.BG_WHITE,
-            activeforeground=styles.FG_MAIN,
-            font=styles.FONT_BODY,
-        ).pack(side=tk.LEFT, padx=(0, 15))
+        for text, value in (("Copy", "copy"), ("Move", "move")):
+            tk.Radiobutton(
+                action_frame,
+                text=text,
+                variable=self.action,
+                value=value,
+                bg=styles.BG_WHITE,
+                fg=styles.FG_MAIN,
+                selectcolor=styles.BG_WHITE,
+                activebackground=styles.BG_WHITE,
+                activeforeground=styles.FG_MAIN,
+                font=styles.FONT_BODY,
+            ).pack(side=tk.LEFT, padx=(0, 15))
 
-        tk.Radiobutton(
+        tk.Label(
             action_frame,
-            text="Move",
-            variable=self.action,
-            value="move",
+            text="(Dry Run previews; switch Mode to Live Update to write)",
+            font=styles.FONT_CAPTION,
+            fg=styles.FG_SUB,
             bg=styles.BG_WHITE,
-            fg=styles.FG_MAIN,
-            selectcolor=styles.BG_WHITE,
-            activebackground=styles.BG_WHITE,
-            activeforeground=styles.FG_MAIN,
-            font=styles.FONT_BODY,
-        ).pack(side=tk.LEFT, padx=(0, 15))
-
-        tk.Checkbutton(
-            action_frame,
-            text="Dry Run (Preview only)",
-            variable=self.dry_run,
-            bg=styles.BG_WHITE,
-            fg=styles.FG_MAIN,
-            selectcolor=styles.BG_WHITE,
-            activebackground=styles.BG_WHITE,
-            activeforeground=styles.FG_MAIN,
-            font=styles.FONT_BODY,
         ).pack(side=tk.LEFT)
 
-        # ── Pattern notebook ──
+        # ── Pattern templates ─────────────────────────────────────────────────
         pattern_frame = tk.LabelFrame(
             frame,
             text=" Pattern Templates ",
@@ -218,129 +302,20 @@ class FileReorganizerApp(BaseSuiteApp):
         )
         pattern_frame.pack(fill="both", expand=True, pady=(10, 5))
 
-        notebook = ttk.Notebook(pattern_frame)
-        notebook.pack(fill="both", expand=True)
+        pattern_notebook = ttk.Notebook(pattern_frame)
+        pattern_notebook.pack(fill="both", expand=True)
 
-        specific_frame = tk.Frame(notebook, bg=styles.BG_WHITE)
-        various_frame = tk.Frame(notebook, bg=styles.BG_WHITE)
-        notebook.add(specific_frame, text="  Specific Artists  ")
-        notebook.add(various_frame, text="  Various Artists  ")
+        specific_frame = tk.Frame(pattern_notebook, bg=styles.BG_WHITE)
+        various_frame = tk.Frame(pattern_notebook, bg=styles.BG_WHITE)
+        pattern_notebook.add(specific_frame, text="  Specific Artists  ")
+        pattern_notebook.add(various_frame, text="  Various Artists  ")
 
-        self.specific_text = tk.Text(
-            specific_frame,
-            height=10,
-            width=90,
-            wrap=tk.NONE,
-            font=styles.FONT_MONO,
-            bg=styles.BG_WHITE,
-            fg=styles.FG_MAIN,
-            insertbackground=styles.FG_MAIN,
-            highlightthickness=1,
-            highlightcolor=styles.FG_SUB,
-            relief=tk.SOLID,
-            borderwidth=1,
+        self.specific_text = self._build_pattern_editor(
+            specific_frame, DEFAULT_SPECIFIC
         )
-        self.specific_text.pack(fill="both", expand=True, padx=5, pady=5)
-        self.specific_text.insert("1.0", DEFAULT_SPECIFIC)
+        self.various_text = self._build_pattern_editor(various_frame, DEFAULT_VARIOUS)
 
-        self.various_text = tk.Text(
-            various_frame,
-            height=10,
-            width=90,
-            wrap=tk.NONE,
-            font=styles.FONT_MONO,
-            bg=styles.BG_WHITE,
-            fg=styles.FG_MAIN,
-            insertbackground=styles.FG_MAIN,
-            highlightthickness=1,
-            highlightcolor=styles.FG_SUB,
-            relief=tk.SOLID,
-            borderwidth=1,
-        )
-        self.various_text.pack(fill="both", expand=True, padx=5, pady=5)
-        self.various_text.insert("1.0", DEFAULT_VARIOUS)
-
-        # ── Progress ──
-        progress_frame = tk.LabelFrame(
-            frame,
-            text=" Progress ",
-            fg=styles.FG_MAIN,
-            bg=styles.BG_WHITE,
-            padx=15,
-            pady=10,
-        )
-        progress_frame.pack(fill="x", pady=(5, 5))
-
-        cur_frame = tk.Frame(progress_frame, bg=styles.BG_WHITE)
-        cur_frame.pack(fill="x")
-        tk.Label(
-            cur_frame,
-            text="Current File:",
-            font=styles.FONT_BODY,
-            bg=styles.BG_WHITE,
-            fg=styles.FG_MAIN,
-        ).pack(side=tk.LEFT)
-        tk.Label(
-            cur_frame,
-            textvariable=self.current_file,
-            font=styles.FONT_BODY,
-            bg=styles.BG_WHITE,
-            fg=styles.FG_SUB,
-        ).pack(side=tk.LEFT, padx=5)
-
-        stats_row = tk.Frame(progress_frame, bg=styles.BG_WHITE)
-        stats_row.pack(fill="x", pady=(5, 0))
-        for label, var in [
-            ("Scanned:", self.files_scanned),
-            ("Processed:", self.files_processed),
-            ("Skipped:", self.files_skipped),
-            ("Errors:", self.errors),
-        ]:
-            tk.Label(
-                stats_row,
-                text=label,
-                font=styles.FONT_CAPTION,
-                bg=styles.BG_WHITE,
-                fg=styles.FG_SUB,
-            ).pack(side=tk.LEFT, padx=(0, 2))
-            tk.Label(
-                stats_row,
-                textvariable=var,
-                font=styles.FONT_CAPTION_B,
-                bg=styles.BG_WHITE,
-                fg=styles.FG_MAIN,
-                width=5,
-                anchor="w",
-            ).pack(side=tk.LEFT, padx=(0, 12))
-
-        # ── Preview listbox ──
-        preview_frame = tk.LabelFrame(
-            frame,
-            text=" Preview ",
-            fg=styles.FG_MAIN,
-            bg=styles.BG_WHITE,
-            padx=15,
-            pady=10,
-        )
-        preview_frame.pack(fill="both", expand=True, pady=(5, 10))
-
-        scrollbar = tk.Scrollbar(preview_frame, orient=tk.VERTICAL)
-        self.preview_list = tk.Listbox(
-            preview_frame,
-            height=6,
-            yscrollcommand=scrollbar.set,
-            font=styles.FONT_MONO,
-            bg=styles.BG_WHITE,
-            fg=styles.FG_MAIN,
-            highlightthickness=0,
-            borderwidth=1,
-            relief=tk.SOLID,
-        )
-        scrollbar.config(command=self.preview_list.yview)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.preview_list.pack(fill="both", expand=True)
-
-        # ── Buttons ──
+        # ── Buttons ───────────────────────────────────────────────────────────
         btn_row = tk.Frame(frame, bg=styles.BG_WHITE)
         btn_row.pack(fill="x", pady=(0, 5))
 
@@ -376,40 +351,69 @@ class FileReorganizerApp(BaseSuiteApp):
         )
         self.stop_btn.pack(side=tk.LEFT)
 
-        self.status_var = tk.StringVar(value="Ready")
-        status_bar = tk.Label(
-            self.root,
-            textvariable=self.status_var,
-            font=styles.FONT_CAPTION,
-            bg=styles.BG_LIGHT,
-            fg=styles.FG_SUB,
-            anchor="w",
-            padx=10,
+    @staticmethod
+    def _build_pattern_editor(parent: tk.Frame, template: str) -> tk.Text:
+        """Create one pattern template editor.
+
+        Args:
+            parent: The pattern sub-tab frame.
+            template: Initial template text.
+
+        Returns:
+            The text widget, packed and pre-filled.
+        """
+        editor = tk.Text(
+            parent,
+            height=10,
+            width=90,
+            wrap=tk.NONE,
+            font=styles.FONT_MONO,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            insertbackground=styles.FG_MAIN,
+            highlightthickness=1,
+            highlightcolor=styles.FG_SUB,
+            relief=tk.SOLID,
+            borderwidth=1,
         )
-        status_bar.pack(fill="x", padx=30, pady=(0, 10))
+        editor.pack(fill="both", expand=True, padx=5, pady=5)
+        editor.insert("1.0", template)
+        return editor
+
+    # ── Mode ──────────────────────────────────────────────────────────────────
+
+    def _on_mode_changed(self, *_args: str) -> None:
+        """Mirror the strip's Mode onto the derived ``dry_run`` flag."""
+        self.dry_run.set(self.run_mode.get() == DRY_RUN_MODE)
 
     # ── Presets ───────────────────────────────────────────────────────────────
 
     def _collect_settings(self) -> dict[str, Any]:
+        """Collect the persisted settings for a preset or config save."""
         specific, various = self._sync_patterns()
         return {
             "source_dir": self.source_dir.get(),
             "dest_dir": self.dest_dir.get(),
             "action": self.action.get(),
             "dry_run": self.dry_run.get(),
+            "run_mode": self.run_mode.get(),
             "specific_pattern": specific,
             "various_pattern": various,
         }
 
     def _apply_preset(self, settings: dict[str, Any]) -> None:
+        """Apply a stored preset to the widgets."""
         if "source_dir" in settings:
             self.source_dir.set(settings["source_dir"])
         if "dest_dir" in settings:
             self.dest_dir.set(settings["dest_dir"])
         if "action" in settings:
             self.action.set(settings["action"])
-        if "dry_run" in settings:
-            self.dry_run.set(settings["dry_run"])
+        # Older presets stored only ``dry_run``; newer ones store the mode.
+        if "run_mode" in settings:
+            self.run_mode.set(settings["run_mode"])
+        elif "dry_run" in settings:
+            self.run_mode.set(DRY_RUN_MODE if settings["dry_run"] else LIVE_UPDATE_MODE)
         if "specific_pattern" in settings:
             self.specific_text.delete("1.0", tk.END)
             self.specific_text.insert("1.0", settings["specific_pattern"])
@@ -417,47 +421,48 @@ class FileReorganizerApp(BaseSuiteApp):
             self.various_text.delete("1.0", tk.END)
             self.various_text.insert("1.0", settings["various_pattern"])
 
+    def _on_preset_selected(self, _event: tk.Event | None = None) -> None:
+        """Load and apply the preset picked in the combobox."""
+        combo = self._preset_combo
+        if combo is None:
+            return
+        name = combo.get()
+        if not name:
+            return
+        settings = suite_config.load_preset(self._TOOL_ID, name)
+        if settings:
+            self._apply_preset(settings)
+
+    def _save_current_as_preset(self, name: str) -> None:
+        """Persist the current settings under *name* and refresh the list."""
+        suite_config.save_preset(self._TOOL_ID, name, self._collect_settings())
+        self._refresh_presets()
+
+    def _delete_preset(self, name: str) -> None:
+        """Delete the named preset and refresh the list."""
+        suite_config.delete_preset(self._TOOL_ID, name)
+        self._refresh_presets()
+
+    def _refresh_presets(self) -> None:
+        """Reload the preset names from the shared config."""
+        if self._refresh_preset_list is not None:
+            self._refresh_preset_list(suite_config.list_presets(self._TOOL_ID))
+
     def _save_preset_dialog(self) -> None:
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Save Preset")
-        dialog.geometry("350x150+400+300")
-        dialog.transient()
-        dialog.grab_set()
-        tk.Label(dialog, text="Preset Name:", font=styles.FONT_BODY).pack(pady=(15, 5))
-        name_var = tk.StringVar()
-        entry = tk.Entry(dialog, textvariable=name_var, font=styles.FONT_BODY, width=40)
-        entry.pack(padx=20, pady=5)
-        entry.focus_set()
-
-        def _do_save() -> None:
-            name = name_var.get().strip()
-            if name:
-                suite_config.save_preset(self._TOOL_ID, name, self._collect_settings())
-                assert self._preset_combo is not None
-                self._preset_combo.set(name)
-                if self._refresh_preset_list:
-                    self._refresh_preset_list(suite_config.list_presets(self._TOOL_ID))
-            dialog.destroy()
-
-        entry.bind("<Return>", lambda e: _do_save())
-        tk.Button(
-            dialog,
-            text="Save",
-            command=_do_save,
-            bg=styles.get_main(),
-            fg="white",
-            font=styles.FONT_BUTTON,
-        ).pack(pady=10)
+        """Open the shared Save Preset dialog."""
+        combo = self._preset_combo
+        if combo is None:
+            return
+        ui_common.save_preset_dialog(combo, self._save_current_as_preset)
 
     def _delete_preset_action(self) -> None:
-        assert self._preset_combo is not None
-        name = self._preset_combo.get()
-        if name:
-            if messagebox.askyesno("Delete Preset", f'Delete preset "{name}"?'):
-                suite_config.delete_preset(self._TOOL_ID, name)
-                self._preset_combo.set("")
-                if self._refresh_preset_list:
-                    self._refresh_preset_list(suite_config.list_presets(self._TOOL_ID))
+        """Confirm then delete the selected preset."""
+        combo = self._preset_combo
+        if combo is None:
+            return
+        ui_common.delete_preset_action(combo, self._delete_preset)
+
+    # ── Source/destination seeding ────────────────────────────────────────────
 
     def _seed_source_from_last_directory(self) -> None:
         """Set the source directory from the suite-wide last-used folder.
@@ -508,23 +513,27 @@ class FileReorganizerApp(BaseSuiteApp):
             self.various_text.insert("1.0", various_pattern)
 
     def _browse_source(self) -> None:
+        """Pick the source directory and record it as the suite last-used one."""
         d = filedialog.askdirectory(title="Select Source Directory")
         if d:
             self.source_dir.set(d)
             suite_config.save_last_directory(d)
 
     def _browse_dest(self) -> None:
+        """Pick the destination directory."""
         d = filedialog.askdirectory(title="Select Destination Directory")
         if d:
             self.dest_dir.set(d)
 
     def _sync_patterns(self) -> tuple[str, str]:
+        """Return both pattern editors' current text."""
         return self.specific_text.get("1.0", "end-1c"), self.various_text.get(
             "1.0", "end-1c"
         )
 
     @handle_audio_errors(reraise=False, context="file_reorganizer_save_settings")
     def _save_settings(self) -> None:
+        """Persist destination, action and patterns to the shared config."""
         save_settings(
             dest_dir=self.dest_dir.get(),
             action=self.action.get(),
@@ -534,6 +543,7 @@ class FileReorganizerApp(BaseSuiteApp):
 
     @handle_audio_errors(reraise=False, context="file_reorganizer_load_settings")
     def _load_settings(self) -> None:
+        """Restore destination, action and patterns from the shared config."""
         settings = load_settings()
         self.dest_dir.set(settings["dest_dir"])
         self.action.set(settings["action"])
@@ -544,7 +554,10 @@ class FileReorganizerApp(BaseSuiteApp):
         self.various_text.delete("1.0", tk.END)
         self.various_text.insert("1.0", various)
 
+    # ── Preview ───────────────────────────────────────────────────────────────
+
     def _preview(self) -> None:
+        """Validate the inputs and start a dry-run scan on a worker thread."""
         src = self.source_dir.get().strip()
         dst = self.dest_dir.get().strip()
         if not src or not os.path.isdir(src):
@@ -559,38 +572,37 @@ class FileReorganizerApp(BaseSuiteApp):
             return
 
         specific_pat, various_pat = self._sync_patterns()
-        self.preview_list.delete(0, tk.END)
-        self.status_var.set("Previewing...")
+        self._reset_processing_tab("Previewing...")
         self.preview_btn.config(state=tk.DISABLED)
         self._save_settings()
 
+        self._run_started = time.monotonic()
         self._thread = threading.Thread(
-            target=self._preview_thread, args=(src, dst, specific_pat, various_pat)
+            target=self._preview_thread,
+            args=(src, dst, specific_pat, various_pat),
+            daemon=True,
         )
-        self._thread.daemon = True
         self._thread.start()
+        self._start_polling()
 
     def _preview_thread(
         self, src: str, dst: str, specific_pat: str, various_pat: str
     ) -> None:
+        """Run the dry-run scan off the Tk thread and post its events."""
         try:
             self._preview_run(src, dst, specific_pat, various_pat)
         except AudioSuiteError as exc:
-            error = exc
-            self.root.after(
-                0,
-                lambda: show_error_from_exception(error, title="Preview Error"),
+            self._events.put(
+                _RunEvent(kind="error", message=_failure_message("Preview", exc))
             )
         finally:
-            self.root.after(0, lambda: self.status_var.set("Preview complete"))
-            self.root.after(0, lambda: self.execute_btn.config(state=tk.NORMAL))
-            self.root.after(0, lambda: self.preview_btn.config(state=tk.NORMAL))
-            self.root.after(0, lambda: setattr(self, "_thread", None))
+            self._events.put(_RunEvent(kind="preview_done"))
 
     @handle_audio_errors(reraise=True, context="file_reorganizer_preview")
     def _preview_run(
         self, src: str, dst: str, specific_pat: str, various_pat: str
     ) -> None:
+        """Scan and resolve destinations without writing anything."""
         reorganizer = FileReorganizer(
             specific_pat, various_pat, dst, action="copy", dry_run=True
         )
@@ -598,9 +610,13 @@ class FileReorganizerApp(BaseSuiteApp):
         reorganizer.run(src, progress_callback=self._on_progress_preview)
 
     def _on_progress_preview(self, path_info: str, stats: ReorganizerStats) -> None:
-        self.root.after(0, self._update_ui, path_info, stats)
+        """Post one preview tick; called on the scan thread."""
+        self._events.put(_RunEvent(kind="progress", path_info=path_info, stats=stats))
+
+    # ── Execute ───────────────────────────────────────────────────────────────
 
     def _execute(self) -> None:
+        """Validate the inputs and start the copy/move run on a worker thread."""
         src = self.source_dir.get().strip()
         dst = self.dest_dir.get().strip()
         if not src or not os.path.isdir(src):
@@ -616,37 +632,39 @@ class FileReorganizerApp(BaseSuiteApp):
 
         specific_pat, various_pat = self._sync_patterns()
         self.running.set(True)
+        self._reset_processing_tab("Executing...")
         self.preview_btn.config(state=tk.DISABLED)
         self.execute_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
-        self.preview_list.delete(0, tk.END)
-        self.status_var.set("Executing...")
         self._save_settings()
 
+        self._run_started = time.monotonic()
         self._thread = threading.Thread(
-            target=self._execute_thread, args=(src, dst, specific_pat, various_pat)
+            target=self._execute_thread,
+            args=(src, dst, specific_pat, various_pat),
+            daemon=True,
         )
-        self._thread.daemon = True
         self._thread.start()
+        self._start_polling()
 
     def _execute_thread(
         self, src: str, dst: str, specific_pat: str, various_pat: str
     ) -> None:
+        """Run the copy/move off the Tk thread and post its events."""
         try:
             self._execute_run(src, dst, specific_pat, various_pat)
         except AudioSuiteError as exc:
-            error = exc
-            self.root.after(
-                0,
-                lambda: show_error_from_exception(error, title="Execute Error"),
+            self._events.put(
+                _RunEvent(kind="error", message=_failure_message("Execute", exc))
             )
         finally:
-            self.root.after(0, self._finish)
+            self._events.put(_RunEvent(kind="execute_done"))
 
     @handle_audio_errors(reraise=True, context="file_reorganizer_execute")
     def _execute_run(
         self, src: str, dst: str, specific_pat: str, various_pat: str
     ) -> None:
+        """Copy or move every matched file inside the undo batch."""
         dry = self.dry_run.get()
         reorganizer = FileReorganizer(
             specific_pat, various_pat, dst, action=self.action.get(), dry_run=dry
@@ -656,23 +674,92 @@ class FileReorganizerApp(BaseSuiteApp):
             reorganizer.run(src, progress_callback=self._on_progress_execute)
 
     def _on_progress_execute(self, path_info: str, stats: ReorganizerStats) -> None:
-        self.root.after(0, self._update_ui, path_info, stats)
+        """Post one execute tick; called on the scan thread."""
+        self._events.put(_RunEvent(kind="progress", path_info=path_info, stats=stats))
+
+    # ── Worker → Tk handoff ───────────────────────────────────────────────────
+
+    def _start_polling(self) -> None:
+        """Begin draining the worker queue on the Tk thread."""
+        if self._poll_id or self._closing:
+            return
+        self._poll_id = self.root.after(_POLL_MS, self._poll_events)
+
+    def _poll_events(self) -> None:
+        """Apply every queued worker event, then re-arm while the run lives."""
+        self._poll_id = ""
+        while True:
+            try:
+                event = self._events.get_nowait()
+            except queue.Empty:
+                break
+            self._handle_event(event)
+        if self._thread is not None and self._thread.is_alive():
+            self._poll_id = self.root.after(_POLL_MS, self._poll_events)
+
+    def _handle_event(self, event: _RunEvent) -> None:
+        """Turn one queued event into widget writes (Tk thread only)."""
+        if event.kind == "progress":
+            if event.stats is not None:
+                self._update_ui(event.path_info, event.stats)
+        elif event.kind == "preview_done":
+            self._preview_finished()
+        elif event.kind == "execute_done":
+            self._finish()
+        else:
+            self.preview_btn.config(state=tk.NORMAL)
+            self.execute_btn.config(state=tk.NORMAL)
+            self._on_error(event.message)
+
+    def _reset_processing_tab(self, status: str) -> None:
+        """Clear the Processing tab for a new run."""
+        self.overall_status.set(status)
+        self.stats_label.config(text="Processed: 0 | Skipped: 0 | Errors: 0")
+        self.progress["maximum"] = 1
+        self.progress["value"] = 0
+        self.file_listbox.delete(0, tk.END)
 
     def _update_ui(self, path_info: str, stats: ReorganizerStats) -> None:
-        self.current_file.set(os.path.basename(path_info))
-        self.files_scanned.set(stats.files_scanned)
-        self.files_processed.set(stats.files_processed)
-        self.files_skipped.set(stats.files_skipped)
-        self.errors.set(stats.errors)
-        self.preview_list.insert(tk.END, path_info)
-        self.preview_list.see(tk.END)
+        """Render one progress tick on the Processing tab."""
+        self.stats = stats
+        self.overall_status.set(f"Current File: {os.path.basename(path_info)}")
+        self.stats_label.config(
+            text=(
+                f"Scanned: {stats.files_scanned} | "
+                f"Processed: {stats.files_processed} | "
+                f"Skipped: {stats.files_skipped} | "
+                f"Errors: {stats.errors}"
+            )
+        )
+        self.progress["maximum"] = max(stats.files_scanned, 1)
+        self.progress["value"] = stats.files_processed
+        self.file_listbox.insert(tk.END, path_info)
+        self.file_listbox.see(tk.END)
+
+    def _preview_finished(self) -> None:
+        """Restore the buttons once a preview scan has finished."""
+        self.overall_status.set("Preview complete")
+        self.preview_btn.config(state=tk.NORMAL)
+        self.execute_btn.config(state=tk.NORMAL)
+        self._thread = None
+
+    # ── Stop / close ──────────────────────────────────────────────────────────
 
     def _stop(self) -> None:
-        self.status_var.set("Stopping...")
+        """Request that the active scan stop at the next file boundary."""
+        self.overall_status.set("Stopping...")
         if self._reorganizer is not None:
             self._reorganizer.stop()
 
     def _on_close(self) -> None:
+        """Cancel the poller, persist settings and shut the engine down."""
+        self._closing = True
+        if self._poll_id:
+            try:
+                self.root.after_cancel(self._poll_id)
+            except tk.TclError:  # pragma: no cover - root already gone
+                pass
+            self._poll_id = ""
         self._save_settings()
         if self._reorganizer is not None:
             self._reorganizer.stop()
@@ -681,25 +768,48 @@ class FileReorganizerApp(BaseSuiteApp):
         self.root.destroy()
 
     def _finish(self) -> None:
+        """Switch the window to the Results tab after an execute run."""
         self.running.set(False)
         self.preview_btn.config(state=tk.NORMAL)
         self.execute_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
-        self.status_var.set("Complete")
-        ui_common.show_message(
-            self.root,
-            "Complete",
-            f"Scanned: {self.files_scanned.get()}\n"
-            f"Processed: {self.files_processed.get()}\n"
-            f"Skipped: {self.files_skipped.get()}\n"
-            f"Errors: {self.errors.get()}",
+        self.overall_status.set("Complete")
+        self.summary_label.config(text=self._summary_text())
+        self.render_completion(
+            duration_secs=time.monotonic() - self._run_started,
+            output_dir=self.dest_dir.get().strip(),
+        )
+        self._thread = None
+
+    def _summary_text(self) -> str:
+        """The four counters as the Results tab's summary."""
+        return (
+            f"Scanned: {self.stats.files_scanned}\n"
+            f"Processed: {self.stats.files_processed}\n"
+            f"Skipped: {self.stats.files_skipped}\n"
+            f"Errors: {self.stats.errors}"
         )
 
     def run(self) -> None:
+        """Enter the Tk main loop."""
         self.root.mainloop()
 
 
+def _failure_message(stage: str, exc: AudioSuiteError) -> str:
+    """Map a run failure to the user-facing sentence for *stage*.
+
+    Args:
+        stage: ``"Preview"`` or ``"Execute"``.
+        exc: The error the worker caught.
+
+    Returns:
+        The shared user-facing message, prefixed with the stage that failed.
+    """
+    return f"{stage} failed. {user_message_for(map_to_audio_error(exc))}"
+
+
 def main() -> None:
+    """Parse the launcher arguments and open the window."""
     args = parse_cli_args(cli_args.parse)
     root = tk.Tk()
     app = FileReorganizerApp(
@@ -709,5 +819,10 @@ def main() -> None:
         action=args.action,
         specific_pattern=args.specific_pattern,
         various_pattern=args.various_pattern,
+        live_mode=args.live_mode,
+        auto_start=args.auto_start,
+        auto_end=args.auto_end,
+        clear_logs=args.clear_logs,
+        parallel_run=args.parallel_run,
     )
     app.run()
