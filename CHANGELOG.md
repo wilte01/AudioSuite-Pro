@@ -16,6 +16,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.4.1] - 2026-11-04
+
 - **Undo no longer lists a file whose tag write failed.** A tagging tool that
   could not write a file still added it to the run's undo list, so Undo offered a
   file it could do nothing for — and reverting it only rewrote the tags the file

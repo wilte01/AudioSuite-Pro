@@ -12,6 +12,10 @@ one.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.4.1] - 2026-11-04
+
 - **Broad catches are a triaged baseline.** Ruff's `BLE` rules are enabled, with
   test trees the only `per-file-ignores` exemption. The rule flagged 55
   production handlers that swallowed a failure with no traceback anywhere: five
