@@ -1,7 +1,9 @@
 # PLAN — suggestions for future consideration
 
-**Status:** `[ ]` **OPEN — living list.** Drafted 2026-11-05, during the `2.4.3`
-WP-10 tail (`PLAN_2026-11-03_2.4.3_structure.md`).
+**Status:** `[ ]` **OPEN — living list, parked for the future.** Drafted
+2026-11-05 during the `2.4.3` WP-10 tail (`PLAN_2026-11-03_2.4.3_structure.md`)
+and parked the same day: S-2..S-5 are future consideration only and are not
+worked, scheduled or promoted during `2.4.3`.
 
 **Owner:** unassigned. Nothing here is scheduled, sized into a release, or
 blocking anything.
@@ -125,4 +127,5 @@ outcome. Three lines, and it fails the day setuptools starts including
 |---|---|---|---|
 | D-1 | 2026-11-05 | This file is created as a holding pen at the owner's instruction, populated with the suggestions raised by the `2.4.3` WP-10 tail (S-1..S-5). It is deliberately not linked from the release gate, not registered in any file list, and holds no release-blocking item. | user instruction, 2026-11-05; `c8e4274` |
 | D-2 | 2026-11-05 | Entries are written with an `Origin` and a named failure class, and are promoted or dropped explicitly rather than deleted. | Without an origin, a reader cannot judge an entry without replaying a session; without a recorded drop, the same idea is re-litigated. |
+| D-4 | 2026-11-05 | **The list is parked for the future.** The owner asked to stow the remaining suggestions and return to the plan, so S-2..S-5 stay open with no owner and no target release; promotion still requires an explicit edit in the governing plan. | user instruction, 2026-11-05 |
 | D-3 | 2026-11-05 | **S-1 is promoted** into the governing plan as C-I6a and implemented there (`12e5524` lists it; the work is 2.4.3's D-31). The row above stays for the record; its scope limit (package root only, not subpackages) travels with the implementation. | 2.4.3 D-31 |

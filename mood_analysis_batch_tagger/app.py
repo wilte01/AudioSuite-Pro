@@ -285,7 +285,7 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
             return
 
         try:
-            save_run_mode("", self.run_mode.get())
+            save_run_mode(self.run_mode.get())
         # Changed in 2.4.1: BLE001 triage (WP-7 of
         # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
         except (OSError, ValueError, TypeError):

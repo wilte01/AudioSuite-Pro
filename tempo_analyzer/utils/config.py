@@ -5,8 +5,8 @@ Now delegates to ``audio_suite_shared.suite_config`` so that the
 preference is stored in the shared ``audio_suite_config.json`` at
 the suite root, alongside all other tool preferences.
 
-The ``config_path`` parameter is accepted but ignored — retained
-for backward compatibility with existing callers and tests.
+Changed in 2.4.3: C-I7 dropped the accepted-but-ignored ``config_path``
+parameter, so a caller can no longer pass a path that quietly does nothing.
 """
 
 import logging
@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 
 def load_scheme(
-    config_path: str,
     valid_schemes: list[str],
     default: str = "Italian",
 ) -> str:
@@ -25,7 +24,6 @@ def load_scheme(
     Read the saved tempo scheme from the shared suite config.
 
     Args:
-        config_path:   Ignored (retained for API compatibility).
         valid_schemes: List of accepted scheme name strings.
         default:       Fallback value when the key is absent or invalid.
 
@@ -39,12 +37,11 @@ def load_scheme(
     return default
 
 
-def save_scheme(config_path: str, scheme_name: str) -> None:
+def save_scheme(scheme_name: str) -> None:
     """
     Write the current scheme name to the shared suite config.
 
     Args:
-        config_path: Ignored (retained for API compatibility).
         scheme_name: The scheme name string to persist.
 
     Returns:

@@ -1,4 +1,8 @@
-"""test_config.py — config (shared suite_config delegation) tests."""
+"""test_config.py — config (shared suite_config delegation) tests.
+
+Changed in 2.4.3: C-I7 removed the ignored ``config_path`` argument from the
+calls under test.
+"""
 
 from unittest.mock import patch
 
@@ -36,12 +40,12 @@ class TestLoadRunMode:
 class TestSaveRunMode:
     def test_saves_value(self) -> None:
         with patch(f"{CONFIG_MODULE}.save_value") as mock_save:
-            save_run_mode("", "Live Update")
+            save_run_mode("Live Update")
         mock_save.assert_called_once_with("mood_analysis_batch_run_mode", "Live Update")
 
     def test_swallows_save_error(self) -> None:
         with patch(
             f"{CONFIG_MODULE}.save_value", side_effect=OSError("disk full")
         ) as mock_save:
-            save_run_mode("", "Dry Run")
+            save_run_mode("Dry Run")
         mock_save.assert_called_once_with("mood_analysis_batch_run_mode", "Dry Run")

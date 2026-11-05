@@ -5,8 +5,8 @@ Delegates to ``audio_suite_shared.suite_config`` so preferences are stored
 in the shared ``audio_suite_config.json`` at the suite root, alongside all
 other tool preferences.
 
-The ``config_path`` parameter is accepted but ignored — retained for
-backward compatibility and consistency with the suite convention.
+Changed in 2.4.3: C-I7 dropped the accepted-but-ignored ``config_path``
+parameter; it was never read, so removing it removes a misuse seam.
 """
 
 import logging
@@ -18,11 +18,10 @@ logger = logging.getLogger(__name__)
 _VALID_RUN_MODES: tuple[str, ...] = ("Dry Run", "Live Update")
 
 
-def load_run_mode(config_path: str = "", default: str = "Dry Run") -> str:
+def load_run_mode(default: str = "Dry Run") -> str:
     """Read the saved run-mode value from the shared suite config.
 
     Args:
-        config_path: Ignored; retained for interface compatibility.
         default: Value returned when nothing is saved or the saved value is
             invalid.
 
@@ -39,11 +38,10 @@ def load_run_mode(config_path: str = "", default: str = "Dry Run") -> str:
     return default
 
 
-def save_run_mode(config_path: str = "", run_mode: str = "Dry Run") -> None:
+def save_run_mode(run_mode: str = "Dry Run") -> None:
     """Write the current run-mode value to the shared suite config.
 
     Args:
-        config_path: Ignored; retained for interface compatibility.
         run_mode: ``"Dry Run"`` or ``"Live Update"``.
     """
     try:

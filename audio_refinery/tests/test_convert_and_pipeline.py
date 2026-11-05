@@ -1,6 +1,5 @@
 """
-Tests for audio_refinery.core.convert (G-36 convert)
-         audio_refinery.core.file_processor (G-36 pipeline)
+Tests for audio_refinery.core.file_processor (G-36 pipeline)
 
 Changed in 1.1.0: added a regression test proving read-only formats are skipped and
 process_file is never called.
@@ -8,6 +7,10 @@ process_file is never called.
 Changed in 2.3.1 (U-02): the mocked process results set ``was_modified=True``,
 because the worker now records completion only for a run that really wrote the
 file.
+
+Changed in 2.4.3: C-I7 deleted the ``core/convert.py`` re-export shim, so
+``TestConvertReExports`` went with it; the helpers are imported from
+``audio_suite_shared.audio_conversion`` directly.
 """
 
 from queue import Queue
@@ -20,10 +23,8 @@ from audio_refinery.core.file_processor import run_pipeline
 from audio_refinery.core.models import StageConfig
 from audio_refinery.core.registry import CompletionRegistry
 from audio_suite_shared.audio_conversion import (
-    clip_bounds,
     int_dtype,
     numpy_to_segment,
-    pack_24bit,
     segment_to_numpy,
 )
 
@@ -91,27 +92,6 @@ class TestIntDtype:
 # ═════════════════════════════════════════════════════════════════════════════
 # convert re-exports (backward compatibility)
 # ═════════════════════════════════════════════════════════════════════════════
-
-
-class TestConvertReExports:
-    """audio_refinery.core.convert is a thin re-export wrapper around the
-    shared canonical module; every existing import path must still resolve."""
-
-    def test_public_functions_match_shared_module(self):
-        import audio_refinery.core.convert as convert
-
-        assert convert.segment_to_numpy is segment_to_numpy
-        assert convert.numpy_to_segment is numpy_to_segment
-        assert convert.clip_bounds is clip_bounds
-        assert convert.int_dtype is int_dtype
-        assert convert.pack_24bit is pack_24bit
-
-    def test_private_aliases_match_shared_module(self):
-        import audio_refinery.core.convert as convert
-
-        assert convert._int_dtype is int_dtype
-        assert convert._clip_bounds is clip_bounds
-        assert convert._pack_24bit is pack_24bit
 
 
 # ═════════════════════════════════════════════════════════════════════════════

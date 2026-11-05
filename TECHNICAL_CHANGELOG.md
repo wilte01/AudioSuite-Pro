@@ -12,6 +12,18 @@ one.
 
 ## [Unreleased]
 
+- **The conversion re-export shim and two ignored `config_path` parameters are
+  gone (WP-10 C-I7).** `audio_refinery/core/convert.py` re-exported
+  `audio_suite_shared.audio_conversion` for backward compatibility, and
+  `pipeline.py` was its only importer; the shim and its two-test lock
+  (`TestConvertReExports`) are deleted together, and the pipeline imports the
+  helpers from their canonical module. `tempo_analyzer.utils.config`
+  (`load_scheme`/`save_scheme`) and
+  `mood_analysis_batch_tagger.utils.config` (`load_run_mode`/`save_run_mode`)
+  accepted a `config_path` argument they never read, so a caller could pass one
+  path and have the shared suite config written instead; both signatures are
+  now free of it, with every call site updated.
+
 - **The package-data declaration is checked against the package and the wheel
   in both directions (WP-10 C-I6a).** The wheel test hard-coded two file names,
   so a declaration naming a file that had since been renamed would ship nothing

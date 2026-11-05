@@ -58,6 +58,9 @@ from typing import Any, Callable, Optional
 # ── Third-party imports ─────────────────────────────────────────────────────
 from pydub import AudioSegment
 
+# Changed in 2.4.3: C-I7 removed the core/convert.py re-export shim, so the
+# conversion helpers come from their canonical home.
+from audio_suite_shared.audio_conversion import numpy_to_segment, segment_to_numpy
 from audio_suite_shared.audio_formats import (
     preserve_depth_params,
     pydub_export_for_source,
@@ -77,7 +80,6 @@ from audio_suite_shared.exceptions import (
 from audio_suite_shared.lossless_gain import apply_track_gain, is_mp3_file
 from audio_suite_shared.tag_helper import read_tags_raw, write_tags_raw
 
-from .convert import numpy_to_segment, segment_to_numpy
 from .integrity import IntegrityResult, validate_file
 from .models import FileResult, FileStatus, StageConfig, StageMetrics
 
