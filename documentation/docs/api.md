@@ -280,6 +280,18 @@ fails on any parser warning, so a malformed docstring cannot ship either.
 :members:
 ```
 
+```{automodule} audio_suite_shared.undo_schema
+:members:
+```
+
+```{automodule} audio_suite_shared.undo_records
+:members:
+```
+
+```{automodule} audio_suite_shared.undo_revert
+:members:
+```
+
 ```{automodule} audio_suite_shared.error_recovery
 :members:
 ```

@@ -24,6 +24,17 @@ one.
 
 ## [Unreleased]
 
+- **`batch_undo` split into three modules (WP-9 #3).** The 1,264-line module is
+  now 472 lines plus `undo_schema` (the DDL string, the `auto_vacuum` flag and
+  the delete-payload migration), `undo_records` (the three record types, batch
+  lifecycle, record writing and pruning) and `undo_revert` (the four revert
+  paths). The schema helpers became module functions taking a connection; the
+  record and revert halves are mixins, so every remaining body is byte-identical
+  and `BatchUndoLog._connect` calls the helpers under the same lock in the same
+  order. The thread-local API and snapshot functions never moved, so none of the
+  28 test patch targets changed; moved names are re-exported and added to
+  `tests/test_public_api_paths.py`.
+
 - **`file_processor_base` split into four modules (WP-9 #2).** The 1,132-line
   module kept a 790-line class holding discovery, two executor loops, the
   in-place DSP batch and the reporting helpers. Each group is now a mixin in its

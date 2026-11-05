@@ -15,7 +15,7 @@ Changed in 2.4.3: initial version (WP-9 #1); extended for the
 
 import pytest
 
-from audio_suite_shared import file_processor_base, ui_common
+from audio_suite_shared import batch_undo, file_processor_base, ui_common
 
 #: name -> module that now owns the implementation, behind `ui_common`.
 MOVED_NAMES: dict[str, str] = {
@@ -44,9 +44,26 @@ PROCESSOR_BASE_NAMES: dict[str, str] = {
 }
 
 
+#: name -> module that now owns the implementation, behind `batch_undo`.
+UNDO_NAMES: dict[str, str] = {
+    "BatchInfo": "undo_records",
+    "RevertResult": "undo_records",
+    "UndoRecord": "undo_records",
+    "UndoRecordsMixin": "undo_records",
+    "UndoRevertMixin": "undo_revert",
+    "_AUTO_VACUUM_FULL": "undo_schema",
+    "_DEFAULT_MAX_BYTES": "undo_records",
+    "_DEFAULT_MAX_ENTRIES": "undo_records",
+    "_SCHEMA_SQL": "undo_schema",
+    "_load_max_bytes": "undo_records",
+    "_load_max_entries": "undo_records",
+}
+
+
 def test_the_frozen_lists_are_not_empty() -> None:
     assert MOVED_NAMES
     assert PROCESSOR_BASE_NAMES
+    assert UNDO_NAMES
 
 
 @pytest.mark.parametrize("name", sorted(MOVED_NAMES))
@@ -69,3 +86,14 @@ def test_moved_name_still_resolves_from_file_processor_base(name: str) -> None:
 def test_moved_name_is_the_new_pipeline_modules_object(name: str, module: str) -> None:
     home = __import__(f"audio_suite_shared.{module}", fromlist=[name])
     assert getattr(file_processor_base, name) is getattr(home, name)
+
+
+@pytest.mark.parametrize("name", sorted(UNDO_NAMES))
+def test_moved_name_still_resolves_from_batch_undo(name: str) -> None:
+    assert hasattr(batch_undo, name), f"{name} is no longer re-exported"
+
+
+@pytest.mark.parametrize(("name", "module"), sorted(UNDO_NAMES.items()))
+def test_moved_name_is_the_new_undo_modules_object(name: str, module: str) -> None:
+    home = __import__(f"audio_suite_shared.{module}", fromlist=[name])
+    assert getattr(batch_undo, name) is getattr(home, name)
