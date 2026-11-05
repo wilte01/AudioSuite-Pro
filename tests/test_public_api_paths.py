@@ -17,6 +17,7 @@ import pytest
 
 from audio_fingerprinter.core import file_processor as fingerprint_module
 from audio_suite_shared import batch_undo, file_processor_base, ui_common
+from library_stats import library_cache as cache_module
 
 #: name -> module that now owns the implementation, behind `ui_common`.
 MOVED_NAMES: dict[str, str] = {
@@ -78,11 +79,29 @@ FINGERPRINT_NAMES: dict[str, str] = {
 }
 
 
+#: name -> module that now owns it, behind `library_stats.library_cache`.
+CACHE_NAMES: dict[str, str] = {
+    "_AUTO_VACUUM_FULL": "cache_schema",
+    "_HISTORY_SNAPSHOTS": "cache_prune",
+    "_MAJOR_KEYS": "cache_store",
+    "_MINOR_KEYS": "cache_store",
+    "_SCHEMA_SQL": "cache_schema",
+    "_SCHEMA_VERSION": "cache_schema",
+    "_SCOPE_TABLE_SQL": "cache_schema",
+    "_bpm_bin": "cache_store",
+    "_classify_keys": "cache_store",
+    "_decade_bins": "cache_store",
+    "_path_fold": "cache_schema",
+    "_path_hash": "cache_schema",
+}
+
+
 def test_the_frozen_lists_are_not_empty() -> None:
     assert MOVED_NAMES
     assert PROCESSOR_BASE_NAMES
     assert UNDO_NAMES
     assert FINGERPRINT_NAMES
+    assert CACHE_NAMES
 
 
 @pytest.mark.parametrize("name", sorted(MOVED_NAMES))
@@ -129,3 +148,14 @@ def test_moved_name_is_the_new_fingerprint_modules_object(
 ) -> None:
     home = __import__(f"audio_fingerprinter.core.{module}", fromlist=[name])
     assert getattr(fingerprint_module, name) is getattr(home, name)
+
+
+@pytest.mark.parametrize("name", sorted(CACHE_NAMES))
+def test_moved_name_still_resolves_from_library_cache(name: str) -> None:
+    assert hasattr(cache_module, name), f"{name} is no longer re-exported"
+
+
+@pytest.mark.parametrize(("name", "module"), sorted(CACHE_NAMES.items()))
+def test_moved_name_is_the_new_cache_modules_object(name: str, module: str) -> None:
+    home = __import__(f"library_stats.{module}", fromlist=[name])
+    assert getattr(cache_module, name) is getattr(home, name)

@@ -24,6 +24,16 @@ one.
 
 ## [Unreleased]
 
+- **`library_cache` split into three modules (WP-9 #5, the last of the five).**
+  1,038 lines are now 237 plus `cache_schema` (DDL, schema version, the path
+  normalisers, every scope SQL string and the two connection hooks),
+  `cache_store` (file rows, scope selection, aggregate queries and the key/
+  decade classifiers) and `cache_prune` (whole-cache clearing and the
+  completeness trend). The store and prune halves are mixins, so bodies are
+  byte-identical; `LibraryCache._connect` calls the schema helpers under the
+  same lock in the same order. All moved SQL names stay re-exported because the
+  cache tests import them from the old path — no test or patch target changed.
+
 - **The fingerprinter's `file_processor` split into three modules (WP-9 #4).**
   1,232 lines are now 673 plus `fingerprint_messages` (the status formatters and
   `_MESSAGE_STATUSES`), `fingerprint_tags` (the single tag-write tail) and
