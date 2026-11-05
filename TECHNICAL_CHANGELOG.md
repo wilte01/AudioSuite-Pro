@@ -12,6 +12,16 @@ one.
 
 ## [Unreleased]
 
+- **`audio_suite_shared` ships a PEP 561 marker (WP-10 C-I6).** `py.typed` is
+  declared in `[tool.setuptools.package-data]`, so a wheel install no longer
+  looks like an untyped package that a downstream checker skips and treats as
+  `Any`. A consumer fixture outside `tests/` (`typing_consumer/consumer.py`)
+  asserts the public signatures with `assert_type`, which the bare `mypy .`
+  gate checks; its negative control in `tests/test_py_typed.py` mutates one
+  assertion and requires mypy to reject it, so the lock cannot pass with `Any`
+  standing in for the annotations. `py.typed` joins the release-note lock's
+  declared exception categories: the marker has no comment syntax.
+
 - **Complexity ceiling adopted and the four worst functions restructured (WP-9
   §3.3).** `PLR0912`/`PLR0915` are selected with limits set just above the
   post-restructure maxima (37 branches, 110 statements), so a new function

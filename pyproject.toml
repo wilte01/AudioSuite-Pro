@@ -507,7 +507,10 @@ exclude = [
 # fail at that flag; .json is not a Python module, so setuptools needs the file
 # named here.  tests/test_cli_json_schema.py locks the entry.
 [tool.setuptools.package-data]
-audio_suite_shared = ["cli_schema.json"]
+# Changed in 2.4.3: PEP 561 marker (WP-10 C-I6). setuptools ships only what is
+# named here, so without the marker a wheel install would let a downstream
+# checker skip the package as untyped and silently treat every import as Any.
+audio_suite_shared = ["cli_schema.json", "py.typed"]
 # Shipped pipeline defaults; the live file lives in ~/.audiosuite (PLAN D101).
 # Changed in 1.4.1: bumped [project] version 1.4.0 -> 1.4.1
 # (release cut by utilities/release.py).

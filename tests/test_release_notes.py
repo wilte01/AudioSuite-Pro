@@ -288,6 +288,11 @@ EXCEPTION_SUFFIXES: tuple[str, ...] = (
     # but its comments are directive-shaped and a "Changed in 1.4.1" line in
     # an API page would be read as prose in the rendered reference.
     ".rst",
+    # 2.4.3 PEP 561 marker (WP-10 C-I6). ``py.typed`` carries no comment syntax
+    # and its contents are not free-form: a checker reads the file's presence,
+    # so a note inside it would be marker data to any other tool that inspects
+    # it. The marker's change note lives here instead.
+    "py.typed",
 )
 
 #: Categories asserted non-empty below - a comment-less or regenerated-binary
