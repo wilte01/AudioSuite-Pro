@@ -15,6 +15,7 @@ Changed in 2.4.3: initial version (WP-9 #1); extended for the
 
 import pytest
 
+from audio_fingerprinter.core import file_processor as fingerprint_module
 from audio_suite_shared import batch_undo, file_processor_base, ui_common
 
 #: name -> module that now owns the implementation, behind `ui_common`.
@@ -60,10 +61,28 @@ UNDO_NAMES: dict[str, str] = {
 }
 
 
+#: name -> module that now owns it, behind the fingerprinter's file_processor.
+FINGERPRINT_NAMES: dict[str, str] = {
+    "_MESSAGE_STATUSES": "fingerprint_messages",
+    "_apply_album_decision": "fingerprint_phases",
+    "_commit_match_tags": "fingerprint_tags",
+    "_finalize_album_file": "fingerprint_phases",
+    "_match_message": "fingerprint_messages",
+    "_release_facts_for": "fingerprint_tags",
+    "_result_display": "fingerprint_messages",
+    "_run_album_phase": "fingerprint_phases",
+    "_run_isrc_submission": "fingerprint_phases",
+    "_write_isrc_for": "fingerprint_tags",
+    "_write_mbids_for": "fingerprint_tags",
+    "collect_isrc_submissions": "fingerprint_phases",
+}
+
+
 def test_the_frozen_lists_are_not_empty() -> None:
     assert MOVED_NAMES
     assert PROCESSOR_BASE_NAMES
     assert UNDO_NAMES
+    assert FINGERPRINT_NAMES
 
 
 @pytest.mark.parametrize("name", sorted(MOVED_NAMES))
@@ -97,3 +116,16 @@ def test_moved_name_still_resolves_from_batch_undo(name: str) -> None:
 def test_moved_name_is_the_new_undo_modules_object(name: str, module: str) -> None:
     home = __import__(f"audio_suite_shared.{module}", fromlist=[name])
     assert getattr(batch_undo, name) is getattr(home, name)
+
+
+@pytest.mark.parametrize("name", sorted(FINGERPRINT_NAMES))
+def test_moved_name_still_resolves_from_the_fingerprint_processor(name: str) -> None:
+    assert hasattr(fingerprint_module, name), f"{name} is no longer re-exported"
+
+
+@pytest.mark.parametrize(("name", "module"), sorted(FINGERPRINT_NAMES.items()))
+def test_moved_name_is_the_new_fingerprint_modules_object(
+    name: str, module: str
+) -> None:
+    home = __import__(f"audio_fingerprinter.core.{module}", fromlist=[name])
+    assert getattr(fingerprint_module, name) is getattr(home, name)

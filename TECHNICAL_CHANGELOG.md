@@ -24,6 +24,15 @@ one.
 
 ## [Unreleased]
 
+- **The fingerprinter's `file_processor` split into three modules (WP-9 #4).**
+  1,232 lines are now 673 plus `fingerprint_messages` (the status formatters and
+  `_MESSAGE_STATUSES`), `fingerprint_tags` (the single tag-write tail) and
+  `fingerprint_phases` (the album phase and the ISRC submission pair), arranged
+  as a DAG so the album phase can use the tag-write tail without a cycle.
+  Bodies are byte-identical and all twelve names stay re-exported. Three patch
+  targets followed their call sites, and the two source locks now scan all four
+  modules — the same assertions, applied to the whole pipeline.
+
 - **`batch_undo` split into three modules (WP-9 #3).** The 1,264-line module is
   now 472 lines plus `undo_schema` (the DDL string, the `auto_vacuum` flag and
   the delete-payload migration), `undo_records` (the three record types, batch

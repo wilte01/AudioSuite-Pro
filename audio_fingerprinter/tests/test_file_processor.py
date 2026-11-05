@@ -1,3 +1,4 @@
+# Changed in 2.4.3: patch targets and source locks follow the WP-9 #4 split.
 """Tests for audio_fingerprinter.core.file_processor.
 
 Changed in 1.2.0: adds the MusicBrainz enrichment / ISRC real-outcome tests
@@ -21,6 +22,11 @@ import pytest
 import requests
 
 from audio_fingerprinter.core import file_processor as file_processor_module
+from audio_fingerprinter.core import (
+    fingerprint_messages,
+    fingerprint_phases,
+    fingerprint_tags,
+)
 from audio_fingerprinter.core.file_processor import (
     FingerprintProcessor,
     _commit_match_tags,
@@ -146,7 +152,7 @@ class TestProcessFile:
         )
         job.client.lookup.return_value = mock_lookup
         with patch(
-            "audio_fingerprinter.core.file_processor.write_acoustid_tags",
+            "audio_fingerprinter.core.fingerprint_tags.write_acoustid_tags",
             return_value=(True, "OK"),
         ):
             result = _process_file(job, "/path/track.mp3")
@@ -165,7 +171,7 @@ class TestProcessFile:
         )
         job.client.lookup.return_value = mock_lookup
         with patch(
-            "audio_fingerprinter.core.file_processor.write_acoustid_tags",
+            "audio_fingerprinter.core.fingerprint_tags.write_acoustid_tags",
             return_value=(False, "mutagen missing"),
         ):
             result = _process_file(job, "/path/track.mp3")
@@ -605,7 +611,7 @@ class TestRunFingerprintingAlbumMode:
         progress, complete, error = MagicMock(), MagicMock(), MagicMock()
         params = FingerprintParams(album_mode=True, write_tags=True, is_dry_run=True)
         with patch(
-            "audio_fingerprinter.core.file_processor.write_acoustid_tags"
+            "audio_fingerprinter.core.fingerprint_tags.write_acoustid_tags"
         ) as mock_write:
             _run_album(
                 folder,
@@ -655,7 +661,7 @@ class TestRunFingerprintingAlbumMode:
         progress, complete, error = MagicMock(), MagicMock(), MagicMock()
         params = FingerprintParams(album_mode=True, write_tags=True, is_dry_run=False)
         with patch(
-            "audio_fingerprinter.core.file_processor.write_acoustid_tags"
+            "audio_fingerprinter.core.fingerprint_tags.write_acoustid_tags"
         ) as mock_write:
             _run_album(
                 folder, _mock_client(responses), params, progress, complete, error
@@ -1112,11 +1118,23 @@ class TestMbidRealOutcome:
 
 
 def _processor_tree() -> ast.Module:
-    """Parse the production module so the locks below read real source."""
-    source = inspect.getsourcefile(file_processor_module)
-    assert source is not None
-    with open(source, encoding="utf-8") as handle:
-        return ast.parse(handle.read(), filename=source)
+    """Parse the production pipeline so the locks below read real source.
+
+    Changed in 2.4.3: WP-9 split the pipeline into four modules, so these
+    source locks scan all four rather than only ``file_processor``.
+    """
+    combined = ast.Module(body=[], type_ignores=[])
+    for module in (
+        file_processor_module,
+        fingerprint_messages,
+        fingerprint_tags,
+        fingerprint_phases,
+    ):
+        source = inspect.getsourcefile(module)
+        assert source is not None
+        with open(source, encoding="utf-8") as handle:
+            combined.body.extend(ast.parse(handle.read(), filename=source).body)
+    return combined
 
 
 def _enum_members_used(tree: ast.Module) -> set[str]:
@@ -1200,7 +1218,7 @@ class TestCommitMatchTags:
         matched = self._matched()
         recording = _make_recording()
         with patch(
-            "audio_fingerprinter.core.file_processor.write_acoustid_tags",
+            "audio_fingerprinter.core.fingerprint_tags.write_acoustid_tags",
             return_value=(True, "AcoustID tags written"),
         ) as mock_write:
             result = _commit_match_tags(
@@ -1217,7 +1235,7 @@ class TestCommitMatchTags:
     def test_failed_write_reports_tag_write_failed_with_the_writer_message(self):
         matched = self._matched()
         with patch(
-            "audio_fingerprinter.core.file_processor.write_acoustid_tags",
+            "audio_fingerprinter.core.fingerprint_tags.write_acoustid_tags",
             return_value=(False, "file is read-only"),
         ):
             result = _commit_match_tags(
@@ -1232,11 +1250,11 @@ class TestCommitMatchTags:
         params = FingerprintParams(write_mbids=True, mbid_region="GB")
         with (
             patch(
-                "audio_fingerprinter.core.file_processor.write_acoustid_tags",
+                "audio_fingerprinter.core.fingerprint_tags.write_acoustid_tags",
                 return_value=(True, "written"),
             ),
             patch(
-                "audio_fingerprinter.core.file_processor._write_mbids_for",
+                "audio_fingerprinter.core.fingerprint_tags._write_mbids_for",
                 return_value="MBID track id written",
             ) as mock_mbids,
         ):
@@ -1250,11 +1268,11 @@ class TestCommitMatchTags:
         params = FingerprintParams(write_mbids=True)
         with (
             patch(
-                "audio_fingerprinter.core.file_processor.write_acoustid_tags",
+                "audio_fingerprinter.core.fingerprint_tags.write_acoustid_tags",
                 return_value=(False, "boom"),
             ) as mock_write,
             patch(
-                "audio_fingerprinter.core.file_processor._write_mbids_for",
+                "audio_fingerprinter.core.fingerprint_tags._write_mbids_for",
                 return_value="MBID track id written",
             ) as mock_mbids,
         ):
@@ -1267,11 +1285,11 @@ class TestCommitMatchTags:
         matched = self._matched()
         with (
             patch(
-                "audio_fingerprinter.core.file_processor.write_acoustid_tags",
+                "audio_fingerprinter.core.fingerprint_tags.write_acoustid_tags",
                 return_value=(True, "written"),
             ) as mock_write,
             patch(
-                "audio_fingerprinter.core.file_processor._write_mbids_for",
+                "audio_fingerprinter.core.fingerprint_tags._write_mbids_for",
                 return_value="MBID track id written",
             ) as mock_mbids,
         ):
@@ -1583,7 +1601,7 @@ def _submit_result(
 def _patch_tagged(mapping: dict[str, tuple[str, ...]]):
     """Patch ``read_isrcs`` to answer by basename."""
     return patch(
-        "audio_fingerprinter.core.file_processor.read_isrcs",
+        "audio_fingerprinter.core.fingerprint_phases.read_isrcs",
         side_effect=lambda path: mapping[os.path.basename(path)],
     )
 
@@ -1651,7 +1669,7 @@ class TestCollectIsrcSubmissions:
     def test_unreadable_tags_are_reported(self, tmp_path):
         result = _submit_result(tmp_path, "a.mp3")
         with patch(
-            "audio_fingerprinter.core.file_processor.read_isrcs",
+            "audio_fingerprinter.core.fingerprint_phases.read_isrcs",
             side_effect=OSError("locked"),
         ):
             submissions, notes = collect_isrc_submissions([result])

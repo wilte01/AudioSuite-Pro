@@ -26,6 +26,13 @@ handler load (PLAN D55).
 Changed in 2.4.1: takes ``TagHandlerFactory`` from
 ``audio_suite_shared.tag_handler_factory``, the leaf module that owns the
 handler table (WP-2).
+
+Changed in 2.4.3: the message formatters (`_result_display`, `_match_message`,
+`_MESSAGE_STATUSES`), the tag-write helpers (`_write_mbids_for`,
+`_write_isrc_for`, `_release_facts_for`, `_commit_match_tags`) and the album
+plus ISRC phases moved to `fingerprint_messages` / `fingerprint_tags` /
+`fingerprint_phases`; every name is re-exported here
+(PLAN_2026-11-03_2.4.3_structure.md WP-9).
 """
 
 from __future__ import annotations
@@ -34,13 +41,13 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Callable
+from dataclasses import dataclass
 from queue import Queue
 from typing import Any
 
 from audio_suite_shared.audio_formats import SUPPORTED_EXTENSIONS
-from audio_suite_shared.batch_undo import get_active_batch_id, use_batch
+from audio_suite_shared.batch_undo import get_active_batch_id
 from audio_suite_shared.constants import DEFAULT_MAX_WORKERS
 from audio_suite_shared.exceptions import (
     AudioSuiteError,
@@ -50,39 +57,38 @@ from audio_suite_shared.exceptions import (
 )
 from audio_suite_shared.file_processor_base import BaseFileProcessor
 from audio_suite_shared.tag_handler_factory import TagHandlerFactory
-from audio_suite_shared.tag_helper_reader import read_isrcs
 
 from .acoustid_client import AcoustidClient, resolve_best_match
-from .album_cluster import (
-    AlbumFile,
-    AlbumFileDecision,
-    group_albums,
-    resolve_album,
-)
 from .exceptions import FingerprintError
+from .fingerprint_messages import _MESSAGE_STATUSES as _MESSAGE_STATUSES
+from .fingerprint_messages import _match_message as _match_message
+from .fingerprint_messages import _result_display as _result_display
+from .fingerprint_phases import _apply_album_decision as _apply_album_decision
+from .fingerprint_phases import _finalize_album_file as _finalize_album_file
+from .fingerprint_phases import _run_album_phase as _run_album_phase
+from .fingerprint_phases import _run_isrc_submission as _run_isrc_submission
+from .fingerprint_phases import (
+    collect_isrc_submissions as collect_isrc_submissions,
+)
+from .fingerprint_tags import _commit_match_tags as _commit_match_tags
+from .fingerprint_tags import _release_facts_for as _release_facts_for
+from .fingerprint_tags import _write_isrc_for as _write_isrc_for
+from .fingerprint_tags import _write_mbids_for as _write_mbids_for
 from .fingerprinter import generate_fingerprint, resolve_fpcalc
-from .mbid_writer import select_mbid_tags, selected_release_id, write_mbid_tags
 from .models import (
     AcoustidRecording,
-    Fingerprint,
     FingerprintFileResult,
     FingerprintParams,
     FingerprintStatus,
     MBEnrichment,
-    MBReleaseFacts,
     status_text,
 )
 from .musicbrainz_client import (
-    EDIT_REVIEW_DAYS,
-    ISRCSubmission,
     MBAuth,
     MusicBrainzClient,
-    build_isrc_submission_xml,
-    isrc_error,
-    normalize_isrc,
     resolve_ambiguous_with_mb,
 )
-from .tag_writer import write_acoustid_tags, write_isrc_tags
+from .tag_writer import write_acoustid_tags
 
 logger = logging.getLogger(__name__)
 
@@ -108,49 +114,6 @@ class _FingerprintJob:
 
 
 #: Statuses whose display line carries the detail message after the filename.
-_MESSAGE_STATUSES: frozenset[FingerprintStatus] = frozenset(
-    {
-        FingerprintStatus.MATCHED,
-        FingerprintStatus.TAGGED,
-        FingerprintStatus.TAG_WRITE_FAILED,
-        FingerprintStatus.ALBUM_AMBIGUOUS,
-    }
-)
-
-
-def _result_display(result: FingerprintFileResult) -> str:
-    """Build the one-line status text streamed to the Processing tab / CLI."""
-    label = status_text(result.status)
-    if result.status == FingerprintStatus.ERROR:
-        return f"[{label}] {result.filename}: {result.message}"
-    if result.status in _MESSAGE_STATUSES:
-        return f"[{label}] {result.filename} — {result.message}"
-    return f"[{label}] {result.filename}"
-
-
-def _match_message(
-    best: AcoustidRecording,
-    ambiguous: bool,
-    tag_resolved: bool,
-    recordings: tuple[AcoustidRecording, ...],
-) -> str:
-    """Build the per-file match detail, surfacing ambiguity by convention.
-
-    Near-ties that the file tags settled are marked "matched file tags";
-    unresolved near-ties surface the runner-up candidate in the message.
-    """
-    title = f"{best.title}" + (f" — {best.artist}" if best.artist else "")
-    message = f"{title or best.recording_id} (score {best.score:.2f})"
-    if tag_resolved:
-        message += "; matched file tags"
-    elif ambiguous and len(recordings) > 1:
-        runner = recordings[1]
-        runner_text = f"{runner.title}" + (
-            f" — {runner.artist}" if runner.artist else ""
-        )
-        if runner_text:
-            message += f"; ambiguous — also {runner_text} (score {runner.score:.2f})"
-    return message
 
 
 def _fingerprint_worker(job: _FingerprintJob) -> None:
@@ -214,102 +177,6 @@ def _fingerprint_worker(job: _FingerprintJob) -> None:
         if job.on_slot_update:
             job.on_slot_update(slot_idx, "IDLE")
         job.slot_queue.put(slot_idx)
-
-
-def _write_mbids_for(
-    params: FingerprintParams,
-    recording: AcoustidRecording,
-    file_path: str,
-) -> str:
-    """Select and write the MusicBrainz identifiers, returning a note.
-
-    A failed MBID write does not fail the file — the AcoustID tags are already
-    committed and the identifiers are additive enrichment. The message says so
-    rather than reporting the file as untagged.
-
-    Args:
-        params: Runtime parameters (the opt-in flag and region preference).
-        recording: The matched AcoustID candidate.
-        file_path: Absolute path of the file being tagged.
-
-    Returns:
-        A short note for the per-file result message, empty when there was
-        nothing to write.
-    """
-    album_title = ""
-    try:
-        _, album_title = TagHandlerFactory.get_handler(file_path).read_artist_album()
-    except (OSError, AudioSuiteError):
-        album_title = ""
-    tags = select_mbid_tags(
-        recording,
-        album_title=album_title,
-        file_path=file_path,
-        region=params.mbid_region,
-    )
-    if not tags:
-        return ""
-    ok, msg = write_mbid_tags(file_path, tags)
-    if not ok:
-        logger.warning("MusicBrainz tag write failed for %s: %s", file_path, msg)
-        return f"MBID write failed: {msg}"
-    return msg
-
-
-def _write_isrc_for(isrcs: tuple[str, ...], file_path: str) -> str:
-    """Write the retrieved ISRCs, returning a note for the result message.
-
-    A failed ISRC write does not fail the file, for the same reason a failed
-    MBID write does not: the AcoustID tags are already committed and only the
-    enrichment is missing.  The message says which, rather than reporting a
-    tagged file as untagged.
-
-    Args:
-        isrcs: ISRCs retrieved from MusicBrainz (empty writes nothing).
-        file_path: Absolute path of the file being tagged.
-
-    Returns:
-        A short note for the per-file result message, empty when there was
-        nothing to write.
-    """
-    if not isrcs:
-        return ""
-    ok, msg = write_isrc_tags(file_path, isrcs)
-    if not ok:
-        logger.warning("ISRC tag write failed for %s: %s", file_path, msg)
-        return f"ISRC write failed: {msg}"
-    return msg
-
-
-def _release_facts_for(
-    params: FingerprintParams,
-    mb_client: MusicBrainzClient,
-    best: AcoustidRecording,
-    album_title: str,
-    file_path: str,
-) -> MBReleaseFacts | None:
-    """Fetch release-level facts for the release this file's tags select.
-
-    The release id comes from :func:`selected_release_id`, i.e. the same
-    D2-am1 selection the tag writer uses, so the facts shown and the album id
-    written can never describe different editions.
-
-    Returns:
-        The release's facts, or None when no single release is selected or the
-        lookup failed (release facts are enrichment, never a requirement).
-    """
-    release_id = selected_release_id(
-        best, album_title=album_title, file_path=file_path, region=params.mbid_region
-    )
-    if not release_id:
-        return None
-    result = mb_client.get_release(release_id)
-    if not result.ok or result.value is None:
-        logger.debug(
-            "MusicBrainz release %s unavailable: %s", release_id, result.reason
-        )
-        return None
-    return result.value
 
 
 def _enrich_with_mb(
@@ -383,62 +250,6 @@ def _enrich_with_mb(
         release=_release_facts_for(params, mb_client, best, album_tag, file_path),
         resolved_ambiguity=resolved,
         evidence=evidence,
-    )
-
-
-def _commit_match_tags(
-    matched: FingerprintFileResult,
-    recording: AcoustidRecording,
-    params: FingerprintParams,
-    undo_batch: str | None,
-) -> FingerprintFileResult:
-    """Write the AcoustID tags (and optional MBIDs) for one matched file.
-
-    The single write path shared by per-file matching and album matching: both
-    build a ``MATCHED`` result first, then hand it here so the undo batch
-    scope, the MBID enrichment and the TAGGED / TAG WRITE FAILED outcomes are
-    defined exactly once.
-
-    Args:
-        matched: The ``MATCHED`` result carrying the file's path,
-            fingerprint, message and candidate list.
-        recording: The matched AcoustID candidate.
-        params: Runtime parameters, for the MBID opt-in and region preference.
-        undo_batch: Active undo batch id for the tag snapshot.
-
-    Returns:
-        A copy of ``matched`` with status ``TAGGED`` on success (and
-        ``tag_written`` set), or ``TAG WRITE FAILED`` with the writer's
-        message appended when the AcoustID write fails.
-    """
-    message = matched.message
-    if matched.mb is not None and matched.mb.evidence:
-        message = f"{message}; {matched.mb.evidence}"
-    with use_batch(undo_batch):
-        ok, msg = write_acoustid_tags(
-            matched.file_path, matched.fingerprint, recording.acoustid_id
-        )
-        if ok and params.write_mbids:
-            mbids = _write_mbids_for(params, recording, matched.file_path)
-            if mbids:
-                message = f"{message} — {mbids}"
-        if ok and params.write_isrc and matched.isrcs:
-            isrc_note = _write_isrc_for(matched.isrcs, matched.file_path)
-            if isrc_note:
-                message = f"{message} — {isrc_note}"
-
-    if not ok:
-        return replace(
-            matched,
-            status=FingerprintStatus.TAG_WRITE_FAILED,
-            message=f"{message} — {msg}",
-        )
-
-    return replace(
-        matched,
-        status=FingerprintStatus.TAGGED,
-        message=message,
-        tag_written=True,
     )
 
 
@@ -607,415 +418,6 @@ def _summarise_results(
         elif result.status == FingerprintStatus.ALBUM_AMBIGUOUS:
             counts["album_ambiguous"] += 1
     return counts
-
-
-def _finalize_album_file(
-    result: FingerprintFileResult,
-    best: AcoustidRecording | None,
-    unmatched_status: FingerprintStatus,
-    message: str,
-    recordings: tuple[AcoustidRecording, ...],
-    write_enabled: bool,
-    undo_batch: str | None,
-    params: FingerprintParams,
-) -> FingerprintFileResult:
-    """Apply one album decision to a file, writing tags when enabled.
-
-    Args:
-        result: The interim ``ANALYSED`` result for the file.
-        best: The cluster-chosen candidate (``None`` leaves the file
-            untagged with ``unmatched_status``).
-        unmatched_status: Status for the ``best is None`` case
-            (``FingerprintStatus.NO_MATCH`` or
-            ``FingerprintStatus.ALBUM_AMBIGUOUS``).
-        message: Final per-file status message.
-        recordings: The file's full filtered candidate list.
-        write_enabled: Whether tags should be written (live + enabled).
-        undo_batch: Active undo batch id for the tag snapshot.
-        params: Runtime parameters, for the MBID opt-in and region preference.
-
-    Returns:
-        The final ``FingerprintFileResult`` (MATCHED / TAGGED /
-        TAG WRITE FAILED / NO MATCH / ALBUM AMBIGUOUS).
-    """
-    if best is None or not best.recording_id:
-        return FingerprintFileResult(
-            file_path=result.file_path,
-            filename=result.filename,
-            duration=result.duration,
-            fingerprint=result.fingerprint,
-            status=unmatched_status,
-            message=message,
-            recordings=recordings,
-        )
-
-    matched = FingerprintFileResult(
-        file_path=result.file_path,
-        filename=result.filename,
-        duration=result.duration,
-        fingerprint=result.fingerprint,
-        status=FingerprintStatus.MATCHED,
-        message=message,
-        acoustid_id=best.acoustid_id,
-        recordings=recordings,
-        recording_id=best.recording_id,
-    )
-
-    if not write_enabled:
-        return matched
-
-    return _commit_match_tags(matched, best, params, undo_batch)
-
-
-def _apply_album_decision(
-    file: AlbumFile,
-    decision: AlbumFileDecision,
-) -> tuple[FingerprintStatus, AcoustidRecording | None, str]:
-    """Map one album decision to a result status, candidate, and message.
-
-    Args:
-        file: The clustered file (its candidates feed the message).
-        decision: The cluster's outcome for this file.
-
-    Returns:
-        Tuple ``(status, best, message)`` — *best* is ``None`` for the
-        untagged outcomes (NO MATCH / ALBUM AMBIGUOUS).
-    """
-    if decision.outcome == "ambiguous":
-        return (
-            FingerprintStatus.ALBUM_AMBIGUOUS,
-            None,
-            f"album ambiguous — {decision.cluster_title}; left untagged",
-        )
-    if decision.outcome == "fallback" and decision.best is None:
-        return (
-            FingerprintStatus.NO_MATCH,
-            None,
-            "No candidate above the score threshold.",
-        )
-    if decision.best is None:
-        # Defensive: cluster and surviving-fallback outcomes always
-        # carry a candidate; log rather than silently mislabel the file.
-        logger.warning(
-            "Album decision %r for %s carried no candidate.",
-            decision.outcome,
-            file.file_path,
-        )
-        return (
-            FingerprintStatus.NO_MATCH,
-            None,
-            "No candidate above the score threshold.",
-        )
-    if decision.outcome == "cluster":
-        message = (
-            f"{_match_message(decision.best, False, False, file.recordings)}"
-            f"; album consensus {decision.cluster_title}"
-        )
-    else:
-        message = _match_message(
-            decision.best,
-            decision.ambiguous,
-            decision.tag_resolved,
-            file.recordings,
-        )
-    return FingerprintStatus.MATCHED, decision.best, message
-
-
-def _run_album_phase(
-    results: list[FingerprintFileResult],
-    client: AcoustidClient,
-    params: FingerprintParams,
-    undo_batch: str | None,
-    processed: list[int],
-    errors: list[int],
-    on_progress: Callable[..., None],
-    on_error: Callable[[str], None],
-) -> tuple[bool, list[str]]:
-    """Cluster the analysed files per folder and apply the decisions.
-
-    Phase two of album match mode: the parallel batch produced
-    ``ANALYSED`` results (fingerprint only); this phase looks every
-    pending file up through ``lookup_many``, clusters each folder by
-    MusicBrainz release group, and replaces the interim results with
-    the final statuses (cluster matches, per-file fallbacks, album
-    ambiguities).  Display lines stream through ``on_progress`` without
-    touching the already-final processed count.
-
-    Args:
-        results: Shared results list; interim entries are replaced.
-        client: The rate-limited AcoustID client.
-        params: Runtime parameters (``album_min`` used here).
-        undo_batch: Active undo batch id for tag snapshots.
-        processed: Mutable single-element processed counter.
-        errors: Mutable single-element error counter.
-        on_progress: The run-level progress callback.
-        on_error: Fatal-error callback.
-
-    Returns:
-        Tuple ``(ok, report_lines)``.  ``ok`` is False after a fatal
-        lookup failure (``on_error`` has then already been called and
-        the caller must abort); ``report_lines`` carries the per-album
-        cluster summary for the run report.
-    """
-    pending = [r for r in results if r.status == FingerprintStatus.ANALYSED]
-    if not pending:
-        return True, []
-
-    def _display(text: str) -> None:
-        on_progress(
-            processed=processed[0],
-            total=len(results),
-            errors=errors[0],
-            display_text=text,
-        )
-
-    def _lookup_progress(done: int, count: int) -> None:
-        _display(f"[ALBUM LOOKUP] {done}/{count} files")
-
-    try:
-        lookups = client.lookup_many(
-            [
-                Fingerprint(duration=r.duration, fingerprint=r.fingerprint)
-                for r in pending
-            ],
-            on_progress=_lookup_progress,
-        )
-    except FingerprintError as exc:
-        logger.error("Album-mode lookup failed: %s", exc, exc_info=True)
-        on_error(user_message_for(exc))
-        return False, []
-
-    finals: dict[str, FingerprintFileResult] = {}
-    entries: list[tuple[FingerprintFileResult, AlbumFile]] = []
-    for result, lookup in zip(pending, lookups, strict=True):
-        if lookup.status == "error":
-            errors[0] += 1
-            finals[result.file_path] = FingerprintFileResult(
-                file_path=result.file_path,
-                filename=result.filename,
-                duration=result.duration,
-                fingerprint=result.fingerprint,
-                status=FingerprintStatus.ERROR,
-                message=lookup.error or "AcoustID lookup failed.",
-            )
-            continue
-        try:
-            album_handler = TagHandlerFactory.get_handler(result.file_path)
-            artist_tag, title_tag = album_handler.read_artist_title()
-            _, album_tag = album_handler.read_artist_album()
-        except (OSError, AudioSuiteError) as exc:
-            logger.warning("Could not read tags from %s: %s", result.file_path, exc)
-            artist_tag, title_tag, album_tag = "", "", ""
-        entries.append(
-            (
-                result,
-                AlbumFile(
-                    file_path=result.file_path,
-                    folder_path=os.path.dirname(result.file_path),
-                    fingerprint=result.fingerprint,
-                    duration=result.duration,
-                    artist_tag=artist_tag,
-                    title_tag=title_tag,
-                    recordings=lookup.recordings,
-                    album_tag=album_tag,
-                ),
-            )
-        )
-
-    write_enabled = params.write_tags and not params.is_dry_run
-    report_lines: list[str] = []
-    for folder_files in group_albums([entry[1] for entry in entries]).values():
-        resolution = resolve_album(folder_files, params.album_min)
-        report_lines.append(resolution.report_line)
-        folder_by_path = {entry[1].file_path: entry for entry in entries}
-        for file, decision in zip(folder_files, resolution.decisions, strict=True):
-            interim = folder_by_path[file.file_path][0]
-            status, best, message = _apply_album_decision(file, decision)
-            finals[interim.file_path] = _finalize_album_file(
-                interim,
-                best,
-                status,
-                message,
-                file.recordings,
-                write_enabled,
-                undo_batch,
-                params,
-            )
-
-    for idx, result in enumerate(results):
-        final = finals.get(result.file_path)
-        if final is not None:
-            results[idx] = final
-            _display(_result_display(final))
-
-    return True, report_lines
-
-
-def collect_isrc_submissions(
-    results: Sequence[FingerprintFileResult],
-) -> tuple[tuple[ISRCSubmission, ...], tuple[str, ...]]:
-    """Gather the ISRCs each file's own tags carry, ready to submit.
-
-    The codes come from the *files*, not from MusicBrainz: sending back the
-    codes the service already returned would be a guaranteed no-op.  That makes
-    this the path for ISRCs a CD rip recorded but MusicBrainz has never seen.
-
-    Codes already registered for the recording (``result.isrcs``, retrieved by
-    the enrichment) and codes another file in the batch already contributed are
-    dropped here, so the payload only contains work MusicBrainz can act on.
-
-    Args:
-        results: Finished per-file results for the run.
-
-    Returns:
-        Tuple ``(submissions, notes)``.  ``submissions`` holds one entry per
-        recording with at least one new ISRC; ``notes`` are report lines for
-        the log (invalid codes, unreadable tags, files with nothing new), which
-        are reported rather than silently dropped.
-    """
-    per_recording: dict[str, list[str]] = {}
-    notes: list[str] = []
-
-    for result in sorted(results, key=lambda r: r.file_path):
-        try:
-            tagged = read_isrcs(result.file_path)
-        except (OSError, AudioSuiteError) as exc:
-            notes.append(
-                f"[ISRC SKIPPED] {result.filename}: could not read its ISRCs ({exc})"
-            )
-            continue
-        if not tagged:
-            continue
-        if not result.recording_id:
-            notes.append(
-                f"[ISRC SKIPPED] {result.filename}: {len(tagged)} ISRC(s) found, "
-                "but the file matched no MusicBrainz recording to attach them to"
-            )
-            continue
-
-        recording_id = result.recording_id.strip().lower()
-        registered = {normalize_isrc(value) for value in result.isrcs}
-        bucket = per_recording.setdefault(recording_id, [])
-        known = 0
-        added = 0
-        for value in tagged:
-            problem = isrc_error(value)
-            if problem:
-                notes.append(f"[ISRC SKIPPED] {result.filename}: {problem}")
-                continue
-            code = normalize_isrc(value)
-            if code in registered or code in bucket:
-                known += 1
-                continue
-            bucket.append(code)
-            added += 1
-        if known and not added:
-            notes.append(
-                f"[ISRC] {result.filename}: nothing new to submit — its "
-                f"{known} ISRC(s) are already registered on {recording_id}"
-            )
-
-    submissions = tuple(
-        ISRCSubmission(recording_id=recording_id, isrcs=tuple(sorted(codes)))
-        for recording_id, codes in sorted(per_recording.items())
-        if codes
-    )
-    return submissions, tuple(notes)
-
-
-def _run_isrc_submission(
-    results: Sequence[FingerprintFileResult],
-    params: FingerprintParams,
-    mb_client: MusicBrainzClient | None,
-    auth: MBAuth | None,
-) -> tuple[dict[str, Any], list[str], str]:
-    """Preview or perform the run's one ISRC submission.
-
-    A dry run renders the payload and stops: the XML it logs is exactly the
-    body a live run posts, because both come from
-    :func:`build_isrc_submission_xml` over the same submissions.  A live run
-    needs a usable token; without one nothing is sent and the reason is
-    reported, never swallowed.
-
-    Args:
-        results: Finished per-file results.
-        params: Runtime parameters (``is_dry_run`` decides preview vs post).
-        mb_client: The run's MusicBrainz client, or None when enrichment is off.
-        auth: Credentials for the submission, when the caller resolved any.
-
-    Returns:
-        Tuple ``(payload, log_lines, display_line)``.  ``payload`` is the
-        machine-readable record surfaced in the CLI JSON, including the XML.
-    """
-    submissions, notes = collect_isrc_submissions(results)
-    lines = list(notes)
-    recordings = len(submissions)
-    isrcs = sum(len(submission.isrcs) for submission in submissions)
-    xml = build_isrc_submission_xml(submissions)
-    payload: dict[str, Any] = {
-        "mode": "preview" if params.is_dry_run else "live",
-        "status": "nothing to submit",
-        "recordings": recordings,
-        "isrcs": isrcs,
-        "url": "",
-        "reason": "",
-        "xml": xml,
-        "notes": list(notes),
-    }
-
-    if not xml:
-        lines.append(
-            "[ISRC] Nothing to submit: no file carried an ISRC that "
-            "MusicBrainz does not already have."
-        )
-        return payload, lines, "[ISRC] Nothing new to submit."
-
-    if params.is_dry_run:
-        payload["status"] = "preview"
-        lines.append(
-            f"[ISRC PREVIEW] Dry run — would POST {isrcs} ISRC(s) for "
-            f"{recordings} recording(s) to MusicBrainz. Exact payload:"
-        )
-        lines.append(xml.rstrip("\n"))
-        return (
-            payload,
-            lines,
-            f"[ISRC PREVIEW] {isrcs} ISRC(s) for {recordings} recording(s) — "
-            "not submitted (dry run)",
-        )
-
-    if mb_client is None:
-        payload["status"] = "not attempted"
-        payload["reason"] = "MusicBrainz lookup is off, so no recording was met."
-        lines.append(f"[ISRC NOT SUBMITTED] {payload['reason']}")
-        return payload, lines, "[ISRC] Not submitted — MusicBrainz lookup is off."
-
-    result = mb_client.submit_isrcs(submissions, auth or MBAuth())
-    payload.update(
-        status=result.status,
-        recordings=result.recordings or recordings,
-        isrcs=result.isrcs or isrcs,
-        url=result.url,
-        reason=result.reason,
-    )
-    if result.ok:
-        lines.append(
-            f"[ISRC SUBMITTED] {result.isrcs} ISRC(s) for {result.recordings} "
-            f"recording(s): the edit is pending review — MusicBrainz keeps new "
-            f"edits open for {EDIT_REVIEW_DAYS} days."
-        )
-        return (
-            payload,
-            lines,
-            f"[ISRC SUBMITTED] {result.isrcs} ISRC(s) for "
-            f"{result.recordings} recording(s) — pending edit",
-        )
-
-    lines.append(
-        f"[ISRC {result.status.upper()}] {result.isrcs} ISRC(s) for "
-        f"{result.recordings} recording(s) were not submitted: {result.reason}"
-    )
-    return payload, lines, f"[ISRC {result.status.upper()}] {result.reason}"
 
 
 @handle_audio_errors(reraise=False, context="fingerprint_run")
