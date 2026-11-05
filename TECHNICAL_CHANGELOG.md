@@ -12,6 +12,17 @@ one.
 
 ## [Unreleased]
 
+- **The package-data declaration is checked against the package and the wheel
+  in both directions (WP-10 C-I6a).** The wheel test hard-coded two file names,
+  so a declaration naming a file that had since been renamed would ship nothing
+  while every test stayed green, and a data file added to the package root
+  without a declaration would never reach an install. The new lock reads
+  `[tool.setuptools.package-data]`, expands each pattern against the package
+  root (`fnmatch`, so a glob is not misread as a literal), fails on a stale
+  entry as well as on an undeclared data file, and builds one wheel to prove
+  the resolved names really ship. Subpackages are out of scope and say so: a
+  data file there needs its own declaration key.
+
 - **A suggestions list holds the ideas that are not in a plan.**
   `PLAN_suggestions.md` records the follow-ups the WP-10 tail raised (`S-1`..
   `S-5`, all from the wheel build's measurements): a declared-vs-shipped

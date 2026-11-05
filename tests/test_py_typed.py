@@ -10,7 +10,10 @@ The wheel check builds one from a staging copy of the packaging inputs, because
 the claim is about the artefact and not about the source tree. It does not rest
 on the ``package-data`` entry: setuptools already copies ``py.typed`` on its own
 (measured during 2.4.3 - a wheel built with the entry removed still carried
-it), so that entry states intent while this build proves the outcome. The
+it), so that entry states intent while this build proves the outcome. That entry
+is now checked in both directions too (``TestThePackageDataMatchesThePackage``):
+a name it declares but the package root lacks ships nothing, and a data file in
+the root that it does not name never ships. The
 consumer check has a negative control on purpose. A mypy run that passes
 because the fixture imports nothing meaningful would be indistinguishable from
 one that passes because the annotations are gone, so the control mutates a
@@ -21,6 +24,7 @@ Changed in 2.4.3: added for WP-10 C-I6.
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import shutil
 import subprocess
@@ -179,6 +183,81 @@ class TestTheShippedFilesAreInABuiltWheel:
             assert (
                 archive.read(schema) == (PACKAGE_DIR / "cli_schema.json").read_bytes()
             )
+
+
+def _declared_patterns() -> list[str]:
+    """The ``package-data`` patterns the build declares for this package."""
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    return list(config["tool"]["setuptools"]["package-data"]["audio_suite_shared"])
+
+
+def _shipped_data_files() -> set[str]:
+    """Root-level, non-Python files of the package: what a wheel could ship.
+
+    Only the package root is scanned. A data file inside a subpackage needs its
+    own declaration key, which this lock does not claim to cover.
+    """
+    return {
+        path.name
+        for path in PACKAGE_DIR.iterdir()
+        if path.is_file() and path.suffix not in {".py", ".pyc", ".pyo"}
+    }
+
+
+def _resolved_declaration() -> tuple[set[str], list[str]]:
+    """Expand the declared patterns against the package root.
+
+    Returns:
+        The shipped files the declaration names, and any pattern that matched
+        nothing - a stale entry names a file that was renamed or deleted.
+    """
+    shipped = _shipped_data_files()
+    resolved: set[str] = set()
+    unmatched: list[str] = []
+    for pattern in _declared_patterns():
+        hits = {name for name in shipped if fnmatch.fnmatchcase(name, pattern)}
+        if hits:
+            resolved |= hits
+        else:
+            unmatched.append(pattern)
+    return resolved, unmatched
+
+
+class TestThePackageDataMatchesThePackage:
+    """A ``package-data`` declaration is a bidirectional claim.
+
+    It names files that must exist, and the package root holds data files that
+    must be named. Checking one direction only lets the other drift silently: a
+    stale name ships nothing, and an undeclared file never ships at all.
+    """
+
+    def test_every_declared_file_exists_in_the_package_root(self) -> None:
+        _resolved, unmatched = _resolved_declaration()
+        assert not unmatched, (
+            "package-data declares files the package root does not have "
+            f"(renamed or deleted?): {unmatched}"
+        )
+
+    def test_every_shipped_data_file_is_declared(self) -> None:
+        resolved, _unmatched = _resolved_declaration()
+        undeclared = sorted(_shipped_data_files() - resolved)
+        assert not undeclared, (
+            "these files sit in the package root but package-data never names "
+            f"them, so a wheel install would not carry them: {undeclared}"
+        )
+
+    def test_every_declared_file_reaches_the_wheel(self, tmp_path: Path) -> None:
+        """The tree check proves intent; only the wheel proves the outcome."""
+        pytest.importorskip("setuptools")
+        resolved, _unmatched = _resolved_declaration()
+        wheel = _build_wheel(tmp_path)
+        with zipfile.ZipFile(wheel) as archive:
+            names = set(archive.namelist())
+        assert "audio_suite_shared/__init__.py" in names, sorted(names)
+        missing = sorted(
+            name for name in resolved if f"audio_suite_shared/{name}" not in names
+        )
+        assert not missing, f"declared but absent from the wheel: {missing}"
 
 
 class TestTheConsumerIsCheckedByTheGate:

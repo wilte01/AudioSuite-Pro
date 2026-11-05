@@ -511,6 +511,9 @@ exclude = [
 # not the reason the marker ships: setuptools already copies `py.typed` on its
 # own (measured - a wheel built with the entry removed still carried it), so
 # the build test in tests/test_py_typed.py, not this line, proves the outcome.
+# That test also checks this list against the package root and the wheel in both
+# directions, so a stale entry or an undeclared data file fails rather than ships
+# nothing.
 # Without the file, a wheel install would let a downstream checker skip the
 # package as untyped and silently treat every import as Any.
 audio_suite_shared = ["cli_schema.json", "py.typed"]
