@@ -12,6 +12,16 @@ one.
 
 ## [Unreleased]
 
+- **The per-file change notes have a recorded ceiling (WP-10 C-I2).** Every
+  changed code file carries a `Changed in <version>:` note, and with the cleanup
+  deferred that prose grew one line per change with nothing measuring it.
+  `utilities/changed_in_budget.py` counts the notes and compares them with
+  `tests/data/changed_in_baseline.json`: a version over its recorded count
+  fails, and so does a version carrying notes with no recorded ceiling, so a
+  release window starts from a number rather than an implied infinity.
+  `--record` writes today's counts exactly, so recording still refuses the next
+  line of growth. It runs in the `compile` CI job, which installs nothing.
+
 - **The suite publishes a per-package coverage table (WP-10 C-I9).** The
   coverage verdict is a single number, so nothing said where the cold code was.
   `utilities/coverage_table.py` reads the JSON report the suite already writes,

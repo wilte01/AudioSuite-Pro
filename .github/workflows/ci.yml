@@ -317,6 +317,22 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -X utf8 -m compileall -q -f . -x '(^|/)(\.venv|\.git)/'
+      - name: Changed-in budget
+        # Changed in 2.4.3: added with WP-10 C-I2 (plan 2.4.3 D-37). Every
+        # changed code file carries a `Changed in <version>:` note, and with the
+        # cleanup deferred that prose grows one line per change with nothing
+        # measuring it. The script counts the notes and refuses growth past the
+        # baseline committed in tests/data/changed_in_baseline.json; a version
+        # with notes and no recorded ceiling fails too, so a new release window
+        # starts from a recorded number rather than an implied infinity.
+        #
+        # Deliberately in this job: stdlib-only, no install, and the compile
+        # gate is already the cheapest place a tree-shaped rule can run. It
+        # rides an existing job, so the cost ledger in tests/test_ci_cost.py is
+        # unchanged.
+        env:
+          PYTHONUTF8: "1"
+        run: python -X utf8 utilities/changed_in_budget.py --check
 
   posix-smoke:
     name: POSIX smoke (Ubuntu)
