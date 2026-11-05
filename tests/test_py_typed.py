@@ -3,11 +3,15 @@
 A ``py.typed`` file tells a type checker that a package's own annotations are
 authoritative instead of treating every import as ``Any``. The marker alone
 proves nothing, so this module locks the three things that make the claim
-true: the file exists and is empty, the wheel ships it (it is named in
-``[tool.setuptools.package-data]``), and a consumer outside the package really
-sees the annotations.
+true: the file exists and is empty, a built wheel carries it, and a consumer
+outside the package really sees the annotations.
 
-The consumer check has a negative control on purpose. A mypy run that passes
+The wheel check builds one from a staging copy of the packaging inputs, because
+the claim is about the artefact and not about the source tree. It does not rest
+on the ``package-data`` entry: setuptools already copies ``py.typed`` on its own
+(measured during 2.4.3 - a wheel built with the entry removed still carried
+it), so that entry states intent while this build proves the outcome. The
+consumer check has a negative control on purpose. A mypy run that passes
 because the fixture imports nothing meaningful would be indistinguishable from
 one that passes because the annotations are gone, so the control mutates a
 single ``assert_type`` and requires mypy to reject it.
@@ -18,9 +22,11 @@ Changed in 2.4.3: added for WP-10 C-I6.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tomllib
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -70,8 +76,57 @@ def _run_mypy(path: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+#: ``setuptools.build_meta`` reads ``./pyproject.toml``, so the build runs with
+#: the staging copy as its working directory and writes into the given folder.
+_BUILD_WHEEL_SCRIPT = (
+    "import sys\n"
+    "from setuptools import build_meta\n"
+    "print(build_meta.build_wheel(sys.argv[1]))\n"
+)
+
+
+def _build_wheel(tmp_path: Path) -> Path:
+    """Build a wheel from a staging copy of the packaging inputs.
+
+    Only the files the build reads are copied: the project metadata, its
+    readme and licence, and the package under test. Copying the whole checkout
+    would build every sibling package for one assertion.
+
+    Args:
+        tmp_path: The test's temporary directory.
+
+    Returns:
+        The single wheel the build produced.
+    """
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    for name in ("pyproject.toml", "README.md", "LICENSE"):
+        shutil.copy2(REPO_ROOT / name, staging / name)
+    shutil.copytree(
+        PACKAGE_DIR,
+        staging / "audio_suite_shared",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+    )
+    out = tmp_path / "dist"
+    out.mkdir()
+    result = subprocess.run(
+        [sys.executable, "-c", _BUILD_WHEEL_SCRIPT, str(out)],
+        cwd=staging,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=600,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    wheels = sorted(out.glob("*.whl"))
+    assert len(wheels) == 1, [wheel.name for wheel in wheels]
+    return wheels[0]
+
+
 class TestTheMarkerShips:
-    """The marker exists, is empty, and a wheel would carry it."""
+    """The marker exists, is empty, and is declared as package data."""
 
     def test_the_marker_exists(self) -> None:
         assert MARKER.is_file(), "audio_suite_shared/py.typed is missing"
@@ -85,12 +140,36 @@ class TestTheMarkerShips:
         assert MARKER.read_bytes() == b""
 
     def test_the_package_data_declares_the_marker(self) -> None:
-        """Without this entry setuptools installs the modules but not the file."""
+        """The entry records intent; the wheel build below proves the outcome.
+
+        setuptools also copies ``py.typed`` on its own, so this declaration is
+        not what makes the marker ship - dropping it must still not be silent.
+        """
         config = tomllib.loads(
             (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
         )
         package_data = config["tool"]["setuptools"]["package-data"]
         assert "py.typed" in package_data["audio_suite_shared"]
+
+
+class TestTheMarkerShipsInABuiltWheel:
+    """A package-data entry is a claim about a wheel, so build one.
+
+    The build runs against a staging copy, never the checkout: ``setuptools``
+    writes ``build/`` and ``*.egg-info/`` beside its inputs, and a test that
+    measures the tree must not leave its own output in it.
+    """
+
+    def test_the_wheel_contains_the_marker(self, tmp_path: Path) -> None:
+        pytest.importorskip("setuptools")
+        wheel = _build_wheel(tmp_path)
+        with zipfile.ZipFile(wheel) as archive:
+            names = archive.namelist()
+            # The positive control: without this the marker assertion could
+            # pass on a wheel that carries nothing at all.
+            assert "audio_suite_shared/__init__.py" in names, names
+            assert "audio_suite_shared/py.typed" in names, names
+            assert archive.getinfo("audio_suite_shared/py.typed").file_size == 0
 
 
 class TestTheConsumerIsCheckedByTheGate:

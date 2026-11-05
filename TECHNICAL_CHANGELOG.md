@@ -13,9 +13,14 @@ one.
 ## [Unreleased]
 
 - **`audio_suite_shared` ships a PEP 561 marker (WP-10 C-I6).** `py.typed` is
-  declared in `[tool.setuptools.package-data]`, so a wheel install no longer
-  looks like an untyped package that a downstream checker skips and treats as
-  `Any`. A consumer fixture outside `tests/` (`typing_consumer/consumer.py`)
+  declared in `[tool.setuptools.package-data]`, and `tests/test_py_typed.py`
+  builds a wheel from a staging copy of the packaging inputs and asserts the
+  file is inside it, so a wheel install no longer looks like an untyped
+  package that a downstream checker skips and treats as `Any`. The
+  declaration states intent rather than mechanism: setuptools already copies
+  `py.typed` on its own (measured - a build with the entry removed still
+  carried it), and the build test is what fails if the marker stops shipping.
+  A consumer fixture outside `tests/` (`typing_consumer/consumer.py`)
   asserts the public signatures with `assert_type`, which the bare `mypy .`
   gate checks; its negative control in `tests/test_py_typed.py` mutates one
   assertion and requires mypy to reject it, so the lock cannot pass with `Any`
