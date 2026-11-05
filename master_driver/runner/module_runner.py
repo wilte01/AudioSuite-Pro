@@ -15,6 +15,13 @@ a bare "Module failed: <name>" although the launcher's exit code is the only
 remaining evidence once its own stdout/stderr is gone — which is how a plugin
 launcher whose import raised ``ModuleNotFoundError`` reached the user as an
 unactionable popup (``PLAN_feature_expansion.md`` D135).
+
+Changed in 2.4.3: the dialog also names *why* the launcher refused to start.
+An exit code alone still left the user guessing: a source folder that no longer
+exists read as ``Module failed: Library Statistics Dashboard (exit code 1)``
+with the reason visible nowhere.  The launcher records that reason (see
+:mod:`audio_suite_shared.launch_failure`) and it is quoted under the exit code
+(PLAN_2026-11-03_2.4.3_structure.md D-22).
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ import os
 from collections.abc import Sequence
 from typing import Any, Callable, Optional
 
+from audio_suite_shared.launch_failure import read_launch_failure
 from audio_suite_shared.tool_plugin import ToolManifest
 
 from ..batch_orchestrator import (
@@ -77,6 +85,31 @@ def _exit_code_detail(step: BatchStep) -> str:
     if step.exit_code is None:
         return ""
     return f" (exit code {step.exit_code})"
+
+
+def _failure_message(step: BatchStep) -> str:
+    """Return the failure sentence for *step*, naming why it did not run.
+
+    The exit code says a launcher stopped, not what it objected to.  A tool that
+    refused its argv records the reason before exiting
+    (:mod:`audio_suite_shared.launch_failure`), and quoting it here is what
+    turns ``Module failed: <name> (exit code 1)`` into a statement the user can
+    act on — e.g. the source folder they selected has moved.  A step that
+    failed for any other reason (a missing script, an import crash) has no
+    record and keeps the code-only sentence, so nothing is invented.
+
+    Args:
+        step: The failed step.
+
+    Returns:
+        ``"Module failed: <name> (exit code N)"``, with the recorded reason on
+        a following paragraph when the launcher left one.
+    """
+    message = f"Module failed: {step.manifest.name}" + _exit_code_detail(step)
+    reason = read_launch_failure(step.script_path)
+    if reason:
+        message += f"\n\n{reason}"
+    return message
 
 
 def _suite_root() -> str:
@@ -216,11 +249,7 @@ def _run_modules_sequential(
                         f"in the suite root folder.",
                     )
                 else:
-                    on_error(
-                        "Module Error",
-                        f"Module failed: {step.manifest.name}"
-                        + _exit_code_detail(step),
-                    )
+                    on_error("Module Error", _failure_message(step))
 
     _finalise(report.completed, clear_logs, dir_path, on_complete, on_error)
 
@@ -265,10 +294,7 @@ def _run_modules_parallel(
     if on_error:
         for step in report.steps:
             if step.status == StepStatus.FAILED:
-                on_error(
-                    "Module Error",
-                    f"Module failed: {step.manifest.name}" + _exit_code_detail(step),
-                )
+                on_error("Module Error", _failure_message(step))
 
     _finalise(report.completed, clear_logs, dir_path, on_complete, on_error)
 

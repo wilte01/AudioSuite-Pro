@@ -28,6 +28,9 @@ its GUI now binds to the Run Controls strip (U3).
 
 Changed in 2.3.1 (U-03, released in 2.6.0): removes the five retired DSP tools'
 argument-shape tests with their builders; the remaining entries' handshakes stay
+
+Changed in 2.4.3: a failed step's dialog also names why the launcher
+refused to start, not only its exit code (D-22).
 pinned.
 """
 
@@ -38,6 +41,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from audio_suite_shared.launch_failure import record_launch_failure
 from audio_suite_shared.tool_plugin import ToolManifest
 from master_driver.runner.arg_builder import (
     REFINERY_STAGES,
@@ -1738,6 +1742,43 @@ class TestRunModulesProgress:
         t = MagicMock()
         t.get.return_value = value
         return t
+
+    def test_failure_dialog_names_why_the_launcher_refused(self, tmp_path):
+        """A step that exits 1 must show the reason, not only the code.
+
+        The launcher writes its message to a stderr the driver never shows,
+        so the recorded reason is what makes the dialog actionable — here it
+        names the source folder that no longer exists (D-22).
+        """
+        script = tmp_path / "Library_Stats.pyw"
+        script.write_text("pass")
+        manifest = _manifest_from_script(script)
+        errors: list[tuple[str, str]] = []
+
+        def _refuse(*_args, **_kwargs):
+            record_launch_failure(
+                str(script),
+                "Library Statistics: Folder path does not exist: D:/gone",
+            )
+            return subprocess.CompletedProcess(
+                args=[], returncode=1, stdout="", stderr=""
+            )
+
+        with patch(
+            "master_driver.batch_orchestrator.run_python_script", side_effect=_refuse
+        ):
+            run_modules(
+                [(self._toggle(True), manifest, [])],
+                False,
+                str(tmp_path),
+                lambda: None,
+                lambda n: None,
+                on_error=lambda t, m: errors.append((t, m)),
+            )
+
+        assert errors and errors[0][0] == "Module Error"
+        assert "(exit code 1)" in errors[0][1]
+        assert "Folder path does not exist: D:/gone" in errors[0][1]
 
     def test_progress_callback_fires_during_run(self, tmp_path):
         script = tmp_path / "tool.pyw"

@@ -37,6 +37,11 @@ Changed in 2.3.0: orders the duplicate scan and the declip pass in the dependenc
 
 Changed in 2.3.1 (U-03, released in 2.6.0): the five DSP tools REFINE absorbed
 lose their graph nodes, because the driver no longer schedules them.
+
+Changed in 2.4.3: a step's launch-failure record is cleared before the step
+starts, next to its run-outcome note, so a reason recorded by an earlier launch
+can never be shown against this one.  That is what lets the failure dialog
+quote the current reason (PLAN_2026-11-03_2.4.3_structure.md D-22).
 """
 
 from __future__ import annotations
@@ -52,6 +57,7 @@ from enum import Enum
 
 from audio_suite_shared.error_recovery import RetryConfig, retry_with_backoff
 from audio_suite_shared.exceptions import map_to_audio_error, user_message_for
+from audio_suite_shared.launch_failure import clear_launch_failure
 from audio_suite_shared.run_outcome import clear_outcome, read_outcome
 from audio_suite_shared.secure_subprocess import (
     SubprocessSecurityError,
@@ -699,6 +705,10 @@ class BatchOrchestrator:
             clear_outcome(step.tool_id)
         except ValueError:
             logger.warning("Unusable tool id for a run note: %r", step.tool_id)
+
+        # Likewise a reason from an earlier launch: only this step's refusal may
+        # explain this step's failure.
+        clear_launch_failure(step.script_path)
 
         def _run() -> bool:
             if step.manifest.standalone:

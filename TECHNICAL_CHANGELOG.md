@@ -10,6 +10,18 @@ heading that is absent here means that release carried no developer-facing
 change, which is why a release with none adds no heading rather than an empty
 one.
 
+
+- **A refused launch explains itself (D-22).** `audio_suite_shared.launch_failure`
+  now records why a launcher exited 1, keyed by the launcher's script name — the
+  one name the tool and the driver both hold, so no tool must learn a manifest
+  id. `parse_cli_args` captures the parse-time stderr, logs it beside the exit
+  code and records it; `BatchOrchestrator` clears the record before each step,
+  so a stale reason cannot explain a later failure; and
+  `module_runner._failure_message` quotes it under the exit code. Locks:
+  `tests/test_launch_failure.py`, `tests/test_launcher.py`
+  (`TestRefusedLaunchIsExplained`, which runs the real `library_stats` parser)
+  and `test_runner.py::TestRunModulesProgress`.
+
 ## [Unreleased]
 
 - **`library_stats` adopts the shell (WP-8 order #3).** `LibraryStatsApp` now
