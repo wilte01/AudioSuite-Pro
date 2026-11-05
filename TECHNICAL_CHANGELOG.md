@@ -24,6 +24,22 @@ one.
 
 ## [Unreleased]
 
+- **`file_processor_base` split into four modules (WP-9 #2).** The 1,132-line
+  module kept a 790-line class holding discovery, two executor loops, the
+  in-place DSP batch and the reporting helpers. Each group is now a mixin in its
+  own module — `file_discovery`, `parallel_pool`, `inplace_workflow`,
+  `reporting` — cut by AST line range with decorators included, so every method
+  body is byte-identical and no call site changed; `BaseFileProcessor` composes
+  the four and keeps `__init__`, `process_batch` and `run_analysis_workflow`
+  (314 lines). Each mixin declares the host attributes it reads, which is what
+  keeps bare `mypy .` strict-clean. Six test patch targets followed the code
+  (`cleanup_expired_resources` to `reporting`; `ProcessPoolExecutor`,
+  `as_completed`, `WORKER_TIMEOUT_SECS`, `retry_with_backoff` to
+  `parallel_pool`; `record_audio_overwrite_snapshot` and `get_active_batch_id`
+  to `inplace_workflow`; `os.scandir` to `file_discovery`), with no assertion
+  changed, and `tests/test_public_api_paths.py` now freezes the
+  `file_processor_base` facade too.
+
 - **`ui_common` split into four modules (WP-9 #1).** `audio_suite_shared.ui_common`
   (1,363 lines) now holds `BaseSetupFrame`, `AnalysisSetupFrame`,
   `cap_typed_workers` and `install_optional_dependency`; the Results/Processing

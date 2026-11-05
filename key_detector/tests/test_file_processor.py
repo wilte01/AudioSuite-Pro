@@ -1,3 +1,4 @@
+# Changed in 2.4.3: patch target follows the WP-9 split of file_processor_base.
 """
 tests/test_file_processor.py
 Regression tests for key_detector.core.file_processor.process_single_file.
@@ -650,7 +651,7 @@ class TestUndoBatchRecording:
             patch("librosa.load", return_value=(fake_audio, 22050)),
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
             patch("audio_suite_shared.file_processor_base.track_thread"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
             patch(
                 "audio_suite_shared.tag_helper_base.TagHandlerFactory", shared_factory
             ),
@@ -870,7 +871,7 @@ class TestRealFileUndoRoundTrip:
             ),
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
             patch("audio_suite_shared.file_processor_base.track_thread"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
         ):
             with active_batch("key_detector", "tag_edit", db_path=undo_db):
                 process_single_file(**args)

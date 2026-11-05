@@ -1,3 +1,4 @@
+# Changed in 2.4.3: patch target follows the WP-9 split of file_processor_base.
 """
 Pytest fixtures for audio_suite_shared testing.
 
@@ -67,7 +68,7 @@ def mock_processor() -> Generator[BaseFileProcessor, None, None]:
             "audio_suite_shared.file_processor_base.get_resource_manager"
         ) as mock_resource,
         patch("audio_suite_shared.file_processor_base.track_thread"),
-        patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+        patch("audio_suite_shared.reporting.cleanup_expired_resources"),
     ):
         mock_resource.return_value = MagicMock()
 

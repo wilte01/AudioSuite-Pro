@@ -1,3 +1,4 @@
+# Changed in 2.4.3: patch target follows the WP-9 split of file_processor_base.
 """
 Tests for BaseFileProcessor class.
 
@@ -103,7 +104,7 @@ class TestDiscoverAudioFiles:
     ) -> None:
         """Test discovery with permission denied raises AudioPermissionError."""
         with patch(
-            "audio_suite_shared.file_processor_base.os.scandir",
+            "audio_suite_shared.file_discovery.os.scandir",
             side_effect=PermissionError("Permission denied"),
         ):
             with pytest.raises(AudioSuiteError):
@@ -338,8 +339,8 @@ class TestPoolNeverExceedsTheSlotGrid:
 
         with (
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
-            patch("audio_suite_shared.file_processor_base.track_thread"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.parallel_pool.track_thread"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
         ):
             processor = BaseFileProcessor(max_workers=12, operation_type="test")
             processor.run_parallel_processing(
@@ -418,7 +419,7 @@ class TestRunWithRetry:
         assert calls == 1
 
 
-@patch("audio_suite_shared.file_processor_base.retry_with_backoff")
+@patch("audio_suite_shared.parallel_pool.retry_with_backoff")
 class TestRunWithRetryLazy:
     """run_with_retry must build a RetryConfig and delegate to the helper."""
 
@@ -489,8 +490,8 @@ class TestIntegrationScenarios:
 
         with (
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
-            patch("audio_suite_shared.file_processor_base.track_thread"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.parallel_pool.track_thread"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
         ):
             processor = BaseFileProcessor(max_workers=2, operation_type="test")
 
@@ -700,12 +701,12 @@ class TestRunCpuBoundProcessing:
 
         with (
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
             patch(
-                "audio_suite_shared.file_processor_base.ProcessPoolExecutor"
+                "audio_suite_shared.parallel_pool.ProcessPoolExecutor"
             ) as mock_exec_cls,
             patch(
-                "audio_suite_shared.file_processor_base.as_completed",
+                "audio_suite_shared.parallel_pool.as_completed",
                 side_effect=lambda futures: futures,
             ),
         ):
@@ -766,12 +767,12 @@ class TestRunCpuBoundProcessing:
 
         with (
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
             patch(
-                "audio_suite_shared.file_processor_base.ProcessPoolExecutor"
+                "audio_suite_shared.parallel_pool.ProcessPoolExecutor"
             ) as mock_exec_cls,
             patch(
-                "audio_suite_shared.file_processor_base.as_completed",
+                "audio_suite_shared.parallel_pool.as_completed",
                 side_effect=lambda futures: futures,
             ),
         ):
@@ -849,13 +850,9 @@ class TestRunCpuBoundProcessing:
 
         with (
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
-            patch(
-                "audio_suite_shared.file_processor_base.ProcessPoolExecutor"
-            ) as mock_exec,
-            patch(
-                "audio_suite_shared.file_processor_base.as_completed"
-            ) as mock_as_completed,
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
+            patch("audio_suite_shared.parallel_pool.ProcessPoolExecutor") as mock_exec,
+            patch("audio_suite_shared.parallel_pool.as_completed") as mock_as_completed,
         ):
             future = MagicMock()
             future.result.return_value = {"status": "ok", "value": 1}
@@ -884,7 +881,7 @@ class TestRunCpuBoundProcessing:
         """Empty directory must call on_error, not on_complete."""
         with (
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
         ):
             processor = BaseFileProcessor(
                 max_workers=2, operation_type="test", parallel_mode=True
@@ -912,12 +909,12 @@ class TestRunCpuBoundProcessing:
 
         with (
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
             patch(
-                "audio_suite_shared.file_processor_base.ProcessPoolExecutor"
+                "audio_suite_shared.parallel_pool.ProcessPoolExecutor"
             ) as mock_exec_cls,
             patch(
-                "audio_suite_shared.file_processor_base.as_completed",
+                "audio_suite_shared.parallel_pool.as_completed",
                 side_effect=lambda futures: futures,
             ),
         ):
@@ -964,12 +961,12 @@ class TestRunCpuBoundProcessing:
 
         with (
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
             patch(
-                "audio_suite_shared.file_processor_base.ProcessPoolExecutor"
+                "audio_suite_shared.parallel_pool.ProcessPoolExecutor"
             ) as mock_exec_cls,
             patch(
-                "audio_suite_shared.file_processor_base.as_completed",
+                "audio_suite_shared.parallel_pool.as_completed",
                 side_effect=lambda futures: futures,
             ),
         ):
@@ -1036,8 +1033,8 @@ class TestProcessBatch:
 
         with (
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
-            patch("audio_suite_shared.file_processor_base.track_thread"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.parallel_pool.track_thread"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
         ):
             processor = BaseFileProcessor(max_workers=2, operation_type="batch")
 
@@ -1059,8 +1056,8 @@ class TestProcessBatch:
 
         with (
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
-            patch("audio_suite_shared.file_processor_base.track_thread"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.parallel_pool.track_thread"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
         ):
             processor = BaseFileProcessor(max_workers=2, operation_type="batch")
 
@@ -1086,8 +1083,8 @@ class TestProcessBatch:
 
         with (
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
-            patch("audio_suite_shared.file_processor_base.track_thread"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.parallel_pool.track_thread"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
         ):
             processor = BaseFileProcessor(max_workers=2, operation_type="batch")
 
@@ -1122,8 +1119,8 @@ class TestProcessBatch:
 
         with (
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
-            patch("audio_suite_shared.file_processor_base.track_thread"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.parallel_pool.track_thread"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
             patch(
                 "audio_suite_shared.file_processor_base.ThreadPoolExecutor"
             ) as mock_exec_cls,
@@ -1293,7 +1290,7 @@ class TestProcessAudioFileInplace:
         digest = audio_file.read_bytes()
 
         with patch(
-            "audio_suite_shared.file_processor_base.record_audio_overwrite_snapshot"
+            "audio_suite_shared.inplace_workflow.record_audio_overwrite_snapshot"
         ) as snapshot:
             progress = self._process(inplace_processor, audio_file, _repairing_dsp)
 
@@ -1310,7 +1307,7 @@ class TestProcessAudioFileInplace:
         digest = audio_file.read_bytes()
 
         with patch(
-            "audio_suite_shared.file_processor_base.record_audio_overwrite_snapshot"
+            "audio_suite_shared.inplace_workflow.record_audio_overwrite_snapshot"
         ) as snapshot:
             progress = self._process(
                 inplace_processor, audio_file, _repairing_dsp, is_dry_run=True
@@ -1498,7 +1495,7 @@ class TestRunInplaceDspBatch:
         self, inplace_processor: BaseFileProcessor, tmp_path: Path
     ) -> None:
         with patch(
-            "audio_suite_shared.file_processor_base.os.scandir",
+            "audio_suite_shared.file_discovery.os.scandir",
             side_effect=OSError("permission denied"),
         ):
             _progress, complete, errors = self._run(
@@ -1546,7 +1543,7 @@ class TestRunInplaceDspBatch:
             return _clean_dsp(audio)
 
         with patch(
-            "audio_suite_shared.file_processor_base.record_audio_overwrite_snapshot"
+            "audio_suite_shared.inplace_workflow.record_audio_overwrite_snapshot"
         ) as snapshot:
             _progress, complete, errors = self._run(inplace_processor, tmp_path, _dsp)
 
@@ -1570,7 +1567,7 @@ class TestRunInplaceDspBatch:
             return _clean_dsp(audio)
 
         with patch(
-            "audio_suite_shared.file_processor_base.get_active_batch_id",
+            "audio_suite_shared.inplace_workflow.get_active_batch_id",
             return_value="batch-123",
         ):
             self._run(inplace_processor, tmp_path, _spy_dsp)
@@ -1885,7 +1882,7 @@ class TestInplaceWriteFailureSurfaces:
         with (
             patch.object(AudioSegment, "export", _failing_export),
             patch(
-                "audio_suite_shared.file_processor_base.record_audio_overwrite_snapshot"
+                "audio_suite_shared.inplace_workflow.record_audio_overwrite_snapshot"
             ),
         ):
             inplace_processor.run_inplace_dsp_batch(

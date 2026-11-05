@@ -1,3 +1,4 @@
+# Changed in 2.4.3: patch target follows the WP-9 split of file_processor_base.
 """
 Tests for tempo_analyzer.core.file_processor
 Gap G-33: process_single_file(), run_analysis(), TempoAnalyzerProcessor
@@ -381,7 +382,7 @@ class TestRunAnalysis:
             patch("tempo_analyzer.core.file_processor.write_tempo_marking"),
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
             patch("audio_suite_shared.file_processor_base.track_thread"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
         ):
             run_analysis(
                 dir_path=str(tmp_path),
@@ -481,7 +482,7 @@ class TestUndoBatchRecording:
             ),
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
             patch("audio_suite_shared.file_processor_base.track_thread"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
         ):
             with active_batch("tempo_analyzer", "tag_edit", db_path=undo_db):
                 run_analysis(
@@ -741,7 +742,7 @@ class TestRunAnalysisMultiFormat:
         with (
             patch("audio_suite_shared.file_processor_base.get_resource_manager"),
             patch("audio_suite_shared.file_processor_base.track_thread"),
-            patch("audio_suite_shared.file_processor_base.cleanup_expired_resources"),
+            patch("audio_suite_shared.reporting.cleanup_expired_resources"),
         ):
             run_analysis(
                 dir_path=str(tmp_path),

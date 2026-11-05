@@ -260,6 +260,22 @@ fails on any parser warning, so a malformed docstring cannot ship either.
 :members:
 ```
 
+```{automodule} audio_suite_shared.file_discovery
+:members:
+```
+
+```{automodule} audio_suite_shared.parallel_pool
+:members:
+```
+
+```{automodule} audio_suite_shared.inplace_workflow
+:members:
+```
+
+```{automodule} audio_suite_shared.reporting
+:members:
+```
+
 ```{automodule} audio_suite_shared.batch_undo
 :members:
 ```

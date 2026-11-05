@@ -1,3 +1,4 @@
+# Changed in 2.4.3: patch target follows the WP-9 split of file_processor_base.
 """Tests for I1 — Robustness items (audit M23).
 
 Covers the twelve sub-items:
@@ -101,7 +102,7 @@ class TestParallelProcessingTimeout:
         # Use a very short timeout so f.result() raises TimeoutError before
         # the slow worker finishes.  The ThreadPoolExecutor will still wait
         # for the worker on exit, so keep the sleep time reasonable.
-        with patch("audio_suite_shared.file_processor_base.WORKER_TIMEOUT_SECS", 0.05):
+        with patch("audio_suite_shared.parallel_pool.WORKER_TIMEOUT_SECS", 0.05):
             processor.run_parallel_processing(
                 str(d),
                 _slow_processor,
