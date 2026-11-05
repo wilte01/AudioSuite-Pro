@@ -12,6 +12,16 @@ one.
 
 ## [Unreleased]
 
+- **The suite publishes a per-package coverage table (WP-10 C-I9).** The
+  coverage verdict is a single number, so nothing said where the cold code was.
+  `utilities/coverage_table.py` reads the JSON report the suite already writes,
+  groups each file under its top-level package, sorts the coldest first, and
+  renders a Markdown table whose total row is summed from the groups; the
+  `test` job uploads it as the `coverage-table` artefact. It is not a gate - no
+  threshold, and it exits `2` only when a payload cannot produce a table, so a
+  missing or malformed report can never publish an empty table that reads like
+  a healthy one.
+
 - **The conversion re-export shim and two ignored `config_path` parameters are
   gone (WP-10 C-I7).** `audio_refinery/core/convert.py` re-exported
   `audio_suite_shared.audio_conversion` for backward compatibility, and

@@ -518,7 +518,8 @@ jobs:
         # complete red log is affordable again.
         run: |
           uv run python -m pytest --tb=short -q --maxfail=1 \
-            --cov --cov-report=term-missing --cov-fail-under=75
+            --cov --cov-report=term-missing \
+            --cov-report=json:coverage.json --cov-fail-under=75
       - name: Export the recorded CLI payloads
         # Changed in 1.4.1: added with PLAN D103. The recordings are the
         # contract a script author programs against, so publish them where they
@@ -540,6 +541,26 @@ jobs:
           path: cli-payloads/
           # An empty artifact would look like success while telling a script
           # author nothing; fail the job instead.
+          if-no-files-found: error
+      - name: Build the coverage table
+        # Changed in 2.4.3: added with WP-10 C-I9 (plan 2.4.3 D-35). The
+        # suite's verdict is one number, and one number cannot say where the
+        # cold code is; this renders the per-package split from the JSON report
+        # the step above already writes. It is an artefact, not a gate: the
+        # script has no threshold and fails only when no table can be produced.
+        # The step costs seconds, so the job's priced minutes are unchanged.
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          uv run python utilities/coverage_table.py \
+            --payload coverage.json --output coverage-table.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-table
+          path: coverage-table.md
+          # A table that was not produced must fail the job rather than report
+          # a green artifact upload of nothing.
           if-no-files-found: error
       - name: Build the documentation site
         # Changed in 2.1.0: added with PLAN_docs_consolidation P3.2. Until now
