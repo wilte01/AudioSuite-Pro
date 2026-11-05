@@ -104,6 +104,10 @@ CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.4.0: declares `utilities/release.py`'s pre-existing Windows-only
 `gh` discovery probe as Unverified, so the enumeration lock stays an exact
 bijection with the tree.
+
+Changed in 2.4.3: the three 'open the suite log file' rows now name
+``audio_suite_shared/ui_tabs.py``, where the WP-9 split moved that
+dispatch; the declaration stays a bijection with the code.
 """
 
 from __future__ import annotations
@@ -361,7 +365,7 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
         occurrences=2,
     ),
     PlatformBranch(
-        module="audio_suite_shared/ui_common.py",
+        module="audio_suite_shared/ui_tabs.py",
         source='if sys.platform == "win32":',
         tier=PORTABLE_CORE,
         subsystem="Open the suite log file",
@@ -372,7 +376,7 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
         evidence="audio_suite_shared/tests/test_ui_common.py",
     ),
     PlatformBranch(
-        module="audio_suite_shared/ui_common.py",
+        module="audio_suite_shared/ui_tabs.py",
         source="os.startfile(log_file)",
         tier=PORTABLE_CORE,
         subsystem="Open the suite log file",
@@ -380,7 +384,7 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
         evidence="audio_suite_shared/tests/test_ui_common.py",
     ),
     PlatformBranch(
-        module="audio_suite_shared/ui_common.py",
+        module="audio_suite_shared/ui_tabs.py",
         source='elif sys.platform == "darwin":',
         tier=PORTABLE_CORE,
         subsystem="Open the suite log file",

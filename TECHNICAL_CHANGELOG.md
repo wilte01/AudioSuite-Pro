@@ -24,6 +24,19 @@ one.
 
 ## [Unreleased]
 
+- **`ui_common` split into four modules (WP-9 #1).** `audio_suite_shared.ui_common`
+  (1,363 lines) now holds `BaseSetupFrame`, `AnalysisSetupFrame`,
+  `cap_typed_workers` and `install_optional_dependency`; the Results/Processing
+  tab builders moved to `ui_tabs`, the row builders to `ui_rows`, `show_message`
+  and its three section builders to `ui_dialogs`, and the preset helpers to
+  `ui_presets`. Every moved name is re-exported from `ui_common` in the
+  redundant-alias form, so the 200-odd existing importers are unchanged, and
+  `tests/test_public_api_paths.py` freezes the old paths and asserts each facade
+  name *is* the new module's object (a copy would drift). Three test patch
+  targets followed the code they patch (`ui_tabs.run_secure_subprocess`,
+  `ui_dialogs._log`); no assertion changed. API docs gained the four modules.
+
+
 - **`library_stats` adopts the shell (WP-8 order #3).** `LibraryStatsApp` now
   extends `SuiteApp`: the toolbar, status bar and hand-built four-tab notebook
   are gone, the shell supplies Help, Setup/Processing/Results and both callback

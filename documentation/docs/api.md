@@ -318,6 +318,22 @@ fails on any parser warning, so a malformed docstring cannot ship either.
 :members:
 ```
 
+```{automodule} audio_suite_shared.ui_tabs
+:members:
+```
+
+```{automodule} audio_suite_shared.ui_rows
+:members:
+```
+
+```{automodule} audio_suite_shared.ui_dialogs
+:members:
+```
+
+```{automodule} audio_suite_shared.ui_presets
+:members:
+```
+
 ```{automodule} audio_suite_shared.ui_helpers
 :members:
 ```

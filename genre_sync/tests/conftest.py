@@ -9,6 +9,10 @@ See PLAN_iteration5_remediation.md item A3: the private ``pytest_configure``
 that called ``pytest.skip()`` on ``tk.TclError`` raised ``INTERNALERROR``
 (pytest exit code 3) during ``config._do_configure()``, which takes down the
 whole session on a headless host — not just genre_sync.
+
+Changed in 2.4.3: the fixture also patches ``audio_suite_shared.ui_tabs``,
+because the WP-9 split moved the Results/Processing tab builders there and
+patching ``ui_common.tk`` alone no longer reached the widgets they build.
 """
 
 from unittest.mock import MagicMock, patch
@@ -60,6 +64,7 @@ def mock_tk_app():
     # The cascade: genre_sync.app -> genre_sync.ui.processing_tab ->
     # audio_suite_shared.ui_common (imported by processing_tab)
     import audio_suite_shared.ui_common
+    import audio_suite_shared.ui_tabs
     import genre_sync.app
     import genre_sync.ui.processing_tab
     import genre_sync.ui.results_tab
@@ -71,6 +76,7 @@ def mock_tk_app():
         genre_sync.ui.setup_tab,
         genre_sync.ui.results_tab,
         genre_sync.ui.processing_tab,
+        audio_suite_shared.ui_tabs,
         audio_suite_shared.ui_common,
     ]
     saved = {}

@@ -24,6 +24,11 @@ Covers:
 Changed in 1.4.0: adds the `cap_typed_workers` coverage (D66).
 Changed in 2.1.0: covers `install_optional_dependency` — consent, the install
 running off the Tk thread, and a run only resuming once the install verified.
+
+Changed in 2.4.3: three patch targets follow the code they patch —
+``ui_tabs.run_secure_subprocess`` for the log opener and
+``ui_dialogs._log`` for ``show_message`` — after the WP-9 split. No
+assertion changed.
 """
 
 from __future__ import annotations
@@ -91,7 +96,7 @@ class TestDefaultOpenLog:
         with (
             patch("os.path.exists", return_value=True),
             patch.object(sys, "platform", "darwin"),
-            patch("audio_suite_shared.ui_common.run_secure_subprocess") as mock_run,
+            patch("audio_suite_shared.ui_tabs.run_secure_subprocess") as mock_run,
         ):
             _default_open_log()
             mock_run.assert_called_once()
@@ -104,7 +109,7 @@ class TestDefaultOpenLog:
         with (
             patch("os.path.exists", return_value=True),
             patch.object(sys, "platform", "linux"),
-            patch("audio_suite_shared.ui_common.run_secure_subprocess") as mock_run,
+            patch("audio_suite_shared.ui_tabs.run_secure_subprocess") as mock_run,
         ):
             _default_open_log()
             mock_run.assert_called_once()
@@ -518,7 +523,7 @@ class TestShowMessage:
         with (
             patch("threading.current_thread", return_value=dummy_current),
             patch("threading.main_thread", return_value=dummy_main),
-            patch("audio_suite_shared.ui_common._log") as mock_log,
+            patch("audio_suite_shared.ui_dialogs._log") as mock_log,
         ):
             setup_tk.after(200, self._close_all_toplevels, setup_tk)
             show_message(setup_tk, "Thread Warn", "Called from wrong thread")
