@@ -152,7 +152,7 @@ class TestTheMarkerShips:
         assert "py.typed" in package_data["audio_suite_shared"]
 
 
-class TestTheMarkerShipsInABuiltWheel:
+class TestTheShippedFilesAreInABuiltWheel:
     """A package-data entry is a claim about a wheel, so build one.
 
     The build runs against a staging copy, never the checkout: ``setuptools``
@@ -160,16 +160,25 @@ class TestTheMarkerShipsInABuiltWheel:
     measures the tree must not leave its own output in it.
     """
 
-    def test_the_wheel_contains_the_marker(self, tmp_path: Path) -> None:
+    def test_the_wheel_contains_the_package_data_files(self, tmp_path: Path) -> None:
         pytest.importorskip("setuptools")
         wheel = _build_wheel(tmp_path)
         with zipfile.ZipFile(wheel) as archive:
             names = archive.namelist()
-            # The positive control: without this the marker assertion could
+            # The positive control: without this the data assertions could
             # pass on a wheel that carries nothing at all.
             assert "audio_suite_shared/__init__.py" in names, names
             assert "audio_suite_shared/py.typed" in names, names
             assert archive.getinfo("audio_suite_shared/py.typed").file_size == 0
+            # `--json-schema` prints this document, so the wheel must carry
+            # the same bytes the checkout does. Unlike `py.typed`, setuptools
+            # does not copy a .json automatically: this is the assertion the
+            # package-data entry actually protects.
+            schema = "audio_suite_shared/cli_schema.json"
+            assert schema in names, names
+            assert (
+                archive.read(schema) == (PACKAGE_DIR / "cli_schema.json").read_bytes()
+            )
 
 
 class TestTheConsumerIsCheckedByTheGate:

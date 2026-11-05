@@ -14,9 +14,10 @@ one.
 
 - **`audio_suite_shared` ships a PEP 561 marker (WP-10 C-I6).** `py.typed` is
   declared in `[tool.setuptools.package-data]`, and `tests/test_py_typed.py`
-  builds a wheel from a staging copy of the packaging inputs and asserts the
-  file is inside it, so a wheel install no longer looks like an untyped
-  package that a downstream checker skips and treats as `Any`. The
+  builds a wheel from a staging copy of the packaging inputs, asserts the file
+  is inside it, and reads the shipped `cli_schema.json` back out byte for byte,
+  so a wheel install no longer looks like an untyped package that a downstream
+  checker skips and treats as `Any`. The
   declaration states intent rather than mechanism: setuptools already copies
   `py.typed` on its own (measured - a build with the entry removed still
   carried it), and the build test is what fails if the marker stops shipping.
