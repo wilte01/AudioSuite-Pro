@@ -12,6 +12,20 @@ one.
 
 ## [Unreleased]
 
+- **`library_stats` adopts the shell (WP-8 order #3).** `LibraryStatsApp` now
+  extends `SuiteApp`: the toolbar, status bar and hand-built four-tab notebook
+  are gone, the shell supplies Help, Setup/Processing/Results and both callback
+  tails, and the dashboard's four tabs arrive through a `_tab_specs` override
+  (the shell documents that extension point). The Cache checkbox and Refresh
+  button folded into the strip's Mode — Incremental / Full / Direct — because
+  they were two controls for one decision; `_use_cache` and `_refresh_cache` are
+  derived from it, and `--incremental`/`--refresh` seed it. The scan worker now
+  posts `(kind, payload)` on a `queue.SimpleQueue` drained by a Tk-thread poller
+  instead of calling `root.after` from the worker (the AGENTS.md D136 class), and
+  a finished scan writes `library_stats_scan_log.txt` through
+  `_begin_run`/`_write_run_log`. The contract test is parametrised over three
+  adopters and asserts each one's completed run leaves a report on disk.
+
 - **One implementation of the "no log yet" branch, and the checklist names it.**
   `mood_analysis_batch_tagger` kept its own copy of the View Log branch (its own
   dialog title, its own wording) beside `ui_helpers.open_log_file`, so the one

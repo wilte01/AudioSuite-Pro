@@ -27,6 +27,12 @@ checkbox through (functional backlog F-05/F-06).
 Changed in 1.4.0: the scan and export fixtures patch the tag-handler factory,
 so the real single-pass ``_read_file_tags`` read stays in the loop, and a
 load-count test locks the one-load-per-file contract (PLAN D55).
+
+Changed in 2.4.3: the window runs on the shared shell (WP-8 order #3), so the
+scan tests drive ``_scan_thread`` + ``_poll_events`` (the worker posts its
+result; it never calls ``root.after``), the tab list is the shell's three plus
+the dashboard's four, and a finished scan is asserted to leave the run report
+View Log opens on disk.
 """
 
 from __future__ import annotations
@@ -247,14 +253,23 @@ class TestInitialState:
         assert app._scanning is False
         assert app._use_cache.get() is True
         assert str(app.root.title()) == "Library Statistics Dashboard"
-        tabs = [app._notebook.tab(i, "text") for i in range(4)]
-        assert tabs == ["Summary", "Charts", "Missing Data", "Completeness"]
+        labels = [
+            app._notebook.tab(i, "text") for i in range(len(app._notebook.tabs()))
+        ]
+        assert labels == list(app_module.LibraryStatsApp.tab_labels)
+        assert labels[3:] == [
+            " 4. Summary ",
+            " 5. Charts ",
+            " 6. Missing Data ",
+            " 7. Completeness ",
+        ]
         # Stat cards render the placeholder until the first scan.
         assert app._summary_labels["total_files"].cget("text") == "\u2014"
         assert str(app._export_btn.cget("state")) == "disabled"
         assert str(app._comp_csv_btn.cget("state")) == "disabled"
         assert str(app._comp_json_btn.cget("state")) == "disabled"
-        assert app._status_var.get().startswith("Ready.")
+        # The Processing tab's status line is the status the tool writes to.
+        assert app._status_var is app.overall_status
 
     def test_preset_folder_schedules_auto_scan(
         self,
@@ -353,35 +368,36 @@ class TestScanFlow:
         scan_reads: None,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        after = _patch_after(app, monkeypatch)
         fake_threading = MagicMock()
         monkeypatch.setattr(app_module, "threading", fake_threading)
         app.folder_path.set(str(library))
-        app._use_cache.set(False)
+        app.run_mode.set(app_module.DIRECT_SCAN)
 
         app._start_scan(refresh=False)
 
         assert app._scanning is True
         assert str(app._scan_btn.cget("state")) == "disabled"
         assert app._status_var.get().startswith("Scanning...")
+        assert app._use_cache.get() is False, "Direct Scan must skip the cache"
         thread = fake_threading.Thread
-        assert_bound(thread.call_args.kwargs["target"], "_do_scan", app)
+        assert_bound(thread.call_args.kwargs["target"], "_scan_thread", app)
         thread.return_value.start.assert_called_once()
 
-        # Run the worker directly (no mainloop): this is the real engine.
-        app._do_scan(str(library), refresh=False)
+        # The worker posts its result; only the poller touches a widget.
+        app._scan_thread(str(library), refresh=False)
+        assert app._report is None, "the worker must not write the dashboard"
+        app._poll_events()
 
-        assert app.root.after.call_args is not None
-        assert_bound(app.root.after.call_args.args[1], "_on_scan_complete", app)
-        report, completeness = app.root.after.call_args.args[2:]
-        assert report.total_files == 2
-
-        app._on_scan_complete(report, completeness)
-
-        assert app._report is report
+        report = app._report
+        assert report is not None and report.total_files == 2
         assert app._scanning is False
         assert str(app._export_btn.cget("state")) == "normal"
-        del after
+        # A finished scan leaves the report View Log opens, beside the library.
+        written = (library / app_module.REPORT_NAME).read_text(encoding="utf-8")
+        assert written.startswith("LIBRARY STATISTICS REPORT\n")
+        assert "Mode: DIRECT SCAN\n" in written
+        assert "SUMMARY:" in written
+        assert "Total files: 2\n" in written
         assert app._summary_labels["total_files"].cget("text") == "2"
         assert ".mp3" in app._fmt_text.get("1.0", "end")
         assert "Minor" in app._km_text.get("1.0", "end")  # "Cm" classified
@@ -389,7 +405,8 @@ class TestScanFlow:
         assert "Missing BPM" in app._missing_text.get("1.0", "end")
         assert app._status_var.get().startswith("Scanned 2 files")
         # The real completeness analysis ran over the same library.
-        assert completeness.total_files == 2
+        completeness = app._completeness_report
+        assert completeness is not None and completeness.total_files == 2
         assert app._comp_overall_var.get().startswith("Overall")
 
     def test_scan_records_one_trend_snapshot(
@@ -401,22 +418,19 @@ class TestScanFlow:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """The dashboard writes one trend point per distinct scan (D41)."""
-        _patch_after(app, monkeypatch)
         monkeypatch.setattr(app_module, "threading", MagicMock())
         app.folder_path.set(str(library))
 
-        app._do_scan(str(library), refresh=False)
-        report, completeness = app.root.after.call_args.args[2:]
-        app._on_scan_complete(report, completeness)
+        app._scan_thread(str(library), refresh=False)
+        app._poll_events()
 
         history = isolated_cache.completeness_history(str(library))
         assert len(history) == 1
         assert history[0]["total_files"] == 2
 
         # Re-scanning unchanged content must not pad the trend series.
-        app._do_scan(str(library), refresh=False)
-        report2, completeness2 = app.root.after.call_args.args[2:]
-        app._on_scan_complete(report2, completeness2)
+        app._scan_thread(str(library), refresh=False)
+        app._poll_events()
         assert len(isolated_cache.completeness_history(str(library))) == 1
 
     def test_uses_cache_when_enabled(
@@ -427,20 +441,15 @@ class TestScanFlow:
         isolated_cache: LibraryCache,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        after = _patch_after(app, monkeypatch)
         # The worker thread is not what this test is about, and a real thread
-        # calling ``root.after`` races the Tk interpreter ("main thread is not
-        # in main loop"); the scan itself runs below, on the main thread.
+        # racing the Tk interpreter is not a scenario the suite controls; the
+        # scan itself runs below, on this thread, and the poller applies it.
         monkeypatch.setattr(app_module, "threading", MagicMock())
         app.folder_path.set(str(library))
 
         app._start_scan(refresh=False)
-        app._do_scan(str(library), refresh=False)
-        assert after.call_args is not None
-
-        assert app.root.after.call_args is not None
-        report, completeness = app.root.after.call_args.args[2:]
-        app._on_scan_complete(report, completeness)
+        app._scan_thread(str(library), refresh=False)
+        app._poll_events()
 
         cached_rows = app._cache.row_count(str(library))
         assert cached_rows == 2, "the real cache backend must store both files"
@@ -454,35 +463,29 @@ class TestScanFlow:
         isolated_cache: LibraryCache,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        after = _patch_after(app, monkeypatch)
         fake_threading = MagicMock()
         monkeypatch.setattr(app_module, "threading", fake_threading)
         app.folder_path.set(str(library))
 
         # Seed the cache with a normal scan, then force a full refresh.
         app._start_scan(refresh=False)
-        app._do_scan(str(library), refresh=False)
-        assert after.call_args is not None
-        report, completeness = after.call_args.args[2:]
-        app._on_scan_complete(report, completeness)
+        app._scan_thread(str(library), refresh=False)
+        app._poll_events()
         cached_rows = app._cache.row_count(str(library))
         assert cached_rows == 2
         assert app._status_var.get().startswith("Scanned 2 files")
 
         app._start_refresh()
 
-        # The refresh flag reaches the worker thread, not the completion
-        # callback, so it is asserted where it is actually propagated.
-        assert app._status_var.get() == "Scanning... (full refresh)"
+        # Refresh is the Full Scan mode: one decision, carried by the strip.
+        assert app.run_mode.get() == app_module.FULL_SCAN
+        assert app._refresh_cache.get() is True
+        assert app._status_var.get() == "Scanning... (full scan)"
         thread_args = fake_threading.Thread.call_args.kwargs["args"]
         assert thread_args == (str(library), True), thread_args
 
-        app._do_scan(str(library), refresh=True)
-        refresh_complete = after.call_args
-        assert refresh_complete is not None
-        assert_bound(refresh_complete.args[1], "_on_scan_complete", app)
-        report_refresh, completeness_refresh = refresh_complete.args[2:]
-        app._on_scan_complete(report_refresh, completeness_refresh)
+        app._scan_thread(str(library), refresh=True)
+        app._poll_events()
         assert app._status_var.get().startswith("Scanned 2 files")
 
     def test_scan_error_resets_ui(
@@ -495,8 +498,11 @@ class TestScanFlow:
         messagebox, _ = stubbed_dialogs
         show_error = MagicMock()
         monkeypatch.setattr(app_module, "show_error_from_exception", show_error)
-        after = _patch_after(app, monkeypatch)
+        _patch_after(app, monkeypatch)
         fake_threading = MagicMock()
+        # The worker has already finished: the poller must not re-arm, so the
+        # single queue drain below is the only thing that can report the error.
+        fake_threading.Thread.return_value.is_alive.return_value = False
         monkeypatch.setattr(app_module, "threading", fake_threading)
         app.folder_path.set(str(library))
 
@@ -508,17 +514,11 @@ class TestScanFlow:
         monkeypatch.setattr(app_module, "scan_directory", _raise)
 
         app._start_scan(refresh=False)
-        app._do_scan(str(library), refresh=False)
+        app._scan_thread(str(library), refresh=False)
+        assert app._scanning is True, "the worker posts; the poller applies"
 
-        error_call = after.call_args
-        assert error_call is not None
-        assert_bound(error_call.args[1], "_on_scan_error", app)
-        exc = error_call.args[2]
-        assert isinstance(exc, AudioSuiteError)
-        assert app._scanning is True, "the callback is scheduled, not executed"
-
-        # The main thread then runs the scheduled callback (no mainloop here).
-        app._on_scan_error(exc)
+        # The Tk thread drains the queue and resets the window.
+        app._poll_events()
 
         assert app._scanning is False
         assert str(app._scan_btn.cget("state")) == "normal"
@@ -835,8 +835,8 @@ class TestCompletenessRendering:
         heatmap_axes = app._comp_heatmap_canvas.figure.axes[0]
         assert len(heatmap_axes.images) == 1
         assert len(heatmap_axes.get_yticks()) == len(completeness.album_results)
-        # Still four tabs: the heatmap must not have widened the layout.
-        assert len(app._notebook.tabs()) == 4
+        # Still seven tabs: the heatmap must not have widened the layout.
+        assert len(app._notebook.tabs()) == 7
 
     def test_heatmap_replaces_the_previous_canvas(
         self,

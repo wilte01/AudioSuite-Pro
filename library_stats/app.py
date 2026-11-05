@@ -5,6 +5,18 @@ Opens a tkinter window with matplotlib charts showing library statistics
 derived from existing audio tags.  All data is read-only — no analysis or
 tag writing is performed.
 
+The window is built by ``audio_suite_shared.suite_app.SuiteApp``: the Help bar,
+the notebook and the Processing and Results tabs come from the shell.  This
+module supplies the Setup tab (run-controls strip, scan and export actions), the
+four dashboard tabs the tool has always shown (Summary, Charts, Missing Data,
+Completeness) and the scan itself.
+
+Mode replaces the old Cache checkbox and Refresh button, because they were two
+controls for one decision: ``Incremental Scan`` reuses the cache (the default),
+``Full Scan`` rebuilds it, and ``Direct Scan`` reads the library without the
+cache at all.  The Master Driver's ``--incremental``/``--refresh`` flags seed
+the mode.
+
 Changed in 1.3.0: figure building moved to the Tk-free ``library_stats.ui.charts``
 (so the charts are testable without a window), the Completeness tab embeds the
 missing-tags-by-album heatmap, and the Charts tab gains a completeness trend fed
@@ -18,22 +30,36 @@ adds the harmonic-mixing key column to the CSV/HTML exports (functional
 backlog F-05/F-06).
 Changed in 2.3.1: the widget's text colours follow the suite theme instead of
 Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
+
+Changed in 2.4.3: adopts ``SuiteApp`` (PLAN_2026-11-03_2.4.3_structure.md WP-8
+order #3).  The old one-pane window — a toolbar, a status bar and a four-tab
+notebook it built itself — becomes the shell's Setup, Processing and Results
+tabs plus the four dashboard tabs as extra tabs; Cache and Refresh fold into the
+run-controls Mode; the worker hands its result to the Tk thread through a
+``SimpleQueue`` instead of calling ``root.after`` from the scan thread; and every
+scan writes ``<scanned folder>/library_stats_scan_log.txt``, the report View Log
+opens, with the suite's header/SUMMARY shape.
 """
 
 from __future__ import annotations
 
+import logging
 import os
+import queue
 import sqlite3
 import threading
+import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from audio_suite_shared import styles, suite_config
-from audio_suite_shared.app_bootstrap import bootstrap_tool_app
-from audio_suite_shared.exceptions import AudioSuiteError, handle_audio_errors
+from audio_suite_shared.cli_helpers import was_launched_from_driver
+from audio_suite_shared.exceptions import AudioSuiteError
 from audio_suite_shared.launcher import parse_cli_args
-from audio_suite_shared.ui_helpers import UIHelperMixin, show_error_from_exception
+from audio_suite_shared.suite_app import SuiteApp
+from audio_suite_shared.ui_driver_controls import DriverControlsPanel
+from audio_suite_shared.ui_helpers import show_error_from_exception
 from library_stats.core.completeness import (
     CompletenessReport,
     TagCompleteness,
@@ -68,11 +94,35 @@ try:
 except ImportError:
     HAVE_MPL = False
 
+logger = logging.getLogger(__name__)
 
-class LibraryStatsApp(UIHelperMixin):
+#: The scan modes the run-controls strip offers, in strip order.
+INCREMENTAL_SCAN = "Incremental Scan"
+FULL_SCAN = "Full Scan"
+DIRECT_SCAN = "Direct Scan"
+SCAN_MODES = (INCREMENTAL_SCAN, FULL_SCAN, DIRECT_SCAN)
+
+#: The run report's file name, written into the scanned folder.
+REPORT_NAME = "library_stats_scan_log.txt"
+
+
+class LibraryStatsApp(SuiteApp):
     """Library Statistics Dashboard GUI."""
 
-    HELP_GUIDE = "Library_Stats_User_Guide.docx"
+    title = "Library Statistics Dashboard"
+    window_key = "library_stats_window"
+    program_name = "library_stats"
+    guide_name = "Library_Stats_User_Guide.docx"
+    completion_text = "Library Scan Complete!"
+    tab_labels = (
+        " 1. Setup ",
+        " 2. Processing ",
+        " 3. Results ",
+        " 4. Summary ",
+        " 5. Charts ",
+        " 6. Missing Data ",
+        " 7. Completeness ",
+    )
 
     def __init__(
         self,
@@ -84,26 +134,34 @@ class LibraryStatsApp(UIHelperMixin):
         export_csv: str = "",
         export_json: str = "",
     ) -> None:
-        self.root = root
-        self.error_logger, _ = bootstrap_tool_app(
-            self.root,
-            "Library Statistics Dashboard",
-            "library_stats_window",
-            "library_stats",
-            width=1100,
-            height=780,
-        )
-
         self.folder_path = tk.StringVar(value=suite_config.load_last_directory())
+        self.run_mode = tk.StringVar(value=INCREMENTAL_SCAN)
+        self._use_cache = tk.BooleanVar(value=True)
+        self._refresh_cache = tk.BooleanVar(value=False)
+        self.auto_start_var = tk.BooleanVar(value=False)
+        self.auto_end_var = tk.BooleanVar(value=False)
+        self.clear_logs_var = tk.BooleanVar(value=False)
+        self.parallel_var = tk.BooleanVar(value=False)
+        self.run_mode.trace_add("write", self._on_mode_changed)
+
         self._report: StatsReport | None = None
         self._completeness_report: CompletenessReport | None = None
         self._scanning = False
-        self._use_cache = tk.BooleanVar(value=True)
         self._cache: LibraryCache = LibraryCache()
+        self._launched_from_driver = was_launched_from_driver()
 
         self._cli_refresh = False
         self._cli_export_csv = ""
         self._cli_export_json = ""
+
+        self.controls_panel: DriverControlsPanel | None = None
+        self._events: queue.SimpleQueue[tuple[str, Any]] = queue.SimpleQueue()
+        self._thread: threading.Thread | None = None
+        self._poll_id: str = ""
+        self._closing = False
+        self._run_started = 0.0
+        self._run_source = ""
+        self._log_entries: list[str] = []
 
         self._apply_cli_args(
             directory=directory,
@@ -112,7 +170,19 @@ class LibraryStatsApp(UIHelperMixin):
             export_csv=export_csv,
             export_json=export_json,
         )
-        self._build_ui()
+
+        # Build the shared shell (Help bar, notebook, Processing, Results).
+        super().__init__(root)
+        # Names the pre-migration tests and this class's own code already use.
+        self._notebook: ttk.Notebook = self.notebook
+        self._status_var: tk.StringVar = self.overall_status
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        if self.folder_path.get():
+            if self._refresh_cache.get():
+                self.root.after(500, self._start_refresh)
+            else:
+                self.root.after(500, self._start_scan)
 
     def _apply_cli_args(
         self,
@@ -125,8 +195,8 @@ class LibraryStatsApp(UIHelperMixin):
     ) -> None:
         """Pre-fill application state from the Master Driver / CLI arguments.
 
-        Must run before ``_build_ui`` so that the auto-scan at the end of
-        ``_build_ui`` sees the correct folder path, cache mode, and refresh
+        Must run before the shell builds the tabs so that the auto-scan at the
+        end of ``__init__`` sees the correct folder path, scan mode and refresh
         flag.
 
         Args:
@@ -138,48 +208,69 @@ class LibraryStatsApp(UIHelperMixin):
         """
         if directory:
             self.folder_path.set(directory)
-        if incremental:
-            self._use_cache.set(True)
+        if refresh:
+            self.run_mode.set(FULL_SCAN)
+        elif incremental:
+            self.run_mode.set(INCREMENTAL_SCAN)
         self._cli_refresh = refresh
         self._cli_export_csv = export_csv
         self._cli_export_json = export_json
 
-    def _build_ui(self) -> None:
-        self.root.title("Library Statistics Dashboard")
+    # ── Shell wiring ──────────────────────────────────────────────────────────
 
-        top = tk.Frame(self.root, bg=styles.BG_APP, padx=20, pady=10)
-        top.pack(fill="x")
+    def _tab_specs(self) -> tuple[tuple[str, Any], ...]:
+        """Build Setup, the shell's two tabs, then the dashboard's own four."""
+        return (
+            (self.tab_labels[0], self._build_setup_tab),
+            (self.tab_labels[1], self._build_processing_tab),
+            (self.tab_labels[2], self._build_results_tab),
+            (self.tab_labels[3], self._build_summary_tab),
+            (self.tab_labels[4], self._build_charts_tab),
+            (self.tab_labels[5], self._build_missing_tab),
+            (self.tab_labels[6], self._build_completeness_tab),
+        )
+
+    def _on_mode_changed(self, *_args: str) -> None:
+        """Derive the cache flags from the strip's Mode (the only control)."""
+        mode = self.run_mode.get()
+        self._use_cache.set(mode != DIRECT_SCAN)
+        self._refresh_cache.set(mode == FULL_SCAN)
+
+    # ── Setup tab ─────────────────────────────────────────────────────────────
+
+    def _build_setup_tab(self, parent: tk.Frame) -> None:
+        """Emit the folder picker, the actions and the export options."""
+        frame = tk.Frame(parent, padx=30, pady=20, bg=styles.BG_WHITE)
+        frame.pack(expand=True, fill="both")
 
         tk.Label(
-            top,
-            text="Music Folder:",
-            font=styles.FONT_LABEL,
-            bg=styles.BG_APP,
+            frame,
+            text=self.title,
+            font=styles.FONT_TITLE,
             fg=styles.FG_MAIN,
-        ).pack(side=tk.LEFT, padx=(0, 10))
-
-        tk.Entry(
-            top,
-            textvariable=self.folder_path,
-            font=styles.FONT_BODY,
             bg=styles.BG_WHITE,
-            fg=styles.FG_MAIN,
-            insertbackground=styles.FG_MAIN,
-        ).pack(side=tk.LEFT, fill="x", expand=True, padx=(0, 10))
+        ).pack(pady=(0, 20))
 
-        tk.Button(
-            top,
-            text="Browse",
-            command=self._browse,
-            font=styles.FONT_BUTTON,
-            bg=styles.get_main(),
-            fg="white",
-            relief="flat",
-            padx=10,
-        ).pack(side=tk.LEFT, padx=(0, 5))
+        panel = DriverControlsPanel(
+            frame,
+            source_var=self.folder_path,
+            mode_var=self.run_mode,
+            auto_start_var=self.auto_start_var,
+            auto_end_var=self.auto_end_var,
+            clear_logs_var=self.clear_logs_var,
+            parallel_var=self.parallel_var,
+            on_browse=self._browse,
+            modes=SCAN_MODES,
+        )
+        panel.pack(fill="x", pady=(0, 15))
+        panel.set_driven(self._launched_from_driver)
+        self.controls_panel = panel
+
+        actions = tk.Frame(frame, bg=styles.BG_WHITE)
+        actions.pack(fill="x", pady=(0, 10))
 
         self._scan_btn = tk.Button(
-            top,
+            actions,
             text="Scan Library",
             command=self._start_scan,
             font=styles.FONT_BUTTON,
@@ -188,23 +279,12 @@ class LibraryStatsApp(UIHelperMixin):
             relief="flat",
             padx=10,
         )
-        self._scan_btn.pack(side=tk.LEFT)
+        self._scan_btn.pack(side=tk.LEFT, padx=(0, 5))
 
-        self._cache_cb = tk.Checkbutton(
-            top,
-            text="Cache",
-            variable=self._use_cache,
-            font=styles.FONT_CAPTION,
-            bg=styles.BG_APP,
-            fg=styles.FG_MAIN,
-            selectcolor=styles.BG_WHITE,
-            activeforeground=styles.FG_MAIN,
-            activebackground=styles.BG_APP,
-        )
-        self._cache_cb.pack(side=tk.LEFT, padx=(5, 0))
-
+        # Kept as a one-click shortcut for the Full Scan mode; it is the same
+        # decision, so it routes through the mode rather than a second flag.
         self._refresh_btn = tk.Button(
-            top,
+            actions,
             text="Refresh",
             command=self._start_refresh,
             font=styles.FONT_BUTTON,
@@ -213,10 +293,10 @@ class LibraryStatsApp(UIHelperMixin):
             relief="flat",
             padx=10,
         )
-        self._refresh_btn.pack(side=tk.LEFT, padx=(5, 0))
+        self._refresh_btn.pack(side=tk.LEFT, padx=(0, 5))
 
         self._export_btn = tk.Button(
-            top,
+            actions,
             text="Export",
             command=self._export,
             font=styles.FONT_BUTTON,
@@ -234,64 +314,34 @@ class LibraryStatsApp(UIHelperMixin):
         # than a silent default: the column only appears when ticked.
         self._camelot_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
-            top,
+            actions,
             text="Camelot column",
             variable=self._camelot_var,
             font=styles.FONT_CAPTION,
-            bg=styles.BG_APP,
+            bg=styles.BG_WHITE,
             fg=styles.FG_MAIN,
-            activebackground=styles.BG_APP,
+            activebackground=styles.BG_WHITE,
             selectcolor=styles.BG_WHITE,
             activeforeground=styles.FG_MAIN,
         ).pack(side=tk.LEFT, padx=(10, 0))
 
-        # ── Status bar ───────────────────────────────────────────────────────
-        self._status_var = tk.StringVar(
-            value="Ready. Select a folder and click Scan Library."
-        )
-        status = tk.Label(
-            self.root,
-            textvariable=self._status_var,
+        tk.Label(
+            frame,
+            text=(
+                "Read-only: the scan reads existing tags and writes no audio or "
+                "tag data. Each scan writes its report beside the scanned folder."
+            ),
             font=styles.FONT_CAPTION,
-            bg=styles.BG_LIGHT,
             fg=styles.FG_SUB,
-            anchor="w",
-            padx=20,
-            pady=4,
-        )
-        status.pack(fill="x")
-
-        # ── Notebook for results ─────────────────────────────────────────────
-        self._notebook = ttk.Notebook(self.root)
-        self._notebook.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-
-        self._summary_frame = tk.Frame(self._notebook, bg=styles.BG_WHITE)
-        self._charts_frame = tk.Frame(self._notebook, bg=styles.BG_WHITE)
-        self._missing_frame = tk.Frame(self._notebook, bg=styles.BG_WHITE)
-        self._completeness_frame = tk.Frame(self._notebook, bg=styles.BG_WHITE)
-
-        self._notebook.add(self._summary_frame, text="Summary")
-        self._notebook.add(self._charts_frame, text="Charts")
-        self._notebook.add(self._missing_frame, text="Missing Data")
-        self._notebook.add(self._completeness_frame, text="Completeness")
-
-        self._build_summary_tab()
-        self._build_missing_tab()
-        self._build_completeness_tab()
-
-        self._chart_canvas: FigureCanvasTkAgg | None = None
-
-        # Auto-scan if directory already set
-        if self.folder_path.get():
-            if self._cli_refresh:
-                self.root.after(500, self._start_refresh)
-            else:
-                self.root.after(500, self._start_scan)
+            bg=styles.BG_WHITE,
+            wraplength=760,
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=(10, 0))
 
     # ── Summary tab ──────────────────────────────────────────────────────────
 
-    def _build_summary_tab(self) -> None:
-        sf = self._summary_frame
+    def _build_summary_tab(self, parent: tk.Frame) -> None:
+        sf = self._summary_frame = parent
         sf.grid_columnconfigure(0, weight=1, uniform="col")
         sf.grid_columnconfigure(1, weight=1, uniform="col")
         sf.grid_columnconfigure(2, weight=3, uniform="col")
@@ -404,10 +454,26 @@ class LibraryStatsApp(UIHelperMixin):
         lbl.pack(fill="x")
         self._summary_labels[key] = lbl
 
+    # ── Charts tab ───────────────────────────────────────────────────────────
+
+    def _build_charts_tab(self, parent: tk.Frame) -> None:
+        self._charts_frame = parent
+        self._chart_canvas: FigureCanvasTkAgg | None = None
+        if not HAVE_MPL:
+            tk.Label(
+                parent,
+                text=(
+                    "matplotlib not installed.\nInstall with: pip install matplotlib"
+                ),
+                font=styles.FONT_BODY,
+                bg=styles.BG_WHITE,
+                fg=styles.FG_SUB,
+            ).pack(expand=True)
+
     # ── Missing data tab ────────────────────────────────────────────────────
 
-    def _build_missing_tab(self) -> None:
-        mf = self._missing_frame
+    def _build_missing_tab(self, parent: tk.Frame) -> None:
+        mf = self._missing_frame = parent
         tk.Label(
             mf,
             text="Files Missing Tags",
@@ -431,8 +497,8 @@ class LibraryStatsApp(UIHelperMixin):
 
     # ── Completeness tab ────────────────────────────────────────────────────
 
-    def _build_completeness_tab(self) -> None:
-        cf = self._completeness_frame
+    def _build_completeness_tab(self, parent: tk.Frame) -> None:
+        cf = self._completeness_frame = parent
 
         header = tk.Frame(cf, bg=styles.BG_WHITE)
         header.pack(fill="x", padx=20, pady=(10, 0))
@@ -557,15 +623,23 @@ class LibraryStatsApp(UIHelperMixin):
 
         if self._scanning:
             return
+        if refresh and self.run_mode.get() != FULL_SCAN:
+            self.run_mode.set(FULL_SCAN)
         self._scanning = True
         self._scan_btn.config(state="disabled", text="Scanning...")
         self._refresh_btn.config(state="disabled")
-        self._status_var.set("Scanning..." + (" (full refresh)" if refresh else ""))
+        self._export_btn.config(state="disabled")
+        self._begin_run(path)
+        self._status_var.set(f"Scanning... ({self.run_mode.get().lower()})")
+        self.progress["mode"] = "indeterminate"
+        self.progress.start(12)
         self._report = None
 
-        threading.Thread(
-            target=self._do_scan, args=(path, refresh), daemon=True
-        ).start()
+        self._thread = threading.Thread(
+            target=self._scan_thread, args=(path, refresh), daemon=True
+        )
+        self._thread.start()
+        self._start_polling()
 
     def _start_refresh(self) -> None:
         """Force a full re-scan that ignores the cache."""
@@ -577,28 +651,49 @@ class LibraryStatsApp(UIHelperMixin):
             return
         self._start_scan(refresh=True)
 
-    def _do_scan(self, path: str, refresh: bool = False) -> None:
+    def _scan_thread(self, path: str, refresh: bool) -> None:
+        """Run the scan off the Tk thread; never touch a widget here."""
         try:
-            self._scan_worker(path, refresh)
-        except AudioSuiteError as exc:
-            self.root.after(0, self._on_scan_error, exc)
+            report = scan_directory(
+                path,
+                use_cache=self._use_cache.get(),
+                refresh_cache=refresh,
+                cache=self._cache,
+            )
+            completeness = analyse_completeness(path)
+            # Record the trend point before the UI update, but never let a cache
+            # problem fail a scan that already produced a valid report.
+            try:
+                self._cache.record_completeness_snapshot(completeness)
+            except sqlite3.Error:
+                logger.warning(
+                    "Could not record the completeness snapshot", exc_info=True
+                )
+            self._events.put(("done", (report, completeness)))
+        except Exception as exc:  # noqa: BLE001 - reported to the user, never lost
+            self._events.put(("error", exc))
 
-    @handle_audio_errors(reraise=True, context="library_stats_scan")
-    def _scan_worker(self, path: str, refresh: bool) -> None:
-        report = scan_directory(
-            path,
-            use_cache=self._use_cache.get(),
-            refresh_cache=refresh,
-            cache=self._cache,
-        )
-        completeness = analyse_completeness(path)
-        # Record the trend point before the UI update, but never let a cache
-        # problem fail a scan that already produced a valid report.
-        try:
-            self._cache.record_completeness_snapshot(completeness)
-        except sqlite3.Error:
-            pass
-        self.root.after(0, self._on_scan_complete, report, completeness)
+    def _start_polling(self) -> None:
+        """Begin draining the worker's queue on the Tk thread."""
+        self._poll_events()
+
+    def _poll_events(self) -> None:
+        """Apply every queued worker result, then re-arm while it still runs."""
+        self._poll_id = ""
+        if self._closing:
+            return
+        while True:
+            try:
+                kind, payload = self._events.get_nowait()
+            except queue.Empty:
+                break
+            if kind == "done":
+                report, completeness = payload
+                self._on_scan_complete(report, completeness)
+            else:
+                self._on_scan_error(payload)
+        if self._thread is not None and self._thread.is_alive():
+            self._poll_id = self.root.after(100, self._poll_events)
 
     def _on_scan_complete(
         self, report: StatsReport, completeness: CompletenessReport
@@ -606,6 +701,10 @@ class LibraryStatsApp(UIHelperMixin):
         self._report = report
         self._completeness_report = completeness
         self._scanning = False
+        self.progress.stop()
+        self.progress["mode"] = "determinate"
+        self.progress["value"] = 1
+        self.progress["maximum"] = 1
         self._scan_btn.config(state="normal", text="Scan Library")
         self._refresh_btn.config(state="normal")
         self._export_btn.config(state="normal")
@@ -621,8 +720,20 @@ class LibraryStatsApp(UIHelperMixin):
             f"Scanned {report.total_files} files in "
             f"{report.duration_secs:.1f}s{cache_info}."
         )
+        scanned_in = report.scan_path or self.folder_path.get()
+        self.file_listbox.insert(
+            tk.END, f"{report.total_files} files scanned in {scanned_in}"
+        )
+        self.file_listbox.see(tk.END)
+        self.stats_label.config(
+            text=(
+                f"Files: {report.total_files} | Albums: {report.total_albums}"
+                f" | Artists: {report.total_artists}"
+            )
+        )
         self._update_summary(report)
         self._update_missing(report)
+        self._collect_log_entries(report)
         try:
             history = self._cache.completeness_history(
                 self.folder_path.get().strip(), limit=12
@@ -632,9 +743,25 @@ class LibraryStatsApp(UIHelperMixin):
         self._update_charts(report, history)
         self._update_completeness(completeness)
         self._apply_cli_exports(report)
+        self._write_run_log()
+        self.render_completion(
+            duration_secs=report.duration_secs,
+            output_dir=report.scan_path or self.folder_path.get().strip(),
+        )
+        self.summary_label.config(
+            text=(
+                f"Total: {report.total_files} files\n"
+                f"Albums: {report.total_albums}\n"
+                f"Artists: {report.total_artists}"
+            )
+        )
+        if self.auto_end_var.get():
+            self.root.after(1500, self.root.destroy)
 
     def _on_scan_error(self, exc: Exception) -> None:
         self._scanning = False
+        self.progress.stop()
+        self.progress["mode"] = "determinate"
         self._scan_btn.config(state="normal", text="Scan Library")
         self._refresh_btn.config(state="normal")
         self._status_var.set("Scan failed. See error dialog for details.")
@@ -698,6 +825,67 @@ class LibraryStatsApp(UIHelperMixin):
             self._status_var.set(f"Exported to {os.path.basename(path)}")
         except (AudioSuiteError, OSError, ValueError) as exc:
             show_error_from_exception(exc, title="Export Error")
+
+    # ── Run report ───────────────────────────────────────────────────────────
+
+    def _begin_run(self, source: str) -> None:
+        """Name this run's report, in the folder it is about to scan."""
+        self._log_entries = []
+        self._run_source = source
+        self._log_path = os.path.join(source, REPORT_NAME) if source else ""
+        self._run_started = time.monotonic()
+
+    def _collect_log_entries(self, report: StatsReport) -> None:
+        """Record the scan's detail for the report's body."""
+        entries = ["Formats:\n"]
+        entries.extend(
+            f"  {ext:>8}  {count}\n"
+            for ext, count in sorted(report.format_breakdown.items())
+        )
+        entries.append("\nMissing tags:\n")
+        total = report.total_files or 1
+        for label, key in (
+            ("BPM", "no_bpm"),
+            ("Key", "no_key"),
+            ("Genre", "no_genre"),
+            ("Mood", "no_mood"),
+            ("Tempo Marking", "no_tempo_marking"),
+        ):
+            count = report.missing_data.get(key, 0)
+            entries.append(f"  {label:<15} {count:>6}  ({count / total * 100:5.1f}%)\n")
+        self._log_entries = entries
+
+    def _write_run_log(self) -> None:
+        """Serialise this run's report; a failed write is logged, never raised."""
+        if not self._log_path:
+            return
+        report = self._report
+        elapsed = time.monotonic() - self._run_started
+        mode = self.run_mode.get().upper()
+        header = [
+            "LIBRARY STATISTICS REPORT\n",
+            f"Mode: {mode}\n",
+            f"Source: {self._run_source}\n",
+            f"Cache: {'enabled' if self._use_cache.get() else 'disabled'}\n",
+            f"Refresh: {'yes' if self._refresh_cache.get() else 'no'}\n",
+            "Scanner: read-only (no audio analysis, no tag writes)\n",
+            "=" * 60 + "\n",
+        ]
+        summary = [
+            "\n" + "=" * 60 + "\n",
+            "SUMMARY:\n",
+            f"Total files: {report.total_files if report else 0}\n",
+            f"Albums: {report.total_albums if report else 0}\n",
+            f"Album artists: {report.total_artists if report else 0}\n",
+            f"Track artists: {report.total_track_artists if report else 0}\n",
+            f"Scan time: {report.duration_secs if report else 0.0:.1f}s\n",
+            f"Time: {int(elapsed // 60):02d}:{int(elapsed % 60):02d}\n",
+        ]
+        try:
+            with open(self._log_path, "w", encoding="utf-8") as handle:
+                handle.writelines(header + self._log_entries + summary)
+        except OSError as exc:
+            logger.error("Could not write the run report: %s", exc, exc_info=True)
 
     # ── UI updates ───────────────────────────────────────────────────────────
 
@@ -765,14 +953,6 @@ class LibraryStatsApp(UIHelperMixin):
                 panel.  Empty/None draws the "no history yet" panel.
         """
         if not HAVE_MPL:
-            lbl = tk.Label(
-                self._charts_frame,
-                text="matplotlib not installed.\nInstall with: pip install matplotlib",
-                font=styles.FONT_BODY,
-                bg=styles.BG_WHITE,
-                fg=styles.FG_SUB,
-            )
-            lbl.pack(expand=True)
             return
 
         # Clear previous chart
@@ -925,6 +1105,16 @@ class LibraryStatsApp(UIHelperMixin):
             fill=self._colour_for_pct(tc.pct_complete),
             outline="",
         )
+
+    # ── Lifecycle ────────────────────────────────────────────────────────────
+
+    def _on_close(self) -> None:
+        """Stop the poller and the worker, then close the window."""
+        self._closing = True
+        if self._poll_id:
+            self.root.after_cancel(self._poll_id)
+            self._poll_id = ""
+        self.root.destroy()
 
 
 def main() -> None:

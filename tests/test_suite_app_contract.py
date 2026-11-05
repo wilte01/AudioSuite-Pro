@@ -55,6 +55,9 @@ from audio_suite_shared import suite_app
 from file_reorganizer import app as reorganizer_app
 from file_reorganizer.app import FileReorganizerApp
 from file_reorganizer.core.engine import ReorganizerStats
+from library_stats import app as library_stats_app
+from library_stats.app import LibraryStatsApp
+from library_stats.core.file_processor import StatsReport
 from music_format_converter import app as converter_app
 from music_format_converter.app import MusicFormatConverterApp
 from music_format_converter.utils.cli_args import ConverterArgs
@@ -63,6 +66,7 @@ from music_format_converter.utils.cli_args import ConverterArgs
 MIGRATED: tuple[type[suite_app.SuiteApp], ...] = (
     MusicFormatConverterApp,
     FileReorganizerApp,
+    LibraryStatsApp,
 )
 MIGRATED_NAMES: tuple[str, ...] = tuple(cls.__name__ for cls in MIGRATED)
 
@@ -86,10 +90,19 @@ def _stub_reorganizer_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def _stub_library_stats_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the dashboard's SQLite cache (it opens one on construction)."""
+    cache = MagicMock()
+    cache.completeness_history.return_value = []
+    cache.row_count.return_value = 0
+    monkeypatch.setattr(library_stats_app, "LibraryCache", lambda *a, **k: cache)
+
+
 #: Process-edge stubs per adopter; a tool with none still gets the shared ones.
 _STUB_EDGES: dict[type[suite_app.SuiteApp], Callable[[pytest.MonkeyPatch], None]] = {
     MusicFormatConverterApp: _stub_converter_edges,
     FileReorganizerApp: _stub_reorganizer_edges,
+    LibraryStatsApp: _stub_library_stats_edges,
 }
 
 
@@ -118,10 +131,20 @@ def _complete_reorganizer_run(app: FileReorganizerApp, tmp_path: Path) -> None:
     app._finish()
 
 
+def _complete_library_stats_run(app: LibraryStatsApp, tmp_path: Path) -> None:
+    """Drive the dashboard's report pair: name it at run start, write it at end."""
+    app._begin_run(str(tmp_path))
+    app._report = StatsReport(
+        scan_path=str(tmp_path), total_files=1, total_albums=1, total_artists=1
+    )
+    app._write_run_log()
+
+
 #: How each adopter reaches the report write at the end of a run.
 _RUN_REPORTS: dict[type[suite_app.SuiteApp], Callable[[Any, Path], None]] = {
     MusicFormatConverterApp: _complete_converter_run,
     FileReorganizerApp: _complete_reorganizer_run,
+    LibraryStatsApp: _complete_library_stats_run,
 }
 
 
@@ -288,7 +311,11 @@ def test_every_migrated_tool_has_a_run_report_drive() -> None:
 
 def test_the_migrated_table_is_frozen() -> None:
     """Only the tools the plan has migrated adopt the shell, and they keep it."""
-    assert MIGRATED_NAMES == ("MusicFormatConverterApp", "FileReorganizerApp")
+    assert MIGRATED_NAMES == (
+        "MusicFormatConverterApp",
+        "FileReorganizerApp",
+        "LibraryStatsApp",
+    )
     for cls in MIGRATED:
         assert issubclass(cls, suite_app.SuiteApp)
         assert "_build_setup_tab" in cls.__dict__, (

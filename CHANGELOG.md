@@ -16,6 +16,22 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+- **Library Statistics Dashboard works in one window of seven tabs.** Setup
+  holds the folder, the scan mode and the actions; Processing shows a scan's
+  progress and status; Results appears when a scan finishes with the counters,
+  the total time, View Log and Open Folder; and Summary, Charts, Missing Data
+  and Completeness keep their existing content. The old Cache checkbox and
+  Refresh button are now one **Mode**: Incremental Scan (the default), Full
+  Scan, or Direct Scan for no cache, with Refresh still starting a full scan in
+  one click. The window's title bar and the tab strip reflect the rest of the
+  suite.
+
+- **Every scan writes a report, and View Log opens it.** A scan now writes
+  `library_stats_scan_log.txt` into the folder it scanned: the mode and cache
+  settings, the format breakdown, the missing-tag counts and a SUMMARY block
+  with the counters and timings. Before this the dashboard kept its results on
+  screen and wrote no run record.
+
 - **File Reorganizer writes a run report, and View Log opens it.** Every run
   now writes `reorganizer_dry_run_log.txt` (Preview, or Execute while Mode is
   Dry Run) or `reorganizer_sync_log.txt` (Execute in Live Update) into the

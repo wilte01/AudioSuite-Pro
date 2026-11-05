@@ -346,7 +346,9 @@ Every GUI tool writes two logs for two audiences, and the Results tab's **View
 Log** opens exactly one of them: the run report.
 
 - **`<scanned folder>/<prefix>_{dry_run,sync}_log.txt` is the run report**, and
-  it is what `_log_path` must point at. It records the run the user started:
+  it is what `_log_path` must point at. A tool with no dry/live split uses its
+  own run word instead of that pair — the read-only Library Statistics scanner
+  writes `library_stats_scan_log.txt`. It records the run the user started:
   `<TOOL> REPORT`, `Mode: DRY RUN` / `LIVE UPDATE`, that run's settings, a
   `=`×60 rule, one line per file (resolved path, `SKIPPED (...)`, error), then
   `SUMMARY:` with the counters and `Time: MM:SS`. The reference implementation

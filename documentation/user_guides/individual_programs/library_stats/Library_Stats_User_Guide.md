@@ -7,13 +7,16 @@ subtitle: Based on the current Library Statistics implementation
 
 Library Statistics Dashboard scans a music library and aggregates metadata that is already present in audio tags. It is read-only: it does not analyze audio, detect new values, or write tags. The dashboard shows summary counts, charts, missing-data lists, and tag completeness results.
 
+The window has seven tabs: Setup holds the folder, the scan mode and the actions; Processing shows the scan's progress and status; Results appears when a scan finishes, with the counters, the run report and the scanned folder; and Summary, Charts, Missing Data and Completeness hold the dashboard itself.
+
 ## Quick Start
 
 1. Open Library_Stats.pyw.
-1. Select a music folder or use the restored last folder.
-1. Leave Cache enabled for normal repeated scans, or click Refresh for a full re-scan.
+1. On the Setup tab, select a music folder or use the restored last folder.
+1. Leave Mode on Incremental Scan for normal repeated scans; choose Full Scan to rebuild the cache, or Direct Scan to ignore it.
 1. Click Scan Library.
-1. Review Summary, Charts, Missing Data, and Completeness tabs.
+1. Open the Results tab to see the counters, then review Summary, Charts, Missing Data and Completeness.
+1. View Log opens this scan's report; Open Folder opens the scanned folder.
 1. Use Export, Save CSV, or Save JSON when you need a report outside the dashboard.
 
 ## Scanning
@@ -24,13 +27,23 @@ Library Statistics Dashboard scans a music library and aggregates metadata that 
 - **Unreadable files: **Files that cannot be read are skipped from tag aggregation rather than stopping the complete scan.
 - **Background scan: **The GUI scans on a worker thread and updates the dashboard when complete.
 
-## Cache and Refresh
+## Mode, Cache and Refresh
 
-The optional cache is a SQLite database at ~/.audiosuite/library_cache.db. It stores raw tag values, file metadata, modification times, and paths. With Cache enabled, unchanged files whose modification time matches the cache can be reused without rereading their tags. The report is still aggregated from the complete current cache scope.
+The optional cache is a SQLite database at ~/.audiosuite/library_cache.db. It stores raw tag values, file metadata, modification times, and paths. With the cache in use, unchanged files whose modification time matches the cache can be reused without rereading their tags. The report is still aggregated from the complete current cache scope.
 
-- **Cache: **Use for faster repeated scans. The cache is updated for changed files and stale rows are removed.
-- **Refresh: **Clears cached entries for the selected directory and rebuilds them from the files currently present.
-- **No cache: **When Cache is unchecked, the scan reads the library directly without using the SQLite cache.
+The run-controls strip's Mode is the one control for this choice; the Master Driver's `--incremental` and `--refresh` flags seed it.
+
+- **Incremental Scan: **The default. Uses the cache for faster repeated scans; changed files are reread and stale rows are removed.
+- **Full Scan: **Clears cached entries for the selected directory and rebuilds them from the files currently present. The Refresh button selects this mode and starts the scan in one click.
+- **Direct Scan: **Reads the library directly, without using the SQLite cache at all.
+
+The strip also carries Auto Start and Auto End, which mirror the Master Driver's orchestration options. Auto Start is driver-only, and a launch from the driver locks the strip so the inherited values stay visible but cannot be changed inside the tool. When Auto End is set, the window closes shortly after a scan finishes.
+
+## Results Tab
+
+When a scan finishes, the window switches to the Results tab. It shows the completion heading, the total scan time, the file/album/artist counters, a View Log button and an Open Folder button.
+
+Every scan writes its report into the folder it scanned, as `library_stats_scan_log.txt`. The report opens with `LIBRARY STATISTICS REPORT`, the Mode, the scanned folder, the cache settings and a rule; then the format breakdown and missing-tag counts; and closes with a SUMMARY block holding the counters, the scan time and the elapsed time. Each scan overwrites the previous report. View Log opens it; the program's diagnostic log under `logs/` is a separate file and is not what the button opens.
 
 ## Summary Tab
 
