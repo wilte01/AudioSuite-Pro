@@ -12,6 +12,17 @@ one.
 
 ## [Unreleased]
 
+- **A suggestions list holds the ideas that are not in a plan.**
+  `PLAN_suggestions.md` records the follow-ups the WP-10 tail raised (`S-1`..
+  `S-5`, all from the wheel build's measurements): a declared-vs-shipped
+  `package-data` check, a consumer type-checked against the installed wheel, a
+  documented `typing_consumer/`, an sdist assertion, and an "assert the build's
+  exclusions from the outcome" lock. Each row names the commit that produced it,
+  the failure class it closes, its cost and what would own it if promoted; an
+  entry is promoted or dropped explicitly and never deleted. The `2.4.3` plan
+  points at the file so it is discoverable, and it adds no gate and no
+  file-list entry.
+
 - **`audio_suite_shared` ships a PEP 561 marker (WP-10 C-I6).** `py.typed` is
   declared in `[tool.setuptools.package-data]`, and `tests/test_py_typed.py`
   builds a wheel from a staging copy of the packaging inputs, asserts the file
