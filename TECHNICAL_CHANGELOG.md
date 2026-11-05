@@ -10,19 +10,22 @@ heading that is absent here means that release carried no developer-facing
 change, which is why a release with none adds no heading rather than an empty
 one.
 
-
-- **A refused launch explains itself (D-22).** `audio_suite_shared.launch_failure`
-  now records why a launcher exited 1, keyed by the launcher's script name — the
-  one name the tool and the driver both hold, so no tool must learn a manifest
-  id. `parse_cli_args` captures the parse-time stderr, logs it beside the exit
-  code and records it; `BatchOrchestrator` clears the record before each step,
-  so a stale reason cannot explain a later failure; and
-  `module_runner._failure_message` quotes it under the exit code. Locks:
-  `tests/test_launch_failure.py`, `tests/test_launcher.py`
-  (`TestRefusedLaunchIsExplained`, which runs the real `library_stats` parser)
-  and `test_runner.py::TestRunModulesProgress`.
-
 ## [Unreleased]
+
+- **Complexity ceiling adopted and the four worst functions restructured (WP-9
+  §3.3).** `PLR0912`/`PLR0915` are selected with limits set just above the
+  post-restructure maxima (37 branches, 110 statements), so a new function
+  larger than today's worst fails review while the restructured four sit far
+  below it. `_collect_tags_to_preserve` is now a per-container dispatcher over
+  four collectors (the ID3 one shared by MP3 and WAV/AIFF/DSF);
+  `audio_refinery::_apply_preset` copies preset keys from five declarative
+  tables; `library_stats/cli.py::stats` is split into cache selection,
+  scan/history execution and report rendering with its JSON schema and output
+  order unchanged; and `asx_stub::parse_stub_bytes` accumulates one payload per
+  metadata group, preserving the PARAM validation order. The restructure also
+  fixed the scripted-edit trap that dropped `stats`' click decorators: the AST
+  span of a decorated function begins at its first decorator, so a replacement
+  must re-emit that block.
 
 - **`library_cache` split into three modules (WP-9 #5, the last of the five).**
   1,038 lines are now 237 plus `cache_schema` (DDL, schema version, the path
@@ -166,6 +169,18 @@ one.
   `logging_setup.program_log_path` is not introduced. `TestRunReport` reads the
   written file (header, per-file lines, summary), so a writer that sets fields
   without serialising them fails.
+
+
+- **A refused launch explains itself (D-22).** `audio_suite_shared.launch_failure`
+  now records why a launcher exited 1, keyed by the launcher's script name — the
+  one name the tool and the driver both hold, so no tool must learn a manifest
+  id. `parse_cli_args` captures the parse-time stderr, logs it beside the exit
+  code and records it; `BatchOrchestrator` clears the record before each step,
+  so a stale reason cannot explain a later failure; and
+  `module_runner._failure_message` quotes it under the exit code. Locks:
+  `tests/test_launch_failure.py`, `tests/test_launcher.py`
+  (`TestRefusedLaunchIsExplained`, which runs the real `library_stats` parser)
+  and `test_runner.py::TestRunModulesProgress`.
 
 ## [2.4.2] - 2026-11-04
 

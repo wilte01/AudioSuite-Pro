@@ -154,6 +154,156 @@ def _has_tags(audio: Any) -> bool:
     return False
 
 
+# Changed in 2.4.3: SS3.3 complexity ceiling — the five-container collector is
+# split per container, with the ID3 body shared by MP3 and the WAV/AIFF/DSF
+# family; the essential-frame loop and the frame filters are unchanged.
+def _collect_id3_tags(
+    audio: Any,
+    preserve_list: list[str],
+    preserve_lyrics: bool,
+    preserve_album_artist: bool,
+    preserve_embedded_art: bool,
+    *,
+    require_existing_tags: bool,
+) -> dict[str, Any]:
+    """Collect ID3 frames for an MP3 or another ID3-tagged container."""
+    preserved: dict[str, Any] = {}
+    # Always preserve artist, album, title (essential tags)
+    for fid in ("TPE1", "TALB", "TIT2"):
+        frame = _get_frame_safe(audio, fid)
+        if frame is not None:
+            preserved[f"id3:{fid}"] = frame
+    # WAV/AIFF and DSF may carry no ID3 block at all; MP3 always has one by
+    # the time this runs, so only the non-MP3 containers guard the frame loop.
+    if require_existing_tags and not audio.tags:
+        return preserved
+    for frame in audio.tags.values():
+        try:
+            # mutagen stubs omit Frame.desc; it is always a str at runtime.
+            if preserve_lyrics and isinstance(frame, (USLT, SYLT)):
+                preserved[f"id3:{frame.FrameID}"] = frame
+            elif preserve_album_artist and isinstance(frame, TPE2):
+                preserved["id3:TPE2"] = frame
+            elif preserve_embedded_art and isinstance(frame, APIC):
+                desc = cast(Any, frame).desc
+                preserved[f"id3:APIC:{desc}"] = frame
+            elif isinstance(frame, TXXX):
+                txxx_desc = cast(Any, frame).desc
+                if txxx_desc in preserve_list:
+                    preserved[f"id3:TXXX:{txxx_desc}"] = frame
+        # Changed in 2.4.1: BLE001 triage (WP-7 of
+        # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
+        # BLE001 boundary: one bad frame must not lose the rest
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Skipping unreadable ID3 frame: %s", exc)
+    return preserved
+
+
+def _collect_vorbis_tags(
+    audio: Any,
+    preserve_list: list[str],
+    preserve_lyrics: bool,
+    preserve_album_artist: bool,
+    preserve_embedded_art: bool,
+) -> dict[str, Any]:
+    """Collect Vorbis-comment tags (FLAC, Ogg, Opus)."""
+    preserved: dict[str, Any] = {}
+    # Always preserve artist, album, title (essential tags)
+    for key in ("artist", "album", "title"):
+        vals = audio.tags.get(key)
+        if vals:
+            preserved[key] = list(vals)
+    for key in list(audio.tags.keys()):
+        try:
+            vals = audio.tags.get(key, [])
+            if not vals:
+                continue
+            if preserve_lyrics and key.lower() in ("lyrics", "syncedlyrics"):
+                preserved[key] = list(vals)
+            elif preserve_album_artist and key.lower() in (
+                "albumartist",
+                "album artist",
+            ):
+                preserved[key] = list(vals)
+            elif preserve_embedded_art and key.lower() in ("metadata_block_picture",):
+                preserved[key] = list(vals)
+            elif key.lower() in {p.lower() for p in preserve_list}:
+                preserved[key] = list(vals)
+        except Exception as exc:  # noqa: BLE001 - one bad Vorbis tag is skipped
+            logger.debug("Skipping unreadable Vorbis tag %s: %s", key, exc)
+    return preserved
+
+
+def _collect_apev2_tags(
+    audio: Any,
+    preserve_list: list[str],
+    preserve_lyrics: bool,
+    preserve_album_artist: bool,
+    preserve_embedded_art: bool,
+) -> dict[str, Any]:
+    """Collect APEv2 items (Monkey's Audio, Musepack, WavPack)."""
+    preserved: dict[str, Any] = {}
+    # Essentials first, then the flagged/preserved items. The raw APEValue
+    # is kept (not a list of strings): a multi-value text item round-trips
+    # as one item, and a Cover Art (Front) binary item stays binary.
+    wanted_preserve = {p.lower() for p in preserve_list}
+    for wanted in ("artist", "album", "title"):
+        match_key = _matching_key(audio.tags, wanted)
+        if match_key is not None and audio.tags.get(match_key):
+            preserved[match_key] = audio.tags.get(match_key)
+    kept = {str(key).lower() for key in preserved}
+    for key in list(audio.tags.keys()):
+        try:
+            value = audio.tags.get(key)
+            if not value or str(key).lower() in kept:
+                continue
+            lower = key.lower()
+            if preserve_lyrics and lower in ("lyrics", "syncedlyrics"):
+                preserved[key] = value
+            elif preserve_album_artist and lower in (
+                "albumartist",
+                "album artist",
+            ):
+                preserved[key] = value
+            elif preserve_embedded_art and lower == "cover art (front)":
+                preserved[key] = value
+            elif lower in wanted_preserve:
+                preserved[key] = value
+        except Exception as exc:  # noqa: BLE001 - one bad APEv2 item is skipped
+            logger.debug("Skipping unreadable APEv2 item %s: %s", key, exc)
+    return preserved
+
+
+def _collect_mp4_tags(
+    audio: Any,
+    preserve_list: list[str],
+    preserve_lyrics: bool,
+    preserve_album_artist: bool,
+    preserve_embedded_art: bool,
+) -> dict[str, Any]:
+    """Collect MP4 atoms (M4A/MP4)."""
+    preserved: dict[str, Any] = {}
+    # Always preserve artist, album, title (essential tags)
+    for key in ("\xa9ART", "\xa9alb", "\xa9nam"):
+        vals = audio.tags.get(key)
+        if vals:
+            preserved[key] = vals
+    for key in list(audio.tags.keys()):
+        try:
+            vals = audio.tags.get(key)
+            if vals is None:
+                continue
+            if preserve_lyrics and key.lower() in ("\xa9lyr",):
+                preserved[key] = vals
+            elif preserve_embedded_art and key == "covr":
+                preserved[key] = vals
+            elif key.lower() in {p.lower() for p in preserve_list}:
+                preserved[key] = vals
+        except Exception as exc:  # noqa: BLE001 - one bad MP4 atom is skipped
+            logger.debug("Skipping unreadable MP4 atom %s: %s", key, exc)
+    return preserved
+
+
 def _collect_tags_to_preserve(
     audio: Any,
     preserve_list: list[str],
@@ -167,132 +317,50 @@ def _collect_tags_to_preserve(
     Returns a dict keyed by tag identifier (format-specific) -> raw tag value.
     """
     ext = os.path.splitext(str(getattr(audio, "filename", "")))[1].lower()
-    preserved: dict[str, Any] = {}
 
     if ext == ".mp3":
-        # Always preserve artist, album, title (essential tags)
-        for fid in ("TPE1", "TALB", "TIT2"):
-            frame = _get_frame_safe(audio, fid)
-            if frame is not None:
-                preserved[f"id3:{fid}"] = frame
-        for frame in audio.tags.values():
-            try:
-                # mutagen stubs omit Frame.desc; it is always a str at runtime.
-                if preserve_lyrics and isinstance(frame, (USLT, SYLT)):
-                    preserved[f"id3:{frame.FrameID}"] = frame
-                elif preserve_album_artist and isinstance(frame, TPE2):
-                    preserved["id3:TPE2"] = frame
-                elif preserve_embedded_art and isinstance(frame, APIC):
-                    desc = cast(Any, frame).desc
-                    preserved[f"id3:APIC:{desc}"] = frame
-                elif isinstance(frame, TXXX):
-                    txxx_desc = cast(Any, frame).desc
-                    if txxx_desc in preserve_list:
-                        preserved[f"id3:TXXX:{txxx_desc}"] = frame
-            # Changed in 2.4.1: BLE001 triage (WP-7 of
-            # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
-            # BLE001 boundary: one bad frame must not lose the rest
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("Skipping unreadable ID3 frame: %s", exc)
-    elif ext in _VORBIS_EXTENSIONS:
-        # Always preserve artist, album, title (essential tags)
-        for key in ("artist", "album", "title"):
-            vals = audio.tags.get(key)
-            if vals:
-                preserved[key] = list(vals)
-        for key in list(audio.tags.keys()):
-            try:
-                vals = audio.tags.get(key, [])
-                if not vals:
-                    continue
-                if preserve_lyrics and key.lower() in ("lyrics", "syncedlyrics"):
-                    preserved[key] = list(vals)
-                elif preserve_album_artist and key.lower() in (
-                    "albumartist",
-                    "album artist",
-                ):
-                    preserved[key] = list(vals)
-                elif preserve_embedded_art and key.lower() in (
-                    "metadata_block_picture",
-                ):
-                    preserved[key] = list(vals)
-                elif key.lower() in {p.lower() for p in preserve_list}:
-                    preserved[key] = list(vals)
-            except Exception as exc:  # noqa: BLE001 - one bad Vorbis tag is skipped
-                logger.debug("Skipping unreadable Vorbis tag %s: %s", key, exc)
-    elif ext in _APEV2_EXTENSIONS:
-        # Essentials first, then the flagged/preserved items. The raw APEValue
-        # is kept (not a list of strings): a multi-value text item round-trips
-        # as one item, and a Cover Art (Front) binary item stays binary.
-        wanted_preserve = {p.lower() for p in preserve_list}
-        for wanted in ("artist", "album", "title"):
-            match_key = _matching_key(audio.tags, wanted)
-            if match_key is not None and audio.tags.get(match_key):
-                preserved[match_key] = audio.tags.get(match_key)
-        kept = {str(key).lower() for key in preserved}
-        for key in list(audio.tags.keys()):
-            try:
-                value = audio.tags.get(key)
-                if not value or str(key).lower() in kept:
-                    continue
-                lower = key.lower()
-                if preserve_lyrics and lower in ("lyrics", "syncedlyrics"):
-                    preserved[key] = value
-                elif preserve_album_artist and lower in (
-                    "albumartist",
-                    "album artist",
-                ):
-                    preserved[key] = value
-                elif preserve_embedded_art and lower == "cover art (front)":
-                    preserved[key] = value
-                elif lower in wanted_preserve:
-                    preserved[key] = value
-            except Exception as exc:  # noqa: BLE001 - one bad APEv2 item is skipped
-                logger.debug("Skipping unreadable APEv2 item %s: %s", key, exc)
-    elif ext in (".m4a", ".mp4"):
-        # Always preserve artist, album, title (essential tags)
-        for key in ("\xa9ART", "\xa9alb", "\xa9nam"):
-            vals = audio.tags.get(key)
-            if vals:
-                preserved[key] = vals
-        for key in list(audio.tags.keys()):
-            try:
-                vals = audio.tags.get(key)
-                if vals is None:
-                    continue
-                if preserve_lyrics and key.lower() in ("\xa9lyr",):
-                    preserved[key] = vals
-                elif preserve_embedded_art and key == "covr":
-                    preserved[key] = vals
-                elif key.lower() in {p.lower() for p in preserve_list}:
-                    preserved[key] = vals
-            except Exception as exc:  # noqa: BLE001 - one bad MP4 atom is skipped
-                logger.debug("Skipping unreadable MP4 atom %s: %s", key, exc)
-    elif ext in _ID3_EXTENSIONS:
-        # WAV/AIFF and DSF use ID3 tags, same structure as MP3
-        for fid in ("TPE1", "TALB", "TIT2"):
-            frame = _get_frame_safe(audio, fid)
-            if frame is not None:
-                preserved[f"id3:{fid}"] = frame
-        if audio.tags:
-            for frame in audio.tags.values():
-                try:
-                    if preserve_lyrics and isinstance(frame, (USLT, SYLT)):
-                        preserved[f"id3:{frame.FrameID}"] = frame
-                    elif preserve_album_artist and isinstance(frame, TPE2):
-                        preserved["id3:TPE2"] = frame
-                    elif preserve_embedded_art and isinstance(frame, APIC):
-                        desc = cast(Any, frame).desc
-                        preserved[f"id3:APIC:{desc}"] = frame
-                    elif isinstance(frame, TXXX):
-                        txxx_desc = cast(Any, frame).desc
-                        if txxx_desc in preserve_list:
-                            preserved[f"id3:TXXX:{txxx_desc}"] = frame
-                # BLE001 boundary: one bad frame must not lose the rest
-                except Exception as exc:  # noqa: BLE001
-                    logger.debug("Skipping unreadable ID3 frame: %s", exc)
-
-    return preserved
+        return _collect_id3_tags(
+            audio,
+            preserve_list,
+            preserve_lyrics,
+            preserve_album_artist,
+            preserve_embedded_art,
+            require_existing_tags=False,
+        )
+    if ext in _VORBIS_EXTENSIONS:
+        return _collect_vorbis_tags(
+            audio,
+            preserve_list,
+            preserve_lyrics,
+            preserve_album_artist,
+            preserve_embedded_art,
+        )
+    if ext in _APEV2_EXTENSIONS:
+        return _collect_apev2_tags(
+            audio,
+            preserve_list,
+            preserve_lyrics,
+            preserve_album_artist,
+            preserve_embedded_art,
+        )
+    if ext in (".m4a", ".mp4"):
+        return _collect_mp4_tags(
+            audio,
+            preserve_list,
+            preserve_lyrics,
+            preserve_album_artist,
+            preserve_embedded_art,
+        )
+    if ext in _ID3_EXTENSIONS:
+        return _collect_id3_tags(
+            audio,
+            preserve_list,
+            preserve_lyrics,
+            preserve_album_artist,
+            preserve_embedded_art,
+            require_existing_tags=True,
+        )
+    return {}
 
 
 def _wipe_tags(audio: Any) -> None:

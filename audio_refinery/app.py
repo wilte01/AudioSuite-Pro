@@ -310,87 +310,84 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             "normalise_mode": p.normalise_params.mode,
         }
 
-    def _apply_preset(self, settings: dict[str, Any]) -> None:
-        p = self.config
-        if "declick" in settings:
-            p.declick = settings["declick"]
-        if "trim" in settings:
-            p.trim = settings["trim"]
-        if "enhance" in settings:
-            p.enhance = settings["enhance"]
-        if "normalise" in settings:
-            p.normalise = settings["normalise"]
-        if "sensitivity" in settings:
-            p.declick_params.sensitivity = settings["sensitivity"]
-        if "max_width_ms" in settings:
-            p.declick_params.max_width_ms = settings["max_width_ms"]
-        if "threshold" in settings:
-            p.trim_params.threshold = settings["threshold"]
-        if "apply_fade" in settings:
-            p.trim_params.apply_fade = settings["apply_fade"]
-        if "fade_in_ms" in settings:
-            p.trim_params.fade_in_ms = settings["fade_in_ms"]
-        if "fade_out_ms" in settings:
-            p.trim_params.fade_out_ms = settings["fade_out_ms"]
-        if "preset" in settings:
-            p.enhance_params.preset = settings["preset"]
-        if "noise_gate_threshold_db" in settings:
-            p.enhance_params.noise_gate_threshold_db = settings[
-                "noise_gate_threshold_db"
-            ]
-        if "compressor_threshold_db" in settings:
-            p.enhance_params.compressor_threshold_db = settings[
-                "compressor_threshold_db"
-            ]
-        if "compressor_ratio" in settings:
-            p.enhance_params.compressor_ratio = settings["compressor_ratio"]
-        if "compressor_attack_ms" in settings:
-            p.enhance_params.compressor_attack_ms = settings["compressor_attack_ms"]
-        if "compressor_release_ms" in settings:
-            p.enhance_params.compressor_release_ms = settings["compressor_release_ms"]
-        if "low_shelf_gain_db" in settings:
-            p.enhance_params.low_shelf_gain_db = settings["low_shelf_gain_db"]
-        if "low_shelf_freq_hz" in settings:
-            p.enhance_params.low_shelf_freq_hz = settings["low_shelf_freq_hz"]
-        if "presence_gain_db" in settings:
-            p.enhance_params.presence_gain_db = settings["presence_gain_db"]
-        if "presence_freq_hz" in settings:
-            p.enhance_params.presence_freq_hz = settings["presence_freq_hz"]
-        if "high_shelf_gain_db" in settings:
-            p.enhance_params.high_shelf_gain_db = settings["high_shelf_gain_db"]
-        if "high_shelf_freq_hz" in settings:
-            p.enhance_params.high_shelf_freq_hz = settings["high_shelf_freq_hz"]
-        if "output_gain_db" in settings:
-            p.enhance_params.output_gain_db = settings["output_gain_db"]
-        if "limiter_threshold_db" in settings:
-            p.enhance_params.limiter_threshold_db = settings["limiter_threshold_db"]
-        if "reverse" in settings:
-            p.enhance_params.reverse = settings["reverse"]
-        if "karaoke" in settings:
-            p.enhance_params.karaoke = settings["karaoke"]
-        if "karaoke_strength" in settings:
-            p.enhance_params.karaoke_strength = settings["karaoke_strength"]
-        if "phaser" in settings:
-            p.enhance_params.phaser = settings["phaser"]
-        if "flanger" in settings:
-            p.enhance_params.flanger = settings["flanger"]
-        if "chorus" in settings:
-            p.enhance_params.chorus = settings["chorus"]
-        if "target_lufs" in settings:
-            p.normalise_params.target_lufs = settings["target_lufs"]
-        if "tolerance" in settings:
-            p.normalise_params.tolerance = settings["tolerance"]
-        if "true_peak" in settings:
-            p.normalise_params.true_peak = settings["true_peak"]
-        if "lra" in settings:
-            p.normalise_params.lra = settings["lra"]
-        if "normalise_mode" in settings:
-            p.normalise_params.mode = settings["normalise_mode"]
+    # Preset key -> the config attribute it writes. A preset stores only the
+    # stages and parameters it actually carries, so an absent key must leave
+    # the current value alone rather than resetting it to a default.
+    # Changed in 2.4.3: SS3.3 complexity ceiling — the preset's flat key list is
+    # split into five tables so `_apply_preset` is a four-line composition; the
+    # key->attribute mapping and the editor sync are unchanged.
+    _STAGE_PRESET_KEYS = {
+        "declick": "declick",
+        "trim": "trim",
+        "enhance": "enhance",
+        "normalise": "normalise",
+    }
+    _DECLICK_PRESET_KEYS = {
+        "sensitivity": "sensitivity",
+        "max_width_ms": "max_width_ms",
+    }
+    _TRIM_PRESET_KEYS = {
+        "threshold": "threshold",
+        "apply_fade": "apply_fade",
+        "fade_in_ms": "fade_in_ms",
+        "fade_out_ms": "fade_out_ms",
+    }
+    _ENHANCE_PRESET_KEYS = {
+        "preset": "preset",
+        "noise_gate_threshold_db": "noise_gate_threshold_db",
+        "compressor_threshold_db": "compressor_threshold_db",
+        "compressor_ratio": "compressor_ratio",
+        "compressor_attack_ms": "compressor_attack_ms",
+        "compressor_release_ms": "compressor_release_ms",
+        "low_shelf_gain_db": "low_shelf_gain_db",
+        "low_shelf_freq_hz": "low_shelf_freq_hz",
+        "presence_gain_db": "presence_gain_db",
+        "presence_freq_hz": "presence_freq_hz",
+        "high_shelf_gain_db": "high_shelf_gain_db",
+        "high_shelf_freq_hz": "high_shelf_freq_hz",
+        "output_gain_db": "output_gain_db",
+        "limiter_threshold_db": "limiter_threshold_db",
+        "reverse": "reverse",
+        "karaoke": "karaoke",
+        "karaoke_strength": "karaoke_strength",
+        "phaser": "phaser",
+        "flanger": "flanger",
+        "chorus": "chorus",
+    }
+    _NORMALISE_PRESET_KEYS = {
+        "target_lufs": "target_lufs",
+        "tolerance": "tolerance",
+        "true_peak": "true_peak",
+        "lra": "lra",
+        "normalise_mode": "mode",
+    }
 
-        # Keep the enhancer stage's Custom DSP editor in step with the loaded
-        # preset. The editor's values are the source for every later edit, so a
-        # stale copy would rewrite this preset's values back into the config on
-        # the next slider move; before the editor existed the same load left the
+    @staticmethod
+    def _apply_preset_keys(
+        target: Any, settings: dict[str, Any], keys: dict[str, str]
+    ) -> None:
+        """Copy each preset key that is present onto its matching attribute."""
+        for key, attribute in keys.items():
+            if key in settings:
+                setattr(target, attribute, settings[key])
+
+    def _apply_preset(self, settings: dict[str, Any]) -> None:
+        """Apply a stored preset, leaving absent keys untouched."""
+        p = self.config
+        self._apply_preset_keys(p, settings, self._STAGE_PRESET_KEYS)
+        self._apply_preset_keys(p.declick_params, settings, self._DECLICK_PRESET_KEYS)
+        self._apply_preset_keys(p.trim_params, settings, self._TRIM_PRESET_KEYS)
+        self._apply_preset_keys(p.enhance_params, settings, self._ENHANCE_PRESET_KEYS)
+        self._apply_preset_keys(
+            p.normalise_params, settings, self._NORMALISE_PRESET_KEYS
+        )
+        self._sync_preset_editor(p)
+
+    def _sync_preset_editor(self, p: Any) -> None:
+        """Keep the Custom DSP editor in step with the loaded preset."""
+        # The editor's values are the source for every later edit, so a stale
+        # copy would rewrite this preset's values back into the config on the
+        # next slider move; before the editor existed the same load left the
         # inline sliders showing the previous values.
         setup_state = getattr(self, "_setup_state", None) or {}
         preset_var = setup_state.get("preset_var")

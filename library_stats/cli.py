@@ -136,6 +136,9 @@ from library_stats.library_cache import LibraryCache
     default=False,
     help="Add a Camelot key column to the CSV/HTML export.",
 )
+# Changed in 2.4.3: SS3.3 complexity ceiling — the command is split into cache
+# selection, scan/history execution and report rendering; its output order and
+# its JSON schema are unchanged.
 def stats(
     directory: str,
     json: bool,
@@ -174,21 +177,18 @@ def stats(
     --no-history is given or --incremental/--refresh already skips no work;
     --trend prints the newest --history-limit snapshots for this directory.
     """
-    from library_stats.core.completeness import (
-        analyse_completeness,
-    )
     from library_stats.library_stats import export_csv as _export_csv
     from library_stats.library_stats import export_json as _export_json
     from library_stats.library_stats import scan_directory
 
     want_completeness = completeness or detail is not None or trend
-
     use_cache = incremental or refresh
-    # History needs the cache even without --incremental: reading a trend is
-    # enough reason to open it, and `--no-history` keeps a plain completeness
-    # run free of writes.
-    needs_cache = use_cache or (want_completeness and (not no_history or trend))
-    cache: LibraryCache | None = LibraryCache() if needs_cache else None
+    cache = _open_stats_cache(
+        use_cache=use_cache,
+        want_completeness=want_completeness,
+        trend=trend,
+        no_history=no_history,
+    )
 
     if refresh and cache is not None:
         cache.clear_dir(directory)
@@ -199,6 +199,95 @@ def stats(
         + (" (full refresh)" if refresh else ""),
         err=True,
     )
+    scan = _run_stats_scan(
+        directory,
+        use_cache=use_cache,
+        refresh=refresh,
+        cache=cache,
+        want_completeness=want_completeness,
+        trend=trend,
+        history_limit=history_limit,
+        no_history=no_history,
+        no_plugin_analysis=no_plugin_analysis,
+        scan_directory=scan_directory,
+    )
+
+    columns = _parse_columns(export_columns)
+    if export_format is not None:
+        _run_export(
+            scan.report,
+            export_format,
+            export_path,
+            directory=directory,
+            columns=columns,
+            camelot=camelot,
+        )
+    elif camelot:
+        click.echo("  Warning: --camelot applies to --export csv/html only.", err=True)
+
+    if json:
+        _echo_stats_json(scan, trend)
+        return
+
+    _echo_stats_report(scan, detail, trend)
+
+    if export_csv:
+        try:
+            _export_csv(scan.report, export_csv, columns=columns, camelot=camelot)
+            click.echo(f"\n  CSV exported to: {export_csv}", err=True)
+        except (AudioSuiteError, OSError, ValueError) as exc:
+            click.echo(f"  CSV export failed: {exc}", err=True)
+
+    if export_json:
+        try:
+            _export_json(scan.report, export_json)
+            click.echo(f"\n  JSON exported to: {export_json}", err=True)
+        except (OSError, ValueError) as exc:
+            click.echo(f"  JSON export failed: {exc}", err=True)
+
+
+@dataclasses.dataclass(frozen=True)
+class _StatsScan:
+    """One completed stats scan: its reports, history and timing."""
+
+    report: Any
+    completeness: Any
+    history: list[dict[str, Any]]
+    elapsed: float
+    cache_info: str
+
+
+def _open_stats_cache(
+    *,
+    use_cache: bool,
+    want_completeness: bool,
+    trend: bool,
+    no_history: bool,
+) -> LibraryCache | None:
+    """Open the cache only for a surface that reads or records it."""
+    # History needs the cache even without --incremental: reading a trend is
+    # enough reason to open it, and `--no-history` keeps a plain completeness
+    # run free of writes.
+    needs_cache = use_cache or (want_completeness and (not no_history or trend))
+    return LibraryCache() if needs_cache else None
+
+
+def _run_stats_scan(
+    directory: str,
+    *,
+    use_cache: bool,
+    refresh: bool,
+    cache: LibraryCache | None,
+    want_completeness: bool,
+    trend: bool,
+    history_limit: int,
+    no_history: bool,
+    no_plugin_analysis: bool,
+    scan_directory: Any,
+) -> _StatsScan:
+    """Scan the library, record/read completeness history, and time the run."""
+    from library_stats.core.completeness import analyse_completeness
+
     start = time.monotonic()
     cache_info = ""
     try:
@@ -239,52 +328,52 @@ def stats(
         if cache is not None:
             cache.close()
 
-    columns = _parse_columns(export_columns)
-    if export_format is not None:
-        _run_export(
-            report,
-            export_format,
-            export_path,
-            directory=directory,
-            columns=columns,
-            camelot=camelot,
-        )
-    elif camelot:
-        click.echo("  Warning: --camelot applies to --export csv/html only.", err=True)
+    return _StatsScan(
+        report=report,
+        completeness=completeness_report,
+        history=history,
+        elapsed=elapsed,
+        cache_info=cache_info,
+    )
 
-    if json:
-        import json as _json
 
-        report_fields = dataclasses.asdict(report)
-        # The report's duration is the library's audio length, not the run's
-        # wall-clock time; publish it under the distinct library_* names so
-        # the shared duration_secs keeps one meaning in every payload.
-        library_secs = float(report_fields.pop("duration_secs"))
-        payload = build_payload(
-            "stats",
-            dry_run=False,
-            total=report.total_files,
-            processed=report.total_files,
-            duration_secs=elapsed,
-            log_entries=[],
-            library_duration_secs=library_secs,
-            library_duration_str=f"{library_secs:.1f}s",
-            **report_fields,
-        )
-        if completeness_report is not None:
-            payload["completeness"] = completeness_report.to_dict()
-        if trend:
-            payload["trend"] = history
-        click.echo(_json.dumps(payload, indent=2, default=str))
-        return
+def _echo_stats_json(scan: _StatsScan, trend: bool) -> None:
+    """Publish the shared JSON schema for a stats run."""
+    import json as _json
 
+    report_fields = dataclasses.asdict(scan.report)
+    # The report's duration is the library's audio length, not the run's
+    # wall-clock time; publish it under the distinct library_* names so
+    # the shared duration_secs keeps one meaning in every payload.
+    library_secs = float(report_fields.pop("duration_secs"))
+    payload = build_payload(
+        "stats",
+        dry_run=False,
+        total=scan.report.total_files,
+        processed=scan.report.total_files,
+        duration_secs=scan.elapsed,
+        log_entries=[],
+        library_duration_secs=library_secs,
+        library_duration_str=f"{library_secs:.1f}s",
+        **report_fields,
+    )
+    if scan.completeness is not None:
+        payload["completeness"] = scan.completeness.to_dict()
+    if trend:
+        payload["trend"] = scan.history
+    click.echo(_json.dumps(payload, indent=2, default=str))
+
+
+def _echo_stats_report(scan: _StatsScan, detail: str | None, trend: bool) -> None:
+    """Print the human-readable statistics summary."""
+    report = scan.report
     click.echo("")
     click.echo(f"  Total files scanned   : {report.total_files}")
     click.echo(f"  Total albums          : {report.total_albums}")
     click.echo(f"  Total artists         : {report.total_artists}")
     click.echo(f"  Unique genres         : {len(report.genre_distribution)}")
     click.echo(f"  Unique keys           : {len(report.key_distribution)}")
-    click.echo(f"  Scan duration         : {elapsed:.1f}s{cache_info}")
+    click.echo(f"  Scan duration         : {scan.elapsed:.1f}s{scan.cache_info}")
     click.echo("")
     if report.format_breakdown:
         click.echo("  Format breakdown:")
@@ -304,25 +393,11 @@ def stats(
             count = report.missing_data.get(key, 0)
             click.echo(f"    {label:<20}: {count:>5}  ({count / total * 100:5.1f}%)")
 
-    if completeness_report is not None:
-        _echo_completeness(completeness_report, detail)
+    if scan.completeness is not None:
+        _echo_completeness(scan.completeness, detail)
 
     if trend:
-        _echo_trend(history)
-
-    if export_csv:
-        try:
-            _export_csv(report, export_csv, columns=columns, camelot=camelot)
-            click.echo(f"\n  CSV exported to: {export_csv}", err=True)
-        except (AudioSuiteError, OSError, ValueError) as exc:
-            click.echo(f"  CSV export failed: {exc}", err=True)
-
-    if export_json:
-        try:
-            _export_json(report, export_json)
-            click.echo(f"\n  JSON exported to: {export_json}", err=True)
-        except (OSError, ValueError) as exc:
-            click.echo(f"  JSON export failed: {exc}", err=True)
+        _echo_trend(scan.history)
 
 
 def _parse_columns(value: str | None) -> tuple[str, ...] | None:

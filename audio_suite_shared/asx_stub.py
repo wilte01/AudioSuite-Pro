@@ -342,6 +342,136 @@ def _attribute(element: ET.Element, name: str) -> str:
     return ""
 
 
+@dataclass
+class _StubPayload:
+    """Values accumulated from a stub's ``<PARAM>`` elements."""
+
+    version_text: str | None = None
+    values: dict[str, list[str]] = field(default_factory=dict)
+    fields: dict[str, str] = field(
+        default_factory=lambda: {name: "" for name in FIELD_ORDER}
+    )
+    mbids: dict[str, str] = field(default_factory=dict)
+    isrcs: list[str] = field(default_factory=list)
+    lyrics_plain: str | None = None
+    lyrics_synced: str | None = None
+    artwork: bytes | None = None
+    artwork_mime: str = ""
+    artwork_omitted: str = ""
+
+
+def _stub_reference_and_params(
+    root: ET.Element,
+) -> tuple[str, list[tuple[str, str]]]:
+    """Read the reference href and every PARAM name/value pair."""
+    href = ""
+    params: list[tuple[str, str]] = []
+    for element in root.iter():
+        name = _tag_name(element)
+        if name == "ref" and not href:
+            href = _attribute(element, "href")
+        elif name == "param":
+            params.append((_attribute(element, "name"), _attribute(element, "value")))
+    return href, params
+
+
+def _decode_artwork(value: str) -> bytes:
+    """Decode a stub's base64 artwork, enforcing the size cap."""
+    if len(value) > MAX_ARTWORK_BYTES * 2:
+        raise StubError("Artwork is too large for a stub")
+    try:
+        raw = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise StubError("Artwork is not valid base64") from exc
+    if len(raw) > MAX_ARTWORK_BYTES:
+        raise StubError("Artwork is too large for a stub")
+    return raw
+
+
+def _apply_stub_text_param(name: str, value: str, payload: _StubPayload) -> bool:
+    """Apply one textual PARAM; return True when the name is recognised."""
+    if name == "stub-version":
+        payload.version_text = value
+    elif name == "original-name":
+        payload.values.setdefault("original-name", []).append(value)
+    elif name == "keeper-name":
+        payload.values.setdefault("keeper-name", []).append(value)
+    elif name.startswith("field:") and name.endswith(":base64"):
+        field_name = name[len("field:") : -len(":base64")]
+        if field_name in payload.fields:
+            payload.fields[field_name] = _decode(value, what=f"field {field_name}")
+    elif name.startswith("field:"):
+        field_name = name[len("field:") :]
+        if field_name in payload.fields:
+            payload.fields[field_name] = value
+    elif name.startswith("mbid:"):
+        mbid_name = name[len("mbid:") :]
+        if mbid_name in MBID_ORDER and value:
+            payload.mbids[mbid_name] = value
+    elif name == "isrc":
+        if value:
+            payload.isrcs.append(value)
+    else:
+        return False
+    return True
+
+
+def _apply_stub_blob_param(name: str, value: str, payload: _StubPayload) -> None:
+    """Apply one lyrics/artwork PARAM; unrelated names are ignored."""
+    if name == "lyrics:plain-base64":
+        payload.lyrics_plain = _decode(value, what="lyrics")
+    elif name == "lyrics:synced-base64":
+        payload.lyrics_synced = _decode(value, what="synced lyrics")
+    elif name == "artwork:mime":
+        payload.artwork_mime = value
+    elif name == "artwork:base64":
+        payload.artwork = _decode_artwork(value)
+    elif name == "artwork:omitted":
+        payload.artwork_omitted = value
+
+
+def _parse_stub_params(params: list[tuple[str, str]]) -> _StubPayload:
+    """Collect every recognised suite PARAM into one payload."""
+    payload = _StubPayload()
+    for raw_name, value in params:
+        if not raw_name.lower().startswith(STUB_PREFIX.lower()):
+            continue
+        name = raw_name[len(STUB_PREFIX) :]
+        if _apply_stub_text_param(name, value, payload):
+            continue
+        _apply_stub_blob_param(name, value, payload)
+    return payload
+
+
+def _parse_stub_version(version_text: str | None) -> int:
+    """Validate the schema marker, returning its integer version."""
+    if version_text is None:
+        raise NotAStubError("Not an AudioSuite stub")
+    try:
+        version = int(version_text)
+    except ValueError as exc:
+        raise StubError(f"Invalid stub version: {version_text}") from exc
+    if version != STUB_VERSION:
+        raise StubError(
+            f"Unsupported stub version {version}; this extractor reads version "
+            f"{STUB_VERSION}"
+        )
+    return version
+
+
+def _validate_stub_artwork(payload: _StubPayload) -> None:
+    """Refuse an artwork MIME type the suite cannot embed."""
+    if (
+        payload.artwork is not None
+        and payload.artwork_mime
+        and payload.artwork_mime != "image/jpeg"
+    ):
+        raise StubError(f"Unsupported artwork type: {payload.artwork_mime}")
+
+
+# Changed in 2.4.3: SS3.3 complexity ceiling — the PARAM dispatch is split per
+# metadata group (identity/text, lyrics/artwork) around one payload accumulator;
+# the per-name handling and its validation order are unchanged.
 def parse_stub_bytes(data: bytes) -> StubMetadata:
     """Parse a stub payload into :class:`StubMetadata`.
 
@@ -361,95 +491,21 @@ def parse_stub_bytes(data: bytes) -> StubMetadata:
     except ET.ParseError as exc:
         raise StubError("Stub is not valid XML") from exc
 
-    href = ""
-    params: list[tuple[str, str]] = []
-    for element in root.iter():
-        name = _tag_name(element)
-        if name == "ref" and not href:
-            href = _attribute(element, "href")
-        elif name == "param":
-            params.append((_attribute(element, "name"), _attribute(element, "value")))
-
-    version_text: str | None = None
-    values: dict[str, list[str]] = {}
-    fields: dict[str, str] = {name: "" for name in FIELD_ORDER}
-    mbids: dict[str, str] = {}
-    isrcs: list[str] = []
-    lyrics_plain: str | None = None
-    lyrics_synced: str | None = None
-    artwork: bytes | None = None
-    artwork_mime = ""
-    artwork_omitted = ""
-
-    for raw_name, value in params:
-        if not raw_name.lower().startswith(STUB_PREFIX.lower()):
-            continue
-        name = raw_name[len(STUB_PREFIX) :]
-
-        if name == "stub-version":
-            version_text = value
-        elif name == "original-name":
-            values.setdefault("original-name", []).append(value)
-        elif name == "keeper-name":
-            values.setdefault("keeper-name", []).append(value)
-        elif name.startswith("field:") and name.endswith(":base64"):
-            field_name = name[len("field:") : -len(":base64")]
-            if field_name in fields:
-                fields[field_name] = _decode(value, what=f"field {field_name}")
-        elif name.startswith("field:"):
-            field_name = name[len("field:") :]
-            if field_name in fields:
-                fields[field_name] = value
-        elif name.startswith("mbid:"):
-            mbid_name = name[len("mbid:") :]
-            if mbid_name in MBID_ORDER and value:
-                mbids[mbid_name] = value
-        elif name == "isrc":
-            if value:
-                isrcs.append(value)
-        elif name == "lyrics:plain-base64":
-            lyrics_plain = _decode(value, what="lyrics")
-        elif name == "lyrics:synced-base64":
-            lyrics_synced = _decode(value, what="synced lyrics")
-        elif name == "artwork:mime":
-            artwork_mime = value
-        elif name == "artwork:base64":
-            if len(value) > MAX_ARTWORK_BYTES * 2:
-                raise StubError("Artwork is too large for a stub")
-            try:
-                raw = base64.b64decode(value, validate=True)
-            except (binascii.Error, ValueError) as exc:
-                raise StubError("Artwork is not valid base64") from exc
-            if len(raw) > MAX_ARTWORK_BYTES:
-                raise StubError("Artwork is too large for a stub")
-            artwork = raw
-        elif name == "artwork:omitted":
-            artwork_omitted = value
-
-    if version_text is None:
-        raise NotAStubError("Not an AudioSuite stub")
-    try:
-        version = int(version_text)
-    except ValueError as exc:
-        raise StubError(f"Invalid stub version: {version_text}") from exc
-    if version != STUB_VERSION:
-        raise StubError(
-            f"Unsupported stub version {version}; this extractor reads version "
-            f"{STUB_VERSION}"
-        )
-    if artwork is not None and artwork_mime and artwork_mime != "image/jpeg":
-        raise StubError(f"Unsupported artwork type: {artwork_mime}")
+    href, params = _stub_reference_and_params(root)
+    payload = _parse_stub_params(params)
+    version = _parse_stub_version(payload.version_text)
+    _validate_stub_artwork(payload)
 
     return StubMetadata(
-        original_name=(values.get("original-name") or [""])[-1],
-        keeper_name=(values.get("keeper-name") or [""])[-1],
-        fields=fields,
-        mbids=mbids,
-        isrcs=tuple(isrcs),
-        lyrics_plain=lyrics_plain,
-        lyrics_synced=lyrics_synced,
-        artwork=artwork,
-        artwork_omitted=artwork_omitted,
+        original_name=(payload.values.get("original-name") or [""])[-1],
+        keeper_name=(payload.values.get("keeper-name") or [""])[-1],
+        fields=payload.fields,
+        mbids=payload.mbids,
+        isrcs=tuple(payload.isrcs),
+        lyrics_plain=payload.lyrics_plain,
+        lyrics_synced=payload.lyrics_synced,
+        artwork=payload.artwork,
+        artwork_omitted=payload.artwork_omitted,
         reference=href,
         stub_version=version,
     )

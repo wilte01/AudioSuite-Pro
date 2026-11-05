@@ -309,6 +309,8 @@ select = [
     "PLW0129",  # assert on a string literal
     "PLW0131",  # named-expression reuse leak
     "BLE",      # blind except: see [tool.ruff.lint.per-file-ignores] and plan SS7
+    "PLR0912",  # Changed in 2.4.3: SS3.3 complexity ceiling (branches)
+    "PLR0915",  # Changed in 2.4.3: SS3.3 complexity ceiling (statements)
 ]
 unfixable = []
 ignore = []
@@ -319,6 +321,19 @@ ignore = []
 # buckets -- a named boundary (`# noqa: BLE001 - <reason>`), a narrowed exception
 # tuple, or a deleted handler -- and the triage is recorded in that plan's SS10.
 # A per-file ignore for "later" is the blanket suppression this repo forbids.
+# Changed in 2.4.3: WP-9 SS3.3 complexity ceiling. Both limits are set just
+# above the largest function that remains after the 2.4.3 restructures
+# (`music_format_converter/core/ffmpeg_params.py` at 37 branches,
+# `master_driver/state/app_state.py` at 110 statements), so the ceiling is a
+# ratchet: any *new* function larger than today's worst fails review. The four
+# named offenders were restructured rather than grandfathered; ruff's own
+# defaults (12/50) would instead demand ~100 noqa comments across code this
+# release did not touch. Raise a limit only with a measured post-restructure
+# maximum, never to clear one function.
+[tool.ruff.lint.pylint]
+max-branches = 37
+max-statements = 110
+
 [tool.ruff.lint.per-file-ignores]
 # Tests deliberately exercise failure paths -- they raise the exception they are
 # asserting on, and a broad catch there is the subject of the test, not the risk.

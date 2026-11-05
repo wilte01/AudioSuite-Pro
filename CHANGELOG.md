@@ -14,15 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Versions of the tools are released together with the suite (the single
 `version` in `pyproject.toml` covers the whole distribution).
 
-
-- **The Master Driver's failure dialog says why a tool did not start.** A tool
-  that refused its arguments — a source folder that no longer exists, for
-  example — used to reach you as `Module failed: Library Statistics Dashboard
-  (exit code 1)`, with the reason visible nowhere: the tool's own sentence went
-  to a console a launched window does not have. The dialog now quotes that
-  reason under the exit code (for example `Folder path does not exist:
-  D:/Music/10cc`) and the tool's log records the same sentence.
-
 ## [Unreleased]
 
 - **Library Statistics Dashboard works in one window of seven tabs.** Setup
@@ -61,6 +52,15 @@ Versions of the tools are released together with the suite (the single
   Driver now fills in the `--live`, `--start` and `--end` options instead of
   ignoring them, and saved presets — including ones saved before this change —
   still restore the dry-run state.
+
+
+- **The Master Driver's failure dialog says why a tool did not start.** A tool
+  that refused its arguments — a source folder that no longer exists, for
+  example — used to reach you as `Module failed: Library Statistics Dashboard
+  (exit code 1)`, with the reason visible nowhere: the tool's own sentence went
+  to a console a launched window does not have. The dialog now quotes that
+  reason under the exit code (for example `Folder path does not exist:
+  D:/Music/10cc`) and the tool's log records the same sentence.
 
 ## [2.4.2] - 2026-11-04
 
