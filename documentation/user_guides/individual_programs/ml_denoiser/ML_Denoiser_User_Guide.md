@@ -38,6 +38,8 @@ The processor uses the shared Audio Suite supported formats, including MP3, FLAC
 
 ## Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup contains the directory picker, the run mode, one denoise control, presets and the shared run controls.
 
 - **Denoise Amount (%): **How much of the model's output to keep. 100 % is the model's own result and 1 % is almost the untouched source. Lower values are a blend, not a weaker model: the output is mixed with the original signal.
@@ -58,6 +60,12 @@ The model's output is 16-bit, so a denoised file carries 16-bit resolution whate
 - **Undo: **Every live run records a full copy of each file before it is rewritten, so the suite's Undo Tag Edits workflow restores the original audio and tags byte for byte.
 
 ## Processing and Results
+
+![The Results tab after a finished run](images/results.png)
+
+![The Processing tab part-way through a run](images/processing.png)
+
+
 
 Processing shows the worker slots, a progress bar and per-file statuses: FIXED (rewritten), FOUND (a dry run measured a change), SKIP (nothing to do) and ERROR. The status line carries the measured attenuation, for example 'Attenuated 6.0 dB (-18.4 → -24.4 dBFS)'. Results reports total, denoised, skipped, errors and elapsed time, and can open the log and the source folder.
 

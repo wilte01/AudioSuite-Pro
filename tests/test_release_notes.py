@@ -274,6 +274,11 @@ EXCEPTION_SUFFIXES: tuple[str, ...] = (
     ".docx",
     ".pptx",
     ".json",
+    # Changed in 2.5.0: captured guide figures
+    # (``documentation/user_guides/.../images/*.png``) join the exceptions.  A
+    # screenshot has no comment syntax, and its provenance and bytes are pinned
+    # by ``tests/test_user_guide_hygiene.py``'s screenshot lock instead.
+    ".png",
     ".lock",
     ".dll",
     "LICENSE",

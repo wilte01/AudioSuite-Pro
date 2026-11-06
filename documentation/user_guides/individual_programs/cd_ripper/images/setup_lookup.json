@@ -1,0 +1,13 @@
+{
+  "captured_by": "utilities/capture_guide_shots.py",
+  "dpi": 120,
+  "height": 950,
+  "palette": "Purple",
+  "png_bytes": 141651,
+  "png_sha256": "999f35b240197ccd9cb54cfcd3b636e03e459898c84a8ff51f8512fef8af6d7d",
+  "shot": "setup_lookup",
+  "tab": "setup_lookup",
+  "theme": "Light",
+  "tool": "cd_ripper",
+  "width": 900
+}

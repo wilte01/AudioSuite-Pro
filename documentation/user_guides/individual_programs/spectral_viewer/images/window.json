@@ -1,0 +1,13 @@
+{
+  "captured_by": "utilities/capture_guide_shots.py",
+  "dpi": 120,
+  "height": 800,
+  "palette": "Purple",
+  "png_bytes": 40920,
+  "png_sha256": "7c90ca2014eb5a7cf79342cfac24e188f8eec9e2a72df12c35f31079dd6abd07",
+  "shot": "window",
+  "tab": "window",
+  "theme": "Light",
+  "tool": "spectral_viewer",
+  "width": 1200
+}

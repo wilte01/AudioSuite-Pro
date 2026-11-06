@@ -24,6 +24,8 @@ Genre Sync uses the shared Audio Suite supported-extension list, including MP3, 
 
 ## Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup contains the directory picker, mode, shared run controls, presets, a summary of the resolution rules, and the start button. The last-used directory is restored from shared suite configuration.
 
 - **Dry Run: **Analyze and report the selected genre without writing metadata.
@@ -62,6 +64,12 @@ On a Live Update when a source is resolved, Genre Sync writes the selected value
 - **ERROR: **Tag reading, resolution, or writing raised an error for the file.
 
 ## Processing and Results
+
+![The Results tab after a finished run](images/results.png)
+
+![The Processing tab part-way through a run](images/processing.png)
+
+
 
 Processing shows one worker slot per logical CPU (at most eight), a progress bar, processed count, updated count, already-correct skips, no-genre count, errors, and per-file decision text. Work is retried through the shared processor recovery path. Results reports the same counts and elapsed time, then opens the Results tab when complete.
 

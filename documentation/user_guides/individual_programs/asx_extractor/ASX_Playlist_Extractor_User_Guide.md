@@ -31,6 +31,8 @@ It also restores a file that Duplicate Finder replaced with a suite stub: the ke
 
 ### Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup contains the target directory, action mode, shared run controls, presets, and the start button. The last-used directory can be restored from shared suite configuration. A Master Driver launch can provide the directory and inherited control values through the launcher handshake.
 
 - **Dry Run (Simulated): **Parses and verifies playlists and writes the report, but does not copy audio or remove ASX files.
@@ -43,11 +45,15 @@ Setup contains the target directory, action mode, shared run controls, presets, 
 
 ### Processing
 
+![The Processing tab part-way through a run](images/processing.png)
+
 The Processing tab presents six stages: scanning for ASX files, parsing ASX contents, verifying source audio and paths, copying audio, removing or trashing original ASX files, and finalizing the priority error log. Active stages show an arrow; completed stages show a check.
 
 Each playlist is classified as a success or failure during parsing and verification. Permanent extraction may reclassify a parsed success as a failure if copying or ASX removal fails.
 
 ### Results
+
+![The Results tab after a finished run](images/results.png)
 
 Results provides View Log and Open Folder. View Log becomes available after Extraction_Log.txt is written. Open Folder opens the selected source/output directory because extracted audio is copied there.
 

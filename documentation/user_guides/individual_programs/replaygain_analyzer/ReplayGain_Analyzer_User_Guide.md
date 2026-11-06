@@ -33,6 +33,8 @@ This tool requires ffmpeg and ffprobe to be installed and on PATH. ffmpeg decode
 
 ## Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup contains the directory picker, target LUFS, run mode, optional MP3 lossless gain, presets, and shared run controls. The application validates the directory and target before starting. Target LUFS uses the suite's permitted target values.
 
 - **Target LUFS: **Desired integrated loudness target. Track gain is target LUFS minus measured LUFS; album gain uses the integrated loudness of the folder's tracks measured as one continuous signal, which is the standard ReplayGain album definition.
@@ -41,6 +43,8 @@ Setup contains the directory picker, target LUFS, run mode, optional MP3 lossles
 - **Presets: **Save and restore target LUFS and run mode through shared suite presets.
 
 ## Two-Phase Processing
+
+![The Processing tab part-way through a run](images/processing.png)
 
 1. Recursively discover supported audio files and group them by containing folder.
 1. Phase 1 measures each file's integrated LUFS and true peak in parallel, with retry handling.
@@ -67,6 +71,8 @@ The shared tag writer stores REPLAYGAIN_TRACK_GAIN, REPLAYGAIN_ALBUM_GAIN, REPLA
 - **Lossless gain failure: **Tagging may succeed while the optional post-tag gain reports an error status; review the per-file result and log.
 
 ## Processing and Results
+
+![The Results tab after a finished run](images/results.png)
 
 Processing shows one worker slot per logical CPU (at most eight) and a progress count. Folder completion updates the file tree with file name, measured LUFS, track gain, album gain, and status. Results reports total files, successfully processed files, errors, and elapsed time.
 

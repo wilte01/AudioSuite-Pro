@@ -17,6 +17,14 @@ each program's Help button opens; each one is rendered from a Markdown source
 by the shared `utilities/build_user_guides.py` renderer, so the prose is
 reviewable as text and the artefact cannot drift from it.
 
+Every tool's guide carries figures. Each one is a screenshot captured from the
+running tool by `utilities/capture_guide_shots.py` — the Setup, Processing and
+Results tabs, and whichever further tabs that tool adds — committed beside the
+guide and embedded from the Markdown, so a picture is the window the prose
+describes rather than an illustration of it. The capture is a Windows desktop step and its
+output is committed; rendering stays reproducible, which is why the guide
+artefacts can still be drift-checked without a display.
+
 The orchestrator has its own guide too —
 [Master Driver](../user_guides/individual_programs/master_driver/Master_Driver_User_Guide.md)
 — and it is the one program the table below cannot list, because it is not a

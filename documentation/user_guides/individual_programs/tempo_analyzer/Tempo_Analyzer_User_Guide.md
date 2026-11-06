@@ -152,6 +152,8 @@ The program uses a three-tab interface to guide you through configuration, taggi
 
 ### Tab 1 - Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Configure all parameters before starting.
 
 #### Run Controls Panel (Master Driver Options)
@@ -211,6 +213,8 @@ Presets are stored in the shared suite configuration file and are independent of
 
 ### Tab 2 - Processing
 
+![The Processing tab part-way through a run](images/processing.png)
+
 Becomes active when you click BEGIN TEMPO ANALYSIS.
 
 Displays:
@@ -231,6 +235,8 @@ Displays:
 ```
 
 ### Tab 3 - Results
+
+![The Results tab after a finished run](images/results.png)
 
 Displays the final summary after processing completes:
 

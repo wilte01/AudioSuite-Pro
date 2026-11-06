@@ -44,6 +44,8 @@ This tool requires ffmpeg and ffprobe to be installed and on PATH. ffmpeg decode
 
 ## Setup
 
+![The Setup tab with the sample folder selected](images/setup.png)
+
 Setup contains the input directory, output format, quality, sample rate, WAV bit depth, MP3 normalization, target LUFS, output directory, presets, and run controls. Changing the input folder triggers a scan and updates the detected-format label and output-format choices.
 
 - **Input Directory: **The source folder to scan. The converter processes supported files in that directory.
@@ -92,6 +94,10 @@ Setup contains the input directory, output format, quality, sample rate, WAV bit
 - **Undo: **Original deletion is recorded in the suite file-delete undo context; conversion itself does not alter the source unless Delete Originals is enabled.
 
 ## Processing and Results
+
+![The Processing tab during a run](images/processing.png)
+
+![The Results tab after a finished run](images/results.png)
 
 Processing shows one worker slot per logical CPU (at most eight), progress, converted/skipped/error counts, and per-file status lines. Results reports totals and elapsed time. Converted lines include source and output sizes, optional loudness-gain status, and original-deletion status.
 

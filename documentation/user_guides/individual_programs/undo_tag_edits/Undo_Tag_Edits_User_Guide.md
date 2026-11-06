@@ -5,6 +5,8 @@ version: auto
 
 ## Overview
 
+![The window as it opens](images/window.png)
+
 Undo Tag Edits is a safety net for anyone using the Audio Suite tagging tools. Every time a tag-editing tool runs — for example BPM Analyzer, Tempo Analyzer, Mood Analysis Batch Tagger, Tag Field Updater, or File Reorganizer — Audio Suite automatically records a snapshot of each file's tags exactly as they were before that run. Undo Tag Edits lets you pick one of those saved runs and restore your file tags to the way they were before it happened.
 
 ## Quick Start

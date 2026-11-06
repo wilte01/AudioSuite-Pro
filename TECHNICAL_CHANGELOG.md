@@ -12,6 +12,43 @@ one.
 
 ## [Unreleased]
 
+- **Guide figures: one capture step, one renderer block, two locks.** A guide can
+  embed `![caption](images/x.png)`. `utilities/build_user_guides.py` renders it
+  at 6 in with the caption centred beneath, resolves the reference against the
+  guide source's own folder (refusing a drive letter or `..`), and `--check` now
+  compares the embedded `word/media/` entries as well as `word/document.xml`, so
+  a re-captured screenshot that was not re-rendered is reported instead of
+  surfacing as unexplained container drift. `utilities/capture_guide_shots.py`
+  is the only writer of those PNGs: it builds the real tool window, fills it
+  through the tool's own `_update_progress_ui`/`_update_ui_on_complete` with one
+  fixed sample run, answers the shared config in memory (palette, theme,
+  typography, geometry, last directory), neutralises `sys.argv` and the What's
+  New panel, and photographs the **decorated** window the tool really shows, at a
+  size pinned per tool. The origin is calibrated rather than computed: a
+  decorated window's requested position is never its painted one, and a
+  requested `+120+120` paints lower and further right once the frame offset is
+  counted. A 40 px marker block at the client's top-left is
+  located in a screen grab and supplies the origin, and a window that still lands
+  past the screen edge is corrected by the measured delta and re-calibrated - which
+  is how the 1007 px Fingerprinter window fits above the taskbar. The declared
+  size is load-bearing too: the shared run-controls panel positions part of itself
+  with `place()`, so no request/extent walk can see the controls a 776 px window
+  clips. The process also asks to be DPI aware before Tk starts, because a
+  DPI-unaware Tk reports logical sizes while `ImageGrab` copies physical pixels:
+  on a 125% display every figure was silently cropped to the window's top 80%,
+  which emptied the band where the BPM Setup tab's bottom-docked start button
+  sits. Each plan's window is now requested at `dpi/96` times its pinned size and
+  the grab is scaled back to the pinned size, so the layout is the 100% one at
+  any scaling. The capture still refuses a blank frame and a rectangle that runs
+  off-screen. A tool's figures are its notebook's tabs, enumerated at
+  runtime (``notebook``, or the hand-built windows' ``_notebook``); a tab the tool
+  disables until a disc is present is enabled for its own figure, and a
+  single-pane window is captured as ``window.png``. Each capture writes a sidecar
+  with the PNG's SHA-256. `tests/test_docs_formats.py` admits `.png` deliberately, and
+  `tests/test_user_guide_hygiene.py::TestGuideScreenshots` holds every committed
+  PNG to its sidecar and to the guide that shows it, with a tampered copy and an
+  unreferenced copy proving the lock fails rather than passing vacuously.
+
 - **Album-mode locks, and the 2.5.0 note window (F-E1).** The plan named its
   Refinery lock `test_album_mode.py`, which `tests/test_test_file_naming.py` would
   reject against its frozen allowlist; the locks therefore live in

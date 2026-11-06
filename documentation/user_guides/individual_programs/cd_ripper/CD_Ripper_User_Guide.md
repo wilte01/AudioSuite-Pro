@@ -37,6 +37,8 @@ This tool requires ffmpeg and ffprobe to be installed and on PATH. ffmpeg decode
 
 ## Setup & Lookup
 
+![The Setup & Lookup tab](images/setup_lookup.png)
+
 The first tab is disabled from proceeding until a disc has been read. It contains drive selection, disc reading, C2 diagnostics, MusicBrainz release candidates, album metadata, editable track rows, output configuration, and format quality settings.
 
 - **CD Drive: **Refresh the drive list, select the optical drive, and insert the audio CD before reading.
@@ -84,6 +86,8 @@ When CUE output is enabled, the generated sheet is named from the sanitized albu
 
 ## Rip Tab
 
+![The Rip tab](images/rip.png)
+
 The Rip tab displays every selected track with an individual progress bar and status. START RIPPING begins the session; Cancel requests cancellation of the current extraction or encoding task. The track grid reports extraction and FFmpeg encoding progress. Split CUE Image opens a CUE sheet and uses the selected output directory to split a single-file image into tracks.
 
 For each track, the session extracts to a temporary WAV, verifies that the extraction is non-empty, encodes to the selected format, removes the temporary WAV, and reports success or the specific failure. The drive is spun down after the session on a best-effort basis.
@@ -108,6 +112,8 @@ The result of each track's verification is appended to its status, and the Resul
 With AccurateRip mode the app logs the computed disc ID (ID1 / ID2 / CDDB) and whether database records were found, absent, or unavailable for the disc.
 
 ## Results
+
+![The Results tab after a finished run](images/results.png)
 
 Results shows succeeded and failed counts, track titles, output filenames, and status. Open Output Folder opens the destination, Eject Disc requests an operating-system eject, and double-clicking a successful row reveals its file in Explorer.
 

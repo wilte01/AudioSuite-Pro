@@ -1,0 +1,13 @@
+{
+  "captured_by": "utilities/capture_guide_shots.py",
+  "dpi": 120,
+  "height": 760,
+  "palette": "Purple",
+  "png_bytes": 46061,
+  "png_sha256": "83779a82dadea45cb6556ea89fbfcec88b834779a6d68aa6625eaeeb30070a69",
+  "shot": "results",
+  "tab": "results",
+  "theme": "Light",
+  "tool": "bpm_analyzer",
+  "width": 1120
+}

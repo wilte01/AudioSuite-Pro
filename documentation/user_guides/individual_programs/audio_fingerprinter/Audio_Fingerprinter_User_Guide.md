@@ -25,6 +25,8 @@ Audio Fingerprinter generates Chromaprint fingerprints with the external fpcalc 
 
 ## GUI Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup contains the directory picker, fpcalc path, API key controls, lookup and tag-writing switches, score threshold, analysis length, and shared run controls. The last-used directory is restored from suite configuration.
 
 - **fpcalc Binary: **Leave blank for FPCALC/PATH resolution or browse to an executable. The status line reports the resolved path.
@@ -43,6 +45,12 @@ Setup contains the directory picker, fpcalc path, API key controls, lookup and t
 - **Dry Run / Live Update: **Dry Run prevents tag writes. Live Update is required for tag writing.
 
 ## Processing and Results
+
+![The Results tab after a finished run](images/results.png)
+
+![The Processing tab part-way through a run](images/processing.png)
+
+
 
 Processing shows total and processed counts, errors, per-file status lines, and a worker-slot label per logical CPU (at most eight). Each file is fingerprinted, optionally looked up, and optionally tagged. Results reports identified matches, no matches, tags written, lookup skips, errors, and elapsed time.
 

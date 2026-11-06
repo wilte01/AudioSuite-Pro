@@ -21,6 +21,10 @@ The window has seven tabs: Setup holds the folder, the scan mode and the actions
 
 ## Scanning
 
+![The Setup tab: the folder to scan, the scan mode and the worker settings](images/setup.png)
+
+![The Processing tab during a scan: worker slots, the progress bar and a status line per finished file](images/processing.png)
+
 - **Recursive walk: **The scanner walks the selected directory tree and includes supported audio extensions.
 - **Read-only tags: **It reads BPM, key, genre, mood, tempo marking, album artist, artist, album, and release year values.
 - **Formats: **The format breakdown is based on supported file extensions, including MP3, FLAC, OGG, M4A, Opus, WAV, and AIFF variants.
@@ -41,23 +45,37 @@ The strip also carries Auto Start and Auto End, which mirror the Master Driver's
 
 ## Results Tab
 
+![The Results tab after a finished run](images/results.png)
+
 When a scan finishes, the window switches to the Results tab. It shows the completion heading, the total scan time, the file/album/artist counters, a View Log button and an Open Folder button.
 
 Every scan writes its report into the folder it scanned, as `library_stats_scan_log.txt`. The report opens with `LIBRARY STATISTICS REPORT`, the Mode, the scanned folder, the cache settings and a rule; then the format breakdown and missing-tag counts; and closes with a SUMMARY block holding the counters, the scan time and the elapsed time. Each scan overwrites the previous report. View Log opens it; the program's diagnostic log under `logs/` is a separate file and is not what the button opens.
 
 ## Summary Tab
 
+
+
+
 Summary shows total files, distinct albums, album artists, track artists, and scan duration. It also shows format counts, a major/minor key split, and the top artists by file count.
 
 ## Charts Tab
+
+
+
 
 When matplotlib is installed, Charts displays a top-genre pie chart, BPM distribution histogram, top-key bar chart, and release-year distribution. If matplotlib is unavailable, the tab reports the installation requirement instead.
 
 ## Missing Data Tab
 
+
+
+
 Missing Data reports counts and percentages for files without BPM, key, genre, mood, or tempo marking. It uses the total scanned file count as the denominator and displays a simple visual bar for each missing-data percentage.
 
 ## Completeness Tab
+
+
+
 
 Completeness separately checks whether each supported field is present: Title, Artist, Album, Track Number, Year, BPM, Key, Genre, Mood, Tempo Marking, Album Art, and ReplayGain. It shows total, present, missing, and percentage-complete values for each field, plus an overall percentage across all fields.
 

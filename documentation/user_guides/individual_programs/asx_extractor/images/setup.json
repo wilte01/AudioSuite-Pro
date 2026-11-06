@@ -1,0 +1,13 @@
+{
+  "captured_by": "utilities/capture_guide_shots.py",
+  "dpi": 120,
+  "height": 576,
+  "palette": "Purple",
+  "png_bytes": 60906,
+  "png_sha256": "e74cfd471a8314df6ed9d3bbc8d533e024efe6373951c1378baa45343b7d975e",
+  "shot": "setup",
+  "tab": "setup",
+  "theme": "Light",
+  "tool": "asx_extractor",
+  "width": 900
+}

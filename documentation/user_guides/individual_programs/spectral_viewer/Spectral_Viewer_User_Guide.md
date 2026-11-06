@@ -7,6 +7,8 @@ Based on the current Spectral Viewer implementation (FFT 2048, hop 512, magma)
 
 ## Overview
 
+![The window as it opens](images/window.png)
+
 Spectral Viewer draws an FFT spectrogram of an audio file: time runs left to right, frequency bottom to top, and colour is loudness in dB relative to the loudest point in the picture. It is an inspection tool. It never retags, re-encodes or moves an audio file; the only files it writes are PNG images you ask for.
 
 The tool has two front ends over one implementation: this window, and the headless `audiosuite spectrogram` command, which renders a whole folder and writes one `<name>_spectrogram.png` per file.

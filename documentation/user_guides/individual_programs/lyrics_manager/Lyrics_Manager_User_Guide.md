@@ -27,6 +27,8 @@ The window has three tabs mirroring the other batch tools in the suite.
 
 ### Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup contains the directory picker, the run mode, and the tool's options. The last directory and the settings below are saved in the shared suite configuration and restored next launch.
 
 - **Directory: **The folder to scan. Audio Suite's supported formats are scanned (MP3, FLAC, OGG, M4A, Opus, WAV, AIFF and variants).
@@ -40,9 +42,13 @@ Setup contains the directory picker, the run mode, and the tool's options. The l
 
 ### Processing
 
+![The Processing tab part-way through a run](images/processing.png)
+
 Shows live progress: each file is reported as it is looked up and written, with a status label: [TAGGED] when lyrics were embedded, [SKIPPED] when nothing was written (with the reason - no artist/title tags, already has lyrics, or lyrics not found), [DRY RUN] when a lookup found lyrics but nothing was written, or [ERROR] when the lookup or the write failed. The log keeps the full per-file history, and Live Update writes participate in the suite's tag-edit undo batch. A status bar shows overall and per-worker counts while the run is in progress.
 
 ### Results
+
+![The Results tab after a finished run](images/results.png)
 
 Summarises the run: total files, written, skipped and errors, with the overall status line and a final summary with duration.
 

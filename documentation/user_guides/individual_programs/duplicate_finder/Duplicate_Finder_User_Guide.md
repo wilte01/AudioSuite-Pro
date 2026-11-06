@@ -29,6 +29,8 @@ This tool needs the Chromaprint fingerprint calculator (`fpcalc`), which ships i
 
 ## Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup opens with the shared Run Controls strip — the source folder, **Browse**, the **Mode** dropdown, the driver's Auto Start / Auto End / Clear Logs / Parallel display, and the **SCAN FOR DUPLICATES** button — followed by this tool's own **Comparison** group.
 
 - **Similarity threshold:** the maximum bit-error rate at which two fingerprints count as one recording. Lower is stricter. The default **0.10** was measured, not guessed: on the reference set the same recording at different bitrates scored 0.0000–0.0002 and the closest pair that must stay apart scored 0.1580.
@@ -56,6 +58,12 @@ Setup opens with the shared Run Controls strip — the source folder, **Browse**
 Fingerprinting is the slow part of a scan, so each file's fingerprint is stored and reused. A stored fingerprint is trusted only while the file's modification time **and** size are unchanged — a file replaced by a copy that preserved its timestamps is fingerprinted again. The cache lives in one place, `~/.audiosuite/duplicate_cache.db`, never inside the music folder.
 
 ## Processing and Results
+
+![The Results tab after a finished run](images/results.png)
+
+![The Processing tab part-way through a run](images/processing.png)
+
+
 
 Processing shows one worker slot per logical CPU (at most eight), a progress bar, the shared processed / skipped / error count and one line per file: `[FINGERPRINT]` or `[CACHED]` while scanning, `[SKIP]` for a file without a readable fingerprint.
 

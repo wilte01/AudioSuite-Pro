@@ -16,6 +16,18 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+- **Every tool's guide shows the windows it describes.** All 28 tool guides now
+  carry figures captured from the running program: the Setup, Processing and
+  Results tabs, plus the extra tabs a tool adds — the Library Statistics
+  Summary, Charts, Missing Data and Completeness views, the CD Ripper's Rip tab,
+  and the single-pane Spectral Viewer, Master Driver and Undo Tag Edits windows.
+  A guide the Help button opens therefore shows the controls, the worker slots,
+  the per-file status lines and the finished summary it describes, with a
+  caption beneath each figure, and the same picture renders in the Word copy as
+  in the Markdown source. Each figure shows the whole window, so a control
+  docked along the bottom edge — BPM Analyzer's Begin button, for one — is in
+  the picture rather than cropped away.
+
 - **Album loudness normalisation in Audio Refinery.** The Normalise stage gains an
   **Album loudness** option and a `--album-mode` flag. When it is on the folder is
   measured once as a single album — ReplayGain's own definition of album loudness —

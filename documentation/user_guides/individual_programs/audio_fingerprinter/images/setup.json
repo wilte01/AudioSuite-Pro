@@ -1,0 +1,13 @@
+{
+  "captured_by": "utilities/capture_guide_shots.py",
+  "dpi": 120,
+  "height": 1007,
+  "palette": "Purple",
+  "png_bytes": 275402,
+  "png_sha256": "4f7edc36924242d7a7ef20fab494ed57c08160f3017e6452b08a3db5c12ce5ef",
+  "shot": "setup",
+  "tab": "setup",
+  "theme": "Light",
+  "tool": "audio_fingerprinter",
+  "width": 1000
+}

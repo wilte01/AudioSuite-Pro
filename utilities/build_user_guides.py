@@ -34,7 +34,11 @@ The dialect is deliberately small - only what the guides actually use:
 * ``- `` bullets and ``1. `` numbered steps;
 * ``| a | b |`` tables, the first row a bold header;
 * ``> `` callouts (a shaded single-cell box);
-* ``` ```text ``` fenced code boxes (Consolas, shaded).
+* ``` ```text ``` fenced code boxes (Consolas, shaded);
+* ``![caption](images/shot.png)`` on a line of its own - a screenshot captured
+  by ``utilities/capture_guide_shots.py``, rendered at 6 in wide with the
+  caption centred beneath it.  The reference is relative to the guide source,
+  so a figure cannot point at a file on one machine.
 
 Usage:
     python utilities/build_user_guides.py             # rebuild every guide
@@ -65,6 +69,15 @@ Changed in 2.3.1: the freshness check masks the generation month in a
 from the Markdown source - so comparing it verbatim reported every guide as
 stale from the first day of the next month (seven on 2026-11-01), and
 ``--check`` failed on a tree with no unrendered edit in it.
+Changed in 2.4.4: guides may carry figures.  ``![caption](images/x.png)`` embeds
+``images/x.png`` from the guide's own folder and renders the caption beneath it,
+so a guide can show the window it describes.  ``--check`` now compares the
+embedded ``word/media/`` entries too: an image entry is outside
+``word/document.xml``, so a screenshot edited or re-captured without re-rendering
+the guide used to be reported only as unexplained container drift.
+Changed in 2.5.0: BPM Analyzer's guide is the first to carry figures, which
+exercises that image block end to end - three PNGs and 177 KB of
+``word/media`` entries - and keeps ``--check`` byte-exact on them.
 """
 
 from __future__ import annotations
@@ -81,7 +94,7 @@ from docx import Document
 from docx.document import Document as DocxDocument
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
-from docx.shared import Pt
+from docx.shared import Inches, Pt
 from docx.table import _Cell
 from docx.text.paragraph import Paragraph
 
@@ -99,11 +112,19 @@ CALL_OUT_FILL = "FFF4CE"
 CODE_FILL = "F2F2F2"
 HEADER_FILL = "D9E2F3"
 
+#: Rendered width of a guide figure.  A portrait page has 6.5 in of text width
+#: between its 1 in margins; 6.0 in leaves the picture inset from both edges.
+FIGURE_WIDTH_INCHES = 6.0
+
 _HEADING = re.compile(r"^(#{2,4}) (.+)$")
 _BULLET = re.compile(r"^- (.+)$")
 _NUMBERED = re.compile(r"^\d+\. (.+)$")
 _TABLE_ROW = re.compile(r"^\|(.*)\|$")
 _BOLD_SPAN = re.compile(r"\*\*(.+?)\*\*")
+#: ``![caption](images/setup.png)`` on a line of its own.  The alt text becomes
+#: the Word caption, so one authored line carries both the picture and the text
+#: a reader sees under it (and a screen reader announces).
+_IMAGE = re.compile(r"^!\[(?P<alt>[^\]]*)\]\((?P<path>[^()]+)\)$")
 
 #: The ambient part of a ``version: auto`` subtitle.  A guide rendered in one
 #: month is not stale because the calendar moved, so the freshness comparison
@@ -120,7 +141,9 @@ class Guide:
         subtitle: A literal subtitle line, or an empty string.
         version: ``auto`` to render the dynamic version line, or an empty string.
         blocks: ``(kind, payload)`` pairs; kind is one of ``h``, ``p``, ``ul``,
-            ``ol``, ``table``, ``callout``, ``code``.
+            ``ol``, ``table``, ``callout``, ``code``, ``image``.  An ``image``
+            payload is ``(caption, reference)``, the reference relative to the
+            guide source's own folder.
     """
 
     title: str
@@ -252,6 +275,12 @@ def parse_guide(text: str, source: Path) -> Guide:
             guide.blocks.append(("ol", steps))
             continue
 
+        image = _IMAGE.match(stripped)
+        if image:
+            guide.blocks.append(("image", (image.group("alt"), image.group("path"))))
+            position += 1
+            continue
+
         paragraph: list[str] = []
         while position < len(body):
             raw_line = body[position].rstrip()
@@ -274,6 +303,7 @@ def parse_guide(text: str, source: Path) -> Guide:
                     or _TABLE_ROW.match(candidate)
                     or _BULLET.match(candidate)
                     or _NUMBERED.match(candidate)
+                    or _IMAGE.match(candidate)
                 )
             ):
                 break
@@ -360,14 +390,98 @@ def _render_box(
     doc.add_paragraph()
 
 
-def render_guide(guide: Guide) -> DocxDocument:
+def _resolve_image(base_dir: Path | None, reference: str) -> Path:
+    """Resolve a figure reference against the guide source's own folder.
+
+    Args:
+        base_dir: The folder the guide's Markdown lives in, or ``None`` when
+            the caller did not supply one.
+        reference: The ``![...](path)`` target, as authored.
+
+    Returns:
+        The image file.
+
+    Raises:
+        ValueError: If there is no base folder, the reference is absolute or
+            climbs out of it, or the file is not there.
+    """
+    if base_dir is None:
+        raise ValueError(
+            f"figure {reference!r} needs the guide's own folder to resolve it"
+        )
+    relative = Path(reference.strip())
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(
+            f"figure {reference!r} must be relative to the guide source, with "
+            "no drive and no '..'"
+        )
+    path = (base_dir / relative).resolve()
+    if not path.is_file():
+        raise ValueError(
+            f"figure {reference!r} is missing; capture it with "
+            "`python utilities/capture_guide_shots.py` first"
+        )
+    return path
+
+
+def image_references(text: str) -> list[str]:
+    """Return every figure reference in a guide's Markdown, in document order.
+
+    Exposed rather than re-derived so the lock that keeps committed screenshots
+    and the guides that show them in agreement reads the same syntax the
+    renderer accepts.
+
+    Args:
+        text: The whole Markdown document.
+
+    Returns:
+        The ``![...](path)`` targets, as authored.
+    """
+    references: list[str] = []
+    for line in text.replace("\r\n", "\n").split("\n"):
+        match = _IMAGE.match(line.strip())
+        if match:
+            references.append(match.group("path"))
+    return references
+
+
+def _render_figure(
+    doc: DocxDocument, payload: tuple[str, str], base_dir: Path | None
+) -> None:
+    """Render one guide figure: the picture, centred, its caption beneath it.
+
+    Args:
+        doc: The python-docx document.
+        payload: ``(caption, reference)`` as parsed from the Markdown.
+        base_dir: Folder of the guide source; the reference is relative to it.
+    """
+    caption, reference = payload
+    path = _resolve_image(base_dir, reference)
+    holder = doc.add_paragraph()
+    holder.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    holder.add_run().add_picture(str(path), width=Inches(FIGURE_WIDTH_INCHES))
+    if not caption:
+        return
+    text = doc.add_paragraph()
+    text.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = text.add_run(caption)
+    run.italic = True
+    run.font.size = Pt(9)
+
+
+def render_guide(guide: Guide, base_dir: Path | None = None) -> DocxDocument:
     """Build the python-docx document for *guide*.
 
     Args:
         guide: The parsed guide.
+        base_dir: Folder of the guide's Markdown source, used to resolve a figure
+            reference.  A guide without figures renders without it.
 
     Returns:
         The document, ready to save.
+
+    Raises:
+        ValueError: If a figure reference cannot be resolved.
     """
     doc = Document()
 
@@ -418,6 +532,8 @@ def render_guide(guide: Guide) -> DocxDocument:
             _render_box(doc, [str(line) for line in payload], CALL_OUT_FILL, True)
         elif kind == "code":
             _render_box(doc, str(payload).split("\n"), CODE_FILL, False)
+        elif kind == "image":
+            _render_figure(doc, payload, base_dir)
     return doc
 
 
@@ -495,7 +611,7 @@ def check_guide(source: Path) -> list[str]:
     guide = parse_guide(source.read_text(encoding="utf-8"), source)
     with tempfile.TemporaryDirectory() as scratch:
         fresh = Path(scratch) / target.name
-        render_guide(guide).save(str(fresh))
+        render_guide(guide, source.parent).save(str(fresh))
         before = entry_data(target)
         after = entry_data(fresh)
     problems: list[str] = []
@@ -511,6 +627,19 @@ def check_guide(source: Path) -> list[str]:
             f"{target.relative_to(REPO_ROOT)}: word/document.xml differs from "
             f"{source.name}; run `python utilities/build_user_guides.py`"
         )
+    # An embedded figure lives in ``word/media/``, not in ``word/document.xml``,
+    # so a re-captured screenshot that the guide was not re-rendered against is
+    # invisible to the document comparison above.  Compare the bytes the same
+    # way: a figure is part of the artefact, not an incidental attachment.
+    before_media = {n: b for n, b in before.items() if n.startswith("word/media/")}
+    after_media = {n: b for n, b in after.items() if n.startswith("word/media/")}
+    for name in sorted(set(before_media) & set(after_media)):
+        if before_media[name] != after_media[name]:
+            problems.append(
+                f"{target.relative_to(REPO_ROOT)}: embedded image {name} no "
+                f"longer matches the screenshot {source.name} shows; re-run "
+                "`python utilities/build_user_guides.py`"
+            )
     return problems
 
 
@@ -521,7 +650,7 @@ def rebuild(source: Path) -> None:
         source: The Markdown source.
     """
     guide = parse_guide(source.read_text(encoding="utf-8"), source)
-    render_guide(guide).save(str(target_for(source)))
+    render_guide(guide, source.parent).save(str(target_for(source)))
 
 
 def main(argv: list[str]) -> int:

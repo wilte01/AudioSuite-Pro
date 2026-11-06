@@ -1,0 +1,13 @@
+{
+  "captured_by": "utilities/capture_guide_shots.py",
+  "dpi": 120,
+  "height": 625,
+  "palette": "Purple",
+  "png_bytes": 40781,
+  "png_sha256": "ffa8fa6884a10dcb852400a7ff90a2cc65d72cf97c2d9f62f79cad44e30ca8d5",
+  "shot": "results",
+  "tab": "results",
+  "theme": "Light",
+  "tool": "ml_denoiser",
+  "width": 900
+}

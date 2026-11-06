@@ -6,11 +6,12 @@ than a file, which is why they are one module:
 1. *Authored-format whitelist* - inside the documentation trees the only
    authored suffix is ``.md``. ``.docx``/``.pptx`` are permitted as generated
    artefacts (their sources are locked by ``test_user_guide_hygiene.py``),
-   and ``.py`` only because the two suite-level generators live beside the
-   artefacts they write. A new ``.rst``/``.txt``/``.adoc`` page fails here until
-   someone adds it to the approved set **deliberately** - which is the point:
-   the RST island this plan removed grew back one page at a time because no lock
-   named the authored formats (D1).
+   ``.py`` only because the two suite-level generators live beside the
+   artefacts they write, and ``.png`` because a guide figure is captured from a
+   live tool window rather than written. A new ``.rst``/``.txt``/``.adoc`` page
+   fails here until someone adds it to the approved set **deliberately** - which
+   is the point: the RST island this plan removed grew back one page at a time
+   because no lock named the authored formats (D1).
 2. *Absolute-path scan* - no first-party documentation tool may name a path on
    one developer's machine. Twenty-four retired guide generators wrote to
    ``D:\\Users\\<name>\\...``, so the committed scripts only ran on one host; a
@@ -40,6 +41,10 @@ committed document - the CLI reference and the new-user deck - but the name it
 was given misses the ``test_docs*`` / ``test_user_guide*`` / ``test_guide*`` /
 ``test_api_*`` families, so the walk never saw it, the file was never classified,
 and its failures stayed 15-20 minutes into the suite matrix.
+
+Changed in 2.5.0: the ``.png`` category is a live one - BPM Analyzer's three
+captured tabs are the first figures in the tree - so the whitelist entry is
+proved by a real artefact rather than left as an empty allowance.
 """
 
 from __future__ import annotations
@@ -64,7 +69,14 @@ ARTEFACTS = frozenset({".docx", ".pptx"})
 #: Suite-level generators live beside the artefact they write.
 CODE = frozenset({".py"})
 
-APPROVED = AUTHORED | ARTEFACTS | CODE
+#: Captured screenshots.  Nothing *writes* a PNG by hand: each one is a grab of a
+#: live tool window taken by ``utilities/capture_guide_shots.py``, and the
+#: hygiene lock holds it to its sidecar and to the guide that shows it.  Listed
+#: separately from ``ARTEFACTS`` because a picture is embedded *by* the document
+#: rather than rendered from it.
+IMAGES = frozenset({".png"})
+
+APPROVED = AUTHORED | ARTEFACTS | CODE | IMAGES
 
 #: The documentation tree the whitelist governs. Wider on purpose: every
 #: authored document in the repository lives under ``documentation/``, so a new

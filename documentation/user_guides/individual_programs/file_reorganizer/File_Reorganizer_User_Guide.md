@@ -22,6 +22,8 @@ The workflow is preview-first: Mode is set to Dry Run on launch and shows the pl
 
 ## Setup and Actions
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 - **Source Music Directory: **Root folder to scan recursively. It sits in the Run Controls strip at the top of the Setup tab; Browse records the folder as the suite-wide last-used directory, and the last suite directory may be restored on startup.
 - **Mode: **Dry Run (the default) evaluates every path without writing anything; Live Update performs the selected copy or move. The Preview button always runs a dry scan, whatever the Mode says.
 - **Auto Start / Auto End: **Mirror the Master Driver's orchestration options. Auto Start is driver-only, and a launch from the driver locks the strip so the inherited values stay visible but cannot be changed inside the tool.
@@ -92,9 +94,13 @@ A pattern that resolves to a `.` or `..` path component, a drive-qualified value
 
 ## Progress and Statistics
 
+![The Processing tab part-way through a run](images/processing.png)
+
 The Processing tab reports the current file in its status line, a progress bar that fills as scanned files are processed, and four counters: Scanned, Processed, Skipped, and Errors. Each resolved destination path, skip notice or pattern error is appended to the path list below the counters, and the same lines make up the body of the run report. Skips include files with no usable album/title tags, files whose pattern resolves to an empty path, and files whose destination path already exists. Pattern parsing failures and operating-system/value errors increment Errors.
 
 ## Results
+
+![The Results tab after a finished run](images/results.png)
 
 When an execute run finishes, the window switches to the Results tab. It shows the completion heading, the total time, the four final counters, a View Log button for this run's report and an Open Folder button for the destination directory. A preview leaves the window on the Processing tab so its planned paths stay visible.
 

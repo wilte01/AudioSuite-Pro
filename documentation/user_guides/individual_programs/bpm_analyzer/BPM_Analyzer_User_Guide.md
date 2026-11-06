@@ -27,6 +27,8 @@ The analyzer uses the shared Audio Suite supported-format list, including MP3, F
 
 Setup contains the directory picker, mode, BPM range, analysis duration, optional parallel processing, worker count, presets, and the start button. The GUI restores the last directory and saves parallel settings through shared suite configuration.
 
+![The Setup tab: source directory, Dry Run mode, BPM range, analysis duration, worker settings and presets](images/setup.png)
+
 - **BPM Range: **The GUI requires minimum BPM from 40 through 300 and maximum BPM from 60 through 400, with minimum less than maximum. Defaults are 75 to 175.
 - **Analysis Duration: **The GUI accepts 10 to 300 seconds. The default is 90 seconds. Shorter analysis is faster but may be less accurate.
 - **Parallel Processing: **When enabled, CPU-bound detection uses ProcessPoolExecutor to bypass the GIL. When disabled, the shared thread-based processing path is used.
@@ -50,9 +52,15 @@ For each file, librosa loads mono audio for the configured maximum duration usin
 
 ## Processing and Results
 
-Processing shows a worker-slot label per logical CPU (at most eight), a progress bar, processed/skipped/error counts, and per-file status lines. Results reports total files, analyzed or tagged files, skipped files, errors, and elapsed time. The completion label distinguishes Analysis Complete from BPM Tagging Complete.
+Processing shows a worker-slot label per logical CPU (at most eight), a progress bar, processed/skipped/error counts, and per-file status lines.
+
+![The Processing tab during a Dry Run: worker slots, the progress bar, the processed/skipped/error counts and one status line per finished file](images/processing.png)
+
+Results reports total files, analyzed or tagged files, skipped files, errors, and elapsed time. The completion label distinguishes Analysis Complete from BPM Tagging Complete.
 
 BPM Analyzer does not treat an out-of-range detection as a skip: the value is tagged as measured and its line names the configured range. Skips are reserved for files with no discernible beat, and errors for files that could not be read.
+
+![The Results tab after a finished Dry Run: totals, the Outside BPM range row, elapsed time, and the View Log and Open Folder buttons](images/results.png)
 
 When any file lands outside the range, the Results summary and the run log add an Outside BPM range line, for example 1 of 12 tracks (band 75-175), and the Master Driver's batch note reports the same count after the step.
 

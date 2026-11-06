@@ -1,0 +1,13 @@
+{
+  "captured_by": "utilities/capture_guide_shots.py",
+  "dpi": 120,
+  "height": 670,
+  "palette": "Purple",
+  "png_bytes": 117486,
+  "png_sha256": "63ae23a1c7679661786e50f599408684d95252d39ace11d2d80193d9725b2adf",
+  "shot": "setup",
+  "tab": "setup",
+  "theme": "Light",
+  "tool": "mood_analyzer",
+  "width": 900
+}

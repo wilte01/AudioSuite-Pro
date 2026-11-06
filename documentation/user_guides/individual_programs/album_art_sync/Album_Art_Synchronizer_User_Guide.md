@@ -44,6 +44,8 @@ The search logs the sources queried and records the source ultimately selected. 
 
 ### Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup contains the directory control, run mode, embedded resolution, purge option, presets, and the start button. The application validates that the directory exists and contains supported audio files before searching. The last directory can be restored through shared suite configuration.
 
 - **Embedded Res: **Select 600, 800, 1000, or 1200 pixels. The default is 800.
@@ -54,9 +56,13 @@ Setup contains the directory control, run mode, embedded resolution, purge optio
 
 ### Processing
 
+![The Processing tab part-way through a run](images/processing.png)
+
 Processing shows the current search or embedding status, a progress bar, a live log, and Cancel. Cancellation is checked during lookup and while embedding files. A cancellation request stops further work and marks the operation as cancelled in the Results view.
 
 ### Results
+
+![The Results tab after a finished run](images/results.png)
 
 Results reports completion, cancellation, no artwork found, or partial success. View Log opens art_sync_log.txt in the source directory. Open Folder opens the source directory because synchronization modifies files in place.
 

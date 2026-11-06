@@ -33,6 +33,8 @@ This tool requires ffmpeg and ffprobe to be installed and on PATH. ffmpeg decode
 
 ## Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup opens with the shared Run Controls strip — source folder, **Browse**, the **Mode** dropdown, the driver's Auto Start / Auto End / Clear Logs / Parallel display, and the **RECONSTRUCT PEAKS** button — followed by this tool's own **Detection** group.
 
 - **Clipping threshold:** how close to the file's own peak a sample must be to count as a clipping candidate. The default **0.98** means "within 2 % of the loudest sample in this file", which finds a ceiling the source was limited to as well as a full-scale one. Lowering it widens the candidate search; the flat-top test below still decides what is actually repaired.
@@ -73,6 +75,12 @@ The numbers below are the acceptance measurements recorded for this version, tak
 - **Undo:** each live write is reversible from Undo Tag Edits while the batch is still in its capped history.
 
 ## Processing and Results
+
+![The Results tab after a finished run](images/results.png)
+
+![The Processing tab part-way through a run](images/processing.png)
+
+
 
 Processing shows one worker slot per logical CPU (at most eight), a progress bar, the shared processed / succeeded / skipped / error count and one line per file: `[FIXED]` for a repair, `[FOUND]` in a dry run, `[SKIP]` for a clean file, `[ERROR]` for a file that failed.
 

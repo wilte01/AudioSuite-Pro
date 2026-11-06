@@ -1,0 +1,13 @@
+{
+  "captured_by": "utilities/capture_guide_shots.py",
+  "dpi": 120,
+  "height": 551,
+  "palette": "Purple",
+  "png_bytes": 70497,
+  "png_sha256": "87afaedf916d9ba2c1a507889126e9ba404cec5f2ceb61f8ca79a3b3674d2b5f",
+  "shot": "setup",
+  "tab": "setup",
+  "theme": "Light",
+  "tool": "key_detector",
+  "width": 900
+}

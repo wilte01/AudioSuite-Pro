@@ -28,6 +28,8 @@ Use this sequence for a normal batch operation:
 
 ## The Main Window
 
+![The Master Driver window: the module cards, the shared run controls and the log panel](images/window.png)
+
 ### REFINE
 
 REFINE embeds the Audio Refinery setup. Choose a source folder and, if needed, an output folder. A blank output folder means process in place. Select one or more stages: declick, trim, enhance, normalise, and reduce noise. SELECT ALL changes all five stage selections together. The embedded controls also provide Dry Run, Auto Start, Auto End, and Clear Logs. The Refinery does not use the shared Parallel option. Reset Progress clears the completion record for the selected source so files are eligible for another run. At least one stage and a valid source directory are required. In the enhancement stage, selecting Custom opens the Custom DSP editor the stage itself carries, so the stage stays compact and every control is reachable.

@@ -25,6 +25,8 @@ The detector uses the shared Audio Suite supported-extension list, including MP3
 
 ## Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup contains the directory picker, run mode, analysis duration, parallel worker controls, presets, and the start button. The last-used directory and parallel settings are restored through shared suite configuration.
 
 - **Analysis Duration: **The GUI defaults to 90 seconds. Shorter analysis is faster but may provide less musical context.
@@ -58,6 +60,12 @@ Major keys are displayed without a suffix, while minor keys end in m. Common fla
 - **Undo: **Live tag changes participate in the suite's batch undo context.
 
 ## Processing and Results
+
+![The Results tab after a finished run](images/results.png)
+
+![The Processing tab part-way through a run](images/processing.png)
+
+
 
 Processing shows a worker-slot status per logical CPU (at most eight), a progress bar, processed/skipped/error counts, and per-file messages. Results reports total files, analyzed files, skipped files, errors, and elapsed time. The completion label distinguishes Analysis Complete from Key Tagging Complete.
 

@@ -25,6 +25,8 @@ The analyzer uses the shared Audio Suite supported audio extensions, including M
 
 ## Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup contains the directory picker, run mode, analysis duration, parallel worker controls, presets, and shared run controls. The last-used directory and parallel settings are stored in shared suite configuration.
 
 - **Analysis Duration: **The GUI defaults to 90 seconds. The CLI accepts 10 through 600 seconds. Shorter values are faster but sample less of each track.
@@ -43,6 +45,8 @@ The signal mood engine scores two axes. Arousal represents energy versus calm an
 
 ## Processing Behavior
 
+![The Processing tab part-way through a run](images/processing.png)
+
 1. Discover supported audio files directly inside the selected directory.
 1. Load each file for the configured analysis duration.
 1. Analyze the signal and derive mood, confidence, and energy.
@@ -59,6 +63,8 @@ The signal mood engine scores two axes. Arousal represents energy versus calm an
 - **Undo: **Live tag writes run inside the suite tag-edit batch and can be reverted when snapshots are available.
 
 ## Processing and Results
+
+![The Results tab after a finished run](images/results.png)
 
 Processing shows one worker slot per logical CPU (at most eight), progress, processed/skipped/error counts, and per-file status messages. Results reports total files, analyzed/tagged files, skipped files, errors, and elapsed time. The tool can open the source folder and the generated log.
 

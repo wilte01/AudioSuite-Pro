@@ -1,0 +1,13 @@
+{
+  "captured_by": "utilities/capture_guide_shots.py",
+  "dpi": 120,
+  "height": 652,
+  "palette": "Purple",
+  "png_bytes": 29990,
+  "png_sha256": "05b765e1de50964c531c98196b065e2c277cc9415f265665ca6a19370ea5a16f",
+  "shot": "results",
+  "tab": "results",
+  "theme": "Light",
+  "tool": "replaygain_analyzer",
+  "width": 900
+}

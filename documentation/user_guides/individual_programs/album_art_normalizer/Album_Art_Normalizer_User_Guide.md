@@ -28,6 +28,8 @@ The GUI also checks for folder.jpg directly inside the selected directory. When 
 
 ### Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup contains the folder picker, embedded resolution selector, run mode, and shared controls. The folder must exist and be a directory. The default embedded target is 800 x 800. The last-used directory can be restored from the shared suite configuration.
 
 - **Dry Run: **Use for a preview pass before writing artwork changes.
@@ -38,9 +40,13 @@ Setup contains the folder picker, embedded resolution selector, run mode, and sh
 
 ### Processing
 
+![The Processing tab part-way through a run](images/processing.png)
+
 Processing shows a progress bar, live file outcomes, and counts for files examined, images updated, and errors. Work runs in background workers; the normalizer uses one worker per logical CPU by default (at most eight).
 
 ### Results
+
+![The Results tab after a finished run](images/results.png)
 
 Results shows total time, files examined, images updated, skipped files, and errors. View Log and Open Folder are available. The GUI writes art_normalize_log.txt in the selected directory.
 

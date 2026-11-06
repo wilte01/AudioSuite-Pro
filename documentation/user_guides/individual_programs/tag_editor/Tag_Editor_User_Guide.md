@@ -19,6 +19,8 @@ The Tag Editor is an interactive grid for common audio metadata fields. It recur
 
 ## The Window
 
+![The Setup tab: the folder to scan, the run mode and the tag-editing options](images/setup.png)
+
 The editor is a three-tab window, like the rest of the suite.
 
 | Tab | What it shows |
@@ -73,6 +75,8 @@ Every apply run — Apply to Selection, Apply Bulk and Import CSV — moves to t
 
 ## Bulk Operations
 
+![The Processing tab during a bulk run: worker slots, the progress bar and a status line per finished file](images/processing.png)
+
 The Bulk Operations panel applies a transformation to every selected row in one undoable apply run.
 
 | Operation | Effect |
@@ -106,6 +110,8 @@ Empty cells mean leave unchanged, so re-importing an exported grid never clears 
 **Mode** on the Run Controls strip selects Dry Run or Live Update, and Dry Run is the default. A dry run reads current values and reports the proposed old/new comparison without writing any tag. Choose Live Update to write changes; the strip is the only place that decides, and every apply run reads it when it starts. When launched from the Master Driver, the driver's utility mode selection sets the strip's initial value.
 
 ## Run Reports
+
+![The Results tab after a finished run: totals, elapsed time, and the View Log and Open Folder buttons](images/results.png)
 
 Each run writes a report into the folder it read, in the same form the suite's other tools use: a header naming the run and its mode, one line per file (or per edit), and a SUMMARY block. The report is plain text and View Log on the Results tab opens it.
 

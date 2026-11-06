@@ -161,6 +161,8 @@ Double-click Tag_Field_Updater.pyw to launch the graphical interface. The window
 
 ### 1. Setup tab
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 The tab opens with the suite's **Run Controls** strip, in the same order and with the same labels every other tool uses:
 
 **Source Music Directory: **Type or paste a directory path directly, or click **Browse & Scan** to open a folder chooser dialog. This is the root directory for the recursive scan, and the entry widens with the window. The chooser opens in the folder already in the box, and the folder you pick is remembered for the next launch.
@@ -189,9 +191,13 @@ Below the pattern controls the window names the fields it writes — the custom 
 
 ### 2. Processing tab
 
+![The Processing tab part-way through a run](images/processing.png)
+
 While a scan runs this tab shows the file being processed in the status line, a progress bar sized to the number of files the scan will visit (every file in the folder, since the walk reads each one to decide whether it is supported), the shared `Processed / Skipped / Errors` count, and one line per file as it is handled, updated in real-time from the background thread.
 
 ### 3. Results tab
+
+![The Results tab after a finished run](images/results.png)
 
 When the scan finishes (or is stopped) the window switches to this tab, which shows the completion heading (**Scan Complete!** in a dry run, **Tag Update Complete!** in Live Update), the total time, and a summary of the files read, skipped and failed, plus how many of the audio files were updated — so a run that skipped or could not update files says so on screen.
 

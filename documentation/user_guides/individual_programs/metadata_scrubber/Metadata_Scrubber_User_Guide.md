@@ -37,6 +37,8 @@ The GUI discovers custom tags by sampling up to 100 supported audio files in the
 
 ## Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup contains the directory/run-controls panel, presets, preservation toggles, custom-tag checklist, and start button. Browse & Scan both selects the folder and discovers custom tags. Previously preserved custom-tag choices are marked saved and automatically ticked when they are found again.
 
 - **Preserve Lyrics (USLT/SYLT): **Keeps lyrics frames or equivalent format-specific lyrics fields.
@@ -71,6 +73,12 @@ The operation keeps audio content unchanged; it changes metadata containers and 
 - **Corrupt tags: **A failed wipe is reported as CORRUPT TAGS; a failed restoration is reported as WRITE FAILED.
 
 ## Processing and Results
+
+![The Results tab after a finished run](images/results.png)
+
+![The Processing tab part-way through a run](images/processing.png)
+
+
 
 Processing shows one worker slot per logical CPU (at most eight), processed/skipped/error counts, and per-file status messages. Results reports total files, successfully processed files, skipped files, errors, and elapsed time. The results tab can open the log and source folder.
 

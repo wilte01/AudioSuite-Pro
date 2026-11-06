@@ -42,6 +42,8 @@ A file without tags, without TITLEGENRE, or with an unreadable tag is counted as
 
 ### Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup contains the directory picker, run mode, Minimum Coverage field, shared run controls, presets, and the start button. The selected path must exist and be a directory. The last-used directory is restored from shared suite configuration when no path is supplied.
 
 - **Minimum Coverage (%): **An integer from 0 through 100. The default is 50, meaning at least half of the audio files must have TITLEGENRE.
@@ -53,9 +55,13 @@ Setup contains the directory picker, run mode, Minimum Coverage field, shared ru
 
 ### Processing
 
+![The Processing tab part-way through a run](images/processing.png)
+
 The Processing tab shows Phase 1 progress with processed count, files that contain TITLEGENRE, and read errors. It then lists Phase 2 dry-run or update statuses for each supported audio file. The progress bar reserves an additional step for the write phase.
 
 ### Results
+
+![The Results tab after a finished run](images/results.png)
 
 Results shows elapsed time, total files, files with TITLEGENRE and their coverage percentage, unique genres found, files updated or would be updated, and read or write errors. It also displays the consolidated album genre string. View Log opens AlbumGenre_Tagger_Log.txt, and Open Folder opens the source directory because tags are changed in place.
 

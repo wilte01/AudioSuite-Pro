@@ -34,6 +34,8 @@ This tool requires ffmpeg and ffprobe to be installed and on PATH. ffmpeg decode
 
 ## Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup contains source and output paths, presets, the shared run controls, five stage panels, Reset Progress, and BEGIN REFINERY. The default active stages are declick, trim, enhance, and normalise; noise reduction is optional. At least one stage must be enabled.
 
 - **Source folder: **Required directory containing supported audio files. The application validates the directory and checks for audio before starting.
@@ -81,6 +83,12 @@ A live run that changes nothing is reported SKIPPED and leaves the file byte-ide
 The refinery stores successful completion records in _refinery_completed.log in the source folder. Each record contains a SHA-256 hash and filename. A file is skipped only when both its name and pre-processing hash match a recorded completion, so a renamed or modified file is eligible for processing again. Only a run that wrote the file records a completion: a file left unchanged or seen in a Dry Run is not recorded, so a later run with different settings still processes it. Use Reset Progress to clear all records for the selected source folder.
 
 ## Processing and Results
+
+![The Results tab after a finished run](images/results.png)
+
+![The Processing tab part-way through a run](images/processing.png)
+
+
 
 Processing shows one worker slot per logical CPU (at most eight), progress, and per-file DONE, SKIP, or ERROR entries. Each completed file's log includes stage messages and metrics. Results reports processed, succeeded, skipped, errors, and elapsed time. The Results tab can compare the original and result audio when a suitable pair exists; Dry Run has no result audio to play.
 

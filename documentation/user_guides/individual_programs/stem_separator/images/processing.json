@@ -1,0 +1,13 @@
+{
+  "captured_by": "utilities/capture_guide_shots.py",
+  "dpi": 120,
+  "height": 880,
+  "palette": "Purple",
+  "png_bytes": 60275,
+  "png_sha256": "6502ad4ab8d2deed9fbe2535332bb5d4541830b1e599db78464e77aa402de6ae",
+  "shot": "processing",
+  "tab": "processing",
+  "theme": "Light",
+  "tool": "stem_separator",
+  "width": 900
+}

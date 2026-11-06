@@ -39,6 +39,8 @@ The PyPI torch wheel for Windows is a CPU build. A machine with a NVIDIA card th
 
 ## Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup contains the source and output directory pickers, the stem selection, the model and device controls, the run mode and the shared run controls.
 
 - **Stem output folder: **Required. Each track gets its own subfolder inside it. The folder is remembered between runs.
@@ -78,6 +80,12 @@ Two sources with the same name but different extensions (song.flac and song.wav)
 - **Disk space: **Each stem is a full-length file, so a four-stem separation of a lossless album needs several times the album's size. WAV stems are uncompressed.
 
 ## Processing and Results
+
+![The Results tab after a finished run](images/results.png)
+
+![The Processing tab part-way through a run](images/processing.png)
+
+
 
 Processing shows the worker slots, progress, processed/separated/skipped/error counts and a line per file, such as [SEPARATED], [SKIPPED] or [ERROR]. Results reports the files examined, how many were separated, how many stem files were written, the device used, the elapsed time and the output folder, and can open the log and the output folder.
 

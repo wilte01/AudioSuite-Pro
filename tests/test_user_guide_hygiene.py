@@ -61,11 +61,23 @@ subtitle, so from 2026-11-01 every guide rendered in October reported as stale
 on a tree with no unrendered edit in it; the comparison now masks that month
 and keeps the version number.
 
+Changed in 2.5.0: adds lock (8), ``TestGuideScreenshots`` - a captured PNG must
+sit in its guide's ``images/`` folder, match the SHA-256 its sidecar records, and
+be shown by that guide, with two counter-cases proving a tampered or
+unreferenced figure is reported. The walk is the working tree, not
+``git ls-files``: a capture writes figures before anyone commits them, and a
+probe frame left behind is dead weight the lock should catch. A third case reads
+the BPM Setup figure itself: the start button is a run of the palette accent
+almost the figure's full width, which the picture lacks when the grab stops
+short of the window's bottom edge.
+
 """
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
 import shutil
 import subprocess
 import sys
@@ -73,6 +85,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GUIDE_ROOT = REPO_ROOT / "documentation" / "user_guides" / "individual_programs"
@@ -307,6 +320,12 @@ class TestGeneratorHygiene:
         copied = tmp_path / source.name
         shutil.copy2(source, copied)
         shutil.copy2(source.with_suffix(".docx"), copied.with_suffix(".docx"))
+        # The guide's figures travel with it: a source that references
+        # ``images/x.png`` cannot be rendered from the Markdown alone, and this
+        # copy is rendered for real.
+        images = source.parent / "images"
+        if images.is_dir():
+            shutil.copytree(images, copied.parent / "images")
         copied.write_text(
             copied.read_text(encoding="utf-8") + "\n## Amended section\n",
             encoding="utf-8",
@@ -658,3 +677,179 @@ class TestSuiteOverviewGenerators:
         assert not offenders, (
             "suite-level generator hygiene problems:\n  " + "\n  ".join(offenders)
         )
+
+
+#: Folder inside a tool's guide folder that holds its captured screenshots.
+SCREENSHOT_DIRNAME = "images"
+
+
+def _screenshot_problems(shots: list[str], root: Path) -> list[str]:
+    """Return one line per screenshot or reference that does not hold up.
+
+    Three directions are checked, because each has its own failure mode: a
+    committed PNG that no guide shows is dead weight nothing refreshes, a
+    reference to a PNG that is not there renders as a broken figure, and a PNG
+    whose bytes no longer match its sidecar is a picture edited or re-saved by
+    hand months after the window it shows changed.
+
+    Args:
+        shots: PNG paths relative to *root*, POSIX style.
+        root: The tree they are read from - the repository, or a copy of it.
+
+    Returns:
+        Human-readable problems; empty when every screenshot holds up.
+    """
+    renderer = _load_renderer()
+    problems: list[str] = []
+    for shot in shots:
+        png = root / shot
+        guide_folder = png.parent.parent
+        if png.parent.name != SCREENSHOT_DIRNAME:
+            problems.append(
+                f"{shot}: a screenshot lives in <guide folder>/{SCREENSHOT_DIRNAME}/"
+            )
+            continue
+        sidecar = png.with_suffix(".json")
+        if not sidecar.is_file():
+            problems.append(
+                f"{shot}: no {sidecar.name} beside it; capture it with "
+                "`python utilities/capture_guide_shots.py`"
+            )
+            continue
+        try:
+            recorded: dict[str, Any] = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            problems.append(f"{shot}: {sidecar.name} is unreadable ({exc})")
+            continue
+        digest = hashlib.sha256(png.read_bytes()).hexdigest()
+        if recorded.get("png_sha256") != digest:
+            problems.append(
+                f"{shot}: {sidecar.name} records a different hash, so the PNG is "
+                "no longer the frame the capture produced"
+            )
+        if recorded.get("tool") != guide_folder.name:
+            problems.append(
+                f"{shot}: {sidecar.name} says tool {recorded.get('tool')!r}, "
+                f"but it sits under {guide_folder.name!r}"
+            )
+        guides = sorted(guide_folder.glob("*_User_Guide.md"))
+        if len(guides) != 1:
+            problems.append(
+                f"{shot}: {guide_folder.name} holds {len(guides)} guide sources; "
+                "a screenshot needs exactly one guide to be shown in"
+            )
+            continue
+        reference = f"{SCREENSHOT_DIRNAME}/{png.name}"
+        references = renderer.image_references(guides[0].read_text(encoding="utf-8"))
+        if reference not in references:
+            problems.append(
+                f"{shot}: {guides[0].name} never shows it (no ![...]({reference}))"
+            )
+    return problems
+
+
+class TestGuideScreenshots:
+    """Guide figures are captured, referenced, and untouched since capture.
+
+    A figure is a committed PNG embedded by the renderer, so no compiler and no
+    freshness check reads its content: without this lock it can be a file no
+    guide shows, a reference to a file that is gone, or a picture edited by hand
+    after the window changed.  The checks mirror the artefact lock one level
+    down - the binary has a source (the capture run) and the document that shows
+    it must agree with what is on disk.
+    """
+
+    def test_the_bpm_setup_figure_shows_its_start_button(self) -> None:
+        """The Setup tab's start button is in the committed figure, not cropped.
+
+        The button is packed against the bottom of the tab, so a grab that stops
+        short of the window's bottom edge loses it entirely.  A DPI-unaware
+        capture on a 125% display copied the window's top 80%, reported the
+        button mapped at the right place, and shipped a figure with an empty
+        band where the button is.  The lock therefore reads the committed PNG
+        rather than Tk's geometry: the button is a full-width coloured block in
+        a band that is otherwise window background, so the lower third is
+        measured for colour rather than for one palette's accent (the palette
+        is module state another test can have changed).
+        """
+        png = GUIDE_ROOT / "bpm_analyzer" / SCREENSHOT_DIRNAME / "setup.png"
+        assert png.is_file(), f"no BPM setup figure at {png}"
+        image = Image.open(png).convert("RGB")
+        width, height = image.size
+        pixels = list(image.get_flattened_data())
+        top = round(height * 0.7)
+        chromatic = sum(
+            1
+            for row in range(top, height)
+            for pixel in pixels[row * width : (row + 1) * width]
+            if max(pixel) - min(pixel) > 40
+        )
+        share = chromatic / ((height - top) * width)
+        assert share > 0.10, (
+            f"only {share:.1%} of the BPM setup figure's lower third is coloured, "
+            "so the picture stops above the full-width start button"
+        )
+
+    def test_every_screenshot_is_referenced_and_matches_its_sidecar(self) -> None:
+        """Each PNG in the guide tree is shown by its guide and holds up.
+
+        The walk is the working tree, not ``git ls-files``. A capture run writes
+        its PNGs beside the guide before anyone commits them, so a tracked-only
+        scan sees nothing on the branch that produced them - and a probe frame
+        left behind (``_probe_bottom.png`` was, during this pilot) is exactly the
+        dead weight this lock exists to catch. In CI every committed file is on
+        disk, so the committed set is covered by the same walk.
+        """
+        shots = [
+            path.relative_to(REPO_ROOT).as_posix()
+            for path in sorted(GUIDE_ROOT.glob(f"*/{SCREENSHOT_DIRNAME}/*.png"))
+        ]
+        assert len(shots) >= 3, (
+            f"only {len(shots)} screenshots tracked - the walk is broken, so "
+            "this lock would pass vacuously"
+        )
+        problems = _screenshot_problems(shots, REPO_ROOT)
+        assert not problems, "guide screenshot problems:\n  " + "\n  ".join(problems)
+
+    def test_a_tampered_screenshot_is_reported(self, tmp_path: Path) -> None:
+        """The hash check fails on an edited PNG, not only passes on a good one."""
+        source = GUIDE_ROOT / "bpm_analyzer"
+        assert source.is_dir(), f"no guide folder to copy at {source}"
+        copied = tmp_path / "bpm_analyzer"
+        shutil.copytree(source, copied)
+        png = copied / SCREENSHOT_DIRNAME / "setup.png"
+        assert png.is_file(), f"no screenshot to tamper with at {png}"
+        original = png.read_bytes()
+        png.write_bytes(original[:-1] + bytes([original[-1] ^ 0xFF]))
+
+        problems = _screenshot_problems(
+            [f"bpm_analyzer/{SCREENSHOT_DIRNAME}/setup.png"], tmp_path
+        )
+
+        assert any("different hash" in problem for problem in problems), problems
+
+    def test_an_unreferenced_screenshot_is_reported(self, tmp_path: Path) -> None:
+        """A captured file that no guide shows is dead weight, and must fail."""
+        source = GUIDE_ROOT / "bpm_analyzer"
+        copied = tmp_path / "bpm_analyzer"
+        shutil.copytree(source, copied)
+        guide = next(copied.glob("*_User_Guide.md"))
+        text = guide.read_text(encoding="utf-8")
+        assert f"{SCREENSHOT_DIRNAME}/setup.png" in text, (
+            "the guide no longer shows the setup figure, so this proof cannot fail"
+        )
+        guide.write_text(
+            "\n".join(
+                line
+                for line in text.splitlines()
+                if f"{SCREENSHOT_DIRNAME}/setup.png" not in line
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        problems = _screenshot_problems(
+            [f"bpm_analyzer/{SCREENSHOT_DIRNAME}/setup.png"], tmp_path
+        )
+
+        assert any("never shows it" in problem for problem in problems), problems

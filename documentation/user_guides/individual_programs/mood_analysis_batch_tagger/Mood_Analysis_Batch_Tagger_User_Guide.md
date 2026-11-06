@@ -23,6 +23,8 @@ The batch engine uses the shared Audio Suite supported extensions, including MP3
 
 ## Setup
 
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
 Setup contains the root folder, mode, duration, worker settings, presets, and shared run controls. The root directory is scanned recursively. Duration and parallel settings are saved in shared suite configuration.
 
 - **Analysis Duration: **The default is 90 seconds. The CLI and parser allow 10 through 600 seconds. Shorter windows are faster but sample less of each track.
@@ -57,6 +59,12 @@ The shared signal analyzer derives two axes from the audio: arousal, representin
 - **Undo: **Live writes use the suite tag-edit batch and can be reverted through Undo Tag Edits when snapshots are available.
 
 ## Processing and Results
+
+![The Results tab after a finished run](images/results.png)
+
+![The Processing tab part-way through a run](images/processing.png)
+
+
 
 Processing shows folders as they are entered, four active worker slots, file progress, and tagged/skipped/error counts. A successful file appears as OK in Live Update or a dry-run entry describing the values that would be written.
 
