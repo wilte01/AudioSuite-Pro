@@ -12,6 +12,10 @@ instead of being rewritten in place.
 Changed in 2.3.1 (U-02): a worker records completion only for a run that
 actually wrote the file, so a Dry Run or a no-op cannot mask a later run with
 different settings.
+
+Changed in 2.5.0: album mode measures the folder once, before any worker
+starts, and hands the same plan to every worker (F-E1).  A failed album
+measurement stops the run before a single file is touched.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from pathlib import Path
 from queue import Queue
 from typing import Any
 
+from audio_normalizer.core.album import AlbumPlan, build_album_plan
 from audio_suite_shared.audio_formats import READ_ONLY_EXTENSIONS
 from audio_suite_shared.batch_undo import get_active_batch_id, use_batch
 from audio_suite_shared.error_recovery import RecoveryAction, get_recovery_action
@@ -64,6 +69,7 @@ def _worker_process(
     on_file_done: Callable[..., Any],
     processor: AudioRefineryProcessor,
     undo_batch: str | None,
+    album_plan: AlbumPlan | None = None,
 ) -> None:
     """Process a single audio file with retry and slot management."""
     slot_idx = slot_queue.get()
@@ -105,6 +111,7 @@ def _worker_process(
                 output_path=out_path,
                 config=config,
                 on_progress=_progress,
+                album_plan=album_plan,
             )
 
             # Only a run that actually wrote the file is progress.  A Dry Run
@@ -185,6 +192,29 @@ def run_pipeline(
 
     files = [source_dir / name for name in file_names]
 
+    # Album mode measures the folder once, before any worker starts: album
+    # loudness is the combined signal's, so a per-worker measurement would cost
+    # N concatenated decodes and produce N disagreeing answers (F-E1).
+    album_plan: AlbumPlan | None = None
+    if config.normalise and config.normalise_params.album_mode:
+        try:
+            album_plan = build_album_plan(
+                [str(path) for path in files],
+                target_lufs=config.normalise_params.target_lufs,
+                true_peak_ceiling=config.normalise_params.true_peak,
+                tolerance=config.normalise_params.tolerance,
+            )
+        except AudioSuiteError as exc:
+            logger.error("Album measurement failed: %s", exc, exc_info=True)
+            on_error(user_message_for(exc))
+            return
+        logger.info(
+            "Album plan: %.1f LUFS across %d track(s), %d limited",
+            album_plan.album_lufs,
+            len(files),
+            sum(1 for value in album_plan.limited.values() if value),
+        )
+
     lock = threading.Lock()
     processed = [0]
     succeeded = [0]
@@ -239,6 +269,7 @@ def run_pipeline(
         on_file_done=_on_file_done,
         processor=processor,
         undo_batch=undo_batch,
+        album_plan=album_plan,
     )
 
     start = time.monotonic()

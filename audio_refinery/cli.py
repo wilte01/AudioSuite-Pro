@@ -9,6 +9,9 @@ run whose only failures were per-file keeps its exit status (PLAN D92).
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+
+Changed in 2.5.0: ``--album-mode`` (F-E1) switches the normalise stage from a
+per-file measurement to one gain measured across the whole folder.
 """
 
 from __future__ import annotations
@@ -156,6 +159,14 @@ def _validate_lufs(ctx: click.Context, param: click.Parameter, value: float) -> 
     help="loudnorm loudness-range target in LU (default 11).",
 )
 @click.option(
+    "--album-mode/--no-album-mode",
+    default=False,
+    help=(
+        "Measure the whole folder as one album and apply that single gain to "
+        "every track (default off)."
+    ),
+)
+@click.option(
     "--normalise-mode",
     type=click.Choice(NORMALISATION_MODES),
     default="normalise",
@@ -195,6 +206,7 @@ def refine(
     tolerance: float,
     true_peak: float,
     lra: float,
+    album_mode: bool,
     normalise_mode: str,
 ) -> None:
     """Run the multi-stage audio refinement pipeline."""
@@ -241,6 +253,7 @@ def refine(
             true_peak=true_peak,
             lra=lra,
             mode=normalise_mode,
+            album_mode=album_mode,
         ),
         noise_reduction_params=NoiseReductionParams(
             reduce_hum=reduce_hum,

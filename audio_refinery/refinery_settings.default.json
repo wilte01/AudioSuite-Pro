@@ -51,6 +51,7 @@
     "tolerance": 0.5,
     "true_peak": -1.5,
     "lra": 11.0,
-    "mode": "normalise"
+    "mode": "normalise",
+    "album_mode": false
   }
 }

@@ -34,6 +34,10 @@ legacy fallback and a committed default (PLAN D101).
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+
+Changed in 2.5.0: album mode round-trips (F-E1).  A missing key reads as off,
+so a settings file written before 2.5.0 keeps the per-file behaviour it
+describes.
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -214,6 +218,7 @@ def _from_dict(data: dict[str, Any]) -> StageConfig:
         # An unknown strategy falls back to the re-encode rather than writing
         # a file with a mode no stage implements.
         mode=stored_mode if stored_mode in NORMALISATION_MODES else "normalise",
+        album_mode=bool(d.get("album_mode", False)),
     )
     return config
 
@@ -332,6 +337,7 @@ def _to_dict(config: StageConfig) -> dict[str, Any]:
             "true_peak": n.true_peak,
             "lra": n.lra,
             "mode": n.mode,
+            "album_mode": n.album_mode,
         },
     }
 

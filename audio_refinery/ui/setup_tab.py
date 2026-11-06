@@ -729,6 +729,44 @@ def _build_normalise_panel(
             justify="left",
         ).pack(anchor="w", padx=5)
 
+        # Changed in 2.5.0: album mode (F-E1).  The checkbox writes the flag
+        # back to the stage params the run reads; the plan itself is measured
+        # when the run starts, so a Dry Run is the pass that reports the gain.
+        album_var = tk.BooleanVar(value=p.album_mode)
+
+        def _write_album(*_trace: Any) -> None:
+            p.album_mode = bool(album_var.get())
+
+        album_var.trace_add("write", _write_album)
+        album_row = tk.Frame(body, bg=styles.BG_WHITE)
+        album_row.pack(fill="x", pady=(6, 0))
+        tk.Checkbutton(
+            album_row,
+            text="Album loudness (one gain for the whole folder)",
+            variable=album_var,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
+            selectcolor=styles.BG_WHITE,
+            font=styles.FONT_CAPTION,
+            anchor="w",
+        ).pack(side=tk.LEFT, padx=5)
+        tk.Label(
+            body,
+            text=(
+                "Measures the folder as one album and moves every track by that "
+                "single gain, so the album's relative levels survive. A track "
+                "that would exceed the true-peak ceiling is limited on its own "
+                "and named in the run log."
+            ),
+            font=styles.FONT_CAPTION,
+            fg=styles.FG_SUB,
+            bg=styles.BG_WHITE,
+            wraplength=520,
+            justify="left",
+        ).pack(anchor="w", padx=5)
+
     _stage_panel(
         parent,
         "Audio Normaliser",

@@ -345,6 +345,7 @@ audiosuite refine <directory> [--stages LIST] [OPTIONS]
 - `--true-peak DBTP` — True-peak ceiling for the normalise stage, -9 to 0 (default: -1.5)
 - `--lra LU` — Loudness-range target for the normalise stage, 1–20 (default: 11.0)
 - `--normalise-mode [normalise|lossless]` — `normalise` re-encodes through loudnorm; `lossless` rewrites an MP3's global gain instead (default: normalise)
+- `--album-mode` / `--no-album-mode` — Measure the folder once as one album and move every track by that single gain; a track that would break the true-peak ceiling is limited on its own (default: no-album-mode)
 
 **Examples:**
 

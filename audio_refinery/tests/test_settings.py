@@ -9,6 +9,8 @@ Changed in 1.4.1: the live file moved out of the checkout (PLAN D101), so the
 fixture isolates the live, legacy and shipped-default paths together - a test
 that patched only the live path would silently read this checkout's legacy
 file and pass for the wrong reason.
+Changed in 2.5.0: album mode round-trips, and a file written before it existed
+still reads as per-file normalisation (F-E1).
 """
 
 from __future__ import annotations
@@ -179,3 +181,38 @@ class TestShippedDefault:
             patch.setattr(refinery_settings, "_LEGACY_FILE", tmp_path / "old.json")
             patch.setattr(refinery_settings, "_DEFAULT_FILE", shipped)
             assert refinery_settings.load().enhance is False
+
+
+class TestAlbumMode:
+    """Album mode is a stored stage field, off when the file predates it."""
+
+    def test_album_mode_round_trips(self, tmp_path: Path) -> None:
+        live = tmp_path / "live.json"
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(refinery_settings, "_SETTINGS_FILE", live)
+            patch.setattr(refinery_settings, "_LEGACY_FILE", tmp_path / "old.json")
+            patch.setattr(refinery_settings, "_DEFAULT_FILE", tmp_path / "none.json")
+            config = StageConfig()
+            config.normalise_params.album_mode = True
+
+            refinery_settings.save(config)
+
+            assert refinery_settings.load().normalise_params.album_mode is True
+
+    def test_a_file_without_the_key_keeps_per_file_behaviour(
+        self, tmp_path: Path
+    ) -> None:
+        live = tmp_path / "live.json"
+        live.write_text(
+            json.dumps({"normalise_params": {"target_lufs": -18.0}}),
+            encoding="utf-8",
+        )
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(refinery_settings, "_SETTINGS_FILE", live)
+            patch.setattr(refinery_settings, "_LEGACY_FILE", tmp_path / "old.json")
+            patch.setattr(refinery_settings, "_DEFAULT_FILE", tmp_path / "none.json")
+
+            loaded = refinery_settings.load()
+
+            assert loaded.normalise_params.album_mode is False
+            assert loaded.normalise_params.target_lufs == -18.0

@@ -12,7 +12,15 @@ one.
 
 ## [Unreleased]
 
-Nothing yet.
+- **Album-mode locks, and the 2.5.0 note window (F-E1).** The plan named its
+  Refinery lock `test_album_mode.py`, which `tests/test_test_file_naming.py` would
+  reject against its frozen allowlist; the locks therefore live in
+  `audio_normalizer/tests/test_album.py` (the engine),
+  `audio_refinery/tests/test_pipeline.py` (the stage, mirroring `core/pipeline.py`)
+  and `audio_refinery/tests/test_file_processor.py` (the run-level pre-pass),
+  mirroring the arbitration 2.4.2 D-8 recorded. `tests/test_release_notes.py` is
+  re-baselined to the 2.4.3 release commit with the `Changed in 2.5.0` marker, and
+  `tests/data/changed_in_baseline.json` records the window's note ceiling.
 
 ## [2.4.3] - 2026-11-06
 

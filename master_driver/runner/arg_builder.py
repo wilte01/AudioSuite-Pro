@@ -484,6 +484,9 @@ def build_refinery_args(
         str(n.lra),
         "--normalise-mode",
         n.mode,
+        # Changed in 2.5.0: album mode is only emitted when it is on, so every
+        # existing run's argument list is unchanged (F-E1).
+        *(["--album-mode"] if n.album_mode else []),
         "--sensitivity",
         str(d.sensitivity),
         "--width",

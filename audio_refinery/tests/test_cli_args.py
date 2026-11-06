@@ -1,4 +1,8 @@
-"""Tests for audio_refinery.utils.cli_args."""
+"""Tests for audio_refinery.utils.cli_args.
+
+Changed in 2.5.0: album mode is a flag on this surface too, and defaults off
+(F-E1).
+"""
 
 from __future__ import annotations
 
@@ -140,3 +144,17 @@ class TestParse:
         assert args.dry_run is True
         assert args.clear_logs is True
         assert args.parallel_run is True
+
+
+class TestAlbumMode:
+    """The flag the Master Driver emits, and the default that keeps runs unchanged."""
+
+    def test_album_mode_defaults_off(self) -> None:
+        assert parse(["prog"]).album_mode is False
+        assert RefineryArgs().album_mode is False
+
+    def test_album_mode_flag_reaches_the_args(self) -> None:
+        assert parse(["prog", "--album-mode"]).album_mode is True
+
+    def test_no_album_mode_turns_it_off_again(self) -> None:
+        assert parse(["prog", "--album-mode", "--no-album-mode"]).album_mode is False

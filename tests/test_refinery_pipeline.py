@@ -694,6 +694,10 @@ class TestPipelineShape:
 
         from audio_refinery.core import pipeline
 
+        # Changed in 2.5.0: `
+        # `_run_normalise_stage` gains the run's album plan and the key it is
+        # filed under, because album mode applies a pre-measured gain instead of
+        # measuring the file (F-E1). Every other helper keeps its shape.
         expected = {
             "_check_integrity": ["source_path", "emit"],
             "_load_source": ["source_path", "emit"],
@@ -702,7 +706,27 @@ class TestPipelineShape:
             "_run_noise_reduction_stage": ["audio", "config", "emit"],
             "_run_enhance_stage": ["audio", "config", "emit"],
             "_write_output": ["audio", "tmp_path", "source_path", "ext", "emit"],
-            "_run_normalise_stage": ["tmp_path", "config", "emit"],
+            "_run_normalise_stage": [
+                "tmp_path",
+                "config",
+                "emit",
+                "album",
+                "album_key",
+            ],
+            "_run_normalise_in_place": [
+                "source_path",
+                "config",
+                "emit",
+                "album",
+                "album_key",
+            ],
+            "_preview_normalise": [
+                "source_path",
+                "config",
+                "emit",
+                "album",
+                "album_key",
+            ],
         }
         for name, params in expected.items():
             fn = getattr(pipeline, name, None)
@@ -714,9 +738,14 @@ class TestPipelineShape:
 
         from audio_refinery.core.pipeline import process_file
 
+        # Changed in 2.5.0: `album_plan` is the declared addition - the run
+        # measures the folder once and hands the same plan to every worker
+        # (F-E1). Its position is the contract: everything before it is
+        # unchanged.
         assert list(inspect.signature(process_file).parameters) == [
             "source_path",
             "output_path",
             "config",
             "on_progress",
+            "album_plan",
         ]

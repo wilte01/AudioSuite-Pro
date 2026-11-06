@@ -17,6 +17,10 @@ standalone window that used to hold the -16 default is gone.
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+
+Changed in 2.5.0: ``NormaliseParams.album_mode`` (F-E1) selects album
+loudness: one gain measured across the whole folder instead of a per-file
+measurement.
 """
 
 from __future__ import annotations
@@ -105,6 +109,10 @@ class NormaliseParams:
     true_peak: float = -1.5
     lra: float = 11.0
     mode: str = "normalise"
+    #: Album mode (F-E1): measure the folder as one signal and apply that single
+    #: gain to every track.  Off by default, which keeps per-file normalisation
+    #: exactly as it was for anyone who does not ask for it.
+    album_mode: bool = False
 
 
 @dataclass

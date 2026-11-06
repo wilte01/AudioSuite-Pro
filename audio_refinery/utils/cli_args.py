@@ -14,6 +14,9 @@ Display-only flags: --clear-logs|--no-clear-logs,
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+
+Changed in 2.5.0: ``--album-mode`` (F-E1) reaches the GUI launch path, so a
+Master Driver run and a typed command configure album mode the same way.
 """
 
 from __future__ import annotations
@@ -80,6 +83,7 @@ class RefineryArgs:
     true_peak: float = -1.5
     lra: float = 11.0
     normalise_mode: str = "normalise"
+    album_mode: bool = False
 
 
 def parse(argv: list[str] | None = None) -> RefineryArgs:
@@ -324,6 +328,22 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
             "global gain instead (default normalise)."
         ),
     )
+    parser.add_argument(
+        "--album-mode",
+        action="store_true",
+        dest="album_mode",
+        default=False,
+        help=(
+            "Measure the whole folder as one album and apply that single gain "
+            "to every track."
+        ),
+    )
+    parser.add_argument(
+        "--no-album-mode",
+        action="store_false",
+        dest="album_mode",
+        help=argparse.SUPPRESS,
+    )
 
     args, _ = parser.parse_known_args(args=argv)
 
@@ -368,6 +388,7 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         true_peak=args.true_peak,
         lra=args.lra,
         normalise_mode=args.normalise_mode,
+        album_mode=args.album_mode,
         clear_logs=args.clear_logs and not args.no_clear_logs,
         parallel_run=args.parallel_run and not args.no_parallel_run,
     )

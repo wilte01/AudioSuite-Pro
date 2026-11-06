@@ -16,7 +16,17 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+- **Album loudness normalisation in Audio Refinery.** The Normalise stage gains an
+  **Album loudness** option and a `--album-mode` flag. When it is on the folder is
+  measured once as a single album — ReplayGain's own definition of album loudness —
+  and every track moves by that one gain, so the album's relative levels survive
+  instead of each file being pushed to the target. A track whose peak plus that gain
+  would exceed the True Peak ceiling is limited on its own: only that track's gain is
+  reduced, and the run log names it. An album already within tolerance plans no gain
+  and leaves every file byte-identical; a Dry Run reports the planned gain per file and
+  writes nothing. Album mode uses the same encoders as per-file normalisation, so a
+  container with no normalise encoder is refused with the same message. The Refinery
+  guide also states the shipped target default (-14 LUFS) instead of the retired -16.
 
 ## [2.4.3] - 2026-11-06
 

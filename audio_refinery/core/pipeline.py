@@ -19,6 +19,13 @@ Normalizer's delivery set — a true-peak ceiling, an LRA target and the
 lossless MP3 ``global_gain`` path — because the standalone window that used to
 offer them is gone.
 
+Changed in 2.5.0: album mode (F-E1).  ``process_file`` takes the run's
+``AlbumPlan``, and the Normalise stage applies that plan's gain for the source
+instead of measuring the file it is writing; ``_run_normalise_stage``,
+``_run_normalise_in_place`` and ``_preview_normalise`` each take an
+``album``/``album_key`` pair.  A zero planned gain writes nothing, which keeps
+the no-op rule intact.
+
 All stages operate on in-memory audio; a run that changed something writes
 the file once, at the end of the in-memory chain.  The normaliser needs a
 file, so a mixed run writes the processed audio to a temp file and then
@@ -53,7 +60,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 # ── Third-party imports ─────────────────────────────────────────────────────
 from pydub import AudioSegment
@@ -82,6 +89,9 @@ from audio_suite_shared.tag_helper import read_tags_raw, write_tags_raw
 
 from .integrity import IntegrityResult, validate_file
 from .models import FileResult, FileStatus, StageConfig, StageMetrics
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from audio_normalizer.core.album import AlbumPlan
 
 # ── First-party imports (setup sys path first) ───────────────────────────────
 # Locate suite root so we can import shared helpers and the individual tools.
@@ -174,6 +184,7 @@ def process_file(
     output_path: Path,  # final destination (may equal source for in-place)
     config: StageConfig,
     on_progress: Optional[ProgressCallback] = None,
+    album_plan: AlbumPlan | None = None,
 ) -> FileResult:
     """
     Run the full pipeline on a single file.
@@ -193,6 +204,9 @@ def process_file(
     on_progress  : Optional callback(stage, message) for real-time UI updates.
                    Called from the worker thread — caller must marshal to Tk
                    main thread via root.after(0, fn).
+    album_plan   : The run's album plan, or ``None`` outside album mode.  Its
+                   gain for this file replaces the per-file measurement; the
+                   plan is measured once per run, never per worker (F-E1).
 
     Returns
     -------
@@ -213,6 +227,14 @@ def process_file(
     # created lazily so a Dry Run and a no-op leave no temp file at all.
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path: Optional[Path] = None
+
+    # Album mode keys the plan by the *source*: a staged copy lives under a
+    # temp name the plan never saw.
+    album_key = ""
+    if album_plan is not None:
+        from audio_normalizer.core.album import plan_key
+
+        album_key = plan_key(source_path)
 
     def _temp_path() -> Path:
         """Create (once) and return the temp file beside the destination."""
@@ -240,7 +262,9 @@ def process_file(
 
         # ── 2. Dry run: detect with every enabled stage, write nothing ────────
         if config.dry_run:
-            _run_dry_run(audio, source_path, config, result, _emit)
+            _run_dry_run(
+                audio, source_path, config, result, _emit, album_plan, album_key
+            )
             result.status = FileStatus.DONE
             result.was_modified = False
             return result
@@ -276,7 +300,13 @@ def process_file(
         if not modified:
             if in_place:
                 if config.normalise:
-                    msg, modified = _run_normalise_in_place(source_path, config, _emit)
+                    msg, modified = _run_normalise_in_place(
+                        source_path,
+                        config,
+                        _emit,
+                        album=album_plan,
+                        album_key=album_key,
+                    )
                     result.add_stage("Normalise", FileStatus.DONE, msg)
                 if not modified:
                     result.status = FileStatus.SKIPPED
@@ -294,7 +324,13 @@ def process_file(
             record_tag_edit_snapshot(str(output_path), "refinery_edit")
             shutil.copy2(source_path, output_path)
             if config.normalise:
-                msg, _applied = _run_normalise_stage(output_path, config, _emit)
+                msg, _applied = _run_normalise_stage(
+                    output_path,
+                    config,
+                    _emit,
+                    album=album_plan,
+                    album_key=album_key,
+                )
                 result.add_stage("Normalise", FileStatus.DONE, msg)
             _emit("Done", "Complete ✓")
             result.status = FileStatus.DONE
@@ -311,7 +347,13 @@ def process_file(
 
         # ── 10. Normalisation (FFmpeg on temp file, with retry) ────────────────
         if config.normalise:
-            msg, _applied = _run_normalise_stage(staged, config, _emit)
+            msg, _applied = _run_normalise_stage(
+                staged,
+                config,
+                _emit,
+                album=album_plan,
+                album_key=album_key,
+            )
             result.add_stage("Normalise", FileStatus.DONE, msg)
 
         # ── 11. Atomic replace ────────────────────────────────────────────────
@@ -665,10 +707,92 @@ def _normalise_stage_error(exc: Exception) -> AudioProcessingError:
     )
 
 
+#: A gain this small is not a change: the file must stay byte-identical, which
+#: is the pipeline's no-op rule.
+_ALBUM_GAIN_EPSILON_DB = 0.01
+
+
+def _album_gain(album: AlbumPlan | None, album_key: str) -> float:
+    """Return the plan's gain for one file, or 0.0 outside album mode.
+
+    Raises:
+        AudioProcessingError: The plan carries no entry for the file, which
+            means it was measured from a different set of paths.
+    """
+    if album is None:
+        return 0.0
+    try:
+        return album.gains[album_key]
+    except KeyError as exc:
+        raise AudioProcessingError(
+            f"The album plan has no gain for '{os.path.basename(album_key)}'.",
+            context={"stage": "normalise", "file": album_key},
+        ) from exc
+
+
+def _album_stage_message(album: AlbumPlan, gain_db: float, limited: bool) -> str:
+    """Describe what album mode did to one file."""
+    if abs(gain_db) < _ALBUM_GAIN_EPSILON_DB:
+        return (
+            f"Album loudness already within tolerance ({album.album_lufs:.1f} LUFS)"
+            " - no adjustment needed"
+        )
+    message = (
+        f"Applied album gain {gain_db:+.1f} dB"
+        f" (album {album.album_lufs:.1f} LUFS -> {album.target_lufs:.1f} LUFS)"
+    )
+    if limited:
+        message += f", limited to the {album.true_peak_ceiling:g} dBTP ceiling"
+    return message
+
+
+def _apply_album_stage(
+    path: Path,
+    config: StageConfig,
+    emit: Callable[..., Any],
+    album: AlbumPlan,
+    gain_db: float,
+    limited: bool,
+    *,
+    record_snapshot: bool,
+) -> tuple[str, bool]:
+    """Apply one planned gain to *path* and report what actually ran."""
+    from audio_normalizer.core.album import apply_album_gain
+
+    n = config.normalise_params
+    if abs(gain_db) < _ALBUM_GAIN_EPSILON_DB:
+        message = _album_stage_message(album, gain_db, limited)
+        emit("Normalise", message)
+        return message, False
+
+    emit("Normalise", f"Applying the album gain {gain_db:+.2f} dB…")
+    lossless = _lossless_gain_applies(path, config)
+    if lossless and not limited:
+        apply_track_gain(str(path), gain_db)
+    else:
+        apply_album_gain(
+            str(path),
+            gain_db,
+            limit=limited,
+            true_peak_ceiling=n.true_peak,
+            record_snapshot=record_snapshot,
+        )
+    message = _album_stage_message(album, gain_db, limited)
+    if lossless and limited:
+        # The MP3 global-gain rewrite cannot hold a ceiling, so this track was
+        # re-encoded; saying so is the only honest report.
+        message += "; re-encoded because the lossless MP3 path cannot limit"
+    emit("Normalise", message)
+    return message, True
+
+
 def _run_normalise_stage(
     tmp_path: Path,
     config: StageConfig,
     emit: Callable[..., Any],
+    *,
+    album: AlbumPlan | None = None,
+    album_key: str = "",
 ) -> tuple[str, bool]:
     """Measure loudness and run FFmpeg normalisation with retry.
 
@@ -680,6 +804,20 @@ def _run_normalise_stage(
         AudioProcessingError: If the stage fails; preserves the original
             exception with context ``stage="normalise"``.
     """
+    if album is not None:
+        try:
+            return _apply_album_stage(
+                tmp_path,
+                config,
+                emit,
+                album,
+                _album_gain(album, album_key),
+                bool(album.limited.get(album_key, False)),
+                record_snapshot=False,
+            )
+        except Exception as exc:
+            raise _normalise_stage_error(exc) from exc
+
     emit("Normalise", "Measuring loudness…")
     try:
         # Measure loudness BEFORE normalization.  The ceiling and LRA reach the
@@ -716,6 +854,9 @@ def _run_normalise_in_place(
     source_path: Path,
     config: StageConfig,
     emit: Callable[..., Any],
+    *,
+    album: AlbumPlan | None = None,
+    album_key: str = "",
 ) -> tuple[str, bool]:
     """Normalise the source directly — one FFmpeg pass, no staging encode.
 
@@ -730,6 +871,24 @@ def _run_normalise_in_place(
     Raises:
         AudioProcessingError: If measuring or applying fails.
     """
+    if album is not None:
+        try:
+            gain = _album_gain(album, album_key)
+            if abs(gain) >= _ALBUM_GAIN_EPSILON_DB:
+                # Snapshot before the swap replaces the source bytes.
+                record_tag_edit_snapshot(str(source_path), "refinery_edit")
+            return _apply_album_stage(
+                source_path,
+                config,
+                emit,
+                album,
+                gain,
+                bool(album.limited.get(album_key, False)),
+                record_snapshot=False,
+            )
+        except Exception as exc:
+            raise _normalise_stage_error(exc) from exc
+
     emit("Normalise", "Measuring loudness…")
     try:
         from audio_normalizer.core.loudness import measure
@@ -775,12 +934,32 @@ def _preview_normalise(
     source_path: Path,
     config: StageConfig,
     emit: Callable[..., Any],
+    *,
+    album: AlbumPlan | None = None,
+    album_key: str = "",
 ) -> str:
     """Report what the Normalise stage would do, without writing anything.
 
     Measures the source (never a staging copy) and names the projected
     outcome, matching the preview the standalone normalizer gives.
     """
+    if album is not None:
+        gain = _album_gain(album, album_key)
+        if abs(gain) < _ALBUM_GAIN_EPSILON_DB:
+            message = (
+                f"Album loudness already within tolerance ({album.album_lufs:.1f} "
+                "LUFS) - no change"
+            )
+        else:
+            message = (
+                f"Would apply album gain {gain:+.1f} dB"
+                f" (album {album.album_lufs:.1f} LUFS -> {album.target_lufs:.1f} LUFS)"
+            )
+            if album.limited.get(album_key, False):
+                message += f", limited to the {album.true_peak_ceiling:g} dBTP ceiling"
+        emit("Normalise", message)
+        return message
+
     target = config.normalise_params.target_lufs
     emit("Normalise", f"Measuring loudness (target {target} LUFS)…")
     try:
@@ -815,6 +994,8 @@ def _run_dry_run(
     config: StageConfig,
     result: FileResult,
     emit: Callable[..., Any],
+    album: AlbumPlan | None = None,
+    album_key: str = "",
 ) -> None:
     """Run the enabled stages' detection and record what they found.
 
@@ -842,7 +1023,9 @@ def _run_dry_run(
         audio, msg, metrics = _run_enhance_stage(audio, config, emit)
         result.add_stage("Enhance", FileStatus.DONE, msg, metrics=metrics)
     if config.normalise:
-        msg = _preview_normalise(source_path, config, emit)
+        msg = _preview_normalise(
+            source_path, config, emit, album=album, album_key=album_key
+        )
         result.add_stage("Normalise", FileStatus.DONE, msg)
 
     emit("DryRun", "Dry run complete — nothing written")

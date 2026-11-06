@@ -253,8 +253,11 @@ class TestRunPipeline:
         progress, complete, errors = [], [], []
 
         if mock_process_result is None:
-
-            def _default_result(source_path, output_path, config, on_progress):
+            # Changed in 2.5.0: the worker passes the run's album plan (F-E1),
+            # so the double must accept it or every file fails as a worker error.
+            def _default_result(
+                source_path, output_path, config, on_progress, album_plan=None
+            ):
                 # DONE and was_modified together mean "this run wrote the
                 # file": the worker only records completion for a real write.
                 return FileResult(
@@ -326,7 +329,9 @@ class TestRunPipeline:
 
         process_calls = []
 
-        def _tracking_result(source_path, output_path, config, on_progress):
+        def _tracking_result(
+            source_path, output_path, config, on_progress, album_plan=None
+        ):
             process_calls.append(source_path)
             return FileResult(path=source_path, status=FileStatus.DONE)
 
@@ -351,7 +356,9 @@ class TestRunPipeline:
 
         _make_audio(tmp_path, "t.mp3")
 
-        def error_result(source_path, output_path, config, on_progress):
+        def error_result(
+            source_path, output_path, config, on_progress, album_plan=None
+        ):
             return FileResult(path=source_path, status=FileStatus.ERROR, error="boom")
 
         _, complete, _, _ = self._run(tmp_path, mock_process_result=error_result)
@@ -392,7 +399,9 @@ class TestRunPipeline:
         results = [True, False, True]
         idx = [0]
 
-        def mixed_result(source_path, output_path, config, on_progress):
+        def mixed_result(
+            source_path, output_path, config, on_progress, album_plan=None
+        ):
             i = idx[0]
             idx[0] += 1
             if results[i]:
@@ -419,7 +428,7 @@ class TestRunPipeline:
         config = _minimal_config()
         complete = []
 
-        def ok_result(source_path, output_path, config, on_progress):
+        def ok_result(source_path, output_path, config, on_progress, album_plan=None):
             return FileResult(path=source_path, status=FileStatus.DONE)
 
         with (
@@ -451,7 +460,9 @@ class TestUndoBatchRecording:
     """Phase 2: worker threads must join the orchestrator's active undo
     batch so tag snapshots are recorded against it (batch_undo.use_batch)."""
 
-    def _recording_process(self, source_path, output_path, config, on_progress):
+    def _recording_process(
+        self, source_path, output_path, config, on_progress, album_plan=None
+    ):
         from audio_refinery.core.models import FileResult, FileStatus, StageResult
         from audio_suite_shared.tag_helper_writer import write_tags_raw
 

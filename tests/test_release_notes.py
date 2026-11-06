@@ -210,6 +210,12 @@ re-baseline lands with the plan row and changelog entry that record it, so the
 scan cannot be vacuous here. This is the lock's own documented per-window
 procedure, not an assertion change -- the 2.4.1 and 2.4.2 windows each recorded
 the same move.
+Changed in 2.5.0: re-baselined the lock for the post-2.4.3 window. BASE_COMMIT
+is now 2f21dca -- the 2.4.3 release commit -- and NOTE_MARKER is
+``Changed in 2.5.0``, so 2.4.3's notes stay as each file's own history and only
+the 2.5.0 work needs a note. The asserted non-empty exception category stays the
+narrative ``.md`` documents: this re-baseline lands with the plan row and the
+changelog entry that record it, so the scan cannot be vacuous here.
 Changed in 2.1.6: the diff no longer forces ``core.autocrlf=false``. On a host
 whose checkout converts line endings (GitHub's Windows runners set
 ``core.autocrlf=true``) that override made every LF-stored file look modified,
@@ -235,10 +241,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: only work after it does.
 #: Earlier work is documented in its own plans and the changelogs, so it does
 #: not require per-file notes here.
-BASE_COMMIT = "7ba2310"
+BASE_COMMIT = "2f21dca"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 2.4.3"
+NOTE_MARKER = "Changed in 2.5.0"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (

@@ -54,7 +54,7 @@ When enabled, stages run in this implementation order:
 1. Noise Reduction: optionally removes mains hum and/or broadband noise using its noise profile and gate settings.
 1. Audio Enhancement: applies the Mild, Moderate, Aggressive, or Custom DSP preset; Custom adds per-effect toggles (reverse, karaoke, phaser, flanger, chorus).
 1. Export: writes the processed audio once using format-appropriate encoding settings — only when a stage changed the audio.
-1. Normalise: optionally measures loudness and applies the configured LUFS target and tolerance. When no earlier stage changed the audio, FFmpeg normalises the source directly in one pass.
+1. Normalise: optionally measures loudness and applies the configured LUFS target and tolerance. When no earlier stage changed the audio, FFmpeg normalises the source directly in one pass. In album mode the whole folder is measured once, before any file is processed, and every track moves by that single gain.
 1. Finish: restores tags, records an undo snapshot, and atomically replaces or creates the output file. A file no stage changed is left byte-identical and reported SKIPPED.
 
 ## Stage Controls
@@ -66,8 +66,9 @@ When enabled, stages run in this implementation order:
 - **Noise reduction: **Optional hum removal and broadband reduction. Defaults include 60 Hz hum, 8 harmonics, Q 30, a 0-500 ms noise profile, and a 3 dB gate threshold.
 - **Enhancement preset: **Mild, Moderate, Aggressive, or Custom. Selecting Custom shows a Configure Custom DSP button that opens the stage's own non-modal editor, so the stage itself stays compact and every control is reachable; changes apply to the run as you make them. When Normalise is active, the refinery suppresses enhancement output gain so final loudness is controlled by the normalizer.
 - **Enhancement effects: **Relevant to the Custom preset: Reverse audio, Karaoke (centre-vocal removal with a 0.0-1.0 strength), Phaser, Flanger, and Chorus. Each is off by default, and the built-in Mild, Moderate, and Aggressive presets leave them off.
-- **Target LUFS: **Permitted targets are -12, -14, -16, -18, and -23 LUFS; default -16.0.
+- **Target LUFS: **Permitted targets are -12, -14, -16, -18, and -23 LUFS; default -14.0.
 - **Tolerance: **Default 0.5 LUFS; used by the normalization stage to avoid unnecessary adjustment when loudness is already close to target.
+- **Album loudness: **Off by default. When on, the folder is measured once as one album, and every track moves by that single gain, so the album's relative levels survive instead of each track being pushed to the target. A track whose peak plus that gain would exceed the True Peak ceiling is limited on its own: only that track's gain is reduced, and the run log names it. An album already within tolerance plans no gain at all and every file is left byte-identical. A Dry Run reports the planned gain per file and writes nothing. Album mode writes through the same encoders as per-file normalisation (MP3, FLAC, OGG, M4A, Opus, WavPack, Speex), so a container with no normalise encoder is refused with the same message a per-file run gives. Tracks already recorded in the completion registry are not rewritten, so their level will not match a freshly normalised album: use Reset Progress for a whole-album run.
 
 ## Dry Run and Output Safety
 
@@ -96,7 +97,7 @@ python -m audio_suite_shared.cli_app refine <folder> --output <output> --stages 
 python -m audio_suite_shared.cli_app refine <folder> --stages declick,enhance --preset Mild\
 python -m audio_suite_shared.cli_app refine <folder> --reduce-hum --hum-frequency 60 --json
 
-CLI options cover output directory, dry run, stages, declick sensitivity and width, trim threshold and fades, hum and broadband reduction, enhancement preset, the enhancement effect flags (--reverse, --karaoke/--no-karaoke, --karaoke-strength, --phaser, --flanger, --chorus), target LUFS, tolerance, and JSON output. If --output is omitted, results are written in place.
+CLI options cover output directory, dry run, stages, declick sensitivity and width, trim threshold and fades, hum and broadband reduction, enhancement preset, the enhancement effect flags (--reverse, --karaoke/--no-karaoke, --karaoke-strength, --phaser, --flanger, --chorus), target LUFS, tolerance, true peak, LRA, the normalise strategy (--normalise-mode), album mode (--album-mode/--no-album-mode), and JSON output. If --output is omitted, results are written in place.
 
 ## Master Driver Use
 
@@ -107,6 +108,7 @@ Audio Refinery is the Master Driver's REFINE pipeline. The driver embeds the Ref
 - **No audio files found: **Select a source folder containing supported files directly discoverable by the processor.
 - **Integrity check failed: **The file may be empty, unreadable, malformed, undecodable, outside size/duration/sample-rate/channel limits, or have invalid container headers.
 - **Files are skipped on a later run: **They match the completion registry by filename and SHA-256. Use Reset Progress when a full rerun is intended.
+- **Album mode refuses a container: **Album mode writes through the same encoders as per-file normalisation. Convert the album to FLAC or MP3 when the message names a container with no normalise encoder.
 - **Output directory error: **The selected output directory must already exist and be a directory; leave it blank for in-place mode.
 - **Normalization behaves unexpectedly: **Remember that the normalizer controls final level when active, and enhancement output gain is suppressed in that case.
 - **A stage fails: **Review refinery_log.txt for the stage-specific error. The original source is protected if the final replacement is not reached.
