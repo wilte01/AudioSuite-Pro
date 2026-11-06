@@ -31,8 +31,8 @@ Versions of the tools are released together with the suite (the single
   re-created or burned with track marks; `--no-cue` turns it off. A Dry Run
   reports the plan per file and writes nothing.
 
-- **Every tool's guide shows the windows it describes.** All 28 tool guides now
-  carry figures captured from the running program: their Setup, Processing and
+- **Every tool's guide shows the windows it describes.** All 29 tool guides
+  now carry figures captured from the running program: their Setup, Processing and
   Results tabs, the CD Ripper's Rip tab, and the single-pane Spectral Viewer,
   Master Driver and Undo Tag Edits windows. Each Processing figure shows that
   tool's own run — its per-file status lines, worker slots and counters — so the

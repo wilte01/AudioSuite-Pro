@@ -95,6 +95,10 @@ tool (``SAMPLE_RUNS``), so a Processing figure shows that tool's per-file status
 lines and counters rather than one shared set of lines borrowed from BPM
 Analyzer.  A tool that wants filled figures and declares no run fails the
 capture instead of inheriting another's vocabulary.
+
+Changed in 2.5.0: the Track Splitter's three tabs are captured from its own
+sample run, and its Setup figure is filled in the live mode its written-file
+lines report (F-E4 follow-on).
 """
 
 from __future__ import annotations
@@ -472,6 +476,18 @@ SAMPLE_RUNS: Mapping[str, SampleRun] = {
             "[DRY RUN] 06 - Zeta Pull.flac \u2192 Allegro (132 BPM)",
         ),
         slots=_busy_slots("Reading"),
+    ),
+    "track_splitter": SampleRun(
+        status="Splitting: Sample Album",
+        lines=tuple(f"[{name}] 3 tracks (3 written)" for name in _FINISHED),
+        slots=_busy_slots("Splitting"),
+        stats=f"Files: {SAMPLE_DONE}/9  |  Errors: 0",
+        summary=(
+            f"Files: {len(SAMPLE_TRACKS)}\n"
+            f"Tracks: {len(SAMPLE_TRACKS) * 3}\n"
+            f"Written: {len(SAMPLE_TRACKS) * 3}\n"
+            "Errors: 0"
+        ),
     ),
 }
 
@@ -980,6 +996,22 @@ def _populate_asx_processing(app: Any) -> None:
     update_step(3, "active", "  - 6 of 9 files")
 
 
+def _populate_track_splitter_setup(app: Any) -> None:
+    """Fill the Setup tab with the sample folder, in the mode its run shows.
+
+    The shared filler selects Dry Run, which would contradict a Processing
+    figure whose lines report files written; the sample run is a live one, so
+    the mode control says so too.
+
+    Args:
+        app: The live Track Splitter application.
+    """
+    _populate_run_setup(app)
+    mode = getattr(app, "run_mode", None)
+    if isinstance(mode, tk.StringVar):
+        mode.set("Live Update")
+
+
 #: Figures whose tab is not a list of per-file lines and so needs its own
 #: filler: the extractor animates six step labels instead.
 _PROCESSING_OVERRIDES: Mapping[str, Callable[[Any], None]] = {
@@ -1268,6 +1300,16 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
         "TempoAnalyzerApp",
         window=(900, 767),
         populate=GENERIC_POPULATE,
+    ),
+    ToolPlan(
+        "track_splitter",
+        "track_splitter.app",
+        "TrackSplitterApp",
+        window=(900, 700),
+        populate={
+            **_fillers("track_splitter"),
+            "setup": _populate_track_splitter_setup,
+        },
     ),
     ToolPlan(
         "undo_tag_edits",

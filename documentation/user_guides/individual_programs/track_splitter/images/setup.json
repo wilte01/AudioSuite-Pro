@@ -1,0 +1,13 @@
+{
+  "captured_by": "utilities/capture_guide_shots.py",
+  "dpi": 120,
+  "height": 700,
+  "palette": "Purple",
+  "png_bytes": 97954,
+  "png_sha256": "6e85d388857583aa420dfc9b8e58df0a14ad186339fad2a80a8103f64c78a533",
+  "shot": "setup",
+  "tab": "setup",
+  "theme": "Light",
+  "tool": "track_splitter",
+  "width": 900
+}

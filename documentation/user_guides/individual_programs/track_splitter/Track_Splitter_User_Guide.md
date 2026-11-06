@@ -23,50 +23,35 @@ output folder.
 ## Quick Start
 
 1. Open Track_Splitter.pyw.
-1. On the Setup tab, select the folder holding the recording, or use the
-   restored last folder.
-1. Leave the detection settings as they are if the recording has clear gaps
-   between songs; see *Detection Settings* when it does not.
+1. On the Setup tab, select the folder holding the recording, or use the restored last folder.
+1. Leave the detection settings as they are if the recording has clear gaps between songs; see **Detection Settings** when it does not.
 1. Click **Split Tracks**.
-1. Watch the Processing tab: each source reports how many tracks it was cut
-   into and how many files were written.
-1. View the Results tab for the totals, then open the `split` folder to check
-   the filenames and the first and last track.
+1. Watch the Processing tab: each source reports how many tracks it was cut into and how many files were written.
+1. View the Results tab for the totals, then open the `split` folder to check the filenames and the first and last track.
 
 A Dry Run on the same folder reports the same counts and writes nothing, so it
 is the way to check the settings before a long run.
 
 ## Setup Tab
 
-- **Source folder: **The folder to scan. It is searched recursively for the
-  supported audio extensions, so a disc-per-subfolder library works.
-- **Output folder: **Where the tracks are written. The default is `split/`
-  inside the source folder; any other folder is accepted, and it is created when
-  it does not exist.
-- **Detection settings: **The minimum silence length, the silence level, and the
-  minimum track length. See below.
+![The Setup tab: the source folder, the output folder, the gap settings, the boundary rule and the start button](images/setup.png)
+
+- **Source folder: **The folder to scan. It is searched recursively for the supported audio extensions, so a disc-per-subfolder library works.
+- **Output folder: **Where the tracks are written. The default is `split/` inside the source folder; any other folder is accepted, and it is created when it does not exist.
+- **Detection settings: **The minimum silence length, the silence level, and the minimum track length. See below.
 - **Boundary: **Where inside a silent gap the cut lands.
 - **Naming pattern: **The output filename pattern.
-- **Write a CUE sheet: **On by default; see *CUE Sheet*.
-- **Dry Run / Live: **Live writes the tracks; Dry Run plans them and reports the
-  plan without touching the disk.
+- **Write a CUE sheet: **On by default; see **CUE Sheet**.
+- **Dry Run / Live: **Live writes the tracks; Dry Run plans them and reports the plan without touching the disk.
 
 ## Detection Settings
 
 The gaps come from FFmpeg's own `silencedetect` filter, so the two levels are
 measured on the decoded audio rather than guessed from the waveform display.
 
-- **Minimum silence (700 ms): **The shortest run of silence treated as a
-  boundary. A shorter dip - a breath between phrases, a quiet bar - is part of
-  the track and never cuts it. Lower it for recordings with short gaps, raise it
-  when a quiet passage is being mistaken for a break.
-- **Silence level (-45 dBFS): **The level at or below which audio counts as
-  silence, relative to full scale. A hissy cassette rip may need a higher
-  threshold (-40 or -35); a recording with a quiet outro may need a lower one.
-- **Minimum track (5000 ms): **The shortest track kept. A fragment shorter than
-  this is merged into its neighbour rather than written on its own, so a stray
-  silence in the middle of a song cannot produce a two-second file. It is never
-  dropped: every second of the source ends up in some track.
+- **Minimum silence (700 ms): **The shortest run of silence treated as a boundary. A shorter dip - a breath between phrases, a quiet bar - is part of the track and never cuts it. Lower it for recordings with short gaps, raise it when a quiet passage is being mistaken for a break.
+- **Silence level (-45 dBFS): **The level at or below which audio counts as silence, relative to full scale. A hissy cassette rip may need a higher threshold (-40 or -35); a recording with a quiet outro may need a lower one.
+- **Minimum track (5000 ms): **The shortest track kept. A fragment shorter than this is merged into its neighbour rather than written on its own, so a stray silence in the middle of a song cannot produce a two-second file. It is never dropped: every second of the source ends up in some track.
 
 The source's own leading and trailing silence is discarded rather than written as
 a track, so track one starts with music instead of half a second of room tone.
@@ -78,15 +63,9 @@ throughout is refused with that reason instead of producing a silent track.
 A silent gap has to become a cut somewhere. The **Boundary** setting chooses
 where:
 
-- **Midpoint (default): **The cut lands halfway through the gap, so each track
-  keeps half of the silence that separated it. This is the safest choice for a
-  continuous live recording, because a track never starts with a fade-in and
-  never ends mid-note.
-- **Start: **The cut lands at the gap's first sample, so the silence stays with
-  the track before it. Use it when the recording is a set of takes and the
-  trailing silence belongs to the take.
-- **End: **The cut lands at the gap's last sample, so the silence opens the
-  following track. Use it when a track's count-in matters.
+- **Midpoint (default): **The cut lands halfway through the gap, so each track keeps half of the silence that separated it. This is the safest choice for a continuous live recording, because a track never starts with a fade-in and never ends mid-note.
+- **Start: **The cut lands at the gap's first sample, so the silence stays with the track before it. Use it when the recording is a set of takes and the trailing silence belongs to the take.
+- **End: **The cut lands at the gap's last sample, so the silence opens the following track. Use it when a track's count-in matters.
 
 Whatever the rule, the cuts partition the audio: the track durations plus the
 discarded leading and trailing silence add up to the source's length, so no
@@ -97,12 +76,9 @@ sample is lost and none is written twice.
 The naming pattern's default is `{track:02d} - {title}`, which produces
 `01 - Song.flac`. These fields are available:
 
-- `{track}` - the track number; `{track:02d}` pads it, and without the format
-  spec it is unpadded.
-- `{title}` - the source's title, or the source's filename stem when it has
-  none.
-- `{album}` and `{artist}` - the source's album and artist values, empty when
-  the file has none.
+- `{track}` - the track number; `{track:02d}` pads it, and without the format spec it is unpadded.
+- `{title}` - the source's title, or the source's filename stem when it has none.
+- `{album}` and `{artist}` - the source's album and artist values, empty when the file has none.
 
 The source's extension is kept, so a FLAC source yields FLAC tracks. A pattern
 that would name a track after the source file itself is refused with a message,
@@ -127,7 +103,20 @@ differ from the exact sample position by up to one frame, about 13 ms. This is a
 property of the format, not of the split. Turn the option off with `--no-cue` in
 the CLI or by clearing the checkbox when only the audio files are wanted.
 
+## Processing Tab
+
+![The Processing tab during a run: the progress bar, the counters and a status line per finished source](images/processing.png)
+
+The Processing tab reports the run as it happens: a progress bar over the
+sources, the `Files: done/total | Errors: n` counters, and one line per finished
+source in the form `[<source>] N tracks (M written)`. A Dry Run shows `0 written`
+on every line, because a dry run writes no audio. A source that cannot be
+decoded is reported on its own line and the run continues with the next one; the
+Results tab's Errors counter includes it.
+
 ## Results and the Run Report
+
+![The Results tab after a finished run: the counters, the View Log button and the output folder](images/results.png)
 
 When a run finishes the window switches to the Results tab. It shows the
 completion heading, the elapsed time, the shared **Files / Tracks / Written /
