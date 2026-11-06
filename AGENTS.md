@@ -990,6 +990,42 @@ reviewer asked (`PLAN_functional_backlog.md` D17).
   user needs to know about, or a gap where the guide should have said something
   and now must (a new format, a changed default, a new failure message).
 
+### Guide Figures Come From the Live Window
+
+Every guide figure is a grab of the running tool taken by
+`utilities/capture_guide_shots.py`, committed beside the guide with a sidecar and
+embedded by `![caption](images/<name>.png)`; no figure is hand-drawn or edited.
+Three rules matter beyond the obvious:
+
+- **The capture must be DPI-aware before `tk.Tk()` exists.** A DPI-unaware
+  process makes Tk report *logical* pixels while `ImageGrab` copies *physical*
+  ones, so on a 125% display the grab rectangle covers only the top four fifths
+  of the window, and whatever is packed along the bottom edge — BPM Analyzer's
+  `BEGIN BPM ANALYSIS`, for one — is missing from a figure no other check can
+  fail. The harness therefore calls `_enable_dpi_awareness()`, requests each
+  plan's geometry scaled by `dpi / 96`, and scales the grabbed frame back to the
+  pinned size, so a figure keeps the layout its plan describes at 100%. The old
+  docstring claims that a window paints "30 px from where it was placed" and
+  that `overrideredirect` made a start button stop painting were this artifact,
+  not separate findings: awareness removed both.
+- **The lock reads the committed PNG and measures colour, not palette state.**
+  `tests/test_user_guide_hygiene.py` opens the artefact and asserts what a
+  reader sees — the BPM setup figure's lower third is more than 10% coloured —
+  so a figure cropped above its bottom row fails. Do not key such a lock on
+  `styles.get_main()`: the palette is module state another test mutates in
+  place, and the first version of that lock failed on the full suite for exactly
+  that reason while the picture was correct.
+- **A capture is a desktop step; its output is committed.** The harness refuses
+  a non-96 dpi display unless `--force-dpi` is passed (the committed figures
+  came from a 125% host, requested at `dpi / 96` and downscaled). Rendering
+  stays reproducible, which is why `--check` still catches an edited guide
+  without re-capturing anything.
+
+Evidence: the 2.5.0 guide-figure work (`TECHNICAL_CHANGELOG.md`, commit
+`e798436`), where a green gate, a passing renderer check and a 78-figure capture
+run all coexisted with two dozen figures that had quietly lost their bottom
+fifth.
+
 ## User-Guide Regeneration Diffs
 
 Regenerating `documentation/user_guides/**/*.docx` / `.pptx` is **content-stable but never

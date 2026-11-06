@@ -44,7 +44,10 @@ and its failures stayed 15-20 minutes into the suite matrix.
 
 Changed in 2.5.0: the ``.png`` category is a live one - BPM Analyzer's three
 captured tabs are the first figures in the tree - so the whitelist entry is
-proved by a real artefact rather than left as an empty allowance.
+proved by a real artefact rather than left as an empty allowance.  Each capture
+also writes a ``.json`` sidecar beside its picture, so that suffix is approved
+*only* where it sits next to a PNG of the same name - a second category, not a
+blanket allowance for data files under ``documentation/``.
 """
 
 from __future__ import annotations
@@ -76,7 +79,13 @@ CODE = frozenset({".py"})
 #: rather than rendered from it.
 IMAGES = frozenset({".png"})
 
-APPROVED = AUTHORED | ARTEFACTS | CODE | IMAGES
+#: A figure's provenance sidecar: the capture's committed size, display dpi, tab
+#: and the PNG's SHA-256, so a swapped or re-captured picture is caught rather
+#: than silently trusted.  Approved only beside its own PNG - see
+#: ``TestAuthoredFormatWhitelist.test_json_is_only_a_screenshot_sidecar``.
+SIDECARS = frozenset({".json"})
+
+APPROVED = AUTHORED | ARTEFACTS | CODE | IMAGES | SIDECARS
 
 #: The documentation tree the whitelist governs. Wider on purpose: every
 #: authored document in the repository lives under ``documentation/``, so a new
@@ -177,6 +186,33 @@ class TestAuthoredFormatWhitelist:
             "`.docx`/`.pptx` are generated artefacts and `.py` is a generator. "
             "A new format needs a deliberate entry in tests/test_docs_formats.py "
             "(PLAN_docs_consolidation P4.2):\n  " + "\n  ".join(offenders)
+        )
+
+    def test_json_is_only_a_screenshot_sidecar(self, tracked: list[str]) -> None:
+        """A ``.json`` under the documentation tree records one figure.
+
+        The suffix is approved because every capture writes a sidecar beside its
+        PNG, but the allowance must not become a home for settings or data: a
+        sidecar has to sit next to the picture it describes.
+        """
+        sidecars = [
+            path
+            for path in tracked
+            if path.startswith(tuple(tree + "/" for tree in DOC_TREES))
+            and path.lower().endswith(".json")
+        ]
+        assert sidecars, (
+            "no screenshot sidecar is tracked - this check would pass vacuously"
+        )
+        orphans = sorted(
+            path
+            for path in sidecars
+            if not (REPO_ROOT / path).with_suffix(".png").is_file()
+        )
+        assert not orphans, (
+            "a .json file under documentation/ has no PNG of the same name "
+            "beside it; only a captured figure's sidecar is approved there:\n  "
+            + "\n  ".join(orphans)
         )
 
     def test_no_reStructuredText_page_is_tracked(self, tracked: list[str]) -> None:
