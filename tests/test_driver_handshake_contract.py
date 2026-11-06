@@ -26,6 +26,7 @@ This file holds the contract:
    reach window construction.
 
 Changed in 2.4.1: new contract over the shared driver grammar (plan WP-4).
+Changed in 2.5.0: the handshake table gains the Track Splitter (F-E4).
 """
 
 from __future__ import annotations
@@ -95,6 +96,11 @@ class _DriverState:
         "file_reorg_action": "copy",
         "restore_threshold": "0.9",
         "restore_max_run": "3",
+        "track_splitter_min_silence": "700",
+        "track_splitter_silence_db": "-45",
+        "track_splitter_min_track": "5000",
+        "track_splitter_boundary": "midpoint",
+        "track_splitter_cue": True,
         "library_stats_incremental": "",
         "spectral_output_dir": "",
         "parallel_var": False,
@@ -190,6 +196,7 @@ HANDSHAKE_TOOLS: dict[str, ToolSpec] = {
     "ml_denoiser": ToolSpec(reason=_UNCHANGED),
     "duplicate_finder": ToolSpec("duplicate_finder.utils.cli_args"),
     "restoration": ToolSpec("restoration.utils.cli_args"),
+    "track_splitter": ToolSpec("track_splitter.utils.cli_args"),
     "cd_ripper": ToolSpec("cd_ripper.utils.cli_args", path_attribute="output_dir"),
     "stem_separator": ToolSpec(
         reason=(
@@ -253,8 +260,8 @@ class TestTheTableCoversTheRegistry:
         )
 
     def test_the_table_is_not_empty_and_records_its_exceptions(self) -> None:
-        assert len(HANDSHAKE_TOOLS) == 27
-        assert len(DRIVEN_TOOLS) == 9, DRIVEN_TOOLS
+        assert len(HANDSHAKE_TOOLS) == 28
+        assert len(DRIVEN_TOOLS) == 10, DRIVEN_TOOLS
         excluded = {t for t, spec in HANDSHAKE_TOOLS.items() if spec.reason}
         assert len(excluded) == 18
 

@@ -114,6 +114,9 @@ def _make_state(
         "stem_separator",
         "ml_denoiser",
         "tag_editor",
+        # Changed in 2.5.0: the Track Splitter is a utility tool whose entry
+        # reads its toggle and gap settings (F-E4).
+        "track_splitter",
     ):
         state.module_toggles[key] = _bool_var(True)
 
@@ -155,6 +158,12 @@ def _make_state(
     state.library_stats_refresh = _bool_var(False)
     state.library_stats_export_csv = _str_var("")
     state.library_stats_export_json = _str_var("")
+    state.track_splitter_min_silence = _str_var("700")
+    state.track_splitter_silence_db = _str_var("-45")
+    state.track_splitter_min_track = _str_var("5000")
+    state.track_splitter_boundary = _str_var("midpoint")
+    state.track_splitter_output_dir = _str_var("")
+    state.track_splitter_cue = _bool_var(True)
     state.file_reorg_output_dir = _str_var("")
     state.file_reorg_action = _str_var("copy")
     state.file_reorg_specific_pattern = _str_var("")

@@ -21,6 +21,7 @@ Changed in 2.1.7: ``open_help`` resolves
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+Changed in 2.5.0: maps the Track Splitter's guide (F-E4).
 """
 
 import logging
@@ -144,6 +145,7 @@ def open_help(guide_filename: str) -> None:
         "Tag_Field_Updater_User_Guide.docx": "tag_field_updater",
         "Tag_Editor_User_Guide.docx": "tag_editor",
         "Tempo_Analyzer_User_Guide.docx": "tempo_analyzer",
+        "Track_Splitter_User_Guide.docx": "track_splitter",
         "Undo_Tag_Edits_User_Guide.docx": "undo_tag_edits",
     }
 

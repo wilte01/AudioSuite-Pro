@@ -66,6 +66,10 @@ Usage::
     audiosuite cue parse /path/to/image.cue [--json]
     audiosuite cue generate /path/to/dir [--title "Album"] [--artist "Artist"]
     audiosuite cue split /path/to/image.cue [--output-dir DIR] [--ffmpeg PATH]
+    audiosuite split /path/to/dir [--output-dir DIR] [--min-silence 700]
+                       [--silence-db -45] [--min-track 5000]
+                       [--boundary midpoint] [--naming PATTERN]
+                       [--cue] [--no-cue] [--dry] [--json]
     audiosuite plugins list [--json]
     audiosuite plugins enable PLUGIN_ID [--json]
     audiosuite plugins disable PLUGIN_ID [--json]
@@ -128,6 +132,7 @@ Changed in 2.3.0: registers the ``duplicates`` and ``declip`` commands (F-02, F-
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+Changed in 2.5.0: registers the Track Splitter's `split` command (F-E4).
 """
 
 from __future__ import annotations
@@ -184,6 +189,7 @@ _TOOL_CLI_MODULES: tuple[tuple[str, str], ...] = (
     ("tag_editor.cli", "tag-edit"),
     ("tag_field_updater.cli", "tag-update"),
     ("tempo_analyzer.cli", "tempo"),
+    ("track_splitter.cli", "split"),
 )
 
 

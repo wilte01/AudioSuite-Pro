@@ -59,6 +59,7 @@ rather than by a row here.
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+Changed in 2.5.0: EXPECTED_TOOLS gains the Track Splitter (F-E4).
 """
 
 from __future__ import annotations
@@ -112,6 +113,7 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
         ("tag_editor/ui/app.py", "TagEditorApp"),
         ("tag_field_updater/ui/app.py", "TagFieldUpdaterApp"),
         ("tempo_analyzer/app.py", "TempoAnalyzerApp"),
+        ("track_splitter/app.py", "TrackSplitterApp"),
     }
 )
 

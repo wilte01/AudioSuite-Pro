@@ -62,6 +62,7 @@ tool entry in the manifest.
 | ML Denoiser | `ML_Denoiser.pyw` | [Markdown](../user_guides/individual_programs/ml_denoiser/ML_Denoiser_User_Guide.md) |
 | Duplicate Finder | `Duplicate_Finder.pyw` | [Markdown](../user_guides/individual_programs/duplicate_finder/Duplicate_Finder_User_Guide.md) |
 | Tag-Based File Reorganizer | `File_Reorganizer.pyw` | [Markdown](../user_guides/individual_programs/file_reorganizer/File_Reorganizer_User_Guide.md) |
+| Track Splitter | `Track_Splitter.pyw` | [Markdown](../user_guides/individual_programs/track_splitter/Track_Splitter_User_Guide.md) |
 | Restoration (Declip) | `Restoration.pyw` | [Markdown](../user_guides/individual_programs/restoration/Restoration_User_Guide.md) |
 | Undo Tag Edits | `Undo_Tag_Edits.pyw` | [Markdown](../user_guides/individual_programs/undo_tag_edits/Undo_Tag_Edits_User_Guide.md) |
 
@@ -69,7 +70,7 @@ tool entry in the manifest.
 
 ## Suite-wide guides
 
-* {doc}`user/suite-overview` — how the 27 tools are grouped, what
+* {doc}`user/suite-overview` — how the 28 tools are grouped, what
   each Master Driver tab runs, and how a batch is ordered.
 * {doc}`user/security` — encrypted API keys and how
   to recover them, safe file selection, and what each security message means.

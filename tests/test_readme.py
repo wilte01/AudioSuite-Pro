@@ -41,6 +41,7 @@ runs as stages stopped shipping a launcher, command and guide (U-04).
 Changed in 2.3.1 (U-03, released in 2.6.0): the card assertion skips a manifest
 with ``driver_card=False``, and a new lock keeps that exemption honest - the
 launcher and CLI command still exist and the card module really is gone.
+Changed in 2.5.0: the first-party tool count is 28 (F-E4).
 """
 
 from __future__ import annotations
@@ -143,7 +144,7 @@ class TestIndexGeneration:
 class TestMetadataLock:
     """The distribution metadata ships the README and its index is whole."""
 
-    def test_pyproject_ships_the_readme_and_27_tool_rows(self) -> None:
+    def test_pyproject_ships_the_readme_and_28_tool_rows(self) -> None:
         from audio_suite_shared.tool_plugin import get_registry
 
         with (REPO_ROOT / "pyproject.toml").open("rb") as fh:
@@ -155,7 +156,7 @@ class TestMetadataLock:
         assert declared_readme == README.name
         # The distribution's tool count, not the install's: a plugin adds a
         # registry entry, never a README row.
-        assert len(get_registry().first_party) == 27
+        assert len(get_registry().first_party) == 28
 
 
 class TestRegistrationLock:

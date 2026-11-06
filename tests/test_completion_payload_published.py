@@ -43,6 +43,7 @@ shared fields) from ``run_duplicate_scan`` (F-02).
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+Changed in 2.5.0: the publisher table gains the Track Splitter (F-E4).
 """
 
 from __future__ import annotations
@@ -84,6 +85,7 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
     "tag_editor": "tag_editor.core.processor.run_apply",
     "tag_field_updater": "tag_field_updater.core.processor.run_scan",
     "tempo_analyzer": "tempo_analyzer.core.file_processor.run_analysis",
+    "track_splitter": "track_splitter.core.splitter.run_split",
 }
 
 #: Fields the shared completion helpers publish on a tool's behalf:

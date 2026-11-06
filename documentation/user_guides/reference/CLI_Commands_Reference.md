@@ -758,6 +758,37 @@ audiosuite reorganize "D:\Music\Unsorted" --output-dir "D:\Music\Sorted" --dry
 audiosuite reorganize "D:\Music\Unsorted" --output-dir "D:\Music\Sorted" --action move --json
 ```
 
+### Track Splitter
+
+Split each recording in a folder at its silent gaps, writing numbered tracks to
+an output folder. The gaps come from FFmpeg's own `silencedetect` filter and the
+cuts are sample-accurate re-encodes at the source's bit depth. Leading and
+trailing silence is discarded rather than written as a track.
+
+```bash
+audiosuite split <directory> [--output-dir DIR] [--min-silence MS] [--silence-db DB] [--min-track MS] [--boundary midpoint|start|end] [--naming PATTERN] [--cue|--no-cue] [--dry|--live] [--json]
+```
+
+**Options:**
+
+- `--output-dir DIR` — folder the tracks are written to; unset means a `split` subfolder beside the source (default: source dir)
+- `--min-silence MS` — shortest silent run treated as a boundary (default: 700)
+- `--silence-db DB` — level at or below which audio counts as silence, relative to full scale (default: -45)
+- `--min-track MS` — shortest track kept; a shorter fragment merges into its neighbour (default: 5000)
+- `--boundary [midpoint|start|end]` — where inside a silent gap the cut lands (default: midpoint)
+- `--naming PATTERN` — output filename pattern with `{track}`, `{title}`, `{album}` and `{artist}` (default: `{track:02d} - {title}`)
+- `--cue` / `--no-cue` — write a CUE sheet describing the source image's track starts (default: cue written)
+- `--dry` / `--live` — plan the tracks and report them without writing any audio, or write them (default: live)
+
+**Examples:**
+
+```bash
+audiosuite split "D:\Music\Live" --dry
+audiosuite split "D:\Music\Live" --min-silence 400 --silence-db -40 --min-track 2000
+audiosuite split "D:\Music\Live" --output-dir "D:\Music\Live\tracks" --boundary start
+audiosuite split "D:\Music\Live" --no-cue --json
+```
+
 ### Undo Tag Edits
 
 Undo Tag Edits restores the tags a batch run changed. It has its own window
@@ -901,7 +932,7 @@ audiosuite cue split "D:\Music\Album\Album.cue" -o "D:\Music\Album\Tracks"
 ## All Commands
 
 Every command the CLI ships, including the suite commands that operate on the
-installation rather than on a folder of audio. Each of the 27 tools appears
+installation rather than on a folder of audio. Each of the 28 tools appears
 here, and each tool's own section above documents its flags.
 
 | Command | Tool | Category |
@@ -935,6 +966,7 @@ here, and each tool's own section above documents its flags.
 | `replaygain` | ReplayGain Analyzer | Enrich |
 | `scrub` | Metadata Scrubber | Enrich |
 | `spectrogram` | Spectral Viewer | Util |
+| `split` | Track Splitter | Util |
 | `stats` | Library Statistics Dashboard | Util |
 | `stems` | Stem Separator | Util |
 | `tag-edit` | Tag Editor | Util |

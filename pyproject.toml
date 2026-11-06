@@ -1,3 +1,4 @@
+# Changed in 2.5.0: registers the Track Splitter's tests and coverage source (F-E4).
 # Changed in 2.4.0: duplicate dispositions and ASX stubs.
 # Changed in 1.0.1: bumped [project] version 1.0.0 -> 1.0.1 (first maintenance
 # release; PLAN_bughunt_remediation.md G8.4). This is the single source of truth
@@ -377,6 +378,7 @@ testpaths = [
     "tag_editor/tests",
     "tag_field_updater/tests",
     "tempo_analyzer/tests",
+    "track_splitter/tests",
     "utilities/tests",
 ]
 # Changed in 2.1.0: ``worker_memory`` joins the opt-in markers.  The two
@@ -457,6 +459,7 @@ source = [
     "tag_editor",
     "tag_field_updater",
     "tempo_analyzer",
+    "track_splitter",
     "utilities",
 ]
 omit = [

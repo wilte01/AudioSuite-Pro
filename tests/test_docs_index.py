@@ -42,6 +42,7 @@ Changed in 2.3.0: ``REQUIRED_TOOL_ROWS`` moves to 32, the regenerated table's ro
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+Changed in 2.5.0: the required tool-row count is 28 (F-E4).
 """
 
 from __future__ import annotations
@@ -57,9 +58,9 @@ INDEX = REPO_ROOT / "documentation" / "docs" / "index.md"
 DOCS = REPO_ROOT / "documentation" / "docs"
 GENERATOR = REPO_ROOT / "utilities" / "generate_docs_index.py"
 
-#: The manifest ships 27 first-party tools; a table that loses rows fails here.
+#: The manifest ships 28 first-party tools; a table that loses rows fails here.
 #: (32 until 2.6.0, when the five stage tools lost their guides: U-04.)
-REQUIRED_TOOL_ROWS = 27
+REQUIRED_TOOL_ROWS = 28
 
 #: A MyST role span, e.g. ``{doc}`user/security```. Its body is a docname, not a
 #: repository path, even when it contains a slash.

@@ -42,6 +42,7 @@ entries require, so the table still covers exactly ``set(TOOL_IDS)``.
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+Changed in 2.5.0: the usage-error table gains `split` (F-E4).
 """
 
 from __future__ import annotations
@@ -110,6 +111,7 @@ _USAGE_CASES: dict[str, dict[str, list[str]]] = {
     "replaygain": {"missing": [], "invalid": [MISSING_PATH]},
     "scrub": {"missing": [], "invalid": [MISSING_PATH]},
     "spectrogram": {"missing": [], "invalid": [MISSING_PATH]},
+    "split": {"missing": [], "invalid": [MISSING_PATH]},
     "stats": {"missing": [], "invalid": [LIBRARY, "--detail", "bogus"]},
     # ``stems`` requires ``--output-dir``, so the bare invocation is already a
     # usage error; ``--model`` is a Choice, rejected before the body runs.

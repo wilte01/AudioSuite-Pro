@@ -49,6 +49,7 @@ Changed in 1.3.0: the expected toggle-key set adds ``spectral_viewer``.
 Changed in 1.4.0: the worker default is read from default_max_workers().
 
 Changed in 2.1.0: plugin tools contribute their own toggle keys.
+Changed in 2.5.0: the frozen option-variable set gains the Track Splitter (F-E4).
 """
 
 import json
@@ -597,6 +598,7 @@ class TestModuleToggles:
         "example_tool",
         # Refinery
         "audio_refinery",
+        "track_splitter",
     }
 
     def test_all_expected_keys_present(self, state):

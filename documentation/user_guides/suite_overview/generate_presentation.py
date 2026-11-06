@@ -43,6 +43,7 @@ were 32 against a 27-tool suite until the file was rebuilt.
 
 Changed in 2.4.1: the format-matrix slide reports the sixteen suite
 containers.
+Changed in 2.5.0: the deck names the Track Splitter (F-E4).
 """
 
 from __future__ import annotations
@@ -526,6 +527,15 @@ FORMAT_ROWS: list[list[str]] = [
         YES,
         YES,
         "Read-only tag scan - all shared suite formats",
+    ],
+    [
+        "Track Splitter",
+        YES,
+        YES,
+        YES,
+        YES,
+        YES,
+        "Splits at silent gaps; writes the source's own format and depth",
     ],
     [
         "Undo Tag Edits",

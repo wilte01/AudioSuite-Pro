@@ -42,6 +42,7 @@ Changed in 2.4.3: a step's launch-failure record is cleared before the step
 starts, next to its run-outcome note, so a reason recorded by an earlier launch
 can never be shown against this one.  That is what lets the failure dialog
 quote the current reason (PLAN_2026-11-03_2.4.3_structure.md D-22).
+Changed in 2.5.0: places the Track Splitter in the dependency graph (F-E4).
 """
 
 from __future__ import annotations
@@ -271,6 +272,7 @@ DEPENDENCY_GRAPH: dict[str, list[str]] = {
     "cd_ripper": [],
     "mood_analysis_batch": [],
     "library_stats": [],
+    "track_splitter": [],
     "spectral_viewer": [],
     "file_reorganizer": [],
     "lyrics_manager": [],

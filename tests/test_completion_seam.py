@@ -53,6 +53,7 @@ tools (F-02).
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+Changed in 2.5.0: the wiring count gains the Track Splitter (F-E4).
 """
 
 from __future__ import annotations
@@ -150,6 +151,15 @@ EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
             "log_skipped",
             "log_no_genre",
             "log_errors",
+        }
+    ),
+    "TrackSplitterApp": frozenset(
+        {
+            "total",
+            "processed",
+            "skipped",
+            "errors",
+            "duration_secs",
         }
     ),
     "LyricsManagerApp": frozenset(
@@ -304,7 +314,7 @@ def test_the_seam_table_covers_every_gui_tool() -> None:
     """A partial table would leave tools silently untested."""
     # 16 since 2.6.0: the enhancer, normalizer and trimmer windows are gone
     # (U-04), so their completion seams went with them.
-    assert len(COMPLETION_WIRINGS) == 16
+    assert len(COMPLETION_WIRINGS) == 17
     assert set(EXPECTED_REQUIRED) == set(COMPLETION_WIRINGS)
 
 

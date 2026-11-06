@@ -22,6 +22,7 @@ absence from every surface and that the pipeline still runs their cores
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+Changed in 2.5.0: the frozen counts and command set gain the Track Splitter (F-E4).
 """
 
 from pathlib import Path
@@ -185,7 +186,7 @@ class TestDefaultRegistry:
     def test_registry_is_populated(self):
         r = get_registry()
         assert len(r) >= 16  # all first-party tools
-        assert len(r.first_party) == 27  # 11 enrich + 15 utility + 1 refinery
+        assert len(r.first_party) == 28  # 11 enrich + 16 utility + 1 refinery
         # A plugin adds a registry entry, never a first-party one.
         assert len(r) == len(r.first_party) + len(r.plugins)
         assert r.plugins, "the shipped example plugin did not register"
@@ -236,6 +237,7 @@ class TestDefaultRegistry:
             "cd_ripper",
             "mood_analysis_batch",
             "library_stats",
+            "track_splitter",
             "file_reorganizer",
             "tag_field_updater",
             "tag_editor",
@@ -267,6 +269,7 @@ class TestDefaultRegistry:
             "mood-analyzer",
             "convert",
             "stats",
+            "split",
             "reorganize",
             "album-genre",
             "album-art",
@@ -295,6 +298,7 @@ class TestDefaultRegistry:
             "cd_ripper",
             "mood_analysis_batch",
             "library_stats",
+            "track_splitter",
             "fingerprinter",
             "audio_refinery",
             "file_reorganizer",
@@ -377,12 +381,12 @@ class TestRemovedStandaloneTools:
             assert r.get(tool_id) is None, tool_id
 
     def test_the_utilities_tab_loses_them_with_the_registry(self):
-        """15 first-party utilities, and the tab offers every one."""
+        """16 first-party utilities, and the tab offers every one."""
         r = get_registry()
         utilities = [m.id for m in r.by_category("utility") if not m.plugin]
         cards = [m.id for m in r.driver_by_category("utility") if not m.plugin]
 
-        assert len(utilities) == 15, utilities
+        assert len(utilities) == 16, utilities
         assert sorted(cards) == sorted(utilities)
 
     def test_no_launcher_and_no_command_survive(self):

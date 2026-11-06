@@ -328,7 +328,7 @@ imports) every first-party module, resolves each `on_complete=` /
 `on_*progress=` / `on_error=` keyword to the handler it reaches — following both
 wiring styles (direct binding, and `lambda **kw: self._on_...(..., **kw)`) and
 inherited handlers such as `LyricsManagerApp`'s — and checks the rule for that
-seam. `EXPECTED_TOOLS` × `EXPECTED_SEAMS` is frozen at 14 tools and three
+seam. `EXPECTED_TOOLS` × `EXPECTED_SEAMS` is frozen at 15 tools and three
 seams, so a new GUI tool must be registered there deliberately, every tool must
 wire all three, and a broken discovery pass fails instead of passing vacuously.
 Non-GUI wirings (the Master Driver's `lambda executed:`, CLI wrappers) are not

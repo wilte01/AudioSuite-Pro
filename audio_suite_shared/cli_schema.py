@@ -120,6 +120,7 @@ F-08a).
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
+Changed in 2.5.0: declares `split`'s payload fields (F-E4).
 """
 
 from __future__ import annotations
@@ -187,6 +188,7 @@ TOOL_IDS: Final[Mapping[str, str]] = {
     "replaygain": "replaygain",
     "scrub": "scrubber",
     "spectrogram": "spectral_viewer",
+    "split": "track_splitter",
     "stats": "library_stats",
     "stems": "stem_separator",
     "tag-edit": "tag_editor",
@@ -310,6 +312,14 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
         "written": int,
         "images": list,
         "error_messages": list,
+    },
+    "split": {
+        # How many tracks the plan produced, how many files were actually
+        # written, where they went, and the CUE sheets a run left beside them.
+        "tracks": int,
+        "files_written": int,
+        "output_dir": str,
+        "cue_files": list,
     },
     "stems": {
         "separated": int,

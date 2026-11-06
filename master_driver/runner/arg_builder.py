@@ -326,6 +326,25 @@ def _build_utility_tool_args(
                 else []
             )
         ),
+        "track_splitter": lambda: (
+            [path, mode_flag, start_flag, end_flag]
+            + (
+                ["--output-dir", state.track_splitter_output_dir.get()]
+                if state.track_splitter_output_dir.get()
+                else []
+            )
+            + [
+                "--min-silence",
+                state.track_splitter_min_silence.get() or "700",
+                "--silence-db",
+                state.track_splitter_silence_db.get() or "-45",
+                "--min-track",
+                state.track_splitter_min_track.get() or "5000",
+                "--boundary",
+                state.track_splitter_boundary.get() or "midpoint",
+            ]
+            + ([] if state.track_splitter_cue.get() else ["--no-cue"])
+        ),
         "spectral_viewer": lambda: (
             [
                 path,

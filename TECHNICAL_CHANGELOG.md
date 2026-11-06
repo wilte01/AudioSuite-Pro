@@ -12,6 +12,26 @@ one.
 
 ## [Unreleased]
 
+- **The Track Splitter's engine is a pure parser beside one FFmpeg call.**
+  `track_splitter/core/detector.py` splits into `detect_gaps` (one
+  `silencedetect` run through `run_secure_subprocess`) and `parse_gaps`, a pure
+  parser over the filter's report, so the boundary arithmetic is tested without
+  spawning FFmpeg; `plan_tracks` in `core/models.py` is pure as well. The locks
+  measure decoded audio: a tone/gap/tone fixture is split, the written tracks are
+  decoded, and the test asserts the per-track head is the tone and the tail is
+  the silence it should have cut, that the durations sum to the source, and that
+  the written CUE re-parses to the plan's offsets within one CD frame (13 ms) -
+  the format's own quantisation, not a tolerance chosen to pass.
+- **The plan no longer writes leading or trailing silence as a track.** A file
+  that opens with room tone produced a first track of pure silence; the plan now
+  clips to the first and last interior gap and refuses a wholly silent source
+  with `AudioConfigValueError`. `SplitOutcome.discarded_ms` carries the
+  difference into the run report.
+- **`AppState.__init__` grew past ruff's statement budget (PLR0915, 116 > 110),**
+  so the three tools that own option variables (Track Splitter, ASX extractor,
+  restoration) moved into `_init_tool_option_vars`; behaviour is unchanged and
+  nothing was suppressed.
+
 - **Guide figures: one capture step, one renderer block, two locks.** A guide can
   embed `![caption](images/x.png)`. `utilities/build_user_guides.py` renders it
   at 6 in with the caption centred beneath, resolves the reference against the

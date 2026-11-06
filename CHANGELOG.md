@@ -16,6 +16,21 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+- **Split recordings into tracks at their silent gaps.** The new Track Splitter
+  (`Track_Splitter.pyw`, `audiosuite split`) finds the silences in a folder's
+  recordings with FFmpeg's own silence detector and cuts each one into numbered
+  tracks in a `split/` folder beside it, at the source's own bit depth. Three
+  settings decide what counts as a gap - the shortest silence, the level that
+  counts as silence, and the shortest track worth writing - and a fragment below
+  that length merges into its neighbour instead of becoming a stray file. The
+  cut lands halfway through the gap by default; `--boundary start` and
+  `--boundary end` give the silence to the track before or after it. Leading and
+  trailing silence is discarded rather than written as a track, the run report
+  says how much, and a wholly silent file is refused with that reason. Each run
+  also writes a CUE sheet describing the source image, so the split can be
+  re-created or burned with track marks; `--no-cue` turns it off. A Dry Run
+  reports the plan per file and writes nothing.
+
 - **Every tool's guide shows the windows it describes.** All 28 tool guides now
   carry figures captured from the running program: their Setup, Processing and
   Results tabs, the CD Ripper's Rip tab, and the single-pane Spectral Viewer,

@@ -96,6 +96,8 @@ class AppState:
             )
 
         # ── Per-module options ────────────────────────────────────────────────
+        self._init_tool_option_vars(master)
+
         self.scrubber_preserve_lyrics = tk.BooleanVar(master, value=True)
         self.scrubber_preserve_album_artist = tk.BooleanVar(master, value=True)
         self.scrubber_preserve_embedded_art = tk.BooleanVar(master, value=True)
@@ -243,6 +245,21 @@ class AppState:
         self.duplicate_quarantine_dir = tk.StringVar(master, value="")
         self.duplicate_disposition = tk.StringVar(master, value="quarantine")
 
+    def _init_tool_option_vars(self, master: tk.Misc | None) -> None:
+        """Create the option variables of the tools that take their own settings.
+
+        Kept out of :meth:`__init__` so its statement count stays inside the
+        lint budget as tools gain options.
+        """
+        # Changed in 2.5.0: the Track Splitter's gap settings (F-E4).  Its
+        # module toggle comes from the registry like every other tool's.
+        self.track_splitter_min_silence = tk.StringVar(master, value="700")
+        self.track_splitter_silence_db = tk.StringVar(master, value="-45")
+        self.track_splitter_min_track = tk.StringVar(master, value="5000")
+        self.track_splitter_boundary = tk.StringVar(master, value="midpoint")
+        self.track_splitter_output_dir = tk.StringVar(master, value="")
+        self.track_splitter_cue = tk.BooleanVar(master, value=True)
+
         # ── ASX Playlist Extractor controls ──────────────────────────────────
         # Off by default, matching the extractor's CLI and preserving today's
         # top-level-only discovery unless the user asks for a library sweep.
@@ -303,3 +320,15 @@ class AppState:
     @library_stats_toggle.setter
     def library_stats_toggle(self, value: tk.BooleanVar) -> None:
         self.module_toggles["library_stats"] = value
+
+    @property
+    def track_splitter_toggle(self) -> tk.BooleanVar:
+        """Return ``module_toggles['track_splitter']`` (legacy alias).
+
+        Changed in 2.5.0: the Track Splitter's card reads it by name (F-E4).
+        """
+        return self.module_toggles["track_splitter"]
+
+    @track_splitter_toggle.setter
+    def track_splitter_toggle(self, value: tk.BooleanVar) -> None:
+        self.module_toggles["track_splitter"] = value

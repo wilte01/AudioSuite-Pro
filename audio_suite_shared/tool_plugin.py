@@ -51,6 +51,7 @@ CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 
 Changed in 2.4.0: Duplicate Finder's manifest description covers its new
 delete and ASX-stub dispositions.
+Changed in 2.5.0: adds the Track Splitter manifest (F-E4).
 """
 
 from __future__ import annotations
@@ -454,6 +455,16 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="mood-analysis-batch",
         standalone=True,
         order=41,
+    ),
+    ToolManifest(
+        id="track_splitter",
+        name="Track Splitter",
+        category="utility",
+        pyw_filename="Track_Splitter.pyw",
+        description="Split recordings into tracks at their silent gaps",
+        cli_command="split",
+        standalone=True,
+        order=55,
     ),
     ToolManifest(
         id="library_stats",
