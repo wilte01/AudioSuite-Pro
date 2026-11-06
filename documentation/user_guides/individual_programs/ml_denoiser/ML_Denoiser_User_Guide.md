@@ -61,9 +61,9 @@ The model's output is 16-bit, so a denoised file carries 16-bit resolution whate
 
 ## Processing and Results
 
-![The Results tab after a finished run](images/results.png)
-
 ![The Processing tab part-way through a run](images/processing.png)
+
+![The Results tab after a finished run](images/results.png)
 
 
 

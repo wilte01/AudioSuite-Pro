@@ -60,9 +60,9 @@ The shared signal analyzer derives two axes from the audio: arousal, representin
 
 ## Processing and Results
 
-![The Results tab after a finished run](images/results.png)
-
 ![The Processing tab part-way through a run](images/processing.png)
+
+![The Results tab after a finished run](images/results.png)
 
 
 

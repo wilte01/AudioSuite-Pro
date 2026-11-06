@@ -10,7 +10,8 @@ Why a capture step exists at all
 Tk has no window-to-image API, so a figure is a screen grab of a window the tool
 itself built: this script constructs the real application class, drives the
 tool's own render helpers (``_update_progress_ui``, ``_update_ui_on_complete``)
-with one fixed sample run, and grabs the client area with ``PIL.ImageGrab``.
+with the sample run declared for that tool, and grabs the client area with
+``PIL.ImageGrab``.
 Nothing is drawn into a mock window, so a figure cannot show a layout the tool
 no longer has - the picture came from the tool.
 
@@ -88,6 +89,12 @@ Conventions (AGENTS.md "Utility Script Markers"): ASCII-only [START] / [OK] /
 
 Changed in 2.4.4: new file - the one screenshot capture step behind the guide
 figures, and the reason a guide can show the window it describes.
+
+Changed in 2.5.0: each figure is filled from the sample run declared for its own
+tool (``SAMPLE_RUNS``), so a Processing figure shows that tool's per-file status
+lines and counters rather than one shared set of lines borrowed from BPM
+Analyzer.  A tool that wants filled figures and declares no run fails the
+capture instead of inheriting another's vocabulary.
 """
 
 from __future__ import annotations
@@ -102,7 +109,7 @@ import sys
 import tempfile
 import time
 import tkinter as tk
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from tkinter import ttk
@@ -212,6 +219,264 @@ SAMPLE_FOLDER = "C:\\Music\\Sample Album"
 
 
 @dataclass(frozen=True)
+class SampleRun:
+    """One invented run, in the vocabulary the tool's own processor publishes.
+
+    A figure is only honest if its per-file lines are the lines that tool
+    writes during a run.  One shared set of lines put BPM Analyzer's tempo
+    results on every batch tool's Processing tab, so a run is declared per tool
+    and :func:`_fillers` refuses a tool that has none.
+
+    Attributes:
+        status: The overall status line shown while the run is in progress.
+        lines: One Processing-tab display line per finished file, in the exact
+            shape the tool's processor publishes.
+        slots: Worker-slot text for the busy slots, in slot order.  Remaining
+            slots are set to ``IDLE``.
+        summary: The Results tab's summary text.  Empty means the shared
+            processed / skipped / errors line.
+        stats: The Processing tab's counter line.  Empty means the shared
+            processed / skipped / errors line.
+        completion: The Results heading.  Empty means the tool's own
+            ``completion_text``, which is what its live run shows.
+        seconds: Elapsed time the Results figure reports.
+    """
+
+    status: str
+    lines: tuple[str, ...]
+    slots: tuple[str, ...] = ()
+    summary: str = ""
+    stats: str = ""
+    completion: str = ""
+    seconds: int = SAMPLE_SECONDS
+
+
+#: File names of the invented album, in run order.
+_NAMES: tuple[str, ...] = tuple(name for name, _bpm in SAMPLE_TRACKS)
+
+#: The files the Processing figure shows as finished.
+_FINISHED: tuple[str, ...] = _NAMES[:SAMPLE_DONE]
+
+#: The two files the worker slots show as busy in the same figure.
+_NEXT: tuple[str, ...] = _NAMES[SAMPLE_DONE : SAMPLE_DONE + 2]
+
+#: The sample folder with the separator a Windows tool displays.
+_SAMPLE_PATH_PREFIX = SAMPLE_FOLDER + "\\"
+
+
+def _busy_slots(verb: str) -> tuple[str, ...]:
+    """Return worker-slot text for the two files a mid-run figure shows.
+
+    Args:
+        verb: The tool's own slot verb, e.g. ``"Scrubbing"``.
+
+    Returns:
+        Two slot labels; the remaining slots are set to ``IDLE``.
+    """
+    return (f"{verb}: {_NEXT[0][:22]}...", f"{verb}: {_NEXT[1][:22]}...")
+
+
+#: The sample run each tool's figures show, keyed by guide folder.  Every line
+#: here is in the shape that tool's own processor publishes (the processors are
+#: the authority: ``core/file_processor.py`` in each package), so the Processing
+#: tab reads as that tool's run and not another's.
+SAMPLE_RUNS: Mapping[str, SampleRun] = {
+    "album_art_normalizer": SampleRun(
+        status="Normalizing album art...",
+        lines=tuple(
+            f"[UPDATED] {name} \u2192 Embedded image was 500\u00d7500; would be "
+            "resized to 1200\u00d71200 (dry run)."
+            for name in _FINISHED
+        ),
+        slots=_busy_slots("Processing"),
+    ),
+    "album_art_sync": SampleRun(
+        status="Fetching artwork...",
+        lines=(
+            "--- SESSION START: DRY RUN ---",
+            f"Directory: {SAMPLE_FOLDER}",
+            "Album: Aeon Drift - Alpha Intro",
+            "Files: 9 audio file(s)",
+            "",
+            "[Dry Run] Would apply artwork from Fanart.tv",
+            "[Dry Run] Would embed at 1200\u00d71200",
+        ),
+    ),
+    "album_genre_tagger": SampleRun(
+        status="Consolidating genres...",
+        lines=tuple(f"[OK] {name}: Ambient" for name in _FINISHED),
+        slots=_busy_slots("Reading"),
+    ),
+    "asx_extractor": SampleRun(
+        status="Extracting ASX playlists...",
+        lines=tuple(
+            f"  [OK] Sample_Album_{index:02d}.asx -> {_SAMPLE_PATH_PREFIX}{name}"
+            for index, name in enumerate(_FINISHED, start=1)
+        ),
+    ),
+    "audio_fingerprinter": SampleRun(
+        status="Fingerprinting...",
+        lines=tuple(
+            f"[MATCHED] {name} \u2014 Alpha Intro \u2014 Aeon Drift "
+            f"(score {0.97 - index * 0.01:.2f})"
+            for index, name in enumerate(_FINISHED)
+        ),
+        slots=_busy_slots("Fingerprinting"),
+    ),
+    "audio_refinery": SampleRun(
+        status="Processing...",
+        lines=tuple(f"[DONE] {name}" for name in _FINISHED),
+        slots=(
+            f"Hashing: {_NEXT[0][:22]}...",
+            f"Processing: {_NEXT[1][:18]}...",
+        ),
+    ),
+    "duplicate_finder": SampleRun(
+        status="Fingerprinting files...",
+        lines=tuple(f"[FINGERPRINT] {name}" for name in _FINISHED),
+        slots=_busy_slots("Fingerprinting"),
+    ),
+    "file_reorganizer": SampleRun(
+        status=f"Current File: {_NEXT[0]}",
+        lines=tuple(f"{_SAMPLE_PATH_PREFIX}{name}" for name in _FINISHED),
+        stats="Scanned: 9 | Processed: 6 | Skipped: 1 | Errors: 0",
+    ),
+    "genre_sync": SampleRun(
+        status="Resolving genres...",
+        lines=tuple(
+            f"[DRY_RUN] {name} \u2192 Would set: Ambient" for name in _FINISHED
+        ),
+        slots=_busy_slots("Resolving"),
+        completion="Analysis Complete!",
+        summary=(
+            "Total: 9 files\nUpdated: 6\nSkipped (already correct): 2\n"
+            "No genre fields: 1\nErrors: 0"
+        ),
+    ),
+    "key_detector": SampleRun(
+        status="Detecting keys...",
+        lines=(
+            "[DETECTED] 01 - Alpha Intro.flac \u2192 8A",
+            "[DETECTED] 02 - Beta Motion.flac \u2192 9A",
+            "[DETECTED] 03 - Gamma Drift.mp3 \u2192 5B",
+            "[DETECTED] 04 - Delta Line.flac \u2192 10A",
+            "[DETECTED] 05 - Epsilon Down.mp3 \u2192 4B",
+            "[DETECTED] 06 - Zeta Pull.flac \u2192 7A",
+        ),
+        slots=_busy_slots("Analyzing"),
+    ),
+    "library_stats": SampleRun(
+        status="Scanned 9 files in 0.8s.",
+        lines=(f"9 files scanned in {SAMPLE_FOLDER}",),
+        stats="Files: 9 | Albums: 2 | Artists: 4",
+    ),
+    "lyrics_manager": SampleRun(
+        status="Looking up lyrics...",
+        lines=tuple(
+            f"[DRY RUN] {name} \u2192 would embed synced lyrics" for name in _FINISHED
+        ),
+    ),
+    "metadata_scrubber": SampleRun(
+        status="Scrubbing metadata...",
+        lines=tuple(
+            f"[DRY RUN] {name} \u2192 Would scrub metadata" for name in _FINISHED
+        ),
+        slots=_busy_slots("Scrubbing"),
+    ),
+    "ml_denoiser": SampleRun(
+        status="Reducing noise...",
+        lines=tuple(
+            f"[FOUND] {name} \u2192 Attenuated 6.2 dB (noise floor -54.0 dBFS)"
+            for name in _FINISHED
+        ),
+        slots=_busy_slots("Reducing noise"),
+    ),
+    "mood_analysis_batch_tagger": SampleRun(
+        status="Scanning: Sample Album",
+        lines=(
+            "\u25b6  Sample Album  (9 files)",
+            "    OK   01 - Alpha Intro.flac  ->  Calm / medium energy",
+            "    OK   02 - Beta Motion.flac  ->  Energetic / high energy",
+            "    SKIP 03 - Gamma Drift.mp3  --  no audible content",
+            "    OK   04 - Delta Line.flac  ->  Melancholic / medium energy",
+            "    OK   05 - Epsilon Down.mp3  ->  Calm / low energy",
+            "    OK   06 - Zeta Pull.flac  ->  Bright / high energy",
+        ),
+        slots=(
+            f"Analyzing: {_NEXT[0][:22]}...",
+            f"Analyzing: {_NEXT[1][:22]}...",
+            "IDLE",
+            "IDLE",
+        ),
+    ),
+    "mood_analyzer": SampleRun(
+        status="Analyzing mood...",
+        lines=(
+            "[DETECTED] 01 - Alpha Intro.flac \u2192 Calm (conf 0.82)",
+            "[DETECTED] 02 - Beta Motion.flac \u2192 Energetic (conf 0.76)",
+            "[DETECTED] 03 - Gamma Drift.mp3 \u2192 Melancholic (conf 0.71)",
+            "[DETECTED] 04 - Delta Line.flac \u2192 Bright (conf 0.88)",
+            "[DETECTED] 05 - Epsilon Down.mp3 \u2192 Calm (conf 0.69)",
+            "[DETECTED] 06 - Zeta Pull.flac \u2192 Dark (conf 0.74)",
+        ),
+        slots=_busy_slots("Analyzing"),
+    ),
+    "music_format_converter": SampleRun(
+        status="Converting...",
+        lines=tuple(
+            f"[DRY RUN] {name} \u2192 {name.rsplit('.', 1)[0]}.flac"
+            for name in _FINISHED
+        ),
+        slots=_busy_slots("Converting"),
+    ),
+    "replaygain_analyzer": SampleRun(
+        # A measured file publishes an empty display line, so the list stays
+        # empty during a healthy run; the slot grid and counters carry the
+        # progress instead.
+        status="Measuring loudness...",
+        lines=(),
+        slots=_busy_slots("Analyzing"),
+    ),
+    "restoration": SampleRun(
+        status="Reconstructing peaks...",
+        lines=tuple(
+            f"[FOUND] {name} \u2192 Restored 4 clipped peak(s) - peak now -0.3 dBFS"
+            for name in _FINISHED
+        ),
+        slots=_busy_slots("Reconstructing"),
+    ),
+    "stem_separator": SampleRun(
+        status="Separating stems...",
+        lines=tuple(
+            f"[DRY RUN] {name} - would write 4 stems (4-stem)" for name in _FINISHED
+        ),
+        slots=_busy_slots("Separating"),
+    ),
+    "tag_editor": SampleRun(
+        status="Applying edits...",
+        lines=tuple(f"{name}: would write album -> Sample Album" for name in _FINISHED),
+    ),
+    "tag_field_updater": SampleRun(
+        status="Scanning folder...",
+        lines=_FINISHED,
+        completion="Scan Complete!",
+    ),
+    "tempo_analyzer": SampleRun(
+        status="Analyzing tempo...",
+        lines=(
+            "[DRY RUN] 01 - Alpha Intro.flac \u2192 Allegro (128 BPM)",
+            "[DRY RUN] 02 - Beta Motion.flac \u2192 Allegro (124 BPM)",
+            "[DRY RUN] 03 - Gamma Drift.mp3 \u2192 Andante (96 BPM)",
+            "[DRY RUN] 04 - Delta Line.flac \u2192 Presto (140 BPM)",
+            "[DRY RUN] 05 - Epsilon Down.mp3 \u2192 Andante (88 BPM)",
+            "[DRY RUN] 06 - Zeta Pull.flac \u2192 Allegro (132 BPM)",
+        ),
+        slots=_busy_slots("Reading"),
+    ),
+}
+
+
+@dataclass(frozen=True)
 class ToolPlan:
     """How one tool's figures are produced.
 
@@ -281,6 +546,150 @@ def _sample_lines() -> list[str]:
         else:
             lines.append(f"[DRY RUN] {name} {_ARROW} {bpm} BPM")
     return lines
+
+
+_TOKEN_PATTERN = re.compile(r"^\[([A-Z][A-Z0-9 _-]*)\]")
+
+
+def _status_token(line: str) -> str | None:
+    """Return the bracketed status token a per-file line opens with.
+
+    Args:
+        line: One display line, e.g. ``"[FINGERPRINT] song.mp3"``.
+
+    Returns:
+        The token without its brackets, or ``None`` when the line has none.
+    """
+    match = _TOKEN_PATTERN.match(line.strip())
+    return match.group(1) if match else None
+
+
+def _tokens_of(lines: Iterable[str]) -> frozenset[str]:
+    """Return every status token the given lines open with.
+
+    Args:
+        lines: Display lines, with or without a bracketed token.
+
+    Returns:
+        The tokens, without brackets.
+    """
+    tokens: set[str] = set()
+    for line in lines:
+        token = _status_token(line)
+        if token is not None:
+            tokens.add(token)
+    return frozenset(tokens)
+
+
+def _declared_lines() -> Mapping[str, frozenset[str]]:
+    """Return every tool's declared sample lines, BPM Analyzer's included.
+
+    Returns:
+        One frozenset of display lines per tool.  BPM Analyzer's lines are
+        generated by :func:`_sample_lines` rather than declared in
+        :data:`SAMPLE_RUNS`, so they are added here: its vocabulary is the one
+        every other tool's Processing figure used to carry.
+    """
+    declared = {tool_id: frozenset(run.lines) for tool_id, run in SAMPLE_RUNS.items()}
+    declared["bpm_analyzer"] = frozenset(_sample_lines())
+    return declared
+
+
+#: Every display line any tool's sample run declares, so a figure that carries
+#: another tool's line can be named rather than silently shipped.
+DECLARED_LINES: Mapping[str, frozenset[str]] = _declared_lines()
+
+#: Inverted :data:`DECLARED_LINES`: one line to the tools that declare it.
+_LINE_OWNERS: Mapping[str, frozenset[str]] = {
+    line: frozenset(
+        tool_id for tool_id, lines in DECLARED_LINES.items() if line in lines
+    )
+    for lines in DECLARED_LINES.values()
+    for line in lines
+}
+
+#: Every bracketed status token any sample run declares, to the tools using it.
+#: A token only one tool publishes is how a leaked vocabulary is recognised.
+TOKEN_OWNERS: Mapping[str, frozenset[str]] = {
+    token: frozenset(
+        tool_id
+        for tool_id, lines in DECLARED_LINES.items()
+        if token in _tokens_of(lines)
+    )
+    for token in {
+        token
+        for tool_id in DECLARED_LINES
+        for token in _tokens_of(DECLARED_LINES[tool_id])
+    }
+}
+
+
+def _displayed_lines(widget: Any) -> list[str]:
+    """Return the lines a Processing-tab widget currently shows.
+
+    Args:
+        widget: The tab's listbox, text widget or tree.
+
+    Returns:
+        The displayed lines; empty for a widget that holds none (a Treeview, or
+        a tab whose filler changed nothing).
+    """
+    if isinstance(widget, tk.Listbox):
+        return [str(line) for line in widget.get(0, tk.END)]
+    if isinstance(widget, tk.Text):
+        return widget.get("1.0", "end-1c").splitlines()
+    return []
+
+
+def _check_sample_content(tool_id: str, run: SampleRun, shown: Sequence[str]) -> None:
+    """Fail when a filled figure is empty or shows another tool's vocabulary.
+
+    The capture's silent failure mode is a filler that changes nothing: the
+    figure then looks like an idle window under a "part-way through a run"
+    caption, which no compile, lint or type check can see.  A filled figure must
+    therefore show the run it was filled with and nothing another tool declares.
+
+    Args:
+        tool_id: The guide folder of the tool being captured.
+        run: The sample run declared for this tool.
+        shown: The lines the filled widget displays.
+
+    Raises:
+        RuntimeError: If the figure is empty, carries another tool's declared
+            line or status token, or no longer shows this tool's own lines.
+    """
+    if not run.lines:
+        return
+    if not shown:
+        raise RuntimeError(
+            "the Processing tab is still empty after the sample run was filled into it"
+        )
+
+    foreign = [
+        line
+        for line in shown
+        if line not in run.lines and _LINE_OWNERS.get(line, frozenset()) - {tool_id}
+    ]
+    if foreign:
+        others = ", ".join(sorted(_LINE_OWNERS[foreign[0]] - {tool_id}))
+        raise RuntimeError(
+            f"the Processing tab shows {foreign[0]!r}, which {others} declares"
+        )
+
+    own_tokens = _tokens_of(run.lines)
+    for token in sorted(_tokens_of(shown) - own_tokens):
+        owners = TOKEN_OWNERS.get(token, frozenset()) - {tool_id}
+        if owners:
+            raise RuntimeError(
+                f"the Processing tab shows [{token}], which "
+                f"{', '.join(sorted(owners))} publishes"
+            )
+
+    if shown[-len(run.lines) :] != list(run.lines):
+        raise RuntimeError(
+            f"the Processing tab shows {len(shown)} line(s) that are not this "
+            "tool's sample run"
+        )
 
 
 def _populate_setup(app: Any) -> None:
@@ -365,7 +774,90 @@ def _figure_name(title: str) -> str:
     return "_".join(words) or "tab"
 
 
-def _populate_generic_setup(app: Any) -> None:
+def _find_widget(app: Any, *names: str) -> Any:
+    """Return the first of *names* the application holds.
+
+    A tool may keep the shell's widget as ``file_listbox`` or ``_file_listbox``,
+    and the mood batch tagger keeps its widgets in a ``_proc`` dict, so a figure
+    filler cannot assume one spelling.
+
+    Args:
+        app: The live application.
+        *names: Attribute (or dict) names to try, in order.
+
+    Returns:
+        The widget or Tk variable, or ``None`` when the tool has none of them.
+    """
+    for name in names:
+        widget = getattr(app, name, None)
+        if widget is not None:
+            return widget
+    for group_name in ("_proc", "_res"):
+        group = getattr(app, group_name, None)
+        if isinstance(group, Mapping):
+            for name in names:
+                widget = group.get(name)
+                if widget is not None:
+                    return widget
+    return None
+
+
+def _set_text(widget: Any, text: str) -> None:
+    """Show *text* in a label or a Tk string variable.
+
+    Args:
+        widget: A label, a string variable, or ``None`` when the tool has none.
+        text: The text to show.
+    """
+    if isinstance(widget, tk.StringVar):
+        widget.set(text)
+    elif widget is not None and hasattr(widget, "configure"):
+        widget.configure(text=text)
+
+
+def _progress_of(app: Any, anchor: Any) -> ttk.Progressbar | None:
+    """Return the tool's progress bar.
+
+    ``SuiteApp`` publishes it as ``progress``; a hand-built tab keeps it in a
+    local variable, so the widget is also looked for among the listbox's
+    ancestors' children.
+
+    Args:
+        app: The live application.
+        anchor: A widget on the Processing tab, used to search its ancestors.
+
+    Returns:
+        The bar, or ``None`` when the tool has none.
+    """
+    bar = _find_widget(app, "progress")
+    if isinstance(bar, ttk.Progressbar):
+        return bar
+    frame = getattr(anchor, "master", None)
+    while frame is not None:
+        for child in frame.winfo_children():
+            if isinstance(child, ttk.Progressbar):
+                return child
+        frame = getattr(frame, "master", None)
+    return None
+
+
+def _slot_variables(app: Any) -> list[Any]:
+    """Return the tool's worker-slot variables.
+
+    Args:
+        app: The live application.
+
+    Returns:
+        The slot variables, or an empty list for a tool without a worker grid.
+    """
+    for name in ("slot_vars", "_safe_slot_vars"):
+        value = getattr(app, name, None)
+        if isinstance(value, list):
+            return value
+    return []
+
+
+def _populate_run_setup(app: Any) -> None:
     """Fill the source folder and run mode a Setup tab opens empty.
 
     Args:
@@ -381,66 +873,182 @@ def _populate_generic_setup(app: Any) -> None:
         mode.set("Dry Run")
 
 
-def _populate_generic_processing(app: Any) -> None:
-    """Show the sample run part-way through on a shared Processing tab.
+def _populate_run_processing(app: Any, run: SampleRun, tool_id: str) -> None:
+    """Show *run* part-way through on the tool's Processing tab.
 
-    The shell builds the same four widgets for every batch transformer
-    (``progress``, ``stats_label``, ``file_listbox``, ``overall_status``), so a
-    tool needs no code of its own to have a representative figure.
+    The lines are the tool's own vocabulary, so the figure reads as that tool's
+    run.  What the tab then displays is read back and checked, so a filler that
+    changes nothing - or one that leaves another tool's lines in place - fails
+    the capture instead of shipping an idle frame under a "part-way through a
+    run" caption.
 
     Args:
         app: The live application.
+        run: The sample run declared for this tool.
+        tool_id: The guide folder of the tool being captured.
+
+    Raises:
+        RuntimeError: If the tab has no listbox to show the lines in, or the
+            filled figure fails :func:`_check_sample_content`.
     """
-    lines = _sample_lines()
-    box = getattr(app, "file_listbox", None)
+    box = _find_widget(
+        app, "file_listbox", "_file_listbox", "log_list", "log_text", "tree"
+    )
+    if box is None:
+        raise RuntimeError(
+            "the Processing tab has no listbox, text or tree for the sample "
+            "run's per-file lines"
+        )
     if isinstance(box, tk.Listbox):
-        for line in lines[:SAMPLE_DONE]:
+        for line in run.lines:
             box.insert(tk.END, line)
         box.see(tk.END)
-    bar = getattr(app, "progress", None)
-    if isinstance(bar, ttk.Progressbar):
-        bar.configure(maximum=len(lines), value=SAMPLE_DONE)
-    status = getattr(app, "overall_status", None)
-    if isinstance(status, tk.StringVar):
-        status.set("Processing...")
-    stats = getattr(app, "stats_label", None)
-    if isinstance(stats, tk.Label):
-        stats.configure(
-            text=f"Processed: {SAMPLE_DONE}/{len(lines)}  |  Skipped: 1  |  Errors: 0"
-        )
+    elif isinstance(box, tk.Text):
+        for line in run.lines:
+            box.insert(tk.END, line + "\n")
+        box.see(tk.END)
+    # A Treeview keeps its rows untouched: ReplayGain Analyzer's tree receives a
+    # row only when a measurement lands, so its mid-run frame is the worker grid
+    # and the counters, which are still filled above.
+
+    total = len(SAMPLE_TRACKS)
+    bar = _progress_of(app, box)
+    if bar is not None:
+        bar.configure(maximum=total, value=SAMPLE_DONE)
+
+    _set_text(
+        _find_widget(app, "stats_label", "_stats_label"),
+        run.stats or f"Processed: {SAMPLE_DONE}/{total}  |  Skipped: 1  |  Errors: 0",
+    )
+    _set_text(
+        _find_widget(app, "overall_status", "status_txt", "_status_var"),
+        run.status,
+    )
+    for position, variable in enumerate(_slot_variables(app)):
+        label = run.slots[position] if position < len(run.slots) else "IDLE"
+        variable.set(label)
+
+    _check_sample_content(tool_id, run, _displayed_lines(box))
 
 
-def _populate_generic_results(app: Any) -> None:
-    """Show the sample run's finished summary on a shared Results tab.
+def _populate_run_results(app: Any, run: SampleRun) -> None:
+    """Show *run*'s finished summary on the tool's Results tab.
 
     Args:
         app: The live application.
+        run: The sample run declared for this tool.
     """
-    completion = getattr(app, "completion_label", None)
-    if isinstance(completion, tk.Label):
-        completion.configure(text=str(getattr(app, "completion_text", "Complete!")))
-    summary = getattr(app, "summary_label", None)
-    if isinstance(summary, tk.Label):
-        summary.configure(
-            text=f"Processed: {len(SAMPLE_TRACKS)}  |  Skipped: 1  |  Errors: 0"
-        )
-    time_label = getattr(app, "time_label", None)
-    if isinstance(time_label, tk.Label):
-        minutes, seconds = divmod(SAMPLE_SECONDS, 60)
-        time_label.configure(text=f"Total Time: {minutes:02d}:{seconds:02d}")
+    total = len(SAMPLE_TRACKS)
+    heading = run.completion or str(getattr(app, "completion_text", "Complete!"))
+    _set_text(_find_widget(app, "completion_label"), heading)
+    _set_text(
+        _find_widget(app, "summary_label"),
+        run.summary or f"Processed: {total}  |  Skipped: 1  |  Errors: 0",
+    )
+    minutes, seconds = divmod(run.seconds, 60)
+    _set_text(
+        _find_widget(app, "time_label"),
+        f"Total Time: {minutes:02d}:{seconds:02d}",
+    )
     button = getattr(app, "start_btn", None)
     if button is not None and hasattr(button, "configure"):
         button.configure(state="normal")
 
 
-#: The fillers the shared shell's tabs need: the sample folder on Setup, the
-#: sample run part-way through on Processing, its finished summary on Results.
-#: A tool whose own tab has no filler is captured in the state it opens in.
-GENERIC_POPULATE: Mapping[str, Callable[[Any], None]] = {
-    "setup": _populate_generic_setup,
-    "processing": _populate_generic_processing,
-    "results": _populate_generic_results,
+def _populate_asx_processing(app: Any) -> None:
+    """Show the ASX extractor part-way through its six-step run.
+
+    That tab animates six step labels instead of listing files, so the sample
+    run is driven through the tool's own ``_update_step`` callable: three steps
+    done and the fourth active with the file counter its run appends.
+
+    Args:
+        app: The live ASX Playlist Extractor application.
+
+    Raises:
+        RuntimeError: If the window does not publish its step updater, which
+            would leave the figure showing an untouched tab.
+    """
+    update_step = getattr(app, "_update_step", None)
+    if not callable(update_step):
+        raise RuntimeError("the Processing tab does not publish its step updater")
+    reset = getattr(update_step, "reset", None)
+    if callable(reset):
+        reset()
+    for index in range(3):
+        update_step(index, "done")
+    update_step(3, "active", "  - 6 of 9 files")
+
+
+#: Figures whose tab is not a list of per-file lines and so needs its own
+#: filler: the extractor animates six step labels instead.
+_PROCESSING_OVERRIDES: Mapping[str, Callable[[Any], None]] = {
+    "asx_extractor": _populate_asx_processing,
 }
+
+
+def _fillers(tool_id: str) -> Mapping[str, Callable[[Any], None]]:
+    """Return the figure fillers for one tool.
+
+    Args:
+        tool_id: The guide folder of the tool being captured.
+
+    Returns:
+        A filler for Setup, Processing and Results, each closing over that
+        tool's own declared run.
+
+    Raises:
+        KeyError: If the tool wants filled figures and declares no run, which
+            would otherwise put another tool's lines on its figure.
+    """
+    run = SAMPLE_RUNS.get(tool_id)
+    if run is None:
+        raise KeyError(
+            f"{tool_id} has no entry in SAMPLE_RUNS: declare the run its figures "
+            "should show, in the vocabulary its processor publishes"
+        )
+
+    def setup(app: Any) -> None:
+        """Fill the Setup tab with the sample folder."""
+        _populate_run_setup(app)
+
+    def processing(app: Any) -> None:
+        """Fill the Processing tab with this tool's run part-way through."""
+        _populate_run_processing(app, run, tool_id)
+
+    def results(app: Any) -> None:
+        """Fill the Results tab with this tool's finished summary."""
+        _populate_run_results(app, run)
+
+    return {
+        "setup": setup,
+        "processing": _PROCESSING_OVERRIDES.get(tool_id) or processing,
+        "results": results,
+    }
+
+
+def _plan_fillers(plan: ToolPlan) -> Mapping[str, Callable[[Any], None]]:
+    """Return the fillers for *plan*'s figures.
+
+    A plan that keeps :data:`GENERIC_POPULATE` takes its content from the run
+    declared for its own tool, so no tool can be captured showing another
+    tool's per-file lines.
+
+    Args:
+        plan: The tool plan being captured.
+
+    Returns:
+        One filler per figure name.
+    """
+    if plan.populate is GENERIC_POPULATE:
+        return _fillers(plan.tool_id)
+    return plan.populate
+
+
+#: Sentinel for "this plan's figures are filled from the run declared for its
+#: own tool".  A plan keeps this mapping, or passes ``{}`` for a window that
+#: starts no run; no plan can supply another tool's lines by accident.
+GENERIC_POPULATE: Mapping[str, Callable[[Any], None]] = {}
 
 #: Every GUI tool that has a guide, in guide-folder order.  ``window`` is
 #: ``None`` until a capture has measured what the tool paints; the run prints the
@@ -514,7 +1122,9 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
         "cd_ripper.app",
         "CDRipperApp",
         window=(900, 950),
-        populate=GENERIC_POPULATE,
+        # Ripping needs a disc in a drive, which a capture run cannot provide,
+        # so its tabs are photographed in the state they open in.
+        populate={},
     ),
     ToolPlan(
         "duplicate_finder",
@@ -567,7 +1177,8 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
         # The driver validates its source directory on change and clears the
         # field when the path does not exist, so its figure shows the window as
         # it opens - no music selected - rather than a folder that is not there.
-        populate=GENERIC_POPULATE,
+        # It starts no batch run of its own, so there is none to show.
+        populate={},
     ),
     ToolPlan(
         "metadata_scrubber",
@@ -625,9 +1236,10 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
         "spectral_viewer",
         "spectral_viewer.app",
         "SpectralViewerApp",
-        # A single-pane viewer: no notebook, so its one figure is the window.
+        # A single-pane viewer: no notebook, so its one figure is the window,
+        # and it starts no run to show on it.
         window=(1200, 800),
-        populate=GENERIC_POPULATE,
+        populate={},
     ),
     ToolPlan(
         "stem_separator",
@@ -662,9 +1274,10 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
         "audio_suite_shared.undo_gui",
         "UndoTagEditsApp",
         # 760x620 is the size the tool asks ``setup_window`` for; a single-pane
-        # window, so its one figure is the window itself.
+        # window, so its one figure is the window itself - and its content is
+        # the user's own run history, not a sample run.
         window=(760, 620),
-        populate=GENERIC_POPULATE,
+        populate={},
     ),
 )
 
@@ -1229,7 +1842,7 @@ def capture_tool(plan: ToolPlan, *, force_dpi: bool) -> list[str]:
             figure = _figure_name(title)
             if figure in plan.skip_tabs:
                 continue
-            filler = plan.populate.get(figure)
+            filler = _plan_fillers(plan).get(figure)
             try:
                 _select_tab(app, index)
                 if filler is not None:

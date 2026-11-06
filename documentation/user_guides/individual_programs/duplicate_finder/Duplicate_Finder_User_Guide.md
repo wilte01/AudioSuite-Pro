@@ -59,9 +59,9 @@ Fingerprinting is the slow part of a scan, so each file's fingerprint is stored 
 
 ## Processing and Results
 
-![The Results tab after a finished run](images/results.png)
-
 ![The Processing tab part-way through a run](images/processing.png)
+
+![The Results tab after a finished run](images/results.png)
 
 
 

@@ -84,9 +84,9 @@ The refinery stores successful completion records in _refinery_completed.log in 
 
 ## Processing and Results
 
-![The Results tab after a finished run](images/results.png)
-
 ![The Processing tab part-way through a run](images/processing.png)
+
+![The Results tab after a finished run](images/results.png)
 
 
 

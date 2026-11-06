@@ -74,9 +74,9 @@ The operation keeps audio content unchanged; it changes metadata containers and 
 
 ## Processing and Results
 
-![The Results tab after a finished run](images/results.png)
-
 ![The Processing tab part-way through a run](images/processing.png)
+
+![The Results tab after a finished run](images/results.png)
 
 
 

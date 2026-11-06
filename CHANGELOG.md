@@ -17,10 +17,12 @@ Versions of the tools are released together with the suite (the single
 ## [Unreleased]
 
 - **Every tool's guide shows the windows it describes.** All 28 tool guides now
-  carry figures captured from the running program: the Setup, Processing and
-  Results tabs, plus the extra tabs a tool adds — the Library Statistics
-  Summary, Charts, Missing Data and Completeness views, the CD Ripper's Rip tab,
-  and the single-pane Spectral Viewer, Master Driver and Undo Tag Edits windows.
+  carry figures captured from the running program: their Setup, Processing and
+  Results tabs, the CD Ripper's Rip tab, and the single-pane Spectral Viewer,
+  Master Driver and Undo Tag Edits windows. Each Processing figure shows that
+  tool's own run — its per-file status lines, worker slots and counters — so the
+  Metadata Scrubber guide shows a scrub run and the Genre Sync guide a genre
+  resolution, never another tool's output.
   A guide the Help button opens therefore shows the controls, the worker slots,
   the per-file status lines and the finished summary it describes, with a
   caption beneath each figure, and the same picture renders in the Word copy as

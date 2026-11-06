@@ -47,7 +47,7 @@ The strip also carries Auto Start and Auto End, which mirror the Master Driver's
 
 ![The Results tab after a finished run](images/results.png)
 
-When a scan finishes, the window switches to the Results tab. It shows the completion heading, the total scan time, the file/album/artist counters, a View Log button and an Open Folder button.
+When a scan finishes, the window switches to the Results tab. It shows the completion heading, the total scan time, the shared **Processed / Skipped / Errors** counters, a View Log button and an Open Folder button. The file, album and artist counts are on the Summary tab, described below.
 
 Every scan writes its report into the folder it scanned, as `library_stats_scan_log.txt`. The report opens with `LIBRARY STATISTICS REPORT`, the Mode, the scanned folder, the cache settings and a rule; then the format breakdown and missing-tag counts; and closes with a SUMMARY block holding the counters, the scan time and the elapsed time. Each scan overwrites the previous report. View Log opens it; the program's diagnostic log under `logs/` is a separate file and is not what the button opens.
 

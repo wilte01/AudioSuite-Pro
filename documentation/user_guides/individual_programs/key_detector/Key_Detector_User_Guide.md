@@ -61,9 +61,9 @@ Major keys are displayed without a suffix, while minor keys end in m. Common fla
 
 ## Processing and Results
 
-![The Results tab after a finished run](images/results.png)
-
 ![The Processing tab part-way through a run](images/processing.png)
+
+![The Results tab after a finished run](images/results.png)
 
 
 

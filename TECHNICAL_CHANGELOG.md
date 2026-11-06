@@ -20,8 +20,12 @@ one.
   a re-captured screenshot that was not re-rendered is reported instead of
   surfacing as unexplained container drift. `utilities/capture_guide_shots.py`
   is the only writer of those PNGs: it builds the real tool window, fills it
-  through the tool's own `_update_progress_ui`/`_update_ui_on_complete` with one
-  fixed sample run, answers the shared config in memory (palette, theme,
+  through the tool's own `_update_progress_ui`/`_update_ui_on_complete` with the
+  sample run declared for that tool (`SAMPLE_RUNS`: the per-file status
+  vocabulary, worker-slot text and counters its own processor publishes, so no
+  Processing figure shows another tool's run, and a tool that declares no run
+  fails the capture rather than inheriting one), answers the shared config in
+  memory (palette, theme,
   typography, geometry, last directory), neutralises `sys.argv` and the What's
   New panel, and photographs the **decorated** window the tool really shows, at a
   size pinned per tool. The origin is calibrated rather than computed: a
