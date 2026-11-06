@@ -12,6 +12,10 @@ one.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.4.3] - 2026-11-06
+
 - **The per-file change notes have a recorded ceiling (WP-10 C-I2).** Every
   changed code file carries a `Changed in <version>:` note, and with the cleanup
   deferred that prose grew one line per change with nothing measuring it.

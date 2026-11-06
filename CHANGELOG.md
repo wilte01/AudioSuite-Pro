@@ -16,6 +16,10 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.4.3] - 2026-11-06
+
 - **Library Statistics Dashboard works in one window of seven tabs.** Setup
   holds the folder, the scan mode and the actions; Processing shows a scan's
   progress and status; Results appears when a scan finishes with the counters,
