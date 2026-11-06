@@ -995,7 +995,7 @@ reviewer asked (`PLAN_functional_backlog.md` D17).
 Every guide figure is a grab of the running tool taken by
 `utilities/capture_guide_shots.py`, committed beside the guide with a sidecar and
 embedded by `![caption](images/<name>.png)`; no figure is hand-drawn or edited.
-Three rules matter beyond the obvious:
+Five rules matter beyond the obvious:
 
 - **The capture must be DPI-aware before `tk.Tk()` exists.** A DPI-unaware
   process makes Tk report *logical* pixels while `ImageGrab` copies *physical*
@@ -1020,11 +1020,35 @@ Three rules matter beyond the obvious:
   came from a 125% host, requested at `dpi / 96` and downscaled). Rendering
   stays reproducible, which is why `--check` still catches an edited guide
   without re-capturing anything.
+- **Every figure shows its own tool's run, from a declared sample run.** The
+  filler once pushed BPM Analyzer's nine-track lines into every Processing
+  figure, so Genre Sync's picture carried `[DRY RUN] ... 128 BPM` and worker
+  counters that tool never writes. Each tool now declares its run in
+  `SAMPLE_RUNS` — status line, per-file lines, counters — and a plan that
+  declares none starts no run rather than inheriting one. A pane with no
+  per-file list gets an honest equivalent instead (ASX Playlist Extractor
+  animates its six steps; ReplayGain Analyzer's tree stays empty mid-run) or its
+  opening state. A new tool must declare its own lines: `DECLARED_LINES` and
+  `TOKEN_OWNERS` are derived from those declarations, so an undeclared tool
+  fails the lock instead of passing quietly.
+- **The capture reads the filled tab back and refuses a figure that is not that
+  tool's run.** The failure this catches is silent: the window is real, the grab
+  succeeds, and the guide ships an idle tab under a "part-way through a run"
+  caption. After filling, `_check_sample_content` requires a non-empty display,
+  rejects a line another tool declares, rejects a status token only another
+  tool publishes (`[FINGERPRINT]` is Duplicate Finder's), and requires the
+  display to end with the declared run.
+  `utilities/tests/test_capture_guide_shots.py` holds that for every tool that
+  declares a run, so a registry that loses one tool's lines fails rather than
+  quietly shrinking the check.
 
 Evidence: the 2.5.0 guide-figure work (`TECHNICAL_CHANGELOG.md`, commit
 `e798436`), where a green gate, a passing renderer check and a 78-figure capture
 run all coexisted with two dozen figures that had quietly lost their bottom
-fifth.
+fifth.  The same release also shipped figures whose status lines belonged to
+another tool — a Genre Sync picture showing BPM Analyzer's run — which no gate
+could see until a reviewer read the caption against the picture; the per-tool
+sample runs and the read-back lock above are that fix (commit `17d4b92`).
 
 ## User-Guide Regeneration Diffs
 
