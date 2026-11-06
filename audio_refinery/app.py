@@ -308,6 +308,12 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             "true_peak": p.normalise_params.true_peak,
             "lra": p.normalise_params.lra,
             "normalise_mode": p.normalise_params.mode,
+            # Changed in 2.5.0: the exact trim range rides a preset too (F-E3).
+            "trim_mode": p.trim_params.mode,
+            "trim_start": p.trim_params.start_ms,
+            "trim_end": p.trim_params.end_ms,
+            "trim_duration": p.trim_params.duration_ms,
+            "trim_copy": p.trim_params.copy_mode,
             # Changed in 2.5.0: album mode is persisted with the rest of the
             # normalise delivery set (F-E1).
             "album_mode": p.normalise_params.album_mode,
@@ -334,6 +340,12 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         "apply_fade": "apply_fade",
         "fade_in_ms": "fade_in_ms",
         "fade_out_ms": "fade_out_ms",
+        # Changed in 2.5.0: an exact range is part of the trim stage (F-E3).
+        "trim_mode": "mode",
+        "trim_start": "start_ms",
+        "trim_end": "end_ms",
+        "trim_duration": "duration_ms",
+        "trim_copy": "copy_mode",
     }
     _ENHANCE_PRESET_KEYS = {
         "preset": "preset",
@@ -387,6 +399,7 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             p.normalise_params, settings, self._NORMALISE_PRESET_KEYS
         )
         self._sync_preset_editor(p)
+        self._sync_trim_panel()
 
     def _sync_preset_editor(self, p: Any) -> None:
         """Keep the Custom DSP editor in step with the loaded preset."""
@@ -702,6 +715,25 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
 
     # ── CLI integration ───────────────────────────────────────────────────────
 
+    def _sync_trim_panel(self) -> None:
+        """Show the applied trim settings on the Setup panel.
+
+        The panel is built before the CLI arguments are applied (and before a
+        preset is loaded), so without this a driver launch that names a range
+        would display the stored mode and empty entries beside a run that cuts
+        one.  Setting the widget variables routes through the same traces a
+        user edit uses, so the panel and the run cannot disagree.
+        """
+        widgets = (getattr(self, "_setup_state", None) or {}).get("trim_widgets")
+        if not widgets:
+            return
+        p = self.config.trim_params
+        widgets["mode"].set(p.mode)
+        widgets["start"].set("" if p.start_ms is None else str(p.start_ms))
+        widgets["end"].set("" if p.end_ms is None else str(p.end_ms))
+        widgets["duration"].set("" if p.duration_ms is None else str(p.duration_ms))
+        widgets["copy"].set(bool(p.copy_mode))
+
     def _apply_cli_args(self) -> None:
         args = parse_cli()
 
@@ -742,6 +774,14 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         self.config.trim_params.apply_fade = args.fade
         self.config.trim_params.fade_in_ms = args.fade_in
         self.config.trim_params.fade_out_ms = args.fade_out
+        # Changed in 2.5.0: the exact trim range and copy mode reach the run,
+        # and the panel is re-synced so a driver launch shows them (F-E3).
+        self.config.trim_params.mode = args.trim_mode
+        self.config.trim_params.start_ms = args.trim_start
+        self.config.trim_params.end_ms = args.trim_end
+        self.config.trim_params.duration_ms = args.trim_duration
+        self.config.trim_params.copy_mode = args.trim_copy
+        self._sync_trim_panel()
         self.config.noise_reduction_params.reduce_hum = args.reduce_hum
         self.config.noise_reduction_params.hum_frequency = args.hum_frequency
         self.config.noise_reduction_params.hum_harmonics = args.hum_harmonics

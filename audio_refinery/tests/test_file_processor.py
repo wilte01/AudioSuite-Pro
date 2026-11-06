@@ -2,6 +2,9 @@
 
 Changed in 2.5.0: new file (PLAN_2026-11-03_2.5.0_feature_wave_1.md F-E1).
 
+Changed in 2.5.0: an exact copy-mode trim that shares a run with a decoding
+stage is refused once, before dispatch (F-E3).
+
 The per-file workers are the wrong place to measure an album: N workers each
 measuring the folder is N concatenated decodes and N different answers.  These
 locks therefore count the builder's calls and check that every worker received
@@ -23,6 +26,7 @@ from audio_refinery.core.models import (
     FileStatus,
     NormaliseParams,
     StageConfig,
+    TrimParams,
 )
 from audio_refinery.core.registry import CompletionRegistry
 from audio_suite_shared.exceptions import AudioProcessingError
@@ -143,6 +147,31 @@ def test_without_album_mode_no_plan_is_built(tmp_path: Path) -> None:
 
     build_mock.assert_not_called()
     assert captured["plans"] == [None, None, None]
+
+
+def _copy_config() -> StageConfig:
+    config = StageConfig(declick=False, trim=True, enhance=False, normalise=False)
+    config.trim_params = TrimParams(mode="exact", end_ms=500, copy_mode=True)
+    return config
+
+
+def test_copy_mode_alone_dispatches_every_file(tmp_path: Path) -> None:
+    captured, _ = _run(tmp_path, _copy_config())
+
+    assert captured["errors"] == []
+    assert captured["plans"] == [None, None, None]
+
+
+def test_copy_mode_beside_a_decoding_stage_stops_the_run(tmp_path: Path) -> None:
+    config = _copy_config()
+    config.declick = True
+
+    captured, _ = _run(tmp_path, config)
+
+    assert captured["errors"], "the run must refuse copy mode, not process files"
+    assert "Declick" in captured["errors"][0]
+    assert captured["plans"] == []
+    assert captured["completes"] == []
 
 
 def test_a_plan_failure_stops_the_run_before_a_file_is_processed(

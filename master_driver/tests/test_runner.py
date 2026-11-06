@@ -1168,6 +1168,31 @@ class TestBuildRefineryArgs:
         _, _, args = build_refinery_args(state, config)[0]
         assert "--fade" not in args
 
+    # Changed in 2.5.0: the exact trim flags are emitted only in exact mode, so a
+    # silence-trim run's argument list is unchanged (F-E3).
+    def test_exact_trim_flags_in_args(self):
+        """An exact range reaches the child, which is what makes the panel's
+        exact mode a run and not just a stored field (F-E3)."""
+        state = _make_state()
+        config = _make_refinery_config()
+        config.trim_params.mode = "exact"
+        config.trim_params.start_ms = 250
+        config.trim_params.end_ms = 750
+        config.trim_params.copy_mode = True
+        _, _, args = build_refinery_args(state, config)[0]
+        assert args[args.index("--trim-mode") + 1] == "exact"
+        assert args[args.index("--trim-start") + 1] == "250"
+        assert args[args.index("--trim-end") + 1] == "750"
+        assert "--trim-copy" in args
+
+    def test_silence_mode_emits_no_exact_trim_flags(self):
+        """A silence-trim run's argument list is unchanged by F-E3."""
+        state = _make_state()
+        _, _, args = build_refinery_args(state, _make_refinery_config())[0]
+        assert "--trim-mode" not in args
+        assert "--trim-start" not in args
+        assert "--trim-copy" not in args
+
     def test_auto_start_flag_when_refinery_auto_start_true(self):
         state = _make_state()
         state.refinery_auto_start = _bool_var(True)

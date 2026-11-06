@@ -325,6 +325,11 @@ audiosuite refine <directory> [--stages LIST] [OPTIONS]
 - `--fade` / `--no-fade` — Apply fade in/out during the trim stage (default: no-fade)
 - `--fade-in MS` — Fade-in length (default: 500)
 - `--fade-out MS` — Fade-out length (default: 1000)
+- `--trim-mode [silence|exact]` — `silence` trims detected leading/trailing silence; `exact` keeps a millisecond range (default: silence)
+- `--trim-start MS` — Exact trim start in ms; an unset start means the file's beginning
+- `--trim-end MS` — Exact trim end in ms; use with `--trim-mode exact`, and not together with `--trim-duration`
+- `--trim-duration MS` — Exact trim length in ms, used instead of `--trim-end`
+- `--trim-copy` / `--no-trim-copy` — Cut the exact range with a stream copy instead of a re-encode: frame-accurate, no re-encode, and it cannot run beside the declick, reduce-noise, enhance or normalise stages (default: no-trim-copy)
 - `--reduce-hum` — Enable hum removal via notch filtering
 - `--hum-frequency [50|60]` — Mains frequency in Hz (default: 60)
 - `--hum-harmonics N` — Harmonics to filter, 1–20 (default: 8)
@@ -353,6 +358,8 @@ audiosuite refine <directory> [--stages LIST] [OPTIONS]
 audiosuite refine "D:\Music" --stages declick,trim,reduce_noise,enhance,normalise
 audiosuite refine "D:\Music" --stages reduce_noise --reduce-hum --hum-frequency 50 --dry
 audiosuite refine "D:\Music" --stages trim,normalise --fade --fade-in 250
+audiosuite refine "D:\Music" --stages trim --trim-mode exact --trim-start 12000 --trim-end 30000
+audiosuite refine "D:\Music" --stages trim --trim-mode exact --trim-end 45000 --trim-copy
 ```
 
 ## UTIL commands

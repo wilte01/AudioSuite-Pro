@@ -26,6 +26,12 @@ instead of measuring the file it is writing; ``_run_normalise_stage``,
 ``album``/``album_key`` pair.  A zero planned gain writes nothing, which keeps
 the no-op rule intact.
 
+Changed in 2.5.0: exact time-range trim (F-E3).  The Trim stage keeps the
+configured millisecond span instead of detected silence when
+``TrimParams.mode`` is ``"exact"``, and ``copy_mode`` cuts the source's frames
+with one stream copy (no decode, no other stage) and reports the length
+``ffprobe`` measures in the result rather than the length that was asked for.
+
 All stages operate on in-memory audio; a run that changed something writes
 the file once, at the end of the in-memory chain.  The normaliser needs a
 file, so a mixed run writes the processed audio to a temp file and then
@@ -80,6 +86,7 @@ from audio_suite_shared.dsp_chain import (
 )
 from audio_suite_shared.error_recovery import RetryConfig, retry_with_backoff
 from audio_suite_shared.exceptions import (
+    AudioConfigurationError,
     AudioProcessingError,
     map_to_audio_error,
     user_message_for,
@@ -88,7 +95,23 @@ from audio_suite_shared.lossless_gain import apply_track_gain, is_mp3_file
 from audio_suite_shared.tag_helper import read_tags_raw, write_tags_raw
 
 from .integrity import IntegrityResult, validate_file
-from .models import FileResult, FileStatus, StageConfig, StageMetrics
+from .models import (
+    EXACT_TRIM_MODE,
+    FileResult,
+    FileStatus,
+    StageConfig,
+    StageMetrics,
+)
+from .trim import (
+    check_copy_extension,
+    check_copy_mode,
+    copy_trim,
+    exact_preview_message,
+    exact_trim_message,
+    probe_duration_ms,
+    resolve_range,
+    slice_segment,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from audio_normalizer.core.album import AlbumPlan
@@ -179,6 +202,69 @@ def _no_op_reason(config: StageConfig) -> str:
     return "No changes needed - file left untouched"
 
 
+def _run_exact_copy_trim(
+    source_path: Path,
+    output_path: Path,
+    config: StageConfig,
+    result: FileResult,
+    emit: Callable[..., Any],
+    temp_path: Callable[[], Path],
+) -> FileResult:
+    """Cut the exact range with one stream copy and finish the file.
+
+    A stream copy never decodes the audio, so it cannot feed the in-memory
+    chain: this is the stage's whole write path for ``copy_mode``, and
+    :func:`audio_refinery.core.trim.check_copy_mode` has already refused every
+    stage that would need decoded samples.
+
+    Args:
+        source_path: File to read.
+        output_path: Final destination (may equal the source for in-place).
+        config: The run's stage configuration.
+        result: The file result this path records into.
+        emit: Progress callback.
+        temp_path: Returns the staging file, beside ``output_path``.
+
+    Returns:
+        ``result``, DONE when the copy was written and DONE-without-writing for
+        a Dry Run.
+    """
+    tp = config.trim_params
+    check_copy_extension(source_path)
+    source_ms = probe_duration_ms(source_path)
+    exact_range = resolve_range(tp, int(round(source_ms)))
+
+    if config.dry_run:
+        message = exact_preview_message(exact_range)
+        result.add_stage("Trim", FileStatus.DONE, message)
+        result.add_stage("DryRun", FileStatus.DONE, "Nothing written")
+        result.status = FileStatus.DONE
+        result.was_modified = False
+        emit("Trim", message)
+        emit("DryRun", "Dry run complete — nothing written")
+        return result
+
+    emit("Trim", "Copying the exact range without re-encoding…")
+    measured = copy_trim(source_path, temp_path(), exact_range)
+    message = exact_trim_message(exact_range, measured, copy_mode=True)
+    result.add_stage(
+        "Trim",
+        FileStatus.DONE,
+        message,
+        metrics=StageMetrics(
+            stage="Trim",
+            before_values={"duration_ms": source_ms},
+            after_values={"duration_ms": measured},
+        ),
+    )
+    record_tag_edit_snapshot(str(output_path), "refinery_edit")
+    os.replace(str(temp_path()), str(output_path))
+    emit("Done", "Complete ✓")
+    result.status = FileStatus.DONE
+    result.was_modified = True
+    return result
+
+
 def process_file(
     source_path: Path,
     output_path: Path,  # final destination (may equal source for in-place)
@@ -248,6 +334,10 @@ def process_file(
         return tmp_path
 
     try:
+        # Copy mode is a whole-file decision: refuse it before any file work
+        # when a stage in this run would have to decode the audio.
+        check_copy_mode(config)
+
         # ── 0. Integrity pre-flight check ──────────────────────────────────────
         integrity = _check_integrity(source_path, _emit)
         if not integrity.is_valid:
@@ -256,6 +346,16 @@ def process_file(
                 f"File integrity check failed: {'; '.join(integrity.failures)}"
             )
             return result
+
+        # ── Exact copy trim: one stream copy, no decode ───────────────────────
+        # Re-encode keeps the range inside the in-memory chain below; a stream
+        # copy cannot, so it is its own write path and check_copy_mode has
+        # already refused every stage that would need decoded samples.
+        tp = config.trim_params
+        if config.trim and tp.mode == EXACT_TRIM_MODE and tp.copy_mode:
+            return _run_exact_copy_trim(
+                source_path, output_path, config, result, _emit, _temp_path
+            )
 
         # ── 1. Read tags and decode audio ─────────────────────────────────────
         original_tags, audio = _load_source(source_path, _emit)
@@ -362,6 +462,16 @@ def process_file(
         os.replace(str(staged), str(output_path))
         result.status = FileStatus.DONE
         result.was_modified = True
+
+    except AudioConfigurationError as exc:
+        # A configuration refusal is the user's to fix and already states why;
+        # mapping it to a generic audio error would hide the reason.
+        logger.error(
+            "pipeline refused %s: %s", source_path.name, exc.message, exc_info=True
+        )
+        result.status = FileStatus.ERROR
+        result.error = exc.message
+        _emit("Error", exc.message)
 
     except Exception as exc:
         mapped = map_to_audio_error(exc, context={"file": source_path.name})
@@ -476,6 +586,37 @@ def _run_declick_stage(
         ) from exc
 
 
+def _run_exact_trim_stage(
+    audio: AudioSegment,
+    config: StageConfig,
+    emit: Callable[..., Any],
+) -> tuple[AudioSegment, str, bool]:
+    """Keep the configured millisecond range instead of detecting silence.
+
+    The range is validated against the decoded length, so a range that runs past
+    the end is refused before anything is written.  A Dry Run reports the range
+    it would keep and leaves the audio alone.
+
+    Returns:
+        ``(audio, stage_message, modified)`` - ``modified`` is false for a Dry
+        Run, which writes nothing.
+
+    Raises:
+        AudioConfigurationError: The configured range is invalid or runs past
+            the end of the audio.
+    """
+    exact_range = resolve_range(config.trim_params, len(audio))
+    if config.dry_run:
+        message = exact_preview_message(exact_range)
+        emit("Trim", message)
+        return audio, message, False
+
+    trimmed = slice_segment(audio, exact_range)
+    message = exact_trim_message(exact_range, len(trimmed), copy_mode=False)
+    emit("Trim", message)
+    return trimmed, message, True
+
+
 def _run_trim_stage(
     audio: AudioSegment,
     config: StageConfig,
@@ -493,6 +634,9 @@ def _run_trim_stage(
     """
     emit("Trim", "Detecting silence…")
     try:
+        if config.trim_params.mode == EXACT_TRIM_MODE:
+            return _run_exact_trim_stage(audio, config, emit)
+
         from silence_trimmer.core.trimmer import trim_and_fade
 
         tp = config.trim_params

@@ -239,7 +239,9 @@ def build(
     stage_vars: dict[str, Any] = {}
 
     _build_declick_panel(stages_frame, config, embedded, stage_vars)
-    _build_trim_panel(stages_frame, config, embedded, stage_vars)
+    _state["trim_widgets"] = _build_trim_panel(
+        stages_frame, config, embedded, stage_vars
+    )
     _build_noise_reduction_panel(stages_frame, config, embedded, stage_vars)
     _build_enhance_panel(stages_frame, config, _state, stage_vars)
     _build_normalise_panel(stages_frame, config, _state, embedded, stage_vars)
@@ -399,12 +401,28 @@ def _build_declick_panel(
     )
 
 
+def _optional_int(text: str) -> int | None:
+    """Parse a millisecond entry; an empty or partial field reads as unset."""
+    stripped = text.strip()
+    if not stripped:
+        return None
+    try:
+        return int(stripped)
+    except ValueError:
+        return None
+
+
 def _build_trim_panel(
     parent: tk.Frame,
     config: StageConfig,
     embedded: bool = False,
     stage_vars: dict[str, Any] | None = None,
-) -> None:
+) -> dict[str, Any]:
+    """Build the Trim panel, returning the variables a caller can re-sync.
+
+    The panel offers the stage's two modes: trimming detected silence (the
+    behaviour it always had) or keeping an exact millisecond range (F-E3).
+    """
     p = config.trim_params
     run_mode: tk.StringVar | None = tk.StringVar(value="Live Update")
 
@@ -427,22 +445,136 @@ def _build_trim_panel(
     for _var in (threshold_var, fade_var, fade_in_var, fade_out_var):
         _var.trace_add("write", _write_back)
 
-    _stage_panel(
-        parent,
-        "Silence Trimmer / Fader",
-        config,
-        "trim",
-        [],
-        lambda body: trim_ui.build_config_panel(
+    # Changed in 2.5.0: exact time-range trim (F-E3).  The mode and range fields
+    # write back to the same stage params the run reads, and a driver launch
+    # re-syncs these variables through this same trace (`_sync_trim_panel`).
+    mode_var = tk.StringVar(value=p.mode)
+    start_var = tk.StringVar(value="" if p.start_ms is None else str(p.start_ms))
+    end_var = tk.StringVar(value="" if p.end_ms is None else str(p.end_ms))
+    duration_var = tk.StringVar(
+        value="" if p.duration_ms is None else str(p.duration_ms)
+    )
+    copy_var = tk.BooleanVar(value=p.copy_mode)
+
+    def _write_range(*_trace: Any) -> None:
+        p.mode = mode_var.get()
+        p.start_ms = _optional_int(start_var.get())
+        p.end_ms = _optional_int(end_var.get())
+        p.duration_ms = _optional_int(duration_var.get())
+        p.copy_mode = bool(copy_var.get())
+
+    range_vars: tuple[tk.Variable, ...] = (
+        mode_var,
+        start_var,
+        end_var,
+        duration_var,
+        copy_var,
+    )
+    for _range_var in range_vars:
+        _range_var.trace_add("write", _write_range)
+
+    def _extra(body: tk.Frame) -> None:
+        # The shared silence controls first, then the Refinery's own exact-range
+        # fields, so one panel holds one stage's whole surface.
+        trim_ui.build_config_panel(
             body,
             run_mode,
             threshold_var,
             fade_var,
             fade_in_var,
             fade_out_var,
-        ),
+        )
+        tk.Label(
+            body,
+            text="Trim by:",
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            anchor="w",
+        ).pack(anchor="w", pady=(4, 0))
+        mode_row = tk.Frame(body, bg=styles.BG_WHITE)
+        mode_row.pack(fill="x")
+        for value, label in (("silence", "Silence"), ("exact", "Exact range")):
+            tk.Radiobutton(
+                mode_row,
+                text=label,
+                variable=mode_var,
+                value=value,
+                font=styles.FONT_CAPTION,
+                bg=styles.BG_WHITE,
+                fg=styles.FG_MAIN,
+                activebackground=styles.BG_WHITE,
+                activeforeground=styles.FG_MAIN,
+                selectcolor=styles.BG_WHITE,
+                anchor="w",
+            ).pack(side=tk.LEFT, padx=5)
+
+        for label, var in (
+            ("Start (ms):", start_var),
+            ("End (ms):", end_var),
+            ("Duration (ms):", duration_var),
+        ):
+            row = tk.Frame(body, bg=styles.BG_WHITE)
+            row.pack(fill="x", pady=2)
+            tk.Label(
+                row,
+                text=label,
+                font=styles.FONT_CAPTION,
+                bg=styles.BG_WHITE,
+                fg=styles.FG_MAIN,
+                width=14,
+                anchor="w",
+            ).pack(side=tk.LEFT, padx=5)
+            ttk.Entry(row, textvariable=var, width=12, font=styles.FONT_CAPTION).pack(
+                side=tk.LEFT
+            )
+
+        copy_row = tk.Frame(body, bg=styles.BG_WHITE)
+        copy_row.pack(fill="x", pady=(4, 0))
+        tk.Checkbutton(
+            copy_row,
+            text="Stream copy (frame-accurate, no re-encode)",
+            variable=copy_var,
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
+            selectcolor=styles.BG_WHITE,
+            anchor="w",
+        ).pack(side=tk.LEFT, padx=5)
+        tk.Label(
+            body,
+            text=(
+                "Exact keeps the range you enter: start plus end, or start plus "
+                "duration. A stream copy keeps the source's own frames, so the "
+                "cut lands on a frame boundary and it cannot run beside the "
+                "other stages."
+            ),
+            font=styles.FONT_CAPTION,
+            fg=styles.FG_SUB,
+            bg=styles.BG_WHITE,
+            wraplength=520,
+            justify="left",
+        ).pack(anchor="w", padx=5)
+
+    _stage_panel(
+        parent,
+        "Silence Trimmer / Fader",
+        config,
+        "trim",
+        [],
+        _extra,
         stage_vars=stage_vars,
     )
+
+    return {
+        "mode": mode_var,
+        "start": start_var,
+        "end": end_var,
+        "duration": duration_var,
+        "copy": copy_var,
+    }
 
 
 def _build_noise_reduction_panel(

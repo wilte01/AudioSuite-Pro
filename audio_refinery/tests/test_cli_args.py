@@ -2,9 +2,14 @@
 
 Changed in 2.5.0: album mode is a flag on this surface too, and defaults off
 (F-E1).
+
+Changed in 2.5.0: an exact trim range is configured here too, and a range flag
+without ``--trim-mode exact`` is refused rather than ignored (F-E3).
 """
 
 from __future__ import annotations
+
+import pytest
 
 from audio_refinery.utils.cli_args import RefineryArgs, parse
 
@@ -144,6 +149,86 @@ class TestParse:
         assert args.dry_run is True
         assert args.clear_logs is True
         assert args.parallel_run is True
+
+
+class TestExactTrimArgs:
+    """The five exact-trim options, and the combinations that are refused."""
+
+    def test_defaults_are_silence_trimming(self) -> None:
+        args = parse(["prog"])
+        assert args.trim_mode == "silence"
+        assert args.trim_start is None
+        assert args.trim_end is None
+        assert args.trim_duration is None
+        assert args.trim_copy is False
+        assert RefineryArgs().trim_mode == "silence"
+
+    def test_an_exact_range_parses(self) -> None:
+        args = parse(
+            [
+                "prog",
+                "--trim-mode",
+                "exact",
+                "--trim-start",
+                "250",
+                "--trim-end",
+                "750",
+                "--trim-copy",
+            ]
+        )
+        assert args.trim_mode == "exact"
+        assert args.trim_start == 250
+        assert args.trim_end == 750
+        assert args.trim_copy is True
+
+    def test_a_duration_replaces_the_end(self) -> None:
+        args = parse(["prog", "--trim-mode", "exact", "--trim-duration", "750"])
+        assert args.trim_duration == 750
+        assert args.trim_end is None
+
+    def test_a_range_flag_without_the_mode_is_refused(self) -> None:
+        with pytest.raises(SystemExit):
+            parse(["prog", "--trim-start", "250"])
+
+    def test_copy_without_the_mode_is_refused(self) -> None:
+        with pytest.raises(SystemExit):
+            parse(["prog", "--trim-copy"])
+
+    def test_exact_without_a_range_is_refused(self) -> None:
+        with pytest.raises(SystemExit):
+            parse(["prog", "--trim-mode", "exact"])
+
+    def test_an_end_and_a_duration_together_are_refused(self) -> None:
+        with pytest.raises(SystemExit):
+            parse(
+                [
+                    "prog",
+                    "--trim-mode",
+                    "exact",
+                    "--trim-end",
+                    "750",
+                    "--trim-duration",
+                    "500",
+                ]
+            )
+
+    def test_a_negative_start_is_refused(self) -> None:
+        with pytest.raises(SystemExit):
+            parse(["prog", "--trim-mode", "exact", "--trim-start", "-5"])
+
+    def test_no_trim_copy_turns_the_flag_off(self) -> None:
+        args = parse(
+            [
+                "prog",
+                "--trim-mode",
+                "exact",
+                "--trim-end",
+                "750",
+                "--trim-copy",
+                "--no-trim-copy",
+            ]
+        )
+        assert args.trim_copy is False
 
 
 class TestAlbumMode:

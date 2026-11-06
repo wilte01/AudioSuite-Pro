@@ -12,7 +12,12 @@
     "threshold": -50,
     "apply_fade": false,
     "fade_in_ms": 500,
-    "fade_out_ms": 1000
+    "fade_out_ms": 1000,
+    "mode": "silence",
+    "start_ms": null,
+    "end_ms": null,
+    "duration_ms": null,
+    "copy_mode": false
   },
   "noise_reduction_params": {
     "reduce_hum": false,

@@ -12,6 +12,10 @@ CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 
 Changed in 2.5.0: ``--album-mode`` (F-E1) switches the normalise stage from a
 per-file measurement to one gain measured across the whole folder.
+
+Changed in 2.5.0: ``--trim-mode exact`` with ``--trim-start``/``--trim-end`` (or
+``--trim-duration``) keeps a millisecond range instead of detected silence, and
+``--trim-copy`` cuts it with a stream copy instead of a re-encode (F-E3).
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ from pathlib import Path
 
 import click
 
-from audio_refinery.core.models import NORMALISATION_MODES
+from audio_refinery.core.models import NORMALISATION_MODES, TRIM_MODES
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_base import (
     _opt_dir,
@@ -40,6 +44,57 @@ def _validate_lufs(ctx: click.Context, param: click.Parameter, value: float) -> 
     if errors:
         raise click.BadParameter(errors[0])
     return value
+
+
+def _validate_trim_range(
+    mode: str,
+    start: int | None,
+    end: int | None,
+    duration: int | None,
+    copy_mode: bool,
+) -> None:
+    """Refuse an exact-trim combination that cannot mean one thing.
+
+    A range without the mode would otherwise be silently ignored by the silence
+    stage, and both an end and a duration would make the cut depend on argument
+    order.
+
+    Raises:
+        click.BadParameter: A range option was given without
+            ``--trim-mode exact``, or the mode is missing its range.
+    """
+    if mode != "exact":
+        given = [
+            name
+            for name, value in (
+                ("--trim-start", start),
+                ("--trim-end", end),
+                ("--trim-duration", duration),
+                ("--trim-copy", copy_mode or None),
+            )
+            if value is not None
+        ]
+        if given:
+            raise click.BadParameter(
+                f"{', '.join(given)} needs --trim-mode exact.",
+                param_hint="--trim-mode",
+            )
+        return
+
+    if start is not None and start < 0:
+        raise click.BadParameter(
+            "--trim-start must be zero or later.", param_hint="--trim-start"
+        )
+    if end is not None and duration is not None:
+        raise click.BadParameter(
+            "Use either --trim-end or --trim-duration, not both.",
+            param_hint="--trim-duration",
+        )
+    if end is None and duration is None:
+        raise click.BadParameter(
+            "--trim-mode exact needs --trim-end or --trim-duration.",
+            param_hint="--trim-mode",
+        )
 
 
 @cli.command()
@@ -75,6 +130,36 @@ def _validate_lufs(ctx: click.Context, param: click.Parameter, value: float) -> 
 @click.option("--fade/--no-fade", default=False, help="Apply fade in/out during trim.")
 @click.option("--fade-in", default=500, type=int, help="Fade-in ms (default 500).")
 @click.option("--fade-out", default=1000, type=int, help="Fade-out ms (default 1000).")
+@click.option(
+    "--trim-mode",
+    type=click.Choice(TRIM_MODES),
+    default="silence",
+    help=(
+        "silence trims detected leading/trailing silence; exact keeps a "
+        "millisecond range (default silence)."
+    ),
+)
+@click.option(
+    "--trim-start",
+    type=int,
+    default=None,
+    help="Exact trim start in ms (default 0).",
+)
+@click.option("--trim-end", type=int, default=None, help="Exact trim end in ms.")
+@click.option(
+    "--trim-duration",
+    type=int,
+    default=None,
+    help="Exact trim length in ms; use instead of --trim-end.",
+)
+@click.option(
+    "--trim-copy/--no-trim-copy",
+    default=False,
+    help=(
+        "Cut the exact range with a stream copy instead of a re-encode "
+        "(frame-accurate, and it cannot run beside another stage)."
+    ),
+)
 @click.option(
     "--reduce-hum",
     is_flag=True,
@@ -187,6 +272,11 @@ def refine(
     fade: bool,
     fade_in: int,
     fade_out: int,
+    trim_mode: str,
+    trim_start: int | None,
+    trim_end: int | None,
+    trim_duration: int | None,
+    trim_copy: bool,
     reduce_hum: bool,
     hum_frequency: int,
     hum_harmonics: int,
@@ -210,6 +300,8 @@ def refine(
     normalise_mode: str,
 ) -> None:
     """Run the multi-stage audio refinement pipeline."""
+    _validate_trim_range(trim_mode, trim_start, trim_end, trim_duration, trim_copy)
+
     from audio_refinery.core.file_processor import run_pipeline
     from audio_refinery.core.models import (
         DeclickParams,
@@ -237,6 +329,11 @@ def refine(
             apply_fade=fade,
             fade_in_ms=fade_in,
             fade_out_ms=fade_out,
+            mode=trim_mode,
+            start_ms=trim_start,
+            end_ms=trim_end,
+            duration_ms=trim_duration,
+            copy_mode=trim_copy,
         ),
         enhance_params=EnhanceParams(
             preset=preset,
@@ -268,6 +365,16 @@ def refine(
     )
 
     registry = CompletionRegistry(source_dir)
+    from audio_refinery.core.trim import check_copy_mode
+    from audio_suite_shared.exceptions import AudioConfigurationError
+
+    try:
+        check_copy_mode(config)
+    except AudioConfigurationError as exc:
+        # The run would refuse every file for the same reason; say it once,
+        # before any file is opened.
+        raise click.UsageError(exc.message) from exc
+
     with active_batch("audio_refinery", "tag_edit"):
         result = _run_tool(
             "Audio Refinery",

@@ -52,7 +52,7 @@ When enabled, stages run in this implementation order:
 1. Integrity validation: checks existence, readability, file size, magic bytes, decoding, sample rate, duration, and channels.
 1. Load: reads original tags and decodes the source audio.
 1. Pop & Click Remover: detects and repairs clicks using sensitivity and maximum defect width.
-1. Silence Trimming / Fading: removes silence using a dBFS threshold and can apply fade-in and fade-out.
+1. Silence Trimming / Fading: removes silence using a dBFS threshold and can apply fade-in and fade-out. In Exact range mode it keeps the millisecond range you enter instead of detecting silence; with Stream copy on, the range is cut with one stream copy and no re-encode.
 1. Noise Reduction: optionally removes mains hum and/or broadband noise using its noise profile and gate settings.
 1. Audio Enhancement: applies the Mild, Moderate, Aggressive, or Custom DSP preset; Custom adds per-effect toggles (reverse, karaoke, phaser, flanger, chorus).
 1. Export: writes the processed audio once using format-appropriate encoding settings — only when a stage changed the audio.
@@ -65,6 +65,8 @@ When enabled, stages run in this implementation order:
 - **Maximum defect width: **Default 2 ms; limits the click width repaired.
 - **Trim threshold: **Default -50 dBFS; defines silence for trimming.
 - **Fades: **Optional fade-in default 500 ms and fade-out default 1000 ms after trimming.
+- **Trim by: **Silence (the default) trims detected leading and trailing silence. Exact range keeps the millisecond span you enter instead: set Start (default 0) plus either End or Duration, never both. The range is checked against each file's own length before anything is written, so a range past the end of a file fails that file with both lengths in the message.
+- **Exact trim accuracy: **Without Stream copy the range is cut from the decoded audio, so it is sample-accurate to the millisecond, and the file is written once through the normal export path with its bit depth preserved. With Stream copy on, the source's own frames are copied, so nothing is re-encoded but the cut lands on the container's frame boundary: an MP3 frame is about 26 ms, and the run log reports the length the copy actually produced and how far it moved. Stream copy cannot run beside the Declick, Noise Reduction, Enhance or Normalise stage, because those need the decoded audio; the run refuses that combination before touching a file rather than quietly re-encoding and calling it a copy. It supports MP3, FLAC, M4A/MP4, OGG and Opus; other containers are refused with a message that names the container.
 - **Noise reduction: **Optional hum removal and broadband reduction. Defaults include 60 Hz hum, 8 harmonics, Q 30, a 0-500 ms noise profile, and a 3 dB gate threshold.
 - **Enhancement preset: **Mild, Moderate, Aggressive, or Custom. Selecting Custom shows a Configure Custom DSP button that opens the stage's own non-modal editor, so the stage itself stays compact and every control is reachable; changes apply to the run as you make them. When Normalise is active, the refinery suppresses enhancement output gain so final loudness is controlled by the normalizer.
 - **Enhancement effects: **Relevant to the Custom preset: Reverse audio, Karaoke (centre-vocal removal with a 0.0-1.0 strength), Phaser, Flanger, and Chorus. Each is off by default, and the built-in Mild, Moderate, and Aggressive presets leave them off.
@@ -103,9 +105,10 @@ The registered command is refine. Examples:
 python -m audio_suite_shared.cli_app refine <folder> --dry\
 python -m audio_suite_shared.cli_app refine <folder> --output <output> --stages declick,trim,enhance,normalise\
 python -m audio_suite_shared.cli_app refine <folder> --stages declick,enhance --preset Mild\
-python -m audio_suite_shared.cli_app refine <folder> --reduce-hum --hum-frequency 60 --json
+python -m audio_suite_shared.cli_app refine <folder> --reduce-hum --hum-frequency 60 --json\
+python -m audio_suite_shared.cli_app refine <folder> --stages trim --trim-mode exact --trim-start 12000 --trim-end 30000
 
-CLI options cover output directory, dry run, stages, declick sensitivity and width, trim threshold and fades, hum and broadband reduction, enhancement preset, the enhancement effect flags (--reverse, --karaoke/--no-karaoke, --karaoke-strength, --phaser, --flanger, --chorus), target LUFS, tolerance, true peak, LRA, the normalise strategy (--normalise-mode), album mode (--album-mode/--no-album-mode), and JSON output. If --output is omitted, results are written in place.
+CLI options cover output directory, dry run, stages, declick sensitivity and width, trim threshold and fades, the exact trim range (--trim-mode, --trim-start, --trim-end, --trim-duration, --trim-copy/--no-trim-copy), hum and broadband reduction, enhancement preset, the enhancement effect flags (--reverse, --karaoke/--no-karaoke, --karaoke-strength, --phaser, --flanger, --chorus), target LUFS, tolerance, true peak, LRA, the normalise strategy (--normalise-mode), album mode (--album-mode/--no-album-mode), and JSON output. If --output is omitted, results are written in place.
 
 ## Master Driver Use
 
@@ -117,6 +120,8 @@ Audio Refinery is the Master Driver's REFINE pipeline. The driver embeds the Ref
 - **Integrity check failed: **The file may be empty, unreadable, malformed, undecodable, outside size/duration/sample-rate/channel limits, or have invalid container headers.
 - **Files are skipped on a later run: **They match the completion registry by filename and SHA-256. Use Reset Progress when a full rerun is intended.
 - **Album mode refuses a container: **Album mode writes through the same encoders as per-file normalisation. Convert the album to FLAC or MP3 when the message names a container with no normalise encoder.
+- **The exact trim refused the run: **Stream copy cannot share a run with a stage that decodes the audio (declick, noise reduction, enhance, normalise). Turn Stream copy off to trim with a re-encode, or disable those stages. A range flag without Exact range mode is refused at the command line rather than silently ignored.
+- **The stream copy is a few milliseconds longer or shorter: **That is the frame boundary, not a defect: a copy keeps whole frames, and the run log reports the measured length with the offset. Turn Stream copy off when the exact millisecond matters.
 - **Output directory error: **The selected output directory must already exist and be a directory; leave it blank for in-place mode.
 - **Normalization behaves unexpectedly: **Remember that the normalizer controls final level when active, and enhancement output gain is suppressed in that case.
 - **A stage fails: **Review refinery_log.txt for the stage-specific error. The original source is protected if the final replacement is not reached.

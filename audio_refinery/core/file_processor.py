@@ -16,6 +16,10 @@ different settings.
 Changed in 2.5.0: album mode measures the folder once, before any worker
 starts, and hands the same plan to every worker (F-E1).  A failed album
 measurement stops the run before a single file is touched.
+
+Changed in 2.5.0: an exact copy-mode trim is refused at the run level when
+another stage has to decode the audio (F-E3), so the run stops with the reason
+instead of every file failing one by one.
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ from audio_suite_shared.audio_formats import READ_ONLY_EXTENSIONS
 from audio_suite_shared.batch_undo import get_active_batch_id, use_batch
 from audio_suite_shared.error_recovery import RecoveryAction, get_recovery_action
 from audio_suite_shared.exceptions import (
+    AudioConfigurationError,
     AudioSuiteError,
     handle_audio_errors,
     map_to_audio_error,
@@ -46,6 +51,7 @@ from audio_suite_shared.tag_helper import SUPPORTED_EXTENSIONS
 from .models import FileResult, FileStatus, StageConfig
 from .pipeline import process_file
 from .registry import CompletionRegistry
+from .trim import check_copy_mode
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +197,15 @@ def run_pipeline(
         return
 
     files = [source_dir / name for name in file_names]
+
+    # A stream-copy trim cannot share a run with a stage that decodes the
+    # audio; refusing here stops the run before the first file is touched.
+    try:
+        check_copy_mode(config)
+    except AudioConfigurationError as exc:
+        logger.error("Copy mode refused for this run: %s", exc.message)
+        on_error(exc.message)
+        return
 
     # Album mode measures the folder once, before any worker starts: album
     # loudness is the combined signal's, so a per-worker measurement would cost

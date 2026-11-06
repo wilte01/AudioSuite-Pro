@@ -20,7 +20,9 @@ CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 
 Changed in 2.5.0: ``NormaliseParams.album_mode`` (F-E1) selects album
 loudness: one gain measured across the whole folder instead of a per-file
-measurement.
+measurement.  ``TrimParams`` gains its exact-range fields (F-E3): a millisecond
+span to keep, and the choice between a sample-accurate re-encode and a
+frame-accurate stream copy.
 """
 
 from __future__ import annotations
@@ -47,14 +49,36 @@ class DeclickParams:
     max_width_ms: int = 2  # maximum defect width to repair
 
 
+#: The two things the Trim stage can cut by: detected silence, or a range the
+#: user names in milliseconds.  Kept here so the CLI, the GUI, the settings
+#: loader and the stage engine all validate against one list.
+TRIM_MODES: tuple[str, ...] = ("silence", "exact")
+
+#: The mode that reads ``start_ms``/``end_ms``/``duration_ms``.
+EXACT_TRIM_MODE = "exact"
+
+
 @dataclass
 class TrimParams:
-    """Parameters for silence trimming stage."""
+    """Parameters for the trimming stage.
+
+    ``mode == "silence"`` (the default) trims detected leading/trailing
+    silence and ignores the range fields, which is the stage's behaviour before
+    F-E3.  ``mode == "exact"`` keeps the configured millisecond span instead:
+    ``start_ms`` defaults to 0, and exactly one of ``end_ms``/``duration_ms``
+    must be set.  ``copy_mode`` copies the source's frames rather than
+    re-encoding them (frame-accurate, not sample-accurate).
+    """
 
     threshold: int = -50  # silence threshold dBFS
     apply_fade: bool = False
     fade_in_ms: int = 500
     fade_out_ms: int = 1000
+    mode: str = "silence"
+    start_ms: int | None = None
+    end_ms: int | None = None
+    duration_ms: int | None = None
+    copy_mode: bool = False
 
 
 @dataclass

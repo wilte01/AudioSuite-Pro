@@ -17,6 +17,10 @@ CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 
 Changed in 2.5.0: ``--album-mode`` (F-E1) reaches the GUI launch path, so a
 Master Driver run and a typed command configure album mode the same way.
+
+Changed in 2.5.0: ``--trim-mode``/``--trim-start``/``--trim-end``/
+``--trim-duration``/``--trim-copy`` reach the same path for an exact trim
+(F-E3).
 """
 
 from __future__ import annotations
@@ -29,7 +33,7 @@ from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
 
-from ..core.models import NORMALISATION_MODES
+from ..core.models import NORMALISATION_MODES, TRIM_MODES
 
 
 @dataclass(frozen=True)
@@ -63,6 +67,11 @@ class RefineryArgs:
     fade: bool = False
     fade_in: int = 500
     fade_out: int = 1000
+    trim_mode: str = "silence"
+    trim_start: int | None = None
+    trim_end: int | None = None
+    trim_duration: int | None = None
+    trim_copy: bool = False
 
     # Noise Reduction
     reduce_hum: bool = False
@@ -194,6 +203,52 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         default=1000,
         metavar="MS",
         help="Fade-out duration in ms (default 1000).",
+    )
+    parser.add_argument(
+        "--trim-mode",
+        default="silence",
+        choices=list(TRIM_MODES),
+        help=(
+            "silence trims detected leading/trailing silence; exact keeps a "
+            "millisecond range (default: silence)."
+        ),
+    )
+    parser.add_argument(
+        "--trim-start",
+        type=int,
+        default=None,
+        metavar="MS",
+        help="Exact trim start in ms (default 0).",
+    )
+    parser.add_argument(
+        "--trim-end",
+        type=int,
+        default=None,
+        metavar="MS",
+        help="Exact trim end in ms.",
+    )
+    parser.add_argument(
+        "--trim-duration",
+        type=int,
+        default=None,
+        metavar="MS",
+        help="Exact trim length in ms; use instead of --trim-end.",
+    )
+    parser.add_argument(
+        "--trim-copy",
+        action="store_true",
+        dest="trim_copy",
+        default=False,
+        help=(
+            "Cut the exact range with a stream copy instead of a re-encode "
+            "(frame-accurate, and it cannot run beside another stage)."
+        ),
+    )
+    parser.add_argument(
+        "--no-trim-copy",
+        action="store_false",
+        dest="trim_copy",
+        help=argparse.SUPPRESS,
     )
 
     # Noise Reduction params
@@ -361,6 +416,30 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
     if not 1.0 <= args.lra <= 20.0:
         parser.error(f"--lra must be between 1 and 20 LU, got {args.lra}")
 
+    # An exact range has one meaning or none: a range flag without the mode
+    # would be silently ignored, and both an end and a duration would make the
+    # cut depend on which the code happens to read first.
+    if args.trim_mode != "exact":
+        given = [
+            name
+            for name, value in (
+                ("--trim-start", args.trim_start),
+                ("--trim-end", args.trim_end),
+                ("--trim-duration", args.trim_duration),
+                ("--trim-copy", args.trim_copy or None),
+            )
+            if value is not None
+        ]
+        if given:
+            parser.error(f"{', '.join(given)} needs --trim-mode exact")
+    else:
+        if args.trim_start is not None and args.trim_start < 0:
+            parser.error("--trim-start must be zero or later")
+        if args.trim_end is not None and args.trim_duration is not None:
+            parser.error("use either --trim-end or --trim-duration, not both")
+        if args.trim_end is None and args.trim_duration is None:
+            parser.error("--trim-mode exact needs --trim-end or --trim-duration")
+
     return RefineryArgs(
         source=args.source,
         output=args.output,
@@ -374,6 +453,11 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         fade=args.fade,
         fade_in=args.fade_in,
         fade_out=args.fade_out,
+        trim_mode=args.trim_mode,
+        trim_start=args.trim_start,
+        trim_end=args.trim_end,
+        trim_duration=args.trim_duration,
+        trim_copy=args.trim_copy,
         reduce_hum=args.reduce_hum,
         hum_frequency=args.hum_frequency,
         hum_harmonics=args.hum_harmonics,

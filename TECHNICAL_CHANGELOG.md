@@ -53,6 +53,23 @@ one.
   PNG to its sidecar and to the guide that shows it, with a tampered copy and an
   unreferenced copy proving the lock fails rather than passing vacuously.
 
+- **Exact-trim locks and the second write path (F-E3).** The engine is
+  `audio_refinery/core/trim.py` — `resolve_range`, `slice_segment`, `copy_trim`,
+  the two message builders and `check_copy_mode` — locked by
+  `audio_refinery/tests/test_trim.py`, the mirrored name the plan's
+  `test_exact_trim.py` could not keep without moving the frozen naming allowlist.
+  The re-encode lock compares the sliced PCM with the source's own samples at the
+  same offset; the copy lock measures the written file with `ffprobe` and decodes
+  it again, so a copy that began at the wrong offset fails on the audio rather
+  than on a flag. `process_file` gained a second write path for copy mode,
+  extracted to `_run_exact_copy_trim` because the inline version pushed it past
+  the 110-statement lint ceiling, and an `AudioConfigurationError` now reaches the
+  user as its own message instead of `user_message_for`'s generic "A configuration
+  error occurred". The driver's argument builder emits the exact-trim flags only
+  when the mode is exact, so a silence-trim run's argument list is byte-identical
+  to before, and the panel is re-synced after a CLI or preset load so a driven
+  launch cannot display silence beside a range trim.
+
 - **Album-mode locks, and the 2.5.0 note window (F-E1).** The plan named its
   Refinery lock `test_album_mode.py`, which `tests/test_test_file_naming.py` would
   reject against its frozen allowlist; the locks therefore live in

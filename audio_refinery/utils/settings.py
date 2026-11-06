@@ -38,6 +38,10 @@ CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: album mode round-trips (F-E1).  A missing key reads as off,
 so a settings file written before 2.5.0 keeps the per-file behaviour it
 describes.
+
+Changed in 2.5.0: the Trim stage's exact-range fields round-trip (F-E3).  A
+missing mode reads as ``silence`` and a missing range as unset, so a file
+written before it keeps trimming detected silence.
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -57,6 +61,7 @@ from noise_reduction.core.models import NoiseReductionParams
 
 from ..core.models import (
     NORMALISATION_MODES,
+    TRIM_MODES,
     DeclickParams,
     EnhanceParams,
     NormaliseParams,
@@ -161,11 +166,19 @@ def _from_dict(data: dict[str, Any]) -> StageConfig:
 
     # Trim params
     d = data.get("trim_params", {})
+    stored_trim_mode = d.get("mode", "silence")
     config.trim_params = TrimParams(
         threshold=d.get("threshold", -50),
         apply_fade=d.get("apply_fade", False),
         fade_in_ms=d.get("fade_in_ms", 500),
         fade_out_ms=d.get("fade_out_ms", 1000),
+        # An unknown mode falls back to silence detection rather than writing
+        # a range no stage implements.
+        mode=(stored_trim_mode if stored_trim_mode in TRIM_MODES else "silence"),
+        start_ms=d.get("start_ms"),
+        end_ms=d.get("end_ms"),
+        duration_ms=d.get("duration_ms"),
+        copy_mode=bool(d.get("copy_mode", False)),
     )
 
     # Noise Reduction params
@@ -298,6 +311,11 @@ def _to_dict(config: StageConfig) -> dict[str, Any]:
             "apply_fade": t.apply_fade,
             "fade_in_ms": t.fade_in_ms,
             "fade_out_ms": t.fade_out_ms,
+            "mode": t.mode,
+            "start_ms": t.start_ms,
+            "end_ms": t.end_ms,
+            "duration_ms": t.duration_ms,
+            "copy_mode": t.copy_mode,
         },
         "noise_reduction_params": {
             "reduce_hum": nr.reduce_hum,

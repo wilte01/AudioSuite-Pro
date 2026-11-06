@@ -498,6 +498,18 @@ def build_refinery_args(
         args.append("--fade")
         args.extend(["--fade-in", str(t.fade_in_ms)])
         args.extend(["--fade-out", str(t.fade_out_ms)])
+    # Changed in 2.5.0: an exact trim range is emitted only when it is on, so
+    # every silence-trim run's argument list is unchanged (F-E3).
+    if t.mode == "exact":
+        args.extend(["--trim-mode", "exact"])
+        if t.start_ms is not None:
+            args.extend(["--trim-start", str(t.start_ms)])
+        if t.end_ms is not None:
+            args.extend(["--trim-end", str(t.end_ms)])
+        if t.duration_ms is not None:
+            args.extend(["--trim-duration", str(t.duration_ms)])
+        if t.copy_mode:
+            args.append("--trim-copy")
     if nr.reduce_hum:
         args.append("--reduce-hum")
     if nr.reduce_broadband:

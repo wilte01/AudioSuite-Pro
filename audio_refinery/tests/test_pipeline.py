@@ -20,7 +20,12 @@ import pytest
 from pydub import AudioSegment
 
 from audio_normalizer.core.album import AlbumPlan, plan_key
-from audio_refinery.core.models import FileStatus, NormaliseParams, StageConfig
+from audio_refinery.core.models import (
+    FileStatus,
+    NormaliseParams,
+    StageConfig,
+    TrimParams,
+)
 
 FS = 44100
 
@@ -265,3 +270,154 @@ class TestAlbumNormaliseStage:
 class TestAlbumModeDefaults:
     def test_album_mode_is_off_unless_asked_for(self) -> None:
         assert NormaliseParams().album_mode is False
+
+
+# ── Exact trim ───────────────────────────────────────────────────────────
+
+
+def _exact_config(*, dry_run: bool = False, **overrides: object) -> StageConfig:
+    """A trim-only config in exact mode, so no other stage can share a name."""
+    config = StageConfig(
+        declick=False, trim=True, enhance=False, normalise=False, dry_run=dry_run
+    )
+    params = TrimParams(mode="exact", start_ms=250, end_ms=750)
+    for key, value in overrides.items():
+        setattr(params, key, value)
+    config.trim_params = params
+    return config
+
+
+class TestExactTrimStage:
+    """The stage keeps the range it was given instead of detecting silence."""
+
+    def test_exact_mode_slices_without_detecting_silence(self) -> None:
+        from audio_refinery.core.pipeline import _run_trim_stage
+
+        with patch(
+            "silence_trimmer.core.trimmer.trim_and_fade",
+            side_effect=AssertionError("exact mode must not detect silence"),
+        ):
+            sliced, message, changed = _run_trim_stage(
+                _sine(2000), _exact_config(), lambda *_: None
+            )
+
+        assert changed is True
+        assert len(sliced) == 500
+        assert message == (
+            "Exact trim to 0.500 s (0.250-0.750 s), sample-accurate re-encode"
+        )
+
+    def test_a_dry_run_reports_the_range_and_leaves_the_audio_alone(self) -> None:
+        from audio_refinery.core.pipeline import _run_trim_stage
+
+        audio = _sine(2000)
+
+        returned, message, changed = _run_trim_stage(
+            audio, _exact_config(dry_run=True), lambda *_: None
+        )
+
+        assert returned is audio
+        assert changed is False
+        assert message == "Would trim to 0.500 s (0.250-0.750 s)"
+
+    def test_a_range_past_the_end_fails_the_stage(self) -> None:
+        from audio_refinery.core.pipeline import _run_trim_stage
+        from audio_suite_shared.exceptions import AudioProcessingError
+
+        with pytest.raises(AudioProcessingError) as raised:
+            _run_trim_stage(
+                _sine(200),
+                _exact_config(start_ms=100, end_ms=5000),
+                lambda *_: None,
+            )
+
+        assert "200 ms long" in str(raised.value)
+
+
+class TestExactCopyTrimRun:
+    """Copy mode writes one stream copy and never decodes the audio."""
+
+    @staticmethod
+    def _copy(source: Path, destination: Path, exact_range: Any) -> float:
+        Path(destination).write_bytes(b"TRIMMED-COPY")
+        return 500.0
+
+    def test_the_copied_range_replaces_the_file_with_one_snapshot(
+        self, tmp_path: Path
+    ) -> None:
+        from audio_refinery.core.pipeline import process_file
+
+        source = _source(tmp_path)
+        before = _fingerprint(source)
+        config = _exact_config(copy_mode=True)
+
+        with (
+            patch(
+                "audio_refinery.core.pipeline.probe_duration_ms",
+                return_value=2000.0,
+            ),
+            patch(
+                "audio_refinery.core.pipeline.copy_trim", side_effect=self._copy
+            ) as copied,
+            patch("audio_refinery.core.pipeline.record_tag_edit_snapshot") as snapshot,
+            patch("audio_refinery.core.pipeline.read_tags_raw") as tags,
+        ):
+            result = process_file(source, source, config)
+
+        assert result.status is FileStatus.DONE
+        assert result.was_modified is True
+        assert source.read_bytes() == b"TRIMMED-COPY"
+        assert _fingerprint(source) != before
+        copied.assert_called_once()
+        tags.assert_not_called()
+        snapshot.assert_called_once()
+        assert snapshot.call_args.args[0] == str(source)
+        assert "frame-accurate stream copy" in _stage_messages(result)["Trim"]
+        metrics = result.get_stage_metrics("Trim")
+        assert metrics is not None
+        assert metrics.after_values["duration_ms"] == 500.0
+
+    def test_a_dry_run_reports_the_range_and_writes_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        from audio_refinery.core.pipeline import process_file
+
+        source = _source(tmp_path)
+        before = _fingerprint(source)
+
+        with (
+            patch(
+                "audio_refinery.core.pipeline.probe_duration_ms",
+                return_value=2000.0,
+            ),
+            patch(
+                "audio_refinery.core.pipeline.copy_trim",
+                side_effect=AssertionError("a dry run must not copy"),
+            ),
+        ):
+            result = process_file(
+                source, source, _exact_config(dry_run=True, copy_mode=True)
+            )
+
+        assert result.status is FileStatus.DONE
+        assert result.was_modified is False
+        assert _fingerprint(source) == before
+        assert _stage_messages(result)["Trim"] == (
+            "Would trim to 0.500 s (0.250-0.750 s)"
+        )
+
+    def test_copy_mode_beside_another_stage_fails_with_the_reason(
+        self, tmp_path: Path
+    ) -> None:
+        from audio_refinery.core.pipeline import process_file
+
+        source = _source(tmp_path)
+        before = _fingerprint(source)
+        config = _exact_config(copy_mode=True)
+        config.enhance = True
+
+        result = process_file(source, source, config)
+
+        assert result.status is FileStatus.ERROR
+        assert "Enhance" in (result.error or "")
+        assert _fingerprint(source) == before

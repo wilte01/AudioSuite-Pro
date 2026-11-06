@@ -11,6 +11,9 @@ that patched only the live path would silently read this checkout's legacy
 file and pass for the wrong reason.
 Changed in 2.5.0: album mode round-trips, and a file written before it existed
 still reads as per-file normalisation (F-E1).
+
+Changed in 2.5.0: the exact trim range round-trips, and a file written before
+it existed still trims detected silence (F-E3).
 """
 
 from __future__ import annotations
@@ -181,6 +184,65 @@ class TestShippedDefault:
             patch.setattr(refinery_settings, "_LEGACY_FILE", tmp_path / "old.json")
             patch.setattr(refinery_settings, "_DEFAULT_FILE", shipped)
             assert refinery_settings.load().enhance is False
+
+
+class TestExactTrim:
+    """The exact trim range is a stored stage field, silence when absent."""
+
+    def test_the_range_round_trips(self, tmp_path: Path) -> None:
+        live = tmp_path / "live.json"
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(refinery_settings, "_SETTINGS_FILE", live)
+            patch.setattr(refinery_settings, "_LEGACY_FILE", tmp_path / "old.json")
+            patch.setattr(refinery_settings, "_DEFAULT_FILE", tmp_path / "none.json")
+            config = StageConfig()
+            config.trim_params.mode = "exact"
+            config.trim_params.start_ms = 250
+            config.trim_params.end_ms = None
+            config.trim_params.duration_ms = 750
+            config.trim_params.copy_mode = True
+
+            refinery_settings.save(config)
+            loaded = refinery_settings.load()
+
+        assert loaded.trim_params.mode == "exact"
+        assert loaded.trim_params.start_ms == 250
+        assert loaded.trim_params.end_ms is None
+        assert loaded.trim_params.duration_ms == 750
+        assert loaded.trim_params.copy_mode is True
+
+    def test_a_file_without_the_keys_keeps_silence_trimming(
+        self, tmp_path: Path
+    ) -> None:
+        live = tmp_path / "live.json"
+        live.write_text(
+            json.dumps({"trim_params": {"threshold": -40}}), encoding="utf-8"
+        )
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(refinery_settings, "_SETTINGS_FILE", live)
+            patch.setattr(refinery_settings, "_LEGACY_FILE", tmp_path / "old.json")
+            patch.setattr(refinery_settings, "_DEFAULT_FILE", tmp_path / "none.json")
+
+            loaded = refinery_settings.load()
+
+        assert loaded.trim_params.mode == "silence"
+        assert loaded.trim_params.start_ms is None
+        assert loaded.trim_params.end_ms is None
+        assert loaded.trim_params.duration_ms is None
+        assert loaded.trim_params.copy_mode is False
+        assert loaded.trim_params.threshold == -40
+
+    def test_an_unknown_mode_falls_back_to_silence(self, tmp_path: Path) -> None:
+        live = tmp_path / "live.json"
+        live.write_text(
+            json.dumps({"trim_params": {"mode": "teleport"}}), encoding="utf-8"
+        )
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(refinery_settings, "_SETTINGS_FILE", live)
+            patch.setattr(refinery_settings, "_LEGACY_FILE", tmp_path / "old.json")
+            patch.setattr(refinery_settings, "_DEFAULT_FILE", tmp_path / "none.json")
+
+            assert refinery_settings.load().trim_params.mode == "silence"
 
 
 class TestAlbumMode:

@@ -42,6 +42,22 @@ Versions of the tools are released together with the suite (the single
   container with no normalise encoder is refused with the same message. The Refinery
   guide also states the shipped target default (-14 LUFS) instead of the retired -16.
 
+- **Exact time-range trimming in Audio Refinery.** The Trim stage gains a **Trim
+  by** choice: Silence (the existing behaviour) or **Exact range**, with Start, End
+  and Duration fields and matching `--trim-mode exact`, `--trim-start`,
+  `--trim-end` and `--trim-duration` options. An exact range is cut from the decoded
+  audio, so it is sample-accurate to the millisecond and the file is still written
+  once, with its bit depth preserved. **Stream copy** (`--trim-copy`) keeps the
+  source's own frames instead: nothing is re-encoded, the cut lands on the
+  container's frame boundary, and the run log reports the length the copy actually
+  produced together with the offset — an MP3 frame is about 26 ms, which is more
+  than the range asked for. Copy mode covers MP3, FLAC, M4A/MP4, OGG and Opus and
+  refuses other containers by name; it also refuses a run that enables a stage
+  needing the decoded audio (declick, noise reduction, enhance or normalise)
+  before the first file is opened, rather than quietly re-encoding. A range past a
+  file's end fails that file with both lengths in the message, and a range flag
+  without `--trim-mode exact` is refused instead of ignored.
+
 ## [2.4.3] - 2026-11-06
 
 - **Library Statistics Dashboard works in one window of seven tabs.** Setup
