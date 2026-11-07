@@ -12,6 +12,16 @@ one.
 
 ## [Unreleased]
 
+- **The hand-built-path rule covers every binary the suite ships.** It named
+  only `ffmpeg` and `ffprobe`, so a module could join its own path to
+  `fpcalc.exe` or `discid.dll` and pass the sweep that catches exactly that
+  shape one binary over. `BINARY_FILE_NAMES` gains `fpcalc`, `fpcalc.exe` and
+  `discid.dll`; the two sites that legitimately name a shipped copy carry a
+  reason instead of a workaround - the Fingerprinter's committed
+  `fpcalc.exe` (its last resort after the shared search) and `CD_Ripper.pyw`'s
+  `discid.dll` (`ctypes` needs a DLL path, which `search_binary`, answering
+  executables by name, cannot supply).
+
 - **The reuse lock reads the launchers, and the launchers lost their third
   dialog copy.** The sweep walked `*.py`, so all 31 `.pyw` launchers were
   outside every rule - as they are outside ruff, mypy and bandit, which take

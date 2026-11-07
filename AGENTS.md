@@ -254,7 +254,8 @@ matrix, and the metadata scrubber's per-family extension sets route a file to
 the tag block that can hold it. Say so in a comment and list it in the lock.
 - **The arbiter is `tests/test_shared_code_reuse.py`.** It fails when a shipped
 module declares its own audio-extension list, chooses the FFmpeg binary
-itself (a `shutil.which` lookup, or a hand-built path to `ffmpeg.exe`), reads
+itself (a `shutil.which` lookup, or a hand-built path to a binary it ships —
+`ffmpeg.exe`, `fpcalc.exe`, `discid.dll`), reads
 `sys._MEIPASS` to find a packaged file, builds a Tk root to show a launcher's
 error dialog, or writes `audio_suite_config.json` directly. Existing copies are
 frozen in its allowlist **with a reason and a plan entry**; a new copy fails.

@@ -31,6 +31,11 @@ kind of shipped code no other gate parses - ruff, mypy and bandit all take
 ``*.py`` - so a capability re-implemented there was invisible to every rule,
 including a Tk error dialog hand-built three times (plan D-42).
 
+Changed in 2.5.0: the hand-built-path rule covers every binary the suite
+ships, not only FFmpeg: ``fpcalc``/``fpcalc.exe`` and ``discid.dll`` joined
+``BINARY_FILE_NAMES``, and the two files that legitimately locate a shipped
+copy carry their reason in the allowlist (plan D-43).
+
 The suite already locks two neighbouring boundaries, and this module does not
 repeat them: ``tests/test_subprocess_boundary.py`` owns process spawning and
 ``tests/test_filename_safety.py`` owns the filename character set.
@@ -75,14 +80,32 @@ FFMPEG_FINDER_ALLOWLIST: dict[str, str] = {
 }
 
 #: Modules allowed to build a path to a binary by hand, with the reason.
-#: Empty on purpose: the resolver assembles its own name from an f-string, so
-#: it never spells a literal a caller could mistake for a hand-built lookup.
-#: An entry here is the deliberate escape hatch, not the way to pass.
-BINARY_PATH_ALLOWLIST: dict[str, str] = {}
+#: The resolver needed no entry - it assembles its name from an f-string - so
+#: each entry below is a file the suite ships beside itself rather than a PATH
+#: lookup: both lines exist to name that one copy, and there is no shared
+#: source to converge them onto. An entry here is the deliberate escape hatch.
+BINARY_PATH_ALLOWLIST: dict[str, str] = {
+    "audio_fingerprinter/core/fingerprinter.py": (
+        "the committed fpcalc.exe at the checkout root is the last resort "
+        "after the shared search; a frozen build finds the bundle copy first"
+    ),
+    "CD_Ripper.pyw": (
+        "ctypes needs the path of the shipped discid.dll, and search_binary "
+        "answers executables by name - it cannot find a DLL"
+    ),
+}
 
 #: The file names a hand-built lookup spells before joining a directory to it.
 BINARY_FILE_NAMES: frozenset[str] = frozenset(
-    {"ffmpeg", "ffmpeg.exe", "ffprobe", "ffprobe.exe"}
+    {
+        "ffmpeg",
+        "ffmpeg.exe",
+        "ffprobe",
+        "ffprobe.exe",
+        "fpcalc",
+        "fpcalc.exe",
+        "discid.dll",
+    }
 )
 
 #: Modules allowed to read ``sys._MEIPASS``, with the reason. A bundle lookup
@@ -222,7 +245,7 @@ def _is_path_builder(function: ast.expr) -> bool:
 
 
 def _joins_a_binary_path(source: str) -> bool:
-    """Report whether a module builds its own path to an FFmpeg binary.
+    """Report whether a module builds its own path to a binary it ships.
 
     ``_resolves_ffmpeg`` sees the ``shutil.which`` shape. This sees the other
     one: a spelled-out binary name handed to something that builds or probes a
@@ -237,7 +260,9 @@ def _joins_a_binary_path(source: str) -> bool:
 
     Returns:
         True for ``… .join(<dir>, "ffmpeg.exe")`` on any ``join`` attribute,
-        or for a ``/`` path division by such a literal.
+        or for a ``/`` path division by such a literal, for every name in
+        :data:`BINARY_FILE_NAMES` - the file the path points at is the thing
+        being decided, not the tool it happens to belong to.
     """
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Call):
@@ -350,6 +375,10 @@ def test_the_detectors_can_fail() -> None:
     )
     assert _joins_a_binary_path('os.path.join(here, "ffmpeg.exe")\n')
     assert _joins_a_binary_path('Path(here) / "ffprobe"\n')
+    # The suite ships two more binaries; a join to either is the same lookup.
+    assert _joins_a_binary_path('Path(here) / "fpcalc.exe"\n')
+    assert _joins_a_binary_path('os.path.join(here, "discid.dll")\n')
+    assert not _joins_a_binary_path('os.path.join(here, "cover.jpg")\n')
     assert not _joins_a_binary_path("os.path.join(here, name)\n")
     # Naming the binary the wrapper will run is not a lookup: no path builder
     # is involved, and the argv[0] still comes from FFMPEG_PATH at the call
@@ -415,17 +444,27 @@ def test_no_module_builds_its_own_path_to_a_binary() -> None:
     ``shutil.which``; this is the second shape, and it is the one that let the
     ReplayGain analyzer's private lookup survive the first sweep (plan D-39).
     """
+    texts = {
+        _relative(path): path.read_text(encoding="utf-8") for path in _runtime_sources()
+    }
     offenders = [
-        _relative(path)
-        for path in _runtime_sources()
-        if _joins_a_binary_path(path.read_text(encoding="utf-8"))
-        and _relative(path) not in BINARY_PATH_ALLOWLIST
+        rel
+        for rel, text in texts.items()
+        if _joins_a_binary_path(text) and rel not in BINARY_PATH_ALLOWLIST
     ]
 
     assert offenders == [], (
-        "these modules build their own path to an FFmpeg binary instead of "
-        f"importing FFMPEG_PATH: {offenders}"
+        "these modules build their own path to a binary the suite ships "
+        f"instead of using the shared resolver: {offenders}"
     )
+    # An entry that no longer trips the rule would silently pre-approve the
+    # next module that does, so each one is held to being load-bearing.
+    stale = [
+        rel
+        for rel in BINARY_PATH_ALLOWLIST
+        if rel not in texts or not _joins_a_binary_path(texts[rel])
+    ]
+    assert stale == [], f"allowlisted files that no longer trip the rule: {stale}"
 
 
 def test_only_the_shared_resolver_reads_the_frozen_bundle() -> None:
