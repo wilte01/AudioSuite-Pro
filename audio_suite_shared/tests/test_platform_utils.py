@@ -21,10 +21,15 @@ Changed in 1.0.1: added signed-geometry restore tests covering Tk's
 Changed in 2.1.7: guide fixtures are created under ``documentation/user_guides/``, where
 ``open_help`` looks.
 
+Changed in 2.5.0: ``TestHelpEndToEnd`` opens the shipped BPM guide from a
+renamed copy of the tree named by ``AUDIOSUITE_ROOT``, so the environment
+seam, the guide map and the opener are exercised as one path.
+
 """
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -864,3 +869,72 @@ class TestSignedGeometryRestore:
         from audio_suite_shared.platform_utils import _parse_geometry_origin
 
         assert _parse_geometry_origin(saved) == expected
+
+
+# Changed in 2.5.0: the three links the Help button depends on - the
+# AUDIOSUITE_ROOT seam, the guide map and the platform opener - are
+# exercised together, on a real guide, from a tree whose folder name is
+# not the project's.
+class TestHelpEndToEnd:
+    """The Help button opens the shipped guide from the named root."""
+
+    def test_a_real_guide_opens_from_a_renamed_copy_of_the_tree(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Point ``AUDIOSUITE_ROOT`` at a copy and open its guide.
+
+        The existing cases patch ``platform_utils.suite_root``, which
+        skips the environment lookup and the tree layout between them.
+        This one sets the variable the user would set, in a folder that
+        is *not* named ``AudioSuite-Pro``, starts from a working
+        directory outside the tree, and asserts the data that was opened
+        is the shipped guide's own bytes.
+        """
+        from audio_suite_shared import platform_utils, suite_paths
+
+        source = (
+            Path(__file__).resolve().parents[2]
+            / "documentation"
+            / "user_guides"
+            / "individual_programs"
+            / "bpm_analyzer"
+            / "BPM_Analyzer_User_Guide.docx"
+        )
+        assert source.is_file() and source.stat().st_size > 0, (
+            f"the shipped guide is missing: {source}"
+        )
+
+        root = tmp_path / "AudioSuite-moved-and-renamed"
+        target = (
+            root
+            / "documentation"
+            / "user_guides"
+            / "individual_programs"
+            / "bpm_analyzer"
+            / source.name
+        )
+        target.parent.mkdir(parents=True)
+        shutil.copyfile(source, target)
+        assert "AudioSuite-Pro" not in root.name, (
+            "the copy must not be recognisable by the old name-based climb"
+        )
+
+        monkeypatch.setenv(suite_paths.SUITE_ROOT_ENV, str(root))
+        elsewhere = tmp_path / "started-here"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        with (
+            patch("sys.platform", "win32"),
+            patch("os.startfile") as mock_start,
+            patch.object(platform_utils.messagebox, "showwarning") as mock_warn,
+        ):
+            platform_utils.open_help(source.name)
+
+        assert suite_paths.suite_root() == root.resolve()
+        mock_warn.assert_not_called()
+        mock_start.assert_called_once()
+        opened = Path(mock_start.call_args[0][0])
+        assert opened == target.resolve()
+        assert opened.is_file()
+        assert opened.read_bytes() == source.read_bytes()
