@@ -81,6 +81,10 @@ fails on any parser warning, so a malformed docstring cannot ship either.
 :members:
 ```
 
+```{automodule} audio_suite_shared.native_library
+:members:
+```
+
 ```{automodule} audio_suite_shared.install_map
 :members:
 ```

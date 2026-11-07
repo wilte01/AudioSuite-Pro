@@ -226,6 +226,7 @@ the capability. If it is there, import it.
 | Audio formats and extensions | `audio_formats.py` — `FORMAT_MATRIX`, `SUPPORTED_EXTENSIONS`, `is_supported_format` |
 | Running a process | `secure_subprocess.run_secure_subprocess` (locked by `tests/test_subprocess_boundary.py`) |
 | FFmpeg and FFprobe binaries | `ffmpeg.py` — `FFMPEG_PATH`, `FFPROBE_PATH`, `find_ffmpeg()`, `require_ffmpeg()`; `search_binary(name)` for any other executable the suite ships |
+| A native library the suite ships | `native_library.py` — `load_shipped_library(filename)`; locates through `suite_paths` |
 | A launcher's error dialog | `launch_failure.show_error_dialog` |
 | Preferences | `suite_config.load_value` / `save_value` (see *Shared Config Pattern*) |
 | The installation root | `suite_paths.py` — `suite_root()`, `suite_path()`; a file inside one tool's package is `suite_path("<tool>", "<name>")` |

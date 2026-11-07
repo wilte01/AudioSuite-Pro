@@ -111,11 +111,11 @@ BINARY_PATH_ALLOWLIST: dict[str, str] = {
         "the committed fpcalc.exe at the checkout root is the last resort "
         "after the shared search; a frozen build finds the bundle copy first"
     ),
-    "CD_Ripper.pyw": (
-        "ctypes needs the path of the shipped discid.dll, and search_binary "
-        "answers executables by name - it cannot find a DLL"
-    ),
 }
+#: ``CD_Ripper.pyw`` used to sit here too: ctypes needed the path of the shipped
+#: ``discid.dll``, which no executable search can supply.  That locate-and-load
+#: pair is ``audio_suite_shared.native_library`` now, so the launcher names a
+#: file instead of building a path and the entry is gone.
 
 #: The file names a hand-built lookup spells before joining a directory to it.
 BINARY_FILE_NAMES: frozenset[str] = frozenset(

@@ -1,19 +1,19 @@
 """
 CD_Ripper.pyw — Launcher for CD Ripper.
 
-Pre-loads ``discid.dll`` on Windows so that the ``discid`` package
-can find it without path configuration.
+Loads the shipped ``discid.dll`` through the shared native-library
+helper so the ``discid`` package finds it without configuration.
 
 Changed in 1.0.1: routes the launcher through ``cd_ripper.app.main`` so the driver's
 argv is parsed.
 Changed in 2.5.0: ``discid.dll`` is located through the shared suite-root
 resolver, so a packaged build finds the copy it ships (plan D-44).
+Changed in 2.5.0: the locate-and-load pair is
+``audio_suite_shared.native_library`` - this launcher names the file
+and nothing else.
 """
 
-import sys
 import os
-import ctypes
-import logging
 
 _suite_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -28,32 +28,13 @@ from audio_suite_shared.app_bootstrap import configure_logging
 
 configure_logging("cd_ripper")
 
-from audio_suite_shared.suite_paths import suite_path
-
-logger = logging.getLogger(__name__)
+from audio_suite_shared.native_library import load_shipped_library
 
 if __name__ == "__main__":
-    # discid.dll is the Windows-specific shared library for the discid package.
-    # On macOS/Linux the package finds its own library (libdiscid.so/.dylib) via
-    # the system linker, so manual pre-loading is neither needed nor correct.
-    if sys.platform == "win32":
-        _discid_dll = str(suite_path("discid.dll"))
-        if os.path.exists(_discid_dll):
-            try:
-                ctypes.CDLL(_discid_dll)
-            except OSError:
-                # Pre-loading is a convenience, not a requirement: a
-                # wrong-architecture or corrupt discid.dll must not stop the
-                # launcher, and discid may still resolve the library itself.
-                # Debug level matches the non-fatal outcome, but the record is
-                # what turns a later opaque "could not load discid" into a
-                # traceable cause.
-                logger.debug(
-                    "Could not preload %s; discid will try to locate the "
-                    "library itself",
-                    _discid_dll,
-                    exc_info=True,
-                )
+    # discid finds its own library through the system linker on macOS
+    # and Linux; the Windows wheel needs this copy, and loading it first
+    # is what makes an install work without path configuration.
+    load_shipped_library("discid.dll")
 
     from cd_ripper.app import main
     main()

@@ -1,3 +1,6 @@
+# Changed in 2.5.0: the CD Ripper case now holds the launcher to asking
+# the shared native-library loader; the locate-and-load pair it used
+# to own lives in audio_suite_shared.native_library.
 """Tests for the repo-root ``.pyw`` launchers' best-effort error dialogs.
 
 Plan iteration 7, item A3 (audit A5): ``File_Reorganizer.pyw`` (two handlers)
@@ -344,18 +347,19 @@ class TestLauncherSourcesHaveNoSilentHandler:
                 f"{path.name} never calls logger.exception"
             )
 
-    def test_cd_ripper_preload_failure_is_witnessed(self) -> None:
-        """The discovered sixth site: a failed discid.dll preload.
+    def test_cd_ripper_preload_goes_through_the_shared_loader(self) -> None:
+        """The discid.dll preload is one call, not a launcher-owned copy.
 
-        Found while implementing this item - the plan's premise that the rest
-        of the suite was clean was false. A swallowed ``OSError`` here turns a
-        wrong-architecture or corrupt DLL into an opaque downstream ``discid``
-        failure with no traceable cause.
+        This used to assert the launcher's own narrow ``except OSError`` and
+        its DEBUG witness. That behaviour moved to
+        ``audio_suite_shared.native_library.load_shipped_library``, which
+        unit-tests the absent-file and failed-load outcomes directly, so what
+        the launcher is held to here is that it asks the shared loader
+        instead of resolving a path and calling ctypes again.
         """
         source = (REPO_ROOT / "CD_Ripper.pyw").read_text(encoding="utf-8")
-        assert "logger = logging.getLogger(__name__)" in source
-        assert "except OSError:" in source, "the narrow catch should be kept"
-        assert "logger.debug(" in source, "the preload failure must be witnessed"
+        assert 'load_shipped_library("discid.dll")' in source
+        assert "ctypes" not in source, "the launcher loads the DLL by hand again"
         assert not any(line.strip() == "pass" for line in source.splitlines()), (
             "CD_Ripper.pyw went back to a silent pass"
         )
