@@ -507,6 +507,32 @@ Rules:
 - Adding a tool import *above* the guard reintroduces the original bug; the lock
   test asserts the ordering, so this fails loudly rather than silently.
 
+
+## Launchers Are Linted
+
+The `*.pyw` launchers once sat outside every gate: Ruff's default include is
+`*.py`, so a launcher's unsorted imports and blind catches were only ever
+reported to a user. `[tool.ruff] extend-include = ["*.pyw"]` now puts every
+launcher in front of `ruff check` and `ruff format`.
+
+- **The only exemption is the launch order.**
+  `[tool.ruff.lint.per-file-ignores]` relaxes `E402` for `*.pyw` and nothing
+  else, because the re-exec, the guard and the logging setup *must* run
+  between imports (*Run From the Project's `.venv`*, *Startup Pre-Flight
+  Guard*). Every other rule applies, so a new launcher gets sorted imports, a
+  final newline and a named boundary for any broad `except`, like any module.
+- **Do not hoist the shared imports to satisfy the linter.** Importing
+  `app_bootstrap`, or anything that pulls a tool's dependencies, before
+  `ensure_venv_interpreter` would run it under the system interpreter the
+  launcher exists to escape.
+- **Let `ruff format` own the layout.** A launcher left unformatted fails
+  `ruff format --check .`; never hand-wrap one to keep a line short.
+- **The file set itself is locked.**
+  `tests/test_tooling_targets.py::TestRuffReadsEveryLauncher` asks Ruff which
+  files it checks (`--show-files`) and fails if any `.pyw` is missing from
+  that set, so dropping `extend-include`, or adding a launcher under an
+  excluded directory, fails the suite instead of silently unlinting it.
+
 ## Byte-level Safety
 
 Two failure classes damage bytes that no content-level gate reports: the compile
@@ -892,7 +918,8 @@ a broken Help button warns):
 6. **Driver state** — a module toggle key in `master_driver/state/app_state.py`,
    plus `master_driver/tests/test_app_state.py`'s expected keys.
 7. **Pyw launcher** — a top-level `<Tool_Name>.pyw` calling the pre-flight guard
-   (mandatory — see *Startup Pre-Flight Guard*).
+   (mandatory — see *Startup Pre-Flight Guard*), and linted and formatted like
+   any module (see *Launchers Are Linted*).
 8. **User guide** — a Markdown source
    `documentation/user_guides/individual_programs/<module_dir>/<Guide>_User_Guide.md`,
    rendered by `python utilities/build_user_guides.py <module_dir>`; the `.docx` beside it

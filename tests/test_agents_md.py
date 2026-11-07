@@ -48,6 +48,9 @@ against a fixture materialized from that record where no real baseline exists,
 so they execute on a CI runner instead of skipping.  The record and the
 machinery behind it moved to ``tests/external_records.py``, so another external
 file can be locked the same way.
+Changed in 2.5.0: ``Launchers Are Linted`` joins the section inventory -
+the launcher lint policy (one E402 exemption, the Ruff file-set lock) was
+recorded in AGENTS.md and is frozen like every other section.
 """
 
 from __future__ import annotations
@@ -114,7 +117,7 @@ RULE_INVENTORY: tuple[str, ...] = (
     "Clean up alongside deletion.",
 )
 
-#: Every ``## `` section, frozen at 20 entries.
+#: Every ``## `` section, frozen at 21 entries.
 SECTION_INVENTORY: tuple[str, ...] = (
     "Scope & Authority",
     "The Gate — run before marking anything done",
@@ -125,6 +128,7 @@ SECTION_INVENTORY: tuple[str, ...] = (
     "Shared Config Pattern",
     "GUI (Tkinter) Testing",
     "Startup Pre-Flight Guard (Do Not Disable)",
+    "Launchers Are Linted",
     "Byte-level Safety",
     "Never Lose a Rule to a Scripted Edit",
     "Domain Correctness Traps",
