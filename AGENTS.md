@@ -228,6 +228,7 @@ the capability. If it is there, import it.
 | FFmpeg and FFprobe binaries | `ffmpeg.py` — `FFMPEG_PATH`, `FFPROBE_PATH`, `find_ffmpeg()`, `require_ffmpeg()`; `search_binary(name)` for any other executable the suite ships |
 | A launcher's error dialog | `launch_failure.show_error_dialog` |
 | Preferences | `suite_config.load_value` / `save_value` (see *Shared Config Pattern*) |
+| The installation root | `suite_paths.py` — `suite_root()`, `suite_path()` |
 | Decoding for analysis | `analysis_loader.load_analysis_audio` / `check_analysable` |
 | User-facing error text | `exceptions.USER_MESSAGES` |
 | Logging setup | `app_bootstrap.configure_logging` |
@@ -257,7 +258,8 @@ module declares its own audio-extension list, chooses the FFmpeg binary
 itself (a `shutil.which` lookup, or a hand-built path to a binary it ships —
 `ffmpeg.exe`, `fpcalc.exe`, `discid.dll`), reads
 `sys._MEIPASS` to find a packaged file, builds a Tk root to show a launcher's
-error dialog, or writes `audio_suite_config.json` directly. Existing copies are
+error dialog, finds the installation root by matching a directory's name, or
+writes `audio_suite_config.json` directly. Existing copies are
 frozen in its allowlist **with a reason and a plan entry**; a new copy fails.
 Its sweep reads `*.pyw` as well as `*.py`, because the launchers are the one
 kind of shipped code no other gate parses.

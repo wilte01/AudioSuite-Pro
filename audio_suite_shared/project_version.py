@@ -38,6 +38,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from .suite_paths import suite_root
+
 _PACKAGE_NAME = "audiosuite-pro"
 
 
@@ -45,15 +47,16 @@ def find_pyproject(start: Path | None = None) -> Path | None:
     """Return the nearest ``pyproject.toml`` at or above *start*.
 
     Args:
-        start: Directory to search upwards from.  Defaults to the directory
-            containing this module, which walks
-            ``audio_suite_shared/`` → the repository root.
+        start: Directory to search upwards from.  Defaults to the
+            installation root, which holds ``pyproject.toml`` in a
+            source checkout.  Changed in 2.5.0: the default is
+            :func:`suite_paths.suite_root` (plan D-44).
 
     Returns:
         The path to the nearest ``pyproject.toml``, or ``None`` when the
         package is installed without its source tree beside it.
     """
-    base = (start or Path(__file__).resolve().parent).resolve()
+    base = (start or suite_root()).resolve()
     for directory in (base, *base.parents):
         candidate = directory / "pyproject.toml"
         if candidate.is_file():

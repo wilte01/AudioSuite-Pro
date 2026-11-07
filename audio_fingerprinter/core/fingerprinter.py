@@ -39,13 +39,13 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from pathlib import Path
 
 from audio_suite_shared.ffmpeg import search_binary
 from audio_suite_shared.secure_subprocess import (
     SubprocessSecurityError,
     run_secure_subprocess,
 )
+from audio_suite_shared.suite_paths import suite_path
 
 from .exceptions import FingerprintToolError
 from .models import Fingerprint
@@ -56,10 +56,11 @@ FPCALC_ENV_VAR = "FPCALC"
 DEFAULT_MAX_LENGTH = 120
 _FPCALC_TIMEOUT_SECS = 300
 
-#: The ``fpcalc.exe`` committed at the checkout root.  ``fingerprinter.py`` is
-#: ``<checkout>/audio_fingerprinter/core/fingerprinter.py``, so ``parents[2]``
-#: is the checkout itself; an installed wheel simply will not have the file.
-SHIPPED_FPCALC = Path(__file__).resolve().parents[2] / "fpcalc.exe"
+#: The ``fpcalc.exe`` committed at the installation root.  Changed in
+#: 2.5.0: the root comes from the shared resolver, so a packaged build
+#: answers with the copy its bundle unpacked; an installed wheel simply
+#: will not have the file.
+SHIPPED_FPCALC = suite_path("fpcalc.exe")
 
 
 @dataclass(frozen=True)

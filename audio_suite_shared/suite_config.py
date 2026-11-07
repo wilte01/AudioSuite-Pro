@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from .constants import DEFAULT_WINDOW_GEOMETRY, MAX_DURATION_HISTORY
+from .suite_paths import suite_root
 
 
 @runtime_checkable
@@ -58,8 +59,9 @@ class AppState(Protocol):
 
 _logger = logging.getLogger(f"audio_suite.{__name__}")
 
-_SHARED_DIR = Path(__file__).resolve().parent
-_SUITE_ROOT = _SHARED_DIR.parent
+# Changed in 2.5.0: the installation root comes from the shared
+# resolver, so a packaged build finds its config file (plan D-44).
+_SUITE_ROOT = suite_root()
 CONFIG_PATH = _SUITE_ROOT / "audio_suite_config.json"
 
 # In-memory cache — cleared after every save; avoids ~14 redundant file reads

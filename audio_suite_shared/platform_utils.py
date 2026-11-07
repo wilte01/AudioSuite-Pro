@@ -22,6 +22,9 @@ Changed in 2.1.7: ``open_help`` resolves
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: maps the Track Splitter's guide (F-E4).
+Changed in 2.5.0: ``open_help`` takes the installation root from
+:mod:`audio_suite_shared.suite_paths` instead of walking up from the
+working directory looking for a folder named after the project (D-44).
 """
 
 import logging
@@ -36,6 +39,7 @@ from audio_suite_shared.exceptions import map_to_audio_error
 
 # Import secure subprocess utilities
 from .secure_subprocess import SubprocessSecurityError, run_secure_subprocess
+from .suite_paths import suite_root
 
 __all__ = ["messagebox", "open_help", "open_path", "setup_window"]
 
@@ -93,25 +97,11 @@ def open_help(guide_filename: str) -> None:
         guide_filename: Filename of the user guide
             (e.g. 'BPM_Analyzer_User_Guide.docx').
     """
-    # Use current working directory as the suite root (most reliable approach)
-    current_dir = Path.cwd()
-
-    # If not in AudioSuite-Pro directory, try to find it
-    if current_dir.name != "AudioSuite-Pro":
-        # Navigate up to find the suite root
-        max_iterations = 10
-        iteration = 0
-        while current_dir.name != "AudioSuite-Pro" and iteration < max_iterations:
-            current_dir = current_dir.parent
-            iteration += 1
-
-    if current_dir.name != "AudioSuite-Pro":
-        messagebox.showwarning(
-            "Help File Not Found",
-            f"Could not locate AudioSuite root directory.\n\n"
-            f"Please ensure '{guide_filename}' is available.",
-        )
-        return
+    # Changed in 2.5.0: the installation root, not the working directory.
+    # The old walk looked for a folder *named* AudioSuite-Pro, so a renamed
+    # checkout, a shortcut started elsewhere or any packaged build reported
+    # the guide missing while it sat exactly where it was installed (D-44).
+    current_dir = suite_root()
 
     # Determine program name from guide filename (most reliable approach)
     program_name = None

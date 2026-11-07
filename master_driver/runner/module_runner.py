@@ -32,6 +32,7 @@ from collections.abc import Sequence
 from typing import Any, Callable, Optional
 
 from audio_suite_shared.launch_failure import read_launch_failure
+from audio_suite_shared.suite_paths import suite_root
 from audio_suite_shared.tool_plugin import ToolManifest
 
 from ..batch_orchestrator import (
@@ -115,12 +116,10 @@ def _failure_message(step: BatchStep) -> str:
 def _suite_root() -> str:
     """Return the absolute path of the suite root directory.
 
-    File location: suite_root/master_driver/runner/module_runner.py
-    So __file__ -> runner/ -> master_driver/ -> suite_root/
+    Changed in 2.5.0: delegates to the shared installation-root
+    resolver, so a packaged build finds the launchers it starts (D-44).
     """
-    return os.path.normpath(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
-    )
+    return str(suite_root())
 
 
 def run_modules(

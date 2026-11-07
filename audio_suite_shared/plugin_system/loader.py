@@ -47,6 +47,7 @@ from audio_suite_shared.plugin_system.models import (
     PluginState,
     ToolContribution,
 )
+from audio_suite_shared.suite_paths import suite_root
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
@@ -165,12 +166,13 @@ def default_plugin_root() -> Path:
 def _suite_root() -> Path:
     """Return the suite root that owns this installation.
 
-    File location: ``<root>/audio_suite_shared/plugin_system/loader.py``.
+    Changed in 2.5.0: delegates to the shared installation-root resolver,
+    so a packaged build also finds its ``plugins/`` directory (D-44).
 
     Returns:
         The resolved suite root directory.
     """
-    return Path(__file__).resolve().parents[2]
+    return suite_root()
 
 
 def suite_package_names() -> frozenset[str]:

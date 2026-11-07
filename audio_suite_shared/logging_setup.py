@@ -63,6 +63,7 @@ from pathlib import Path
 from types import TracebackType
 
 from .constants import MAX_WORKERS_CEILING, default_max_workers
+from .suite_paths import suite_root
 
 _HOOK_MARKER = "_audio_suite_hook"
 
@@ -157,6 +158,8 @@ def _install_excepthooks() -> None:
         threading.excepthook = _log_thread_exception
 
 
+# Changed in 2.5.0: both root readouts ask the shared resolver instead
+# of counting directories up from this module (plan D-44).
 def _first_party_package_names() -> list[str]:
     """Names of the first-party tool packages living at the suite root.
 
@@ -171,10 +174,10 @@ def _first_party_package_names() -> list[str]:
     Returns:
         Sorted package (logger) names.
     """
-    suite_root = Path(__file__).resolve().parent.parent
+    root = suite_root()
     return sorted(
         entry.name
-        for entry in suite_root.iterdir()
+        for entry in root.iterdir()
         if entry.is_dir()
         and entry.name != "tests"
         and (entry / "__init__.py").is_file()
@@ -218,7 +221,7 @@ def get_logs_dir() -> Path:
     Returns:
         An existing, writable log directory.
     """
-    return _resolve_logs_dir(Path(__file__).resolve().parent.parent)
+    return _resolve_logs_dir(suite_root())
 
 
 def _program_log_path(logs_dir: Path, program_name: str) -> Path:

@@ -112,8 +112,23 @@ BINARY_FILE_NAMES: frozenset[str] = frozenset(
 #: decides where a packaged file lives, so it belongs beside the resolver that
 #: already owns that source rather than in the tool that needs the file.
 BUNDLE_LOOKUP_ALLOWLIST: dict[str, str] = {
-    "audio_suite_shared/ffmpeg.py": "the suite's one bundle-aware resolver",
+    "audio_suite_shared/ffmpeg.py": "the suite's one bundle-aware binary resolver",
+    "audio_suite_shared/suite_paths.py": (
+        "the suite's one installation-root resolver: a bundle unpacked its data "
+        "into _MEIPASS, and every suite-owned file is found from that root"
+    ),
 }
+
+#: The directory name the retired ``open_help`` walk matched on.  Comparing a
+#: directory's name to it is finding the installation root by name.
+_PROJECT_DIR_NAME = "AudioSuite-Pro"
+
+#: Modules allowed to find the suite root by matching a directory name, with
+#: the reason.  Empty by design: the name match is the shape that breaks on a
+#: renamed checkout and in every packaged build, so ``suite_paths`` replaced
+#: it instead of being wrapped by it.  An entry needs a reason the resolver
+#: cannot satisfy.
+ROOT_NAME_LOOKUP_ALLOWLIST: dict[str, str] = {}
 
 #: Modules allowed to build a Tk error dialog by hand, with the reason.
 DIALOG_ALLOWLIST: dict[str, str] = {
@@ -242,6 +257,38 @@ def _is_path_builder(function: ast.expr) -> bool:
         word in lowered
         for word in ("join", "path", "resource", "abspath", "exists", "isfile")
     )
+
+
+def _hunts_the_suite_root_by_name(source: str) -> bool:
+    """Report whether a module finds the suite root by matching a folder name.
+
+    The shape is a comparison where one side reads ``.name`` of a directory and
+    the other is the literal project folder name - ``d.name != "AudioSuite-Prow"``
+    in the ``while`` loop ``open_help`` used to climb with.
+
+    Args:
+        source: The module's text.
+
+    Returns:
+        True when a directory name is compared to :data:`_PROJECT_DIR_NAME`.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Compare):
+            continue
+        operands = [node.left, *node.comparators]
+        reads_a_directory_name = any(
+            isinstance(operand, ast.Attribute) and operand.attr == "name"
+            for operand in operands
+        )
+        spells_the_project = any(
+            isinstance(operand, ast.Constant)
+            and isinstance(operand.value, str)
+            and operand.value == _PROJECT_DIR_NAME
+            for operand in operands
+        )
+        if reads_a_directory_name and spells_the_project:
+            return True
+    return False
 
 
 def _joins_a_binary_path(source: str) -> bool:
@@ -394,6 +441,21 @@ def test_the_detectors_can_fail() -> None:
     )
     assert not _reads_the_frozen_bundle('frozen = getattr(sys, "frozen", False)\n')
     assert not _reads_the_frozen_bundle('"""A build unpacks into sys._MEIPASS."""\n')
+    # The exact climb `open_help` used, and the guard form beside it.
+    assert _hunts_the_suite_root_by_name(
+        'while d.name != "AudioSuite-Pro":\n    d = d.parent\n'
+    )
+    assert _hunts_the_suite_root_by_name(
+        'if Path.cwd().name == "AudioSuite-Pro":\n    pass\n'
+    )
+    # A working-directory read is fine on its own, and other folder names are
+    # ordinary: only the project's own name in a comparison is the smell.
+    assert not _hunts_the_suite_root_by_name("here = Path.cwd()\n")
+    assert not _hunts_the_suite_root_by_name('"""Walk up to AudioSuite-Pro."""\n')
+    assert not _hunts_the_suite_root_by_name('if d.name != "plugins":\n    pass\n')
+    assert not _hunts_the_suite_root_by_name(
+        "from audio_suite_shared.suite_paths import suite_root\n"
+    )
     assert not _reads_the_frozen_bundle(
         "from audio_suite_shared.ffmpeg import search_binary\n"
     )
@@ -507,6 +569,28 @@ def test_no_module_builds_its_own_launcher_error_dialog() -> None:
     )
 
 
+def test_no_module_finds_the_suite_root_by_directory_name() -> None:
+    """The installation root comes from one resolver, never from a name match.
+
+    ``open_help`` walked up from ``Path.cwd()`` until it met a directory called
+    ``AudioSuite-Pro``, which fails for a renamed checkout, a shortcut started
+    in another folder, and every packaged build - while the guide sat exactly
+    where it had been installed (plan D-44).  ``suite_paths`` is the one
+    resolver; matching a folder's name is the shape that cannot work.
+    """
+    offenders = [
+        _relative(path)
+        for path in _runtime_sources()
+        if _hunts_the_suite_root_by_name(path.read_text(encoding="utf-8"))
+        and _relative(path) not in ROOT_NAME_LOOKUP_ALLOWLIST
+    ]
+
+    assert offenders == [], (
+        "these modules find the suite root by matching a directory name "
+        f"instead of calling suite_paths.suite_root: {offenders}"
+    )
+
+
 def test_the_suite_config_file_has_one_writer() -> None:
     """Every preference goes through ``suite_config``: one file, one writer."""
     offenders = [
@@ -529,6 +613,7 @@ def test_every_allowlist_entry_names_a_real_file() -> None:
         *FFMPEG_FINDER_ALLOWLIST,
         *BINARY_PATH_ALLOWLIST,
         *BUNDLE_LOOKUP_ALLOWLIST,
+        *ROOT_NAME_LOOKUP_ALLOWLIST,
         *DIALOG_ALLOWLIST,
         *CONFIG_WRITER_ALLOWLIST,
     }

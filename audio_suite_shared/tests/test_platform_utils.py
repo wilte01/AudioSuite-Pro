@@ -141,6 +141,10 @@ class TestOpenPath:
 # ---------------------------------------------------------------------------
 
 
+# Changed in 2.5.0: ``open_help`` takes the installation root from
+# ``audio_suite_shared.suite_paths``, so these tests patch that seam instead of
+# building a folder named ``AudioSuite-Pro`` around the working directory
+# (plan D-44).
 class TestOpenHelp:
     """Tests for platform_utils.open_help."""
 
@@ -157,14 +161,49 @@ class TestOpenHelp:
         from audio_suite_shared import platform_utils
 
         with (
-            patch("os.getcwd", return_value=str(tmp_path)),
-            patch("os.path.basename", return_value="AudioSuite-Pro"),
+            patch.object(platform_utils, "suite_root", return_value=tmp_path),
             patch.object(platform_utils.messagebox, "showwarning") as mock_warn,
         ):
             platform_utils.open_help("BPM_Analyzer_User_Guide.docx")
-            # With no AudioSuite-Pro dir structure, warning is expected
-            # (either "root not found" or "file not found")
-            assert mock_warn.called
+            # The root is an empty directory, so the guide cannot be found.
+            mock_warn.assert_called_once()
+            assert "could not be found" in " ".join(
+                str(argument) for argument in mock_warn.call_args[0]
+            )
+
+    def test_the_working_directory_cannot_hide_the_guide(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression (plan D-44): a cwd outside the checkout must not matter.
+
+        ``open_help`` used to climb from ``Path.cwd()`` until it met a folder
+        named ``AudioSuite-Pro``, so a tool started from anywhere else - or
+        any packaged build - reported the guide missing while it sat exactly
+        where it had been installed.
+        """
+        from audio_suite_shared import platform_utils
+
+        root = _build_guide_root(tmp_path, "bpm_analyzer")
+        guide_file = (
+            root
+            / "documentation"
+            / "user_guides"
+            / "individual_programs"
+            / "bpm_analyzer"
+            / "BPM_Analyzer_User_Guide.docx"
+        )
+        guide_file.write_bytes(b"guide content")
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        with (
+            patch.object(platform_utils, "suite_root", return_value=root),
+            patch("sys.platform", "win32"),
+            patch("os.startfile") as mock_start,
+        ):
+            platform_utils.open_help("BPM_Analyzer_User_Guide.docx")
+            mock_start.assert_called_once_with(str(guide_file))
 
     def test_unknown_guide_shows_warning_with_name_in_message(self) -> None:
         """An unrecognised guide filename must include the name in the warning."""
@@ -196,7 +235,7 @@ class TestOpenHelp:
         guide_file.write_bytes(b"guide content")
 
         with (
-            patch("os.getcwd", return_value=str(root)),
+            patch.object(platform_utils, "suite_root", return_value=root),
             patch("sys.platform", "win32"),
             patch("os.startfile") as mock_start,
         ):
@@ -221,7 +260,7 @@ class TestOpenHelp:
         guide_file.write_bytes(b"guide content")
 
         with (
-            patch("os.getcwd", return_value=str(root)),
+            patch.object(platform_utils, "suite_root", return_value=root),
             patch("sys.platform", "darwin"),
             patch.object(platform_utils, "run_secure_subprocess") as mock_sub,
         ):
@@ -251,7 +290,7 @@ class TestOpenHelp:
         guide_file.write_bytes(b"guide content")
 
         with (
-            patch("os.getcwd", return_value=str(root)),
+            patch.object(platform_utils, "suite_root", return_value=root),
             patch("sys.platform", "win32"),
             patch("os.startfile") as mock_start,
         ):
@@ -279,7 +318,7 @@ class TestOpenHelp:
         guide_file.write_bytes(b"guide content")
 
         with (
-            patch("os.getcwd", return_value=str(root)),
+            patch.object(platform_utils, "suite_root", return_value=root),
             patch("sys.platform", "win32"),
             patch("os.startfile") as mock_start,
         ):
@@ -307,7 +346,7 @@ class TestOpenHelp:
         guide_file.write_bytes(b"guide content")
 
         with (
-            patch("os.getcwd", return_value=str(root)),
+            patch.object(platform_utils, "suite_root", return_value=root),
             patch("sys.platform", "win32"),
             patch("os.startfile") as mock_start,
         ):
@@ -335,7 +374,7 @@ class TestOpenHelp:
         guide_file.write_bytes(b"guide content")
 
         with (
-            patch("os.getcwd", return_value=str(root)),
+            patch.object(platform_utils, "suite_root", return_value=root),
             patch("sys.platform", "win32"),
             patch("os.startfile") as mock_start,
         ):
@@ -363,7 +402,7 @@ class TestOpenHelp:
         guide_file.write_bytes(b"guide content")
 
         with (
-            patch("os.getcwd", return_value=str(root)),
+            patch.object(platform_utils, "suite_root", return_value=root),
             patch("sys.platform", "win32"),
             patch("os.startfile") as mock_start,
         ):
@@ -391,7 +430,7 @@ class TestOpenHelp:
         guide_file.write_bytes(b"guide content")
 
         with (
-            patch("os.getcwd", return_value=str(root)),
+            patch.object(platform_utils, "suite_root", return_value=root),
             patch("sys.platform", "win32"),
             patch("os.startfile") as mock_start,
         ):
@@ -551,7 +590,7 @@ class TestOpenHelpAdditional:
         guide_file.write_bytes(b"data")
 
         with (
-            patch("os.getcwd", return_value=str(root)),
+            patch.object(platform_utils, "suite_root", return_value=root),
             patch("sys.platform", "win32"),
             patch("os.startfile") as mock_start,
         ):
@@ -563,7 +602,7 @@ class TestOpenHelpAdditional:
 
         root = _build_guide_root(tmp_path, "bpm_analyzer")
         with (
-            patch("os.getcwd", return_value=str(root)),
+            patch.object(platform_utils, "suite_root", return_value=root),
             patch.object(platform_utils.messagebox, "showwarning") as mock_warn,
         ):
             platform_utils.open_help("BPM_Analyzer_User_Guide.docx")
@@ -583,7 +622,7 @@ class TestOpenHelpAdditional:
             / "BPM_Analyzer_User_Guide.docx"
         ).write_bytes(b"x")
         with (
-            patch("os.getcwd", return_value=str(root)),
+            patch.object(platform_utils, "suite_root", return_value=root),
             patch("sys.platform", "linux"),
             patch.object(platform_utils, "run_secure_subprocess") as mock_sub,
         ):
@@ -612,7 +651,7 @@ class TestOpenHelpAdditional:
             / "BPM_Analyzer_User_Guide.docx"
         ).write_bytes(b"x")
         with (
-            patch("os.getcwd", return_value=str(root)),
+            patch.object(platform_utils, "suite_root", return_value=root),
             patch("sys.platform", "linux"),
             patch.object(platform_utils, "run_secure_subprocess", side_effect=exc),
             patch.object(platform_utils.messagebox, "showerror") as mock_err,

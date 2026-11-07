@@ -36,6 +36,7 @@ from audio_suite_shared import platform_utils as _shared_platform_utils
 from audio_suite_shared import secure_subprocess, styles, ui_common, whats_new
 from audio_suite_shared import suite_config as _suite_config
 from audio_suite_shared.styles import set_active_palette as _set_palette
+from audio_suite_shared.suite_paths import suite_root
 from audio_suite_shared.tool_plugin import get_registry
 from audio_suite_shared.ui_helpers import UIHelperMixin
 
@@ -541,9 +542,12 @@ class AudioSuiteDriver(UIHelperMixin):
                 "No released versions were found in this installation's CHANGELOG.md.",
             )
 
+    # Changed in 2.5.0: both launcher paths ask the shared
+    # installation-root resolver instead of counting directories up
+    # from this module (plan D-44).
     def _open_refinery_ui(self) -> None:
 
-        root_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+        root_dir = str(suite_root())
         script = os.path.join(root_dir, "Audio_Refinery.pyw")
         if os.path.exists(script):
             secure_subprocess.start_python_script(script, [])
@@ -554,7 +558,7 @@ class AudioSuiteDriver(UIHelperMixin):
 
     def _open_undo_ui(self) -> None:
         """Open the Undo Tag Edits window (non-blocking standalone tool)."""
-        root_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+        root_dir = str(suite_root())
         script = os.path.join(root_dir, "Undo_Tag_Edits.pyw")
         if os.path.exists(script):
             secure_subprocess.start_python_script(script, [])

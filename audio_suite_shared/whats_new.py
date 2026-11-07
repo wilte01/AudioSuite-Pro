@@ -87,6 +87,7 @@ from tkinter import ttk
 from . import styles, suite_config
 from .cli_helpers import was_launched_from_driver
 from .project_version import declared_version
+from .suite_paths import suite_root
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
@@ -165,14 +166,15 @@ def find_changelog(start: Path | None = None) -> Path | None:
     """Return the nearest ``CHANGELOG.md`` at or above *start*.
 
     Args:
-        start: Directory to search upwards from.  Defaults to the directory
-            containing this module, which walks ``audio_suite_shared/`` →
-            the repository root.
+        start: Directory to search upwards from.  Defaults to the
+            installation root, which holds ``CHANGELOG.md`` in a source
+            checkout.  Changed in 2.5.0: the default is suite_paths.suite_root
+            (plan D-44).
 
     Returns:
         The changelog path, or ``None`` for an install that does not ship one.
     """
-    base = (start or Path(__file__).resolve().parent).resolve()
+    base = (start or suite_root()).resolve()
     for directory in (base, *base.parents):
         candidate = directory / "CHANGELOG.md"
         if candidate.is_file():

@@ -77,6 +77,10 @@ fails on any parser warning, so a malformed docstring cannot ship either.
 
 ## Install, startup and host capabilities
 
+```{automodule} audio_suite_shared.suite_paths
+:members:
+```
+
 ```{automodule} audio_suite_shared.install_map
 :members:
 ```

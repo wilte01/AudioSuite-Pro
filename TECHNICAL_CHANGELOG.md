@@ -12,6 +12,20 @@ one.
 
 ## [Unreleased]
 
+- **The suite finds its own files from one root.** It was derived nine times -
+  `Path(__file__).parent.parent` in the config and logging modules,
+  `parents[2]` in the plugin loader and the Fingerprinter,
+  `dirname(__file__)/..` twice in the Master Driver - and the Help button did
+  not derive it at all: `open_help` walked up from `Path.cwd()` until a folder
+  was named `AudioSuite-Pro`, so a renamed checkout, a shortcut started
+  elsewhere or any packaged build reported "Help File Not Found" while the
+  guide sat exactly where it had been installed. `suite_paths.suite_root()`
+  now answers for an `AUDIOSUITE_ROOT` override, a one-file bundle's
+  `_MEIPASS`, a frozen executable's directory, or the source checkout, and it
+  never reads the working directory. `discid.dll` and the committed
+  `fpcalc.exe` are located through it too, and the reuse lock fails on a
+  module that goes back to matching a directory name.
+
 - **The hand-built-path rule covers every binary the suite ships.** It named
   only `ffmpeg` and `ffprobe`, so a module could join its own path to
   `fpcalc.exe` or `discid.dll` and pass the sweep that catches exactly that

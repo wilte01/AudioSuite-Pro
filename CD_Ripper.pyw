@@ -6,6 +6,8 @@ can find it without path configuration.
 
 Changed in 1.0.1: routes the launcher through ``cd_ripper.app.main`` so the driver's
 argv is parsed.
+Changed in 2.5.0: ``discid.dll`` is located through the shared suite-root
+resolver, so a packaged build finds the copy it ships (plan D-44).
 """
 
 import sys
@@ -26,6 +28,8 @@ from audio_suite_shared.app_bootstrap import configure_logging
 
 configure_logging("cd_ripper")
 
+from audio_suite_shared.suite_paths import suite_path
+
 logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
@@ -33,7 +37,7 @@ if __name__ == "__main__":
     # On macOS/Linux the package finds its own library (libdiscid.so/.dylib) via
     # the system linker, so manual pre-loading is neither needed nor correct.
     if sys.platform == "win32":
-        _discid_dll = os.path.join(_suite_dir, "discid.dll")
+        _discid_dll = str(suite_path("discid.dll"))
         if os.path.exists(_discid_dll):
             try:
                 ctypes.CDLL(_discid_dll)
