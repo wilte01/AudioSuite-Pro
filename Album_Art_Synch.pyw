@@ -1,15 +1,18 @@
 """
 Album_Art_Synch.pyw — Launcher for Album Art Sync.
 
-Changes working directory to the suite root so that relative config paths
-(art_cache/, config files) resolve correctly regardless of how the script
-was launched.
+Does not change the working directory: the config file and every
+suite-owned path resolve from the installation root, so the folder the
+icon was double-clicked in cannot decide what this tool reads or writes.
+
+Changed in 2.5.0: dropped the ``os.chdir(_script_dir)`` workaround. It
+existed so ``open_help`` could find the guides from a rooted working
+directory; help now resolves from ``suite_paths.suite_root``.
 """
 
 import os
 
 _script_dir = os.path.dirname(os.path.abspath(__file__))
-os.chdir(_script_dir)
 
 from audio_suite_shared.venv_bootstrap import ensure_venv_interpreter
 

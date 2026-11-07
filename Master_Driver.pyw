@@ -1,10 +1,14 @@
 """
 Master_Driver.pyw — Central orchestrator for the Audio Suite.
 
-Changes working directory to the suite root so that subprocess-launched
-tools resolve paths correctly.  ``bootstrap_theme()`` MUST run before the
-``master_driver.app`` import, because the app module creates ttk widgets
-at import time and the ``clam`` theme must already be locked in.
+Launches each tool with an absolute script path, the root coming from
+``suite_paths.suite_root``, so it does not change the working directory.
+``bootstrap_theme()`` MUST run before the ``master_driver.app`` import,
+because the app module creates ttk widgets at import time and the
+``clam`` theme must already be locked in.
+
+Changed in 2.5.0: dropped the ``os.chdir(_script_dir)`` workaround; a
+relative script path is joined with the installation root instead.
 
 ``guard_or_exit()`` runs before any tool import: it byte-compiles every
 first-party source file so a syntax/indentation error in the tool chain
@@ -14,7 +18,6 @@ surfaces as a clear blocking dialog instead of an opaque log traceback.
 import os
 
 _script_dir = os.path.dirname(os.path.abspath(__file__))
-os.chdir(_script_dir)
 
 from audio_suite_shared.venv_bootstrap import ensure_venv_interpreter
 

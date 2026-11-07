@@ -1,3 +1,5 @@
+# Changed in 2.5.0: dropped the os.chdir(_script_dir) workaround; the
+# guides and every suite-owned file resolve from suite_paths.suite_root.
 """
 Undo_Tag_Edits.pyw — Launcher for the Undo Tag Edits window.
 
@@ -14,7 +16,6 @@ surfaces as a clear blocking dialog instead of an opaque log traceback.
 import os
 
 _script_dir = os.path.dirname(os.path.abspath(__file__))
-os.chdir(_script_dir)
 
 from audio_suite_shared.venv_bootstrap import ensure_venv_interpreter
 

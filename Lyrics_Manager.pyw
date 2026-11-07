@@ -1,3 +1,5 @@
+# Changed in 2.5.0: dropped the os.chdir(_script_dir) workaround; the
+# guides and every suite-owned file resolve from suite_paths.suite_root.
 """
 Lyrics_Manager.pyw — Launcher for the Lyrics Manager window.
 
@@ -18,7 +20,6 @@ preventing the Windows ``vista`` theme from taking over.
 import os
 
 _script_dir = os.path.dirname(os.path.abspath(__file__))
-os.chdir(_script_dir)
 
 from audio_suite_shared.venv_bootstrap import ensure_venv_interpreter
 
