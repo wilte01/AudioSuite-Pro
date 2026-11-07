@@ -847,6 +847,17 @@ interpreter a launcher would run under, and whether each optional extra
 (Demucs, RNNoise) imports there. It takes no directory and exits 1 when the
 install is wrong.
 
+It also prints the installation root and, beside it, the rule that answered:
+the `AUDIOSUITE_ROOT` override, the directory a one-file build unpacked into,
+the frozen executable's folder, or the source checkout. A root you did not
+expect is usually the reason a later line looks wrong, and the rule says
+where to look. Under that root it lists the files the suite owns beside
+itself - the shared config, `logs/`, `plugins/`, the user guides, `fpcalc.exe`,
+`discid.dll`, `pyproject.toml` and `CHANGELOG.md` - marked `[OK]` or
+`[MISSING]`. Those are reported, not gated: a fresh checkout has no config or
+`logs/` until the first run creates them, so they never change the exit
+status.
+
 ```bash
 audiosuite doctor [--json]
 ```

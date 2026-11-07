@@ -34,6 +34,8 @@ A file that lives inside one tool's package is ``suite_path("<tool>", "<name>")`
 still one derivation, with the package named outright instead of counted from
 the caller's own position in the tree.
 
+Changed in 2.5.0: :func:`suite_root_source` reports which rule answered, so
+``doctor`` prints the root beside its provenance instead of a bare path.
 Changed in 2.5.0: new module. The suite root had no shared implementation, so
 every caller derived it itself; :func:`suite_root` and :func:`suite_path` are
 now the only derivation, and the reuse lock's ``_hunts_the_suite_root_by_name``
@@ -46,13 +48,58 @@ import os
 import sys
 from pathlib import Path
 
-__all__ = ["SUITE_ROOT_ENV", "suite_path", "suite_root"]
+__all__ = [
+    "ROOT_SOURCE_BUNDLE",
+    "ROOT_SOURCE_CHECKOUT",
+    "ROOT_SOURCE_ENV",
+    "ROOT_SOURCE_FROZEN",
+    "SUITE_ROOT_ENV",
+    "suite_path",
+    "suite_root",
+    "suite_root_source",
+]
 
 #: Environment variable that names the installation root outright.
 SUITE_ROOT_ENV = "AUDIOSUITE_ROOT"
 
+#: The four answers :func:`suite_root_source` can give, as a user-facing
+#: label for the rule that won.  ``doctor`` prints this so an unexpected
+#: root can be traced to the rule that produced it.
+ROOT_SOURCE_ENV = """AUDIOSUITE_ROOT override"""
+ROOT_SOURCE_BUNDLE = """sys._MEIPASS (one-file build)"""
+ROOT_SOURCE_FROZEN = """the frozen executable's directory"""
+ROOT_SOURCE_CHECKOUT = """the source checkout"""
+
 #: This module's directory: ``<root>/audio_suite_shared/``.
 _SHARED_DIR = Path(__file__).resolve().parent
+
+
+def suite_root_source() -> tuple[Path, str]:
+    """Return the installation root and the rule that answered it.
+
+    Callers that only need the path want :func:`suite_root`; this exists for
+    a diagnostic that has to explain *why* it got that root.  ``doctor``
+    prints it, because the rule that won says where to look when the answer
+    is wrong: an inherited ``AUDIOSUITE_ROOT`` points at the shell rather
+    than at this installation.
+
+    Returns:
+        ``(root, source)``.  *source* is one of :data:`ROOT_SOURCE_ENV`,
+        :data:`ROOT_SOURCE_BUNDLE`, :data:`ROOT_SOURCE_FROZEN` or
+        :data:`ROOT_SOURCE_CHECKOUT`.
+    """
+    override = os.environ.get(SUITE_ROOT_ENV, "").strip()
+    if override:
+        return Path(override).expanduser().resolve(), ROOT_SOURCE_ENV
+
+    bundle = getattr(sys, "_MEIPASS", None)
+    if bundle:
+        return Path(str(bundle)).resolve(), ROOT_SOURCE_BUNDLE
+
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent, ROOT_SOURCE_FROZEN
+
+    return _SHARED_DIR.parent, ROOT_SOURCE_CHECKOUT
 
 
 def suite_root() -> Path:
@@ -63,7 +110,10 @@ def suite_root() -> Path:
         one-file build unpacked into, the frozen executable's directory, or
         this module's parent.  The working directory is never consulted, so
         the answer does not change with the folder a tool was started from.
+        :func:`suite_root_source` answers the same question with the rule
+        that produced this root.
     """
+    return suite_root_source()[0]
     override = os.environ.get(SUITE_ROOT_ENV, "").strip()
     if override:
         return Path(override).expanduser().resolve()

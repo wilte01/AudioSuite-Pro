@@ -99,6 +99,10 @@ Changed in 2.1.0: ``doctor`` publishes ``interpreter``,
 can tell which interpreter the launchers use and whether a tool's optional
 engine imports there - the question a stale or system-Python install makes
 impossible to answer from the outside.
+Changed in 2.5.0: ``doctor`` also publishes ``suite_root``,
+``suite_root_source`` and ``suite_files``, so a script can tell which rule
+answered the installation root and whether each suite-owned file was found
+there instead of re-deriving both.
 
 One document per run, deliberately
 ----------------------------------
@@ -403,6 +407,11 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
         # One object per manifest command that failed to register: tool, command.
         "missing_commands": list,
         "problems": list,
+        # The installation root, the rule that answered it, and one object
+        # per suite-owned file: path, present.
+        "suite_root": (str, type(None)),
+        "suite_root_source": str,
+        "suite_files": list,
     },
 }
 

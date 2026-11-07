@@ -5,6 +5,9 @@ the non-zero exit that makes ``audiosuite doctor`` usable as a pre-flight gate.
 Changed in 1.4.1: locks the ``--json`` payload, including the core-count
 mapping that keeps ``succeeded`` at 0 on a broken install (PLAN D93), and the
 shared origin scan that the CLI's staleness warning reads too (PLAN D94).
+Changed in 2.5.0: locks the installation-root provenance and the suite-file
+inventory, including that a missing suite-owned file is reported and does
+not change the verdict.
 Changed in 2.1.0: locks the launcher-interpreter and optional-extra report,
 including that a missing extra is reported but does not fail the check.
 """
@@ -14,6 +17,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -24,6 +28,7 @@ from audio_suite_shared import (
     doctor_cli,
     install_map,
     runtime_check,
+    suite_paths,
 )
 from audio_suite_shared.cli_base import cli
 from audio_suite_shared.cli_schema import validate_payload
@@ -31,6 +36,7 @@ from audio_suite_shared.doctor_cli import (
     DoctorReport,
     ExtraStatus,
     PackageStatus,
+    SuiteFileStatus,
     collect_report,
     doctor_payload,
     extra_statuses,
@@ -538,3 +544,69 @@ class TestDoctorJsonCommand:
 
         assert result.exit_code == 1
         assert '"schema_version"' not in result.stdout
+
+
+class TestSuiteRootReport:
+    """The report names the root, the rule behind it, and the suite's files."""
+
+    def test_the_rule_that_answered_the_root_is_named(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv(suite_paths.SUITE_ROOT_ENV, str(tmp_path))
+
+        report = collect_report()
+
+        assert report.suite_root == tmp_path.resolve()
+        assert report.suite_root_source == suite_paths.ROOT_SOURCE_ENV
+        text = render_report(report)
+        assert str(tmp_path.resolve()) in text
+        assert suite_paths.ROOT_SOURCE_ENV in text
+
+    def test_every_suite_file_is_reported_found_or_missing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        (tmp_path / "fpcalc.exe").write_bytes(b"")
+        monkeypatch.setenv(suite_paths.SUITE_ROOT_ENV, str(tmp_path))
+
+        report = collect_report()
+        found = {entry.path: entry.present for entry in report.suite_files}
+
+        assert set(found) == set(doctor_cli.SUITE_FILES)
+        assert found["fpcalc.exe"] is True
+        assert found["discid.dll"] is False
+        text = render_report(report)
+        assert "[OK]      fpcalc.exe" in text
+        assert "[MISSING] discid.dll" in text
+
+    def test_a_missing_suite_file_does_not_change_the_verdict(self) -> None:
+        """A fresh checkout has no config or ``logs/``; neither is a defect."""
+        report = collect_report()
+
+        without_files = replace(
+            report,
+            suite_files=tuple(
+                SuiteFileStatus(path=entry.path, present=False)
+                for entry in report.suite_files
+            ),
+        )
+
+        assert not any(entry.present for entry in without_files.suite_files)
+        assert without_files.healthy == report.healthy
+
+    def test_the_payload_carries_the_root_and_every_file(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        (tmp_path / "discid.dll").write_bytes(b"MZ")
+        monkeypatch.setenv(suite_paths.SUITE_ROOT_ENV, str(tmp_path))
+
+        payload = doctor_payload(collect_report(), duration_secs=0.0)
+
+        assert validate_payload("doctor", payload) == []
+        assert payload["suite_root"] == str(tmp_path.resolve())
+        assert payload["suite_root_source"] == suite_paths.ROOT_SOURCE_ENV
+        assert {entry["path"] for entry in payload["suite_files"]} == set(
+            doctor_cli.SUITE_FILES
+        )
+        present = {entry["path"]: entry["present"] for entry in payload["suite_files"]}
+        assert present["discid.dll"] is True
+        assert present["logs"] is False

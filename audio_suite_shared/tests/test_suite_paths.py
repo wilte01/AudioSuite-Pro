@@ -1,5 +1,7 @@
 """Tests for suite_paths — the suite's one installation-root resolver.
 
+Changed in 2.5.0: locks the four rule labels ``doctor`` prints beside the root,
+so a report cannot name a rule the resolver does not choose.
 Changed in 2.5.0: new module. The suite root had no shared implementation, so
 each caller derived it from its own ``__file__`` and the Help button walked up
 from the working directory looking for a folder named ``AudioSuite-Pro``
@@ -98,3 +100,50 @@ class TestSuitePath:
     ) -> None:
         monkeypatch.setenv(suite_paths.SUITE_ROOT_ENV, str(tmp_path))
         assert not suite_paths.suite_path("absent.dll").exists()
+
+
+class TestRootSource:
+    """The label naming *which* rule answered, which ``doctor`` prints."""
+
+    def test_the_override_names_itself(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(suite_paths.SUITE_ROOT_ENV, str(tmp_path))
+
+        root, source = suite_paths.suite_root_source()
+
+        assert root == tmp_path.resolve()
+        assert source == suite_paths.ROOT_SOURCE_ENV
+
+    def test_the_bundle_names_itself(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+
+        root, source = suite_paths.suite_root_source()
+
+        assert root == tmp_path.resolve()
+        assert source == suite_paths.ROOT_SOURCE_BUNDLE
+
+    def test_the_frozen_executable_names_itself(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        executable = tmp_path / "AudioSuite.exe"
+        executable.write_bytes(b"MZ")
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        monkeypatch.setattr(sys, "executable", str(executable), raising=False)
+
+        root, source = suite_paths.suite_root_source()
+
+        assert root == executable.parent.resolve()
+        assert source == suite_paths.ROOT_SOURCE_FROZEN
+
+    def test_the_checkout_names_itself(self) -> None:
+        root, source = suite_paths.suite_root_source()
+
+        assert source == suite_paths.ROOT_SOURCE_CHECKOUT
+        assert root == suite_paths.suite_root()
+
+    def test_suite_root_still_answers_the_path_alone(self) -> None:
+        """Every existing caller keeps the plain return type."""
+        assert isinstance(suite_paths.suite_root(), Path)

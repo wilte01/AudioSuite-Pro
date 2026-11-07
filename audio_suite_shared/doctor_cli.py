@@ -27,6 +27,10 @@ Changed in 1.4.1: ``--json`` publishes the report as a schema-valid payload,
 with the exit status still decided by ``healthy`` (PLAN D93).
 Changed in 1.4.1: the package resolver moved to ``install_map`` so the CLI's
 staleness warning reads the same origins as this report (PLAN D94).
+Changed in 2.5.0: reports the installation root with the rule that answered
+it (``suite_paths.suite_root_source``) and whether each suite-owned file was
+found under that root, so a wrong root and a missing file are reported
+rather than inferred from a tool failing.
 Changed in 2.1.0: reports the launcher interpreter and each tool's optional
 extra, probed in that interpreter.  The launchers now run from the project's
 ``.venv``, which is exactly the interpreter whose imports decide whether a tool
@@ -63,7 +67,40 @@ from audio_suite_shared.runtime_check import (
     checkout_version,
     installed_version,
 )
+from audio_suite_shared.suite_paths import suite_root_source
 from audio_suite_shared.venv_bootstrap import find_venv_interpreter
+
+#: The files the suite owns *beside itself*: the shared config, the
+#: directories it writes, and the binaries it commits.  ``doctor`` reports
+#: each one because "the tool ran but its config vanished" and "the DLL was
+#: never installed" look identical from the outside; what differs is which
+#: root answered and what was found under it.
+SUITE_FILES: tuple[str, ...] = (
+    "audio_suite_config.json",
+    "logs",
+    "plugins",
+    "documentation/user_guides",
+    "fpcalc.exe",
+    "discid.dll",
+    "pyproject.toml",
+    "CHANGELOG.md",
+)
+
+
+@dataclass(frozen=True)
+class SuiteFileStatus:
+    """One suite-owned file, as found under the reported root.
+
+    Attributes:
+        path: Path below the root, as :data:`SUITE_FILES` names it.
+        present: Whether it exists there.  Absence is reported, never
+            fatal: a fresh checkout has no ``audio_suite_config.json`` or
+            ``logs/`` until the first run creates them.
+    """
+
+    path: str
+    present: bool
+
 
 Resolver = Callable[[str, Path], "PackageStatus"]
 
@@ -122,6 +159,13 @@ class DoctorReport:
         unregistered: ``(tool name, command)`` pairs whose command is absent
             from the group even though the package resolved (a partially
             broken install, for example one module failing on a dependency).
+        suite_root: The installation root that answered for this process.
+        suite_root_source: Which rule produced ``suite_root``, so an
+            unexpected root can be traced to the override or the bundle
+            rather than guessed at.
+        suite_files: One status per suite-owned file, in
+            :data:`SUITE_FILES` order.  Reported, never gated: a fresh
+            checkout legitimately has no config or ``logs/`` yet.
     """
 
     checkout_root: Path | None
@@ -135,6 +179,9 @@ class DoctorReport:
     packages: tuple[PackageStatus, ...]
     problems: tuple[str, ...] = ()
     unregistered: tuple[tuple[str, str], ...] = ()
+    suite_root: Path | None = None
+    suite_root_source: str = ""
+    suite_files: tuple[SuiteFileStatus, ...] = ()
 
     @property
     def broken_packages(self) -> list[PackageStatus]:
@@ -239,6 +286,23 @@ def extra_statuses(
     return tuple(statuses)
 
 
+def suite_file_statuses(root: Path) -> tuple[SuiteFileStatus, ...]:
+    """Return one status per entry in :data:`SUITE_FILES`, under *root*.
+
+    Args:
+        root: The installation root :func:`suite_root_source` answered.
+
+    Returns:
+        Statuses in :data:`SUITE_FILES` order.  A missing file is reported,
+        never raised: the caller decides whether its absence matters, and no
+        suite-owned file is required for the install check to pass.
+    """
+    return tuple(
+        SuiteFileStatus(path=relative, present=(root / relative).exists())
+        for relative in SUITE_FILES
+    )
+
+
 def collect_report(
     resolve: Resolver | None = None, *, extras_probe: ExtraProbe | None = None
 ) -> DoctorReport:
@@ -260,6 +324,8 @@ def collect_report(
     installed = installed_version()
     editable = editable_install()
     pyproject = find_pyproject()
+    suite_root, root_source = suite_root_source()
+    files = suite_file_statuses(suite_root)
 
     if pyproject is None:
         current, launcher, from_venv = interpreter_facts(None)
@@ -277,6 +343,9 @@ def collect_report(
                 "no pyproject.toml found, so this is not a source checkout; "
                 "the package mapping cannot be checked",
             ),
+            suite_root=suite_root,
+            suite_root_source=root_source,
+            suite_files=files,
         )
 
     root = pyproject.parent
@@ -298,6 +367,9 @@ def collect_report(
                 f"no first-party packages found under {root}; the scan is "
                 "broken (or the checkout is empty), not necessarily the install",
             ),
+            suite_root=suite_root,
+            suite_root_source=root_source,
+            suite_files=files,
         )
 
     resolver = resolve or resolve_package
@@ -316,6 +388,9 @@ def collect_report(
         extras=extras,
         packages=packages,
         unregistered=_unregistered_commands(),
+        suite_root=suite_root,
+        suite_root_source=root_source,
+        suite_files=files,
     )
 
 
@@ -356,6 +431,20 @@ def render_report(report: DoctorReport) -> str:
             f"  launchers        {report.launcher_interpreter}  "
             "(no .venv; they continue in this interpreter)"
         )
+    lines.append("")
+
+    suite_root_text = str(report.suite_root) if report.suite_root else "unresolved"
+    lines.append(f"  suite root       {suite_root_text}")
+    lines.append(f"  answered by      {report.suite_root_source or 'unknown'}")
+    if report.suite_files:
+        found = sum(1 for entry in report.suite_files if entry.present)
+        lines.append(
+            f"  suite files      {found}/{len(report.suite_files)} found "
+            "(reported, not gated)"
+        )
+        for entry in report.suite_files:
+            marker = "[OK]" if entry.present else "[MISSING]"
+            lines.append(f"    {marker:<10}{entry.path}")
     lines.append("")
 
     total = len(report.packages)
@@ -492,6 +581,12 @@ def doctor_payload(report: DoctorReport, *, duration_secs: float) -> dict[str, A
             for tool_name, command in report.unregistered
         ],
         problems=list(report.problems),
+        suite_root=str(report.suite_root) if report.suite_root else None,
+        suite_root_source=report.suite_root_source,
+        suite_files=[
+            {"path": entry.path, "present": entry.present}
+            for entry in report.suite_files
+        ],
     )
 
 
