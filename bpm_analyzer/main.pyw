@@ -5,6 +5,7 @@ Nothing lives here except the minimal bootstrap.
 """
 
 import tkinter as tk
+
 from bpm_analyzer.app import BPMAnalyzerApp
 
 if __name__ == "__main__":

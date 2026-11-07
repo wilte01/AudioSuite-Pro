@@ -22,16 +22,19 @@ from audio_suite_shared.venv_bootstrap import ensure_venv_interpreter
 ensure_venv_interpreter(_script_dir)
 
 from audio_suite_shared.preflight import guard_or_exit
+
 guard_or_exit(_script_dir)
 
 from audio_suite_shared.app_bootstrap import configure_logging
+
 configure_logging("tag_editor")
+
+import tkinter as tk
 
 from audio_suite_shared.launcher import parse_cli_args
 from audio_suite_shared.styles import bootstrap_theme
-from tag_editor.utils.cli_args import parse
-import tkinter as tk
 from tag_editor.ui.app import TagEditorApp
+from tag_editor.utils.cli_args import parse
 
 if __name__ == "__main__":
     # The window applies the handshake itself, as every peer's does; parsing

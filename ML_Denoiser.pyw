@@ -11,16 +11,19 @@ from audio_suite_shared.venv_bootstrap import ensure_venv_interpreter
 ensure_venv_interpreter(_script_dir)
 
 from audio_suite_shared.preflight import guard_or_exit
+
 guard_or_exit(_script_dir)
 
 from audio_suite_shared.app_bootstrap import configure_logging
+
 configure_logging("ml_denoiser")
 
-from audio_suite_shared.launcher import parse_cli_args
-from ml_denoiser.utils.cli_args import parse
 import tkinter as tk
+
+from audio_suite_shared.launcher import parse_cli_args
 from audio_suite_shared.styles import bootstrap_theme
 from ml_denoiser.app import MlDenoiserApp
+from ml_denoiser.utils.cli_args import parse
 
 if __name__ == "__main__":
     parse_cli_args(parse)

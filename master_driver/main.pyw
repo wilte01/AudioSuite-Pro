@@ -3,6 +3,7 @@ main.pyw — Entry point for Audio Suite Master Driver.
 """
 
 import tkinter as tk
+
 from master_driver.app import AudioSuiteDriver
 
 if __name__ == "__main__":

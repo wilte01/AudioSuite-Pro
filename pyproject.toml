@@ -279,6 +279,13 @@ implicit_reexport = true
 # moment it was corrected (PLAN_audit_2026-10-24_deferred_p2p3.md R-15).
 target-version = "py311"
 line-length = 88
+# Changed in 2.5.0: the ``*.pyw`` launchers were the one kind of shipped code no
+# gate parsed — ruff's default include is ``*.py``/``*.pyi``/``*.ipynb``, so an
+# unsorted import block or a blind except in a launcher surfaced only when a
+# user double-clicked the icon.  Findings are reported before any launcher is
+# touched, because the largest class (E402) is the launch contract itself: the
+# venv re-exec and the pre-flight guard must run before a tool import.
+extend-include = ["*.pyw"]
 
 [tool.ruff.lint]
 # Session D3 hardening: the E/F/I baseline misses assertions that can never
@@ -340,6 +347,15 @@ max-statements = 110
 # asserting on, and a broad catch there is the subject of the test, not the risk.
 "tests/*" = ["BLE001"]
 "*/tests/*" = ["BLE001"]
+# Changed in 2.5.0: the launchers are gated, and E402 is the launch contract
+# rather than a defect there. ``venv_bootstrap`` must re-exec under the
+# project's interpreter, ``preflight`` must compile the tree and
+# ``configure_logging`` must run before the first log line - each of which
+# sits between imports by design, so hoisting them would import a tool's
+# dependencies into an interpreter that may not have them. The ordering is
+# enforced by tests/test_pyw_launchers.py, not by prose; every other rule
+# still applies to a launcher.
+"*.pyw" = ["E402"]
 
 [tool.pytest.ini_options]
 testpaths = [

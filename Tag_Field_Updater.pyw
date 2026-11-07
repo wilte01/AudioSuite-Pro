@@ -17,6 +17,7 @@ from audio_suite_shared.venv_bootstrap import ensure_venv_interpreter
 ensure_venv_interpreter(_script_dir)
 
 from audio_suite_shared.preflight import guard_or_exit
+
 guard_or_exit(_script_dir)
 
 from audio_suite_shared.app_bootstrap import configure_logging
@@ -32,7 +33,7 @@ if __name__ == "__main__":
         from tag_field_updater.ui.app import main
 
         main()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - the dialog is best effort: a broken Tk cannot report itself
         try:
             show_error_dialog(
                 "Startup Error", f"Error starting Tag Field Updater:\n{e}"

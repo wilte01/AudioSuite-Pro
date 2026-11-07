@@ -24,17 +24,21 @@ from audio_suite_shared.venv_bootstrap import ensure_venv_interpreter
 ensure_venv_interpreter(_script_dir)
 
 from audio_suite_shared.preflight import guard_or_exit
+
 guard_or_exit(_script_dir)
 
 from audio_suite_shared.app_bootstrap import configure_logging
+
 configure_logging("master_driver")
 
-from audio_suite_shared.styles import bootstrap_theme
 import tkinter as tk
+
+from audio_suite_shared.styles import bootstrap_theme
 
 root = tk.Tk()
 bootstrap_theme()
 
 from master_driver.app import AudioSuiteDriver
+
 AudioSuiteDriver(root)
 root.mainloop()

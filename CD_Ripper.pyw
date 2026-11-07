@@ -22,6 +22,7 @@ from audio_suite_shared.venv_bootstrap import ensure_venv_interpreter
 ensure_venv_interpreter(_suite_dir)
 
 from audio_suite_shared.preflight import guard_or_exit
+
 guard_or_exit(_suite_dir)
 
 from audio_suite_shared.app_bootstrap import configure_logging
@@ -37,4 +38,5 @@ if __name__ == "__main__":
     load_shipped_library("discid.dll")
 
     from cd_ripper.app import main
+
     main()

@@ -16,9 +16,11 @@ from audio_suite_shared.venv_bootstrap import ensure_venv_interpreter
 ensure_venv_interpreter(_script_dir)
 
 from audio_suite_shared.preflight import guard_or_exit
+
 guard_or_exit(_script_dir)
 
 from audio_suite_shared.app_bootstrap import configure_logging
+
 configure_logging("audio_refinery")
 
 from audio_refinery.app import main

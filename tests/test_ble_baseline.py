@@ -2,14 +2,18 @@
 
 Changed in 2.4.1: added by WP-7 of PLAN_2026-11-03_2.4.1_stop_the_drift.md.
 
+Changed in 2.5.0: the scan includes the ``*.pyw`` launchers and the one
+production exemption (``*.pyw``/E402, the launch order) is named, so a new
+production exemption still fails.
+
 WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md`` (D-31) enables Ruff's
 ``BLE`` rules with a baseline rather than a blanket suppression. Three things
 have to stay true for that baseline to mean anything:
 
 * the rule is actually selected (a removed ``select`` entry would make every
   production site pass by not being checked at all);
-* the per-file exemption covers test trees and nothing else, so it cannot be
-  widened to a production package without this failing;
+* the BLE001 per-file exemption covers test trees and nothing else, so it
+  cannot be widened to a production package without this failing; and
 * every annotated site names the boundary it is, instead of a bare ``# noqa``.
 """
 
@@ -32,9 +36,9 @@ def _lint_config() -> dict[str, object]:
 
 
 def _source_files() -> list[Path]:
-    """Every first-party ``.py`` file outside a test tree."""
+    """Every first-party ``.py``/``.pyw`` file outside a test tree."""
     found: list[Path] = []
-    for path in REPO_ROOT.rglob("*.py"):
+    for path in sorted(REPO_ROOT.rglob("*.py")) + sorted(REPO_ROOT.rglob("*.pyw")):
         parts = path.relative_to(REPO_ROOT).parts
         if any(part in _NOT_SOURCE for part in parts):
             continue
@@ -56,26 +60,40 @@ class TestRuffBaseline:
         assert isinstance(select, list)
         assert "BLE" in select
 
-    def test_per_file_ignore_covers_test_trees_only(self) -> None:
+    def test_ble_exemption_covers_test_trees_only(self) -> None:
         ignores = _lint_config()["per-file-ignores"]
         assert isinstance(ignores, dict)
-        assert set(ignores) == {"tests/*", "*/tests/*"}
-        assert all(value == ["BLE001"] for value in ignores.values())
+        ble = {
+            pattern: rules for pattern, rules in ignores.items() if "BLE001" in rules
+        }
+        assert set(ble) == {"tests/*", "*/tests/*"}
+        assert all(rules == ["BLE001"] for rules in ble.values())
 
-    def test_no_per_file_ignore_matches_a_production_path(self) -> None:
+    def test_the_only_production_exemption_is_the_launchers_e402(self) -> None:
+        """Every other exemption is test-only (Changed in 2.5.0)."""
         ignores = _lint_config()["per-file-ignores"]
         assert isinstance(ignores, dict)
-        patterns = list(ignores)
+        # The one relaxation that reaches production code, and its rule.
+        assert ignores.get("*.pyw") == ["E402"]
         source = _source_files()
         # An empty scan would pass vacuously, so the set itself is asserted.
         assert len(source) > 100, f"only scanned {len(source)} source files"
 
-        matched = [
-            _relative(path)
-            for path in source
-            if any(fnmatch.fnmatch(_relative(path), pattern) for pattern in patterns)
-        ]
-        assert matched == []
+        offenders: list[str] = []
+        for path in source:
+            relative = _relative(path)
+            rules = {
+                rule
+                for pattern, ignored in ignores.items()
+                if fnmatch.fnmatch(relative, pattern)
+                for rule in ignored
+            }
+            if not rules:
+                continue
+            if rules == {"E402"} and relative.endswith(".pyw"):
+                continue
+            offenders.append(f"{relative}: {sorted(rules)}")
+        assert offenders == []
 
 
 class TestAnnotationsNameTheirBoundary:
