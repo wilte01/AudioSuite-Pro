@@ -71,6 +71,8 @@ the BPM Setup figure itself: the start button is a run of the palette accent
 almost the figure's full width, which the picture lacks when the grab stops
 short of the window's bottom edge.
 
+Changed in 2.5.0: the registry parser returns the filename->folder mapping, so
+the manifest lock reads the same parse as the on-disk check.
 """
 
 from __future__ import annotations
@@ -390,19 +392,16 @@ class TestNoPerToolLoggingGuides:
         )
 
 
-def _registered_guide_filenames() -> list[str]:
-    """Extract the ``guide_to_program`` keys from ``platform_utils``.
+def _guide_registry() -> dict[str, str]:
+    """Return ``{guide filename: program folder}`` from ``platform_utils``.
 
-    ``guide_to_program`` is a function-local dict inside ``open_help``, so it
-    is not importable. The keys are read with ``ast`` rather than by
-    splitting source lines, so a reformatted or re-indented dict is still
-    parsed correctly.
+    The dict is function-local inside ``open_help``, so it is read with
+    ``ast`` rather than imported: there is no module-level name to import.
+    Both the on-disk check below and the manifest lock in
+    ``tests/test_guide_resolution.py`` read this one parse.
 
     Returns:
-        Every guide filename registered for the Help button.
-
-    Raises:
-        AssertionError: if the dict or a key cannot be found.
+        Every registered guide filename mapped to the folder holding it.
     """
     import ast
 
@@ -417,11 +416,27 @@ def _registered_guide_filenames() -> list[str]:
             continue
         if not isinstance(node.value, ast.Dict):
             break
-        names = [k.value for k in node.value.keys if isinstance(k, ast.Constant)]
-        assert names, "guide_to_program parsed as an empty dict"
-        return [str(name) for name in names]
+        pairs = {
+            str(key.value): str(value.value)
+            for key, value in zip(node.value.keys, node.value.values)
+            if isinstance(key, ast.Constant)
+            and isinstance(key.value, str)
+            and isinstance(value, ast.Constant)
+            and isinstance(value.value, str)
+        }
+        assert pairs, "guide_to_program parsed as an empty dict"
+        return pairs
 
     raise AssertionError("guide_to_program dict not found in platform_utils.py")
+
+
+def _registered_guide_filenames() -> list[str]:
+    """Extract the ``guide_to_program`` keys from ``platform_utils``.
+
+    Returns:
+        Every guide filename registered for the Help button.
+    """
+    return list(_guide_registry())
 
 
 class TestGuideRegistration:

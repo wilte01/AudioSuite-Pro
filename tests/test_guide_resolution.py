@@ -23,12 +23,23 @@ Changed in 2.1.0: new file - the deletion lock for the duplicate guide resolver
 
 Changed in 2.1.7: the retired resolver's message names ``documentation/user_guides/``.
 
+Changed in 2.5.0: the Help button's ``guide_to_program`` map is locked
+against the tool manifest. Every first-party tool must have an entry whose
+file exists, no entry may belong to no tool, no guide folder on disk may be
+unregistered, and every ``HELP_GUIDE`` constant an app hands the button must
+be a registered filename - so a tool cannot ship with a Help button that
+opens nothing.
+
 """
 
 from __future__ import annotations
 
 import ast
+import importlib.util
 from pathlib import Path
+from typing import Any
+
+from tests.test_user_guide_hygiene import _guide_registry
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -149,4 +160,156 @@ class TestRetiredResolver:
         )
         assert SHARED_RESOLVER.is_file(), (
             f"the surviving resolver is missing: {SHARED_RESOLVER}"
+        )
+
+
+#: Where the Help button looks for a tool's rendered guide.
+GUIDE_ROOT = REPO_ROOT / "documentation" / "user_guides" / "individual_programs"
+
+#: The generator that owns the tool-id-to-filename rule, loaded by path
+#: because ``utilities/`` is a directory of scripts, not a package.
+README_INDEX = REPO_ROOT / "utilities" / "generate_readme_tool_index.py"
+
+
+def _load_readme_index() -> Any:
+    """Load the README index generator, which owns the guide-name rule."""
+    spec = importlib.util.spec_from_file_location("_guide_readme", README_INDEX)
+    assert spec is not None and spec.loader is not None, (
+        "cannot load the tool-id-to-guide-name rule from " + str(README_INDEX)
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _shipped_modules() -> list[Path]:
+    """Return shipped modules, excluding tests, tooling and the docs tree."""
+    excluded = frozenset(
+        {".venv", ".git", "__pycache__", "tests", "utilities", "documentation"}
+    )
+    return [
+        path
+        for path in sorted(REPO_ROOT.rglob("*.py"))
+        if not excluded & set(path.relative_to(REPO_ROOT).parts)
+    ]
+
+
+def _app_guide_constants() -> set[str]:
+    """Return every non-empty ``HELP_GUIDE`` filename a shipped app declares."""
+    import ast as _ast
+
+    found: set[str] = set()
+    for path in _shipped_modules():
+        tree = _ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in _ast.walk(tree):
+            value: _ast.expr | None = None
+            if isinstance(node, _ast.Assign) and any(
+                isinstance(target, _ast.Name) and target.id == "HELP_GUIDE"
+                for target in node.targets
+            ):
+                value = node.value
+            elif (
+                isinstance(node, _ast.AnnAssign)
+                and isinstance(node.target, _ast.Name)
+                and node.target.id == "HELP_GUIDE"
+            ):
+                value = node.value
+            if (
+                isinstance(value, _ast.Constant)
+                and isinstance(value.value, str)
+                and value.value
+            ):
+                found.add(value.value)
+    assert len(found) >= 20, f"the HELP_GUIDE scan found only {len(found)}"
+    return found
+
+
+class TestGuideMapAgainstManifest:
+    """Every manifest tool reaches its guide through the Help map."""
+
+    def test_every_tool_has_a_registered_reachable_guide(self) -> None:
+        """A tool whose guide is unregistered has a button that fails."""
+        from audio_suite_shared.tool_plugin import get_registry
+
+        registry = _guide_registry()
+        readme = _load_readme_index()
+        offenders: list[str] = []
+        for manifest in get_registry().first_party:
+            name = readme.guide_filename_for(manifest.id, manifest.pyw_filename)
+            folder = registry.get(name)
+            if folder is None:
+                offenders.append(f"{manifest.id}: {name} is not registered")
+                continue
+            if not (GUIDE_ROOT / folder / name).is_file():
+                offenders.append(
+                    f"{manifest.id}: {name} maps to {folder}/, which holds no such file"
+                )
+        assert registry, "guide_to_program parsed as empty"
+        assert offenders == [], (
+            "these tools cannot reach their guide through the Help button: "
+            + "; ".join(offenders)
+        )
+
+    def test_no_registered_guide_belongs_to_no_tool(self) -> None:
+        """A stale entry is a filename no tool or app can open."""
+        from audio_suite_shared.tool_plugin import get_registry
+
+        readme = _load_readme_index()
+        known = {
+            readme.guide_filename_for(manifest.id, manifest.pyw_filename)
+            for manifest in get_registry().first_party
+        } | _app_guide_constants()
+        orphans = sorted(set(_guide_registry()) - known)
+        assert orphans == [], (
+            "guide_to_program registers guides nothing opens: " + ", ".join(orphans)
+        )
+
+    def test_every_guide_folder_is_registered(self) -> None:
+        """A folder no entry names is a guide nobody can reach."""
+        on_disk = {entry.name for entry in GUIDE_ROOT.iterdir() if entry.is_dir()}
+        registered = set(_guide_registry().values())
+        assert on_disk, "no guide folders found"
+        assert on_disk == registered, (
+            "guide folders and guide_to_program disagree: "
+            f"unregistered={sorted(on_disk - registered)} "
+            f"missing={sorted(registered - on_disk)}"
+        )
+
+    def test_every_app_guide_constant_is_registered(self) -> None:
+        """The filename an app hands the button must be the registered one."""
+        import ast as _ast
+
+        registry = _guide_registry()
+        offenders: list[str] = []
+        seen = 0
+        for path in _shipped_modules():
+            tree = _ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in _ast.walk(tree):
+                value: _ast.expr | None = None
+                if isinstance(node, _ast.Assign) and any(
+                    isinstance(target, _ast.Name) and target.id == "HELP_GUIDE"
+                    for target in node.targets
+                ):
+                    value = node.value
+                elif (
+                    isinstance(node, _ast.AnnAssign)
+                    and isinstance(node.target, _ast.Name)
+                    and node.target.id == "HELP_GUIDE"
+                ):
+                    value = node.value
+                if not (
+                    isinstance(value, _ast.Constant)
+                    and isinstance(value.value, str)
+                    and value.value
+                ):
+                    continue
+                seen += 1
+                if value.value not in registry:
+                    offenders.append(
+                        f"{path.relative_to(REPO_ROOT).as_posix()}: {value.value}"
+                    )
+        assert seen >= 20, f"the HELP_GUIDE scan found only {seen} constants"
+        assert offenders == [], (
+            "these HELP_GUIDE constants are not in guide_to_program: "
+            + ", ".join(offenders)
         )

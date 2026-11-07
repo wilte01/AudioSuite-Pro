@@ -900,6 +900,8 @@ a broken Help button warns):
    implementation, and `tests/test_user_guide_hygiene.py` fails on a stale
    artefact). Plus the filename → folder registration in
    `audio_suite_shared/platform_utils.py`'s `guide_to_program`.
+   `tests/test_guide_resolution.py` locks that map against the manifest, so a
+   tool whose guide is unregistered fails the suite.
 9. **Test registration** — `pyproject.toml`: `<module>/tests` in `testpaths` plus
    the package in coverage `source`; unique test-dir basename or `__init__.py`.
 10. **Tests** — a new `<module>/tests/` suite, and update the expected-set tests
