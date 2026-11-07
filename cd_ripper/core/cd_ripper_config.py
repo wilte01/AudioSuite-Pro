@@ -2,15 +2,18 @@
 cd_ripper/core/cd_ripper_config.py
 Persists CD Ripper user preferences in the shared ``audio_suite_config.json``.
 Currently stores: last output directory.
+
+Changed in 2.5.0: the log file and the legacy prefs file resolve through
+``suite_paths.suite_path``, so a packaged build finds both (D-44).
 """
 
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
 from audio_suite_shared import suite_config
+from audio_suite_shared.suite_paths import suite_path
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +26,7 @@ _LEGACY_CONFIG_NAME = "cd_ripper_prefs.json"
 # audio_suite_shared's centralized RotatingFileHandler logging -- this one
 # specifically captures log_cb output from rip/diagnostic runs so it's easy
 # to find without digging through the suite-wide log.
-_LOG_PATH = os.path.normpath(
-    os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "cd_ripper.log",
-    )
-)
+_LOG_PATH = str(suite_path("cd_ripper", "cd_ripper.log"))
 
 
 def get_log_path() -> str:
@@ -40,7 +38,7 @@ def _legacy_config_path(legacy_path: str = "") -> Path:
     """Return the legacy config path, honouring an explicit override."""
     if legacy_path:
         return Path(legacy_path)
-    return Path(__file__).resolve().parent.parent / _LEGACY_CONFIG_NAME
+    return suite_path("cd_ripper", _LEGACY_CONFIG_NAME)
 
 
 def migrate_legacy(legacy_path: str = "") -> None:

@@ -30,6 +30,10 @@ Search order:
 Nothing here reads the working directory, so a caller's ``cwd`` cannot change
 which installation answers.
 
+A file that lives inside one tool's package is ``suite_path("<tool>", "<name>")``:
+still one derivation, with the package named outright instead of counted from
+the caller's own position in the tree.
+
 Changed in 2.5.0: new module. The suite root had no shared implementation, so
 every caller derived it itself; :func:`suite_root` and :func:`suite_path` are
 now the only derivation, and the reuse lock's ``_hunts_the_suite_root_by_name``

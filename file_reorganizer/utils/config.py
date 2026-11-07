@@ -8,6 +8,10 @@ other tool preferences (project convention — see AGENTS.md).
 Also performs a one-time migration of the deprecated tool-local
 ``reorganizer_config.json`` into the shared config.
 
+Changed in 2.5.0: that legacy file resolves through
+``suite_paths.suite_path``, so a packaged build still finds it inside
+``file_reorganizer/`` (D-44).
+
 ``config_path`` parameters are accepted for interface compatibility with the
 tempo/mood config-wrapper convention and are otherwise unused.
 """
@@ -20,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from audio_suite_shared import suite_config
+from audio_suite_shared.suite_paths import suite_path
 from file_reorganizer.core.defaults import DEFAULT_SPECIFIC, DEFAULT_VARIOUS
 
 logger = logging.getLogger(__name__)
@@ -45,7 +50,7 @@ def _legacy_config_path(legacy_path: str = "") -> Path:
     """Return the legacy config path, honouring an explicit override."""
     if legacy_path:
         return Path(legacy_path)
-    return Path(__file__).resolve().parent.parent / _LEGACY_CONFIG_NAME
+    return suite_path("file_reorganizer", _LEGACY_CONFIG_NAME)
 
 
 def migrate_legacy(legacy_path: str = "") -> None:

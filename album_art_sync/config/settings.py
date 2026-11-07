@@ -15,6 +15,10 @@ silently empty. ``load_config``/``save_config`` now take no arguments and use
 ``config_path()``; a legacy pair found at either old location is copied — JSON
 *and* its sibling ``.key`` — into the canonical directory on first load, with
 the legacy files left untouched for manual recovery.
+
+Changed in 2.5.0: the legacy locations resolve through
+``suite_paths.suite_path`` instead of this file's own ascent, so a packaged
+build still finds them (D-44).
 """
 
 import json
@@ -26,6 +30,7 @@ from typing import Any
 
 # Import security modules
 from audio_suite_shared.security.key_manager import KeyManager
+from audio_suite_shared.suite_paths import suite_path
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +67,7 @@ def legacy_config_paths() -> list[Path]:
     ``core/``. Both are searched; the package-root file wins because that is the
     one the GUI (the only writer) used.
     """
-    package_root = Path(__file__).resolve().parents[1]
+    package_root = suite_path("album_art_sync")
     return [package_root / CONFIG_FILENAME, package_root / "core" / CONFIG_FILENAME]
 
 

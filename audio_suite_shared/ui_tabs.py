@@ -7,6 +7,9 @@ installer, and re-exports every name here, so an existing
 
 Changed in 2.4.3: split out of ``audio_suite_shared.ui_common``
 (PLAN_2026-11-03_2.4.3_structure.md WP-9).
+Changed in 2.5.0: ``_default_open_log`` reads the suite log through
+``suite_paths.suite_path`` instead of counting directories up from this file,
+so a packaged build finds its ``logs/`` directory (D-44).
 """
 
 import logging
@@ -18,6 +21,7 @@ from typing import Any, Callable, Optional
 
 from . import styles
 from .secure_subprocess import SubprocessSecurityError, run_secure_subprocess
+from .suite_paths import suite_path
 from .ui_audition import add_audition_buttons
 
 _log = logging.getLogger(f"audio_suite.{__name__}")
@@ -26,8 +30,7 @@ _log = logging.getLogger(f"audio_suite.{__name__}")
 def _default_open_log() -> None:
     """Default handler to open the latest suite log file."""
     try:
-        suite_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        log_file = os.path.join(suite_root, "logs", "audio_suite.log")
+        log_file = str(suite_path("logs", "audio_suite.log"))
         if os.path.exists(log_file):
             if sys.platform == "win32":
                 os.startfile(log_file)

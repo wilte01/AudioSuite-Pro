@@ -57,6 +57,7 @@ from audio_suite_shared.cli_dataclasses import (
     VALID_TARGET_LUFS_VALUES,
     validate_target_lufs,
 )
+from audio_suite_shared.suite_paths import suite_path
 from noise_reduction.core.models import NoiseReductionParams
 
 from ..core.models import (
@@ -81,10 +82,14 @@ _SETTINGS_FILE = Path.home() / _SETTINGS_DIR / _SETTINGS_NAME
 
 #: Where pre-1.4.1 versions kept the file. Read once on first upgrade, never
 #: written, so the user's last-used pipeline survives the move.
-_LEGACY_FILE = Path(__file__).resolve().parents[1] / _SETTINGS_NAME
+#:
+#: Changed in 2.5.0: both suite-owned JSON files resolve through
+#: ``suite_paths.suite_path`` with the package named outright, instead of
+#: counting directories up from this module (D-44).
+_LEGACY_FILE = suite_path("audio_refinery", _SETTINGS_NAME)
 
 #: The committed defaults, generated from ``StageConfig()``.
-_DEFAULT_FILE = Path(__file__).resolve().parents[1] / "refinery_settings.default.json"
+_DEFAULT_FILE = suite_path("audio_refinery", "refinery_settings.default.json")
 
 # Fallback preset used when a stored LUFS value is no longer valid.
 _DEFAULT_TARGET_LUFS: float = -14.0
