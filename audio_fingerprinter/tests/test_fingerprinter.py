@@ -2,12 +2,16 @@
 
 Changed in 1.4.0: locks the shipped-fpcalc fallback and its precedence below
 --fpcalc, FPCALC and PATH.
+
+Changed in 2.5.0: locks the shared search the resolver now sits on, including
+the PyInstaller bundle it used to miss (plan D-41).
 """
 
 from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -22,6 +26,7 @@ from audio_fingerprinter.core.fingerprinter import (
     generate_fingerprint,
     resolve_fpcalc,
 )
+from audio_suite_shared import ffmpeg as shared_ffmpeg
 
 
 class TestParseFpcalcOutput:
@@ -108,6 +113,44 @@ class TestResolveFpcalc:
         monkeypatch.delenv(FPCALC_ENV_VAR, raising=False)
         with patch("shutil.which", return_value=str(on_path)):
             assert resolve_fpcalc(None) == str(on_path)
+
+
+class TestFpcalcUsesTheSharedSearch:
+    """Plan D-41: the PyInstaller source is the resolver's, not this tool's.
+
+    ``resolve_fpcalc`` asked ``PATH`` and then the checkout copy, so a frozen
+    build ran whatever ``fpcalc`` sat beside the checkout instead of the copy
+    unpacked into ``sys._MEIPASS``. That is the shape the FFmpeg resolver
+    gained in D-39, in the other binary the suite ships.
+    """
+
+    def test_a_bundled_copy_wins_over_the_checkout_copy(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        bundle = tmp_path / "_MEI123"
+        bundled = bundle / ("fpcalc.exe" if sys.platform == "win32" else "fpcalc")
+        bundle.mkdir()
+        bundled.write_bytes(b"\x00")
+        os.chmod(bundled, 0o755)
+        monkeypatch.delenv(FPCALC_ENV_VAR, raising=False)
+        monkeypatch.setattr(shared_ffmpeg.sys, "_MEIPASS", str(bundle), raising=False)
+
+        with patch("shutil.which", return_value=None):
+            assert resolve_fpcalc(None) == os.path.abspath(str(bundled))
+
+    def test_the_shared_search_is_what_is_asked(self, monkeypatch) -> None:
+        """One answer from the resolver is the answer, with no second lookup."""
+        monkeypatch.delenv(FPCALC_ENV_VAR, raising=False)
+        asked: list[str] = []
+
+        def _found(name: str) -> str:
+            asked.append(name)
+            return "C:/tools/fpcalc.exe"
+
+        monkeypatch.setattr(fingerprinter, "search_binary", _found)
+
+        assert resolve_fpcalc(None) == "C:/tools/fpcalc.exe"
+        assert asked == ["fpcalc"]
 
 
 class TestGenerateFingerprint:

@@ -14,7 +14,12 @@ Search order, per binary:
   2. beside this module, or beside the frozen executable
   3. inside a PyInstaller bundle (``sys._MEIPASS``), which is where a
      one-file build's bundled binaries actually land
-  4. ``C:\\ffmpeg\\bin`` on Windows
+  4. ``C:\\ffmpeg\\bin`` on Windows - FFmpeg and FFprobe only, because that
+     directory belongs to FFmpeg's own installer
+
+:func:`search_binary` is the entry point for a second binary the suite ships:
+``fpcalc`` uses it, so a frozen build finds the Fingerprinter's bundled copy in
+the same three sources instead of asking ``PATH`` and then a checkout path.
 
 ``find_ffmpeg``/``find_ffprobe`` answer ``None`` when every source misses, so
 a caller that can degrade (the analysis loader's decode fallback) asks a
@@ -31,6 +36,11 @@ search order when the ReplayGain analyzer converged onto it (plan D-39). Its
 own lookup had searched the bundle directory, which the executable's directory
 is not, and dropping it would have lost the bundled binary of a one-file
 build; every tool gains the source instead.
+Changed in 2.5.0: ``_search`` became the public :func:`search_binary`, because
+the Fingerprinter's ``fpcalc`` was a second packaged-binary lookup that only
+knew ``PATH`` and a checkout path - a frozen build got the wrong file (plan
+D-41). The FFmpeg-only directory is now a parameter, so another binary cannot
+be answered with a file from FFmpeg's install.
 """
 
 from __future__ import annotations
@@ -54,11 +64,15 @@ def _binary_name(name: str) -> str:
     return f"{name}.exe" if sys.platform == "win32" else name
 
 
-def _search(name: str) -> str | None:
+def search_binary(name: str, *, windows_fallback: str | None = None) -> str | None:
     """Return the absolute path of *name*, or None when no source has it.
 
     Args:
         name: The bare executable name, e.g. ``"ffmpeg"``.
+        windows_fallback: A Windows-only directory to probe last, or None.
+            :data:`WINDOWS_FALLBACK_DIR` is FFmpeg's; a binary of the suite's
+            own passes nothing, so it can never be answered with a file from
+            an FFmpeg install.
 
     Returns:
         The absolute path of the first hit, or None. The copy found beside
@@ -85,8 +99,8 @@ def _search(name: str) -> str | None:
         if os.path.isfile(bundled) and os.access(bundled, os.X_OK):
             return os.path.abspath(bundled)
 
-    if sys.platform == "win32":
-        fallback = os.path.join(WINDOWS_FALLBACK_DIR, _binary_name(name))
+    if windows_fallback and sys.platform == "win32":
+        fallback = os.path.join(windows_fallback, _binary_name(name))
         if os.path.exists(fallback):
             return fallback
 
@@ -95,12 +109,12 @@ def _search(name: str) -> str | None:
 
 def find_ffmpeg() -> str | None:
     """Return the FFmpeg binary's path, or None when it is not installed."""
-    return _search(FFMPEG)
+    return search_binary(FFMPEG, windows_fallback=WINDOWS_FALLBACK_DIR)
 
 
 def find_ffprobe() -> str | None:
     """Return the FFprobe binary's path, or None when it is not installed."""
-    return _search(FFPROBE)
+    return search_binary(FFPROBE, windows_fallback=WINDOWS_FALLBACK_DIR)
 
 
 def require_ffmpeg() -> str:

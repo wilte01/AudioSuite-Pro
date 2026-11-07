@@ -33,6 +33,9 @@ to the resolver's own package, because the resolver itself moved to
 unchanged; the optional lookups answer None instead of the bare name,
 ``TestFfprobe`` covers the second binary, and ``TestFrozenBundle`` covers the
 ``sys._MEIPASS`` source the ReplayGain analyzer's own lookup used to own.
+Changed in 2.5.0: ``TestSearchBinary`` covers the public entry point a second
+packaged binary uses - the Fingerprinter's ``fpcalc`` (plan D-41) - including
+that FFmpeg's install directory is never one of its sources.
 """
 
 from __future__ import annotations
@@ -626,6 +629,56 @@ class TestFfprobe:
         monkeypatch.setattr(ffmpeg_finder, "find_ffmpeg", lambda: binary)
 
         assert ffmpeg_finder.require_ffmpeg() == binary
+
+
+class TestSearchBinary:
+    """``search_binary`` for a binary that is not FFmpeg (plan D-41).
+
+        The suite ships ``fpcalc`` too, and its lookup used to stop at ``PATH`` and
+    a checkout path. The same three sources answer it now, and FFmpeg's own
+    install directory is not one of them.
+    """
+
+    def test_a_second_binary_uses_the_beside_the_module_source(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        expected = _make_exe(str(tmp_path / "app"), "fpcalc.exe")
+        monkeypatch.setattr(ffmpeg_finder.sys, "platform", "win32")
+        monkeypatch.setattr(ffmpeg_finder, "__file__", str(tmp_path / "app" / "f.py"))
+        monkeypatch.setattr(ffmpeg_finder.shutil, "which", lambda name: None)
+
+        assert ffmpeg_finder.search_binary("fpcalc") == os.path.abspath(expected)
+
+    def test_a_bundled_second_binary_is_found(self, tmp_path, monkeypatch) -> None:
+        """A one-file build unpacks ``fpcalc`` into ``sys._MEIPASS`` as well."""
+        bundle = tmp_path / "_MEI123"
+        expected = _make_exe(str(bundle), "fpcalc.exe")
+        monkeypatch.setattr(ffmpeg_finder.sys, "platform", "win32")
+        monkeypatch.setattr(ffmpeg_finder.sys, "_MEIPASS", str(bundle), raising=False)
+        monkeypatch.setattr(ffmpeg_finder, "__file__", str(tmp_path / "_MEI999" / "f"))
+        monkeypatch.setattr(ffmpeg_finder.shutil, "which", lambda name: None)
+
+        assert ffmpeg_finder.search_binary("fpcalc") == os.path.abspath(expected)
+
+    def test_ffmpegs_install_directory_is_never_a_source_for_it(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """``C:\\ffmpeg\\bin`` belongs to FFmpeg; nothing else is looked for there."""
+        probed: list[str] = []
+
+        def _record(path: object) -> bool:
+            probed.append(str(path))
+            return False
+
+        monkeypatch.setattr(ffmpeg_finder.sys, "platform", "win32")
+        monkeypatch.setattr(ffmpeg_finder, "__file__", str(tmp_path / "app" / "f.py"))
+        monkeypatch.setattr(ffmpeg_finder.shutil, "which", lambda name: None)
+        monkeypatch.setattr(ffmpeg_finder.os.path, "isfile", _record)
+        monkeypatch.setattr(ffmpeg_finder.os.path, "exists", _record)
+        monkeypatch.setattr(ffmpeg_finder.os, "access", lambda path, mode: False)
+
+        assert ffmpeg_finder.search_binary("fpcalc") is None
+        assert [path for path in probed if path.startswith(r"C:\ffmpeg")] == []
 
 
 class TestGetStartupinfo:

@@ -102,6 +102,10 @@ Two consequences, both visible in the table above:
 Changed in 2.5.0: the FFmpeg discovery branches cite
 ``audio_suite_shared/ffmpeg.py`` and ``audio_suite_shared/tests/test_ffmpeg.py``,
 because the resolver moved out of the Audio Normalizer (plan D-38).
+Changed in 2.5.0: the ``C:\\ffmpeg\\bin`` row's branch now states its
+condition, because the directory became a parameter: the Fingerprinter's
+``fpcalc`` calls ``search_binary`` without one, so it is never looked for there
+(plan D-41).
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
@@ -418,12 +422,15 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
     ),
     PlatformBranch(
         module="audio_suite_shared/ffmpeg.py",
-        source='if sys.platform == "win32":',
+        source='if windows_fallback and sys.platform == "win32":',
         tier=PORTABLE_CORE,
         subsystem="ffmpeg discovery",
         behaviour=(
-            "Adds the Windows-only `C:\\ffmpeg\\bin` fallback location; PATH "
-            "and module-local discovery still apply on every platform."
+            "Adds the Windows-only `C:\\ffmpeg\\bin` fallback location, and only "
+            "when the caller passed one: `find_ffmpeg`/`find_ffprobe` do, while "
+            "`search_binary` for another shipped binary passes nothing, so "
+            "FFmpeg's install directory can never answer for it. PATH and "
+            "module-local discovery still apply on every platform."
         ),
         evidence="audio_suite_shared/tests/test_ffmpeg.py",
         # The resolver is shared by every tool since 2.5.0 (plan D-38); it no

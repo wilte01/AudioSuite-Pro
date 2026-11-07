@@ -12,6 +12,20 @@ one.
 
 ## [Unreleased]
 
+- **The other packaged binary uses the shared search, and the third reuse rule
+  closed the gap that let a dead lookup survive.** `audio_suite_shared`'s
+  resolver now exposes `search_binary(name)`, and the Fingerprinter's
+  `resolve_fpcalc` calls it instead of asking `PATH` itself: the precedence
+  (explicit path, `FPCALC`, then the search, then the committed
+  `fpcalc.exe`) is unchanged, but a one-file build now finds the copy
+  unpacked into `sys._MEIPASS` rather than the one beside the checkout.
+  FFmpeg's own `C:\ffmpeg\bin` became a parameter, so it can never answer for
+  a binary that is not FFmpeg. The ReplayGain analyzer's
+  `get_resource_path` — a bundle-aware helper whose last caller converged on
+  D-39 — is gone, with the test that asserted it returned a string, and the
+  reuse lock now fails on any shipped module outside the resolver that reads
+  `sys._MEIPASS`.
+
 - **The reuse lock sees the second way a module can pick FFmpeg.** It only
   recognised `shutil.which("ffmpeg")`, so the ReplayGain analyzer's
   `get_resource_path("ffmpeg.exe")` plus `os.path.exists` passed the sweep that

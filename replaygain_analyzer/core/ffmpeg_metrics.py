@@ -3,7 +3,6 @@ ffmpeg_metrics.py
 ReplayGain's Loudness (LUFS), true peak (dBFS) and duration figures.
 
 Pure function — no tkinter imports, no global state.
-Also owns get_resource_path() for PyInstaller compatibility.
 
 FFmpeg resolution
 -----------------
@@ -16,6 +15,11 @@ Changed in 2.5.0: ``_get_ffmpeg_exe`` returns the shared ``FFMPEG_PATH``
 (plan D-39). The Windows-only "ffmpeg.exe beside this file" branch is gone;
 a bundled binary is found in ``sys._MEIPASS`` by the shared resolver instead,
 which is where a one-file build actually puts it.
+
+Changed in 2.5.0: ``get_resource_path`` is gone. That branch was its only
+caller, so once the branch converged it was a PyInstaller-aware lookup nothing
+ran, kept alive by a test asserting it returned a string. The reuse lock now
+fails on a bundle lookup outside the shared resolver (plan D-41).
 
 Changed in 2.4.2: the measurement moved to
 ``audio_suite_shared.audio_probe``; ``get_metrics`` and
@@ -36,9 +40,7 @@ track's length, not just its integrated loudness (audit R-01).
 """
 
 import logging
-import os
 import subprocess
-import sys
 
 from audio_suite_shared import audio_probe
 from audio_suite_shared.exceptions import AudioExternalToolError, AudioSuiteError
@@ -59,23 +61,6 @@ _FFMPEG_MISSING_HINT = (
     "or place the ffmpeg binary beside the audio_suite_shared module "
     "(or the frozen AudioSuite executable)."
 )
-
-
-def get_resource_path(relative_path: str) -> str:
-    """
-    Return the absolute path to a bundled resource.
-
-    Works in normal dev mode and when frozen by PyInstaller.
-
-    Args:
-        relative_path: Path relative to the package or PyInstaller bundle root.
-
-    Returns:
-        Absolute filesystem path to the resource.
-    """
-    if hasattr(sys, "_MEIPASS"):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
 
 
 def _get_ffmpeg_exe() -> str:

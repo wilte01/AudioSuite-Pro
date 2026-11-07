@@ -1,12 +1,21 @@
 """Fingerprint generation via the external ``fpcalc`` binary.
 
 Resolution order for the binary:
-    explicit `--fpcalc` path  >  ``FPCALC`` environment variable  >  PATH
+    explicit `--fpcalc` path  >  ``FPCALC`` environment variable
+    >  ``audio_suite_shared.ffmpeg.search_binary`` (PATH, then beside this
+    module or the frozen executable, then a PyInstaller bundle)
     >  the ``fpcalc.exe`` committed at the checkout root.
 
 The committed copy is the last resort, so an intentional PATH install still
 wins, while a plain source checkout fingerprints out of the box without
 ``--fpcalc`` or a PATH edit.
+
+Changed in 2.5.0: the search between the environment variable and the
+committed copy is the shared one (plan D-41). This module asked ``PATH``
+itself and then a checkout path, so a frozen build never looked in
+``sys._MEIPASS`` and ran whatever copy happened to sit beside the checkout -
+the same gap the ReplayGain analyzer's FFmpeg lookup had (D-39), in the other
+binary the suite ships.
 
 The fingerprint inside ``FINGERPRINT=`` can be extremely long (one integer
 per ~2.5ms of audio), so fpcalc output is captured as text and parsed
@@ -29,10 +38,10 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from audio_suite_shared.ffmpeg import search_binary
 from audio_suite_shared.secure_subprocess import (
     SubprocessSecurityError,
     run_secure_subprocess,
@@ -70,7 +79,8 @@ def resolve_fpcalc(explicit_path: str | None = None) -> str:
     """Locate the ``fpcalc`` executable.
 
     Resolution order is ``explicit_path``, then the ``FPCALC`` environment
-    variable, then a ``shutil.which`` scan of PATH, then the copy of
+    variable, then the shared search (``PATH``, beside this module or the
+    frozen executable, then the PyInstaller bundle), then the copy of
     ``fpcalc.exe`` shipped at the checkout root (``SHIPPED_FPCALC``).
 
     Args:
@@ -95,9 +105,9 @@ def resolve_fpcalc(explicit_path: str | None = None) -> str:
         if os.path.isfile(candidate):
             return os.path.abspath(candidate)
 
-    found = shutil.which("fpcalc")
+    found = search_binary("fpcalc")
     if found:
-        return os.path.abspath(found)
+        return found
 
     if SHIPPED_FPCALC.is_file():
         return str(SHIPPED_FPCALC)

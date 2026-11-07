@@ -41,7 +41,6 @@ from replaygain_analyzer.core.ffmpeg_metrics import (
     _get_ffmpeg_exe,
     _get_startupinfo,
     get_metrics,
-    get_resource_path,
 )
 from replaygain_analyzer.core.file_processor import (
     apply_replaygain_tags,
@@ -88,15 +87,9 @@ MOCK_STDERR_NO_PEAK = (
 # ═════════════════════════════════════════════════════════════════════════════
 
 
-class TestGetResourcePath:
-    def test_returns_string(self) -> None:
-        assert isinstance(get_resource_path("ffmpeg.exe"), str)
-
-    def test_path_contains_relative_component(self) -> None:
-        result = get_resource_path("ffmpeg.exe")
-        assert "ffmpeg.exe" in result
-
-
+# Changed in 2.5.0: ``TestGetResourcePath`` went with the helper it tested. Its
+# two assertions said a PyInstaller lookup returned a string, which was true of
+# code no run reached (plan D-41); the product value is ``FFMPEG_PATH``.
 class TestGetFfmpegExe:
     """2.5.0 (plan D-39): the lookup belongs to ``audio_suite_shared.ffmpeg``.
 

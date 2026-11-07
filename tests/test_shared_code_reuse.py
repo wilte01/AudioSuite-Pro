@@ -21,6 +21,11 @@ analyzer's ``get_resource_path("ffmpeg.exe")``-plus-``exists`` lookup survived
 the sweep that found every other copy (plan D-40); ``_joins_a_binary_path``
 now catches a spelled-out binary name handed to a path builder.
 
+Changed in 2.5.0: a third rule, wider than a binary. ``sys._MEIPASS`` is where
+a one-file build unpacks a packaged file, so a module that reads it has built
+its own PyInstaller lookup - which is how that ``get_resource_path`` helper
+outlived its last caller (plan D-41).
+
 The suite already locks two neighbouring boundaries, and this module does not
 repeat them: ``tests/test_subprocess_boundary.py`` owns process spawning and
 ``tests/test_filename_safety.py`` owns the filename character set.
@@ -74,6 +79,13 @@ BINARY_PATH_ALLOWLIST: dict[str, str] = {}
 BINARY_FILE_NAMES: frozenset[str] = frozenset(
     {"ffmpeg", "ffmpeg.exe", "ffprobe", "ffprobe.exe"}
 )
+
+#: Modules allowed to read ``sys._MEIPASS``, with the reason. A bundle lookup
+#: decides where a packaged file lives, so it belongs beside the resolver that
+#: already owns that source rather than in the tool that needs the file.
+BUNDLE_LOOKUP_ALLOWLIST: dict[str, str] = {
+    "audio_suite_shared/ffmpeg.py": "the suite's one bundle-aware resolver",
+}
 
 #: Modules allowed to write the suite's config file, with the reason.
 CONFIG_WRITER_ALLOWLIST: dict[str, str] = {
@@ -224,6 +236,40 @@ def _joins_a_binary_path(source: str) -> bool:
     return False
 
 
+def _reads_the_frozen_bundle(source: str) -> bool:
+    """Report whether a module reads PyInstaller's ``sys._MEIPASS``.
+
+    Both spellings count: the attribute itself, and the ``getattr`` form a
+    module uses when the name is absent outside a build. Reading it is how a
+    module finds a file a one-file build unpacked, which is a location
+    decision - the resolver already owns every one of those.
+
+    Args:
+        source: The module's text.
+
+    Returns:
+        True for ``sys._MEIPASS`` or ``getattr(sys, "_MEIPASS", None)``.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Attribute):
+            if node.attr == "_MEIPASS":
+                return True
+        elif isinstance(node, ast.Call):
+            function = node.func
+            name = getattr(function, "id", "") or getattr(function, "attr", "")
+            if name != "getattr" or len(node.args) < 2:
+                continue
+            target, key = node.args[0], node.args[1]
+            if (
+                isinstance(target, ast.Name)
+                and target.id == "sys"
+                and isinstance(key, ast.Constant)
+                and key.value == "_MEIPASS"
+            ):
+                return True
+    return False
+
+
 def _writes_suite_config(source: str) -> bool:
     """Report whether a module serialises the suite's own config file.
 
@@ -267,6 +313,16 @@ def test_the_detectors_can_fail() -> None:
     assert not _joins_a_binary_path('run_secure_subprocess("ffmpeg", args)\n')
     assert not _joins_a_binary_path(
         "from audio_suite_shared.ffmpeg import FFMPEG_PATH\n"
+    )
+    # A frozen-bundle lookup is a location decision too, in either spelling.
+    assert _reads_the_frozen_bundle('bundle = getattr(sys, "_MEIPASS", None)\n')
+    assert _reads_the_frozen_bundle(
+        "def f():\n    return os.path.join(sys._MEIPASS, relative_path)\n"
+    )
+    assert not _reads_the_frozen_bundle('frozen = getattr(sys, "frozen", False)\n')
+    assert not _reads_the_frozen_bundle('"""A build unpacks into sys._MEIPASS."""\n')
+    assert not _reads_the_frozen_bundle(
+        "from audio_suite_shared.ffmpeg import search_binary\n"
     )
 
 
@@ -320,6 +376,27 @@ def test_no_module_builds_its_own_path_to_a_binary() -> None:
     )
 
 
+def test_only_the_shared_resolver_reads_the_frozen_bundle() -> None:
+    """A bundle lookup outside the resolver decides where a packaged file is.
+
+    ``sys._MEIPASS`` is the directory a one-file build unpacks into, so it is
+    the same source the FFmpeg resolver owns. ReplayGain's
+    ``get_resource_path`` kept a private copy of it alive with no caller (plan
+    D-41); this is what stops the next one from being written.
+    """
+    offenders = [
+        _relative(path)
+        for path in _runtime_sources()
+        if _reads_the_frozen_bundle(path.read_text(encoding="utf-8"))
+        and _relative(path) not in BUNDLE_LOOKUP_ALLOWLIST
+    ]
+
+    assert offenders == [], (
+        "these modules read sys._MEIPASS instead of calling "
+        f"audio_suite_shared.ffmpeg.search_binary: {offenders}"
+    )
+
+
 def test_the_suite_config_file_has_one_writer() -> None:
     """Every preference goes through ``suite_config``: one file, one writer."""
     offenders = [
@@ -341,6 +418,7 @@ def test_every_allowlist_entry_names_a_real_file() -> None:
         *EXTENSION_LIST_ALLOWLIST,
         *FFMPEG_FINDER_ALLOWLIST,
         *BINARY_PATH_ALLOWLIST,
+        *BUNDLE_LOOKUP_ALLOWLIST,
         *CONFIG_WRITER_ALLOWLIST,
     }
 
