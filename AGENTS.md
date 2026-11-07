@@ -261,8 +261,9 @@ itself (a `shutil.which` lookup, or a hand-built path to a binary it ships —
 `ffmpeg.exe`, `fpcalc.exe`, `discid.dll`), reads
 `sys._MEIPASS` to find a packaged file, builds a Tk root to show a launcher's
 error dialog, finds the installation root by matching a directory's name,
-derives a path from its own `__file__` instead of `package_path`, or writes
-`audio_suite_config.json` directly. Existing copies are
+derives a path from its own `__file__` instead of `package_path`, climbs from
+`__file__` to reach the installation root instead of calling `suite_root`, or
+writes `audio_suite_config.json` directly. Existing copies are
 frozen in its allowlist **with a reason and a plan entry**; a new copy fails,
 and every entry is load-bearing — it must still trip its own rule, or it is dead
 weight that pre-approves the next copy (the registry in that file fails a rule

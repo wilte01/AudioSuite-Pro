@@ -36,6 +36,11 @@ ships, not only FFmpeg: ``fpcalc``/``fpcalc.exe`` and ``discid.dll`` joined
 ``BINARY_FILE_NAMES``, and the two files that legitimately locate a shipped
 copy carry their reason in the allowlist (plan D-43).
 
+Changed in 2.5.0: a fifth location rule, for a module that climbs from its own
+``__file__``: one level up is the package, which ``package_path`` answers; two
+or more is the installation root, which ``suite_root`` answers. The one module
+allowed to climb is the ``sys.path`` bootstrap, because the resolver it would
+call is not importable yet.
 Changed in 2.5.0: a fourth location rule. A module that derives a path from
 its own ``__file__`` is naming a file inside its own package, and every copy
 of that answer reads a different file the moment it is written from a
@@ -503,6 +508,102 @@ def _builds_its_own_package_path(source: str) -> bool:
     return False
 
 
+def _ascent_steps(node: ast.expr) -> int | None:
+    """Return how many levels *node* climbs from ``__file__``.
+
+    ``Path(__file__)`` is 0, ``.parent`` is 1, ``parents[2]`` is 2, and a
+    ``dirname`` adds one to whatever it wraps. A node that does not reach
+    ``__file__`` at all is ``None``, so ``Path(module_file)`` inside the
+    shared helper is not an ascent.
+
+    Args:
+        node: An expression node.
+
+    Returns:
+        The number of levels climbed, or ``None`` when unanchored.
+    """
+    if isinstance(node, ast.Call):
+        name = getattr(node.func, "id", "") or getattr(node.func, "attr", "")
+        if name in {"resolve", "absolute", "expanduser"} and node.args == []:
+            return _ascent_steps(node.func.value)
+        if name in {"dirname", "abspath"}:
+            return _plus_one([_ascent_steps(argument) for argument in node.args])
+        if name == "Path" and len(node.args) == 1:
+            argument = node.args[0]
+            if isinstance(argument, ast.Name) and argument.id == "__file__":
+                return 0
+            return _ascent_steps(argument)
+        return None
+    if isinstance(node, ast.Attribute):
+        if node.attr == "parent":
+            return _plus_one([_ascent_steps(node.value)])
+        return _ascent_steps(node.value) if node.attr else None
+    if isinstance(node, ast.Subscript):
+        inner = node.value
+        if isinstance(inner, ast.Attribute) and inner.attr == "parents":
+            base = _ascent_steps(inner.value)
+            if base is None:
+                return None
+            index = node.slice
+            if isinstance(index, ast.Constant) and isinstance(index.value, int):
+                return base + index.value
+            return base + 1
+        return None
+    if isinstance(node, ast.Name):
+        return 0 if node.id == "__file__" else None
+    return None
+
+
+def _plus_one(steps: list[int | None]) -> int | None:
+    """Add one level to the first anchored child, or ``None``."""
+    for step in steps:
+        if step is not None:
+            return step + 1
+    return None
+
+
+def _ascends_from_the_module_file(source: str) -> bool:
+    """Report whether a module climbs above its own package from ``__file__``.
+
+    One level is the package directory and belongs to ``package_path``; two
+    or more is the installation root, which ``suite_root`` answers. The
+    copies reached for it as ``parents[2]``, ``parent.parent`` or a nested
+    ``dirname``, and every one of them re-derived a root the resolver
+    already owns - the shape that made ``open_help`` depend on where a
+    shortcut was started from (plan D-44).
+
+    Args:
+        source: The module's text.
+
+    Returns:
+        True when an expression anchored on ``__file__`` climbs two or more
+        levels, or indexes ``parents`` one level or more.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Subscript):
+            inner = node.value
+            if isinstance(inner, ast.Attribute) and inner.attr == "parents":
+                index = node.slice
+                if isinstance(index, ast.Constant) and isinstance(index.value, int):
+                    if index.value >= 1 and _ascent_steps(inner.value) is not None:
+                        return True
+        steps = _ascent_steps(node)
+        if steps is not None and steps >= 2:
+            return True
+    return False
+
+
+#: The one module that may climb from its own ``__file__``.  Every entry is
+#: load-bearing (see the sweep below).
+ASCENT_ALLOWLIST: dict[str, str] = {
+    "album_art_normalizer/__main__.py": (
+        "the ``python -m`` bootstrap: its ``sys.path`` insert is what makes "
+        "``audio_suite_shared`` importable, so the resolver it would call "
+        "does not exist yet (D-44)"
+    ),
+}
+
+
 #: Modules that may name a file inside their own package without
 #: ``package_path``.  Every entry is load-bearing (see the sweep below).
 PACKAGE_PATH_ALLOWLIST: dict[str, str] = {
@@ -560,6 +661,7 @@ ALLOWLIST_RULES: dict[str, tuple[Callable[[str], bool], dict[str, str]]] = {
         _builds_its_own_package_path,
         PACKAGE_PATH_ALLOWLIST,
     ),
+    "ASCENT_ALLOWLIST": (_ascends_from_the_module_file, ASCENT_ALLOWLIST),
 }
 
 
@@ -671,6 +773,20 @@ def test_the_detectors_can_fail() -> None:
     assert _builds_its_own_package_path("root = Path(__file__).resolve().parents[1]\n")
     assert not _builds_its_own_package_path('LOG = package_path(__file__, "x.txt")\n')
     assert not _builds_its_own_package_path('"""Path(__file__).parent, once."""\n')
+    # Climbing one level is the package; two is the installation root.
+    assert _ascends_from_the_module_file("R = Path(__file__).resolve().parents[2]\n")
+    assert _ascends_from_the_module_file("R = Path(__file__).parent.parent\n")
+    assert _ascends_from_the_module_file("R = Path(__file__).resolve().parents[1]\n")
+    assert _ascends_from_the_module_file(
+        "here = Path(os.path.dirname(os.path.dirname(__file__)))\n"
+    )
+    assert not _ascends_from_the_module_file("here = Path(__file__).parent\n")
+    assert not _ascends_from_the_module_file(
+        'here = package_path(__file__, "..", "core")\n'
+    )
+    assert not _ascends_from_the_module_file(
+        "here = Path(module_file).resolve().parent\n"
+    )
 
 
 def test_no_module_declares_its_own_audio_extension_list() -> None:
@@ -815,6 +931,55 @@ def test_no_module_derives_a_path_from_its_own_file() -> None:
     assert offenders == [], (
         "these modules derive a path from their own __file__ instead of "
         f"calling suite_paths.package_path: {offenders}"
+    )
+
+
+def _shipped_package_sources() -> list[Path]:
+    """Return the modules inside a package the suite ships.
+
+    Test modules locate fixtures in the shared ``tests/data`` tree, the
+    ``utilities/`` scripts are developer tooling, and ``documentation/`` is
+    a build tree whose ``conf.py`` is deliberately stdlib-only - it inserts
+    the checkout root into ``sys.path`` *so that* autodoc can import the
+    package without an install, so it cannot import this helper instead.
+    None of the three is shipped code, and none is held to this rule.
+    """
+    packages = {
+        entry.name
+        for entry in REPO_ROOT.iterdir()
+        if entry.is_dir()
+        and (entry / "__init__.py").is_file()
+        and entry.name != "tests"
+    }
+    return [
+        path
+        for path in _runtime_sources()
+        if path.suffix == ".py" and path.relative_to(REPO_ROOT).parts[0] in packages
+    ]
+
+
+def test_no_shipped_module_ascends_from_its_own_file() -> None:
+    """The root comes from ``suite_root``, never from climbing ``__file__``.
+
+    ``package_path`` answers one level up; everything above that is the
+    installation, and a module that counts its own position to find it is
+    wrong the moment the file moves, the package is installed elsewhere, or
+    the build is frozen. The bootstrap is the single recorded exemption.
+    """
+    sources = _shipped_package_sources()
+    assert len(sources) > 100, (
+        f"the shipped-package scan found only {len(sources)} modules"
+    )
+    offenders = [
+        _relative(path)
+        for path in sources
+        if _ascends_from_the_module_file(path.read_text(encoding="utf-8"))
+        and _relative(path) not in ASCENT_ALLOWLIST
+    ]
+
+    assert offenders == [], (
+        "these modules climb from their own __file__ instead of calling "
+        f"suite_paths.suite_root: {offenders}"
     )
 
 
