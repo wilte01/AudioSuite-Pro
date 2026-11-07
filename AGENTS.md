@@ -260,7 +260,10 @@ itself (a `shutil.which` lookup, or a hand-built path to a binary it ships —
 `sys._MEIPASS` to find a packaged file, builds a Tk root to show a launcher's
 error dialog, finds the installation root by matching a directory's name, or
 writes `audio_suite_config.json` directly. Existing copies are
-frozen in its allowlist **with a reason and a plan entry**; a new copy fails.
+frozen in its allowlist **with a reason and a plan entry**; a new copy fails,
+and every entry is load-bearing — it must still trip its own rule, or it is dead
+weight that pre-approves the next copy (the registry in that file fails a rule
+whose allowlist skipped the sweep).
 Its sweep reads `*.pyw` as well as `*.py`, because the launchers are the one
 kind of shipped code no other gate parses.
 Adding an allowlist entry is a deliberate, reviewable decision, not the way to

@@ -36,6 +36,17 @@ ships, not only FFmpeg: ``fpcalc``/``fpcalc.exe`` and ``discid.dll`` joined
 ``BINARY_FILE_NAMES``, and the two files that legitimately locate a shipped
 copy carry their reason in the allowlist (plan D-43).
 
+Changed in 2.5.0: every allowlist is now load-bearing. Only the hand-built
+binary-path rule held its entries to still tripping the rule; the other six
+could keep an entry whose copy had long been converged, and a stale entry
+silently pre-approves the next module that copies the capability. One sweep
+walks a registry of every allowlist, so a rule added without joining it fails
+here instead of going unchecked. It found the rule's own blind spot first:
+``_extension_lists`` read only plain assignments, so every annotated
+``X: tuple[str, ...] = (...)`` was invisible - two copies were hiding behind
+that (the tag-helper writer's per-family routing and the Tag Field Updater's
+scan list), and three allowlist entries excused nothing at all.
+
 The suite already locks two neighbouring boundaries, and this module does not
 repeat them: ``tests/test_subprocess_boundary.py`` owns process spawning and
 ``tests/test_filename_safety.py`` owns the filename character set.
@@ -44,6 +55,7 @@ repeat them: ``tests/test_subprocess_boundary.py`` owns process spawning and
 from __future__ import annotations
 
 import ast
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -54,30 +66,40 @@ SKIPPED_DIRS = frozenset(
 )
 
 #: Modules allowed to declare a literal audio-extension list, with the reason.
+#: Every entry must still trip the rule (see
+#: ``test_every_allowlist_entry_is_load_bearing``): three used to sit here
+#: without doing so — the format matrix itself declares no literal list, the
+#: enhancer's FFmpeg lane names three containers (below the floor), and the
+#: shared resolver spells no extension at all.
 EXTENSION_LIST_ALLOWLIST: dict[str, str] = {
-    "audio_suite_shared/audio_formats.py": "the suite's one format matrix",
     "metadata_scrubber/core/scrubber.py": (
         "routes each file to the tag family that can hold it (APEv2, Vorbis, "
         "ID3); the sets are disjoint by family, not a copy of the format list"
+    ),
+    "audio_suite_shared/tag_helper_writer.py": (
+        "the same per-family routing on the writing side: an ID3, MP4 or APEv2 "
+        "block is chosen by container, not by a second format list"
     ),
     "audio_refinery/core/trim.py": (
         "the containers whose frames a stream copy can cut; a writable subset "
         "of the format matrix, which is why it is declared as such"
     ),
-    "audio_enhancer/core/ffmpeg_io.py": (
-        "the containers its own FFmpeg lane handles; predates the shared "
-        "format matrix's capability flags"
-    ),
     "audio_joiner/core/join.py": (
         "the containers whose tags the joiner copies; a tagging subset of the "
         "format matrix"
     ),
+    "tag_field_updater/core/mapping_engine.py": (
+        "the containers its per-format rules cover, deliberately including the "
+        "read-only .wma so a scan reports the refusal instead of skipping the "
+        "file without a word"
+    ),
 }
 
 #: Modules allowed to resolve the FFmpeg binary themselves, with the reason.
-FFMPEG_FINDER_ALLOWLIST: dict[str, str] = {
-    "audio_suite_shared/ffmpeg.py": "the suite's one FFmpeg/FFprobe resolver",
-}
+#: Empty by design: the copy shape is ``shutil.which`` with a literal name, and
+#: the shared resolver passes a parameter (``shutil.which(name)``), so it never
+#: matched the rule and needed no entry.  An entry must trip the rule to exist.
+FFMPEG_FINDER_ALLOWLIST: dict[str, str] = {}
 
 #: Modules allowed to build a path to a binary by hand, with the reason.
 #: The resolver needed no entry - it assembles its name from an f-string - so
@@ -166,21 +188,31 @@ def _relative(path: Path) -> str:
 def _extension_lists(source: str) -> list[str]:
     """Return the audio-extension literals a module declares.
 
+    Changed in 2.5.0: annotated assignments count. The rule only saw
+    ``FORMAT_EXTENSIONS = (…)`` and was blind to the style the tree actually
+    uses — ``COPY_EXTENSIONS: tuple[str, ...] = (".mp3", …)`` — so every
+    annotated list, including three the allowlist claimed to excuse, was
+    invisible to it.
+
     Args:
         source: The module's text.
 
     Returns:
-        One rendered literal per assignment to an ``…EXTENSIONS`` name whose
-        value is a set or tuple of at least :data:`_MIN_EXTENSIONS` dotted
-        strings, e.g. ``{'.mp3', '.flac', '.m4a', '.ogg'}``.
+        One rendered literal per assignment (plain or annotated) to an
+        ``…EXTENSIONS`` name whose value is a set or tuple of at least
+        :data:`_MIN_EXTENSIONS` dotted strings, e.g. ``{'.mp3', …, '.ogg'}``.
     """
     found: list[str] = []
     for node in ast.walk(ast.parse(source)):
-        if not isinstance(node, ast.Assign):
+        if isinstance(node, ast.Assign):
+            targets: list[ast.expr] = list(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
             continue
-        if not any(
+        if node.value is None or not any(
             isinstance(target, ast.Name) and "EXTENSIONS" in target.id.upper()
-            for target in node.targets
+            for target in targets
         ):
             continue
         calls = list(ast.walk(node.value))
@@ -394,6 +426,71 @@ def _writes_suite_config(source: str) -> bool:
     return "audio_suite_config" in source and "json.dump(" in source
 
 
+def _declares_an_extension_list(source: str) -> bool:
+    """Report whether a module declares its own audio-extension list.
+
+    Args:
+        source: The module's text.
+
+    Returns:
+        True when :func:`_extension_lists` finds at least one such list.
+    """
+    return bool(_extension_lists(source))
+
+
+#: One entry per frozen allowlist: the name it is declared under, the detector
+#: that decides its rule, and the allowlist itself.  The load-bearing sweep
+#: walks this table, and a test below fails when an allowlist is missing from
+#: it, so a new rule cannot ship with an unchecked escape hatch.
+ALLOWLIST_RULES: dict[str, tuple[Callable[[str], bool], dict[str, str]]] = {
+    "EXTENSION_LIST_ALLOWLIST": (
+        _declares_an_extension_list,
+        EXTENSION_LIST_ALLOWLIST,
+    ),
+    "FFMPEG_FINDER_ALLOWLIST": (_resolves_ffmpeg, FFMPEG_FINDER_ALLOWLIST),
+    "BINARY_PATH_ALLOWLIST": (_joins_a_binary_path, BINARY_PATH_ALLOWLIST),
+    "BUNDLE_LOOKUP_ALLOWLIST": (
+        _reads_the_frozen_bundle,
+        BUNDLE_LOOKUP_ALLOWLIST,
+    ),
+    "ROOT_NAME_LOOKUP_ALLOWLIST": (
+        _hunts_the_suite_root_by_name,
+        ROOT_NAME_LOOKUP_ALLOWLIST,
+    ),
+    "DIALOG_ALLOWLIST": (
+        _hand_builds_a_failure_dialog,
+        DIALOG_ALLOWLIST,
+    ),
+    "CONFIG_WRITER_ALLOWLIST": (_writes_suite_config, CONFIG_WRITER_ALLOWLIST),
+}
+
+
+def _stale_allowlist_entries(
+    entries: Mapping[str, str],
+    detector: Callable[[str], bool],
+    texts: Mapping[str, str],
+) -> list[str]:
+    """Return the allowlisted files that no longer trip *detector*.
+
+    An entry is load-bearing only while its file still exists and still matches
+    the rule it excuses.  One that does neither is dead weight that pre-approves
+    the next module to copy the capability, which is the failure this sweep
+    exists to catch.
+
+    Args:
+        entries: The allowlist, ``{repo-relative path: reason}``.
+        detector: The rule's detector, taking a module's text.
+        texts: Every shipped module's text, keyed like *entries*.
+
+    Returns:
+        The entries whose file is absent or no longer matches, in allowlist
+        order, so a failure names exactly what to remove or fix.
+    """
+    return [
+        entry for entry in entries if entry not in texts or not detector(texts[entry])
+    ]
+
+
 def test_the_scan_finds_the_runtime_tree() -> None:
     """The scan is non-vacuous: an empty walk would pass every check below."""
     sources = _runtime_sources()
@@ -519,14 +616,9 @@ def test_no_module_builds_its_own_path_to_a_binary() -> None:
         "these modules build their own path to a binary the suite ships "
         f"instead of using the shared resolver: {offenders}"
     )
-    # An entry that no longer trips the rule would silently pre-approve the
-    # next module that does, so each one is held to being load-bearing.
-    stale = [
-        rel
-        for rel in BINARY_PATH_ALLOWLIST
-        if rel not in texts or not _joins_a_binary_path(texts[rel])
-    ]
-    assert stale == [], f"allowlisted files that no longer trip the rule: {stale}"
+    # Each entry is held to being load-bearing by
+    # test_every_allowlist_entry_is_load_bearing below, so a converged copy
+    # cannot leave an escape hatch behind for the next one.
 
 
 def test_only_the_shared_resolver_reads_the_frozen_bundle() -> None:
@@ -608,16 +700,63 @@ def test_the_suite_config_file_has_one_writer() -> None:
 
 def test_every_allowlist_entry_names_a_real_file() -> None:
     """A stale allowlist entry would silently widen the rule for a new file."""
-    declared = {
-        *EXTENSION_LIST_ALLOWLIST,
-        *FFMPEG_FINDER_ALLOWLIST,
-        *BINARY_PATH_ALLOWLIST,
-        *BUNDLE_LOOKUP_ALLOWLIST,
-        *ROOT_NAME_LOOKUP_ALLOWLIST,
-        *DIALOG_ALLOWLIST,
-        *CONFIG_WRITER_ALLOWLIST,
-    }
+    declared = {entry for _, entries in ALLOWLIST_RULES.values() for entry in entries}
 
     missing = sorted(entry for entry in declared if not (REPO_ROOT / entry).is_file())
 
     assert missing == [], f"allowlist entries whose file no longer exists: {missing}"
+
+
+def test_the_stale_entry_sweep_can_fail() -> None:
+    """The sweep must report a stale entry, not pass because it saw nothing.
+
+    A harness that cannot fail is worse than none: these three cases pin the
+    verdict on the detector's answer rather than on the sweep merely running.
+    """
+    clean = {"a.py": "from audio_suite_shared.ffmpeg import FFMPEG_PATH\n"}
+    assert _stale_allowlist_entries(
+        {"a.py": "a reason"}, _joins_a_binary_path, clean
+    ) == ["a.py"]
+    assert _stale_allowlist_entries(
+        {"renamed.py": "a reason"}, _joins_a_binary_path, clean
+    ) == ["renamed.py"]
+    offending = {"b.py": 'os.path.join(here, "ffmpeg.exe")\n'}
+    assert (
+        _stale_allowlist_entries({"b.py": "a reason"}, _joins_a_binary_path, offending)
+        == []
+    )
+
+
+def test_every_allowlist_entry_is_load_bearing() -> None:
+    """Every frozen exception still trips its rule, in all seven allowlists."""
+    texts = {
+        _relative(path): path.read_text(encoding="utf-8") for path in _runtime_sources()
+    }
+    stale = [
+        f"{name}: {entry}"
+        for name, (detector, entries) in ALLOWLIST_RULES.items()
+        for entry in _stale_allowlist_entries(entries, detector, texts)
+    ]
+
+    assert stale == [], (
+        "these allowlist entries no longer trip their own rule, so they "
+        f"pre-approve the next copy instead of excusing a live one: {stale}"
+    )
+
+
+def test_every_allowlist_is_covered_by_the_registry() -> None:
+    """A new allowlist cannot ship without joining the load-bearing sweep."""
+    declared = {
+        name
+        for name, value in globals().items()
+        if name.endswith("ALLOWLIST") and isinstance(value, dict)
+    }
+
+    assert declared == set(ALLOWLIST_RULES), (
+        "these allowlists are not in ALLOWLIST_RULES, so nothing checks that "
+        f"their entries are load-bearing: {sorted(declared ^ set(ALLOWLIST_RULES))}"
+    )
+    for name, (_, entries) in ALLOWLIST_RULES.items():
+        assert entries is globals()[name], (
+            f"{name} in ALLOWLIST_RULES is a copy, not the allowlist the rule reads"
+        )
