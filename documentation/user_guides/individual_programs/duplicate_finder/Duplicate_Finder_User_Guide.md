@@ -7,7 +7,7 @@ subtitle: Based on the current Duplicate Finder implementation
 
 Duplicate Finder notices when two files in a library are **the same recording** — the FLAC master and the 128 kbit/s copy you made for a phone, the album track and the version that came back from a compilation — and offers to set the extra copies aside.
 
-It compares audio fingerprints, not file names or tags. The suite's own AcoustID client can tell you that one file *is* a particular recording; this tool answers the different question a library owner asks: **of these four hundred files, which ones are the same recording as each other?**
+It compares audio fingerprints, not file names or tags. The suite's own AcoustID client can tell you that one file **is** a particular recording; this tool answers the different question a library owner asks: **of these four hundred files, which ones are the same recording as each other?**
 
 You choose what happens to the extra copies. **Move to quarantine** (the default) moves them into a folder and records every move in the suite's undo history, so you can put them back. **Delete** and **Replace with an ASX stub** send them to the operating system's Recycle Bin; the first such run installs the required Recycle Bin support automatically. The stub points at the kept file and can be restored later by the ASX Playlist Extractor. The kept copy is never modified.
 
@@ -44,7 +44,7 @@ Setup opens with the shared Run Controls strip — the source folder, **Browse**
 1. Two files are compared only when their durations agree closely and their fingerprints share an exact sub-fingerprint, which is what keeps a large library affordable.
 1. Each candidate pair is measured with a bit-error rate after aligning the two fingerprints — an MP3 adds a few tens of milliseconds of padding, so an unaligned comparison would report two encodings of one recording as different.
 1. Pairs at or below the threshold are joined, and a connected group of files becomes one recording.
-1. The **keeper** is chosen from measured file properties only: lossless first, then bitrate, then sample rate, then the longer file. Tags are deliberately *not* consulted — they are exactly what is unreliable in a duplicate set.
+1. The **keeper** is chosen from measured file properties only: lossless first, then bitrate, then sample rate, then the longer file. Tags are deliberately **not** consulted — they are exactly what is unreliable in a duplicate set.
 1. A live run applies **On duplicate** to every non-keeper. Quarantine moves it into the chosen folder (adding ` (2)`, ` (3)`… rather than overwriting). Delete sends it to the Recycle Bin. ASX stub writes `<name>.asx` beside it, checks that the playlist parses and points at the keeper, and only then sends the duplicate to the Recycle Bin. The keeper is only ever read.
 
 ## Dry Run and Live Update

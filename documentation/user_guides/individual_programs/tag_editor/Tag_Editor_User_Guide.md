@@ -26,7 +26,7 @@ The editor is a three-tab window, like the rest of the suite.
 | Tab | What it shows |
 | --- | --- |
 | 1. Setup | The Run Controls strip (source folder, Browse & Scan, Mode, Auto Start, Auto End), the single-field and bulk edit controls, the CSV buttons and the Library Grid. |
-| 2. Processing | The progress bar, the per-file line list and the running *Processed / Skipped / Errors* counters for the run in progress. |
+| 2. Processing | The progress bar, the per-file line list and the running Processed / Skipped / Errors counters for the run in progress. |
 | 3. Results | The finished run's summary, its total time, and the View Log and Open Folder buttons. |
 
 The **Run Controls** strip is the suite's standard one:
@@ -103,7 +103,7 @@ File values may be absolute or relative to the loaded library folder, so a sprea
 
 Every file value must point inside the loaded library folder. A value that climbs out with a parent-directory reference (..), names a folder elsewhere on the machine, or uses a drive-relative path is reported as an error for that row and skipped, so a pasted spreadsheet can never retag files outside the folder you loaded. Import CSV... also refuses to run until a library folder is selected, because that folder is what file values are resolved against.
 
-Empty cells mean leave unchanged, so re-importing an exported grid never clears a tag. Unrecognised columns are ignored; the Results tab names them under *Ignored columns*. Rows naming a missing or unsupported file, and cells that fail validation, are reported per row and do not stop the remaining rows from applying. Import reads the strip's Mode and records one undo batch for the whole file.
+Empty cells mean leave unchanged, so re-importing an exported grid never clears a tag. Unrecognised columns are ignored; the Results tab names them under **Ignored columns**. Rows naming a missing or unsupported file, and cells that fail validation, are reported per row and do not stop the remaining rows from applying. Import reads the strip's Mode and records one undo batch for the whole file.
 
 ## Dry Run and Live Update
 

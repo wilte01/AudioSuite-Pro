@@ -22,7 +22,7 @@ hierarchy.
 
 Every command that changes a file accepts `--dry` / `--live` (analyse only, or
 write) and `--json` / `--text` (one JSON document on stdout, or the report);
-the complete shared set is in *Options every command accepts*. Each section
+the complete shared set is in **Options every command accepts**. Each section
 below lists its own flags and repeats the mode flag wherever the command's
 two modes do something different.
 
@@ -802,7 +802,7 @@ python utilities/undo.py show <batch_id>
 python utilities/undo.py undo <batch_id>
 ```
 
-See *Undo Batch* at the end of this reference for the batch model and the
+See **Undo Batch** at the end of this reference for the batch model and the
 `--db` option.
 
 ## Suite commands
@@ -974,7 +974,7 @@ here, and each tool's own section above documents its flags.
 | `tempo` | Tempo Analyzer | Enrich |
 
 Undo Tag Edits is the one tool without a row: it operates on the shared undo
-database through `utilities/undo.py`, documented under *Undo Batch*.
+database through `utilities/undo.py`, documented under **Undo Batch**.
 
 ## Headless / Scripting
 

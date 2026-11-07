@@ -46,14 +46,14 @@ Setup opens with the shared Run Controls strip — source folder, **Browse**, th
 Three rules, each of which exists to keep clean audio out of the repair:
 
 1. **Candidates** are the samples at or above the threshold fraction of the file's own peak. A file whose peak is below about −26 dBFS is not examined at all: near-silence is flat everywhere.
-1. **The plateau** is only the run of samples at the *highest* magnitude inside a candidate region. A peak that merely touches the ceiling is curved — exactly one sample sits at the top — so it yields no plateau and is left alone.
+1. **The plateau** is only the run of samples at the **highest** magnitude inside a candidate region. A peak that merely touches the ceiling is curved — exactly one sample sits at the top — so it yields no plateau and is left alone.
 1. **Clean context** must exist on both sides: the samples immediately either side have to sit below the plateau's level. Without that, the "flat top" is simply the waveform, which is why a square wave is refused rather than rounded off.
 
 A plateau is also rejected when the reconstruction cannot rise above it by at least a small margin (about −60 dBFS). If a repair cannot beat the original, it is not a repair.
 
 ## How the Repair Works
 
-The flat top is rebuilt with a cubic-spline interpolation through the clean samples either side of it. A flat top *under*-estimates the true peak, so the spline's natural overshoot is the restoration: for a clipped sine it returns the arc the waveform had before the ceiling cut it.
+The flat top is rebuilt with a cubic-spline interpolation through the clean samples either side of it. A flat top **under**-estimates the true peak, so the spline's natural overshoot is the restoration: for a clipped sine it returns the arc the waveform had before the ceiling cut it.
 
 The result is capped at full scale, so the repair cannot introduce clipping of its own, and a second pass over the repaired file finds nothing to do.
 
@@ -104,7 +104,7 @@ Restoration is available as a standalone utility tool with its own card in the M
 
 - **Everything is clean:** that is the expected result for a file that was never clipped. The detector reports a plateau only when the waveform has a genuinely flat top.
 - **A loud master is reported clean:** the ceiling may be above the threshold fraction, or the peaks may be curved rather than flat. Try a threshold of 0.95 and check the dry-run report again.
-- **A square or synth-heavy track is refused:** its waveform *is* flat, so there is no clean context to interpolate through. Leaving it alone is deliberate.
+- **A square or synth-heavy track is refused:** its waveform **is** flat, so there is no clean context to interpolate through. Leaving it alone is deliberate.
 - **A file with a 0 dBFS ceiling is not repaired:** the reconstruction would have to exceed full scale. Restore that one from a higher-resolution source instead.
 - **The repair changed a file you liked better:** the undo history holds the pre-run copy; Undo Tag Edits restores it byte for byte. Audition before running Live Update over a whole library.
 - **A file errors:** check codec support, permissions, temporary disk space, and the per-file message in the Processing tab.

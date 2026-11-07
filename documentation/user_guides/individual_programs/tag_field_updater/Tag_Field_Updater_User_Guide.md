@@ -183,7 +183,7 @@ When Tag Field Updater is launched from the Master Driver, the source, Mode and 
 
 **Action group: **Pick a saved pattern set and click Load to fill the box and the write mode, or click Save as... to store the current box under a new name.
 
-Below the pattern controls the window names the fields it writes — the custom TXXX fields ALBUMARTISTGENRE, ALBUMGENRE and ARTISTGENRE, plus the standard TIT1 (content group) and TCON (genre) — and points at this guide for the replacement rules, which are documented in full in *Tag Fields Updated* and *Slash Replacement Rules* above instead of being repeated in the window.
+Below the pattern controls the window names the fields it writes — the custom TXXX fields ALBUMARTISTGENRE, ALBUMGENRE and ARTISTGENRE, plus the standard TIT1 (content group) and TCON (genre) — and points at this guide for the replacement rules, which are documented in full in **Tag Fields Updated** and **Slash Replacement Rules** above instead of being repeated in the window.
 
 **START SCANNING: **Begins the recursive scan and switches to the Processing tab. The button is disabled while scanning is in progress.
 

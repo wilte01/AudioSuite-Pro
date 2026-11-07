@@ -38,6 +38,11 @@ Versions of the tools are released together with the suite (the single
   tool's own run — its per-file status lines, worker slots and counters — so the
   Metadata Scrubber guide shows a scrub run and the Genre Sync guide a genre
   resolution, never another tool's output.
+
+- **Guides show emphasis instead of asterisks.** Section references written in italics
+  used to reach the Word copies as literal `*text*`; they now appear as bold text. The
+  Duplicate Finder, Restoration, Tag Editor, Tag Field Updater and CLI reference pages
+  are the ones that carried them.
   A guide the Help button opens therefore shows the controls, the worker slots,
   the per-file status lines and the finished summary it describes, with a
   caption beneath each figure, and the same picture renders in the Word copy as
