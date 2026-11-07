@@ -98,6 +98,7 @@ EXPECTED_SEAMS: frozenset[str] = frozenset({"complete", "progress", "error"})
 EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
     {
         ("album_art_normalizer/app.py", "ArtNormalizerApp"),
+        ("audio_joiner/app.py", "AudioJoinerApp"),
         ("album_genre_tagger/app.py", "GenreConsolidatorApp"),
         ("audio_fingerprinter/app.py", "FingerprinterApp"),
         ("audio_refinery/app.py", "AudioRefineryApp"),

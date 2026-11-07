@@ -16,6 +16,28 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+- **Join recordings into one file, with a crossfade or a gap between them.** The
+  new Audio Joiner (`Audio_Joiner.pyw`, `audiosuite join`) writes a folder's
+  files into one output in the order you set, and the Setup tab shows that order
+  as a list you reorder, with the planned length of the result underneath. A
+  crossfade blends each boundary over the length you give, equal-power so the
+  middle of the fade does not dip the way a straight line does; a gap instead
+  inserts silence of that length, and asking for both at once is refused with
+  both settings named rather than silently picking one. The joined length is the
+  segments plus the gaps minus the overlaps, and it is shown before the run
+  starts. When every segment already carries the first file's codec, sample rate
+  and channel count and no boundary processing is asked for, the join copies the
+  audio streams instead of re-encoding it, and the run report says so; otherwise
+  every segment is re-encoded to the first file's rate and channels. The output
+  keeps the first segment's tags. A file name that itself contains a comma —
+  `1-03 Johnny, Don't Do It.mp3`, say — is still one entry: the split is
+  confirmed against the folder's own files, so the order is honoured instead of
+  the name being cut at its comma. `--order` names the join order, `--output`
+  names the file, and `--gap-ms` / `--crossfade-ms` / `--copy` / `--no-copy`
+  set the rest; an empty `--order` joins every supported file in the folder in
+  sorted order. A Dry Run reports the plan and the resulting length and writes
+  nothing, and each run writes a report beside the folder it read.
+
 - **Split recordings into tracks at their silent gaps.** The new Track Splitter
   (`Track_Splitter.pyw`, `audiosuite split`) finds the silences in a folder's
   recordings with FFmpeg's own silence detector and cuts each one into numbered

@@ -599,6 +599,7 @@ class TestModuleToggles:
         # Refinery
         "audio_refinery",
         "track_splitter",
+        "audio_joiner",
     }
 
     def test_all_expected_keys_present(self, state):

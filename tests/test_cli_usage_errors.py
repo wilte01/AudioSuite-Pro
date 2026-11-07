@@ -111,6 +111,7 @@ _USAGE_CASES: dict[str, dict[str, list[str]]] = {
     "replaygain": {"missing": [], "invalid": [MISSING_PATH]},
     "scrub": {"missing": [], "invalid": [MISSING_PATH]},
     "spectrogram": {"missing": [], "invalid": [MISSING_PATH]},
+    "join": {"missing": [], "invalid": [MISSING_PATH]},
     "split": {"missing": [], "invalid": [MISSING_PATH]},
     "stats": {"missing": [], "invalid": [LIBRARY, "--detail", "bogus"]},
     # ``stems`` requires ``--output-dir``, so the bare invocation is already a

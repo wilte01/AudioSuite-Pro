@@ -1,0 +1,13 @@
+{
+  "captured_by": "utilities/capture_guide_shots.py",
+  "dpi": 120,
+  "height": 700,
+  "palette": "Purple",
+  "png_bytes": 38841,
+  "png_sha256": "eea94cfcd2c6d21d7ba0ac44f4bf1f9c948b84d3243b6e8f1a2a6fb383579b8d",
+  "shot": "processing",
+  "tab": "processing",
+  "theme": "Light",
+  "tool": "audio_joiner",
+  "width": 900
+}

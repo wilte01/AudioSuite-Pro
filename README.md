@@ -1,6 +1,6 @@
 # AudioSuite-Pro
 
-AudioSuite-Pro is a Windows-first audio workbench of 28 first-party tools
+AudioSuite-Pro is a Windows-first audio workbench of 29 first-party tools
 that share one driver, one command line and one registry: tag enrichment
 (BPM, key, mood, lyrics, album art, ReplayGain, genre), DSP repair and
 conversion (loudness normalisation, hum/click removal, silence trimming,
@@ -66,7 +66,7 @@ The matrix below is **generated from the declared classification** in
 #### Tool tiers
 
 * **Windows-only** — `cd_ripper`. The CD subsystem it drives (Win32 SCSI pass-through, drive enumeration) has no portable implementation; the tool fails fast with a named missing requirement rather than degrading silently.
-* **Portable core** — the other 27 of 28 tools. Each has no platform-conditional code in its own package at all, so its non-Windows CLI path is the same code path as on Windows.
+* **Portable core** — the other 28 of 29 tools. Each has no platform-conditional code in its own package at all, so its non-Windows CLI path is the same code path as on Windows.
 
 #### Branch enumeration
 
@@ -230,6 +230,7 @@ The table below is **generated from the tool manifest**
 | Duplicate Finder | Find duplicate recordings by fingerprint and quarantine, delete or stub extras | `Duplicate_Finder.pyw` | `documentation/user_guides/individual_programs/duplicate_finder/Duplicate_Finder_User_Guide.docx` | Portable core |
 | Tag-Based File Reorganizer | Move/copy files into a tag-based folder hierarchy | `File_Reorganizer.pyw` | `documentation/user_guides/individual_programs/file_reorganizer/File_Reorganizer_User_Guide.docx` | Portable core |
 | Track Splitter | Split recordings into tracks at their silent gaps | `Track_Splitter.pyw` | `documentation/user_guides/individual_programs/track_splitter/Track_Splitter_User_Guide.docx` | Portable core |
+| Audio Joiner | Join segments into one file, with gaps or crossfades | `Audio_Joiner.pyw` | `documentation/user_guides/individual_programs/audio_joiner/Audio_Joiner_User_Guide.docx` | Portable core |
 | Restoration (Declip) | Reconstruct flat-topped peaks lost to clipping | `Restoration.pyw` | `documentation/user_guides/individual_programs/restoration/Restoration_User_Guide.docx` | Portable core |
 | Undo Tag Edits | Restore file tags to the way they were before a batch run | `Undo_Tag_Edits.pyw` | `documentation/user_guides/individual_programs/undo_tag_edits/Undo_Tag_Edits_User_Guide.docx` | Portable core |
 

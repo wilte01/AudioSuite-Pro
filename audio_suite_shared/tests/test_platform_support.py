@@ -57,7 +57,7 @@ portable commands, for the two tools F-02 and F-08a add.
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
-Changed in 2.5.0: the portable-core counts cover 28 tools (F-E4).
+Changed in 2.5.0: the portable-core counts cover 29 tools (F-E4 splitter, F-E5 joiner).
 """
 
 from __future__ import annotations
@@ -389,9 +389,9 @@ class TestToolTiers:
         from audio_suite_shared.tool_plugin import get_registry
 
         tools = get_registry().first_party
-        # 27 since 2.6.0: the five DSP tools REFINE runs as stages stopped
+        # 28 since 2.6.0: the five DSP tools REFINE runs as stages stopped
         # shipping their own launcher and command (U-04).
-        assert len(tools) == 28
+        assert len(tools) == 29
         for manifest in tools:
             assert tool_tier(manifest.id) in TIERS
 
@@ -545,9 +545,9 @@ class TestPortableCoreCLI:
         # subcommand to drive under a mocked platform. Named here so that a
         # *new* tool without one is a failure, not a silent pass.
         assert [m.id for m in tools if not m.cli_command] == ["undo_tag_edits"]
-        assert len(with_cli) == 27
-        # 26 of the 27 are portable-core; cd-rip is the Windows-only one.
-        assert len(self._portable_commands()) == 26
+        assert len(with_cli) == 28
+        # 27 of the 28 are portable-core; cd-rip is the Windows-only one.
+        assert len(self._portable_commands()) == 27
 
     @pytest.mark.parametrize("command", _portable_commands())
     def test_portable_tool_help_resolves_under_a_non_windows_platform(

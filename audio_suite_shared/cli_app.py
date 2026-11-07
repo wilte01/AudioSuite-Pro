@@ -168,6 +168,7 @@ _TOOL_CLI_MODULES: tuple[tuple[str, str], ...] = (
     ("asx_extractor.cli", "asx-extract"),
     ("audio_fingerprinter.cli", "fingerprint"),
     ("audio_refinery.cli", "refine"),
+    ("audio_joiner.cli", "join"),
     ("audio_suite_shared.cue_cli", "cue"),
     ("bpm_analyzer.cli", "bpm"),
     ("cd_ripper.cli", "cd-rip"),

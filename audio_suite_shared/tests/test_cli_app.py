@@ -36,7 +36,7 @@ subcommand, so the two new commands are covered by the help-text claim.
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
-Changed in 2.5.0: the help listing covers 28 tools (F-E4).
+Changed in 2.5.0: the help listing covers 29 tools (F-E4 splitter, F-E5 joiner).
 """
 
 from __future__ import annotations
@@ -462,8 +462,8 @@ class TestDiscoverabilityContract:
     ) -> None:
         """The acceptance criterion, stated without inventing a feature.
 
-        Plan G2 asks that ``--help`` list every tool.  27 of the 28 have a
-        subcommand and so are listed; the 27th (``undo_tag_edits``) is a
+        Plan G2 asks that ``--help`` list every tool.  28 of the 29 have a
+        subcommand and so are listed; the 29th (``undo_tag_edits``) is a
         declared GUI-only gap, and listing it would mean building the CLI
         command the plan explicitly does not ask for.  It is therefore
         covered by ``test_no_undeclared_gap_below`` instead of by help text.
@@ -472,11 +472,11 @@ class TestDiscoverabilityContract:
         as pipeline stages no longer ship their own commands (U-04).
         """
         tools = get_registry().first_party
-        assert len(tools) == 28
+        assert len(tools) == 29
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         with_subcommand = [m for m in tools if m.cli_command]
-        assert len(with_subcommand) == 27
+        assert len(with_subcommand) == 28
         for manifest in with_subcommand:
             assert manifest.cli_command in result.output, (
                 f"{manifest.id}: '{manifest.cli_command}' is not listed in "

@@ -789,6 +789,37 @@ audiosuite split "D:\Music\Live" --output-dir "D:\Music\Live\tracks" --boundary 
 audiosuite split "D:\Music\Live" --no-cue --json
 ```
 
+### Audio Joiner
+
+Join a folder's recordings into one output, in the order you name, with an
+optional crossfade or a gap of silence between segments. A crossfade is an
+equal-power blend; a gap inserts silence. Asking for both at once is refused.
+When every segment already matches the first file's codec, sample rate and
+channel count and no boundary processing is asked for, the audio streams are
+copied instead of re-encoded; otherwise every segment is re-encoded to the
+first file's rate and channels. The output keeps the first segment's tags.
+
+```bash
+audiosuite join <directory> [--order A,B,C] [--output FILE] [--gap-ms MS] [--crossfade-ms MS] [--copy|--no-copy] [--dry|--live] [--json]
+```
+
+**Options:**
+
+- `--order A,B,C` — file names in join order, separated by commas; a name that itself contains a comma is still one entry, because the split is confirmed against the folder's files; empty joins every supported file in sorted order (default: every file, sorted)
+- `--output FILE` — output path; unset writes `<first segment>_joined` beside the sources in the first segment's format
+- `--gap-ms MS` — silence inserted at every boundary, in milliseconds (default: 0)
+- `--crossfade-ms MS` — equal-power crossfade length at every boundary, in milliseconds (default: 0); cannot be combined with `--gap-ms`
+- `--copy` / `--no-copy` — copy the audio streams when every segment already matches, or always re-encode (default: copy when compatible)
+- `--dry` / `--live` — report the plan and the joined length without writing, or write the file (default: live)
+
+**Examples:**
+
+```bash
+  audiosuite join "D:\Music\Live" --dry
+audiosuite join "D:\Music\Live" --order 01-intro.flac,02-theme.flac --output "D:\Music\Live\set.flac"
+audiosuite join "D:\Music\Live" --crossfade-ms 2500 --json
+```
+
 ### Undo Tag Edits
 
 Undo Tag Edits restores the tags a batch run changed. It has its own window
@@ -932,7 +963,7 @@ audiosuite cue split "D:\Music\Album\Album.cue" -o "D:\Music\Album\Tracks"
 ## All Commands
 
 Every command the CLI ships, including the suite commands that operate on the
-installation rather than on a folder of audio. Each of the 28 tools appears
+installation rather than on a folder of audio. Each of the 29 tools appears
 here, and each tool's own section above documents its flags.
 
 | Command | Tool | Category |
@@ -966,6 +997,7 @@ here, and each tool's own section above documents its flags.
 | `replaygain` | ReplayGain Analyzer | Enrich |
 | `scrub` | Metadata Scrubber | Enrich |
 | `spectrogram` | Spectral Viewer | Util |
+| `join` | Audio Joiner | Util |
 | `split` | Track Splitter | Util |
 | `stats` | Library Statistics Dashboard | Util |
 | `stems` | Stem Separator | Util |

@@ -117,6 +117,9 @@ def _make_state(
         # Changed in 2.5.0: the Track Splitter is a utility tool whose entry
         # reads its toggle and gap settings (F-E4).
         "track_splitter",
+        # Changed in 2.5.0: the Audio Joiner reads its toggle and boundary
+        # settings (F-E5).
+        "audio_joiner",
     ):
         state.module_toggles[key] = _bool_var(True)
 
@@ -164,6 +167,11 @@ def _make_state(
     state.track_splitter_boundary = _str_var("midpoint")
     state.track_splitter_output_dir = _str_var("")
     state.track_splitter_cue = _bool_var(True)
+    state.audio_joiner_order = _str_var("")
+    state.audio_joiner_output = _str_var("")
+    state.audio_joiner_gap_ms = _str_var("0")
+    state.audio_joiner_crossfade_ms = _str_var("0")
+    state.audio_joiner_copy = _bool_var(True)
     state.file_reorg_output_dir = _str_var("")
     state.file_reorg_action = _str_var("copy")
     state.file_reorg_specific_pattern = _str_var("")

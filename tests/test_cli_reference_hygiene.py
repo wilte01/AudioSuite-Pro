@@ -10,6 +10,10 @@ These locks introspect every documented command and assert:
 
 1. *Parsing non-vacuity* — the parser found ≥ 12 ``audiosuite <cmd>`` usage
    lines across the doc's fenced bash blocks.
+
+Changed in 2.5.0: the Audio Joiner's ``join`` section is covered, and
+``every file, sorted`` joins ``_NULL_DEFAULT_PHRASES`` for an ``--order`` whose
+empty default the command itself decides.
 2. *All resolved* — every documented command name resolves to a registered
    click Command or sub-command (forward direction only; commands present in
    the CLI but missing from the doc are the deferred "6 undocumented table
@@ -541,6 +545,7 @@ _NULL_DEFAULT_PHRASES: frozenset[str] = frozenset(
         "beside each source file",  # --output-dir
         "alongside the cue sheet",  # -o/--output-dir on cue
         "album.cue next to the input",  # -o/--output on cue
+        "every file, sorted",  # --order: empty means the folder supplies the order
     }
 )
 

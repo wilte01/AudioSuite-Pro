@@ -172,6 +172,7 @@ TOOL_IDS: Final[Mapping[str, str]] = {
     "duplicates": "duplicate_finder",
     "fingerprint": "fingerprinter",
     "genre-sync": "genre_sync",
+    "join": "audio_joiner",
     "key": "key",
     "lyrics": "lyrics_manager",
     "mood-analysis-batch": "mood_analysis_batch",
@@ -312,6 +313,15 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
         "written": int,
         "images": list,
         "error_messages": list,
+    },
+    "join": {
+        # The file written, its planned length, how many segments fed it, and
+        # whether the writer copied the streams or re-encoded them.
+        "output": str,
+        "duration_ms": int,
+        "segments": int,
+        "reencoded": bool,
+        "tags_copied": bool,
     },
     "split": {
         # How many tracks the plan produced, how many files were actually

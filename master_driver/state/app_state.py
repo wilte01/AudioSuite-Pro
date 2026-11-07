@@ -260,6 +260,14 @@ class AppState:
         self.track_splitter_output_dir = tk.StringVar(master, value="")
         self.track_splitter_cue = tk.BooleanVar(master, value=True)
 
+        # Changed in 2.5.0: the Audio Joiner's boundary settings (F-E5).  Its
+        # module toggle comes from the registry like every other tool's.
+        self.audio_joiner_order = tk.StringVar(master, value="")
+        self.audio_joiner_output = tk.StringVar(master, value="")
+        self.audio_joiner_gap_ms = tk.StringVar(master, value="0")
+        self.audio_joiner_crossfade_ms = tk.StringVar(master, value="0")
+        self.audio_joiner_copy = tk.BooleanVar(master, value=True)
+
         # ── ASX Playlist Extractor controls ──────────────────────────────────
         # Off by default, matching the extractor's CLI and preserving today's
         # top-level-only discovery unless the user asks for a library sweep.

@@ -74,6 +74,9 @@ EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
     "ArtNormalizerApp": frozenset(
         {"total", "processed", "skipped", "errors", "duration_secs", "log_entries"}
     ),
+    "AudioJoinerApp": frozenset(
+        {"total", "processed", "skipped", "errors", "duration_secs"}
+    ),
     "AudioRefineryApp": frozenset(
         {
             "total",
@@ -314,7 +317,7 @@ def test_the_seam_table_covers_every_gui_tool() -> None:
     """A partial table would leave tools silently untested."""
     # 16 since 2.6.0: the enhancer, normalizer and trimmer windows are gone
     # (U-04), so their completion seams went with them.
-    assert len(COMPLETION_WIRINGS) == 17
+    assert len(COMPLETION_WIRINGS) == 18
     assert set(EXPECTED_REQUIRED) == set(COMPLETION_WIRINGS)
 
 

@@ -467,6 +467,16 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         order=55,
     ),
     ToolManifest(
+        id="audio_joiner",
+        name="Audio Joiner",
+        category="utility",
+        pyw_filename="Audio_Joiner.pyw",
+        description="Join segments into one file, with gaps or crossfades",
+        cli_command="join",
+        standalone=True,
+        order=56,
+    ),
+    ToolManifest(
         id="library_stats",
         name="Library Statistics Dashboard",
         category="utility",

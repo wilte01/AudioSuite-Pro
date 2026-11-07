@@ -345,6 +345,26 @@ def _build_utility_tool_args(
             ]
             + ([] if state.track_splitter_cue.get() else ["--no-cue"])
         ),
+        "audio_joiner": lambda: (
+            [path, mode_flag, start_flag, end_flag]
+            + (
+                ["--order", state.audio_joiner_order.get()]
+                if state.audio_joiner_order.get()
+                else []
+            )
+            + (
+                ["--output", state.audio_joiner_output.get()]
+                if state.audio_joiner_output.get()
+                else []
+            )
+            + [
+                "--gap-ms",
+                state.audio_joiner_gap_ms.get() or "0",
+                "--crossfade-ms",
+                state.audio_joiner_crossfade_ms.get() or "0",
+            ]
+            + ([] if state.audio_joiner_copy.get() else ["--no-copy"])
+        ),
         "spectral_viewer": lambda: (
             [
                 path,

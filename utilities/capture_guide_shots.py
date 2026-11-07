@@ -264,6 +264,26 @@ _FINISHED: tuple[str, ...] = _NAMES[:SAMPLE_DONE]
 #: The two files the worker slots show as busy in the same figure.
 _NEXT: tuple[str, ...] = _NAMES[SAMPLE_DONE : SAMPLE_DONE + 2]
 
+#: Per-segment lengths for the Audio Joiner's sample run, in run order.  They
+#: sum to the joined length its Results figure reports, so the Setup preview and
+#: the completed run state the same arithmetic.
+_JOINER_MS: tuple[int, ...] = (4400, 4100, 4300, 4200, 4400, 4100, 4300, 4200, 4412)
+
+
+def _joiner_clock(ms: int) -> str:
+    """Render a segment length the way the joiner's run publishes it.
+
+    Args:
+        ms: The segment's length in milliseconds.
+
+    Returns:
+        ``MM:SS.mmm``, the shape ``run_join`` writes on its per-segment line.
+    """
+    minutes, rest = divmod(ms, 60_000)
+    seconds, millis = divmod(rest, 1000)
+    return f"{minutes:02d}:{seconds:02d}.{millis:03d}"
+
+
 #: The sample folder with the separator a Windows tool displays.
 _SAMPLE_PATH_PREFIX = SAMPLE_FOLDER + "\\"
 
@@ -486,6 +506,20 @@ SAMPLE_RUNS: Mapping[str, SampleRun] = {
             f"Files: {len(SAMPLE_TRACKS)}\n"
             f"Tracks: {len(SAMPLE_TRACKS) * 3}\n"
             f"Written: {len(SAMPLE_TRACKS) * 3}\n"
+            "Errors: 0"
+        ),
+    ),
+    "audio_joiner": SampleRun(
+        status="Joining: Sample Album",
+        lines=tuple(
+            f"{name}  {_joiner_clock(ms)}" for name, ms in zip(_FINISHED, _JOINER_MS)
+        ),
+        slots=_busy_slots("Joining"),
+        stats=f"Segments: {SAMPLE_DONE}/{len(SAMPLE_TRACKS)}  |  Errors: 0",
+        summary=(
+            f"Segments: {len(SAMPLE_TRACKS)}\n"
+            f"Length: {_joiner_clock(sum(_JOINER_MS))}\n"
+            "Writer: stream copy\n"
             "Errors: 0"
         ),
     ),
@@ -996,6 +1030,29 @@ def _populate_asx_processing(app: Any) -> None:
     update_step(3, "active", "  - 6 of 9 files")
 
 
+def _populate_audio_joiner_setup(app: Any) -> None:
+    """Fill the Setup tab with the sample segments, in join order.
+
+    The folder in the figure does not exist on this host, so the list is filled
+    from the declared plan rather than by reading the disk: the figure shows
+    the order and the planned length the window displays for that order.
+
+    Args:
+        app: The live Audio Joiner application.
+    """
+    _populate_run_setup(app)
+    mode = getattr(app, "run_mode", None)
+    if isinstance(mode, tk.StringVar):
+        mode.set("Live Update")
+    segments = [Path(SAMPLE_FOLDER) / name for name in _NAMES]
+    app._segments = segments
+    app._durations = dict(zip(segments, _JOINER_MS))
+    output = getattr(app, "output_path", None)
+    if isinstance(output, tk.StringVar):
+        output.set(SAMPLE_FOLDER + "\\Sample Album_joined.flac")
+    app._render_segments()
+
+
 def _populate_track_splitter_setup(app: Any) -> None:
     """Fill the Setup tab with the sample folder, in the mode its run shows.
 
@@ -1300,6 +1357,16 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
         "TempoAnalyzerApp",
         window=(900, 767),
         populate=GENERIC_POPULATE,
+    ),
+    ToolPlan(
+        "audio_joiner",
+        "audio_joiner.app",
+        "AudioJoinerApp",
+        window=(900, 700),
+        populate={
+            **_fillers("audio_joiner"),
+            "setup": _populate_audio_joiner_setup,
+        },
     ),
     ToolPlan(
         "track_splitter",

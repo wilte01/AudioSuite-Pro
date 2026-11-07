@@ -538,6 +538,15 @@ FORMAT_ROWS: list[list[str]] = [
         "Splits at silent gaps; writes the source's own format and depth",
     ],
     [
+        "Audio Joiner",
+        YES,
+        YES,
+        YES,
+        YES,
+        YES,
+        "Joins a folder in a chosen order, with gaps or equal-power crossfades",
+    ],
+    [
         "Undo Tag Edits",
         YES,
         YES,

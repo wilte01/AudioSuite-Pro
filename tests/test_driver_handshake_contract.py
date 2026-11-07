@@ -101,6 +101,11 @@ class _DriverState:
         "track_splitter_min_track": "5000",
         "track_splitter_boundary": "midpoint",
         "track_splitter_cue": True,
+        "audio_joiner_order": "",
+        "audio_joiner_output": "",
+        "audio_joiner_gap_ms": "0",
+        "audio_joiner_crossfade_ms": "0",
+        "audio_joiner_copy": True,
         "library_stats_incremental": "",
         "spectral_output_dir": "",
         "parallel_var": False,
@@ -197,6 +202,7 @@ HANDSHAKE_TOOLS: dict[str, ToolSpec] = {
     "duplicate_finder": ToolSpec("duplicate_finder.utils.cli_args"),
     "restoration": ToolSpec("restoration.utils.cli_args"),
     "track_splitter": ToolSpec("track_splitter.utils.cli_args"),
+    "audio_joiner": ToolSpec("audio_joiner.utils.cli_args"),
     "cd_ripper": ToolSpec("cd_ripper.utils.cli_args", path_attribute="output_dir"),
     "stem_separator": ToolSpec(
         reason=(
@@ -260,8 +266,8 @@ class TestTheTableCoversTheRegistry:
         )
 
     def test_the_table_is_not_empty_and_records_its_exceptions(self) -> None:
-        assert len(HANDSHAKE_TOOLS) == 28
-        assert len(DRIVEN_TOOLS) == 10, DRIVEN_TOOLS
+        assert len(HANDSHAKE_TOOLS) == 29
+        assert len(DRIVEN_TOOLS) == 11, DRIVEN_TOOLS
         excluded = {t for t, spec in HANDSHAKE_TOOLS.items() if spec.reason}
         assert len(excluded) == 18
 

@@ -273,6 +273,7 @@ DEPENDENCY_GRAPH: dict[str, list[str]] = {
     "mood_analysis_batch": [],
     "library_stats": [],
     "track_splitter": [],
+    "audio_joiner": [],
     "spectral_viewer": [],
     "file_reorganizer": [],
     "lyrics_manager": [],

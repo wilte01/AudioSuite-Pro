@@ -643,6 +643,22 @@ def check_guide(source: Path) -> list[str]:
     return problems
 
 
+def _describe(source: Path) -> str:
+    """Name a guide source for a problem line, relative when it is in the repo.
+
+    Args:
+        source: The Markdown source.
+
+    Returns:
+        The repository-relative path, or the path itself when the source sits
+        outside it (a test's temporary tree).
+    """
+    try:
+        return str(source.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(source)
+
+
 def rebuild(source: Path) -> None:
     """Rebuild one artefact from its source, in place.
 
@@ -682,14 +698,23 @@ def main(argv: list[str]) -> int:
                 rebuild(source)
                 print(f"[OK] {target_for(source).name}")
         except (ValueError, KeyError, OSError) as exc:
-            problems.append(f"{source.relative_to(REPO_ROOT)}: {exc}")
+            problems.append(f"{_describe(source)}: {exc}")
 
+    if problems:
+        # Both modes fail the same way: a rebuild that could not render one
+        # guide used to print nothing but [DONE] and exit 0, so a guide with a
+        # figure the capture never produced looked current until the docs index
+        # refused it.  The exit status is what CI and the gate read.
+        heading = (
+            "[ERROR] guide artefacts are stale:"
+            if check
+            else "[ERROR] some guides could not be rebuilt:"
+        )
+        print(heading, file=sys.stderr)
+        for problem in problems:
+            print(f"  {problem}", file=sys.stderr)
+        return 1
     if check:
-        if problems:
-            print("[ERROR] guide artefacts are stale:", file=sys.stderr)
-            for problem in problems:
-                print(f"  {problem}", file=sys.stderr)
-            return 1
         print(f"[OK] {len(sources)} guide artefacts are current")
     print("[DONE]")
     return 0
