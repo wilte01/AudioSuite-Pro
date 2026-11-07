@@ -12,6 +12,19 @@ one.
 
 ## [Unreleased]
 
+- **The reuse lock reads the launchers, and the launchers lost their third
+  dialog copy.** The sweep walked `*.py`, so all 31 `.pyw` launchers were
+  outside every rule - as they are outside ruff, mypy and bandit, which take
+  `*.py` only. It now walks `*.pyw` too, and a new rule fails on a module that
+  builds a Tk root, hides it and calls `showerror`, which is how three copies
+  of the launcher error dialog had accumulated. `File_Reorganizer.pyw` and
+  `Tag_Field_Updater.pyw` call
+  `audio_suite_shared.launch_failure.show_error_dialog` instead: it destroys
+  the root it created, returns the exception when Tk itself fails so the
+  caller can log the traceback, and leaves the original failure reportable.
+  The existing launcher behaviour lock (dialog failure logged with a
+  traceback, working dialog silent) is unchanged and still passes.
+
 - **The other packaged binary uses the shared search, and the third reuse rule
   closed the gap that let a dead lookup survive.** `audio_suite_shared`'s
   resolver now exposes `search_binary(name)`, and the Fingerprinter's

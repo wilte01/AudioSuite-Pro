@@ -8,9 +8,14 @@ is bounded and one-line, and a missing, unreadable or malformed record reads as
 "no reason" instead of raising into the report.
 
 Changed in 2.4.3: initial version (D-22).
+
+Changed in 2.5.0: ``show_error_dialog``'s Tk sequence, including the root it
+still releases when the dialog itself fails (plan D-42).
 """
 
 import json
+
+import pytest
 
 from audio_suite_shared.launch_failure import (
     MAX_REASON_CHARS,
@@ -18,7 +23,57 @@ from audio_suite_shared.launch_failure import (
     failure_path,
     read_launch_failure,
     record_launch_failure,
+    show_error_dialog,
 )
+
+
+class TestShowErrorDialog:
+    """2.5.0 (plan D-42): one Tk sequence for a launcher's error message."""
+
+    @staticmethod
+    def _fake_root(events: list[str]) -> type:
+        """Return a root double that records the order of its own calls."""
+
+        class _FakeRoot:
+            def withdraw(self) -> None:
+                events.append("withdraw")
+
+            def destroy(self) -> None:
+                events.append("destroy")
+
+        return _FakeRoot
+
+    def test_it_shows_the_message_and_destroys_its_root(self, monkeypatch):
+        import tkinter
+        from tkinter import messagebox
+
+        events: list[str] = []
+        monkeypatch.setattr(tkinter, "Tk", self._fake_root(events))
+        monkeypatch.setattr(
+            messagebox, "showerror", lambda title, message: events.append(title)
+        )
+
+        show_error_dialog("Startup Error", "boom")
+
+        assert events == ["withdraw", "Startup Error", "destroy"]
+
+    def test_a_broken_dialog_still_destroys_the_root(self, monkeypatch):
+        """The root is released in a ``finally``: a leak outlives the launch."""
+        import tkinter
+        from tkinter import messagebox
+
+        events: list[str] = []
+
+        def _explode(_title: str, _message: str) -> None:
+            raise RuntimeError("tk is broken")
+
+        monkeypatch.setattr(tkinter, "Tk", self._fake_root(events))
+        monkeypatch.setattr(messagebox, "showerror", _explode)
+
+        with pytest.raises(RuntimeError):
+            show_error_dialog("Startup Error", "boom")
+
+        assert events == ["withdraw", "destroy"]
 
 
 class TestRecordRoundTrip:

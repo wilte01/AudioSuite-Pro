@@ -3,6 +3,8 @@
 Tag_Field_Updater.pyw - Launcher for Tag Field Updater.
 
 Imports directly from the tag_field_updater package.
+
+Changed in 2.5.0: the error dialog is the shared one (plan D-42).
 """
 
 import logging
@@ -21,6 +23,8 @@ from audio_suite_shared.app_bootstrap import configure_logging
 
 configure_logging("tag_field_updater")
 
+from audio_suite_shared.launch_failure import show_error_dialog
+
 logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
@@ -30,16 +34,9 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         try:
-            import tkinter as tk
-            from tkinter import messagebox
-
-            _root = tk.Tk()
-            _root.withdraw()
-            messagebox.showerror(
-                "Startup Error",
-                f"Error starting Tag Field Updater:\n{e}",
+            show_error_dialog(
+                "Startup Error", f"Error starting Tag Field Updater:\n{e}"
             )
-            _root.destroy()
         except Exception:
             # The error dialog is best-effort: a broken Tk cannot be reported
             # through Tk. Without this the original failure vanishes entirely.

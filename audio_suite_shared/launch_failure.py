@@ -32,6 +32,11 @@ Design rules:
   read-only install or a full disk must not turn a clean ``exit 1`` into a
   traceback.
 
+Changed in 2.5.0: :func:`show_error_dialog` is the one way a launcher shows
+an error before any window exists. The three hand-built
+Tk-root/withdraw/showerror copies converged onto it, and the reuse lock now
+scans ``*.pyw`` so a fourth cannot appear (plan D-42).
+
 Changed in 2.4.3: initial version — a refused launch explains itself
 (PLAN_2026-11-03_2.4.3_structure.md D-22).
 """
@@ -183,6 +188,38 @@ def clear_launch_failure(script_path: str) -> None:
         return
 
 
+def show_error_dialog(title: str, message: str) -> None:
+    """Show a blocking error dialog before any window exists.
+
+    A ``pythonw`` launcher that fails before its entry point has no root to
+    parent a message to, so it builds a withdrawn one for the duration of the
+    call. The sequence is short and easy to get subtly wrong - a root left
+    alive when the dialog itself fails - so it lives here once and the
+    launchers call it.
+
+    ``tkinter`` is imported inside the call: this module is imported by the
+    guard path and by the CLI, and neither may need a display.
+
+    Args:
+        title: The dialog's title.
+        message: The text to show.
+
+    Raises:
+        Exception: Whatever Tk raised. Deliberately not swallowed: the launcher
+            logs it beside the failure it was trying to report, because the
+            traceback is the only evidence that the dialog was the broken part.
+    """
+    import tkinter as tk
+    from tkinter import messagebox
+
+    root = tk.Tk()
+    try:
+        root.withdraw()
+        messagebox.showerror(title, message)
+    finally:
+        root.destroy()
+
+
 __all__ = [
     "FAILURE_DIR_NAME",
     "MAX_REASON_CHARS",
@@ -190,4 +227,5 @@ __all__ = [
     "failure_path",
     "read_launch_failure",
     "record_launch_failure",
+    "show_error_dialog",
 ]

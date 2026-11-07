@@ -226,6 +226,7 @@ the capability. If it is there, import it.
 | Audio formats and extensions | `audio_formats.py` — `FORMAT_MATRIX`, `SUPPORTED_EXTENSIONS`, `is_supported_format` |
 | Running a process | `secure_subprocess.run_secure_subprocess` (locked by `tests/test_subprocess_boundary.py`) |
 | FFmpeg and FFprobe binaries | `ffmpeg.py` — `FFMPEG_PATH`, `FFPROBE_PATH`, `find_ffmpeg()`, `require_ffmpeg()`; `search_binary(name)` for any other executable the suite ships |
+| A launcher's error dialog | `launch_failure.show_error_dialog` |
 | Preferences | `suite_config.load_value` / `save_value` (see *Shared Config Pattern*) |
 | Decoding for analysis | `analysis_loader.load_analysis_audio` / `check_analysable` |
 | User-facing error text | `exceptions.USER_MESSAGES` |
@@ -254,9 +255,11 @@ the tag block that can hold it. Say so in a comment and list it in the lock.
 - **The arbiter is `tests/test_shared_code_reuse.py`.** It fails when a shipped
 module declares its own audio-extension list, chooses the FFmpeg binary
 itself (a `shutil.which` lookup, or a hand-built path to `ffmpeg.exe`), reads
-`sys._MEIPASS` to find a packaged file, or writes `audio_suite_config.json`
-directly. Existing copies are frozen in its allowlist **with a reason and a
-plan entry**; a new copy fails.
+`sys._MEIPASS` to find a packaged file, builds a Tk root to show a launcher's
+error dialog, or writes `audio_suite_config.json` directly. Existing copies are
+frozen in its allowlist **with a reason and a plan entry**; a new copy fails.
+Its sweep reads `*.pyw` as well as `*.py`, because the launchers are the one
+kind of shipped code no other gate parses.
 Adding an allowlist entry is a deliberate, reviewable decision, not the way to
 make a red test green. `tests/test_filename_safety.py` holds the filename set
 the same way.

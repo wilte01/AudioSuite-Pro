@@ -26,6 +26,11 @@ a one-file build unpacks a packaged file, so a module that reads it has built
 its own PyInstaller lookup - which is how that ``get_resource_path`` helper
 outlived its last caller (plan D-41).
 
+Changed in 2.5.0: the sweep reads ``*.pyw`` as well. The launchers are the one
+kind of shipped code no other gate parses - ruff, mypy and bandit all take
+``*.py`` - so a capability re-implemented there was invisible to every rule,
+including a Tk error dialog hand-built three times (plan D-42).
+
 The suite already locks two neighbouring boundaries, and this module does not
 repeat them: ``tests/test_subprocess_boundary.py`` owns process spawning and
 ``tests/test_filename_safety.py`` owns the filename character set.
@@ -87,6 +92,11 @@ BUNDLE_LOOKUP_ALLOWLIST: dict[str, str] = {
     "audio_suite_shared/ffmpeg.py": "the suite's one bundle-aware resolver",
 }
 
+#: Modules allowed to build a Tk error dialog by hand, with the reason.
+DIALOG_ALLOWLIST: dict[str, str] = {
+    "audio_suite_shared/launch_failure.py": "the suite's one launcher dialog",
+}
+
 #: Modules allowed to write the suite's config file, with the reason.
 CONFIG_WRITER_ALLOWLIST: dict[str, str] = {
     "audio_suite_shared/suite_config.py": "the one reader and writer of it",
@@ -97,10 +107,15 @@ _MIN_EXTENSIONS = 4
 
 
 def _runtime_sources() -> list[Path]:
-    """Return every shipped Python module, developer scripts excluded."""
+    """Return every shipped module and launcher, developer scripts excluded.
+
+    ``*.pyw`` is included: a launcher is shipped code that ruff, mypy and
+    bandit all skip, so this walk is the only pass that reads it.
+    """
     return sorted(
         path
-        for path in REPO_ROOT.rglob("*.py")
+        for pattern in ("*.py", "*.pyw")
+        for path in REPO_ROOT.rglob(pattern)
         if not SKIPPED_DIRS & set(path.relative_to(REPO_ROOT).parts)
     )
 
@@ -270,6 +285,30 @@ def _reads_the_frozen_bundle(source: str) -> bool:
     return False
 
 
+def _hand_builds_a_failure_dialog(source: str) -> bool:
+    """Report whether a module builds its own Tk error dialog.
+
+    A launcher that fails before ``main()`` has no root to parent a message
+    to, so the copies created one, hid it, showed the message and destroyed
+    it. Different copies leaked the root or lost the original exception in
+    different ways; :func:`audio_suite_shared.launch_failure.show_error_dialog`
+    does it once (plan D-42).
+
+    Args:
+        source: The module's text.
+
+    Returns:
+        True for a module that constructs a ``Tk`` root and calls both
+        ``withdraw`` and ``showerror``.
+    """
+    names = {
+        getattr(node.func, "attr", "") or getattr(node.func, "id", "")
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+    }
+    return {"Tk", "withdraw", "showerror"} <= names
+
+
 def _writes_suite_config(source: str) -> bool:
     """Report whether a module serialises the suite's own config file.
 
@@ -288,6 +327,11 @@ def test_the_scan_finds_the_runtime_tree() -> None:
     sources = _runtime_sources()
 
     assert len(sources) > 100
+    launchers = [path for path in sources if path.suffix == ".pyw"]
+    assert len(launchers) >= 20, (
+        "the sweep no longer reaches the .pyw launchers "
+        f"(found {len(launchers)}); an extension filter dropped them"
+    )
     snippet = "AUDIO_EXTENSIONS = {'.mp3', '.flac', '.ogg', '.m4a'}"
     assert len(_extension_lists(snippet)) == 1
 
@@ -323,6 +367,14 @@ def test_the_detectors_can_fail() -> None:
     assert not _reads_the_frozen_bundle('"""A build unpacks into sys._MEIPASS."""\n')
     assert not _reads_the_frozen_bundle(
         "from audio_suite_shared.ffmpeg import search_binary\n"
+    )
+    # The launcher dialog the three copies built, and the call that replaced it.
+    assert _hand_builds_a_failure_dialog(
+        "_root = tk.Tk()\n_root.withdraw()\nmessagebox.showerror('t', 'm')\n"
+        "_root.destroy()\n"
+    )
+    assert not _hand_builds_a_failure_dialog(
+        "show_error_dialog('Startup Error', 'boom')\n"
     )
 
 
@@ -397,6 +449,25 @@ def test_only_the_shared_resolver_reads_the_frozen_bundle() -> None:
     )
 
 
+def test_no_module_builds_its_own_launcher_error_dialog() -> None:
+    """One launcher dialog, and it destroys the root it created.
+
+    The launchers are outside every other gate, so this rule is the only thing
+    that can see a fourth inline copy (plan D-42).
+    """
+    offenders = [
+        _relative(path)
+        for path in _runtime_sources()
+        if _hand_builds_a_failure_dialog(path.read_text(encoding="utf-8"))
+        and _relative(path) not in DIALOG_ALLOWLIST
+    ]
+
+    assert offenders == [], (
+        "these modules build a Tk error dialog instead of calling "
+        f"launch_failure.show_error_dialog: {offenders}"
+    )
+
+
 def test_the_suite_config_file_has_one_writer() -> None:
     """Every preference goes through ``suite_config``: one file, one writer."""
     offenders = [
@@ -419,6 +490,7 @@ def test_every_allowlist_entry_names_a_real_file() -> None:
         *FFMPEG_FINDER_ALLOWLIST,
         *BINARY_PATH_ALLOWLIST,
         *BUNDLE_LOOKUP_ALLOWLIST,
+        *DIALOG_ALLOWLIST,
         *CONFIG_WRITER_ALLOWLIST,
     }
 

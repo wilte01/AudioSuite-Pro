@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 File_Reorganizer.pyw - Launcher for Tag-Based File Reorganizer.
+
+Changed in 2.5.0: the error dialog is the shared one (plan D-42).
 """
 
 import logging
@@ -19,6 +21,8 @@ from audio_suite_shared.app_bootstrap import configure_logging
 
 configure_logging("file_reorganizer")
 
+from audio_suite_shared.launch_failure import show_error_dialog
+
 logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
@@ -28,17 +32,11 @@ if __name__ == "__main__":
         main()
     except ImportError as e:
         try:
-            import tkinter as tk
-            from tkinter import messagebox
-
-            _root = tk.Tk()
-            _root.withdraw()
-            messagebox.showerror(
+            show_error_dialog(
                 "Import Error",
                 f"Error importing file_reorganizer:\n{e}\n\n"
                 "Please ensure file_reorganizer/ is in the same directory.",
             )
-            _root.destroy()
         except Exception:
             # The error dialog is best-effort: a broken Tk cannot be reported
             # through Tk. Without this the original failure vanishes entirely.
@@ -49,16 +47,9 @@ if __name__ == "__main__":
             )
     except Exception as e:
         try:
-            import tkinter as tk
-            from tkinter import messagebox
-
-            _root = tk.Tk()
-            _root.withdraw()
-            messagebox.showerror(
-                "Startup Error",
-                f"Error starting File Reorganizer:\n{e}",
+            show_error_dialog(
+                "Startup Error", f"Error starting File Reorganizer:\n{e}"
             )
-            _root.destroy()
         except Exception:
             # See above: the dialog failing must not hide the startup error.
             logger.exception(
