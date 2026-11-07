@@ -37,11 +37,18 @@ narrow: an over-broad entry would drop first-party modules from the scan.
 
 Changed in 2.1.6: initial version (R-15,
 PLAN_audit_2026-10-24_deferred_p2p3.md).
+
+Changed in 2.5.0: Ruff's file set is locked.  ``extend-include = ["*.pyw"]``
+put the launchers in front of the linter, and deleting that line - or
+letting a launcher land under a directory Ruff excludes - silently puts
+them back outside every gate.
 """
 
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -321,3 +328,104 @@ class TestTheSecurityGateSkipsTheInstallerOutput:
             "these production modules match a bandit exclusion entry, so the "
             "security gate never reads them:\n  " + "\n  ".join(swallowed)
         )
+
+
+#: The launcher extension and the floor a walk must reach, so a broken
+#: walk fails instead of passing vacuously.
+LAUNCHER_SUFFIX = ".pyw"
+_MIN_LAUNCHERS = 20
+
+
+def _relative(path: Path) -> str:
+    """Return *path* relative to the repository root, posix-style."""
+    return path.relative_to(REPO_ROOT).as_posix()
+
+
+def launchers() -> list[Path]:
+    """Return every shipped launcher, excluding generated trees.
+
+    Returns:
+        Sorted launcher paths.
+
+    Raises:
+        AssertionError: if the walk reaches implausibly few files, which
+            would let the lock below pass without checking anything.
+    """
+    found = [
+        path
+        for path in sorted(REPO_ROOT.rglob(f"*{LAUNCHER_SUFFIX}"))
+        if not _GENERATED_PARTS.intersection(path.relative_to(REPO_ROOT).parts)
+    ]
+    assert len(found) >= _MIN_LAUNCHERS, (
+        f"the launcher walk found only {len(found)} files; its exclusion "
+        "rules are wrong, so the lock below proves nothing"
+    )
+    return found
+
+
+def ruff_file_set() -> set[str]:
+    """Return the files Ruff reports it will check, as repository paths.
+
+    Ruff is asked rather than reimplemented: ``extend-include``, the
+    default exclusions and the per-directory resolution are its rules, and
+    a copy of them here could agree with itself while Ruff disagreed.
+
+    Returns:
+        Repository-relative posix paths of every file Ruff reads.
+
+    Raises:
+        AssertionError: if Ruff fails or reports no files at all.
+    """
+    result = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", ".", "--show-files"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, "ruff --show-files failed: " + result.stderr
+    files = {
+        Path(line.strip()).resolve().relative_to(REPO_ROOT).as_posix()
+        for line in result.stdout.splitlines()
+        if line.strip()
+    }
+    assert len(files) > _MIN_PYTHON_FILES, (
+        f"ruff reported only {len(files)} files - the command or its path "
+        "is wrong, so comparing against it would pass vacuously"
+    )
+    return files
+
+
+def launchers_outside(
+    ruff_files: set[str], found: list[Path] | None = None
+) -> list[str]:
+    """Return the launchers that are not in *ruff_files*.
+
+    Args:
+        ruff_files: The files Ruff reports it will check.
+        found: The launchers to test; every shipped one when omitted.
+
+    Returns:
+        Repository-relative paths of launchers Ruff never reads.
+    """
+    paths = launchers() if found is None else found
+    return [_relative(path) for path in paths if _relative(path) not in ruff_files]
+
+
+class TestRuffReadsEveryLauncher:
+    """A launcher outside Ruff's file set is outside the lint gate."""
+
+    def test_every_launcher_is_in_ruffs_file_set(self) -> None:
+        found = launchers()
+        missing = launchers_outside(ruff_file_set(), found)
+        assert missing == [], (
+            "these launchers are not linted: " + ", ".join(missing) + " - "
+            'restore extend-include = ["*.pyw"] in pyproject.toml, or move '
+            "the launcher out of an excluded directory"
+        )
+
+    def test_a_launcher_outside_the_set_is_reported(self) -> None:
+        """Non-vacuity: an empty Ruff set must report every launcher."""
+        found = launchers()
+        reported = launchers_outside(set(), found)
+        assert reported == [_relative(path) for path in found]
