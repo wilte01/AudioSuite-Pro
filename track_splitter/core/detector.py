@@ -76,7 +76,8 @@ def detect_gaps(
         AudioExternalToolError: FFmpeg could not run, or wrote an unreadable
             report (a file FFmpeg cannot decode).
     """
-    from audio_normalizer.utils.ffmpeg_finder import FFMPEG_PATH
+    # Changed in 2.5.0: the resolver moved to audio_suite_shared.ffmpeg (D-38).
+    from audio_suite_shared.ffmpeg import FFMPEG_PATH
 
     length_ms = (
         total_ms

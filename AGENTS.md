@@ -225,6 +225,7 @@ the capability. If it is there, import it.
 | Filename characters | `audio_suite_shared/security/input_validator.py` — `InputValidator.sanitize_filename`, `validate_filename`; the illegal set is declared once |
 | Audio formats and extensions | `audio_formats.py` — `FORMAT_MATRIX`, `SUPPORTED_EXTENSIONS`, `is_supported_format` |
 | Running a process | `secure_subprocess.run_secure_subprocess` (locked by `tests/test_subprocess_boundary.py`) |
+| FFmpeg and FFprobe binaries | `ffmpeg.py` — `FFMPEG_PATH`, `FFPROBE_PATH`, `find_ffmpeg()`, `require_ffmpeg()` |
 | Preferences | `suite_config.load_value` / `save_value` (see *Shared Config Pattern*) |
 | Decoding for analysis | `analysis_loader.load_analysis_audio` / `check_analysable` |
 | User-facing error text | `exceptions.USER_MESSAGES` |
@@ -240,8 +241,12 @@ stricter than the filesystem; a legal `1-03 Johnny, Don't Do It.mp3` was usable
 in one tool and refused in another. The fix is the import, never a fourth copy.
 - **If the shared helper lacks the case you need, extend the shared helper** so
 every caller gains it; do not fork a near-identical private one. A helper that
-lives in a tool package but is used by two tools (`audio_normalizer`'s
-`FFMPEG_PATH`) belongs in `audio_suite_shared`, and moving it is the fix.
+lives in a tool package but is used by two tools belongs in
+`audio_suite_shared`, and moving it is the fix: `FFMPEG_PATH` lived inside the
+Audio Normalizer's package while three other tools imported it from there and
+three more re-implemented the lookup, so 2.5.0 moved the resolver to
+`audio_suite_shared/ffmpeg.py` (plan D-38) and every tool now imports one
+`FFMPEG_PATH`.
 - **A tool-specific *subset* is fine only when it is declared as one** — the
 Audio Refinery's copy-capable containers are a writable subset of the format
 matrix, and the metadata scrubber's per-family extension sets route a file to

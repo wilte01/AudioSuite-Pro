@@ -80,8 +80,8 @@ Every one of the 33 distinct branches below was found by an AST scan of the firs
 |---|---|---|---|---|
 | Portable core | `album_art_normalizer/album_art_normalizer.py` (tool `album_art_normalizer`) | Open the containing folder | The Windows arm of the three-way dispatch above. | album_art_normalizer/tests/test_album_art_normalizer.py |
 | Portable core | `album_art_normalizer/album_art_normalizer.py` (tool `album_art_normalizer`) | Open the containing folder | Dispatches on platform.system() to os.startfile / `open` / `xdg-open`. | album_art_normalizer/tests/test_album_art_normalizer.py |
-| Portable core | `audio_normalizer/utils/ffmpeg_finder.py` | ffmpeg discovery | Adds the Windows-only `C:\ffmpeg\bin` fallback location; PATH and module-local discovery still apply on every platform. | audio_normalizer/tests/test_ffmpeg_finder.py |
-| Portable core | `audio_normalizer/utils/ffmpeg_finder.py` | ffmpeg discovery | Binary filename extension only. | audio_normalizer/tests/test_ffmpeg_finder.py |
+| Portable core | `audio_suite_shared/ffmpeg.py` | ffmpeg discovery | Adds the Windows-only `C:\ffmpeg\bin` fallback location; PATH and module-local discovery still apply on every platform. | audio_suite_shared/tests/test_ffmpeg.py |
+| Portable core | `audio_suite_shared/ffmpeg.py` | ffmpeg discovery | Binary filename extension only. | audio_suite_shared/tests/test_ffmpeg.py |
 | Portable core | `audio_suite_shared/platform_utils.py` | Open a file or folder (Help / Open buttons) | The macOS arm; the Linux/POSIX fallback follows it. | audio_suite_shared/tests/test_platform_utils.py |
 | Portable core | `audio_suite_shared/platform_utils.py` | Open a file or folder (Help / Open buttons) | win32 uses os.startfile; darwin shells out to `open`; every other platform uses `xdg-open`. All three arms are implemented. | audio_suite_shared/tests/test_platform_utils.py |
 | Portable core | `audio_suite_shared/platform_utils.py` | Open a file or folder (Help / Open buttons) | The win32 arm of the three-way dispatch above. | audio_suite_shared/tests/test_platform_utils.py |

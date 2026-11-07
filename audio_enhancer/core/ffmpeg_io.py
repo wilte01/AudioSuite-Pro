@@ -30,6 +30,8 @@ Known format-specific behaviour (verified empirically, not assumed)
 
 Changed in 2.1.4: every ffmpeg/ffprobe call goes through the shared secure
 wrapper (audit R-08, plan C3), with ``text=False`` for the raw-PCM stream.
+Changed in 2.5.0: both binaries resolve through ``audio_suite_shared.ffmpeg``;
+this module no longer searches PATH itself (plan D-38).
 
 Subprocess boundary
 -------------------
@@ -44,7 +46,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -55,8 +56,8 @@ import numpy.typing as npt
 from audio_suite_shared.exceptions import (
     AudioExternalToolError,
     AudioFormatError,
-    AudioMissingDependencyError,
 )
+from audio_suite_shared.ffmpeg import require_ffmpeg, require_ffprobe
 from audio_suite_shared.secure_subprocess import (
     SubprocessSecurityError,
     run_secure_subprocess,
@@ -90,27 +91,12 @@ def _require_ffmpeg() -> str:
             AudioFileNotFoundError as a silent SKIP, which would be
             misleading here (the file is fine; the tool is missing).
     """
-    path = shutil.which("ffmpeg")
-    if path is None:
-        raise AudioMissingDependencyError(
-            "ffmpeg is not installed or not on PATH — required for "
-            ".opus/.m4a/.mp4 support. Install ffmpeg and ensure it is on PATH.",
-            dependency="ffmpeg",
-        )
-    return path
+    return require_ffmpeg()
 
 
 def _require_ffprobe() -> str:
     """Return the path to the ffprobe binary, or raise if not installed."""
-    path = shutil.which("ffprobe")
-    if path is None:
-        raise AudioMissingDependencyError(
-            "ffprobe is not installed or not on PATH — required for "
-            ".opus/.m4a/.mp4 support. Install ffmpeg (which includes ffprobe) "
-            "and ensure it is on PATH.",
-            dependency="ffprobe",
-        )
-    return path
+    return require_ffprobe()
 
 
 def _tool_failure(action: str, tool: str, exc: BaseException) -> AudioExternalToolError:

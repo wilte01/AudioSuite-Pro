@@ -4,6 +4,10 @@ Audio measurement utilities for Audio Refinery pipeline.
 
 Provides functions to measure various audio properties before and after
 processing stages to enable detailed logging and analysis.
+
+Changed in 2.5.0: loudness measurement runs ``FFMPEG_PATH`` from
+``audio_suite_shared.ffmpeg`` instead of looking the binary up itself, and the
+path it resolved is the one it now passes to the wrapper (plan D-38).
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from pydub import AudioSegment
 
 from audio_suite_shared.audio_conversion import segment_to_numpy
 from audio_suite_shared.exceptions import map_to_audio_error
+from audio_suite_shared.ffmpeg import FFMPEG_PATH
 from audio_suite_shared.secure_subprocess import run_secure_subprocess
 
 logger = logging.getLogger(__name__)
@@ -340,11 +345,7 @@ def measure_loudness_metrics(
         Dictionary with loudness measurements
     """
     try:
-        import shutil
-
-        ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
         cmd = [
-            ffmpeg,
             "-i",
             str(file_path),
             "-af",
@@ -355,8 +356,8 @@ def measure_loudness_metrics(
         ]
 
         result = run_secure_subprocess(
-            "ffmpeg",
-            cmd[1:],
+            FFMPEG_PATH,
+            cmd,
             capture_output=True,
             timeout=30,
             check=False,

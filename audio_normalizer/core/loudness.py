@@ -26,7 +26,8 @@ from audio_suite_shared.audio_probe import achieved_true_peak, loudnorm_inputs
 from audio_suite_shared.error_logger import get_logger
 from audio_suite_shared.exceptions import AudioFormatError
 
-from ..utils.ffmpeg_finder import FFMPEG_PATH
+# Changed in 2.5.0: the resolver moved to audio_suite_shared.ffmpeg (D-38).
+from audio_suite_shared.ffmpeg import FFMPEG_PATH
 
 logger = get_logger("audio_normalizer")
 

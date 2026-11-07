@@ -18,9 +18,10 @@ import re
 from typing import Any, Optional
 
 from audio_suite_shared.error_logger import get_logger
-from audio_suite_shared.secure_subprocess import run_secure_subprocess
 
-from ..utils.ffmpeg_finder import FFMPEG_PATH
+# Changed in 2.5.0: the resolver moved to audio_suite_shared.ffmpeg (D-38).
+from audio_suite_shared.ffmpeg import FFMPEG_PATH
+from audio_suite_shared.secure_subprocess import run_secure_subprocess
 
 logger = get_logger("audio_normalizer")
 

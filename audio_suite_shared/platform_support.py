@@ -99,6 +99,10 @@ Two consequences, both visible in the table above:
 * Branches keyed on ``sys.platform`` are sound to simulate, because
   ``pathlib`` never reads it.
 
+Changed in 2.5.0: the FFmpeg discovery branches cite
+``audio_suite_shared/ffmpeg.py`` and ``audio_suite_shared/tests/test_ffmpeg.py``,
+because the resolver moved out of the Audio Normalizer (plan D-38).
+
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.4.0: declares `utilities/release.py`'s pre-existing Windows-only
@@ -413,7 +417,7 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
         tool="album_art_normalizer",
     ),
     PlatformBranch(
-        module="audio_normalizer/utils/ffmpeg_finder.py",
+        module="audio_suite_shared/ffmpeg.py",
         source='if sys.platform == "win32":',
         tier=PORTABLE_CORE,
         subsystem="ffmpeg discovery",
@@ -421,20 +425,20 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
             "Adds the Windows-only `C:\\ffmpeg\\bin` fallback location; PATH "
             "and module-local discovery still apply on every platform."
         ),
-        evidence="audio_normalizer/tests/test_ffmpeg_finder.py",
-        # The module is REFINE's loudness measurement dependency since
-        # 2.6.0 (U-04); it no longer backs a tool of its own.
+        evidence="audio_suite_shared/tests/test_ffmpeg.py",
+        # The resolver is shared by every tool since 2.5.0 (plan D-38); it no
+        # longer backs the Audio Normalizer alone.
         tool=None,
     ),
     PlatformBranch(
-        module="audio_normalizer/utils/ffmpeg_finder.py",
-        source=('local_name = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"'),
+        module="audio_suite_shared/ffmpeg.py",
+        source=('return f"{name}.exe" if sys.platform == "win32" else name'),
         tier=PORTABLE_CORE,
         subsystem="ffmpeg discovery",
         behaviour="Binary filename extension only.",
-        evidence="audio_normalizer/tests/test_ffmpeg_finder.py",
-        # The module is REFINE's loudness measurement dependency since
-        # 2.6.0 (U-04); it no longer backs a tool of its own.
+        evidence="audio_suite_shared/tests/test_ffmpeg.py",
+        # The resolver is shared by every tool since 2.5.0 (plan D-38); it no
+        # longer backs the Audio Normalizer alone.
         tool=None,
     ),
     PlatformBranch(

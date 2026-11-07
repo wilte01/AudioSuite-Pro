@@ -25,6 +25,9 @@ Run with:
 
 Changed in 2.1.4: adds ``TestSecureWrapperRouting`` for the move onto the
 shared secure-subprocess wrapper (audit R-08, plan C3).
+Changed in 2.5.0: the dependency tests drive the shared resolver
+(``audio_suite_shared.ffmpeg``) instead of patching ``shutil.which``, because
+that lookup no longer lives in ``core/ffmpeg_io.py`` (plan D-38).
 """
 
 from __future__ import annotations
@@ -67,22 +70,37 @@ def _sine(
 
 
 class TestRequireFfmpeg:
-    def test_raises_missing_dependency_when_not_on_path(self) -> None:
-        with patch("shutil.which", return_value=None):
-            with pytest.raises(AudioMissingDependencyError) as exc_info:
-                ffmpeg_io._require_ffmpeg()
+    # The lookup itself belongs to audio_suite_shared.ffmpeg since 2.5.0
+    # (plan D-38): these tests drive that seam, so they assert the delegation
+    # and the error shape this module's callers depend on, not a mocked
+    # ``shutil.which`` return value.
+    def test_raises_missing_dependency_when_not_on_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("audio_suite_shared.ffmpeg.find_ffmpeg", lambda: None)
+        with pytest.raises(AudioMissingDependencyError) as exc_info:
+            ffmpeg_io._require_ffmpeg()
         assert exc_info.value.context.get("dependency") == "ffmpeg"
 
-    def test_returns_path_when_found(self) -> None:
-        with patch("shutil.which", return_value="/usr/bin/ffmpeg"):
-            assert ffmpeg_io._require_ffmpeg() == "/usr/bin/ffmpeg"
+    def test_returns_the_resolved_path_when_found(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        binary = tmp_path / "ffmpeg"
+        binary.write_bytes(b"")
+        monkeypatch.setattr(
+            "audio_suite_shared.ffmpeg.find_ffmpeg", lambda: str(binary)
+        )
+
+        assert ffmpeg_io._require_ffmpeg() == str(binary)
 
 
 class TestRequireFfprobe:
-    def test_raises_missing_dependency_when_not_on_path(self) -> None:
-        with patch("shutil.which", return_value=None):
-            with pytest.raises(AudioMissingDependencyError) as exc_info:
-                ffmpeg_io._require_ffprobe()
+    def test_raises_missing_dependency_when_not_on_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("audio_suite_shared.ffmpeg.find_ffprobe", lambda: None)
+        with pytest.raises(AudioMissingDependencyError) as exc_info:
+            ffmpeg_io._require_ffprobe()
         assert exc_info.value.context.get("dependency") == "ffprobe"
 
 
@@ -101,7 +119,10 @@ class TestWriteAudioValidation:
         audio = _sine(440.0)
         fake_proc = MagicMock(returncode=0)
         with (
-            patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+            patch(
+                "audio_suite_shared.ffmpeg.find_ffmpeg",
+                return_value="/usr/bin/ffmpeg",
+            ),
             patch("subprocess.run", return_value=fake_proc) as mock_run,
         ):
             ffmpeg_io.write_audio(audio, SR, Path("output.opus"))
@@ -112,7 +133,10 @@ class TestWriteAudioValidation:
         audio = _sine(440.0)
         fake_proc = MagicMock(returncode=0)
         with (
-            patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+            patch(
+                "audio_suite_shared.ffmpeg.find_ffmpeg",
+                return_value="/usr/bin/ffmpeg",
+            ),
             patch("subprocess.run", return_value=fake_proc) as mock_run,
         ):
             ffmpeg_io.write_audio(audio, SR, Path("output.m4a"))
@@ -123,7 +147,10 @@ class TestWriteAudioValidation:
         audio = _sine(440.0)
         fake_proc = MagicMock(returncode=0)
         with (
-            patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+            patch(
+                "audio_suite_shared.ffmpeg.find_ffmpeg",
+                return_value="/usr/bin/ffmpeg",
+            ),
             patch("subprocess.run", return_value=fake_proc) as mock_run,
         ):
             ffmpeg_io.write_audio(audio, SR, Path("output.mp4"))
@@ -151,7 +178,10 @@ class TestBitrateClamping:
         audio = _sine(440.0)
         fake_proc = MagicMock(returncode=0)
         with (
-            patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+            patch(
+                "audio_suite_shared.ffmpeg.find_ffmpeg",
+                return_value="/usr/bin/ffmpeg",
+            ),
             patch("subprocess.run", return_value=fake_proc) as mock_run,
         ):
             ffmpeg_io.write_audio(
@@ -174,7 +204,10 @@ class TestBitrateClamping:
         audio = _sine(440.0)
         fake_proc = MagicMock(returncode=0)
         with (
-            patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+            patch(
+                "audio_suite_shared.ffmpeg.find_ffmpeg",
+                return_value="/usr/bin/ffmpeg",
+            ),
             patch("subprocess.run", return_value=fake_proc) as mock_run,
         ):
             ffmpeg_io.write_audio(audio, SR, Path("o.m4a"), bitrate_kbps=requested_kbps)
@@ -190,7 +223,10 @@ class TestSubprocessFailureRouting:
         audio = _sine(440.0)
         err = subprocess.CalledProcessError(1, ["ffmpeg"], stderr=b"boom")
         with (
-            patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+            patch(
+                "audio_suite_shared.ffmpeg.find_ffmpeg",
+                return_value="/usr/bin/ffmpeg",
+            ),
             patch("subprocess.run", side_effect=err),
         ):
             with pytest.raises(AudioExternalToolError) as exc_info:
@@ -201,7 +237,10 @@ class TestSubprocessFailureRouting:
     def test_probe_stream_wraps_called_process_error(self) -> None:
         err = subprocess.CalledProcessError(1, ["ffprobe"], stderr="bad file")
         with (
-            patch("shutil.which", return_value="/usr/bin/ffprobe"),
+            patch(
+                "audio_suite_shared.ffmpeg.find_ffprobe",
+                return_value="/usr/bin/ffprobe",
+            ),
             patch("subprocess.run", side_effect=err),
         ):
             with pytest.raises(AudioExternalToolError) as exc_info:
@@ -211,7 +250,10 @@ class TestSubprocessFailureRouting:
     def test_probe_stream_raises_when_no_audio_stream_found(self) -> None:
         fake_proc = MagicMock(stdout='{"streams": []}')
         with (
-            patch("shutil.which", return_value="/usr/bin/ffprobe"),
+            patch(
+                "audio_suite_shared.ffmpeg.find_ffprobe",
+                return_value="/usr/bin/ffprobe",
+            ),
             patch("subprocess.run", return_value=fake_proc),
         ):
             with pytest.raises(AudioExternalToolError, match="no audio stream"):
@@ -234,7 +276,10 @@ class TestSecureWrapperRouting:
             stdout='{"streams": [{"sample_rate": "48000", "channels": 2}]}'
         )
         with (
-            patch("shutil.which", return_value="/usr/bin/ffprobe"),
+            patch(
+                "audio_suite_shared.ffmpeg.find_ffprobe",
+                return_value="/usr/bin/ffprobe",
+            ),
             patch.object(
                 ffmpeg_io, "run_secure_subprocess", return_value=probe
             ) as secure,
@@ -259,7 +304,10 @@ class TestSecureWrapperRouting:
         )
         pcm = np.zeros(10, dtype=np.float32).tobytes()  # 5 frames, 2 channels
         with (
-            patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+            patch(
+                "audio_suite_shared.ffmpeg.find_ffmpeg",
+                return_value="/usr/bin/ffmpeg",
+            ),
             patch.object(
                 ffmpeg_io,
                 "run_secure_subprocess",
@@ -278,7 +326,10 @@ class TestSecureWrapperRouting:
 
     def test_encode_asks_the_wrapper_for_bytes(self) -> None:
         with (
-            patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+            patch(
+                "audio_suite_shared.ffmpeg.find_ffmpeg",
+                return_value="/usr/bin/ffmpeg",
+            ),
             patch.object(
                 ffmpeg_io, "run_secure_subprocess", return_value=MagicMock()
             ) as secure,
@@ -292,7 +343,10 @@ class TestSecureWrapperRouting:
     def test_a_refused_call_keeps_the_user_facing_message(self) -> None:
         """A wrapper refusal must not reach the user as a security traceback."""
         with (
-            patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+            patch(
+                "audio_suite_shared.ffmpeg.find_ffmpeg",
+                return_value="/usr/bin/ffmpeg",
+            ),
             patch.object(
                 ffmpeg_io,
                 "run_secure_subprocess",
@@ -424,6 +478,6 @@ class TestRealRoundTrip:
         traceback or a misleading file-not-found mapping."""
         original = _sine(440.0, duration_s=0.2)
         out_path = tmp_path / "test.opus"
-        with patch("shutil.which", return_value=None):
+        with patch("audio_suite_shared.ffmpeg.find_ffmpeg", return_value=None):
             with pytest.raises(AudioMissingDependencyError):
                 ffmpeg_io.write_audio(original, SR, out_path)

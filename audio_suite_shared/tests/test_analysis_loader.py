@@ -20,6 +20,10 @@ Decoder-dependent behaviour is pinned by feeding the loader the exact array the
 real decoder was observed to return, rather than by hoping a particular audio
 backend fails in a particular way on a particular host.
 
+Changed in 2.5.0: the transcode tests drive the shared resolver
+(``analysis_loader.find_ffmpeg``) instead of ``analysis_loader.shutil.which``,
+which no longer exists in the module (plan D-38).
+
 Changed in 1.1.0: added fallback/decode and ffmpeg-transcode tests for
 librosa_load_with_fallback().
 Changed in 1.4.0: the failed-transcode contract is now a plain-language
@@ -429,13 +433,13 @@ class TestLibrosaLoadWithFallback:
 
 class TestTranscodeViaFFmpeg:
     def test_returns_none_when_ffmpeg_is_absent(self, monkeypatch) -> None:
-        monkeypatch.setattr(analysis_loader.shutil, "which", lambda _name: None)
+        monkeypatch.setattr(analysis_loader, "find_ffmpeg", lambda: None)
         assert analysis_loader._transcode_via_ffmpeg("song.wv") is None
 
     def test_builds_the_expected_ffmpeg_command_and_decodes(self, monkeypatch) -> None:
         import librosa
 
-        monkeypatch.setattr(analysis_loader.shutil, "which", lambda _name: "ffmpeg")
+        monkeypatch.setattr(analysis_loader, "find_ffmpeg", lambda: "ffmpeg")
         recorded: dict[str, object] = {}
 
         def _fake_run(executable: str, args: list[str], **kwargs: object):

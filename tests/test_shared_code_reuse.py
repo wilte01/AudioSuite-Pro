@@ -53,20 +53,7 @@ EXTENSION_LIST_ALLOWLIST: dict[str, str] = {
 
 #: Modules allowed to resolve the FFmpeg binary themselves, with the reason.
 FFMPEG_FINDER_ALLOWLIST: dict[str, str] = {
-    "audio_normalizer/utils/ffmpeg_finder.py": "the resolver FFMPEG_PATH owns",
-    "audio_enhancer/core/ffmpeg_io.py": (
-        "its own FFmpeg lane predates FFMPEG_PATH; converging it is recorded "
-        "in the governing plan's decision log"
-    ),
-    "audio_refinery/core/measure.py": (
-        "guards its FFmpeg call site; converging it is recorded in the "
-        "governing plan's decision log"
-    ),
-    "audio_suite_shared/analysis_loader.py": (
-        "the shared loader cannot import a tool package's finder without a "
-        "reverse dependency, which is why the finder's home is recorded as "
-        "follow-on work in the governing plan"
-    ),
+    "audio_suite_shared/ffmpeg.py": "the suite's one FFmpeg/FFprobe resolver",
 }
 
 #: Modules allowed to write the suite's config file, with the reason.

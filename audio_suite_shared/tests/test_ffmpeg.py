@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for ``audio_normalizer.utils.ffmpeg_finder`` and the startupinfo helper.
+"""Tests for ``audio_suite_shared.ffmpeg`` and the startupinfo helper.
 
 The finder's three discovery sources and its "not found" contract are the
 seam every ffmpeg-backed tool in this package depends on, so each branch is
@@ -11,7 +11,7 @@ patching only ``exists``.
 
 ``ffmpeg_finder`` imports ``os``/``shutil``/``sys`` at module level, so per
 AGENTS.md the patching target is the *importing* module's binding
-(``audio_normalizer.utils.ffmpeg_finder.shutil.which``). Note that those
+(``audio_suite_shared.ffmpeg.shutil.which``). Note that those
 bindings are the real module objects, so ``monkeypatch`` (auto-restoring) is
 used throughout rather than ``unittest.mock.patch``.  Because those
 bindings are the shared module objects, every patch must stay inside a
@@ -27,6 +27,11 @@ Changed in 1.3.0: the patch-leak fix and its leak lock above (authored before
 the Sprint 3 window opened) are committed here so the re-baselined release-note
 lock has no uncommitted file to reject; this note is the window marker, not a
 new edit to the fix.
+Changed in 2.5.0: moved from ``audio_normalizer/tests/test_ffmpeg_finder.py``
+to the resolver's own package, because the resolver itself moved to
+``audio_suite_shared/ffmpeg.py`` (plan D-38). The discovery branches are
+unchanged; the optional lookups answer None instead of the bare name, and
+``TestFfprobe`` covers the second binary.
 """
 
 from __future__ import annotations
@@ -41,7 +46,8 @@ from types import ModuleType
 
 import pytest
 
-from audio_normalizer.utils import ffmpeg_finder
+from audio_suite_shared import ffmpeg as ffmpeg_finder
+from audio_suite_shared.exceptions import AudioMissingDependencyError
 from audio_suite_shared.secure_subprocess import validate_executable
 from audio_suite_shared.subprocess_utils import get_startupinfo
 from audio_suite_shared.system_requirements import (
@@ -128,7 +134,7 @@ class TestPathHit:
             ffmpeg_finder.os.path, "exists", lambda path: str(path) != WINDOWS_FALLBACK
         )
 
-        result = ffmpeg_finder._find_ffmpeg()
+        result = ffmpeg_finder.find_ffmpeg()
 
         assert result == os.path.abspath(hit)
         assert os.path.isfile(result)
@@ -143,7 +149,7 @@ class TestPathHit:
         monkeypatch.setattr(ffmpeg_finder, "__file__", str(tmp_path / "f.py"))
         monkeypatch.setattr(ffmpeg_finder.shutil, "which", lambda name: "bin/ffmpeg")
 
-        result = ffmpeg_finder._find_ffmpeg()
+        result = ffmpeg_finder.find_ffmpeg()
 
         assert result == os.path.abspath(os.path.join("bin", "ffmpeg"))
         assert os.path.isabs(result)
@@ -177,7 +183,7 @@ class TestAlongsideTheModule:
         monkeypatch.setattr(ffmpeg_finder, "__file__", str(tmp_path / "app" / "f.py"))
         monkeypatch.setattr(ffmpeg_finder.shutil, "which", lambda name: None)
 
-        result = ffmpeg_finder._find_ffmpeg()
+        result = ffmpeg_finder.find_ffmpeg()
 
         assert result == os.path.abspath(expected)
         assert os.path.isfile(result)
@@ -197,7 +203,7 @@ class TestAlongsideTheModule:
         monkeypatch.setattr(ffmpeg_finder, "__file__", str(tmp_path / "_MEI" / "f.py"))
         monkeypatch.setattr(ffmpeg_finder.shutil, "which", lambda name: None)
 
-        result = ffmpeg_finder._find_ffmpeg()
+        result = ffmpeg_finder.find_ffmpeg()
 
         assert result == os.path.abspath(expected)
 
@@ -219,9 +225,9 @@ class TestAlongsideTheModule:
         # the planted dist copy is the frozen branch above.
         _deny_local_copy(monkeypatch)
 
-        result = ffmpeg_finder._find_ffmpeg()
+        result = ffmpeg_finder.find_ffmpeg()
 
-        assert result == BARE_NAME
+        assert result is None
 
 
 class TestWindowsFallback:
@@ -245,7 +251,7 @@ class TestWindowsFallback:
         monkeypatch.setattr(ffmpeg_finder.os, "access", lambda path, mode: False)
         monkeypatch.setattr(ffmpeg_finder.os.path, "exists", _record)
 
-        result = ffmpeg_finder._find_ffmpeg()
+        result = ffmpeg_finder.find_ffmpeg()
 
         assert result == WINDOWS_FALLBACK
         # The fallback is only probed after both earlier sources missed, and
@@ -271,9 +277,9 @@ class TestWindowsFallback:
         monkeypatch.setattr(ffmpeg_finder.os, "access", lambda path, mode: False)
         monkeypatch.setattr(ffmpeg_finder.os.path, "exists", _record)
 
-        result = ffmpeg_finder._find_ffmpeg()
+        result = ffmpeg_finder.find_ffmpeg()
 
-        assert result == BARE_NAME
+        assert result is None
         assert WINDOWS_FALLBACK not in probed
 
 
@@ -288,7 +294,7 @@ class TestMissContract:
         monkeypatch.setattr(ffmpeg_finder.shutil, "which", lambda name: None)
         _deny_local_copy(monkeypatch)
 
-        assert ffmpeg_finder._find_ffmpeg() == BARE_NAME
+        assert ffmpeg_finder.find_ffmpeg() is None
 
     def test_the_bare_name_is_the_name_of_the_declared_requirement(self) -> None:
         """The two discovery mechanisms are decoupled by design (see the A5
@@ -309,7 +315,7 @@ class TestMissContract:
     ) -> None:
         hit = _make_exe(str(tmp_path / "bin"), "ffmpeg.exe")
         monkeypatch.setattr(ffmpeg_finder.shutil, "which", lambda name: hit)
-        resolved = ffmpeg_finder._find_ffmpeg()
+        resolved = ffmpeg_finder.find_ffmpeg()
         assert validate_executable(resolved) is True
 
     def test_the_finder_and_the_preflight_agree_when_nothing_is_on_path(
@@ -325,7 +331,7 @@ class TestMissContract:
             ffmpeg_finder.shutil, "which", lambda name: None, raising=False
         )
 
-        assert ffmpeg_finder._find_ffmpeg() == BARE_NAME
+        assert ffmpeg_finder.find_ffmpeg() is None
 
         missing = find_missing_requirements(
             resolver=lambda name: None if name == BARE_NAME else "irrelevant"
@@ -371,7 +377,7 @@ class TestSourceTwoAcceptsOnlyRealExecutables:
         monkeypatch.setattr(ffmpeg_finder.shutil, "which", lambda name: None)
         monkeypatch.setattr(ffmpeg_finder.os, "access", _record)
 
-        assert ffmpeg_finder._find_ffmpeg() == os.path.abspath(planted)
+        assert ffmpeg_finder.find_ffmpeg() == os.path.abspath(planted)
         assert (os.path.abspath(planted), os.X_OK) in probed
 
     @pytest.mark.parametrize(
@@ -398,9 +404,9 @@ class TestSourceTwoAcceptsOnlyRealExecutables:
             ffmpeg_finder.os.path, "exists", lambda path: str(path) != WINDOWS_FALLBACK
         )
 
-        result = ffmpeg_finder._find_ffmpeg()
+        result = ffmpeg_finder.find_ffmpeg()
 
-        assert result == BARE_NAME
+        assert result is None
         assert os.path.isdir(decoy)
         assert not os.path.isfile(decoy)
 
@@ -426,13 +432,13 @@ class TestSourceTwoAcceptsOnlyRealExecutables:
         )
         platform_accepts = os.access(planted, os.X_OK)
 
-        result = ffmpeg_finder._find_ffmpeg()
+        result = ffmpeg_finder.find_ffmpeg()
 
         assert os.path.isfile(planted)
         if platform_accepts:
             assert result == os.path.abspath(planted)
         else:
-            assert result == BARE_NAME
+            assert result is None
 
 
 class TestModuleSingletonIsTheCache:
@@ -462,7 +468,7 @@ class TestModuleSingletonIsTheCache:
                 assert reloaded.FFMPEG_PATH == BARE_NAME
         # And the restore-reload left a value that matches a live resolution,
         # so the constant is never stale-but-silently-kept after an import.
-        assert ffmpeg_finder.FFMPEG_PATH == ffmpeg_finder._find_ffmpeg()
+        assert ffmpeg_finder.FFMPEG_PATH == (ffmpeg_finder.find_ffmpeg() or BARE_NAME)
 
     def test_reimporting_re_resolves_a_stale_singleton(
         self, tmp_path, monkeypatch
@@ -496,6 +502,63 @@ class TestModuleSingletonIsTheCache:
         with _fresh_finder(monkeypatch, _fresh_env) as reloaded:
             assert reloaded.FFMPEG_PATH == os.path.abspath(hit)
             assert os.path.isfile(reloaded.FFMPEG_PATH)
+
+
+class TestFfprobe:
+    """The second binary every decode path needs, resolved by the same rule.
+
+    A tool that can find FFmpeg cannot necessarily find FFprobe: the two are
+    looked up independently, so a partial install must surface as a missing
+    *tool* rather than as a subprocess ``FileNotFoundError``.
+    """
+
+    def test_a_path_hit_is_returned_absolute(self, tmp_path, monkeypatch) -> None:
+        hit = _make_exe(str(tmp_path / "bin"), "ffprobe.exe")
+        monkeypatch.setattr(ffmpeg_finder.shutil, "which", lambda name: hit)
+
+        result = ffmpeg_finder.find_ffprobe()
+
+        assert result == os.path.abspath(hit)
+        assert os.path.isfile(result)
+
+    def test_the_lookup_asks_for_ffprobe_and_not_ffmpeg(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        asked: list[str] = []
+
+        def _record(name: str) -> None:
+            asked.append(name)
+            return None
+
+        monkeypatch.setattr(ffmpeg_finder.sys, "platform", "linux")
+        monkeypatch.setattr(ffmpeg_finder, "__file__", str(tmp_path / "app" / "f.py"))
+        monkeypatch.setattr(ffmpeg_finder.shutil, "which", _record)
+        _deny_local_copy(monkeypatch)
+
+        assert ffmpeg_finder.find_ffprobe() is None
+        assert asked == ["ffprobe"]
+
+    def test_the_singleton_falls_back_to_the_bare_name(self) -> None:
+        """``FFPROBE_PATH`` keeps the argv[0] contract even when unresolved."""
+        assert ffmpeg_finder.FFPROBE_PATH == (ffmpeg_finder.find_ffprobe() or "ffprobe")
+
+    def test_require_ffprobe_raises_with_the_dependency_context(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(ffmpeg_finder, "find_ffprobe", lambda: None)
+
+        with pytest.raises(AudioMissingDependencyError) as exc_info:
+            ffmpeg_finder.require_ffprobe()
+
+        assert exc_info.value.context.get("dependency") == "ffprobe"
+
+    def test_require_ffmpeg_answers_what_the_lookup_found(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        binary = _make_exe(str(tmp_path / "bin"), "ffmpeg")
+        monkeypatch.setattr(ffmpeg_finder, "find_ffmpeg", lambda: binary)
+
+        assert ffmpeg_finder.require_ffmpeg() == binary
 
 
 class TestGetStartupinfo:

@@ -12,7 +12,6 @@ for.
 from __future__ import annotations
 
 import hashlib
-import shutil
 from pathlib import Path
 
 import numpy as np
@@ -81,9 +80,10 @@ def _params(**overrides: object) -> TrimParams:
 
 
 def _ffmpeg_available() -> bool:
-    from audio_normalizer.utils.ffmpeg_finder import FFMPEG_PATH
+    # Changed in 2.5.0: both binaries resolve through audio_suite_shared.ffmpeg.
+    from audio_suite_shared.ffmpeg import FFMPEG_PATH, FFPROBE_PATH
 
-    return Path(FFMPEG_PATH).is_file() and shutil.which("ffprobe") is not None
+    return Path(FFMPEG_PATH).is_file() and Path(FFPROBE_PATH).is_file()
 
 
 requires_ffmpeg = pytest.mark.skipif(

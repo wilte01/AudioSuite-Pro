@@ -12,6 +12,21 @@ one.
 
 ## [Unreleased]
 
+- **One FFmpeg resolver for the suite.** `audio_suite_shared/ffmpeg.py` now
+  owns the binary lookup: `FFMPEG_PATH`/`FFPROBE_PATH` for callers that need
+  an argv[0], `find_ffmpeg()`/`find_ffprobe()` answering None so a caller that
+  can degrade asks a question instead of parsing the bare-name sentinel, and
+  `require_ffmpeg()`/`require_ffprobe()` raising `AudioMissingDependencyError`
+  with a `dependency` context. The resolver moved out of the Audio
+  Normalizer's package, which three tools imported from, and replaced the
+  four hand-rolled lookups in the Audio Enhancer, Audio Refinery, shared
+  analysis loader and the refiner's test helper - including the one that
+  resolved a path and then handed the wrapper the literal `"ffmpeg"`. The
+  reuse lock's allowlist shrinks to that single module, so a fifth copy
+  cannot appear quietly, and `audio_suite_shared/tests/test_ffmpeg.py` (moved
+  with the resolver) keeps the three discovery sources, the executable-file
+  gate and the patch-leak lock, plus new FFprobe coverage.
+
 - **One implementation per capability, and a lock that keeps it that way.**
   `tests/test_shared_code_reuse.py` reads the shipped runtime and fails when a
   module declares its own audio-extension list, looks the FFmpeg binary up via

@@ -222,8 +222,9 @@ def copy_trim(source: Path, destination: Path, exact_range: ExactRange) -> float
         AudioFormatError: The written file cannot be probed.
         AudioExternalToolError: FFmpeg or FFprobe could not be run.
     """
-    from audio_normalizer.utils.ffmpeg_finder import FFMPEG_PATH
+    # Changed in 2.5.0: the resolver moved to audio_suite_shared.ffmpeg (D-38).
     from audio_suite_shared.exceptions import AudioProcessingError
+    from audio_suite_shared.ffmpeg import FFMPEG_PATH
 
     run_secure_subprocess(
         FFMPEG_PATH,

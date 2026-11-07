@@ -41,10 +41,12 @@ from typing import Any
 from audio_suite_shared import audio_probe
 from audio_suite_shared.batch_undo import record_tag_edit_snapshot
 from audio_suite_shared.exceptions import AudioFormatError
+
+# Changed in 2.5.0: the resolver moved to audio_suite_shared.ffmpeg (D-38).
+from audio_suite_shared.ffmpeg import FFMPEG_PATH
 from audio_suite_shared.secure_subprocess import run_secure_subprocess
 from audio_suite_shared.tag_helper import read_tags_raw, write_tags_raw
 
-from ..utils.ffmpeg_finder import FFMPEG_PATH
 from .normalizer import _codec_args, _preserve_args
 
 #: A gain this small is not a change.  Writing the file would re-encode it for

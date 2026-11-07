@@ -24,10 +24,12 @@ from mutagen import MutagenError
 
 from audio_suite_shared.batch_undo import record_tag_edit_snapshot
 from audio_suite_shared.exceptions import AudioFormatError
+
+# Changed in 2.5.0: the resolver moved to audio_suite_shared.ffmpeg (D-38).
+from audio_suite_shared.ffmpeg import FFMPEG_PATH
 from audio_suite_shared.secure_subprocess import run_secure_subprocess
 from audio_suite_shared.tag_helper import read_tags_raw, write_tags_raw
 
-from ..utils.ffmpeg_finder import FFMPEG_PATH
 from .loudness import parse_output_true_peak
 
 # ── Format → FFmpeg codec + quality args ─────────────────────────────────────

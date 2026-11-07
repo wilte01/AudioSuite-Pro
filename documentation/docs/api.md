@@ -97,6 +97,10 @@ fails on any parser warning, so a malformed docstring cannot ship either.
 :members:
 ```
 
+```{automodule} audio_suite_shared.ffmpeg
+:members:
+```
+
 ```{automodule} audio_suite_shared.app_bootstrap
 :members:
 ```

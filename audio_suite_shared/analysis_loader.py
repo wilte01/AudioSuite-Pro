@@ -21,6 +21,10 @@ reports an unreadable container as "File does not exist or is not a regular
 file (possibly a pipe?)", which told users a file they could see had vanished;
 the original exception is kept as ``__cause__`` for the log.
 
+Changed in 2.5.0: the FFmpeg transcode fallback asks the shared resolver
+(``audio_suite_shared.ffmpeg.find_ffmpeg``) instead of searching PATH itself
+(plan D-38).
+
 Changed in 1.4.1: ``warm_analysis_stack()`` compiles librosa's lazy numba
 kernels once per process before a worker pool starts, so eight threads no
 longer compile the same signature eight times and serialise on the compile
@@ -31,7 +35,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 import tempfile
 import threading
 from typing import Any
@@ -45,6 +48,7 @@ from .exceptions import (
     log_handled_failure,
     map_to_audio_error,
 )
+from .ffmpeg import find_ffmpeg
 from .secure_subprocess import run_secure_subprocess
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
@@ -297,7 +301,7 @@ def _transcode_via_ffmpeg(
         Two-tuple ``(y, sr)`` on success, or None when FFmpeg is unavailable
         or the transcode/decode fails (the caller keeps the original error).
     """
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = find_ffmpeg()
     if ffmpeg is None:
         logger.debug("FFmpeg not found; no decode fallback for %s", file_path)
         return None
