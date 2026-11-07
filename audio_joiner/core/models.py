@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from audio_suite_shared.exceptions import AudioConfigValueError
+from audio_suite_shared.security.input_validator import InputValidator
 
 #: Silence inserted between two segments, in milliseconds.
 DEFAULT_GAP_MS = 0
@@ -142,3 +143,31 @@ def output_name(first: str, extension: str, suffix: str = DEFAULT_OUTPUT_SUFFIX)
         stem = stem[:dot]
     ext = extension if extension.startswith(".") else f".{extension}"
     return f"{stem}{suffix}{ext}"
+
+
+def validate_output_name(path: str) -> str:
+    """Return the file name *path* ends in, refusing one no filesystem holds.
+
+    The check is the shared one (:class:`InputValidator`): a name is refused
+    only when it carries a character the operating system forbids, is a
+    reserved device name, or is longer than the filesystem allows.  A comma, an
+    apostrophe, brackets or a non-Latin letter is a legal file name and passes.
+
+    Args:
+        path: The output path or bare name a run was asked for.
+
+    Returns:
+        The name component, unchanged.
+
+    Raises:
+        AudioConfigValueError: The name cannot be written on this platform.
+    """
+    name = path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    if not InputValidator.validate_filename(name):
+        raise AudioConfigValueError(
+            f"{name!r} is not a usable file name: "
+            f"{' '.join(InputValidator.ILLEGAL_FILENAME_CHARS)} cannot appear "
+            "in a file name, and a reserved device name cannot be one.",
+            context={"output": path},
+        )
+    return name

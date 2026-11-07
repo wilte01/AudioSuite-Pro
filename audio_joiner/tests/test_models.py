@@ -11,9 +11,27 @@ from audio_joiner.core.models import (
     JoinSettings,
     output_name,
     plan_duration_ms,
+    validate_output_name,
     validate_overlap,
 )
 from audio_suite_shared.exceptions import AudioConfigValueError
+
+
+class TestOutputNameValidation:
+    """The output name is checked against the filesystem, not ASCII."""
+
+    def test_a_legal_name_passes_unchanged(self) -> None:
+        name = "1-03 Johnny, Don't Do It_joined.mp3"
+
+        assert validate_output_name(f"D:/Music/{name}") == name
+
+    def test_an_illegal_character_is_refused(self) -> None:
+        with pytest.raises(AudioConfigValueError, match="not a usable file name"):
+            validate_output_name("D:/Music/bad|name.mp3")
+
+    def test_a_reserved_device_name_is_refused(self) -> None:
+        with pytest.raises(AudioConfigValueError, match="not a usable file name"):
+            validate_output_name("D:/Music/CON.mp3")
 
 
 class TestSettings:
@@ -72,6 +90,11 @@ class TestOutputName:
 
     def test_an_extension_without_its_dot_is_accepted(self) -> None:
         assert output_name("a.wav", "wav") == "a_joined.wav"
+
+    def test_a_comma_in_the_first_name_is_kept(self) -> None:
+        assert output_name("1-03 Johnny, Don't Do It.mp3", ".mp3") == (
+            "1-03 Johnny, Don't Do It_joined.mp3"
+        )
 
     def test_a_path_takes_only_its_file_name(self) -> None:
         assert output_name("D:/Music/a.mp3", ".mp3") == "a_joined.mp3"

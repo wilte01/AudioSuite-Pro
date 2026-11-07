@@ -8,19 +8,18 @@ Changed in 2.5.0: new module (PLAN_2026-11-03_2.5.0_feature_wave_1.md F-E4).
 
 from __future__ import annotations
 
-import re
 import string
 
 from audio_suite_shared.exceptions import AudioConfigValueError
+from audio_suite_shared.security.input_validator import InputValidator
 
 #: Fields a pattern may name.  ``{track:02d}`` is the usual spelling; the
 #: number is passed as an int so any format spec that takes one works.
 _PATTERN_FIELDS: frozenset[str] = frozenset({"track", "title", "album", "artist"})
 
-#: Characters Windows forbids in a filename; the same set the CUE splitter
-#: replaces, so a title cannot produce a file the OS refuses.
-_ILLEGAL = re.compile(r'[\\/*?:"<>|]')
-
+#: Longest stem a pattern may produce.  The illegal characters themselves are
+#: declared once, in ``InputValidator``, so this tool and the CUE splitter
+#: cannot drift apart on what a legal filename is.
 _MAX_STEM = 120
 
 
@@ -61,10 +60,9 @@ def safe_stem(name: str) -> str:
         The name with illegal characters replaced, whitespace collapsed and
         trailing dots or spaces removed.  An empty result becomes ``track``.
     """
-    cleaned = _ILLEGAL.sub("_", name)
-    cleaned = " ".join(cleaned.split())
-    cleaned = cleaned.strip(" .")
-    return (cleaned or "track")[:_MAX_STEM].strip(" .") or "track"
+    return InputValidator.sanitize_filename(
+        name, fallback="track", max_length=_MAX_STEM
+    )
 
 
 def render_name(

@@ -1,0 +1,237 @@
+"""Lock: one implementation per capability, and the shared one is it.
+
+Changed in 2.5.0: initial version, after the same capability was implemented
+three times.  ``InputValidator`` declares the filename characters no filesystem
+accepts; the Track Splitter, the CUE splitter and the Audio Joiner each carried
+a private copy of that set (or none at all), so a legal name such as
+``1-03 Johnny, Don't Do It.mp3`` was unusable in one tool and safe in another.
+``tests/test_filename_safety.py`` closes that instance.
+
+This module is the general guard.  It reads the shipped runtime, not the tests,
+and fails when a module declares its own copy of a capability the suite already
+owns: the audio-extension list, the suite's config file, or the FFmpeg binary
+itself.  Known copies are frozen in an allowlist with the reason they still
+exist, so the set cannot grow while they are converged; a new copy fails here.
+
+The suite already locks two neighbouring boundaries, and this module does not
+repeat them: ``tests/test_subprocess_boundary.py`` owns process spawning and
+``tests/test_filename_safety.py`` owns the filename character set.
+"""
+
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+#: Directories that are not the shipped runtime: developer scripts and plugins.
+SKIPPED_DIRS = frozenset(
+    {"tests", "utilities", "plugins", ".git", ".venv", "__pycache__", "build"}
+)
+
+#: Modules allowed to declare a literal audio-extension list, with the reason.
+EXTENSION_LIST_ALLOWLIST: dict[str, str] = {
+    "audio_suite_shared/audio_formats.py": "the suite's one format matrix",
+    "metadata_scrubber/core/scrubber.py": (
+        "routes each file to the tag family that can hold it (APEv2, Vorbis, "
+        "ID3); the sets are disjoint by family, not a copy of the format list"
+    ),
+    "audio_refinery/core/trim.py": (
+        "the containers whose frames a stream copy can cut; a writable subset "
+        "of the format matrix, which is why it is declared as such"
+    ),
+    "audio_enhancer/core/ffmpeg_io.py": (
+        "the containers its own FFmpeg lane handles; predates the shared "
+        "format matrix's capability flags"
+    ),
+    "audio_joiner/core/join.py": (
+        "the containers whose tags the joiner copies; a tagging subset of the "
+        "format matrix"
+    ),
+}
+
+#: Modules allowed to resolve the FFmpeg binary themselves, with the reason.
+FFMPEG_FINDER_ALLOWLIST: dict[str, str] = {
+    "audio_normalizer/utils/ffmpeg_finder.py": "the resolver FFMPEG_PATH owns",
+    "audio_enhancer/core/ffmpeg_io.py": (
+        "its own FFmpeg lane predates FFMPEG_PATH; converging it is recorded "
+        "in the governing plan's decision log"
+    ),
+    "audio_refinery/core/measure.py": (
+        "guards its FFmpeg call site; converging it is recorded in the "
+        "governing plan's decision log"
+    ),
+    "audio_suite_shared/analysis_loader.py": (
+        "the shared loader cannot import a tool package's finder without a "
+        "reverse dependency, which is why the finder's home is recorded as "
+        "follow-on work in the governing plan"
+    ),
+}
+
+#: Modules allowed to write the suite's config file, with the reason.
+CONFIG_WRITER_ALLOWLIST: dict[str, str] = {
+    "audio_suite_shared/suite_config.py": "the one reader and writer of it",
+}
+
+#: Audio extensions a literal list has to name before it counts as a format list.
+_MIN_EXTENSIONS = 4
+
+
+def _runtime_sources() -> list[Path]:
+    """Return every shipped Python module, developer scripts excluded."""
+    return sorted(
+        path
+        for path in REPO_ROOT.rglob("*.py")
+        if not SKIPPED_DIRS & set(path.relative_to(REPO_ROOT).parts)
+    )
+
+
+def _relative(path: Path) -> str:
+    """Return *path* relative to the repository, with forward slashes."""
+    return path.relative_to(REPO_ROOT).as_posix()
+
+
+def _extension_lists(source: str) -> list[str]:
+    """Return the audio-extension literals a module declares.
+
+    Args:
+        source: The module's text.
+
+    Returns:
+        One rendered literal per assignment to an ``…EXTENSIONS`` name whose
+        value is a set or tuple of at least :data:`_MIN_EXTENSIONS` dotted
+        strings, e.g. ``{'.mp3', '.flac', '.m4a', '.ogg'}``.
+    """
+    found: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(target, ast.Name) and "EXTENSIONS" in target.id.upper()
+            for target in node.targets
+        ):
+            continue
+        calls = list(ast.walk(node.value))
+        extensions = [
+            element.value
+            for element in calls
+            if isinstance(element, ast.Constant)
+            and isinstance(element.value, str)
+            and element.value.startswith(".")
+        ]
+        if len(extensions) >= _MIN_EXTENSIONS:
+            found.append(", ".join(sorted(extensions)))
+    return found
+
+
+def _resolves_ffmpeg(source: str) -> bool:
+    """Report whether a module looks the FFmpeg binary up on PATH itself.
+
+    Args:
+        source: The module's text.
+
+    Returns:
+        True for a ``shutil.which("ffmpeg")`` or ``shutil.which("ffprobe")``.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        function = node.func
+        if getattr(function, "attr", "") != "which" or not node.args:
+            continue
+        argument = node.args[0]
+        if isinstance(argument, ast.Constant) and argument.value in {
+            "ffmpeg",
+            "ffprobe",
+        }:
+            return True
+    return False
+
+
+def _writes_suite_config(source: str) -> bool:
+    """Report whether a module serialises the suite's own config file.
+
+    Args:
+        source: The module's text.
+
+    Returns:
+        True when the module both names ``audio_suite_config`` and calls
+        ``json.dump``.
+    """
+    return "audio_suite_config" in source and "json.dump(" in source
+
+
+def test_the_scan_finds_the_runtime_tree() -> None:
+    """The scan is non-vacuous: an empty walk would pass every check below."""
+    sources = _runtime_sources()
+
+    assert len(sources) > 100
+    snippet = "AUDIO_EXTENSIONS = {'.mp3', '.flac', '.ogg', '.m4a'}"
+    assert len(_extension_lists(snippet)) == 1
+
+
+def test_the_detectors_can_fail() -> None:
+    """Each detector recognises a copy and ignores the shared call."""
+    assert _resolves_ffmpeg('import shutil\nshutil.which("ffmpeg")\n')
+    assert not _resolves_ffmpeg("from x import FFMPEG_PATH\nFFMPEG_PATH\n")
+    assert _writes_suite_config('name = "audio_suite_config"\njson.dump({}, f)\n')
+    assert not _writes_suite_config("suite_config.save_value('a', 1)\n")
+
+
+def test_no_module_declares_its_own_audio_extension_list() -> None:
+    """A second format list drifts from ``audio_formats`` the moment it grows."""
+    offenders = [
+        _relative(path)
+        for path in _runtime_sources()
+        if _extension_lists(path.read_text(encoding="utf-8"))
+        and _relative(path) not in EXTENSION_LIST_ALLOWLIST
+    ]
+
+    assert offenders == [], (
+        "these modules declare their own audio-extension list instead of using "
+        f"audio_suite_shared.audio_formats: {offenders}"
+    )
+
+
+def test_the_ffmpeg_binary_is_resolved_in_one_place() -> None:
+    """One resolver owns the binary path; a second lookup can disagree."""
+    offenders = [
+        _relative(path)
+        for path in _runtime_sources()
+        if _resolves_ffmpeg(path.read_text(encoding="utf-8"))
+        and _relative(path) not in FFMPEG_FINDER_ALLOWLIST
+    ]
+
+    assert offenders == [], (
+        "these modules look FFmpeg up themselves instead of importing "
+        f"FFMPEG_PATH: {offenders}"
+    )
+
+
+def test_the_suite_config_file_has_one_writer() -> None:
+    """Every preference goes through ``suite_config``: one file, one writer."""
+    offenders = [
+        _relative(path)
+        for path in _runtime_sources()
+        if _writes_suite_config(path.read_text(encoding="utf-8"))
+        and _relative(path) not in CONFIG_WRITER_ALLOWLIST
+    ]
+
+    assert offenders == [], (
+        "these modules write audio_suite_config.json themselves instead of "
+        f"using suite_config.save_value: {offenders}"
+    )
+
+
+def test_every_allowlist_entry_names_a_real_file() -> None:
+    """A stale allowlist entry would silently widen the rule for a new file."""
+    declared = {
+        *EXTENSION_LIST_ALLOWLIST,
+        *FFMPEG_FINDER_ALLOWLIST,
+        *CONFIG_WRITER_ALLOWLIST,
+    }
+
+    missing = sorted(entry for entry in declared if not (REPO_ROOT / entry).is_file())
+
+    assert missing == [], f"allowlist entries whose file no longer exists: {missing}"

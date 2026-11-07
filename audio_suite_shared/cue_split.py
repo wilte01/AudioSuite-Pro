@@ -6,12 +6,15 @@ on the exact track timestamps and ``-c copy`` (no re-encode).  All external
 process invocation is routed through ``run_secure_subprocess()`` so every
 argument is validated for injection risk; metadata values are sanitised
 before being embedded in ``-metadata`` arguments.
+
+Changed in 2.5.0: ``_safe_filename`` delegates to
+``InputValidator.sanitize_filename``, so this file no longer carries its own
+copy of the illegal-character set and a legal title keeps its comma.
 """
 
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -22,18 +25,22 @@ from audio_suite_shared.exceptions import (
     AudioFileNotFoundError,
 )
 from audio_suite_shared.secure_subprocess import run_secure_subprocess
+from audio_suite_shared.security.input_validator import InputValidator
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
-_ILLEGAL_FILENAME_CHARS = re.compile(r'[\\/*?:"<>|]')
 # Characters DANGEROUS_CHARS + shell-metacharacters the subprocess validator
 # rejects inside arguments.  Single quotes are preserved where possible.
 _META_UNSAFE_CHARS = set('"<>`|;&$(')
 
 
 def _safe_filename(name: str) -> str:
-    """Return *name* with characters illegal in Windows filenames replaced."""
-    return _ILLEGAL_FILENAME_CHARS.sub("_", name).strip()
+    """Return *name* with the characters no filesystem accepts replaced.
+
+    The illegal set is declared once, in ``InputValidator``; a legal character
+    such as the comma or apostrophe in a track title is preserved.
+    """
+    return InputValidator.sanitize_filename(name)
 
 
 def _clean_meta(value: str) -> str:

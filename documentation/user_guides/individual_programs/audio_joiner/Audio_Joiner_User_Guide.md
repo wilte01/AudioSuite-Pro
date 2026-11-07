@@ -40,7 +40,7 @@ way to check the order and the settings before a long join.
 
 - **Source folder:** The folder holding the segments. It is read for the supported audio extensions, and the list shows each file with its measured length.
 - **Segment list:** The join order, top to bottom. Move up and Move down reorder the selected entry; Reload re-reads the folder and keeps the order you chose.
-- **Join into:** The file the join is written to. Empty writes the first segment's stem with `_joined` beside it, so no segment is ever replaced.
+- **Join into:** The file the join is written to. Empty writes the first segment's stem with `_joined` beside it, so no segment is ever replaced. A name the filesystem accepts is used as typed, including commas, apostrophes and brackets; only characters no filesystem can hold are refused, with the offending name in the message.
 - **Gap (ms):** Silence inserted at every boundary.
 - **Crossfade (ms):** Equal-power overlap at every boundary. The outgoing tail and the incoming head are faded by a cosine and a sine over the same quarter turn, so correlated audio keeps its level instead of dipping.
 - **Stream-copy when every segment already matches:** On by default. It lets a straight join run without re-encoding; turning it off re-encodes anyway.

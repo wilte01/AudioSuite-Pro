@@ -212,6 +212,48 @@ So "there is one exception" is wrong: there are two blanket exemptions plus a
 frozen allowlist. To add a legitimate exception, add it to `ALLOWLIST` with a
 reason — do not widen this section.
 
+## Shared Implementations First
+
+The suite is built from **one implementation of each capability**, and a second
+copy is a defect rather than a convenience. Before writing a helper — a
+character set, a format list, a subprocess call, an FFmpeg lookup, a config
+file, a user-facing message, a path builder — search `audio_suite_shared/` for
+the capability. If it is there, import it.
+
+| Capability | The one implementation |
+|---|---|
+| Filename characters | `audio_suite_shared/security/input_validator.py` — `InputValidator.sanitize_filename`, `validate_filename`; the illegal set is declared once |
+| Audio formats and extensions | `audio_formats.py` — `FORMAT_MATRIX`, `SUPPORTED_EXTENSIONS`, `is_supported_format` |
+| Running a process | `secure_subprocess.run_secure_subprocess` (locked by `tests/test_subprocess_boundary.py`) |
+| Preferences | `suite_config.load_value` / `save_value` (see *Shared Config Pattern*) |
+| Decoding for analysis | `analysis_loader.load_analysis_audio` / `check_analysable` |
+| User-facing error text | `exceptions.USER_MESSAGES` |
+| Logging setup | `app_bootstrap.configure_logging` |
+| Undo of a tag batch | `batch_undo` |
+
+Rules:
+
+- **A private copy of a shared set is a bug, not a local variant.** 2.5.0 found
+the illegal-filename set written three times — in `InputValidator`, in the Track
+Splitter's `naming.py` and in `cue_split.py` — with the shared copy also
+stricter than the filesystem; a legal `1-03 Johnny, Don't Do It.mp3` was usable
+in one tool and refused in another. The fix is the import, never a fourth copy.
+- **If the shared helper lacks the case you need, extend the shared helper** so
+every caller gains it; do not fork a near-identical private one. A helper that
+lives in a tool package but is used by two tools (`audio_normalizer`'s
+`FFMPEG_PATH`) belongs in `audio_suite_shared`, and moving it is the fix.
+- **A tool-specific *subset* is fine only when it is declared as one** — the
+Audio Refinery's copy-capable containers are a writable subset of the format
+matrix, and the metadata scrubber's per-family extension sets route a file to
+the tag block that can hold it. Say so in a comment and list it in the lock.
+- **The arbiter is `tests/test_shared_code_reuse.py`.** It fails when a shipped
+module declares its own audio-extension list, looks the FFmpeg binary up
+itself, or writes `audio_suite_config.json` directly. Existing copies are
+frozen in its allowlist **with a reason and a plan entry**; a new copy fails.
+Adding an allowlist entry is a deliberate, reviewable decision, not the way to
+make a red test green. `tests/test_filename_safety.py` holds the filename set
+the same way.
+
 ## Shared Config Pattern
 
 Simple key-value preferences **must** live in the shared

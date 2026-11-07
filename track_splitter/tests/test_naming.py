@@ -45,6 +45,17 @@ class TestSafeStem:
     def test_illegal_characters_are_replaced(self) -> None:
         assert safe_stem('a/b\\c:d*e?f"g<h>i|j') == "a_b_c_d_e_f_g_h_i_j"
 
+    def test_a_comma_and_an_apostrophe_survive(self) -> None:
+        """A legal title keeps its punctuation; only illegal characters go."""
+        name = render_name(
+            "{track:02d} - {title}",
+            number=3,
+            title="Johnny, Don't Do It",
+            extension="mp3",
+        )
+
+        assert name == "03 - Johnny, Don't Do It.mp3"
+
     def test_whitespace_is_collapsed_and_trimmed(self) -> None:
         assert safe_stem("  a    b  ") == "a b"
 

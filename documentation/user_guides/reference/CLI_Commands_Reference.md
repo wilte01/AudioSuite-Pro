@@ -806,7 +806,7 @@ audiosuite join <directory> [--order A,B,C] [--output FILE] [--gap-ms MS] [--cro
 **Options:**
 
 - `--order A,B,C` — file names in join order, separated by commas; a name that itself contains a comma is still one entry, because the split is confirmed against the folder's files; empty joins every supported file in sorted order (default: every file, sorted)
-- `--output FILE` — output path; unset writes `<first segment>_joined` beside the sources in the first segment's format
+- `--output FILE` — output path; unset writes `<first segment>_joined` beside the sources in the first segment's format; a name the filesystem accepts is used as typed, and only characters no filesystem can hold are refused
 - `--gap-ms MS` — silence inserted at every boundary, in milliseconds (default: 0)
 - `--crossfade-ms MS` — equal-power crossfade length at every boundary, in milliseconds (default: 0); cannot be combined with `--gap-ms`
 - `--copy` / `--no-copy` — copy the audio streams when every segment already matches, or always re-encode (default: copy when compatible)

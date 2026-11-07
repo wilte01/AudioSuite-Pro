@@ -34,7 +34,13 @@ from audio_suite_shared.exceptions import AudioConfigValueError, AudioSuiteError
 from .compat import CompatibilityReport, probe_inputs
 from .concat import write_copy
 from .crossfade import equal_power_mix
-from .models import JoinSettings, output_name, plan_duration_ms, validate_overlap
+from .models import (
+    JoinSettings,
+    output_name,
+    plan_duration_ms,
+    validate_output_name,
+    validate_overlap,
+)
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
@@ -580,6 +586,11 @@ def run_join(
         if output
         else folder / output_name(sources[0].name, sources[0].suffix)
     )
+    try:
+        validate_output_name(str(target))
+    except AudioConfigValueError as exc:
+        on_error(exc.message)
+        return
     logged: list[str] = []
 
     def step(processed: int, total: int, text: str) -> None:

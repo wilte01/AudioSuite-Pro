@@ -16,6 +16,19 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+- **Every legal file name is a legal input, everywhere.** The suite's filename
+  check accepted only letters, digits, `_`, `-`, `.` and spaces, so it called
+  names like `1-03 Johnny, Don't Do It.mp3` or `Ships Don't Disappear (Do They_).mp3`
+  unsafe — names every supported operating system accepts — while the Track
+  Splitter and the CUE splitter each kept their own copy of the character rules.
+  There is now one declaration of the characters no filesystem can hold (the
+  Windows-forbidden set plus control characters and reserved device names), and
+  the splitter, the CUE splitter and the Audio Joiner all use it. Everything
+  else survives: commas, apostrophes, brackets, `&`, `#`, `@`, `;`, `=` and
+  non-Latin script. A splitter naming pattern and a joiner output name keep
+  their punctuation, and a name the filesystem genuinely cannot hold is refused
+  with the name in the message rather than failing at the write.
+
 - **Join recordings into one file, with a crossfade or a gap between them.** The
   new Audio Joiner (`Audio_Joiner.pyw`, `audiosuite join`) writes a folder's
   files into one output in the order you set, and the Setup tab shows that order

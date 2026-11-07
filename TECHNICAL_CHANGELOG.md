@@ -12,6 +12,20 @@ one.
 
 ## [Unreleased]
 
+- **One implementation per capability, and a lock that keeps it that way.**
+  `tests/test_shared_code_reuse.py` reads the shipped runtime and fails when a
+  module declares its own audio-extension list, looks the FFmpeg binary up via
+  `shutil.which` instead of importing `FFMPEG_PATH`, or writes
+  `audio_suite_config.json` itself. Today's legitimate subsets are frozen in
+  the lock's allowlist with a reason each, so the set cannot grow while the
+  remaining FFmpeg lookups are converged; the detectors are self-checked so a
+  broken scan fails instead of passing vacuously. The filename character set is
+  now declared once in `InputValidator` and imported by the Track Splitter, the
+  CUE splitter and the Audio Joiner, and `validate_filename` rejects only what
+  the filesystem actually refuses instead of an ASCII allowlist that called
+  legal names unsafe. The rule itself is recorded in `AGENTS.md` under *Shared
+  Implementations First*, with the table of where each capability lives.
+
 - **The Track Splitter's engine is a pure parser beside one FFmpeg call.**
   `track_splitter/core/detector.py` splits into `detect_gaps` (one
   `silencedetect` run through `run_secure_subprocess`) and `parse_gaps`, a pure

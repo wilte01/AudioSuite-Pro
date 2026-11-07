@@ -8,6 +8,12 @@ escape error with backslashes in Windows path example.
 
 Provides validation for file paths, user inputs, and other potentially
 dangerous data to prevent injection attacks and security vulnerabilities.
+
+Changed in 2.5.0: the illegal-filename set is declared once here
+(``ILLEGAL_FILENAME_PATTERN``), ``sanitize_filename`` renders a name through
+it, and ``validate_filename`` rejects on that set instead of an ASCII
+allowlist that called legal names unsafe. The Track Splitter, the CUE splitter
+and the Audio Joiner all use these methods (``tests/test_filename_safety.py``).
 """
 
 import logging
@@ -51,6 +57,15 @@ class InputValidator:
             *(f"LPT{i}" for i in range(1, 10)),
         }
     )
+
+    # The characters no Windows filename may contain, and the control range
+    # that is illegal on every platform.  This is the suite's one declared set:
+    # everything the operating system accepts is accepted here, including the
+    # comma and apostrophe real titles carry (``1-03 Johnny, Don't Do It.mp3``),
+    # parentheses, ``&``, ``#``, ``@`` and non-Latin script.  An allowlist of
+    # "safe" characters is how a legal name became an invalid one.
+    ILLEGAL_FILENAME_CHARS = '<>:"/\\|?*'
+    ILLEGAL_FILENAME_PATTERN = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
 
     # Maximum allowed path length, platform-dependent.
     # Windows MAX_PATH is 260; Linux/macOS PATH_MAX is 4096.
@@ -129,6 +144,33 @@ class InputValidator:
         sanitised = re.sub(r"[\x00-\x1f\x7f]", "", sanitised)
         # Enforce maximum length, then strip whitespace.
         return sanitised[:max_length].strip()
+
+    @classmethod
+    def sanitize_filename(
+        cls, name: str, *, fallback: str = "track", max_length: int = 120
+    ) -> str:
+        """Turn *name* into a filename the filesystem will hold.
+
+        Only characters the operating system forbids are replaced; a comma, an
+        apostrophe, parentheses, ``&`` or a non-Latin letter is left exactly as
+        it is.  Whitespace runs collapse, trailing dots and spaces are removed
+        (Windows silently drops them, which renames the file), and the result is
+        capped at *max_length*.
+
+        Args:
+            name: The rendered name, possibly carrying tag text.
+            fallback: The name returned when nothing usable is left.
+            max_length: The longest stem this method will return.
+
+        Returns:
+            A filename stem that is legal on every supported platform.
+        """
+        if not name or not isinstance(name, str):
+            return fallback
+        cleaned = cls.ILLEGAL_FILENAME_PATTERN.sub("_", name)
+        cleaned = " ".join(cleaned.split())
+        cleaned = cleaned.strip(" .")[:max_length].strip(" .")
+        return cleaned or fallback
 
     @classmethod
     def validate_tag_value(cls, value: str, max_length: int = 4096) -> bool:
@@ -251,21 +293,18 @@ class InputValidator:
         if not filename or not isinstance(filename, str):
             return False
 
-        for pattern in cls.DANGEROUS_PATTERNS:
-            if re.search(pattern, filename, re.IGNORECASE):
-                return False
-
-        safe_filename_pattern = re.compile(r"^[a-zA-Z0-9_\-\. ]+$")
-        if not safe_filename_pattern.match(filename):
+        # Reject only what the filesystem refuses.  Every other character is
+        # legal, so an allowlist here rejects names Windows, macOS and Linux
+        # all accept: "1-03 Johnny, Don't Do It.mp3" is a real file.
+        if cls.ILLEGAL_FILENAME_PATTERN.search(filename):
             return False
 
         if len(filename) > 255:
             return False
 
         name_without_ext = os.path.splitext(filename)[0]
-        for pattern in cls.DANGEROUS_PATTERNS:
-            if re.fullmatch(pattern, name_without_ext, re.IGNORECASE):
-                return False
+        if not name_without_ext.strip(" ."):
+            return False
 
         # Check reserved Windows device names
         if name_without_ext.upper().rstrip(".") in cls._RESERVED_NAMES:

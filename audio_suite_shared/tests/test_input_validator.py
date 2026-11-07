@@ -1,6 +1,10 @@
 """
 test_input_validator.py — Unit tests for audio_suite_shared.security.input_validator
 
+Changed in 2.5.0: the filename cases now assert the contract the operating
+system has - a comma, apostrophe, bracket or non-Latin letter is legal - and
+``TestSanitizeFilename`` covers the one declared illegal set.
+
 Covers all 7 public methods of InputValidator:
     • validate_file_path
     • sanitize_input
@@ -365,18 +369,54 @@ class TestValidateFilename:
         long_name = "a" * 256 + ".mp3"
         assert InputValidator.validate_filename(long_name) is False
 
-    def test_unicode_filename_rejected(self) -> None:
-        """Non-ASCII chars are not in safe_filename_pattern; must be rejected."""
-        assert InputValidator.validate_filename("café.mp3") is False
-        assert InputValidator.validate_filename("über_song.flac") is False
+    def test_every_legal_character_is_accepted(self) -> None:
+        """A name the operating system accepts is a valid name here.
 
-    def test_filename_with_parentheses_rejected(self) -> None:
-        """Parentheses are not in safe_filename_pattern."""
-        assert InputValidator.validate_filename("Album (Greatest Hits).mp3") is False
+        The validator used to allow only ``[a-zA-Z0-9_-.]`` and space, so it
+        rejected commas, apostrophes, parentheses, ``&`` and non-Latin letters
+        - all legal file names, and the shape real album tracks have.
+        """
+        for name in (
+            "1-03 Johnny, Don't Do It.mp3",
+            "Ships Don't Disappear (Do They_).flac",
+            "Rock & Roll #1 @ 33%.wav",
+            "Album (Greatest Hits).mp3",
+            "Rock [Live] {edit}; take=2!.ogg",
+            "café.mp3",
+            "über_song.flac",
+        ):
+            assert InputValidator.validate_filename(name) is True, name
 
-    def test_filename_with_apostrophe_rejected(self) -> None:
-        """Apostrophe is not in safe_filename_pattern."""
-        assert InputValidator.validate_filename("Sam's Town.mp3") is False
+
+class TestSanitizeFilename:
+    """Only the characters no filesystem accepts are replaced."""
+
+    def test_a_comma_and_an_apostrophe_survive(self) -> None:
+        name = "1-03 Johnny, Don't Do It"
+
+        assert InputValidator.sanitize_filename(name) == name
+
+    def test_illegal_characters_become_underscores(self) -> None:
+        assert InputValidator.sanitize_filename('A:B/C*D"E?F<G>H|I\\J') == (
+            "A_B_C_D_E_F_G_H_I_J"
+        )
+
+    def test_control_characters_are_removed(self) -> None:
+        assert InputValidator.sanitize_filename("a\x00b\x1fc") == "a_b_c"
+
+    def test_trailing_dots_and_spaces_are_removed(self) -> None:
+        assert InputValidator.sanitize_filename("name. . ") == "name"
+
+    def test_an_empty_name_takes_the_fallback(self) -> None:
+        assert InputValidator.sanitize_filename("   ", fallback="track") == "track"
+
+    def test_the_length_is_capped(self) -> None:
+        assert len(InputValidator.sanitize_filename("a" * 400, max_length=120)) == 120
+
+    def test_an_apostrophe_is_a_legal_character(self) -> None:
+        """The apostrophe in "Sam's Town" is a name, not a threat."""
+        assert InputValidator.validate_filename("Sam's Town.mp3") is True
+        assert InputValidator.sanitize_filename("Sam's Town") == "Sam's Town"
 
 
 # ── sanitize_api_input ─────────────────────────────────────────────────────────
