@@ -12,7 +12,9 @@ Search order, per binary:
 
   1. the system ``PATH``
   2. beside this module, or beside the frozen executable
-  3. ``C:\\ffmpeg\\bin`` on Windows
+  3. inside a PyInstaller bundle (``sys._MEIPASS``), which is where a
+     one-file build's bundled binaries actually land
+  4. ``C:\\ffmpeg\\bin`` on Windows
 
 ``find_ffmpeg``/``find_ffprobe`` answer ``None`` when every source misses, so
 a caller that can degrade (the analysis loader's decode fallback) asks a
@@ -24,6 +26,11 @@ Changed in 2.5.0: new module. The resolver moved here from
 ``audio_normalizer/utils/ffmpeg_finder.py`` (plan D-38) because two tools
 imported it from a third tool's package and three more re-implemented it; the
 reuse lock ``tests/test_shared_code_reuse.py`` now fails on a new copy.
+Changed in 2.5.0: the frozen-bundle probe (``sys._MEIPASS``) joined the shared
+search order when the ReplayGain analyzer converged onto it (plan D-39). Its
+own lookup had searched the bundle directory, which the executable's directory
+is not, and dropping it would have lost the bundled binary of a one-file
+build; every tool gains the source instead.
 """
 
 from __future__ import annotations
@@ -69,6 +76,14 @@ def _search(name: str) -> str | None:
     local = os.path.join(base, _binary_name(name))
     if os.path.isfile(local) and os.access(local, os.X_OK):
         return os.path.abspath(local)
+
+    # A one-file PyInstaller build extracts its bundled binaries into
+    # ``sys._MEIPASS``, which is a temp directory and not the executable's.
+    bundle_dir = getattr(sys, "_MEIPASS", None)
+    if bundle_dir:
+        bundled = os.path.join(str(bundle_dir), _binary_name(name))
+        if os.path.isfile(bundled) and os.access(bundled, os.X_OK):
+            return os.path.abspath(bundled)
 
     if sys.platform == "win32":
         fallback = os.path.join(WINDOWS_FALLBACK_DIR, _binary_name(name))

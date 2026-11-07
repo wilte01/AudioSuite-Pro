@@ -20,6 +20,8 @@ Changed in 2.4.2: the measurement mocks patch
 moved with the implementation; leaving the old patch target would have made
 every mock inert and the assertions below meaningless. The assertions
 themselves are unchanged.
+Changed in 2.5.0: ``TestGetFfmpegExe`` drives the shared resolver instead of
+this tool's own Windows-only branch, which no longer exists (plan D-39).
 """
 
 import os
@@ -34,6 +36,7 @@ import pytest
 from pydub import AudioSegment
 
 from audio_suite_shared.exceptions import AudioFormatError
+from replaygain_analyzer.core import ffmpeg_metrics
 from replaygain_analyzer.core.ffmpeg_metrics import (
     _get_ffmpeg_exe,
     _get_startupinfo,
@@ -95,35 +98,36 @@ class TestGetResourcePath:
 
 
 class TestGetFfmpegExe:
-    def test_returns_string(self) -> None:
+    """2.5.0 (plan D-39): the lookup belongs to ``audio_suite_shared.ffmpeg``.
+
+    These tests used to pin this module's own Windows branch - a local
+    ``ffmpeg.exe`` beside ``core/`` first, the bare name otherwise - which is
+    exactly the duplication the reuse rule forbids. They now drive the
+    delegation: a value the shared resolver supplies is what the tool runs,
+    whatever the platform.
+    """
+
+    def test_returns_the_shared_resolver_value(self) -> None:
         assert isinstance(_get_ffmpeg_exe(), str)
+        assert _get_ffmpeg_exe() == ffmpeg_metrics.FFMPEG_PATH
 
-    def test_non_windows_returns_ffmpeg(self) -> None:
-        with patch("audio_suite_shared.subprocess_utils.os.name", "posix"):
-            assert _get_ffmpeg_exe() == "ffmpeg"
+    def test_a_resolved_path_is_what_the_measurement_runs(self, tmp_path) -> None:
+        binary = tmp_path / "ffmpeg"
+        binary.write_bytes(b"")
+        with patch.object(ffmpeg_metrics, "FFMPEG_PATH", str(binary)):
+            assert _get_ffmpeg_exe() == str(binary)
 
-    def test_windows_with_no_local_exe_returns_ffmpeg(self) -> None:
+    def test_the_measurement_passes_the_resolved_path_to_the_probe(self) -> None:
         with (
-            patch("audio_suite_shared.subprocess_utils.os.name", "nt"),
+            patch.object(ffmpeg_metrics, "FFMPEG_PATH", "/opt/bin/ffmpeg"),
             patch(
-                "replaygain_analyzer.core.ffmpeg_metrics.os.path.exists",
-                return_value=False,
-            ),
+                "replaygain_analyzer.core.ffmpeg_metrics.audio_probe.measure_loudness"
+            ) as measure,
         ):
-            assert _get_ffmpeg_exe() == "ffmpeg"
+            measure.return_value = MagicMock(integrated_lufs=-9.0, true_peak_dbtp=None)
+            get_metrics("song.flac")
 
-    def test_windows_with_local_exe_returns_local_path(self, tmp_path) -> None:
-        local_exe = str(tmp_path / "ffmpeg.exe")
-        open(local_exe, "w").close()
-        with (
-            patch("audio_suite_shared.subprocess_utils.os.name", "nt"),
-            patch(
-                "replaygain_analyzer.core.ffmpeg_metrics.get_resource_path",
-                return_value=local_exe,
-            ),
-        ):
-            result = _get_ffmpeg_exe()
-        assert result == local_exe
+        assert measure.call_args.kwargs["ffmpeg"] == "/opt/bin/ffmpeg"
 
 
 class TestGetStartupInfo:

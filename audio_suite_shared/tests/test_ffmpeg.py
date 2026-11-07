@@ -30,8 +30,9 @@ new edit to the fix.
 Changed in 2.5.0: moved from ``audio_normalizer/tests/test_ffmpeg_finder.py``
 to the resolver's own package, because the resolver itself moved to
 ``audio_suite_shared/ffmpeg.py`` (plan D-38). The discovery branches are
-unchanged; the optional lookups answer None instead of the bare name, and
-``TestFfprobe`` covers the second binary.
+unchanged; the optional lookups answer None instead of the bare name,
+``TestFfprobe`` covers the second binary, and ``TestFrozenBundle`` covers the
+``sys._MEIPASS`` source the ReplayGain analyzer's own lookup used to own.
 """
 
 from __future__ import annotations
@@ -63,6 +64,9 @@ BARE_NAME = "ffmpeg"
 
 #: The third-choice location, hard-coded in the finder for Windows only.
 WINDOWS_FALLBACK = r"C:\ffmpeg\bin\ffmpeg.exe"
+
+#: A path that can only be probed if the finder invents a bundle directory.
+_MEIPASS_SENTINEL = "_MEIPASS"
 
 
 def _make_exe(directory: str, name: str) -> str:
@@ -281,6 +285,69 @@ class TestWindowsFallback:
 
         assert result is None
         assert WINDOWS_FALLBACK not in probed
+
+
+class TestFrozenBundle:
+    """Discovery source 3 — a one-file PyInstaller bundle.
+
+    ``sys.executable`` is the launcher in a temp directory, so a binary
+    unpacked from the bundle sits in ``sys._MEIPASS`` instead. The ReplayGain
+    analyzer's own lookup probed that directory until 2.5.0 (plan D-39); the
+    source is shared now so every frozen tool finds a bundled binary.
+    """
+
+    def test_the_bundled_copy_is_used_when_the_exe_side_has_none(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        bundle = tmp_path / "_MEI123"
+        expected = _make_exe(str(bundle), "ffmpeg")
+        monkeypatch.setattr(ffmpeg_finder.sys, "platform", "linux")
+        monkeypatch.setattr(ffmpeg_finder.sys, "frozen", True, raising=False)
+        monkeypatch.setattr(
+            ffmpeg_finder.sys, "executable", str(tmp_path / "dist" / "AudioSuite")
+        )
+        monkeypatch.setattr(ffmpeg_finder.sys, "_MEIPASS", str(bundle), raising=False)
+        # The module's own directory has no copy, so only the bundle source
+        # can supply the binary (otherwise source 2 would answer first and
+        # this test would pass without exercising the bundle probe).
+        monkeypatch.setattr(
+            ffmpeg_finder, "__file__", str(tmp_path / "_MEI999" / "ffmpeg.py")
+        )
+        monkeypatch.setattr(ffmpeg_finder.shutil, "which", lambda name: None)
+
+        assert ffmpeg_finder.find_ffmpeg() == os.path.abspath(expected)
+
+    def test_a_directory_named_like_the_binary_in_the_bundle_is_rejected(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        bundle = tmp_path / "_MEI123"
+        os.makedirs(bundle / "ffmpeg")
+        monkeypatch.setattr(ffmpeg_finder.sys, "platform", "linux")
+        monkeypatch.setattr(ffmpeg_finder.sys, "_MEIPASS", str(bundle), raising=False)
+        monkeypatch.setattr(ffmpeg_finder, "__file__", str(bundle / "ffmpeg.py"))
+        monkeypatch.setattr(ffmpeg_finder.shutil, "which", lambda name: None)
+        _deny_local_copy(monkeypatch)
+
+        assert ffmpeg_finder.find_ffmpeg() is None
+
+    def test_the_bundle_directory_is_not_probed_without_a_bundle(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        probed: list[str] = []
+
+        def _record(path: object) -> bool:
+            probed.append(str(path))
+            return False
+
+        monkeypatch.setattr(ffmpeg_finder.sys, "platform", "linux")
+        monkeypatch.delattr(ffmpeg_finder.sys, "_MEIPASS", raising=False)
+        monkeypatch.setattr(ffmpeg_finder, "__file__", str(tmp_path / "app" / "f.py"))
+        monkeypatch.setattr(ffmpeg_finder.shutil, "which", lambda name: None)
+        monkeypatch.setattr(ffmpeg_finder.os.path, "isfile", _record)
+        monkeypatch.setattr(ffmpeg_finder.os, "access", lambda path, mode: False)
+
+        assert ffmpeg_finder.find_ffmpeg() is None
+        assert _MEIPASS_SENTINEL not in probed
 
 
 class TestMissContract:

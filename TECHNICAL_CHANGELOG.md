@@ -27,6 +27,15 @@ one.
   with the resolver) keeps the three discovery sources, the executable-file
   gate and the patch-leak lock, plus new FFprobe coverage.
 
+- **The ReplayGain analyzer runs the shared FFmpeg.** Its
+  `core/ffmpeg_metrics.py` had the last hand-rolled lookup in the tree: a
+  Windows-only `ffmpeg.exe` beside `core/`, the bare name everywhere else. It
+  now returns `FFMPEG_PATH`, and the frozen-bundle directory that branch was
+  really for (`sys._MEIPASS`) joined the shared search order instead, so a
+  one-file build finds its bundled binary and every other tool gains the
+  source. The platform matrix loses that branch - it no longer exists - and
+  drops from 33 rows to 32.
+
 - **One implementation per capability, and a lock that keeps it that way.**
   `tests/test_shared_code_reuse.py` reads the shipped runtime and fails when a
   module declares its own audio-extension list, looks the FFmpeg binary up via

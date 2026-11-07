@@ -441,19 +441,6 @@ PLATFORM_BRANCHES: tuple[PlatformBranch, ...] = (
         # longer backs the Audio Normalizer alone.
         tool=None,
     ),
-    PlatformBranch(
-        module="replaygain_analyzer/core/ffmpeg_metrics.py",
-        source='if os.name == "nt":',
-        tier=UNVERIFIED,
-        subsystem="ffmpeg discovery",
-        behaviour=(
-            "Windows checks for an ffmpeg.exe shipped beside the module "
-            "first; every other platform goes straight to PATH."
-        ),
-        evidence="none",
-        occurrences=1,
-        tool="replaygain",
-    ),
     # ── CD Ripper (Windows-only subsystem) ────────────────────────────────────
     PlatformBranch(
         module="cd_ripper/core/disc.py",

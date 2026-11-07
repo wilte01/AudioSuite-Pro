@@ -5,12 +5,17 @@ ReplayGain's Loudness (LUFS), true peak (dBFS) and duration figures.
 Pure function — no tkinter imports, no global state.
 Also owns get_resource_path() for PyInstaller compatibility.
 
-FFmpeg resolution order (Windows)
-----------------------------------
-1. Beside this file: replaygain_analyzer/core/ffmpeg.exe  (legacy local copy)
-2. System PATH: 'ffmpeg'  (consistent with cd_ripper/ui/setup_tab.py fallback)
+FFmpeg resolution
+-----------------
+One place, ``audio_suite_shared.ffmpeg``: PATH, beside the shared module or
+the frozen executable, inside a PyInstaller bundle, then ``C:\ffmpeg\bin`` on
+Windows. This module no longer searches for the binary itself, so every tool
+agrees on which FFmpeg the suite runs.
 
-On non-Windows the system 'ffmpeg' is always used.
+Changed in 2.5.0: ``_get_ffmpeg_exe`` returns the shared ``FFMPEG_PATH``
+(plan D-39). The Windows-only "ffmpeg.exe beside this file" branch is gone;
+a bundled binary is found in ``sys._MEIPASS`` by the shared resolver instead,
+which is where a one-file build actually puts it.
 
 Changed in 2.4.2: the measurement moved to
 ``audio_suite_shared.audio_probe``; ``get_metrics`` and
@@ -37,6 +42,7 @@ import sys
 
 from audio_suite_shared import audio_probe
 from audio_suite_shared.exceptions import AudioExternalToolError, AudioSuiteError
+from audio_suite_shared.ffmpeg import FFMPEG_PATH
 from audio_suite_shared.secure_subprocess import SubprocessSecurityError
 from audio_suite_shared.subprocess_utils import get_startupinfo
 
@@ -50,8 +56,8 @@ logger = logging.getLogger(__name__)
 #: places it is looked for, and what the user can do about it.
 _FFMPEG_MISSING_HINT = (
     "Install ffmpeg and ensure it is on the system PATH, "
-    "or place the ffmpeg binary alongside the "
-    "replaygain_analyzer/core/ module."
+    "or place the ffmpeg binary beside the audio_suite_shared module "
+    "(or the frozen AudioSuite executable)."
 )
 
 
@@ -74,18 +80,14 @@ def get_resource_path(relative_path: str) -> str:
 
 def _get_ffmpeg_exe() -> str:
     """
-    Resolve the FFmpeg executable path for the current platform.
-
-    On Windows, checks for a local ffmpeg.exe beside this file first,
-    then falls back to the system PATH.
+    Return the FFmpeg executable the whole suite runs.
 
     Returns:
-        Path to the ffmpeg executable (may be a bare name relying on PATH).
+        ``audio_suite_shared.ffmpeg.FFMPEG_PATH``: the resolved absolute path,
+        or the bare name when FFmpeg is not installed (so the OS raises the
+        error that names the missing binary).
     """
-    if os.name == "nt":
-        local = get_resource_path("ffmpeg.exe")
-        return local if os.path.exists(local) else "ffmpeg"
-    return "ffmpeg"
+    return FFMPEG_PATH
 
 
 def measure_album_loudness(paths: list[str]) -> float | None:
