@@ -34,6 +34,7 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.run_outcome import record_caveats, shortfall
+from audio_suite_shared.suite_paths import package_path
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 
 from .core import scrubber, tag_scanner
@@ -42,7 +43,10 @@ from .utils import cli_args, tag_prefs
 
 logger = logging.getLogger(__name__)
 
-_PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Changed in 2.5.0: the package directory comes from the shared helper.
+# ``str`` because ``tag_prefs`` takes the directory as text, exactly as the
+# previous ``os.path.dirname`` result did.
+_PACKAGE_DIR = str(package_path(__file__))
 TOOL_ID = "metadata_scrubber"
 
 #: Manifest id the Master Driver keys this tool's batch step by; a note

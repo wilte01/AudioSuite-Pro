@@ -32,8 +32,14 @@ which installation answers.
 
 A file that lives inside one tool's package is ``suite_path("<tool>", "<name>")``:
 still one derivation, with the package named outright instead of counted from
-the caller's own position in the tree.
+the caller's own position in the tree. A file that belongs to the *calling*
+module's own package is ``package_path(__file__, "<name>")`` - the same
+question asked from the inside, so a presets list and a process log are two
+words rather than two hand-built ``__file__`` ascents (``D-45``).
 
+Changed in 2.5.0: :func:`package_path` is the one helper for a file inside the
+calling module's own package; the reuse lock's ``PACKAGE_PATH_ALLOWLIST`` fails
+on a module that hand-builds one from ``__file__`` again.
 Changed in 2.5.0: :func:`suite_root_source` reports which rule answered, so
 ``doctor`` prints the root beside its provenance instead of a bare path.
 Changed in 2.5.0: new module. The suite root had no shared implementation, so
@@ -49,6 +55,7 @@ import sys
 from pathlib import Path
 
 __all__ = [
+    "package_path",
     "ROOT_SOURCE_BUNDLE",
     "ROOT_SOURCE_CHECKOUT",
     "ROOT_SOURCE_ENV",
@@ -141,3 +148,29 @@ def suite_path(*parts: str) -> Path:
         other path.
     """
     return suite_root().joinpath(*parts)
+
+
+def package_path(module_file: str, *parts: str) -> Path:
+    """Return a path inside the package that owns *module_file*.
+
+    A tool that ships a file beside its own code - a presets list, its own
+    process log, a sibling subpackage - names it from the package, not from
+    the installation root. The two coincide for a tool package today, but
+    the package is what the file belongs to, and saying so once beats every
+    caller repeating ``Path(__file__).parent``: that copy is also the one
+    that silently reads a *different* file when it is made from a module in
+    a subpackage, which is how ``album_art_sync`` once had two configs.
+
+    Use :func:`suite_path` when naming another tool's package, and this when
+    the file belongs to the caller's own.
+
+    Args:
+        module_file: The calling module's ``__file__``.
+        *parts: Path components below that module's directory, e.g.
+            ``"presets.json"`` or ``"..", "core"``.
+
+    Returns:
+        The joined path. It is not required to exist: the caller ships the
+        file or handles its absence, exactly as with any other path.
+    """
+    return Path(module_file).resolve().parent.joinpath(*parts)

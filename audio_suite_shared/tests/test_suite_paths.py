@@ -147,3 +147,33 @@ class TestRootSource:
     def test_suite_root_still_answers_the_path_alone(self) -> None:
         """Every existing caller keeps the plain return type."""
         assert isinstance(suite_paths.suite_root(), Path)
+
+
+class TestPackagePath:
+    """A file beside a tool's own code resolves from that package."""
+
+    def test_it_joins_beside_the_calling_module(self, tmp_path: Path) -> None:
+        module = tmp_path / "tool" / "presets.py"
+        module.parent.mkdir()
+        module.write_text("", encoding="utf-8")
+
+        assert suite_paths.package_path(str(module), "presets.json") == (
+            module.parent.resolve() / "presets.json"
+        )
+
+    def test_it_can_name_a_sibling_subpackage(self, tmp_path: Path) -> None:
+        """The ``ui/`` -> ``core/`` shape ``cd_ripper`` needed."""
+        module = tmp_path / "tool" / "ui" / "tab.py"
+        module.parent.mkdir(parents=True)
+        module.write_text("", encoding="utf-8")
+
+        sibling = suite_paths.package_path(str(module), "..", "core")
+
+        assert sibling.resolve() == (tmp_path / "tool" / "core")
+
+    def test_the_modules_own_directory_is_the_package(self) -> None:
+        """The album_art_sync config dir: the caller's folder, nothing joined."""
+        own = suite_paths.package_path(suite_paths.__file__)
+
+        assert own == Path(suite_paths.__file__).resolve().parent
+        assert (own / "suite_paths.py").is_file()

@@ -27,6 +27,7 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
+from audio_suite_shared.suite_paths import package_path
 from audio_suite_shared.tag_helper import (
     SUPPORTED_EXTENSIONS,
     read_album_artist,
@@ -206,9 +207,9 @@ class AudioSuiteV6(UIHelperMixin):
         }
 
     def _load_presets(self) -> dict[str, dict[str, Any]]:
-        presets_file = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "presets.json"
-        )
+        # Changed in 2.5.0: one shared package-file helper, not a hand-built
+        # ``dirname(abspath(__file__))`` join.
+        presets_file = package_path(__file__, "presets.json")
         if os.path.exists(presets_file):
             try:
                 with open(presets_file, "r", encoding="utf-8") as f:
@@ -219,9 +220,9 @@ class AudioSuiteV6(UIHelperMixin):
         return {}
 
     def _save_presets(self, presets: dict[str, dict[str, Any]]) -> None:
-        presets_file = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "presets.json"
-        )
+        # Changed in 2.5.0: one shared package-file helper, not a hand-built
+        # ``dirname(abspath(__file__))`` join.
+        presets_file = package_path(__file__, "presets.json")
         with open(presets_file, "w", encoding="utf-8") as f:
             json.dump(presets, f, indent=2)
 

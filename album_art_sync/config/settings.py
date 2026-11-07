@@ -30,7 +30,7 @@ from typing import Any
 
 # Import security modules
 from audio_suite_shared.security.key_manager import KeyManager
-from audio_suite_shared.suite_paths import suite_path
+from audio_suite_shared.suite_paths import package_path, suite_path
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,8 @@ CONFIG_FILENAME = "album_art_config.json"
 
 #: The one directory every caller reads and writes. Module-level so tests can
 #: monkeypatch it instead of passing a fake "script" path.
-CONFIG_DIR: Path = Path(__file__).resolve().parent
+# Changed in 2.5.0: the package directory comes from the shared helper.
+CONFIG_DIR: Path = package_path(__file__)
 
 
 def config_path() -> Path:

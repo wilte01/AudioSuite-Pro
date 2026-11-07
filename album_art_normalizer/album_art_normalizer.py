@@ -32,8 +32,11 @@ from audio_suite_shared.secure_subprocess import (
     SubprocessSecurityError,
     run_secure_subprocess,
 )
+from audio_suite_shared.suite_paths import package_path
 
-LOG_FILE: Path = Path(__file__).parent / "process_log.txt"
+# Changed in 2.5.0: resolved through the shared helper instead of a hand-built
+# ``Path(__file__).parent``.
+LOG_FILE: Path = package_path(__file__, "process_log.txt")
 logger: logging.Logger = logging.getLogger("album_art_normalizer")
 
 

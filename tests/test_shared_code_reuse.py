@@ -36,6 +36,11 @@ ships, not only FFmpeg: ``fpcalc``/``fpcalc.exe`` and ``discid.dll`` joined
 ``BINARY_FILE_NAMES``, and the two files that legitimately locate a shipped
 copy carry their reason in the allowlist (plan D-43).
 
+Changed in 2.5.0: a fourth location rule. A module that derives a path from
+its own ``__file__`` is naming a file inside its own package, and every copy
+of that answer reads a different file the moment it is written from a
+subpackage - which is how ``album_art_sync`` once had two configs. The file
+goes through ``suite_paths.package_path`` instead.
 Changed in 2.5.0: every allowlist is now load-bearing. Only the hand-built
 binary-path rule held its entries to still tripping the rule; the other six
 could keep an entry whose copy had long been converged, and a stale entry
@@ -438,6 +443,95 @@ def _declares_an_extension_list(source: str) -> bool:
     return bool(_extension_lists(source))
 
 
+def _reads_the_module_file(node: ast.expr) -> bool:
+    """Report whether *node* is ``__file__``, or a call around it."""
+    if isinstance(node, ast.Name):
+        return node.id == "__file__"
+    if isinstance(node, ast.Call):
+        return any(_reads_the_module_file(arg) for arg in node.args)
+    return False
+
+
+def _anchors_on_the_module_file(node: ast.expr) -> bool:
+    """Report whether *node* reaches ``Path(__file__)`` through parents."""
+    if isinstance(node, ast.Attribute) and node.attr in {"parent", "parents"}:
+        return _anchors_on_the_module_file(node.value)
+    if isinstance(node, ast.Subscript):
+        inner = node.value
+        if isinstance(inner, ast.Attribute) and inner.attr == "parents":
+            return _anchors_on_the_module_file(inner.value)
+        return False
+    if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "resolve":
+        return _anchors_on_the_module_file(node.func.value)
+    if isinstance(node, ast.Call):
+        name = getattr(node.func, "id", "") or getattr(node.func, "attr", "")
+        if name != "Path" or len(node.args) != 1:
+            return False
+        argument = node.args[0]
+        return isinstance(argument, ast.Name) and argument.id == "__file__"
+    return False
+
+
+def _builds_its_own_package_path(source: str) -> bool:
+    """Report whether a module derives a path from its own ``__file__``.
+
+    A tool that ships a file beside its own code - a presets list, its own
+    process log, a sibling subpackage - has to say where that file is. The
+    copies all spelled it out: ``Path(__file__).parent / name``,
+    ``os.path.dirname(os.path.abspath(__file__))``, ``parents[1] / ...``.
+    They disagree the moment one is written from a subpackage, and
+    :func:`audio_suite_shared.suite_paths.package_path` answers all of them
+    with the caller's own module file.
+
+    Args:
+        source: The module's text.
+
+    Returns:
+        True for a ``Path(__file__)`` chain reaching ``parent``/``parents``,
+        or a ``dirname`` call wrapping ``__file__`` or a call around it.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Attribute) and node.attr in {"parent", "parents"}:
+            if _anchors_on_the_module_file(node):
+                return True
+        elif isinstance(node, ast.Call):
+            name = getattr(node.func, "attr", "") or getattr(node.func, "id", "")
+            if name == "dirname" and any(
+                _reads_the_module_file(argument) for argument in node.args
+            ):
+                return True
+    return False
+
+
+#: Modules that may name a file inside their own package without
+#: ``package_path``.  Every entry is load-bearing (see the sweep below).
+PACKAGE_PATH_ALLOWLIST: dict[str, str] = {
+    "audio_suite_shared/suite_paths.py": (
+        "the implementation: ``_SHARED_DIR`` is the package directory every "
+        "caller now asks for"
+    ),
+    "album_art_normalizer/__main__.py": (
+        "the ``sys.path`` bootstrap that makes ``audio_suite_shared`` "
+        "importable at all, so it runs before any helper can be imported"
+    ),
+    "documentation/docs/conf.py": (
+        "the Sphinx configuration locates the repository it stages; it is "
+        "documentation tooling, not shipped code, and a doc build must not "
+        "need the installed package to read its own config"
+    ),
+    "documentation/user_guides/suite_overview/generate_presentation.py": (
+        "a guide builder writes its artefact beside its Markdown source; "
+        "importing the package would make the guide unbuildable from a bare "
+        "checkout"
+    ),
+    "documentation/user_guides/suite_overview/generate_logging_system_guide.py": (
+        "a guide builder writes its artefact beside its Markdown source; "
+        "importing the package would make the guide unbuildable from a bare "
+        "checkout"
+    ),
+}
+
+
 #: One entry per frozen allowlist: the name it is declared under, the detector
 #: that decides its rule, and the allowlist itself.  The load-bearing sweep
 #: walks this table, and a test below fails when an allowlist is missing from
@@ -462,6 +556,10 @@ ALLOWLIST_RULES: dict[str, tuple[Callable[[str], bool], dict[str, str]]] = {
         DIALOG_ALLOWLIST,
     ),
     "CONFIG_WRITER_ALLOWLIST": (_writes_suite_config, CONFIG_WRITER_ALLOWLIST),
+    "PACKAGE_PATH_ALLOWLIST": (
+        _builds_its_own_package_path,
+        PACKAGE_PATH_ALLOWLIST,
+    ),
 }
 
 
@@ -564,6 +662,15 @@ def test_the_detectors_can_fail() -> None:
     assert not _hand_builds_a_failure_dialog(
         "show_error_dialog('Startup Error', 'boom')\n"
     )
+    # The three spellings of "a file beside this module", and the helper.
+    assert _builds_its_own_package_path('LOG = Path(__file__).parent / "x.txt"\n')
+    assert _builds_its_own_package_path("DIR = Path(__file__).resolve().parent\n")
+    assert _builds_its_own_package_path(
+        "here = os.path.dirname(os.path.abspath(__file__))\n"
+    )
+    assert _builds_its_own_package_path("root = Path(__file__).resolve().parents[1]\n")
+    assert not _builds_its_own_package_path('LOG = package_path(__file__, "x.txt")\n')
+    assert not _builds_its_own_package_path('"""Path(__file__).parent, once."""\n')
 
 
 def test_no_module_declares_its_own_audio_extension_list() -> None:
@@ -680,6 +787,34 @@ def test_no_module_finds_the_suite_root_by_directory_name() -> None:
     assert offenders == [], (
         "these modules find the suite root by matching a directory name "
         f"instead of calling suite_paths.suite_root: {offenders}"
+    )
+
+
+def test_no_module_derives_a_path_from_its_own_file() -> None:
+    """A file inside the caller's own package comes from ``package_path``.
+
+    ``suite_path("<tool>", name)`` names *another* tool's package; a module
+    that reaches for a file beside itself has its own ``__file__`` in hand.
+    The copies were spelled out at each site, and the spellings disagreed:
+    ``album_art_sync`` read its config from two directories depending on
+    which module asked (plan B1), because ``Path(__file__).parent`` means
+    a different folder one import down.
+
+    Launchers are excluded by kind: a ``.pyw`` runs before the venv
+    bootstrap, so it cannot import a helper at all, and its ``_script_dir`` is
+    the installation root rather than a package.
+    """
+    offenders = [
+        _relative(path)
+        for path in _runtime_sources()
+        if path.suffix != ".pyw"
+        and _builds_its_own_package_path(path.read_text(encoding="utf-8"))
+        and _relative(path) not in PACKAGE_PATH_ALLOWLIST
+    ]
+
+    assert offenders == [], (
+        "these modules derive a path from their own __file__ instead of "
+        f"calling suite_paths.package_path: {offenders}"
     )
 
 

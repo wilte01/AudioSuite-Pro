@@ -230,6 +230,7 @@ the capability. If it is there, import it.
 | A launcher's error dialog | `launch_failure.show_error_dialog` |
 | Preferences | `suite_config.load_value` / `save_value` (see *Shared Config Pattern*) |
 | The installation root | `suite_paths.py` — `suite_root()`, `suite_path()`; a file inside one tool's package is `suite_path("<tool>", "<name>")` |
+| A file inside the calling module's own package | `suite_paths.py` — `package_path(__file__, ...)`; never a hand-built `Path(__file__).parent` |
 | Decoding for analysis | `analysis_loader.load_analysis_audio` / `check_analysable` |
 | User-facing error text | `exceptions.USER_MESSAGES` |
 | Logging setup | `app_bootstrap.configure_logging` |
@@ -259,8 +260,9 @@ module declares its own audio-extension list, chooses the FFmpeg binary
 itself (a `shutil.which` lookup, or a hand-built path to a binary it ships —
 `ffmpeg.exe`, `fpcalc.exe`, `discid.dll`), reads
 `sys._MEIPASS` to find a packaged file, builds a Tk root to show a launcher's
-error dialog, finds the installation root by matching a directory's name, or
-writes `audio_suite_config.json` directly. Existing copies are
+error dialog, finds the installation root by matching a directory's name,
+derives a path from its own `__file__` instead of `package_path`, or writes
+`audio_suite_config.json` directly. Existing copies are
 frozen in its allowlist **with a reason and a plan entry**; a new copy fails,
 and every entry is load-bearing — it must still trip its own rule, or it is dead
 weight that pre-approves the next copy (the registry in that file fails a rule

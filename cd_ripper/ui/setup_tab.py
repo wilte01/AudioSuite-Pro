@@ -15,6 +15,7 @@ from tkinter import filedialog, ttk
 from typing import Any
 
 from audio_suite_shared import styles, ui_common
+from audio_suite_shared.suite_paths import package_path
 from cd_ripper.core.cd_ripper_config import set_output_dir
 from cd_ripper.core.disc import DiscInfo
 
@@ -198,9 +199,8 @@ class SetupTab:
             opts.get(quality_label) if opts else FORMAT_OPTIONS[fmt]["codec_args"]
         )
 
-        _core = os.path.normpath(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "core")
-        )
+        # Changed in 2.5.0: the sibling package comes from the shared helper.
+        _core = package_path(__file__, "..", "core")
         _local_name = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
         ffmpeg = os.path.join(_core, _local_name)
         ffmpeg = ffmpeg if os.path.exists(ffmpeg) else "ffmpeg"
