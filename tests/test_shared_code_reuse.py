@@ -10,8 +10,16 @@ a private copy of that set (or none at all), so a legal name such as
 This module is the general guard.  It reads the shipped runtime, not the tests,
 and fails when a module declares its own copy of a capability the suite already
 owns: the audio-extension list, the suite's config file, or the FFmpeg binary
-itself.  Known copies are frozen in an allowlist with the reason they still
-exist, so the set cannot grow while they are converged; a new copy fails here.
+itself - both ways a module can choose that binary, the ``shutil.which`` lookup
+and a spelled-out binary name handed to a path builder.  Known copies are
+frozen in an allowlist with the reason they still exist, so the set cannot grow
+while they are converged; a new copy fails here.
+
+Changed in 2.5.0: the binary rule grew a second detector. The first version
+only recognised ``shutil.which("ffmpeg")``, which is why the ReplayGain
+analyzer's ``get_resource_path("ffmpeg.exe")``-plus-``exists`` lookup survived
+the sweep that found every other copy (plan D-40); ``_joins_a_binary_path``
+now catches a spelled-out binary name handed to a path builder.
 
 The suite already locks two neighbouring boundaries, and this module does not
 repeat them: ``tests/test_subprocess_boundary.py`` owns process spawning and
@@ -55,6 +63,17 @@ EXTENSION_LIST_ALLOWLIST: dict[str, str] = {
 FFMPEG_FINDER_ALLOWLIST: dict[str, str] = {
     "audio_suite_shared/ffmpeg.py": "the suite's one FFmpeg/FFprobe resolver",
 }
+
+#: Modules allowed to build a path to a binary by hand, with the reason.
+#: Empty on purpose: the resolver assembles its own name from an f-string, so
+#: it never spells a literal a caller could mistake for a hand-built lookup.
+#: An entry here is the deliberate escape hatch, not the way to pass.
+BINARY_PATH_ALLOWLIST: dict[str, str] = {}
+
+#: The file names a hand-built lookup spells before joining a directory to it.
+BINARY_FILE_NAMES: frozenset[str] = frozenset(
+    {"ffmpeg", "ffmpeg.exe", "ffprobe", "ffprobe.exe"}
+)
 
 #: Modules allowed to write the suite's config file, with the reason.
 CONFIG_WRITER_ALLOWLIST: dict[str, str] = {
@@ -136,6 +155,75 @@ def _resolves_ffmpeg(source: str) -> bool:
     return False
 
 
+def _is_binary_literal(node: ast.AST) -> bool:
+    """Report whether *node* is a string literal naming an FFmpeg binary.
+
+    Args:
+        node: The AST node to test.
+
+    Returns:
+        True for a constant such as ``"ffmpeg.exe"`` (case-insensitive).
+    """
+    return (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and node.value.lower() in BINARY_FILE_NAMES
+    )
+
+
+def _is_path_builder(function: ast.expr) -> bool:
+    """Report whether *function* is a callee that builds or probes a path.
+
+    A binary literal is only a lookup when something is going to treat it as
+    a path. ``run_secure_subprocess("ffmpeg", args)`` names the binary the
+    wrapper runs and is deliberately not one of these; ``_tool_failure(...)``
+    and ``SystemRequirement(...)`` take the same literal as a label.
+
+    Args:
+        function: The call's ``.func`` expression.
+
+    Returns:
+        True for a callee whose name is a path builder or probe, e.g.
+        ``os.path.join``, ``Path``, ``get_resource_path``, ``os.path.exists``.
+    """
+    name = getattr(function, "attr", "") or getattr(function, "id", "")
+    lowered = name.lower()
+    return lowered == "path" or any(
+        word in lowered
+        for word in ("join", "path", "resource", "abspath", "exists", "isfile")
+    )
+
+
+def _joins_a_binary_path(source: str) -> bool:
+    """Report whether a module builds its own path to an FFmpeg binary.
+
+    ``_resolves_ffmpeg`` sees the ``shutil.which`` shape. This sees the other
+    one: a spelled-out binary name handed to something that builds or probes a
+    path, which is how the ReplayGain analyzer kept a private lookup alive
+    through the first sweep - ``get_resource_path("ffmpeg.exe")`` guarded by
+    ``os.path.exists``, with no lookup call anywhere, because the ``join`` sat
+    inside the helper and took a variable. Both shapes decide *which* binary
+    runs, so neither may live outside the shared resolver.
+
+    Args:
+        source: The module's text.
+
+    Returns:
+        True for ``… .join(<dir>, "ffmpeg.exe")`` on any ``join`` attribute,
+        or for a ``/`` path division by such a literal.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Call):
+            if _is_path_builder(node.func) and any(
+                _is_binary_literal(argument) for argument in node.args
+            ):
+                return True
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            if _is_binary_literal(node.left) or _is_binary_literal(node.right):
+                return True
+    return False
+
+
 def _writes_suite_config(source: str) -> bool:
     """Report whether a module serialises the suite's own config file.
 
@@ -164,6 +252,22 @@ def test_the_detectors_can_fail() -> None:
     assert not _resolves_ffmpeg("from x import FFMPEG_PATH\nFFMPEG_PATH\n")
     assert _writes_suite_config('name = "audio_suite_config"\njson.dump({}, f)\n')
     assert not _writes_suite_config("suite_config.save_value('a', 1)\n")
+    # The exact shape the ReplayGain analyzer used, which the `which` detector
+    # could not see: a literal handed to a path helper, no lookup call at all.
+    assert _joins_a_binary_path(
+        'def f():\n    local = get_resource_path("ffmpeg.exe")\n'
+        '    return local if os.path.exists(local) else "ffmpeg"\n'
+    )
+    assert _joins_a_binary_path('os.path.join(here, "ffmpeg.exe")\n')
+    assert _joins_a_binary_path('Path(here) / "ffprobe"\n')
+    assert not _joins_a_binary_path("os.path.join(here, name)\n")
+    # Naming the binary the wrapper will run is not a lookup: no path builder
+    # is involved, and the argv[0] still comes from FFMPEG_PATH at the call
+    # site that matters.
+    assert not _joins_a_binary_path('run_secure_subprocess("ffmpeg", args)\n')
+    assert not _joins_a_binary_path(
+        "from audio_suite_shared.ffmpeg import FFMPEG_PATH\n"
+    )
 
 
 def test_no_module_declares_its_own_audio_extension_list() -> None:
@@ -196,6 +300,26 @@ def test_the_ffmpeg_binary_is_resolved_in_one_place() -> None:
     )
 
 
+def test_no_module_builds_its_own_path_to_a_binary() -> None:
+    """A hand-joined binary name picks a binary just as a lookup would.
+
+    ``test_the_ffmpeg_binary_is_resolved_in_one_place`` only sees
+    ``shutil.which``; this is the second shape, and it is the one that let the
+    ReplayGain analyzer's private lookup survive the first sweep (plan D-39).
+    """
+    offenders = [
+        _relative(path)
+        for path in _runtime_sources()
+        if _joins_a_binary_path(path.read_text(encoding="utf-8"))
+        and _relative(path) not in BINARY_PATH_ALLOWLIST
+    ]
+
+    assert offenders == [], (
+        "these modules build their own path to an FFmpeg binary instead of "
+        f"importing FFMPEG_PATH: {offenders}"
+    )
+
+
 def test_the_suite_config_file_has_one_writer() -> None:
     """Every preference goes through ``suite_config``: one file, one writer."""
     offenders = [
@@ -216,6 +340,7 @@ def test_every_allowlist_entry_names_a_real_file() -> None:
     declared = {
         *EXTENSION_LIST_ALLOWLIST,
         *FFMPEG_FINDER_ALLOWLIST,
+        *BINARY_PATH_ALLOWLIST,
         *CONFIG_WRITER_ALLOWLIST,
     }
 

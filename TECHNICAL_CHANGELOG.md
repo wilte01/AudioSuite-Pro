@@ -12,6 +12,17 @@ one.
 
 ## [Unreleased]
 
+- **The reuse lock sees the second way a module can pick FFmpeg.** It only
+  recognised `shutil.which("ffmpeg")`, so the ReplayGain analyzer's
+  `get_resource_path("ffmpeg.exe")` plus `os.path.exists` passed the sweep that
+  found every other copy. `_joins_a_binary_path` now flags a spelled-out
+  binary name handed to a path builder - `os.path.join`, `Path`, a
+  `get_resource_path`-style helper, `exists`/`isfile` - including the `Path /`
+  division form, while deliberately leaving `run_secure_subprocess("ffmpeg",
+  args)` alone: naming the binary the wrapper runs is not a lookup. The
+  self-check drives the exact shape that slipped through, so the lock cannot
+  pass by only knowing the form it already caught.
+
 - **One FFmpeg resolver for the suite.** `audio_suite_shared/ffmpeg.py` now
   owns the binary lookup: `FFMPEG_PATH`/`FFPROBE_PATH` for callers that need
   an argv[0], `find_ffmpeg()`/`find_ffprobe()` answering None so a caller that

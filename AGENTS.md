@@ -252,8 +252,9 @@ Audio Refinery's copy-capable containers are a writable subset of the format
 matrix, and the metadata scrubber's per-family extension sets route a file to
 the tag block that can hold it. Say so in a comment and list it in the lock.
 - **The arbiter is `tests/test_shared_code_reuse.py`.** It fails when a shipped
-module declares its own audio-extension list, looks the FFmpeg binary up
-itself, or writes `audio_suite_config.json` directly. Existing copies are
+module declares its own audio-extension list, chooses the FFmpeg binary
+itself (a `shutil.which` lookup, or a hand-built path to `ffmpeg.exe`), or
+writes `audio_suite_config.json` directly. Existing copies are
 frozen in its allowlist **with a reason and a plan entry**; a new copy fails.
 Adding an allowlist entry is a deliberate, reviewable decision, not the way to
 make a red test green. `tests/test_filename_safety.py` holds the filename set
