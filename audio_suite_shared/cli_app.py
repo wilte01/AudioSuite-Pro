@@ -171,6 +171,8 @@ _TOOL_CLI_MODULES: tuple[tuple[str, str], ...] = (
     ("audio_joiner.cli", "join"),
     ("audio_suite_shared.cue_cli", "cue"),
     ("bpm_analyzer.cli", "bpm"),
+    # Changed in 2.5.0: the channel utility's command (F-E6).
+    ("channel_tools.cli", "channels"),
     ("cd_ripper.cli", "cd-rip"),
     ("duplicate_finder.cli", "duplicates"),
     ("file_reorganizer.cli", "reorganize"),

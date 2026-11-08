@@ -73,6 +73,7 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
     "audio_joiner": "audio_joiner.core.join.run_join",
     "audio_refinery": "audio_refinery.core.file_processor.run_pipeline",
     "bpm_analyzer": "bpm_analyzer.core.file_processor.run_analysis",
+    "channel_tools": "channel_tools.core.processor.run_channels",
     "duplicate_finder": ("duplicate_finder.core.file_processor.run_duplicate_scan"),
     "genre_sync": "genre_sync.core.file_processor.run_processing",
     "lyrics_manager": "lyrics_manager.core.file_processor.run_fetch",

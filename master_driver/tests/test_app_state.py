@@ -49,7 +49,7 @@ Changed in 1.3.0: the expected toggle-key set adds ``spectral_viewer``.
 Changed in 1.4.0: the worker default is read from default_max_workers().
 
 Changed in 2.1.0: plugin tools contribute their own toggle keys.
-Changed in 2.5.0: the frozen option-variable set gains the Track Splitter (F-E4).
+Changed in 2.5.0: the frozen toggle set gains the Channel Tools utility (F-E6).
 """
 
 import json
@@ -593,6 +593,8 @@ class TestModuleToggles:
         # a launcher, so a new tool appears here without an AppState edit.
         "duplicate_finder",
         "restoration",
+        # F-E6: the channel utility's card, registered from its manifest.
+        "channel_tools",
         # Plugin tools (from the shipped example plugin; the registry
         # generates a toggle for every manifest with a launcher)
         "example_tool",

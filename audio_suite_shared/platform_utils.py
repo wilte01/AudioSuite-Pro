@@ -123,6 +123,7 @@ def open_help(guide_filename: str) -> None:
         "Lyrics_Manager_User_Guide.docx": "lyrics_manager",
         "Master_Driver_User_Guide.docx": "master_driver",
         "Audio_Joiner_User_Guide.docx": "audio_joiner",
+        "Channel_Tools_User_Guide.docx": "channel_tools",
         "Metadata_Scrubber_User_Guide.docx": "metadata_scrubber",
         "Mood_Analysis_Batch_Tagger_User_Guide.docx": "mood_analysis_batch_tagger",
         "Mood_Analyzer_User_Guide.docx": "mood_analyzer",

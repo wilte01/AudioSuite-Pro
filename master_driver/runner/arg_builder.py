@@ -420,6 +420,10 @@ def _build_utility_tool_args(
         "restoration": lambda: _build_restoration_args(
             path, mode_flag, start_flag, end_flag, state
         ),
+        # Changed in 2.5.0: the channel utility's rule and parameters (F-E6).
+        "channel_tools": lambda: _build_channel_tools_args(
+            path, mode_flag, start_flag, end_flag, state
+        ),
     }
     builder = builders.get(tool_id)
     if builder is None:
@@ -723,6 +727,35 @@ def _build_duplicate_finder_args(
     if quarantine:
         args += ["--quarantine-dir", quarantine]
     return args
+
+
+def _build_channel_tools_args(
+    path: str,
+    mode_flag: str,
+    start_flag: str,
+    end_flag: str,
+    state: AppState,
+) -> list[str]:
+    """Return the CLI argument list for Channel Tools.
+
+    The rule and every parameter are emitted explicitly, so the child displays
+    the same operation the card showed instead of falling back to its own
+    defaults.
+    """
+    return [
+        path,
+        mode_flag,
+        start_flag,
+        end_flag,
+        "--operation",
+        state.channel_tools_operation.get() or "mono_mean",
+        "--width",
+        state.channel_tools_width.get() or "100",
+        "--source-channel",
+        state.channel_tools_source_channel.get() or "left",
+        "--invert",
+        state.channel_tools_invert.get() or "both",
+    ]
 
 
 def _build_restoration_args(

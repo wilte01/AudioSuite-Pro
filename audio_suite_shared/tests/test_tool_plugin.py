@@ -22,7 +22,8 @@ absence from every surface and that the pipeline still runs their cores
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
-Changed in 2.5.0: the frozen counts and command set gain the Track Splitter (F-E4).
+Changed in 2.5.0: the frozen counts and command set gain the Track Splitter (F-E4)
+and then the Channel Tools utility (F-E6).
 """
 
 from pathlib import Path
@@ -186,7 +187,7 @@ class TestDefaultRegistry:
     def test_registry_is_populated(self):
         r = get_registry()
         assert len(r) >= 16  # all first-party tools
-        assert len(r.first_party) == 29  # 11 enrich + 17 utility + 1 refinery
+        assert len(r.first_party) == 30  # 11 enrich + 18 utility + 1 refinery
         # A plugin adds a registry entry, never a first-party one.
         assert len(r) == len(r.first_party) + len(r.plugins)
         assert r.plugins, "the shipped example plugin did not register"
@@ -248,6 +249,7 @@ class TestDefaultRegistry:
             "ml_denoiser",
             "duplicate_finder",
             "restoration",
+            "channel_tools",
         }
         assert ids == expected
 
@@ -287,6 +289,7 @@ class TestDefaultRegistry:
             "stems",
             "duplicates",
             "declip",
+            "channels",
             # Plan G2: the CLI subcommand is `refine`, and the manifest now
             # says so instead of leaving audio_refinery CLI-less by omission.
             "refine",
@@ -313,6 +316,7 @@ class TestDefaultRegistry:
             "ml_denoiser",
             "duplicate_finder",
             "restoration",
+            "channel_tools",
         }
         assert standalone == expected
 
@@ -384,12 +388,12 @@ class TestRemovedStandaloneTools:
             assert r.get(tool_id) is None, tool_id
 
     def test_the_utilities_tab_loses_them_with_the_registry(self):
-        """17 first-party utilities, and the tab offers every one."""
+        """18 first-party utilities, and the tab offers every one."""
         r = get_registry()
         utilities = [m.id for m in r.by_category("utility") if not m.plugin]
         cards = [m.id for m in r.driver_by_category("utility") if not m.plugin]
 
-        assert len(utilities) == 17, utilities
+        assert len(utilities) == 18, utilities
         assert sorted(cards) == sorted(utilities)
 
     def test_no_launcher_and_no_command_survive(self):

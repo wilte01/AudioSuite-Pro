@@ -836,6 +836,35 @@ python utilities/undo.py undo <batch_id>
 See **Undo Batch** at the end of this reference for the batch model and the
 `--db` option.
 
+### Channel Tools
+
+Apply one channel rule to a folder in place: a mono downmix in either of its two
+calibrations, dual mono, phase inversion, mid/side encode or decode, and stereo
+width. The file's tags, sample rate and bit depth survive, and a dry run reports
+the rule without writing.
+
+```bash
+audiosuite channels <directory> [--operation ID] [--width PERCENT]
+    [--source-channel left|right] [--invert left|right|both]
+    [--dry|--live] [--json]
+```
+
+**Options:**
+
+- `--operation ID` - `mono_mean`, `mono_minus3db`, `dual_mono`, `invert_phase`, `ms_encode`, `ms_decode`, `stereo_width` (default: `mono_mean`)
+- `--width PERCENT` - stereo-width percentage from 0 to 400; only `stereo_width` reads it, and 100 is the identity (default: 100)
+- `--source-channel left|right` - the channel `dual_mono` copies to both sides (default: left)
+- `--invert left|right|both` - the side `invert_phase` negates (default: both)
+- `--dry` / `--live` - report the rule and write nothing, or rewrite the audio in place (default: live)
+
+**Examples:**
+
+```bash
+audiosuite channels "D:\Music\Live" --dry
+audiosuite channels "D:\Music\Live" --operation mono_minus3db --live
+audiosuite channels "D:\Music\Live" --operation stereo_width --width 150 --json
+```
+
 ## Suite commands
 
 ### doctor
@@ -974,7 +1003,7 @@ audiosuite cue split "D:\Music\Album\Album.cue" -o "D:\Music\Album\Tracks"
 ## All Commands
 
 Every command the CLI ships, including the suite commands that operate on the
-installation rather than on a folder of audio. Each of the 29 tools appears
+installation rather than on a folder of audio. Each of the 30 tools appears
 here, and each tool's own section above documents its flags.
 
 | Command | Tool | Category |
@@ -1009,6 +1038,7 @@ here, and each tool's own section above documents its flags.
 | `scrub` | Metadata Scrubber | Enrich |
 | `spectrogram` | Spectral Viewer | Util |
 | `join` | Audio Joiner | Util |
+| `channels` | Channel Tools | Util |
 | `split` | Track Splitter | Util |
 | `stats` | Library Statistics Dashboard | Util |
 | `stems` | Stem Separator | Util |

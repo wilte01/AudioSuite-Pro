@@ -65,6 +65,8 @@ _TOOL_DISPLAY_NAMES: dict[str, str] = {
     "audio_normalizer": "Audio Normalizer",
     "audio_refinery": "Audio Refinery",
     "bpm_analyzer": "BPM Analyzer",
+    # Changed in 2.5.0: the channel utility's undo rows name the tool (F-E6).
+    "channel_tools": "Channel Tools",
     "duplicate_finder": "Duplicate Finder",
     "file_reorganizer": "Tag-Based File Reorganizer",
     "genre_sync": "Genre Sync",

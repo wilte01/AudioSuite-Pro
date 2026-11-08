@@ -42,7 +42,8 @@ entries require, so the table still covers exactly ``set(TOOL_IDS)``.
 
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
-Changed in 2.5.0: the usage-error table gains `split` (F-E4).
+Changed in 2.5.0: the usage-error table gains `split` (F-E4) and `channels`
+(F-E6).
 """
 
 from __future__ import annotations
@@ -79,6 +80,9 @@ _USAGE_CASES: dict[str, dict[str, list[str]]] = {
     "artnormalize": {"missing": [], "invalid": [MISSING_PATH]},
     "asx-extract": {"missing": [], "invalid": [MISSING_PATH]},
     "bpm": {"missing": [], "invalid": [MISSING_PATH]},
+    # ``channels`` binds --operation in Click, so an unknown rule is rejected
+    # before the settings object is built.
+    "channels": {"missing": [], "invalid": [LIBRARY, "--operation", "bogus"]},
     "cd-rip": {"missing": ["Z:"], "invalid": ["Z:", "--verify", "bogus"]},
     "convert": {"missing": [], "invalid": [LIBRARY, "--sample-rate", "bogus"]},
     "cue generate": {"missing": [], "invalid": [MISSING_PATH]},

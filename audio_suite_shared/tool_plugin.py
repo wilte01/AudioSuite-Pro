@@ -476,6 +476,17 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         standalone=True,
         order=56,
     ),
+    # Changed in 2.5.0: registers the channel utility's manifest (F-E6).
+    ToolManifest(
+        id="channel_tools",
+        name="Channel Tools",
+        category="utility",
+        pyw_filename="Channel_Tools.pyw",
+        description="Apply mono, dual-mono, phase, mid/side and width rules in place",
+        cli_command="channels",
+        standalone=True,
+        order=57,
+    ),
     ToolManifest(
         id="library_stats",
         name="Library Statistics Dashboard",

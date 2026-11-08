@@ -274,6 +274,8 @@ DEPENDENCY_GRAPH: dict[str, list[str]] = {
     "library_stats": [],
     "track_splitter": [],
     "audio_joiner": [],
+    # Changed in 2.5.0: the channel utility has no dependencies (F-E6).
+    "channel_tools": [],
     "spectral_viewer": [],
     "file_reorganizer": [],
     "lyrics_manager": [],

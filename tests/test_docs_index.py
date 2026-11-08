@@ -58,9 +58,10 @@ INDEX = REPO_ROOT / "documentation" / "docs" / "index.md"
 DOCS = REPO_ROOT / "documentation" / "docs"
 GENERATOR = REPO_ROOT / "utilities" / "generate_docs_index.py"
 
-#: The manifest ships 29 first-party tools; a table that loses rows fails here.
+# Changed in 2.5.0: the row lock follows the registry to 30 (Channel Tools, F-E6).
+#: The manifest ships 30 first-party tools; a table that loses rows fails here.
 #: (32 until 2.6.0, when the five stage tools lost their guides: U-04.)
-REQUIRED_TOOL_ROWS = 29
+REQUIRED_TOOL_ROWS = 30
 
 #: A MyST role span, e.g. ``{doc}`user/security```. Its body is a docname, not a
 #: repository path, even when it contains a slash.

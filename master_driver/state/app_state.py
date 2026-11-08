@@ -279,6 +279,14 @@ class AppState:
         self.restore_threshold = tk.StringVar(master, value="0.98")
         self.restore_max_run = tk.StringVar(master, value="50")
 
+        # Changed in 2.5.0: the channel utility's rule and parameters (F-E6).
+        # The values are the shared operation ids, so the card cannot offer a
+        # rule the CLI would refuse.
+        self.channel_tools_operation = tk.StringVar(master, value="mono_mean")
+        self.channel_tools_width = tk.StringVar(master, value="100")
+        self.channel_tools_source_channel = tk.StringVar(master, value="left")
+        self.channel_tools_invert = tk.StringVar(master, value="both")
+
     # ── Backward-compatible property aliases for utility toggles ──────────────
     # These delegate to the module_toggles dict so existing card code and
     # tests continue to work unchanged.  New code should use

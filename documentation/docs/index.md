@@ -65,13 +65,14 @@ tool entry in the manifest.
 | Track Splitter | `Track_Splitter.pyw` | [Markdown](../user_guides/individual_programs/track_splitter/Track_Splitter_User_Guide.md) |
 | Audio Joiner | `Audio_Joiner.pyw` | [Markdown](../user_guides/individual_programs/audio_joiner/Audio_Joiner_User_Guide.md) |
 | Restoration (Declip) | `Restoration.pyw` | [Markdown](../user_guides/individual_programs/restoration/Restoration_User_Guide.md) |
+| Channel Tools | `Channel_Tools.pyw` | [Markdown](../user_guides/individual_programs/channel_tools/Channel_Tools_User_Guide.md) |
 | Undo Tag Edits | `Undo_Tag_Edits.pyw` | [Markdown](../user_guides/individual_programs/undo_tag_edits/Undo_Tag_Edits_User_Guide.md) |
 
 <!-- DOCS TOOL INDEX: END -->
 
 ## Suite-wide guides
 
-* {doc}`user/suite-overview` — how the 29 tools are grouped, what
+* {doc}`user/suite-overview` — how the 30 tools are grouped, what
   each Master Driver tab runs, and how a batch is ordered.
 * {doc}`user/security` — encrypted API keys and how
   to recover them, safe file selection, and what each security message means.

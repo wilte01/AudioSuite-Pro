@@ -103,6 +103,8 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
         ("audio_fingerprinter/app.py", "FingerprinterApp"),
         ("audio_refinery/app.py", "AudioRefineryApp"),
         ("bpm_analyzer/app.py", "BPMAnalyzerApp"),
+        # Changed in 2.5.0: the channel utility's window (F-E6).
+        ("channel_tools/app.py", "ChannelToolsApp"),
         ("duplicate_finder/ui/app.py", "DuplicateFinderApp"),
         ("genre_sync/app.py", "GenreSetterApp"),
         ("lyrics_manager/app.py", "LyricsManagerApp"),

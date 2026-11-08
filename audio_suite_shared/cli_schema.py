@@ -163,6 +163,8 @@ TOOL_IDS: Final[Mapping[str, str]] = {
     "artnormalize": "album_art_normalizer",
     "asx-extract": "asx_extractor",
     "bpm": "bpm",
+    # Changed in 2.5.0: the channel utility publishes the core keys only (F-E6).
+    "channels": "channel_tools",
     "cd-rip": "cd_ripper",
     "convert": "converter",
     "cue generate": "cue",

@@ -62,6 +62,7 @@ from pptx.util import Inches, Pt
 
 from audio_suite_shared.tool_plugin import get_registry
 
+# Changed in 2.5.0: the per-tool table gains Channel Tools (F-E6).
 OUTPUT = Path(__file__).resolve().parent / "AudioSuite-Pro_New_User_Presentation.pptx"
 
 #: How many tools the deck says the suite has.  Read from the tool manifest
@@ -545,6 +546,15 @@ FORMAT_ROWS: list[list[str]] = [
         YES,
         YES,
         "Joins a folder in a chosen order, with gaps or equal-power crossfades",
+    ],
+    [
+        "Channel Tools",
+        YES,
+        YES,
+        YES,
+        YES,
+        YES,
+        "Applies one channel rule in place: mono, dual mono, phase, mid/side, width",
     ],
     [
         "Undo Tag Edits",
