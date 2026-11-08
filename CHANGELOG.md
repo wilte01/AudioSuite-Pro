@@ -16,6 +16,9 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+Nothing yet.
+
+
 ## [2.5.0] - 2026-11-08
 
 - **Every legal file name is a legal input, everywhere.** The suite's filename

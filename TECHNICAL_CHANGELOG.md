@@ -12,6 +12,9 @@ one.
 
 ## [Unreleased]
 
+Nothing yet.
+
+
 ## [2.5.0] - 2026-11-08
 
 - **The suite finds its own files from one root.** It was derived nine times -
