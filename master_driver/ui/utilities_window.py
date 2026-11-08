@@ -25,7 +25,7 @@ card opened from the right column spans the window like one opened from the
 left instead of filling only the right half (PLAN_restoration_2026-10-31.md
 L-01).
 
-Changed in 2.5.0: the cards are grouped, not merely ordered.
+Changed in 2.6.0: the cards are grouped, not merely ordered.
 ``utility_sections`` splits the registry's utility population into captioned
 sections - Convert & Import, Tags & Artwork, Analysis & Inspection, Repair &
 Processing, Organise & File Handling, then Plugins last - so nineteen flat

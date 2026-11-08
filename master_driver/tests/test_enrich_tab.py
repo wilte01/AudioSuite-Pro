@@ -6,7 +6,7 @@ these tests freeze three things together: the cards that render, the captions
 and their membership, and the fact that grouping did not reorder the run the
 tab's LAUNCH button hands to a sequential batch.
 
-Changed in 2.5.0: initial version, with the Enrich tab's grouping
+Changed in 2.6.0: initial version, with the Enrich tab's grouping
 (PLAN_2026-11-08_enrich_card_grouping.md).
 """
 

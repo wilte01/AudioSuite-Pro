@@ -6,7 +6,7 @@ one widget in one place: the Utilities tab's two-column grid and the Enrich
 tab's single-column stack have to read the same, and a copy per tab is how the
 two drift apart.
 
-Changed in 2.5.0: extracted from ``utilities_window`` when the Enrich tab gained
+Changed in 2.6.0: extracted from ``utilities_window`` when the Enrich tab gained
 the same grouping (PLAN_2026-11-08_enrich_card_grouping.md).
 """
 

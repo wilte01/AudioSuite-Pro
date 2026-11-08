@@ -52,7 +52,7 @@ CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.4.0: Duplicate Finder's manifest description covers its new
 delete and ASX-stub dispositions.
 Changed in 2.5.0: adds the Track Splitter manifest (F-E4).
-Changed in 2.5.0: the ENRICH tab is grouped too.  ``ENRICH_GROUPS`` declares its
+Changed in 2.6.0: the ENRICH tab is grouped too.  ``ENRICH_GROUPS`` declares its
 five sections and ``enrich_sections`` splits the population, so the splitter
 behind both tabs is one implementation (``grouped_sections``) and the enrich run
 order is untouched - the groups are contiguous runs of it

@@ -10,7 +10,7 @@ enrich tool to the registry automatically adds its card here.
 
 Changed in 2.1.0: a plugin tool without a card module gets the generic plugin card.
 
-Changed in 2.5.0: the cards are grouped, like the Utilities tab's.  A
+Changed in 2.6.0: the cards are grouped, like the Utilities tab's.  A
 full-width caption above each run of cards names the step it belongs to - Tag
 Cleanup, Identification, Loudness & Genre, Analysis, Artwork & Lyrics - and the
 groups are contiguous runs of the existing enrich order, so the run a

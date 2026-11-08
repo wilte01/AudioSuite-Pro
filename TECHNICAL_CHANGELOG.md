@@ -51,6 +51,13 @@ one.
   row 0 — the assertion they exist for (the pair behind an open card starts a
   fresh row) is unchanged.
 
+- **The release-note lock names 2.6.0.** `tests/test_release_notes.py`
+  re-baselines `BASE_COMMIT` to `be17c9d` (the commit `v2.5.0` points at) and
+  `NOTE_MARKER` to `Changed in 2.6.0`, so the Utilities/Enrich grouping's six
+  notes name the release that will carry them rather than the tagged one that
+  does not (`PLAN_2026-11-08_enrich_card_grouping.md` D-08). The changed-in
+  baseline was re-recorded with it: 2.6.0 holds 24 note lines of the 1,683.
+
 ## [2.5.0] - 2026-11-08
 
 - **The suite finds its own files from one root.** It was derived nine times -

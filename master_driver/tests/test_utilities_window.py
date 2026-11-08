@@ -20,7 +20,7 @@ Changed in 2.3.1 (U-03, released in 2.6.0): the card population is
 every utility manifest, so the five retired DSP cards no longer count towards
 the grid's cells.
 
-Changed in 2.5.0: the cards are grouped, so the grid also carries one caption
+Changed in 2.6.0: the cards are grouped, so the grid also carries one caption
 row per group.  ``EXPECTED_UTILITY_ORDER`` freezes the displayed order (which
 is the sequential batch order too) and ``EXPECTED_GROUPS`` freezes the captions
 and their membership, so a reorder or a re-grouping is a deliberate diff here
