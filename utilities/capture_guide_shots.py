@@ -99,6 +99,12 @@ capture instead of inheriting another's vocabulary.
 Changed in 2.5.0: the Track Splitter's three tabs are captured from its own
 sample run, and its Setup figure is filled in the live mode its written-file
 lines report (F-E4 follow-on).
+
+Changed in 2.5.0: Channel Tools joins the plans, so its guide shows the window
+it describes.  Its sample run is in the shared in-place workflow's own
+``[STATUS] name -> rule`` shape (the line ``process_audio_file_inplace``
+publishes, with the rule sentence ``channel_ops.apply_operation`` returns), and
+its Setup figure is filled in the Dry Run mode those ``[FOUND]`` lines report.
 """
 
 from __future__ import annotations
@@ -353,6 +359,30 @@ SAMPLE_RUNS: Mapping[str, SampleRun] = {
         slots=(
             f"Hashing: {_NEXT[0][:22]}...",
             f"Processing: {_NEXT[1][:18]}...",
+        ),
+    ),
+    "channel_tools": SampleRun(
+        status="Processing channels...",
+        lines=(
+            *(
+                f"[FOUND] {name} \u2192 mono sum: 0.5 x (L + R)"
+                for name in _FINISHED
+            ),
+            "[SKIP] 07 - Eta Reprise.mp3 \u2192 already mono - unchanged",
+            "[FOUND] 08 - Theta Room.flac \u2192 stereo width 200 %: side "
+            "scaled, decoded",
+        ),
+        slots=(
+            f"Processing channels: {_NEXT[0][:25]}...",
+            f"Processing channels: {_NEXT[1][:25]}...",
+        ),
+        stats=f"Files: {SAMPLE_DONE}/9  |  Errors: 0",
+        summary=(
+            f"Files: {len(SAMPLE_TRACKS)}\n"
+            f"Changed: {SAMPLE_DONE}\n"
+            "Unchanged: 2\n"
+            "Errors: 0\n"
+            "Rule: Mono, arithmetic mean (0.5 x (L + R))"
         ),
     ),
     "duplicate_finder": SampleRun(
@@ -1205,6 +1235,17 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
             "processing": _populate_processing,
             "results": _populate_results,
         },
+    ),
+    ToolPlan(
+        "channel_tools",
+        "channel_tools.app",
+        "ChannelToolsApp",
+        # The tab is wider than the size the window asks for: its rule line and
+        # the note under the start button wrap at 760 px, and the tool's own
+        # request (660x440 at 100 %) cuts both off.  900x640 shows the whole
+        # Setup tab, the start button and the note, measured on the real window.
+        window=(900, 640),
+        populate=GENERIC_POPULATE,
     ),
     ToolPlan(
         "cd_ripper",

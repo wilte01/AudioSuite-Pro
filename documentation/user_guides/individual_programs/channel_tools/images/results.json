@@ -1,0 +1,13 @@
+{
+  "captured_by": "utilities/capture_guide_shots.py",
+  "dpi": 120,
+  "height": 640,
+  "palette": "Purple",
+  "png_bytes": 42124,
+  "png_sha256": "7392e8d28be7a6150b46c276603a76349ded355f6f21afb8e2ed0fe5d47172de",
+  "shot": "results",
+  "tab": "results",
+  "theme": "Light",
+  "tool": "channel_tools",
+  "width": 900
+}
