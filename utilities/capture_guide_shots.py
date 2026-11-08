@@ -364,10 +364,7 @@ SAMPLE_RUNS: Mapping[str, SampleRun] = {
     "channel_tools": SampleRun(
         status="Processing channels...",
         lines=(
-            *(
-                f"[FOUND] {name} \u2192 mono sum: 0.5 x (L + R)"
-                for name in _FINISHED
-            ),
+            *(f"[FOUND] {name} \u2192 mono sum: 0.5 x (L + R)" for name in _FINISHED),
             "[SKIP] 07 - Eta Reprise.mp3 \u2192 already mono - unchanged",
             "[FOUND] 08 - Theta Room.flac \u2192 stereo width 200 %: side "
             "scaled, decoded",

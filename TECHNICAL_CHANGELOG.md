@@ -12,6 +12,8 @@ one.
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-11-08
+
 - **The suite finds its own files from one root.** It was derived nine times -
   `Path(__file__).parent.parent` in the config and logging modules,
   `parents[2]` in the plugin loader and the Fingerprinter,

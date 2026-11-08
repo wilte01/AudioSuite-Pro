@@ -16,6 +16,8 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-11-08
+
 - **Every legal file name is a legal input, everywhere.** The suite's filename
   check accepted only letters, digits, `_`, `-`, `.` and spaces, so it called
   names like `1-03 Johnny, Don't Do It.mp3` or `Ships Don't Disappear (Do They_).mp3`
