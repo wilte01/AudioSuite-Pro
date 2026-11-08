@@ -142,6 +142,36 @@ def _literal_worker_counts() -> list[str]:
     return findings
 
 
+def _passes_one_worker(path: Path, argument: str) -> bool:
+    """Whether *path* passes ``<argument>=1`` to a call (Changed in 2.5.0).
+
+    The rot check used to look for the text ``=1,`` anywhere in the module, so
+    an entry survived a rename or a refactor that deleted its call: any other
+    one-argument literal in the file satisfied it.  Asking the syntax tree
+    answers the question the rule asks.
+
+    Args:
+        path: The module the allowlist entry names.
+        argument: The worker keyword it names (``max_workers``).
+
+    Returns:
+        True when some call in the module passes that keyword a literal ``1``.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        for keyword in node.keywords:
+            if (
+                keyword.arg == argument
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value == 1
+                and not isinstance(keyword.value.value, bool)
+            ):
+                return True
+    return False
+
+
 class TestWorkerCountLiterals:
     """No fixed worker count outside the documented single-worker site."""
 
@@ -170,12 +200,16 @@ class TestWorkerCountLiterals:
         )
 
     def test_one_worker_sites_are_still_the_documented_ones(self) -> None:
-        """The allowlist cannot rot: each entry must still pass 1."""
+        """The allowlist cannot rot: each entry must still pass 1 (2.5.0).
+
+        Read as text, ``=1,`` matched any one-argument literal in the module, so
+        an entry outlived the call it named.  The syntax tree pins the entry to
+        the keyword the allowlist names.
+        """
         present = {
             (rel, argument)
             for rel, argument in _ALLOWED_ONE_WORKER
-            if "=1," in (_REPO_ROOT / rel).read_text(encoding="utf-8")
-            or "=1)" in (_REPO_ROOT / rel).read_text(encoding="utf-8")
+            if _passes_one_worker(_REPO_ROOT / rel, argument)
         }
         assert present == _ALLOWED_ONE_WORKER, (
             "an allowed single-worker site no longer passes 1: "

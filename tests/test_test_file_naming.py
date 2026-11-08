@@ -27,6 +27,11 @@ Changed in 2.3.1 (U-02): ``audio_refinery/test_pipeline_noop`` is the 31st
 entry. The restoration plan names that file for the no-op/Dry Run contract,
 which ``test_pipeline.py`` cannot host because the refinery's pipeline tests
 already split across the two composite suites below.
+
+Changed in 2.5.0: the allowlist is load-bearing. An entry must still *be* a
+naming violation, not merely name a file that exists: a file renamed to mirror
+a real source module kept its entry, which then excused nothing and silently
+pre-approved the next composite.
 """
 
 from __future__ import annotations
@@ -246,6 +251,22 @@ class TestAllowlistFrozen:
             if not (REPO_ROOT / pkg_name / "tests" / f"{stem}.py").is_file():
                 missing.append(key)
         assert not missing, f"dead allowlist entries (file gone): {missing}"
+
+    def test_every_allowlisted_entry_still_breaks_the_rule(self) -> None:
+        """A file that now mirrors its module leaves a dead entry (2.5.0).
+
+        Existence is not enough.  Renaming an allowlisted composite so it
+        matches a source module leaves an entry that excuses nothing while
+        pre-approving the next ``test_<two_things>`` file, so the verdict is
+        taken from the classifier the rule itself runs.
+        """
+        _, violations = _scan()
+        dead = sorted(set(ALLOWLIST) - set(violations))
+
+        assert not dead, (
+            "allowlisted test files that now mirror a source module, so their "
+            f"entry excuses nothing: {dead}"
+        )
 
 
 class TestNamingLock:

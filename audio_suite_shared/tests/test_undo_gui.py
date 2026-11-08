@@ -121,12 +121,12 @@ class TestToolDisplayNamesMatchesManifest:
     wherever the two share an id.
     """
 
-    # ``audio_enhancer``'s ``_TOOL_ID`` names a suite_config preset namespace
-    # and is never passed to ``active_batch``/``set_active_batch``, so it never
-    # reaches the undo log and needs no display name.
-    EXEMPT: dict[str, str] = {
-        "audio_enhancer": "suite_config preset namespace, not an undo-log tool id",
-    }
+    #: Empty by design.  ``audio_enhancer`` sat here because its ``_TOOL_ID``
+    #: named a suite_config preset namespace and never reached the undo log;
+    #: the scan no longer collects that id at all, so the entry excused nothing
+    #: and was removed in 2.5.0.  An entry must be a collected id the display
+    #: map cannot cover, not a retired one.
+    EXEMPT: dict[str, str] = {}
 
     _TOOL_ID_NAMES = frozenset({"TOOL_ID", "_TOOL_ID", "TOOL_NAME"})
     _BATCH_CALLS = frozenset({"active_batch", "set_active_batch"})
@@ -194,6 +194,20 @@ class TestToolDisplayNamesMatchesManifest:
                             if value is not None:
                                 collected.add(value)
         return collected
+
+    def test_every_exempt_id_is_still_collected(self) -> None:
+        """A dead exemption would cover the next id that arrives.
+
+        Changed in 2.5.0: ``EXEMPT`` excused ``audio_enhancer`` because its
+        ``_TOOL_ID`` never reached the undo log.  An entry whose id the scan no
+        longer collects excuses nothing, so a newly collected id would look
+        covered while it had no display name.
+        """
+        collected = self._collected_ids()
+        dead = sorted(set(self.EXEMPT) - collected)
+        assert not dead, f"EXEMPT ids the undo-log scan no longer collects: {dead}"
+        for tool_id, reason in self.EXEMPT.items():
+            assert reason.strip(), f"{tool_id}: an exemption needs a reason"
 
     def test_every_reaching_id_has_a_display_name(self) -> None:
         collected = self._collected_ids()

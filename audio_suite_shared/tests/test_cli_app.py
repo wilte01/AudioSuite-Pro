@@ -701,14 +701,15 @@ class TestDocumentedFlagParity:
 
     #: Conventional, non-tool flags.  These are Click/click-suite conventions
     #: rather than tool options, so their absence from a command's own option
-    #: list is not drift.  Every entry must state why it is exempt.
+    #: list is not drift.  Every entry must state why it is exempt **and** must
+    #: still be printed by a documented invocation: `--help` and `--text` were
+    #: entries no usage line printed, so they excused a typo rather than a
+    #: convention and were removed in 2.5.0.
     ALLOWED_ABSENT: dict[str, str] = {
-        "--help": "Click supplies --help on every command implicitly.",
         "--json": (
             "Output-format switch of the shared --json/--text pair; a command "
             "that does not emit a summary has no use for it."
         ),
-        "--text": "Counterpart of the shared --json/--text output switch.",
     }
 
     @staticmethod
@@ -896,6 +897,72 @@ class TestDocumentedFlagParity:
         assert not failures, (
             "a command's own help text advertises flags it does not accept "
             "(audit H1, 'No such option --dry-run'):\n  " + "\n  ".join(failures)
+        )
+
+    def _flags_of(self, command: str, subcommand: str | None) -> set[str]:
+        """Every option spelling the documented command registers."""
+        ctx = _introspection_context()
+        try:
+            target = cli.get_command(ctx, command)
+            if subcommand is not None and isinstance(target, click.Group):
+                target = target.get_command(ctx, subcommand)
+        finally:
+            ctx.close()
+        assert target is not None, f"command {command!r} did not resolve"
+        return self._real_flags(target)
+
+    def _documented_but_absent(self) -> set[str]:
+        """Flags an invocation documents that its command does not register.
+
+        Both documentation surfaces are walked, because the parity assertions
+        above consult ``ALLOWED_ABSENT`` from both.
+
+        Returns:
+            Every ``--flag`` token printed in a documented invocation but
+            missing from that command's own option list.
+        """
+        absent: set[str] = set()
+        for command, subcommand, text in self._usage_blocks(self._docstring()):
+            documented = set(re.findall(r"\[(--[a-z0-9-]+)", text))
+            if documented:
+                absent |= documented - self._flags_of(command, subcommand)
+
+        ctx = _introspection_context()
+        try:
+            names = sorted(cli.list_commands(ctx))
+        finally:
+            ctx.close()
+        for name in names:
+            ctx = _introspection_context()
+            try:
+                target = cli.get_command(ctx, name)
+                if target is None or isinstance(target, click.Group):
+                    continue
+                doc = inspect.getdoc(target) or ""
+                if "Examples:" not in doc:
+                    continue
+                examples = doc.split("Examples:", 1)[1]
+                absent |= set(
+                    re.findall(r"(--[a-z0-9-]+)", examples)
+                ) - self._real_flags(target)
+            finally:
+                ctx.close()
+        return absent
+
+    def test_every_exemption_still_excuses_a_documented_flag(self) -> None:
+        """A dead exemption accepts a typo instead of a convention (2.5.0).
+
+        The parity assertions only ask whether an exempt flag is documented.
+        An entry for a flag no invocation prints any more excuses nothing, so a
+        misspelled ``[--jsn]`` would reach a real command's help text.
+        """
+        absent = self._documented_but_absent()
+        assert absent, "no documented flag was absent from its command"
+
+        dead = sorted(set(self.ALLOWED_ABSENT) - absent)
+        assert not dead, (
+            "ALLOWED_ABSENT exempts flags no documented invocation prints any "
+            f"more, so it would excuse a typo: {dead}"
         )
 
     @staticmethod
