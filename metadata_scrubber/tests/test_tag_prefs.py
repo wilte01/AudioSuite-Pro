@@ -1,102 +1,123 @@
 """
-Tests for metadata_scrubber.utils.tag_prefs
-Gap: no tests existed for tag_prefs persistence layer.
+Tests for metadata_scrubber.utils.tag_prefs.
+
+Changed in 2.5.0: the selection lives in the shared suite config, so these
+tests redirect ``suite_config.CONFIG_PATH`` at a temporary file and assert the
+stored value, and point ``LEGACY_PREFS_PATH`` at the temp directory instead of
+the package folder.
 """
 
 import json
-import os
 
-from metadata_scrubber.utils.tag_prefs import (
-    _prefs_path,
-    load_kept_tags,
-    save_kept_tags,
-)
+import pytest
+
+import audio_suite_shared.suite_config as suite_config
+from metadata_scrubber.utils import tag_prefs
+from metadata_scrubber.utils.tag_prefs import load_kept_tags, save_kept_tags
+
+_KEY = "metadata_scrubber_kept_tags"
 
 
-class TestPrefsPath:
-    def test_returns_path_with_filename(self, tmp_path):
-        result = _prefs_path(str(tmp_path))
-        assert result == os.path.join(str(tmp_path), "tag_prefs.json")
-
-    def test_returns_absolute_path(self, tmp_path):
-        result = _prefs_path(str(tmp_path))
-        assert os.path.isabs(result)
+@pytest.fixture(autouse=True)
+def isolated_config(tmp_path, monkeypatch):
+    """Keep every test away from the real suite config and package folder."""
+    config_file = tmp_path / "audio_suite_config.json"
+    monkeypatch.setattr(suite_config, "CONFIG_PATH", config_file)
+    monkeypatch.setattr(
+        tag_prefs, "LEGACY_PREFS_PATH", tmp_path / "legacy" / "tag_prefs.json"
+    )
+    suite_config._invalidate_cache()
+    yield config_file
+    suite_config._invalidate_cache()
 
 
 class TestLoadKeptTags:
-    def test_returns_set_when_file_exists(self, tmp_path):
-        data = {"kept_tags": ["TAG1", "TAG2"]}
-        path = os.path.join(str(tmp_path), "tag_prefs.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-        result = load_kept_tags(str(tmp_path))
-        assert result == {"TAG1", "TAG2"}
+    def test_returns_empty_set_when_nothing_is_stored(self):
+        assert load_kept_tags() == set()
 
-    def test_returns_empty_set_when_file_missing(self, tmp_path):
-        result = load_kept_tags(str(tmp_path))
-        assert result == set()
+    def test_returns_the_stored_set(self):
+        suite_config.save_value(_KEY, ["TAG1", "TAG2"])
+        assert load_kept_tags() == {"TAG1", "TAG2"}
 
-    def test_returns_empty_set_when_malformed_json(self, tmp_path):
-        path = os.path.join(str(tmp_path), "tag_prefs.json")
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("not valid json")
-        result = load_kept_tags(str(tmp_path))
-        assert result == set()
+    def test_stored_empty_list_loads_empty(self):
+        suite_config.save_value(_KEY, [])
+        assert load_kept_tags() == set()
 
-    def test_returns_empty_set_when_empty_tags_list(self, tmp_path):
-        data = {"kept_tags": []}
-        path = os.path.join(str(tmp_path), "tag_prefs.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-        result = load_kept_tags(str(tmp_path))
-        assert result == set()
+    def test_a_non_list_value_loads_empty(self):
+        suite_config.save_value(_KEY, "not_a_list")
+        assert load_kept_tags() == set()
 
-    def test_returns_empty_set_when_key_missing(self, tmp_path):
-        data = {"other_key": ["val"]}
-        path = os.path.join(str(tmp_path), "tag_prefs.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-        result = load_kept_tags(str(tmp_path))
-        assert result == set()
-
-    def test_handles_non_list_kept_tags(self, tmp_path):
-        data = {"kept_tags": "not_a_list"}
-        path = os.path.join(str(tmp_path), "tag_prefs.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-        result = load_kept_tags(str(tmp_path))
-        assert result == set()
-
-    def test_handles_directory_collision_gracefully(self, tmp_path):
-        path = os.path.join(str(tmp_path), "tag_prefs.json")
-        os.mkdir(path)
-        result = load_kept_tags(str(tmp_path))
-        assert result == set()
+    def test_non_string_entries_are_dropped(self):
+        suite_config.save_value(_KEY, ["TAG1", 3, None])
+        assert load_kept_tags() == {"TAG1"}
 
 
 class TestSaveKeptTags:
-    def test_saves_and_can_reload(self, tmp_path):
-        save_kept_tags(str(tmp_path), ["TAG1", "TAG2"])
-        result = load_kept_tags(str(tmp_path))
-        assert result == {"TAG1", "TAG2"}
+    def test_saves_sorted(self, isolated_config):
+        save_kept_tags(["TAG_B", "TAG_A"])
+        assert suite_config.load_value(_KEY) == ["TAG_A", "TAG_B"]
 
-    def test_saves_sorted(self, tmp_path):
-        save_kept_tags(str(tmp_path), ["TAG_B", "TAG_A"])
-        path = os.path.join(str(tmp_path), "tag_prefs.json")
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        assert data["kept_tags"] == sorted(["TAG_B", "TAG_A"])
+    def test_round_trips(self):
+        save_kept_tags(["TAG1", "TAG2"])
+        assert load_kept_tags() == {"TAG1", "TAG2"}
 
-    def test_overwrites_existing_file(self, tmp_path):
-        save_kept_tags(str(tmp_path), ["OLD"])
-        save_kept_tags(str(tmp_path), ["NEW"])
-        result = load_kept_tags(str(tmp_path))
-        assert result == {"NEW"}
+    def test_overwrites_the_previous_selection(self):
+        save_kept_tags(["OLD"])
+        save_kept_tags(["NEW"])
+        assert load_kept_tags() == {"NEW"}
 
-    def test_empty_list_saves_and_reloads(self, tmp_path):
-        save_kept_tags(str(tmp_path), [])
-        result = load_kept_tags(str(tmp_path))
-        assert result == set()
+    def test_writes_no_file_into_the_package_folder(self, tmp_path):
+        package = tmp_path / "package"
+        package.mkdir()
+        tag_prefs.LEGACY_PREFS_PATH = package / "tag_prefs.json"
 
-    def test_oserror_not_raised(self, tmp_path):
-        save_kept_tags(str(tmp_path / "no_such_dir"), ["TAG"])
+        save_kept_tags(["TAG"])
+
+        assert list(package.iterdir()) == []
+
+
+class TestLegacyMigration:
+    def _write_legacy(self, path, payload):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(payload, encoding="utf-8")
+        return path
+
+    def test_imports_and_deletes_the_old_file(self):
+        legacy = self._write_legacy(
+            tag_prefs.LEGACY_PREFS_PATH,
+            json.dumps({"kept_tags": ["TAG_B", "TAG_A"]}),
+        )
+
+        assert load_kept_tags() == {"TAG_A", "TAG_B"}
+        assert not legacy.exists()
+
+    def test_saving_also_migrates_first(self):
+        legacy = self._write_legacy(
+            tag_prefs.LEGACY_PREFS_PATH, json.dumps({"kept_tags": ["OLD"]})
+        )
+
+        save_kept_tags(["NEW"])
+
+        assert not legacy.exists()
+        assert load_kept_tags() == {"NEW"}
+
+    def test_a_stored_selection_wins_over_the_legacy_file(self):
+        suite_config.save_value(_KEY, ["FRESH"])
+        legacy = self._write_legacy(
+            tag_prefs.LEGACY_PREFS_PATH, json.dumps({"kept_tags": ["STALE"]})
+        )
+
+        assert load_kept_tags() == {"FRESH"}
+        assert legacy.exists()
+
+    def test_a_malformed_legacy_file_is_left_in_place(self):
+        legacy = self._write_legacy(tag_prefs.LEGACY_PREFS_PATH, "not valid json")
+
+        assert load_kept_tags() == set()
+        assert legacy.exists()
+
+    def test_a_directory_in_place_of_the_file_is_ignored(self):
+        tag_prefs.LEGACY_PREFS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tag_prefs.LEGACY_PREFS_PATH.mkdir()
+
+        assert load_kept_tags() == set()

@@ -290,7 +290,9 @@ Tool-local files remain acceptable only for:
 
 - API keys or secrets (`album_art_config.json`),
 - complex nested pipeline settings (`refinery_settings.json`),
-- domain-specific lists too structured for flat key-value (`tag_prefs.json`).
+- domain-specific lists too structured for flat key-value. No shipped file
+  needs this today: `metadata_scrubber`'s former `tag_prefs.json` held one flat
+  list, so 2.5.0 moved it to the shared key `metadata_scrubber_kept_tags`.
 
 **Resolve key files to one canonical directory.** Key-file code resolves one
 canonical directory for the tool, never the calling module's location, and takes

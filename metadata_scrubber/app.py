@@ -3,10 +3,13 @@ app.py — MetadataScrubberApp orchestrator.
 Wires UI, core logic, and utilities. Contains no business logic itself.
 
 Tag preference persistence:
-  - On Browse & Scan: load tag_prefs.json and pass saved set to populate_tags()
-    so previously-kept tags are auto-ticked.
-  - On completion of a LIVE run: save the ticked set back to tag_prefs.json
+  - On Browse & Scan: load the kept-tag set from the shared suite config and
+    pass it to populate_tags() so previously-kept tags are auto-ticked.
+  - On completion of a LIVE run: save the ticked set back to the shared config
     (rolling 'last used' preference; dry runs don't update prefs).
+
+Changed in 2.5.0: the kept-tag preference is read from and written to the
+shared suite config through ``tag_prefs``; no tool-local file is touched.
 
 Changed in 1.2.0: records the files a run could not scrub (and any it skipped)
 from the completion counts as the run's note, so a Master Driver batch reports
@@ -34,7 +37,6 @@ from audio_suite_shared.exceptions import (
     user_message_for,
 )
 from audio_suite_shared.run_outcome import record_caveats, shortfall
-from audio_suite_shared.suite_paths import package_path
 from audio_suite_shared.thread_safe_slot_var import make_safe_slot_vars
 
 from .core import scrubber, tag_scanner
@@ -43,10 +45,6 @@ from .utils import cli_args, tag_prefs
 
 logger = logging.getLogger(__name__)
 
-# Changed in 2.5.0: the package directory comes from the shared helper.
-# ``str`` because ``tag_prefs`` takes the directory as text, exactly as the
-# previous ``os.path.dirname`` result did.
-_PACKAGE_DIR = str(package_path(__file__))
 TOOL_ID = "metadata_scrubber"
 
 #: Manifest id the Master Driver keys this tool's batch step by; a note
@@ -237,7 +235,7 @@ class MetadataScrubberApp(BaseSuiteApp):
             on_error=_report_scan_error,
         )
 
-        previously_kept = tag_prefs.load_kept_tags(_PACKAGE_DIR)
+        previously_kept = tag_prefs.load_kept_tags()
         self._setup_tab.populate_tags(discovered, previously_kept=previously_kept)
 
         if self.auto_start:
@@ -387,7 +385,7 @@ class MetadataScrubberApp(BaseSuiteApp):
             )
 
         if is_live:
-            tag_prefs.save_kept_tags(_PACKAGE_DIR, preserve_list)
+            tag_prefs.save_kept_tags(preserve_list)
 
         is_dry_run = not is_live
         self.time_label.config(text=f"Total Time: {minutes:02d}:{seconds:02d}")

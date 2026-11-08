@@ -369,12 +369,14 @@ class TestProgressAndCompleteD3:
         assert str(app.completion_label.cget("text")) == "Analysis Complete!"
         assert str(app.summary_label.cget("text")).startswith("Total: 10")
 
+    # Changed in 2.5.0: the kept-tag save reaches the shared suite config, so
+    # the call assertion no longer carries a package directory.
     def test_live_completion_saves_tag_prefs(
         self, app_root: tk.Toplevel, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """The live branch (app.py ``if is_live:`` → ``save_kept_tags``) is
-        the side effect users depend on: the ticked set is persisted to
-        tag_prefs.json.  Audit M5 found only the dry-run negative existed,
+        the side effect users depend on: the ticked set is persisted to the
+        shared suite config.  Audit M5 found only the dry-run negative existed,
         so deleting the save would have left the suite green."""
         import metadata_scrubber.app as app_mod
 
@@ -399,7 +401,7 @@ class TestProgressAndCompleteD3:
             log_entries=["entry\n"],
         )
 
-        save_kept.assert_called_once_with(app_mod._PACKAGE_DIR, ["BPM"])
+        save_kept.assert_called_once_with(["BPM"])
         assert str(app.completion_label.cget("text")) == "Metadata Scrubbing Complete!"
         log_text = Path(app._log_path).read_text(encoding="utf-8")
         assert "Total files: 10" in log_text
@@ -530,7 +532,7 @@ class TestDoScan:
         )
         monkeypatch.setattr(
             "metadata_scrubber.app.tag_prefs.load_kept_tags",
-            lambda _pkg_dir: {"BPM"},
+            lambda: {"BPM"},
         )
 
         app._do_scan()
@@ -559,7 +561,7 @@ class TestDoScan:
             "metadata_scrubber.app.tag_scanner.scan_custom_tags", _scan_with_error
         )
         monkeypatch.setattr(
-            "metadata_scrubber.app.tag_prefs.load_kept_tags", lambda _pkg_dir: set()
+            "metadata_scrubber.app.tag_prefs.load_kept_tags", lambda: set()
         )
 
         app._do_scan()
@@ -577,7 +579,7 @@ class TestDoScan:
             lambda _folder, sample_size=100, on_error=None: set(),
         )
         monkeypatch.setattr(
-            "metadata_scrubber.app.tag_prefs.load_kept_tags", lambda _pkg_dir: set()
+            "metadata_scrubber.app.tag_prefs.load_kept_tags", lambda: set()
         )
 
         app._do_scan()
