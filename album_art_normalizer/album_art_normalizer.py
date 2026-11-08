@@ -2,12 +2,18 @@
 album_art_normalizer (compatibility layer)
 ==========================================
 
-Headless orchestrator (run_processing), logging setup, and OS helper.
+Headless orchestrator (run_processing) and OS helper.
 The GUI class lives in :mod:`album_art_normalizer.app` — this module
 provides the synchronous entry point for tests and programmatic use.
 
 Delegates image-processing and per-format audio logic to
 :mod:`album_art_normalizer.core.art_processor`.
+
+Changed in 2.5.0: the module's own ``FileHandler`` and its
+``process_log.txt`` target are gone. The launcher already calls the shared
+``configure_logging(\"album_art_normalizer\")``, which owns both the
+diagnostic ``logs/<program>.log`` and the suite log, so a second handler was
+a private copy of that rule that nothing called.
 """
 
 import logging
@@ -32,28 +38,8 @@ from audio_suite_shared.secure_subprocess import (
     SubprocessSecurityError,
     run_secure_subprocess,
 )
-from audio_suite_shared.suite_paths import package_path
 
-# Changed in 2.5.0: resolved through the shared helper instead of a hand-built
-# ``Path(__file__).parent``.
-LOG_FILE: Path = package_path(__file__, "process_log.txt")
 logger: logging.Logger = logging.getLogger("album_art_normalizer")
-
-
-def _configure_file_logging(log_path: Path) -> None:
-    """Attach a file handler to the module logger.
-
-    Deferred so that importing this module does not create files as a side
-    effect (important for test isolation).
-    """
-    handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
-    handler.setLevel(logging.DEBUG)
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s  %(message)s", datefmt="%H:%M:%S")
-    )
-    logger.setLevel(logging.DEBUG)
-    if not any(isinstance(h, logging.FileHandler) for h in logger.handlers):
-        logger.addHandler(handler)
 
 
 LogCallback = Callable[[str], None]

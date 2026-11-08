@@ -8,6 +8,11 @@ argument, so the GUI and the CLI/batch pipeline resolve the same file (audit
 R-04, plan B1). The call used to pass ``__file__``, which made this module read
 ``album_art_sync/album_art_config.json`` while the pipeline read
 ``album_art_sync/core/album_art_config.json``.
+
+Changed in 2.5.0: presets moved off a tool-local ``presets.json`` onto the
+shared ``suite_config`` preset store, and the save/delete prompts are the
+shared ``ui_presets`` dialogs. A file left by an earlier version is imported
+once and renamed (plan D-49).
 """
 
 import json
@@ -15,6 +20,7 @@ import logging
 import os
 import threading
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, ttk
 from typing import Any, Optional
 
@@ -34,6 +40,7 @@ from audio_suite_shared.tag_helper import (
     read_artist_album,
 )
 from audio_suite_shared.tag_helper_reader import read_musicbrainz_ids
+from audio_suite_shared.ui_common import delete_preset_action, save_preset_dialog
 from audio_suite_shared.ui_helpers import UIHelperMixin
 
 from .api import source_resolver
@@ -45,6 +52,10 @@ from .utils import cli_args
 
 logger = logging.getLogger(__name__)
 TOOL_ID = "album_art_sync"
+
+#: Presets written by versions before 2.5.0, imported once into the shared
+#: config and then renamed so a deleted preset cannot come back.
+LEGACY_PRESETS_PATH: Path = package_path(__file__, "presets.json")
 
 
 class AudioSuiteV6(UIHelperMixin):
@@ -207,59 +218,93 @@ class AudioSuiteV6(UIHelperMixin):
         }
 
     def _load_presets(self) -> dict[str, dict[str, Any]]:
-        # Changed in 2.5.0: one shared package-file helper, not a hand-built
-        # ``dirname(abspath(__file__))`` join.
-        presets_file = package_path(__file__, "presets.json")
-        if os.path.exists(presets_file):
-            try:
-                with open(presets_file, "r", encoding="utf-8") as f:
-                    presets: dict[str, dict[str, Any]] = json.load(f)
-                    return presets
-            except (json.JSONDecodeError, OSError):
-                return {}
-        return {}
+        """Return every saved preset for this tool, keyed by name.
+
+        Presets live in the shared ``audio_suite_config.json`` under the
+        suite's ``presets`` block, the same store every other tool uses, so a
+        tool-local JSON file no longer exists to drift from it.
+        """
+        self._migrate_legacy_presets()
+        presets: dict[str, dict[str, Any]] = {}
+        for name in suite_config.list_presets(TOOL_ID):
+            settings = suite_config.load_preset(TOOL_ID, name)
+            if settings is not None:
+                presets[name] = settings
+        return presets
 
     def _save_presets(self, presets: dict[str, dict[str, Any]]) -> None:
-        # Changed in 2.5.0: one shared package-file helper, not a hand-built
-        # ``dirname(abspath(__file__))`` join.
-        presets_file = package_path(__file__, "presets.json")
-        with open(presets_file, "w", encoding="utf-8") as f:
-            json.dump(presets, f, indent=2)
+        """Write *presets* to the shared store and prune names it no longer holds."""
+        for name, settings in presets.items():
+            suite_config.save_preset(TOOL_ID, name, settings)
+        for stale in set(suite_config.list_presets(TOOL_ID)) - set(presets):
+            suite_config.delete_preset(TOOL_ID, stale)
+
+    def _migrate_legacy_presets(self) -> None:
+        """Import a pre-2.5.0 ``presets.json`` once, then rename it.
+
+        The shared store wins when it already holds presets, so a user who has
+        saved a preset since upgrading never sees an old file reappear after
+        deleting everything; the legacy file is renamed rather than removed, so
+        its contents stay available for manual recovery.
+        """
+        legacy = LEGACY_PRESETS_PATH
+        if not legacy.is_file() or suite_config.list_presets(TOOL_ID):
+            return
+        try:
+            with open(legacy, "r", encoding="utf-8") as f:
+                stored = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            logger.warning("Could not read legacy presets from %s", legacy)
+            return
+        if not isinstance(stored, dict):
+            return
+        imported = 0
+        for name, settings in stored.items():
+            if isinstance(settings, dict):
+                suite_config.save_preset(TOOL_ID, str(name), settings)
+                imported += 1
+        try:
+            legacy.replace(legacy.with_name(legacy.name + ".migrated"))
+        except OSError:
+            logger.warning("Could not rename legacy presets %s", legacy)
+        logger.info(
+            "Migrated %d album-art preset(s) from %s to the suite config",
+            imported,
+            legacy,
+        )
 
     def _refresh_preset_dropdown(self) -> None:
         presets = self._load_presets()
         if self._refresh_preset_list:
-            self._refresh_preset_list(list(presets.keys()))
+            self._refresh_preset_list(list(presets))
 
     def _on_save_preset(self) -> None:
-        from tkinter.simpledialog import askstring
+        """Ask for a name with the shared dialog and store the current settings."""
+        if self._preset_combo is None:
+            return
+        save_preset_dialog(self._preset_combo, self._store_preset)
 
-        name = askstring("Save Preset", "Enter preset name:", parent=self.root)
-        if not name:
-            return
-        name = name.strip()
-        if not name:
-            return
+    def _store_preset(self, name: str) -> None:
+        """Persist the current settings under *name* and refresh the list."""
         presets = self._load_presets()
         presets[name] = self._collect_settings()
         self._save_presets(presets)
         self._refresh_preset_dropdown()
 
     def _on_delete_preset(self) -> None:
-        if not self._preset_combo:
+        """Confirm with the shared prompt and remove the selected preset."""
+        if self._preset_combo is None:
             return
-        name = self._preset_combo.get()
-        if not name:
-            return
+        delete_preset_action(self._preset_combo, self._delete_preset)
+
+    def _delete_preset(self, name: str) -> None:
+        """Remove *name* from the store when it is there, then refresh the list."""
         presets = self._load_presets()
         if name not in presets:
             return
-        if messagebox.askyesno(
-            "Delete Preset", f"Delete preset '{name}'?", parent=self.root
-        ):
-            del presets[name]
-            self._save_presets(presets)
-            self._refresh_preset_dropdown()
+        del presets[name]
+        self._save_presets(presets)
+        self._refresh_preset_dropdown()
 
     def _on_preset_selected(self, preset_name: str) -> None:
         presets = self._load_presets()

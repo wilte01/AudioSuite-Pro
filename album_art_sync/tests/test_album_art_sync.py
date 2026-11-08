@@ -1,6 +1,10 @@
 """
 test_album_art_sync.py — Fully mocked pytest suite for album_art_sync.
 
+Changed in 2.5.0: the preset tests read the shared suite_config store, the
+shared ui_presets dialogs and the one-time legacy-file migration, instead of
+the removed tool-local presets.json and private prompts.
+
 Coverage:
     - utils/cli_args.py          : parse(), validate_args()
     - config/settings.py         : load_config(), save_config()
@@ -3221,19 +3225,11 @@ class TestAppGuiMethods:
         self._saved_tkinter = sys.modules.get("tkinter")
         _build_full_tk_stub()
 
-        # Add askyesno to messagebox stub so _on_delete_preset can call it
+        # Add askyesno to the messagebox stub so the shared delete prompt can
+        # call it.
         messagebox_mod = sys.modules.get("tkinter.messagebox")
         if messagebox_mod is not None:
             messagebox_mod.askyesno = Mock()
-
-        # Add simpledialog stub so _on_save_preset's local import works
-        if "tkinter.simpledialog" not in sys.modules:
-            simpledialog_mod = types.ModuleType("tkinter.simpledialog")
-            simpledialog_mod.askstring = Mock()
-            sys.modules["tkinter.simpledialog"] = simpledialog_mod
-            tk_stub = sys.modules.get("tkinter")
-            if tk_stub is not None:
-                tk_stub.simpledialog = simpledialog_mod
 
         pil_mod = sys.modules.get("PIL")
         if pil_mod is None:
@@ -3501,9 +3497,18 @@ class TestAppGuiMethods:
         mock_load.assert_called_once_with()
         app.run_mode.set.assert_not_called()
 
-    # ---- _on_save_preset ----------------------------------------------------
+    # ---- save preset ---------------------------------------------------------
 
-    def test_on_save_preset_prompts_and_saves(self, tmp_path: Path) -> None:
+    def test_on_save_preset_uses_the_shared_dialog(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+
+        with patch("album_art_sync.app.save_preset_dialog") as mock_dialog:
+            app._on_save_preset()
+
+        mock_dialog.assert_called_once_with(app._preset_combo, app._store_preset)
+
+    def test_store_preset_persists_the_current_settings(self, tmp_path: Path) -> None:
         AudioSuiteV6 = self._import_app_class()
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
         app.run_mode.get.return_value = "Dry Run"
@@ -3511,139 +3516,125 @@ class TestAppGuiMethods:
         app.purge_var.get.return_value = True
 
         with (
-            patch("tkinter.simpledialog.askstring", return_value="My Preset"),
             patch.object(app, "_load_presets", return_value={}),
             patch.object(app, "_save_presets") as mock_save,
         ):
-            app._on_save_preset()
+            app._store_preset("My Preset")
 
         mock_save.assert_called_once()
         saved = mock_save.call_args[0][0]
-        assert "My Preset" in saved
         assert saved["My Preset"]["execution_mode"] == "Dry Run"
         app._refresh_preset_list.assert_called_once()
 
-    def test_on_save_preset_empty_name_is_cancelled(self, tmp_path: Path) -> None:
+    # ---- delete preset -------------------------------------------------------
+
+    def test_on_delete_preset_uses_the_shared_dialog(self, tmp_path: Path) -> None:
         AudioSuiteV6 = self._import_app_class()
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
 
-        with (
-            patch("tkinter.simpledialog.askstring", return_value="") as mock_askstring,
-            patch.object(app, "_save_presets") as mock_save,
-        ):
-            app._on_save_preset()
-
-        mock_askstring.assert_called_once_with(
-            "Save Preset", "Enter preset name:", parent=app.root
-        )
-        mock_save.assert_not_called()
-
-    def test_on_save_preset_whitespace_name_is_cancelled(self, tmp_path: Path) -> None:
-        AudioSuiteV6 = self._import_app_class()
-        app = self._make_bare_app(AudioSuiteV6, tmp_path)
-
-        with (
-            patch(
-                "tkinter.simpledialog.askstring", return_value="   "
-            ) as mock_askstring,
-            patch.object(app, "_save_presets") as mock_save,
-        ):
-            app._on_save_preset()
-
-        mock_askstring.assert_called_once_with(
-            "Save Preset", "Enter preset name:", parent=app.root
-        )
-        mock_save.assert_not_called()
-
-    def test_on_save_preset_none_is_cancelled(self, tmp_path: Path) -> None:
-        AudioSuiteV6 = self._import_app_class()
-        app = self._make_bare_app(AudioSuiteV6, tmp_path)
-
-        with (
-            patch(
-                "tkinter.simpledialog.askstring", return_value=None
-            ) as mock_askstring,
-            patch.object(app, "_save_presets") as mock_save,
-        ):
-            app._on_save_preset()
-
-        mock_askstring.assert_called_once_with(
-            "Save Preset", "Enter preset name:", parent=app.root
-        )
-        mock_save.assert_not_called()
-
-    # ---- _on_delete_preset --------------------------------------------------
-
-    def test_on_delete_preset_confirms_and_deletes(self, tmp_path: Path) -> None:
-        AudioSuiteV6 = self._import_app_class()
-        app = self._make_bare_app(AudioSuiteV6, tmp_path)
-        app._preset_combo.get.return_value = "Old Preset"
-        presets = {"Old Preset": {"execution_mode": "Dry Run"}}
-
-        with (
-            patch("album_art_sync.app.messagebox.askyesno", return_value=True),
-            patch.object(app, "_load_presets", return_value=presets),
-            patch.object(app, "_save_presets") as mock_save,
-        ):
+        with patch("album_art_sync.app.delete_preset_action") as mock_dialog:
             app._on_delete_preset()
 
-        mock_save.assert_called_once()
-        saved = mock_save.call_args[0][0]
-        assert "Old Preset" not in saved
-        app._refresh_preset_list.assert_called_once()
-
-    def test_on_delete_preset_decline_is_noop(self, tmp_path: Path) -> None:
-        AudioSuiteV6 = self._import_app_class()
-        app = self._make_bare_app(AudioSuiteV6, tmp_path)
-        app._preset_combo.get.return_value = "Old Preset"
-        presets = {"Old Preset": {"execution_mode": "Dry Run"}}
-
-        with (
-            patch(
-                "album_art_sync.app.messagebox.askyesno", return_value=False
-            ) as mock_askyesno,
-            patch.object(app, "_load_presets", return_value=presets),
-            patch.object(app, "_save_presets") as mock_save,
-        ):
-            app._on_delete_preset()
-
-        mock_askyesno.assert_called_once_with(
-            "Delete Preset", "Delete preset 'Old Preset'?", parent=app.root
-        )
-        mock_save.assert_not_called()
+        mock_dialog.assert_called_once_with(app._preset_combo, app._delete_preset)
 
     def test_on_delete_preset_no_combo_is_noop(self, tmp_path: Path) -> None:
         AudioSuiteV6 = self._import_app_class()
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
         app._preset_combo = None
 
-        app._on_delete_preset()
-        # No error, no save call
-
-    def test_on_delete_preset_empty_name_is_noop(self, tmp_path: Path) -> None:
-        AudioSuiteV6 = self._import_app_class()
-        app = self._make_bare_app(AudioSuiteV6, tmp_path)
-        app._preset_combo.get.return_value = ""
-
-        with patch.object(app, "_save_presets") as mock_save:
+        with patch("album_art_sync.app.delete_preset_action") as mock_dialog:
             app._on_delete_preset()
 
-        app._preset_combo.get.assert_called_once_with()
-        mock_save.assert_not_called()
+        mock_dialog.assert_not_called()
 
-    def test_on_delete_preset_preset_not_in_store(self, tmp_path: Path) -> None:
+    def test_delete_preset_removes_the_named_preset(self, tmp_path: Path) -> None:
         AudioSuiteV6 = self._import_app_class()
         app = self._make_bare_app(AudioSuiteV6, tmp_path)
-        app._preset_combo.get.return_value = "Ghost"
+        presets = {"Old Preset": {"execution_mode": "Dry Run"}}
 
         with (
-            patch.object(app, "_load_presets", return_value={}) as mock_load,
+            patch.object(app, "_load_presets", return_value=presets),
             patch.object(app, "_save_presets") as mock_save,
         ):
-            app._on_delete_preset()
+            app._delete_preset("Old Preset")
 
-        mock_load.assert_called_once_with()
+        saved = mock_save.call_args[0][0]
+        assert "Old Preset" not in saved
+        app._refresh_preset_list.assert_called_once()
+
+    def test_delete_preset_unknown_name_is_noop(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+
+        with (
+            patch.object(app, "_load_presets", return_value={}),
+            patch.object(app, "_save_presets") as mock_save,
+        ):
+            app._delete_preset("Ghost")
+
         mock_save.assert_not_called()
+
+    # ---- shared preset store -------------------------------------------------
+
+    def test_presets_come_from_the_shared_suite_config(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        stored = {"One": {"execution_mode": "Dry Run"}}
+
+        with (
+            patch("album_art_sync.app.suite_config.list_presets", return_value=["One"]),
+            patch(
+                "album_art_sync.app.suite_config.load_preset",
+                side_effect=lambda tool_id, name: stored.get(name),
+            ) as mock_load,
+        ):
+            assert app._load_presets() == stored
+
+        mock_load.assert_called_once_with("album_art_sync", "One")
+
+    def test_saving_presets_prunes_names_the_store_no_longer_has(
+        self, tmp_path: Path
+    ) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+
+        with (
+            patch("album_art_sync.app.suite_config.save_preset") as mock_save,
+            patch(
+                "album_art_sync.app.suite_config.list_presets",
+                return_value=["Keep", "Gone"],
+            ),
+            patch("album_art_sync.app.suite_config.delete_preset") as mock_delete,
+        ):
+            app._save_presets({"Keep": {"execution_mode": "Dry Run"}})
+
+        mock_save.assert_called_once_with(
+            "album_art_sync", "Keep", {"execution_mode": "Dry Run"}
+        )
+        mock_delete.assert_called_once_with("album_art_sync", "Gone")
+
+    def test_legacy_presets_file_is_imported_and_renamed(self, tmp_path: Path) -> None:
+        AudioSuiteV6 = self._import_app_class()
+        app = self._make_bare_app(AudioSuiteV6, tmp_path)
+        from album_art_sync import app as app_module
+
+        legacy = tmp_path / "presets.json"
+        legacy.write_text(
+            '{"Legacy": {"execution_mode": "Live Update"}}', encoding="utf-8"
+        )
+
+        with (
+            patch.object(app_module, "LEGACY_PRESETS_PATH", legacy),
+            patch("album_art_sync.app.suite_config.list_presets", return_value=[]),
+            patch("album_art_sync.app.suite_config.save_preset") as mock_save,
+        ):
+            app._load_presets()
+
+        mock_save.assert_called_once_with(
+            "album_art_sync", "Legacy", {"execution_mode": "Live Update"}
+        )
+        assert not legacy.exists()
+        assert (tmp_path / "presets.json.migrated").exists()
 
     # ---- _browse_folder -----------------------------------------------------
 

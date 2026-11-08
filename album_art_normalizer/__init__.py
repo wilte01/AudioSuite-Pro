@@ -14,6 +14,9 @@ ui
     Widget builders: setup_tab, processing_tab, results_tab.
 utils
     CLI argument parsing.
+
+Changed in 2.5.0: ``_configure_file_logging`` is no longer re-exported; the
+launcher's shared ``configure_logging`` owns file logging for this tool.
 """
 
 # Re-export mutagen symbols so that
@@ -31,7 +34,6 @@ from mutagen.mp3 import MP3, HeaderNotFoundError, InvalidMPEGHeader  # noqa: F40
 
 # Re-export old orchestrator function for direct API compatibility
 from album_art_normalizer.album_art_normalizer import (  # noqa: F401
-    _configure_file_logging,
     _open_path_in_os,
     run_processing,
 )
@@ -92,7 +94,6 @@ __all__ = [
     "RESOLUTION_LABELS",
     "RESOLUTION_MAP",
     "SUPPORTED_EXTENSIONS",
-    "_configure_file_logging",
     "_open_path_in_os",
     "center_crop_to_square",
     "embed_artwork_into_file",
