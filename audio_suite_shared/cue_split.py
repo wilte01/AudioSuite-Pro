@@ -10,6 +10,8 @@ before being embedded in ``-metadata`` arguments.
 Changed in 2.5.0: ``_safe_filename`` delegates to
 ``InputValidator.sanitize_filename``, so this file no longer carries its own
 copy of the illegal-character set and a legal title keeps its comma.
+``_clean_meta`` delegates to ``secure_subprocess.sanitize_argument`` for the
+same reason: the refused metacharacters are declared where they are enforced.
 """
 
 from __future__ import annotations
@@ -24,14 +26,13 @@ from audio_suite_shared.exceptions import (
     AudioExternalToolError,
     AudioFileNotFoundError,
 )
-from audio_suite_shared.secure_subprocess import run_secure_subprocess
+from audio_suite_shared.secure_subprocess import (
+    run_secure_subprocess,
+    sanitize_argument,
+)
 from audio_suite_shared.security.input_validator import InputValidator
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
-
-# Characters DANGEROUS_CHARS + shell-metacharacters the subprocess validator
-# rejects inside arguments.  Single quotes are preserved where possible.
-_META_UNSAFE_CHARS = set('"<>`|;&$(')
 
 
 def _safe_filename(name: str) -> str:
@@ -46,16 +47,12 @@ def _safe_filename(name: str) -> str:
 def _clean_meta(value: str) -> str:
     """Sanitise a metadata value so it is a safe subprocess argument.
 
-    Double quotes and shell metacharacters are replaced/removed so the value
-    never trips the subprocess security validator.
+    The rule is the wrapper's own (``secure_subprocess.sanitize_argument``), so
+    what this file removes is exactly what ``validate_arguments`` refuses.  A
+    private copy of the set previously stripped ``&``, ``$`` and ``(``, which
+    the wrapper accepts and a real title may contain (``Rock & Roll #1``).
     """
-    cleaned: list[str] = []
-    for ch in value:
-        if ch in _META_UNSAFE_CHARS:
-            cleaned.append(" ")
-        else:
-            cleaned.append(ch)
-    return "".join(cleaned)
+    return sanitize_argument(value)
 
 
 def _ffmpeg_time(ms: int) -> str:

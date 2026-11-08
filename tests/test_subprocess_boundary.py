@@ -13,12 +13,19 @@ This scan is the lock: it parses every shipped runtime module, reports any
 form), and allows exactly one file — the wrapper itself.
 
 Changed in 2.1.4: new lock for the subprocess boundary (plan C3).
+
+Changed in 2.5.0: also holds the refused *characters* to one declaration. The
+CUE splitter carried a private metacharacter set beside
+``secure_subprocess.DANGEROUS_CHARS`` and stripped ``&``, ``$`` and ``(`` that
+the wrapper accepts, so a legal title was mangled on the way into a tag.
 """
 
 from __future__ import annotations
 
 import ast
 from pathlib import Path
+
+from audio_suite_shared.secure_subprocess import sanitize_argument, validate_arguments
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -50,6 +57,46 @@ SKIPPED_DIRS = frozenset(
 SPAWNING_NAMES = frozenset(
     {"run", "Popen", "call", "check_call", "check_output", "getoutput"}
 )
+
+#: The characters a shell treats specially.  The wrapper's ``DANGEROUS_CHARS``
+#: is their one declaration; a module that needs the rule imports it or calls
+#: ``sanitize_argument``.
+SHELL_METACHARACTERS = frozenset({";", "|", "`", "<", ">"})
+
+
+def _declares_metacharacter_set(source: str) -> bool:
+    """Report whether *source* declares its own shell-metacharacter set.
+
+    Both shapes count: one literal carrying every character
+    (``set('"<>`|;&$(')``, the CUE splitter's private copy) and a collection of
+    one-character literals such as ``{";", "|", ...}``.  The filename set
+    ``[<>|?*]`` is *not* one of these - it names different characters for a
+    different rule - so this check does not borrow the filename lock's
+    detector.
+
+    Args:
+        source: Python source text to parse.
+
+    Returns:
+        True when an assignment carries the shell metacharacters.
+    """
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets = [t for t in node.targets if isinstance(t, ast.Name)]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            targets = [node.target]
+        else:
+            continue
+        if not targets or node.value is None:
+            continue
+        carried: set[str] = set()
+        for child in ast.walk(node.value):
+            if isinstance(child, ast.Constant) and isinstance(child.value, str):
+                carried.update(child.value)
+        if SHELL_METACHARACTERS <= carried:
+            return True
+    return False
 
 
 def _runtime_modules() -> list[Path]:
@@ -158,3 +205,51 @@ class TestBoundary:
         """The allowed file must still be visible to the detector."""
         source = (REPO_ROOT / WRAPPER).read_text(encoding="utf-8")
         assert _direct_spawns(source, WRAPPER)
+
+
+class TestMetacharacterSet:
+    """The refused characters are declared once, where they are enforced."""
+
+    def test_flags_a_private_set(self) -> None:
+        assert _declares_metacharacter_set("_META_UNSAFE_CHARS = set('\"<>`|;&$(')\n")
+        assert _declares_metacharacter_set("CHARS = {';', '|', '`', '<', '>'}\n")
+
+    def test_ignores_the_filename_set(self) -> None:
+        """The filename set names other characters, for another rule."""
+        assert not _declares_metacharacter_set("_ILLEGAL = re.compile(r'[<>|?*]')\n")
+
+    def test_only_the_wrapper_declares_the_shell_set(self) -> None:
+        offenders = [
+            path.relative_to(REPO_ROOT).as_posix()
+            for path in _runtime_modules()
+            if path.relative_to(REPO_ROOT).as_posix() != WRAPPER
+            and _declares_metacharacter_set(path.read_text(encoding="utf-8"))
+        ]
+        assert offenders == [], (
+            "these declare their own shell-metacharacter set; import "
+            "DANGEROUS_CHARS from audio_suite_shared.secure_subprocess or call "
+            "sanitize_argument instead: " + ", ".join(offenders)
+        )
+
+    def test_the_wrapper_still_declares_it(self) -> None:
+        """The rule is non-vacuous only while the wrapper trips it."""
+        source = (REPO_ROOT / WRAPPER).read_text(encoding="utf-8")
+        assert _declares_metacharacter_set(source)
+
+
+class TestSanitizeArgument:
+    """The sanitiser and the validator agree, which is the point of one set."""
+
+    def test_output_passes_the_validator(self) -> None:
+        for value in (
+            'Rock "Greatest" <Live>',
+            "AC/DC && friends",
+            "cost $(five)",
+            "a|b;c`d>e",
+        ):
+            cleaned = sanitize_argument(value)
+            assert validate_arguments([cleaned]) == [cleaned]
+
+    def test_a_legal_ampersand_survives(self) -> None:
+        """The old private set stripped ``&``; the wrapper accepts it."""
+        assert sanitize_argument("Rock & Roll #1 @ 33%") == "Rock & Roll #1 @ 33%"

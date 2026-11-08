@@ -27,6 +27,8 @@ DECLARATION_HOME = "audio_suite_shared/security/input_validator.py"
 SANITIZERS = (
     "track_splitter/core/naming.py",
     "audio_suite_shared/cue_split.py",
+    "cd_ripper/core/metadata_resolver.py",
+    "file_reorganizer/core/pattern.py",
 )
 
 #: Modules that accept a filename from the user: they must validate through it.
@@ -94,6 +96,26 @@ def _declares_own_set(source: str) -> bool:
     return False
 
 
+def _carries_the_illegal_set(source: str) -> bool:
+    """Report whether *source* spells the forbidden characters in any literal.
+
+    A module can carry the set without binding it to a name that mentions
+    ``ILLEGAL`` or ``FILENAME``: the CD ripper's ``_safe_filename`` had it
+    inline in a ``re.sub`` pattern, so the declaration scan above let a second
+    copy live beside the shared one for a whole release.
+
+    Args:
+        source: The module's text.
+
+    Returns:
+        True when any string literal spells the forbidden character set.
+    """
+    return any(
+        _looks_like_the_illegal_set(literal)
+        for literal in _string_literals(ast.parse(source))
+    )
+
+
 def _string_literals(node: ast.AST) -> list[str]:
     """Return every string literal a bound value carries.
 
@@ -108,6 +130,18 @@ def _string_literals(node: ast.AST) -> list[str]:
         for child in ast.walk(node)
         if isinstance(child, ast.Constant) and isinstance(child.value, str)
     ]
+
+
+def _carries_a_copy(source: str) -> bool:
+    """Report whether *source* declares or merely spells the illegal set.
+
+    Args:
+        source: The module's text.
+
+    Returns:
+        True for either shape of second copy.
+    """
+    return _declares_own_set(source) or _carries_the_illegal_set(source)
 
 
 def test_the_scan_finds_the_tree() -> None:
@@ -125,13 +159,27 @@ def test_the_detector_can_fail() -> None:
     )
 
 
+def test_the_inline_detector_can_fail() -> None:
+    """A set carried inline in a ``re.sub`` pattern is still a second copy."""
+    inline = (
+        "import re\ndef safe(name):\n    return re.sub(r'[\\\\/*?:\"<>|]', '_', name)\n"
+    )
+    assert _carries_the_illegal_set(inline)
+    shared = (
+        "from audio_suite_shared.security.input_validator import InputValidator\n"
+        "def safe(name):\n"
+        "    return InputValidator.sanitize_filename(name)\n"
+    )
+    assert not _carries_the_illegal_set(shared)
+
+
 def test_only_the_security_module_declares_the_illegal_set() -> None:
     """A second copy of the character set is the drift this lock prevents."""
     offenders = [
         str(path.relative_to(REPO_ROOT))
         for path in _first_party_sources()
         if path.relative_to(REPO_ROOT).as_posix() != DECLARATION_HOME
-        and _declares_own_set(path.read_text(encoding="utf-8"))
+        and _carries_a_copy(path.read_text(encoding="utf-8"))
     ]
 
     assert offenders == [], (

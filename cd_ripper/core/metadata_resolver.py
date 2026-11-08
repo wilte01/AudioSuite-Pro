@@ -5,6 +5,11 @@ FFmpeg probing / streaming for CD ripping encoding pipelines.
 Changed in 2.1.2: ``_safe_filename`` no longer returns a bare ``.`` or ``..``,
 and drops trailing dots/spaces, so a tag value cannot be joined into a parent
 directory (security finding R-03).
+
+Changed in 2.5.0: ``_safe_filename`` renders the name through
+``InputValidator.sanitize_filename`` - the illegal-character set and the
+trailing-dot/space rule are declared once, in the security package - and keeps
+only the CD ripper's own directory-reference rule on top.
 """
 
 import logging as _logging
@@ -18,6 +23,7 @@ from audio_suite_shared.secure_subprocess import (
     run_secure_popen,
     run_secure_subprocess,
 )
+from audio_suite_shared.security.input_validator import InputValidator
 
 # ── Format definitions ────────────────────────────────────────────────────
 
@@ -104,10 +110,12 @@ def _safe_filename(name: str) -> str:
     Returns:
         A single path component, safe to join onto a directory.
     """
-    cleaned = re.sub(r'[\\/*?:"<>|]', "_", name).strip()
-    if cleaned in (".", ".."):
+    stripped = name.strip()
+    if stripped in (".", ".."):
         return "_"
-    return cleaned.rstrip(". ")
+    if not stripped:
+        return ""
+    return InputValidator.sanitize_filename(name, fallback="")
 
 
 # ── FFmpeg metadata argument builder ──────────────────────────────────────

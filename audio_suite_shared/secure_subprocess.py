@@ -11,6 +11,11 @@ print a traceback, an exit code and FFmpeg's stderr at the user.
 Changed in 2.1.4: adds ``text`` so a binary stream (the enhancer's raw PCM
 decode) can use the wrapper, and allowlists ``explorer``/``eject`` for the CD
 ripper's fixed-argv drive control (plan C3, audit R-08).
+
+Changed in 2.5.0: the refused character and sequence sets are declared once
+(``DANGEROUS_CHARS`` / ``DANGEROUS_SEQUENCES``) and ``sanitize_argument``
+removes exactly what ``validate_arguments`` refuses, so the CUE splitter no
+longer carries a private copy of the metacharacter set.
 """
 
 import logging
@@ -77,6 +82,33 @@ ALLOWED_SCRIPT_EXTENSIONS = {".py", ".pyw"}
 #   the conservative cross-platform choice — paths containing ' are common
 #   (e.g. "Sam's Town.flac") while paths containing " are vanishingly rare.
 DANGEROUS_CHARS = {";", "|", "`", "<", ">", '"'}
+
+# Sequences that are refused even though no single character in them is a
+# metacharacter: a doubled ampersand or pipe chains a command, and ``$(`` /
+# ``${`` opens a substitution.  Declared once here so ``sanitize_argument``
+# removes exactly what ``validate_arguments`` refuses.
+DANGEROUS_SEQUENCES = ("&&", "||", "$(", "${", ">>", "<<", "2>")
+
+
+def sanitize_argument(value: str) -> str:
+    """Return *value* with everything ``validate_arguments`` refuses replaced.
+
+    A caller that embeds user text (a tag value, a title) in an argument list
+    needs the wrapper's own rule, not a private copy of it: a second set drifts
+    from this one and mangles legal characters such as ``&`` while still
+    letting a refused sequence through.  Every metacharacter and sequence
+    becomes a space, so the visible text keeps its shape.
+
+    Args:
+        value: The text to make acceptable to ``validate_arguments``.
+
+    Returns:
+        A value carrying no character or sequence from the declared sets.
+    """
+    cleaned = "".join(" " if char in DANGEROUS_CHARS else char for char in value)
+    for sequence in DANGEROUS_SEQUENCES:
+        cleaned = cleaned.replace(sequence, " ")
+    return cleaned
 
 
 class SubprocessSecurityError(AudioSuiteError):
@@ -188,23 +220,7 @@ def validate_arguments(args: list[str]) -> list[str]:
             raise SubprocessSecurityError(f"Dangerous character in argument: {arg}")
 
         # Check for shell injection patterns
-        dangerous_patterns = [
-            "&&",
-            "||",
-            ";",
-            "|",
-            "`",
-            "$(",
-            "${",
-            ">",
-            "<",
-            ">>",
-            "<<",
-            "2>",
-            "2>>",
-        ]
-
-        for pattern in dangerous_patterns:
+        for pattern in (*DANGEROUS_CHARS, *DANGEROUS_SEQUENCES):
             if pattern in arg:
                 raise SubprocessSecurityError(
                     f"Shell injection pattern detected: {arg}"

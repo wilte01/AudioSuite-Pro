@@ -3,6 +3,10 @@ tests/test_cue_split.py — tests for audio_suite_shared/cue_split.py.
 
 Changed in 2.4.1: the unsupported-image case moved to ``.m4b``;
 ``.wma`` is a suite container now, so it is a valid split target.
+
+Changed in 2.5.0: ``_clean_meta`` follows
+``secure_subprocess.sanitize_argument``, so ``&`` - legal in a tag and accepted
+by the subprocess validator - is preserved instead of stripped.
 """
 
 from __future__ import annotations
@@ -71,7 +75,9 @@ class TestHelpers:
         cleaned = _clean_meta('Rock & Roll "Greatest" <Live>')
         assert '"' not in cleaned
         assert "<" not in cleaned
-        assert "&" not in cleaned
+        # ``&`` is legal in a tag and accepted by the subprocess validator; the
+        # private set that used to strip it was a second copy of the rule.
+        assert "Rock & Roll" in cleaned
 
     def test_clean_meta_preserves_normal_text(self):
         assert _clean_meta("Apostle's Creed") == "Apostle's Creed"

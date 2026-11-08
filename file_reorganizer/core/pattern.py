@@ -15,12 +15,19 @@ Changed in 2.1.2: a resolved path is refused instead of silently rewritten when
 it names a drive or UNC prefix, or contains a `.`/`..` component (security
 finding R-03). Tag values are untrusted input, and `..` components let a tag
 walk out of the destination tree.
+
+Changed in 2.5.0: each resolved component is rendered through
+``InputValidator.sanitize_filename``, so the illegal-character set and the
+trailing-dot/space rule have one declaration in the suite instead of a fourth
+private copy here.
 """
 
 from __future__ import annotations
 
 import os
 import re
+
+from audio_suite_shared.security.input_validator import InputValidator
 
 
 class PatternError(Exception):
@@ -323,8 +330,10 @@ def resolve_path(
 ) -> str:
     """Evaluate *pattern* and build a safe filesystem path from the result.
 
-    Path-illegal characters (``<>:"|?*``) are replaced with underscores.
-    Empty path components are collapsed.
+    Path-illegal characters are replaced with underscores by the suite's one
+    declared set (``InputValidator.sanitize_filename``, applied per component
+    because that set itself contains the separators). Empty path components
+    are collapsed.
 
     The returned path is relative and traversal-free, or this raises:
     a drive-qualified value (``C:\\Music``), a UNC share
@@ -359,18 +368,19 @@ def resolve_path(
     if _DRIVE_PREFIX_RE.match(raw):
         raise PatternError(f"Drive-qualified path is not allowed: {raw!r}")
 
-    # Replace path-illegal characters
-    raw = re.sub(r'[<>:"|?*]', "_", raw)
+    # One separator spelling, then one component at a time: the declared
+    # illegal set includes the separators, so applying it to the whole path
+    # would erase the structure this function is building.
     raw = re.sub(r"[/\\]+", lambda _: os.sep, raw)
-    # Refuse directory references before they collapse into the destination
+    components: list[str] = []
     for component in raw.split(os.sep):
         stripped = component.strip()
+        # Refuse directory references before they collapse into the destination
         if stripped in _DOT_COMPONENTS:
             raise PatternError(f"Path component {stripped!r} is not allowed: {raw!r}")
-    # Strip leading/trailing separators
-    raw = raw.strip(os.sep)
-    # Strip whitespace from each component and drop empties
-    components = [c.strip() for c in raw.split(os.sep) if c.strip()]
+        cleaned = InputValidator.sanitize_filename(stripped, fallback="")
+        if cleaned:
+            components.append(cleaned)
     raw = os.sep.join(components)
     if base_dir:
         return os.path.join(base_dir, raw)
