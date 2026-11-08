@@ -9,6 +9,13 @@ Cards are discovered dynamically via the ToolRegistry — adding a new
 enrich tool to the registry automatically adds its card here.
 
 Changed in 2.1.0: a plugin tool without a card module gets the generic plugin card.
+
+Changed in 2.5.0: the cards are grouped, like the Utilities tab's.  A
+full-width caption above each run of cards names the step it belongs to - Tag
+Cleanup, Identification, Loudness & Genre, Analysis, Artwork & Lyrics - and the
+groups are contiguous runs of the existing enrich order, so the run a
+sequential batch performs is unchanged
+(PLAN_2026-11-08_enrich_card_grouping.md).
 """
 
 from __future__ import annotations
@@ -20,9 +27,10 @@ from typing import Callable
 
 from audio_suite_shared import styles
 from audio_suite_shared.plugin_system import get_plugins
-from audio_suite_shared.tool_plugin import get_registry
+from audio_suite_shared.tool_plugin import enrich_sections, get_registry
 
 from ..state.app_state import AppState
+from .group_caption import GroupCaption
 
 _log = logging.getLogger(__name__)
 
@@ -47,11 +55,19 @@ def build(parent: tk.Frame, state: AppState, on_run: "Callable[[], None]") -> tk
     # Stretch scroll_frame to fill the full canvas width
     canvas.bind("<Configure>", lambda e: canvas.itemconfig(window_id, width=e.width))
 
-    # Build cards in registry order for the "enrich" category. A CLI-only
-    # plugin has no launcher for the driver to open, so it gets no card.
+    # Build the cards group by group, in registry order inside each group.  A
+    # CLI-only plugin has no launcher for the driver to open, so it gets no
+    # card; a group whose every card failed to build loses its caption too,
+    # rather than leaving a heading over nothing.
     registry = get_registry()
-    for manifest in registry.driver_by_category("enrich"):
-        _build_card(manifest.id, scroll_frame, state)
+    for heading, manifests in enrich_sections(registry.driver_by_category("enrich")):
+        caption = GroupCaption(scroll_frame, heading)
+        caption.pack(fill="x", padx=2, pady=(12, 2))
+        built = sum(
+            _build_card(manifest.id, scroll_frame, state) for manifest in manifests
+        )
+        if not built:
+            caption.destroy()
 
     # ── Launch button ─────────────────────────────────────────────────────────
     btn_frame = tk.Frame(scroll_frame, bg=styles.BG_APP)
@@ -75,7 +91,7 @@ def build(parent: tk.Frame, state: AppState, on_run: "Callable[[], None]") -> tk
     return run_btn
 
 
-def _build_card(tool_id: str, parent: tk.Frame, state: AppState) -> None:
+def _build_card(tool_id: str, parent: tk.Frame, state: AppState) -> bool:
     """Build the card for *tool_id*, plugin-aware.
 
     Convention: card modules live at
@@ -87,20 +103,25 @@ def _build_card(tool_id: str, parent: tk.Frame, state: AppState) -> None:
         tool_id: The manifest id of the card to build.
         parent: The frame the card is built into.
         state: The Master Driver state holding the module toggles.
+
+    Returns:
+        True when a card was built, False when the tool has none to show (a
+        first-party id with no card module).  The caller uses it to drop a
+        group caption that would otherwise introduce nothing.
     """
     try:
         mod = importlib.import_module(f"master_driver.ui.cards.{tool_id}_card")
         mod.build(parent, state)
-        return
+        return True
     except (ImportError, AttributeError) as exc:
         manifest = get_registry().get(tool_id)
         if manifest is None or not manifest.plugin:
             _log.warning("No card UI for tool %r: %s", tool_id, exc)
-            return
+            return False
     if manifest.ui_entry:
         try:
             get_plugins().resolve(manifest.ui_entry)(parent, state)
-            return
+            return True
         # Changed in 2.4.1: BLE001 triage (WP-7 of
         # PLAN_2026-11-03_2.4.1_stop_the_drift.md, D-31).
         except Exception as exc:  # noqa: BLE001 - a plugin card must not kill the tab
@@ -112,3 +133,4 @@ def _build_card(tool_id: str, parent: tk.Frame, state: AppState) -> None:
     from .cards import plugin_card
 
     plugin_card.build(parent, state, manifest)
+    return True

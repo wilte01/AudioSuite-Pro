@@ -12,7 +12,44 @@ one.
 
 ## [Unreleased]
 
-Nothing yet.
+- **The Utilities tab's grouping is manifest data with two locks.**
+  `ToolManifest` gains `group` (a `UTILITY_GROUPS` key) and
+  `tool_plugin.utility_sections()` turns the registry's utility population into
+  captioned sections, falling back to a trailing "Other Tools" section rather
+  than dropping a card whose group is undeclared; plugins always take the last
+  section. The grid places captions and cells from one item list, so a caption
+  cannot drift out of step with the cards it introduces. `tests/test_tool_plugin.py`
+  locks the manifest side — every first-party utility names a declared group,
+  every declared group has cards, `order` values are contiguous blocks of ten
+  and the names are alphabetical inside a block — and
+  `tests/test_utilities_window.py` freezes the rendered order, the caption
+  geometry and the plugin section's position. The README tool index and the
+  docs index were regenerated from the new order.
+
+- **The Enrich tab's grouping reuses the Utilities splitter, not a copy.**
+  `tool_plugin.grouped_sections()` is the one implementation behind both tabs;
+  `utility_sections()` and `enrich_sections()` are its two call sites, differing
+  only in the `UTILITY_GROUPS` / `ENRICH_GROUPS` declarations they pass. The
+  plugin-last and undeclared-group rules live in the shared function, so the
+  tabs cannot disagree about them. `master_driver/ui/group_caption.py` holds the
+  caption widget for the same reason: `GroupCaption` is a `tk.Label` (so the
+  Utilities grid can never mistake a caption for a card), and both tabs import
+  it. ENRICH keeps its dependency-vetted order inside each group — the
+  renumbering into blocks of ten changes no run — and
+  `master_driver/tests/test_enrich_tab.py` freezes the rendered order, the
+  captions with their card runs, the LAUNCH button's position after the last
+  group, and the caption dropped for a group that built no card.
+  `tests/test_tool_plugin.py::TestEnrichGrouping` locks the manifest side,
+  including that grouping did not reorder the run. The new `Changed in 2.5.0`
+  notes took 2.5.0's count from 234 to 240, so `tests/data/changed_in_baseline.json`
+  was re-recorded with `utilities/changed_in_budget.py --record` (1680 lines,
+  28 versions); the budget gate passes at the new ceiling.
+
+- **Tests: the reflow locks are relative to the first card's row.** Adding a
+  caption row per group shifted every absolute row index, so the four reflow
+  tests now derive their expected rows from the first card instead of assuming
+  row 0 — the assertion they exist for (the pair behind an open card starts a
+  fresh row) is unchanged.
 
 ## [2.5.0] - 2026-11-08
 

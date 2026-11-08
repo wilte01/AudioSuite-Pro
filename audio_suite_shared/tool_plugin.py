@@ -52,11 +52,17 @@ CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.4.0: Duplicate Finder's manifest description covers its new
 delete and ASX-stub dispositions.
 Changed in 2.5.0: adds the Track Splitter manifest (F-E4).
+Changed in 2.5.0: the ENRICH tab is grouped too.  ``ENRICH_GROUPS`` declares its
+five sections and ``enrich_sections`` splits the population, so the splitter
+behind both tabs is one implementation (``grouped_sections``) and the enrich run
+order is untouched - the groups are contiguous runs of it
+(PLAN_2026-11-08_enrich_card_grouping.md).
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from audio_suite_shared.exceptions import AudioConfigurationError
@@ -97,7 +103,18 @@ class ToolManifest:
         CLI subcommand name (e.g. ``"bpm"``).  None means the tool
         has no CLI equivalent.
     order : int
-        Display order within each category (lower = first).
+        Display order within the category (lower = first).  This is the only
+        ordering source: the Master Driver's tab renders it and a sequential
+        batch runs its steps in the same order, so a reorder is visible in
+        both places at once.  Within ``"utility"`` the values are contiguous
+        blocks of ten, one block per :data:`UTILITY_GROUPS` entry, with the
+        tools' names alphabetical inside a block.
+    group : str
+        Section key inside the tool's own category: one of
+        :data:`UTILITY_GROUPS` for a utility, :data:`ENRICH_GROUPS` for an
+        enrich tool.  A first-party tool that leaves it empty is refused by
+        that category's grouping lock, and a key no group declares keeps the
+        card in a trailing ``Other Tools`` section.
     plugin : bool
         True for a manifest that came from a plugin directory.  The field is
         what keeps the shipped-artifact locks (README index, platform matrix,
@@ -123,6 +140,7 @@ class ToolManifest:
     default_on: bool = False
     cli_command: str | None = None
     order: int = 100
+    group: str = ""
     plugin: bool = False
     origin: str = ""
     entry_point: str | None = None
@@ -309,7 +327,137 @@ _REGISTRY: ToolRegistry | None = None
 # (``master_driver.ui.cards.{id}_card``), the CLI command, the arg-builder
 # entry, the batch-orchestrator dependency graph, the AppState toggle key and
 # the user-guide registry.  Listing order is driven by the sorted
-# ``(category, order, name)`` key at :meth:`ToolRegistry.get_manifests`.
+# ``(category, order, name)`` key at :meth:`ToolRegistry.all`.
+
+#: The Utilities-tab sections, as ``(manifest group key, heading)``, in display
+#: order.  Workflow order reads left to right: get audio in, tag and fix the
+#: artwork, inspect it, repair it, then organise it.  A utility's ``order``
+#: values form one contiguous block of ten per entry here, and the tools are
+#: alphabetical inside a block, so the tab's order is also its batch order —
+#: ``tests/test_utilities_window.py`` and ``tests/test_tool_plugin.py`` freeze
+#: both halves of that rule.
+UTILITY_GROUPS: tuple[tuple[str, str], ...] = (
+    ("convert", "Convert & Import"),
+    ("tags", "Tags & Artwork"),
+    ("analysis", "Analysis & Inspection"),
+    ("repair", "Repair & Processing"),
+    ("organise", "Organise & File Handling"),
+)
+
+#: The ENRICH tab's sections, as ``(manifest group key, heading)``, in display
+#: order.  Within a group the order is the dependency-vetted run order, not
+#: alphabetical: Tempo Analyzer reads the BPM tag BPM Analyzer writes, and the
+#: shipped deck explains every other position too
+#: (``documentation/user_guides/suite_overview/generate_presentation.py``).
+#: Each group is therefore a contiguous run of that order, and renumbering it
+#: into blocks of ten changes no run at all.
+ENRICH_GROUPS: tuple[tuple[str, str], ...] = (
+    ("cleanup", "Tag Cleanup"),
+    ("identify", "Identification"),
+    ("loudness_genre", "Loudness & Genre"),
+    ("analysis", "Analysis"),
+    ("artwork", "Artwork & Lyrics"),
+)
+
+#: Caption for the trailing section holding plugin tools.  A plugin never
+#: chooses a section: its ``group`` is not read, so a third-party manifest
+#: cannot rename or reorder a first-party section.
+PLUGINS_GROUP_TITLE = "Plugins"
+
+#: Caption for a first-party tool whose ``group`` names no declaration — the
+#: section that keeps it visible instead of silently dropping its card.
+OTHER_GROUP_TITLE = "Other Tools"
+
+
+def grouped_sections(
+    manifests: "Iterable[ToolManifest]",
+    groups: "Iterable[tuple[str, str]]",
+) -> list[tuple[str, list[ToolManifest]]]:
+    """Split one tab's manifests into captioned sections, in display order.
+
+    This is the one implementation behind both tabs: ``utility_sections`` and
+    ``enrich_sections`` differ only in the declared groups they pass.
+
+    First-party tools go into the section their manifest's ``group`` names, in
+    the declared order; a manifest with an empty or undeclared group falls into
+    a trailing :data:`OTHER_GROUP_TITLE` section rather than losing its card,
+    and plugin tools always render under :data:`PLUGINS_GROUP_TITLE`, last.
+
+    Args:
+        manifests: The driver-visible manifests of one category, in display
+            order (``registry.driver_by_category(...)``).
+        groups: That category's ``(group key, heading)`` declarations, in
+            display order.
+
+    Returns:
+        ``(heading, manifests)`` pairs in render order, with empty sections
+        omitted.  The registry's order is preserved inside each section.
+    """
+    declared = tuple(groups)
+    sections: dict[str, list[ToolManifest]] = {key: [] for key, _ in declared}
+    other: list[ToolManifest] = []
+    plugins: list[ToolManifest] = []
+    for manifest in manifests:
+        if manifest.plugin:
+            plugins.append(manifest)
+        elif manifest.group in sections:
+            sections[manifest.group].append(manifest)
+        else:
+            other.append(manifest)
+
+    ordered: list[tuple[str, list[ToolManifest]]] = []
+    for key, title in declared:
+        section = sections[key]
+        if section:
+            ordered.append((title, section))
+    if other:
+        ordered.append((OTHER_GROUP_TITLE, other))
+    if plugins:
+        ordered.append((PLUGINS_GROUP_TITLE, plugins))
+    return ordered
+
+
+def utility_sections(
+    manifests: "Iterable[ToolManifest]",
+) -> list[tuple[str, list[ToolManifest]]]:
+    """Split Utilities-tab manifests into captioned sections, in display order.
+
+    The Utilities tab's call into :func:`grouped_sections` with
+    :data:`UTILITY_GROUPS`: Convert & Import, Tags & Artwork, Analysis &
+    Inspection, Repair & Processing, Organise & File Handling, then Plugins.
+
+    Args:
+        manifests: The driver-visible utility manifests, in display order
+            (``registry.driver_by_category("utility")``).
+
+    Returns:
+        ``(heading, manifests)`` pairs in render order, with empty sections
+        omitted.  The registry's order is preserved inside each section.
+    """
+    return grouped_sections(manifests, UTILITY_GROUPS)
+
+
+def enrich_sections(
+    manifests: "Iterable[ToolManifest]",
+) -> list[tuple[str, list[ToolManifest]]]:
+    """Split ENRICH-tab manifests into captioned sections, in display order.
+
+    The Enrich tab's call into :func:`grouped_sections` with
+    :data:`ENRICH_GROUPS`: Tag Cleanup, Identification, Loudness & Genre,
+    Analysis, Artwork & Lyrics.  Grouping never reorders the tools - each
+    section is a contiguous run of the dependency-vetted enrich order - so a
+    sequential batch runs exactly what it ran before.
+
+    Args:
+        manifests: The driver-visible enrich manifests, in display order
+            (``registry.driver_by_category("enrich")``).
+
+    Returns:
+        ``(heading, manifests)`` pairs in render order, with empty sections
+        omitted.  The registry's order is preserved inside each section.
+    """
+    return grouped_sections(manifests, ENRICH_GROUPS)
+
 
 _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
     # ── Enrich tools (tag / metadata) ────────────────────────────────────
@@ -320,6 +468,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         pyw_filename="Metadata_Scrubber.pyw",
         description="Scrub metadata from MP3 files",
         cli_command="scrub",
+        group="cleanup",
         order=10,
     ),
     ToolManifest(
@@ -330,7 +479,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Fingerprint audio and identify tracks via AcoustID",
         cli_command="fingerprint",
         standalone=True,
-        order=15,
+        group="identify",
+        order=20,
     ),
     ToolManifest(
         id="replaygain",
@@ -339,7 +489,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         pyw_filename="ReplayGain_Analyzer.pyw",
         description="Measure and write ReplayGain tags",
         cli_command="replaygain",
-        order=20,
+        group="loudness_genre",
+        order=30,
     ),
     ToolManifest(
         id="album_genre",
@@ -349,7 +500,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Tag genre from album-level metadata",
         cli_command="album-genre",
         standalone=False,
-        order=30,
+        group="loudness_genre",
+        order=40,
     ),
     ToolManifest(
         id="genre_sync",
@@ -358,7 +510,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         pyw_filename="Genre_Sync.pyw",
         description="Sync genre tags from custom field hierarchy",
         cli_command="genre-sync",
-        order=40,
+        group="loudness_genre",
+        order=50,
     ),
     ToolManifest(
         id="bpm",
@@ -367,7 +520,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         pyw_filename="BPM_Analyzer.pyw",
         description="Detect and tag BPM for audio files",
         cli_command="bpm",
-        order=50,
+        group="analysis",
+        order=60,
     ),
     ToolManifest(
         id="tempo",
@@ -376,7 +530,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         pyw_filename="Tempo_Analyzer.pyw",
         description="Derive tempo markings from existing BPM tags",
         cli_command="tempo",
-        order=60,
+        group="analysis",
+        order=70,
     ),
     ToolManifest(
         id="key",
@@ -385,7 +540,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         pyw_filename="Key_Detector.pyw",
         description="Detect and tag musical key",
         cli_command="key",
-        order=70,
+        group="analysis",
+        order=80,
     ),
     ToolManifest(
         id="mood_analyzer",
@@ -394,7 +550,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         pyw_filename="Mood_Analyzer.pyw",
         description="Signal-based mood tagging (valence-arousal)",
         cli_command="mood-analyzer",
-        order=85,
+        group="analysis",
+        order=90,
     ),
     ToolManifest(
         id="art",
@@ -404,7 +561,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Embed and synchronise album art",
         cli_command="album-art",
         standalone=False,
-        order=90,
+        group="artwork",
+        order=100,
     ),
     # ── Utility tools ────────────────────────────────────────────────────
     ToolManifest(
@@ -414,7 +572,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         pyw_filename="Music_Format_Converter.pyw",
         description="Convert audio files between formats",
         cli_command="convert",
-        order=10,
+        group="convert",
+        order=30,
     ),
     ToolManifest(
         id="asx_extractor",
@@ -424,7 +583,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Extract playlists from ASX files",
         cli_command="asx-extract",
         standalone=False,
-        order=20,
+        group="convert",
+        order=10,
     ),
     ToolManifest(
         id="album_art_normalizer",
@@ -434,7 +594,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Resize and normalize embedded album artwork",
         standalone=False,
         cli_command="artnormalize",
-        order=25,
+        group="tags",
+        order=40,
     ),
     ToolManifest(
         id="cd_ripper",
@@ -444,7 +605,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Rip audio CDs",
         cli_command="cd-rip",
         standalone=True,
-        order=30,
+        group="convert",
+        order=20,
     ),
     ToolManifest(
         id="mood_analysis_batch",
@@ -454,7 +616,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Recursive signal-based batch mood analysis and tagging",
         cli_command="mood-analysis-batch",
         standalone=True,
-        order=41,
+        group="analysis",
+        order=90,
     ),
     ToolManifest(
         id="track_splitter",
@@ -464,7 +627,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Split recordings into tracks at their silent gaps",
         cli_command="split",
         standalone=True,
-        order=55,
+        group="organise",
+        order=180,
     ),
     ToolManifest(
         id="audio_joiner",
@@ -474,7 +638,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Join segments into one file, with gaps or crossfades",
         cli_command="join",
         standalone=True,
-        order=56,
+        group="organise",
+        order=160,
     ),
     # Changed in 2.5.0: registers the channel utility's manifest (F-E6).
     ToolManifest(
@@ -485,7 +650,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Apply mono, dual-mono, phase, mid/side and width rules in place",
         cli_command="channels",
         standalone=True,
-        order=57,
+        group="repair",
+        order=110,
     ),
     ToolManifest(
         id="library_stats",
@@ -495,7 +661,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Read-only tag statistics dashboard",
         cli_command="stats",
         standalone=True,
-        order=50,
+        group="analysis",
+        order=80,
     ),
     ToolManifest(
         id="spectral_viewer",
@@ -505,7 +672,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Render and export FFT spectrograms",
         cli_command="spectrogram",
         standalone=True,
-        order=52,
+        group="analysis",
+        order=100,
     ),
     ToolManifest(
         id="file_reorganizer",
@@ -515,7 +683,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Move/copy files into a tag-based folder hierarchy",
         cli_command="reorganize",
         standalone=True,
-        order=55,
+        group="organise",
+        order=170,
     ),
     ToolManifest(
         id="tag_field_updater",
@@ -525,7 +694,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Scan and update tag fields",
         cli_command="tag-update",
         standalone=True,
-        order=45,
+        group="tags",
+        order=60,
     ),
     ToolManifest(
         id="stem_separator",
@@ -535,7 +705,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Separate tracks into vocals, drums, bass and other stems",
         cli_command="stems",
         standalone=True,
-        order=48,
+        group="repair",
+        order=150,
     ),
     ToolManifest(
         id="ml_denoiser",
@@ -545,7 +716,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Neural noise reduction with RNNoise (speech-trained)",
         cli_command="denoise",
         standalone=True,
-        order=53,
+        group="repair",
+        order=130,
     ),
     ToolManifest(
         id="duplicate_finder",
@@ -558,7 +730,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         ),
         cli_command="duplicates",
         standalone=True,
-        order=54,
+        group="repair",
+        order=120,
     ),
     ToolManifest(
         id="restoration",
@@ -568,7 +741,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Reconstruct flat-topped peaks lost to clipping",
         cli_command="declip",
         standalone=True,
-        order=56,
+        group="repair",
+        order=140,
     ),
     ToolManifest(
         id="tag_editor",
@@ -578,7 +752,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Edit common tags in an interactive grid",
         cli_command="tag-edit",
         standalone=True,
-        order=47,
+        group="tags",
+        order=50,
     ),
     ToolManifest(
         id="lyrics_manager",
@@ -587,7 +762,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         pyw_filename="Lyrics_Manager.pyw",
         description="Fetch and embed synced & plain lyrics from online sources",
         cli_command="lyrics",
-        order=95,
+        group="artwork",
+        order=110,
     ),
     ToolManifest(
         id="undo_tag_edits",
@@ -596,7 +772,8 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         pyw_filename="Undo_Tag_Edits.pyw",
         description="Restore file tags to the way they were before a batch run",
         standalone=True,
-        order=60,
+        group="tags",
+        order=70,
     ),
     # ── Refinery (single pipeline) ───────────────────────────────────────
     ToolManifest(

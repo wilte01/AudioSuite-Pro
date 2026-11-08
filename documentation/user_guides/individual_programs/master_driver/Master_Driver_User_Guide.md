@@ -36,7 +36,15 @@ REFINE embeds the Audio Refinery setup. Choose a source folder and, if needed, a
 
 ### ENRICH
 
-ENRICH displays the registered tag and metadata tools as cards in a scrollable list. Check a card to include it, expand Settings when a card has options, and click LAUNCH ENRICH PROCESS. The shared directory bar supplies the folder to process. Tools that open their own window are launched separately from the batch subprocesses.
+ENRICH displays the registered tag and metadata tools as cards in a scrollable list, arranged under five captions in the order they support each other:
+
+- **Tag Cleanup** — Metadata Scrubber.
+- **Identification** — Audio Fingerprinter.
+- **Loudness & Genre** — ReplayGain Analyzer, Album Genre Tagger, Genre Sync.
+- **Analysis** — BPM Analyzer, Tempo Analyzer, Key Detector, Mood Analyzer.
+- **Artwork & Lyrics** — Album Art Sync, Lyrics Manager.
+
+Check a card to include it, expand Settings when a card has options, and click LAUNCH ENRICH PROCESS. The order on screen is the order a sequential batch runs its steps in, and the captions never change that order: Tempo Analyzer runs after BPM Analyzer because it reads the BPM tag, and the artwork tools run last so a later tag rewrite cannot disturb the artwork. The shared directory bar supplies the folder to process. Tools that open their own window are launched separately from the batch subprocesses.
 
 ### UTIL
 
@@ -72,19 +80,48 @@ SETTINGS contains the Colour Palette, Theme Mode, and Typography controls. Use S
 - **Key Detector: **Detects musical key for each file, with analysis duration and optional worker parallelism.
 - **Mood Analyzer: **Performs signal-based mood tagging with configurable duration and worker parallelism.
 - **Album Art Sync: **Embeds and synchronises artwork using maximum resolution, minimum dimension, purge, and album-match settings.
+- **Lyrics Manager: **Imports and exports synced (LRC) lyrics for a single audio file: MP3, WAV and AIFF use the ID3 SYLT frame while FLAC, OGG and Opus store the text in a SYNCEDLYRICS Vorbis comment.
 
 ## Utility Tools
 
-- **Music Format Converter: **Detects the input format, then converts to a selected output format and quality. Card options add sample rate, bit depth, MP3 normalisation target LUFS, an optional output directory, and delete-originals. Mixed input formats are rejected by format detection.
+The cards are grouped under six captions, in workflow order: Convert & Import, Tags & Artwork, Analysis & Inspection, Repair & Processing, Organise & File Handling, and Plugins last. Cards are alphabetical inside a group, and a caption always starts a fresh row. The order on screen is the order a sequential batch runs its steps in.
+
+### Convert & Import
+
 - **ASX Playlist Extractor: **Extracts audio streams from ASX playlist files, restores files replaced by a Duplicate Finder stub, and can include subfolders; Live Update uses permanent extraction.
-- **Album Art Normalizer: **Resizes and normalizes embedded artwork with a selectable target size and supports folder.jpg normalization.
 - **CD Ripper: **Rips CDs to WAV, MP3, FLAC, OGG, M4A, or Opus with MusicBrainz metadata lookup. Card options cover the output directory, output format, a specific track list, and CUE sheet generation.
-- **Mood Analysis Batch Tagger: **Recursively analyses audio and applies signal-based batch mood tags.
+- **Music Format Converter: **Detects the input format, then converts to a selected output format and quality. Card options add sample rate, bit depth, MP3 normalisation target LUFS, an optional output directory, and delete-originals. Subfolders are scanned and mixed source formats are accepted, and the output-format list narrows to what the detected inputs can actually reach.
+
+### Tags & Artwork
+
+- **Album Art Normalizer: **Resizes and normalizes embedded artwork with a selectable target size and supports folder.jpg normalization.
+- **Tag Editor: **Edits common tags in an interactive grid. The driver passes its directory, mode, auto-start and auto-end settings to the window, so a batch cannot be rewritten mid-run.
 - **Tag Field Updater: **Scans and updates tag fields.
-- **Library Statistics Dashboard: **Reads existing tags and presents read-only library statistics. Card options select a full or incremental scan, cache refresh, and CSV/JSON export paths.
-- **Tag-Based File Reorganizer: **Moves or copies files into a folder hierarchy based on tags, with configurable output directory, action, and artist-specific and Various Artists patterns.
-- **Lyrics Manager: **Imports and exports synced (LRC) lyrics for a single audio file: MP3, WAV and AIFF use the ID3 SYLT frame while FLAC, OGG and Opus store the text in a SYNCEDLYRICS Vorbis comment.
 - **Undo Tag Edits: **Restores tags from snapshots recorded before batch edits.
+
+### Analysis & Inspection
+
+- **Library Statistics Dashboard: **Reads existing tags and presents read-only library statistics. Card options select a full or incremental scan, cache refresh, and CSV/JSON export paths.
+- **Mood Analysis Batch Tagger: **Recursively analyses audio and applies signal-based batch mood tags.
+- **Spectral Viewer: **Renders and exports FFT spectrograms of the selected files.
+
+### Repair & Processing
+
+- **Channel Tools: **Applies mono, dual-mono, phase, mid/side and width rules in place.
+- **Duplicate Finder: **Finds duplicate recordings by fingerprint and quarantines, deletes or stubs the extras.
+- **ML Denoiser: **Neural noise reduction with RNNoise, which is trained on speech.
+- **Restoration (Declip): **Reconstructs flat-topped peaks lost to clipping.
+- **Stem Separator: **Separates tracks into vocals, drums, bass and other stems.
+
+### Organise & File Handling
+
+- **Audio Joiner: **Joins a folder's files into one output in the order you set, with gaps or equal-power crossfades at the boundaries.
+- **Tag-Based File Reorganizer: **Moves or copies files into a folder hierarchy based on tags, with configurable output directory, action, and artist-specific and Various Artists patterns.
+- **Track Splitter: **Splits recordings into tracks at their silent gaps.
+
+### Plugins
+
+- **Example Tool: **The bundled example plugin's card, kept as a worked demonstration of the plugin system. It is enabled by default; turn it off in the plugin preferences if you do not want it in the tab.
 
 ## Batch Execution
 

@@ -1,11 +1,11 @@
 """Tests for ``master_driver.ui.utilities_window`` layout.
 
-The Utilities tab is a grid, not a stack: fifteen cards in two weighted
-columns, the card whose Settings are open spanning both, and the LAUNCH
-button pinned below the scrolling area.  These tests build the real tab with
-the real :class:`AppState` and assert the resulting geometry *structure*
-(grid cell, column span, pack side) rather than pixel heights, so they do not
-depend on the host's screen size or theme.
+The Utilities tab is a grid, not a stack: nineteen cards in two weighted
+columns, one full-width caption per group, the card whose Settings are open
+spanning both columns, and the LAUNCH button pinned below the scrolling area.
+These tests build the real tab with the real :class:`AppState` and assert the
+resulting geometry *structure* (grid cell, column span, pack side) rather than
+pixel heights, so they do not depend on the host's screen size or theme.
 
 Changed in 2.0.0: initial version - locks the two-column reflow and the
 pinned launch button (PLAN_feature_expansion.md D119).
@@ -19,6 +19,12 @@ Changed in 2.3.1 (U-03, released in 2.6.0): the card population is
 ``driver_by_category`` (the fifteen manifests with ``driver_card=True``), not
 every utility manifest, so the five retired DSP cards no longer count towards
 the grid's cells.
+
+Changed in 2.5.0: the cards are grouped, so the grid also carries one caption
+row per group.  ``EXPECTED_UTILITY_ORDER`` freezes the displayed order (which
+is the sequential batch order too) and ``EXPECTED_GROUPS`` freezes the captions
+and their membership, so a reorder or a re-grouping is a deliberate diff here
+rather than a side effect of a manifest edit.
 """
 
 from __future__ import annotations
@@ -36,12 +42,66 @@ from audio_suite_shared.plugin_system import PluginError
 from audio_suite_shared.tool_plugin import ToolManifest, get_registry
 from master_driver.state.app_state import AppState
 from master_driver.ui import utilities_window
+from master_driver.ui.group_caption import GroupCaption
 
 #: The cards the tab renders, in registry order.  It is the driver's utility
 #: population, not every utility manifest: five DSP tools still ship (and are
 #: still in ``by_category``) without a card, because REFINE runs their work.
 _UTILITY_IDS: tuple[str, ...] = tuple(
     manifest.id for manifest in get_registry().driver_by_category("utility")
+)
+
+#: The Utilities tab's order, frozen.  This is the display order *and* the
+#: sequential batch order, so a reorder is a user-visible change in two places
+#: at once and has to be a deliberate, reviewable diff.
+EXPECTED_UTILITY_ORDER: tuple[str, ...] = (
+    "asx_extractor",
+    "cd_ripper",
+    "converter",
+    "album_art_normalizer",
+    "tag_editor",
+    "tag_field_updater",
+    "undo_tag_edits",
+    "library_stats",
+    "mood_analysis_batch",
+    "spectral_viewer",
+    "channel_tools",
+    "duplicate_finder",
+    "ml_denoiser",
+    "restoration",
+    "stem_separator",
+    "audio_joiner",
+    "file_reorganizer",
+    "track_splitter",
+    "example_tool",
+)
+
+#: The captions, in render order, with the ids each one introduces.
+EXPECTED_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Convert & Import", ("asx_extractor", "cd_ripper", "converter")),
+    (
+        "Tags & Artwork",
+        ("album_art_normalizer", "tag_editor", "tag_field_updater", "undo_tag_edits"),
+    ),
+    (
+        "Analysis & Inspection",
+        ("library_stats", "mood_analysis_batch", "spectral_viewer"),
+    ),
+    (
+        "Repair & Processing",
+        (
+            "channel_tools",
+            "duplicate_finder",
+            "ml_denoiser",
+            "restoration",
+            "stem_separator",
+        ),
+    ),
+    (
+        "Organise & File Handling",
+        ("audio_joiner", "file_reorganizer", "track_splitter"),
+    ),
+    ("Plugins", ("example_tool",)),
 )
 
 
@@ -116,6 +176,15 @@ def _cells(tab: _Tab) -> list[tk.Frame]:
     return cells
 
 
+def _captions(tab: _Tab) -> list[tk.Label]:
+    """The group captions, in render order."""
+    return [
+        child
+        for child in _grid_host(tab).winfo_children()
+        if isinstance(child, GroupCaption)
+    ]
+
+
 def _cell_at(tab: _Tab, index: int) -> tk.Frame:
     return _cells(tab)[index]
 
@@ -158,7 +227,7 @@ def _ancestors(widget: tk.Misc) -> list[tk.Misc]:
 
 
 class TestCardGrid:
-    """Fifteen cards cost eight rows, not fifteen."""
+    """Nineteen captioned cards fill two columns, not one row each."""
 
     def test_one_cell_per_registry_card(self, tab) -> None:
         assert len(_cells(tab)) == len(_UTILITY_IDS)
@@ -170,18 +239,69 @@ class TestCardGrid:
 
     def test_cards_fill_columns_left_to_right(self, tab) -> None:
         first, second, third = (_cell_at(tab, index) for index in range(3))
+        top = first.grid_info()["row"]
 
-        assert (first.grid_info()["row"], first.grid_info()["column"]) == (0, 0)
-        assert (second.grid_info()["row"], second.grid_info()["column"]) == (0, 1)
-        assert (third.grid_info()["row"], third.grid_info()["column"]) == (1, 0)
+        assert first.grid_info()["column"] == 0
+        assert (second.grid_info()["row"], second.grid_info()["column"]) == (top, 1)
+        assert (third.grid_info()["row"], third.grid_info()["column"]) == (top + 1, 0)
 
     def test_last_card_lands_on_the_expected_row(self, tab) -> None:
         """A one-column stack would need one row per card."""
-        expected_rows = math.ceil(len(_UTILITY_IDS) / utilities_window._CARD_COLUMNS)
+        expected_rows = sum(
+            1 + math.ceil(len(ids) / utilities_window._CARD_COLUMNS)
+            for _heading, ids in EXPECTED_GROUPS
+        )
         rows = {cell.grid_info()["row"] for cell in _cells(tab)}
 
         assert max(rows) + 1 == expected_rows
         assert expected_rows < len(_UTILITY_IDS)
+
+
+class TestGroupedSections:
+    """Every card sits under a visible caption, in the frozen order."""
+
+    def test_the_tab_order_is_the_frozen_order(self, tab) -> None:
+        assert _UTILITY_IDS == EXPECTED_UTILITY_ORDER
+
+    def test_every_group_renders_one_caption_in_order(self, tab) -> None:
+        assert [caption.cget("text") for caption in _captions(tab)] == [
+            heading.upper() for heading, _ids in EXPECTED_GROUPS
+        ]
+
+    def test_each_caption_spans_both_columns_from_the_left_edge(self, tab) -> None:
+        captions = _captions(tab)
+
+        assert len(captions) == len(EXPECTED_GROUPS)
+        for caption in captions:
+            assert caption.grid_info()["column"] == 0
+            assert caption.grid_info()["columnspan"] == utilities_window._CARD_COLUMNS
+
+    def test_each_caption_sits_directly_above_its_group(self, tab) -> None:
+        """Caption, then its cards: nothing may sit between them."""
+        items = list(_grid_host(tab).winfo_children())
+        cursor = 0
+        for heading, ids in EXPECTED_GROUPS:
+            caption = items[cursor]
+            assert isinstance(caption, GroupCaption)
+            assert caption.cget("text") == heading.upper()
+            for offset, tool_id in enumerate(ids):
+                cell = items[cursor + 1 + offset]
+                assert cell is _cell_at(tab, _UTILITY_IDS.index(tool_id))
+            cursor += 1 + len(ids)
+
+    def test_the_first_card_of_a_group_starts_a_fresh_row(self, tab) -> None:
+        for heading, ids in EXPECTED_GROUPS:
+            caption = next(
+                c for c in _captions(tab) if c.cget("text") == heading.upper()
+            )
+            first = _cell_at(tab, _UTILITY_IDS.index(ids[0]))
+
+            assert first.grid_info()["column"] == 0
+            assert first.grid_info()["row"] == caption.grid_info()["row"] + 1
+
+    def test_the_plugin_group_renders_last(self, tab) -> None:
+        assert _captions(tab)[-1].cget("text") == "PLUGINS"
+        assert _UTILITY_IDS[-1] == "example_tool"
 
 
 class TestExpansionReflow:
@@ -203,8 +323,9 @@ class TestExpansionReflow:
 
         # The opened card took the whole first row, so the pair behind it
         # starts a fresh row rather than sharing one with it.
-        assert (second.grid_info()["row"], second.grid_info()["column"]) == (1, 0)
-        assert (third.grid_info()["row"], third.grid_info()["column"]) == (1, 1)
+        top = first.grid_info()["row"]
+        assert (second.grid_info()["row"], second.grid_info()["column"]) == (top + 1, 0)
+        assert (third.grid_info()["row"], third.grid_info()["column"]) == (top + 1, 1)
 
     def test_collapsing_restores_the_pairing(self, tab) -> None:
         first, second = (_cell_at(tab, index) for index in range(2))
@@ -215,8 +336,9 @@ class TestExpansionReflow:
         settings.invoke()
         tab.frame.update_idletasks()
 
+        top = first.grid_info()["row"]
         assert first.grid_info()["columnspan"] == 1
-        assert (second.grid_info()["row"], second.grid_info()["column"]) == (0, 1)
+        assert (second.grid_info()["row"], second.grid_info()["column"]) == (top, 1)
 
     def test_a_right_column_card_opens_across_the_window(self, tab) -> None:
         """L-01: a card opened from the right column spans like the left one.
@@ -254,15 +376,18 @@ class TestExpansionReflow:
 
     def test_the_cards_after_a_right_column_card_reflow(self, tab) -> None:
         """The wrapped card takes a fresh row and the pair behind it follows."""
-        first, second, third, fourth = (_cell_at(tab, index) for index in range(4))
+        # Four cards from one group: the pair behind must share a row without
+        # the next group's caption forcing a break between them.
+        first, second, third, fourth = (_cell_at(tab, index) for index in range(3, 7))
+        top = first.grid_info()["row"]
 
         _expand_button(second).invoke()
         tab.frame.update_idletasks()
 
-        assert (first.grid_info()["row"], first.grid_info()["column"]) == (0, 0)
-        assert (second.grid_info()["row"], second.grid_info()["column"]) == (1, 0)
-        assert (third.grid_info()["row"], third.grid_info()["column"]) == (2, 0)
-        assert (fourth.grid_info()["row"], fourth.grid_info()["column"]) == (2, 1)
+        assert (first.grid_info()["row"], first.grid_info()["column"]) == (top, 0)
+        assert (second.grid_info()["row"], second.grid_info()["column"]) == (top + 1, 0)
+        assert (third.grid_info()["row"], third.grid_info()["column"]) == (top + 2, 0)
+        assert (fourth.grid_info()["row"], fourth.grid_info()["column"]) == (top + 2, 1)
 
     def test_collapsing_a_right_column_card_restores_the_pairing(self, tab) -> None:
         """Collapsing the right card pairs the first row again, as the left does."""
@@ -274,9 +399,10 @@ class TestExpansionReflow:
         settings.invoke()
         tab.frame.update_idletasks()
 
+        top = first.grid_info()["row"]
         assert second.grid_info()["columnspan"] == 1
-        assert (first.grid_info()["row"], first.grid_info()["column"]) == (0, 0)
-        assert (second.grid_info()["row"], second.grid_info()["column"]) == (0, 1)
+        assert (first.grid_info()["row"], first.grid_info()["column"]) == (top, 0)
+        assert (second.grid_info()["row"], second.grid_info()["column"]) == (top, 1)
 
     def test_two_cards_open_at_once_still_span(self, tab) -> None:
         """Expansion is per card: opening a second one does not narrow the first."""

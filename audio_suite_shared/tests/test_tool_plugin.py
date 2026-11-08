@@ -24,6 +24,13 @@ Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: the frozen counts and command set gain the Track Splitter (F-E4)
 and then the Channel Tools utility (F-E6).
+
+Changed in 2.6.0: the tabs' grouping is locked here - every first-party tool
+names a group declared for its category, every declared group has cards, the
+``order`` values are contiguous blocks of ten, and the Utilities names are
+alphabetical inside a block.  ENRICH keeps its dependency-vetted order inside a
+group instead, which the lock asserts by forbidding a reorder
+(PLAN_2026-11-08_util_card_grouping.md, PLAN_2026-11-08_enrich_card_grouping.md).
 """
 
 from pathlib import Path
@@ -32,9 +39,15 @@ import pytest
 
 from audio_suite_shared.exceptions import AudioConfigurationError
 from audio_suite_shared.tool_plugin import (
+    ENRICH_GROUPS,
+    OTHER_GROUP_TITLE,
+    PLUGINS_GROUP_TITLE,
+    UTILITY_GROUPS,
     ToolManifest,
     ToolRegistry,
+    enrich_sections,
     get_registry,
+    utility_sections,
 )
 
 
@@ -320,11 +333,21 @@ class TestDefaultRegistry:
         }
         assert standalone == expected
 
-    def test_undo_tool_appears_last_in_utility_category(self):
-        """The Undo Tag Edits card must sit at the bottom of the shipped cards."""
+    def test_undo_tool_closes_its_group(self):
+        """Undo sits last in Tags & Artwork: tag work finishes with its undo.
+
+        It used to sit last in the whole category, which is only true while
+        every other utility outranks it.  The grouping gives it a position that
+        means something instead (PLAN_2026-11-08_util_card_grouping.md).
+        """
         r = get_registry()
-        utility_ids = [m.id for m in r.by_category("utility") if not m.plugin]
-        assert utility_ids[-1] == "undo_tag_edits"
+        tags_group = [
+            m.id
+            for m in r.driver_by_category("utility")
+            if not m.plugin and m.group == "tags"
+        ]
+
+        assert tags_group[-1] == "undo_tag_edits"
 
     def test_registry_is_frozen(self):
         r = get_registry()
@@ -520,3 +543,259 @@ class TestPluginRegistration:
         assert r.get("cli_only").is_driver_tool is False  # type: ignore[union-attr]
         assert [m.id for m in r.driver_manifests] == []
         assert [m.id for m in r.driver_by_category("utility")] == []
+
+
+class TestUtilityGrouping:
+    """The Utilities tab's groups, and the ordering rule behind them.
+
+    The tab renders this order and a sequential batch runs its steps in it, so
+    the grouping is manifest data with two requirements per tool: name a
+    declared group, and take the next order in that group's block of ten with
+    the name alphabetical among its siblings.  A new tool that skips either
+    fails here instead of landing at the bottom of the tab.
+    """
+
+    @staticmethod
+    def _utilities() -> list[ToolManifest]:
+        return [
+            manifest
+            for manifest in get_registry().driver_by_category("utility")
+            if not manifest.plugin
+        ]
+
+    def test_every_first_party_utility_names_a_declared_group(self):
+        keys = {key for key, _title in UTILITY_GROUPS}
+
+        for manifest in self._utilities():
+            assert manifest.group in keys, manifest.id
+
+    def test_every_declared_group_has_cards(self):
+        used = {manifest.group for manifest in self._utilities()}
+
+        assert [key for key, _title in UTILITY_GROUPS if key not in used] == []
+
+    def test_orders_are_contiguous_blocks_of_ten(self):
+        """No ties and no gaps: a tie is what made the old order feel random."""
+        utilities = self._utilities()
+
+        assert [manifest.order for manifest in utilities] == [
+            10 * (index + 1) for index in range(len(utilities))
+        ]
+
+    def test_a_group_occupies_one_contiguous_block(self):
+        seen: list[str] = []
+        for manifest in self._utilities():
+            if not seen or seen[-1] != manifest.group:
+                assert manifest.group not in seen, manifest.group
+                seen.append(manifest.group)
+
+        assert seen == [key for key, _title in UTILITY_GROUPS]
+
+    def test_names_are_alphabetical_inside_each_group(self):
+        for key, title in UTILITY_GROUPS:
+            names = [
+                manifest.name.casefold()
+                for manifest in self._utilities()
+                if manifest.group == key
+            ]
+
+            assert names == sorted(names), title
+
+
+class TestEnrichGrouping:
+    """The Enrich tab's groups, and the run order they must not disturb.
+
+    The groups are contiguous runs of the enrich order, so renumbering them
+    changes no run.  That is deliberate: Tempo Analyzer reads the BPM tag BPM
+    Analyzer writes, and the shipped deck explains every other position, so an
+    alphabetical re-sort here would silently reorder a batch.
+    """
+
+    #: The enrich order is dependency-vetted and frozen: grouping must not move
+    #: a tool past another one.
+    RUN_ORDER: tuple[str, ...] = (
+        "scrubber",
+        "fingerprinter",
+        "replaygain",
+        "album_genre",
+        "genre_sync",
+        "bpm",
+        "tempo",
+        "key",
+        "mood_analyzer",
+        "art",
+        "lyrics_manager",
+    )
+
+    @staticmethod
+    def _enrich() -> list[ToolManifest]:
+        return [
+            manifest
+            for manifest in get_registry().driver_by_category("enrich")
+            if not manifest.plugin
+        ]
+
+    def test_every_first_party_enrich_tool_names_a_declared_group(self):
+        keys = {key for key, _title in ENRICH_GROUPS}
+
+        for manifest in self._enrich():
+            assert manifest.group in keys, manifest.id
+
+    def test_every_declared_group_has_cards(self):
+        used = {manifest.group for manifest in self._enrich()}
+
+        assert [key for key, _title in ENRICH_GROUPS if key not in used] == []
+
+    def test_orders_are_contiguous_blocks_of_ten(self):
+        enrich = self._enrich()
+
+        assert [manifest.order for manifest in enrich] == [
+            10 * (index + 1) for index in range(len(enrich))
+        ]
+
+    def test_a_group_occupies_one_contiguous_block(self):
+        seen: list[str] = []
+        for manifest in self._enrich():
+            if not seen or seen[-1] != manifest.group:
+                assert manifest.group not in seen, manifest.group
+                seen.append(manifest.group)
+
+        assert seen == [key for key, _title in ENRICH_GROUPS]
+
+    def test_grouping_did_not_reorder_the_run(self):
+        """Renumbering is display-only: the enrich sequence is unchanged."""
+        assert tuple(manifest.id for manifest in self._enrich()) == self.RUN_ORDER
+
+    def test_a_dependency_still_runs_before_its_dependant(self):
+        ids = [manifest.id for manifest in self._enrich()]
+
+        assert ids.index("bpm") < ids.index("tempo")
+
+
+class TestEnrichSections:
+    """``enrich_sections`` is the one place the Enrich tab's captions come from."""
+
+    def test_sections_cover_every_manifest_once_in_order(self):
+        manifests = get_registry().driver_by_category("enrich")
+
+        covered = [
+            manifest.id
+            for _heading, section in enrich_sections(manifests)
+            for manifest in section
+        ]
+
+        assert covered == [manifest.id for manifest in manifests]
+
+    def test_the_headings_are_the_declared_titles(self):
+        first_party = [
+            manifest
+            for manifest in get_registry().driver_by_category("enrich")
+            if not manifest.plugin
+        ]
+
+        headings = [heading for heading, _section in enrich_sections(first_party)]
+
+        assert headings == [title for _key, title in ENRICH_GROUPS]
+
+    def test_a_plugin_renders_last_in_its_own_section(self):
+        first_party = ToolManifest(
+            id="first_party",
+            name="First Party",
+            category="enrich",
+            pyw_filename="First.pyw",
+            group="analysis",
+            order=10,
+        )
+        plugin = ToolManifest(
+            id="plugin_tool",
+            name="A Plugin",
+            category="enrich",
+            pyw_filename="Plugin.pyw",
+            plugin=True,
+            order=1,
+        )
+
+        sections = enrich_sections([plugin, first_party])
+
+        assert [heading for heading, _section in sections] == [
+            dict(ENRICH_GROUPS)["analysis"],
+            PLUGINS_GROUP_TITLE,
+        ]
+        assert [m.id for m in sections[-1][1]] == ["plugin_tool"]
+
+    def test_an_undeclared_group_keeps_its_card(self):
+        stray = ToolManifest(
+            id="stray",
+            name="Stray Tool",
+            category="enrich",
+            pyw_filename="Stray.pyw",
+            group="typo",
+            order=10,
+        )
+
+        assert enrich_sections([stray]) == [(OTHER_GROUP_TITLE, [stray])]
+
+
+class TestUtilitySections:
+    """``utility_sections`` is the one place the tab's captions come from."""
+
+    def test_sections_cover_every_manifest_once_in_order(self):
+        manifests = get_registry().driver_by_category("utility")
+
+        covered = [
+            manifest.id
+            for _heading, section in utility_sections(manifests)
+            for manifest in section
+        ]
+
+        assert covered == [manifest.id for manifest in manifests]
+
+    def test_the_headings_are_the_declared_titles_then_plugins(self):
+        headings = [
+            heading
+            for heading, _section in utility_sections(
+                get_registry().driver_by_category("utility")
+            )
+        ]
+
+        assert headings[:-1] == [title for _key, title in UTILITY_GROUPS]
+        assert headings[-1] == PLUGINS_GROUP_TITLE
+
+    def test_a_plugin_always_renders_last_in_its_own_section(self):
+        first_party = ToolManifest(
+            id="first_party",
+            name="First Party",
+            category="utility",
+            pyw_filename="First.pyw",
+            group="repair",
+            order=10,
+        )
+        plugin = ToolManifest(
+            id="plugin_tool",
+            name="A Plugin",
+            category="utility",
+            pyw_filename="Plugin.pyw",
+            plugin=True,
+            order=1,
+        )
+
+        sections = utility_sections([plugin, first_party])
+
+        assert [heading for heading, _section in sections] == [
+            dict(UTILITY_GROUPS)["repair"],
+            PLUGINS_GROUP_TITLE,
+        ]
+        assert [m.id for m in sections[-1][1]] == ["plugin_tool"]
+
+    def test_an_undeclared_group_keeps_its_card(self):
+        """A typo'd group must cost a caption, never the card itself."""
+        stray = ToolManifest(
+            id="stray",
+            name="Stray Tool",
+            category="utility",
+            pyw_filename="Stray.pyw",
+            group="typo",
+            order=10,
+        )
+
+        assert utility_sections([stray]) == [(OTHER_GROUP_TITLE, [stray])]

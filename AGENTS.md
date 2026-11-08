@@ -857,6 +857,43 @@ file exactly `{tool_id}_card.py` (e.g. `fingerprinter_card.py` for id
   symptom is a `No card UI for tool '<id>'` warning in the console. Verify the
   card file name against the manifest id before creating it.
 
+## Tab Grouping (UTIL and ENRICH)
+
+The UTIL tab renders `tool_plugin.utility_sections()`: one full-width caption
+per `UTILITY_GROUPS` entry, in workflow order (convert/import, tags and
+artwork, analysis, repair, organise), the cards alphabetical inside a group,
+then a `Plugins` section last that a plugin can neither rename nor join. A
+caption is a `tk.Label`, not a `Frame`, so the grid's card cells stay the
+host's only `Frame` children and card discovery cannot mistake a caption for a
+card.
+
+- **`order` is the display order *and* the sequential batch order.** The tab
+  renders the registry list and `arg_builder.build_utility_args` walks the same
+  list, so a reorder moves both. Groups are contiguous blocks of ten in
+  `order`, and
+  `master_driver/tests/test_utilities_window.py::TestGroupedSections` freezes
+  the rendered sequence, so a manifest edit that silently reorders the tab (and
+  the run) fails the suite instead of shipping.
+- **Do not group the tab by filtering the registry in the window.** Sections
+  come from the manifest, so the CLI, the README index, the docs index and the
+  batch all keep seeing the one order.
+- **One splitter, two tabs.** `grouped_sections(manifests, groups)` in
+  `audio_suite_shared/tool_plugin.py` is the only implementation; the tab's
+  `utility_sections()` / `enrich_sections()` wrappers differ only in the
+  `UTILITY_GROUPS` / `ENRICH_GROUPS` declaration passed. Plugin-last and the
+  trailing "Other Tools" fallback live there, and the caption widget is one
+  shared `GroupCaption` (`master_driver/ui/group_caption.py`), so the two tabs
+  cannot drift apart in wording, style or fallback behaviour.
+- **ENRICH groups keep the dependency-vetted order; they do not alphabetise.**
+  The enrich sequence says which tool supports which (Tempo Analyzer reads the
+  BPM tag BPM Analyzer writes; Album Art Sync runs after the tag rewrites), and
+  it is the sequential batch order, so an alphabetical re-sort would silently
+  reorder a run. Each section is therefore a contiguous run of that order -
+  renumbering into blocks of ten changes nothing - and
+  `audio_suite_shared/tests/test_tool_plugin.py::TestEnrichGrouping` fails if a
+  group moves a tool past another. A tab that genuinely owns no dependency may alphabetise (UTIL
+  does); that is a decision per tab, not a house style.
+
 ## Plugin System
 
 The suite has one extension mechanism: `audio_suite_shared/plugin_system/`
@@ -904,7 +941,12 @@ Missing any one produces a silent runtime degradation (a missing card only logs;
 a broken Help button warns):
 
 1. **Tool manifest** — `audio_suite_shared/tool_plugin.py`: `ToolManifest`
-   entry. Its `id` is the single source of truth used everywhere below.
+   entry. Its `id` is the single source of truth used everywhere below. A
+   **utility** tool also names its `group` (a `UTILITY_GROUPS` key) and takes
+   the next free `order` in that group's block of ten, with its name
+   alphabetical among the group's siblings —
+   `audio_suite_shared/tests/test_tool_plugin.py` refuses a utility that names
+   neither, or that breaks either rule.
 2. **Master Driver card** — `master_driver/ui/cards/{tool_id}_card.py`, named
    exactly per the section above.
 3. **CLI command** — the tool's `click` command plus its import in

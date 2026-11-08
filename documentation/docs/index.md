@@ -49,24 +49,24 @@ tool entry in the manifest.
 | Album Art Sync | `Album_Art_Synch.pyw` | [Markdown](../user_guides/individual_programs/album_art_sync/Album_Art_Synchronizer_User_Guide.md) |
 | Lyrics Manager | `Lyrics_Manager.pyw` | [Markdown](../user_guides/individual_programs/lyrics_manager/Lyrics_Manager_User_Guide.md) |
 | Audio Refinery | `Audio_Refinery.pyw` | [Markdown](../user_guides/individual_programs/audio_refinery/Audio_Refinery_User_Guide.md) |
-| Music Format Converter | `Music_Format_Converter.pyw` | [Markdown](../user_guides/individual_programs/music_format_converter/Music_Format_Converter_User_Guide.md) |
 | ASX Playlist Extractor | `ASX_Playlist_Extractor.pyw` | [Markdown](../user_guides/individual_programs/asx_extractor/ASX_Playlist_Extractor_User_Guide.md) |
-| Album Art Normalizer | `Album_Art_Normalizer.pyw` | [Markdown](../user_guides/individual_programs/album_art_normalizer/Album_Art_Normalizer_User_Guide.md) |
 | CD Ripper | `CD_Ripper.pyw` | [Markdown](../user_guides/individual_programs/cd_ripper/CD_Ripper_User_Guide.md) |
-| Mood Analysis Batch Tagger | `Mood_Analysis_Batch_Tagger.pyw` | [Markdown](../user_guides/individual_programs/mood_analysis_batch_tagger/Mood_Analysis_Batch_Tagger_User_Guide.md) |
-| Tag Field Updater | `Tag_Field_Updater.pyw` | [Markdown](../user_guides/individual_programs/tag_field_updater/Tag_Field_Updater_User_Guide.md) |
+| Music Format Converter | `Music_Format_Converter.pyw` | [Markdown](../user_guides/individual_programs/music_format_converter/Music_Format_Converter_User_Guide.md) |
+| Album Art Normalizer | `Album_Art_Normalizer.pyw` | [Markdown](../user_guides/individual_programs/album_art_normalizer/Album_Art_Normalizer_User_Guide.md) |
 | Tag Editor | `Tag_Editor.pyw` | [Markdown](../user_guides/individual_programs/tag_editor/Tag_Editor_User_Guide.md) |
-| Stem Separator | `Stem_Separator.pyw` | [Markdown](../user_guides/individual_programs/stem_separator/Stem_Separator_User_Guide.md) |
+| Tag Field Updater | `Tag_Field_Updater.pyw` | [Markdown](../user_guides/individual_programs/tag_field_updater/Tag_Field_Updater_User_Guide.md) |
+| Undo Tag Edits | `Undo_Tag_Edits.pyw` | [Markdown](../user_guides/individual_programs/undo_tag_edits/Undo_Tag_Edits_User_Guide.md) |
 | Library Statistics Dashboard | `Library_Stats.pyw` | [Markdown](../user_guides/individual_programs/library_stats/Library_Stats_User_Guide.md) |
+| Mood Analysis Batch Tagger | `Mood_Analysis_Batch_Tagger.pyw` | [Markdown](../user_guides/individual_programs/mood_analysis_batch_tagger/Mood_Analysis_Batch_Tagger_User_Guide.md) |
 | Spectral Viewer | `Spectral_Viewer.pyw` | [Markdown](../user_guides/individual_programs/spectral_viewer/Spectral_Viewer_User_Guide.md) |
-| ML Denoiser | `ML_Denoiser.pyw` | [Markdown](../user_guides/individual_programs/ml_denoiser/ML_Denoiser_User_Guide.md) |
+| Channel Tools | `Channel_Tools.pyw` | [Markdown](../user_guides/individual_programs/channel_tools/Channel_Tools_User_Guide.md) |
 | Duplicate Finder | `Duplicate_Finder.pyw` | [Markdown](../user_guides/individual_programs/duplicate_finder/Duplicate_Finder_User_Guide.md) |
+| ML Denoiser | `ML_Denoiser.pyw` | [Markdown](../user_guides/individual_programs/ml_denoiser/ML_Denoiser_User_Guide.md) |
+| Restoration (Declip) | `Restoration.pyw` | [Markdown](../user_guides/individual_programs/restoration/Restoration_User_Guide.md) |
+| Stem Separator | `Stem_Separator.pyw` | [Markdown](../user_guides/individual_programs/stem_separator/Stem_Separator_User_Guide.md) |
+| Audio Joiner | `Audio_Joiner.pyw` | [Markdown](../user_guides/individual_programs/audio_joiner/Audio_Joiner_User_Guide.md) |
 | Tag-Based File Reorganizer | `File_Reorganizer.pyw` | [Markdown](../user_guides/individual_programs/file_reorganizer/File_Reorganizer_User_Guide.md) |
 | Track Splitter | `Track_Splitter.pyw` | [Markdown](../user_guides/individual_programs/track_splitter/Track_Splitter_User_Guide.md) |
-| Audio Joiner | `Audio_Joiner.pyw` | [Markdown](../user_guides/individual_programs/audio_joiner/Audio_Joiner_User_Guide.md) |
-| Restoration (Declip) | `Restoration.pyw` | [Markdown](../user_guides/individual_programs/restoration/Restoration_User_Guide.md) |
-| Channel Tools | `Channel_Tools.pyw` | [Markdown](../user_guides/individual_programs/channel_tools/Channel_Tools_User_Guide.md) |
-| Undo Tag Edits | `Undo_Tag_Edits.pyw` | [Markdown](../user_guides/individual_programs/undo_tag_edits/Undo_Tag_Edits_User_Guide.md) |
 
 <!-- DOCS TOOL INDEX: END -->
 

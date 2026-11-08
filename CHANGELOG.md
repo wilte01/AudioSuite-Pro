@@ -16,7 +16,31 @@ Versions of the tools are released together with the suite (the single
 
 ## [Unreleased]
 
-Nothing yet.
+- **The Utilities tab is grouped, and it is alphabetical inside each group.**
+  Nineteen cards sat in one flat list whose order was the manifest's own
+  history — ties broken by name, each new tool dropped wherever a number was
+  free — so the last cards moved without anyone deciding to. The tab now shows
+  six captioned sections in workflow order: Convert & Import, Tags & Artwork,
+  Analysis & Inspection, Repair & Processing, Organise & File Handling, then
+  Plugins last (the bundled Example Tool is the plugin card). Cards are
+  alphabetical inside a group, a caption always starts a fresh row, and a card
+  whose Settings are open still spans the full width. The order on screen is
+  still the order a sequential batch runs its steps in, so a run now follows
+  the grouped list: ASX Playlist Extractor and CD Ripper before Music Format
+  Converter, and Album Art Normalizer ahead of the tag tools.
+
+- **The Enrich tab is grouped too.** Eleven cards now sit under five captions —
+  Tag Cleanup, Identification, Loudness & Genre, Analysis, Artwork & Lyrics —
+  instead of one flat stack. Unlike the Utilities groups, these keep their
+  existing order: the enrich sequence is the order the tools support each other
+  in (Tempo Analyzer reads the BPM tag BPM Analyzer writes, Album Art Sync runs
+  after the tag rewrites), so grouping only adds headings and never moves a
+  tool. A sequential batch therefore runs exactly what it ran before.
+
+- **The Master Driver guide lists every utility.** Its Utility Tools section
+  named ten of the eighteen, and filed Lyrics Manager under Utility although
+  the tool belongs to Enrich. The section is now one list per group covering
+  all eighteen, and Lyrics Manager appears with the Enrich tools.
 
 ## [2.5.0] - 2026-11-08
 

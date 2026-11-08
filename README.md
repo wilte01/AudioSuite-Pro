@@ -215,24 +215,24 @@ The table below is **generated from the tool manifest**
 | Album Art Sync | Embed and synchronise album art | `Album_Art_Synch.pyw` | `documentation/user_guides/individual_programs/album_art_sync/Album_Art_Synchronizer_User_Guide.docx` | Portable core |
 | Lyrics Manager | Fetch and embed synced & plain lyrics from online sources | `Lyrics_Manager.pyw` | `documentation/user_guides/individual_programs/lyrics_manager/Lyrics_Manager_User_Guide.docx` | Portable core |
 | Audio Refinery | DSP pipeline: declick, trim, enhance, normalise | `Audio_Refinery.pyw` | `documentation/user_guides/individual_programs/audio_refinery/Audio_Refinery_User_Guide.docx` | Portable core |
-| Music Format Converter | Convert audio files between formats | `Music_Format_Converter.pyw` | `documentation/user_guides/individual_programs/music_format_converter/Music_Format_Converter_User_Guide.docx` | Portable core |
 | ASX Playlist Extractor | Extract playlists from ASX files | `ASX_Playlist_Extractor.pyw` | `documentation/user_guides/individual_programs/asx_extractor/ASX_Playlist_Extractor_User_Guide.docx` | Portable core |
-| Album Art Normalizer | Resize and normalize embedded album artwork | `Album_Art_Normalizer.pyw` | `documentation/user_guides/individual_programs/album_art_normalizer/Album_Art_Normalizer_User_Guide.docx` | Portable core |
 | CD Ripper | Rip audio CDs | `CD_Ripper.pyw` | `documentation/user_guides/individual_programs/cd_ripper/CD_Ripper_User_Guide.docx` | Windows-only |
-| Mood Analysis Batch Tagger | Recursive signal-based batch mood analysis and tagging | `Mood_Analysis_Batch_Tagger.pyw` | `documentation/user_guides/individual_programs/mood_analysis_batch_tagger/Mood_Analysis_Batch_Tagger_User_Guide.docx` | Portable core |
-| Tag Field Updater | Scan and update tag fields | `Tag_Field_Updater.pyw` | `documentation/user_guides/individual_programs/tag_field_updater/Tag_Field_Updater_User_Guide.docx` | Portable core |
+| Music Format Converter | Convert audio files between formats | `Music_Format_Converter.pyw` | `documentation/user_guides/individual_programs/music_format_converter/Music_Format_Converter_User_Guide.docx` | Portable core |
+| Album Art Normalizer | Resize and normalize embedded album artwork | `Album_Art_Normalizer.pyw` | `documentation/user_guides/individual_programs/album_art_normalizer/Album_Art_Normalizer_User_Guide.docx` | Portable core |
 | Tag Editor | Edit common tags in an interactive grid | `Tag_Editor.pyw` | `documentation/user_guides/individual_programs/tag_editor/Tag_Editor_User_Guide.docx` | Portable core |
-| Stem Separator | Separate tracks into vocals, drums, bass and other stems | `Stem_Separator.pyw` | `documentation/user_guides/individual_programs/stem_separator/Stem_Separator_User_Guide.docx` | Portable core |
+| Tag Field Updater | Scan and update tag fields | `Tag_Field_Updater.pyw` | `documentation/user_guides/individual_programs/tag_field_updater/Tag_Field_Updater_User_Guide.docx` | Portable core |
+| Undo Tag Edits | Restore file tags to the way they were before a batch run | `Undo_Tag_Edits.pyw` | `documentation/user_guides/individual_programs/undo_tag_edits/Undo_Tag_Edits_User_Guide.docx` | Portable core |
 | Library Statistics Dashboard | Read-only tag statistics dashboard | `Library_Stats.pyw` | `documentation/user_guides/individual_programs/library_stats/Library_Stats_User_Guide.docx` | Portable core |
+| Mood Analysis Batch Tagger | Recursive signal-based batch mood analysis and tagging | `Mood_Analysis_Batch_Tagger.pyw` | `documentation/user_guides/individual_programs/mood_analysis_batch_tagger/Mood_Analysis_Batch_Tagger_User_Guide.docx` | Portable core |
 | Spectral Viewer | Render and export FFT spectrograms | `Spectral_Viewer.pyw` | `documentation/user_guides/individual_programs/spectral_viewer/Spectral_Viewer_User_Guide.docx` | Portable core |
-| ML Denoiser | Neural noise reduction with RNNoise (speech-trained) | `ML_Denoiser.pyw` | `documentation/user_guides/individual_programs/ml_denoiser/ML_Denoiser_User_Guide.docx` | Portable core |
+| Channel Tools | Apply mono, dual-mono, phase, mid/side and width rules in place | `Channel_Tools.pyw` | `documentation/user_guides/individual_programs/channel_tools/Channel_Tools_User_Guide.docx` | Portable core |
 | Duplicate Finder | Find duplicate recordings by fingerprint and quarantine, delete or stub extras | `Duplicate_Finder.pyw` | `documentation/user_guides/individual_programs/duplicate_finder/Duplicate_Finder_User_Guide.docx` | Portable core |
+| ML Denoiser | Neural noise reduction with RNNoise (speech-trained) | `ML_Denoiser.pyw` | `documentation/user_guides/individual_programs/ml_denoiser/ML_Denoiser_User_Guide.docx` | Portable core |
+| Restoration (Declip) | Reconstruct flat-topped peaks lost to clipping | `Restoration.pyw` | `documentation/user_guides/individual_programs/restoration/Restoration_User_Guide.docx` | Portable core |
+| Stem Separator | Separate tracks into vocals, drums, bass and other stems | `Stem_Separator.pyw` | `documentation/user_guides/individual_programs/stem_separator/Stem_Separator_User_Guide.docx` | Portable core |
+| Audio Joiner | Join segments into one file, with gaps or crossfades | `Audio_Joiner.pyw` | `documentation/user_guides/individual_programs/audio_joiner/Audio_Joiner_User_Guide.docx` | Portable core |
 | Tag-Based File Reorganizer | Move/copy files into a tag-based folder hierarchy | `File_Reorganizer.pyw` | `documentation/user_guides/individual_programs/file_reorganizer/File_Reorganizer_User_Guide.docx` | Portable core |
 | Track Splitter | Split recordings into tracks at their silent gaps | `Track_Splitter.pyw` | `documentation/user_guides/individual_programs/track_splitter/Track_Splitter_User_Guide.docx` | Portable core |
-| Audio Joiner | Join segments into one file, with gaps or crossfades | `Audio_Joiner.pyw` | `documentation/user_guides/individual_programs/audio_joiner/Audio_Joiner_User_Guide.docx` | Portable core |
-| Restoration (Declip) | Reconstruct flat-topped peaks lost to clipping | `Restoration.pyw` | `documentation/user_guides/individual_programs/restoration/Restoration_User_Guide.docx` | Portable core |
-| Channel Tools | Apply mono, dual-mono, phase, mid/side and width rules in place | `Channel_Tools.pyw` | `documentation/user_guides/individual_programs/channel_tools/Channel_Tools_User_Guide.docx` | Portable core |
-| Undo Tag Edits | Restore file tags to the way they were before a batch run | `Undo_Tag_Edits.pyw` | `documentation/user_guides/individual_programs/undo_tag_edits/Undo_Tag_Edits_User_Guide.docx` | Portable core |
 
 <!-- TOOL INDEX: END -->
 

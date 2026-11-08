@@ -24,6 +24,14 @@ Changed in 2.3.1: an expanded card always starts a fresh row at column 0, so a
 card opened from the right column spans the window like one opened from the
 left instead of filling only the right half (PLAN_restoration_2026-10-31.md
 L-01).
+
+Changed in 2.5.0: the cards are grouped, not merely ordered.
+``utility_sections`` splits the registry's utility population into captioned
+sections - Convert & Import, Tags & Artwork, Analysis & Inspection, Repair &
+Processing, Organise & File Handling, then Plugins last - so nineteen flat
+cards read as six short lists.  A caption is a full-width row above its cards,
+and the displayed order stays the sequential batch order, so the tab and a run
+never disagree about what comes first (PLAN_2026-11-08_util_card_grouping.md).
 """
 
 from __future__ import annotations
@@ -37,9 +45,14 @@ from typing import Callable
 
 from audio_suite_shared import styles
 from audio_suite_shared.plugin_system import get_plugins
-from audio_suite_shared.tool_plugin import ToolManifest, get_registry
+from audio_suite_shared.tool_plugin import (
+    ToolManifest,
+    get_registry,
+    utility_sections,
+)
 
 from ..state.app_state import AppState
+from .group_caption import GroupCaption
 
 _log = logging.getLogger(__name__)
 
@@ -51,7 +64,7 @@ _CARD_MODULE_OVERRIDES: dict[str, str] = {
 
 
 #: Cards per row inside the scroll area.  Two columns halve the stacked
-#: height, which is what a fifteen-card list needs.
+#: height; a caption row spans both of them.
 _CARD_COLUMNS = 2
 
 
@@ -76,11 +89,11 @@ def build(
 ) -> tk.Button:
     """Build the Utilities tab content. Returns the LAUNCH button.
 
-    Cards are laid out in :data:`_CARD_COLUMNS` weighted columns in registry
-    order; opening a card's Settings re-lays the grid so that card spans both
-    columns and the cards after it continue on the following row.  The LAUNCH
-    button is packed before the scroll area, so it keeps a strip at the bottom
-    of the tab and cannot scroll away.
+    Cards are laid out in :data:`_CARD_COLUMNS` weighted columns under one
+    full-width caption per group; opening a card's Settings re-lays the grid so
+    that card spans both columns and the cards after it continue on the
+    following row.  The LAUNCH button is packed before the scroll area, so it
+    keeps a strip at the bottom of the tab and cannot scroll away.
 
     Args:
         parent: The parent frame to pack into.
@@ -130,14 +143,26 @@ def build(
 
     cells: list[_CardCell] = []
     expanded: dict[_CardCell, bool] = {}
+    #: Captions and cells in render order.  One list, so a caption is laid out
+    #: by the same pass that places the cards and cannot drift out of step.
+    items: list[GroupCaption | _CardCell] = []
 
     def _relayout() -> None:
-        """Place every card again, open cards spanning the full width."""
-        for cell in cells:
-            cell.grid_forget()
+        """Place every item again: captions take a row, cards two cells."""
+        for item in items:
+            item.grid_forget()
         row = column = 0
-        for cell in cells:
-            span = _CARD_COLUMNS if expanded.get(cell, False) else 1
+        for item in items:
+            if isinstance(item, GroupCaption):
+                # A caption is a full-width row, so its group always starts at
+                # the left edge; a half-filled row above it goes unused.
+                if column > 0:
+                    column = 0
+                    row += 1
+                item.grid(row=row, column=0, columnspan=_CARD_COLUMNS, sticky="ew")
+                row += 1
+                continue
+            span = _CARD_COLUMNS if expanded.get(item, False) else 1
             if span > 1 and column > 0:
                 # A spanning card must start at the left edge.  Gridded at
                 # column 1 it would claim columns 1 and 2, and column 2 is an
@@ -146,7 +171,7 @@ def build(
                 # window instead of all of it (it must wrap to a fresh row).
                 column = 0
                 row += 1
-            cell.grid(row=row, column=column, columnspan=span, sticky="new")
+            item.grid(row=row, column=column, columnspan=span, sticky="new")
             column += span
             if column >= _CARD_COLUMNS:
                 column = 0
@@ -170,26 +195,39 @@ def build(
         expanded[cell] = False
         return cell
 
-    # Build cards in registry order for the "utility" category. A plugin that
-    # ships only a CLI entry point has no launcher for the driver to open, so
-    # it gets no cell at all rather than an empty one.
+    # Build the cards group by group.  A plugin that ships only a CLI entry
+    # point has no launcher for the driver to open, so it gets no cell at all
+    # rather than an empty one; a section whose every card failed to build is
+    # dropped with them, never left as a caption over nothing.
     registry = get_registry()
-    for manifest in registry.driver_by_category("utility"):
-        cell = _add_cell()
-        if manifest.id == "converter":
-            # converter card has extra callbacks — handle specially
-            _build_converter_card(cell, state)
-        elif manifest.id == "undo_tag_edits":
-            # undo card has a dedicated open callback — handle specially
-            _build_undo_card(cell, state, on_open_undo)
+    for heading, manifests in utility_sections(registry.driver_by_category("utility")):
+        caption = GroupCaption(grid_host, heading)
+        section: list[_CardCell] = []
+        for manifest in manifests:
+            cell = _add_cell()
+            if manifest.id == "converter":
+                # converter card has extra callbacks — handle specially
+                _build_converter_card(cell, state)
+            elif manifest.id == "undo_tag_edits":
+                # undo card has a dedicated open callback — handle specially
+                _build_undo_card(cell, state, on_open_undo)
+            else:
+                _build_card(manifest.id, cell, state)
+            if not cell.winfo_children():
+                # No card was built (a failed import, or undo without a
+                # callback).  Drop the cell so the grid keeps no empty slot.
+                cells.remove(cell)
+                del expanded[cell]
+                cell.destroy()
+                continue
+            section.append(cell)
+        if section:
+            items.append(caption)
+            items.extend(section)
         else:
-            _build_card(manifest.id, cell, state)
-        if not cell.winfo_children():
-            # No card was built (a failed import, or undo without a callback).
-            # Drop the cell so the grid keeps no empty slot.
-            cells.remove(cell)
-            del expanded[cell]
-            cell.destroy()
+            # Every card in the section failed to build; a caption over
+            # nothing would read as a broken group.
+            caption.destroy()
 
     _relayout()
 
