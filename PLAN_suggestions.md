@@ -61,10 +61,11 @@ suggestion, and does not belong here.
 | ID | Suggestion | Origin | Why it is worth it | Cost | Attach to |
 |---|---|---|---|---|---|
 | S-1 **PROMOTED** -> `PLAN_2026-11-03_2.4.3_structure.md` C-I6a | Check the wheel against the declared `package-data` list in both directions. | `c8e4274`, D-30 (the probe that emptied the entry) | The current test hard-codes two names. A declaration naming a deleted or renamed file ships nothing and nothing fails; a new shipped file nobody declares is invisible until a user's install breaks. | ~30 min: parse `pyproject.toml` with `tomllib`, assert every declared name is in the wheel, and assert no undeclared non-`.py` file sits in the package root. | `tests/test_py_typed.py`, or a new root `tests/test_packaging.py`. |
-| S-2 | Type-check a consumer against the **installed** wheel, not the source tree. | D-29 / D-30 | `typing_consumer/consumer.py` imports from the checkout, so nothing proves the distribution a user installs is typed. A wheel can ship `py.typed` and still omit a module the consumer imports. | ~1 h, with a real risk: `pip install --no-index --no-deps --target <tmp>` must stay offline and deterministic, and mypy resolution must be pinned so the source tree cannot win over the installed copy. | `tests/test_py_typed.py::TestTheConsumerSeesAnnotations`. |
-| S-3 | Document `typing_consumer/`. | D-29 | It is a top-level directory whose only explanation today is a test docstring and a plan row. The next reader who finds a directory nothing imports will reasonably want to delete it. | Minutes: one short paragraph in the developer/architecture page of `documentation/docs/`. | `documentation/docs/`. |
-| S-4 | Assert the built **sdist** carries the same package data. | D-30 | `package-data` feeds the wheel and the sdist, but the sdist is assembled by different include rules. `cli_schema.json` is loaded at CLI import, so an sdist install missing it fails on first use, not at install time. | ~15 min: reuse the existing staging copy, call `build_sdist`, read the tarball. | `tests/test_py_typed.py`. |
-| S-5 | Assert the staging copy's exclusions from the **outcome**, not the filter list. | D-30 (`_build_wheel()`'s ignore patterns) | The build filters `__pycache__`, `*.pyc`, `*.pyo` by name. A new build artefact directory in the package would be copied and shipped silently, because a filter only excludes what it was told about. | Minutes: assert no namelist entry contains `__pycache__` or ends in `.pyc`. | `tests/test_py_typed.py`. |
+| S-2 **DONE** 2026-11-09 | Type-check a consumer against the **installed** wheel, not the source tree. | D-29 / D-30 | `typing_consumer/consumer.py` imports from the checkout, so nothing proves the distribution a user installs is typed. A wheel can ship `py.typed` and still omit a module the consumer imports. | ~1 h, with a real risk: `pip install --no-index --no-deps --target <tmp>` must stay offline and deterministic, and mypy resolution must be pinned so the source tree cannot win over the installed copy. | `tests/test_py_typed.py::TestTheConsumerSeesAnnotations`. |
+| S-3 **DONE** 2026-11-09 | Document `typing_consumer/`. | D-29 | It is a top-level directory whose only explanation today is a test docstring and a plan row. The next reader who finds a directory nothing imports will reasonably want to delete it. | Minutes: one short paragraph in the developer/architecture page of `documentation/docs/`. | `documentation/docs/`. |
+| S-4 **DONE** 2026-11-09 | Assert the built **sdist** carries the same package data. | D-30 | `package-data` feeds the wheel and the sdist, but the sdist is assembled by different include rules. `cli_schema.json` is loaded at CLI import, so an sdist install missing it fails on first use, not at install time. | ~15 min: reuse the existing staging copy, call `build_sdist`, read the tarball. | `tests/test_py_typed.py`. |
+| S-5 **DONE** 2026-11-09 | Assert the staging copy's exclusions from the **outcome**, not the filter list. | D-30 (`_build_wheel()`'s ignore patterns) | The build filters `__pycache__`, `*.pyc`, `*.pyo` by name. A new build artefact directory in the package would be copied and shipped silently, because a filter only excludes what it was told about. | Minutes: assert no namelist entry contains `__pycache__` or ends in `.pyc`. | `tests/test_py_typed.py`. |
+| S-6 | Record an audio-overwrite undo snapshot for an in-place normalisation, so Undo restores the pre-normalisation audio instead of only its tags. | The 2026-11-09 WAV/AIFF work: `audio_normalizer/core/normalizer.py` records `record_tag_edit_snapshot(file_path, "write_normalise")` before the swap, while `record_audio_overwrite_snapshot` exists for the in-place tools and stores the whole file. | The normalise rewrite replaces the audio, so after it Undo writes the old tags onto audio that has already changed — a restore that promises the file back and returns half of it. It now extends to WAV/AIFF masters, where the file is the user's own PCM copy rather than a lossy library track. | ~1-2 h: one snapshot call per write path (`normalizer.apply`, `album.apply_static_gain`), a measured test that decodes the restored file and compares it to the original bytes, and a check that the batch log's size stays sane on a large album. | `audio_normalizer/core/normalizer.py`, `audio_refinery/core/pipeline.py`; needs its own item (no open plan owns batch undo). |
 
 ## 4. Detail
 
@@ -121,6 +122,28 @@ copy with a name-based ignore list is a filter; a namelist assertion is an
 outcome. Three lines, and it fails the day setuptools starts including
 `__pycache__` inside a different directory name.
 
+### S-6 — the undo that restores half a file
+
+`normalizer.apply` re-encodes the file, replaces it atomically, and records the
+undo entry with `record_tag_edit_snapshot(file_path, "write_normalise")`. That
+call stores **tags**. `record_audio_overwrite_snapshot` is the batch-undo hook
+for a tool that rewrites bytes in place, and the in-place DSP path already uses
+it. So the class this entry names is not corruption but a **restore that lies**:
+Undo puts the original tags back onto audio that is already normalised, and the
+user who clicked Undo believes the file came back.
+
+The behaviour is pre-existing for all seven original formats; the 2026-11-09
+work (`2162f4e`) simply extended the write path to WAV/AIFF, where the file is
+often a PCM master and the wrongness is easier to see. It is filed here rather
+than fixed in that change because fixing it moves the snapshot class for every
+normalise in the suite, which is its own review.
+
+What the item must prove: normalise a real file in a batch, revert the batch,
+decode the result and assert it matches the **original** bytes (or, for a
+lossless encode, the original audio) - not that a snapshot row exists. Also
+measure the batch directory's growth on a multi-file album: a full-file snapshot
+per track is the cost of this promise, and it should be known before it ships.
+
 ## 5. Decision Log
 
 | # | Date | Decision | Evidence |
@@ -129,3 +152,5 @@ outcome. Three lines, and it fails the day setuptools starts including
 | D-2 | 2026-11-05 | Entries are written with an `Origin` and a named failure class, and are promoted or dropped explicitly rather than deleted. | Without an origin, a reader cannot judge an entry without replaying a session; without a recorded drop, the same idea is re-litigated. |
 | D-4 | 2026-11-05 | **The list is parked for the future.** The owner asked to stow the remaining suggestions and return to the plan, so S-2..S-5 stay open with no owner and no target release; promotion still requires an explicit edit in the governing plan. | user instruction, 2026-11-05 |
 | D-3 | 2026-11-05 | **S-1 is promoted** into the governing plan as C-I6a and implemented there (`12e5524` lists it; the work is 2.4.3's D-31). The row above stays for the record; its scope limit (package root only, not subpackages) travels with the implementation. | 2.4.3 D-31 |
+| D-5 | 2026-11-09 | **The owner directed this list to be worked through directly.** S-2..S-6 are executed from this file instead of being promoted first: no open plan owns packaging tests or batch undo, and inventing a plan to hold four small items would add a document with one reader. Each finished row therefore records its commit as evidence in place of a promotion ID; the parking rule (D-4) still applies to anything not worked here. | user instruction, 2026-11-09 |
+| D-6 | 2026-11-09 | **S-2..S-5 are executed.** S-2 is realised as "the wheel's own contents": the built wheel is unpacked with `zipfile` and mypy resolves `audio_suite_shared` from that tree through `MYPYPATH`, because a pure-Python wheel *is* the package tree plus metadata, so extraction is the install outcome without a resolver, a network probe or a pip dependency in the suite. A negative control deletes `suite_config.py` from that copy and requires failure, which is what proves the run is not reading the checkout through the editable install. S-4 reads the sdist tarball for the same `package-data` names, S-5 asserts the wheel namelist carries no `__pycache__`/bytecode entry, and S-3 documents the fixture in `documentation/docs/api.md`. All four are locked in `tests/test_py_typed.py` (`TestTheInstalledWheelIsTyped`, `TestTheSdistCarriesTheSameData`, `TestTheWheelCarriesNoBuildArtefacts`). | commit `packaging: work the typing and artefact suggestions`; `tests/test_py_typed.py` |

@@ -7,6 +7,18 @@ module exists that this page does not render, so a new shared module cannot ship
 undocumented — and `tests/test_docs_build.py` builds this page with Sphinx and
 fails on any parser warning, so a malformed docstring cannot ship either.
 
+## Downstream typing fixture
+
+`typing_consumer/consumer.py` is not part of the distribution and nothing
+imports it at runtime. It imports `audio_suite_shared` from outside the package
+and pins the public signatures a downstream caller relies on with
+`assert_type`, so a dropped or `Any`-widened annotation fails a type check
+instead of quietly weakening every consumer. It sits outside `tests/` because
+`[tool.mypy] exclude` drops that tree: the bare `mypy .` gate is what checks it.
+`tests/test_py_typed.py` also runs the same consumer against the built wheel's
+contents, with a control that removes a module from that copy, so the PEP 561
+claim is proven from where a consumer actually stands.
+
 ## Output contracts
 
 ```{automodule} audio_suite_shared.cli_schema

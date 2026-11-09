@@ -20,6 +20,12 @@ one that passes because the annotations are gone, so the control mutates a
 single ``assert_type`` and requires mypy to reject it.
 
 Changed in 2.4.3: added for WP-10 C-I6.
+
+Changed in 2.6.0: the packaging suggestions S-2, S-4 and S-5 are worked here.
+The wheel's contents are type-checked as an install (with a negative control
+that removes a module from it), the sdist is read for the same package data,
+and the wheel is asserted to carry no build artefacts - each by the artefact's
+contents, never by the filter or the declaration that was meant to produce it.
 """
 
 from __future__ import annotations
@@ -29,6 +35,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tomllib
 import zipfile
 from pathlib import Path
@@ -89,6 +96,122 @@ _BUILD_WHEEL_SCRIPT = (
 )
 
 
+def _stage_inputs(tmp_path: Path) -> Path:
+    """Copy the files the build reads into a throwaway staging tree.
+
+    Only the project metadata, its readme and licence, and the package under
+    test: copying the whole checkout would build every sibling package for one
+    assertion.
+
+    Args:
+        tmp_path: The test's temporary directory.
+
+    Returns:
+        The staging directory the build runs in.
+    """
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    for name in ("pyproject.toml", "README.md", "LICENSE"):
+        shutil.copy2(REPO_ROOT / name, staging / name)
+    shutil.copytree(
+        PACKAGE_DIR,
+        staging / "audio_suite_shared",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+    )
+    return staging
+
+
+#: The sdist is assembled by different include rules than the wheel, so it is
+#: built and read separately rather than inferred from the wheel's contents.
+_BUILD_SDIST_SCRIPT = (
+    "import sys\n"
+    "from setuptools import build_meta\n"
+    "print(build_meta.build_sdist(sys.argv[1]))\n"
+)
+
+
+def _build_sdist(tmp_path: Path) -> Path:
+    """Build an sdist from the same staging copy the wheel uses.
+
+    Args:
+        tmp_path: The test's temporary directory.
+
+    Returns:
+        The single ``.tar.gz`` the build produced.
+    """
+    staging = _stage_inputs(tmp_path)
+    out = tmp_path / "dist_sdist"
+    out.mkdir()
+    result = subprocess.run(
+        [sys.executable, "-c", _BUILD_SDIST_SCRIPT, str(out)],
+        cwd=staging,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=600,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    archives = sorted(out.glob("*.tar.gz"))
+    assert len(archives) == 1, [archive.name for archive in archives]
+    return archives[0]
+
+
+def _unpack_wheel(wheel: Path, target: Path) -> Path:
+    """Lay a wheel out in *target* the way an install does.
+
+    A pure-Python wheel is the package tree plus its metadata, so extracting it
+    is what ``pip install --no-index --no-deps --target`` would produce, without
+    an installer, a network probe or a resolver in the test.
+
+    Args:
+        wheel: The built wheel.
+        target: Directory to unpack into.
+
+    Returns:
+        *target*, for convenient chaining.
+    """
+    target.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(wheel) as archive:
+        archive.extractall(target)
+    return target
+
+
+def _run_mypy_against(
+    path: Path, search_path: Path, cwd: Path
+) -> subprocess.CompletedProcess[str]:
+    """Type-check *path* with *search_path* as the only route to the package.
+
+    Args:
+        path: The consumer file to check.
+        search_path: Directory mypy must resolve ``audio_suite_shared`` from.
+        cwd: Working directory, kept outside the checkout.
+
+    Returns:
+        The completed process; the caller decides what a pass means.
+    """
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "mypy",
+            "--config-file",
+            str(REPO_ROOT / "pyproject.toml"),
+            "--no-incremental",
+            str(path),
+        ],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        env={**os.environ, "MYPYPATH": str(search_path)},
+        timeout=300,
+    )
+
+
 def _build_wheel(tmp_path: Path) -> Path:
     """Build a wheel from a staging copy of the packaging inputs.
 
@@ -102,15 +225,7 @@ def _build_wheel(tmp_path: Path) -> Path:
     Returns:
         The single wheel the build produced.
     """
-    staging = tmp_path / "staging"
-    staging.mkdir()
-    for name in ("pyproject.toml", "README.md", "LICENSE"):
-        shutil.copy2(REPO_ROOT / name, staging / name)
-    shutil.copytree(
-        PACKAGE_DIR,
-        staging / "audio_suite_shared",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
-    )
+    staging = _stage_inputs(tmp_path)
     out = tmp_path / "dist"
     out.mkdir()
     result = subprocess.run(
@@ -302,3 +417,102 @@ class TestTheConsumerSeesAnnotations:
         combined = result.stdout + result.stderr
         assert result.returncode != 0, combined
         assert "[assert-type]" in combined, combined
+
+
+class TestTheWheelCarriesNoBuildArtefacts:
+    """S-5: the outcome, not the ignore list that was meant to produce it.
+
+    ``_stage_inputs`` filters ``__pycache__``, ``*.pyc`` and ``*.pyo`` by name,
+    which only excludes what it was told about. Reading the wheel's namelist is
+    what proves the shipped artefact is clean.
+    """
+
+    def test_no_bytecode_or_cache_directory_reaches_the_wheel(
+        self, tmp_path: Path
+    ) -> None:
+        pytest.importorskip("setuptools")
+        wheel = _build_wheel(tmp_path)
+        with zipfile.ZipFile(wheel) as archive:
+            names = archive.namelist()
+        # The positive control: an empty or broken wheel would pass vacuously.
+        assert "audio_suite_shared/__init__.py" in names, names
+        offenders = [
+            name
+            for name in names
+            if "__pycache__" in name or name.endswith((".pyc", ".pyo"))
+        ]
+        assert not offenders, f"build artefacts shipped: {offenders}"
+
+
+class TestTheSdistCarriesTheSameData:
+    """S-4: the sdist has its own include rules, so read the tarball.
+
+    ``cli_schema.json`` is loaded at CLI import, so an sdist install that omits
+    it fails on first use rather than at install time - the failure mode is
+    worth a direct check.
+    """
+
+    def test_the_sdist_carries_every_declared_data_file(self, tmp_path: Path) -> None:
+        pytest.importorskip("setuptools")
+        resolved, _unmatched = _resolved_declaration()
+        archive = _build_sdist(tmp_path)
+        with tarfile.open(archive) as tar:
+            names = tar.getnames()
+        # sdist nests everything under ``<name>-<version>/``.
+        assert any(name.endswith("audio_suite_shared/__init__.py") for name in names), (
+            names
+        )
+        missing = sorted(
+            name
+            for name in resolved
+            if not any(entry.endswith(f"audio_suite_shared/{name}") for entry in names)
+        )
+        assert not missing, f"declared but absent from the sdist: {missing}"
+
+
+class TestTheInstalledWheelIsTyped:
+    """S-2: the PEP 561 claim from the position a consumer is actually in.
+
+    ``TestTheConsumerSeesAnnotations`` resolves the package through the
+    checkout, so it proves the source tree is annotated; it cannot prove the
+    distribution is. These checks resolve the package from the wheel's own
+    contents and run the same consumer against it.
+    """
+
+    def test_the_consumer_type_checks_against_the_wheels_contents(
+        self, tmp_path: Path
+    ) -> None:
+        pytest.importorskip("setuptools")
+        pytest.importorskip("mypy")
+        wheel = _build_wheel(tmp_path)
+        installed = _unpack_wheel(wheel, tmp_path / "installed")
+        consumer = tmp_path / "installed_consumer.py"
+        consumer.write_text(CONSUMER.read_text(encoding="utf-8"), encoding="utf-8")
+
+        result = _run_mypy_against(consumer, installed, tmp_path)
+
+        combined = result.stdout + result.stderr
+        assert result.returncode == 0, combined
+        assert "Success" in combined, combined
+
+    def test_the_check_reads_the_install_not_the_checkout(self, tmp_path: Path) -> None:
+        """Negative control: if mypy used the checkout, this mutation is unseen."""
+        pytest.importorskip("setuptools")
+        pytest.importorskip("mypy")
+        wheel = _build_wheel(tmp_path)
+        installed = _unpack_wheel(wheel, tmp_path / "installed")
+        removed = installed / "audio_suite_shared" / "suite_config.py"
+        assert removed.is_file(), "the wheel layout changed; update the control"
+        removed.unlink()
+        consumer = tmp_path / "installed_consumer.py"
+        consumer.write_text(CONSUMER.read_text(encoding="utf-8"), encoding="utf-8")
+
+        result = _run_mypy_against(consumer, installed, tmp_path)
+
+        combined = result.stdout + result.stderr
+        assert result.returncode != 0, combined
+        # ``ignore_missing_imports`` turns the vanished module into ``Any``
+        # instead of a "cannot find" error, so the signal is the two consumer
+        # assertions that read its annotations - the same two that pass above.
+        assert combined.count("[assert-type]") == 2, combined
+        assert "Success" not in combined, combined
