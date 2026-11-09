@@ -56,6 +56,10 @@ class CueSheetApp(SuiteApp):
         album_title: str = "",
         album_artist: str = "",
         dry_run: bool = False,
+        auto_start: bool = False,
+        auto_end: bool = False,
+        clear_logs: bool = False,
+        parallel: bool = False,
     ) -> None:
         self.folder_path = tk.StringVar(value=suite_config.load_last_directory())
         self.output_path = tk.StringVar(value="")
@@ -82,11 +86,18 @@ class CueSheetApp(SuiteApp):
             album_title=album_title,
             album_artist=album_artist,
             dry_run=dry_run,
+            auto_start=auto_start,
+            auto_end=auto_end,
+            clear_logs=clear_logs,
+            parallel=parallel,
         )
         super().__init__(root)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._refresh_preview()
-        if self.folder_path.get() and self._launched_from_driver:
+        # Auto Start is the driver's choice, not a consequence of being
+        # launched by it: a batch step passes `--start`, and a driver run with
+        # it unchecked must leave the window waiting for the user.
+        if self.folder_path.get() and self.auto_start_var.get():
             self.root.after(500, self._start_export)
 
     def _apply_cli_args(
@@ -97,6 +108,10 @@ class CueSheetApp(SuiteApp):
         album_title: str,
         album_artist: str,
         dry_run: bool,
+        auto_start: bool,
+        auto_end: bool,
+        clear_logs: bool,
+        parallel: bool,
     ) -> None:
         """Pre-fill the window from the Master Driver / launcher arguments.
 
@@ -109,6 +124,10 @@ class CueSheetApp(SuiteApp):
             album_title: Album title.
             album_artist: Album artist.
             dry_run: Whether the launch asks for a dry run.
+            auto_start: Whether the launch asks the run to begin on its own.
+            auto_end: Whether the launch asks the window to close after the run.
+            clear_logs: The driver's display-only Clear Logs state.
+            parallel: The driver's display-only Parallel state.
         """
         if directory:
             self.folder_path.set(directory)
@@ -120,6 +139,14 @@ class CueSheetApp(SuiteApp):
             self.album_artist.set(album_artist)
         if dry_run:
             self.run_mode.set(DRY_MODE)
+        if auto_start:
+            self.auto_start_var.set(True)
+        if auto_end:
+            self.auto_end_var.set(True)
+        if clear_logs:
+            self.clear_logs_var.set(True)
+        if parallel:
+            self.parallel_var.set(True)
 
     # ── Setup tab ─────────────────────────────────────────────────────────────
 
@@ -461,5 +488,9 @@ def main() -> None:
             album_title=args.album_title,
             album_artist=args.album_artist,
             dry_run=getattr(args, "live_mode", True) is False,
+            auto_start=getattr(args, "auto_start", False),
+            auto_end=getattr(args, "auto_end", False),
+            clear_logs=getattr(args, "clear_logs", False),
+            parallel=getattr(args, "parallel_run", False),
         )
     root.mainloop()

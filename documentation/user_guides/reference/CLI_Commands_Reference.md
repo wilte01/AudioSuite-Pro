@@ -941,7 +941,9 @@ The generator has a window of its own, `CUE_Sheet_Generator.pyw`, and the
 window and `cue generate` build the sheet through one shared implementation:
 select a folder, name the sheet, and the run writes the same text the command
 below writes. The command is the documented entry point; the window adds the
-run report and a dry run.
+run report and a dry run. The window is also a Master Driver batch step: it
+takes the driver's folder, run mode and Auto Start/Auto End pair, and writes the
+same sheet and report the command does — the batch needs no second command.
 
 ### cue parse
 

@@ -33,6 +33,9 @@ them (functional backlog U3).
 Changed in 2.3.0: builds the duplicate_finder and restoration argv their windows parse
 back (F-02, F-08a).
 
+Changed in 2.6.0: adds the ``cue_sheet`` entry, so a batch can schedule the
+window that writes the shared folder sheet (F-E8 follow-up).
+
 Changed in 2.3.1 (U-03, released in 2.6.0): drops the five DSP tools' builders
 with their cards, and with them the one tool-specific display-flag exception.
 """
@@ -282,6 +285,11 @@ def _build_utility_tool_args(
         "converter": lambda: _build_converter_args(
             path, mode_flag, start_flag, end_flag, state
         ),
+        # Changed in 2.6.0: the CUE exporter is schedulable as a batch step.
+        # Its window writes the shared `cue generate` sheet from the folder and
+        # the run-mode/start/end handshake alone; the sheet target and the album
+        # fields keep their in-window defaults (F-E8 follow-up).
+        "cue_sheet": lambda: [path, mode_flag, start_flag, end_flag],
         "asx_extractor": lambda: [
             path,
             "--mode",

@@ -575,7 +575,9 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Write an album CUE sheet describing a folder's tracks",
         # No top-level command of its own: the window and ``audiosuite cue
         # generate`` are the same sheet builder, and the command belongs to the
-        # shared ``cue`` group rather than to this manifest.
+        # shared ``cue`` group rather than to this manifest.  The Master Driver
+        # still schedules it — its arg-builder entry is the four-flag handshake
+        # its window parses, so a batch step needs no second command (D-19).
         cli_command=None,
         standalone=False,
         group="convert",

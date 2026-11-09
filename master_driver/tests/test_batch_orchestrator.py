@@ -4,9 +4,9 @@ Tests for master_driver.batch_orchestrator
 Strategy — mock run_python_script / start_python_script to simulate tool
 execution with controlled durations and exit codes.
 
-Changed in 2.6.0: ``cue_sheet`` joins ``EXCLUDED`` — it fronts the shared
-``cue generate`` command, so it has no CLI command and no arg-builder entry the
-batch could launch (F-E8).
+Changed in 2.6.0: ``cue_sheet`` becomes a graph leaf with an arg-builder entry,
+so the batch can schedule it through the shared ``cue generate`` sheet builder.
+``EXCLUDED`` is left holding only ``undo_tag_edits`` (F-E8, D-19).
 
 Changed in 1.0.1: adds a regression asserting a missing script fails the
 step immediately (no retries) instead of being retried as a generic OSError.
@@ -768,19 +768,20 @@ class TestDependencyGraph:
     # Deliberate exclusions from the registry-completeness contract.
     #
     # A tool id belongs in DEPENDENCY_GRAPH only if the Master Driver can
-    # actually schedule it, which requires a CLI command (the batch launches
-    # modules as subprocesses) and an arg-builder entry. `undo_tag_edits` is
-    # the one registered tool with `cli_command is None`: it is a
-    # GUI-only undo utility with no CLI and no arg-builder entry, so it can
-    # never appear in an enrich/utility batch.  `cue_sheet` (2.6.0, F-E8) is
-    # the other: it fronts the shared `cue generate` command, which belongs to
-    # the `cue` group rather than to its own manifest.
+    # actually schedule it, which requires an arg-builder entry: every step is
+    # launched with that argv. `undo_tag_edits` is the one registered tool left
+    # in `EXCLUDED`: it restores a backup written by a prior run (it has no CLI
+    # command and no argv of its own), so it can never appear in an
+    # enrich/utility batch.  `cue_sheet` sat here in F-E8's first cut because it
+    # fronts the shared `cue generate` command rather than one of its own; 2.6.0
+    # gave it the four-flag builder its window parses, so it is now a leaf
+    # (D-19) — scheduling it does not need a second command.
     #
     # This is an explicit, named allowlist as required by the registry
     # agreement point in `audio_suite_shared/tool_plugin.py`, and
     # `test_excluded_matches_the_batch_ineligible_rule` pins it to the rule
     # itself so it cannot silently absorb a future tool.
-    EXCLUDED: frozenset[str] = frozenset({"cue_sheet", "undo_tag_edits"})
+    EXCLUDED: frozenset[str] = frozenset({"undo_tag_edits"})
 
     @staticmethod
     def _registered() -> set[str]:
@@ -815,19 +816,26 @@ class TestDependencyGraph:
         assert set(DEPENDENCY_GRAPH) - self._registered() == set()
 
     def test_excluded_matches_the_batch_ineligible_rule(self):
-        """EXCLUDED == exactly the registered tools with no CLI command.
+        """EXCLUDED holds only tools the batch cannot launch at all.
 
         Anchors the allowlist to a derivable property rather than a hand-typed
-        list: if `undo_tag_edits` ever gains a CLI it automatically demands a
-        graph entry, and any new CLI-less tool is reported here as an
-        unexplained exclusion instead of passing silently.
+        list: only a tool with no CLI command of its own can be unschedulable,
+        and such a tool still has to be named here (a new one fails
+        ``test_graph_covers_every_batch_eligible_tool`` until it is a graph leaf
+        or a declared exclusion).  A CLI-less tool that does have an arg-builder
+        entry cannot hide here: ``test_excluded_tools_have_no_arg_builder_entry``
+        fails, which is what moved ``cue_sheet`` onto the graph in 2.6.0 (D-19).
         """
         from audio_suite_shared.tool_plugin import get_registry
 
         no_cli = frozenset(
             m.id for m in get_registry().first_party if not m.cli_command
         )
-        assert self.EXCLUDED == no_cli
+        assert self.EXCLUDED <= no_cli, (
+            "a tool with a CLI command is always schedulable, so it belongs in "
+            f"the graph: {sorted(self.EXCLUDED - no_cli)}"
+        )
+        assert self.EXCLUDED, "the exclusion allowlist must not be empty"
 
     def test_a_plugin_tool_resolves_to_no_dependencies(self):
         """A plugin cannot be a graph key, and its dependencies are empty.

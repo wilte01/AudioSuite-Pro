@@ -30,7 +30,9 @@ and every bullet belongs to exactly one of them.
   album title and artist can be set. A folder where two files claim one track
   number is refused with both filenames named, rather than written as a sheet a
   player cannot read. A dry run writes the run report and leaves an existing
-  sheet alone, and the window is in the Master Driver's UTIL tab and its batch.
+  sheet alone. The window is on the Master Driver's UTIL tab and is schedulable
+  as a batch step, which runs it from the driver's folder and mode through the
+  same shared builder `cue generate` uses.
 - **Copy tag fields from a reference file, or from a saved template.** The Tag
   Editor's Setup tab gains **Copy Fields…** (choose a reference track, say which
   fields, review the per-field diff in a dry run, then apply) and **Templates…**

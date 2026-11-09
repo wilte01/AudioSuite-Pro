@@ -18,6 +18,14 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **The CUE Sheet Generator is a Master Driver batch step.** `arg_builder`
+  emits the four-flag handshake for `cue_sheet`, `DEPENDENCY_GRAPH` carries it as
+  a dependency-free leaf, and the handshake contract now drives its `parse()`;
+  no `cli_command` was added, because the sheet is still `cue generate`'s
+  builder. The window's auto-start follows `--start` rather than "the driver
+  launched me", so Auto Start means the same thing here as in every other tool
+  and an unchecked Auto Start is respected (D-19).
+
 - **Folder CUE export is one shared builder with a window in front of it.**
   `audio_suite_shared/cue_generator.py` gains `scan_audio_files`, `folder_specs`
   and `build_folder_cue`; `cue_cli.cue_generate_cli` and the new `cue_sheet`

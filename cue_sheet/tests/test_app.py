@@ -8,9 +8,11 @@ from __future__ import annotations
 import queue
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 from cue_sheet.app import CueSheetApp
 from cue_sheet.core.export import run_export
+from cue_sheet.utils import cli_args
 
 
 def _silent_wav(path: Path) -> None:
@@ -29,6 +31,87 @@ def _bare_app() -> CueSheetApp:
     app = object.__new__(CueSheetApp)
     app._events = queue.SimpleQueue()  # type: ignore[attr-defined]
     return app
+
+
+def _controls_app() -> CueSheetApp:
+    """Return an app whose run-control variables are mocks, not Tk variables."""
+    app = object.__new__(CueSheetApp)
+    for name in (
+        "folder_path",
+        "output_path",
+        "album_title",
+        "album_artist",
+        "run_mode",
+        "auto_start_var",
+        "auto_end_var",
+        "clear_logs_var",
+        "parallel_var",
+    ):
+        setattr(app, name, MagicMock())
+    return app
+
+
+class TestTheDriverHandshake:
+    """The window mirrors every run control the driver's argv carries.
+
+    A batch step *is* this window: ``--start`` decides whether the run begins on
+    its own and ``--end`` whether the window closes when it finishes.  A dropped
+    flag does not fail loudly — the step waits for a user who is not there — so
+    the mapping is locked here rather than left to the batch run.
+    """
+
+    def test_the_batch_argv_makes_the_window_start_and_close(
+        self, tmp_path: Path
+    ) -> None:
+        parsed = cli_args.parse(
+            [
+                "CUE_Sheet_Generator.pyw",
+                str(tmp_path),
+                "--live",
+                "--start",
+                "--end",
+                "--clear-logs",
+                "--parallel-run",
+            ]
+        )
+        app = _controls_app()
+
+        CueSheetApp._apply_cli_args(
+            app,
+            directory=parsed.folder_path,
+            output=parsed.output,
+            album_title=parsed.album_title,
+            album_artist=parsed.album_artist,
+            dry_run=not parsed.live_mode,
+            auto_start=parsed.auto_start,
+            auto_end=parsed.auto_end,
+            clear_logs=parsed.clear_logs,
+            parallel=parsed.parallel_run,
+        )
+
+        app.folder_path.set.assert_called_once_with(str(tmp_path))  # type: ignore[attr-defined]
+        app.auto_start_var.set.assert_called_once_with(True)  # type: ignore[attr-defined]
+        app.auto_end_var.set.assert_called_once_with(True)  # type: ignore[attr-defined]
+
+    def test_a_launch_without_the_flags_leaves_them_off(self) -> None:
+        app = _controls_app()
+
+        CueSheetApp._apply_cli_args(
+            app,
+            directory="",
+            output="",
+            album_title="",
+            album_artist="",
+            dry_run=False,
+            auto_start=False,
+            auto_end=False,
+            clear_logs=False,
+            parallel=False,
+        )
+
+        assert not app.auto_start_var.set.called  # type: ignore[attr-defined]
+        assert not app.auto_end_var.set.called  # type: ignore[attr-defined]
+        assert not app.run_mode.set.called  # type: ignore[attr-defined]
 
 
 class TestCompletionSeam:

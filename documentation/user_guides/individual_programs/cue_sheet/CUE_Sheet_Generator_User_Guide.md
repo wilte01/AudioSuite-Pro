@@ -84,6 +84,22 @@ the sheet's full text, and a `SUMMARY:` block with the track count, how many
 sheets were written, the error count and the elapsed time. A dry run and a live
 run write different files, so the report you open is always the run you started.
 
+## Master Driver and Batch Runs
+
+The window is on the Master Driver's UTIL tab, in the **Convert & Import**
+section. Tick its card and the driver's batch schedules it as its own step: the
+step hands the window the folder the driver is pointed at, the driver's
+Live/Dry choice and its **Auto Start** / **Auto End** pair, so a batch run
+starts on its own, writes `album.cue` and the run report, then closes. The
+sheet target and the album fields are left at their window defaults, so a batch
+writes `album.cue` beside the tracks with no album-level title or artist. The
+step is a leaf: it reads tags and writes one sheet, so no other step has to run
+before it and nothing it writes feeds another tool.
+
+There is no second command behind the batch step: it is the same window, and
+the window writes the sheet through the same builder `audiosuite cue generate`
+calls, so a scheduled run and a manual run cannot describe one folder two ways.
+
 ## Command Line
 
 The window and the command line write the same sheet:
