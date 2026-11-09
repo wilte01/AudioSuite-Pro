@@ -926,9 +926,9 @@ def _apply_peak_plan(
         limit=plan.limited,
         true_peak_ceiling=plan.ceiling_dbfs,
         record_snapshot=False,
-        # Peak targets are lossless-first: a WAV/AIFF source keeps its
-        # container (and its depth, pinned by the applier) instead of being
-        # refused the way album mode refuses it.
+        # Peak targets are lossless-first: pass the matrix fallback so a
+        # container the normaliser's tuned map lacks still resolves an encoder
+        # rather than failing a write this mode is defined to make.
         lossless_output=True,
     )
     verified = audio_probe.measure_levels(str(path), ffmpeg=FFMPEG_PATH)

@@ -34,6 +34,16 @@ and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **The Normalise stage's encoder set covers integer PCM.** `.wav`/`.aiff`/`.aif`
+  resolve through `audio_formats.ffmpeg_encoder_args` instead of a tuned
+  `_FORMAT_CODEC` entry, and `_depth_args` re-pins the source's depth with
+  `preserve_depth_params` before the encode, because FFmpeg's WAV/AIFF muxers
+  write 16-bit PCM whatever came in. `NORMALISE_EXTENSIONS` and
+  `normalise_format_display()` derive the refusal's format list, so a stale list
+  cannot ship; `apply_static_gain` pins depth for any integer-PCM destination,
+  which is what lets album mode inherit the fix. Locked on decoded files
+  (`test_normalizer_core.py::TestPcmContainers`, the WAV album test, and
+  `test_convert_and_pipeline.py::TestPcmNormaliseThroughThePipeline`).
 - **The static-gain write has one implementation and two callers.**
   `apply_static_gain` was split out of `apply_album_gain` in
   `audio_normalizer/core/album.py`: the limiter chain, the tag rewrite, the

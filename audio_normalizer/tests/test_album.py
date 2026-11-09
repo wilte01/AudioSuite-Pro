@@ -8,10 +8,13 @@ itself; the promises here are that each track moved by the album's gain (within
 0.1 dB), that the album lands on its target (within 0.5 LU), and that the
 true-peak ceiling holds on every track.
 
-The fixtures are FLAC because album mode writes through the same encoder map as
-the per-file normalise stage, which covers MP3, FLAC, OGG, M4A, Opus, WavPack
-and Speex; a WAV album is refused with that stage's own message and is recorded
-as follow-on work in the governing plan rather than silently re-encoded here.
+The fixtures are FLAC and 24-bit WAV: album mode writes through the same encoder
+map as the per-file normalise stage (MP3, FLAC, OGG, M4A, Opus, WavPack, Speex,
+plus the integer-PCM WAV/AIFF containers the shared format matrix supplies), and
+the file's own bit depth survives the rewrite.
+
+Changed in 2.6.0: album mode writes WAV/AIFF through the shared format matrix,
+with the source's depth pinned, so a PCM album is no longer refused.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from audio_normalizer.core.album import (
     plan_key,
 )
 from audio_suite_shared import audio_probe
+from audio_suite_shared.audio_formats import source_bit_depth
 from audio_suite_shared.exceptions import AudioFormatError
 
 FS = 44100
@@ -40,22 +44,35 @@ CEILING = -1.0
 # ── Fixture builders ─────────────────────────────────────────────────────────
 
 
-def _write(path: Path, pcm: np.ndarray, *, fmt: str = "flac") -> Path:
-    """Write one mono segment as *fmt*, without altering the sample values."""
+def _write(
+    path: Path, pcm: np.ndarray, *, fmt: str = "", codec: str | None = None
+) -> Path:
+    """Write one mono segment as *fmt* (default: the path's own suffix).
+
+    ``codec`` selects an integer-PCM depth for a WAV/AIFF fixture; without it the
+    container's default encoder writes the samples.
+    """
     raw = pcm.astype(np.int16).tobytes()
     AudioSegment(raw, frame_rate=FS, sample_width=2, channels=1).export(
-        str(path), format=fmt
+        str(path),
+        format=fmt or path.suffix.lstrip("."),
+        parameters=["-c:a", codec] if codec else None,
     )
     return path
 
 
 def _tone(
-    path: Path, amplitude: float, *, freq: float = 440.0, duration_ms: int = 1200
+    path: Path,
+    amplitude: float,
+    *,
+    freq: float = 440.0,
+    duration_ms: int = 1200,
+    codec: str | None = None,
 ) -> Path:
     """A steady tone: loudness tracks its amplitude, so it never hits a ceiling."""
     n = int(FS * duration_ms / 1000)
     t = np.linspace(0, duration_ms / 1000, n, endpoint=False)
-    return _write(path, amplitude * np.sin(2 * np.pi * freq * t) * 32767)
+    return _write(path, amplitude * np.sin(2 * np.pi * freq * t) * 32767, codec=codec)
 
 
 def _peaky(path: Path, *, duration_ms: int = 1200, spike: float = 0.9) -> Path:
@@ -183,6 +200,27 @@ class TestBuildAlbumPlan:
 
 class TestApplyAlbumGain:
     """The written files, decoded and measured — never the requested gain."""
+
+    def test_a_wav_album_moves_by_the_gain_and_keeps_its_depth(
+        self, tmp_path: Path
+    ) -> None:
+        """A PCM album is written now, not refused, and stays at its depth."""
+        tracks = [
+            _tone(tmp_path / "01 quiet.wav", 0.02, codec="pcm_s24le"),
+            _tone(tmp_path / "02 medium.wav", 0.08, codec="pcm_s24le"),
+            _tone(tmp_path / "03 loud.wav", 0.30, codec="pcm_s24le"),
+        ]
+        plan = _plan(tracks)
+        before = {path: _lufs(path) for path in tracks}
+
+        for path in tracks:
+            apply_album_gain(str(path), plan.gains[plan_key(path)])
+
+        for path in tracks:
+            assert _lufs(path) - before[path] == pytest.approx(
+                plan.gains[plan_key(path)], abs=0.1
+            )
+            assert source_bit_depth(str(path)) == 24
 
     def test_each_track_moves_by_the_album_gain(self, uneven_album: list[Path]) -> None:
         plan = _plan(uneven_album)

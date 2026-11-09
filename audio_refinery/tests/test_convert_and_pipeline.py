@@ -11,6 +11,9 @@ file.
 Changed in 2.4.3: C-I7 deleted the ``core/convert.py`` re-export shim, so
 ``TestConvertReExports`` went with it; the helpers are imported from
 ``audio_suite_shared.audio_conversion`` directly.
+
+Changed in 2.6.0: a 24-bit WAV now normalises through the stage and keeps its
+bit depth (D-8's follow-on), asserted on the decoded file's loudness and depth.
 """
 
 from queue import Queue
@@ -454,6 +457,54 @@ class TestRunPipeline:
 
         assert len(complete) == 1
         assert complete[0]["succeeded"] == 1
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Integer-PCM sources (D-8 follow-on)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def _make_pcm_wav(tmp_path, name="track.wav"):
+    """A 2 s 24-bit stereo WAV: a PCM master, the case D-8 refused."""
+    path = tmp_path / name
+    _sine(duration_ms=2000, channels=2, amplitude=0.25).export(
+        str(path), format="wav", parameters=["-c:a", "pcm_s24le"]
+    )
+    return path
+
+
+class TestPcmNormaliseThroughThePipeline:
+    """A WAV is normalised by the stage itself, and the bytes are measured."""
+
+    def test_a_24_bit_wav_reaches_the_target_and_keeps_its_depth(self, tmp_path):
+        from audio_refinery.core.models import FileStatus, NormaliseParams
+        from audio_refinery.core.pipeline import process_file
+        from audio_suite_shared.audio_formats import source_bit_depth
+        from audio_suite_shared.audio_probe import measure_loudness
+
+        source = _make_pcm_wav(tmp_path)
+        assert source_bit_depth(str(source)) == 24
+        config = StageConfig(
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=True,
+            normalise_params=NormaliseParams(target_lufs=-23.0),
+        )
+
+        result = process_file(
+            source_path=source,
+            output_path=source,
+            config=config,
+            on_progress=lambda stage, msg: None,
+        )
+
+        assert result.status == FileStatus.DONE, result.error
+        assert result.was_modified is True
+        assert source_bit_depth(str(source)) == 24, "the stage truncated the master"
+        measured = measure_loudness(str(source)).integrated_lufs
+        assert abs(measured - (-23.0)) <= 0.7, f"landed at {measured:.2f} LUFS"
+        assert AudioSegment.from_file(source).frame_rate == FS
 
 
 class TestUndoBatchRecording:

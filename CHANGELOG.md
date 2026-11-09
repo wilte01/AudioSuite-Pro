@@ -33,6 +33,12 @@ and every bullet belongs to exactly one of them.
   clamped. Peak mode reaches WAV and AIFF as well as the normalise encoders,
   keeps a 24-bit source at 24 bits, and cannot be combined with Album loudness:
   choosing one clears the other, and the command line refuses the pair.
+- **The Normalise stage writes WAV and AIFF.** Loudness and album mode no longer
+  refuse a PCM container: a WAV or AIFF is normalised in place, keeps its own bit
+  depth (a 24-bit master stays 24-bit) and its sample rate, and album mode
+  measures a PCM album like any other. A container the stage still cannot write
+  is refused with a message whose format list is derived from the same table that
+  decides it, so it cannot go stale.
 
 ### Changed
 

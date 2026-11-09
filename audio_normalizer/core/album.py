@@ -204,12 +204,11 @@ def _static_gain_codec(
 ) -> tuple[str, list[str]]:
     """Resolve the encoder one static-gain rewrite uses.
 
-    Album mode writes through the normaliser's tuned encoders only, so a
-    container without one is refused with exactly the message a per-file
-    normalise gives.  A peak target is lossless-first and has to reach
-    WAV/AIFF, which the normaliser deliberately refuses, so it asks the shared
-    format matrix for the container's own PCM encoder rather than adding a
-    second codec table here.
+    The normaliser's tuned encoders answer first; a container it has no entry
+    for is refused with exactly the message a per-file normalise gives.  A peak
+    target is lossless-first, so it asks the shared format matrix for the
+    container's own encoder rather than adding a second codec table here; the
+    depth is pinned separately by the caller.
 
     Args:
         file_path: The file being written; only its extension is read.
@@ -261,10 +260,11 @@ def apply_static_gain(
         true_peak_ceiling: The ceiling the limiter holds, in dBTP.
         record_snapshot: Record an undo snapshot against the output.  The
             Refinery pipeline records its own, so it passes ``False``.
-        lossless_output: Write a container the normaliser has no tuned encoder
-            for (WAV/AIFF) through the shared format matrix.  Off by default,
-            so album mode keeps refusing those containers; the Refinery's
-            peak target turns it on because it is lossless-first.
+        lossless_output: Resolve a container the normaliser has no tuned
+            encoder for through the shared format matrix.  Off by default, so a
+            rewrite into an unencodable container still reports the
+            normaliser's own refusal; the Refinery's peak target turns it on
+            because it is lossless-first.
 
     Returns:
         ``True`` when a file was written, ``False`` when the gain was too small
@@ -281,11 +281,14 @@ def apply_static_gain(
     destination = output or path
     codec, extra = _static_gain_codec(destination, lossless_output=lossless_output)
     ext = os.path.splitext(destination)[1].lower()
-    # A peak rewrite may write a container the normaliser has no tuned encoder
-    # for; the shared matrix's own PCM codec for the source's depth keeps a
-    # 24-bit WAV/AIFF at 24 bits (the WAV/AIFF muxers otherwise default to 16).
+    # Keep an integer-PCM source's depth: the WAV/AIFF muxers default to 16-bit,
+    # so a 24-bit master would be truncated by the rewrite (F-10 class).  Empty
+    # for every container that carries no integer depth.
+    capability = audio_formats.FORMAT_MATRIX.get(ext)
     depth_args = (
-        audio_formats.preserve_depth_params(ext, path) if lossless_output else []
+        audio_formats.preserve_depth_params(ext, path)
+        if capability is not None and capability.depth_codecs
+        else []
     )
     temp_out = destination + f".albtmp{ext}"
     # Tags and audio parameters come from the source: on a copy-out run the

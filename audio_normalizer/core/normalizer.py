@@ -5,7 +5,7 @@ audio file in-place, preserving all original tags.
 
 Pure function: no tkinter imports, no global state.
 
-Supports: MP3, FLAC, OGG, M4A, Opus, WavPack, Speex
+Supports: MP3, FLAC, OGG, M4A, Opus, WavPack, Speex, WAV, AIFF, AIF
 
 Changed in 1.1.0: the normalizer codec map now covers seven formats, adding WavPack
 (.wv) and Ogg Speex (.spx); read-only APE/MPC/DSF keep the clear reject path.
@@ -14,6 +14,14 @@ Changed in 2.1.7: the output's sample rate (and FLAC's bit depth) is pinned to
 the source's, and FLAC frames are capped, so normalising no longer resamples to
 loudnorm's 192 kHz or fails on FFmpeg builds newer than 8.0. See
 ``_preserve_args``.
+
+Changed in 2.6.0: WAV/AIFF join the encoder set, closing the follow-on the album
+
+mode plan recorded (D-8).  They are lossless, so their encoder comes from the
+shared format matrix rather than a tuned entry, and the source's depth is
+re-pinned before the encode: FFmpeg's WAV/AIFF muxers write 16-bit PCM whatever
+came in, so an unpinned 24-bit master would be truncated by the pass meant to
+preserve it.
 """
 
 import os
@@ -22,6 +30,7 @@ from typing import Any
 from mutagen import File as MutagenFile
 from mutagen import MutagenError
 
+from audio_suite_shared import audio_formats
 from audio_suite_shared.batch_undo import record_tag_edit_snapshot
 from audio_suite_shared.exceptions import AudioFormatError
 
@@ -48,6 +57,41 @@ _FORMAT_CODEC = {
     ".wv": ("wavpack", []),
     ".spx": ("libspeex", ["-q:a", "8"]),
 }
+
+
+#: Integer-PCM containers the Normalise stage writes.  They are lossless, so the
+#: gain is applied by re-encoding samples, and the encoder comes from the shared
+#: format matrix rather than a tuned entry.  FFmpeg's WAV/AIFF muxers write
+#: 16-bit PCM whatever came in, so the source's own depth is re-pinned before the
+#: encode (``_depth_args``) - without that, a 24-bit master would be truncated by
+#: the very pass that is meant to preserve it (the F-10 class, in the normaliser).
+_PCM_EXTENSIONS: tuple[str, ...] = tuple(
+    ext
+    for ext, capability in audio_formats.FORMAT_MATRIX.items()
+    if capability.depth_codecs
+)
+
+#: Every extension the Normalise stage can write: the tuned map above plus the
+#: integer-PCM containers the matrix supplies.
+NORMALISE_EXTENSIONS: frozenset[str] = frozenset(_FORMAT_CODEC) | frozenset(
+    _PCM_EXTENSIONS
+)
+
+
+def normalise_format_display() -> str:
+    """Return the containers the Normalise stage writes, for a message.
+
+    Derived from the two sources that decide it, so a refusal can never name a
+    format the stage does not write, or omit one it does.
+
+    Returns:
+        The matrix's display names, in the map's own order, comma-separated.
+    """
+    names = []
+    for ext in (*_FORMAT_CODEC, *_PCM_EXTENSIONS):
+        capability = audio_formats.FORMAT_MATRIX.get(ext)
+        names.append(capability.display_name if capability else ext.lstrip(".").upper())
+    return ", ".join(names)
 
 
 # ── Source parameters that must survive the re-encode ────────────────────────
@@ -180,12 +224,32 @@ def _filters(
     return chain
 
 
+def _depth_args(file_path: str) -> list[str]:
+    """FFmpeg arguments that keep an integer-PCM source's bit depth.
+
+    WAV/AIFF only: their muxers default to 16-bit PCM and ``loudnorm`` emits
+    doubles, so an unpinned 24-bit source would come back at 16 bits.  FLAC's
+    depth is pinned by ``_preserve_args`` instead, and a lossy container has no
+    depth to preserve.
+
+    Args:
+        file_path: Absolute path to the input file.
+
+    Returns:
+        Arguments to place before the output path; empty when no pin applies.
+    """
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext not in _PCM_EXTENSIONS:
+        return []
+    return audio_formats.preserve_depth_params(ext, file_path)
+
+
 def _codec_args(file_path: str) -> tuple[str, list[str]]:
     """Return (codec_name, extra_args) for the file's extension.
 
-    Extensions outside ``_FORMAT_CODEC`` are rejected rather than silently
-    re-encoded as MP3, which would damage quality while keeping the original
-    extension (e.g. a ``.wav`` would become MP3 data in a WAV container).
+    Extensions with no encoder are rejected rather than silently re-encoded as
+    MP3, which would damage quality while keeping the original extension (e.g.
+    a ``.mp4`` would hold MP3 data).
 
     Args:
         file_path: Absolute path to the audio file.
@@ -197,13 +261,17 @@ def _codec_args(file_path: str) -> tuple[str, list[str]]:
         AudioFormatError: If the file extension has no configured codec.
     """
     ext = os.path.splitext(file_path)[1].lower()
-    if ext not in _FORMAT_CODEC:
-        raise AudioFormatError(
-            f"Unsupported audio format for normalisation: '{ext or file_path}'. "
-            "Supported formats: MP3, FLAC, OGG, M4A, Opus, WavPack, Speex.",
-            context={"file": file_path, "extension": ext or None},
-        )
-    return _FORMAT_CODEC[ext]
+    if ext in _FORMAT_CODEC:
+        return _FORMAT_CODEC[ext]
+    if ext in _PCM_EXTENSIONS:
+        # Lossless PCM: the container's own encoder from the shared matrix, with
+        # the source's depth re-pinned by ``_depth_args`` before the encode.
+        return audio_formats.ffmpeg_encoder_args(ext)
+    raise AudioFormatError(
+        f"Unsupported audio format for normalisation: '{ext or file_path}'. "
+        f"Supported formats: {normalise_format_display()}.",
+        context={"file": file_path, "extension": ext or None},
+    )
 
 
 def apply(
@@ -221,9 +289,11 @@ def apply(
     The file is written to a temporary path first, then atomically replaces
     the original, so a crash or error during encoding leaves the original intact.
 
-    The source's own sample rate (and, for FLAC, its bit depth) is pinned on the
-    output, so normalising never resamples to ``loudnorm``'s internal 192 kHz or
-    silently widens 16-bit audio; see ``_preserve_args``.
+    The source's own sample rate is pinned on the output, so normalising never
+    resamples to ``loudnorm``'s internal 192 kHz.  A lossless source also keeps
+    its integer bit depth - FLAC through ``_preserve_args``, WAV/AIFF through
+    ``_depth_args`` - so widening 16-bit audio and truncating a 24-bit master
+    both stay impossible.
 
     Original tags are preserved by re-applying them to the re-encoded file
     using the format-aware tag_helper, unless *skip_tag_handling* is True
@@ -287,6 +357,7 @@ def apply(
         codec,
         *extra,
         *_preserve_args(file_path, codec),
+        *_depth_args(file_path),
         temp_out,
     ]
 

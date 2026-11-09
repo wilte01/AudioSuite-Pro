@@ -31,6 +31,7 @@ from pathlib import Path
 from queue import Queue
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 from pydub import AudioSegment
 
@@ -40,12 +41,15 @@ from audio_normalizer.core.loudness import (
     parse_output_true_peak,
 )
 from audio_normalizer.core.normalizer import (
+    NORMALISE_EXTENSIONS,
     _codec_args,
     _filters,
     _preserve_args,
     apply,
+    normalise_format_display,
 )
 from audio_normalizer.tests import _legacy_loudness as legacy
+from audio_suite_shared.audio_formats import source_bit_depth
 from audio_suite_shared.exceptions import AudioFormatError
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -255,19 +259,51 @@ class TestCodecArgs:
         "filename",
         [
             "track.xyz",
-            "track.wav",
-            "track.aiff",
-            "track.aif",
             "track.mp4",
             "track.wma",
+            "track.dsf",
             "track.flacx",
         ],
     )
     def test_unmapped_extension_raises_format_error(self, filename):
-        """Silent MP3 fallback on unmapped extensions is forbidden — a WAV/AIFF
-        or unknown file must never be lossily re-encoded as MP3."""
+        """Silent MP3 fallback on unmapped extensions is forbidden: a container
+        with no encoder must never be lossily re-encoded as MP3."""
         with pytest.raises(AudioFormatError):
             _codec_args(filename)
+
+    @pytest.mark.parametrize(
+        "filename,expected_codec",
+        [
+            ("track.wav", "pcm_s16le"),
+            ("track.WAV", "pcm_s16le"),
+            ("track.aiff", "pcm_s16be"),
+            ("track.aif", "pcm_s16be"),
+        ],
+    )
+    def test_integer_pcm_containers_use_the_matrix_encoder(
+        self, filename, expected_codec
+    ):
+        """WAV/AIFF are lossless, so the matrix's own PCM encoder writes them."""
+        codec, extra = _codec_args(filename)
+        assert codec == expected_codec
+        assert extra == []
+
+    def test_the_stage_names_every_container_it_writes(self):
+        """The refusal's list is derived, so it cannot name a format it cannot
+        write or omit one it can."""
+        assert NORMALISE_EXTENSIONS == {
+            ".mp3",
+            ".flac",
+            ".ogg",
+            ".m4a",
+            ".opus",
+            ".wv",
+            ".spx",
+            ".wav",
+            ".aiff",
+            ".aif",
+        }
+        assert normalise_format_display().endswith("WAV, AIFF, AIF")
 
     def test_unmapped_extension_error_includes_extension(self):
         with pytest.raises(AudioFormatError, match=r"\.xyz"):
@@ -510,20 +546,20 @@ class TestApply:
         mock_run.assert_not_called()
 
     def test_apply_unsupported_format_rejected_before_ffmpeg(self, tmp_path):
-        """An unmapped extension (e.g. .wav) must raise AudioFormatError before
+        """An unmapped extension (e.g. .mp4) must raise AudioFormatError before
         any tag read or FFmpeg invocation — never silently re-encode as MP3."""
-        f = tmp_path / "track.wav"
-        f.write_bytes(b"wav data")
+        f = tmp_path / "track.mp4"
+        f.write_bytes(b"mp4 data")
         with (
             patch("audio_normalizer.core.normalizer.run_secure_subprocess") as mock_run,
             patch("audio_normalizer.core.normalizer.read_tags_raw") as mock_tags,
         ):
-            with pytest.raises(AudioFormatError, match=r"\.wav"):
+            with pytest.raises(AudioFormatError, match=r"\.mp4"):
                 apply(str(f), -16.0, MOCK_LOUDNESS)
 
         mock_run.assert_not_called()
         mock_tags.assert_not_called()
-        assert f.read_bytes() == b"wav data"
+        assert f.read_bytes() == b"mp4 data"
 
     def test_ffmpeg_includes_loudnorm_offset_parameter(self, tmp_path):
         """The measured target_offset must be passed to the loudnorm filter."""
@@ -672,6 +708,101 @@ class TestParseOutputTruePeak:
         # ``_safe_float`` maps -inf to the floor, which is the honest answer for
         # a silent output: no measurable peak rather than a bogus -inf.
         assert parse_output_true_peak('{"output_tp" : "-inf"}') == -70.0
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Integer-PCM containers (WAV/AIFF)
+# ═════════════════════════════════════════════════════════════════════════════
+
+FS_44 = 44100
+
+
+def _write_pcm(path: Path, *, codec: str, amplitude: float = 0.25) -> str:
+    """Write a 2 s stereo 44.1 kHz tone at *codec*'s depth.
+
+    A real tone, not silence: loudnorm has nothing to measure on digital
+    silence, so a silence fixture would prove only that the command ran.
+    """
+    n = FS_44 * 2
+    time_axis = np.linspace(0.0, 2.0, n, endpoint=False)
+    mono = (amplitude * np.sin(2 * np.pi * 440.0 * time_axis) * 32767).astype(np.int16)
+    segment = AudioSegment(
+        np.repeat(mono, 2).tobytes(),  # interleaved stereo
+        frame_rate=FS_44,
+        sample_width=2,
+        channels=2,
+    )
+    segment.export(
+        str(path), format=path.suffix.lstrip("."), parameters=["-c:a", codec]
+    )
+    return str(path)
+
+
+@pytest.mark.integration
+class TestPcmContainers:
+    """A WAV/AIFF is normalised, then decoded and measured.
+
+    The promise is not "the map has an entry" but "the written file kept its
+    depth and reached the target", so every assertion reads the output bytes.
+    """
+
+    def _assert_normalised(self, source: str, *, bits: int) -> None:
+        # Depth is read with mutagen: pydub decodes a 24-bit WAV to 32-bit
+        # frames, so its ``sample_width`` cannot tell 24 from 32 (F-10 class).
+        assert source_bit_depth(source) == bits, "fixture is not the intended depth"
+        before = AudioSegment.from_file(source)
+        target = -23.0
+        loudness = measure(source, target)
+        assert loudness is not None
+
+        apply(source, target, loudness)
+
+        after = AudioSegment.from_file(source)
+        assert source_bit_depth(source) == bits, "the re-encode changed the depth"
+        assert after.frame_rate == before.frame_rate
+        assert after.channels == before.channels
+        measured = measure(source, target)
+        assert measured is not None
+        assert measured["input_i"] == pytest.approx(target, abs=0.7)
+
+    def test_a_24_bit_wav_keeps_its_depth_and_reaches_the_target(self, tmp_path):
+        self._assert_normalised(
+            _write_pcm(tmp_path / "t.wav", codec="pcm_s24le"), bits=24
+        )
+
+    def test_a_24_bit_aiff_keeps_its_depth_and_reaches_the_target(self, tmp_path):
+        self._assert_normalised(
+            _write_pcm(tmp_path / "t.aiff", codec="pcm_s24be"), bits=24
+        )
+
+    def test_a_16_bit_wav_round_trips_at_16_bits(self, tmp_path):
+        self._assert_normalised(
+            _write_pcm(tmp_path / "t.wav", codec="pcm_s16le"), bits=16
+        )
+
+    def test_the_encode_pins_a_24_bit_wav_to_the_pcm24_codec(self, tmp_path):
+        """Shape lock for the command: the depth pin must be the effective one."""
+        source = _write_pcm(tmp_path / "t.wav", codec="pcm_s24le")
+        calls = []
+
+        def fake_run(exe, args, **kw):
+            calls.append([exe, *args])
+            open(calls[-1][-1], "wb").close()
+            result = MagicMock()
+            result.returncode = 0
+            return result
+
+        with (
+            patch("audio_normalizer.core.normalizer.run_secure_subprocess", fake_run),
+            patch("audio_normalizer.core.normalizer.read_tags_raw", return_value=None),
+            patch("audio_normalizer.core.normalizer.write_tags_raw"),
+        ):
+            apply(source, -16.0, MOCK_LOUDNESS)
+
+        cmd = calls[0]
+        codecs = [cmd[index + 1] for index, arg in enumerate(cmd) if arg == "-c:a"]
+        assert codecs[-1] == "pcm_s24le", "the effective encoder lost the source depth"
+        assert cmd[cmd.index("-ar") + 1] == "44100"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
