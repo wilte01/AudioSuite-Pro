@@ -573,6 +573,8 @@ class TestExport:
         assert out.exists(), "the export button must write a real CSV file"
         with open(out, encoding="utf-8", newline="") as f:
             rows = list(csv.reader(f))
+        # Changed in 2.6.0: the artwork block is appended after every earlier
+        # column (F-E10), so this header is the legacy one plus four columns.
         assert rows[0] == [
             "path",
             "format",
@@ -584,6 +586,10 @@ class TestExport:
             "album_artist",
             "artist_album",
             "year",
+            "has_art",
+            "art_bytes",
+            "art_width",
+            "art_height",
         ]
         assert len(rows) == 3, "header + one row per walked audio file"
         paths = {row[0] for row in rows[1:]}

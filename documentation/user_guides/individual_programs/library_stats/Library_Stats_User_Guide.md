@@ -111,6 +111,13 @@ After a scan, Export lets the GUI save the same scan in four shapes, chosen by t
 
 The **Camelot column** checkbox adds the harmonic-mixing code for each file's key to the CSV and HTML exports.
 
+The CSV and HTML exports also carry the artwork facts: `has_art` (yes/no),
+`art_bytes`, `art_width` and `art_height`. They are read from the file's own
+embedded picture, not from a sidecar, so the columns tell you which albums still
+need a cover; an unrecognised or absent picture leaves the size columns empty and
+`has_art` as `no`. They are appended after the original columns, so a spreadsheet
+that reads by name keeps working.
+
 ### Playlists and Playlist Order
 
 An M3U export opens with the `#EXTM3U` header, then one `#EXTINF` line (playing time in seconds and `Artist - Title`) and one path per file. Paths are absolute and use forward slashes on every platform, because some players reject a backslash path. An unknown duration is written as -1 rather than 0.
@@ -132,7 +139,7 @@ Both spellings of an enharmonic pair map to the same code (G#/Ab, D#/Eb, A#/Bb),
 
 ### Choosing Columns
 
-The command line can choose the columns (`--export-columns path,artist,title,camelot`) and adds the Camelot column with `--camelot`. The CSV export keeps its original columns unless you ask for a set; `--camelot` alone appends one column to that original set rather than replacing it. The M3U export has no columns to choose, and asking for them is an error rather than a silently ignored flag.
+The command line can choose the columns (`--export-columns path,artist,title,camelot,has_art`) and adds the Camelot column with `--camelot`. The CSV export keeps its original columns unless you ask for a set; `--camelot` alone appends one column to that original set rather than replacing it. The M3U export has no columns to choose, and asking for them is an error rather than a silently ignored flag.
 
 ## Command Line
 

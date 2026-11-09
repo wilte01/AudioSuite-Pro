@@ -161,6 +161,8 @@ TOOL_IDS: Final[Mapping[str, str]] = {
     "album-art": "art",
     "album-genre": "album_genre",
     "artnormalize": "album_art_normalizer",
+    "artwork extract": "artwork",
+    "artwork report": "artwork",
     "asx-extract": "asx_extractor",
     "bpm": "bpm",
     # Changed in 2.5.0: the channel utility publishes the core keys only (F-E6).
@@ -233,6 +235,24 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
         "write_count": int,
         "write_errors": int,
         "read_errors": int,
+    },
+    "artwork extract": {
+        # The sidecars written, the ones an existing file kept, and the files
+        # that had no artwork at all (a reported outcome, not a failure).
+        "extracted": int,
+        "kept": int,
+        "no_art": int,
+        "sidecar_name": str,
+    },
+    "artwork report": {
+        # The read-only counts, and the rows behind them so a script can act
+        # without parsing the report text.
+        "without_art": int,
+        "oversized": int,
+        "missing_art": list,
+        "oversized_art": list,
+        "min_bytes": int,
+        "min_dimension": int,
     },
     "asx-extract": {
         "successes": int,

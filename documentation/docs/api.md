@@ -51,6 +51,10 @@ claim is proven from where a consumer actually stands.
 :members:
 ```
 
+```{automodule} audio_suite_shared.artwork_cli
+:members:
+```
+
 ```{automodule} audio_suite_shared.cue_cli
 :members:
 ```

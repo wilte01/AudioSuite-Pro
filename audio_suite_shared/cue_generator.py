@@ -17,6 +17,7 @@ rendering a sheet no player can read.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -192,7 +193,7 @@ def _natural_sort_key(name: str) -> list[str | int]:
     return parts
 
 
-def scan_audio_files(target_path: Path) -> list[Path]:
+def scan_audio_files(target_path: Path, *, recursive: bool = False) -> list[Path]:
     """List the supported audio files at *target_path* in natural sort order.
 
     A single file is returned on its own when its extension is supported; a
@@ -201,6 +202,10 @@ def scan_audio_files(target_path: Path) -> list[Path]:
 
     Args:
         target_path: A folder of tracks or one audio file.
+        recursive: Walk sub-folders too.  A sheet never wants that — a sub-folder
+            is a different album — but a whole-library utility such as the
+            artwork extractor does, and it reuses this scan rather than
+            declaring a second audio-extension table of its own.
 
     Returns:
         The files the sheet will describe, in the order it will number them.
@@ -209,6 +214,21 @@ def scan_audio_files(target_path: Path) -> list[Path]:
         if is_supported_format(target_path.name):
             return [target_path]
         return []
+    if recursive:
+        found: list[Path] = []
+        for directory, dirnames, filenames in os.walk(target_path):
+            dirnames.sort()
+            found.extend(
+                Path(directory) / name
+                for name in filenames
+                if is_supported_format(name)
+            )
+        # Album folders in name order, tracks naturally ordered inside each, so
+        # a walk is reproducible instead of inheriting the filesystem's order.
+        return sorted(
+            found,
+            key=lambda path: (str(path.parent).lower(), _natural_sort_key(path.name)),
+        )
     return sorted(
         (
             path

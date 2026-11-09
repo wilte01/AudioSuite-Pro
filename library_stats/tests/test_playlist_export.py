@@ -23,6 +23,7 @@ import pytest
 from mutagen.flac import FLAC
 from pydub import AudioSegment
 
+from audio_suite_shared.tag_helper_art import embed_artwork
 from library_stats.core.file_processor import StatsReport, export_csv
 from library_stats.core.playlist_export import (
     DEFAULT_EXPORT_COLUMNS,
@@ -62,6 +63,14 @@ DETECTOR_KEYS: list[tuple[str, str]] = [
     ("Bbm", "3A"),
     ("Bm", "10A"),
 ]
+
+
+#: A minimal JPEG carrying a real frame header: 1080x800.
+_JPEG_BYTES = (
+    b"\xff\xd8"
+    b"\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+    b"\xff\xc0\x00\x11\x08\x03\x20\x04\x38\x03\x01\x11\x00\x02\x11\x01\x03\x11\x01"
+)
 
 
 def _make_flac(path: Path, **tags: str) -> Path:
@@ -207,6 +216,23 @@ class TestExportRows:
         assert first.camelot == "8B"
         assert first.duration_secs == pytest.approx(2.0, abs=0.2)
 
+    def test_rows_report_embedded_art_and_its_pixel_size(self, library: Path) -> None:
+        """F-E10: the export reader measures the picture, it does not just
+        trust the container's mime."""
+        target = library / "beta" / "01 first.flac"
+        embed_artwork(str(target), _JPEG_BYTES)
+
+        rows = {Path(row.path).name: row for row in collect_export_rows(str(library))}
+
+        assert rows["01 first.flac"].has_art is True
+        assert rows["01 first.flac"].art_bytes == len(_JPEG_BYTES)
+        assert (rows["01 first.flac"].art_width, rows["01 first.flac"].art_height) == (
+            1080,
+            800,
+        )
+        assert rows["02 second.flac"].has_art is False
+        assert rows["02 second.flac"].art_bytes is None
+
     def test_a_missing_scan_path_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
             collect_export_rows(str(tmp_path / "nope"))
@@ -349,10 +375,19 @@ class TestCsvExport:
         "album_artist",
         "artist_album",
         "year",
+        # Changed in 2.6.0: the artwork block is appended to the default
+        # header (F-E10), after every pre-existing column.
+        "has_art",
+        "art_bytes",
+        "art_width",
+        "art_height",
     ]
 
-    def test_default_columns_are_unchanged(self, library: Path, tmp_path: Path) -> None:
-        """The existing export contract must not move: this is the regression lock."""
+    def test_default_header_is_the_legacy_set_plus_artwork(
+        self, library: Path, tmp_path: Path
+    ) -> None:
+        """The regression lock: every earlier column keeps its position, and
+        the artwork block is only ever appended after them."""
         out = tmp_path / "legacy.csv"
         export_csv(StatsReport(scan_path=str(library)), str(out))
 
@@ -399,6 +434,12 @@ class TestRowValues:
         assert row.value("bpm") == ""
         assert row.value("duration") == ""
         assert row.value("camelot") == ""
+        assert row.value("has_art") == "no"
+        assert row.value("art_bytes") == ""
+
+    def test_art_presence_renders_as_yes(self) -> None:
+        row = ExportRow(path="/music/a.flac", format=".flac", has_art=True)
+        assert row.value("has_art") == "yes"
 
     def test_display_name_falls_back_through_title_then_stem(self) -> None:
         assert ExportRow(path="/m/a.flac", format=".flac").display_name == "a"

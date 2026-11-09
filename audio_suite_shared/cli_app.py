@@ -63,6 +63,9 @@ Usage::
     audiosuite cd-rip <drive> --output-dir DIR [--format flac] [--tracks N]
                            [--cue] [--verify twice] [--detect-read-offset]
                            [--dry] [--json]
+    audiosuite artwork extract /path/to/dir [--name cover] [--force] [--json]
+    audiosuite artwork report /path/to/dir [--min-bytes N] [--min-dimension N]
+                                [--json]
     audiosuite cue parse /path/to/image.cue [--json]
     audiosuite cue generate /path/to/dir [--title "Album"] [--artist "Artist"]
     audiosuite cue split /path/to/image.cue [--output-dir DIR] [--ffmpeg PATH]
@@ -169,6 +172,9 @@ _TOOL_CLI_MODULES: tuple[tuple[str, str], ...] = (
     ("audio_fingerprinter.cli", "fingerprint"),
     ("audio_refinery.cli", "refine"),
     ("audio_joiner.cli", "join"),
+    # Changed in 2.6.0: the ``artwork`` group (F-E10) is a suite utility like
+    # ``cue`` - registered here, with no manifest entry, window or card.
+    ("audio_suite_shared.artwork_cli", "artwork"),
     ("audio_suite_shared.cue_cli", "cue"),
     ("bpm_analyzer.cli", "bpm"),
     # Changed in 2.5.0: the channel utility's command (F-E6).

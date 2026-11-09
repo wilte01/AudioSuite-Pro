@@ -449,6 +449,66 @@ audiosuite artnormalize "D:\Music\Library" --size 1000 --dry
 audiosuite artnormalize "D:\Music\Library" --json
 ```
 
+### Artwork extract
+
+Write each file's embedded cover beside it as a sidecar image. Nothing else
+changes: no tag is rewritten and no audio byte is touched.
+
+```bash
+audiosuite artwork extract <directory> [--name NAME] [--force] [--recursive] [--json]
+```
+
+**Options:**
+
+- `--name NAME` — sidecar base name; the extension follows the image format (default: cover)
+- `--force` — replace an existing sidecar; without it an existing file is left exactly as it is, bytes and timestamp alike
+- `--recursive` — also read sub-folders
+
+The extension and the reported mime come from the image's own bytes, never from
+the mime the container claims, so a file storing PNG data under an `image/jpeg`
+label is written as `cover.png`. Only JPEG and PNG pictures get a sidecar
+extension; a picture the suite cannot name is reported as an error rather than
+written under a made-up one. A file with no embedded artwork is reported
+(`[NO ART]`) and is not a failure, so a WAV or AIFF rip without an artwork
+container scans cleanly. An existing sidecar is reported (`[KEPT]`), and
+`--force` replaces it.
+
+The JSON payload adds `extracted`, `kept`, `no_art` and `sidecar_name` to the
+shared counters.
+
+**Examples:**
+
+```bash
+audiosuite artwork extract "D:\\Music\\Album"
+audiosuite artwork extract "D:\\Music" --recursive --name folder --json
+```
+
+### Artwork report
+
+Name the files whose embedded artwork is missing, and the ones whose picture is
+larger than a size or dimension you consider too big. Read-only: it writes
+nothing, and because it takes no `--dry` flag its payload reports `dry_run` as
+false like every other command without a mode.
+
+```bash
+audiosuite artwork report <directory> [--min-bytes N] [--min-dimension N] [--recursive] [--json]
+```
+
+**Options:**
+
+- `--min-bytes N` — also flag artwork at or above this size in bytes; `0` disables that check (default: 0)
+- `--min-dimension N` — also flag artwork whose longer side reaches this many pixels; `0` disables it (default: 0)
+- `--recursive` — also read sub-folders
+
+The JSON payload adds `without_art`, `oversized`, `missing_art`, `oversized_art`,
+`min_bytes` and `min_dimension` to the shared counters.
+
+**Examples:**
+
+```bash
+audiosuite artwork report "D:\\Music" --min-dimension 1500 --json
+```
+
 ### CD Ripper
 
 Rip audio CD tracks to files from a command line.
@@ -1035,6 +1095,8 @@ here, and each tool's own section above documents its flags.
 | `album-art` | Album Art Sync | Enrich |
 | `album-genre` | Album Genre Tagger | Enrich |
 | `artnormalize` | Album Art Normalizer | Util |
+| `artwork extract` | Artwork extract | Suite |
+| `artwork report` | Artwork report | Suite |
 | `asx-extract` | ASX Playlist Extractor | Util |
 | `declip` | Restoration (Declip) | Util |
 | `duplicates` | Duplicate Finder | Util |

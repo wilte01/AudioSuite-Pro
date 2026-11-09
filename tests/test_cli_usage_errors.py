@@ -74,10 +74,16 @@ MISSING_PATH = "{missing_path}"
 #: command body runs.  ``reorganize`` omits its required
 #: ``--output-dir``, and ``cd-rip`` omits it after the drive argument, which
 #: the command raises itself (both are still usage errors, exit 2).
+# Changed in 2.6.0: ``artwork extract``/``artwork report`` join the table with
+# their schema entries (F-E10); a nonexistent folder is the reachable error.
 _USAGE_CASES: dict[str, dict[str, list[str]]] = {
     "album-art": {"missing": [], "invalid": [MISSING_PATH]},
     "album-genre": {"missing": [], "invalid": [MISSING_PATH]},
     "artnormalize": {"missing": [], "invalid": [MISSING_PATH]},
+    # The artwork commands take one folder argument; a nonexistent path is
+    # rejected by Click's ``Path(exists=True)`` before any read (F-E10).
+    "artwork extract": {"missing": [], "invalid": [MISSING_PATH]},
+    "artwork report": {"missing": [], "invalid": [MISSING_PATH]},
     "asx-extract": {"missing": [], "invalid": [MISSING_PATH]},
     "bpm": {"missing": [], "invalid": [MISSING_PATH]},
     # ``channels`` binds --operation in Click, so an unknown rule is rejected

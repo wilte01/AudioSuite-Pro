@@ -26,6 +26,9 @@ interpreter it ran under.
 Changed in 2.3.1: documented that a recorded fatal reason is Click's own
 wording, so a re-recording refreshes it rather than pinning it
 (PLAN_restoration_2026-10-31.md D16).
+Changed in 2.6.0: drives ``artwork extract`` and ``artwork report`` (F-E10)
+against the fixture WAV, which carries no cover - the no-art and missing-art
+shapes are what those commands publish on a clean library.
 """
 
 from __future__ import annotations
@@ -153,6 +156,13 @@ def argv_for(command: str, work: Path) -> list[str]:
         return [str(wav), "--field", "genre", "--value", "Rock", "--dry"]
     if command == "spectrogram":
         return [str(library), "--dry"]
+    # The artwork commands act on one library folder; the fixture WAV carries
+    # no cover, so ``extract`` records the no-art path and ``report`` the
+    # missing-art row — both real shapes of these payloads.
+    if command == "artwork extract":
+        return [str(library)]
+    if command == "artwork report":
+        return [str(library)]
     if command == "cue parse":
         return [str(write_cue(work / "album.cue"))]
     if command == "cue generate":

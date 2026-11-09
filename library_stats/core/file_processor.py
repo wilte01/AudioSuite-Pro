@@ -48,6 +48,8 @@ Changed in 2.4.1: takes ``TagHandlerFactory`` from
 handler table (WP-2).
 """
 
+# Changed in 2.6.0: per-file artwork facts (F-E10) - ``has_art`` and the
+# picture's size/pixels land in the CSV/HTML columns, read only on export.
 from __future__ import annotations
 
 import json
@@ -71,6 +73,7 @@ from audio_suite_shared.plugin_system import (
     run_analysis,
 )
 from audio_suite_shared.tag_handler_factory import TagHandlerFactory
+from audio_suite_shared.tag_helper_art import image_dimensions
 
 logger = logging.getLogger(__name__)
 
@@ -303,9 +306,19 @@ class _FileTags:
     disc: str | None = None
     comment: str | None = None
     duration_secs: float | None = None
+    #: Whether the file embeds cover artwork.  Read only when the caller asks
+    #: (``art_fields``): a scan that never reports it should not pay for it.
+    has_art: bool = False
+    #: The embedded picture's size in bytes and its pixel size.  Populated only
+    #: for an export, where the columns exist; a scan stops at ``has_art``.
+    art_bytes: int | None = None
+    art_width: int | None = None
+    art_height: int | None = None
 
 
-def _read_file_tags(path: str, *, export_fields: bool = False) -> _FileTags:
+def _read_file_tags(
+    path: str, *, export_fields: bool = False, art_fields: bool = False
+) -> _FileTags:
     """Read every tag field the scanners need from *path* in one pass.
 
     A year-extraction failure degrades to ``year=None`` rather than
@@ -319,6 +332,10 @@ def _read_file_tags(path: str, *, export_fields: bool = False) -> _FileTags:
         export_fields: Also read the playlist/export fields (title, track,
             disc, comment, duration) from the same loaded handler.  Off by
             default so the scan's own aggregation pays nothing for them.
+        art_fields: Also read the embedded cover artwork (F-E10): whether the
+            file has one, and — when it does — its size and pixel size for the
+            CSV/HTML columns.  Off by default, so a scan that never reports
+            art pays nothing for it.
 
     Returns:
         A populated ``_FileTags``.
@@ -340,6 +357,20 @@ def _read_file_tags(path: str, *, export_fields: bool = False) -> _FileTags:
         year = _extract_year_from_tags(handler.get_raw_tags())
     except (ValueError, TypeError):
         year = None
+
+    has_art = False
+    art_bytes: int | None = None
+    art_width: int | None = None
+    art_height: int | None = None
+    if art_fields:
+        has_art = handler.has_artwork()
+        if has_art:
+            picture = handler.extract_artwork()
+            if picture:
+                art_bytes = len(picture)
+                dimensions = image_dimensions(picture)
+                if dimensions:
+                    art_width, art_height = dimensions
 
     title = track = disc = comment = None
     duration_secs: float | None = None
@@ -365,6 +396,10 @@ def _read_file_tags(path: str, *, export_fields: bool = False) -> _FileTags:
         disc=disc,
         comment=comment,
         duration_secs=duration_secs,
+        has_art=has_art,
+        art_bytes=art_bytes,
+        art_width=art_width,
+        art_height=art_height,
     )
 
 
@@ -817,12 +852,12 @@ def export_csv(
 ) -> int:
     """Export per-file metadata as CSV (one row per file).
 
-    With no *columns* the export keeps its original shape exactly (the same
-    ten columns in the same order), so an existing consumer of this file is
-    unaffected.  ``camelot`` alone appends one column to that same set, and is
-    therefore purely additive; asking for *columns* switches to the
-    column-aware writer shared with the M3U/HTML exports (functional backlog
-    F-05/F-06).
+    With no *columns* the export keeps its original ten columns in the same
+    order and appends the four artwork columns (F-E10), so an existing consumer
+    that reads by name is unaffected while a new one gains the art facts.
+    ``camelot`` alone appends one column to that same set, and is therefore
+    purely additive; asking for *columns* switches to the column-aware writer
+    shared with the M3U/HTML exports (functional backlog F-05/F-06).
 
     Args:
         report: A populated StatsReport (used for *scan_path*).
@@ -870,6 +905,10 @@ def export_csv(
         "album_artist",
         "artist_album",
         "year",
+        "has_art",
+        "art_bytes",
+        "art_width",
+        "art_height",
     ]
     if camelot:
         fieldnames.append("camelot")
@@ -888,7 +927,7 @@ def export_csv(
                 ext = os.path.splitext(name)[1].lower()
 
                 try:
-                    tags = _read_file_tags(full)
+                    tags = _read_file_tags(full, art_fields=True)
                 except Exception:
                     logger.debug(
                         "Skipping unreadable file during CSV export: %s",
@@ -924,6 +963,12 @@ def export_csv(
                     "album_artist": album_artist if album_artist is not None else "",
                     "artist_album": artist_album_display,
                     "year": year_str,
+                    "has_art": "yes" if tags.has_art else "no",
+                    "art_bytes": tags.art_bytes if tags.art_bytes is not None else "",
+                    "art_width": tags.art_width if tags.art_width is not None else "",
+                    "art_height": tags.art_height
+                    if tags.art_height is not None
+                    else "",
                 }
                 if camelot:
                     row["camelot"] = camelot_for_key(key) or ""

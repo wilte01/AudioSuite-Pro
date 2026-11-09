@@ -200,6 +200,12 @@ EXPORT_COLUMNS: tuple[str, ...] = (
     "mood",
     "tempo_marking",
     "duration",
+    # Changed in 2.6.0: the artwork columns (F-E10).  Opt-in like ``duration``
+    # and ``camelot``, so a default export keeps its shape.
+    "has_art",
+    "art_bytes",
+    "art_width",
+    "art_height",
 )
 
 #: The column set used when a caller does not ask for one.  It is the
@@ -242,6 +248,10 @@ class ExportRow:
         mood: Mood string, or None.
         tempo_marking: Tempo marking, or None.
         duration_secs: Playing time in seconds, or None.
+        has_art: Whether the file embeds a cover picture.
+        art_bytes: The embedded picture's size in bytes, or None.
+        art_width: The picture's width in pixels, or None.
+        art_height: The picture's height in pixels, or None.
     """
 
     path: str
@@ -259,6 +269,10 @@ class ExportRow:
     mood: str | None = None
     tempo_marking: str | None = None
     duration_secs: float | None = None
+    has_art: bool = False
+    art_bytes: int | None = None
+    art_width: int | None = None
+    art_height: int | None = None
 
     @property
     def camelot(self) -> str | None:
@@ -300,6 +314,8 @@ class ExportRow:
             if self.duration_secs is None:
                 return ""
             return f"{self.duration_secs:.1f}"
+        if column == "has_art":
+            return "yes" if self.has_art else "no"
         if column == "bpm":
             return "" if self.bpm is None else str(self.bpm)
         if column not in EXPORT_COLUMNS:
@@ -406,7 +422,7 @@ def collect_export_rows(scan_path: str) -> list[ExportRow]:
                 continue
             full = os.path.join(root, name)
             try:
-                tags = _read_file_tags(full, export_fields=True)
+                tags = _read_file_tags(full, export_fields=True, art_fields=True)
             except Exception:
                 logger.debug(
                     "Skipping unreadable file during export: %s", full, exc_info=True
@@ -430,6 +446,10 @@ def collect_export_rows(scan_path: str) -> list[ExportRow]:
                     mood=tags.mood,
                     tempo_marking=tags.tempo_marking,
                     duration_secs=tags.duration_secs,
+                    has_art=tags.has_art,
+                    art_bytes=tags.art_bytes,
+                    art_width=tags.art_width,
+                    art_height=tags.art_height,
                 )
             )
     rows.sort(key=_order_key)

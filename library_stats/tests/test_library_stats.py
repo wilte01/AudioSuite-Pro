@@ -6,6 +6,7 @@ is asserted where it matters), replacing the per-reader patches of the old
 eight-read fan-out (PLAN D55).
 """
 
+# Changed in 2.6.0: the default CSV header carries the artwork columns (F-E10).
 from __future__ import annotations
 
 import os
@@ -592,7 +593,8 @@ class TestExportCsv:
         content = out.read_text(encoding="utf-8")
         assert content.strip() == (
             "path,format,bpm,key,genre,mood,tempo_marking,"
-            "album_artist,artist_album,year"
+            "album_artist,artist_album,year,"
+            "has_art,art_bytes,art_width,art_height"
         )
 
     def test_export_csv_missing_scan_path(self) -> None:

@@ -18,6 +18,29 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **F-E10's read side is one artwork module, and both directions share it.**
+  `audio_suite_shared/tag_helper_art.py` gains `sniff_image_format` (JPEG/PNG
+  magic bytes), `image_dimensions` (PNG IHDR, first JPEG SOF marker),
+  `extract_artwork` (through `TagHandlerFactory`, never a second mutagen read)
+  and `write_artwork_sidecar`. The extension and mime come from the bytes
+  because containers do claim `image/jpeg` over PNG data; an unnamed format
+  raises rather than being mislabelled, a name carrying a path is refused so a
+  write cannot leave the album folder, and `force=False` returns `None` after
+  leaving an existing file's bytes and mtime untouched.
+  `audio_suite_shared/artwork_cli.py` registers the `artwork` group (`extract`,
+  `report`) and publishes under tool id `artwork` — a suite utility like `cue`,
+  with no manifest entry, window or card. Its `--json` output is the payload
+  alone, so the per-file `[NO ART]`/`[KEPT]`/`[EXTRACTED]` lines are text-mode
+  only; `build_payload` derives `succeeded`, so a kept sidecar counts as handled
+  and no `succeeded` extra is passed. `cue_generator.scan_audio_files` gains
+  `recursive` so the extractor reuses the suite's one audio scan (album folders
+  in name order, tracks naturally ordered inside each) instead of declaring a
+  second extension table. In `library_stats`, `_read_file_tags` gains
+  `art_fields` (presence, then size and pixel size) and `collect_export_rows`
+  passes it; the default CSV appends the four art columns after every earlier
+  one, and `EXPORT_COLUMNS` admits them for `--export-columns`. An incremental
+  cached scan still reports no art — the cache carries no picture — while the
+  export columns re-read each file at export time.
 - **F-E9 answers equality, not similarity, and keeps the two claims apart.**
   `duplicate_finder/core/exact.py` owns `file_sha256`, `pcm_sha256` (an FFmpeg
   decode to `s32le` at the source's own rate and channels, hashed from a scratch

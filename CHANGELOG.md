@@ -22,6 +22,20 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **Embedded artwork, extracted to a sidecar or reported missing.** A new
+  `audiosuite artwork` group answers two read-side questions. `artwork extract
+  <folder>` writes each file's cover beside it as `cover.jpg` or `cover.png`,
+  choosing the extension from the image's own bytes so PNG data stored under an
+  `image/jpeg` label is not written as a `.jpg`; an existing sidecar is kept
+  untouched — bytes and timestamp — unless `--force` is passed, and
+  `--recursive` covers a whole library tree. `artwork report <folder>` lists the
+  files with no embedded artwork and, with `--min-bytes` or `--min-dimension`,
+  the artwork larger than a threshold, changing nothing on disk. Both publish
+  JSON, and a format without an artwork container (a WAV or AIFF rip, say) is a
+  reported outcome rather than a failure. Library Statistics' CSV and HTML
+  exports gain `has_art`, `art_bytes`, `art_width` and `art_height` columns,
+  appended after the existing ones, so a spreadsheet shows which albums still
+  need a cover.
 - **Exact duplicate matching, by bytes or by decoded audio.** The Duplicate
   Finder answers a narrower question beside its fingerprint scan: `--exact only`
   groups files whose bytes are identical — a renamed copy, a backup — or whose

@@ -708,6 +708,13 @@ class TestEdgeCases:
 # Removing a flag now fails the suite instead of silently shipping a lie.
 
 
+#: Groups whose docstring usage lines name a sub-command, so the real target is
+#: one level down.  ``cue`` was the only one until ``artwork`` joined (2.6.0).
+_DOCSTRING_SUBGROUPS: frozenset[str] = frozenset({"cue", "artwork"})
+
+
+# Changed in 2.6.0: ``artwork extract`` / ``artwork report`` are documented in
+# the cli_app usage block, so the sub-group set above names them (F-E10).
 class TestDocumentedFlagParity:
     """Every flag the docstring advertises must resolve on its command."""
 
@@ -744,8 +751,8 @@ class TestDocumentedFlagParity:
 
         Returns:
             ``(command, subcommand, text)`` triples, one per documented
-            command.  ``subcommand`` is set only for the ``cue`` group, whose
-            options live one level down.
+            command.  ``subcommand`` is set for a group whose options live one
+            level down (:data:`_DOCSTRING_SUBGROUPS`).
         """
         start = docstring.find("Usage:")
         if start == -1:
@@ -768,9 +775,16 @@ class TestDocumentedFlagParity:
                 if command is not None:
                     blocks.append((command, subcommand, "\n".join(buffered)))
                 command = tokens[1]
-                # ``cue parse`` / ``cue generate`` / ``cue split``: the real
-                # target is the subcommand, not the group.
-                subcommand = tokens[2] if command == "cue" and len(tokens) > 2 else None
+                # ``cue parse`` / ``cue generate`` / ``artwork extract``: the
+                # real target is the subcommand, not the group.  Listed rather
+                # than inferred from every group: ``plugins`` is documented as
+                # a group on purpose, and resolving it to a sub-command would
+                # retire an exemption that is still live today.
+                subcommand = (
+                    tokens[2]
+                    if command in _DOCSTRING_SUBGROUPS and len(tokens) > 2
+                    else None
+                )
                 buffered = [raw]
             elif command is not None:
                 buffered.append(raw)
