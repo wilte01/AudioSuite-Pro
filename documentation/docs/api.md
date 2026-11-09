@@ -73,6 +73,12 @@ claim is proven from where a consumer actually stands.
 :members:
 ```
 
+## Tags
+
+```{automodule} audio_suite_shared.tag_templates
+:members:
+```
+
 ## Configuration, theme and release notes
 
 ```{automodule} audio_suite_shared.suite_config

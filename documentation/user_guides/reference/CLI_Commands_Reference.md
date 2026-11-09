@@ -604,6 +604,7 @@ CSV records.
 ```bash
 audiosuite tag-edit PATH --field FIELD --value TEXT [--dry] [--json]
 audiosuite tag-edit DIRECTORY --csv EDITS.csv [--dry] [--json]
+audiosuite tag-edit TARGET --copy-from REFERENCE --fields FIELD[,FIELD...] [--dry] [--json]
 ```
 
 **Options:**
@@ -620,6 +621,7 @@ audiosuite tag-edit DIRECTORY --csv EDITS.csv [--dry] [--json]
 audiosuite tag-edit /Music/track.mp3 --field title --value "New Title"
 audiosuite tag-edit /Music/track.mp3 --field comment --clear --dry
 audiosuite tag-edit /Music --csv /Music/edits.csv --dry
+audiosuite tag-edit /Music --copy-from /Music/ref.flac --fields title,artist,album --dry
 ```
 
 ### Stem Separator

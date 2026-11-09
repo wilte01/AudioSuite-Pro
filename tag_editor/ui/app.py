@@ -17,6 +17,11 @@ positional one every folder tool reads, and each run writes its report into the
 scanned folder (``tag_editor_scan_log.txt`` for the load walk,
 ``tag_editor_dry_run_log.txt`` / ``tag_editor_sync_log.txt`` for an apply), which
 is the file View Log opens.
+
+Changed in 2.6.0: the Setup tab's **Copy Fields…** and **Templates…** actions
+(plan F-E7). A copied field set and a saved template both become ``FieldEdit``
+lists for the selected rows, so the dry-run diff, the run report and the undo
+batch are the window's existing apply path rather than a second writer.
 """
 
 from __future__ import annotations
@@ -27,7 +32,7 @@ import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any
 
 from audio_suite_shared import styles
@@ -35,6 +40,13 @@ from audio_suite_shared import suite_config as _suite_config
 from audio_suite_shared.app_bootstrap import bootstrap_tool_app
 from audio_suite_shared.exceptions import AudioSuiteError, handle_audio_errors
 from audio_suite_shared.styles import bootstrap_theme
+from audio_suite_shared.tag_templates import (
+    TagTemplate,
+    load_templates,
+    parse_fields,
+    save_template,
+    template_from_file,
+)
 from audio_suite_shared.tool_app_base import AnalysisTagToolApp
 
 from ..core.csv_io import build_import_plan, export_csv
@@ -228,6 +240,8 @@ class TagEditorApp(AnalysisTagToolApp):
             on_apply_bulk=self.apply_bulk_selection,
             on_import_csv=self.import_csv,
             on_export_csv=self.export_csv,
+            on_copy_fields=self.copy_fields,
+            on_templates=self.templates,
             on_tree_select=self._on_tree_select,
             driver_locked=self._launched_from_driver,
             modes=RUN_MODES,
@@ -521,6 +535,146 @@ class TagEditorApp(AnalysisTagToolApp):
             messagebox.showerror("Tag Editor", str(exc))
             return
         self.overall_status.set(f"Exported {written} file row(s) to {selected}")
+
+    # ── Copy from a reference file and saved templates ────────────────────────
+
+    def _selected_paths(self) -> list[Path]:
+        """Return the file paths behind the current grid selection."""
+        return [
+            self._rows[iid][0] for iid in self.tree.selection() if iid in self._rows
+        ]
+
+    def copy_fields(self) -> None:
+        """Copy chosen fields from a reference file onto the selected rows."""
+        if not self._selected_paths():
+            messagebox.showwarning("Tag Editor", "Select at least one file row.")
+            return
+        reference = filedialog.askopenfilename(
+            title="Copy Fields From",
+            filetypes=[
+                (
+                    "Audio files",
+                    "*.mp3 *.flac *.m4a *.ogg *.opus *.wav *.aiff *.aif",
+                ),
+                ("All files", "*.*"),
+            ],
+        )
+        if not reference:
+            return
+        requested = simpledialog.askstring(
+            "Copy Fields",
+            "Fields to copy (comma-separated):",
+            initialvalue="title,artist,album,album_artist",
+        )
+        if not requested:
+            return
+        try:
+            names = parse_fields(requested)
+            template = template_from_file(reference, names)
+        except AudioSuiteError as exc:
+            messagebox.showerror("Tag Editor", str(exc))
+            return
+        absent = [name for name in names if name not in template.fields]
+        edits = [
+            FieldEdit(path=path, field=name, value=value)
+            for path in self._selected_paths()
+            for name, value in template.fields.items()
+        ]
+        if absent:
+            self.overall_status.set(
+                "Reference has none of: "
+                f"{', '.join(absent)} - those fields are left alone."
+            )
+        self._start_apply(edits, action=f"Copy fields from {Path(reference).name}")
+
+    def templates(self) -> None:
+        """Save the selected row's values as a template, or apply a saved one."""
+        saved = load_templates()
+        listed = ", ".join(sorted(saved)) or "(none saved)"
+        choice = simpledialog.askstring(
+            "Templates",
+            f"Saved: {listed}\n\nType a name to apply it, or save:<name> "
+            "to save the selected row's values.",
+        )
+        if not choice:
+            return
+        name = choice.strip()
+        if name.lower().startswith("save:"):
+            self.save_selection_as_template(name.split(":", 1)[1].strip())
+        else:
+            self.apply_template_to_selection(name)
+
+    def save_selection_as_template(self, name: str) -> bool:
+        """Store the first selected row's editable values under *name*.
+
+        Args:
+            name: Template name.
+
+        Returns:
+            True when the template was saved.
+        """
+        cleaned = name.strip()
+        if not cleaned:
+            messagebox.showerror("Tag Editor", "A template needs a name.")
+            return False
+        paths = self._selected_paths()
+        if not paths:
+            messagebox.showwarning(
+                "Tag Editor", "Select a file row to copy its values."
+            )
+            return False
+        selection = self.tree.selection()
+        values = dict(self._rows[selection[0]][1])
+        fields = {
+            field: value
+            for field, value in values.items()
+            if field in FIELD_LABELS and isinstance(value, str) and value
+        }
+        if not fields:
+            messagebox.showwarning(
+                "Tag Editor", "The selected row has no tag values to save."
+            )
+            return False
+        try:
+            save_template(
+                TagTemplate(name=cleaned, fields=fields, source=str(paths[0]))
+            )
+        except AudioSuiteError as exc:
+            messagebox.showerror("Tag Editor", str(exc))
+            return False
+        self.overall_status.set(f"Saved template '{cleaned}' ({len(fields)} field(s))")
+        return True
+
+    def apply_template_to_selection(self, name: str) -> bool:
+        """Queue a saved template's editable fields for the selected rows.
+
+        Args:
+            name: Saved template name.
+
+        Returns:
+            True when an apply run was started.
+        """
+        template = load_templates().get(name)
+        if template is None:
+            messagebox.showerror("Tag Editor", f"No saved template named {name!r}.")
+            return False
+        paths = self._selected_paths()
+        if not paths:
+            messagebox.showwarning("Tag Editor", "Select at least one file row.")
+            return False
+        edits = [
+            FieldEdit(path=path, field=field, value=value)
+            for path in paths
+            for field, value in template.fields.items()
+            if field in FIELD_LABELS
+        ]
+        if not edits:
+            messagebox.showerror(
+                "Tag Editor", f"Template {name!r} has no editable grid fields."
+            )
+            return False
+        self._start_apply(edits, action=f"Template: {name}")
+        return True
 
     def _start_apply(
         self,

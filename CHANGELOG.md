@@ -22,6 +22,15 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **Copy tag fields from a reference file, or from a saved template.** The Tag
+  Editor's Setup tab gains **Copy Fields…** (choose a reference track, say which
+  fields, review the per-field diff in a dry run, then apply) and **Templates…**
+  (save the selected row's values under a name, then apply one to a selection).
+  The CLI does the same headlessly: `tag-edit TARGET --copy-from REF --fields
+  title,artist` where `TARGET` is a file or a folder. Fields the reference does
+  not carry are left alone and named in the status line; a file whose container
+  cannot take a field is reported with that container's reason instead of being
+  skipped silently; and one undo batch covers the whole apply.
 - **A peak/true-peak target beside the loudness target.** The Refinery's
   Normalise stage can now move a file by the distance between its true peak and
   a dBTP target (`--target-mode peak --target-peak -1.0`, or the new Target row

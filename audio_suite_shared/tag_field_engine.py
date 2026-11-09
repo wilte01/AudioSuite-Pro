@@ -36,6 +36,11 @@ never falls back to a neighbouring container: writing APEv2 tags into a file it
 guessed at is worse than refusing.
 
 Changed in 2.4.2: new — plan WP-6 (C-M2), the one tag layer.
+
+Changed in 2.6.0: ``write_fields`` records its undo snapshot once, before the
+first handler mutation, for editable-field and key-rule writes alike. The
+snapshot used to live only on the key-rule branch, so an editable-only write
+persisted through a handler that saves immediately with no undo entry at all.
 """
 
 from __future__ import annotations
@@ -479,6 +484,7 @@ class TagFieldEngine:
         changed: list[str] = []
         keys: list[str] = []
         skipped: list[str] = []
+        editable: list[tuple[str, str]] = []
         pending: list[tuple[str, str]] = []
 
         for name, raw in values.items():
@@ -491,12 +497,19 @@ class TagFieldEngine:
                 continue
             changed.append(name)
             if rule.kind == _EDITABLE:
-                if not dry_run:
-                    self._handler.write_editable_tag(name, candidate)
+                editable.append((name, candidate))
             else:
                 key = rule.key_for(self.convention)
                 keys.append(key)
                 pending.append((key, candidate))
+
+        # The snapshot belongs to every write, not just the key-rule branch:
+        # a handler's ``write_editable_tag`` saves immediately, so recording it
+        # afterwards would capture the file it is meant to restore.
+        if not dry_run and (editable or pending):
+            record_tag_edit_snapshot(self.path, self._snapshot_operation)
+        for name, candidate in editable:
+            self._handler.write_editable_tag(name, candidate)
 
         if pending:
             if dry_run:
@@ -506,7 +519,6 @@ class TagFieldEngine:
                     ", ".join(key for key, _ in pending),
                 )
             else:
-                record_tag_edit_snapshot(self.path, self._snapshot_operation)
                 for key, candidate in pending:
                     self._handler.set_field_key(key, candidate)
                 self._handler.save()

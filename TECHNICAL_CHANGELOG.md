@@ -18,6 +18,19 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **`audio_suite_shared/tag_templates.py` — templates and copy-from-reference.**
+  `TagTemplate` (name, canonical field map, source file) is stored in
+  `audio_suite_config.json` under `tag_templates`; `parse_fields` resolves every
+  name through `rule_for`, so `FIELD_RULES` stays the only field table and a
+  template cannot name a key no handler writes. `apply_template` diffs every
+  target through `TagFieldEngine` before anything is written, runs the apply
+  inside one undo batch (reusing a caller's batch when one is already open), and
+  reports a failed file as that file's result. `tag-edit --copy-from/--fields`
+  is the CLI surface; the Tag Editor converts a template into `FieldEdit`s so the
+  window's existing dry-run diff and undo path do the work. The same change fixes
+  `TagFieldEngine.write_fields`, which recorded its undo snapshot only on the
+  key-rule branch: a handler's editable-field write saves immediately, so an
+  editable-only write persisted with no undo entry.
 - **The Utilities tab's grouping is manifest data with two locks.**
   `ToolManifest` gains `group` (a `UTILITY_GROUPS` key) and
   `tool_plugin.utility_sections()` turns the registry's utility population into

@@ -9,6 +9,10 @@ tool-specific and lives in ``_build_options``.
 
 Changed in 2.3.1: the widget's text colours follow the suite theme instead of
 Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
+
+Changed in 2.6.0: the Bulk Operations row gains **Copy Fields…** and
+**Templates…** (plan F-E7). Each button appears only when the window supplies
+its callback, so a skeleton built without one carries neither.
 """
 
 from __future__ import annotations
@@ -46,6 +50,8 @@ def build(
     on_import_csv: Callable[[], None],
     on_export_csv: Callable[[], None],
     on_tree_select: Callable[[object], None],
+    on_copy_fields: Callable[[], None] | None = None,
+    on_templates: Callable[[], None] | None = None,
     driver_locked: bool = False,
     modes: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
@@ -110,6 +116,8 @@ def build(
         on_apply_bulk=on_apply_bulk,
         on_import_csv=on_import_csv,
         on_export_csv=on_export_csv,
+        on_copy_fields=on_copy_fields,
+        on_templates=on_templates,
         on_tree_select=on_tree_select,
     )
     widgets = frame.get_widgets()
@@ -136,6 +144,8 @@ class _SetupFrame(BaseSetupFrame):
         on_apply_bulk: Callable[[], None],
         on_import_csv: Callable[[], None],
         on_export_csv: Callable[[], None],
+        on_copy_fields: Callable[[], None] | None = None,
+        on_templates: Callable[[], None] | None = None,
         on_tree_select: Callable[[object], None],
         **kwargs: Any,
     ) -> None:
@@ -153,6 +163,8 @@ class _SetupFrame(BaseSetupFrame):
         self._on_apply_bulk = on_apply_bulk
         self._on_import_csv = on_import_csv
         self._on_export_csv = on_export_csv
+        self._on_copy_fields = on_copy_fields
+        self._on_templates = on_templates
         self._on_tree_select = on_tree_select
         #: Filled by ``_build_options`` and handed back by ``get_widgets``.
         self.tree: ttk.Treeview | None = None
@@ -302,6 +314,14 @@ class _SetupFrame(BaseSetupFrame):
         ttk.Button(frame, text="Apply Bulk", command=self._on_apply_bulk).pack(
             side=tk.LEFT
         )
+        if self._on_copy_fields is not None:
+            ttk.Button(frame, text="Copy Fields...", command=self._on_copy_fields).pack(
+                side=tk.LEFT, padx=(5, 0)
+            )
+        if self._on_templates is not None:
+            ttk.Button(frame, text="Templates...", command=self._on_templates).pack(
+                side=tk.LEFT, padx=(5, 0)
+            )
 
     def _build_csv_row(self) -> None:
         """Build the CSV import/export row."""

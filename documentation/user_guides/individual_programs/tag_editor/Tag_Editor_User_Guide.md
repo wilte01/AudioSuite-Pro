@@ -89,6 +89,22 @@ The Bulk Operations panel applies a transformation to every selected row in one 
 
 Swap Fields uses both field selectors and ignores rows where the two values are already equal. Normalize Slashes is limited to text fields so track totals and dates cannot be corrupted.
 
+## Copy Fields and Templates
+
+**Copy Fields…** copies tag values from a reference track onto the rows you have
+selected: choose the reference file, give the fields (comma-separated, e.g.
+`title,artist,album,album_artist`), then run it as a dry run to see each field's
+before and after value. Fields that already match are listed as unchanged, and
+fields the reference file does not carry are left alone and named in the status
+line. **Templates…** stores the selected row's values under a name in your suite
+preferences; type a saved template's name to apply it, or `save:<name>` to store
+the current selection instead. Every apply is one undo batch, so **Undo** reverts
+the whole run.
+
+From the command line: `audiosuite tag-edit TARGET --copy-from REFERENCE
+--fields title,artist,album`, where `TARGET` is a file or a folder (the folder is
+walked for tag-writable files). Add `--dry` for the diff without writing.
+
 ## CSV Import and Export
 
 Import CSV... applies a batch of per-file edits to the loaded library. The CSV needs a file column (file, filename, or path) plus one column per editable field. Column headers may use the field key (album_artist) or the display label (Album Artist). The exported layout is:

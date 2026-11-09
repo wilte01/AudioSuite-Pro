@@ -1,6 +1,10 @@
 """CLI command for the Tag Editor.
 
 Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
+
+Changed in 2.6.0: ``tag-edit`` gains ``--copy-from REF --fields a,b``, which
+applies the shared ``tag_templates`` copy path to one file or a whole folder
+under one undo batch, with the same ``--dry``/``--live`` gate as the edit modes.
 """
 
 from __future__ import annotations
@@ -14,6 +18,12 @@ import click
 from audio_suite_shared.cli_base import _opt_dry_run, _opt_json, cli
 from audio_suite_shared.cli_schema import build_payload, error_payload
 from audio_suite_shared.exceptions import AudioSuiteError
+from audio_suite_shared.tag_templates import (
+    apply_template,
+    result_line,
+    supported_audio_files,
+    template_from_file,
+)
 from tag_editor.core.csv_io import CsvImportPlan, build_import_plan
 from tag_editor.core.processor import (
     FIELD_LABELS,
@@ -118,6 +128,77 @@ def _report_import(
     return 1 if failures else 0
 
 
+def _run_copy(
+    reference: str,
+    target: str,
+    fields_text: str,
+    dry_run: bool,
+    as_json: bool,
+) -> int:
+    """Copy fields from *reference* onto a file or a directory tree.
+
+    Args:
+        reference: The file whose values are copied.
+        target: The file or directory to write.
+        fields_text: Comma-separated canonical field names.
+        dry_run: Report the diff without writing.
+        as_json: Emit machine-readable output.
+
+    Returns:
+        Process exit code.
+    """
+    try:
+        template = template_from_file(reference, fields_text)
+        results = apply_template(
+            template, supported_audio_files(target), dry_run=dry_run
+        )
+    except AudioSuiteError as exc:
+        _echo_error(str(exc), as_json, dry_run)
+        return 1
+
+    changed = sum(1 for result in results if result.changes)
+    written = sum(1 for result in results if result.written)
+    errors = sum(1 for result in results if result.error is not None)
+    if as_json:
+        payload = build_payload(
+            "tag-edit",
+            dry_run=dry_run,
+            total=len(results),
+            processed=len(results),
+            errors=errors,
+            log_entries=[],
+            path=target,
+            field=None,
+            old_value=None,
+            new_value=None,
+            changed=changed,
+            written=written,
+            error=None,
+            csv=None,
+            rows_read=0,
+            edits_planned=len(results),
+            unchanged=len(results) - changed - errors,
+            row_errors=[],
+            ignored_columns=[],
+        )
+        click.echo(json_mod.dumps(payload, indent=2))
+    else:
+        mode = "Dry run" if dry_run else "Live update"
+        click.echo(f"  Mode:      {mode}")
+        click.echo(f"  Reference: {reference}")
+        click.echo(f"  Fields:    {', '.join(template.fields)}")
+        click.echo(f"  Files:     {len(results)}")
+        click.echo(f"  Changed:   {changed}")
+        click.echo(f"  Written:   {written}")
+        click.echo(f"  Errors:    {errors}")
+        for result in results:
+            click.echo(
+                result_line(result, is_dry_run=dry_run).rstrip("\n"),
+                err=result.error is not None,
+            )
+    return 1 if errors else 0
+
+
 @cli.command("tag-edit")
 @click.argument(
     "path",
@@ -139,6 +220,19 @@ def _report_import(
     default=None,
     help="Import a CSV of per-file edits; PATH must be a library directory.",
 )
+@click.option(
+    "--copy-from",
+    "copy_from",
+    type=click.Path(exists=True, dir_okay=False, path_type=str),
+    default=None,
+    help="Copy fields from this reference file onto PATH (a file or directory).",
+)
+@click.option(
+    "--fields",
+    "fields_text",
+    default=None,
+    help="Comma-separated fields to copy; required with --copy-from.",
+)
 def tag_edit_cli(
     path: str,
     dry_run: bool,
@@ -147,6 +241,8 @@ def tag_edit_cli(
     value: str | None,
     clear: bool,
     csv_path: str | None,
+    copy_from: str | None,
+    fields_text: str | None,
 ) -> None:
     """Edit common tag fields, or import a CSV of per-file edits.
 
@@ -155,7 +251,18 @@ def tag_edit_cli(
         audiosuite tag-edit /Music/track.mp3 --field title --value "New Title"
         audiosuite tag-edit /Music/track.mp3 --field comment --clear --dry
         audiosuite tag-edit /Music --csv /Music/edits.csv --dry
+        audiosuite tag-edit /Music/track.mp3 --copy-from /Music/ref.flac \\
+            --fields title,artist,album
     """
+    if copy_from is not None:
+        if field is not None or value is not None or clear or csv_path is not None:
+            raise click.UsageError(
+                "--copy-from cannot be combined with --field/--value/--clear/--csv."
+            )
+        if fields_text is None:
+            raise click.UsageError("--fields is required with --copy-from.")
+        sys.exit(_run_copy(copy_from, path, fields_text, dry_run, json))
+
     if csv_path is not None:
         if not Path(path).is_dir():
             raise click.UsageError("--csv requires PATH to be a library directory.")
