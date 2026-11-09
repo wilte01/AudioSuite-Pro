@@ -507,6 +507,90 @@ class TestPcmNormaliseThroughThePipeline:
         assert AudioSegment.from_file(source).frame_rate == FS
 
 
+class TestUnencodableContainerIsSkipped:
+    """A container the Normalise stage cannot write is a skip, not a failure.
+
+    D-12: the refusal used to surface as an AudioProcessingError after the audio
+    work, which reported a known limit as a defect.  The stage now reports the
+    reason per file and every other enabled stage still runs.
+    """
+
+    def _mp4(self, tmp_path):
+        source = tmp_path / "track.mp4"
+        _sine(duration_ms=600, channels=2, amplitude=0.3).export(
+            str(source), format="mp4"
+        )
+        return source
+
+    def test_a_normalise_only_run_is_skipped_and_left_untouched(self, tmp_path):
+        from audio_refinery.core.models import FileStatus
+        from audio_refinery.core.pipeline import process_file
+
+        source = self._mp4(tmp_path)
+        before = source.read_bytes()
+        config = StageConfig(declick=False, trim=False, enhance=False)
+        assert config.normalise is True
+
+        result = process_file(
+            source_path=source,
+            output_path=source,
+            config=config,
+            on_progress=lambda stage, msg: None,
+        )
+
+        assert result.status == FileStatus.SKIPPED, result.error
+        assert result.error is not None and "no encoder" in result.error
+        assert ".mp4" in result.error
+        assert "MP3" in result.error, "the message must name what the stage writes"
+        assert source.read_bytes() == before, "a skipped file must not be written"
+        assert any(
+            stage.stage == "Normalise" and stage.status == FileStatus.SKIPPED
+            for stage in result.stages
+        )
+
+    def test_another_stage_still_runs_when_normalise_is_skipped(self, tmp_path):
+        """The skip belongs to the stage: enhancement's work is not discarded."""
+        from audio_refinery.core.models import FileStatus
+        from audio_refinery.core.pipeline import process_file
+
+        source = self._mp4(tmp_path)
+        config = StageConfig(declick=False, trim=False, enhance=True)
+
+        result = process_file(
+            source_path=source,
+            output_path=source,
+            config=config,
+            on_progress=lambda stage, msg: None,
+        )
+
+        assert result.status == FileStatus.DONE, result.error
+        assert result.was_modified is True
+        normalise = [s for s in result.stages if s.stage == "Normalise"]
+        assert normalise and normalise[-1].status == FileStatus.SKIPPED
+        assert "no encoder" in normalise[-1].message
+
+    def test_the_dry_run_predicts_the_skip(self, tmp_path):
+        """A dry run must not promise a normalisation the live run skips."""
+        from audio_refinery.core.models import FileStatus
+        from audio_refinery.core.pipeline import process_file
+
+        source = self._mp4(tmp_path)
+        before = source.read_bytes()
+        config = StageConfig(declick=False, trim=False, enhance=False, dry_run=True)
+
+        result = process_file(
+            source_path=source,
+            output_path=source,
+            config=config,
+            on_progress=lambda stage, msg: None,
+        )
+
+        assert result.status == FileStatus.DONE
+        assert result.was_modified is False
+        assert source.read_bytes() == before
+        assert any("no encoder" in stage.message for stage in result.stages)
+
+
 class TestUndoBatchRecording:
     """Phase 2: worker threads must join the orchestrator's active undo
     batch so tag snapshots are recorded against it (batch_undo.use_batch)."""

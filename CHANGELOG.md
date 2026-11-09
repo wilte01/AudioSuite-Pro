@@ -65,6 +65,13 @@ and every bullet belongs to exactly one of them.
 
 ### Fixed
 
+- **A container the Normalise stage cannot write is skipped, not failed.** An
+  MP4, WMA or AAC file in a run that included Normalise used to report
+  `Normalise stage failed:` with the encoder message, and the work the other
+  stages had already done was thrown away with it. The file now reports a
+  skipped stage naming the reason and the formats the stage writes, is left
+  untouched, and every other enabled stage still runs. A Dry Run predicts the
+  same skip instead of promising a normalisation the live run would refuse.
 - **The Master Driver guide lists every utility.** Its Utility Tools section
   named ten of the eighteen, and filed Lyrics Manager under Utility although
   the tool belongs to Enrich. The section is now one list per group covering

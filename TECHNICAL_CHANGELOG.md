@@ -34,6 +34,14 @@ and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **A container the Normalise stage cannot write is a skipped stage, not a
+  failed file.** `process_file` asks `_normalise_skip_reason` before any stage
+  work, records `Normalise: SKIPPED` with the reason, and runs the in-memory
+  stages on `dataclasses.replace(config, normalise=False)` so Enhancement's
+  output gain is not suppressed for a normalisation that will not happen. The
+  dry run reports the same reason through `_preview_normalise`, so it cannot
+  promise a write the live run skips. Locked by
+  `test_convert_and_pipeline.py::TestUnencodableContainerIsSkipped`.
 - **The Normalise stage's encoder set covers integer PCM.** `.wav`/`.aiff`/`.aif`
   resolve through `audio_formats.ffmpeg_encoder_args` instead of a tuned
   `_FORMAT_CODEC` entry, and `_depth_args` re-pins the source's depth with

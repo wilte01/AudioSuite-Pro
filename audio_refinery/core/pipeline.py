@@ -65,7 +65,7 @@ import logging
 import os
 import shutil
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
@@ -360,6 +360,18 @@ def process_file(
                 source_path, output_path, config, result, _emit, _temp_path
             )
 
+        # ── 0b. The Normalise stage's container capability ───────────────────
+        # A container the stage has no encoder for is a known limit, not a
+        # failure.  It is decided once, before any stage work, so the file
+        # reports the reason and the other enabled stages still do their work.
+        normalise_reason = (
+            _normalise_skip_reason(source_path, config) if config.normalise else None
+        )
+        wants_normalise = config.normalise and normalise_reason is None
+        # Enhancement suppresses its output gain for a normalise that will run;
+        # a skipped normalise must not silence the gain it is not replacing.
+        stage_config = replace(config, normalise=False) if normalise_reason else config
+
         # ── 1. Read tags and decode audio ─────────────────────────────────────
         original_tags, audio = _load_source(source_path, _emit)
 
@@ -372,28 +384,33 @@ def process_file(
             result.was_modified = False
             return result
 
+        # The dry run already reported the reason through ``_preview_normalise``;
+        # a live run records the skipped stage once, before the other stages.
+        if normalise_reason is not None:
+            result.add_stage("Normalise", FileStatus.SKIPPED, normalise_reason)
+
         # ── 3. Pop & Click Removal ────────────────────────────────────────────
         modified = False
         if config.declick:
-            audio, msg, changed = _run_declick_stage(audio, config, _emit)
+            audio, msg, changed = _run_declick_stage(audio, stage_config, _emit)
             modified = modified or changed
             result.add_stage("Declick", FileStatus.DONE, msg)
 
         # ── 4. Silence Trimming / Fading ──────────────────────────────────────
         if config.trim:
-            audio, msg, changed = _run_trim_stage(audio, config, _emit)
+            audio, msg, changed = _run_trim_stage(audio, stage_config, _emit)
             modified = modified or changed
             result.add_stage("Trim", FileStatus.DONE, msg)
 
         # ── 5. Noise Reduction ────────────────────────────────────────────
         if config.reduce_noise:
-            audio, msg, changed = _run_noise_reduction_stage(audio, config, _emit)
+            audio, msg, changed = _run_noise_reduction_stage(audio, stage_config, _emit)
             modified = modified or changed
             result.add_stage("Noise Reduction", FileStatus.DONE, msg)
 
         # ── 6. Audio Enhancement ──────────────────────────────────────────────
         if config.enhance:
-            audio, msg, metrics = _run_enhance_stage(audio, config, _emit)
+            audio, msg, metrics = _run_enhance_stage(audio, stage_config, _emit)
             # The DSP chain always applies, so an enabled Enhance stage is a
             # change even when the level barely moves.
             modified = True
@@ -402,7 +419,7 @@ def process_file(
         # ── 7. Nothing changed: normalise directly, or write nothing ─────────
         if not modified:
             if in_place:
-                if config.normalise:
+                if wants_normalise:
                     msg, modified = _run_normalise_in_place(
                         source_path,
                         config,
@@ -413,7 +430,9 @@ def process_file(
                     result.add_stage("Normalise", FileStatus.DONE, msg)
                 if not modified:
                     result.status = FileStatus.SKIPPED
-                    result.error = _no_op_reason(config)
+                    # The container reason is the useful one: "no changes
+                    # needed" would hide why the stage never ran.
+                    result.error = normalise_reason or _no_op_reason(stage_config)
                     _emit("Done", result.error)
                     return result
                 _emit("Done", "Complete ✓")
@@ -426,7 +445,7 @@ def process_file(
             _emit("Export", "Copying to output folder...")
             record_tag_edit_snapshot(str(output_path), "refinery_edit")
             shutil.copy2(source_path, output_path)
-            if config.normalise:
+            if wants_normalise:
                 msg, _applied = _run_normalise_stage(
                     output_path,
                     config,
@@ -449,7 +468,7 @@ def process_file(
         write_tags_raw(str(staged), original_tags, record_snapshot=False)
 
         # ── 10. Normalisation (FFmpeg on temp file, with retry) ────────────────
-        if config.normalise:
+        if wants_normalise:
             msg, _applied = _run_normalise_stage(
                 staged,
                 config,
@@ -1011,6 +1030,37 @@ def _normalise_message(
     return "Loudness measurement failed — normalization skipped"
 
 
+def _normalise_skip_reason(path: Path, config: StageConfig) -> str | None:
+    """Return why the Normalise stage cannot write *path*, or ``None``.
+
+    The stage's encoder set is the normaliser's own (``NORMALISE_EXTENSIONS``),
+    and a container outside it is a known limit rather than a failure: the file
+    reports the reason and every other enabled stage still runs.  A peak target
+    writes through the shared format matrix, so it has no such limit.
+
+    Args:
+        path: The file the run is about to process.
+        config: The run's stage configuration.
+
+    Returns:
+        The skip message, or ``None`` when the stage can write the container.
+    """
+    if config.normalise_params.target_mode == "peak":
+        return None
+    from audio_normalizer.core.normalizer import (
+        NORMALISE_EXTENSIONS,
+        normalise_format_display,
+    )
+
+    ext = path.suffix.lower()
+    if ext in NORMALISE_EXTENSIONS:
+        return None
+    return (
+        f"the Normalise stage has no encoder for {ext or path.name}; "
+        f"it writes {normalise_format_display()}"
+    )
+
+
 def _normalise_stage_error(exc: Exception) -> AudioProcessingError:
     """Wrap a normalise failure with the stage context and original cause."""
     mapped = map_to_audio_error(exc)
@@ -1119,6 +1169,11 @@ def _run_normalise_stage(
         AudioProcessingError: If the stage fails; preserves the original
             exception with context ``stage="normalise"``.
     """
+    reason = _normalise_skip_reason(tmp_path, config)
+    if reason is not None:
+        emit("Normalise", reason)
+        return reason, False
+
     # A peak target is per file and needs no loudness measurement at all
     # (F-E2); it runs before the album branch, which is a LUFS-only plan.
     if config.normalise_params.target_mode == "peak":
@@ -1194,6 +1249,11 @@ def _run_normalise_in_place(
     Raises:
         AudioProcessingError: If measuring or applying fails.
     """
+    reason = _normalise_skip_reason(source_path, config)
+    if reason is not None:
+        emit("Normalise", reason)
+        return reason, False
+
     if config.normalise_params.target_mode == "peak":
         try:
             return _run_peak_normalise(source_path, config, emit, record_snapshot=True)
@@ -1272,6 +1332,11 @@ def _preview_normalise(
     Measures the source (never a staging copy) and names the projected
     outcome, matching the preview the standalone normalizer gives.
     """
+    reason = _normalise_skip_reason(source_path, config)
+    if reason is not None:
+        emit("Normalise", reason)
+        return reason
+
     if config.normalise_params.target_mode == "peak":
         return _preview_peak_normalise(source_path, config, emit)
 
