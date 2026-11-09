@@ -13,6 +13,10 @@ both halves (PLAN D92).
 Changed in 2.0.0: the ingestibility counts move to 29 tools / 28 CLI commands
 with the Stem Separator (Sprint 6, Item 6.1).
 
+Changed in 2.6.0: the counts move to 31 tools / 29 CLI commands with the CUE
+Sheet Generator, whose window fronts the shared `cue generate` command, so it
+joins `NO_CLI_TOOLS` as a declared gap (F-E8).
+
 Changed in 2.1.0: covers the ``plugins`` group's documented flags and the
 grouped-command path the failure document resolves.
 Changed in 2.1.4: the dry-run smoke class now asserts the R-06 status.  The
@@ -406,6 +410,10 @@ class TestDiscoverabilityContract:
     #: rule from plan G2: a *new* tool without a subcommand fails the
     #: test_no_undeclared_gap_below test.
     NO_CLI_TOOLS: dict[str, str] = {
+        "cue_sheet": (
+            "GUI front end for the shared `cue generate` command; the command "
+            "belongs to the `cue` group and is documented there."
+        ),
         "undo_tag_edits": (
             "GUI-only tool (Undo_Tag_Edits.pyw); it restores a backup "
             "written by a prior batch run and has no headless equivalent."
@@ -473,7 +481,7 @@ class TestDiscoverabilityContract:
         as pipeline stages no longer ship their own commands (U-04).
         """
         tools = get_registry().first_party
-        assert len(tools) == 30
+        assert len(tools) == 31
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         with_subcommand = [m for m in tools if m.cli_command]
@@ -483,8 +491,11 @@ class TestDiscoverabilityContract:
                 f"{manifest.id}: '{manifest.cli_command}' is not listed in "
                 "'audiosuite --help'"
             )
-        # The GUI-only tool is exactly the declared gap, not a surprise.
-        assert [m.id for m in tools if not m.cli_command] == ["undo_tag_edits"]
+        # The GUI-only tools are exactly the declared gaps, not a surprise.
+        assert [m.id for m in tools if not m.cli_command] == [
+            "cue_sheet",
+            "undo_tag_edits",
+        ]
 
     def test_commands_are_grouped_by_function(self, runner: CliRunner) -> None:
         """Sections must render, and every command must sit under one."""

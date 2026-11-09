@@ -57,6 +57,7 @@ _UTILITY_IDS: tuple[str, ...] = tuple(
 EXPECTED_UTILITY_ORDER: tuple[str, ...] = (
     "asx_extractor",
     "cd_ripper",
+    "cue_sheet",
     "converter",
     "album_art_normalizer",
     "tag_editor",
@@ -78,7 +79,7 @@ EXPECTED_UTILITY_ORDER: tuple[str, ...] = (
 
 #: The captions, in render order, with the ids each one introduces.
 EXPECTED_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("Convert & Import", ("asx_extractor", "cd_ripper", "converter")),
+    ("Convert & Import", ("asx_extractor", "cd_ripper", "cue_sheet", "converter")),
     (
         "Tags & Artwork",
         ("album_art_normalizer", "tag_editor", "tag_field_updater", "undo_tag_edits"),
@@ -376,9 +377,9 @@ class TestExpansionReflow:
 
     def test_the_cards_after_a_right_column_card_reflow(self, tab) -> None:
         """The wrapped card takes a fresh row and the pair behind it follows."""
-        # Four cards from one group: the pair behind must share a row without
-        # the next group's caption forcing a break between them.
-        first, second, third, fourth = (_cell_at(tab, index) for index in range(3, 7))
+        # Four cards from one group (Tags & Artwork): the pair behind must
+        # share a row without the next group's caption forcing a break.
+        first, second, third, fourth = (_cell_at(tab, index) for index in range(4, 8))
         top = first.grid_info()["row"]
 
         _expand_button(second).invoke()

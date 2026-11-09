@@ -4,6 +4,8 @@
 Changed in 1.4.1: added, one seam case per GUI tool plus the frozen field table.
 Changed in 2.0.0: the table covers 15 GUI tools; ``stem_separator`` joins it
 with its separated/files-written/output/device fields (Sprint 6, Item 6.1).
+Changed in 2.6.0: the table covers 16 GUI tools; ``CueSheetApp`` joins it with
+the five shared counters (F-E8).
 
 The completion seam deliberately tolerates unknown fields (``**_extra``, see
 ``tests/test_callback_payload_contract.py``), so a processor that renames a
@@ -75,6 +77,9 @@ EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
         {"total", "processed", "skipped", "errors", "duration_secs", "log_entries"}
     ),
     "AudioJoinerApp": frozenset(
+        {"total", "processed", "skipped", "errors", "duration_secs"}
+    ),
+    "CueSheetApp": frozenset(
         {"total", "processed", "skipped", "errors", "duration_secs"}
     ),
     "AudioRefineryApp": frozenset(
@@ -320,7 +325,7 @@ def test_the_seam_table_covers_every_gui_tool() -> None:
     """A partial table would leave tools silently untested."""
     # 16 since 2.6.0: the enhancer, normalizer and trimmer windows are gone
     # (U-04), so their completion seams went with them.
-    assert len(COMPLETION_WIRINGS) == 19
+    assert len(COMPLETION_WIRINGS) == 20
     assert set(EXPECTED_REQUIRED) == set(COMPLETION_WIRINGS)
 
 

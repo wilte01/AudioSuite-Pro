@@ -22,6 +22,7 @@ Changed in 2.1.7: ``open_help`` resolves
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: maps the Track Splitter's guide (F-E4).
+Changed in 2.6.0: maps the CUE Sheet Generator's guide (F-E8).
 Changed in 2.5.0: ``open_help`` takes the installation root from
 :mod:`audio_suite_shared.suite_paths` instead of walking up from the
 working directory looking for a folder named after the project (D-44).
@@ -116,6 +117,7 @@ def open_help(guide_filename: str) -> None:
         "Audio_Refinery_User_Guide.docx": "audio_refinery",
         "BPM_Analyzer_User_Guide.docx": "bpm_analyzer",
         "CD_Ripper_User_Guide.docx": "cd_ripper",
+        "CUE_Sheet_Generator_User_Guide.docx": "cue_sheet",
         "File_Reorganizer_User_Guide.docx": "file_reorganizer",
         "Genre_Sync_User_Guide.docx": "genre_sync",
         "Key_Detector_User_Guide.docx": "key_detector",

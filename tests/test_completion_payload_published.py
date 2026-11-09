@@ -2,6 +2,7 @@
 
 Changed in 2.0.0: initial version, closing the publisher half of the completion
 seam (PLAN_feature_expansion.md D117).
+Changed in 2.6.0: the publisher table gains ``cue_sheet`` (F-E8).
 
 The two existing locks read the consumer side.
 ``tests/test_callback_payload_contract.py`` proves every handler tolerates the
@@ -67,6 +68,7 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
         "album_art_normalizer.core.file_processor.run_normalization"
     ),
     "album_genre_tagger": "album_genre_tagger.core.consolidator.run_analysis",
+    "cue_sheet": "cue_sheet.core.export.run_export",
     "audio_fingerprinter": (
         "audio_fingerprinter.core.file_processor.run_fingerprinting"
     ),

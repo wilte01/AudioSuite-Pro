@@ -22,6 +22,15 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **A CUE sheet for a folder of tracks, from a window and the command line.**
+  CUE Sheet Generator (`CUE_Sheet_Generator.pyw`) describes every file in a
+  folder as its own track and writes `album.cue` beside them: the track number
+  comes from the file's track tag, then from a `NN - Title` filename prefix,
+  then from its position; titles and performers come from the same tags, and an
+  album title and artist can be set. A folder where two files claim one track
+  number is refused with both filenames named, rather than written as a sheet a
+  player cannot read. A dry run writes the run report and leaves an existing
+  sheet alone, and the window is in the Master Driver's UTIL tab and its batch.
 - **Copy tag fields from a reference file, or from a saved template.** The Tag
   Editor's Setup tab gains **Copy Fields…** (choose a reference track, say which
   fields, review the per-field diff in a dry run, then apply) and **Templates…**
@@ -74,6 +83,14 @@ and every bullet belongs to exactly one of them.
 
 ### Fixed
 
+- **`cue generate` numbers tracks the way it always said it did.** The
+  reference and the command's own help stated that track numbers come from the
+  files' tags, but only a `NN - Title` filename prefix was read, so a folder
+  whose names carry no number got one sheet and a tagged album got another.
+  The number is now taken from the track tag first, then from the prefix, then
+  from the file's position, and a folder where two files claim the same number
+  is refused with both filenames named instead of being written as a sheet a
+  player cannot follow. `--json` still reports the same fields.
 - **A container the Normalise stage cannot write is skipped, not failed.** An
   MP4, WMA or AAC file in a run that included Normalise used to report
   `Normalise stage failed:` with the encoder message, and the work the other

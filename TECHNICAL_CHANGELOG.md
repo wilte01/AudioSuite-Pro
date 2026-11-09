@@ -18,6 +18,19 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **Folder CUE export is one shared builder with a window in front of it.**
+  `audio_suite_shared/cue_generator.py` gains `scan_audio_files`, `folder_specs`
+  and `build_folder_cue`; `cue_cli.cue_generate_cli` and the new `cue_sheet`
+  package (`core/export.py`, `utils/cli_args.py`, `app.py`) both call them, so
+  the folder scan, the `NN - Title` fallback, the per-format `FILE` token and the
+  duplicate-number `ValueError` exist once. The manifest entry carries no
+  `cli_command`: `cue generate` is registered by the shared `cue` group, so a
+  per-tool command would duplicate that registration, and the reference's
+  existing `### cue generate` section stays its documentation. Utility orders
+  shift by ten from Music Format Converter (40) through Track Splitter (190) to
+  keep `cue_sheet` at 30 inside the `convert` block; `HANDSHAKE_TOOLS`,
+  `EXPECTED_TOOLS`, the utilities window order and the README / CLI-reference /
+  deck count claims are updated in the same change.
 - **`audio_suite_shared/tag_templates.py` — templates and copy-from-reference.**
   `TagTemplate` (name, canonical field map, source file) is stored in
   `audio_suite_config.json` under `tag_templates`; `parse_fields` resolves every

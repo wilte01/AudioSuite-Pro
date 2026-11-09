@@ -27,6 +27,9 @@ This file holds the contract:
 
 Changed in 2.4.1: new contract over the shared driver grammar (plan WP-4).
 Changed in 2.5.0: the handshake table gains the Track Splitter (F-E4).
+Changed in 2.6.0: the table gains the CUE Sheet Generator as a declared
+exception: its window fronts the shared `cue generate` command, so the driver
+has no per-tool argv to agree on and the tool is batch-ineligible (F-E8).
 """
 
 from __future__ import annotations
@@ -187,6 +190,14 @@ HANDSHAKE_TOOLS: dict[str, ToolSpec] = {
     "art": ToolSpec("album_art_sync.utils.cli_args"),
     "lyrics_manager": ToolSpec(reason=_UNCHANGED),
     "converter": ToolSpec(reason=_UNCHANGED),
+    "cue_sheet": ToolSpec(
+        reason=(
+            "fronts the shared `cue generate` command and declares no "
+            "`cli_command` of its own, so the driver never builds a per-tool "
+            "argv for it and there is no grammar to agree on; the tool is "
+            "batch-ineligible (EXCLUDED in the batch orchestrator)"
+        )
+    ),
     "asx_extractor": ToolSpec(
         reason=(
             "parses through argparse and conveys the mode as the label for "
@@ -271,10 +282,10 @@ class TestTheTableCoversTheRegistry:
         )
 
     def test_the_table_is_not_empty_and_records_its_exceptions(self) -> None:
-        assert len(HANDSHAKE_TOOLS) == 30
+        assert len(HANDSHAKE_TOOLS) == 31
         assert len(DRIVEN_TOOLS) == 12, DRIVEN_TOOLS
         excluded = {t for t, spec in HANDSHAKE_TOOLS.items() if spec.reason}
-        assert len(excluded) == 18
+        assert len(excluded) == 19
 
 
 class TestTheParserAgreesWithTheGrammar:

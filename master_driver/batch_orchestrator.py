@@ -43,6 +43,9 @@ starts, next to its run-outcome note, so a reason recorded by an earlier launch
 can never be shown against this one.  That is what lets the failure dialog
 quote the current reason (PLAN_2026-11-03_2.4.3_structure.md D-22).
 Changed in 2.5.0: places the Track Splitter in the dependency graph (F-E4).
+Changed in 2.6.0: the CUE Sheet Generator is not a graph node.  It fronts the
+shared ``cue generate`` command (no ``cli_command`` of its own), and the batch
+launches modules as subprocesses, so it cannot be scheduled as a step.
 """
 
 from __future__ import annotations
@@ -267,6 +270,7 @@ DEPENDENCY_GRAPH: dict[str, list[str]] = {
     "key": [],
     "mood_analyzer": [],
     "converter": [],
+    # Changed in 2.6.0: the folder CUE exporter reads tags only (F-E8).
     "asx_extractor": [],
     "album_art_normalizer": [],
     "cd_ripper": [],

@@ -44,6 +44,7 @@ were 32 against a 27-tool suite until the file was rebuilt.
 Changed in 2.4.1: the format-matrix slide reports the sixteen suite
 containers.
 Changed in 2.5.0: the deck names the Track Splitter (F-E4).
+Changed in 2.6.0: the format matrix names the CUE Sheet Generator (F-E8).
 """
 
 from __future__ import annotations
@@ -546,6 +547,15 @@ FORMAT_ROWS: list[list[str]] = [
         YES,
         YES,
         "Joins a folder in a chosen order, with gaps or equal-power crossfades",
+    ],
+    [
+        "CUE Sheet Generator",
+        YES,
+        YES,
+        YES,
+        YES,
+        YES,
+        "Writes one album.cue for a folder, one FILE block per track",
     ],
     [
         "Channel Tools",

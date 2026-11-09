@@ -51,6 +51,7 @@ tool entry in the manifest.
 | Audio Refinery | `Audio_Refinery.pyw` | [Markdown](../user_guides/individual_programs/audio_refinery/Audio_Refinery_User_Guide.md) |
 | ASX Playlist Extractor | `ASX_Playlist_Extractor.pyw` | [Markdown](../user_guides/individual_programs/asx_extractor/ASX_Playlist_Extractor_User_Guide.md) |
 | CD Ripper | `CD_Ripper.pyw` | [Markdown](../user_guides/individual_programs/cd_ripper/CD_Ripper_User_Guide.md) |
+| CUE Sheet Generator | `CUE_Sheet_Generator.pyw` | [Markdown](../user_guides/individual_programs/cue_sheet/CUE_Sheet_Generator_User_Guide.md) |
 | Music Format Converter | `Music_Format_Converter.pyw` | [Markdown](../user_guides/individual_programs/music_format_converter/Music_Format_Converter_User_Guide.md) |
 | Album Art Normalizer | `Album_Art_Normalizer.pyw` | [Markdown](../user_guides/individual_programs/album_art_normalizer/Album_Art_Normalizer_User_Guide.md) |
 | Tag Editor | `Tag_Editor.pyw` | [Markdown](../user_guides/individual_programs/tag_editor/Tag_Editor_User_Guide.md) |
@@ -72,7 +73,7 @@ tool entry in the manifest.
 
 ## Suite-wide guides
 
-* {doc}`user/suite-overview` — how the 30 tools are grouped, what
+* {doc}`user/suite-overview` — how the 31 tools are grouped, what
   each Master Driver tab runs, and how a batch is ordered.
 * {doc}`user/security` — encrypted API keys and how
   to recover them, safe file selection, and what each security message means.

@@ -12,6 +12,7 @@ explicitly. AppState's variables are genuine tkinter Var objects; their
 
 Changed in 2.0.0: the expected toggle set gains ``stem_separator``
 (Sprint 6, Item 6.1).
+Changed in 2.6.0: the expected toggle set gains ``cue_sheet`` (F-E8).
 
 Changed in 2.3.0: the expected toggle set gains ``duplicate_finder`` and
 ``restoration`` (PLAN_functional_backlog.md F-02, F-08a).
@@ -577,6 +578,7 @@ class TestModuleToggles:
         # Utility tools
         "converter",
         "asx_extractor",
+        "cue_sheet",
         "album_art_normalizer",
         "cd_ripper",
         "mood_analysis_batch",

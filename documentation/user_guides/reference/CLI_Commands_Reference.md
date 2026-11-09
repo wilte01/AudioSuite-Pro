@@ -932,8 +932,16 @@ that plugin is enabled.
 Parse, generate, and split `.cue` sheets. The `cue` group has three sub-commands:
 
 - `parse` — Inspect an existing sheet's track layout and timestamps.
-- `generate` — Build a sheet that matches the audio tracks in a folder or a single file.
+- `generate` — Build a sheet that matches the audio tracks in a folder or a single file. Its window is the **CUE Sheet Generator**.
 - `split` — Split a single-file audio image into per-track files using a sheet (lossless `-c copy`).
+
+### CUE Sheet Generator
+
+The generator has a window of its own, `CUE_Sheet_Generator.pyw`, and the
+window and `cue generate` build the sheet through one shared implementation:
+select a folder, name the sheet, and the run writes the same text the command
+below writes. The command is the documented entry point; the window adds the
+run report and a dry run.
 
 ### cue parse
 
@@ -958,13 +966,19 @@ audiosuite cue parse "D:\Music\Album\Album.cue" --json
 audiosuite cue generate TARGET [-o FILE] [--title TEXT] [--artist TEXT] [--json]
 ```
 
-`TARGET` is a directory of ripped track files or a single audio file. Track
-numbers, titles and artists are read from embedded tags, falling back to the
-`NN - Title.ext` filename prefix for untagged files. The sheet is written to
-`album.cue` next to the input by default. `--json` reports the written path
-(`cue_path`), the sheet's track count (`tracks`) and the album title (`title`)
-alongside the shared counters, so a caller can split the sheet it just made
-without reading it back.
+`TARGET` is a directory of ripped track files or a single audio file, and the
+sheet is written to `album.cue` next to the input by default. Each track file
+becomes its own `FILE` block with one `TRACK`, numbered from the file's track
+tag, then from a `NN - Title.ext` filename prefix, then from its position;
+titles and artists are read from the same tags. A duplicate track number is
+refused with both filenames named, and no sheet is written.
+
+The **CUE Sheet Generator** window (`CUE_Sheet_Generator.pyw`) writes this same
+sheet through the same builder, so the command line and the window cannot
+describe one folder two ways. `--json` reports the written path (`cue_path`),
+the sheet's track count (`tracks`) and the album title (`title`) alongside the
+shared counters, so a caller can split the sheet it just made without reading
+it back.
 
 **Options:**
 
@@ -1007,7 +1021,7 @@ audiosuite cue split "D:\Music\Album\Album.cue" -o "D:\Music\Album\Tracks"
 ## All Commands
 
 Every command the CLI ships, including the suite commands that operate on the
-installation rather than on a folder of audio. Each of the 30 tools appears
+installation rather than on a folder of audio. Each of the 31 tools appears
 here, and each tool's own section above documents its flags.
 
 | Command | Tool | Category |
@@ -1021,7 +1035,7 @@ here, and each tool's own section above documents its flags.
 | `bpm` | BPM Analyzer | Enrich |
 | `cd-rip` | CD Ripper | Util |
 | `convert` | Music Format Converter | Util |
-| `cue generate` | CUE sheet generator | Suite |
+| `cue generate` | CUE Sheet Generator | Suite |
 | `cue parse` | CUE sheet parser | Suite |
 | `cue split` | CUE sheet splitter | Suite |
 | `denoise` | ML Denoiser | Util |

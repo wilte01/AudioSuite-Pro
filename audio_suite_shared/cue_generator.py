@@ -5,14 +5,25 @@ Builds a spec-compliant CUE sheet whose INDEX 01 values are derived from the
 provided ``start_ms`` offsets, so a generated sheet always matches the audio
 it describes.  Produces text that the parser in ``cue_parser`` round-trips
 identically for the supported commands.
+
+Changed in 2.6.0: adds the folder export — ``scan_audio_files``,
+``folder_specs`` and ``build_folder_cue`` — so ``audiosuite cue generate`` and
+the CUE Sheet Generator window share one implementation of the folder scan, the
+track-number precedence (tag, then ``NN - Title`` name, then position) and the
+per-format ``FILE`` token.  A duplicate track number raises rather than
+rendering a sheet no player can read.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+from .audio_formats import is_supported_format
+from .tag_helper_reader import read_editable_tags
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
@@ -161,3 +172,189 @@ def write_cue(path: str | Path, cue_text: str) -> None:
     """
     payload = cue_text if cue_text.endswith("\n") else cue_text + "\n"
     Path(path).write_text(payload, encoding="utf-8", newline="")
+
+
+def _natural_sort_key(name: str) -> list[str | int]:
+    """Return a filename's case-insensitive natural-order key.
+
+    ``...9.flac`` sorts before ``...10.flac``, which a plain string sort gets
+    wrong — and the folder's file order is the fallback track order.
+
+    Args:
+        name: The file's name.
+
+    Returns:
+        Alternating text and integer chunks, usable as a sort key.
+    """
+    parts: list[str | int] = []
+    for chunk in re.split(r"(\d+)", name.lower()):
+        parts.append(int(chunk) if chunk.isdigit() else chunk)
+    return parts
+
+
+def scan_audio_files(target_path: Path) -> list[Path]:
+    """List the supported audio files at *target_path* in natural sort order.
+
+    A single file is returned on its own when its extension is supported; a
+    folder is read one level deep (sub-folders belong to other albums) and an
+    unsupported extension is dropped rather than passed to the tag reader.
+
+    Args:
+        target_path: A folder of tracks or one audio file.
+
+    Returns:
+        The files the sheet will describe, in the order it will number them.
+    """
+    if not target_path.is_dir():
+        if is_supported_format(target_path.name):
+            return [target_path]
+        return []
+    return sorted(
+        (
+            path
+            for path in target_path.iterdir()
+            if path.is_file() and is_supported_format(path.name)
+        ),
+        key=lambda path: _natural_sort_key(path.name),
+    )
+
+
+#: A leading ``"NN - "`` / ``"NN._"`` track-number prefix on a ripped filename.
+_TRACK_PREFIX_RE = re.compile(r"^(\d{1,2})\s*[._\-]\s*(.+)$")
+
+
+def _tag_track_number(path: Path) -> int | None:
+    """Return the file's own track number, or ``None`` when it has none.
+
+    Read through the shared tag facade rather than a private mutagen call, so
+    every container's track field is resolved the same way the Tag Editor
+    reads it.  A ``3/12`` value yields ``3``: the sheet numbers tracks 1-99.
+
+    Args:
+        path: The audio file.
+
+    Returns:
+        The number 1-99 the tags carry, or ``None`` when absent, unreadable or
+        outside that range.
+    """
+    value = read_editable_tags(str(path)).get("track")
+    if not value:
+        return None
+    digits = re.match(r"\s*(\d+)", str(value))
+    if digits is None:
+        return None
+    number = int(digits.group(1))
+    return number if 1 <= number <= 99 else None
+
+
+def _file_track_info(path: Path, fallback_number: int) -> tuple[int, str, str]:
+    """Return ``(number, title, performer)`` for one file in a folder sheet.
+
+    The tag's track number wins, then a ``"NN - Title.ext"`` filename prefix,
+    then the file's position.  The title prefers the tag, then the filename
+    without its prefix.  The performer is empty when the file stores neither
+    an artist nor a title, which is the untagged-file case.
+
+    Args:
+        path: The audio file.
+        fallback_number: The file's 1-based position, used when nothing else
+            names a number.
+
+    Returns:
+        The track number, its title and its performer.
+    """
+    number = _tag_track_number(path)
+    stem_tail = path.stem
+    match = _TRACK_PREFIX_RE.match(path.stem)
+    if match:
+        if number is None:
+            number = int(match.group(1))
+        stem_tail = match.group(2).strip()
+
+    artist, title = _read_artist_title(path)
+    resolved_number = number if number is not None else fallback_number
+    if artist in ("", "Unknown") and title in ("", "Unknown"):
+        # No tags at all: the filename carries the title, and an empty
+        # performer is honest rather than a fabricated "Unknown".
+        return resolved_number, stem_tail or path.stem, ""
+    return resolved_number, title or path.stem, artist
+
+
+def _read_artist_title(path: Path) -> tuple[str, str]:
+    """Read ``(artist, title)`` through the shared tag facade.
+
+    Split out so the module exposes one seam a test can patch, and so the
+    folder sheet never grows a second reader of its own.
+
+    Args:
+        path: The audio file.
+
+    Returns:
+        The file's artist and title, ``("Unknown", "Unknown")`` when unread.
+    """
+    from .tag_helper_reader import read_artist_title
+
+    return read_artist_title(str(path))
+
+
+def folder_specs(files: Sequence[Path]) -> list[CueFileSpec]:
+    """Build one ``FILE`` block per track file, in album order.
+
+    A sheet over a folder of separate files names each file in its own block,
+    and every ``INDEX 01`` is therefore ``00:00:00`` — the offset is relative
+    to its own ``FILE``, so no duration has to be measured (or guessed) to
+    describe the folder.
+
+    Args:
+        files: The track files, in album order.
+
+    Returns:
+        The sheet's ``FILE`` blocks.
+
+    Raises:
+        ValueError: Two files claim the same track number.  Renumbering them
+            silently would produce a sheet whose tracks no longer match the
+            album, so the sheet is refused instead.
+    """
+    specs: list[CueFileSpec] = []
+    seen: dict[int, Path] = {}
+    for index, audio in enumerate(files, start=1):
+        number, track_title, performer = _file_track_info(audio, index)
+        previous = seen.get(number)
+        if previous is not None:
+            raise ValueError(
+                f"Track number {number:02d} is claimed by both "
+                f"'{previous.name}' and '{audio.name}'; fix the tags or rename "
+                "the files so every track has its own number."
+            )
+        seen[number] = audio
+        specs.append(
+            CueFileSpec(
+                filename=audio.name,
+                tracks=(
+                    TrackSpec(number=number, title=track_title, performer=performer),
+                ),
+            )
+        )
+    return specs
+
+
+def build_folder_cue(
+    files: Sequence[Path], *, title: str = "", performer: str = ""
+) -> str:
+    """Render the CUE text describing a folder's track files.
+
+    Args:
+        files: The track files, in album order.
+        title: Album title (sheet-level ``TITLE``).
+        performer: Album artist (sheet-level ``PERFORMER``).
+
+    Returns:
+        The sheet text, ending with one newline.
+
+    Raises:
+        ValueError: No files were given, or two files claim one track number.
+    """
+    if not files:
+        raise ValueError("A CUE sheet needs at least one audio file.")
+    return build_cue(title=title, performer=performer, files=folder_specs(files))

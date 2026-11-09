@@ -4,6 +4,10 @@ Tests for master_driver.batch_orchestrator
 Strategy — mock run_python_script / start_python_script to simulate tool
 execution with controlled durations and exit codes.
 
+Changed in 2.6.0: ``cue_sheet`` joins ``EXCLUDED`` — it fronts the shared
+``cue generate`` command, so it has no CLI command and no arg-builder entry the
+batch could launch (F-E8).
+
 Changed in 1.0.1: adds a regression asserting a missing script fails the
 step immediately (no retries) instead of being retried as a generic OSError.
 Changed in 1.2.0: adds the step-note tests: a caveat the tool records during
@@ -768,13 +772,15 @@ class TestDependencyGraph:
     # modules as subprocesses) and an arg-builder entry. `undo_tag_edits` is
     # the one registered tool with `cli_command is None`: it is a
     # GUI-only undo utility with no CLI and no arg-builder entry, so it can
-    # never appear in an enrich/utility batch.
+    # never appear in an enrich/utility batch.  `cue_sheet` (2.6.0, F-E8) is
+    # the other: it fronts the shared `cue generate` command, which belongs to
+    # the `cue` group rather than to its own manifest.
     #
     # This is an explicit, named allowlist as required by the registry
     # agreement point in `audio_suite_shared/tool_plugin.py`, and
     # `test_excluded_matches_the_batch_ineligible_rule` pins it to the rule
     # itself so it cannot silently absorb a future tool.
-    EXCLUDED: frozenset[str] = frozenset({"undo_tag_edits"})
+    EXCLUDED: frozenset[str] = frozenset({"cue_sheet", "undo_tag_edits"})
 
     @staticmethod
     def _registered() -> set[str]:

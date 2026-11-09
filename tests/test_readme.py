@@ -144,9 +144,9 @@ class TestIndexGeneration:
 class TestMetadataLock:
     """The distribution metadata ships the README and its index is whole."""
 
-    # Changed in 2.5.0: the distribution tool count follows the registry to 30
-    # (Channel Tools, F-E6).
-    def test_pyproject_ships_the_readme_and_30_tool_rows(self) -> None:
+    # Changed in 2.6.0: the distribution tool count follows the registry to 31
+    # (CUE Sheet Generator, F-E8).
+    def test_pyproject_ships_the_readme_and_31_tool_rows(self) -> None:
         from audio_suite_shared.tool_plugin import get_registry
 
         with (REPO_ROOT / "pyproject.toml").open("rb") as fh:
@@ -158,7 +158,7 @@ class TestMetadataLock:
         assert declared_readme == README.name
         # The distribution's tool count, not the install's: a plugin adds a
         # registry entry, never a README row.
-        assert len(get_registry().first_party) == 30
+        assert len(get_registry().first_party) == 31
 
 
 class TestRegistrationLock:

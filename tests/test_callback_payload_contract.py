@@ -60,6 +60,7 @@ rather than by a row here.
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: EXPECTED_TOOLS gains the Track Splitter (F-E4).
+Changed in 2.6.0: EXPECTED_TOOLS gains the CUE Sheet Generator (F-E8).
 """
 
 from __future__ import annotations
@@ -99,6 +100,7 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
     {
         ("album_art_normalizer/app.py", "ArtNormalizerApp"),
         ("audio_joiner/app.py", "AudioJoinerApp"),
+        ("cue_sheet/app.py", "CueSheetApp"),
         ("album_genre_tagger/app.py", "GenreConsolidatorApp"),
         ("audio_fingerprinter/app.py", "FingerprinterApp"),
         ("audio_refinery/app.py", "AudioRefineryApp"),

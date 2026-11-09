@@ -1,5 +1,9 @@
 """Tests for the declared platform support matrix (plan G1, audit #20).
 
+Changed in 2.6.0: the tier and portable-set counts move to 31 tools with the
+CUE Sheet Generator, a second declared GUI-only CLI gap beside Undo Tag Edits
+(F-E8).
+
 The declaration in ``audio_suite_shared/platform_support.py`` is only
 worth having if it cannot drift from the code it describes.  These tests
 make that mechanical:
@@ -389,10 +393,10 @@ class TestToolTiers:
         from audio_suite_shared.tool_plugin import get_registry
 
         tools = get_registry().first_party
-        # 30 since 2.5.0: F-E6 added the channel utility.  The five DSP tools
-        # REFINE runs as stages stopped shipping their own launcher and
+        # 31 since 2.6.0: F-E8 added the CUE Sheet Generator.  The five DSP
+        # tools REFINE runs as stages stopped shipping their own launcher and
         # command (U-04).
-        assert len(tools) == 30
+        assert len(tools) == 31
         for manifest in tools:
             assert tool_tier(manifest.id) in TIERS
 
@@ -542,10 +546,13 @@ class TestPortableCoreCLI:
         tools = get_registry().first_party
         with_cli = [m for m in tools if m.cli_command]
         assert [m.id for m in tools if tool_tier(m.id) == WINDOWS_ONLY] == ["cd_ripper"]
-        # The one documented gap: Undo Tag Edits is GUI-only, so there is no
-        # subcommand to drive under a mocked platform. Named here so that a
-        # *new* tool without one is a failure, not a silent pass.
-        assert [m.id for m in tools if not m.cli_command] == ["undo_tag_edits"]
+        # The documented gaps: Undo Tag Edits is GUI-only, and CUE Sheet
+        # Generator fronts the shared `cue generate` command. Named here so
+        # that a *new* tool without one is a failure, not a silent pass.
+        assert [m.id for m in tools if not m.cli_command] == [
+            "cue_sheet",
+            "undo_tag_edits",
+        ]
         assert len(with_cli) == 29
         # 28 of the 29 are portable-core; cd-rip is the Windows-only one.
         assert len(self._portable_commands()) == 28
