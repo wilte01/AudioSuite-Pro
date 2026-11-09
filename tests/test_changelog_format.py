@@ -25,6 +25,13 @@ Changed in 2.2.1: the format lock is parameterised over both change-history
 files, and ``TestChangelogAudience`` holds the user/technical boundary
 (functional backlog U2).  It is proved able to fail by the two bullets the split
 moved, which it rejects here rather than by having watched them once.
+
+Changed in 2.6.0: adds ``TestChangelogCategories``.  The five sections from
+2.4.1 forward reached both files as flat bullet lists - ``promote_changelog``
+copies the ``[Unreleased]`` body verbatim and nothing required a category - so
+the six Keep a Changelog headings are restored across 70 bullets and now
+enforced, with the bold lead-in deciding the category exactly as it decides the
+audience.
 """
 
 from __future__ import annotations
@@ -41,6 +48,24 @@ CHANGELOGS = (USER_CHANGELOG, TECHNICAL_CHANGELOG)
 
 #: Same column limit the Python sources use.
 MAX_LINE_LENGTH = 88
+
+#: The Keep a Changelog vocabulary, in the order a section should use it.
+CATEGORIES: tuple[str, ...] = (
+    "Added",
+    "Changed",
+    "Deprecated",
+    "Removed",
+    "Fixed",
+    "Security",
+)
+
+#: The one legal form of a category heading.
+CATEGORY_HEADINGS = frozenset(f"### {name}" for name in CATEGORIES)
+
+#: Floors the category scan must clear, so a broken walk fails instead of
+#: passing over nothing.
+MIN_SECTIONS = 18
+MIN_BULLETS = 100
 
 #: Words that name developer work.  A user-facing bullet's lead-in may not use
 #: one: a gate, a test or a CI job is not something a user can run or observe.
@@ -122,6 +147,76 @@ def developer_words(text: str) -> set[str]:
     if re.search(r"\bCI\b", text):
         found.add("ci")
     return found
+
+
+def _sections_in(text: str) -> list[tuple[str, list[str]]]:
+    """Return each ``## [`` section's heading and its body lines.
+
+    Taking the text rather than a path is what lets the proof below run the
+    same checks over a miniature document.
+    """
+    sections: list[tuple[str, list[str]]] = []
+    heading: str | None = None
+    body: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if heading is not None:
+                sections.append((heading, body))
+            heading, body = line, []
+        elif heading is not None:
+            body.append(line)
+    if heading is not None:
+        sections.append((heading, body))
+    return sections
+
+
+def _sections(path: Path) -> list[tuple[str, list[str]]]:
+    """Return *path*'s sections, heading and body."""
+    return _sections_in(path.read_text(encoding="utf-8"))
+
+
+def _category_headings(body: list[str]) -> set[str]:
+    """Return the category headings a section body carries."""
+    return {line.strip() for line in body if line.startswith("### ")}
+
+
+def _unknown_headings(body: list[str]) -> set[str]:
+    """Return ``###`` headings outside the Keep a Changelog vocabulary."""
+    return _category_headings(body) - CATEGORY_HEADINGS
+
+
+def _bullets_under_no_category(body: list[str]) -> list[str]:
+    """Return bullets no heading precedes, so they belong to no category."""
+    current: str | None = None
+    offenders: list[str] = []
+    for line in body:
+        if line.startswith("### "):
+            current = line.strip()
+        elif line.startswith("- ") and current is None:
+            offenders.append(line[:70])
+    return offenders
+
+
+def _empty_categories(body: list[str]) -> list[str]:
+    """Return category headings that hold no bullet of their own."""
+    offenders: list[str] = []
+    heading: str | None = None
+    holds_bullet = False
+    for line in body:
+        if line.startswith("### "):
+            if heading is not None and not holds_bullet:
+                offenders.append(heading)
+            heading, holds_bullet = line.strip(), False
+        elif line.startswith("- ") and heading is not None:
+            holds_bullet = True
+    if heading is not None and not holds_bullet:
+        offenders.append(heading)
+    return offenders
+
+
+def _bullet_count(body: list[str]) -> int:
+    """Return how many top-level bullets a section body holds."""
+    return sum(1 for line in body if line.startswith("- "))
 
 
 def _allowed(lead_in: str, word: str) -> bool:
@@ -249,3 +344,125 @@ class TestChangelogAudience:
         )
         assert TECHNICAL_CHANGELOG.is_file()
         assert "CHANGELOG.md" in TECHNICAL_CHANGELOG.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("path", CHANGELOGS, ids=lambda path: path.name)
+class TestChangelogCategories:
+    """Every section is grouped under a Keep a Changelog category heading.
+
+    A release is read to find out whether a change is a new capability, a
+    behaviour change or a repaired defect, and a flat list makes that reader
+    infer it from each sentence.  The headings are therefore part of the
+    format, not decoration, and the release cut promotes them unchanged.
+    """
+
+    def test_the_scan_sees_every_section(self, path: Path) -> None:
+        """A broken walk must fail, not report every section as categorised."""
+        sections = _sections(path)
+        bullets = sum(_bullet_count(body) for _heading, body in sections)
+
+        assert len(sections) >= MIN_SECTIONS, (
+            f"{path.name} section scan collapsed: {len(sections)} sections"
+        )
+        assert bullets >= MIN_BULLETS, (
+            f"{path.name} bullet scan collapsed: {bullets} bullets"
+        )
+        assert any(
+            heading.startswith("## [Unreleased]") for heading, _body in sections
+        ), f"{path.name} carries no [Unreleased] section"
+
+    def test_every_section_with_bullets_carries_a_category(self, path: Path) -> None:
+        """A released section that lists bullets flat has lost its headings."""
+        offenders = [
+            f"{heading} ({_bullet_count(body)} bullets)"
+            for heading, body in _sections(path)
+            if _bullet_count(body) and not _category_headings(body)
+        ]
+        assert not offenders, (
+            f"{path.name} sections list bullets without a category heading - "
+            "group each under Added/Changed/Removed/Fixed/Security:\n  "
+            + "\n  ".join(offenders)
+        )
+
+    def test_every_bullet_sits_under_a_category(self, path: Path) -> None:
+        """A bullet above the first heading escapes the grouping."""
+        offenders = [
+            f"{heading}: {bullet}"
+            for heading, body in _sections(path)
+            for bullet in _bullets_under_no_category(body)
+        ]
+        assert not offenders, (
+            f"{path.name} bullets sit under no category heading:\n  "
+            + "\n  ".join(offenders)
+        )
+
+    def test_only_the_six_category_names_are_used(self, path: Path) -> None:
+        """The vocabulary is closed: no ``### Deleted``, no ``### Notes``."""
+        offenders = [
+            f"{heading}: {sorted(_unknown_headings(body))}"
+            for heading, body in _sections(path)
+            if _unknown_headings(body)
+        ]
+        assert not offenders, (
+            f"{path.name} uses headings outside the six categories "
+            f"({', '.join(CATEGORIES)}):\n  " + "\n  ".join(offenders)
+        )
+
+    def test_no_category_heading_is_empty(self, path: Path) -> None:
+        """A heading with nothing under it reads as a category with no entries."""
+        offenders = [
+            f"{heading}: {_empty_categories(body)}"
+            for heading, body in _sections(path)
+            if _empty_categories(body)
+        ]
+        assert not offenders, (
+            f"{path.name} category headings hold no bullet:\n  "
+            + "\n  ".join(offenders)
+        )
+
+    def test_an_empty_section_is_the_unreleased_one(self, path: Path) -> None:
+        """Only ``[Unreleased]`` may be empty; a released version is a record."""
+        offenders = [
+            heading
+            for heading, body in _sections(path)
+            if not _bullet_count(body) and not heading.startswith("## [Unreleased]")
+        ]
+        assert not offenders, (
+            f"{path.name} released sections hold no bullets at all:\n  "
+            + "\n  ".join(offenders)
+        )
+
+
+class TestChangelogCategoryLockCanFail:
+    """The category lock is proved able to fail where the defect lived.
+
+    Kept as tests rather than a one-off run: the checkers are fed the shapes
+    that must be rejected, and one that must be accepted, so a rule that
+    silently stopped matching cannot pass as enforcement.
+    """
+
+    def test_it_rejects_a_flat_section(self) -> None:
+        """The flat shape is 2.4.2's real body, which shipped as one list."""
+        flat = (
+            "## [2.4.2] - 2026-11-04\n\n"
+            "- **WMA files are reported as unsupported.** It is refused.\n"
+        )
+        heading, body = _sections_in(flat)[0]
+
+        assert heading == "## [2.4.2] - 2026-11-04"
+        assert _category_headings(body) == set()
+        assert _bullets_under_no_category(body) == [
+            "- **WMA files are reported as unsupported.** It is refused."
+        ]
+
+    def test_it_rejects_an_unknown_heading(self) -> None:
+        """``### Deleted`` is outside the closed vocabulary."""
+        assert _unknown_headings(["### Deleted", ""]) == {"### Deleted"}
+
+    def test_it_rejects_an_empty_category(self) -> None:
+        """A heading with no bullet under it is not a category."""
+        assert _empty_categories(["### Added", ""]) == ["### Added"]
+
+    def test_it_accepts_a_bullet_under_a_category(self) -> None:
+        """The positive control: the checker is not simply always angry."""
+        assert _bullets_under_no_category(["### Fixed", "", "- **A fix.** Ok."]) == []

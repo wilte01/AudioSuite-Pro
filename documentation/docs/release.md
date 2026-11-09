@@ -38,6 +38,14 @@ must hold at least one bullet; the technical one may legally hold nothing, and a
 release with no developer-facing change adds no heading there rather than an
 empty section.
 
+Entries sit under a **category heading** — `### Added`, `### Changed`,
+`### Deprecated`, `### Removed`, `### Fixed`, `### Security`, in that order —
+and every bullet belongs to exactly one of them. The bold lead-in picks it: a
+bullet that adds a report *and* repairs a missing one is **Fixed**, because its
+subject is the repaired contract. Only `[Unreleased]` may hold no bullets
+(`Nothing yet.`); every released section carries at least one category, and
+`tests/test_changelog_format.py` refuses a flat one.
+
 ## The two runs
 
 A cut is the same command twice, and that is deliberate: a tag has to point at a

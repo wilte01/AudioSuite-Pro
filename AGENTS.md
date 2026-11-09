@@ -1076,9 +1076,23 @@ sits in — not its wording and not its size:
   `workflow`, `ruff`, `mypy`, `coverage`, `benchmark`, `lint`), and every
   allowlist entry records its reason. A bullet that mixes the two is **split**:
   the user-observable statement stays, its evidence moves.
+- **Every released section is grouped under the six Keep a Changelog
+  categories**, in this order: `### Added`, `### Changed`, `### Deprecated`,
+  `### Removed`, `### Fixed`, `### Security`. The vocabulary is closed - a
+  section may not invent `### Deleted`, `### Notes` or a typo - every bullet
+  sits under one, no category heading is empty, and only `[Unreleased]` may hold
+  no bullets at all ("Nothing yet."); a released version with none is a bug.
+  **The bold lead-in decides the category**, as it decides the audience: a
+  bullet that adds a report *and* repairs a missing one is `Fixed`, because its
+  subject is the repaired contract. `tests/test_changelog_format.py`'s
+  `TestChangelogCategories` is the arbiter, and `utilities/release.py` runs the
+  gate in the same cut, so a flat section cannot ship.
 - Evidence: `PLAN_functional_backlog.md` U2 and D29. The 2.2.0 and 2.1.7 sections
   each carried a bullet for the release gate or a test's skip condition between
   bullets a user cares about, and nothing separated the two audiences.
+- Evidence: `PLAN_2026-11-08_changelog_categories.md`. The five sections from
+  2.4.1 forward - 70 bullets - were promoted flat because `promote_changelog`
+  copies the `[Unreleased]` body verbatim and nothing asked for a category.
 
 ## User Guides Follow the Change
 

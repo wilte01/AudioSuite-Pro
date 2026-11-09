@@ -14,7 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Versions of the tools are released together with the suite (the single
 `version` in `pyproject.toml` covers the whole distribution).
 
+Each released section is grouped under `### Added`, `### Changed`,
+`### Deprecated`, `### Removed`, `### Fixed` or `### Security`, in that order,
+and every bullet belongs to exactly one of them.
+
 ## [Unreleased]
+
+### Changed
 
 - **The Utilities tab is grouped, and it is alphabetical inside each group.**
   Nineteen cards sat in one flat list whose order was the manifest's own
@@ -37,6 +43,8 @@ Versions of the tools are released together with the suite (the single
   after the tag rewrites), so grouping only adds headings and never moves a
   tool. A sequential batch therefore runs exactly what it ran before.
 
+### Fixed
+
 - **The Master Driver guide lists every utility.** Its Utility Tools section
   named ten of the eighteen, and filed Lyrics Manager under Utility although
   the tool belongs to Enrich. The section is now one list per group covering
@@ -44,18 +52,7 @@ Versions of the tools are released together with the suite (the single
 
 ## [2.5.0] - 2026-11-08
 
-- **Every legal file name is a legal input, everywhere.** The suite's filename
-  check accepted only letters, digits, `_`, `-`, `.` and spaces, so it called
-  names like `1-03 Johnny, Don't Do It.mp3` or `Ships Don't Disappear (Do They_).mp3`
-  unsafe — names every supported operating system accepts — while the Track
-  Splitter and the CUE splitter each kept their own copy of the character rules.
-  There is now one declaration of the characters no filesystem can hold (the
-  Windows-forbidden set plus control characters and reserved device names), and
-  the splitter, the CUE splitter and the Audio Joiner all use it. Everything
-  else survives: commas, apostrophes, brackets, `&`, `#`, `@`, `;`, `=` and
-  non-Latin script. A splitter naming pattern and a joiner output name keep
-  their punctuation, and a name the filesystem genuinely cannot hold is refused
-  with the name in the message rather than failing at the write.
+### Added
 
 - **Join recordings into one file, with a crossfade or a gap between them.** The
   new Audio Joiner (`Audio_Joiner.pyw`, `audiosuite join`) writes a folder's
@@ -102,17 +99,6 @@ Versions of the tools are released together with the suite (the single
   Metadata Scrubber guide shows a scrub run and the Genre Sync guide a genre
   resolution, never another tool's output.
 
-- **Guides show emphasis instead of asterisks.** Section references written in italics
-  used to reach the Word copies as literal `*text*`; they now appear as bold text. The
-  Duplicate Finder, Restoration, Tag Editor, Tag Field Updater and CLI reference pages
-  are the ones that carried them.
-  A guide the Help button opens therefore shows the controls, the worker slots,
-  the per-file status lines and the finished summary it describes, with a
-  caption beneath each figure, and the same picture renders in the Word copy as
-  in the Markdown source. Each figure shows the whole window, so a control
-  docked along the bottom edge — BPM Analyzer's Begin button, for one — is in
-  the picture rather than cropped away.
-
 - **Album loudness normalisation in Audio Refinery.** The Normalise stage gains an
   **Album loudness** option and a `--album-mode` flag. When it is on the folder is
   measured once as a single album — ReplayGain's own definition of album loudness —
@@ -141,7 +127,35 @@ Versions of the tools are released together with the suite (the single
   file's end fails that file with both lengths in the message, and a range flag
   without `--trim-mode exact` is refused instead of ignored.
 
+### Fixed
+
+- **Every legal file name is a legal input, everywhere.** The suite's filename
+  check accepted only letters, digits, `_`, `-`, `.` and spaces, so it called
+  names like `1-03 Johnny, Don't Do It.mp3` or `Ships Don't Disappear (Do They_).mp3`
+  unsafe — names every supported operating system accepts — while the Track
+  Splitter and the CUE splitter each kept their own copy of the character rules.
+  There is now one declaration of the characters no filesystem can hold (the
+  Windows-forbidden set plus control characters and reserved device names), and
+  the splitter, the CUE splitter and the Audio Joiner all use it. Everything
+  else survives: commas, apostrophes, brackets, `&`, `#`, `@`, `;`, `=` and
+  non-Latin script. A splitter naming pattern and a joiner output name keep
+  their punctuation, and a name the filesystem genuinely cannot hold is refused
+  with the name in the message rather than failing at the write.
+
+- **Guides show emphasis instead of asterisks.** Section references written in italics
+  used to reach the Word copies as literal `*text*`; they now appear as bold text. The
+  Duplicate Finder, Restoration, Tag Editor, Tag Field Updater and CLI reference pages
+  are the ones that carried them.
+  A guide the Help button opens therefore shows the controls, the worker slots,
+  the per-file status lines and the finished summary it describes, with a
+  caption beneath each figure, and the same picture renders in the Word copy as
+  in the Markdown source. Each figure shows the whole window, so a control
+  docked along the bottom edge — BPM Analyzer's Begin button, for one — is in
+  the picture rather than cropped away.
+
 ## [2.4.3] - 2026-11-06
+
+### Changed
 
 - **Library Statistics Dashboard works in one window of seven tabs.** Setup
   holds the folder, the scan mode and the actions; Processing shows a scan's
@@ -152,6 +166,19 @@ Versions of the tools are released together with the suite (the single
   Scan, or Direct Scan for no cache, with Refresh still starting a full scan in
   one click. The window's title bar and the tab strip reflect the rest of the
   suite.
+
+- **File Reorganizer works in one window of three tabs.** Setup holds the source
+  directory with its Mode / Auto Start / Auto End strip, the presets, the
+  destination, the Copy/Move choice and both pattern templates; the planned
+  paths, a progress bar and the four counters are on Processing; a Results tab
+  replaces the old completion dialog and adds View Log and Open Folder. Dry Run
+  is now the Mode selector and still starts selected, so Execute stays
+  read-only until you switch to Live Update. Launching it from the Master
+  Driver now fills in the `--live`, `--start` and `--end` options instead of
+  ignoring them, and saved presets — including ones saved before this change —
+  still restore the dry-run state.
+
+### Fixed
 
 - **Every scan writes a report, and View Log opens it.** A scan now writes
   `library_stats_scan_log.txt` into the folder it scanned: the mode and cache
@@ -169,18 +196,6 @@ Versions of the tools are released together with the suite (the single
   reached `logs/file_reorganizer.log`, the program's diagnostic log — so View
   Log answered "No log file available yet" even after a live copy.
 
-- **File Reorganizer works in one window of three tabs.** Setup holds the source
-  directory with its Mode / Auto Start / Auto End strip, the presets, the
-  destination, the Copy/Move choice and both pattern templates; the planned
-  paths, a progress bar and the four counters are on Processing; a Results tab
-  replaces the old completion dialog and adds View Log and Open Folder. Dry Run
-  is now the Mode selector and still starts selected, so Execute stays
-  read-only until you switch to Live Update. Launching it from the Master
-  Driver now fills in the `--live`, `--start` and `--end` options instead of
-  ignoring them, and saved presets — including ones saved before this change —
-  still restore the dry-run state.
-
-
 - **The Master Driver's failure dialog says why a tool did not start.** A tool
   that refused its arguments — a source folder that no longer exists, for
   example — used to reach you as `Module failed: Library Statistics Dashboard
@@ -191,6 +206,8 @@ Versions of the tools are released together with the suite (the single
 
 ## [2.4.2] - 2026-11-04
 
+### Changed
+
 - **WMA files are reported as unsupported by Tag Field Updater.**
   Rewriting a `.wma` file's genre fields needed an ASF tag writer the
   suite's shared tag layer does not have, so the tool now leaves the file
@@ -200,11 +217,7 @@ Versions of the tools are released together with the suite (the single
 
 ## [2.4.1] - 2026-11-04
 
-- **Undo no longer lists a file whose tag write failed.** A tagging tool that
-  could not write a file still added it to the run's undo list, so Undo offered a
-  file it could do nothing for — and reverting it only rewrote the tags the file
-  already had. The failed file is now reported as an error and left out of the
-  undo list; files the same run did change are unaffected.
+### Added
 
 - **WMA is now a first-class format, not a converter-only one.** Every tool
   that lists the suite's formats now finds and converts `.wma` files, which
@@ -212,9 +225,19 @@ Versions of the tools are released together with the suite (the single
   produces a real Windows Media Audio file (wmav2 audio in an ASF container);
   tag writing is not offered yet, so a tagging tool reports the file as
   skipped rather than damaging it.
+
 - **Raw AAC (`.aac`) is recognised as an input.** Such files are listed and
   converted; tags are not written, because raw ADTS carries no usable tag
   block. Use `.m4a` when tags matter.
+
+### Fixed
+
+- **Undo no longer lists a file whose tag write failed.** A tagging tool that
+  could not write a file still added it to the run's undo list, so Undo offered a
+  file it could do nothing for — and reverting it only rewrote the tags the file
+  already had. The failed file is now reported as an error and left out of the
+  undo list; files the same run did change are unaffected.
+
 - **An unsupported target extension is refused.** Previously the shared
   export path silently wrote MP3 audio into a file named for the other
   extension, so a file could open fine while its name and its audio

@@ -10,7 +10,13 @@ heading that is absent here means that release carried no developer-facing
 change, which is why a release with none adds no heading rather than an empty
 one.
 
+Each released section is grouped under `### Added`, `### Changed`,
+`### Deprecated`, `### Removed`, `### Fixed` or `### Security`, in that order,
+and every bullet belongs to exactly one of them.
+
 ## [Unreleased]
+
+### Added
 
 - **The Utilities tab's grouping is manifest data with two locks.**
   `ToolManifest` gains `group` (a `UTILITY_GROUPS` key) and
@@ -25,6 +31,8 @@ one.
   `tests/test_utilities_window.py` freezes the rendered order, the caption
   geometry and the plugin section's position. The README tool index and the
   docs index were regenerated from the new order.
+
+### Changed
 
 - **The Enrich tab's grouping reuses the Utilities splitter, not a copy.**
   `tool_plugin.grouped_sections()` is the one implementation behind both tabs;
@@ -58,7 +66,32 @@ one.
   does not (`PLAN_2026-11-08_enrich_card_grouping.md` D-08). The changed-in
   baseline was re-recorded with it: 2.6.0 holds 24 note lines of the 1,683.
 
+- **The change history is categorised again, and the categories are a lock.**
+  The five sections from 2.4.1 forward - `[Unreleased]`, 2.5.0, 2.4.3, 2.4.2
+  and 2.4.1 - had been promoted as flat bullet lists: `promote_changelog`
+  copies the `[Unreleased]` body verbatim and nothing required a category, so
+  70 bullets (20 user-facing, 50 technical) reached the files without one. They
+  are now grouped under `### Added`/`### Changed`/`### Removed`/`### Fixed` by
+  an explicit per-bullet map, with the bullet text byte-identical before and
+  after (206 and 133 bullet texts compared, only whole blocks moved); the
+  category is decided by the bold lead-in, the rule the audience lock already
+  uses. `tests/test_changelog_format.py::TestChangelogCategories` closes the
+  gap: a section with bullets must carry a category, every bullet must sit
+  under one, the six Keep a Changelog names are the only legal headings, no
+  category may be empty, an empty section must be `[Unreleased]`, and a
+  non-vacuity floor plus a proof-it-fails case keep the scan honest. The
+  mapping rule is in `AGENTS.md` (*Change History Follows Its Audience*),
+  `documentation/docs/release.md` and both file headers; the changed-in
+  baseline was re-recorded with it (2.6.0 now holds 25 note lines). The four
+  release pages whose bodies had gone flat - 2.4.1, 2.4.2, 2.4.3 and 2.5.0 -
+  were then republished from the grouped sections and read back equal from the
+  API; the eight pages from 2.4.0 back already matched, so the check measured
+  the drift instead of assuming it (`PLAN_2026-11-08_changelog_categories.md`
+  D-07).
+
 ## [2.5.0] - 2026-11-08
+
+### Added
 
 - **The suite finds its own files from one root.** It was derived nine times -
   `Path(__file__).parent.parent` in the config and logging modules,
@@ -74,54 +107,6 @@ one.
   `fpcalc.exe` are located through it too, and the reuse lock fails on a
   module that goes back to matching a directory name.
 
-- **The hand-built-path rule covers every binary the suite ships.** It named
-  only `ffmpeg` and `ffprobe`, so a module could join its own path to
-  `fpcalc.exe` or `discid.dll` and pass the sweep that catches exactly that
-  shape one binary over. `BINARY_FILE_NAMES` gains `fpcalc`, `fpcalc.exe` and
-  `discid.dll`; the two sites that legitimately name a shipped copy carry a
-  reason instead of a workaround - the Fingerprinter's committed
-  `fpcalc.exe` (its last resort after the shared search) and `CD_Ripper.pyw`'s
-  `discid.dll` (`ctypes` needs a DLL path, which `search_binary`, answering
-  executables by name, cannot supply).
-
-- **The reuse lock reads the launchers, and the launchers lost their third
-  dialog copy.** The sweep walked `*.py`, so all 31 `.pyw` launchers were
-  outside every rule - as they are outside ruff, mypy and bandit, which take
-  `*.py` only. It now walks `*.pyw` too, and a new rule fails on a module that
-  builds a Tk root, hides it and calls `showerror`, which is how three copies
-  of the launcher error dialog had accumulated. `File_Reorganizer.pyw` and
-  `Tag_Field_Updater.pyw` call
-  `audio_suite_shared.launch_failure.show_error_dialog` instead: it destroys
-  the root it created, returns the exception when Tk itself fails so the
-  caller can log the traceback, and leaves the original failure reportable.
-  The existing launcher behaviour lock (dialog failure logged with a
-  traceback, working dialog silent) is unchanged and still passes.
-
-- **The other packaged binary uses the shared search, and the third reuse rule
-  closed the gap that let a dead lookup survive.** `audio_suite_shared`'s
-  resolver now exposes `search_binary(name)`, and the Fingerprinter's
-  `resolve_fpcalc` calls it instead of asking `PATH` itself: the precedence
-  (explicit path, `FPCALC`, then the search, then the committed
-  `fpcalc.exe`) is unchanged, but a one-file build now finds the copy
-  unpacked into `sys._MEIPASS` rather than the one beside the checkout.
-  FFmpeg's own `C:\ffmpeg\bin` became a parameter, so it can never answer for
-  a binary that is not FFmpeg. The ReplayGain analyzer's
-  `get_resource_path` — a bundle-aware helper whose last caller converged on
-  D-39 — is gone, with the test that asserted it returned a string, and the
-  reuse lock now fails on any shipped module outside the resolver that reads
-  `sys._MEIPASS`.
-
-- **The reuse lock sees the second way a module can pick FFmpeg.** It only
-  recognised `shutil.which("ffmpeg")`, so the ReplayGain analyzer's
-  `get_resource_path("ffmpeg.exe")` plus `os.path.exists` passed the sweep that
-  found every other copy. `_joins_a_binary_path` now flags a spelled-out
-  binary name handed to a path builder - `os.path.join`, `Path`, a
-  `get_resource_path`-style helper, `exists`/`isfile` - including the `Path /`
-  division form, while deliberately leaving `run_secure_subprocess("ffmpeg",
-  args)` alone: naming the binary the wrapper runs is not a lookup. The
-  self-check drives the exact shape that slipped through, so the lock cannot
-  pass by only knowing the form it already caught.
-
 - **One FFmpeg resolver for the suite.** `audio_suite_shared/ffmpeg.py` now
   owns the binary lookup: `FFMPEG_PATH`/`FFPROBE_PATH` for callers that need
   an argv[0], `find_ffmpeg()`/`find_ffprobe()` answering None so a caller that
@@ -136,15 +121,6 @@ one.
   cannot appear quietly, and `audio_suite_shared/tests/test_ffmpeg.py` (moved
   with the resolver) keeps the three discovery sources, the executable-file
   gate and the patch-leak lock, plus new FFprobe coverage.
-
-- **The ReplayGain analyzer runs the shared FFmpeg.** Its
-  `core/ffmpeg_metrics.py` had the last hand-rolled lookup in the tree: a
-  Windows-only `ffmpeg.exe` beside `core/`, the bare name everywhere else. It
-  now returns `FFMPEG_PATH`, and the frozen-bundle directory that branch was
-  really for (`sys._MEIPASS`) joined the shared search order instead, so a
-  one-file build finds its bundled binary and every other tool gains the
-  source. The platform matrix loses that branch - it no longer exists - and
-  drops from 33 rows to 32.
 
 - **One implementation per capability, and a lock that keeps it that way.**
   `tests/test_shared_code_reuse.py` reads the shipped runtime and fails when a
@@ -170,15 +146,6 @@ one.
   the silence it should have cut, that the durations sum to the source, and that
   the written CUE re-parses to the plan's offsets within one CD frame (13 ms) -
   the format's own quantisation, not a tolerance chosen to pass.
-- **The plan no longer writes leading or trailing silence as a track.** A file
-  that opens with room tone produced a first track of pure silence; the plan now
-  clips to the first and last interior gap and refuses a wholly silent source
-  with `AudioConfigValueError`. `SplitOutcome.discarded_ms` carries the
-  difference into the run report.
-- **`AppState.__init__` grew past ruff's statement budget (PLR0915, 116 > 110),**
-  so the three tools that own option variables (Track Splitter, ASX extractor,
-  restoration) moved into `_init_tool_option_vars`; behaviour is unchanged and
-  nothing was suppressed.
 
 - **Guide figures: one capture step, one renderer block, two locks.** A guide can
   embed `![caption](images/x.png)`. `utilities/build_user_guides.py` renders it
@@ -238,6 +205,70 @@ one.
   to before, and the panel is re-synced after a CLI or preset load so a driven
   launch cannot display silence beside a range trim.
 
+### Changed
+
+- **The hand-built-path rule covers every binary the suite ships.** It named
+  only `ffmpeg` and `ffprobe`, so a module could join its own path to
+  `fpcalc.exe` or `discid.dll` and pass the sweep that catches exactly that
+  shape one binary over. `BINARY_FILE_NAMES` gains `fpcalc`, `fpcalc.exe` and
+  `discid.dll`; the two sites that legitimately name a shipped copy carry a
+  reason instead of a workaround - the Fingerprinter's committed
+  `fpcalc.exe` (its last resort after the shared search) and `CD_Ripper.pyw`'s
+  `discid.dll` (`ctypes` needs a DLL path, which `search_binary`, answering
+  executables by name, cannot supply).
+
+- **The reuse lock reads the launchers, and the launchers lost their third
+  dialog copy.** The sweep walked `*.py`, so all 31 `.pyw` launchers were
+  outside every rule - as they are outside ruff, mypy and bandit, which take
+  `*.py` only. It now walks `*.pyw` too, and a new rule fails on a module that
+  builds a Tk root, hides it and calls `showerror`, which is how three copies
+  of the launcher error dialog had accumulated. `File_Reorganizer.pyw` and
+  `Tag_Field_Updater.pyw` call
+  `audio_suite_shared.launch_failure.show_error_dialog` instead: it destroys
+  the root it created, returns the exception when Tk itself fails so the
+  caller can log the traceback, and leaves the original failure reportable.
+  The existing launcher behaviour lock (dialog failure logged with a
+  traceback, working dialog silent) is unchanged and still passes.
+
+- **The other packaged binary uses the shared search, and the third reuse rule
+  closed the gap that let a dead lookup survive.** `audio_suite_shared`'s
+  resolver now exposes `search_binary(name)`, and the Fingerprinter's
+  `resolve_fpcalc` calls it instead of asking `PATH` itself: the precedence
+  (explicit path, `FPCALC`, then the search, then the committed
+  `fpcalc.exe`) is unchanged, but a one-file build now finds the copy
+  unpacked into `sys._MEIPASS` rather than the one beside the checkout.
+  FFmpeg's own `C:\ffmpeg\bin` became a parameter, so it can never answer for
+  a binary that is not FFmpeg. The ReplayGain analyzer's
+  `get_resource_path` — a bundle-aware helper whose last caller converged on
+  D-39 — is gone, with the test that asserted it returned a string, and the
+  reuse lock now fails on any shipped module outside the resolver that reads
+  `sys._MEIPASS`.
+
+- **The reuse lock sees the second way a module can pick FFmpeg.** It only
+  recognised `shutil.which("ffmpeg")`, so the ReplayGain analyzer's
+  `get_resource_path("ffmpeg.exe")` plus `os.path.exists` passed the sweep that
+  found every other copy. `_joins_a_binary_path` now flags a spelled-out
+  binary name handed to a path builder - `os.path.join`, `Path`, a
+  `get_resource_path`-style helper, `exists`/`isfile` - including the `Path /`
+  division form, while deliberately leaving `run_secure_subprocess("ffmpeg",
+  args)` alone: naming the binary the wrapper runs is not a lookup. The
+  self-check drives the exact shape that slipped through, so the lock cannot
+  pass by only knowing the form it already caught.
+
+- **The ReplayGain analyzer runs the shared FFmpeg.** Its
+  `core/ffmpeg_metrics.py` had the last hand-rolled lookup in the tree: a
+  Windows-only `ffmpeg.exe` beside `core/`, the bare name everywhere else. It
+  now returns `FFMPEG_PATH`, and the frozen-bundle directory that branch was
+  really for (`sys._MEIPASS`) joined the shared search order instead, so a
+  one-file build finds its bundled binary and every other tool gains the
+  source. The platform matrix loses that branch - it no longer exists - and
+  drops from 33 rows to 32.
+
+- **`AppState.__init__` grew past ruff's statement budget (PLR0915, 116 > 110),**
+  so the three tools that own option variables (Track Splitter, ASX extractor,
+  restoration) moved into `_init_tool_option_vars`; behaviour is unchanged and
+  nothing was suppressed.
+
 - **Album-mode locks, and the 2.5.0 note window (F-E1).** The plan named its
   Refinery lock `test_album_mode.py`, which `tests/test_test_file_naming.py` would
   reject against its frozen allowlist; the locks therefore live in
@@ -248,7 +279,17 @@ one.
   re-baselined to the 2.4.3 release commit with the `Changed in 2.5.0` marker, and
   `tests/data/changed_in_baseline.json` records the window's note ceiling.
 
+### Fixed
+
+- **The plan no longer writes leading or trailing silence as a track.** A file
+  that opens with room tone produced a first track of pure silence; the plan now
+  clips to the first and last interior gap and refuses a wholly silent source
+  with `AudioConfigValueError`. `SplitOutcome.discarded_ms` carries the
+  difference into the run report.
+
 ## [2.4.3] - 2026-11-06
+
+### Added
 
 - **The per-file change notes have a recorded ceiling (WP-10 C-I2).** Every
   changed code file carries a `Changed in <version>:` note, and with the cleanup
@@ -269,18 +310,6 @@ one.
   threshold, and it exits `2` only when a payload cannot produce a table, so a
   missing or malformed report can never publish an empty table that reads like
   a healthy one.
-
-- **The conversion re-export shim and two ignored `config_path` parameters are
-  gone (WP-10 C-I7).** `audio_refinery/core/convert.py` re-exported
-  `audio_suite_shared.audio_conversion` for backward compatibility, and
-  `pipeline.py` was its only importer; the shim and its two-test lock
-  (`TestConvertReExports`) are deleted together, and the pipeline imports the
-  helpers from their canonical module. `tempo_analyzer.utils.config`
-  (`load_scheme`/`save_scheme`) and
-  `mood_analysis_batch_tagger.utils.config` (`load_run_mode`/`save_run_mode`)
-  accepted a `config_path` argument they never read, so a caller could pass one
-  path and have the shared suite config written instead; both signatures are
-  now free of it, with every call site updated.
 
 - **The package-data declaration is checked against the package and the wheel
   in both directions (WP-10 C-I6a).** The wheel test hard-coded two file names,
@@ -319,6 +348,40 @@ one.
   assertion and requires mypy to reject it, so the lock cannot pass with `Any`
   standing in for the annotations. `py.typed` joins the release-note lock's
   declared exception categories: the marker has no comment syntax.
+
+- **The run-report contract is a rule with an artefact lock.** `AGENTS.md` gains
+  *Run Reports vs Program Logs* — which file View Log opens, the report's shape
+  and location, why `_log_path` is empty until a run names its report, and that
+  a program log is never the target — plus three bug-hunt rules drawn from the
+  same defect: read the working sibling before designing a fix, a fallback that
+  silences a symptom is not a fix, and a test that passes on the unfixed tree
+  locks nothing. `tests/test_suite_app_contract.py` now drives each shell
+  adopter's completion and reads the report back from disk, so a tool that only
+  assigns `_log_path` fails instead of passing.
+
+- **One batch-window shell.** `audio_suite_shared/suite_app.py` adds
+  `SuiteApp`, which composes the window every batch transformer built by hand:
+  the Help bar, the notebook, the shared Processing tab
+  (`ui_common.build_processing_tab`, worker grid included) and Results tab
+  (`build_results_tab`), and the progress/complete/error handlers, all obeying
+  the callback contract. A tool supplies its identity (`title`, `window_key`,
+  `program_name`, `guide_name`, `completion_text`), its worker slots and
+  `_build_setup_tab(parent)`; it overrides a payload handler only where the
+  payload is its own and calls `super()` for the shell's tail.
+  `music_format_converter` is the first adopter: its own `_build_ui`, Help bar,
+  notebook, three tab frames, Processing/Results wiring and its
+  `_open_log`/`_open_output_folder`/`_on_error` copies and its now-unreferenced
+  `ui/processing_tab.py`/`ui/results_tab.py` wrappers are gone (the shared
+  builders render those tabs, so the wrappers lost every importer), while its
+  report, presets, CLI handling, validation and run note are unchanged.
+  `tests/test_suite_app_contract.py` builds each adopter's real window and
+  locks the declared tabs, the shared Processing/Results widgets, the
+  Help/View Log/Open Folder wiring (invoked, not read from `cget("command")`),
+  the Mode/Auto Start/Auto End controls, the single title and the identity the
+  shell receives; its `MIGRATED` table is frozen and a tool that reintroduces
+  its own `_build_ui` fails it.
+
+### Changed
 
 - **Complexity ceiling adopted and the four worst functions restructured (WP-9
   §3.3).** `PLR0912`/`PLR0915` are selected with limits set just above the
@@ -393,7 +456,6 @@ one.
   targets followed the code they patch (`ui_tabs.run_secure_subprocess`,
   `ui_dialogs._log`); no assertion changed. API docs gained the four modules.
 
-
 - **`library_stats` adopts the shell (WP-8 order #3).** `LibraryStatsApp` now
   extends `SuiteApp`: the toolbar, status bar and hand-built four-tab notebook
   are gone, the shell supplies Help, Setup/Processing/Results and both callback
@@ -418,38 +480,6 @@ one.
   *Registering a New Tool* gains item 12: write the run report, name it in
   `_log_path` when a run starts, and lock it with a test that reads the file.
 
-- **The run-report contract is a rule with an artefact lock.** `AGENTS.md` gains
-  *Run Reports vs Program Logs* — which file View Log opens, the report's shape
-  and location, why `_log_path` is empty until a run names its report, and that
-  a program log is never the target — plus three bug-hunt rules drawn from the
-  same defect: read the working sibling before designing a fix, a fallback that
-  silences a symptom is not a fix, and a test that passes on the unfixed tree
-  locks nothing. `tests/test_suite_app_contract.py` now drives each shell
-  adopter's completion and reads the report back from disk, so a tool that only
-  assigns `_log_path` fails instead of passing.
-
-- **One batch-window shell.** `audio_suite_shared/suite_app.py` adds
-  `SuiteApp`, which composes the window every batch transformer built by hand:
-  the Help bar, the notebook, the shared Processing tab
-  (`ui_common.build_processing_tab`, worker grid included) and Results tab
-  (`build_results_tab`), and the progress/complete/error handlers, all obeying
-  the callback contract. A tool supplies its identity (`title`, `window_key`,
-  `program_name`, `guide_name`, `completion_text`), its worker slots and
-  `_build_setup_tab(parent)`; it overrides a payload handler only where the
-  payload is its own and calls `super()` for the shell's tail.
-  `music_format_converter` is the first adopter: its own `_build_ui`, Help bar,
-  notebook, three tab frames, Processing/Results wiring and its
-  `_open_log`/`_open_output_folder`/`_on_error` copies and its now-unreferenced
-  `ui/processing_tab.py`/`ui/results_tab.py` wrappers are gone (the shared
-  builders render those tabs, so the wrappers lost every importer), while its
-  report, presets, CLI handling, validation and run note are unchanged.
-  `tests/test_suite_app_contract.py` builds each adopter's real window and
-  locks the declared tabs, the shared Processing/Results widgets, the
-  Help/View Log/Open Folder wiring (invoked, not read from `cget("command")`),
-  the Mode/Auto Start/Auto End controls, the single title and the identity the
-  shell receives; its `MIGRATED` table is frozen and a tool that reintroduces
-  its own `_build_ui` fails it.
-
 - **The reorganiser adopts the shell, and its scan thread stops touching Tk.**
   `file_reorganizer/app.py` is now a `SuiteApp` adopter: the single-pane
   composer is gone, the Setup tab carries the run-controls strip, presets,
@@ -465,6 +495,22 @@ one.
   but previously dropped — now reach the panel. The shared contract test gains
   the second adopter plus a per-tool process-edge stub table (`_STUB_EDGES`).
 
+### Removed
+
+- **The conversion re-export shim and two ignored `config_path` parameters are
+  gone (WP-10 C-I7).** `audio_refinery/core/convert.py` re-exported
+  `audio_suite_shared.audio_conversion` for backward compatibility, and
+  `pipeline.py` was its only importer; the shim and its two-test lock
+  (`TestConvertReExports`) are deleted together, and the pipeline imports the
+  helpers from their canonical module. `tempo_analyzer.utils.config`
+  (`load_scheme`/`save_scheme`) and
+  `mood_analysis_batch_tagger.utils.config` (`load_run_mode`/`save_run_mode`)
+  accepted a `config_path` argument they never read, so a caller could pass one
+  path and have the shared suite config written instead; both signatures are
+  now free of it, with every call site updated.
+
+### Fixed
+
 - **The reorganiser writes a run report; View Log never opens the debug log.**
   `file_reorganizer/app.py` now builds the suite's report shape —
   `FILE REORGANIZER REPORT`, `Mode: DRY RUN|LIVE UPDATE`, the run's settings, a
@@ -478,7 +524,6 @@ one.
   written file (header, per-file lines, summary), so a writer that sets fields
   without serialising them fails.
 
-
 - **A refused launch explains itself (D-22).** `audio_suite_shared.launch_failure`
   now records why a launcher exited 1, keyed by the launcher's script name — the
   one name the tool and the driver both hold, so no tool must learn a manifest
@@ -491,6 +536,8 @@ one.
   and `test_runner.py::TestRunModulesProgress`.
 
 ## [2.4.2] - 2026-11-04
+
+### Changed
 
 - **One tag layer.** `audio_suite_shared/tag_field_engine.py` is the
   suite's single field table — `FieldRule` + `FIELD_RULES` (the nine
@@ -548,19 +595,7 @@ one.
 
 ## [2.4.1] - 2026-11-04
 
-- **Broad catches are a triaged baseline.** Ruff's `BLE` rules are enabled, with
-  test trees the only `per-file-ignores` exemption. The rule flagged 55
-  production handlers that swallowed a failure with no traceback anywhere: five
-  now name the exceptions their call actually raises (`source_bit_depth` in
-  `audio_formats`, the mutagen source read in `audio_normalizer`, the stream
-  info read in `duplicate_finder`, the AccurateRip payload parse, and the
-  run-mode preference save) and the other fifty name the boundary they are.
-  `tests/test_ble_baseline.py` fails if the rule is unselected, if an exemption
-  ever matches a production path, or if an annotation loses its reason. Three
-  fault-injection locks prove outcomes rather than handler shape: a failed
-  in-place write is that file's error and the batch continues, a refused tag
-  write leaves no undo snapshot, and a narrowed tuple no longer swallows an
-  unexpected exception.
+### Added
 
 - **One driver handshake.** `audio_suite_shared/cli_helpers.py` now owns the
   grammar every child tool reads the Master Driver's argv with: a frozen
@@ -580,17 +615,42 @@ one.
   builder now emits the mode and the pair, except the ASX Extractor, whose
   argv carries it as the label its own dropdown displays.
 
-- **Dead code removed and the last slot-var clone retired.** WP-3 deletes
-  `noise_reduction/ui/setup_tab.py` (173 lines no shipped module imported
-  once the tool became a Refinery stage), the root `Tag_Field_Updater.py`
-  legacy shim (no `[project.scripts]` entry, no test, and only the `.pyw`
-  launcher is documented), and `JobStatus`/`AudioFileInfo`/
-  `ProcessingResult` from `audio_enhancer/core/models.py` (zero importers
-  once the enhancer became a stage). Both remaining local
-  `_ThreadSafeSlotVar` clones are retired behind `make_safe_slot_vars`.
-  `tests/test_ui_module_usage.py` is the new lock: it resolves every
-  import in every shipped `.py` and `.pyw` module, so a `*/ui/` module
-  nothing imports fails instead of sitting dead.
+- **One format capability matrix.** `audio_suite_shared/audio_formats.py`
+  now holds a frozen `FormatCapability` row per container in
+  `FORMAT_MATRIX`, and `SUPPORTED_EXTENSIONS`, `READ_ONLY_EXTENSIONS`,
+  `LOSSLESS_EXTENSIONS`, `COMPRESSED_EXTENSIONS`, `PYDUB_FORMAT` and
+  `_DEPTH_CODECS` are projections of it; the converter's
+  `LOSSY_FORMATS`/`LOSSLESS_FORMATS`/`ALL_FORMATS`/
+  `UNSUPPORTED_OUTPUT_FORMATS`/`OUTPUT_EXTENSIONS` derive from the same
+  table through `CODEC_TO_EXTENSION`. ALAC is classified by
+  `LOSSLESS_CODECS`, because it is a lossless codec in a lossy-capable
+  container.
+
+- **A release cut now tags the version and publishes its GitHub release page.**
+  `utilities/release.py` re-run on a clean tree whose `HEAD` declares the
+  version creates the annotated tag, pushes it and creates the release from the
+  `CHANGELOG.md` section; `--backfill-releases` publishes the tags that already
+  exist, `--no-publish` opts out and `--offline` stops at the local tag. 2.3.1
+  shipped with no tag at all, and no release in this repository had ever had a
+  Releases-page entry, because that step lived only in the release checklist.
+  The process is also described in the docs site for the first time - nothing
+  under `documentation/` had ever mentioned it.
+
+### Changed
+
+- **Broad catches are a triaged baseline.** Ruff's `BLE` rules are enabled, with
+  test trees the only `per-file-ignores` exemption. The rule flagged 55
+  production handlers that swallowed a failure with no traceback anywhere: five
+  now name the exceptions their call actually raises (`source_bit_depth` in
+  `audio_formats`, the mutagen source read in `audio_normalizer`, the stream
+  info read in `duplicate_finder`, the AccurateRip payload parse, and the
+  run-mode preference save) and the other fifty name the boundary they are.
+  `tests/test_ble_baseline.py` fails if the rule is unselected, if an exemption
+  ever matches a production path, or if an annotation loses its reason. Three
+  fault-injection locks prove outcomes rather than handler shape: a failed
+  in-place write is that file's error and the batch continues, a refused tag
+  write leaves no undo snapshot, and a narrowed tuple no longer swallows an
+  unexpected exception.
 
 - **The tag-handler factory is a leaf module.** `TagHandlerFactory`
   moved out of `tag_helper_base` into
@@ -604,27 +664,12 @@ one.
   layout (the handler case dies with `ImportError: cannot import name
   'MP3Handler' from partially initialized module`).
 
-- **One format capability matrix.** `audio_suite_shared/audio_formats.py`
-  now holds a frozen `FormatCapability` row per container in
-  `FORMAT_MATRIX`, and `SUPPORTED_EXTENSIONS`, `READ_ONLY_EXTENSIONS`,
-  `LOSSLESS_EXTENSIONS`, `COMPRESSED_EXTENSIONS`, `PYDUB_FORMAT` and
-  `_DEPTH_CODECS` are projections of it; the converter's
-  `LOSSY_FORMATS`/`LOSSLESS_FORMATS`/`ALL_FORMATS`/
-  `UNSUPPORTED_OUTPUT_FORMATS`/`OUTPUT_EXTENSIONS` derive from the same
-  table through `CODEC_TO_EXTENSION`. ALAC is classified by
-  `LOSSLESS_CODECS`, because it is a lossless codec in a lossy-capable
-  container.
-- **`get_export_args` raises instead of writing MP3.** The MP3 fallback for
-  an unknown or read-only extension encoded the source stream as MP3 into a
-  file named for another container. It now raises `AudioFormatError`, and
-  `audio_suite_shared/tests/test_audio_formats.py` holds the refusal, a
-  measured round trip for every writable row (`ffprobe` reads the codec
-  back), and the ``tag_writable``/factory agreement.
 - **The per-file change-note lock is re-baselined to the 2.4.1 window.**
   `tests/test_release_notes.py` pins `BASE_COMMIT` to `c124142` - the 2.4.0
   release commit the `v2.4.0` tag points at - and `NOTE_MARKER` to
   `Changed in 2.4.1`, following the per-release procedure its own
   docstring records, so 2.4.0's notes remain as each file's history.
+
 - **One DSP model behind the enhancement presets.** `audio_enhancer/core/models.py`
   is now a re-export of `audio_suite_shared/dsp_models.py` instead of a second
   definition: the two copies had drifted on the class default (`output_gain_db`
@@ -632,6 +677,7 @@ one.
   base whose f-string, `str()`, `format()` and `json.dumps()` all render the label on
   3.11-3.14 - and `preset_text()` is the single display accessor, used by both
   preset combos, so an enum-base change cannot rewrite a label again.
+
 - **The preset model is locked by measured audio, not field read-back.**
   `audio_enhancer/tests/test_models.py` asserts `PRESETS is` the shared table,
   compares every preset field by field, and measures the Moderate preset's
@@ -639,15 +685,28 @@ one.
   4.000 dB); 22 rendering/default locks join
   `audio_suite_shared/tests/test_dsp_models.py`.
 
-- **A release cut now tags the version and publishes its GitHub release page.**
-  `utilities/release.py` re-run on a clean tree whose `HEAD` declares the
-  version creates the annotated tag, pushes it and creates the release from the
-  `CHANGELOG.md` section; `--backfill-releases` publishes the tags that already
-  exist, `--no-publish` opts out and `--offline` stops at the local tag. 2.3.1
-  shipped with no tag at all, and no release in this repository had ever had a
-  Releases-page entry, because that step lived only in the release checklist.
-  The process is also described in the docs site for the first time - nothing
-  under `documentation/` had ever mentioned it.
+### Removed
+
+- **Dead code removed and the last slot-var clone retired.** WP-3 deletes
+  `noise_reduction/ui/setup_tab.py` (173 lines no shipped module imported
+  once the tool became a Refinery stage), the root `Tag_Field_Updater.py`
+  legacy shim (no `[project.scripts]` entry, no test, and only the `.pyw`
+  launcher is documented), and `JobStatus`/`AudioFileInfo`/
+  `ProcessingResult` from `audio_enhancer/core/models.py` (zero importers
+  once the enhancer became a stage). Both remaining local
+  `_ThreadSafeSlotVar` clones are retired behind `make_safe_slot_vars`.
+  `tests/test_ui_module_usage.py` is the new lock: it resolves every
+  import in every shipped `.py` and `.pyw` module, so a `*/ui/` module
+  nothing imports fails instead of sitting dead.
+
+### Fixed
+
+- **`get_export_args` raises instead of writing MP3.** The MP3 fallback for
+  an unknown or read-only extension encoded the source stream as MP3 into a
+  file named for another container. It now raises `AudioFormatError`, and
+  `audio_suite_shared/tests/test_audio_formats.py` holds the refusal, a
+  measured round trip for every writable row (`ffprobe` reads the codec
+  back), and the ``tag_writable``/factory agreement.
 
 ## [2.4.0] - 2026-11-02
 
