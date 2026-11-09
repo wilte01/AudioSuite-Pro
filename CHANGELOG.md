@@ -71,7 +71,9 @@ and every bullet belongs to exactly one of them.
   stages had already done was thrown away with it. The file now reports a
   skipped stage naming the reason and the formats the stage writes, is left
   untouched, and every other enabled stage still runs. A Dry Run predicts the
-  same skip instead of promising a normalisation the live run would refuse.
+  same skip instead of promising a normalisation the live run would refuse. The
+  `[SKIP]` line also shows the reason exactly as written, so format names keep
+  their capitals.
 - **The Master Driver guide lists every utility.** Its Utility Tools section
   named ten of the eighteen, and filed Lyrics Manager under Utility although
   the tool belongs to Enrich. The section is now one list per group covering

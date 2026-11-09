@@ -388,6 +388,25 @@ class TestRunPipeline:
         progress, _, _, _ = self._run(tmp_path)
         assert any("t.mp3" in r.get("display_text", "") for r in progress)
 
+    def test_the_skip_line_keeps_the_reason_verbatim(self, tmp_path):
+        """The progress line must not lowercase a reason: MP3 is not "mp3"."""
+        from audio_refinery.core.models import FileResult, FileStatus
+
+        _make_audio(tmp_path, "t.mp3")
+
+        def skipped(source_path, output_path, config, on_progress, album_plan=None):
+            return FileResult(
+                path=source_path,
+                status=FileStatus.SKIPPED,
+                error=(
+                    "the Normalise stage has no encoder for .mp4; it writes MP3, FLAC"
+                ),
+            )
+
+        progress, _, _, _ = self._run(tmp_path, mock_process_result=skipped)
+        texts = [row.get("display_text", "") for row in progress]
+        assert any("MP3, FLAC" in text for text in texts), texts
+
     def test_log_entries_in_complete(self, tmp_path):
         _make_audio(tmp_path, "t.mp3")
         _, complete, _, _ = self._run(tmp_path)

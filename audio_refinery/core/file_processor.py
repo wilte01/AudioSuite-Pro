@@ -253,7 +253,11 @@ def run_pipeline(
         if result.status == FileStatus.SKIPPED:
             skipped[0] += 1
             reason = result.error or "Already in completion registry"
-            display = f"[SKIP] {result.path.name} -- {reason.lower()}"
+            # The reason is shown verbatim: lowercasing the whole sentence
+            # turned every format name and acronym in it into "mp3", "flac"
+            # and "normalise stage" in the progress line while the run report
+            # kept the original text.
+            display = f"[SKIP] {result.path.name} -- {reason}"
             log = f"[SKIP] {result.path.name} | {reason}\n"
         elif result.status == FileStatus.ERROR:
             errors[0] += 1

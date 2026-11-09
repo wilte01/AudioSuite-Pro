@@ -40,8 +40,11 @@ and every bullet belongs to exactly one of them.
   stages on `dataclasses.replace(config, normalise=False)` so Enhancement's
   output gain is not suppressed for a normalisation that will not happen. The
   dry run reports the same reason through `_preview_normalise`, so it cannot
-  promise a write the live run skips. Locked by
-  `test_convert_and_pipeline.py::TestUnencodableContainerIsSkipped`.
+  promise a write the live run skips. The progress line now shows a skip reason
+  verbatim: `reason.lower()` had mangled every acronym and format name in it
+  while the run report kept the original. Locked by
+  `test_convert_and_pipeline.py::TestUnencodableContainerIsSkipped` and
+  `TestRunPipeline::test_the_skip_line_keeps_the_reason_verbatim`.
 - **The Normalise stage's encoder set covers integer PCM.** `.wav`/`.aiff`/`.aif`
   resolve through `audio_formats.ffmpeg_encoder_args` instead of a tuned
   `_FORMAT_CODEC` entry, and `_depth_args` re-pins the source's depth with
