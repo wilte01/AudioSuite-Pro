@@ -66,6 +66,7 @@ suggestion, and does not belong here.
 | S-4 **DONE** 2026-11-09 | Assert the built **sdist** carries the same package data. | D-30 | `package-data` feeds the wheel and the sdist, but the sdist is assembled by different include rules. `cli_schema.json` is loaded at CLI import, so an sdist install missing it fails on first use, not at install time. | ~15 min: reuse the existing staging copy, call `build_sdist`, read the tarball. | `tests/test_py_typed.py`. |
 | S-5 **DONE** 2026-11-09 | Assert the staging copy's exclusions from the **outcome**, not the filter list. | D-30 (`_build_wheel()`'s ignore patterns) | The build filters `__pycache__`, `*.pyc`, `*.pyo` by name. A new build artefact directory in the package would be copied and shipped silently, because a filter only excludes what it was told about. | Minutes: assert no namelist entry contains `__pycache__` or ends in `.pyc`. | `tests/test_py_typed.py`. |
 | S-6 | Record an audio-overwrite undo snapshot for an in-place normalisation, so Undo restores the pre-normalisation audio instead of only its tags. | The 2026-11-09 WAV/AIFF work: `audio_normalizer/core/normalizer.py` records `record_tag_edit_snapshot(file_path, "write_normalise")` before the swap, while `record_audio_overwrite_snapshot` exists for the in-place tools and stores the whole file. | The normalise rewrite replaces the audio, so after it Undo writes the old tags onto audio that has already changed — a restore that promises the file back and returns half of it. It now extends to WAV/AIFF masters, where the file is the user's own PCM copy rather than a lossy library track. | ~1-2 h: one snapshot call per write path (`normalizer.apply`, `album.apply_static_gain`), a measured test that decodes the restored file and compares it to the original bytes, and a check that the batch log's size stays sane on a large album. | `audio_normalizer/core/normalizer.py`, `audio_refinery/core/pipeline.py`; needs its own item (no open plan owns batch undo). |
+| S-7 | Give the gate one runner that decides pass/fail from bandit's **severity counts**, never its exit code. | The 2026-11-09 packaging gate printed `BANDIT=1` on a run whose summary reads 0 High / 0 Medium / 58 Low: bandit exits 1 whenever it reports any issue at any severity, and a `... | tail -n` pipeline hides the real status differently again. | A harness that calls a healthy run a failure is the "a harness that cannot fail" trap in reverse - it teaches the reader to skim past the line, which is how a real Medium finding eventually ships. | ~20 min: a stdlib-only `utilities/gate.py` running the documented commands and parsing `Total issues (by severity)`, plus a test for the parse against a captured report. | `utilities/`, beside `tests/test_tooling_targets.py`; no open plan owns it. |
 
 ## 4. Detail
 
@@ -143,6 +144,20 @@ decode the result and assert it matches the **original** bytes (or, for a
 lossless encode, the original audio) - not that a snapshot row exists. Also
 measure the batch directory's growth on a multi-file album: a full-file snapshot
 per track is the cost of this promise, and it should be known before it ships.
+
+### S-7 — the gate line that cries wolf
+
+Bandit's exit code is "issues found", not "issues above the policy". A run of the
+documented command on the shipped tree ends with `Total issues (by severity):
+Low: 58, Medium: 0, High: 0` and exit status 1, so a wrapper that tests only the
+status reports a failure on exactly the result AGENTS.md calls healthy. The same
+wrapper also loses the status entirely when it pipes the report through `tail`,
+because `$?` then belongs to `tail`.
+
+The item is to make the verdict a parsed number: run the four commands, read the
+severity block, and pass on `High: 0 / Medium: 0`. A captured report as the test
+fixture keeps the parse honest, including a Medium finding that must fail - the
+only way to know the runner can distinguish the two cases.
 
 ## 5. Decision Log
 
