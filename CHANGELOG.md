@@ -20,6 +20,20 @@ and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
+### Added
+
+- **A peak/true-peak target beside the loudness target.** The Refinery's
+  Normalise stage can now move a file by the distance between its true peak and
+  a dBTP target (`--target-mode peak --target-peak -1.0`, or the new Target row
+  on the Setup tab) instead of pushing integrated loudness to a LUFS figure. One
+  static gain is applied, so a track keeps its own dynamics and only its level
+  moves; a file already inside the tolerance is left byte-identical, and the
+  stage reports both the sample peak and the true peak it measured after the
+  write. A gain that would pass full scale is held by the limiter rather than
+  clamped. Peak mode reaches WAV and AIFF as well as the normalise encoders,
+  keeps a 24-bit source at 24 bits, and cannot be combined with Album loudness:
+  choosing one clears the other, and the command line refuses the pair.
+
 ### Changed
 
 - **The Utilities tab is grouped, and it is alphabetical inside each group.**

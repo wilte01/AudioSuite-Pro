@@ -360,6 +360,17 @@ _NORMALISE_MODE_VALUES: dict[str, str] = {
     label: mode for mode, label in _NORMALISE_MODE_LABELS.items()
 }
 
+#: The two normalisation targets, labelled for the panel (F-E2).  Keys are the
+#: values ``NormaliseParams.target_mode`` stores; the labels are what a user
+#: picks.  ``mode`` above is a different question - how the gain is applied.
+_NORMALISE_TARGET_LABELS: dict[str, str] = {
+    "lufs": "Playlist loudness (LUFS)",
+    "peak": "Peak (dBTP)",
+}
+_NORMALISE_TARGET_VALUES: dict[str, str] = {
+    label: mode for mode, label in _NORMALISE_TARGET_LABELS.items()
+}
+
 
 def _build_declick_panel(
     parent: tk.Frame,
@@ -801,6 +812,21 @@ def _build_normalise_panel(
     peak_var = tk.DoubleVar(value=p.true_peak)
     lra_var = tk.DoubleVar(value=p.lra)
     mode_var = tk.StringVar(value=_NORMALISE_MODE_LABELS.get(p.mode, ""))
+    target_mode_var = tk.StringVar(
+        value=_NORMALISE_TARGET_LABELS.get(p.target_mode, "")
+    )
+    target_peak_var = tk.DoubleVar(value=p.target_peak_dbtp)
+    # Declared here rather than in ``_extra`` because the target selector and
+    # the album checkbox exclude each other (F-E2) and each has to clear the
+    # other through the other's own write-back.
+    album_var = tk.BooleanVar(value=p.album_mode)
+
+    def _write_album(*_trace: Any) -> None:
+        p.album_mode = bool(album_var.get())
+        if p.album_mode and p.target_mode == "peak":
+            target_mode_var.set(_NORMALISE_TARGET_LABELS["lufs"])
+
+    album_var.trace_add("write", _write_album)
 
     def _write_back(*_trace: Any) -> None:
         p.target_lufs = float(target_var.get())
@@ -810,8 +836,22 @@ def _build_normalise_panel(
         mode = _NORMALISE_MODE_VALUES.get(mode_var.get())
         if mode is not None:
             p.mode = mode
+        target_mode = _NORMALISE_TARGET_VALUES.get(target_mode_var.get())
+        if target_mode is not None:
+            p.target_mode = target_mode
+        p.target_peak_dbtp = float(target_peak_var.get())
+        if p.target_mode == "peak":
+            album_var.set(False)
 
-    for _var in (target_var, tolerance_var, peak_var, lra_var, mode_var):
+    for _var in (
+        target_var,
+        tolerance_var,
+        peak_var,
+        lra_var,
+        mode_var,
+        target_mode_var,
+        target_peak_var,
+    ):
         _var.trace_add("write", _write_back)
 
     def _on_check_change(enabled: bool) -> None:
@@ -829,6 +869,61 @@ def _build_normalise_panel(
             true_peak=peak_var,
             lra=lra_var,
         )
+        # Changed in 2.6.0: the normalise target (F-E2).  Playlist loudness is
+        # the LUFS target the panel already had; Peak targets the true peak with
+        # one static gain, so the file's dynamics are left alone.
+        target_row = tk.Frame(body, bg=styles.BG_WHITE)
+        target_row.pack(fill="x", pady=(4, 0))
+        tk.Label(
+            target_row,
+            text="Target:",
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_SUB,
+            width=28,
+            anchor="w",
+        ).pack(side=tk.LEFT)
+        ttk.Combobox(
+            target_row,
+            textvariable=target_mode_var,
+            values=list(_NORMALISE_TARGET_LABELS.values()),
+            state="readonly",
+            font=styles.FONT_CAPTION,
+            width=30,
+        ).pack(side=tk.LEFT, padx=6)
+        peak_target_row = tk.Frame(body, bg=styles.BG_WHITE)
+        peak_target_row.pack(fill="x", pady=(2, 0))
+        tk.Label(
+            peak_target_row,
+            text="True peak target (dBTP):",
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_SUB,
+            width=28,
+            anchor="w",
+        ).pack(side=tk.LEFT)
+        tk.Entry(
+            peak_target_row,
+            textvariable=target_peak_var,
+            width=10,
+            font=styles.FONT_CAPTION,
+        ).pack(side=tk.LEFT, padx=6)
+        tk.Label(
+            body,
+            text=(
+                "Playlist loudness targets integrated loudness in LUFS. Peak "
+                "targets the true peak in dBTP with one static gain, so the "
+                "file's dynamics stay as they are; a gain that would pass full "
+                "scale is limited rather than clipped. Peak mode and album "
+                "loudness cannot be combined."
+            ),
+            font=styles.FONT_CAPTION,
+            fg=styles.FG_SUB,
+            bg=styles.BG_WHITE,
+            wraplength=520,
+            justify="left",
+        ).pack(anchor="w", padx=5)
+
         strategy_row = tk.Frame(body, bg=styles.BG_WHITE)
         strategy_row.pack(fill="x", pady=(4, 0))
         tk.Label(
@@ -864,12 +959,8 @@ def _build_normalise_panel(
         # Changed in 2.5.0: album mode (F-E1).  The checkbox writes the flag
         # back to the stage params the run reads; the plan itself is measured
         # when the run starts, so a Dry Run is the pass that reports the gain.
-        album_var = tk.BooleanVar(value=p.album_mode)
-
-        def _write_album(*_trace: Any) -> None:
-            p.album_mode = bool(album_var.get())
-
-        album_var.trace_add("write", _write_album)
+        # Changed in 2.6.0: its variable and trace now live at the top of the
+        # panel, because peak mode and album mode exclude each other (F-E2).
         album_row = tk.Frame(body, bg=styles.BG_WHITE)
         album_row.pack(fill="x", pady=(6, 0))
         tk.Checkbutton(

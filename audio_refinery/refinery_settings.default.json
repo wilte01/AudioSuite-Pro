@@ -57,6 +57,8 @@
     "true_peak": -1.5,
     "lra": 11.0,
     "mode": "normalise",
-    "album_mode": false
+    "album_mode": false,
+    "target_mode": "lufs",
+    "target_peak_dbtp": -1.0
   }
 }

@@ -20,6 +20,9 @@ measurement stops the run before a single file is touched.
 Changed in 2.5.0: an exact copy-mode trim is refused at the run level when
 another stage has to decode the audio (F-E3), so the run stops with the reason
 instead of every file failing one by one.
+
+Changed in 2.6.0: a peak target plans no album gain (F-E2), so the folder is
+never measured as one album for a mode that is per-file by definition.
 """
 
 from __future__ import annotations
@@ -211,7 +214,15 @@ def run_pipeline(
     # loudness is the combined signal's, so a per-worker measurement would cost
     # N concatenated decodes and produce N disagreeing answers (F-E1).
     album_plan: AlbumPlan | None = None
-    if config.normalise and config.normalise_params.album_mode:
+    # A peak target is per file (F-E2): album mode is one gain measured across
+    # the whole folder, so the two cannot describe one run.  The CLI refuses
+    # the pair; this guard stops a stale saved preset from measuring the folder
+    # for a run that will never use the plan.
+    if (
+        config.normalise
+        and config.normalise_params.album_mode
+        and config.normalise_params.target_mode == "lufs"
+    ):
         try:
             album_plan = build_album_plan(
                 [str(path) for path in files],

@@ -16,6 +16,10 @@ per-file measurement to one gain measured across the whole folder.
 Changed in 2.5.0: ``--trim-mode exact`` with ``--trim-start``/``--trim-end`` (or
 ``--trim-duration``) keeps a millisecond range instead of detected silence, and
 ``--trim-copy`` cuts it with a stream copy instead of a re-encode (F-E3).
+
+Changed in 2.6.0: ``--target-mode peak`` with ``--target-peak`` (F-E2) targets
+the true peak with one static gain instead of pushing integrated loudness to a
+LUFS figure, and the pair is refused beside ``--album-mode``.
 """
 
 from __future__ import annotations
@@ -25,7 +29,11 @@ from pathlib import Path
 
 import click
 
-from audio_refinery.core.models import NORMALISATION_MODES, TRIM_MODES
+from audio_refinery.core.models import (
+    NORMALISATION_MODES,
+    NORMALISATION_TARGET_MODES,
+    TRIM_MODES,
+)
 from audio_suite_shared.batch_undo import active_batch
 from audio_suite_shared.cli_base import (
     _opt_dir,
@@ -260,6 +268,18 @@ def _validate_trim_range(
         "global gain instead (default normalise)."
     ),
 )
+@click.option(
+    "--target-mode",
+    type=click.Choice(NORMALISATION_TARGET_MODES),
+    default="lufs",
+    help="lufs targets integrated loudness; peak targets the true peak.",
+)
+@click.option(
+    "--target-peak",
+    default=-1.0,
+    type=click.FloatRange(-9.0, 0.0),
+    help="True-peak target in dBTP for --target-mode peak (default -1.0).",
+)
 def refine(
     directory: str,
     output: str | None,
@@ -298,9 +318,19 @@ def refine(
     lra: float,
     album_mode: bool,
     normalise_mode: str,
+    target_mode: str,
+    target_peak: float,
 ) -> None:
     """Run the multi-stage audio refinement pipeline."""
     _validate_trim_range(trim_mode, trim_start, trim_end, trim_duration, trim_copy)
+    # A peak target is per file and album mode is one gain for a folder, so the
+    # pair is refused rather than letting one silently win (F-E2).
+    if target_mode == "peak" and album_mode:
+        raise click.BadParameter(
+            "--album-mode cannot be combined with --target-mode peak; "
+            "a peak target is per file",
+            param_hint="--album-mode",
+        )
 
     from audio_refinery.core.file_processor import run_pipeline
     from audio_refinery.core.models import (
@@ -351,6 +381,8 @@ def refine(
             lra=lra,
             mode=normalise_mode,
             album_mode=album_mode,
+            target_mode=target_mode,
+            target_peak_dbtp=target_peak,
         ),
         noise_reduction_params=NoiseReductionParams(
             reduce_hum=reduce_hum,

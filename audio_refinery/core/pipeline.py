@@ -65,6 +65,7 @@ import logging
 import os
 import shutil
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
@@ -73,6 +74,7 @@ from pydub import AudioSegment
 
 # Changed in 2.4.3: C-I7 removed the core/convert.py re-export shim, so the
 # conversion helpers come from their canonical home.
+from audio_suite_shared import audio_probe
 from audio_suite_shared.audio_conversion import numpy_to_segment, segment_to_numpy
 from audio_suite_shared.audio_formats import (
     preserve_depth_params,
@@ -91,6 +93,7 @@ from audio_suite_shared.exceptions import (
     map_to_audio_error,
     user_message_for,
 )
+from audio_suite_shared.ffmpeg import FFMPEG_PATH
 from audio_suite_shared.lossless_gain import apply_track_gain, is_mp3_file
 from audio_suite_shared.tag_helper import read_tags_raw, write_tags_raw
 
@@ -811,6 +814,174 @@ def _lossless_gain_applies(path: Path, config: StageConfig) -> bool:
     return config.normalise_params.mode == "lossless" and is_mp3_file(str(path))
 
 
+# ── Peak-target normalisation (F-E2) ────────────────────────────────────────
+
+#: Full scale.  A peak gain that would push a sample past this is applied
+#: through the limiter, which holds the ceiling instead of clamping the tail.
+_FULL_SCALE_DBFS = 0.0
+
+
+@dataclass(frozen=True)
+class PeakGainPlan:
+    """What the peak-target mode decided for one file.
+
+    Attributes:
+        sample_peak_dbfs: The loudest decoded sample the measurement found.
+        true_peak_dbtp: The oversampled peak the measurement found.
+        target_dbtp: The mode's target, in dBTP.
+        gain_db: ``target_dbtp - true_peak_dbtp``, the static gain to apply.
+        limited: Whether the limiter is inserted, because the gain would push a
+            sample past :data:`_FULL_SCALE_DBFS`.
+        ceiling_dbfs: The ceiling the limiter holds when ``limited``.
+    """
+
+    sample_peak_dbfs: float
+    true_peak_dbtp: float
+    target_dbtp: float
+    gain_db: float
+    limited: bool
+    ceiling_dbfs: float
+
+
+def plan_peak_gain(path: Path, config: StageConfig) -> PeakGainPlan:
+    """Measure *path* and decide the static gain its peak target needs.
+
+    The figure measured is the true peak - the oversampled one - because the
+    target is a dBTP target and a sample peak can sit below an inter-sample
+    overshoot.  The limiter decision therefore compares the *sample* peak,
+    which is what a clamp would destroy.
+
+    Raises:
+        AudioFormatError: The file cannot be measured.
+        AudioExternalToolError: FFmpeg could not be run.
+    """
+    n = config.normalise_params
+    levels = audio_probe.measure_levels(str(path), ffmpeg=FFMPEG_PATH)
+    gain_db = n.target_peak_dbtp - levels.true_peak_dbtp
+    limited = levels.sample_peak_dbfs + gain_db > _FULL_SCALE_DBFS
+    return PeakGainPlan(
+        sample_peak_dbfs=levels.sample_peak_dbfs,
+        true_peak_dbtp=levels.true_peak_dbtp,
+        target_dbtp=n.target_peak_dbtp,
+        gain_db=gain_db,
+        limited=limited,
+        ceiling_dbfs=_FULL_SCALE_DBFS,
+    )
+
+
+def _peak_message(
+    plan: PeakGainPlan,
+    *,
+    applied: bool,
+    verified: audio_probe.LevelMetrics | None = None,
+) -> str:
+    """Describe what the peak target did, naming the target that was met."""
+    if not applied:
+        return (
+            f"Peak already within tolerance ({plan.true_peak_dbtp:.1f} dBTP) "
+            "- no adjustment needed"
+        )
+    message = (
+        f"Peak-normalised from {plan.true_peak_dbtp:.1f} to "
+        f"{plan.target_dbtp:.1f} dBTP ({plan.gain_db:+.2f} dB)"
+    )
+    if verified is not None:
+        message += (
+            f"; measured {verified.true_peak_dbtp:.1f} dBTP true peak, "
+            f"{verified.sample_peak_dbfs:.1f} dBFS sample peak"
+        )
+    if plan.limited:
+        message += f", limited at {plan.ceiling_dbfs:.1f} dBFS"
+    return message
+
+
+def _apply_peak_plan(
+    path: Path,
+    plan: PeakGainPlan,
+    config: StageConfig,
+    emit: Callable[..., Any],
+    *,
+    record_snapshot: bool,
+) -> tuple[str, bool]:
+    """Apply one peak plan to *path* and report the measured outcome.
+
+    The gain is applied by ``audio_normalizer.core.album.apply_static_gain`` -
+    the suite's one static-gain applier, limiter and tag/depth path included -
+    and the result is re-measured, so the report names what the encode
+    delivered rather than what was asked for.
+    """
+    from audio_normalizer.core.album import apply_static_gain
+
+    if abs(plan.gain_db) <= config.normalise_params.tolerance:
+        message = _peak_message(plan, applied=False)
+        emit("Normalise", message)
+        return message, False
+
+    if record_snapshot:
+        record_tag_edit_snapshot(str(path), "refinery_edit")
+    emit("Normalise", f"Applying the peak gain {plan.gain_db:+.2f} dB…")
+    apply_static_gain(
+        str(path),
+        plan.gain_db,
+        limit=plan.limited,
+        true_peak_ceiling=plan.ceiling_dbfs,
+        record_snapshot=False,
+        # Peak targets are lossless-first: a WAV/AIFF source keeps its
+        # container (and its depth, pinned by the applier) instead of being
+        # refused the way album mode refuses it.
+        lossless_output=True,
+    )
+    verified = audio_probe.measure_levels(str(path), ffmpeg=FFMPEG_PATH)
+    message = _peak_message(plan, applied=True, verified=verified)
+    emit("Normalise", message)
+    return message, True
+
+
+def _run_peak_normalise(
+    path: Path,
+    config: StageConfig,
+    emit: Callable[..., Any],
+    *,
+    record_snapshot: bool,
+) -> tuple[str, bool]:
+    """Run the peak-target stage on one file."""
+    emit(
+        "Normalise",
+        f"Measuring peak (target {config.normalise_params.target_peak_dbtp:.1f} dBTP)…",
+    )
+    plan = plan_peak_gain(path, config)
+    return _apply_peak_plan(path, plan, config, emit, record_snapshot=record_snapshot)
+
+
+def _preview_peak_normalise(
+    source_path: Path, config: StageConfig, emit: Callable[..., Any]
+) -> str:
+    """Report the gain and the ceiling a peak-target run would apply."""
+    n = config.normalise_params
+    emit("Normalise", f"Measuring peak (target {n.target_peak_dbtp:.1f} dBTP)…")
+    try:
+        plan = plan_peak_gain(source_path, config)
+    except Exception as exc:  # preview must not abort the dry run
+        logger.error("Dry-run peak measurement failed: %s", exc, exc_info=True)
+        message = "Peak measurement failed - peak normalisation would be skipped"
+        emit("Normalise", message)
+        return message
+    if abs(plan.gain_db) <= n.tolerance:
+        message = (
+            f"Peak already within tolerance ({plan.true_peak_dbtp:.1f} dBTP) "
+            "- no change"
+        )
+    else:
+        message = (
+            f"Would apply {plan.gain_db:+.1f} dB to reach {plan.target_dbtp:.1f} "
+            f"dBTP (ceiling {plan.ceiling_dbfs:.1f} dBFS)"
+        )
+        if plan.limited:
+            message += ", limiting"
+    emit("Normalise", message)
+    return message
+
+
 def _normalise_message(
     loudness_data: dict[str, float] | None,
     config: StageConfig,
@@ -948,6 +1119,14 @@ def _run_normalise_stage(
         AudioProcessingError: If the stage fails; preserves the original
             exception with context ``stage="normalise"``.
     """
+    # A peak target is per file and needs no loudness measurement at all
+    # (F-E2); it runs before the album branch, which is a LUFS-only plan.
+    if config.normalise_params.target_mode == "peak":
+        try:
+            return _run_peak_normalise(tmp_path, config, emit, record_snapshot=False)
+        except Exception as exc:
+            raise _normalise_stage_error(exc) from exc
+
     if album is not None:
         try:
             return _apply_album_stage(
@@ -1015,6 +1194,12 @@ def _run_normalise_in_place(
     Raises:
         AudioProcessingError: If measuring or applying fails.
     """
+    if config.normalise_params.target_mode == "peak":
+        try:
+            return _run_peak_normalise(source_path, config, emit, record_snapshot=True)
+        except Exception as exc:
+            raise _normalise_stage_error(exc) from exc
+
     if album is not None:
         try:
             gain = _album_gain(album, album_key)
@@ -1087,6 +1272,9 @@ def _preview_normalise(
     Measures the source (never a staging copy) and names the projected
     outcome, matching the preview the standalone normalizer gives.
     """
+    if config.normalise_params.target_mode == "peak":
+        return _preview_peak_normalise(source_path, config, emit)
+
     if album is not None:
         gain = _album_gain(album, album_key)
         if abs(gain) < _ALBUM_GAIN_EPSILON_DB:

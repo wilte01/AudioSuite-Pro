@@ -56,7 +56,7 @@ When enabled, stages run in this implementation order:
 1. Noise Reduction: optionally removes mains hum and/or broadband noise using its noise profile and gate settings.
 1. Audio Enhancement: applies the Mild, Moderate, Aggressive, or Custom DSP preset; Custom adds per-effect toggles (reverse, karaoke, phaser, flanger, chorus).
 1. Export: writes the processed audio once using format-appropriate encoding settings — only when a stage changed the audio.
-1. Normalise: optionally measures loudness and applies the configured LUFS target and tolerance. When no earlier stage changed the audio, FFmpeg normalises the source directly in one pass. In album mode the whole folder is measured once, before any file is processed, and every track moves by that single gain.
+1. Normalise: optionally measures loudness and applies the configured target and tolerance — either the LUFS playlist target, or a true-peak target in dBTP. When no earlier stage changed the audio, FFmpeg normalises the source directly in one pass. In album mode the whole folder is measured once, before any file is processed, and every track moves by that single gain.
 1. Finish: restores tags, records an undo snapshot, and atomically replaces or creates the output file. A file no stage changed is left byte-identical and reported SKIPPED.
 
 ## Stage Controls
@@ -72,6 +72,8 @@ When enabled, stages run in this implementation order:
 - **Enhancement effects: **Relevant to the Custom preset: Reverse audio, Karaoke (centre-vocal removal with a 0.0-1.0 strength), Phaser, Flanger, and Chorus. Each is off by default, and the built-in Mild, Moderate, and Aggressive presets leave them off.
 - **Target LUFS: **Permitted targets are -12, -14, -16, -18, and -23 LUFS; default -14.0.
 - **Tolerance: **Default 0.5 LUFS; used by the normalization stage to avoid unnecessary adjustment when loudness is already close to target.
+- **Target: **Playlist loudness (the default) targets integrated loudness in LUFS. Peak targets the file's true peak in dBTP instead, with one static gain, so the track keeps its own dynamics and only its level moves. Peak mode and Album loudness cannot be combined: choosing one clears the other, and the command line refuses the pair.
+- **True peak target: **Default -1.0 dBTP; used by the Peak target. A gain that would push the sample peak past full scale is held by the limiter instead of being clamped, and the stage reports the sample peak and the true peak it measured after the write. A file already within the tolerance is left byte-identical.
 - **Album loudness: **Off by default. When on, the folder is measured once as one album, and every track moves by that single gain, so the album's relative levels survive instead of each track being pushed to the target. A track whose peak plus that gain would exceed the True Peak ceiling is limited on its own: only that track's gain is reduced, and the run log names it. An album already within tolerance plans no gain at all and every file is left byte-identical. A Dry Run reports the planned gain per file and writes nothing. Album mode writes through the same encoders as per-file normalisation (MP3, FLAC, OGG, M4A, Opus, WavPack, Speex), so a container with no normalise encoder is refused with the same message a per-file run gives. Tracks already recorded in the completion registry are not rewritten, so their level will not match a freshly normalised album: use Reset Progress for a whole-album run.
 
 ## Dry Run and Output Safety
@@ -108,7 +110,7 @@ python -m audio_suite_shared.cli_app refine <folder> --stages declick,enhance --
 python -m audio_suite_shared.cli_app refine <folder> --reduce-hum --hum-frequency 60 --json\
 python -m audio_suite_shared.cli_app refine <folder> --stages trim --trim-mode exact --trim-start 12000 --trim-end 30000
 
-CLI options cover output directory, dry run, stages, declick sensitivity and width, trim threshold and fades, the exact trim range (--trim-mode, --trim-start, --trim-end, --trim-duration, --trim-copy/--no-trim-copy), hum and broadband reduction, enhancement preset, the enhancement effect flags (--reverse, --karaoke/--no-karaoke, --karaoke-strength, --phaser, --flanger, --chorus), target LUFS, tolerance, true peak, LRA, the normalise strategy (--normalise-mode), album mode (--album-mode/--no-album-mode), and JSON output. If --output is omitted, results are written in place.
+CLI options cover output directory, dry run, stages, declick sensitivity and width, trim threshold and fades, the exact trim range (--trim-mode, --trim-start, --trim-end, --trim-duration, --trim-copy/--no-trim-copy), hum and broadband reduction, enhancement preset, the enhancement effect flags (--reverse, --karaoke/--no-karaoke, --karaoke-strength, --phaser, --flanger, --chorus), target LUFS, tolerance, true peak, LRA, the normalise strategy (--normalise-mode), the normalise target (--target-mode lufs|peak with --target-peak in dBTP), album mode (--album-mode/--no-album-mode), and JSON output. If --output is omitted, results are written in place.
 
 ## Master Driver Use
 

@@ -42,6 +42,10 @@ describes.
 Changed in 2.5.0: the Trim stage's exact-range fields round-trip (F-E3).  A
 missing mode reads as ``silence`` and a missing range as unset, so a file
 written before it keeps trimming detected silence.
+
+Changed in 2.6.0: the normalise target mode and its dBTP target round-trip
+(F-E2).  A missing key reads as LUFS at -1.0 dBTP, so a settings file written
+before it keeps the loudness behaviour it describes.
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -62,6 +66,7 @@ from noise_reduction.core.models import NoiseReductionParams
 
 from ..core.models import (
     NORMALISATION_MODES,
+    NORMALISATION_TARGET_MODES,
     TRIM_MODES,
     DeclickParams,
     EnhanceParams,
@@ -228,6 +233,7 @@ def _from_dict(data: dict[str, Any]) -> StageConfig:
     d = data.get("normalise_params", {})
     raw_lufs = d.get("target_lufs", _DEFAULT_TARGET_LUFS)
     stored_mode = d.get("mode", "normalise")
+    stored_target = d.get("target_mode", "lufs")
     config.normalise_params = NormaliseParams(
         target_lufs=_sanitise_target_lufs(raw_lufs),
         tolerance=d.get("tolerance", 0.5),
@@ -237,6 +243,12 @@ def _from_dict(data: dict[str, Any]) -> StageConfig:
         # a file with a mode no stage implements.
         mode=stored_mode if stored_mode in NORMALISATION_MODES else "normalise",
         album_mode=bool(d.get("album_mode", False)),
+        # Likewise an unknown target mode falls back to LUFS, which is what
+        # every run before F-E2 did.
+        target_mode=(
+            stored_target if stored_target in NORMALISATION_TARGET_MODES else "lufs"
+        ),
+        target_peak_dbtp=float(d.get("target_peak_dbtp", -1.0)),
     )
     return config
 
@@ -361,6 +373,8 @@ def _to_dict(config: StageConfig) -> dict[str, Any]:
             "lra": n.lra,
             "mode": n.mode,
             "album_mode": n.album_mode,
+            "target_mode": n.target_mode,
+            "target_peak_dbtp": n.target_peak_dbtp,
         },
     }
 

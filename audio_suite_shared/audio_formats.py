@@ -20,6 +20,9 @@ as a readable *and* writable container (measured: pydub ``asf`` + ``wmav2``
 round-trips, so the old read-only absence was a gap, not a limit), ``.aac`` is
 declared writable but untaggable, and :func:`get_export_args` refuses an unknown
 extension instead of silently writing MP3.
+Changed in 2.6.0: :func:`ffmpeg_encoder_args` exposes the matrix's own encoder,
+so a writer that must reach a container the normaliser refuses (a peak target on
+WAV/AIFF) resolves it from this one table instead of keeping a second (F-E2).
 """
 
 from __future__ import annotations
@@ -398,6 +401,37 @@ def get_export_args(ext: str) -> tuple[str, list[str]]:
             f"No export path for {ext!r}: the extension is {reason}."
         )
     return capability.pydub_format, list(capability.export_args)
+
+
+def ffmpeg_encoder_args(ext: str) -> tuple[str, list[str]]:
+    """Return the FFmpeg encoder and parameters the matrix uses for *ext*.
+
+    The Audio Normalizer's own ``_codec_args`` carries tuned settings for the
+    seven formats per-file normalisation writes and refuses the rest, so a
+    WAV/AIFF can never end up holding MP3 data.  A caller that must write one
+    of those containers *losslessly* — the Refinery's peak target, which is
+    lossless-first — resolves the codec here instead of keeping a second
+    hand-written table.  The bit-depth pin is
+    :func:`preserve_depth_params`' job, not this one's.
+
+    Args:
+        ext: File extension including the leading dot (e.g. '.wav').
+
+    Returns:
+        Tuple of FFmpeg codec name and an empty parameter list.
+
+    Raises:
+        AudioFormatError: When *ext* is unknown or the matrix has no encoder.
+    """
+    lowered = ext.lower()
+    capability = FORMAT_MATRIX.get(lowered)
+    if capability is None or not capability.writable:
+        reason = "not a writable suite container" if capability else "unknown"
+        raise AudioFormatError(f"No encoder for {ext!r}: the extension is {reason}.")
+    encoder = capability.ffmpeg_encoder
+    if encoder is None:
+        raise AudioFormatError(f"No encoder for {ext!r}: the matrix names none.")
+    return encoder, []
 
 
 #: Lossless extensions whose stream stores an integer bit depth, mapped to the

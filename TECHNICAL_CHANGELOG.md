@@ -34,6 +34,22 @@ and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **The static-gain write has one implementation and two callers.**
+  `apply_static_gain` was split out of `apply_album_gain` in
+  `audio_normalizer/core/album.py`: the limiter chain, the tag rewrite, the
+  snapshot and the depth pin stay in one place, and the Refinery's peak target
+  is the second caller rather than a second applier.
+  `audio_suite_shared.audio_formats.ffmpeg_encoder_args` (new) resolves a
+  container's own encoder from `FORMAT_MATRIX`, so a peak run can write WAV/AIFF
+  through the normaliser's codec set — which deliberately refuses those
+  containers — without a hand-written second table; the opt-in
+  `lossless_output` flag keeps album mode's refusal and encoders unchanged, and
+  `preserve_depth_params` pins the source depth on the rewrite. Git had no
+  branch here: the peak stage is a new field pair
+  (`NormaliseParams.target_mode`, `target_peak_dbtp`) and a new stage branch, and
+  `audio_refinery/tests/test_peak_normalise.py` decodes the written file to
+  measure sample peak, true peak, full-scale sample share and crest factor.
+
 - **The Enrich tab's grouping reuses the Utilities splitter, not a copy.**
   `tool_plugin.grouped_sections()` is the one implementation behind both tabs;
   `utility_sections()` and `enrich_sections()` are its two call sites, differing

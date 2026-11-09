@@ -21,6 +21,10 @@ Master Driver run and a typed command configure album mode the same way.
 Changed in 2.5.0: ``--trim-mode``/``--trim-start``/``--trim-end``/
 ``--trim-duration``/``--trim-copy`` reach the same path for an exact trim
 (F-E3).
+
+Changed in 2.6.0: ``--target-mode``/``--target-peak`` (F-E2) reach the GUI
+launch path with the same validation a typed command gets, and the pair is
+refused beside album mode.
 """
 
 from __future__ import annotations
@@ -33,7 +37,7 @@ from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
 
-from ..core.models import NORMALISATION_MODES, TRIM_MODES
+from ..core.models import NORMALISATION_MODES, NORMALISATION_TARGET_MODES, TRIM_MODES
 
 
 @dataclass(frozen=True)
@@ -93,6 +97,8 @@ class RefineryArgs:
     lra: float = 11.0
     normalise_mode: str = "normalise"
     album_mode: bool = False
+    target_mode: str = "lufs"
+    target_peak: float = -1.0
 
 
 def parse(argv: list[str] | None = None) -> RefineryArgs:
@@ -399,6 +405,22 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         dest="album_mode",
         help=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "--target-mode",
+        default="lufs",
+        choices=list(NORMALISATION_TARGET_MODES),
+        help=(
+            "lufs targets integrated loudness; peak targets the true peak "
+            "with one static gain (default lufs)."
+        ),
+    )
+    parser.add_argument(
+        "--target-peak",
+        type=float,
+        default=None,
+        metavar="DBTP",
+        help="True-peak target for --target-mode peak (default -1.0 dBTP).",
+    )
 
     args, _ = parser.parse_known_args(args=argv)
 
@@ -415,6 +437,22 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         )
     if not 1.0 <= args.lra <= 20.0:
         parser.error(f"--lra must be between 1 and 20 LU, got {args.lra}")
+
+    # The peak target has one meaning or none, exactly like the exact-trim
+    # range: a target without its mode would be silently ignored, and a target
+    # beside album mode would make the run depend on which one the code reads
+    # first.  A peak target is per file; album mode is one gain for a folder.
+    if args.target_peak is not None and not -9.0 <= args.target_peak <= 0.0:
+        parser.error(
+            f"--target-peak must be between -9.0 and 0.0 dBTP, got {args.target_peak}"
+        )
+    if args.target_mode != "peak" and args.target_peak is not None:
+        parser.error("--target-peak needs --target-mode peak")
+    if args.target_mode == "peak" and args.album_mode:
+        parser.error(
+            "--album-mode cannot be combined with --target-mode peak; "
+            "a peak target is per file"
+        )
 
     # An exact range has one meaning or none: a range flag without the mode
     # would be silently ignored, and both an end and a duration would make the
@@ -473,6 +511,8 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         lra=args.lra,
         normalise_mode=args.normalise_mode,
         album_mode=args.album_mode,
+        target_mode=args.target_mode,
+        target_peak=args.target_peak if args.target_peak is not None else -1.0,
         clear_logs=args.clear_logs and not args.no_clear_logs,
         parallel_run=args.parallel_run and not args.no_parallel_run,
     )

@@ -317,6 +317,9 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             # Changed in 2.5.0: album mode is persisted with the rest of the
             # normalise delivery set (F-E1).
             "album_mode": p.normalise_params.album_mode,
+            # Changed in 2.6.0: the peak target rides a preset too (F-E2).
+            "target_mode": p.normalise_params.target_mode,
+            "target_peak_dbtp": p.normalise_params.target_peak_dbtp,
         }
 
     # Preset key -> the config attribute it writes. A preset stores only the
@@ -377,6 +380,9 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         "normalise_mode": "mode",
         # Changed in 2.5.0: a stored preset may carry album mode (F-E1).
         "album_mode": "album_mode",
+        # Changed in 2.6.0: and the peak target (F-E2).
+        "target_mode": "target_mode",
+        "target_peak_dbtp": "target_peak_dbtp",
     }
 
     @staticmethod
@@ -798,6 +804,9 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         self.config.normalise_params.mode = args.normalise_mode
         # Changed in 2.5.0: the Driver's --album-mode reaches the run (F-E1).
         self.config.normalise_params.album_mode = args.album_mode
+        # Changed in 2.6.0: so does the peak target (F-E2).
+        self.config.normalise_params.target_mode = args.target_mode
+        self.config.normalise_params.target_peak_dbtp = args.target_peak
 
         if should_auto_start:
             self.root.after(1500, self.start_processing)

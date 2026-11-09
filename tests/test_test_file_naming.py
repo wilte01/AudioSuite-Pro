@@ -32,6 +32,11 @@ Changed in 2.5.0: the allowlist is load-bearing. An entry must still *be* a
 naming violation, not merely name a file that exists: a file renamed to mirror
 a real source module kept its entry, which then excused nothing and silently
 pre-approved the next composite.
+
+Changed in 2.6.0: ``audio_refinery/test_peak_normalise`` is the 32nd entry, the
+peak-target contract lock the feature wave names (F-E2).  It mirrors no source
+module because the stage lives in ``core/pipeline.py``, whose own suite is
+already the composite ``test_pipeline_stages``.
 """
 
 from __future__ import annotations
@@ -55,7 +60,7 @@ _SKIP_DIRS = frozenset(
     {".git", ".venv", "__pycache__", "node_modules", "build", "dist"}
 )
 
-#: Deliberate non-mirroring test files, frozen at 31 entries.
+#: Deliberate non-mirroring test files, frozen at 32 entries.
 #: Key format: ``<package>/<test file stem>`` (stem includes ``test_``).
 ALLOWLIST: dict[str, str] = {
     "album_art_sync/test_album_art_sync": "whole-package smoke composite",
@@ -69,6 +74,9 @@ ALLOWLIST: dict[str, str] = {
     "audio_refinery/test_pipeline_stages": "core-package composite",
     "audio_refinery/test_target_lufs_restriction": (
         "named-by-concern LUFS contract lock"
+    ),
+    "audio_refinery/test_peak_normalise": (
+        "named-by-concern peak-target contract lock (F-E2)"
     ),
     "audio_suite_shared/test_cli_cue": "CUE CLI concerns",
     "audio_suite_shared/test_cli_helpers_ast_lock": "AST contract lock",
@@ -234,8 +242,8 @@ class TestMatcher:
 
 class TestAllowlistFrozen:
     def test_allowlist_is_frozen_at_thirty_entries(self) -> None:
-        assert len(ALLOWLIST) == 31, (
-            "ALLOWLIST must stay at exactly 31 entries — add new violations "
+        assert len(ALLOWLIST) == 32, (
+            "ALLOWLIST must stay at exactly 32 entries — add new violations "
             "by fixing the test file's name, not by growing the allowlist"
         )
 

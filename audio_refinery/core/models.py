@@ -23,6 +23,10 @@ loudness: one gain measured across the whole folder instead of a per-file
 measurement.  ``TrimParams`` gains its exact-range fields (F-E3): a millisecond
 span to keep, and the choice between a sample-accurate re-encode and a
 frame-accurate stream copy.
+
+Changed in 2.6.0 (F-E2): ``NormaliseParams.target_mode`` and
+``target_peak_dbtp`` add a true-peak target beside the LUFS one.  ``mode`` is a
+different question - *how* the gain is applied - and is left untouched.
 """
 
 from __future__ import annotations
@@ -115,6 +119,13 @@ class EnhanceParams:
 #: stage validator cannot drift apart.
 NORMALISATION_MODES: tuple[str, ...] = ("normalise", "lossless")
 
+#: What the Normalise stage targets: integrated loudness in LUFS, or the true
+#: peak in dBTP (F-E2).  Declared once so the CLI, the settings loader and the
+#: setup panel cannot disagree about the vocabulary.  This is a different
+#: question from :data:`NORMALISATION_MODES`, which says *how* a gain is
+#: applied.
+NORMALISATION_TARGET_MODES: tuple[str, ...] = ("lufs", "peak")
+
 
 @dataclass
 class NormaliseParams:
@@ -137,6 +148,11 @@ class NormaliseParams:
     #: gain to every track.  Off by default, which keeps per-file normalisation
     #: exactly as it was for anyone who does not ask for it.
     album_mode: bool = False
+    #: Peak target mode (F-E2): ``"peak"`` measures the file's true peak and
+    #: applies a static gain that lands it on ``target_peak_dbtp``, instead of
+    #: measuring integrated loudness.  ``"lufs"`` is every existing run.
+    target_mode: str = "lufs"
+    target_peak_dbtp: float = -1.0
 
 
 @dataclass

@@ -530,6 +530,13 @@ def build_refinery_args(
         # Changed in 2.5.0: album mode is only emitted when it is on, so every
         # existing run's argument list is unchanged (F-E1).
         *(["--album-mode"] if n.album_mode else []),
+        # Changed in 2.6.0: a peak target is emitted only when it is chosen,
+        # so every existing run's argument list is byte-identical (F-E2).
+        *(
+            ["--target-mode", "peak", "--target-peak", str(n.target_peak_dbtp)]
+            if n.target_mode == "peak"
+            else []
+        ),
         "--sensitivity",
         str(d.sensitivity),
         "--width",
