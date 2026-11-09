@@ -7,7 +7,9 @@ subtitle: Based on the current Duplicate Finder implementation
 
 Duplicate Finder notices when two files in a library are **the same recording** — the FLAC master and the 128 kbit/s copy you made for a phone, the album track and the version that came back from a compilation — and offers to set the extra copies aside.
 
-It compares audio fingerprints, not file names or tags. The suite's own AcoustID client can tell you that one file **is** a particular recording; this tool answers the different question a library owner asks: **of these four hundred files, which ones are the same recording as each other?**
+It answers that question two ways. **Fingerprint matching** (the default) compares Chromaprint fingerprints, so a FLAC master and its 128 kbit/s copy group together even though not one byte agrees. **Exact matching** hashes instead: the file's bytes, or the samples after decoding, so a renamed copy and a tag-edited copy are reported without decoding a fingerprint at all. The two can run in one pass and are labelled separately in the report.
+
+It compares audio, not file names or tags. The suite's own AcoustID client can tell you that one file **is** a particular recording; this tool answers the different question a library owner asks: **of these four hundred files, which ones are the same recording as each other?**
 
 You choose what happens to the extra copies. **Move to quarantine** (the default) moves them into a folder and records every move in the suite's undo history, so you can put them back. **Delete** and **Replace with an ASX stub** send them to the operating system's Recycle Bin; the first such run installs the required Recycle Bin support automatically. The stub points at the kept file and can be restored later by the ASX Playlist Extractor. The kept copy is never modified.
 
@@ -33,6 +35,7 @@ This tool needs the Chromaprint fingerprint calculator (`fpcalc`), which ships i
 
 Setup opens with the shared Run Controls strip — the source folder, **Browse**, the **Mode** dropdown, the driver's Auto Start / Auto End / Clear Logs / Parallel display, and the **SCAN FOR DUPLICATES** button — followed by this tool's own **Comparison** group.
 
+- **Exact matching:** `off` (the default) fingerprints only; `only` groups files whose bytes or decoded samples are identical and never runs the fingerprint calculator; `also` reports both kinds in one run. Hashing decodes every file, so `only` and `also` take longer than a fingerprint scan — but they find the copies a fingerprint threshold can miss, such as two identical files whose tags differ.
 - **Similarity threshold:** the maximum bit-error rate at which two fingerprints count as one recording. Lower is stricter. The default **0.10** was measured, not guessed: on the reference set the same recording at different bitrates scored 0.0000–0.0002 and the closest pair that must stay apart scored 0.1580.
 - **On duplicate:** what a live run does with each duplicate. **Move to quarantine** is the default and the only option that uses the quarantine folder. **Delete (Recycle Bin)** sends it to the Recycle Bin. **Replace with an ASX stub** writes a small playlist beside it, then sends the duplicate to the Recycle Bin; the ASX Playlist Extractor can recreate the file from that stub.
 - **Quarantine folder:** where Move to quarantine sends duplicates. Leave it blank to use a `duplicate_quarantine` folder inside the scanned directory. The entry is disabled for the two Recycle Bin options.
@@ -40,10 +43,11 @@ Setup opens with the shared Run Controls strip — the source folder, **Browse**
 
 ## How a Scan Works
 
-1. Every supported file under the folder is fingerprinted with `fpcalc -raw`; the fingerprint is cached so the next run does not repeat that work.
+1. Every supported file under the folder is fingerprinted with `fpcalc -raw`; the fingerprint is cached so the next run does not repeat that work. With **Exact matching** set to `only` this step is skipped, and each file is hashed instead: its raw bytes (SHA-256) and its decoded samples at the file's own rate and channel count, packed as 32-bit PCM. A tag edit changes the first hash and not the second, which is how a retagged copy is still reported as the same audio; a re-encode, a resample or a different depth changes the second as well.
 1. Two files are compared only when their durations agree closely and their fingerprints share an exact sub-fingerprint, which is what keeps a large library affordable.
 1. Each candidate pair is measured with a bit-error rate after aligning the two fingerprints — an MP3 adds a few tens of milliseconds of padding, so an unaligned comparison would report two encodings of one recording as different.
 1. Pairs at or below the threshold are joined, and a connected group of files becomes one recording.
+1. With exact matching on, files that share a digest are grouped first and labelled `[EXACT]` (identical bytes) or `[EXACT PCM]` (identical samples, different bytes). A file already named by an exact group is not repeated in a fingerprint group.
 1. The **keeper** is chosen from measured file properties only: lossless first, then bitrate, then sample rate, then the longer file. Tags are deliberately **not** consulted — they are exactly what is unreliable in a duplicate set.
 1. A live run applies **On duplicate** to every non-keeper. Quarantine moves it into the chosen folder (adding ` (2)`, ` (3)`… rather than overwriting). Delete sends it to the Recycle Bin. ASX stub writes `<name>.asx` beside it, checks that the playlist parses and points at the keeper, and only then sends the duplicate to the Recycle Bin. The keeper is only ever read.
 
@@ -65,9 +69,9 @@ Fingerprinting is the slow part of a scan, so each file's fingerprint is stored 
 
 
 
-Processing shows one worker slot per logical CPU (at most eight), a progress bar, the shared processed / skipped / error count and one line per file: `[FINGERPRINT]` or `[CACHED]` while scanning, `[SKIP]` for a file without a readable fingerprint.
+Processing shows one worker slot per logical CPU (at most eight), a progress bar, the shared processed / skipped / error count and one line per file: `[FINGERPRINT]` or `[CACHED]` while scanning, `[EXACT]` when an exact-only run hashes a file, `[SKIP]` for a file without a readable fingerprint, and `[ERROR]` for a file that could not be hashed.
 
-Results shows the completion summary with the group count, the duplicate count, how many files were quarantined, deleted or stubbed (or would be, in a dry run) and how many had no fingerprint, beside **View Log** and **Open Folder**.
+Results shows the completion summary with the group count, how many of those are exact groups, the duplicate count, how many files were quarantined, deleted or stubbed (or would be, in a dry run) and how many had no fingerprint, beside **View Log** and **Open Folder**.
 
 ## Command Line
 
@@ -77,17 +81,20 @@ python -m audio_suite_shared.cli_app duplicates <folder> --dry\
 python -m audio_suite_shared.cli_app duplicates <folder> --live --quarantine-dir D:/Quarantine\
 python -m audio_suite_shared.cli_app duplicates <folder> --live --on-duplicate delete\
 python -m audio_suite_shared.cli_app duplicates <folder> --live --on-duplicate asx-stub\
-python -m audio_suite_shared.cli_app duplicates <folder> --dry --threshold 0.08 --json
+python -m audio_suite_shared.cli_app duplicates <folder> --dry --threshold 0.08 --json\
+python -m audio_suite_shared.cli_app duplicates <folder> --dry --exact only\
+python -m audio_suite_shared.cli_app duplicates <folder> --live --exact also --on-duplicate quarantine
 
-Options include --on-duplicate, --threshold, --quarantine-dir, --cache, the shared dry-run/live option and --json. The JSON payload adds `groups`, `duplicates`, `quarantined`, `deleted` and `stubbed` beside the shared counters, so a script can decide what to do without parsing the report.
+Options include --on-duplicate, --threshold, --quarantine-dir, --exact, --cache, the shared dry-run/live option and --json. The JSON payload adds `groups`, `duplicates`, `exact_groups`, `exact_duplicates`, `hashed`, `quarantined`, `deleted` and `stubbed` beside the shared counters, so a script can decide what to do without parsing the report.
 
 ## Master Driver
 
-Duplicate Finder appears as a utility tool with its own card. The driver passes the folder, the mode, the threshold, the duplicate handling and (when one is set) the quarantine folder, and the window mirrors those values onto its own controls, so a driven run scans what the card shows.
+Duplicate Finder appears as a utility tool with its own card. The driver passes the folder, the mode, the threshold, the duplicate handling, the exact-matching choice and (when one is set) the quarantine folder, and the window mirrors those values onto its own controls, so a driven run scans what the card shows.
 
 ## Troubleshooting
 
 - **No supported audio files:** the folder holds no file with a supported extension. Point at the library folder itself.
+- **Nothing is found, but two files look identical:** set **Exact matching** to `only` or `also`. A tag-only difference can push two encodings far apart at the fingerprint threshold, while the byte or PCM hash catches it directly; hashing is the slower path but it answers a narrower question.
 - **0 groups, but you know there are duplicates:** raise the similarity threshold a little (0.10 → 0.15). A re-encode with a heavy limiter, or a different mastering, can move the distance; the report prints every measured distance so you can see how far apart the pair really is.
 - **Something grouped that should not have:** lower the threshold. Two arrangements that share an intro can share fingerprints at a loose setting.
 - **A file shows [SKIP]:** fpcalc could not fingerprint it — usually corrupt or truncated. The rest of the run continues.

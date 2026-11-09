@@ -1,3 +1,4 @@
+# Changed in 2.6.0: ``UnionFind`` is public, imported by the exact grouper (F-E9).
 """Tests for duplicate clustering, including the measured fixture set.
 
 The measurement half is the point of the item: ``DEFAULT_THRESHOLD`` is only a
@@ -19,7 +20,7 @@ import pytest
 
 from duplicate_finder.core.clustering import (
     _MAX_ANCHOR_FANOUT,
-    _UnionFind,
+    UnionFind,
     candidate_pairs,
     choose_keeper,
     cluster_records,
@@ -126,14 +127,14 @@ class TestUnionFind:
     """The grouping primitive; a bug here silently merges or splits groups."""
 
     def test_two_unions_of_three_elements_share_one_root(self) -> None:
-        union = _UnionFind(3)
+        union = UnionFind(3)
         union.union(0, 1)
         union.union(1, 2)
 
         assert union.find(0) == union.find(2)
 
     def test_disjoint_elements_keep_separate_roots(self) -> None:
-        union = _UnionFind(3)
+        union = UnionFind(3)
         union.union(0, 1)
 
         assert union.find(0) != union.find(2)

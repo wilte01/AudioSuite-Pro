@@ -23,6 +23,8 @@ Changed in 2.1.0: toggles are generated for ``registry.driver_manifests`` rather
 than ``registry.all``, so a plugin tool that ships only a CLI entry point gets no
 toggle (Sprint 7, Item 7.1).
 
+Changed in 2.6.0: carries the Duplicate Finder's exact-matching choice (F-E9).
+
 Changed in 2.3.0: carries the duplicate_finder and restoration module toggles (F-02,
 F-08a).
 
@@ -244,6 +246,9 @@ class AppState:
         self.duplicate_threshold = tk.StringVar(master, value="0.10")
         self.duplicate_quarantine_dir = tk.StringVar(master, value="")
         self.duplicate_disposition = tk.StringVar(master, value="quarantine")
+        # Changed in 2.6.0: exact matching is off unless the card asks for it, so
+        # a batch that never touches the control behaves as it did before F-E9.
+        self.duplicate_exact_mode = tk.StringVar(master, value="off")
 
     def _init_tool_option_vars(self, master: tk.Misc | None) -> None:
         """Create the option variables of the tools that take their own settings.

@@ -1,3 +1,4 @@
+# Changed in 2.6.0: ``--exact`` and the exact keys in the JSON payload (F-E9).
 """Tests for the ``duplicates`` CLI command.
 
 The command is exercised through Click's runner so the option names, the exit
@@ -10,6 +11,7 @@ clustering, cache and quarantine.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -91,6 +93,30 @@ class TestDryRun:
 
         assert any("[KEEP]" in line and "song.flac" in line for line in entries)
         assert sum("[DUPLICATE]" in line for line in entries) == 3
+
+
+@pytest.mark.integration
+class TestExactMode:
+    """``--exact`` reaches the run, and the report labels which claim it made."""
+
+    def test_exact_only_reports_a_byte_identical_copy(self, library: Path) -> None:
+        shutil.copy2(library / "song.flac", library / "song copy.flac")
+
+        result = run(str(library), "--dry", "--exact", "only", "--json")
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["exact_groups"] == 1
+        assert payload["exact_duplicates"] == 1
+        assert payload["hashed"] == 8
+        assert any("[EXACT]" in line for line in payload["log_entries"])
+
+    def test_the_help_lists_the_exact_modes(self) -> None:
+        result = run("--help")
+
+        assert result.exit_code == 0
+        assert "--exact" in result.output
+        assert "also" in result.output
 
 
 @pytest.mark.integration

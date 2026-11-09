@@ -18,6 +18,23 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **F-E9 answers equality, not similarity, and keeps the two claims apart.**
+  `duplicate_finder/core/exact.py` owns `file_sha256`, `pcm_sha256` (an FFmpeg
+  decode to `s32le` at the source's own rate and channels, hashed from a scratch
+  file in 1 MiB chunks so an hour-long track costs the same memory as a short
+  one), `attach_hashes` and `build_exact_groups`, which unions records sharing
+  either digest — `clustering.UnionFind` became public for that second caller
+  rather than being copied. `ScanSettings.exact_mode` is validated at
+  construction; `fingerprinting.build_properties_record` gives `only` a record
+  with no fpcalc call; the cache schema moves to version 2 and
+  `FingerprintCache._migrate` adds the two columns to an existing file in place
+  (literal DDL, never interpolated SQL), keeping every row. A fingerprint row
+  with no words is never trusted as cached — `only` writes properties rows — and
+  `also` removes exact-covered members from the perceptual groups so one file is
+  named and counted once. Registration: `--exact` on the CLI and the window
+  handshake, `duplicate_exact_mode` in the driver state and card, the arg builder
+  emits it, and the regenerated `cli_schema.json`/`tests/data/cli_payloads.json`
+  carry the new payload keys.
 - **The CUE Sheet Generator is a Master Driver batch step.** `arg_builder`
   emits the four-flag handshake for `cue_sheet`, `DEPENDENCY_GRAPH` carries it as
   a dependency-free leaf, and the handshake contract now drives its `parse()`;

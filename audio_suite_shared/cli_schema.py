@@ -349,6 +349,10 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
         "groups": int,
         "duplicates": int,
         "quarantined": int,
+        # Changed in 2.6.0: the exact-matching half (F-E9).
+        "exact_groups": int,
+        "exact_duplicates": int,
+        "hashed": int,
     },
     "cd-rip": {
         "drive": str,

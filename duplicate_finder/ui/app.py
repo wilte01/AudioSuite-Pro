@@ -1,3 +1,5 @@
+# Changed in 2.6.0: exact-duplicate mode (F-E9) — the Setup control, the driver
+# flag that mirrors it, and the run it configures.
 # Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """Tkinter window for the Duplicate Finder.
 
@@ -42,7 +44,7 @@ from ..core.file_processor import (
     default_quarantine_dir,
     run_duplicate_scan,
 )
-from ..core.models import DEFAULT_THRESHOLD, ScanSettings
+from ..core.models import DEFAULT_EXACT_MODE, DEFAULT_THRESHOLD, ScanSettings
 from ..utils import cli_args
 from . import processing_tab, results_tab, setup_tab
 
@@ -106,6 +108,7 @@ class DuplicateFinderApp(AnalysisTagToolApp):
         self.threshold: tk.DoubleVar = tk.DoubleVar(value=DEFAULT_THRESHOLD)
         self.quarantine_dir: tk.StringVar = tk.StringVar()
         self.disposition: tk.StringVar = tk.StringVar(value=DEFAULT_DISPOSITION)
+        self.exact_mode: tk.StringVar = tk.StringVar(value=DEFAULT_EXACT_MODE)
 
         self.auto_start_var = tk.BooleanVar(value=False)
         self.auto_end_var = tk.BooleanVar(value=False)
@@ -167,6 +170,7 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             threshold=self.threshold,
             quarantine_dir=self.quarantine_dir,
             disposition=self.disposition,
+            exact_mode=self.exact_mode,
             auto_start_var=self.auto_start_var,
             auto_end_var=self.auto_end_var,
             clear_logs_var=self.clear_logs_var,
@@ -245,6 +249,9 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             self.threshold.set(float(parsed.threshold))
         if parsed.quarantine_dir:
             self.quarantine_dir.set(parsed.quarantine_dir)
+        exact_mode = str(getattr(parsed, "exact_mode", "") or "")
+        if exact_mode:
+            self.exact_mode.set(exact_mode)
         self._set_disposition(str(getattr(parsed, "disposition", DEFAULT_DISPOSITION)))
         self.auto_end = bool(parsed.auto_end)
 
@@ -315,7 +322,14 @@ class DuplicateFinderApp(AnalysisTagToolApp):
 
         threading.Thread(
             target=self._run_scan,
-            args=(folder, dry_run, threshold, quarantine, disposition),
+            args=(
+                folder,
+                dry_run,
+                threshold,
+                quarantine,
+                disposition,
+                str(self.exact_mode.get()),
+            ),
             daemon=True,
         ).start()
 
@@ -327,6 +341,7 @@ class DuplicateFinderApp(AnalysisTagToolApp):
         threshold: float,
         quarantine: str,
         disposition: str,
+        exact_mode: str,
     ) -> None:
         """Background thread: run the scan inside this run's undo batch.
 
@@ -341,11 +356,13 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             quarantine: Destination folder for a live run; blank when the
                 disposition does not use it.
             disposition: What the live run does with each duplicate.
+            exact_mode: Off, only, or also exact-duplicate matching.
         """
         settings = ScanSettings(
             threshold=threshold,
             quarantine_dir=quarantine,
             disposition=disposition,
+            exact_mode=exact_mode,  # type: ignore[arg-type]
         )
         with active_batch(self.TOOL_ID, UNDO_OPERATION):
             run_duplicate_scan(
@@ -369,6 +386,7 @@ class DuplicateFinderApp(AnalysisTagToolApp):
         duration_secs: float,
         log_entries: list[str],
         groups: int,
+        exact_groups: int,
         duplicates: int,
         quarantined: int,
         deleted: int,
@@ -392,7 +410,8 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             errors: Files it could not move.
             duration_secs: Wall-clock run time.
             log_entries: The per-file report lines.
-            groups: Duplicate groups found.
+            groups: Duplicate groups found, exact and fingerprint alike.
+            exact_groups: How many of those were exact (byte or PCM) groups.
             duplicates: Files identified as duplicates.
             quarantined: Files actually moved (always 0 in a dry run).
             deleted: Files moved to the Recycle Bin.
@@ -413,6 +432,7 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             handled = stubbed
         self._summary_rows = (
             ("Duplicate groups", str(groups)),
+            ("Exact groups", str(exact_groups)),
             ("Duplicate files", str(duplicates)),
             (f"Files {verb}", str(handled)),
             ("Without a fingerprint", str(skipped)),
@@ -469,6 +489,7 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             "threshold": float(self.threshold.get()),
             "quarantine_dir": self.quarantine_dir.get(),
             "disposition": normalize(self.disposition.get()),
+            "exact_mode": str(self.exact_mode.get()),
             "run_mode": self.run_mode.get(),
         }
 
@@ -478,6 +499,8 @@ class DuplicateFinderApp(AnalysisTagToolApp):
             self.threshold.set(float(settings["threshold"]))
         if "quarantine_dir" in settings:
             self.quarantine_dir.set(str(settings["quarantine_dir"]))
+        if "exact_mode" in settings:
+            self.exact_mode.set(str(settings["exact_mode"]))
         self._set_disposition(str(settings.get("disposition", DEFAULT_DISPOSITION)))
         if "run_mode" in settings:
             self.run_mode.set(str(settings["run_mode"]))

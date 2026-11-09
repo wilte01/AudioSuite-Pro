@@ -1,3 +1,5 @@
+# Changed in 2.6.0: ``--exact off|only|also`` selects exact-duplicate matching
+# (F-E9).
 # Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """CLI command for the Duplicate Finder.
 
@@ -25,7 +27,12 @@ from audio_suite_shared.cli_base import (
 )
 
 from .core.disposition import DISPOSITIONS
-from .core.models import DEFAULT_THRESHOLD, ScanSettings
+from .core.models import (
+    DEFAULT_EXACT_MODE,
+    DEFAULT_THRESHOLD,
+    EXACT_MODES,
+    ScanSettings,
+)
 
 
 @cli.command()
@@ -57,6 +64,18 @@ from .core.models import DEFAULT_THRESHOLD, ScanSettings
     ),
 )
 @click.option(
+    "--exact",
+    "exact_mode",
+    type=click.Choice(EXACT_MODES),
+    default=DEFAULT_EXACT_MODE,
+    show_default=True,
+    help=(
+        "Exact matching: 'off' fingerprints only, 'only' groups identical "
+        "bytes or decoded PCM and skips fingerprinting, 'also' reports both. "
+        "Hashing decodes each file, so 'only' is exact but not cheap."
+    ),
+)
+@click.option(
     "--cache",
     "cache_path",
     default="",
@@ -69,6 +88,7 @@ def duplicates(
     threshold: float,
     quarantine_dir: str,
     on_duplicate: str,
+    exact_mode: str,
     cache_path: str,
 ) -> None:
     """Find duplicate recordings by fingerprint and quarantine the extra copies."""
@@ -86,6 +106,7 @@ def duplicates(
         threshold=threshold,
         quarantine_dir=quarantine_dir,
         disposition=on_duplicate,
+        exact_mode=exact_mode,  # type: ignore[arg-type]
     )
     with active_batch("duplicate_finder", "file_reorg"):
         result = _run_tool(
@@ -102,7 +123,8 @@ def duplicates(
         )
     else:
         click.echo(
-            f"  Summary: {result.total} files, {result.extra.get('groups', 0)} groups, "
+            f"  Summary: {result.total} files, {result.extra.get('groups', 0)} groups "
+            f"({result.extra.get('exact_groups', 0)} exact), "
             f"{result.extra.get('duplicates', 0)} duplicates, "
             f"{result.extra.get('quarantined', 0)} quarantined, "
             f"{result.extra.get('deleted', 0)} deleted, "

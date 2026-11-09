@@ -1,3 +1,4 @@
+# Changed in 2.6.0: reads ``--exact`` and validates its value (F-E9).
 """Tests for the Duplicate Finder's launcher argument parsing.
 
 The Master Driver passes a fixed positional block and then this tool's options,
@@ -120,6 +121,16 @@ class TestToolOptions:
 
         assert args.threshold == DEFAULT_THRESHOLD
 
+    def test_exact_mode_is_parsed(self, tmp_path: Path) -> None:
+        args = _parse(str(tmp_path), "--live", "--start", "--end", "--exact", "also")
+
+        assert args.exact_mode == "also"
+
+    def test_exact_mode_defaults_to_off(self, tmp_path: Path) -> None:
+        args = _parse(str(tmp_path), "--dry", "--no-start", "--no-end")
+
+        assert args.exact_mode == "off"
+
     def test_the_display_only_flags_are_accepted(self, tmp_path: Path) -> None:
         args = _parse(
             str(tmp_path),
@@ -155,6 +166,19 @@ class TestValidation:
                 "--no-end",
                 "--threshold",
                 threshold,
+            )
+
+        assert exit_info.value.code == 1
+
+    def test_an_unknown_exact_mode_exits(self, tmp_path: Path) -> None:
+        with pytest.raises(SystemExit) as exit_info:
+            _parse(
+                str(tmp_path),
+                "--dry",
+                "--no-start",
+                "--no-end",
+                "--exact",
+                "sometimes",
             )
 
         assert exit_info.value.code == 1

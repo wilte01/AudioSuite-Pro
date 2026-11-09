@@ -53,6 +53,9 @@ declares the three counts its report and Results panel render (``groups``,
 ``duplicates``, ``quarantined``) beside the shared fields, so the table is 19
 tools (F-02).
 
+Changed in 2.6.0: ``DuplicateFinderApp`` also requires ``exact_groups``, the
+count its Results panel gained with exact matching (F-E9).
+
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: the wiring count gains the Track Splitter (F-E4).
@@ -114,6 +117,7 @@ EXPECTED_REQUIRED: dict[str, frozenset[str]] = {
             "duration_secs",
             "log_entries",
             "groups",
+            "exact_groups",
             "duplicates",
             "quarantined",
             "deleted",

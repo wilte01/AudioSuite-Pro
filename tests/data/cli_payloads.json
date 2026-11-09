@@ -1,6 +1,6 @@
 {
   "_comment": "One recorded payload and one fatal-error document per CLI command, validated against audio_suite_shared/cli_schema.json by the schema-conformance gate. Host paths appear as <run> (the scratch directory), <repo> (the checkout) and <python> (the recording interpreter, which the doctor payload reports), so the file is machine-independent. Do not edit by hand; run `python -m tests.cli_schema_conformance --record`.",
-  "_generated": "2026-11-08",
+  "_generated": "2026-11-09",
   "schema_version": 1,
   "payloads": {
     "album-art": {
@@ -13,7 +13,7 @@
       "succeeded": 0,
       "skipped": 0,
       "errors": 1,
-      "duration_secs": 0.021,
+      "duration_secs": 0.031,
       "duration_str": "0.0s",
       "log_entries": [
         "Error: no supported audio files found in directory\n"
@@ -31,7 +31,7 @@
       "succeeded": 0,
       "skipped": 0,
       "errors": 0,
-      "duration_secs": 0.007,
+      "duration_secs": 0.01,
       "duration_str": "0.0s",
       "log_entries": [
         "============================================================\n",
@@ -67,7 +67,7 @@
       "succeeded": 0,
       "skipped": 1,
       "errors": 0,
-      "duration_secs": 0.018,
+      "duration_secs": 0.031,
       "duration_str": "0.0s",
       "log_entries": [
         "[SKIPPED] track.wav | No embedded artwork — skipped.\n"
@@ -99,7 +99,7 @@
       "succeeded": 0,
       "skipped": 0,
       "errors": 1,
-      "duration_secs": 2.09,
+      "duration_secs": 2.143,
       "duration_str": "2.1s",
       "log_entries": [
         "[ERROR] track.wav: BPM detection failed — Audio is too short to analyse (0.05s).\n"
@@ -146,7 +146,7 @@
       "succeeded": 0,
       "skipped": 1,
       "errors": 0,
-      "duration_secs": 0.021,
+      "duration_secs": 0.024,
       "duration_str": "0.0s",
       "log_entries": [
         "[SKIP] track.wav | already mono - unchanged\n"
@@ -162,7 +162,7 @@
       "succeeded": 1,
       "skipped": 0,
       "errors": 0,
-      "duration_secs": 0.018,
+      "duration_secs": 0.037,
       "duration_str": "0.0s",
       "log_entries": [
         "[DRY RUN] track.wav | WAV → FLAC | Est. Size: 0.00MB → 0.00MB\n"
@@ -183,7 +183,7 @@
       "succeeded": 1,
       "skipped": 0,
       "errors": 0,
-      "duration_secs": 0.002,
+      "duration_secs": 0.004,
       "duration_str": "0.0s",
       "log_entries": [],
       "cue_path": "<run>\\out\\album.cue",
@@ -200,7 +200,7 @@
       "succeeded": 2,
       "skipped": 0,
       "errors": 0,
-      "duration_secs": 0.005,
+      "duration_secs": 0.001,
       "duration_str": "0.0s",
       "log_entries": [],
       "catalog": null,
@@ -282,8 +282,8 @@
       "succeeded": 0,
       "skipped": 1,
       "errors": 0,
-      "duration_secs": 0.025,
-      "duration_str": "0.0s",
+      "duration_secs": 0.066,
+      "duration_str": "0.1s",
       "log_entries": [
         "[SKIP] track.wav | Clean - no clipping found\n"
       ]
@@ -298,8 +298,8 @@
       "succeeded": 1,
       "skipped": 0,
       "errors": 0,
-      "duration_secs": 0.679,
-      "duration_str": "0.7s",
+      "duration_secs": 0.12,
+      "duration_str": "0.1s",
       "log_entries": [
         "[FIXED] track.wav | Attenuated 6.0 dB (-18.0 → -24.0 dBFS) — Denoised\n"
       ]
@@ -309,17 +309,17 @@
       "tool": "doctor",
       "command": "doctor",
       "dry_run": false,
-      "total": 36,
-      "processed": 36,
-      "succeeded": 36,
+      "total": 37,
+      "processed": 37,
+      "succeeded": 37,
       "skipped": 0,
       "errors": 0,
-      "duration_secs": 0.47,
+      "duration_secs": 0.539,
       "duration_str": "0.5s",
       "log_entries": [],
       "healthy": true,
-      "checkout_version": "2.4.3",
-      "installed_version": "2.4.3",
+      "checkout_version": "2.5.0",
+      "installed_version": "2.5.0",
       "editable": false,
       "interpreter": "<repo>\\.venv\\Scripts\\python.exe",
       "launcher_interpreter": "<repo>\\.venv\\Scripts\\python.exe",
@@ -342,7 +342,7 @@
           "reason": null
         }
       ],
-      "mapped": 36,
+      "mapped": 37,
       "packages": [
         {
           "name": "album_art_normalizer",
@@ -443,6 +443,12 @@
           "commands": [
             "channels"
           ]
+        },
+        {
+          "name": "cue_sheet",
+          "status": "ok",
+          "origin": "<repo>\\cue_sheet\\__init__.py",
+          "commands": []
         },
         {
           "name": "duplicate_finder",
@@ -670,7 +676,7 @@
       "succeeded": 0,
       "skipped": 1,
       "errors": 0,
-      "duration_secs": 0.031,
+      "duration_secs": 0.037,
       "duration_str": "0.0s",
       "log_entries": [
         "[SKIP] <run>\\library\\track.wav | An error occurred during processing.\n",
@@ -678,6 +684,9 @@
       ],
       "groups": 0,
       "duplicates": 0,
+      "exact_groups": 0,
+      "exact_duplicates": 0,
+      "hashed": 0,
       "quarantined": 0
     },
     "fingerprint": {
@@ -690,7 +699,7 @@
       "succeeded": 0,
       "skipped": 0,
       "errors": 1,
-      "duration_secs": 0.02,
+      "duration_secs": 0.027,
       "duration_str": "0.0s",
       "log_entries": [
         "[ERROR] track.wav\n    An error occurred during processing.\n"
@@ -730,8 +739,8 @@
       "succeeded": 1,
       "skipped": 0,
       "errors": 0,
-      "duration_secs": 0.254,
-      "duration_str": "0.3s",
+      "duration_secs": 0.022,
+      "duration_str": "0.0s",
       "log_entries": [
         "track.wav | No genre fields available\n"
       ],
@@ -762,7 +771,7 @@
       "succeeded": 0,
       "skipped": 0,
       "errors": 1,
-      "duration_secs": 0.013,
+      "duration_secs": 0.029,
       "duration_str": "0.0s",
       "log_entries": [
         "[ERROR] track.wav: Audio is too short to analyse (0.05s).\n"
@@ -792,7 +801,7 @@
       "succeeded": 2,
       "skipped": 1,
       "errors": 0,
-      "duration_secs": 0.011,
+      "duration_secs": 0.012,
       "duration_str": "0.0s",
       "log_entries": [],
       "directory": "<run>\\library",
@@ -813,7 +822,7 @@
       "succeeded": 0,
       "skipped": 1,
       "errors": 0,
-      "duration_secs": 0.013,
+      "duration_secs": 0.04,
       "duration_str": "0.0s",
       "log_entries": [
         "[SKIP] track.wav: Audio is too short to analyse (0.05s).\n"
@@ -906,13 +915,13 @@
       "dry_run": true,
       "total": 1,
       "processed": 1,
-      "succeeded": 0,
+      "succeeded": 1,
       "skipped": 0,
-      "errors": 1,
-      "duration_secs": 0.107,
-      "duration_str": "0.1s",
+      "errors": 0,
+      "duration_secs": 0.165,
+      "duration_str": "0.2s",
       "log_entries": [
-        "[ERROR] track.wav | An error occurred during processing.\n"
+        "[DONE] track.wav\n    [Declick] No clicks found - audio already clean\n    [Trim] No silence detected - original length maintained\n    [Enhance] Applied 'Moderate' preset (+0.0 dB gain)\n    [Normalise] Adjusted loudness from -70.0 to -14.0 LUFS for playlist consistency\n"
       ]
     },
     "reorganize": {
@@ -925,7 +934,7 @@
       "succeeded": 1,
       "skipped": 0,
       "errors": 0,
-      "duration_secs": 0.017,
+      "duration_secs": 0.019,
       "duration_str": "0.0s",
       "log_entries": []
     },
@@ -939,7 +948,7 @@
       "succeeded": 1,
       "skipped": 0,
       "errors": 0,
-      "duration_secs": 0.09,
+      "duration_secs": 0.12,
       "duration_str": "0.1s",
       "log_entries": [
         "\nFOLDER: <run>\\library\nALBUM STATS -> Gain: +54.00 dB | Peak: 1.000000 | measured from: combined signal\n-----------------------------------------------------------------\n",
@@ -956,8 +965,8 @@
       "succeeded": 1,
       "skipped": 0,
       "errors": 0,
-      "duration_secs": 0.012,
-      "duration_str": "0.0s",
+      "duration_secs": 0.051,
+      "duration_str": "0.1s",
       "log_entries": [
         "[DRY RUN] track.wav | Would scrub metadata\n"
       ]
@@ -996,7 +1005,7 @@
       "succeeded": 1,
       "skipped": 0,
       "errors": 0,
-      "duration_secs": 0.041,
+      "duration_secs": 0.044,
       "duration_str": "0.0s",
       "log_entries": [
         "<run>\\library\\track.wav  [track.wav] no gap found - 1 track kept whole\n"
@@ -1019,7 +1028,7 @@
       "duration_secs": 0.003,
       "duration_str": "0.0s",
       "log_entries": [],
-      "library_duration_secs": 0.003368099918588996,
+      "library_duration_secs": 0.002534199971705675,
       "library_duration_str": "0.0s",
       "scan_path": "<run>\\library",
       "total_files": 1,
@@ -1076,8 +1085,8 @@
       "succeeded": 1,
       "skipped": 0,
       "errors": 0,
-      "duration_secs": 1.138,
-      "duration_str": "1.1s",
+      "duration_secs": 1.175,
+      "duration_str": "1.2s",
       "log_entries": [
         "=== Stem separation — 1 file(s) — Live Update — CPU ===\n",
         "[SEPARATED] track.wav - wrote vocals.wav, drums.wav to <run>\\out\\track\n"
@@ -1124,7 +1133,7 @@
       "succeeded": 0,
       "skipped": 1,
       "errors": 0,
-      "duration_secs": 0.016,
+      "duration_secs": 0.014,
       "duration_str": "0.0s",
       "log_entries": [],
       "directory": "<run>\\library",
@@ -1142,7 +1151,7 @@
       "succeeded": 0,
       "skipped": 1,
       "errors": 0,
-      "duration_secs": 0.02,
+      "duration_secs": 0.015,
       "duration_str": "0.0s",
       "log_entries": [
         "[SKIP] track.wav | No tags found\n"

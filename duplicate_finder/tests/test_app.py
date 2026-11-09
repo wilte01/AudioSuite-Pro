@@ -1,3 +1,4 @@
+# Changed in 2.6.0: exact matching reaches the run and the summary (F-E9).
 # Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """Tests for the Duplicate Finder window.
 
@@ -65,6 +66,8 @@ def shell(
     app.quarantine_dir.get.return_value = quarantine
     app.disposition = MagicMock()
     app.disposition.get.return_value = disposition
+    app.exact_mode = MagicMock()
+    app.exact_mode.get.return_value = "off"
     app._launched_from_driver = False
     app._setup_frame = MagicMock()
     app.auto_end = False
@@ -105,6 +108,7 @@ class TestCompletionRows:
             duration_secs=1.0,
             log_entries=["line\n"],
             groups=1,
+            exact_groups=0,
             duplicates=3,
             quarantined=0,
             deleted=0,
@@ -113,6 +117,7 @@ class TestCompletionRows:
 
         assert app._summary_extras() == [
             ("Duplicate groups", "1"),
+            ("Exact groups", "0"),
             ("Duplicate files", "3"),
             ("Files would quarantine", "0"),
             ("Without a fingerprint", "0"),
@@ -135,6 +140,7 @@ class TestCompletionRows:
             duration_secs=1.0,
             log_entries=[],
             groups=1,
+            exact_groups=0,
             duplicates=3,
             quarantined=3,
             deleted=0,
@@ -165,6 +171,7 @@ class TestCompletionRows:
             duration_secs=2.5,
             log_entries=["a\n", "b\n"],
             groups=0,
+            exact_groups=0,
             duplicates=0,
             quarantined=0,
             deleted=0,
@@ -199,6 +206,7 @@ class TestCompletionRows:
             duration_secs=0.0,
             log_entries=[],
             groups=2,
+            exact_groups=1,
             duplicates=5,
             quarantined=0,
             deleted=0,
@@ -213,6 +221,7 @@ class TestCompletionRows:
             duration_secs=0.0,
             log_entries=[],
             groups=0,
+            exact_groups=0,
             duplicates=0,
             quarantined=0,
             deleted=0,
@@ -331,6 +340,7 @@ class TestStartValidation:
                 DEFAULT_THRESHOLD,
                 str(tmp_path / "duplicate_quarantine"),
                 DEFAULT_DISPOSITION,
+                "off",
             )
         ]
         assert thread.start.call_count == 1

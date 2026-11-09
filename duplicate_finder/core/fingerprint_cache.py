@@ -31,6 +31,10 @@ file), and each connection waits for a competing writer instead of raising
 ``library_stats.library_cache`` already use.  ``auto_vacuum=FULL`` keeps a
 delete-heavy cache from growing permanently.
 
+Changed in 2.6.0: schema version 2 stores the exact-duplicate digests
+(``file_sha256``, ``pcm_sha256``) beside the fingerprint, so an exact run reuses
+them and a version-1 row is upgraded in place rather than discarded (F-E9).
+
 Changed in 2.3.0: new duplicate-detection tool (backlog F-02): fingerprint distance,
 clustering, cache and quarantine.
 """
@@ -67,13 +71,34 @@ CREATE TABLE IF NOT EXISTS fingerprints (
     lossless INTEGER NOT NULL DEFAULT 0,
     artist TEXT NOT NULL DEFAULT '',
     title TEXT NOT NULL DEFAULT '',
+    file_sha256 TEXT NOT NULL DEFAULT '',
+    pcm_sha256 TEXT NOT NULL DEFAULT '',
     scanned_at TEXT DEFAULT (datetime('now'))
 );
 """
 
 #: Bumped when the on-disk shape changes; ``PRAGMA user_version`` carries it, so
 #: a migration runs exactly once instead of on every connect.
-_SCHEMA_VERSION = 1
+#:
+#: Version 1 (2.3.0) stored the fingerprint and the keeper properties.  Version
+#: 2 (2.6.0) adds the two exact-duplicate digests.  The upgrade keeps every row:
+#: the columns start empty, the scan recomputes only the hashes it needs, and
+#: the report says how many files it hashed, so a bulk decode is never silent.
+_SCHEMA_VERSION = 2
+
+#: The columns version 2 adds, in upgrade order.  Literal statements rather than
+#: a formatted one: this is a fixed DDL upgrade, and building SQL by
+#: interpolation is the shape bandit reports (B608).
+_HASH_COLUMN_UPGRADES: tuple[tuple[str, str], ...] = (
+    (
+        "file_sha256",
+        "ALTER TABLE fingerprints ADD COLUMN file_sha256 TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "pcm_sha256",
+        "ALTER TABLE fingerprints ADD COLUMN pcm_sha256 TEXT NOT NULL DEFAULT ''",
+    ),
+)
 
 _AUTO_VACUUM_FULL = 1
 
@@ -145,10 +170,33 @@ class FingerprintCache:
                     self._conn.execute("PRAGMA journal_mode=WAL")
                     self._conn.execute("PRAGMA busy_timeout=30000")
                     self._conn.executescript(_SCHEMA_SQL)
-                    self._conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+                    self._migrate(self._conn)
                     self._enable_auto_vacuum(self._conn)
                     self._conn.commit()
         return self._conn
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Bring a cache file up to :data:`_SCHEMA_VERSION`, keeping its rows.
+
+        The version is read from ``PRAGMA user_version``, so the upgrade runs
+        once.  A database created by this version already has the columns; the
+        upgrade then only stamps the version.
+
+        Args:
+            conn: An open connection that has just had the schema script
+                applied.
+        """
+        row = conn.execute("PRAGMA user_version").fetchone()
+        version = int(row[0]) if row is not None else 0
+        if version >= _SCHEMA_VERSION:
+            return
+        existing = {info[1] for info in conn.execute("PRAGMA table_info(fingerprints)")}
+        for column, statement in _HASH_COLUMN_UPGRADES:
+            if column not in existing:
+                conn.execute(statement)
+        conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+        conn.commit()
 
     @staticmethod
     def _enable_auto_vacuum(conn: sqlite3.Connection) -> None:
@@ -247,14 +295,15 @@ class FingerprintCache:
         conn = self._connect()
         cursor = conn.execute(
             "SELECT path, mtime, size, duration, words, sample_rate, channels, "
-            "bitrate_kbps, lossless, artist, title FROM fingerprints "
-            "WHERE INSTR(LOWER(path), LOWER(?)) = 1",
+            "bitrate_kbps, lossless, artist, title, file_sha256, pcm_sha256 "
+            "FROM fingerprints WHERE INSTR(LOWER(path), LOWER(?)) = 1",
             [self._scope_prefix(dir_path)],
         )
         records: dict[str, FingerprintRecord] = {}
         for row in cursor:
             path, mtime, size, duration, words, sample_rate, channels = row[:7]
-            bitrate_kbps, lossless, artist, title = row[7:]
+            bitrate_kbps, lossless, artist, title = row[7:11]
+            file_sha256, pcm_sha256 = row[11:]
             try:
                 parsed = tuple(int(part) for part in str(words).split(",") if part)
             except ValueError:
@@ -274,6 +323,8 @@ class FingerprintCache:
                 lossless=bool(lossless),
                 artist=str(artist),
                 title=str(title),
+                file_sha256=str(file_sha256),
+                pcm_sha256=str(pcm_sha256),
             )
         return records
 
@@ -309,8 +360,9 @@ class FingerprintCache:
         conn.execute(
             "INSERT OR REPLACE INTO fingerprints "
             "(path_hash, path, mtime, size, duration, words, sample_rate, "
-            " channels, bitrate_kbps, lossless, artist, title) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " channels, bitrate_kbps, lossless, artist, title, file_sha256, "
+            " pcm_sha256) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 _path_hash(record.path),
                 os.path.normpath(record.path),
@@ -324,6 +376,8 @@ class FingerprintCache:
                 1 if record.lossless else 0,
                 record.artist,
                 record.title,
+                record.file_sha256,
+                record.pcm_sha256,
             ],
         )
         self._commit()

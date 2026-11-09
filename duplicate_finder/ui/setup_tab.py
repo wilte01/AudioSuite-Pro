@@ -1,3 +1,4 @@
+# Changed in 2.6.0: adds the Exact matching control (F-E9).
 # Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """Setup tab for the Duplicate Finder.
 
@@ -20,7 +21,7 @@ from audio_suite_shared import styles, ui_common
 from audio_suite_shared.ui_common import BaseSetupFrame
 
 from ..core.disposition import DEFAULT_DISPOSITION, DISPOSITIONS, LABELS
-from ..core.models import DEFAULT_THRESHOLD
+from ..core.models import DEFAULT_THRESHOLD, EXACT_MODES
 
 
 def build(
@@ -30,6 +31,7 @@ def build(
     threshold: tk.DoubleVar,
     quarantine_dir: tk.StringVar,
     disposition: tk.StringVar,
+    exact_mode: tk.StringVar,
     auto_start_var: tk.BooleanVar,
     auto_end_var: tk.BooleanVar,
     clear_logs_var: tk.BooleanVar,
@@ -53,6 +55,8 @@ def build(
         threshold: Bound to the similarity slider (0.02-0.40).
         quarantine_dir: Bound to the quarantine folder entry.
         disposition: Bound to the duplicate-handling combobox (raw values).
+        exact_mode: Bound to the exact-matching combobox (``off``/``only``/
+            ``also``).
         auto_start_var: Mirror of the driver's Auto Start.
         auto_end_var: Mirror of the driver's Auto End.
         clear_logs_var: Mirror of Clear Logs (display only).
@@ -92,6 +96,7 @@ def build(
         threshold=threshold,
         quarantine_dir=quarantine_dir,
         disposition=disposition,
+        exact_mode=exact_mode,
         on_browse_quarantine=on_browse_quarantine,
         on_disposition_changed=on_disposition_changed,
     )
@@ -110,6 +115,7 @@ class _SetupFrame(BaseSetupFrame):
         threshold: tk.DoubleVar,
         quarantine_dir: tk.StringVar,
         disposition: tk.StringVar,
+        exact_mode: tk.StringVar,
         on_browse_quarantine: Callable[[], None],
         on_disposition_changed: Callable[[str], None],
         **kwargs: Any,
@@ -118,6 +124,7 @@ class _SetupFrame(BaseSetupFrame):
         self._threshold = threshold
         self._quarantine_dir = quarantine_dir
         self._disposition = disposition
+        self._exact_mode = exact_mode
         self._on_browse_quarantine = on_browse_quarantine
         self._on_disposition_changed = on_disposition_changed
         super().__init__(parent, **kwargs)
@@ -145,6 +152,38 @@ class _SetupFrame(BaseSetupFrame):
             anchor="w",
             wraplength=760,
         ).pack(fill="x", pady=(4, 8))
+
+        tk.Label(
+            group,
+            text="Exact matching:",
+            font=styles.FONT_BODY,
+            fg=styles.FG_MAIN,
+            bg=styles.BG_WHITE,
+        ).pack(anchor="w", pady=(6, 0))
+
+        ttk.Combobox(
+            group,
+            textvariable=self._exact_mode,
+            state="readonly",
+            values=EXACT_MODES,
+            font=styles.FONT_BODY,
+        ).pack(fill="x", pady=(3, 2))
+        tk.Label(
+            group,
+            text=(
+                "off fingerprints only (the original behaviour). only groups "
+                "files whose bytes or decoded samples are identical and never "
+                "runs the fingerprint calculator. also reports both kinds in one "
+                "run. Hashing decodes every file, so only and also cost more "
+                "time than a fingerprint scan."
+            ),
+            font=styles.FONT_CAPTION,
+            fg=styles.FG_SUB,
+            bg=styles.BG_WHITE,
+            anchor="w",
+            justify=tk.LEFT,
+            wraplength=760,
+        ).pack(fill="x", pady=(0, 8))
 
         tk.Label(
             group,

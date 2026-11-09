@@ -1,3 +1,4 @@
+# Changed in 2.6.0: ``exact_mode`` validation and the record digests (F-E9).
 """Tests for the duplicate finder's data model.
 
 The keeper rule and the settings validation are pure functions, and they decide
@@ -14,9 +15,11 @@ import pytest
 
 from duplicate_finder.core.models import (
     DEFAULT_DURATION_TOLERANCE_S,
+    DEFAULT_EXACT_MODE,
     DEFAULT_MAX_SHIFT_WORDS,
     DEFAULT_MIN_OVERLAP_RATIO,
     DEFAULT_THRESHOLD,
+    EXACT_MODES,
     DuplicateGroup,
     DuplicateMember,
     FingerprintRecord,
@@ -110,6 +113,21 @@ class TestScanSettingsValidation:
 
     def test_a_zero_shift_width_is_allowed(self) -> None:
         assert ScanSettings(max_shift_words=0).max_shift_words == 0
+
+
+class TestExactMode:
+    """The exact-matching choice is validated where the settings are built."""
+
+    def test_the_default_keeps_fingerprint_only_behaviour(self) -> None:
+        assert ScanSettings().exact_mode == DEFAULT_EXACT_MODE == "off"
+
+    @pytest.mark.parametrize("mode", EXACT_MODES)
+    def test_each_declared_mode_is_accepted(self, mode: str) -> None:
+        assert ScanSettings(exact_mode=mode).exact_mode == mode  # type: ignore[arg-type]
+
+    def test_an_unknown_mode_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="exact_mode"):
+            ScanSettings(exact_mode="sometimes")  # type: ignore[arg-type]
 
 
 class TestQualityKey:

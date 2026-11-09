@@ -13,6 +13,10 @@ rather than re-implemented:
   shared :func:`audio_suite_shared.tag_helper_reader.read_artist_title` reader,
   which already returns ``("Unknown", "Unknown")`` rather than raising.
 
+Changed in 2.6.0: adds ``build_properties_record``, the same measured record
+without the fpcalc fingerprint, so an exact-only run never calls the
+fingerprint calculator (F-E9).
+
 Changed in 2.3.0: new duplicate-detection tool (backlog F-02): fingerprint distance,
 clustering, cache and quarantine.
 """
@@ -80,6 +84,59 @@ def _clean_tag(value: str) -> str:
         The tag, or an empty string when it was absent.
     """
     return "" if value == _UNKNOWN else value
+
+
+def _measured_duration(path: str) -> float:
+    """Return the file's declared duration in seconds, or ``0.0``.
+
+    An exact-only run still needs a duration for the keeper rule (a truncated
+    copy must lose to a complete one) and for the report, but it must not pay
+    for a fingerprint to learn it.  Mutagen already reads the container's own
+    header for every other property, so it answers this too.
+
+    Args:
+        path: Audio file path.
+
+    Returns:
+        The duration in seconds, or ``0.0`` when the container does not say.
+    """
+    try:
+        audio = mutagen.File(path)
+        info = getattr(audio, "info", None)
+        return float(getattr(info, "length", 0) or 0)
+    except (mutagen.MutagenError, OSError, ValueError) as exc:
+        logger.debug("mutagen could not read the duration of %s: %s", path, exc)
+        return 0.0
+
+
+def build_properties_record(path: str, mtime: float, size: int) -> FingerprintRecord:
+    """Collect everything a keeper decision needs except the fingerprint.
+
+    Args:
+        path: Audio file path.
+        mtime: The file's ``st_mtime``, stored as half the freshness stamp.
+        size: The file's ``st_size``.
+
+    Returns:
+        A record whose ``words`` are empty — it is never clustered by
+        fingerprint, only hashed and grouped by :mod:`duplicate_finder.core.exact`.
+    """
+    duration = _measured_duration(path)
+    sample_rate, channels, bitrate_kbps = _stream_properties(path, duration, size)
+    artist, title = read_artist_title(path)
+    return FingerprintRecord(
+        path=os.path.normpath(path),
+        duration=duration,
+        words=(),
+        size=int(size),
+        mtime=float(mtime),
+        sample_rate=sample_rate,
+        channels=channels,
+        bitrate_kbps=bitrate_kbps,
+        lossless=is_lossless_extension(path),
+        artist=_clean_tag(artist),
+        title=_clean_tag(title),
+    )
 
 
 def build_record(path: str, mtime: float, size: int) -> FingerprintRecord:

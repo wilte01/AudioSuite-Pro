@@ -1,3 +1,4 @@
+# Changed in 2.6.0: exact matching (F-E9) and the exact/perceptual merge rule.
 # Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """Tests for the duplicate scan: walk, cache reuse, and the quarantine move.
 
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -34,11 +36,15 @@ from audio_suite_shared.tag_helper_writer import (
     write_plain_lyrics,
 )
 from duplicate_finder.core import file_processor
+from duplicate_finder.core.clustering import cluster_records
+from duplicate_finder.core.exact import build_exact_groups
 from duplicate_finder.core.file_processor import (
     STATUS_CACHED,
     STATUS_DELETED,
     STATUS_DUPLICATE,
     STATUS_ERROR,
+    STATUS_EXACT,
+    STATUS_EXACT_PCM,
     STATUS_KEEP,
     STATUS_MOVED,
     STATUS_NO_FINGERPRINT,
@@ -49,7 +55,7 @@ from duplicate_finder.core.file_processor import (
     quarantine_file,
     run_duplicate_scan,
 )
-from duplicate_finder.core.models import ScanSettings
+from duplicate_finder.core.models import FingerprintRecord, ScanSettings
 
 
 def sha256(path: Path) -> str:
@@ -465,6 +471,223 @@ class TestTheCacheIsUsed:
         run_duplicate_scan(str(library), True, on_complete=Recorder().on_complete)
 
         assert seen == ["take2.mp3"]
+
+
+class TestExactMode:
+    """The exact-matching halves of a run (F-E9)."""
+
+    @staticmethod
+    def _with_identical_copy(library: Path) -> Path:
+        """Add a byte-identical, differently named copy of the FLAC fixture."""
+        # Sorts after ``song.flac``, so the fixture original stays the keeper
+        # and the copy is the member the report names.
+        copy = library / "song_zz_copy.flac"
+        shutil.copy2(library / "song.flac", copy)
+        return copy
+
+    @pytest.mark.integration
+    def test_exact_only_hashes_every_file_and_never_fingerprints(
+        self, library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._with_identical_copy(library)
+        recorder = Recorder()
+
+        def _must_not_run(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("an exact-only run called the fingerprinter")
+
+        monkeypatch.setattr(file_processor, "build_record", _must_not_run)
+
+        run_duplicate_scan(
+            str(library),
+            True,
+            ScanSettings(exact_mode="only"),
+            on_progress=recorder.on_progress,
+            on_complete=recorder.on_complete,
+            on_error=recorder.on_error,
+        )
+
+        payload = recorder.completion
+        assert recorder.errors == []
+        assert payload["total"] == 8
+        assert payload["hashed"] == 8
+        assert payload["exact_groups"] == 1
+        assert payload["exact_duplicates"] == 1
+        assert all(
+            call["display_text"].startswith(STATUS_EXACT) for call in recorder.progress
+        )
+
+    @pytest.mark.integration
+    def test_exact_only_reuses_the_cached_digests(
+        self, library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._with_identical_copy(library)
+        run_duplicate_scan(
+            str(library),
+            True,
+            ScanSettings(exact_mode="only"),
+            on_complete=Recorder().on_complete,
+        )
+        second = Recorder()
+
+        def _must_not_run(*_args: object, **_kwargs: object) -> str:
+            raise AssertionError("a cached file was hashed again")
+
+        monkeypatch.setattr(file_processor, "attach_hashes", _must_not_run)
+
+        run_duplicate_scan(
+            str(library),
+            True,
+            ScanSettings(exact_mode="only"),
+            on_progress=second.on_progress,
+            on_complete=second.on_complete,
+        )
+
+        assert second.completion["hashed"] == 0
+        assert all(
+            call["display_text"].startswith(STATUS_CACHED) for call in second.progress
+        )
+
+    @pytest.mark.integration
+    def test_also_reports_both_kinds_and_names_each_file_once(
+        self, library: Path
+    ) -> None:
+        self._with_identical_copy(library)
+        recorder = Recorder()
+
+        run_duplicate_scan(
+            str(library),
+            True,
+            ScanSettings(exact_mode="also"),
+            on_complete=recorder.on_complete,
+            on_error=recorder.on_error,
+        )
+
+        payload = recorder.completion
+        assert recorder.errors == []
+        assert payload["exact_groups"] == 1
+        assert payload["groups"] >= 2
+        entries = payload["log_entries"]
+        assert any(
+            line.startswith(STATUS_EXACT) and "song_zz_copy.flac" in line
+            for line in entries
+        )
+        assert any(line.startswith(STATUS_DUPLICATE) for line in entries)
+        assert sum("song_zz_copy.flac" in line for line in entries) == 1
+
+    def test_a_file_an_exact_group_keeps_is_never_a_perceptual_duplicate(
+        self,
+    ) -> None:
+        """An ``also`` report must never name one file in two roles.
+
+        The perceptual keeper can itself be an exact duplicate, and what is
+        left beside it can be the exact group's *keeper*.  Claiming only the
+        exact duplicates leaves that file printed as ``[KEEP]`` by one group
+        and ``[DUPLICATE]`` by the other -- and a live run would then move a
+        file the report tells the reader to keep.
+        """
+        words = (1, 2, 3, 4, 5, 6, 7, 8)
+
+        def _record(path: str, bitrate: float, digest: str) -> FingerprintRecord:
+            return FingerprintRecord(
+                path=path,
+                duration=30.0,
+                words=words,
+                size=1000,
+                mtime=1.0,
+                sample_rate=44100,
+                channels=2,
+                bitrate_kbps=bitrate,
+                file_sha256=digest,
+                pcm_sha256=digest,
+            )
+
+        records = [
+            _record("a.flac", 128.0, "same"),
+            _record("b.flac", 128.0, "same"),
+            _record("c.flac", 320.0, "other"),
+            _record("d.flac", 320.0, "third"),
+        ]
+        settings = ScanSettings(exact_mode="also")
+        exact = build_exact_groups(records)
+        perceptual = cluster_records(records, settings)
+
+        merged = file_processor._merge_exact_and_perceptual(perceptual, exact, settings)
+
+        keepers = {group.keeper.path for group in [*exact, *merged]}
+        duplicates = {
+            member.record.path
+            for group in [*exact, *merged]
+            for member in group.duplicates
+        }
+        assert exact and perceptual, "the fixture did not produce both kinds"
+        assert keepers & duplicates == set(), "one file is named in two roles"
+        assert "a.flac" not in duplicates
+        assert [
+            member.record.path for group in merged for member in group.duplicates
+        ] == ["d.flac"]
+
+    @pytest.mark.integration
+    def test_a_tag_edit_is_grouped_by_pcm(self, library: Path) -> None:
+        tagged = library / "tagged.flac"
+        shutil.copy2(library / "song.flac", tagged)
+        write_editable_tag(str(tagged), "title", "Another title")
+        recorder = Recorder()
+
+        run_duplicate_scan(
+            str(library),
+            True,
+            ScanSettings(exact_mode="only"),
+            on_complete=recorder.on_complete,
+        )
+
+        payload = recorder.completion
+        assert payload["exact_groups"] == 1
+        assert any(
+            line.startswith(STATUS_EXACT_PCM) and "tagged.flac" in line
+            for line in payload["log_entries"]
+        )
+
+    @pytest.mark.integration
+    def test_a_byte_copy_beside_a_retagged_copy_keeps_its_own_label(
+        self, library: Path
+    ) -> None:
+        """Each member is labelled from its own digest, not the group's kind.
+
+        One component can hold both a byte-for-byte copy and a retagged one;
+        the group is then a PCM group, but the byte copy's line must not claim
+        "different bytes" -- that sentence was the defect this test locks.
+        """
+        self._with_identical_copy(library)
+        tagged = library / "song_zz_tagged.flac"
+        shutil.copy2(library / "song.flac", tagged)
+        write_editable_tag(str(tagged), "title", "Another title")
+        recorder = Recorder()
+
+        run_duplicate_scan(
+            str(library),
+            True,
+            ScanSettings(exact_mode="only"),
+            on_complete=recorder.on_complete,
+            on_error=recorder.on_error,
+        )
+
+        entries = recorder.completion["log_entries"]
+        byte_line = next(line for line in entries if "song_zz_copy.flac" in line)
+        pcm_line = next(line for line in entries if "song_zz_tagged.flac" in line)
+        assert byte_line.startswith(STATUS_EXACT), byte_line
+        assert "byte-identical" in byte_line
+        assert pcm_line.startswith(STATUS_EXACT_PCM), pcm_line
+        assert "different bytes" in pcm_line
+
+    @pytest.mark.integration
+    def test_exact_off_hashes_nothing(self, library: Path) -> None:
+        recorder = Recorder()
+
+        run_duplicate_scan(str(library), True, on_complete=recorder.on_complete)
+
+        payload = recorder.completion
+        assert payload["hashed"] == 0
+        assert payload["exact_groups"] == 0
 
 
 class TestPerFileFailures:

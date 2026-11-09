@@ -1,3 +1,4 @@
+# Changed in 2.6.0: digest columns and the version-1 to version-2 upgrade (F-E9).
 """Tests for the fingerprint cache.
 
 The cache is what makes the tool usable on a real library, so every rule that
@@ -158,6 +159,65 @@ class TestFreshness:
         stored = record("D:/music/a.flac", mtime=1000.0, size=500)
 
         assert not cache.is_fresh(stored, 1001.0, 500)
+
+
+#: The version-1 table, as 2.3.0 shipped it: no digest columns.
+_V1_SCHEMA = """
+CREATE TABLE fingerprints (
+    path_hash TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    mtime REAL NOT NULL,
+    size INTEGER NOT NULL,
+    duration REAL NOT NULL,
+    words TEXT NOT NULL,
+    sample_rate INTEGER NOT NULL DEFAULT 0,
+    channels INTEGER NOT NULL DEFAULT 0,
+    bitrate_kbps REAL NOT NULL DEFAULT 0,
+    lossless INTEGER NOT NULL DEFAULT 0,
+    artist TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    scanned_at TEXT DEFAULT (datetime('now'))
+);
+"""
+
+
+class TestDigests:
+    """The exact-matching digests are stored, reloaded and upgraded (F-E9)."""
+
+    def test_both_digests_round_trip(self, cache: FingerprintCache) -> None:
+        stored = replace(
+            record("D:/music/a.flac"),
+            file_sha256="a" * 64,
+            pcm_sha256="b" * 64,
+        )
+
+        cache.upsert(stored)
+        loaded = cache.load_under("D:/music")["D:\\music\\a.flac"]
+
+        assert (loaded.file_sha256, loaded.pcm_sha256) == ("a" * 64, "b" * 64)
+
+    def test_a_version_one_cache_is_upgraded_in_place(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "legacy.db"
+        connection = sqlite3.connect(str(db_path))
+        connection.executescript(_V1_SCHEMA)
+        connection.execute(
+            "INSERT INTO fingerprints "
+            "(path_hash, path, mtime, size, duration, words) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("hash", "D:\\music\\a.flac", 1.0, 2, 3.0, "1,2"),
+        )
+        connection.execute("PRAGMA user_version = 1")
+        connection.commit()
+        connection.close()
+
+        with FingerprintCache(db_path) as upgraded:
+            loaded = upgraded.load_under("D:/music")
+
+        assert loaded["D:\\music\\a.flac"].words == (1, 2)
+        assert loaded["D:\\music\\a.flac"].file_sha256 == ""
+        with sqlite3.connect(str(db_path)) as check:
+            version = check.execute("PRAGMA user_version").fetchone()
+        assert version is not None and version[0] == 2
 
 
 class TestScope:

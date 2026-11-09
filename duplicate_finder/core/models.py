@@ -1,3 +1,4 @@
+# Changed in 2.6.0: exact-duplicate mode (F-E9).
 # Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """Model types for the duplicate finder.
 
@@ -14,6 +15,7 @@ clustering, cache and quarantine.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 from .disposition import DEFAULT_DISPOSITION, normalize
 
@@ -45,6 +47,14 @@ DEFAULT_MIN_OVERLAP_RATIO: float = 0.6
 #: delay, far less than a different performance.
 DEFAULT_MAX_SHIFT_WORDS: int = 32
 
+#: The exact-matching choices, in the order the CLI accepts them.
+#: ``off`` is fingerprint-only (the pre-2.6.0 behaviour), ``only`` hashes and
+#: never fingerprints, and ``also`` does both in one run.
+EXACT_MODES: tuple[str, ...] = ("off", "only", "also")
+
+#: Default: a scan that asks for nothing new keeps doing exactly what it did.
+DEFAULT_EXACT_MODE: str = "off"
+
 
 @dataclass(frozen=True)
 class ScanSettings:
@@ -65,6 +75,9 @@ class ScanSettings:
             (the default), ``delete`` or ``asx-stub``.  Validated here so a
             hand-built settings object cannot reach the file loop with an
             unknown action.
+        exact_mode: Whether the run also computes the byte and decoded-PCM
+            hashes: ``off`` (fingerprint only), ``only`` (hashes, no
+            fingerprinting) or ``also`` (both, reported separately).
     """
 
     threshold: float = DEFAULT_THRESHOLD
@@ -73,6 +86,7 @@ class ScanSettings:
     max_shift_words: int = DEFAULT_MAX_SHIFT_WORDS
     quarantine_dir: str = ""
     disposition: str = DEFAULT_DISPOSITION
+    exact_mode: Literal["off", "only", "also"] = "off"
 
     def __post_init__(self) -> None:
         """Reject values the distance and clustering code cannot honour.
@@ -97,6 +111,10 @@ class ScanSettings:
                 f"max_shift_words must be >= 0, got {self.max_shift_words}"
             )
         object.__setattr__(self, "disposition", normalize(self.disposition))
+        if self.exact_mode not in EXACT_MODES:
+            raise ValueError(
+                f"exact_mode must be one of {EXACT_MODES}, got {self.exact_mode!r}"
+            )
 
 
 @dataclass(frozen=True)
@@ -115,6 +133,10 @@ class FingerprintRecord:
         lossless: Whether the container is a lossless one.
         artist: Artist tag, or an empty string when there is no readable tag.
         title: Title tag, or an empty string.
+        file_sha256: SHA-256 of the file's raw bytes, or ``""`` when the run
+            did not hash it (or the cache row predates the column).
+        pcm_sha256: SHA-256 of the decoded ``s32le`` samples, or ``""`` for the
+            same two reasons.
     """
 
     path: str
@@ -128,6 +150,8 @@ class FingerprintRecord:
     lossless: bool = False
     artist: str = ""
     title: str = ""
+    file_sha256: str = ""
+    pcm_sha256: str = ""
 
     @property
     def quality_key(self) -> tuple[int, float, int, float]:
@@ -178,10 +202,14 @@ class DuplicateGroup:
             lexicographically smallest path so two runs on the same library
             always agree.
         duplicates: The other copies, each with its distance to *keeper*.
+        kind: Which question grouped the files: ``"fingerprint"`` for a
+            measured similarity, ``"exact"`` for identical bytes and
+            ``"exact-pcm"`` for identical decoded samples.
     """
 
     keeper: FingerprintRecord
     duplicates: tuple[DuplicateMember, ...]
+    kind: str = "fingerprint"
 
     @property
     def files(self) -> tuple[FingerprintRecord, ...]:
@@ -205,6 +233,8 @@ class ScanOutcome:
         deleted: Files moved to the operating system's Recycle Bin.
         stubbed: Files replaced by a verified ASX stub and moved to the Trash.
         missing_fingerprint: Files fpcalc could not fingerprint.
+        hash_errors: Files an exact mode could not hash.
+        hashed: Files whose hashes were computed (cached rows are not counted).
         log_entries: One line per file, in run order.
     """
 
@@ -214,4 +244,6 @@ class ScanOutcome:
     deleted: int = 0
     stubbed: int = 0
     missing_fingerprint: int = 0
+    hash_errors: int = 0
+    hashed: int = 0
     log_entries: list[str] = field(default_factory=list)

@@ -531,7 +531,7 @@ Find the files that are the same recording by comparing audio fingerprints, then
 move, delete or replace the extra copies. The kept copy is never written.
 
 ```bash
-audiosuite duplicates <directory> [--on-duplicate MODE] [--threshold F] [--quarantine-dir DIR] [--cache PATH] [OPTIONS]
+audiosuite duplicates <directory> [--on-duplicate MODE] [--threshold F] [--exact MODE] [--quarantine-dir DIR] [--cache PATH] [OPTIONS]
 ```
 
 **Options:**
@@ -539,6 +539,7 @@ audiosuite duplicates <directory> [--on-duplicate MODE] [--threshold F] [--quara
 - `--dry` / `--live` — Report the duplicate groups only, or handle the extra copies (default: live)
 - `--on-duplicate [quarantine|delete|asx-stub]` — what a live run does with each duplicate (default: quarantine): move it to the quarantine folder, send it to the Recycle Bin, or replace it with a restorable ASX stub
 - `--threshold F` — maximum bit-error rate for two fingerprints to count as one recording (default: 0.1)
+- `--exact [off|only|also]` — exact matching beside the fingerprint comparison (default: off): `only` groups files whose bytes or decoded samples are identical and skips fingerprinting entirely; `also` reports both kinds in one run. Hashing decodes each file, so the exact modes cost more time than a fingerprint scan.
 - `--quarantine-dir DIR` — where a live run moves duplicates; defaults to a `duplicate_quarantine` folder inside the scanned directory
 - `--cache PATH` — the fingerprint cache file; defaults to `duplicate_cache.db` in the suite's cache directory
 
@@ -546,8 +547,10 @@ Quarantine moves the non-keepers and records each move in the suite's undo
 history. Delete and `asx-stub` send them to the Recycle Bin instead; neither
 calls a permanent delete, and the stub can be restored later with `asx-extract`.
 The first Delete or `asx-stub` run installs Recycle Bin support automatically.
-The JSON payload adds `groups`, `duplicates`, `quarantined`, `deleted` and
-`stubbed` to the shared counters.
+The JSON payload adds `groups`, `duplicates`, `exact_groups`, `exact_duplicates`,
+`hashed`, `quarantined`, `deleted` and `stubbed` to the shared counters. The
+report labels a byte-identical copy `[EXACT]` and one that only matches after
+decoding `[EXACT PCM]`, so the two claims stay distinguishable.
 
 **Examples:**
 
@@ -557,6 +560,7 @@ audiosuite duplicates "D:\Music" --live --quarantine-dir "D:\Quarantine"
 audiosuite duplicates "D:\Music" --live --on-duplicate delete
 audiosuite duplicates "D:\Music" --live --on-duplicate asx-stub
 audiosuite duplicates "D:\Music" --dry --threshold 0.08 --json
+audiosuite duplicates "D:\Music" --dry --exact only
 ```
 
 ### Tag Field Updater

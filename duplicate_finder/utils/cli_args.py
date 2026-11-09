@@ -1,3 +1,4 @@
+# Changed in 2.6.0: reads ``--exact off|only|also`` (F-E9).
 # Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """cli_args.py — Launcher argument parsing for the Duplicate Finder.
 
@@ -10,8 +11,9 @@ reads, with this tool's two options appended after the positional block:
     argv[3]  - '--start' | '--no-start'
     argv[4]  - '--end'   | '--no-end'
     argv[5+] - '--threshold' <float>, '--quarantine-dir' <path>,
-               '--on-duplicate' <quarantine|delete|asx-stub>, and the
-               display-only --clear-logs/--parallel-run pair
+               '--on-duplicate' <quarantine|delete|asx-stub>,
+               '--exact' <off|only|also>, and the display-only
+               --clear-logs/--parallel-run pair
 
 The slots match the argument list ``master_driver.runner.arg_builder`` emits for
 this utility (``[path, mode, start, end, --threshold, value]``).  Reading fixed
@@ -44,7 +46,7 @@ from audio_suite_shared.cli_helpers import (
 )
 
 from ..core.disposition import DEFAULT_DISPOSITION, normalize
-from ..core.models import DEFAULT_THRESHOLD
+from ..core.models import DEFAULT_EXACT_MODE, DEFAULT_THRESHOLD, EXACT_MODES
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,7 @@ class DuplicateFinderArgs(BaseCLIArgs):
     threshold: float = DEFAULT_THRESHOLD
     quarantine_dir: str = ""
     disposition: str = DEFAULT_DISPOSITION
+    exact_mode: str = DEFAULT_EXACT_MODE
     clear_logs: bool = False
     parallel_run: bool = False
 
@@ -102,6 +105,7 @@ def _read_options(argv: list[str], args: DuplicateFinderArgs) -> None:
             "--threshold",
             "--quarantine-dir",
             "--on-duplicate",
+            "--exact",
         } and index + 1 < len(argv):
             value = argv[index + 1]
             if token == "--threshold":
@@ -109,6 +113,8 @@ def _read_options(argv: list[str], args: DuplicateFinderArgs) -> None:
                     args.threshold = float(value)
                 except ValueError:
                     logger.warning("Ignoring non-numeric --threshold %r", value)
+            elif token == "--exact":
+                args.exact_mode = value.strip().lower()
             elif token == "--on-duplicate":
                 try:
                     args.disposition = normalize(value)
@@ -155,6 +161,10 @@ def parse(argv: list[str] | None = None) -> DuplicateFinderArgs:
         args.disposition = normalize(args.disposition)
     except ValueError as exc:
         errors.append(str(exc))
+    if args.exact_mode not in EXACT_MODES:
+        errors.append(
+            f"--exact must be one of {', '.join(EXACT_MODES)}, got {args.exact_mode!r}"
+        )
     if errors:
         for error in errors:
             print_tool_usage_error("Duplicate Finder", error)

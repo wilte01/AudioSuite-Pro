@@ -30,7 +30,9 @@ Changed in 2.5.0: the handshake table gains the Track Splitter (F-E4).
 Changed in 2.6.0: the table gains the CUE Sheet Generator as a driven tool.
 Its window fronts the shared `cue generate` builder, and its arg-builder entry
 is the four-flag grammar its own `parse()` reads, so the batch can schedule it
-(F-E8, D-19).
+(F-E8, D-19).  The Driver-state double answers `duplicate_exact_mode` as well,
+because the Duplicate Finder builder now emits `--exact` and its parser
+validates the value (F-E9).
 """
 
 from __future__ import annotations
@@ -95,6 +97,7 @@ class _DriverState:
         "rg_lufs": "-16.0",
         "tempo_scheme": "Italian",
         "duplicate_threshold": "0.9",
+        "duplicate_exact_mode": "off",
         "dup_disposition": "quarantine",
         "duplicate_disposition": "quarantine",
         "file_reorg_action": "copy",

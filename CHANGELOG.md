@@ -22,6 +22,19 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **Exact duplicate matching, by bytes or by decoded audio.** The Duplicate
+  Finder answers a narrower question beside its fingerprint scan: `--exact only`
+  groups files whose bytes are identical — a renamed copy, a backup — or whose
+  samples decode identically even when their tags differ, and skips
+  fingerprinting entirely; `--exact also` reports both kinds in one run. The
+  report labels a byte-identical copy `[EXACT]` and a decoded match `[EXACT PCM]`,
+  so the two claims stay distinguishable, and a file an exact group already
+  names is not counted again in a fingerprint group. Matching is off by default,
+  so an existing scan behaves exactly as before. Hashing decodes each file, so
+  the exact modes take longer than a fingerprint scan; both hashes are cached
+  beside the fingerprint. The window's **Exact matching** control, the Master
+  Driver card and the batch pass the choice through, and the JSON payload adds
+  `exact_groups`, `exact_duplicates` and `hashed`.
 - **A CUE sheet for a folder of tracks, from a window and the command line.**
   CUE Sheet Generator (`CUE_Sheet_Generator.pyw`) describes every file in a
   folder as its own track and writes `album.cue` beside them: the track number

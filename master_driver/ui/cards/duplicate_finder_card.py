@@ -1,3 +1,4 @@
+# Changed in 2.6.0: adds the Exact matching control (F-E9).
 # Changed in 2.4.0: duplicate dispositions and ASX stubs.
 """duplicate_finder_card.py — Duplicate Finder module card.
 
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
 
 from audio_suite_shared import styles
 from duplicate_finder.core.disposition import DISPOSITIONS
+from duplicate_finder.core.models import EXACT_MODES
 from master_driver.ui.cards._card_base import build_card_shell
 
 
@@ -57,6 +59,26 @@ def build(parent: tk.Frame, state: "AppState") -> None:
             width=18,
             font=styles.FONT_BODY,
             values=DISPOSITIONS,
+        ).pack(side=tk.LEFT, padx=6)
+
+        r3 = tk.Frame(body, bg=styles.BG_WHITE)
+        r3.pack(fill="x", pady=(4, 1))
+        tk.Label(
+            r3,
+            text="Exact matching:",
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            width=26,
+            anchor="w",
+        ).pack(side=tk.LEFT)
+        ttk.Combobox(
+            r3,
+            textvariable=state.duplicate_exact_mode,
+            state="readonly",
+            width=18,
+            font=styles.FONT_BODY,
+            values=EXACT_MODES,
         ).pack(side=tk.LEFT, padx=6)
 
         r1 = tk.Frame(body, bg=styles.BG_WHITE)

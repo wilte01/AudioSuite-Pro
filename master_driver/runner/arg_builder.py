@@ -34,7 +34,9 @@ Changed in 2.3.0: builds the duplicate_finder and restoration argv their windows
 back (F-02, F-08a).
 
 Changed in 2.6.0: adds the ``cue_sheet`` entry, so a batch can schedule the
-window that writes the shared folder sheet (F-E8 follow-up).
+window that writes the shared folder sheet (F-E8 follow-up).  The Duplicate
+Finder entry passes ``--exact``, so the card's exact-matching choice reaches
+the run (F-E9).
 
 Changed in 2.3.1 (U-03, released in 2.6.0): drops the five DSP tools' builders
 with their cards, and with them the one tool-specific display-flag exception.
@@ -737,6 +739,8 @@ def _build_duplicate_finder_args(
         state.duplicate_disposition.get(),
         "--threshold",
         state.duplicate_threshold.get(),
+        "--exact",
+        state.duplicate_exact_mode.get() or "off",
     ]
     quarantine = state.duplicate_quarantine_dir.get().strip()
     if quarantine:

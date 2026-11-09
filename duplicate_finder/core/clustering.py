@@ -21,6 +21,10 @@ The keeper is chosen from measured file properties only — see
 :attr:`~duplicate_finder.core.models.FingerprintRecord.quality_key` — never from
 tags, which are exactly what is unreliable in a duplicate set.
 
+Changed in 2.6.0: ``UnionFind`` is public, because the exact-duplicate grouper
+(``core/exact.py``) joins records with the same connected-component rule rather
+than carrying a second copy of it.
+
 Changed in 2.3.0: new duplicate-detection tool (backlog F-02): fingerprint distance,
 clustering, cache and quarantine.
 """
@@ -97,7 +101,7 @@ def candidate_pairs(
     return sorted(found)
 
 
-class _UnionFind:
+class UnionFind:
     """Minimal union-find over integer ids, with path compression."""
 
     def __init__(self, size: int) -> None:
@@ -140,7 +144,7 @@ def cluster_records(
     if len(records) < 2:
         return []
 
-    union = _UnionFind(len(records))
+    union = UnionFind(len(records))
     matched: set[int] = set()
     for left_index, right_index in candidate_pairs(records):
         left, right = records[left_index], records[right_index]
