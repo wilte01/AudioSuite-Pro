@@ -24,6 +24,8 @@ than ``registry.all``, so a plugin tool that ships only a CLI entry point gets n
 toggle (Sprint 7, Item 7.1).
 
 Changed in 2.6.0: carries the Duplicate Finder's exact-matching choice (F-E9).
+Changed in 2.6.0: carries the Artwork Extractor's sidecar options (F-E10
+follow-up).  Its module toggle comes from the registry like every tool's.
 
 Changed in 2.3.0: carries the duplicate_finder and restoration module toggles (F-02,
 F-08a).
@@ -256,6 +258,12 @@ class AppState:
         Kept out of :meth:`__init__` so its statement count stays inside the
         lint budget as tools gain options.
         """
+        # Changed in 2.6.0: the Artwork Extractor's sidecar name and its two
+        # switches, which its batch step passes to the window.
+        self.artwork_sidecar_name = tk.StringVar(master, value="cover")
+        self.artwork_force = tk.BooleanVar(master, value=False)
+        self.artwork_recursive = tk.BooleanVar(master, value=False)
+
         # Changed in 2.5.0: the Track Splitter's gap settings (F-E4).  Its
         # module toggle comes from the registry like every other tool's.
         self.track_splitter_min_silence = tk.StringVar(master, value="700")

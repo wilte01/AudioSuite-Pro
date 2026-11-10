@@ -62,7 +62,9 @@ GENERATOR = REPO_ROOT / "utilities" / "generate_docs_index.py"
 #: The manifest ships 30 first-party tools; a table that loses rows fails here.
 #: (32 until 2.6.0, when the five stage tools lost their guides: U-04.)
 # Changed in 2.6.0: the tool-row count follows the registry to 31 (F-E8).
-REQUIRED_TOOL_ROWS = 31
+# Changed in 2.6.0: the count follows the registry again to 32 with the
+# Artwork Extractor (F-E10 follow-up).
+REQUIRED_TOOL_ROWS = 32
 
 #: A MyST role span, e.g. ``{doc}`user/security```. Its body is a docname, not a
 #: repository path, even when it contains a slash.

@@ -414,6 +414,11 @@ class TestDiscoverabilityContract:
             "GUI front end for the shared `cue generate` command; the command "
             "belongs to the `cue` group and is documented there."
         ),
+        "artwork": (
+            "GUI front end for the shared `artwork extract` command (F-E10); "
+            "the command belongs to the `artwork` group and is documented "
+            "there."
+        ),
         "undo_tag_edits": (
             "GUI-only tool (Undo_Tag_Edits.pyw); it restores a backup "
             "written by a prior batch run and has no headless equivalent."
@@ -481,7 +486,7 @@ class TestDiscoverabilityContract:
         as pipeline stages no longer ship their own commands (U-04).
         """
         tools = get_registry().first_party
-        assert len(tools) == 31
+        assert len(tools) == 32
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         with_subcommand = [m for m in tools if m.cli_command]
@@ -494,6 +499,7 @@ class TestDiscoverabilityContract:
         # The GUI-only tools are exactly the declared gaps, not a surprise.
         assert [m.id for m in tools if not m.cli_command] == [
             "cue_sheet",
+            "artwork",
             "undo_tag_edits",
         ]
 

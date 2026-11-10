@@ -113,6 +113,8 @@ def open_help(guide_filename: str) -> None:
         "Album_Art_Synchronizer_User_Guide.docx": "album_art_sync",
         "AlbumGenre_Tagger_User_Guide.docx": "album_genre_tagger",
         "ASX_Playlist_Extractor_User_Guide.docx": "asx_extractor",
+        # Changed in 2.6.0: the Artwork Extractor's guide (F-E10 follow-up).
+        "Artwork_Extractor_User_Guide.docx": "artwork_extractor",
         "Audio_Fingerprinter_User_Guide.docx": "audio_fingerprinter",
         "Audio_Refinery_User_Guide.docx": "audio_refinery",
         "BPM_Analyzer_User_Guide.docx": "bpm_analyzer",

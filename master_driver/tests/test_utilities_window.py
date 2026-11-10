@@ -60,6 +60,7 @@ EXPECTED_UTILITY_ORDER: tuple[str, ...] = (
     "cue_sheet",
     "converter",
     "album_art_normalizer",
+    "artwork",
     "tag_editor",
     "tag_field_updater",
     "undo_tag_edits",
@@ -82,7 +83,13 @@ EXPECTED_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Convert & Import", ("asx_extractor", "cd_ripper", "cue_sheet", "converter")),
     (
         "Tags & Artwork",
-        ("album_art_normalizer", "tag_editor", "tag_field_updater", "undo_tag_edits"),
+        (
+            "album_art_normalizer",
+            "artwork",
+            "tag_editor",
+            "tag_field_updater",
+            "undo_tag_edits",
+        ),
     ),
     (
         "Analysis & Inspection",

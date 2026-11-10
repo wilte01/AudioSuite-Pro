@@ -580,6 +580,8 @@ class TestModuleToggles:
         "asx_extractor",
         "cue_sheet",
         "album_art_normalizer",
+        # F-E10 follow-up: the artwork extraction job's batch step.
+        "artwork",
         "cd_ripper",
         "mood_analysis_batch",
         "library_stats",

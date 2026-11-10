@@ -393,10 +393,11 @@ class TestToolTiers:
         from audio_suite_shared.tool_plugin import get_registry
 
         tools = get_registry().first_party
-        # 31 since 2.6.0: F-E8 added the CUE Sheet Generator.  The five DSP
-        # tools REFINE runs as stages stopped shipping their own launcher and
-        # command (U-04).
-        assert len(tools) == 31
+        # 32 since 2.6.0: F-E8 added the CUE Sheet Generator and F-E10's
+        # follow-up added the Artwork Extractor.  The five DSP tools REFINE
+        # runs as stages stopped shipping their own launcher and command
+        # (U-04).
+        assert len(tools) == 32
         for manifest in tools:
             assert tool_tier(manifest.id) in TIERS
 
@@ -546,11 +547,13 @@ class TestPortableCoreCLI:
         tools = get_registry().first_party
         with_cli = [m for m in tools if m.cli_command]
         assert [m.id for m in tools if tool_tier(m.id) == WINDOWS_ONLY] == ["cd_ripper"]
-        # The documented gaps: Undo Tag Edits is GUI-only, and CUE Sheet
-        # Generator fronts the shared `cue generate` command. Named here so
-        # that a *new* tool without one is a failure, not a silent pass.
+        # The documented gaps: Undo Tag Edits is GUI-only, and the CUE Sheet
+        # Generator and Artwork Extractor front the shared `cue generate` and
+        # `artwork extract` commands. Named here so that a *new* tool without
+        # one is a failure, not a silent pass.
         assert [m.id for m in tools if not m.cli_command] == [
             "cue_sheet",
+            "artwork",
             "undo_tag_edits",
         ]
         assert len(with_cli) == 29

@@ -158,7 +158,7 @@ class TestMetadataLock:
         assert declared_readme == README.name
         # The distribution's tool count, not the install's: a plugin adds a
         # registry entry, never a README row.
-        assert len(get_registry().first_party) == 31
+        assert len(get_registry().first_party) == 32
 
 
 class TestRegistrationLock:

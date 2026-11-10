@@ -467,6 +467,16 @@ FORMAT_ROWS: list[list[str]] = [
         YES,
         "Plus WAV, AIFF/AIF",
     ],
+    # Changed in 2.6.0: the artwork extraction window (F-E10 follow-up).
+    [
+        "Artwork Extractor",
+        YES,
+        YES,
+        YES,
+        YES,
+        YES,
+        "Writes each file's embedded cover beside it as cover.jpg or cover.png",
+    ],
     [
         "Lyrics Manager",
         YES,

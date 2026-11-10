@@ -274,6 +274,9 @@ DEPENDENCY_GRAPH: dict[str, list[str]] = {
     # Changed in 2.6.0: the folder CUE exporter reads tags only and writes one
     # sheet beside the folder, so it is a leaf (F-E8).
     "cue_sheet": [],
+    # Changed in 2.6.0: the Artwork Extractor reads embedded art and writes
+    # sidecars, so no other step has to run before it (F-E10 follow-up).
+    "artwork": [],
     "asx_extractor": [],
     "album_art_normalizer": [],
     "cd_ripper": [],

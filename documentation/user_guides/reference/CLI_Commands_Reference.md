@@ -449,6 +449,17 @@ audiosuite artnormalize "D:\Music\Library" --size 1000 --dry
 audiosuite artnormalize "D:\Music\Library" --json
 ```
 
+### Artwork Extractor
+
+The extractor has a window of its own, `Artwork_Extractor.pyw`, and the window
+and `artwork extract` write the sidecar through one shared implementation:
+select a folder, choose the name and the two switches, and the run writes the
+same images the command below writes. The command is the documented entry
+point; the window adds the run report, a dry run and the batch step. On the
+Master Driver's UTIL tab it is a batch step: it takes the driver's folder, run
+mode, Auto Start/Auto End pair and the card's sidecar options, and writes the
+same sidecars and report — the batch needs no second command.
+
 ### Artwork extract
 
 Write each file's embedded cover beside it as a sidecar image. Nothing else
@@ -1087,7 +1098,7 @@ audiosuite cue split "D:\Music\Album\Album.cue" -o "D:\Music\Album\Tracks"
 ## All Commands
 
 Every command the CLI ships, including the suite commands that operate on the
-installation rather than on a folder of audio. Each of the 31 tools appears
+installation rather than on a folder of audio. Each of the 32 tools appears
 here, and each tool's own section above documents its flags.
 
 | Command | Tool | Category |

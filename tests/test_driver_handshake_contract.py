@@ -195,6 +195,9 @@ HANDSHAKE_TOOLS: dict[str, ToolSpec] = {
     "lyrics_manager": ToolSpec(reason=_UNCHANGED),
     "converter": ToolSpec(reason=_UNCHANGED),
     "cue_sheet": ToolSpec("cue_sheet.utils.cli_args"),
+    # Changed in 2.6.0: the Artwork Extractor is driven with the four-flag
+    # handshake plus its own sidecar options (F-E10 follow-up).
+    "artwork": ToolSpec("artwork_extractor.utils.cli_args"),
     "asx_extractor": ToolSpec(
         reason=(
             "parses through argparse and conveys the mode as the label for "
@@ -279,8 +282,8 @@ class TestTheTableCoversTheRegistry:
         )
 
     def test_the_table_is_not_empty_and_records_its_exceptions(self) -> None:
-        assert len(HANDSHAKE_TOOLS) == 31
-        assert len(DRIVEN_TOOLS) == 13, DRIVEN_TOOLS
+        assert len(HANDSHAKE_TOOLS) == 32
+        assert len(DRIVEN_TOOLS) == 14, DRIVEN_TOOLS
         excluded = {t for t, spec in HANDSHAKE_TOOLS.items() if spec.reason}
         assert len(excluded) == 18
 

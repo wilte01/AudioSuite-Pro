@@ -1,6 +1,6 @@
 # AudioSuite-Pro
 
-AudioSuite-Pro is a Windows-first audio workbench of 31 first-party tools
+AudioSuite-Pro is a Windows-first audio workbench of 32 first-party tools
 that share one driver, one command line and one registry: tag enrichment
 (BPM, key, mood, lyrics, album art, ReplayGain, genre), DSP repair and
 conversion (loudness normalisation, hum/click removal, silence trimming,
@@ -66,7 +66,7 @@ The matrix below is **generated from the declared classification** in
 #### Tool tiers
 
 * **Windows-only** — `cd_ripper`. The CD subsystem it drives (Win32 SCSI pass-through, drive enumeration) has no portable implementation; the tool fails fast with a named missing requirement rather than degrading silently.
-* **Portable core** — the other 30 of 31 tools. Each has no platform-conditional code in its own package at all, so its non-Windows CLI path is the same code path as on Windows.
+* **Portable core** — the other 31 of 32 tools. Each has no platform-conditional code in its own package at all, so its non-Windows CLI path is the same code path as on Windows.
 
 #### Branch enumeration
 
@@ -220,6 +220,7 @@ The table below is **generated from the tool manifest**
 | CUE Sheet Generator | Write an album CUE sheet describing a folder's tracks | `CUE_Sheet_Generator.pyw` | `documentation/user_guides/individual_programs/cue_sheet/CUE_Sheet_Generator_User_Guide.docx` | Portable core |
 | Music Format Converter | Convert audio files between formats | `Music_Format_Converter.pyw` | `documentation/user_guides/individual_programs/music_format_converter/Music_Format_Converter_User_Guide.docx` | Portable core |
 | Album Art Normalizer | Resize and normalize embedded album artwork | `Album_Art_Normalizer.pyw` | `documentation/user_guides/individual_programs/album_art_normalizer/Album_Art_Normalizer_User_Guide.docx` | Portable core |
+| Artwork Extractor | Write each file's embedded cover beside it as a sidecar | `Artwork_Extractor.pyw` | `documentation/user_guides/individual_programs/artwork_extractor/Artwork_Extractor_User_Guide.docx` | Portable core |
 | Tag Editor | Edit common tags in an interactive grid | `Tag_Editor.pyw` | `documentation/user_guides/individual_programs/tag_editor/Tag_Editor_User_Guide.docx` | Portable core |
 | Tag Field Updater | Scan and update tag fields | `Tag_Field_Updater.pyw` | `documentation/user_guides/individual_programs/tag_field_updater/Tag_Field_Updater_User_Guide.docx` | Portable core |
 | Undo Tag Edits | Restore file tags to the way they were before a batch run | `Undo_Tag_Edits.pyw` | `documentation/user_guides/individual_programs/undo_tag_edits/Undo_Tag_Edits_User_Guide.docx` | Portable core |

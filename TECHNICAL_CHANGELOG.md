@@ -18,6 +18,22 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **The Artwork Extractor is a driver-schedulable window over F-E10's read
+  side.** `artwork_extractor/` adds `utils/cli_args.py` (the shared handshake
+  plus the tool's own `--name`, `--force|--no-force` and
+  `--recursive|--no-recursive` pairs, last spelling wins),
+  `core/extract.py` (one run through
+  `tag_helper_art.extract_artwork`/`write_artwork_sidecar` and
+  `cue_generator.scan_audio_files(recursive=...)`, with the dry run deciding the
+  keep/replace outcome without writing) and `app.py` (a `SuiteApp` whose worker
+  thread publishes through a `SimpleQueue`). The manifest id is `artwork` with
+  `cli_command=None` — `artwork extract` belongs to the shared group — and the
+  utility orders shift by ten from Tag Editor (70) through Track Splitter (200)
+  so the new tool sits second in the `tags` block and the block stays
+  contiguous. `arg_builder`, the driver state, `DEPENDENCY_GRAPH`,
+  `HANDSHAKE_TOOLS`, `EXPECTED_TOOLS`, the utilities window order, the
+  README/docs/CLI-reference/deck count claims and the regenerated guide are
+  updated in the same change.
 - **F-E10's read side is one artwork module, and both directions share it.**
   `audio_suite_shared/tag_helper_art.py` gains `sniff_image_format` (JPEG/PNG
   magic bytes), `image_dimensions` (PNG IHDR, first JPEG SOF marker),

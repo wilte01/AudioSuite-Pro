@@ -69,6 +69,7 @@ EXPECTED_PUBLISHERS: Mapping[str, str] = {
     ),
     "album_genre_tagger": "album_genre_tagger.core.consolidator.run_analysis",
     "cue_sheet": "cue_sheet.core.export.run_export",
+    "artwork_extractor": "artwork_extractor.core.extract.run_extraction",
     "audio_fingerprinter": (
         "audio_fingerprinter.core.file_processor.run_fingerprinting"
     ),

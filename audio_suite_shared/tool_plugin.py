@@ -615,6 +615,21 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         group="tags",
         order=50,
     ),
+    # Changed in 2.6.0: the artwork extraction job's own window (F-E10).  It
+    # takes the Tags & Artwork block's second slot so the tab stays
+    # alphabetical; its command belongs to the shared ``artwork`` group, the
+    # same way ``cue_sheet`` fronts ``cue generate``.
+    ToolManifest(
+        id="artwork",
+        name="Artwork Extractor",
+        category="utility",
+        pyw_filename="Artwork_Extractor.pyw",
+        description="Write each file's embedded cover beside it as a sidecar",
+        cli_command=None,
+        standalone=False,
+        group="tags",
+        order=60,
+    ),
     ToolManifest(
         id="cd_ripper",
         name="CD Ripper",
@@ -635,7 +650,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="mood-analysis-batch",
         standalone=True,
         group="analysis",
-        order=100,
+        order=110,
     ),
     ToolManifest(
         id="track_splitter",
@@ -646,7 +661,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="split",
         standalone=True,
         group="organise",
-        order=190,
+        order=200,
     ),
     ToolManifest(
         id="audio_joiner",
@@ -657,7 +672,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="join",
         standalone=True,
         group="organise",
-        order=170,
+        order=180,
     ),
     # Changed in 2.5.0: registers the channel utility's manifest (F-E6).
     ToolManifest(
@@ -669,7 +684,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="channels",
         standalone=True,
         group="repair",
-        order=120,
+        order=130,
     ),
     ToolManifest(
         id="library_stats",
@@ -680,7 +695,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="stats",
         standalone=True,
         group="analysis",
-        order=90,
+        order=100,
     ),
     ToolManifest(
         id="spectral_viewer",
@@ -691,7 +706,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="spectrogram",
         standalone=True,
         group="analysis",
-        order=110,
+        order=120,
     ),
     ToolManifest(
         id="file_reorganizer",
@@ -702,7 +717,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="reorganize",
         standalone=True,
         group="organise",
-        order=180,
+        order=190,
     ),
     ToolManifest(
         id="tag_field_updater",
@@ -713,7 +728,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="tag-update",
         standalone=True,
         group="tags",
-        order=70,
+        order=80,
     ),
     ToolManifest(
         id="stem_separator",
@@ -724,7 +739,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="stems",
         standalone=True,
         group="repair",
-        order=160,
+        order=170,
     ),
     ToolManifest(
         id="ml_denoiser",
@@ -735,7 +750,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="denoise",
         standalone=True,
         group="repair",
-        order=140,
+        order=150,
     ),
     ToolManifest(
         id="duplicate_finder",
@@ -749,7 +764,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="duplicates",
         standalone=True,
         group="repair",
-        order=130,
+        order=140,
     ),
     ToolManifest(
         id="restoration",
@@ -760,7 +775,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="declip",
         standalone=True,
         group="repair",
-        order=150,
+        order=160,
     ),
     ToolManifest(
         id="tag_editor",
@@ -771,7 +786,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         cli_command="tag-edit",
         standalone=True,
         group="tags",
-        order=60,
+        order=70,
     ),
     ToolManifest(
         id="lyrics_manager",
@@ -791,7 +806,7 @@ _DEFAULT_MANIFESTS: tuple[ToolManifest, ...] = (
         description="Restore file tags to the way they were before a batch run",
         standalone=True,
         group="tags",
-        order=80,
+        order=90,
     ),
     # ── Refinery (single pipeline) ───────────────────────────────────────
     ToolManifest(

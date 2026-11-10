@@ -292,6 +292,19 @@ def _build_utility_tool_args(
         # the run-mode/start/end handshake alone; the sheet target and the album
         # fields keep their in-window defaults (F-E8 follow-up).
         "cue_sheet": lambda: [path, mode_flag, start_flag, end_flag],
+        # Changed in 2.6.0: the Artwork Extractor's batch step.  Its three
+        # options are passed explicitly, so the window's controls show the
+        # values the run used rather than the window's own defaults.
+        "artwork": lambda: [
+            path,
+            mode_flag,
+            start_flag,
+            end_flag,
+            "--name",
+            state.artwork_sidecar_name.get() or "cover",
+            "--force" if state.artwork_force.get() else "--no-force",
+            "--recursive" if state.artwork_recursive.get() else "--no-recursive",
+        ],
         "asx_extractor": lambda: [
             path,
             "--mode",

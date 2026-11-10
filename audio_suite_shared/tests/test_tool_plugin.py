@@ -200,7 +200,7 @@ class TestDefaultRegistry:
     def test_registry_is_populated(self):
         r = get_registry()
         assert len(r) >= 16  # all first-party tools
-        assert len(r.first_party) == 31  # 11 enrich + 19 utility + 1 refinery
+        assert len(r.first_party) == 32  # 11 enrich + 20 utility + 1 refinery
         # A plugin adds a registry entry, never a first-party one.
         assert len(r) == len(r.first_party) + len(r.plugins)
         assert r.plugins, "the shipped example plugin did not register"
@@ -249,6 +249,7 @@ class TestDefaultRegistry:
             "asx_extractor",
             "cue_sheet",
             "album_art_normalizer",
+            "artwork",
             "cd_ripper",
             "mood_analysis_batch",
             "library_stats",
@@ -417,7 +418,7 @@ class TestRemovedStandaloneTools:
         utilities = [m.id for m in r.by_category("utility") if not m.plugin]
         cards = [m.id for m in r.driver_by_category("utility") if not m.plugin]
 
-        assert len(utilities) == 19, utilities
+        assert len(utilities) == 20, utilities
         assert sorted(cards) == sorted(utilities)
 
     def test_no_launcher_and_no_command_survive(self):

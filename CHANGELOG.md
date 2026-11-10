@@ -36,6 +36,16 @@ and every bullet belongs to exactly one of them.
   exports gain `has_art`, `art_bytes`, `art_width` and `art_height` columns,
   appended after the existing ones, so a spreadsheet shows which albums still
   need a cover.
+- **Artwork Extractor, a window and a Master Driver batch step.** The extraction
+  `audiosuite artwork extract` performs now has its own window
+  (`Artwork_Extractor.pyw`): pick a folder, set the sidecar name, choose whether
+  an existing sidecar may be replaced and whether sub-folders are read, then run
+  live or as a dry run that writes only the report. Every run writes
+  `artwork_extractor_sync_log.txt` or `artwork_extractor_dry_run_log.txt` beside
+  the files it read, and View Log opens it. On the Master Driver's UTIL tab, in
+  the **Tags & Artwork** section, the card carries the same three options and
+  the batch schedules the window as its own step, passing the driver's folder,
+  mode and Auto Start/Auto End pair; the step depends on nothing else.
 - **Exact duplicate matching, by bytes or by decoded audio.** The Duplicate
   Finder answers a narrower question beside its fingerprint scan: `--exact only`
   groups files whose bytes are identical — a renamed copy, a backup — or whose

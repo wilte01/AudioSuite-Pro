@@ -54,6 +54,7 @@ tool entry in the manifest.
 | CUE Sheet Generator | `CUE_Sheet_Generator.pyw` | [Markdown](../user_guides/individual_programs/cue_sheet/CUE_Sheet_Generator_User_Guide.md) |
 | Music Format Converter | `Music_Format_Converter.pyw` | [Markdown](../user_guides/individual_programs/music_format_converter/Music_Format_Converter_User_Guide.md) |
 | Album Art Normalizer | `Album_Art_Normalizer.pyw` | [Markdown](../user_guides/individual_programs/album_art_normalizer/Album_Art_Normalizer_User_Guide.md) |
+| Artwork Extractor | `Artwork_Extractor.pyw` | [Markdown](../user_guides/individual_programs/artwork_extractor/Artwork_Extractor_User_Guide.md) |
 | Tag Editor | `Tag_Editor.pyw` | [Markdown](../user_guides/individual_programs/tag_editor/Tag_Editor_User_Guide.md) |
 | Tag Field Updater | `Tag_Field_Updater.pyw` | [Markdown](../user_guides/individual_programs/tag_field_updater/Tag_Field_Updater_User_Guide.md) |
 | Undo Tag Edits | `Undo_Tag_Edits.pyw` | [Markdown](../user_guides/individual_programs/undo_tag_edits/Undo_Tag_Edits_User_Guide.md) |
@@ -73,7 +74,7 @@ tool entry in the manifest.
 
 ## Suite-wide guides
 
-* {doc}`user/suite-overview` — how the 31 tools are grouped, what
+* {doc}`user/suite-overview` — how the 32 tools are grouped, what
   each Master Driver tab runs, and how a batch is ordered.
 * {doc}`user/security` — encrypted API keys and how
   to recover them, safe file selection, and what each security message means.

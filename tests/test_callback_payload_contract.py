@@ -101,6 +101,8 @@ EXPECTED_TOOLS: frozenset[tuple[str, str]] = frozenset(
         ("album_art_normalizer/app.py", "ArtNormalizerApp"),
         ("audio_joiner/app.py", "AudioJoinerApp"),
         ("cue_sheet/app.py", "CueSheetApp"),
+        # Changed in 2.6.0: the Artwork Extractor's window (F-E10 follow-up).
+        ("artwork_extractor/app.py", "ArtworkExtractorApp"),
         ("album_genre_tagger/app.py", "GenreConsolidatorApp"),
         ("audio_fingerprinter/app.py", "FingerprinterApp"),
         ("audio_refinery/app.py", "AudioRefineryApp"),
