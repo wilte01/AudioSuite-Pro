@@ -98,6 +98,8 @@ Artwork Gaps lists the albums whose files are missing embedded artwork, worst-co
 
 The tab shows one line per album as the pass finishes and writes `library_stats_artwork_log.txt` into the scanned folder; **View Artwork Log** in this tab opens that report. It is a separate file from the scan report the Results tab opens, because the two runs are separate.
 
+A finished pass updates the album list and the Artwork Coverage figure by itself: the albums it covered leave the list and the figure counts their files as covered, so you do not need to scan again to see the work. A written `cover.jpg` sits beside the tracks rather than inside them, so the next scan measures the embedded tag afresh and the figure returns to what the files themselves carry.
+
 ## Statistics and Binning
 
 - **BPM: **Grouped into <60, 60-79, 80-99, 100-119, 120-139, 140-159, 160-179, and 180+ bins.

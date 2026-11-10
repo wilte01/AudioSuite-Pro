@@ -50,6 +50,7 @@ import pytest
 
 import library_stats.app as app_module
 from library_stats.core.artwork_gaps import (
+    STATUS_EXTRACTED,
     AlbumArtworkGap,
     AlbumCoverResult,
     CoverRun,
@@ -57,6 +58,7 @@ from library_stats.core.artwork_gaps import (
 )
 from library_stats.core.completeness import (
     TAG_FIELDS,
+    CompletenessReport,
     analyse_completeness,
 )
 from library_stats.core.file_processor import StatsReport, _FileTags, scan_directory
@@ -935,6 +937,133 @@ class TestArtworkGapsView:
         assert app._artwork_log_path.endswith("library_stats_artwork_log.txt")
         assert str(app._art_view_log_btn.cget("state")) == "normal"
         assert "1 written" in app._art_status_var.get()
+
+    def test_a_live_pass_drops_the_album_and_the_figure_follows(
+        self, app: app_module.LibraryStatsApp
+    ) -> None:
+        """Changed in 2.6.0: the list and chart update without a new scan."""
+        report = StatsReport(
+            scan_path="/music", total_files=4, missing_data={"no_art": 4}
+        )
+        app._report = report
+        app._update_charts(report)
+        app._artwork_gaps = (
+            AlbumArtworkGap(
+                album="A", folders=("/music/a",), total_files=2, missing_files=2
+            ),
+            AlbumArtworkGap(
+                album="B", folders=("/music/b",), total_files=2, missing_files=2
+            ),
+        )
+        app._render_artwork_rows()
+        run = CoverRun(
+            results=(
+                AlbumCoverResult(
+                    album="A",
+                    folder="/music/a",
+                    status=STATUS_EXTRACTED,
+                    sidecar="/music/a/cover.jpg",
+                ),
+            ),
+            extracted=1,
+            report_path="/music/library_stats_artwork_log.txt",
+        )
+
+        app._on_covers_complete(run)
+
+        assert [gap.album for gap in app._artwork_gaps] == ["B"]
+        rows = list(app._art_album_list.get(0, "end"))
+        assert len(rows) == 1 and "B" in rows[0]
+        widths = [p.get_width() for p in app._chart_canvas.figure.axes[4].patches]
+        assert widths == [2.0, 2.0]
+        assert "1 album(s) still need a cover." in app._art_status_var.get()
+
+    def test_a_dry_run_leaves_the_list_and_the_figure_alone(
+        self, app: app_module.LibraryStatsApp
+    ) -> None:
+        report = StatsReport(
+            scan_path="/music", total_files=4, missing_data={"no_art": 4}
+        )
+        app._report = report
+        app._update_charts(report)
+        app._artwork_gaps = (
+            AlbumArtworkGap(
+                album="A", folders=("/music/a",), total_files=2, missing_files=2
+            ),
+        )
+        app._render_artwork_rows()
+        run = CoverRun(
+            results=(
+                AlbumCoverResult(
+                    album="A",
+                    folder="/music/a",
+                    status=STATUS_EXTRACTED,
+                    sidecar="/music/a/cover.jpg",
+                ),
+            ),
+            extracted=1,
+            dry_run=True,
+            report_path="/music/library_stats_artwork_log.txt",
+        )
+
+        app._on_covers_complete(run)
+
+        assert [gap.album for gap in app._artwork_gaps] == ["A"]
+        widths = [p.get_width() for p in app._chart_canvas.figure.axes[4].patches]
+        assert widths == [4.0, 0.0]
+
+    def test_an_album_split_across_folders_needs_every_cover(
+        self, app: app_module.LibraryStatsApp
+    ) -> None:
+        app._artwork_gaps = (
+            AlbumArtworkGap(
+                album="Set",
+                folders=("/music/disc1", "/music/disc2"),
+                total_files=4,
+                missing_files=4,
+            ),
+        )
+        run = CoverRun(
+            results=(
+                AlbumCoverResult(
+                    album="Set",
+                    folder="/music/disc1",
+                    status=STATUS_EXTRACTED,
+                    sidecar="/music/disc1/cover.jpg",
+                ),
+                AlbumCoverResult(
+                    album="Set",
+                    folder="/music/disc2",
+                    status="no_art",
+                    detail="no embedded artwork",
+                ),
+            ),
+            extracted=1,
+            no_art=1,
+        )
+
+        app._on_covers_complete(run)
+
+        assert [gap.album for gap in app._artwork_gaps] == ["Set"]
+        assert app._covered_files == 0
+
+    def test_a_new_scan_clears_the_adjustment(
+        self, app: app_module.LibraryStatsApp
+    ) -> None:
+        report = StatsReport(
+            scan_path="/music", total_files=4, missing_data={"no_art": 4}
+        )
+        app._report = report
+        app._covered_files = 2
+
+        app._update_artwork_gaps(
+            CompletenessReport(directory="/music", total_files=4, album_results=())
+        )
+
+        assert app._covered_files == 0
+        adjusted = app._chart_report()
+        assert adjusted is not None
+        assert adjusted.missing_data["no_art"] == 4
 
 
 class TestChartRendering:

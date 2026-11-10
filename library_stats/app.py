@@ -56,6 +56,7 @@ import sqlite3
 import threading
 import time
 import tkinter as tk
+from dataclasses import replace
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Literal
 
@@ -68,6 +69,8 @@ from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from audio_suite_shared.ui_helpers import show_error_from_exception
 from library_stats.core.artwork_gaps import (
+    STATUS_EXTRACTED,
+    STATUS_KEPT,
     AlbumArtworkGap,
     CoverRun,
     missing_artwork_albums,
@@ -163,6 +166,11 @@ class LibraryStatsApp(SuiteApp):
         self._artwork_gaps: tuple[AlbumArtworkGap, ...] = ()
         self._artwork_log_path = ""
         self._cover_running = False
+        self._art_scanned = False
+        #: Files this session's live cover pass covered, netted out of the
+        #: Charts figure until a new scan measures the library again.
+        self._covered_files = 0
+        self._chart_history: list[dict[str, Any]] = []
         self._scanning = False
         self._cache: LibraryCache = LibraryCache()
         self._launched_from_driver = was_launched_from_driver()
@@ -718,31 +726,46 @@ class LibraryStatsApp(SuiteApp):
 
     def _update_artwork_gaps(self, completeness: CompletenessReport) -> None:
         """List the albums missing artwork and enable the cover actions."""
-        self._art_album_list.delete(0, tk.END)
         self._art_result_text.delete("1.0", tk.END)
         self._artwork_log_path = ""
         self._art_view_log_btn.config(state="disabled")
+        # A new scan measured the library again, so the last pass's
+        # adjustment is stale and the figure reads the new counts as they are.
+        self._art_scanned = bool(completeness.total_files)
+        self._covered_files = 0
+        self._artwork_gaps = missing_artwork_albums(completeness)
+        self._render_artwork_rows()
+        self._set_artwork_status()
 
-        gaps = missing_artwork_albums(completeness)
-        self._artwork_gaps = gaps
-        for gap in gaps:
+    def _render_artwork_rows(self) -> None:
+        """Fill the album list and the action buttons from ``_artwork_gaps``."""
+        self._art_album_list.delete(0, tk.END)
+        for gap in self._artwork_gaps:
             self._art_album_list.insert(
                 tk.END,
                 f"  {gap.album:<40} {gap.missing_files:>4} of "
                 f"{gap.total_files:>4} files without art",
             )
-
         state: Literal["normal", "disabled"] = (
-            "normal" if gaps and not self._cover_running else "disabled"
+            "normal" if self._artwork_gaps and not self._cover_running else "disabled"
         )
         self._art_extract_btn.config(state=state)
         self._art_dry_btn.config(state=state)
+
+    def _set_artwork_status(self) -> None:
+        """Describe what the list currently holds, including this run's work."""
+        gaps = len(self._artwork_gaps)
         if gaps:
             self._art_status_var.set(
-                f"{len(gaps)} album(s) have files with no embedded artwork. "
+                f"{gaps} album(s) have files with no embedded artwork. "
                 "A cover is taken from a file that does have one."
             )
-        elif completeness.total_files:
+        elif self._covered_files:
+            self._art_status_var.set(
+                "No album is left without a cover: the last pass covered "
+                f"{self._covered_files} file(s)."
+            )
+        elif self._art_scanned:
             self._art_status_var.set("Every file carries embedded artwork.")
         else:
             self._art_status_var.set(
@@ -816,12 +839,61 @@ class LibraryStatsApp(SuiteApp):
             "normal" if run.report_path else "disabled"
         )
         self._art_view_log_btn.config(state=log_state)
-        self._art_status_var.set(
+        summary = (
             f"{'Dry run' if run.dry_run else 'Covers'}: {run.extracted} written, "
             f"{run.kept} kept, {run.no_art} with no artwork, "
             f"{run.errors} error(s) in {run.elapsed:.1f}s."
         )
+        if not run.dry_run:
+            # Changed in 2.6.0: the list and the figure follow the pass, so a
+            # finished run needs no second scan to look finished.
+            self._apply_cover_run(run)
+            summary += f" {len(self._artwork_gaps)} album(s) still need a cover."
+        self._art_status_var.set(summary)
         self._status_var.set("Artwork pass complete.")
+
+    def _apply_cover_run(self, run: CoverRun) -> None:
+        """Drop the albums a live pass covered and redraw the figure.
+
+        A sidecar is a folder cover, not embedded artwork, so the scan's own
+        counts never change because of it; the run's outcome is the evidence
+        that those albums are covered, and it is applied here rather than
+        re-reading the library.  An album is resolved only when every folder
+        it lives in got a cover.
+        """
+        resolved = {
+            result.folder
+            for result in run.results
+            if result.status in (STATUS_EXTRACTED, STATUS_KEPT)
+        }
+        remaining: list[AlbumArtworkGap] = []
+        covered = 0
+        for gap in self._artwork_gaps:
+            if gap.folders and all(folder in resolved for folder in gap.folders):
+                covered += gap.missing_files
+            else:
+                remaining.append(gap)
+        if not covered:
+            return
+        self._artwork_gaps = tuple(remaining)
+        self._covered_files += covered
+        self._render_artwork_rows()
+        self._refresh_charts()
+
+    def _chart_report(self) -> StatsReport | None:
+        """Return the scan report with this session's cover writes netted out."""
+        report = self._report
+        if report is None or not self._covered_files:
+            return report
+        missing = dict(report.missing_data)
+        missing["no_art"] = max(0, int(missing.get("no_art", 0)) - self._covered_files)
+        return replace(report, missing_data=missing)
+
+    def _refresh_charts(self) -> None:
+        """Redraw the Charts tab from the current report, without a scan."""
+        report = self._chart_report()
+        if report is not None:
+            self._update_charts(report, self._chart_history)
 
     def _on_covers_error(self, exc: Exception) -> None:
         """Report a failed cover pass without leaving the buttons locked."""
@@ -1199,6 +1271,9 @@ class LibraryStatsApp(SuiteApp):
         """
         if not HAVE_MPL:
             return
+        # Kept so a finished cover pass can redraw without re-reading the
+        # library, which has no new history of its own.
+        self._chart_history = list(history or [])
 
         # Clear previous chart
         for w in self._charts_frame.winfo_children():

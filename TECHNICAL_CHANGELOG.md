@@ -34,6 +34,22 @@ and every bullet belongs to exactly one of them.
   the legacy-row re-read test, and the full scan's counter. The recorded CLI
   corpus and schema examples are re-recorded, because the payload gained a
   field.
+- **A finished cover pass updates the list and the figure in place.**
+  `_on_covers_complete` calls `_apply_cover_run`, which drops every album whose
+  *every* folder produced `extracted`/`kept` (an album spanning several folders
+  is resolved only when the last one is), accumulates those files in
+  `_covered_files`, and calls `_refresh_charts`. The scan's own counts are left
+  untouched — a sidecar is a folder cover, not embedded artwork, so the scan
+  never changes because of it — and the figure reads them net of the adjustment
+  through `_chart_report`, which rebuilds the `StatsReport` with
+  `dataclasses.replace` rather than mutating the scan's report. A dry run never
+  applies; `_update_artwork_gaps` resets both `_covered_files` and
+  `_art_scanned` when a new scan measures the library, so the adjustment cannot
+  outlive the counts it was derived from. History is kept in `_chart_history`
+  so the redraw does not need the cache. Locked by four app tests (live pass
+  drops the album and halves the figure's `no_art`, dry run changes neither,
+  a partly-covered multi-folder album stays, and a rescan clears the
+  adjustment).
 - **The Artwork Coverage panel is a route to the album list.**
   `build_summary_figure` publishes the panel's axis on the figure as
   `artwork_axes` (a `setattr`, because `Figure` is not ours to extend), and

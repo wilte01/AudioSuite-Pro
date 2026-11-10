@@ -57,6 +57,12 @@ and every bullet belongs to exactly one of them.
   percentage, from the counts the scan already measured. Clicking that panel
   opens the Artwork Gaps tab, so the figure leads straight to the albums it
   counted.
+- **The artwork list and chart keep up with the covers just written.** After
+  a live cover pass the albums it covered leave the Artwork Gaps list and the
+  Artwork Coverage figure counts their files as covered, so the dashboard
+  shows the finished work without another scan; a dry run changes nothing,
+  an album whose folders were only partly covered stays listed, and the next
+  scan measures the files again.
 - **Artwork Extractor, a window and a Master Driver batch step.** The extraction
   `audiosuite artwork extract` performs now has its own window
   (`Artwork_Extractor.pyw`): pick a folder, set the sidecar name, choose whether
