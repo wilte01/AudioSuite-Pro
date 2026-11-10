@@ -19,6 +19,11 @@ no tkinter root is necessary.
 The format lists below are the converter's real ones — ``AppState`` loads them
 from ``music_format_converter.core.formats``, so the tests use the same source
 rather than hand-rolled stand-ins.
+
+Changed in 2.6.0: a WAV folder now keeps ``wav`` as its target, because the
+converter re-renders it when a bit depth or sample rate is chosen (D142), so the
+old "wav is not in the available list" case asserts no switch and the no-mp3
+fallback is driven from a lossless folder instead.
 """
 
 import os
@@ -396,9 +401,7 @@ class TestSingleLosslessFormat:
         # flac was input and is lossless, so not in available. Should switch to "mp3"
         state.converter_output_format.set.assert_called_once_with("mp3")
 
-    def test_lossless_format_auto_switches_to_first_available_when_no_mp3(
-        self, tmp_path
-    ):
+    def test_lossless_format_keeps_wav_selectable_for_a_wav_folder(self, tmp_path):
         (tmp_path / "track.wav").write_bytes(b"x")
         menu = _make_format_menu()
         state = _make_state(
@@ -408,9 +411,29 @@ class TestSingleLosslessFormat:
         )
         update_format_detection(state)
 
-        # wav is input and not in available list. mp3 is in available, so
-        # should pick mp3
-        state.converter_output_format.set.assert_called_once_with("mp3")
+        # WAV is a reachable target for a WAV folder (D142): the converter
+        # re-renders it at a chosen bit depth or sample rate, so the menu must
+        # not move the user off the format they picked.
+        state.converter_output_format.set.assert_not_called()
+
+    def test_lossless_format_falls_back_to_first_available_without_mp3(self, tmp_path):
+        (tmp_path / "track.flac").write_bytes(b"x")
+        menu = _make_format_menu()
+        state = _make_state(
+            dir_path=str(tmp_path),
+            _converter_format_menu=menu,
+            output_format="flac",
+        )
+        update_format_detection(state)
+
+        # A lossless folder offers no mp3 target, so the fallback takes the
+        # first available format rather than leaving an unusable selection.
+        expected = [
+            f
+            for f in ALL_FORMATS
+            if f != "flac" and f not in UNSUPPORTED_OUTPUT_FORMATS
+        ]
+        state.converter_output_format.set.assert_called_once_with(expected[0])
 
 
 # ---------------------------------------------------------------------------
