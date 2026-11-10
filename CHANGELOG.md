@@ -176,6 +176,13 @@ and every bullet belongs to exactly one of them.
   through a temporary file, so the original is only replaced by a complete
   render. A same-format job with no depth or rate change still skips, and WAV
   stays selectable as an output for a WAV folder.
+- **Spectrograms report levels below 80 dB instead of stopping at -80.** The
+  Spectral Viewer's colour range can be set up to 140 dB, but every bin quieter
+  than -80 dB used to be stored as -80, so a wider range drew a flat floor
+  instead of the quiet detail it promised. A -100 dB tone now measures -98.8 dB
+  (quantization and window scalloping account for the rest); the default 80 dB
+  view is unchanged, and digital silence still sits at the bottom of the range.
+
 - **BPM Analyzer's verdict no longer depends on a file's sample rate.** Audio
   was analysed at whatever rate the file was stored at, but the onset analysis
   uses a fixed hop of 512 frames and the "no discernible beat" floor was

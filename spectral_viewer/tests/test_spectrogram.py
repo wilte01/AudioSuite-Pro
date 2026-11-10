@@ -7,6 +7,10 @@ Pillow and checked for real image content: "the file exists" would pass for a
 blank image.
 
 Changed in 1.3.0: initial version (PLAN_feature_expansion.md Item 3.1).
+
+Changed in 2.6.0: a bin quieter than the default colour range is no longer
+stored at -80, so the added case asserts the quiet tone's measured level rather
+than the old clip (D143).
 """
 
 from __future__ import annotations
@@ -18,7 +22,6 @@ import pytest
 
 from audio_suite_shared.exceptions import AudioAnalysisError
 from spectral_viewer.core.spectrogram import (
-    DEFAULT_DB_RANGE,
     OUTPUT_SUFFIX,
     build_figure,
     compute_spectrogram,
@@ -27,7 +30,11 @@ from spectral_viewer.core.spectrogram import (
     output_path_for,
     render_spectrogram,
 )
-from spectral_viewer.tests.audio_fixtures import SAMPLE_RATE, write_tone_wav
+from spectral_viewer.tests.audio_fixtures import (
+    SAMPLE_RATE,
+    write_tone_wav,
+    write_two_tone_wav,
+)
 
 _SR = SAMPLE_RATE
 
@@ -61,7 +68,9 @@ class TestComputeSpectrogram:
         assert data.hop_length == 512
         assert data.duration_secs == pytest.approx(1.0, abs=0.02)
         assert float(data.db.max()) == pytest.approx(0.0, abs=1e-3)
-        assert float(data.db.min()) >= -DEFAULT_DB_RANGE - 1e-6
+        # Values are stored down to the finite -240 dB floor; the colour range
+        # (80 dB by default) is a display choice, not a data clamp.
+        assert float(data.db.min()) >= -240.0 - 1e-6
         # Ascending axes, times starting at the file's beginning.
         assert np.all(np.diff(data.frequencies) > 0)
         assert np.all(np.diff(data.times) > 0)
@@ -87,8 +96,27 @@ class TestComputeSpectrogram:
         data = compute_spectrogram(str(silent), n_fft=1024)
 
         assert np.all(np.isfinite(data.db))
-        assert float(data.db.max()) == pytest.approx(-DEFAULT_DB_RANGE)
+        assert float(data.db.max()) == pytest.approx(-240.0)
         assert data.peak_db == pytest.approx(-240.0)
+
+    def test_levels_below_the_default_colour_range_are_not_clipped(
+        self, tmp_path: Path
+    ) -> None:
+        """A -100 dB tone must read -100 dB, not the -80 dB display floor."""
+        quiet = write_two_tone_wav(tmp_path / "two_tone.wav")
+
+        data = compute_spectrogram(str(quiet), n_fft=8192, hop_length=2048)
+
+        index = int(np.argmin(np.abs(data.frequencies - 8000.0)))
+        # The median over frames ignores the first/last zero-padded frames,
+        # whose boundary transient adds broadband leakage at every bin; every
+        # interior frame holds the tone at its real level.
+        level = float(np.median(data.db[index]))
+        assert float(data.db.max()) == pytest.approx(0.0, abs=1e-3)
+        # 24-bit quantization and Hann scalloping cost ~1.2 dB at 8 kHz; the
+        # point is that the level is no longer clamped at the -80 dB floor.
+        assert level == pytest.approx(-100.0, abs=2.0), level
+        assert level < -90.0
 
     def test_window_shorter_than_the_minimum_raises(self, tone_wav: Path) -> None:
         with pytest.raises(AudioAnalysisError):

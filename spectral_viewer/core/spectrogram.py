@@ -19,6 +19,12 @@ Changed in 2.1.6: the peak comes from ``np.max(magnitude)`` — the
 ``magnitude.max()`` no-argument form has no valid overload under the 3.11 numpy
 stubs the corrected mypy target selects (R-15,
 PLAN_audit_2026-10-24_deferred_p2p3.md).
+
+Changed in 2.6.0: stored dB values are no longer clipped at -80 by
+``librosa.amplitude_to_db``'s default ``top_db``; the colour range is now the
+only floor, so ``--db-range`` above 80 shows a quiet bin's true level.
+Measured: a -100 dB tone read -80.000 dB before and -98.82 dB after; 24-bit
+quantization and Hann scalloping account for the remaining 1.2 dB.
 """
 
 from __future__ import annotations
@@ -66,8 +72,12 @@ OUTPUT_SUFFIX = "_spectrogram.png"
 #: Smallest window that can be transformed at all.
 MIN_WINDOW_SECONDS = 0.1
 
-#: Floor used when a window carries no energy at all (digital silence).
-_SILENCE_PEAK_DB = -240.0
+#: Finite floor for stored dB values.  ``librosa.amplitude_to_db`` gives
+#: ``-inf`` for a zero bin, which no image can show; this sentinel keeps the
+#: array finite without imposing a display range.  Digital silence is stored at
+#: the same floor, so widening the colour range does not make it look like a
+#: quiet signal.
+_FLOOR_DB = -240.0
 
 
 @dataclass(frozen=True)
@@ -76,8 +86,11 @@ class SpectrogramData:
 
     Attributes:
         db: Magnitude in dB relative to the loudest bin, shaped
-            ``(frequencies, frames)``. The loudest bin is 0 dB and the display
-            floor is ``-DEFAULT_DB_RANGE``.
+            ``(frequencies, frames)``. The loudest bin is 0 dB; values are
+            clamped at ``-240`` dB so an image never has to draw ``-inf``.
+            The display floor is chosen by :func:`build_figure`
+            (``-DEFAULT_DB_RANGE`` by default), so a wider colour range shows
+            the real level instead of a pre-clipped one.
         frequencies: Bin centre frequencies in Hz, ascending.
         times: Frame times in seconds, relative to the start of the file (the
             selected window's offset is added).
@@ -218,20 +231,23 @@ def compute_spectrogram(
     # window still gets the 0.0 sentinel instead of a reduction on nothing.
     peak = float(np.max(magnitude)) if magnitude.size else 0.0
     peak_amplitude = float(np.max(np.abs(samples))) if len(samples) else 0.0
-    peak_db = (
-        _SILENCE_PEAK_DB if peak_amplitude <= 0.0 else 20.0 * math.log10(peak_amplitude)
-    )
+    peak_db = _FLOOR_DB if peak_amplitude <= 0.0 else 20.0 * math.log10(peak_amplitude)
 
     # Relative to the loudest bin, clipped to a fixed floor, so the colour map
     # means the same thing on a quiet and a hot master. Digital silence has no
     # peak to normalise against, and ``20*log10(0)`` is -inf, which an image
     # cannot show: it fills the frame with the display floor instead.
     if peak > 0.0:
-        relative: npt.NDArray[np.floating[Any]] = librosa.amplitude_to_db(
-            magnitude, ref=float(peak)
+        # ``top_db=None``: librosa's default clips every bin at -80 dB, which
+        # would make ``build_figure(dynamic_range_db=120)`` draw a fabricated
+        # floor.  The finite clamp below exists only because ``-inf`` cannot be
+        # imaged; the colour range decides what is visible.
+        relative: npt.NDArray[np.floating[Any]] = np.maximum(
+            librosa.amplitude_to_db(magnitude, ref=float(peak), top_db=None),
+            _FLOOR_DB,
         )
     else:
-        relative = np.full(magnitude.shape, -float(DEFAULT_DB_RANGE), dtype=np.float32)
+        relative = np.full(magnitude.shape, _FLOOR_DB, dtype=np.float32)
     frequencies: npt.NDArray[np.floating[Any]] = librosa.fft_frequencies(
         sr=sr, n_fft=n_fft
     )
