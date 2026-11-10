@@ -11,6 +11,10 @@ Changed in 1.1.0: made the lossless-input test skip every unsupported output for
 Changed in 2.4.1: added the matrix-projection locks - every converter
 list derives from ``audio_suite_shared.audio_formats.FORMAT_MATRIX``,
 including ALAC's codec-level losslessness.
+
+Changed in 2.6.0: a same-format render is admitted only when the caller asks
+for one (``allow_same_format=True``), and WAV stays a reachable target from
+WAV input so a bit-depth or sample-rate change can be requested (D142).
 """
 
 import os
@@ -301,6 +305,19 @@ class TestCanConvert:
         ok, _ = can_convert("MP3", "mp3")
         assert ok is False
 
+    @pytest.mark.parametrize("fmt", ["wav", "flac", "mp3", "aiff"])
+    def test_a_requested_rerender_may_keep_the_same_format(self, fmt):
+        """A depth/rate change is a real render, not a no-op (D142)."""
+        ok, msg = can_convert(fmt, fmt, allow_same_format=True)
+        assert ok is True
+        assert msg == "OK"
+
+    def test_allow_same_format_does_not_admit_an_unsupported_output(self):
+        """APE has no encoder; the relaxation must not admit it."""
+        ok, msg = can_convert("ape", "ape", allow_same_format=True)
+        assert ok is False
+        assert "ape" in msg.lower()
+
     @pytest.mark.parametrize("src", ["flac", "wav", "alac", "wv"])
     def test_ape_output_always_rejected(self, src):
         """FFmpeg has no APE encoder; ape must never be a valid output,
@@ -330,6 +347,13 @@ class TestAvailableOutputFormats:
 
     def test_lossy_input_excludes_self(self):
         assert "mp3" not in available_output_formats("mp3")
+
+    def test_wav_input_keeps_wav_reachable_for_a_rerender(self):
+        """--bit-depth and --sample-rate need WAV to stay selectable (D142)."""
+        assert "wav" in available_output_formats("wav")
+
+    def test_other_lossless_inputs_still_exclude_themselves(self):
+        assert "flac" not in available_output_formats("flac")
 
     def test_lossless_input_includes_all_except_self(self):
         outputs = available_output_formats("flac")

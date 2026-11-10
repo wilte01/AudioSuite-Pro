@@ -22,7 +22,7 @@ The converter is designed for a single input format per folder. It scans the inp
 - **Lossless/uncompressed: **FLAC, WAV, ALAC (M4A container), APE, AIFF, AIF, WV, MPC, and DSF are recognized as lossless input categories.
 - **ALAC output: **ALAC is written inside an M4A container, so the output file is named with the .m4a extension, not .alac. ALAC and AAC-M4A share that extension, so a later run to either format replaces the earlier .m4a file with the same name.
 - **Unsupported output: **APE, MPC, and DSF can be detected as input but are excluded as outputs because the converter has no supported encoder for them.
-- **Conversion restrictions: **Same-format conversion is prohibited, and lossy input cannot be converted to a lossless output because quality cannot be recovered.
+- **Conversion restrictions: **A same-format job is skipped unless it asks for a WAV bit-depth change or a sample-rate conversion, which re-renders the audio; lossy input cannot be converted to a lossless output because quality cannot be recovered. When the output folder is the input folder, a same-format re-render is written to a temporary file and swapped in atomically, so the original is only replaced by a complete file.
 
 ## System Requirements
 
@@ -52,7 +52,7 @@ Setup contains the input directory, output format, quality, sample rate, WAV bit
 - **Output Format: **The selected target extension. The menu excludes the detected input format, invalid lossy-to-lossless targets, and unsupported APE, MPC, and DSF output.
 - **Quality: **Format-specific codec quality or bitrate selection.
 - **Sample Rate: **Keep source or choose a supported rate such as 44100, 48000, 88200, 96000, 176400, or 192000 Hz.
-- **Bit Depth: **Relevant to WAV output: Auto, 16, 24, 32, or float, with source-preserving behavior where supported.
+- **Bit Depth: **Relevant to WAV output: Auto, 16, 24, 32, or float, with source-preserving behavior where supported. Selecting WAV as the output for a WAV folder re-renders at the chosen depth (or keeps the source depth when Auto is left in place).
 - **Dither (TPDF): **On by default. Applies triangular-PDF dither whenever the output depth is lower than the source, for WAV and AIFF alike. This removes the tonal quantization distortion that a bare depth reduction produces; leave it on unless you specifically need bit-identical legacy output.
 - **Resampling: **Whenever a sample rate other than Source is chosen, the conversion uses the SoX resampler for a steep, alias-free anti-alias filter.
 - **Output Directory: **Optional separate destination. If blank, output defaults to the input directory.
@@ -89,7 +89,7 @@ Setup contains the input directory, output format, quality, sample rate, WAV bit
 
 - **Dry Run: **Simulates each valid conversion, estimates input/output size, reports deletion and MP3-normalization actions, and writes no audio files.
 - **Live Update: **Runs FFmpeg conversion and writes outputs to the destination or input directory.
-- **Skipped: **Same-format conversions, lossy-to-lossless conversions, unsupported output targets, and configured recovery skips are reported as skipped.
+- **Skipped: **Same-format jobs that request neither a bit depth nor a sample rate, lossy-to-lossless conversions, unsupported output targets, and configured recovery skips are reported as skipped.
 - **Errors: **FFmpeg failures, timeouts, permissions, and unexpected failures are reported as errors.
 - **Undo: **Original deletion is recorded in the suite file-delete undo context; conversion itself does not alter the source unless Delete Originals is enabled.
 
@@ -127,7 +127,7 @@ From the Master Driver, open UTIL and select Music Format Converter. The card de
 - **Some files skipped in a mixed run: **Files already in the target format, and lossy files targeted at a lossless format, are skipped per file — the rest still convert.
 - **Two sources produced the same output name: **When two files in one folder share a stem but differ in extension (for example song.flac and song.wav both targeting song.mp3), only the first is converted; the other is reported as skipped rather than overwriting the first output.
 - **FFmpeg required: **Install FFmpeg and ensure the application can find it before starting.
-- **Conversion skipped: **Check whether input and output are the same format or whether a lossy-to-lossless conversion was requested.
+- **Conversion skipped: **Check whether the input and output are the same format without a bit-depth or sample-rate change, or whether a lossy-to-lossless conversion was requested.
 - **Originals were not deleted: **Deletion occurs only after output success and may fail separately; review the status and log.
 - **MP3 normalization failed: **Conversion can still succeed while gain status reports measurement or gain failure. Review the log and output file.
 

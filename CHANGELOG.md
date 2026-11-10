@@ -167,6 +167,15 @@ and every bullet belongs to exactly one of them.
 
 ### Fixed
 
+- **Re-encoding a WAV folder at a new bit depth or sample rate.**
+  `convert --format wav --bit-depth 16` and the GUI's WAV bit-depth and
+  sample-rate controls used to skip every WAV file as "same format". A
+  same-format WAV job is now rendered when it asks for a depth or rate change:
+  with a separate output folder the new file is written there, and with the
+  default output folder (the input folder) the file is re-rendered in place
+  through a temporary file, so the original is only replaced by a complete
+  render. A same-format job with no depth or rate change still skips, and WAV
+  stays selectable as an output for a WAV folder.
 - **BPM Analyzer's verdict no longer depends on a file's sample rate.** Audio
   was analysed at whatever rate the file was stored at, but the onset analysis
   uses a fixed hop of 512 frames and the "no discernible beat" floor was

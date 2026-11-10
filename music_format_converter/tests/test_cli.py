@@ -11,13 +11,19 @@ leave a playable `.m4a`, not fail on an unmuxable `.alac` extension.
 Changed in 2.1.4: ``TestExitContract`` pins the R-06 status through the real
 command — one corrupt input in a folder makes the run exit 1 while the summary
 still reports it, and an all-skipped tree stays at 0.
+
+Changed in 2.6.0: a same-format WAV run is driven through the command surface
+with a bit depth and a sample rate, so the CLI and the processor agree on when a
+same-format job renders instead of skipping (D142).
 """
 
 import json
+import subprocess
 from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
+from pydub import AudioSegment
 from pydub.generators import Sine
 
 from music_format_converter import cli
@@ -228,3 +234,69 @@ def test_alac_and_m4a_share_one_container_extension(fmt):
     from music_format_converter.core.formats import output_extension
 
     assert output_extension(fmt) == "m4a"
+
+
+class TestSameFormatRerender:
+    """A WAV -> WAV job with a depth change must convert, not skip (D142)."""
+
+    @staticmethod
+    def _source(tmp_path):
+        """A real 24-bit WAV; pydub itself cannot write one."""
+        source = tmp_path / "tone.wav"
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=1000:duration=1:sample_rate=44100",
+                "-c:a",
+                "pcm_s24le",
+                "-y",
+                str(source),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        return source
+
+    def test_bit_depth_is_honoured_for_a_wav_to_wav_job(self, tmp_path):
+        self._source(tmp_path)
+        out = tmp_path / "converted"
+
+        result = CliRunner().invoke(
+            cli.convert,
+            [
+                str(tmp_path),
+                "--format",
+                "wav",
+                "--bit-depth",
+                "16",
+                "--output-dir",
+                str(out),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "1 converted" in result.output
+        decoded = AudioSegment.from_file(str(out / "tone.wav"))
+        assert decoded.sample_width == 2
+        assert decoded.frame_rate == 44100
+        assert len(decoded) == 1000
+
+    def test_in_place_when_no_output_dir_is_given(self, tmp_path):
+        """The default output folder is the input folder; one file remains."""
+        source = self._source(tmp_path)
+
+        result = CliRunner().invoke(
+            cli.convert,
+            [str(tmp_path), "--format", "wav", "--bit-depth", "16"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "1 converted" in result.output
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["tone.wav"]
+        assert AudioSegment.from_file(str(source)).sample_width == 2

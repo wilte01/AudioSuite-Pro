@@ -21,6 +21,11 @@ libsoxr fails ``aresample=resampler=soxr`` at configure time, which is why the
 rate conversion never ran on a runner and its absence read as a skip instead of
 as a missing resampler. A probe now asks the resolved binary, and the skip says
 which capability is missing (R-20).
+
+Changed in 2.6.0: a same-format WAV job with an explicit bit depth or
+sample rate is now converted, including in place when no output folder is
+given, and these tests run the real chain and decode the written file
+(D142).
 """
 
 import array
@@ -2241,3 +2246,119 @@ class TestAlacOutput:
         produced = out / "tone.m4a"
         assert detect_format(produced.name) == "m4a"
         assert AudioSegment.from_file(str(produced)).frame_rate == 44100
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Same-format re-render (D142)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestSameFormatRerender:
+    """A WAV -> WAV job with a depth or rate change is a real conversion.
+
+    Pre-fix, ``can_convert`` refused every same-format pair, so
+    ``--bit-depth 16`` on a 24-bit WAV folder skipped every file.  These tests
+    run the real chain and decode the written file, so a skip cannot pass as a
+    conversion.
+    """
+
+    SR = 44100
+    SECS = 1.0
+
+    def _make_24bit_wav(self, tmp_path):
+        """A real 24-bit WAV; pydub cannot write one."""
+        import numpy as np
+
+        t = np.arange(int(self.SR * self.SECS)) / self.SR
+        ints = np.round(0.1 * np.sin(2 * np.pi * 1000 * t) * 8388607).astype(np.int32)
+        src = tmp_path / "tone.wav"
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "s32le",
+                "-ar",
+                str(self.SR),
+                "-ac",
+                "1",
+                "-i",
+                "-",
+                "-c:a",
+                "pcm_s24le",
+                "-y",
+                str(src),
+            ],
+            input=ints.tobytes(),
+            check=True,
+            capture_output=True,
+        )
+        return src
+
+    def _run(self, in_dir, out_dir, *, bit_depth="auto", sample_rate="source"):
+        complete = []
+        errors = []
+        run_conversion(
+            input_dir=str(in_dir),
+            output_dir=str(out_dir),
+            output_format="wav",
+            quality="highest",
+            delete_originals=False,
+            is_dry_run=False,
+            lossy_formats=[],
+            slot_vars=[MagicMock()],
+            slot_queue=_make_slot_fixtures(1)[1],
+            on_progress=lambda **kw: None,
+            on_complete=lambda **kw: complete.append(kw),
+            on_error=lambda m: errors.append(m),
+            sample_rate=sample_rate,
+            bit_depth=bit_depth,
+        )
+        return complete, errors
+
+    def test_wav_to_wav_bit_depth_is_rendered(self, tmp_path):
+        self._make_24bit_wav(tmp_path)
+        out = tmp_path / "out"
+        complete, errors = self._run(tmp_path, out, bit_depth="16")
+
+        assert errors == []
+        assert complete[0]["converted"] == 1
+        decoded = AudioSegment.from_file(str(out / "tone.wav"))
+        assert decoded.sample_width == 2
+        assert decoded.frame_rate == self.SR
+        assert len(decoded) == 1000
+
+    def test_default_output_folder_rewrites_in_place(self, tmp_path):
+        source = self._make_24bit_wav(tmp_path)
+        before = AudioSegment.from_file(str(source))
+        assert before.sample_width == 4  # pydub decodes 24-bit as 32-bit
+
+        complete, errors = self._run(tmp_path, tmp_path, bit_depth="16")
+
+        assert errors == []
+        assert complete[0]["converted"] == 1
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["tone.wav"]
+        after = AudioSegment.from_file(str(source))
+        assert after.sample_width == 2
+        assert len(after) == len(before)
+
+    @SOXR_MISSING
+    def test_wav_to_wav_sample_rate_is_rendered(self, tmp_path):
+        self._make_24bit_wav(tmp_path)
+        out = tmp_path / "out"
+        complete, errors = self._run(tmp_path, out, sample_rate="48000")
+
+        assert errors == []
+        assert complete[0]["converted"] == 1
+        decoded = AudioSegment.from_file(str(out / "tone.wav"))
+        assert decoded.frame_rate == 48000
+
+    def test_wav_to_wav_without_a_change_still_skips(self, tmp_path):
+        self._make_24bit_wav(tmp_path)
+        complete, errors = self._run(tmp_path, tmp_path)
+
+        assert errors == []
+        assert complete[0]["converted"] == 0
+        assert complete[0]["skipped"] == 1

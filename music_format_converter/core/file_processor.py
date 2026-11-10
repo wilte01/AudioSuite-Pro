@@ -8,6 +8,10 @@ Changed in 2.1.2: the output file name uses the format's container extension
 (formats.output_extension), so ALAC is written as `song.m4a` instead of
 `song.alac` — FFmpeg could not select a muxer for the latter and failed
 with "Error initializing the muxer" on every file.
+Changed in 2.6.0: a same-format job is converted when the run explicitly asks
+for a new WAV bit depth or sample rate; when the output folder is the input
+folder the render goes to a temporary file and is swapped in atomically, so
+FFmpeg never reads and writes the same path (D142).
 Changed in 1.0.1: two same-stem sources with different extensions in one
 folder (e.g. song.flac + song.wav) both target song.<ext>; only the first
 is converted and the collision is reported as a skip instead of silently
@@ -32,6 +36,7 @@ from typing import Any
 
 from audio_suite_shared.batch_undo import (
     get_active_batch_id,
+    record_audio_overwrite_snapshot,
     record_file_delete_snapshot,
     use_batch,
 )
@@ -198,6 +203,26 @@ def _wav_params_for(
 
 _NORMALIZE_TOLERANCE_DB: float = 0.5
 """Gain adjustments smaller than this (in dB) are skipped as inaudible."""
+
+
+def _rerender_requested(output_format: str, sample_rate: str, bit_depth: str) -> bool:
+    """Return True when the run explicitly asks to rewrite the audio.
+
+    A same-format job is only worth doing when it changes something: an
+    explicit WAV bit depth, or a sample-rate conversion.  Without one the file
+    is skipped exactly as before, so a no-op re-encode is never attempted.
+
+    Args:
+        output_format: Target format name.
+        sample_rate: ``'source'`` or a numeric rate.
+        bit_depth: ``'auto'`` or a WAV depth preset.
+
+    Returns:
+        True when a same-format job should be rendered anyway.
+    """
+    if sample_rate and sample_rate != "source":
+        return True
+    return output_format == "wav" and bit_depth in WAV_DEPTH_CODECS
 
 
 def _measure_lufs(file_path: str) -> float | None:
@@ -426,6 +451,8 @@ def process_single_file(
     slot_idx = slot_queue.get()
     input_path = os.path.join(input_dir, filename)
     claimed_output: str | None = None
+    temp_output: str | None = None
+    in_place = False
 
     try:
         input_format = detect_format(filename)
@@ -434,8 +461,13 @@ def process_single_file(
 
         slot_vars[slot_idx].set(f"Checking: {filename[:25]}...")
 
-        ok, reason = can_convert(input_format, output_format)
+        re_render = _rerender_requested(output_format, sample_rate, bit_depth)
+        ok, reason = can_convert(
+            input_format, output_format, allow_same_format=re_render
+        )
         if not ok:
+            if input_format == output_format:
+                reason += " - choose a bit depth or sample rate to re-encode"
             display = f"[SKIPPED] {filename} - {reason}"
             log = f"[SKIPPED] {filename} - {reason}\n"
             with lock:
@@ -454,6 +486,18 @@ def process_single_file(
         # as `.m4a` (formats.OUTPUT_EXTENSIONS).
         output_name = f"{base_name}.{output_extension(output_format)}"
         output_path = os.path.join(output_dir, output_name)
+        # The output directory defaults to the input directory, so a
+        # same-format render would otherwise resolve to the source path.
+        # FFmpeg refuses to read and write one path, so the render lands in a
+        # sibling temporary file and is swapped in atomically below.
+        in_place = re_render and os.path.abspath(output_path) == os.path.abspath(
+            input_path
+        )
+        target_path = output_path
+        if in_place:
+            stem, ext = os.path.splitext(output_path)
+            temp_output = f"{stem}.tmp-{os.getpid()}-{threading.get_ident()}{ext}"
+            target_path = temp_output
         input_size = os.path.getsize(input_path) / (1024 * 1024)
 
         if is_dry_run:
@@ -492,7 +536,7 @@ def process_single_file(
 
         output_size = _convert_and_verify(
             input_path,
-            output_path,
+            target_path,
             output_format,
             quality,
             sample_rate,
@@ -506,22 +550,31 @@ def process_single_file(
         )
 
         gain_status = _apply_post_gain(
-            output_path,
+            target_path,
             normalize_mp3,
             output_format,
             target_lufs,
         )
 
+        if in_place:
+            # Snapshot the pre-run bytes while the source is still untouched,
+            # then replace it atomically.  The temporary file is a complete
+            # render, so a failed replace leaves the source intact.
+            record_audio_overwrite_snapshot(input_path, "format_conversion")
+            os.replace(target_path, input_path)
+            temp_output = None
+
         deleted, delete_status = _delete_original(
             input_path,
             output_path,
-            delete_original,
+            delete_original and not in_place,
         )
+        in_place_status = " [IN-PLACE]" if in_place else ""
 
         display = (
             f"[CONVERTED] {filename} \u2192 {output_name} "
             f"({input_size:.1f}MB \u2192 {output_size:.1f}MB)"
-            f"{gain_status}{delete_status}"
+            f"{gain_status}{delete_status}{in_place_status}"
         )
         log = (
             f"[CONVERTED] {filename} | "
@@ -532,6 +585,8 @@ def process_single_file(
             log += f" | {gain_status.strip()}"
         if deleted:
             log += " | Original deleted"
+        if in_place:
+            log += " | Rewritten in place"
 
         with lock:
             on_progress(
@@ -589,6 +644,11 @@ def process_single_file(
                 )
 
     finally:
+        if temp_output and os.path.exists(temp_output):
+            try:
+                os.remove(temp_output)
+            except OSError:
+                logger.warning("Could not remove temporary output %s", temp_output)
         slot_vars[slot_idx].set("IDLE")
         slot_queue.put(slot_idx)
 

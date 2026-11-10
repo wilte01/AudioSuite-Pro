@@ -17,6 +17,12 @@ PLAN_2026-11-03_2.4.1_stop_the_drift.md), so the converter cannot offer a
 container the rest of the suite disagrees about. The converter speaks codec
 names as well as container names, and ``CODEC_TO_EXTENSION`` is what maps the
 two ("alac" is a codec stored in an M4A container).
+
+Changed in 2.6.0: a same-format job may now be requested explicitly - a WAV
+bit-depth change or a sample-rate conversion is a real render even though the
+container name is unchanged - and WAV stays a reachable target from WAV input
+so those options can be used (D142). ``can_convert`` still refuses a
+same-format no-op by default.
 """
 
 import logging
@@ -160,24 +166,36 @@ def detect_format(filename: str) -> Optional[str]:
     return ext if ext in ALL_FORMATS else None
 
 
-def can_convert(input_fmt: str, output_fmt: str) -> tuple[bool, str]:
+def can_convert(
+    input_fmt: str, output_fmt: str, *, allow_same_format: bool = False
+) -> tuple[bool, str]:
     """
     Check whether converting input_fmt → output_fmt is allowed.
 
     Rules:
-        - Converting a format to itself is prohibited (nothing to do;
-          also avoids FFmpeg's "Output same as Input" failure when the
+        - Converting a format to itself is prohibited by default (nothing to
+          do; also avoids FFmpeg's "Output same as Input" failure when the
           output directory defaults to the input directory).
+          ``allow_same_format=True`` admits it for a run that explicitly
+          re-renders the audio (a WAV bit-depth change or a sample-rate
+          conversion), which is a real conversion even when the container
+          name is unchanged.
         - lossy → lossless is prohibited (no quality can be recovered).
         - Output formats with no available encoder (see
           UNSUPPORTED_OUTPUT_FORMATS) are prohibited as a target,
           regardless of input format.
 
+    Args:
+        input_fmt: Source format name.
+        output_fmt: Target format name.
+        allow_same_format: Permit a same-format render when the caller has a
+            depth or rate change to apply.
+
     Returns:
         (True,  "OK")             if allowed.
         (False, reason_string)    if not allowed.
     """
-    if input_fmt.lower() == output_fmt.lower():
+    if input_fmt.lower() == output_fmt.lower() and not allow_same_format:
         return False, "Input and output formats are the same"
     if output_fmt in UNSUPPORTED_OUTPUT_FORMATS:
         return False, f"{output_fmt.upper()} is not a supported output format"
@@ -189,13 +207,16 @@ def can_convert(input_fmt: str, output_fmt: str) -> tuple[bool, str]:
 def available_output_formats(input_fmt: str) -> list[str]:
     """
     Return the list of valid output formats for a given input format,
-    excluding the input format itself, any lossy→lossless violations,
-    and any format with no available encoder (UNSUPPORTED_OUTPUT_FORMATS).
+    excluding lossy→lossless violations and any format with no available
+    encoder (UNSUPPORTED_OUTPUT_FORMATS).
+
+    The input format itself is excluded except for WAV, which stays reachable
+    so ``--bit-depth`` and ``--sample-rate`` can re-render a WAV folder.
     """
     if is_lossy(input_fmt):
         candidates = [f for f in LOSSY_FORMATS if f != input_fmt]
     else:
-        candidates = [f for f in ALL_FORMATS if f != input_fmt]
+        candidates = [f for f in ALL_FORMATS if f != input_fmt or f == "wav"]
     return [f for f in candidates if f not in UNSUPPORTED_OUTPUT_FORMATS]
 
 
