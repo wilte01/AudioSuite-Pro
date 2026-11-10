@@ -48,6 +48,12 @@ from unittest.mock import MagicMock
 import pytest
 
 import library_stats.app as app_module
+from library_stats.core.artwork_gaps import (
+    AlbumArtworkGap,
+    AlbumCoverResult,
+    CoverRun,
+    missing_artwork_albums,
+)
 from library_stats.core.completeness import (
     TAG_FIELDS,
     analyse_completeness,
@@ -262,6 +268,8 @@ class TestInitialState:
             " 5. Charts ",
             " 6. Missing Data ",
             " 7. Completeness ",
+            # Changed in 2.6.0: the Artwork Gaps view is the eighth tab.
+            " 8. Artwork Gaps ",
         ]
         # Stat cards render the placeholder until the first scan.
         assert app._summary_labels["total_files"].cget("text") == "\u2014"
@@ -841,8 +849,9 @@ class TestCompletenessRendering:
         heatmap_axes = app._comp_heatmap_canvas.figure.axes[0]
         assert len(heatmap_axes.images) == 1
         assert len(heatmap_axes.get_yticks()) == len(completeness.album_results)
-        # Still seven tabs: the heatmap must not have widened the layout.
-        assert len(app._notebook.tabs()) == 7
+        # The heatmap must not have widened the layout; 2.6.0's Artwork Gaps
+        # view is a deliberate eighth tab, not a by-product of the chart.
+        assert len(app._notebook.tabs()) == 8
 
     def test_heatmap_replaces_the_previous_canvas(
         self,
@@ -857,6 +866,74 @@ class TestCompletenessRendering:
 
         assert app._comp_heatmap_canvas is not first
         assert len(app._comp_heatmap_frame.winfo_children()) == 1
+
+
+class TestArtworkGapsView:
+    """The Artwork Gaps tab: its listing, guard and rendered outcomes."""
+
+    def test_lists_the_albums_missing_artwork(
+        self,
+        app: app_module.LibraryStatsApp,
+        library: Path,
+    ) -> None:
+        """Changed in 2.6.0: the eighth tab is populated from the scan."""
+        completeness = analyse_completeness(str(library))
+
+        app._update_artwork_gaps(completeness)
+
+        gaps = missing_artwork_albums(completeness)
+        assert app._artwork_gaps == gaps
+        assert list(app._art_album_list.get(0, "end")) == [
+            f"  {gap.album:<40} {gap.missing_files:>4} of "
+            f"{gap.total_files:>4} files without art"
+            for gap in gaps
+        ]
+        expected = "normal" if gaps else "disabled"
+        assert str(app._art_extract_btn.cget("state")) == expected
+        assert str(app._art_dry_btn.cget("state")) == expected
+
+    def test_the_guard_answers_when_nothing_is_missing(
+        self,
+        app: app_module.LibraryStatsApp,
+        stubbed_dialogs: tuple[MagicMock, MagicMock],
+    ) -> None:
+        messagebox, _ = stubbed_dialogs
+        app._artwork_gaps = ()
+
+        app._start_cover_extraction(dry_run=True)
+
+        messagebox.showinfo.assert_called_once()
+        assert app._cover_running is False
+
+    def test_a_finished_pass_renders_and_exposes_its_report(
+        self, app: app_module.LibraryStatsApp
+    ) -> None:
+        app._artwork_gaps = (
+            AlbumArtworkGap(
+                album="A", folders=("/music/a",), total_files=2, missing_files=1
+            ),
+        )
+        run = CoverRun(
+            results=(
+                AlbumCoverResult(
+                    album="A",
+                    folder="/music/a",
+                    status="extracted",
+                    sidecar="/music/a/cover.jpg",
+                ),
+            ),
+            extracted=1,
+            report_path="/music/library_stats_artwork_log.txt",
+        )
+
+        app._on_covers_complete(run)
+
+        text = app._art_result_text.get("1.0", "end")
+        assert "EXTRACTED" in text
+        assert "/music/a/cover.jpg" in text
+        assert app._artwork_log_path.endswith("library_stats_artwork_log.txt")
+        assert str(app._art_view_log_btn.cget("state")) == "normal"
+        assert "1 written" in app._art_status_var.get()
 
 
 class TestChartRendering:

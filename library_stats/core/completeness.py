@@ -5,6 +5,11 @@ each metadata tag (title, artist, album, track number, year, BPM, key,
 genre, mood, tempo marking, embedded album art, ReplayGain).  All data is
 read-only — no analysis or tag writing is performed.
 
+Changed in 2.6.0: each ``AlbumCompleteness`` records the folders its files
+live in (``folders``), so the Artwork Gaps view can offer a cover extraction
+per album - an album label says what is wrong, a folder is where a sidecar can
+be written.  The field default keeps every existing construction valid.
+
 Changed in 1.3.0: five fields are added (``title``, ``artist``, ``album``,
 ``track_number``, ``year``) and the whole per-file read now takes **one**
 handler load instead of one per field.  Measured on this host with the real
@@ -99,6 +104,10 @@ class AlbumCompleteness:
     album: str
     total_files: int
     missing: dict[str, int] = field(default_factory=dict)
+    #: The distinct folders this album's files live in, sorted.  Added in 2.6.0
+    #: for the Artwork Gaps view: an album label identifies what to fix, a
+    #: folder is where a cover can be written.
+    folders: tuple[str, ...] = ()
 
     def pct_missing(self, tag_field: str) -> float:
         """Return the percentage of this album's files missing *tag_field*."""
@@ -122,6 +131,7 @@ class AlbumCompleteness:
             "total_files": self.total_files,
             "missing": dict(self.missing),
             "pct_complete": self.pct_complete,
+            "folders": list(self.folders),
         }
 
 
@@ -237,12 +247,15 @@ def _read_file(path: str) -> tuple[dict[str, bool], str | None]:
     return presence, album_label
 
 
-def _album_result(label: str, total: int, missing: dict[str, int]) -> AlbumCompleteness:
+def _album_result(
+    label: str, total: int, missing: dict[str, int], folders: tuple[str, ...] = ()
+) -> AlbumCompleteness:
     """Build the frozen per-album record for *label*."""
     return AlbumCompleteness(
         album=label,
         total_files=total,
         missing={f: missing.get(f, 0) for f in TAG_FIELDS},
+        folders=folders,
     )
 
 
@@ -274,6 +287,7 @@ def analyse_completeness(
     missing_files: dict[str, list[str]] = {f: [] for f in TAG_FIELDS}
     album_totals: dict[str, int] = {}
     album_missing: dict[str, dict[str, int]] = {}
+    album_folders: dict[str, set[str]] = {}
     total = 0
     processed = 0
 
@@ -308,6 +322,7 @@ def analyse_completeness(
                     missing_files[tag_field].append(full)
 
             group = album_label or UNKNOWN_ALBUM
+            album_folders.setdefault(group, set()).add(root)
             album_totals[group] = album_totals.get(group, 0) + 1
             group_missing = album_missing.setdefault(group, {f: 0 for f in TAG_FIELDS})
             for tag_field in TAG_FIELDS:
@@ -340,7 +355,12 @@ def analyse_completeness(
     album_results = tuple(
         sorted(
             (
-                _album_result(label, album_totals[label], album_missing[label])
+                _album_result(
+                    label,
+                    album_totals[label],
+                    album_missing[label],
+                    tuple(sorted(album_folders.get(label, set()))),
+                )
                 for label in album_totals
             ),
             key=lambda a: (a.pct_complete, a.album),

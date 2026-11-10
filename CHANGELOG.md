@@ -42,6 +42,15 @@ and every bullet belongs to exactly one of them.
   same figure. An incremental scan answers for a library it did not reopen, so
   a repeat scan is as fast as before; a cache written by an earlier version is
   reread once to fill the fact in, rather than reporting a guess.
+- **An album view that fills in missing covers.** The new Artwork Gaps tab
+  lists every album with files that have no embedded artwork, worst-covered
+  first. Its Extract Covers button writes a `cover.jpg` (or `cover.png`) beside
+  each listed album, taken from the picture a file in that album already has,
+  so a player shows a cover without any file being retagged; Dry Run reports
+  the same outcome without writing, an existing sidecar is kept unless the run
+  replaces it, and an album with no artwork anywhere is reported rather than
+  changed. The pass writes `library_stats_artwork_log.txt` into the scanned
+  folder, and the tab's View Artwork Log opens it.
 - **Artwork Extractor, a window and a Master Driver batch step.** The extraction
   `audiosuite artwork extract` performs now has its own window
   (`Artwork_Extractor.pyw`): pick a folder, set the sidecar name, choose whether

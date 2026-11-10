@@ -34,6 +34,22 @@ and every bullet belongs to exactly one of them.
   the legacy-row re-read test, and the full scan's counter. The recorded CLI
   corpus and schema examples are re-recorded, because the payload gained a
   field.
+- **The dashboard's Artwork Gaps view is its fifth dashboard tab and the one
+  write it offers.** `library_stats/core/artwork_gaps.py` selects the albums
+  from `CompletenessReport.album_results` (no second library walk),
+  `AlbumCompleteness` gains the `folders` its files live in so an album label
+  can be turned into a place to write, and `run_cover_extraction` writes one
+  sidecar per folder through
+  `audio_suite_shared.tag_helper_art.extract_artwork`/`write_artwork_sidecar` —
+  the same functions the Artwork Extractor and `audiosuite artwork extract` use
+  — with dry-run, keep/force semantics and its own run report
+  (`library_stats_artwork_log.txt`). The pass runs on the app's worker thread
+  and publishes through the existing `SimpleQueue`; `_poll_events` gained the
+  `covers`/`covers_error` kinds and the scan-complete handler refreshes the
+  listing. Locked on real FLACs by `library_stats/tests/test_artwork_gaps.py`
+  (selection, folder routing, a byte-equal sidecar, dry run, keep/force, report
+  text) and `library_stats/tests/test_app.py::TestArtworkGapsView` (listing,
+  guard, rendered outcomes).
 - **The Artwork Extractor is a driver-schedulable window over F-E10's read
   side.** `artwork_extractor/` adds `utils/cli_args.py` (the shared handshake
   plus the tool's own `--name`, `--force|--no-force` and

@@ -7,7 +7,7 @@ subtitle: Based on the current Library Statistics implementation
 
 Library Statistics Dashboard scans a music library and aggregates metadata that is already present in audio tags. It is read-only: it does not analyze audio, detect new values, or write tags. The dashboard shows summary counts, charts, missing-data lists, and tag completeness results.
 
-The window has seven tabs: Setup holds the folder, the scan mode and the actions; Processing shows the scan's progress and status; Results appears when a scan finishes, with the counters, the run report and the scanned folder; and Summary, Charts, Missing Data and Completeness hold the dashboard itself.
+The window has eight tabs: Setup holds the folder, the scan mode and the actions; Processing shows the scan's progress and status; Results appears when a scan finishes, with the counters, the run report and the scanned folder; and Summary, Charts, Missing Data, Completeness and Artwork Gaps hold the dashboard itself.
 
 ## Quick Start
 
@@ -15,7 +15,7 @@ The window has seven tabs: Setup holds the folder, the scan mode and the actions
 1. On the Setup tab, select a music folder or use the restored last folder.
 1. Leave Mode on Incremental Scan for normal repeated scans; choose Full Scan to rebuild the cache, or Direct Scan to ignore it.
 1. Click Scan Library.
-1. Open the Results tab to see the counters, then review Summary, Charts, Missing Data and Completeness.
+1. Open the Results tab to see the counters, then review Summary, Charts, Missing Data, Completeness and Artwork Gaps.
 1. View Log opens this scan's report; Open Folder opens the scanned folder.
 1. Use Export, Save CSV, or Save JSON when you need a report outside the dashboard.
 
@@ -89,6 +89,14 @@ Completeness separately checks whether each supported field is present: Title, A
 ## Completeness Trend
 
 Each scan records a completeness snapshot in the Library Statistics cache, and the Charts tab draws the overall percentage over time. A snapshot identical to the previous one for the same folder is not recorded again, so opening the dashboard repeatedly does not pad the trend, and only the newest 100 snapshots per folder are kept. Use --trend on the command line to print the series and --no-history to scan without recording a snapshot.
+
+## Artwork Gaps Tab
+
+Artwork Gaps lists the albums whose files are missing embedded artwork, worst-covered first, with how many of each album's files are affected. The list comes from the completeness scan, so opening the tab costs no second read of the library.
+
+**Extract Covers** writes a cover beside each listed album, taken from the picture a file in that album already has: a folder needs one cover, so the first file carrying artwork supplies it and the sidecar is `cover.jpg` or `cover.png` according to the image's own format. An existing sidecar is kept unless the run replaces it, because a curated cover is the better copy. An album where no file has artwork is reported as `NO ART` and nothing is written; **Dry Run** reports the same outcome without writing anything. The pass changes no audio and no tags.
+
+The tab shows one line per album as the pass finishes and writes `library_stats_artwork_log.txt` into the scanned folder; **View Artwork Log** in this tab opens that report. It is a separate file from the scan report the Results tab opens, because the two runs are separate.
 
 ## Statistics and Binning
 

@@ -1287,7 +1287,11 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
         "LibraryStatsApp",
         window=(1334, 533),
         populate=GENERIC_POPULATE,
-        skip_tabs=frozenset({"summary", "charts", "missing_data", "completeness"}),
+        # Changed in 2.6.0: the Artwork Gaps view has no data until a scan
+        # runs, like the other dashboard tabs, so it is skipped for the reason.
+        skip_tabs=frozenset(
+            {"summary", "charts", "missing_data", "completeness", "artwork_gaps"}
+        ),
     ),
     ToolPlan(
         "lyrics_manager",

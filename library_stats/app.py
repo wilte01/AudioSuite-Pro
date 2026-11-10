@@ -8,8 +8,8 @@ tag writing is performed.
 The window is built by ``audio_suite_shared.suite_app.SuiteApp``: the Help bar,
 the notebook and the Processing and Results tabs come from the shell.  This
 module supplies the Setup tab (run-controls strip, scan and export actions), the
-four dashboard tabs the tool has always shown (Summary, Charts, Missing Data,
-Completeness) and the scan itself.
+five dashboard tabs (Summary, Charts, Missing Data, Completeness and Artwork
+Gaps) and the scan itself.
 
 Mode replaces the old Cache checkbox and Refresh button, because they were two
 controls for one decision: ``Incremental Scan`` reuses the cache (the default),
@@ -31,6 +31,12 @@ backlog F-05/F-06).
 Changed in 2.3.1: the widget's text colours follow the suite theme instead of
 Tk's symbolic defaults (PLAN_restoration_2026-10-31.md T-02).
 
+Changed in 2.6.0: the Artwork Gaps tab lists the albums whose files lack
+embedded artwork and can write a cover beside each from the picture one of its
+files already carries.  That pass is the one write the dashboard offers, it runs
+off the Tk thread through the same queue, and it writes its own run report
+(``library_stats_artwork_log.txt``), which the tab's View Log opens.
+
 Changed in 2.4.3: adopts ``SuiteApp`` (PLAN_2026-11-03_2.4.3_structure.md WP-8
 order #3).  The old one-pane window — a toolbar, a status bar and a four-tab
 notebook it built itself — becomes the shell's Setup, Processing and Results
@@ -51,15 +57,22 @@ import threading
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from typing import Any
+from typing import Any, Literal
 
 from audio_suite_shared import styles, suite_config
 from audio_suite_shared.cli_helpers import was_launched_from_driver
 from audio_suite_shared.exceptions import AudioSuiteError
 from audio_suite_shared.launcher import parse_cli_args
+from audio_suite_shared.platform_utils import open_path
 from audio_suite_shared.suite_app import SuiteApp
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 from audio_suite_shared.ui_helpers import show_error_from_exception
+from library_stats.core.artwork_gaps import (
+    AlbumArtworkGap,
+    CoverRun,
+    missing_artwork_albums,
+    run_cover_extraction,
+)
 from library_stats.core.completeness import (
     CompletenessReport,
     TagCompleteness,
@@ -122,6 +135,7 @@ class LibraryStatsApp(SuiteApp):
         " 5. Charts ",
         " 6. Missing Data ",
         " 7. Completeness ",
+        " 8. Artwork Gaps ",
     )
 
     def __init__(
@@ -146,6 +160,9 @@ class LibraryStatsApp(SuiteApp):
 
         self._report: StatsReport | None = None
         self._completeness_report: CompletenessReport | None = None
+        self._artwork_gaps: tuple[AlbumArtworkGap, ...] = ()
+        self._artwork_log_path = ""
+        self._cover_running = False
         self._scanning = False
         self._cache: LibraryCache = LibraryCache()
         self._launched_from_driver = was_launched_from_driver()
@@ -219,7 +236,7 @@ class LibraryStatsApp(SuiteApp):
     # ── Shell wiring ──────────────────────────────────────────────────────────
 
     def _tab_specs(self) -> tuple[tuple[str, Any], ...]:
-        """Build Setup, the shell's two tabs, then the dashboard's own four."""
+        """Build Setup, the shell's two tabs, then the dashboard's own five."""
         return (
             (self.tab_labels[0], self._build_setup_tab),
             (self.tab_labels[1], self._build_processing_tab),
@@ -228,6 +245,7 @@ class LibraryStatsApp(SuiteApp):
             (self.tab_labels[4], self._build_charts_tab),
             (self.tab_labels[5], self._build_missing_tab),
             (self.tab_labels[6], self._build_completeness_tab),
+            (self.tab_labels[7], self._build_artwork_tab),
         )
 
     def _on_mode_changed(self, *_args: str) -> None:
@@ -605,6 +623,224 @@ class LibraryStatsApp(SuiteApp):
         except (OSError, ValueError) as exc:
             show_error_from_exception(exc, title="Export Error")
 
+    # ── Artwork gaps tab ────────────────────────────────────────────────────
+
+    def _build_artwork_tab(self, parent: tk.Frame) -> None:
+        """Build the album artwork list and its cover-extraction actions."""
+        af = self._artwork_frame = parent
+        header = tk.Frame(af, bg=styles.BG_WHITE)
+        header.pack(fill="x", padx=20, pady=(10, 0))
+        tk.Label(
+            header,
+            text="Albums Missing Artwork",
+            font=styles.FONT_TITLE,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+        ).pack(side=tk.LEFT)
+
+        # A distinct label: the shell's header View Log opens the scan report,
+        # and this one opens the cover pass's own report (D-27).
+        self._art_view_log_btn = tk.Button(
+            header,
+            text="View Artwork Log",
+            command=self._open_artwork_log,
+            font=styles.FONT_BUTTON,
+            bg=styles.get_main(),
+            fg="white",
+            disabledforeground=styles.FG_ON_ACCENT_LOCKED,
+            relief="flat",
+            padx=8,
+            state="disabled",
+        )
+        self._art_view_log_btn.pack(side=tk.RIGHT, padx=(5, 0))
+        self._art_dry_btn = tk.Button(
+            header,
+            text="Dry Run",
+            command=lambda: self._start_cover_extraction(dry_run=True),
+            font=styles.FONT_BUTTON,
+            bg=styles.get_main(),
+            fg="white",
+            disabledforeground=styles.FG_ON_ACCENT_LOCKED,
+            relief="flat",
+            padx=8,
+            state="disabled",
+        )
+        self._art_dry_btn.pack(side=tk.RIGHT, padx=(5, 0))
+        self._art_extract_btn = tk.Button(
+            header,
+            text="Extract Covers",
+            command=lambda: self._start_cover_extraction(dry_run=False),
+            font=styles.FONT_BUTTON,
+            bg=styles.get_main(),
+            fg="white",
+            disabledforeground=styles.FG_ON_ACCENT_LOCKED,
+            relief="flat",
+            padx=8,
+            state="disabled",
+        )
+        self._art_extract_btn.pack(side=tk.RIGHT)
+
+        self._art_status_var = tk.StringVar(
+            value="Scan a library to list the albums that need a cover."
+        )
+        tk.Label(
+            af,
+            textvariable=self._art_status_var,
+            font=styles.FONT_CAPTION,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_SUB,
+            anchor="w",
+        ).pack(fill="x", padx=20, pady=(6, 0))
+
+        self._art_album_list = tk.Listbox(
+            af,
+            font=styles.FONT_MONO,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            height=9,
+            relief="flat",
+            activestyle="none",
+        )
+        self._art_album_list.pack(fill="both", expand=True, padx=20, pady=(8, 4))
+        list_scroll = tk.Scrollbar(af, command=self._art_album_list.yview)
+        list_scroll.pack(side="right", fill="y")
+        self._art_album_list.configure(yscrollcommand=list_scroll.set)
+
+        self._art_result_text = tk.Text(
+            af,
+            font=styles.FONT_MONO,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            height=9,
+            relief="flat",
+        )
+        self._art_result_text.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+
+    def _update_artwork_gaps(self, completeness: CompletenessReport) -> None:
+        """List the albums missing artwork and enable the cover actions."""
+        self._art_album_list.delete(0, tk.END)
+        self._art_result_text.delete("1.0", tk.END)
+        self._artwork_log_path = ""
+        self._art_view_log_btn.config(state="disabled")
+
+        gaps = missing_artwork_albums(completeness)
+        self._artwork_gaps = gaps
+        for gap in gaps:
+            self._art_album_list.insert(
+                tk.END,
+                f"  {gap.album:<40} {gap.missing_files:>4} of "
+                f"{gap.total_files:>4} files without art",
+            )
+
+        state: Literal["normal", "disabled"] = (
+            "normal" if gaps and not self._cover_running else "disabled"
+        )
+        self._art_extract_btn.config(state=state)
+        self._art_dry_btn.config(state=state)
+        if gaps:
+            self._art_status_var.set(
+                f"{len(gaps)} album(s) have files with no embedded artwork. "
+                "A cover is taken from a file that does have one."
+            )
+        elif completeness.total_files:
+            self._art_status_var.set("Every file carries embedded artwork.")
+        else:
+            self._art_status_var.set(
+                "Scan a library to list the albums that need a cover."
+            )
+
+    def _start_cover_extraction(self, *, dry_run: bool) -> None:
+        """Run the cover pass off the Tk thread, one sidecar per album folder."""
+        if self._cover_running:
+            return
+        if not self._artwork_gaps:
+            messagebox.showinfo(
+                "No Missing Artwork", "No albums are missing embedded artwork."
+            )
+            return
+
+        self._cover_running = True
+        self._art_extract_btn.config(state="disabled")
+        self._art_dry_btn.config(state="disabled")
+        self._art_result_text.delete("1.0", tk.END)
+        self._art_status_var.set(
+            "Dry run: reporting the covers that would be written..."
+            if dry_run
+            else "Extracting covers from each album's own files..."
+        )
+        source = self.folder_path.get().strip()
+        self._thread = threading.Thread(
+            target=self._cover_thread,
+            args=(self._artwork_gaps, source, dry_run),
+            daemon=True,
+        )
+        self._thread.start()
+        self._start_polling()
+
+    def _cover_thread(
+        self,
+        gaps: tuple[AlbumArtworkGap, ...],
+        source: str,
+        dry_run: bool,
+    ) -> None:
+        """Write the covers off the Tk thread; never touch a widget here."""
+        try:
+            run = run_cover_extraction(gaps, source=source, dry_run=dry_run)
+        except Exception as exc:  # noqa: BLE001 - reported to the user, never lost
+            self._events.put(("covers_error", exc))
+        else:
+            self._events.put(("covers", run))
+
+    def _on_covers_complete(self, run: CoverRun) -> None:
+        """Render a finished cover pass and expose its own run report."""
+        self._cover_running = False
+        state: Literal["normal", "disabled"] = (
+            "normal" if self._artwork_gaps else "disabled"
+        )
+        self._art_extract_btn.config(state=state)
+        self._art_dry_btn.config(state=state)
+        self._art_result_text.delete("1.0", tk.END)
+        for result in run.results:
+            detail = f" -> {result.sidecar}" if result.sidecar else ""
+            if result.detail:
+                detail = (
+                    f"{detail} | {result.detail}" if detail else f" | {result.detail}"
+                )
+            self._art_result_text.insert(
+                "end",
+                f"  {result.album:<30} {result.status.upper():<10} "
+                f"{result.folder}{detail}\n",
+            )
+        self._artwork_log_path = run.report_path
+        log_state: Literal["normal", "disabled"] = (
+            "normal" if run.report_path else "disabled"
+        )
+        self._art_view_log_btn.config(state=log_state)
+        self._art_status_var.set(
+            f"{'Dry run' if run.dry_run else 'Covers'}: {run.extracted} written, "
+            f"{run.kept} kept, {run.no_art} with no artwork, "
+            f"{run.errors} error(s) in {run.elapsed:.1f}s."
+        )
+        self._status_var.set("Artwork pass complete.")
+
+    def _on_covers_error(self, exc: Exception) -> None:
+        """Report a failed cover pass without leaving the buttons locked."""
+        self._cover_running = False
+        state: Literal["normal", "disabled"] = (
+            "normal" if self._artwork_gaps else "disabled"
+        )
+        self._art_extract_btn.config(state=state)
+        self._art_dry_btn.config(state=state)
+        self._art_status_var.set("The artwork pass failed. See the error dialog.")
+        show_error_from_exception(exc, title="Artwork Error")
+
+    def _open_artwork_log(self) -> None:
+        """Open this view's own run report."""
+        if not self._artwork_log_path:
+            messagebox.showinfo("No Log", "Run the cover pass first.")
+            return
+        open_path(self._artwork_log_path)
+
     # ── Actions ──────────────────────────────────────────────────────────────
 
     def _browse(self) -> None:
@@ -690,6 +926,10 @@ class LibraryStatsApp(SuiteApp):
             if kind == "done":
                 report, completeness = payload
                 self._on_scan_complete(report, completeness)
+            elif kind == "covers":
+                self._on_covers_complete(payload)
+            elif kind == "covers_error":
+                self._on_covers_error(payload)
             else:
                 self._on_scan_error(payload)
         if self._thread is not None and self._thread.is_alive():
@@ -742,6 +982,7 @@ class LibraryStatsApp(SuiteApp):
             history = []
         self._update_charts(report, history)
         self._update_completeness(completeness)
+        self._update_artwork_gaps(completeness)
         self._apply_cli_exports(report)
         self._write_run_log()
         self.render_completion(
