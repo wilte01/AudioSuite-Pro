@@ -1,9 +1,20 @@
 """Tests for the equal-power overlap.
 
-The mixer's arithmetic is checked on decoded frames: a fade that keeps two
-correlated signals at their level, and one that leaves no step at the seam.
+The mixer's arithmetic is checked on decoded frames: the level an equal-power
+fade actually produces through the overlap, and the length the combined
+segment actually has.
+
+Two identical, in-phase segments gain through the overlap - ``cos + sin``
+reaches sqrt(2) at the midpoint - while equal power is what holds the level of
+*uncorrelated* material where linear fades would dip by 3 dB.  The level test
+below pins the measured +2.14 dB rather than a one-sided "did not dip" bound,
+so a switch to linear fades (which would read 0 dB here) fails it.
 
 Changed in 2.5.0: new module (F-E5).
+
+Changed in 2.6.0: the correlated-pair test now locks the measured +2.14 dB and
+the sqrt(2) midpoint instead of accepting any level at or above -0.5 dB, and a
+second duration case pins the 1000 + 1000 - 400 = 1600 ms result (D141).
 """
 
 from __future__ import annotations
@@ -37,17 +48,41 @@ class TestDuration:
 
         assert len(mixed) == pytest.approx(800, abs=1)
 
+    def test_two_equal_segments_lose_exactly_one_overlap(self) -> None:
+        """Measured joined length: 1000 + 1000 - 400 = 1600 ms, not 2000."""
+        mixed = equal_power_mix(_sine(1000, 1000), _sine(1000, 1000), 400)
+
+        assert len(mixed) == pytest.approx(1600, abs=1)
+        assert len(mixed[600:1000]) == pytest.approx(400, abs=1)
+
 
 class TestLevel:
-    def test_a_correlated_pair_keeps_its_level(self) -> None:
-        tone = _sine(500, 100)
-        mixed = equal_power_mix(tone, tone, 200)
-        overlap = mixed[300:500]
+    def test_two_identical_segments_gain_2_14_db_through_the_overlap(self) -> None:
+        """Measured, not bounded: a linear fade would read 0.00 dB here.
 
-        # Two copies of the same tone: cos + sin peaks at sqrt(2), so the
-        # equal-power fade gains up to 3 dB in the middle - what it must not do
-        # is dip the way two linear fades would.
-        assert _rms_dbfs(overlap) >= _rms_dbfs(tone) - 0.5
+        For in-phase copies the fade sums to ``cos + sin``, whose mean square
+        over the quarter turn is ``1 + 2/pi``, i.e. +2.14 dB; the old assertion
+        ("at least -0.5 dB") passed for a linear fade too and locked nothing.
+        """
+        tone = _sine(1000, 1000)
+        mixed = equal_power_mix(tone, tone, 400)
+        overlap = mixed[600:1000]
+
+        gain = _rms_dbfs(overlap) - _rms_dbfs(tone)
+        assert gain == pytest.approx(2.14, abs=0.1)
+
+    def test_the_midpoint_is_the_equal_power_sum(self) -> None:
+        """cos(pi/4) + sin(pi/4) = sqrt(2) times one segment's amplitude."""
+        tone = _sine(1000, 1000)
+        mixed = equal_power_mix(tone, tone, 400)
+
+        source = np.array(tone.get_array_of_samples(), dtype=np.float64)
+        overlap = np.array(mixed[600:1000].get_array_of_samples(), dtype=np.float64)
+        midpoint = len(overlap) // 2
+
+        assert overlap[midpoint] == pytest.approx(
+            source[midpoint] * np.sqrt(2), rel=0.01
+        )
 
     def test_a_silent_tail_fades_in_without_a_step(self) -> None:
         quiet = AudioSegment.silent(duration=400, frame_rate=SAMPLE_RATE)

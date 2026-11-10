@@ -13,6 +13,9 @@ Master Driver handshake layout:
 BaseCLIArgs provides: folder_path, live_mode, auto_start, auto_end.
 
 Changed in 1.4.0: ``max_workers`` defaults to ``default_max_workers()``.
+Changed in 2.6.0: ``analysis_duration`` defaults to
+``DEFAULT_ANALYSIS_SECONDS``, the window the GUI and the command line use
+(D140).
 """
 
 import os
@@ -29,14 +32,17 @@ from audio_suite_shared.cli_helpers import (
 from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
-from audio_suite_shared.constants import default_max_workers
+from audio_suite_shared.constants import (
+    DEFAULT_ANALYSIS_SECONDS,
+    default_max_workers,
+)
 
 
 @dataclass
 class KeyDetectorArgs(BaseCLIArgs):
     """CLI arguments for Key Detector."""
 
-    analysis_duration: int = 90
+    analysis_duration: int = DEFAULT_ANALYSIS_SECONDS
     parallel_mode: bool = False
     max_workers: int = field(default_factory=default_max_workers)
     clear_logs: bool = False  # Display only — driver-owned orchestration flag

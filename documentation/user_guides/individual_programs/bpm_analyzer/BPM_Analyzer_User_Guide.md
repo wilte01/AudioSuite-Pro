@@ -30,6 +30,7 @@ Setup contains the directory picker, mode, BPM range, analysis duration, optiona
 ![The Setup tab: source directory, Dry Run mode, BPM range, analysis duration, worker settings and presets](images/setup.png)
 
 - **BPM Range: **The GUI requires minimum BPM from 40 through 300 and maximum BPM from 60 through 400, with minimum less than maximum. Defaults are 75 to 175.
+- **Analysis Duration: **Defaults to 30 seconds in the GUI, the Master Driver and the command line, because 30 seconds is the window the beat-detection floor was calibrated on. Values from 10 to 300 are accepted. A longer window analyses more of a track but lowers the periodicity score on music that changes feel, and can refuse a track that has a real beat.
 - **Analysis Duration: **The GUI accepts 10 to 300 seconds. The default is 90 seconds. Shorter analysis is faster but may be less accurate.
 - **Parallel Processing: **When enabled, CPU-bound detection uses ProcessPoolExecutor to bypass the GIL. When disabled, the shared thread-based processing path is used.
 - **Workers: **Controls the maximum worker count and must be at least 1. The default is one worker per logical CPU, capped at 8.
@@ -72,7 +73,7 @@ When any file lands outside the range, the Results summary and the run log add a
 
 ## Command Line
 
-The registered command is bpm. Its BPM range defaults to 75-175, the same as the GUI, while the analysis duration defaults to 30 seconds rather than the GUI's 90. Examples:
+The registered command is bpm. Its BPM range defaults to 75-175 and its analysis duration to 30 seconds, the same as the GUI and the Master Driver. Examples:
 
 With --json the payload carries outside_range_files: one record per file whose tempo landed outside the range, each with the filename, the measured BPM and the band that was configured.
 

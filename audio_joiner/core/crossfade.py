@@ -1,13 +1,21 @@
 """crossfade.py — the equal-power overlap between two segments.
 
 An equal-power fade multiplies the outgoing tail by ``cos`` and the incoming
-head by ``sin`` over the same quarter turn, so two correlated signals keep their
-level instead of dipping by 3 dB the way two linear fades would.  The mix is
-computed on the decoded integer frames and clipped back into the segment's own
-sample width, so the result is a real audio outcome rather than a settings
+head by ``sin`` over the same quarter turn, so two *uncorrelated* signals keep
+their energy where two linear fades would dip by 3 dB.  Correlated material
+pays on the other side: two identical, in-phase segments measure +2.1 dB
+through the overlap (``cos + sin`` peaks at +3.0 dB), so a crossfade of two
+takes of the same performance lifts the seam rather than holding it.  The mix
+is computed on the decoded integer frames and clipped back into the segment's
+own sample width, so the result is a real audio outcome rather than a settings
 read-back.
 
 Changed in 2.5.0: new module (PLAN_2026-11-03_2.5.0_feature_wave_1.md F-E5).
+
+Changed in 2.6.0: the docstring no longer claims a correlated pair keeps its
+level; two identical 1 kHz segments measured +2.1 dB through a 400 ms
+overlap, and the comment now states which material each fade shape suits
+(D141).
 """
 
 from __future__ import annotations

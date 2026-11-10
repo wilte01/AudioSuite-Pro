@@ -35,6 +35,8 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from audio_suite_shared.constants import DEFAULT_BPM_ANALYSIS_SECONDS
+
 # Module under test
 from bpm_analyzer.core.bpm_detector import (
     _FOLD_EVIDENCE_RATIO,
@@ -1117,7 +1119,9 @@ def _score_clip(path: Path) -> float | None:
     return _onset_periodicity(envelope, tempo_value, sr)
 
 
-def _noise_scores(seconds: int = 20, seeds: int = 10) -> list[float]:
+def _noise_scores(
+    seconds: int = DEFAULT_BPM_ANALYSIS_SECONDS, seeds: int = 10
+) -> list[float]:
     """Score seeded white, pink and brown noise with the same pipeline."""
     import librosa
 
@@ -1178,6 +1182,28 @@ class TestCorpusTableParsing:
         assert len(_CORPUS_ROWS) >= 8, f"only {len(_CORPUS_ROWS)} rows parsed"
         assert _ACCEPTED_ROWS, "no accepted row - the tempo assertions are vacuous"
         assert _REFUSED_ROWS, "no refused row - the refusal path is untested"
+
+
+class TestAnalysisDurationDefault:
+    """The analysis window is one value, and it is the calibrated one (D139)."""
+
+    def test_the_core_default_is_the_shared_constant(self) -> None:
+        import inspect
+
+        default = inspect.signature(detect_bpm).parameters["max_duration"].default
+        assert default == DEFAULT_BPM_ANALYSIS_SECONDS, (
+            f"detect_bpm defaults to {default}s, not the shared "
+            f"{DEFAULT_BPM_ANALYSIS_SECONDS}s window the floor was calibrated on"
+        )
+
+    def test_a_long_file_is_decoded_for_the_default_window(self) -> None:
+        """The default reaches the decoder, not only the signature."""
+        with patch(
+            "bpm_analyzer.core.bpm_detector.librosa_load_with_fallback",
+            return_value=_make_load_return(120.0),
+        ) as load:
+            detect_bpm("long.mp3")
+        assert load.call_args.kwargs["duration"] == DEFAULT_BPM_ANALYSIS_SECONDS
 
 
 class TestRealMusicCorpus:
@@ -1301,10 +1327,12 @@ class TestRealMusicCorpus:
         The 1.2x margin (0.12 at the current 0.10 floor) is the calibrated
         promise to real recordings.  Since D99 the binding clip is the rubato
         nocturne at 0.124, 1.24x - rubato playing straddles the floor, which is
-        the tightest real-music evidence in the corpus.  Noise is asserted
-        against the floor itself: the 30 s calibration sweep (600 windows)
-        peaked at 0.080, and these shorter 20 s windows at 0.090, so this test
-        also covers the harsher end of the noise distribution.
+        the tightest real-music evidence in the corpus.  Noise is measured at
+        the tool's own window, ``DEFAULT_BPM_ANALYSIS_SECONDS``: D139 re-
+        measured seeded noise at 0.067 there (0.061 through a lossy 44.1 kHz
+        MP3 round-trip) against the 0.080 of D79's 600-window sweep.  The 20 s
+        window a short file still gets is the harsher case at 0.090, so both
+        lengths are asserted.
         """
         measured: dict[str, float] = {}
         for row in _CORPUS_ROWS:
@@ -1344,6 +1372,14 @@ class TestRealMusicCorpus:
         assert loudest < MIN_ONSET_PERIODICITY, (
             f"seeded noise scored {loudest:.3f}, at or above the "
             f"{MIN_ONSET_PERIODICITY:.2f} floor"
+        )
+
+        short_window = max(_noise_scores(seconds=20))
+        assert short_window < MIN_ONSET_PERIODICITY, (
+            f"seeded noise over the 20 s window a short file gets scored "
+            f"{short_window:.3f}, at or above the {MIN_ONSET_PERIODICITY:.2f} "
+            "floor - that shorter window is the tightest case in the "
+            "calibration (D139)"
         )
 
     def test_the_calibration_constants_are_pinned(self) -> None:

@@ -387,7 +387,10 @@ class TestAppStateDefaults:
         assert state.bpm_range_max.get() == "175"
 
     def test_bpm_duration_default(self, state):
-        assert state.bpm_duration.get() == "90"
+        from audio_suite_shared.constants import DEFAULT_BPM_ANALYSIS_SECONDS
+
+        # The driver starts at the same window as the GUI and the CLI (D139).
+        assert state.bpm_duration.get() == str(DEFAULT_BPM_ANALYSIS_SECONDS)
 
     def test_lyrics_provider_default(self, state):
         assert state.lyrics_provider.get() == "lrclib"
@@ -413,7 +416,9 @@ class TestAppStateDefaults:
         assert state.tempo_scheme.get() == "Italian"
 
     def test_key_duration_default(self, state):
-        assert state.key_duration.get() == "90"
+        from audio_suite_shared.constants import DEFAULT_ANALYSIS_SECONDS
+
+        assert state.key_duration.get() == str(DEFAULT_ANALYSIS_SECONDS)
 
     def test_art_res_default(self, state):
         assert state.art_res.get() == "800"
@@ -886,3 +891,6 @@ class TestSuiteConfigCrossOp:
         assert data["api_key"] == "secret123"
         assert data["last_directory"] == "/preserve"
         assert data["palette"] == "Red"
+
+
+# Changed in 2.6.0: key_duration reads the shared analysis window (D140).

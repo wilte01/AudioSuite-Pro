@@ -26,6 +26,9 @@ above the grid is capped, logged instead of shown when unattended (D70).
 Changed in 1.4.0: the completion callback accepts tool-specific fields, so
 BPM's collected ``skipped_files`` can reach the CLI without breaking the GUI
 report writer (PLAN D80).
+Changed in 2.6.0: the shared duration widget starts at
+``DEFAULT_ANALYSIS_SECONDS``, so Key Detector's command line, GUI, argument
+dataclass and Master Driver value are one number (D140).
 """
 
 from __future__ import annotations
@@ -43,6 +46,7 @@ from . import suite_config as _suite_config
 from .app_bootstrap import bootstrap_tool_app
 from .batch_undo import active_batch
 from .constants import (
+    DEFAULT_ANALYSIS_SECONDS,
     DEFAULT_MAX_WORKERS,
     cap_workers_to_slot_grid,
     default_max_workers,
@@ -136,7 +140,7 @@ class AnalysisAppBase(UIHelperMixin):
         # -- Tk variables --------------------------------------------------
         self.folder_path = tk.StringVar()
         self.run_mode = tk.StringVar(value="Dry Run")
-        self.analysis_duration = tk.IntVar(value=90)
+        self.analysis_duration = tk.IntVar(value=DEFAULT_ANALYSIS_SECONDS)
         saved_parallel = bool(
             _suite_config.load_value(self._setting_key("parallel_mode"), False)
         )

@@ -19,6 +19,13 @@ Changed in 2.0.0: the autocorrelation local is annotated with the dtype
 ``np.correlate`` actually reports (``floating[Any]``) instead of the narrower
 ``float64`` the installed numpy stubs no longer infer; the gate failed on the
 narrower annotation alone (no behaviour change).
+
+Changed in 2.6.0: the default window is ``DEFAULT_BPM_ANALYSIS_SECONDS``
+(30 s) for every entry point, not 90 s here and 30 s in the CLI.  The floor
+is a 30 s number: seeded noise peaks at 0.067 over 30 s and real music at
+that length clears 0.120, while the same music at 90 s fell to 0.071-0.094
+and ten per cent of a 120-track library sample was refused
+(PLAN_feature_expansion.md D139).
 """
 
 from __future__ import annotations
@@ -35,6 +42,7 @@ from audio_suite_shared.analysis_loader import (
     check_analysable,
     librosa_load_with_fallback,
 )
+from audio_suite_shared.constants import DEFAULT_BPM_ANALYSIS_SECONDS
 from audio_suite_shared.exceptions import (
     AudioAnalysisError,
     failure_reason,
@@ -64,6 +72,13 @@ _HARMONIC_WEIGHTS: tuple[float, ...] = (1.0, 0.7, 0.5, 0.35)
 # recording.  The previous single-lag score could not be calibrated safely:
 # real music reached 0.135 while brown noise's slow drift reached 0.155, so no
 # threshold separated them.  Evidence: PLAN_feature_expansion.md D79.
+#
+# Re-measured 2026-11-10 at the tool's 30 s window (D139): seeded noise peaks
+# at 0.067 (white/pink/brown, 10 seeds; 0.061 through a 44.1 kHz MP3 128 kbps
+# round-trip), the corpus's weakest accepted clip is 0.124 and real library
+# music at 30 s bottoms out at 0.120, so 0.10 keeps 1.49x above noise and
+# 1.20x below the weakest groove.  The 20 s window a short file still gets is
+# the tightest case: noise peaks at 0.090 there.
 MIN_ONSET_PERIODICITY = 0.10
 
 # How strong a folded (doubled or halved) level's pulse must be, relative to the
@@ -224,7 +239,7 @@ class NoTempoDetectedError(BPMDetectionError):
 
 def detect_bpm(
     file_path: str,
-    max_duration: int = 90,
+    max_duration: int = DEFAULT_BPM_ANALYSIS_SECONDS,
     min_bpm: int = 75,
     max_bpm: int = 175,
 ) -> int:
@@ -236,8 +251,11 @@ def detect_bpm(
 
     Args:
         file_path:    Absolute path to the audio file.
-        max_duration: Maximum seconds of audio to analyse
-        (trade-off: speed vs accuracy).
+        max_duration: Maximum seconds of audio to analyse, defaulting to the
+                      shared ``DEFAULT_BPM_ANALYSIS_SECONDS`` (30 s) — the
+                      window the periodicity floor was calibrated on.  A
+                      longer window is slower and lowers the comb's score on
+                      music that changes feel.
         min_bpm:      Lower bound of the band used to choose between
                       octave-equivalent readings of the pulse.
         max_bpm:      Upper bound of that band.

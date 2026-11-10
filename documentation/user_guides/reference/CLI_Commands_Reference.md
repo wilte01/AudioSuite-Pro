@@ -211,7 +211,7 @@ audiosuite key <directory> [--duration SEC] [OPTIONS]
 
 **Options:**
 
-- `--duration SEC` — seconds of audio analysed (default: 30)
+- `--duration SEC` — seconds of audio analysed (default: 90)
 
 **Examples:**
 

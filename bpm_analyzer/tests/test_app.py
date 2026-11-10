@@ -194,7 +194,11 @@ class TestRealAppConstructionD3:
         assert app.start_btn is not None
         assert app.folder_path.get() == ""
         assert app.run_mode.get() in {"Dry Run", "Live Update"}
+        from audio_suite_shared.constants import DEFAULT_BPM_ANALYSIS_SECONDS
+
         assert app.bpm_range_min.get() != ""
+        # The GUI variable starts at the shared window, not its own 90 (D139).
+        assert app.analysis_duration.get() == DEFAULT_BPM_ANALYSIS_SECONDS
 
     def test_preset_collect_and_apply_roundtrip(self, app_root, tmp_path, monkeypatch):
         from bpm_analyzer.app import BPMAnalyzerApp
@@ -930,3 +934,6 @@ class TestCompletionSeam:
 
         assert field in str(caught.value)
         assert not os.path.exists(app._log_path)
+
+
+# Changed in 2.6.0: the GUI starts at the shared BPM analysis window (D139).

@@ -10,6 +10,10 @@ resolve through ``default_max_workers()`` / ``DEFAULT_MAX_WORKERS`` (PLAN D56);
 an over-grid typed count is logged rather than shown when unattended (D70).
 Changed in 1.4.1: the Results summary and the driver's run note report how many
 tracks were measured outside the configured BPM range (D109).
+Changed in 2.6.0: the analysis duration starts at the shared
+``DEFAULT_BPM_ANALYSIS_SECONDS`` and a preset with no duration falls back to
+it, so the GUI, the Master Driver and the CLI hand the detector one window
+(D139).
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ from audio_suite_shared.cli_helpers import (
     UniversalCLIHandler as UniversalCLIHandler,
 )
 from audio_suite_shared.constants import (
+    DEFAULT_BPM_ANALYSIS_SECONDS,
     DEFAULT_MAX_WORKERS,
     cap_workers_to_slot_grid,
     default_max_workers,
@@ -89,7 +94,9 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
         self.run_mode: tk.StringVar = tk.StringVar(value="Dry Run")
         self.bpm_range_min: tk.IntVar = tk.IntVar(value=75)
         self.bpm_range_max: tk.IntVar = tk.IntVar(value=175)
-        self.analysis_duration: tk.IntVar = tk.IntVar(value=90)
+        self.analysis_duration: tk.IntVar = tk.IntVar(
+            value=DEFAULT_BPM_ANALYSIS_SECONDS
+        )
         saved_parallel: bool = cast(
             bool, _suite_config.load_value("bpm_parallel_mode", False)
         )
@@ -579,7 +586,9 @@ class BPMAnalyzerApp(AnalysisTagToolApp):
         """Apply a preset dict to the UI variables."""
         self.bpm_range_min.set(int(settings.get("bpm_min", 75)))
         self.bpm_range_max.set(int(settings.get("bpm_max", 175)))
-        self.analysis_duration.set(int(settings.get("duration", 90)))
+        self.analysis_duration.set(
+            int(settings.get("duration", DEFAULT_BPM_ANALYSIS_SECONDS))
+        )
         self.parallel_mode.set(bool(settings.get("parallel_mode", False)))
         self.max_workers.set(int(settings.get("max_workers", default_max_workers())))
         self.run_mode.set(str(settings.get("run_mode", "Dry Run")))

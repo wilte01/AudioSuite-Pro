@@ -10,6 +10,12 @@ count (``default_max_workers()``, capped at ``MAX_WORKERS_CEILING``) instead of
 a fixed 4, so parallel batches use the machine they run on.  Also adds
 ``cap_workers_to_slot_grid``, the one place a requested worker count is capped
 at the GUI's slot grid (D66).
+
+Changed in 2.6.0: adds ``DEFAULT_BPM_ANALYSIS_SECONDS``, the one analysis
+window BPM Analyzer's core, CLI, GUI and Master Driver read, so a file is no
+longer refused by one entry point and tagged by another (D139).  Adds
+``DEFAULT_ANALYSIS_SECONDS``, the window Key Detector and Mood Analyzer read at
+every entry point (D140).
 """
 
 from __future__ import annotations
@@ -23,6 +29,44 @@ MAX_WORKERS_CEILING: int = 8
 
 The cap bounds peak memory for concurrent librosa/pedalboard jobs; a tool can
 still be given a larger count explicitly.
+"""
+
+# ── Analysis defaults ────────────────────────────────────────────────────────
+DEFAULT_BPM_ANALYSIS_SECONDS: int = 30
+"""Seconds of audio BPM Analyzer analyses when a caller names no duration.
+
+One value for every entry point — the core default, the CLI, the GUI and the
+Master Driver — because two defaults meant the same file could be refused by
+one and tagged by another.  The number is not arbitrary: the onset-periodicity
+floor is calibrated on windows of this length.  With the shipped detrended
+noise generator, seeded white/pink/brown noise peaks at 0.067 over 30 s (0.061
+through a 44.1 kHz MP3 128 kbps round-trip) against the 0.10 floor, while real
+music at 30 s stays clear of it: the corpus's weakest clip scores 0.124 and, on
+a 120-track sample of a 44.1/48 kHz MP3 library, the beatless files top out at
+0.072 and the weakest genuine groove scores 0.120.  At 90 s the same harmonic
+comb dilutes on real music (two library tracks fell from 0.159/0.222 at 20 s to
+0.094/0.071 at 90 s) and refused 10% of that sample, which is why the window,
+not the floor, moved (PLAN D139).
+"""
+
+
+DEFAULT_ANALYSIS_SECONDS: int = 90
+"""Seconds of audio Key Detector and Mood Analyzer analyse by default.
+
+One value for every entry point - both ``--duration`` options and their help
+text, both argument dataclasses, the shared GUI duration widget and the Master
+Driver's ``key_duration``/``mood_duration`` - because the ``key`` command
+analysed 30 s while the window, the parser and the driver analysed 90 s, so the
+same folder ran three times less audio from the command line (D140).
+
+This is deliberately not the BPM value (``DEFAULT_BPM_ANALYSIS_SECONDS``): BPM
+Analyzer's 30 s is the length its onset-periodicity floor was calibrated at and
+it refuses a track the comb cannot confirm there.  Key and mood have no
+window-calibrated refusal gate - their skips are the duration/silence guard and
+an existing tag - while chroma correlation for key and the beat/timbre
+statistics for mood gain context from more of the track, and 90 s is what four
+of Key's five entry points, every Mood entry point and the shared decode cap
+already used.
 """
 
 

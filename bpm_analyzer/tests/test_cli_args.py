@@ -21,6 +21,7 @@ from unittest.mock import patch
 import pytest
 
 from audio_suite_shared.cli_dataclasses import BPMArgs
+from audio_suite_shared.constants import DEFAULT_BPM_ANALYSIS_SECONDS
 from bpm_analyzer.utils.cli_args import parse
 
 
@@ -30,7 +31,9 @@ class TestParseDefaults:
         assert result.folder_path == ""
         assert result.bpm_min == 75
         assert result.bpm_max == 175
-        assert result.duration == 90
+        # One window for every entry point: the parsed default is the shared
+        # constant, not a private 90 that the CLI's 30 disagreed with (D139).
+        assert result.duration == DEFAULT_BPM_ANALYSIS_SECONDS
         assert result.live_mode is False
         assert result.auto_start is False
         assert result.auto_end is False
@@ -302,3 +305,6 @@ class TestDriverDisplayFlags:
         assert args.parallel_mode is True
         assert args.max_workers == 6
         assert args.parallel_run is True
+
+
+# Changed in 2.6.0: the parsed duration default is the shared analysis window (D139).

@@ -29,7 +29,7 @@ The detector uses the shared Audio Suite supported-extension list, including MP3
 
 Setup contains the directory picker, run mode, analysis duration, parallel worker controls, presets, and the start button. The last-used directory and parallel settings are restored through shared suite configuration.
 
-- **Analysis Duration: **The GUI defaults to 90 seconds. Shorter analysis is faster but may provide less musical context.
+- **Analysis Duration: **Defaults to 90 seconds in the GUI, the Master Driver and the command line. Shorter analysis is faster but may provide less musical context.
 - **Parallel Processing: **When enabled, CPU-bound librosa chroma work uses ProcessPoolExecutor to bypass the Python GIL. When disabled, the thread-based path is used.
 - **Workers: **Controls the maximum worker count; the default is one worker per logical CPU, capped at 8.
 - **Presets: **Save and restore directory, mode, duration, parallel mode, and worker-count settings.
@@ -84,7 +84,7 @@ python -m audio_suite_shared.cli_app key <folder> --duration 120\
 python -m audio_suite_shared.cli_app key <folder> --parallel --workers 4\
 python -m audio_suite_shared.cli_app key <folder> --live --json
 
-The CLI defaults to a 30-second analysis duration, unlike the GUI's 90-second default. It accepts --duration, --parallel/--no-parallel, --workers, the shared dry-run/live option, and --json. The duration is validated from 10 through 600 seconds.
+The CLI analyses 90 seconds by default, the same window as the GUI and the Master Driver. It accepts --duration, --parallel/--no-parallel, --workers, the shared dry-run/live option, and --json. The duration is validated from 10 through 600 seconds.
 
 ## Master Driver Use
 

@@ -7,6 +7,11 @@ key next to the processed/skipped/errors counts.
 Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
 run whose only failures were per-file keeps its exit status (PLAN D92).
 
+Changed in 2.6.0: ``--duration`` defaults to the shared
+``DEFAULT_BPM_ANALYSIS_SECONDS`` (30 s), the value the GUI and the Master
+Driver now start at too, so one file gets one verdict whichever entry point
+runs it (D139).
+
 Changed in 1.4.1: ``--bpm-min``/``--bpm-max`` default to 75/175, matching the
 GUI and ``BPMArgs``; the band chooses between octave-equivalent readings and no
 longer overwrites a measurement, so a 60 BPM track is tagged 60 rather than
@@ -32,6 +37,7 @@ from audio_suite_shared.cli_base import (
     cli,
     finish_run,
 )
+from audio_suite_shared.constants import DEFAULT_BPM_ANALYSIS_SECONDS
 
 
 @cli.command()
@@ -54,9 +60,9 @@ from audio_suite_shared.cli_base import (
 )
 @click.option(
     "--duration",
-    default=30,
+    default=DEFAULT_BPM_ANALYSIS_SECONDS,
     type=int,
-    help="Analysis duration in seconds (default 30).",
+    help=(f"Analysis duration in seconds (default {DEFAULT_BPM_ANALYSIS_SECONDS})."),
 )
 def bpm(
     directory: str,

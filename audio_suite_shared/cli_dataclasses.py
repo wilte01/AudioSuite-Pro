@@ -11,6 +11,10 @@ Changed in 2.4.1: ``BaseCLIArgs`` carries the display-only pair and
 applies a shared ``DriverHandshake`` (``apply_handshake`` /
 ``parse_driver_handshake``), so a tool no longer re-reads the flags
 itself (WP-4, C-M8).
+
+Changed in 2.6.0: ``BPMArgs.duration`` defaults to the shared
+``DEFAULT_BPM_ANALYSIS_SECONDS`` (30 s), the window the periodicity floor
+was calibrated on, instead of 90 s while the CLI used 30 (D139).
 """
 
 from collections.abc import Collection, Sequence
@@ -20,7 +24,7 @@ from typing import Self
 
 from .cli_helpers import DriverHandshake
 from .cli_helpers import parse_driver_handshake as _parse_driver_handshake
-from .constants import default_max_workers
+from .constants import DEFAULT_BPM_ANALYSIS_SECONDS, default_max_workers
 
 
 class CLIValidationError(ValueError):
@@ -121,7 +125,7 @@ class BPMArgs(BaseCLIArgs):
 
     bpm_min: int = 75
     bpm_max: int = 175
-    duration: int = 90
+    duration: int = DEFAULT_BPM_ANALYSIS_SECONDS
     parallel_mode: bool = False
     max_workers: int = field(default_factory=default_max_workers)
     clear_logs: bool = False

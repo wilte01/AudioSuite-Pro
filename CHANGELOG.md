@@ -126,6 +126,24 @@ and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **Key Detector's command line analyses the same 90 seconds as its window.**
+  `audiosuite key` defaulted to a 30-second analysis while the GUI, the
+  Master Driver and the argument parser used 90, so a folder read from the
+  command line was analysed over a third of the audio the same run read from
+  the GUI. Both now read one setting, and Mood Analyzer - already 90 - reads
+  it too; `--duration` still overrides it. BPM Analyzer keeps its separately
+  calibrated 30-second window.
+
+- **BPM Analyzer analyses 30 seconds by default everywhere.** The GUI and the
+  Master Driver used to start at 90 seconds while the `bpm` command used 30,
+  so the same track could be tagged by one entry point and reported as having
+  no discernible beat by another. The window is now one value, and it is the
+  length the beat-detection floor was calibrated on: on a 120-track sample of
+  a 44.1/48 kHz MP3 library, the 90-second window refused 10% of tracks that
+  30 seconds analyses. A shorter window is also faster; 90 seconds and any
+  other value from 10 to 300 remain available in the GUI, in the Master
+  Driver and as `--duration` on the command line.
+
 - **The Utilities tab is grouped, and it is alphabetical inside each group.**
   Nineteen cards sat in one flat list whose order was the manifest's own
   history — ties broken by name, each new tool dropped wherever a number was

@@ -29,7 +29,7 @@ The analyzer uses the shared Audio Suite supported audio extensions, including M
 
 Setup contains the directory picker, run mode, analysis duration, parallel worker controls, presets, and shared run controls. The last-used directory and parallel settings are stored in shared suite configuration.
 
-- **Analysis Duration: **The GUI defaults to 90 seconds. The CLI accepts 10 through 600 seconds. Shorter values are faster but sample less of each track.
+- **Analysis Duration: **Defaults to 90 seconds in the GUI, the Master Driver and the command line. All three accept 10 through 600 seconds; shorter values are faster but sample less of each track.
 - **Parallel Processing: **When enabled, CPU-bound mood analysis uses ProcessPoolExecutor; otherwise the thread-based path is used.
 - **Workers: **Sets the maximum worker count; the default is one worker per logical CPU, capped at 8.
 - **Presets: **Save and restore directory, mode, duration, parallel mode, and worker count.

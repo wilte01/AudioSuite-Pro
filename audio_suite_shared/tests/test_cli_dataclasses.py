@@ -365,7 +365,10 @@ class TestBPMArgs:
         args = BPMArgs()
         assert args.bpm_min == 75
         assert args.bpm_max == 175
-        assert args.duration == 90
+        from audio_suite_shared.constants import DEFAULT_BPM_ANALYSIS_SECONDS
+
+        # One window for every entry point: not a private 90 (D139).
+        assert args.duration == DEFAULT_BPM_ANALYSIS_SECONDS
 
     def test_custom_values(self) -> None:
         from audio_suite_shared.cli_dataclasses import BPMArgs
@@ -448,3 +451,6 @@ class TestValidTargetLufsValues:
         from audio_suite_shared.cli_dataclasses import VALID_TARGET_LUFS_VALUES
 
         assert expected in VALID_TARGET_LUFS_VALUES
+
+
+# Changed in 2.6.0: BPMArgs.duration defaults to the shared analysis window (D139).

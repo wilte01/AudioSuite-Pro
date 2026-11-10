@@ -26,6 +26,10 @@ toggle (Sprint 7, Item 7.1).
 Changed in 2.6.0: carries the Duplicate Finder's exact-matching choice (F-E9).
 Changed in 2.6.0: carries the Artwork Extractor's sidecar options (F-E10
 follow-up).  Its module toggle comes from the registry like every tool's.
+Changed in 2.6.0: ``bpm_duration`` starts at the shared
+``DEFAULT_BPM_ANALYSIS_SECONDS``, the window the GUI and the CLI use (D139).
+Changed in 2.6.0: ``key_duration`` and ``mood_duration`` start at the shared
+``DEFAULT_ANALYSIS_SECONDS``, the window both CLIs and GUIs use (D140).
 
 Changed in 2.3.0: carries the duplicate_finder and restoration module toggles (F-02,
 F-08a).
@@ -40,7 +44,11 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from audio_suite_shared.constants import default_max_workers
+from audio_suite_shared.constants import (
+    DEFAULT_ANALYSIS_SECONDS,
+    DEFAULT_BPM_ANALYSIS_SECONDS,
+    default_max_workers,
+)
 from audio_suite_shared.tool_plugin import get_registry
 from music_format_converter.core.formats import (
     LOSSLESS_FORMATS as CONVERTER_LOSSLESS_FORMATS,
@@ -112,7 +120,9 @@ class AppState:
 
         self.bpm_range_min = tk.StringVar(master, value="75")
         self.bpm_range_max = tk.StringVar(master, value="175")
-        self.bpm_duration = tk.StringVar(master, value="90")
+        self.bpm_duration = tk.StringVar(
+            master, value=str(DEFAULT_BPM_ANALYSIS_SECONDS)
+        )
 
         self.lyrics_provider = tk.StringVar(master, value="lrclib")
         self.lyrics_request_timeout = tk.StringVar(master, value="10.0")
@@ -121,7 +131,7 @@ class AppState:
 
         self.tempo_scheme = tk.StringVar(master, value="Italian")
 
-        self.key_duration = tk.StringVar(master, value="90")
+        self.key_duration = tk.StringVar(master, value=str(DEFAULT_ANALYSIS_SECONDS))
 
         self.bpm_parallel = tk.BooleanVar(master, value=False)
         default_workers = str(default_max_workers())
@@ -133,7 +143,7 @@ class AppState:
         self.key_parallel = tk.BooleanVar(master, value=False)
         self.key_workers = tk.StringVar(master, value=default_workers)
 
-        self.mood_duration = tk.StringVar(master, value="90")
+        self.mood_duration = tk.StringVar(master, value=str(DEFAULT_ANALYSIS_SECONDS))
         self.mood_parallel = tk.BooleanVar(master, value=False)
         self.mood_workers = tk.StringVar(master, value=default_workers)
 

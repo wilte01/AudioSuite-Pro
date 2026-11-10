@@ -4,6 +4,8 @@ Changed in 1.4.0: emits and locks the shared CLI JSON schema (PLAN D82).
 
 Changed in 1.4.1: a fatal run now exits 1 instead of 0 (``finish_run``), while a
 run whose only failures were per-file keeps its exit status (PLAN D92).
+Changed in 2.6.0: ``--duration`` defaults to ``DEFAULT_ANALYSIS_SECONDS``, the
+window the GUI and the Master Driver use (D140).
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from audio_suite_shared.cli_base import (
     cli,
     finish_run,
 )
+from audio_suite_shared.constants import DEFAULT_ANALYSIS_SECONDS
 
 
 @cli.command()
@@ -33,9 +36,9 @@ from audio_suite_shared.cli_base import (
 @_opt_workers
 @click.option(
     "--duration",
-    default=90,
+    default=DEFAULT_ANALYSIS_SECONDS,
     type=int,
-    help="Analysis duration in seconds (default 90).",
+    help=f"Analysis duration in seconds (default {DEFAULT_ANALYSIS_SECONDS}).",
 )
 def mood_analyzer(
     directory: str,
