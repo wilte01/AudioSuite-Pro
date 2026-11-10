@@ -972,6 +972,8 @@ class TestChartRendering:
             "BPM Distribution",
             "Top Keys",
             "Year Distribution",
+            # Changed in 2.6.0: artwork coverage sits before the trend.
+            "Artwork Coverage",
             "Completeness Trend",
         ]
         # One pie wedge for the single genre ("House").
@@ -994,11 +996,11 @@ class TestChartRendering:
 
         assert app._chart_canvas is not None
         figure = app._chart_canvas.figure
-        assert len(figure.axes) == 5
+        assert len(figure.axes) == 6
         assert len(figure.axes[0].patches) == 0
         # No history yet: the trend panel explains itself instead of being
         # an empty axis a user would read as a rendering failure.
-        trend = figure.axes[4]
+        trend = figure.axes[5]
         assert len(trend.lines) == 0
         assert any("No history" in text.get_text() for text in trend.texts)
 
@@ -1027,7 +1029,7 @@ class TestChartRendering:
         app._update_charts(report, history)
 
         figure = app._chart_canvas.figure
-        trend = figure.axes[4]
+        trend = figure.axes[5]
         assert len(trend.lines) == 1
         assert list(trend.lines[0].get_ydata()) == [40.0, 80.0]
         assert [tick.get_text() for tick in trend.get_xticklabels()] == [

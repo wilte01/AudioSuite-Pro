@@ -1190,7 +1190,7 @@ class LibraryStatsApp(SuiteApp):
         r: StatsReport,
         history: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Render the Charts tab (four distributions plus the trend).
+        """Render the Charts tab (four distributions, artwork and the trend).
 
         Args:
             r: The completed statistics report.

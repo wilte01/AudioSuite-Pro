@@ -1,6 +1,9 @@
 """Tests for library_stats.ui.charts — Tk-free figure builders.
 
 Changed in 1.3.0: initial version (PLAN_feature_expansion.md D38/D40).
+
+Changed in 2.6.0: the summary figure carries an Artwork Coverage panel, so the
+axis order and the trend's index move.
 """
 
 from __future__ import annotations
@@ -59,6 +62,7 @@ class TestSummaryFigure:
             "BPM Distribution",
             "Top Keys",
             "Year Distribution",
+            "Artwork Coverage",
             "Completeness Trend",
         ]
         # Two genres, one wedge each.
@@ -91,7 +95,7 @@ class TestSummaryFigure:
             {"recorded_at": "2026-10-03 09:00:00", "overall_pct": 90.0},
         ]
         fig = build_summary_figure(_stats(), history)
-        trend = fig.axes[4]
+        trend = fig.axes[5]
         assert len(trend.lines) == 1
         assert list(trend.lines[0].get_ydata()) == [10.0, 55.0, 90.0]
         assert [t.get_text() for t in trend.get_xticklabels()] == [
@@ -103,9 +107,44 @@ class TestSummaryFigure:
 
     def test_trend_without_history_explains_itself(self) -> None:
         fig = build_summary_figure(_stats())
-        trend = fig.axes[4]
+        trend = fig.axes[5]
         assert len(trend.lines) == 0
         assert any("No history" in t.get_text() for t in trend.texts)
+
+
+class TestArtworkPanel:
+    """Changed in 2.6.0: the Artwork Coverage panel."""
+
+    def test_bars_count_files_with_and_without_artwork(self) -> None:
+        report = StatsReport(
+            scan_path="/music",
+            total_files=10,
+            missing_data={"no_art": 4},
+        )
+
+        fig = build_summary_figure(report)
+
+        artwork = fig.axes[4]
+        assert artwork.get_title() == "Artwork Coverage"
+        # One bar for "Without", one for "With artwork": 4 and 6 files.
+        assert [patch.get_width() for patch in artwork.patches] == [4.0, 6.0]
+        assert any("60% have artwork" in t.get_text() for t in artwork.texts)
+
+    def test_a_fully_covered_library_reads_one_hundred_percent(self) -> None:
+        report = StatsReport(scan_path="/music", total_files=5)
+
+        fig = build_summary_figure(report)
+
+        artwork = fig.axes[4]
+        assert [patch.get_width() for patch in artwork.patches] == [0.0, 5.0]
+        assert any("100% have artwork" in t.get_text() for t in artwork.texts)
+
+    def test_an_empty_scan_explains_itself(self) -> None:
+        fig = build_summary_figure(StatsReport(scan_path=""))
+
+        artwork = fig.axes[4]
+        assert len(artwork.patches) == 0
+        assert any("Scan a library" in t.get_text() for t in artwork.texts)
 
 
 # ── Heatmap figure ───────────────────────────────────────────────────────────

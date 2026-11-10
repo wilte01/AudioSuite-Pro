@@ -63,7 +63,7 @@ Summary shows total files, distinct albums, album artists, track artists, and sc
 
 
 
-When matplotlib is installed, Charts displays a top-genre pie chart, BPM distribution histogram, top-key bar chart, and release-year distribution. If matplotlib is unavailable, the tab reports the installation requirement instead.
+When matplotlib is installed, Charts displays a top-genre pie chart, BPM distribution histogram, top-key bar chart, and release-year distribution, plus an Artwork Coverage panel and the completeness trend. Artwork Coverage counts the files that embed a cover picture against the rest of the library and prints the percentage, so a gap in the artwork is visible beside the tag distributions; it uses the counts the scan already measured, so it costs no second read. If matplotlib is unavailable, the tab reports the installation requirement instead.
 
 ## Missing Data Tab
 

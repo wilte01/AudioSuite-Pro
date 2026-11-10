@@ -51,6 +51,10 @@ and every bullet belongs to exactly one of them.
   replaces it, and an album with no artwork anywhere is reported rather than
   changed. The pass writes `library_stats_artwork_log.txt` into the scanned
   folder, and the tab's View Artwork Log opens it.
+- **A picture of how much of the library has covers.** The Charts tab now
+  shows an Artwork Coverage panel beside its tag charts, counting the files
+  that embed a cover against the rest of the library and printing the
+  percentage, from the counts the scan already measured.
 - **Artwork Extractor, a window and a Master Driver batch step.** The extraction
   `audiosuite artwork extract` performs now has its own window
   (`Artwork_Extractor.pyw`): pick a folder, set the sidecar name, choose whether

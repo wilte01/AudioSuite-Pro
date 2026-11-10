@@ -7,6 +7,10 @@ also keeps ``app.py`` from growing a second, untestable copy of each plot.
 Changed in 1.3.0: initial version (PLAN_feature_expansion.md D38) — the four
 summary panels moved out of ``app._update_charts``, and the completeness
 heatmap (missing tags by album) plus the completeness trend chart were added.
+
+Changed in 2.6.0: the summary figure gains an Artwork Coverage panel, drawn
+from the ``no_art`` count the scan already measures (F-E10), so a library's
+missing covers are visible beside its tag distributions.
 """
 
 from __future__ import annotations
@@ -80,11 +84,74 @@ def _add_trend_panel(
     return ax
 
 
+def _add_artwork_panel(fig: Figure, position: Any, report: Any) -> Any:
+    """Draw how many files embed cover artwork into *position*.
+
+    The counts come from the scan's own reading — ``missing_data["no_art"]``
+    against ``total_files`` — so the panel never re-reads the library.  A
+    library with no files explains itself rather than drawing an empty axis.
+    """
+    ax = fig.add_subplot(*position)
+    total = int(getattr(report, "total_files", 0) or 0)
+    missing_data = getattr(report, "missing_data", {}) or {}
+    without = int(missing_data.get("no_art", 0) or 0) if total else 0
+    without = min(without, total)
+    with_art = total - without
+
+    if total:
+        ax.barh(
+            ["Without", "With artwork"],
+            [without, with_art],
+            color=["#ef4444", "#22c55e"],
+            edgecolor="white",
+            height=0.55,
+        )
+        ax.set_xlim(0, total)
+        for index, value in enumerate((without, with_art)):
+            ax.text(
+                value,
+                index,
+                f"  {value}",
+                va="center",
+                fontsize=7,
+                color="#374151",
+            )
+        ax.text(
+            0.98,
+            0.06,
+            f"{with_art / total * 100:.0f}% have artwork",
+            transform=ax.transAxes,
+            ha="right",
+            va="bottom",
+            fontsize=8,
+            fontweight="bold",
+            color="#22c55e" if with_art == total else "#374151",
+        )
+        ax.set_xlabel("files", fontsize=7)
+        ax.tick_params(axis="x", labelsize=7)
+        ax.tick_params(axis="y", labelsize=7)
+    else:
+        ax.text(
+            0.5,
+            0.5,
+            "Scan a library\nto measure artwork",
+            ha="center",
+            va="center",
+            fontsize=8,
+            color="#6b7280",
+            transform=ax.transAxes,
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+    ax.set_title("Artwork Coverage", fontsize=10, fontweight="bold")
+    return ax
+
+
 def build_summary_figure(
     report: Any,
     history: Sequence[dict[str, Any]] | None = None,
 ) -> Figure:
-    """Build the Charts-tab figure: four distributions plus the trend.
+    """Build the Charts-tab figure: four distributions, artwork, and trend.
 
     Args:
         report: A populated ``StatsReport``.
@@ -148,8 +215,9 @@ def build_summary_figure(
     ax4.tick_params(axis="x", rotation=45, labelsize=7)
     ax4.tick_params(axis="y", labelsize=7)
 
-    # Completeness trend spans the rest of the second row.
-    _add_trend_panel(fig, (2, 3, (5, 6)), history)
+    # Artwork coverage sits beside the trend, from the same scan.
+    _add_artwork_panel(fig, (2, 3, 5), report)
+    _add_trend_panel(fig, (2, 3, 6), history)
 
     fig.tight_layout(pad=3)
     return fig

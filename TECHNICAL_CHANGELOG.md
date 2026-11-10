@@ -34,6 +34,15 @@ and every bullet belongs to exactly one of them.
   the legacy-row re-read test, and the full scan's counter. The recorded CLI
   corpus and schema examples are re-recorded, because the payload gained a
   field.
+- **The Charts tab's summary figure gains an Artwork Coverage panel**
+  (`library_stats/ui/charts.py::_add_artwork_panel`), drawn from
+  `StatsReport.missing_data["no_art"]` against `total_files` — the fact the
+  F-E10 scan already measured — so it re-reads nothing. Two bars (with /
+  without artwork) and a percentage label; an empty scan draws the
+  explanatory panel instead of an empty axis, like the trend. The trend moves
+  from the spanning `(2, 3, (5, 6))` slot to `(2, 3, 6)`, so the figure is six
+  equal panels and the axis index locks in `test_charts.py` and `test_app.py`
+  move with it.
 - **The dashboard's Artwork Gaps view is its fifth dashboard tab and the one
   write it offers.** `library_stats/core/artwork_gaps.py` selects the albums
   from `CompletenessReport.album_results` (no second library walk),
