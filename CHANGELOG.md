@@ -167,6 +167,37 @@ and every bullet belongs to exactly one of them.
 
 ### Fixed
 
+- **BPM Analyzer's verdict no longer depends on a file's sample rate.** Audio
+  was analysed at whatever rate the file was stored at, but the onset analysis
+  uses a fixed hop of 512 frames and the "no discernible beat" floor was
+  calibrated on 22 050 Hz clips, so a 44.1 or 48 kHz file was scored on
+  half-length frames. Genuine music fell under the floor because of that alone:
+  two tracks on one album were reported `[SKIP] ... no discernible beat` while
+  the other six were tagged, and the same recording could be refused or tagged
+  differently depending on how it was stored — `chopin_rubato_74.ogg` was
+  refused at 44.1 kHz although it measures 0.124 against the 0.10 floor at
+  22 050 Hz. Analysis now resamples to 22 050 Hz, so a recording's own rate no
+  longer moves its verdict or its BPM: `hiphop_86.ogg` reports 86 BPM whether
+  it is stored at 22.05, 44.1 or 48 kHz instead of 161 at the higher rates.
+  Tempos from 44.1 and 48 kHz files can therefore differ by a beat level from
+  what earlier versions tagged. Skip lines also print the measured score to
+  three decimals, so a near miss can no longer read
+  `onset periodicity 0.10, minimum 0.10` as though it had passed.
+
+- **Key Detector and Mood Analyzer report the same result whatever a file's
+  sample rate.** Both tools analysed at the rate the file was stored at, and
+  both features they threshold depend on that grid: the key comes from a
+  constant-Q chromagram whose bin mapping follows the decode rate, and the mood
+  engine's beat tracking uses the same fixed 512-frame hop as BPM Analyzer. The
+  same recording could therefore be tagged two ways — on one album "After
+  Forever" read G at 22 050 Hz and Gm at 44.1 kHz, and "Into the Void" read C#m
+  against F#, while in the test corpus `krautrock_152.ogg` read
+  `Playful;Energetic;Hopeful` against `Hopeful;Warm;Playful`. Both now analyse
+  at 22 050 Hz, the rate their thresholds were calibrated on. Keys and moods
+  from 44.1 and 48 kHz files can therefore differ from what earlier versions
+  tagged, so re-analysing a folder is worthwhile if its key tags look
+  inconsistent.
+
 - **`cue generate` numbers tracks the way it always said it did.** The
   reference and the command's own help stated that track numbers come from the
   files' tags, but only a `NN - Title` filename prefix was read, so a folder

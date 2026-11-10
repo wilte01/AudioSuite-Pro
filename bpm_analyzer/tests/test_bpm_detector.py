@@ -22,6 +22,9 @@ exception preserved on __cause__.
 Changed in 1.4.1: the real-music corpus's expectations are parsed from
 ATTRIBUTION.md's ``## Clips`` table instead of a hardcoded dict, so a refused
 recording is a declared row rather than an undocumented deletion (D99).
+Changed in 2.6.0: `TestAnalysisSampleRateIndependence` locks the verdict and
+the reported tempo against the container's sample rate (D137) using the same
+committed corpus recordings at 22 050 / 44 100 / 48 000 Hz.
 """
 
 from __future__ import annotations
@@ -35,9 +38,10 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from audio_suite_shared.constants import DEFAULT_BPM_ANALYSIS_SECONDS
+from audio_suite_shared.analysis_loader import ANALYSIS_SAMPLE_RATE
 
 # Module under test
+from audio_suite_shared.constants import DEFAULT_BPM_ANALYSIS_SECONDS
 from bpm_analyzer.core.bpm_detector import (
     _FOLD_EVIDENCE_RATIO,
     _ONSET_HOP_LENGTH,
@@ -771,8 +775,19 @@ class TestNoTempoMessage:
     def test_measured_score_and_minimum_are_rendered(self) -> None:
         assert _no_tempo_message(0.043) == (
             "No tempo detected — the audio has no discernible beat "
-            f"(onset periodicity 0.04, minimum {MIN_ONSET_PERIODICITY:.2f})."
+            f"(onset periodicity 0.043, minimum {MIN_ONSET_PERIODICITY:.2f})."
         )
+
+    def test_a_near_miss_does_not_print_as_the_minimum(self) -> None:
+        """0.0964 refused at a 0.10 floor must not read "0.10, minimum 0.10".
+
+        Two decimals rendered a real refusal as a sentence that looks like a
+        pass, which is what made a refused track read as a tool bug.  The
+        score keeps three decimals; the minimum stays at two.
+        """
+        message = _no_tempo_message(0.0964)
+        assert "onset periodicity 0.096" in message
+        assert "onset periodicity 0.10," not in message
 
 
 class TestOnsetPeriodicity:
@@ -1184,6 +1199,19 @@ class TestCorpusTableParsing:
         assert _REFUSED_ROWS, "no refused row - the refusal path is untested"
 
 
+#: Corpus recordings whose verdict or tempo moved with the container's sample
+#: rate before D137, measured on copies written from one 22 050 Hz decode:
+#: `chopin_rubato_74` was refused at 44.1 kHz, `live_jazz_103` at 44.1 and
+#: 48 kHz, `hiphop_86` reported 161 instead of 86, `krautrock_152` 115 instead
+#: of 152.  The list is evidence, not a sample: these are the clips that failed.
+_RATE_SENSITIVE_CLIPS = (
+    "chopin_rubato_74.ogg",
+    "live_jazz_103.ogg",
+    "hiphop_86.ogg",
+    "krautrock_152.ogg",
+)
+
+
 class TestAnalysisDurationDefault:
     """The analysis window is one value, and it is the calibrated one (D139)."""
 
@@ -1204,6 +1232,50 @@ class TestAnalysisDurationDefault:
         ) as load:
             detect_bpm("long.mp3")
         assert load.call_args.kwargs["duration"] == DEFAULT_BPM_ANALYSIS_SECONDS
+
+
+class TestAnalysisSampleRateIndependence:
+    """The verdict and the tempo must not depend on the file's sample rate.
+
+    Regression (D137): ``_ONSET_HOP_LENGTH`` is a fixed number of *frames*, so
+    a file decoded at 44.1 or 48 kHz put the onset envelope on roughly
+    half-length frames and the harmonic-comb score moved with the rate.  The
+    0.10 floor was calibrated on 22 050 Hz clips, so real music stored at a
+    higher rate scored below it — two tracks on one album were reported
+    ``[SKIP] ... no discernible beat`` — and the reported tempo moved too.
+    ``detect_bpm`` now resamples to ``ANALYSIS_SAMPLE_RATE`` before analysis.
+    """
+
+    @staticmethod
+    def _wav_at(clip: Path, tmp_path: Path, sample_rate: int) -> Path:
+        """Write the clip's audio as a 16-bit WAV at *sample_rate*.
+
+        Every file comes from one 22 050 Hz decode, so the sample rate is the
+        only thing that differs between the copies this compares.  A WAV copy
+        and the original Vorbis file may legitimately disagree — a re-encode
+        moves a knife-edge clip's tempo — and that is not what this locks.
+        """
+        import librosa
+
+        y, _ = librosa.load(str(clip), sr=ANALYSIS_SAMPLE_RATE, mono=True)
+        if sample_rate != ANALYSIS_SAMPLE_RATE:
+            y = librosa.resample(y, orig_sr=ANALYSIS_SAMPLE_RATE, target_sr=sample_rate)
+        path = tmp_path / f"{clip.stem}_{sample_rate}.wav"
+        return Path(_write_wav(path, y, sr=sample_rate))
+
+    @pytest.mark.parametrize("sample_rate", [44100, 48000])
+    @pytest.mark.parametrize("filename", _RATE_SENSITIVE_CLIPS)
+    def test_a_recording_keeps_its_tempo_whatever_rate_it_is_stored_at(
+        self, filename: str, sample_rate: int, tmp_path: Path
+    ) -> None:
+        clip = CORPUS_DIR / filename
+        baseline = detect_bpm(str(self._wav_at(clip, tmp_path, ANALYSIS_SAMPLE_RATE)))
+        restored = detect_bpm(str(self._wav_at(clip, tmp_path, sample_rate)))
+        assert restored == baseline, (
+            f"{filename} stored at {sample_rate} Hz reports {restored} BPM while "
+            f"the same audio at {ANALYSIS_SAMPLE_RATE} Hz reports {baseline}: "
+            "the answer moved with the container's sample rate (D137)"
+        )
 
 
 class TestRealMusicCorpus:

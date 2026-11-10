@@ -38,7 +38,7 @@ Setup contains the directory picker, run mode, analysis duration, parallel worke
 ## Detection Algorithm
 
 1. Load up to the configured duration of audio with librosa.
-1. Convert the signal to mono analysis data and promote it to float64 for internal processing.
+1. Convert the signal to mono analysis data and promote it to float64 for internal processing. Audio is resampled to 22.05 kHz for analysis, so the same music gives the same key whatever sample rate its file is stored at.
 1. Build a constant-Q chromagram and average it over time into a 12-element pitch-class profile.
 1. Correlate the profile against all rotations of the 12-note major and minor Krumhansl-Schmuckler templates.
 1. Select the strongest major or minor correlation and convert it to conventional display notation.

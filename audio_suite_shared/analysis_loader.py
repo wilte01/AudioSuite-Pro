@@ -29,6 +29,17 @@ Changed in 1.4.1: ``warm_analysis_stack()`` compiles librosa's lazy numba
 kernels once per process before a worker pool starts, so eight threads no
 longer compile the same signature eight times and serialise on the compile
 lock (backlog P6).
+
+Changed in 2.6.0: ``load_analysis_audio`` decodes at the new shared
+``ANALYSIS_SAMPLE_RATE`` (22 050 Hz) by default rather than at the file's own
+rate; a caller that genuinely needs the native rate passes ``sr=None``
+explicitly.  The grid is part of the calibration, not an implementation
+detail: ``hop_length`` is a frame count, so a fixed hop spans a different
+number of milliseconds at every rate, and ``chroma_cqt``'s bin mapping follows
+the rate as well.  A 44.1 kHz file was therefore scored against thresholds
+measured on 22 050 Hz material: BPM Analyzer refused two genuine tracks as
+beatless and Key Detector read one as Gm where the calibrated grid reads G
+(``PLAN_feature_expansion.md`` D137 and D138).
 """
 
 from __future__ import annotations
@@ -56,6 +67,20 @@ logger = logging.getLogger(f"audio_suite.{__name__}")
 # Below this duration (seconds) the audio is too short for meaningful
 # analysis — beat tracking and pitch-class correlation are undefined.
 MIN_ANALYSIS_SECONDS = 0.5
+
+#: Sample rate every analysis tool decodes at, whatever rate the file is
+#: stored at.  The features the analysers threshold are all rate-dependent —
+#: ``hop_length`` is a frame count, so a fixed hop spans a different amount of
+#: time at every rate, and a constant-Q transform's bin mapping follows the
+#: decode rate — while every threshold was calibrated on 22 050 Hz material:
+#: the BPM corpus (D79), the key engine's reference excerpt and the mood
+#: fixtures.  Analysing at a file's own rate therefore measured those
+#: thresholds against a grid they were never calibrated on: BPM Analyzer
+#: refused two genuine tracks on one 44.1 kHz album as beatless
+#: (`chopin_rubato_74.ogg` scored 0.124 at this rate and 0.044 at 44.1 kHz
+#: against a 0.10 floor) and its reported tempo moved with the rate too.
+#: Evidence: PLAN_feature_expansion.md D137 (BPM) and D138 (key/mood).
+ANALYSIS_SAMPLE_RATE = 22050
 
 # Fraction of full-scale that counts as "effectively silent" (~ -60 dBFS).
 SILENCE_RMS_THRESHOLD = 1.0e-3
@@ -337,7 +362,11 @@ def _transcode_via_ffmpeg(
 
 
 def load_analysis_audio(
-    file_path: str, max_duration: int = 90, *, min_seconds: float = MIN_ANALYSIS_SECONDS
+    file_path: str,
+    max_duration: int = 90,
+    *,
+    min_seconds: float = MIN_ANALYSIS_SECONDS,
+    sr: int | None = ANALYSIS_SAMPLE_RATE,
 ) -> tuple[npt.NDArray[np.float64], int]:
     """Decode an audio file into a mono float64 signal ready for analysis.
 
@@ -348,10 +377,16 @@ def load_analysis_audio(
                       value truncates; ``0`` disables the cap.
         min_seconds:  Minimum usable audio duration. Shorter signals raise
                       AudioAnalysisError via ``check_analysable``.
+        sr:           Sample rate to decode at.  Defaults to
+                      ``ANALYSIS_SAMPLE_RATE``, the rate every analyser's
+                      threshold was calibrated on; pass ``None`` for the
+                      file's native rate, which no calibrated threshold
+                      describes.
 
     Returns:
         Two-tuple ``(y, sr)`` where *y* is a mono float64 array in the
-        range [-1, 1] and *sr* is the native sample rate in Hz.
+        range [-1, 1] and *sr* is the rate it was decoded at (``sr``, or the
+        native rate when that argument is ``None``).
 
     Raises:
         AudioCodecError:   The file cannot be decoded (unsupported codec or
@@ -361,8 +396,11 @@ def load_analysis_audio(
     """
     try:
         y_f32, sample_rate = librosa_load_with_fallback(
-            file_path, duration=max_duration, mono=True, sr=None
+            file_path, duration=max_duration, mono=True, sr=sr
         )
+        # ``librosa_load_with_fallback`` reports the rate it actually produced,
+        # which is the pinned rate whenever *sr* was given; the engine below is
+        # given that number, never the file's on-disk rate.
     except AudioCodecError as exc:
         log_handled_failure(
             logger,

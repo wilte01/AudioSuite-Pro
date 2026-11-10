@@ -33,6 +33,11 @@ locked to one console line with its traceback only in the DEBUG log.
 Changed in 1.4.1: ``TestWarmAnalysisStack`` pins the once-only, thread-safe
 warm-up, that a failure is logged and not retried, and that the warm-up body
 really calls the onset/beat/chroma helpers it claims to (backlog P6).
+
+Changed in 2.6.0: the native-rate test became two: the default decode is the
+shared ``ANALYSIS_SAMPLE_RATE`` grid (the one every analyser's threshold was
+calibrated on), and a file's own rate is returned only when ``sr=None`` is
+asked for explicitly (PLAN D138).
 """
 
 from __future__ import annotations
@@ -50,6 +55,7 @@ import pytest
 
 from audio_suite_shared import analysis_loader
 from audio_suite_shared.analysis_loader import (
+    ANALYSIS_SAMPLE_RATE,
     MIN_ANALYSIS_SECONDS,
     SILENCE_RMS_THRESHOLD,
     check_analysable,
@@ -165,11 +171,25 @@ class TestLoadAnalysisAudioNominal:
         assert len(y) == _SR
         assert np.max(np.abs(y)) > 0.25
 
-    def test_native_sample_rate_is_preserved_not_resampled(self, tmp_path) -> None:
+    def test_default_rate_is_the_calibrated_analysis_rate(self, tmp_path) -> None:
+        """A 44.1 kHz file is decoded on the calibrated grid, not its own rate.
+
+        Every analyser's threshold was calibrated at ``ANALYSIS_SAMPLE_RATE``,
+        so the default here must not follow the file (PLAN D138).
+        """
+        path = _write_mono_wav(
+            str(tmp_path / "rate.wav"), 0.5 * _tone(1.0, sr=44100), sr=44100
+        )
+        y, sr = load_analysis_audio(path)
+        assert sr == ANALYSIS_SAMPLE_RATE
+        assert len(y) == ANALYSIS_SAMPLE_RATE
+
+    def test_native_sample_rate_is_opt_in(self, tmp_path) -> None:
+        """``sr=None`` still returns the file's own rate, but by request only."""
         path = _write_mono_wav(
             str(tmp_path / "rate.wav"), 0.5 * _tone(1.0, sr=16000), sr=16000
         )
-        y, sr = load_analysis_audio(path)
+        y, sr = load_analysis_audio(path, sr=None)
         assert sr == 16000
         assert len(y) == 16000
 

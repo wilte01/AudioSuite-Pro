@@ -48,7 +48,7 @@ The signal mood engine scores two axes. Arousal represents energy versus calm an
 ![The Processing tab part-way through a run](images/processing.png)
 
 1. Discover supported audio files directly inside the selected directory.
-1. Load each file for the configured analysis duration.
+1. Load each file for the configured analysis duration, resampled to 22.05 kHz so the same music gives the same mood whatever sample rate its file is stored at.
 1. Analyze the signal and derive mood, confidence, and energy.
 1. In Dry Run, report the values without writing metadata.
 1. In Live Update, write the mood, confidence, and energy tags.

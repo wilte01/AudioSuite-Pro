@@ -663,6 +663,41 @@ result set is non-empty so an empty scan fails loudly.** Evidence:
   internal call; the default mean changes the estimate (a slow pad returned
   107.67 BPM with mean aggregation and 0.0 with median).
 
+- **The analysis grid is part of the calibration, not an implementation
+  detail.** `_ONSET_HOP_LENGTH` is a fixed 512 *frames*, so the onset
+  envelope's time resolution follows whatever rate the file was decoded at. A
+  44.1 kHz album therefore ran on 11.6 ms frames where every calibration clip
+  used 23.2 ms, the harmonic-comb score moved with the rate, and two genuine
+  tracks were refused as beatless (`No tempo detected — ... (onset periodicity
+  0.10, minimum 0.10)`) while six others on the same album were tagged. The
+  same defect moved the *reported* tempo, not only the verdict:
+  `hiphop_86.ogg` measured 86 BPM at 22 050 Hz and 161 at 44.1 kHz, so the tag
+  depended on the container. `detect_bpm` now decodes at the shared
+  `ANALYSIS_SAMPLE_RATE` (22 050 Hz), and Key Detector and Mood Analyzer decode
+  through the same constant: `load_analysis_audio` defaults to it, and a caller
+  that wants a file's native rate asks for `sr=None` explicitly. Key and mood
+  were not safe by accident either — on that same album "After Forever" read G
+  at 22 050 Hz and Gm at 44.1 kHz, "Into the Void" read C#m against F#, and in
+  the corpus `krautrock_152.ogg` read `Playful;Energetic;Hopeful` against
+  `Hopeful;Warm;Playful`. So any tool whose threshold was calibrated on
+  fixtures at one rate must analyse at that rate or re-calibrate, and a
+  regression fixture that changes sample rate must be written from a single
+  decode, because a re-encoded copy moves a knife-edge clip by itself.
+  Evidence: `PLAN_feature_expansion.md` D137, D138.
+
+- **The analysis window is part of the calibration too - one value, at the
+  length the floor was measured.** `MIN_ONSET_PERIODICITY` is a 30 s number:
+  the comb tests stationarity, so it loses score as the window grows (two
+  library tracks 0.159/0.222 at 20 s, 0.139/0.194 at 30 s, 0.094/0.071 at
+  90 s), and a 90 s window refused 10% of a 120-track sample that 30 s
+  analyses. Seeded noise peaks at 0.067 over 30 s (0.090 at 20 s), the
+  weakest corpus clip is 0.124 and the weakest real library groove 0.120, so
+  0.10 keeps a measured margin on both sides at 30 s only.
+  `DEFAULT_BPM_ANALYSIS_SECONDS` in `audio_suite_shared.constants` is the one
+  value the core default, `BPMArgs`, the CLI, the GUI and the Master Driver
+  read; `tests/test_bpm_analysis_duration.py` fails if they diverge.
+  Evidence: `PLAN_feature_expansion.md` D139.
+
 - **A configured band chooses between octave readings; it never edits a
   measured tempo.** `detect_bpm`'s `min_bpm`/`max_bpm` doubled any estimate
   below the floor and clamped whatever was left outside it, so a genuine 60 BPM

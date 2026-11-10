@@ -38,7 +38,7 @@ Setup contains the directory picker, mode, BPM range, analysis duration, optiona
 
 ## Detection Behavior
 
-For each file, librosa loads mono audio for the configured maximum duration using its beat tracker. The signal is upcast to float64 for the tool's internal processing. The raw tempo estimate is then normalized to a scalar, octave-corrected by doubling or halving only when the folded level carries a pulse of its own, and rounded to an integer.
+For each file, librosa loads mono audio for the configured maximum duration using its beat tracker. The signal is upcast to float64 for the tool's internal processing. Audio is resampled to 22.05 kHz for analysis, so the same music gives the same result whatever sample rate its file is stored at. The raw tempo estimate is then normalized to a scalar, octave-corrected by doubling or halving only when the folded level carries a pulse of its own, and rounded to an integer.
 
 - **Outside-range tempo: **A measured tempo outside the configured range is tagged as measured, and its line says so, for example BPM 60 (outside 75-175). The range chooses between octave-equivalent readings of the same pulse; it never moves a value to a boundary or to an octave the audio does not support.
 - **No detectable beat or silence: **A file with no discernible beat, or one that is effectively silent, is reported as [SKIP] and left untagged.

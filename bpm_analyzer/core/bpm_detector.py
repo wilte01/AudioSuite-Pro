@@ -20,6 +20,14 @@ Changed in 2.0.0: the autocorrelation local is annotated with the dtype
 ``float64`` the installed numpy stubs no longer infer; the gate failed on the
 narrower annotation alone (no behaviour change).
 
+Changed in 2.6.0: the decode is resampled to a fixed 22 050 Hz (the shared
+``ANALYSIS_SAMPLE_RATE``) instead of being analysed at the file's native
+rate.  ``_ONSET_HOP_LENGTH`` is a fixed number of *frames*, so a 44.1 kHz file
+ran the onset envelope on half-length frames and the same music scored lower —
+below the floor that was calibrated on 22 050 Hz clips.  Two genuine tracks on
+one album were refused as beatless for that reason alone
+(PLAN_feature_expansion.md D137).
+
 Changed in 2.6.0: the default window is ``DEFAULT_BPM_ANALYSIS_SECONDS``
 (30 s) for every entry point, not 90 s here and 30 s in the CLI.  The floor
 is a 30 s number: seeded noise peaks at 0.067 over 30 s and real music at
@@ -39,6 +47,7 @@ import numpy as np
 import numpy.typing as npt
 
 from audio_suite_shared.analysis_loader import (
+    ANALYSIS_SAMPLE_RATE,
     check_analysable,
     librosa_load_with_fallback,
 )
@@ -52,7 +61,10 @@ from audio_suite_shared.exceptions import (
 logger = logging.getLogger(__name__)
 
 # Onset analysis grid, shared by the envelope and the tempo estimate so the
-# periodicity check measures the same frames the tracker used.
+# periodicity check measures the same frames the tracker used.  The hop is a
+# frame count, so its duration follows the decode rate; the rate is therefore
+# pinned to the calibrated grid rather than taken from the file — see
+# ``ANALYSIS_SAMPLE_RATE`` for the measurement and the evidence (D137).
 _ONSET_HOP_LENGTH = 512
 
 # Weights for the first four beat lags in the harmonic-comb score (one beat,
@@ -206,6 +218,11 @@ def _no_tempo_message(periodicity: float | None = None) -> str:
     score and the minimum are what makes a skip auditable in the per-file log
     and status line, instead of a bare verdict.
 
+    The score is rendered to three decimals so a near miss cannot print as the
+    floor it failed to reach: at two decimals a score of 0.096 read
+    ``onset periodicity 0.10, minimum 0.10``, which looks like a pass and made
+    a real refusal look inexplicable.
+
     Args:
         periodicity: Measured onset periodicity, or None when not measured.
 
@@ -216,7 +233,7 @@ def _no_tempo_message(periodicity: float | None = None) -> str:
     if periodicity is None:
         return f"{message}."
     return (
-        f"{message} (onset periodicity {periodicity:.2f}, "
+        f"{message} (onset periodicity {periodicity:.3f}, "
         f"minimum {MIN_ONSET_PERIODICITY:.2f})."
     )
 
@@ -246,8 +263,10 @@ def detect_bpm(
     """
     Detect the BPM of an audio file using librosa beat tracking.
 
-    Audio is loaded as 64-bit float (np.float64) for internal processing
-    to prevent quantization noise accumulation.
+    Audio is decoded at ``ANALYSIS_SAMPLE_RATE`` and upcast to 64-bit float
+    (np.float64) for internal processing to prevent quantization noise
+    accumulation.  The fixed rate is what keeps the tempo and the periodicity
+    gate independent of the file's own sample rate (D137).
 
     Args:
         file_path:    Absolute path to the audio file.
@@ -276,7 +295,10 @@ def detect_bpm(
         # Load as float32 (librosa default) then upcast to float64 for DSP precision.
         y_f32: npt.NDArray[np.float32]
         y_f32, sr = librosa_load_with_fallback(
-            file_path, duration=max_duration, mono=True
+            file_path,
+            duration=max_duration,
+            mono=True,
+            sr=ANALYSIS_SAMPLE_RATE,
         )
         y: npt.NDArray[np.float64] = y_f32.astype(np.float64)
         sr = int(sr)

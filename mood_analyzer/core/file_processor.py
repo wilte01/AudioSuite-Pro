@@ -18,6 +18,13 @@ one line; the stack trace goes to the DEBUG log instead of the console.
 Changed in 1.4.1: ``run_analysis`` warms librosa's kernels before the worker
 pool starts, so a thread batch no longer pays one compile per thread
 (backlog P6).
+
+Changed in 2.6.0: ``_analyse_file`` decodes at the shared
+``ANALYSIS_SAMPLE_RATE`` instead of the file's own rate, because both features
+this engine thresholds are grid-dependent — ``beat_track``'s hop is a frame
+count and the key vote runs through ``chroma_cqt`` — and the anchors were
+tuned at 22 050 Hz.  The same clip read one mood at 22 050 Hz and another at
+48 kHz (PLAN D138).
 """
 
 import logging
@@ -103,6 +110,12 @@ def _analyse_file(file_path: str, analysis_duration: int) -> MoodAnalysis:
         AudioCodecError: if the file cannot be decoded.
         AudioAnalysisError: if the audio is too short or near-silent.
     """
+    # ``load_analysis_audio`` decodes at the shared ANALYSIS_SAMPLE_RATE, never at
+    # the file's own rate: beat tracking's hop is a frame count and the key vote
+    # runs through chroma_cqt, so both features this engine thresholds were
+    # calibrated on that grid (PLAN D138).  The rate is deliberately not passed
+    # here — the loader's default is the one place it is declared, and Mood
+    # Analysis Batch Tagger analyses through this same function.
     y, sr = load_analysis_audio(file_path, max_duration=analysis_duration)
     return analyze_mood(y, int(sr))
 

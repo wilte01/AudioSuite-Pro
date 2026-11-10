@@ -21,6 +21,12 @@ one line; the stack trace goes to the DEBUG log instead of the console.
 Changed in 1.4.1: ``run_analysis`` warms librosa's kernels before the worker
 pool starts, so a thread batch no longer pays one compile per thread
 (backlog P6).
+
+Changed in 2.6.0: both decode sites pin the shared ``ANALYSIS_SAMPLE_RATE``
+instead of analysing at the file's own rate.  ``chroma_cqt``'s bin mapping and
+``key_engine``'s confidence thresholds were measured on 22 050 Hz material, so
+44.1 kHz copies of the same music read differently — one album track read Gm
+at its native rate where the calibrated grid reads G (PLAN D138).
 """
 
 import logging
@@ -35,6 +41,7 @@ import numpy as np
 import numpy.typing as npt
 
 from audio_suite_shared.analysis_loader import (
+    ANALYSIS_SAMPLE_RATE,
     check_analysable,
     librosa_load_with_fallback,
     warm_analysis_stack,
@@ -151,7 +158,15 @@ def process_single_file(
 
         slot_vars[slot_idx].set(f"Analyzing: {name[:25]}...")
         y_raw: npt.NDArray[np.float32]
-        y_raw, _sr = librosa_load_with_fallback(file_path, duration=analysis_duration)
+        # Decode at the calibrated analysis rate: chroma_cqt's bin mapping and
+        # every confidence threshold in key_engine were measured at
+        # ANALYSIS_SAMPLE_RATE, so a file's own rate must not choose the grid
+        # (PLAN D138).
+        # The rate above is a pin, not a request: the loader resamples when the
+        # file's own rate differs, so ``_sr`` is the calibrated grid either way.
+        y_raw, _sr = librosa_load_with_fallback(
+            file_path, duration=analysis_duration, sr=ANALYSIS_SAMPLE_RATE
+        )
         loaded_sr: int = int(_sr)
         y: npt.NDArray[np.float64] = y_raw.astype(np.float64)
         # See bpm_detector.detect_bpm: this tool decodes through the fallback
@@ -229,7 +244,15 @@ def _detect_key_cpu(
     """
     try:
         y_raw: npt.NDArray[np.float32]
-        y_raw, _sr = librosa_load_with_fallback(file_path, duration=analysis_duration)
+        # Decode at the calibrated analysis rate: chroma_cqt's bin mapping and
+        # every confidence threshold in key_engine were measured at
+        # ANALYSIS_SAMPLE_RATE, so a file's own rate must not choose the grid
+        # (PLAN D138).
+        # The rate above is a pin, not a request: the loader resamples when the
+        # file's own rate differs, so ``_sr`` is the calibrated grid either way.
+        y_raw, _sr = librosa_load_with_fallback(
+            file_path, duration=analysis_duration, sr=ANALYSIS_SAMPLE_RATE
+        )
         loaded_sr: int = int(_sr)
         y: npt.NDArray[np.float64] = y_raw.astype(np.float64)
         check_analysable(y, loaded_sr)

@@ -9,17 +9,24 @@ slot-grid cap has a number to compare (D66).
 
 Changed in 1.4.1: asserts the kernel warm-up runs before the pool is built,
 not merely that it runs (backlog P6).
+
+Changed in 2.6.0: ``TestAnalysisSampleRateIndependence`` drives the real CPU
+worker on corpus clips written at 22 050 / 44 100 / 48 000 Hz from one decode,
+because the analysis rate is now pinned rather than taken from the file
+(PLAN D138).
 """
 
 import queue
 import threading
+import wave
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
 from audio_suite_shared.exceptions import AudioCodecError
-from mood_analyzer.core.file_processor import process_single_file
+from mood_analyzer.core.file_processor import _analyze_mood_cpu, process_single_file
 from mood_analyzer.core.signal_mood_engine import MoodAnalysis
 
 MODULE = "mood_analyzer.core.file_processor"
@@ -527,6 +534,57 @@ def _make_real_wav(path, seconds: float = 1.0, silent: bool = False):
     segment = AudioSegment(pcm.tobytes(), frame_rate=_SR, sample_width=2, channels=1)
     segment.export(str(path), format="wav")
     return path
+
+
+# ── PLAN D138: the grid is the calibrated one, whatever the file's rate ───────
+# Both features this engine thresholds are grid-dependent (beat_track's hop is
+# a frame count, the key vote runs through chroma_cqt), so the same clip must
+# read the same mood at every rate it is stored at.  On the unfixed source
+# ``krautrock_152.ogg`` reads Playful;Energetic;Hopeful at 22 050 Hz and
+# Hopeful;Warm;Playful at 44.1 kHz.
+_CORPUS = Path(__file__).resolve().parents[2] / "tests" / "data" / "bpm_corpus"
+
+
+def _corpus_wav(clip: Path, destination: Path, rate: int) -> str:
+    """Write *clip* at *rate* from ONE 22 050 Hz decode.
+
+    Every copy comes from that single decode: re-encoding a copy moves a
+    knife-edge clip by itself, so a copy taken from the original container
+    would test the encoder rather than the analysis grid.
+    """
+    import librosa
+
+    y, _ = librosa.load(str(clip), sr=_SR, mono=True)
+    if rate != _SR:
+        y = librosa.resample(y, orig_sr=_SR, target_sr=rate)
+    pcm = (np.clip(y, -1.0, 1.0) * 32767.0).astype("<i2")
+    with wave.open(str(destination), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(rate)
+        handle.writeframes(pcm.tobytes())
+    return str(destination)
+
+
+class TestAnalysisSampleRateIndependence:
+    """The mood must not depend on the rate the file happens to be stored at."""
+
+    @pytest.mark.parametrize("clip_name", ["krautrock_152.ogg", "chopin_rubato_74.ogg"])
+    @pytest.mark.parametrize("rate", [44100, 48000])
+    def test_same_mood_whatever_the_file_rate(self, clip_name, rate, tmp_path) -> None:
+        clip = _CORPUS / clip_name
+        assert clip.is_file(), f"missing analysis fixture: {clip}"
+        baseline = _analyze_mood_cpu(_corpus_wav(clip, tmp_path / "base.wav", _SR), 90)
+        assert baseline["status"] == "ok"
+        got = _analyze_mood_cpu(_corpus_wav(clip, tmp_path / f"at{rate}.wav", rate), 90)
+        assert (got["mood"], got["energy"]) == (
+            baseline["mood"],
+            baseline["energy"],
+        ), (
+            f"{clip_name} at {rate} Hz reads {got['mood']!r} (energy "
+            f"{got['energy']}), but {baseline['mood']!r} (energy "
+            f"{baseline['energy']}) on the calibrated grid"
+        )
 
 
 class TestSilentFileIsNeverTagged:
