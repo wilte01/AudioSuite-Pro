@@ -38,6 +38,9 @@ def tag_handler(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     Every reader defaults to ``None`` so a test only sets the fields it needs.
     """
     handler = MagicMock()
+    # Changed in 2.6.0: the scanner reads artwork coverage, so the fake must
+    # answer the question rather than hand back a truthy MagicMock.
+    handler.has_artwork.return_value = False
     raw = MagicMock()
     raw.get.return_value = None
     handler.get_raw_tags.return_value = raw
@@ -286,6 +289,8 @@ class TestScanDirectory:
         assert report.missing_data["no_genre"] == 1
         assert report.missing_data["no_mood"] == 1
         assert report.missing_data["no_tempo_marking"] == 1
+        # Changed in 2.6.0: the full scan reports artwork coverage too (F-E10).
+        assert report.missing_data["no_art"] == 1
         assert report.bpm_distribution == {"Unknown": 1}
 
     def test_mood_semicolon_splitting(

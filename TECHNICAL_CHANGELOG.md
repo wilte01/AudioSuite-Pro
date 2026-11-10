@@ -18,6 +18,22 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **The library cache carries artwork coverage, so an incremental scan can
+  report it.** `library_stats` schema version 4 adds `has_art` to `files`,
+  `temp._scope_files` and both populate statements, with a one-time
+  `ALTER TABLE` in `migrate`; `upsert_file` takes a `has_art` argument and
+  `get_cached_art` reads the scoped map back through the same plan rule as
+  `get_cached_stamps`. The cached scan reads the fact once per changed file,
+  counts `missing_data["no_art"]` from `has_art == 0`, and treats a NULL as a
+  miss so a pre-4 cache heals instead of undercounting - the rule a NULL
+  `size` already follows. The full scanner reads the same fact with
+  `_read_file_tags(art_fields=True)` and publishes the same key, so the two
+  report shapes stay identical. Locks: `TestCachedArt` (round trip, NULL is
+  "unknown" not "absent", `query_aggregate` counts only measured absences,
+  migration leaves NULL), the cached scan's reuse-without-a-tag-read test,
+  the legacy-row re-read test, and the full scan's counter. The recorded CLI
+  corpus and schema examples are re-recorded, because the payload gained a
+  field.
 - **The Artwork Extractor is a driver-schedulable window over F-E10's read
   side.** `artwork_extractor/` adds `utils/cli_args.py` (the shared handshake
   plus the tool's own `--name`, `--force|--no-force` and

@@ -60,6 +60,8 @@ _READER_NAMES = (
     "read_mood",
     "read_tempo_marking",
     "read_tags_raw",
+    # Changed in 2.6.0: the reader also answers the artwork question (F-E10).
+    "has_artwork",
 )
 
 
@@ -78,6 +80,10 @@ def _reader_mocks() -> Any:
         mock = getattr(handler, attribute)
         mock.return_value = None
         mocks[name] = mock
+    # A measured "no artwork" is a real answer, and the cache stores it as 0;
+    # leaving the default as None would mean "not measured" and turn every
+    # cached row into a miss.
+    handler.has_artwork.return_value = False
 
     with patch(
         "library_stats.core.file_processor.TagHandlerFactory.get_handler",
@@ -324,7 +330,56 @@ class TestCachedScan:
             "no_genre": 1,
             "no_mood": 1,
             "no_tempo_marking": 1,
+            # Changed in 2.6.0: artwork coverage is part of the same report.
+            "no_art": 1,
         }
+
+    def test_artwork_coverage_comes_from_the_cache(self, tmp_path: Path) -> None:
+        """An unchanged file's artwork fact is reused, never re-read (F-E10)."""
+        (tmp_path / "a.mp3").write_bytes(b"x")
+        cache = LibraryCache(tmp_path / "cache.db")
+        with _reader_mocks() as first:
+            first["has_artwork"].return_value = True
+            report = scan_directory(str(tmp_path), use_cache=True, cache=cache)
+
+        with _reader_mocks() as second:
+            # A different answer would surface only if the tags were re-read.
+            second["has_artwork"].return_value = False
+            again = scan_directory(str(tmp_path), use_cache=True, cache=cache)
+        cache.close()
+
+        second["_factory"].assert_not_called()
+        assert report.missing_data["no_art"] == 0
+        assert again.missing_data["no_art"] == 0
+
+    def test_files_without_artwork_are_counted(self, tmp_path: Path) -> None:
+        """The full scan reports missing artwork from its own read."""
+        (tmp_path / "a.mp3").write_bytes(b"x")
+        with _reader_mocks():
+            report = scan_directory(str(tmp_path))
+
+        assert report.missing_data["no_art"] == 1
+
+    def test_legacy_row_without_artwork_is_re_read(self, tmp_path: Path) -> None:
+        """A row cached before the fact existed is measured, not guessed."""
+        (tmp_path / "a.mp3").write_bytes(b"x")
+        cache = LibraryCache(tmp_path / "cache.db")
+        with _reader_mocks() as first:
+            first["has_artwork"].return_value = True
+            scan_directory(str(tmp_path), use_cache=True, cache=cache)
+        conn = cache._connect()
+        conn.execute("UPDATE files SET has_art = NULL")
+        conn.commit()
+
+        with _reader_mocks() as second:
+            second["has_artwork"].return_value = True
+            healed = scan_directory(str(tmp_path), use_cache=True, cache=cache)
+        stored = cache._connect().execute("SELECT has_art FROM files").fetchone()[0]
+        cache.close()
+
+        second["_factory"].assert_called()
+        assert stored == 1
+        assert healed.missing_data["no_art"] == 0
 
     def test_corrupt_cached_artist_album_json_ignored(self, tmp_path: Path) -> None:
         (tmp_path / "a.mp3").write_bytes(b"x")
@@ -507,12 +562,14 @@ class TestPopulateReport:
             missing_no_genre=0,
             missing_no_mood=3,
             missing_no_tempo=1,
+            missing_no_art=4,
         )
         assert report.format_breakdown == {".mp3": 5, ".flac": 3}
         assert report.total_albums == 2
         assert report.total_artists == 2
         assert report.total_track_artists == 3
         assert report.missing_data["no_bpm"] == 2
+        assert report.missing_data["no_art"] == 4
         assert report.top_artists == [("Artist A", 5), ("Artist B", 3)]
 
     def test_empty_counters(self) -> None:
@@ -538,6 +595,7 @@ class TestPopulateReport:
             missing_no_genre=0,
             missing_no_mood=0,
             missing_no_tempo=0,
+            missing_no_art=0,
         )
         assert report.total_files == 0
         assert report.total_albums == 0

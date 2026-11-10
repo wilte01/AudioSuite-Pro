@@ -6,6 +6,10 @@ bodies are unchanged and ``library_cache`` still re-exports every name.
 
 Changed in 2.4.3: split out of ``library_stats.library_cache``
 (PLAN_2026-11-03_2.4.3_structure.md WP-9).
+
+Changed in 2.6.0: ``upsert_file`` takes the artwork coverage fact and
+``get_cached_art`` reads it back scoped, so the incremental scan can report
+``missing_data["no_art"]`` for files it never reopens (F-E10).
 """
 
 from __future__ import annotations
@@ -24,6 +28,8 @@ from .cache_schema import (
     _SCOPE_COUNT_SQL,
     _SCOPE_PLAN_CACHE_LIMIT,
     _SCOPE_RANGE_HIGH,
+    _SCOPED_ART_INDEXED,
+    _SCOPED_ART_SEQUENTIAL,
     _SCOPED_CLEAR_INDEXED,
     _SCOPED_CLEAR_SEQUENTIAL,
     _SCOPED_HASHES_INDEXED,
@@ -334,6 +340,29 @@ class CacheStoreMixin:
             cur = conn.execute(_SCOPED_STAMPS_SEQUENTIAL, [self._path_prefix(dir_path)])
         return {row[0]: (row[1], row[2]) for row in cur}
 
+    def get_cached_art(self, dir_path: str) -> dict[str, bool | None]:
+        """Return ``{filepath: has_art}`` for the files under *dir_path*.
+
+        The artwork coverage fact an incremental scan reports: an unchanged
+        file's tags are never read, so the boolean has to come from the cache.
+        ``None`` means the row predates schema version 4 and the file's
+        artwork was never measured - a scan treats that as a miss and re-reads
+        it, the same healing rule as a NULL ``size``, so a legacy cache reports
+        real coverage on its next run instead of undercounting.
+
+        Plan selection, cost and scope are identical to
+        :meth:`get_cached_stamps`.
+        """
+        conn = self._connect()
+        if self._plan_for(dir_path) == "indexed":
+            prefix = _path_fold(self._path_prefix(dir_path))
+            cur = conn.execute(
+                _SCOPED_ART_INDEXED, [prefix, prefix + _SCOPE_RANGE_HIGH]
+            )
+        else:
+            cur = conn.execute(_SCOPED_ART_SEQUENTIAL, [self._path_prefix(dir_path)])
+        return {row[0]: None if row[1] is None else bool(row[1]) for row in cur}
+
     def upsert_file(
         self,
         filepath: str,
@@ -348,6 +377,7 @@ class CacheStoreMixin:
         album_artist: str | None = None,
         artist_album: tuple[str, str] | None = None,
         year: int | None = None,
+        has_art: bool | None = None,
     ) -> None:
         """Insert or replace a single file's cached metadata.
 
@@ -364,6 +394,9 @@ class CacheStoreMixin:
             album_artist: Album artist, or None.
             artist_album: ``(artist, album)`` tuple, or None.
             year: Release year extracted from tags, or None.
+            has_art: Whether the file embeds cover artwork, or None when the
+                caller did not measure it (a pre-2.6.0-style write, which
+                leaves the fact unknown rather than claiming "no artwork").
         """
         artist_album_json: str | None = None
         if artist_album is not None:
@@ -375,8 +408,8 @@ class CacheStoreMixin:
             """INSERT OR REPLACE INTO files
                (path_hash, path, path_fold, dir_path, mtime, size, format,
                 bpm, key, genre, mood, tempo_marking,
-                album_artist, artist_album, year)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                album_artist, artist_album, year, has_art)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 _path_hash(filepath),
                 norm_path,
@@ -393,6 +426,7 @@ class CacheStoreMixin:
                 album_artist,
                 artist_album_json,
                 year,
+                None if has_art is None else int(has_art),
             ],
         )
         self._commit()
@@ -464,6 +498,11 @@ class CacheStoreMixin:
             key_mode_distribution, mood_distribution,
             tempo_marking_distribution, year_distribution,
             top_artists, top_genres, missing_data
+
+        ``missing_data["no_art"]`` counts the files known to have no embedded
+        artwork.  A legacy row whose ``has_art`` is NULL is not counted as
+        missing - it is not measured yet - so the cached-scan report heals
+        those rows by re-reading them rather than reporting a guess.
 
         Note it does **not** populate ``bpm_distribution`` (the cached-scan
         report path builds that separately in
@@ -575,6 +614,9 @@ class CacheStoreMixin:
         ).fetchone()[0]
         missing["no_tempo_marking"] = conn.execute(
             "SELECT COUNT(*) FROM temp._scope_files WHERE tempo_marking IS NULL"
+        ).fetchone()[0]
+        missing["no_art"] = conn.execute(
+            "SELECT COUNT(*) FROM temp._scope_files WHERE has_art = 0"
         ).fetchone()[0]
         result["missing_data"] = missing
 

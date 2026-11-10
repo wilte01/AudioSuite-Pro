@@ -389,6 +389,8 @@ def _echo_stats_report(scan: _StatsScan, detail: str | None, trend: bool) -> Non
             ("Genre", "no_genre"),
             ("Mood", "no_mood"),
             ("Tempo Marking", "no_tempo_marking"),
+            # Changed in 2.6.0: artwork coverage (F-E10).
+            ("Artwork", "no_art"),
         ):
             count = report.missing_data.get(key, 0)
             click.echo(f"    {label:<20}: {count:>5}  ({count / total * 100:5.1f}%)")

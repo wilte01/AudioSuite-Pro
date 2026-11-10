@@ -37,7 +37,7 @@ The optional cache is a SQLite database at ~/.audiosuite/library_cache.db. It st
 
 The run-controls strip's Mode is the one control for this choice; the Master Driver's `--incremental` and `--refresh` flags seed it.
 
-- **Incremental Scan: **The default. Uses the cache for faster repeated scans; changed files are reread and stale rows are removed.
+- **Incremental Scan: **The default. Uses the cache for faster repeated scans; changed files are reread and stale rows are removed. The cache also stores each file's artwork coverage, so a repeat scan reports it without reopening an unchanged file - a cache written by an earlier version is reread once to fill that in.
 - **Full Scan: **Clears cached entries for the selected directory and rebuilds them from the files currently present. The Refresh button selects this mode and starts the scan in one click.
 - **Direct Scan: **Reads the library directly, without using the SQLite cache at all.
 
@@ -70,7 +70,7 @@ When matplotlib is installed, Charts displays a top-genre pie chart, BPM distrib
 
 
 
-Missing Data reports counts and percentages for files without BPM, key, genre, mood, or tempo marking. It uses the total scanned file count as the denominator and displays a simple visual bar for each missing-data percentage.
+Missing Data reports counts and percentages for files without BPM, key, genre, mood, tempo marking, or embedded artwork. The artwork figure comes from the same cache an incremental scan reads, so it reflects covers that were already measured rather than a fresh extraction pass. It uses the total scanned file count as the denominator and displays a simple visual bar for each missing-data percentage.
 
 ## Completeness Tab
 

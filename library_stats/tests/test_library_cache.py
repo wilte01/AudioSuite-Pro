@@ -521,6 +521,64 @@ class TestRowCount:
         assert cache.row_count(str(d2)) == 1
 
 
+# ── LibraryCache: the cached artwork fact (F-E10, schema v4) ────────────────
+
+
+class TestCachedArt:
+    """The artwork coverage fact an incremental scan reports.
+
+    Changed in 2.6.0: new tests - schema v4's ``has_art`` round trip, its
+    "unknown, not absent" NULL, the aggregate that counts only measured
+    absences, and the migration leaving legacy rows NULL (F-E10).
+    """
+
+    def test_upsert_round_trips_the_fact(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        with_art = tmp_path / "with.mp3"
+        without_art = tmp_path / "without.mp3"
+        with_art.write_bytes(b"x")
+        without_art.write_bytes(b"y")
+        cache.upsert_file(
+            str(with_art), mtime=1.0, size=1, format_ext=".mp3", has_art=True
+        )
+        cache.upsert_file(
+            str(without_art), mtime=2.0, size=1, format_ext=".mp3", has_art=False
+        )
+
+        assert cache.get_cached_art(str(tmp_path)) == {
+            str(with_art): True,
+            str(without_art): False,
+        }
+
+    def test_a_row_written_without_the_fact_is_unknown(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        """None means "not measured yet", never "has no artwork"."""
+        f = tmp_path / "unknown.mp3"
+        f.write_bytes(b"x")
+        cache.upsert_file(str(f), mtime=1.0, size=1, format_ext=".mp3")
+
+        assert cache.get_cached_art(str(tmp_path)) == {str(f): None}
+
+    def test_aggregate_counts_only_measured_absent_art(
+        self, cache: LibraryCache, tmp_path: Path
+    ) -> None:
+        """A NULL row is not evidence of missing artwork, so it is not counted."""
+        known = tmp_path / "known.mp3"
+        unknown = tmp_path / "unknown.mp3"
+        known.write_bytes(b"x")
+        unknown.write_bytes(b"y")
+        cache.upsert_file(
+            str(known), mtime=1.0, size=10, format_ext=".mp3", has_art=False
+        )
+        cache.upsert_file(str(unknown), mtime=2.0, size=10, format_ext=".mp3")
+
+        agg = cache.query_aggregate(str(tmp_path))
+        assert agg is not None
+        assert agg["missing_data"]["no_art"] == 1
+
+
 # ── LibraryCache: query_aggregate ────────────────────────────────────────────
 
 
@@ -754,6 +812,9 @@ class TestPathFold:
             agg = cache.query_aggregate(str(tmp_path))
             assert agg is not None
             assert agg["total_files"] == 1
+            # Version 4 adds the artwork fact; a pre-existing row keeps NULL
+            # ("not measured yet") rather than claiming the file has no art.
+            assert conn.execute("SELECT has_art FROM files").fetchone()[0] is None
 
     def test_migration_runs_once(self, tmp_path: Path) -> None:
         db = tmp_path / "once.db"

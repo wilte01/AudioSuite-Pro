@@ -36,6 +36,12 @@ and every bullet belongs to exactly one of them.
   exports gain `has_art`, `art_bytes`, `art_width` and `art_height` columns,
   appended after the existing ones, so a spreadsheet shows which albums still
   need a cover.
+- **Artwork gaps in Library Statistics, including incremental scans.** The
+  Missing Data tab, the console report and the `stats --json` payload now
+  report how many files have no embedded artwork, and the run report prints the
+  same figure. An incremental scan answers for a library it did not reopen, so
+  a repeat scan is as fast as before; a cache written by an earlier version is
+  reread once to fill the fact in, rather than reporting a guess.
 - **Artwork Extractor, a window and a Master Driver batch step.** The extraction
   `audiosuite artwork extract` performs now has its own window
   (`Artwork_Extractor.pyw`): pick a folder, set the sidecar name, choose whether

@@ -850,6 +850,8 @@ class LibraryStatsApp(SuiteApp):
             ("Genre", "no_genre"),
             ("Mood", "no_mood"),
             ("Tempo Marking", "no_tempo_marking"),
+            # Changed in 2.6.0: artwork coverage rides the same report (F-E10).
+            ("Artwork", "no_art"),
         ):
             count = report.missing_data.get(key, 0)
             entries.append(f"  {label:<15} {count:>6}  ({count / total * 100:5.1f}%)\n")
@@ -931,6 +933,8 @@ class LibraryStatsApp(SuiteApp):
             ("Missing Genre", "no_genre"),
             ("Missing Mood", "no_mood"),
             ("Missing Tempo Marking", "no_tempo_marking"),
+            # Changed in 2.6.0: artwork coverage (F-E10).
+            ("Missing Artwork", "no_art"),
         ]
         for label, key in labels:
             count = r.missing_data.get(key, 0)

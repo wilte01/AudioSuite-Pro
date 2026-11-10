@@ -46,6 +46,14 @@ a plugin's numbers stay attributable (Sprint 7).
 Changed in 2.4.1: takes ``TagHandlerFactory`` from
 ``audio_suite_shared.tag_handler_factory``, the leaf module that owns the
 handler table (WP-2).
+
+Changed in 2.6.0: the cached scan caches and reports artwork coverage
+(F-E10).  ``has_art`` is read once per file, stored with the row, and
+aggregated into ``missing_data["no_art"]``, so an incremental scan reports
+coverage without re-reading an unchanged file's tags.  A row cached before
+the fact existed carries NULL and is re-read once, the healing rule a NULL
+``size`` already follows; the full scan reports the same key so the two
+report shapes stay identical.
 """
 
 # Changed in 2.6.0: per-file artwork facts (F-E10) - ``has_art`` and the
@@ -258,6 +266,7 @@ def _populate_report(
     missing_no_genre: int,
     missing_no_mood: int,
     missing_no_tempo: int,
+    missing_no_art: int,
 ) -> None:
     """Aggregate counters and sets into a StatsReport."""
     report.format_breakdown = dict(format_counter.most_common())
@@ -281,6 +290,7 @@ def _populate_report(
         "no_genre": missing_no_genre,
         "no_mood": missing_no_mood,
         "no_tempo_marking": missing_no_tempo,
+        "no_art": missing_no_art,
     }
 
 
@@ -525,6 +535,7 @@ def _scan_directory_full(
     missing_no_genre = 0
     missing_no_mood = 0
     missing_no_tempo = 0
+    missing_no_art = 0
 
     for root, _dirs, files in os.walk(dir_path):
         for name in files:
@@ -537,7 +548,7 @@ def _scan_directory_full(
             report.total_files += 1
 
             try:
-                tags = _read_file_tags(full)
+                tags = _read_file_tags(full, art_fields=True)
                 artist_album = tags.artist_album
                 album_artist = tags.album_artist
                 if artist_album:
@@ -584,6 +595,11 @@ def _scan_directory_full(
                 else:
                     missing_no_tempo += 1
 
+                # Artwork coverage (F-E10): the report's "no_art" figure, read
+                # from the same handler load as every other field.
+                if not tags.has_art:
+                    missing_no_art += 1
+
                 year_counter[_decade_bin(tags.year)] += 1
                 _record_analysis(report, hooks, full, asdict(tags))
             except Exception:
@@ -612,6 +628,7 @@ def _scan_directory_full(
         missing_no_genre,
         missing_no_mood,
         missing_no_tempo,
+        missing_no_art,
     )
 
 
@@ -660,10 +677,18 @@ def _scan_directory_cached(
     # ``(mtime, size)``: an mtime-only comparison counted a file replaced with
     # its timestamps preserved as unchanged and served its pre-edit tags (R-13).
     cached_stamps: dict[str, tuple[float, int | None]] = {}
+    # The artwork fact is cached with the row, so an unchanged file needs no
+    # tag read to report coverage.  A None is a row from before the fact
+    # existed: treated as a miss so it heals instead of silently undercounting.
+    cached_art: dict[str, bool | None] = {}
     if not refresh:
         cached_stamps = {
             os.path.normcase(path): stamp
             for path, stamp in cache_obj.get_cached_stamps(dir_path).items()
+        }
+        cached_art = {
+            os.path.normcase(path): has_art
+            for path, has_art in cache_obj.get_cached_art(dir_path).items()
         }
 
     # Read tags only on a cache miss, and commit the whole pass once rather
@@ -671,11 +696,15 @@ def _scan_directory_cached(
     # 20 000 rows).
     with cache_obj.batch():
         for full, ext, mtime, size in current_files:
-            if cached_stamps.get(os.path.normcase(full)) == (mtime, size):
+            normcase_path = os.path.normcase(full)
+            if (
+                cached_stamps.get(normcase_path) == (mtime, size)
+                and cached_art.get(normcase_path) is not None
+            ):
                 continue
 
             try:
-                tags = _read_file_tags(full)
+                tags = _read_file_tags(full, art_fields=True)
                 cache_obj.upsert_file(
                     filepath=full,
                     mtime=mtime,
@@ -689,6 +718,7 @@ def _scan_directory_cached(
                     album_artist=tags.album_artist,
                     artist_album=tags.artist_album,
                     year=tags.year,
+                    has_art=tags.has_art,
                 )
             except Exception:
                 logger.debug("Skipping unreadable file: %s", full, exc_info=True)
@@ -715,7 +745,7 @@ def _build_report_from_cache(
     conn = cache._connect()
     cur = conn.execute(
         """SELECT path, format, bpm, key, genre, mood, tempo_marking,
-                  album_artist, artist_album, year
+                  album_artist, artist_album, year, has_art
            FROM temp._scope_files"""
     )
     rows = cur.fetchall()
@@ -738,6 +768,7 @@ def _build_report_from_cache(
     missing_no_genre = 0
     missing_no_mood = 0
     missing_no_tempo = 0
+    missing_no_art = 0
 
     for row in rows:
         (
@@ -751,6 +782,7 @@ def _build_report_from_cache(
             album_artist,
             artist_album_json,
             year,
+            has_art,
         ) = row
 
         report.total_files += 1
@@ -815,6 +847,12 @@ def _build_report_from_cache(
         else:
             missing_no_tempo += 1
 
+        # Artwork coverage (F-E10).  A NULL came from a row written before the
+        # fact existed; the scan re-reads those, so only a measured "no
+        # artwork" is counted here.
+        if has_art == 0:
+            missing_no_art += 1
+
         # Year
         year_counter[_decade_bin(year)] += 1
 
@@ -837,6 +875,7 @@ def _build_report_from_cache(
         missing_no_genre,
         missing_no_mood,
         missing_no_tempo,
+        missing_no_art,
     )
 
 

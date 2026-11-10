@@ -96,6 +96,11 @@ selection, aggregate queries) and ``cache_prune`` (whole-cache clearing and
 the completeness trend). ``LibraryCache`` composes the two mixins and keeps
 connection management; every moved name is re-exported here
 (PLAN_2026-11-03_2.4.3_structure.md WP-9).
+
+Changed in 2.6.0: the cache carries the artwork coverage fact (F-E10) -
+schema version 4's ``has_art`` column, written by ``upsert_file`` and read
+back by ``get_cached_art`` - so an incremental scan can report
+``missing_data["no_art"]`` without reading an unchanged file's tags.
 """
 
 from __future__ import annotations
@@ -120,6 +125,8 @@ from .cache_schema import _SCOPE_COUNT_SQL as _SCOPE_COUNT_SQL
 from .cache_schema import _SCOPE_PLAN_CACHE_LIMIT as _SCOPE_PLAN_CACHE_LIMIT
 from .cache_schema import _SCOPE_RANGE_HIGH as _SCOPE_RANGE_HIGH
 from .cache_schema import _SCOPE_TABLE_SQL as _SCOPE_TABLE_SQL
+from .cache_schema import _SCOPED_ART_INDEXED as _SCOPED_ART_INDEXED
+from .cache_schema import _SCOPED_ART_SEQUENTIAL as _SCOPED_ART_SEQUENTIAL
 from .cache_schema import _SCOPED_CLEAR_INDEXED as _SCOPED_CLEAR_INDEXED
 from .cache_schema import _SCOPED_CLEAR_SEQUENTIAL as _SCOPED_CLEAR_SEQUENTIAL
 from .cache_schema import _SCOPED_HASHES_INDEXED as _SCOPED_HASHES_INDEXED

@@ -8,6 +8,13 @@ the store mixin import them.
 
 Changed in 2.4.3: split out of ``library_stats.library_cache``
 (PLAN_2026-11-03_2.4.3_structure.md WP-9).
+
+Changed in 2.6.0: schema version 4 adds ``has_art`` - the cached artwork
+coverage fact (F-E10).  The column lives on ``files``, on the
+``temp._scope_files`` copy, in both populate statements, and is added to an
+existing cache by one ``ALTER TABLE`` in :func:`migrate`.  A row written
+before the upgrade keeps NULL, which the cached scan reads as "not measured
+yet" and re-reads once, the same healing rule as a NULL ``size``.
 """
 
 from __future__ import annotations
@@ -36,6 +43,7 @@ CREATE TABLE IF NOT EXISTS files (
     album_artist TEXT,
     artist_album TEXT,
     year INTEGER,
+    has_art INTEGER,
     scanned_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_files_dir ON files(dir_path);
@@ -43,7 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_files_dir ON files(dir_path);
 -- ``path_fold`` column yet, so the statement cannot live in this script.
 """
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 _SCOPE_RANGE_HIGH = "\U0010ffff"
 
@@ -61,24 +69,25 @@ _SCOPE_TABLE_SQL = """CREATE TEMP TABLE IF NOT EXISTS _scope_files (
     tempo_marking TEXT,
     album_artist TEXT,
     artist_album TEXT,
-    year INTEGER
+    year INTEGER,
+    has_art INTEGER
 )"""
 
 _CLEAR_SCOPE_SQL = "DELETE FROM temp._scope_files"
 
 _POPULATE_SCOPE_INDEXED = """INSERT INTO temp._scope_files
     (path_hash, path, mtime, format, bpm, key, genre, mood,
-     tempo_marking, album_artist, artist_album, year)
+     tempo_marking, album_artist, artist_album, year, has_art)
 SELECT path_hash, path, mtime, format, bpm, key, genre, mood,
-       tempo_marking, album_artist, artist_album, year
+       tempo_marking, album_artist, artist_album, year, has_art
 FROM files
 WHERE path_fold >= ? AND path_fold < ?"""
 
 _POPULATE_SCOPE_SEQUENTIAL = """INSERT INTO temp._scope_files
     (path_hash, path, mtime, format, bpm, key, genre, mood,
-     tempo_marking, album_artist, artist_album, year)
+     tempo_marking, album_artist, artist_album, year, has_art)
 SELECT path_hash, path, mtime, format, bpm, key, genre, mood,
-       tempo_marking, album_artist, artist_album, year
+       tempo_marking, album_artist, artist_album, year, has_art
 FROM files
 WHERE INSTR(LOWER(path), LOWER(?)) = 1"""
 
@@ -98,6 +107,14 @@ _SCOPED_STAMPS_INDEXED = (
 
 _SCOPED_STAMPS_SEQUENTIAL = (
     "SELECT path, mtime, size FROM files WHERE INSTR(LOWER(path), LOWER(?)) = 1"
+)
+
+_SCOPED_ART_INDEXED = (
+    "SELECT path, has_art FROM files WHERE path_fold >= ? AND path_fold < ?"
+)
+
+_SCOPED_ART_SEQUENTIAL = (
+    "SELECT path, has_art FROM files WHERE INSTR(LOWER(path), LOWER(?)) = 1"
 )
 
 _SCOPED_HASHES_INDEXED = (
@@ -152,7 +169,8 @@ def migrate(conn: sqlite3.Connection) -> None:
     """Bring an existing cache file up to ``_SCHEMA_VERSION`` in place.
 
     Version 2 adds ``path_fold`` plus its index and backfills existing
-    rows; version 3 adds the completeness trend table.  The column is
+    rows; version 3 adds the completeness trend table; version 4 adds
+    ``has_art``, left NULL on existing rows until they are next read.  The column is
     added with ``ALTER TABLE`` so no user data is rewritten, and the
     backfill runs through ``_path_fold`` (Python) rather than SQL ``LOWER``
     so it agrees byte-for-byte with ``upsert_file``.  Must be called under
@@ -165,6 +183,8 @@ def migrate(conn: sqlite3.Connection) -> None:
     columns = {r[1] for r in conn.execute("PRAGMA table_info(files)")}
     if "path_fold" not in columns:
         conn.execute("ALTER TABLE files ADD COLUMN path_fold TEXT")
+    if "has_art" not in columns:
+        conn.execute("ALTER TABLE files ADD COLUMN has_art INTEGER")
     missing = conn.execute(
         "SELECT rowid, path FROM files WHERE path_fold IS NULL"
     ).fetchall()
