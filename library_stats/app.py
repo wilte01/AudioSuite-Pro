@@ -1207,9 +1207,25 @@ class LibraryStatsApp(SuiteApp):
         fig = build_summary_figure(r, history)
 
         canvas = FigureCanvasTkAgg(fig, master=self._charts_frame)
+        # Changed in 2.6.0: clicking the artwork panel opens the album list, so
+        # the gap the figure reports can be acted on without hunting for it.
+        canvas.mpl_connect(
+            "button_press_event", lambda event: self._on_chart_click(event, fig)
+        )
         canvas.draw()
         canvas.get_tk_widget().pack(fill="both", expand=True)
         self._chart_canvas = canvas
+
+    def _on_chart_click(self, event: Any, figure: Any) -> None:
+        """Open the Artwork Gaps view when its coverage panel is clicked."""
+        artwork_axes = getattr(figure, "artwork_axes", None)
+        if artwork_axes is None or getattr(event, "inaxes", None) is not artwork_axes:
+            return
+        self._show_artwork_gaps()
+
+    def _show_artwork_gaps(self) -> None:
+        """Select the Artwork Gaps tab, where the listed albums can be fixed."""
+        self._notebook.select(self._artwork_frame)
 
     # ── Completeness rendering ───────────────────────────────────────────────
 

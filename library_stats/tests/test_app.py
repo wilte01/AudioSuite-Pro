@@ -42,6 +42,7 @@ import json
 import tkinter
 from collections.abc import Generator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -1036,6 +1037,40 @@ class TestChartRendering:
             "2026-10-01",
             "2026-10-02",
         ]
+
+    def test_clicking_the_artwork_panel_opens_the_gap_list(
+        self,
+        app: app_module.LibraryStatsApp,
+        library: Path,
+        scan_reads: None,
+    ) -> None:
+        """Changed in 2.6.0: the coverage figure routes to the albums."""
+        report = scan_directory(str(library), use_cache=False)
+        app._update_charts(report)
+        figure = app._chart_canvas.figure
+        app._notebook.select(app._charts_frame)
+
+        app._on_chart_click(
+            SimpleNamespace(inaxes=getattr(figure, "artwork_axes")), figure
+        )
+
+        assert app._notebook.tab("current", "text").strip() == "8. Artwork Gaps"
+
+    def test_clicking_another_panel_leaves_the_tab_alone(
+        self,
+        app: app_module.LibraryStatsApp,
+        library: Path,
+        scan_reads: None,
+    ) -> None:
+        report = scan_directory(str(library), use_cache=False)
+        app._update_charts(report)
+        figure = app._chart_canvas.figure
+        app._notebook.select(app._charts_frame)
+
+        app._on_chart_click(SimpleNamespace(inaxes=figure.axes[0]), figure)
+        app._on_chart_click(SimpleNamespace(inaxes=None), figure)
+
+        assert app._notebook.tab("current", "text").strip() == "5. Charts"
 
     def test_second_render_replaces_the_first(
         self,

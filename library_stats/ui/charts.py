@@ -127,7 +127,10 @@ def _add_artwork_panel(fig: Figure, position: Any, report: Any) -> Any:
             fontweight="bold",
             color="#22c55e" if with_art == total else "#374151",
         )
-        ax.set_xlabel("files", fontsize=7)
+        ax.set_xlabel(
+            "files (click to list the albums missing covers)" if without else "files",
+            fontsize=7,
+        )
         ax.tick_params(axis="x", labelsize=7)
         ax.tick_params(axis="y", labelsize=7)
     else:
@@ -216,7 +219,11 @@ def build_summary_figure(
     ax4.tick_params(axis="y", labelsize=7)
 
     # Artwork coverage sits beside the trend, from the same scan.
-    _add_artwork_panel(fig, (2, 3, 5), report)
+    artwork_ax = _add_artwork_panel(fig, (2, 3, 5), report)
+    # Changed in 2.6.0: the GUI binds a click to this panel so the chart can
+    # route to the album list; the attribute is the published handle, since
+    # the figure alone does not say which axis is which.
+    setattr(fig, "artwork_axes", artwork_ax)
     _add_trend_panel(fig, (2, 3, 6), history)
 
     fig.tight_layout(pad=3)

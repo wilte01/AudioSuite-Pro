@@ -34,6 +34,18 @@ and every bullet belongs to exactly one of them.
   the legacy-row re-read test, and the full scan's counter. The recorded CLI
   corpus and schema examples are re-recorded, because the payload gained a
   field.
+- **The Artwork Coverage panel is a route to the album list.**
+  `build_summary_figure` publishes the panel's axis on the figure as
+  `artwork_axes` (a `setattr`, because `Figure` is not ours to extend), and
+  `_update_charts` binds `button_press_event` on the new Tk canvas — binding
+  before the canvas exists would lose the callback, since matplotlib stores
+  them per canvas instance — then compares `event.inaxes` by identity and
+  selects `_artwork_frame` in the notebook. A click elsewhere, or an event
+  with no axis, does nothing; the panel's x-label only advertises the route
+  when some file is actually missing a cover. Locked by two app tests (a click
+  on the panel lands on "8. Artwork Gaps"; clicks on another panel or outside
+  any axis stay on Charts) and by the chart tests that pin `artwork_axes` and
+  the label.
 - **The Charts tab's summary figure gains an Artwork Coverage panel**
   (`library_stats/ui/charts.py::_add_artwork_panel`), drawn from
   `StatsReport.missing_data["no_art"]` against `total_files` — the fact the

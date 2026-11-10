@@ -139,6 +139,24 @@ class TestArtworkPanel:
         assert [patch.get_width() for patch in artwork.patches] == [0.0, 5.0]
         assert any("100% have artwork" in t.get_text() for t in artwork.texts)
 
+    def test_the_panel_is_exposed_and_advertises_the_list(self) -> None:
+        """Changed in 2.6.0: the GUI clicks this axis to open the album list."""
+        report = StatsReport(
+            scan_path="/music",
+            total_files=10,
+            missing_data={"no_art": 4},
+        )
+
+        fig = build_summary_figure(report)
+
+        assert getattr(fig, "artwork_axes") is fig.axes[4]
+        assert "click to list the albums missing covers" in (fig.axes[4].get_xlabel())
+
+    def test_a_fully_covered_library_does_not_advertise_the_list(self) -> None:
+        fig = build_summary_figure(StatsReport(scan_path="/music", total_files=5))
+
+        assert fig.axes[4].get_xlabel() == "files"
+
     def test_an_empty_scan_explains_itself(self) -> None:
         fig = build_summary_figure(StatsReport(scan_path=""))
 
