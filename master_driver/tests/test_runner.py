@@ -2155,3 +2155,11 @@ class TestBatchEngineConsolidation:
                 results.append,
             )
         assert results == [1]
+
+
+def test_arg_builder_reads_the_model_stage_list() -> None:
+    """F-S1 follow-up: one tuple serves the args, both guards and select-all."""
+    from audio_refinery.core import models
+    from master_driver.runner.arg_builder import REFINERY_STAGES
+
+    assert REFINERY_STAGES is models.REFINERY_STAGES

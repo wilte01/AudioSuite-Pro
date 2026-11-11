@@ -75,6 +75,11 @@ and every bullet belongs to exactly one of them.
   with it off the window opens with the folder and rule ready and waits for
   Apply Channels, and with it on the batch starts as before.
 
+- **The Audio Refinery accepts a run whose only stage is Parametric EQ.** Both
+  the standalone window and the Master Driver's LAUNCH REFINERY answered
+  "Please enable at least one Refinery stage" for an EQ-only selection,
+  because their guard still listed the five stages that predate the EQ stage.
+
 ## [2.6.0] - 2026-11-11
 
 ### Added

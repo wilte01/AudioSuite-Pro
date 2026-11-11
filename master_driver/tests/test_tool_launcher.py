@@ -1,3 +1,4 @@
+# Changed in 2.7.0: every stage alone launches.
 """
 test_tool_launcher.py — Tests for master_driver/tool_launcher.py.
 
@@ -39,7 +40,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from audio_refinery.core.models import StageConfig
+from audio_refinery.core.models import REFINERY_STAGES, StageConfig
 from master_driver.runner import arg_builder
 from master_driver.state.app_state import AppState
 from master_driver.tool_launcher import (
@@ -542,3 +543,21 @@ class TestArgvBuiltOnMainThread:
         )
         assert converter, "the enabled converter tool contributed no argv"
         assert not any(type(arg) is tk.Variable for arg in converter)
+
+
+@pytest.mark.gui  # builds real tk.Variable objects: needs a Tk root
+class TestEveryStageAloneIsEnough:
+    """F-S1 follow-up: the guard must count every stage the pipeline runs."""
+
+    @pytest.mark.parametrize("field", [field for field, _name in REFINERY_STAGES])
+    def test_a_single_enabled_stage_launches(
+        self, state, launch_mocks, tmp_path, field
+    ) -> None:
+        state.refinery_source.set(str(tmp_path))
+        config = StageConfig(**{f: f == field for f, _ in REFINERY_STAGES})
+
+        with patch("master_driver.ui.refinery_tab.save_settings"):
+            launch_refinery(state, config, MagicMock(), MagicMock())
+
+        assert launch_mocks.show_message.call_count == 0
+        launch_mocks.thread.assert_called_once()

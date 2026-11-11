@@ -48,6 +48,7 @@ import tkinter as tk
 from collections.abc import Callable
 from typing import Any
 
+from audio_refinery.core.models import REFINERY_STAGES as REFINERY_STAGES
 from audio_suite_shared.tool_plugin import ToolManifest, get_registry
 
 from ..state.app_state import AppState
@@ -491,23 +492,6 @@ def _build_converter_args(
     if state.converter_output_dir.get():
         args.extend(["--output-dir", state.converter_output_dir.get()])
     return args
-
-
-# (StageConfig field, --stages name) pairs for the Refinery's stage toggles.
-#
-# Single source of truth (audit M12a): `build_refinery_args` emits this list
-# and the Master Driver's Refine-tab select-all iterates the same constant, so
-# a new stage cannot appear in one place and not the other. The field name and
-# the CLI stage name are asserted equal by test_runner.py.
-REFINERY_STAGES: tuple[tuple[str, str], ...] = (
-    ("declick", "declick"),
-    ("trim", "trim"),
-    ("enhance", "enhance"),
-    ("normalise", "normalise"),
-    ("reduce_noise", "reduce_noise"),
-    # Changed in 2.7.0: the parametric EQ is its own stage (F-S1).
-    ("eq", "eq"),
-)
 
 
 def build_refinery_args(

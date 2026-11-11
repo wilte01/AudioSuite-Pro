@@ -261,6 +261,25 @@ class TestStartProcessingStageValidation:
         assert "No Stages Selected" in titles
         mb._thread_cls.assert_not_called()
 
+    def test_eq_only_passes_stage_validation(
+        self, app: AudioRefineryApp, audio_dir: Path
+    ) -> None:
+        """F-S1 follow-up: EQ alone is a run, not "no stages selected"."""
+        mb = self._start(
+            app,
+            StageConfig(
+                declick=False,
+                trim=False,
+                enhance=False,
+                normalise=False,
+                reduce_noise=False,
+                eq=True,
+            ),
+        )
+        titles = [c.args[0] for c in mb.showerror.call_args_list]
+        assert "No Stages Selected" not in titles
+        mb._thread_cls.assert_called_once()
+
 
 @pytest.fixture()
 def app_root(root: tk.Tk) -> Any:

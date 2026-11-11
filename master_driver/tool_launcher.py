@@ -1,3 +1,4 @@
+# Changed in 2.7.0: an EQ-only run launches (F-S1 follow-up).
 """
 tool_launcher.py — Standalone processing launchers extracted from AudioSuiteDriver.
 
@@ -25,7 +26,7 @@ from collections.abc import Sequence
 from tkinter import messagebox
 from typing import Any, Callable, Optional, cast
 
-from audio_refinery.core.models import StageConfig
+from audio_refinery.core.models import StageConfig, has_active_stage
 from audio_suite_shared import suite_config as _suite_config
 from audio_suite_shared import ui_common
 from audio_suite_shared.tool_plugin import ToolManifest, get_registry
@@ -130,16 +131,9 @@ def launch_refinery(
         )
         return
 
-    stages_active = any(
-        [
-            config.declick,
-            config.trim,
-            config.enhance,
-            config.normalise,
-            config.reduce_noise,
-        ]
-    )
-    if not stages_active:
+    # One stage list for the guard, the args and the Refine tab (F-S1
+    # follow-up: the private five-field copy refused an EQ-only run).
+    if not has_active_stage(config):
         ui_common.show_message(
             root,
             "No Stages Selected",

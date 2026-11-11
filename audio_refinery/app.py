@@ -48,6 +48,7 @@ from audio_suite_shared.ui_audition import AuditionMixin
 from audio_suite_shared.ui_helpers import UIHelperMixin
 
 from .core.file_processor import run_pipeline
+from .core.models import has_active_stage
 from .core.registry import CompletionRegistry
 from .ui import processing_tab, results_tab, setup_tab
 from .utils import cli_args
@@ -508,16 +509,9 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
                 )
                 return
 
-            # Validate pipeline stages
-            if not any(
-                [
-                    self.config.declick,
-                    self.config.trim,
-                    self.config.enhance,
-                    self.config.normalise,
-                    self.config.reduce_noise,
-                ]
-            ):
+            # Validate pipeline stages through the one stage list (F-S1
+            # follow-up: the private five-field copy refused an EQ-only run).
+            if not has_active_stage(self.config):
                 messagebox.showerror(
                     "No Stages Selected", "Please enable at least one refinery stage."
                 )

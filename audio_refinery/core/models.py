@@ -184,6 +184,35 @@ class StageConfig:
     eq_params: EqSettings = field(default_factory=EqSettings)
 
 
+#: (``StageConfig`` field, ``--stages`` name) pairs for the pipeline's toggles.
+#:
+#: One declaration: ``master_driver.runner.arg_builder.build_refinery_args``
+#: emits this list, both windows' "at least one stage" guard asks
+#: :func:`has_active_stage`, and the Master Driver's Refine-tab select-all
+#: iterates it. Before the F-S1 follow-up each guard carried its own copy of the
+#: five original fields, so an EQ-only selection was refused as "no stages".
+REFINERY_STAGES: tuple[tuple[str, str], ...] = (
+    ("declick", "declick"),
+    ("trim", "trim"),
+    ("enhance", "enhance"),
+    ("normalise", "normalise"),
+    ("reduce_noise", "reduce_noise"),
+    ("eq", "eq"),
+)
+
+
+def has_active_stage(config: StageConfig) -> bool:
+    """Return whether *config* enables at least one stage the pipeline runs.
+
+    Args:
+        config: The stage toggles a run would use.
+
+    Returns:
+        ``True`` when any field named in :data:`REFINERY_STAGES` is set.
+    """
+    return any(getattr(config, field) for field, _ in REFINERY_STAGES)
+
+
 # ── Job status ────────────────────────────────────────────────────────────────
 
 
