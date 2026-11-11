@@ -28,6 +28,10 @@ Counter semantics
   errors        : files that raised while separating or writing
 
 Changed in 2.0.0: initial version (Sprint 6, Item 6.1).
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -188,7 +192,7 @@ def process_single_file(
             stems=stems,
         )
         written = _write_track(track, folder, params)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - failure_reason reports it
         reason = failure_reason(exc)
         logger.warning(
             "Stem separation failed for %s: %s", source, reason, exc_info=True

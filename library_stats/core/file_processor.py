@@ -1,3 +1,4 @@
+# Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage.
 """
 library_stats.py — Read-only library statistics engine.
 
@@ -502,7 +503,7 @@ def _scan_plugin_analysis(
             full = os.path.join(root, name)
             try:
                 tags = _read_file_tags(full)
-            except Exception:
+            except Exception:  # noqa: BLE001 - skip unreadable, keep scanning
                 logger.debug("Skipping unreadable file: %s", full, exc_info=True)
                 continue
             _record_analysis(report, hooks, full, asdict(tags))
@@ -602,7 +603,7 @@ def _scan_directory_full(
 
                 year_counter[_decade_bin(tags.year)] += 1
                 _record_analysis(report, hooks, full, asdict(tags))
-            except Exception:
+            except Exception:  # noqa: BLE001 - one corrupt file cannot abort a scan
                 # One corrupt file must never abort a library scan; the
                 # pre-refactor per-field facades swallowed the same failures.
                 logger.debug("Skipping unreadable file: %s", name, exc_info=True)
@@ -720,7 +721,7 @@ def _scan_directory_cached(
                     year=tags.year,
                     has_art=tags.has_art,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 - skip unreadable, keep scanning
                 logger.debug("Skipping unreadable file: %s", full, exc_info=True)
                 continue
 
@@ -967,7 +968,7 @@ def export_csv(
 
                 try:
                     tags = _read_file_tags(full, art_fields=True)
-                except Exception:
+                except Exception:  # noqa: BLE001 - skip unreadable during CSV export
                     logger.debug(
                         "Skipping unreadable file during CSV export: %s",
                         full,

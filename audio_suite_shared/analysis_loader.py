@@ -1,3 +1,4 @@
+# Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage.
 """
 analysis_loader.py — Shared audio loading for signal-analysis tools.
 
@@ -354,7 +355,7 @@ def _transcode_via_ffmpeg(
             y_f32, out_sr = _librosa_load(librosa, wav_path, 0, mono, sr)
             decoded: npt.NDArray[np.float32] = y_f32
             return decoded, int(out_sr)
-    except Exception:
+    except Exception:  # noqa: BLE001 - fallback reports its own failure
         logger.debug(
             "FFmpeg transcode fallback failed for %s", file_path, exc_info=True
         )

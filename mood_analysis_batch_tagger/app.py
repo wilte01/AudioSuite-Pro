@@ -19,6 +19,10 @@ Changed in 2.4.3: ``_on_open_log`` delegates to
 ``ui_helpers.open_log_file`` instead of carrying its own copy of the
 open/no-log branch, so the button's target and wording are the suite's one
 implementation (PLAN_2026-11-03_2.4.3_structure.md D-16, D-19).
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 
 from __future__ import annotations
@@ -406,7 +410,7 @@ class MoodAnalysisBatchTaggerApp(UIHelperMixin):
 
         except Empty:
             pass
-        except Exception:
+        except Exception:  # noqa: BLE001 - poller must survive one bad read
             logger.warning(
                 "Unexpected error while polling the batch queue",
                 exc_info=True,

@@ -33,6 +33,7 @@ smuggled into one of these plans.
 | 6 | `2.7.0` | `PLAN_2026-11-03_2.7.0_feature_wave_3.md` | minor | F-S1, F-S2, F-S4, F-S5, F-S7, F-S9 | 14-18 weeks |
 | 7 | `3.0.0` | `PLAN_2026-11-03_3.0.0_feature_wave_4_core.md` | major | F-M1, F-M2, F-M4 | 4-6 months |
 | 8 | `3.1.0` | `PLAN_2026-11-03_3.1.0_feature_wave_4_optional.md` | minor | F-M3, F-M5, F-M6 | 3-5 months, decision-gated |
+| 9 | `3.2.0` | `PLAN_2026-11-11_3.2.0_recursive_scanning.md` | minor | REC-1 … REC-7 (no `F-*` number: this set is closed at `3.1.0`, see that plan's item-ID note) | 9-10 days, strictly additive, every item independently cuttable |
 
 The audit's week numbers are elapsed-time labels, not commitments. The plans
 keep the labels so the mapping back to §11.2 is exact, and each plan states its
@@ -201,8 +202,8 @@ release without editing.
 EXECUTION SESSION — AudioSuite-Pro, audit 2026-11-03 plan set
 
 You are executing work that is already planned. The planning pass is finished:
-eight execution plans plus one index sit in the repository root, all dated
-2026-11-03. Your job is to carry out the next eligible item correctly, in order,
+nine execution plans plus one index sit in the repository root, the first eight
+all dated 2026-11-03. Your job is to carry out the next eligible item correctly, in order,
 with evidence — not to re-plan, re-audit or improve the plans.
 
 0. BEFORE ANY EDIT
@@ -218,7 +219,7 @@ with evidence — not to re-plan, re-audit or improve the plans.
       the next eligible one and wait for confirmation.
 
 1. THE ORDER — never reorder without asking
-   Releases: 2.4.1 -> 2.4.2 -> 2.4.3 -> 2.5.0 -> 2.6.0 -> 2.7.0 -> 3.0.0 -> 3.1.0
+   Releases: 2.4.1 -> 2.4.2 -> 2.4.3 -> 2.5.0 -> 2.6.0 -> 2.7.0 -> 3.0.0 -> 3.1.0 -> 3.2.0
    Inside a release, follow the item order its plan gives.
    Hard prerequisites:
      WP-1 before WP-2 and before WP-5

@@ -1,3 +1,4 @@
+# Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage.
 """
 core/pipeline.py
 Single-file pipeline processor for Audio Refinery.
@@ -173,7 +174,7 @@ def _inspect_source_bitrate(source_path: Path) -> tuple[int, bool]:
                 )
 
         return bitrate_kbps, is_vbr
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - probe degrades to 0, False
         logger.debug("Bitrate probe failed for %s: %s", source_path, exc, exc_info=True)
         return 0, False
 

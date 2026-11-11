@@ -585,6 +585,6 @@ audio_suite_shared = ["cli_schema.json", "py.typed"]
 # (release cut by utilities/release.py).
 # Changed in 2.5.0: bumped [project] version 2.4.3 -> 2.5.0
 # (release cut by utilities/release.py).
-# Changed in 2.6.0: bumped [project] version 2.5.0 -> 2.6.0
+# Changed in 2.7.0: bumped [project] version 2.5.0 -> 2.6.0
 # (release cut by utilities/release.py).
 audio_refinery = ["refinery_settings.default.json"]

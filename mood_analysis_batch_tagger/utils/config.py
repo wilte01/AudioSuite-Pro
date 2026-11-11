@@ -7,6 +7,10 @@ other tool preferences.
 
 Changed in 2.4.3: C-I7 dropped the accepted-but-ignored ``config_path``
 parameter; it was never read, so removing it removes a misuse seam.
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 
 import logging
@@ -30,7 +34,7 @@ def load_run_mode(default: str = "Dry Run") -> str:
     """
     try:
         saved = suite_config.load_value("mood_analysis_batch_run_mode", default)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - config falls back to the default
         logger.warning("Could not load run-mode config: %s", exc, exc_info=True)
         return default
     if isinstance(saved, str) and saved in _VALID_RUN_MODES:
@@ -46,5 +50,5 @@ def save_run_mode(run_mode: str = "Dry Run") -> None:
     """
     try:
         suite_config.save_value("mood_analysis_batch_run_mode", run_mode)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - a failed preference write is harmless
         logger.warning("Could not save run-mode config: %s", exc, exc_info=True)

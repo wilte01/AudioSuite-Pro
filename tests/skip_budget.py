@@ -27,7 +27,7 @@ The enforcement lives in ``conftest.py``'s ``pytest_sessionfinish``; this module
 holds the rule, so the rule is tested against fixtures rather than against a
 subprocess that runs the suite.
 
-Changed in 2.6.0: initial version.  The 2.6.0 floor leg's eleven skips were
+Changed in 2.7.0: initial version.  The 2.6.0 floor leg's eleven skips were
 found by reading a log, and six of them were an environment gap nobody had
 recorded; this is the gate that would have said so on the run that introduced
 them.

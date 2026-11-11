@@ -9,6 +9,10 @@ be built from a container the scrubber is unable to open (R-05).
 Changed in 2.1.7: APEv2 items (``.wv``/``.ape``/``.mpc``), Speex comments
 (``.spx``) and DSF's ID3 frames (``.dsf``) are offered in the checklist; before
 B2 those containers were not discovered at all, and their keys were never read.
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 
 import logging
@@ -113,7 +117,7 @@ def scan_custom_tags(
             for desc in _extract_tag_descriptions(handler):
                 if not is_ignored(desc):
                     discovered.add(desc)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - skip unreadable tags
             logger.debug("Skipping unreadable tag during scan: %s", exc, exc_info=True)
             continue
 

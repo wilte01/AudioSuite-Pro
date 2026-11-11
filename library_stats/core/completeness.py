@@ -1,3 +1,4 @@
+# Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage.
 """completeness.py — Tag completeness analysis for Library Statistics.
 
 Walks a directory tree and reports what percentage of audio files carry
@@ -306,7 +307,7 @@ def analyse_completeness(
             # the whole completeness walk.
             try:
                 presence, album_label = _read_file(full)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - skip unreadable, keep walking
                 _logger.debug(
                     "Completeness scan skipping unreadable file %s (%s: %s)",
                     full,

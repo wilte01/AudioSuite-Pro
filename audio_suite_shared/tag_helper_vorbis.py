@@ -27,6 +27,10 @@ Changed in 2.4.2: declares ``convention = "vorbis"`` and implements
 ``read_field_key`` / ``set_field_key`` against the loaded comment dict, so the
 shared field engine can drive Vorbis comments without its own container code
 (WP-6).
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 
 import logging
@@ -326,7 +330,7 @@ class VorbisHandler(BaseTagHandler):
                 picture.load(BytesIO(raw))
                 picture_data: bytes = picture.data
                 return picture_data
-            except Exception:
+            except Exception:  # noqa: BLE001 - corrupt art reads as absent
                 logger.debug(
                     "Failed to parse artwork from %s", self.path, exc_info=True
                 )

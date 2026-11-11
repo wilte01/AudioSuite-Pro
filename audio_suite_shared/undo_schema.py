@@ -7,6 +7,10 @@ bodies are unchanged; ``BatchUndoLog._connect`` calls them.
 
 Changed in 2.4.3: split out of ``audio_suite_shared.batch_undo``
 (PLAN_2026-11-03_2.4.3_structure.md WP-9).
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 
 from __future__ import annotations
@@ -85,7 +89,7 @@ def migrate_delete_payloads(conn: sqlite3.Connection) -> None:
         if payload[:1] == b"\x80":
             try:
                 decoded = pickle.loads(payload)  # nosec B301 - legacy self-writes
-            except Exception:
+            except Exception:  # noqa: BLE001 - skip undecodable legacy rows
                 # Kept deliberately broad: skipping an undecodable legacy row
                 # is the shipped migration contract, and a one-shot migration
                 # must never abort on a single corrupt payload. ``exc_info``

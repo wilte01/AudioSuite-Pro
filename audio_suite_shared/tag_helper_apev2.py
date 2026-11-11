@@ -33,6 +33,10 @@ in a fresh interpreter (WP-2).
 Changed in 2.4.2: declares ``convention = "apev2"`` and implements
 ``read_field_key`` / ``set_field_key``, deleting an existing item by
 case-insensitive name so a rewrite cannot leave a duplicate behind (WP-6).
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 
 import logging
@@ -301,7 +305,7 @@ class APEv2Handler(BaseTagHandler):
             if key.lower() == _COVER_ART_KEY.lower():
                 try:
                     _filename, _sep, data = bytes(self._tags[key]).partition(b"\x00")
-                except Exception:
+                except Exception:  # noqa: BLE001 - corrupt art reads as absent
                     logger.debug(
                         "Failed to parse artwork from %s", self.path, exc_info=True
                     )

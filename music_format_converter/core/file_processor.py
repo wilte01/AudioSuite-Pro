@@ -1,3 +1,4 @@
+# Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage.
 """
 file_processor.py
 Per-file conversion worker orchestrated via BaseFileProcessor.process_batch.
@@ -415,7 +416,7 @@ def _delete_original(
         record_file_delete_snapshot(input_path, original_bytes)
         os.remove(input_path)
         return True, " [ORIGINAL DELETED]"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - delete failure is reported
         mapped = map_to_audio_error(exc)
         logger.warning("Delete failed during conversion: %s", mapped, exc_info=True)
         return False, f" [DELETE FAILED: {user_message_for(mapped)[:30]}]"

@@ -7,6 +7,10 @@ functionality.
 
 Changed in 1.4.0: BPM, tag-presence and existing tempo-marking reads share one
 handler load (PLAN D55).
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 
 import logging
@@ -55,7 +59,7 @@ def _file_has_any_tags(file_path: str, handler: Any = None) -> bool:
             handler if handler is not None else TagHandlerFactory.get_handler(file_path)
         )
         return bool(loaded.get_raw_tags())
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - tag presence probe reads False
         logger.debug(
             "Could not determine tag presence for %s: %s", file_path, exc, exc_info=True
         )
@@ -107,7 +111,7 @@ def process_single_file(
     try:
         handler = TagHandlerFactory.get_handler(file_path)
         bpm = handler.read_bpm()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - unreadable BPM reads as absent
         logger.debug("Could not read BPM from %s: %s", file_path, exc, exc_info=True)
         handler = None
         bpm = None

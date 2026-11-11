@@ -7,6 +7,10 @@ the suite root, alongside all other tool preferences.
 
 Changed in 2.4.3: C-I7 dropped the accepted-but-ignored ``config_path``
 parameter, so a caller can no longer pass a path that quietly does nothing.
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 
 import logging
@@ -49,5 +53,5 @@ def save_scheme(scheme_name: str) -> None:
     """
     try:
         suite_config.save_value("tempo_scheme", scheme_name)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - a failed preference write is harmless
         logger.warning("Could not save scheme config: %s", exc, exc_info=True)

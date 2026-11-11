@@ -232,6 +232,23 @@ whose checkout converts line endings (GitHub's Windows runners set
 so the lock read a 3.11/3.12 run as hundreds of unannotated files and went red
 for a change nobody had made. Without it, git normalises the working tree the
 way it wrote it, which is what ``git status`` reports on every host.
+Changed in 2.7.0: re-baselined the lock for the post-2.6.0 window. BASE_COMMIT
+is now 02785ea -- the commit ``v2.6.0`` points at -- and NOTE_MARKER is
+``Changed in 2.7.0``, so 2.6.0's notes stay as each file's own history and only
+the 2.7.0 work needs a note. The window opened with three commits already past
+the tag (the skip budget, the ``setuptools`` dev dependency and the plan set's
+ninth row), so their notes were relabelled rather than left dated to a released
+version. The asserted non-empty exception category stays the narrative ``.md``
+documents: this re-baseline lands with the plan row and the changelog entry that
+record it, so the scan cannot be vacuous here.
+Changed in 2.7.0: the pre-sale diligence pack classified its two new artefact
+types by the rule this file already states - a format with comment syntax is
+annotated, a comment-less binary is exempted. ``.mailmap`` joins CODE_SUFFIXES
+(it carries ``#`` comments and its note records the identity reconciliation),
+and the buyer deck's rendered ``.pdf`` joins EXCEPTION_SUFFIXES beside
+``.docx``/``.pptx``. Neither is an assertion change: both tables still refuse
+an unclassified format, and the ``.md`` category remains the asserted
+non-empty one.
 """
 
 from __future__ import annotations
@@ -246,14 +263,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: The plan's base commit; every file changed since here must be annotated.
 #: Re-baselined per sprint (section 2.5 of the audit-remediation plan) so each
 #: release's notes are written while its work is in flight, not retro-fitted at
-#: the cut. It now sits at be17c9d, the commit the ``v2.5.0`` tag points at:
+#: the cut. It now sits at 02785ea, the commit the ``v2.6.0`` tag points at:
 #: that window is closed and its notes are written, so only work after it does.
 #: Earlier work is documented in its own plans and the changelogs, so it does
 #: not require per-file notes here.
-BASE_COMMIT = "be17c9d"
+BASE_COMMIT = "02785ea"
 
 #: The exact marker D14 requires in each annotated file.
-NOTE_MARKER = "Changed in 2.6.0"
+NOTE_MARKER = "Changed in 2.7.0"
 
 #: First-party code/config formats that carry the note.
 CODE_SUFFIXES: tuple[str, ...] = (
@@ -274,6 +291,11 @@ CODE_SUFFIXES: tuple[str, ...] = (
     # future `.txt` must still be annotated or declared, never slipping through
     # as an implicit exception.
     ".txt",
+    # 2.7.0 pre-sale diligence pack. ``.mailmap`` carries ``#`` comments, so it
+    # is annotated like configuration rather than exempted like a binary - the
+    # same rule the ``.txt`` entry above records. Its note documents the
+    # identity reconciliation the file performs.
+    ".mailmap",
 )
 
 #: Explicit exception categories. Every changed file must be either code or
@@ -313,6 +335,11 @@ EXCEPTION_SUFFIXES: tuple[str, ...] = (
     # so a note inside it would be marker data to any other tool that inspects
     # it. The marker's change note lives here instead.
     "py.typed",
+    # 2.7.0 pre-sale diligence pack. The buyer deck's ``.pdf`` is a rendered
+    # copy of the committed ``.pptx``, regenerated from it: a binary artefact
+    # with no comment syntax, so it is exempted exactly like the
+    # ``.docx``/``.pptx`` pair above rather than annotated.
+    ".pdf",
 )
 
 #: Categories asserted non-empty below - a comment-less or regenerated-binary

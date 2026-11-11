@@ -8,6 +8,10 @@ processing stages to enable detailed logging and analysis.
 Changed in 2.5.0: loudness measurement runs ``FFMPEG_PATH`` from
 ``audio_suite_shared.ffmpeg`` instead of looking the binary up itself, and the
 path it resolved is the one it now passes to the wrapper (plan D-38).
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 
 from __future__ import annotations
@@ -104,7 +108,7 @@ def measure_audio_metrics(audio: AudioSegment) -> dict[str, Any]:
             "zero_crossing_rate": zero_crossing_rate,
         }
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - best-effort diagnostic
         # Broad net is intentional: measurement is a best-effort diagnostic
         # over arbitrary real-world audio. Any failure (decode, numpy
         # conversion, degenerate shape) must degrade to defaults, never raise.
@@ -175,7 +179,7 @@ def measure_click_characteristics(
             "samples_analyzed": len(samples),
         }
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - degrades to no clicks
         # Broad net is intentional: click detection runs numpy thresholding
         # on user-supplied audio; worst case must degrade to "no clicks".
         logger.warning("measure_click_characteristics failed: %s", e, exc_info=True)
@@ -323,7 +327,7 @@ def measure_enhancement_metrics(audio: AudioSegment) -> dict[str, Any]:
         # Combine with basic metrics
         return {**basic_metrics, **enhancement_metrics}
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - falls back to basic metrics
         # Broad net is intentional: FFT/energy analysis on arbitrary audio
         # must never abort the pipeline; fall back to basic metrics only.
         logger.warning("measure_enhancement_metrics failed: %s", e, exc_info=True)

@@ -1,3 +1,4 @@
+# Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage.
 """
 analysis_app_base.py - Shared GUI scaffold for the in-place analysis tools.
 
@@ -544,7 +545,7 @@ class AnalysisAppBase(UIHelperMixin):
             try:
                 with open(self._log_path, "w", encoding="utf-8") as f:
                     f.writelines(all_entries)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - report rewrite is best-effort
                 logger.warning(
                     "Could not append auto-end marker: %s", exc, exc_info=True
                 )

@@ -14,6 +14,10 @@ where the keys were entered in the GUI.
 Changed in 2.4.1: takes ``TagHandlerFactory`` from
 ``audio_suite_shared.tag_handler_factory``, the leaf module that owns the
 handler table (WP-2).
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 
 from __future__ import annotations
@@ -290,7 +294,7 @@ def resolve_and_apply(
             log_entries=log_entries,
             selection_audit="\n".join(selection_audit_lines),
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - boundary returns a report
         mapped = map_to_audio_error(
             exc, context={"operation": "art_sync_resolve_and_apply"}
         )

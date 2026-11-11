@@ -10,6 +10,10 @@ into the public ``harden_key_file()``, so a caller that copies an existing key
 into its canonical directory can re-apply it. ``shutil.copyfile`` does not carry
 permissions, so a migrated 0600 key was landing as ``0666 & ~umask`` — readable
 by every local user on POSIX (audit R-04, plan B1).
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 
 import base64
@@ -200,7 +204,7 @@ class KeyManager:
                     timeout=5,
                     check=False,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 - ACL hardening is best-effort
                 logger.warning(
                     "Could not set Windows ACL on key file: %s "
                     "(key file written without ACL hardening)",

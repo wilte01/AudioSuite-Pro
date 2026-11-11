@@ -18,6 +18,10 @@ frames the table does not describe — an ``APIC`` block, a vendor string, an
 unrecognised ``TXXX`` — so it keeps its raw-frame path.  The exception is
 locked by ``metadata_scrubber/tests/test_scrubber.py::TestRawFrameException``
 (plan WP-6).
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 
 import logging
@@ -114,7 +118,7 @@ def _get_frame_safe(audio: Any, field_id: str) -> Optional[Any]:
         field = audio.tags.get(field_id)
         if field and hasattr(field, "text") and field.text:
             return field
-    except Exception as exc:  # mutagen can raise various internals here
+    except Exception as exc:  # noqa: BLE001 - mutagen raises internals
         logger.debug("Could not read tag field %s: %s", field_id, exc, exc_info=True)
     return None
 

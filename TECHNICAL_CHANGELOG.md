@@ -35,6 +35,34 @@ and every bullet belongs to exactly one of them.
   runner: all six locks skipped on the 2.6.0 floor leg (run 43001489559), and
   a green CI never certified the wheel's contents. The `dev` extra now declares
   it, so the same run proves them.
+- **Every blind `except` in production code names the boundary it is.** The
+  BLE001 triage WP-7 opened is finished for production code: every site ruff
+  still reports carries a `# noqa: BLE001 - <reason>` naming what degrades -- a
+  skipped unreadable file, an absent measurement, a best-effort log rewrite, or
+  a snapshot that must never block a write. The reason sits on the `except` line
+  itself, so a reader does not have to search for it, and the test trees keep
+  their per-file exemption because they exercise failure paths deliberately.
+  `tests/test_ble_baseline.py` keeps the rule selected and refuses an
+  annotation without a reason. The notes are dated 2.7.0, not 2.6.0: the work
+  landed after the `v2.6.0` tag, so `tests/test_release_notes.py` re-baselined
+  its window to the 2.6.0 release commit rather than let the notes claim a
+  released version.
+- **A plan citation cannot rot silently.** `tests/test_plan_citations.py`
+  resolves every `path:line` citation in a plan dated on or after 2026-11-11 and
+  fails on a bare `app.py`, a module that has moved, or a line past the end of
+  the file. The window is read from the filename, so a new plan cannot escape
+  the scan by being newer than the constant, and the historical plans stay
+  untouched because their citations record the tree they shipped against.
+
+- **The pre-sale diligence pack is a repository artefact, not a side folder.**
+  `.mailmap` reconciles the two identities the history carries for one author
+  (the GitHub noreply address and the account email), so `git shortlog`
+  reports a single author across all 494 commits without rewriting hashes
+  that the PLAN and AUDIT records cite. `THIRD_PARTY_NOTICES.md` states every
+  runtime, optional and bundled component's licence in one place - including
+  the `mutagen` GPL-2.0-or-later and `pedalboard` GPL-3.0 obligation that
+  makes this distribution GPL-3 - and the buyer-facing deck, metrics sheet
+  and valuation report live in `sale/`.
 
 ## [2.6.0] - 2026-11-11
 

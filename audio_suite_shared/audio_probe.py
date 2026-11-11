@@ -6,6 +6,12 @@ through it now - the second needs ``loudnorm``'s raw input figures, which is
 what :func:`loudnorm_inputs` exposes - and F-E1/F-S7 consume it rather than
 adding a seventh FFmpeg measurement path.
 
+Changed in 2.7.0: ``declared_depth`` is annotated ``Any`` rather than left
+inferred.  ``audio.get(...) or audio.get(...)`` infers ``Any | None``, which
+``--strict`` refuses to hand to ``int()``; the annotation states what the value
+truly is - unvalidated ffprobe JSON - instead of narrowing it, so the runtime
+behaviour and the ``in (None, "", "0")`` guard are unchanged.
+
 Why one module
 --------------
 Six independent FFmpeg measurement implementations had grown up beside each
@@ -413,7 +419,9 @@ def probe_stream(path: str, *, ffprobe: str | None = None) -> StreamInfo:
     container = str(container_info.get("format_name", ""))
     codec = str(audio.get("codec_name", ""))
 
-    declared_depth = audio.get("bits_per_raw_sample") or audio.get("bits_per_sample")
+    declared_depth: Any = audio.get("bits_per_raw_sample") or audio.get(
+        "bits_per_sample"
+    )
     bit_depth: int | None = None
     if declared_depth not in (None, "", "0"):
         try:

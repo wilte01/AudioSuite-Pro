@@ -44,7 +44,7 @@ pumps Tk's event loop never pops the release-notes panel or writes
 ``last_seen_version`` into the real shared config.  The panel's own suite
 clears the variable and exercises it directly.
 
-Changed in 2.6.0: the session also holds its skips to a committed budget
+Changed in 2.7.0: the session also holds its skips to a committed budget
 (``tests/skip_budget.py`` and ``tests/data/skip_budget.json``).  A skip reports
 green, so the six ``importorskip("setuptools")`` skips the 2.6.0 floor leg
 carried cost the wheel checks silently; a reason outside the budget now fails

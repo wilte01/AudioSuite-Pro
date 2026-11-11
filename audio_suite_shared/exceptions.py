@@ -35,6 +35,10 @@ Changed in 2.1.0: the user-facing wording table is a module constant
 ``USER_MESSAGES`` instead of a dict rebuilt inside ``user_message_for`` on
 every call, so ``documentation/docs/user/messages.md`` can be locked against it
 (PLAN_docs_consolidation, §6 retirement / D21).
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -488,7 +492,7 @@ def handle_audio_errors(
             except (KeyboardInterrupt, SystemExit):
                 raise
 
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - the mapping boundary itself
                 mapped = map_to_audio_error(exc, context={"operation": _ctx_label})
 
                 # One readable line at the caller's level; the stack trace

@@ -7,7 +7,7 @@ a budget that no longer names a reason the suite really produces would red the
 next run on the host that produces it, and a budget with no total would let the
 run's overall skip count go unmeasured.
 
-Changed in 2.6.0: initial version.  The 2.6.0 floor leg's eleven skips included
+Changed in 2.7.0: initial version.  The 2.6.0 floor leg's eleven skips included
 six ``importorskip("setuptools")`` skips that nothing had recorded, and a green
 run reported them as green.
 """

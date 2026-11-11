@@ -8,6 +8,10 @@ instead of a literal 4 (PLAN D56).
 Changed in 1.4.1: ``_on_progress`` accepts ``**_extra: Any``, so a progress field
 the processor adds is ignored instead of aborting a running batch
 (``tests/test_callback_payload_contract.py``).
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 
 import logging
@@ -366,7 +370,7 @@ class GenreSetterApp(UIHelperMixin):
             try:
                 with open(self._log_path, "w", encoding="utf-8") as f:
                     f.writelines(log_lines)
-            except Exception as _exc:
+            except Exception as _exc:  # noqa: BLE001 - log rewrite before close
                 logger.warning("Swallowed exception: %s", _exc, exc_info=True)
             self.root.update_idletasks()
             self.root.after(2000, self.root.destroy)

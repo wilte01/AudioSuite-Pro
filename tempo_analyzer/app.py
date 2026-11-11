@@ -17,6 +17,10 @@ Changed in 1.4.1: ``_on_complete`` and ``_on_progress`` accept ``**_extra: Any``
 so a payload field the processor adds (D112) is ignored instead of aborting an
 otherwise-finished run; ``tests/test_callback_payload_contract.py`` locks the
 completion, progress and error seams.
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 
 import logging
@@ -452,7 +456,7 @@ class TempoAnalyzerApp(UIHelperMixin):
             try:
                 with open(self._log_path, "w", encoding="utf-8") as f:
                     f.writelines(all_entries)
-            except Exception as _exc:
+            except Exception as _exc:  # noqa: BLE001 - log rewrite before close
                 logger.warning(
                     "Could not rewrite log after auto-end: %s", _exc, exc_info=True
                 )

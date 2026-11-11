@@ -1,3 +1,4 @@
+# Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage.
 """playlist_export.py — Playlist, HTML and column-aware CSV export for a scan.
 
 The statistics dashboard already reads every tag a playlist needs; what was
@@ -423,7 +424,7 @@ def collect_export_rows(scan_path: str) -> list[ExportRow]:
             full = os.path.join(root, name)
             try:
                 tags = _read_file_tags(full, export_fields=True, art_fields=True)
-            except Exception:
+            except Exception:  # noqa: BLE001 - skip unreadable during export
                 logger.debug(
                     "Skipping unreadable file during export: %s", full, exc_info=True
                 )

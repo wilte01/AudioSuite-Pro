@@ -60,6 +60,10 @@ Changed in 2.4.3: split into ``undo_schema`` (DDL, auto_vacuum, migration),
 ``undo_revert`` (the revert paths). ``BatchUndoLog`` composes the two mixins
 and keeps connection management; every moved name is re-exported here
 (PLAN_2026-11-03_2.4.3_structure.md WP-9).
+
+Changed in 2.7.0: the blind-``except`` boundary is named for the BLE001 triage
+(WP-7 of ``PLAN_2026-11-03_2.4.1_stop_the_drift.md``, section 10).
+
 """
 
 from __future__ import annotations
@@ -176,7 +180,7 @@ def record_tag_edit_snapshot(file_path: str, operation: str) -> bool:
         if log is None:
             return False
         return log.record_tag_edit(batch_id, file_path, operation, old_tags)
-    except Exception:
+    except Exception:  # noqa: BLE001 - snapshot never blocks the write
         # Snapshot failure must never block the actual write operation.
         logger.debug("Failed to snapshot tags for %s", file_path, exc_info=True)
         return False
@@ -204,7 +208,7 @@ def discard_tag_edit_snapshot(file_path: str) -> None:
         return
     try:
         log.discard_tag_edit(batch_id, file_path)
-    except Exception:
+    except Exception:  # noqa: BLE001 - discard is best-effort
         logger.debug(
             "Failed to discard the tag snapshot for %s", file_path, exc_info=True
         )
@@ -251,7 +255,7 @@ def record_audio_overwrite_snapshot(file_path: str, operation: str) -> None:
 
     try:
         log.record_file_overwrite(batch_id, file_path, operation, original)
-    except Exception:
+    except Exception:  # noqa: BLE001 - snapshot never blocks the write
         # Snapshot failure must never block the actual write operation.
         logger.debug("Failed to snapshot bytes for %s", file_path, exc_info=True)
 
