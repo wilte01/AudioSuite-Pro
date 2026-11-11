@@ -823,6 +823,16 @@ result set is non-empty so an empty scan fails loudly.** Evidence:
   state before any test can pollute it, and add a deterministic pollution
   regression when a test mutates module-level globals. Evidence:
   `PLAN_iteration5_remediation.md` Stage 5.
+- **A skip is a pass, so it needs a budget.** `pytest` reports `N skipped` as a
+  green result, so a test that stops verifying anything — a package missing on
+  the runner, an ffmpeg build without a resampler — costs coverage silently:
+  the 2.6.0 floor leg carried six `importorskip("setuptools")` skips while
+  nothing installed setuptools there, and a green CI certified a wheel nobody
+  had inspected. `tests/data/skip_budget.json` records each permitted reason
+  with a count and a reason, plus a run total; `conftest.py` fails the session
+  on anything outside it, and `tests/skip_budget.py` holds the rule so it is
+  tested against fixtures. Add an entry deliberately, with the reason text the
+  failure printed — never to turn a red run green.
 - **Simulate platforms by patching `sys.platform` only — never `os.name`.** The
   declared platform branches key on `sys.platform`; patching `os.name` instead
   makes `pathlib.Path()` construct a `PosixPath` on a Windows host, so the test

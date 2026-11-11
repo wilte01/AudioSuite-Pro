@@ -43,6 +43,12 @@ Changed in 1.3.0: the session sets ``AUDIOSUITE_WHATS_NEW=0``, so a test that
 pumps Tk's event loop never pops the release-notes panel or writes
 ``last_seen_version`` into the real shared config.  The panel's own suite
 clears the variable and exercises it directly.
+
+Changed in 2.6.0: the session also holds its skips to a committed budget
+(``tests/skip_budget.py`` and ``tests/data/skip_budget.json``).  A skip reports
+green, so the six ``importorskip("setuptools")`` skips the 2.6.0 floor leg
+carried cost the wheel checks silently; a reason outside the budget now fails
+the session and names the test.
 """
 
 from __future__ import annotations
@@ -66,6 +72,9 @@ _display_available = False
 _display_skips = 0
 _blanket_mode = False
 _collected = 0
+
+#: Every skip this session reported, as ``(nodeid, reason)``.
+_skip_records: list[tuple[str, str]] = []
 
 #: The session-scoped fixtures whose presence means "this test needs a display".
 _GUI_FIXTURES = frozenset({"root", "tk_root"})
@@ -291,6 +300,87 @@ def pytest_terminal_summary(
     del exitstatus, config
     for line in format_display_summary():
         terminalreporter.write_line(line)
+
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    """Record every skip so the session can be judged against its budget.
+
+    A skip's ``longrepr`` is a ``(file, line, reason)`` tuple in the common
+    case.  Anything else is stringified rather than dropped, so an unfamiliar
+    shape is judged by the budget instead of vanishing from it.
+
+    The extraction is inline on purpose.  A module-level conftest helper that
+    takes an argument is registered as a fixture by pytest 9, which then refuses
+    the direct call: ``Failed: Fixture "_skipped_reason" called directly`` inside
+    ``pytest_runtest_logreport``, surfacing as an INTERNALERROR (exit 3) on the
+    first skipped test.
+    """
+    if not report.skipped:
+        return
+    longrepr: object = report.longrepr
+    if isinstance(longrepr, tuple) and len(longrepr) == 3:
+        reason = str(longrepr[2])
+    else:
+        reason = str(longrepr).strip()
+    _skip_records.append((report.nodeid, reason))
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Fail the session on a skip the committed budget does not permit.
+
+    A skip reports green, so a run's own total cannot distinguish "this host
+    verified everything it could" from "a prerequisite went missing and six
+    tests stopped checking anything" - the shape the 2.6.0 floor leg had.  The
+    rule lives in :mod:`tests.skip_budget` and is tested against fixtures there;
+    this hook only feeds it the session's skips.
+
+    Args:
+        session: The finished session, whose exit status is raised on a
+            violation.
+        exitstatus: Pytest's own verdict; unused, because pytest reads
+            ``session.exitstatus`` after this hook.
+    """
+    del exitstatus
+    if not _skip_records:
+        return
+    try:
+        from tests import skip_budget
+    except ImportError:  # a conftest copied out of its repository
+        return
+    # The budget belongs to the tree under test, not to whichever conftest file
+    # was loaded: a conftest copied into a temp directory (tests/test_conftest.py
+    # does that against simulated headless hosts) would otherwise enforce the
+    # real repository's budget on a run that is not the repository.
+    budget_path = session.config.rootpath / "tests" / "data" / "skip_budget.json"
+    if not budget_path.is_file():
+        return
+    try:
+        entries, total = skip_budget.load_budget(budget_path)
+    except skip_budget.BudgetError as exc:
+        warnings.warn(
+            f"skip budget unusable, so this run's skips went unchecked: {exc}",
+            stacklevel=2,
+        )
+        return
+    problems = skip_budget.violations(
+        [skip_budget.Skip(nodeid, reason) for nodeid, reason in _skip_records],
+        entries,
+        total,
+    )
+    if not problems:
+        return
+    reporter = session.config.pluginmanager.getplugin("terminalreporter")
+    lines = [
+        "Skip budget exceeded (tests/data/skip_budget.json):",
+        *(f"  {problem}" for problem in problems),
+    ]
+    if reporter is None:  # pragma: no cover - a session with no terminal
+        print("\n".join(lines))
+    else:
+        for line in lines:
+            reporter.write_line(line)
+    if session.exitstatus == 0:
+        session.exitstatus = 1
 
 
 @pytest.fixture(scope="session")

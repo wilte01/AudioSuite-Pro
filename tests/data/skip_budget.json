@@ -1,0 +1,27 @@
+{
+  "_comment": "Skip reasons a suite run may report, and how many of each. Do not add an entry to make a red run green: name the prerequisite, say why the skip is acceptable, and cite the run that showed it. A reason outside this list fails the session (conftest.py, tests/skip_budget.py).",
+  "_recorded": "2026-11-11",
+  "total": 5,
+  "reasons": [
+    {
+      "match": "broken Tcl/Tk environment",
+      "max": 1,
+      "why": "One slider-update test skips where Tk's scale widget cannot be driven; the run's display report states whether GUI behaviour was verified at all, so this is not a blanket headless skip."
+    },
+    {
+      "match": "Symlink creation unavailable",
+      "max": 1,
+      "why": "Windows without the symlink privilege cannot create the link the case needs. CI's runners hold the privilege and run it, so the budget admits one on a developer host and zero here."
+    },
+    {
+      "match": "Unix-only permission check",
+      "max": 1,
+      "why": "A chmod-based check has no Windows equivalent; the test asserts nothing else, so it skips on every Windows host including CI."
+    },
+    {
+      "match": "built without libsoxr",
+      "max": 3,
+      "why": "CI installs ffmpeg through chocolatey, and gyan.dev's essentials build omits --enable-libsoxr, so the three resampler-quality cases cannot configure aresample=resampler=soxr there. A developer build with libsoxr runs all three."
+    }
+  ]
+}

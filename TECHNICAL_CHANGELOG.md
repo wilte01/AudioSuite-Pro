@@ -18,6 +18,14 @@ and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **A skip is a pass, so the suite holds it to a budget.**
+  `tests/skip_budget.py` and `tests/data/skip_budget.json` record the four skip
+  reasons a run may report - a broken Tk scale, an unavailable symlink, a
+  Unix-only permission check and an ffmpeg build without libsoxr - each with a
+  count and a reason, plus a run total of five. `conftest.py` collects every
+  skip and fails the session on a reason outside the list, an entry over its
+  count, or a run over the total. The 2.6.0 floor leg's eleven skips included
+  six that nothing had recorded, and a green run cannot show that on its own.
 - **`setuptools` is a declared dev dependency, so the wheel locks run in CI.**
   `tests/test_py_typed.py` imports `setuptools` to build a wheel and check that
   the package data, the `py.typed` marker and the CLI schema actually ship, and
