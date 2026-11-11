@@ -20,7 +20,39 @@ and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **The Refinery can shape tone with a parametric EQ.** A run may now stack up
+  to eight bands - low shelf, high shelf, peaking, high-pass or low-pass - each
+  with its own frequency, gain and Q, where the enhancement presets offer only
+  three fixed shelves. `refine --eq-band "peaking,1000,2.5,1.0"` (repeat the flag
+  for each band) configures the rack, and `--stages eq` runs it; giving a band
+  implies the stage, so a flag and a stage list cannot disagree. The rack runs
+  after noise reduction and before enhancement, so the preset's compressor and
+  limiter act on the shaped signal, and it round-trips through saved settings.
+  A band at or above the file's Nyquist frequency is refused rather than moved,
+  and a bypassed or empty rack leaves the signal bit-identical. High-pass and
+  low-pass bands are first-order in the installed engine: they take no gain and
+  no Q, and one that carries either is refused instead of ignored.
+
+- **Help ▸ Licences shows the texts that ship with the installation.** The
+  Master Driver's Help menu gains a `Licences` entry that opens a read-only
+  window listing the suite's own GPL-3.0 licence, the third-party notices, and
+  the two bundled binaries' LGPL texts with the provenance record that says
+  which upstream release each came from. The window reads them from the
+  installation itself (`%LOCALAPPDATA%\AudioSuite-Pro\licenses\`) and falls
+  back to `packaging/licenses/` in a source checkout, so the same entry works
+  before an installer has been built. "Open in default app" hands the selected
+  file to the system viewer; a copy that ships no texts says so instead of
+  opening an empty window.
+- **`audiosuite licences` prints the same texts headlessly.** The command prints
+  each licence document with its title and its full text, and `--json`
+  publishes the inventory — the folder this copy reads from plus each
+  document's title, file name and character count — so a packaging script or a
+  licence audit reads what a build carries without a display. Both surfaces
+  read one resolver, so the CLI and Help ▸ Licences cannot disagree about what
+  an installation ships. The exit status distinguishes a build that carries no
+  texts (0) from one whose texts cannot be read (1).
 
 ## [2.6.0] - 2026-11-11
 

@@ -46,6 +46,11 @@ written before it keeps trimming detected silence.
 Changed in 2.6.0: the normalise target mode and its dBTP target round-trip
 (F-E2).  A missing key reads as LUFS at -1.0 dBTP, so a settings file written
 before it keeps the loudness behaviour it describes.
+
+Changed in 2.7.0: the parametric EQ stage's rack round-trips (F-S1).  A missing
+key reads as an empty rack and the stage off, so a settings file written before
+it keeps the pipeline it describes; a stored band the engine refuses is logged
+and dropped rather than making the whole file unreadable.
 """
 # Changed in 2.1.7: ASCII-only status output (R-14) - typography stays in
 # comments and docs; a cp1252 console cannot encode these glyphs.
@@ -61,6 +66,12 @@ from audio_suite_shared.cli_dataclasses import (
     VALID_TARGET_LUFS_VALUES,
     validate_target_lufs,
 )
+from audio_suite_shared.dsp_eq import (
+    MAX_EQ_BANDS,
+    EqBand,
+    EqSettings,
+)
+from audio_suite_shared.exceptions import AudioConfigValueError
 from audio_suite_shared.suite_paths import suite_path
 from noise_reduction.core.models import NoiseReductionParams
 
@@ -124,6 +135,48 @@ def _sanitise_target_lufs(raw: float) -> float:
     return _DEFAULT_TARGET_LUFS
 
 
+def _eq_settings_from_dict(data: dict[str, Any]) -> EqSettings:
+    """Rebuild the parametric EQ rack from a settings document.
+
+    A stored band is validated by :class:`EqBand` itself, so a settings file
+    can never inject a filter the renderer would refuse at run time.  An
+    invalid band is logged and dropped - losing one band must not cost the
+    user the other seven - and a rack longer than the engine's maximum is
+    trimmed to it for the same reason.
+
+    Args:
+        data: The ``eq_params`` object (or an empty mapping when absent).
+
+    Returns:
+        The rack the file describes, or an empty one when nothing usable is
+        stored.
+    """
+    raw_bands = data.get("bands", [])
+    if not isinstance(raw_bands, list):
+        logger.warning("Stored EQ bands are not a list - ignoring them")
+        raw_bands = []
+
+    bands: list[EqBand] = []
+    for raw in raw_bands:
+        if not isinstance(raw, dict):
+            logger.warning("Ignoring a stored EQ band that is not an object")
+            continue
+        try:
+            bands.append(EqBand(**raw))
+        except (TypeError, AudioConfigValueError) as exc:
+            logger.warning("Ignoring an invalid stored EQ band %r: %s", raw, exc)
+
+    if len(bands) > MAX_EQ_BANDS:
+        logger.warning(
+            "Stored EQ rack has %d bands; keeping the first %d",
+            len(bands),
+            MAX_EQ_BANDS,
+        )
+        bands = bands[:MAX_EQ_BANDS]
+
+    return EqSettings(bands=tuple(bands), bypass=bool(data.get("bypass", False)))
+
+
 def _read_json(path: Path) -> dict[str, Any] | None:
     """Read *path* as a JSON object, or return ``None`` with a warning.
 
@@ -166,6 +219,7 @@ def _from_dict(data: dict[str, Any]) -> StageConfig:
     config.enhance = data.get("enhance", True)
     config.normalise = data.get("normalise", True)
     config.reduce_noise = data.get("reduce_noise", False)
+    config.eq = bool(data.get("eq", False))
 
     # Declick params
     d = data.get("declick_params", {})
@@ -228,6 +282,9 @@ def _from_dict(data: dict[str, Any]) -> StageConfig:
         flanger=d.get("flanger", False),
         chorus=d.get("chorus", False),
     )
+
+    # Parametric EQ rack (F-S1)
+    config.eq_params = _eq_settings_from_dict(data.get("eq_params", {}))
 
     # Normalise params — validate stored LUFS against permitted presets.
     d = data.get("normalise_params", {})
@@ -310,6 +367,7 @@ def _to_dict(config: StageConfig) -> dict[str, Any]:
     d = config.declick_params
     t = config.trim_params
     nr = config.noise_reduction_params
+    e = config.eq_params
 
     return {
         # Stage toggles
@@ -318,6 +376,7 @@ def _to_dict(config: StageConfig) -> dict[str, Any]:
         "enhance": config.enhance,
         "normalise": config.normalise,
         "reduce_noise": config.reduce_noise,
+        "eq": config.eq,
         # Per-stage params
         "declick_params": {
             "sensitivity": d.sensitivity,
@@ -365,6 +424,20 @@ def _to_dict(config: StageConfig) -> dict[str, Any]:
             "phaser": p.phaser,
             "flanger": p.flanger,
             "chorus": p.chorus,
+        },
+        "eq_params": {
+            # One object per band, in rack order: the same shape :class:`EqBand`
+            # validates on the way back in.
+            "bands": [
+                {
+                    "kind": band.kind,
+                    "freq_hz": band.freq_hz,
+                    "gain_db": band.gain_db,
+                    "q": band.q,
+                }
+                for band in e.bands
+            ],
+            "bypass": e.bypass,
         },
         "normalise_params": {
             "target_lufs": n.target_lufs,

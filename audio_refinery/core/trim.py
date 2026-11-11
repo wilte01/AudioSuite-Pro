@@ -189,6 +189,9 @@ def check_copy_mode(config: StageConfig) -> None:
         for label, enabled in (
             ("Declick", config.declick),
             ("Noise Reduction", config.reduce_noise),
+            # Changed in 2.7.0: the EQ stage renders decoded samples too, so a
+            # stream copy beside it would silently drop the rack (F-S1).
+            ("EQ", config.eq),
             ("Enhance", config.enhance),
             ("Normalise", config.normalise),
         )

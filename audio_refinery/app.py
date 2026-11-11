@@ -772,6 +772,9 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         self.config.enhance = "enhance" in active
         self.config.normalise = "normalise" in active
         self.config.reduce_noise = "reduce_noise" in active
+        # Changed in 2.7.0: --eq-band implies the EQ stage, so the flag cannot
+        # configure bands for a stage the run would not execute (F-S1).
+        self.config.eq = "eq" in active or bool(args.eq_bands)
 
         # Per-stage params from CLI
         self.config.declick_params.sensitivity = args.sensitivity
@@ -797,6 +800,13 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         self.config.noise_reduction_params.noise_end_ms = args.noise_end_ms
         self.config.noise_reduction_params.gate_threshold_db = args.gate_threshold_db
         self.config.enhance_params.preset = args.preset
+        # Changed in 2.7.0: the Driver's --eq-band reaches the run (F-S1).
+        if args.eq_bands:
+            from audio_suite_shared.dsp_eq import EqSettings, parse_band
+
+            self.config.eq_params = EqSettings(
+                bands=tuple(parse_band(text) for text in args.eq_bands)
+            )
         self.config.normalise_params.target_lufs = args.target_lufs
         self.config.normalise_params.tolerance = args.tolerance
         self.config.normalise_params.true_peak = args.true_peak

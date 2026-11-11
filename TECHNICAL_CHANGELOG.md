@@ -16,7 +16,31 @@ and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
+### Added
+
+- **The EQ stage's rack reaches the Refinery through one validated model.**
+  `StageConfig` carries `eq` and an `EqSettings` rack, `refine --eq-band`
+  parses each band through `dsp_eq.parse_band` (an invalid kind or a ninth band
+  is a usage error, not a silently dropped filter), `build_refinery_args`
+  emits the rack as repeatable `--eq-band` flags only when the stage is on and
+  not bypassed, and `REFINERY_STAGES` grows to six - the field/name set in
+  `master_driver/tests/test_runner.py` is the drift lock. `_run_tone_stages`
+  owns the EQ-then-Enhance pair so `process_file` stays inside its statement
+  budget, and the pipeline's numbered step comments stay unique. The shipped
+  `refinery_settings.default.json` is regenerated from
+  `settings_text(StageConfig())`, which `TestShippedDefault` holds to byte
+  equality, and a settings file carrying one unreadable band loses that band
+  with a warning instead of the whole configuration.
+
 ### Changed
+
+- **The CLI JSON contract gains a `licences` variant.** `audiosuite licences`
+  publishes `licence_dir` and a `documents` inventory through `build_payload`,
+  declared in `cli_schema.EXTRA_TYPES`, and its recorded payload and fatal-error
+  document were taken from a real run, so the command joins the committed
+  `tests/data/cli_payloads.json` / `cli_schema.json` pair like every other
+  command. `tests/cli_payloads.py` drives it with no argument and records its
+  failure from an unknown option, because it has no input path to reject.
 
 - **A skip is a pass, so the suite holds it to a budget.**
   `tests/skip_budget.py` and `tests/data/skip_budget.json` record the four skip

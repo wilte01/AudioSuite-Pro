@@ -1,3 +1,4 @@
+# Changed in 2.7.0: the EQ rack, flags and driver emission are locked (F-S1).
 """
 tests/test_pipeline_stages.py
 
@@ -1671,3 +1672,76 @@ class TestRunNormalise:
             tolerance=0.5,
         )
         assert result is True
+
+
+# ── Parametric EQ stage (F-S1) ────────────────────────────────────────────────
+
+
+def _rms_dbfs(segment: AudioSegment) -> float:
+    """Return *segment*'s RMS level in dBFS, measured from its samples."""
+    samples = np.asarray(segment.get_array_of_samples(), dtype=np.float64)
+    rms = float(np.sqrt(np.mean(samples**2))) / 32768.0
+    return 20.0 * float(np.log10(max(rms, 1e-12)))
+
+
+class TestTheEqStageRendersTheRack:
+    """The EQ stage is measured on the audio it returns, never read back."""
+
+    @staticmethod
+    def _config(bands, *, bypass: bool = False):
+        from audio_refinery.core.models import StageConfig
+        from audio_suite_shared.dsp_eq import EqSettings
+
+        return StageConfig(
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=False,
+            eq=True,
+            eq_params=EqSettings(bands=tuple(bands), bypass=bypass),
+        )
+
+    def test_a_boost_band_lifts_its_frequency_by_the_gain_it_names(self) -> None:
+        """A +6 dB peak at 1 kHz measures +6 dB at 1 kHz on the staged audio."""
+        from audio_refinery.core.pipeline import _run_eq_stage
+        from audio_suite_shared.dsp_eq import EqBand
+
+        audio = _sine(freq=1000, duration_ms=500, amplitude=0.2)
+        config = self._config([EqBand("peaking", 1000.0, 6.0, 1.0)])
+
+        processed, message, modified = _run_eq_stage(audio, config, _noop_emit)
+
+        assert modified is True
+        assert "1 band(s)" in message
+        # The stage must not resample, remix or shorten the audio it returns.
+        assert len(processed) == len(audio)
+        assert processed.channels == audio.channels
+        assert processed.sample_width == audio.sample_width
+        assert _rms_dbfs(processed) - _rms_dbfs(audio) == pytest.approx(6.0, abs=0.3)
+
+    def test_a_cut_band_lowers_its_frequency_by_the_gain_it_names(self) -> None:
+        """A -9 dB peak at 1 kHz measures -9 dB at 1 kHz on the staged audio."""
+        from audio_refinery.core.pipeline import _run_eq_stage
+        from audio_suite_shared.dsp_eq import EqBand
+
+        audio = _sine(freq=1000, duration_ms=500, amplitude=0.2)
+        config = self._config([EqBand("peaking", 1000.0, -9.0, 1.0)])
+
+        processed, _message, modified = _run_eq_stage(audio, config, _noop_emit)
+
+        assert modified is True
+        assert _rms_dbfs(processed) - _rms_dbfs(audio) == pytest.approx(-9.0, abs=0.3)
+
+    def test_a_bypassed_rack_returns_the_same_signal(self) -> None:
+        """Bypass is bit-transparent and reports no modification."""
+        from audio_refinery.core.pipeline import _run_eq_stage
+        from audio_suite_shared.dsp_eq import EqBand
+
+        audio = _sine(freq=1000, duration_ms=200)
+        config = self._config([EqBand("peaking", 1000.0, 6.0, 1.0)], bypass=True)
+
+        processed, message, modified = _run_eq_stage(audio, config, _noop_emit)
+
+        assert processed is audio
+        assert modified is False
+        assert "bypassed" in message

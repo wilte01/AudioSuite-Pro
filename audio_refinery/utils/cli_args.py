@@ -36,6 +36,8 @@ from audio_suite_shared.cli_dataclasses import validate_target_lufs
 from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
+from audio_suite_shared.dsp_eq import EqSettings, parse_band
+from audio_suite_shared.exceptions import AudioConfigValueError
 
 from ..core.models import NORMALISATION_MODES, NORMALISATION_TARGET_MODES, TRIM_MODES
 
@@ -89,6 +91,9 @@ class RefineryArgs:
 
     # Enhance
     preset: str = "Moderate"
+
+    # EQ (F-S1): the band strings as typed, validated when the run is built.
+    eq_bands: tuple[str, ...] = ()
 
     # Normalise
     target_lufs: float = -14.0
@@ -167,6 +172,19 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         default="declick,trim,enhance,normalise",
         metavar="LIST",
         help="Comma-separated list of stages to run (default: all four).",
+    )
+    # Changed in 2.7.0: the parametric EQ rack reaches the GUI launch path, so
+    # a Master Driver run and a typed command configure the same bands (F-S1).
+    parser.add_argument(
+        "--eq-band",
+        dest="eq_bands",
+        action="append",
+        default=None,
+        metavar="BAND",
+        help=(
+            "Parametric EQ band 'kind,freq,gain,q' (repeatable, up to 8); "
+            "implies the eq stage."
+        ),
     )
 
     # Declick params
@@ -478,6 +496,12 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         if args.trim_end is None and args.trim_duration is None:
             parser.error("--trim-mode exact needs --trim-end or --trim-duration")
 
+    eq_bands = tuple(args.eq_bands or ())
+    try:
+        EqSettings(bands=tuple(parse_band(text) for text in eq_bands))
+    except AudioConfigValueError as exc:
+        parser.error(exc.message)
+
     return RefineryArgs(
         source=args.source,
         output=args.output,
@@ -505,6 +529,7 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         noise_end_ms=args.noise_end_ms,
         gate_threshold_db=args.gate_threshold_db,
         preset=args.preset,
+        eq_bands=eq_bands,
         target_lufs=args.target_lufs,
         tolerance=args.tolerance,
         true_peak=args.true_peak,

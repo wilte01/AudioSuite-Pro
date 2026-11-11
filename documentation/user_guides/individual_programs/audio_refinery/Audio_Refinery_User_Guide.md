@@ -108,9 +108,12 @@ python -m audio_suite_shared.cli_app refine <folder> --dry\
 python -m audio_suite_shared.cli_app refine <folder> --output <output> --stages declick,trim,enhance,normalise\
 python -m audio_suite_shared.cli_app refine <folder> --stages declick,enhance --preset Mild\
 python -m audio_suite_shared.cli_app refine <folder> --reduce-hum --hum-frequency 60 --json\
-python -m audio_suite_shared.cli_app refine <folder> --stages trim --trim-mode exact --trim-start 12000 --trim-end 30000
+python -m audio_suite_shared.cli_app refine <folder> --stages trim --trim-mode exact --trim-start 12000 --trim-end 30000\
+python -m audio_suite_shared.cli_app refine <folder> --stages eq --eq-band "peaking,1000,2.5,1.0" --eq-band "highpass,40"
 
-CLI options cover output directory, dry run, stages, declick sensitivity and width, trim threshold and fades, the exact trim range (--trim-mode, --trim-start, --trim-end, --trim-duration, --trim-copy/--no-trim-copy), hum and broadband reduction, enhancement preset, the enhancement effect flags (--reverse, --karaoke/--no-karaoke, --karaoke-strength, --phaser, --flanger, --chorus), target LUFS, tolerance, true peak, LRA, the normalise strategy (--normalise-mode), the normalise target (--target-mode lufs|peak with --target-peak in dBTP), album mode (--album-mode/--no-album-mode), and JSON output. If --output is omitted, results are written in place.
+CLI options cover output directory, dry run, stages, declick sensitivity and width, trim threshold and fades, the exact trim range (--trim-mode, --trim-start, --trim-end, --trim-duration, --trim-copy/--no-trim-copy), hum and broadband reduction, enhancement preset, the parametric EQ rack (--eq-band, one "kind,freq,gain,q" band per flag, up to eight; giving one implies the eq stage), the enhancement effect flags (--reverse, --karaoke/--no-karaoke, --karaoke-strength, --phaser, --flanger, --chorus), target LUFS, tolerance, true peak, LRA, the normalise strategy (--normalise-mode), the normalise target (--target-mode lufs|peak with --target-peak in dBTP), album mode (--album-mode/--no-album-mode), and JSON output. If --output is omitted, results are written in place.
+
+The eq stage runs after noise reduction and before enhancement, so the preset's compressor and limiter act on the shaped tone. Its band kinds are lowshelf, highshelf, peaking, highpass and lowpass; a highpass or lowpass band is first-order, so it takes no gain and no Q. A band at or above the file's Nyquist frequency is refused rather than moved, and a rack with no bands or with bypass on leaves the signal untouched.
 
 ## Master Driver Use
 
@@ -122,7 +125,7 @@ Audio Refinery is the Master Driver's REFINE pipeline. The driver embeds the Ref
 - **Integrity check failed: **The file may be empty, unreadable, malformed, undecodable, outside size/duration/sample-rate/channel limits, or have invalid container headers.
 - **Files are skipped on a later run: **They match the completion registry by filename and SHA-256. Use Reset Progress when a full rerun is intended.
 - **The Normalise stage skips a container: **The stage writes MP3, FLAC, OGG, M4A, Opus, WavPack, Speex, WAV, AIFF and AIF, and keeps a lossless source's bit depth. A container with no encoder (for example MP4, WMA or AAC) is reported as a skipped file naming that reason and the formats the stage writes, the file is left untouched, and every other enabled stage still runs. Convert it to one of those formats if you want it normalised.
-- **The exact trim refused the run: **Stream copy cannot share a run with a stage that decodes the audio (declick, noise reduction, enhance, normalise). Turn Stream copy off to trim with a re-encode, or disable those stages. A range flag without Exact range mode is refused at the command line rather than silently ignored.
+- **The exact trim refused the run: **Stream copy cannot share a run with a stage that decodes the audio (declick, noise reduction, eq, enhance, normalise). Turn Stream copy off to trim with a re-encode, or disable those stages. A range flag without Exact range mode is refused at the command line rather than silently ignored.
 - **The stream copy is a few milliseconds longer or shorter: **That is the frame boundary, not a defect: a copy keeps whole frames, and the run log reports the measured length with the offset. Turn Stream copy off when the exact millisecond matters.
 - **Output directory error: **The selected output directory must already exist and be a directory; leave it blank for in-place mode.
 - **Normalization behaves unexpectedly: **Remember that the normalizer controls final level when active, and enhancement output gain is suppressed in that case.

@@ -1,3 +1,4 @@
+# Changed in 2.7.0: copy mode also refuses the EQ stage (F-S1).
 """Exact time-range trim: range resolution, the slice, and the stream copy.
 
 Changed in 2.5.0: new file (PLAN_2026-11-03_2.5.0_feature_wave_1.md F-E3).
@@ -292,6 +293,17 @@ class TestCheckCopyMode:
 
         assert "Enhance" in raised.value.message
         assert "copy mode off" in raised.value.message
+
+    def test_the_eq_stage_is_refused_too(self) -> None:
+        """F-S1: a stream copy would quietly drop the parametric rack."""
+        config = StageConfig(declick=False, trim=True, enhance=False, normalise=False)
+        config.eq = True
+        config.trim_params = _params(end_ms=1000, copy_mode=True)
+
+        with pytest.raises(AudioConfigValueError) as raised:
+            check_copy_mode(config)
+
+        assert "EQ" in raised.value.message
 
     def test_the_silence_mode_is_untouched_by_the_check(self) -> None:
         config = StageConfig(declick=True, trim=True, enhance=True, normalise=True)

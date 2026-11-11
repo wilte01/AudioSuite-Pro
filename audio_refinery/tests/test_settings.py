@@ -1,3 +1,4 @@
+# Changed in 2.7.0: the EQ rack, flags and driver emission are locked (F-S1).
 """
 audio_refinery/tests/test_settings.py
 Tests for audio_refinery.utils.settings load()/save() persistence.
@@ -278,3 +279,80 @@ class TestAlbumMode:
 
             assert loaded.normalise_params.album_mode is False
             assert loaded.normalise_params.target_lufs == -18.0
+
+
+class TestEqRack:
+    """The parametric EQ rack round-trips; older files read as stage off (F-S1)."""
+
+    def test_the_rack_round_trips(self, tmp_path: Path) -> None:
+        from audio_suite_shared.dsp_eq import EqBand, EqSettings
+
+        live = tmp_path / "live.json"
+        config = StageConfig()
+        config.eq = True
+        config.eq_params = EqSettings(
+            bands=(
+                EqBand("peaking", 1000.0, 3.0, 1.0),
+                EqBand("highpass", 40.0),
+            )
+        )
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(refinery_settings, "_SETTINGS_FILE", live)
+            patch.setattr(refinery_settings, "_LEGACY_FILE", tmp_path / "old.json")
+            patch.setattr(refinery_settings, "_DEFAULT_FILE", tmp_path / "none.json")
+            refinery_settings.save(config)
+            loaded = refinery_settings.load()
+
+        assert loaded.eq is True
+        assert loaded.eq_params.bands == (
+            EqBand("peaking", 1000.0, 3.0, 1.0),
+            EqBand("highpass", 40.0),
+        )
+        assert loaded.eq_params.bypass is False
+
+    def test_a_file_without_the_keys_keeps_the_stage_off(self, tmp_path: Path) -> None:
+        live = tmp_path / "live.json"
+        live.write_text(json.dumps({"declick": False}), encoding="utf-8")
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(refinery_settings, "_SETTINGS_FILE", live)
+            patch.setattr(refinery_settings, "_LEGACY_FILE", tmp_path / "old.json")
+            patch.setattr(refinery_settings, "_DEFAULT_FILE", tmp_path / "none.json")
+            loaded = refinery_settings.load()
+
+        assert loaded.eq is False
+        assert loaded.eq_params.bands == ()
+        assert loaded.eq_params.bypass is False
+
+    def test_an_invalid_stored_band_is_dropped_not_fatal(self, tmp_path: Path) -> None:
+        """One bad band must not cost the user the other bands, or the load."""
+        live = tmp_path / "live.json"
+        live.write_text(
+            json.dumps(
+                {
+                    "eq": True,
+                    "eq_params": {
+                        "bands": [
+                            {
+                                "kind": "peaking",
+                                "freq_hz": 1000.0,
+                                "gain_db": 3.0,
+                                "q": 1.0,
+                            },
+                            {"kind": "peaking", "freq_hz": 99000.0},
+                            {"kind": "teleport", "freq_hz": 1000.0},
+                        ]
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(refinery_settings, "_SETTINGS_FILE", live)
+            patch.setattr(refinery_settings, "_LEGACY_FILE", tmp_path / "old.json")
+            patch.setattr(refinery_settings, "_DEFAULT_FILE", tmp_path / "none.json")
+            loaded = refinery_settings.load()
+
+        assert [band.freq_hz for band in loaded.eq_params.bands] == [1000.0]

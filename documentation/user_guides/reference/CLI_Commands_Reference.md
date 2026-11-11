@@ -317,7 +317,7 @@ audiosuite refine <directory> [--stages LIST] [OPTIONS]
 **Options:**
 
 - `--dry` / `--live` — Simulate the selected stages and report, or write the results (default: live)
-- `--stages LIST` — Comma-separated stages to run: `declick`, `trim`, `reduce_noise`, `enhance`, `normalise` (default: declick,trim,enhance,normalise)
+- `--stages LIST` — Comma-separated stages to run: `declick`, `trim`, `reduce_noise`, `eq`, `enhance`, `normalise` (default: declick,trim,enhance,normalise)
 - `--output DIR` — Output directory (default: source dir)
 - `--sensitivity F` — Declick sensitivity (default: 0.31)
 - `--width N` — Declick max defect width in ms (default: 2)
@@ -345,6 +345,7 @@ audiosuite refine <directory> [--stages LIST] [OPTIONS]
 - `--phaser` — Apply a phaser effect (default: off)
 - `--flanger` — Apply a flanger effect (default: off)
 - `--chorus` — Apply a chorus effect (default: off)
+- `--eq-band BAND` — A parametric EQ band as `kind,freq,gain,q`, where `kind` is `lowshelf`, `highshelf`, `peaking`, `highpass` or `lowpass` and the Q is optional (for example `peaking,1000,3.0,1.0`); repeat it for up to eight bands, and giving one implies the `eq` stage
 - `--target-lufs LUFS` — Normalisation target, one of `-12`, `-14`, `-16`, `-18`, `-23` (default: -14.0)
 - `--tolerance DB` — Normalisation tolerance (default: 0.5)
 - `--true-peak DBTP` — True-peak ceiling for the normalise stage, -9 to 0 (default: -1.5)
@@ -362,6 +363,7 @@ audiosuite refine "D:\Music" --stages reduce_noise --reduce-hum --hum-frequency 
 audiosuite refine "D:\Music" --stages trim,normalise --fade --fade-in 250
 audiosuite refine "D:\Music" --stages trim --trim-mode exact --trim-start 12000 --trim-end 30000
 audiosuite refine "D:\Music" --stages trim --trim-mode exact --trim-end 45000 --trim-copy
+audiosuite refine "D:\Music" --stages eq,enhance --eq-band "peaking,1000,2.5,1.0" --eq-band "highpass,40"
 ```
 
 ## UTIL commands
@@ -1001,6 +1003,32 @@ audiosuite plugins disable example_plugin --json
 `audiosuite example` is the bundled example plugin's own command (count the
 audio files in a folder and report the tags they carry); it exists only while
 that plugin is enabled.
+
+### licences
+
+Print the licence texts this installation ships: the suite's own GPL-3.0 licence
+and third-party notices, plus the GNU LGPL 2.1 text, Chromaprint's notice and
+the bundled-binary provenance record that the installer stages into a
+`licenses` folder beside the program files. A source checkout is read from
+`packaging/licenses/`, so the command works before an installer has been built.
+It takes no directory and reports only what this copy actually carries.
+
+```bash
+audiosuite licences [--json]
+```
+
+**Examples:**
+
+```bash
+audiosuite licences
+audiosuite licences --json
+```
+
+Text mode prints each document's title and full text. `--json` publishes the
+inventory instead - `licence_dir` and one entry per document with its title,
+file name and character count - so a script that wants the bytes reads the file
+the payload names. A build that carries no texts says so and exits 0; a text
+that exists but cannot be read counts as an error and exits 1.
 
 ## CUE sheet commands
 

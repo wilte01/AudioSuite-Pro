@@ -3,7 +3,7 @@
 core/pipeline.py
 Single-file pipeline processor for Audio Refinery.
 
-Decode once → declick → trim → noise reduction → enhance → encode once →
+Decode once → declick → trim → noise reduction → eq → enhance → encode once →
 normalise (FFmpeg)
 
 Changed in 2.1.7: the final encode goes through ``get_export_args``, which pins
@@ -87,6 +87,7 @@ from audio_suite_shared.dsp_chain import (
     compute_rms_db,
     post_chain_clip_check,
 )
+from audio_suite_shared.dsp_eq import apply_eq
 from audio_suite_shared.error_recovery import RetryConfig, retry_with_backoff
 from audio_suite_shared.exceptions import (
     AudioConfigurationError,
@@ -196,7 +197,13 @@ def _same_file(source_path: Path, output_path: Path) -> bool:
 
 def _has_processing_stage(config: StageConfig) -> bool:
     """Return ``True`` when a stage that writes audio is enabled."""
-    return bool(config.declick or config.trim or config.reduce_noise or config.enhance)
+    return bool(
+        config.declick
+        or config.trim
+        or config.reduce_noise
+        or config.eq
+        or config.enhance
+    )
 
 
 def _no_op_reason(config: StageConfig) -> str:
@@ -409,13 +416,9 @@ def process_file(
             modified = modified or changed
             result.add_stage("Noise Reduction", FileStatus.DONE, msg)
 
-        # ── 6. Audio Enhancement ──────────────────────────────────────────────
-        if config.enhance:
-            audio, msg, metrics = _run_enhance_stage(audio, stage_config, _emit)
-            # The DSP chain always applies, so an enabled Enhance stage is a
-            # change even when the level barely moves.
-            modified = True
-            result.add_stage("Enhance", FileStatus.DONE, msg, metrics=metrics)
+        # ── 6. Parametric EQ and Audio Enhancement ────────────────────────────
+        audio, tone_modified = _run_tone_stages(audio, stage_config, result, _emit)
+        modified = modified or tone_modified
 
         # ── 7. Nothing changed: normalise directly, or write nothing ─────────
         if not modified:
@@ -468,7 +471,7 @@ def process_file(
         _emit("Export", "Restoring tags...")
         write_tags_raw(str(staged), original_tags, record_snapshot=False)
 
-        # ── 10. Normalisation (FFmpeg on temp file, with retry) ────────────────
+        # ── 10. Normalisation (FFmpeg on temp file, with retry) ───────────────
         if wants_normalise:
             msg, _applied = _run_normalise_stage(
                 staged,
@@ -739,6 +742,60 @@ def _run_noise_reduction_stage(
         ) from exc
 
 
+def _run_eq_stage(
+    audio: AudioSegment,
+    config: StageConfig,
+    emit: Callable[..., Any],
+) -> tuple[AudioSegment, str, bool]:
+    """Apply the parametric EQ rack, returning ``(audio, message, modified)``.
+
+    The rack is rendered by the shared engine on the decoded samples and comes
+    back through the same lossless conversion the Enhance stage uses, so a
+    bypassed or empty rack is bit-transparent: ``modified`` is false and the
+    file is left byte-identical (U-02).
+
+    Raises:
+        AudioConfigurationError: A band the renderer cannot place (for example
+            one at or above Nyquist).  Re-raised untouched so the run reports
+            the band problem rather than a generic stage failure.
+        AudioProcessingError: If the stage fails for any other reason.
+    """
+    settings = config.eq_params
+    if not settings.active:
+        msg = (
+            "EQ bypassed - signal unchanged"
+            if settings.bypass
+            else "No EQ bands - signal unchanged"
+        )
+        emit("EQ", msg)
+        return audio, msg, False
+
+    emit("EQ", f"Applying {len(settings.bands)} band(s)…")
+    try:
+        audio_np, sample_rate = segment_to_numpy(audio)
+        processed = apply_eq(audio_np, settings, sample_rate)
+        processed_audio = numpy_to_segment(
+            processed,
+            sample_rate=sample_rate,
+            sample_width=audio.sample_width,
+            num_channels=audio.channels,
+        )
+        kinds = ", ".join(band.kind for band in settings.bands)
+        msg = f"Applied {len(settings.bands)} band(s): {kinds}"
+        emit("EQ", msg)
+        return processed_audio, msg, True
+    except AudioConfigurationError:
+        raise
+    except Exception as exc:
+        mapped = map_to_audio_error(exc)
+        logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
+        raise AudioProcessingError(
+            f"EQ stage failed: {exc}",
+            context={"stage": "eq"},
+            original=exc,
+        ) from exc
+
+
 def _run_enhance_stage(
     audio: AudioSegment,
     config: StageConfig,
@@ -779,6 +836,36 @@ def _run_enhance_stage(
             context={"stage": "enhance"},
             original=exc,
         ) from exc
+
+
+def _run_tone_stages(
+    audio: AudioSegment,
+    config: StageConfig,
+    result: FileResult,
+    emit: Callable[..., Any],
+) -> tuple[AudioSegment, bool]:
+    """Run the EQ and Enhance stages in pipeline order and record each.
+
+    Tone shaping precedes compression: the Enhance stage's compressor and
+    limiter then act on the shaped signal, which is the rack's point.  Both
+    stages are reported separately, so a run's log names the rack it applied
+    rather than folding it into the preset line.
+
+    Returns:
+        ``(audio, modified)``.  An enabled Enhance stage always counts as a
+        change because its DSP chain always applies, even when the level
+        barely moves; the EQ stage counts only when its rack is active.
+    """
+    modified = False
+    if config.eq:
+        audio, msg, changed = _run_eq_stage(audio, config, emit)
+        modified = modified or changed
+        result.add_stage("EQ", FileStatus.DONE, msg)
+    if config.enhance:
+        audio, msg, metrics = _run_enhance_stage(audio, config, emit)
+        modified = True
+        result.add_stage("Enhance", FileStatus.DONE, msg, metrics=metrics)
+    return audio, modified
 
 
 def _write_output(
@@ -1417,9 +1504,7 @@ def _run_dry_run(
     if config.reduce_noise:
         audio, msg, _changed = _run_noise_reduction_stage(audio, config, emit)
         result.add_stage("Noise Reduction", FileStatus.DONE, msg)
-    if config.enhance:
-        audio, msg, metrics = _run_enhance_stage(audio, config, emit)
-        result.add_stage("Enhance", FileStatus.DONE, msg, metrics=metrics)
+    audio, _tone_changed = _run_tone_stages(audio, config, result, emit)
     if config.normalise:
         msg = _preview_normalise(
             source_path, config, emit, album=album, album_key=album_key

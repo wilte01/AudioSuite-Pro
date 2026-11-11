@@ -1,3 +1,4 @@
+# Changed in 2.7.0: the EQ rack, flags and driver emission are locked (F-S1).
 """
 Tests for master_driver.runner.arg_builder (G-37)
          master_driver.runner.module_runner (G-37)
@@ -41,6 +42,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from audio_suite_shared.dsp_eq import EqSettings
 from audio_suite_shared.launch_failure import record_launch_failure
 from audio_suite_shared.tool_plugin import ToolManifest
 from master_driver.runner.arg_builder import (
@@ -237,6 +239,10 @@ def _make_refinery_config():
     config.enhance = True
     config.normalise = True
     config.reduce_noise = False
+    # A real StageConfig default: unset attributes on a MagicMock are truthy,
+    # which would silently enable the EQ stage in every run this fixture builds.
+    config.eq = False
+    config.eq_params = EqSettings()
     config.enhance_params.preset = "Standard"
     config.declick_params.sensitivity = 0.5
     config.declick_params.max_width_ms = 2
@@ -996,6 +1002,31 @@ class TestBuildRefineryArgs:
         stages_str = args[stage_idx + 1]
         assert "reduce_noise" not in stages_str
 
+    def test_eq_bands_reach_the_child_when_the_stage_is_on(self):
+        """F-S1: the rack crosses as repeatable --eq-band flags, in order."""
+        from audio_suite_shared.dsp_eq import EqBand, EqSettings
+
+        state = _make_state()
+        config = _make_refinery_config()
+        config.eq = True
+        config.eq_params = EqSettings(
+            bands=(EqBand("peaking", 1000.0, 3.0, 1.0), EqBand("highpass", 40.0))
+        )
+
+        _, _, args = build_refinery_args(state, config)[0]
+
+        assert args.count("--eq-band") == 2
+        assert args[args.index("--eq-band") + 1] == "peaking,1000,3,1"
+        assert "eq" in args[args.index("--stages") + 1]
+
+    def test_a_default_config_sends_no_eq_flags(self):
+        """The new stage must not change any existing run's argument list."""
+        state = _make_state()
+        _, _, args = build_refinery_args(state, _make_refinery_config())[0]
+
+        assert "--eq-band" not in args
+        assert "eq" not in args[args.index("--stages") + 1].split(",")
+
     def test_noise_reduction_flags_in_args(self):
         state = _make_state()
         config = _make_refinery_config()
@@ -1024,7 +1055,7 @@ class TestBuildRefineryArgs:
         assert "--reduce-broadband" not in args
 
     def test_all_toggles_off_emits_empty_stages(self):
-        """All five stage toggles off => ``--stages`` is empty (M13).
+        """All six stage toggles off => ``--stages`` is empty (M13).
 
         Positive contract replacing ``test_all_stages_default_when_none_enabled``,
         which asserted the silent fallback and so pinned the defect: a user
@@ -1036,6 +1067,7 @@ class TestBuildRefineryArgs:
         config = _make_refinery_config()
         config.declick = config.trim = config.enhance = config.normalise = False
         config.reduce_noise = False
+        config.eq = False
         _, _, args = build_refinery_args(state, config)[0]
         stage_idx = args.index("--stages")
         assert args[stage_idx + 1] == ""
@@ -1045,8 +1077,9 @@ class TestBuildRefineryArgs:
 
         Every entry pairs a real boolean ``StageConfig`` field with the
         ``--stages`` name the audio_refinery CLI recognises (field == name),
-        and the set covers all five stages — ``reduce_noise`` is the one the
-        Refine tab's select-all missed before the fix.
+        and the set covers all six stages — ``reduce_noise`` is the one the
+        Refine tab's select-all missed before the fix, and ``eq`` is the
+        parametric stage added in 2.7.0 (F-S1).
         """
         from audio_refinery.core.models import StageConfig
 
@@ -1060,6 +1093,7 @@ class TestBuildRefineryArgs:
             "enhance",
             "normalise",
             "reduce_noise",
+            "eq",
         }
 
     def test_refinery_clear_logs_flag_follows_refine_tab_var(self):

@@ -27,6 +27,10 @@ frame-accurate stream copy.
 Changed in 2.6.0 (F-E2): ``NormaliseParams.target_mode`` and
 ``target_peak_dbtp`` add a true-peak target beside the LUFS one.  ``mode`` is a
 different question - *how* the gain is applied - and is left untouched.
+
+Changed in 2.7.0 (F-S1): ``StageConfig`` gains the parametric EQ stage - an
+``eq`` enable flag and an ``eq_params`` :class:`EqSettings` rack - so a run can
+shape tone with bands the fixed enhancement shelves cannot express.
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
+from audio_suite_shared.dsp_eq import EqSettings
 from noise_reduction.core.models import NoiseReductionParams
 
 # ── Stage enable/disable + per-stage params ───────────────────────────────────
@@ -164,6 +169,9 @@ class StageConfig:
     enhance: bool = True
     normalise: bool = True
     reduce_noise: bool = False
+    # Changed in 2.7.0: the parametric EQ rack is its own stage (F-S1); it is
+    # off by default so every existing preset and run is unchanged.
+    eq: bool = False
     dry_run: bool = False
 
     declick_params: DeclickParams = field(default_factory=DeclickParams)
@@ -173,6 +181,7 @@ class StageConfig:
     noise_reduction_params: NoiseReductionParams = field(
         default_factory=NoiseReductionParams
     )
+    eq_params: EqSettings = field(default_factory=EqSettings)
 
 
 # ── Job status ────────────────────────────────────────────────────────────────

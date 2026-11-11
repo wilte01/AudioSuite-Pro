@@ -1,3 +1,4 @@
+# Changed in 2.7.0: the EQ rack, flags and driver emission are locked (F-S1).
 """Tests for audio_refinery.utils.cli_args.
 
 Changed in 2.5.0: album mode is a flag on this surface too, and defaults off
@@ -243,3 +244,33 @@ class TestAlbumMode:
 
     def test_no_album_mode_turns_it_off_again(self) -> None:
         assert parse(["prog", "--album-mode", "--no-album-mode"]).album_mode is False
+
+
+class TestEqBands:
+    """--eq-band is repeatable, keeps order, and validates through the engine."""
+
+    def test_no_bands_by_default(self) -> None:
+        assert parse(["prog"]).eq_bands == ()
+
+    def test_each_band_is_kept_in_the_order_given(self) -> None:
+        args = parse(
+            [
+                "prog",
+                "--eq-band",
+                "peaking,1000,3,1",
+                "--eq-band",
+                "highpass,40",
+            ]
+        )
+        assert args.eq_bands == ("peaking,1000,3,1", "highpass,40")
+
+    def test_an_unknown_band_kind_is_refused(self) -> None:
+        with pytest.raises(SystemExit):
+            parse(["prog", "--eq-band", "teleport,1000,3,1"])
+
+    def test_a_ninth_band_is_refused(self) -> None:
+        argv = ["prog"]
+        for _ in range(9):
+            argv.extend(["--eq-band", "peaking,1000,1,1"])
+        with pytest.raises(SystemExit):
+            parse(argv)

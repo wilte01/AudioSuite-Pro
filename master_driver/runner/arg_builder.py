@@ -505,6 +505,8 @@ REFINERY_STAGES: tuple[tuple[str, str], ...] = (
     ("enhance", "enhance"),
     ("normalise", "normalise"),
     ("reduce_noise", "reduce_noise"),
+    # Changed in 2.7.0: the parametric EQ is its own stage (F-S1).
+    ("eq", "eq"),
 )
 
 
@@ -603,6 +605,12 @@ def build_refinery_args(
             str(nr.gate_threshold_db),
         ]
     )
+    # Changed in 2.7.0: EQ bands are emitted only when the stage is on and the
+    # rack is not bypassed, so every existing run's argument list is unchanged
+    # (F-S1).  A bypassed rack keeps its bands in a preset and sends none.
+    if config.eq and not config.eq_params.bypass:
+        for band in config.eq_params.bands:
+            args.extend(["--eq-band", band.describe()])
     if output:
         args.extend(["--output", output])
     if state.global_mode.get() == "Dry Run":

@@ -121,6 +121,16 @@ def _validate_trim_range(
     help="Comma-separated pipeline stages.",
 )
 @click.option(
+    "--eq-band",
+    "eq_bands",
+    multiple=True,
+    metavar="BAND",
+    help=(
+        "Parametric EQ band 'kind,freq,gain,q' (repeatable, up to 8); "
+        "implies the eq stage."
+    ),
+)
+@click.option(
     "--sensitivity",
     default=0.31,
     type=float,
@@ -286,6 +296,7 @@ def refine(
     dry_run: bool,
     json: bool,
     stages: str,
+    eq_bands: tuple[str, ...],
     sensitivity: float,
     width: int,
     threshold: int,
@@ -347,12 +358,24 @@ def refine(
     out_dir = Path(output) if output else source_dir
 
     active = {s.strip().lower() for s in stages.split(",")}
+    # Changed in 2.7.0: --eq-band builds the rack the engine validates, and
+    # implies the eq stage - a flag that selected no stage would do nothing
+    # while its bands round-tripped into a preset (F-S1).
+    from audio_suite_shared.dsp_eq import EqSettings, parse_band
+    from audio_suite_shared.exceptions import AudioConfigurationError
+
+    try:
+        eq_settings = EqSettings(bands=tuple(parse_band(band) for band in eq_bands))
+    except AudioConfigurationError as exc:
+        raise click.BadParameter(exc.message, param_hint="--eq-band") from exc
+
     config = StageConfig(
         declick="declick" in active,
         trim="trim" in active,
         enhance="enhance" in active,
         normalise="normalise" in active,
         reduce_noise="reduce_noise" in active,
+        eq="eq" in active or bool(eq_bands),
         declick_params=DeclickParams(sensitivity=sensitivity, max_width_ms=width),
         trim_params=TrimParams(
             threshold=threshold,
@@ -394,11 +417,11 @@ def refine(
             noise_end_ms=noise_end,
             gate_threshold_db=gate_threshold,
         ),
+        eq_params=eq_settings,
     )
 
     registry = CompletionRegistry(source_dir)
     from audio_refinery.core.trim import check_copy_mode
-    from audio_suite_shared.exceptions import AudioConfigurationError
 
     try:
         check_copy_mode(config)
