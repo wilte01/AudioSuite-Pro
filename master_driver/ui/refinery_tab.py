@@ -1,3 +1,4 @@
+# Changed in 2.7.0: the Refine tab's select-all includes the EQ stage (F-S1).
 """
 ui/refinery_tab.py
 Refinery tab for the Master Driver.
@@ -30,7 +31,14 @@ from audio_refinery.utils.settings import load as _load_settings
 from audio_refinery.utils.settings import save as _save_settings
 from audio_suite_shared.security.input_validator import InputValidator
 
-_REFINERY_STAGES = ("declick", "trim", "reduce_noise", "enhance", "normalise")
+_REFINERY_STAGES = (
+    "declick",
+    "trim",
+    "reduce_noise",
+    "eq",
+    "enhance",
+    "normalise",
+)
 
 
 def build(
@@ -198,7 +206,7 @@ def _inject_select_all(
 def _apply_startup_select_state(
     setup_state: dict[str, Any], config: StageConfig, select_var: tk.BooleanVar
 ) -> None:
-    """Force the five stage cards to match the SELECT ALL state at startup.
+    """Force the six stage cards to match the SELECT ALL state at startup.
 
     The stage checkboxes otherwise inherit their value from the persisted
     ``refinery_settings.json`` (config), which can leave them checked while

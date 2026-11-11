@@ -100,6 +100,30 @@ Processing shows one worker slot per logical CPU (at most eight), progress, and 
 
 The pipeline writes refinery_log.txt in the resolved output directory. It includes per-file stage output and a final total, processed, succeeded, skipped, error, and time summary. Tag edits are recorded in the suite batch undo system. Keep independent backups before in-place processing even though failures are protected by temporary output and atomic replacement.
 
+## Parametric EQ
+
+The Setup tab's **Parametric EQ** panel shapes tone with up to eight bands
+instead of the three fixed shelves the enhancement preset carries. Choose a
+band kind (low shelf, high shelf, peaking, high-pass or low-pass), enter a
+frequency in Hz, a gain in dB and a Q, then Add / Update to place it. Selecting
+a row loads it back into those fields, so Add / Update replaces that band
+rather than adding a second copy of it, and Remove deletes the selected band.
+High-pass and low-pass are first-order: their gain must be 0 and their Q the
+default, and a band that carries anything else is refused rather than applied.
+
+The curve under the table is drawn from the same filters the run applies, by
+measuring their impulse response, so it shows the shape the file will have. The
+panel writes each edit straight into the run's configuration, which is why the
+curve and the audio cannot disagree. **Bypass** keeps the bands in the panel
+and in a saved preset while leaving the signal untouched, and an empty rack does
+the same.
+
+A preset stores the EQ stage's toggle and every band, and loading one restores
+the table and the curve. A band outside 20 Hz to 20 kHz, a gain past +/-24 dB, a
+Q outside 0.1 to 18, or a high-pass/low-pass band with a gain or a non-default Q
+is reported in the panel and never enters the rack. A band at or above the
+file's Nyquist frequency is refused by the run rather than moved.
+
 ## Command Line
 
 The registered command is refine. Examples:
@@ -114,6 +138,24 @@ python -m audio_suite_shared.cli_app refine <folder> --stages eq --eq-band "peak
 CLI options cover output directory, dry run, stages, declick sensitivity and width, trim threshold and fades, the exact trim range (--trim-mode, --trim-start, --trim-end, --trim-duration, --trim-copy/--no-trim-copy), hum and broadband reduction, enhancement preset, the parametric EQ rack (--eq-band, one "kind,freq,gain,q" band per flag, up to eight; giving one implies the eq stage), the enhancement effect flags (--reverse, --karaoke/--no-karaoke, --karaoke-strength, --phaser, --flanger, --chorus), target LUFS, tolerance, true peak, LRA, the normalise strategy (--normalise-mode), the normalise target (--target-mode lufs|peak with --target-peak in dBTP), album mode (--album-mode/--no-album-mode), and JSON output. If --output is omitted, results are written in place.
 
 The eq stage runs after noise reduction and before enhancement, so the preset's compressor and limiter act on the shaped tone. Its band kinds are lowshelf, highshelf, peaking, highpass and lowpass; a highpass or lowpass band is first-order, so it takes no gain and no Q. A band at or above the file's Nyquist frequency is refused rather than moved, and a rack with no bands or with bypass on leaves the signal untouched.
+
+## Parametric EQ
+
+The EQ stage shapes tone with up to eight bands - low shelf, high shelf,
+peaking, high-pass and low-pass - each with its own frequency, gain and Q.
+Tick Parametric EQ and open its Settings to add one: choose the kind, type the
+frequency in Hz, the gain in dB and the Q, then press Add / Update. Select a
+row and press Remove to delete it. The curve under the table is drawn from the
+same filters the run applies, so the shape you see is the shape the file gets.
+Bypass keeps the bands in a preset and leaves the signal untouched.
+
+High-pass and low-pass bands are first-order in the installed engine, so their
+gain and Q boxes are disabled while one is selected: a control that cannot
+apply is not offered. A band at or above the file's sample-rate limit is
+refused rather than moved. The stage runs after Noise Reduction and before
+Enhancement, so the preset's compressor and limiter act on the shaped signal,
+and it cannot run beside Stream copy, which writes the source's own frames
+without decoding them.
 
 ## Master Driver Use
 

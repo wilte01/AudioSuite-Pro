@@ -1,3 +1,4 @@
+# Changed in 2.7.0: the EQ rack's preset seam is locked (F-S1).
 """Tests for audio_refinery.app — driver-mirror variable presence and audition.
 Changed in 1.1.0: added effect-field settings collect/apply coverage.
 Changed in 2.0.0: adds the ``TestCompletionSeam`` cases driving
@@ -679,3 +680,27 @@ class TestCompletionSeam:
 
         assert field in str(caught.value)
         assert not (tmp_path / "refinery_log.txt").exists()
+
+
+class TestEqPresetSeam:
+    """A saved preset carries the EQ rack and restores it through the engine."""
+
+    def test_the_rack_survives_a_save_and_load(self) -> None:
+        from audio_refinery.app import AudioRefineryApp
+        from audio_refinery.core.models import StageConfig
+        from audio_suite_shared.dsp_eq import EqBand, EqSettings
+
+        app = object.__new__(AudioRefineryApp)
+        app.config = StageConfig(
+            eq=True,
+            eq_params=EqSettings(bands=(EqBand("peaking", 500.0, 4.0, 1.2),)),
+        )
+        app._setup_state = {}
+
+        settings = app._collect_settings()
+        app.config.eq = False
+        app.config.eq_params = EqSettings()
+        app._apply_preset(settings)
+
+        assert app.config.eq is True
+        assert app.config.eq_params.bands == (EqBand("peaking", 500.0, 4.0, 1.2),)

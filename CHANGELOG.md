@@ -22,6 +22,16 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **The Refinery's EQ has its own panel and a live response curve.** The
+  Parametric EQ stage opens to a band table: pick a kind, type the frequency,
+  gain and Q, and Add / Update writes the band into the run; selecting a row
+  loads it back for editing, and Remove deletes it. The curve under the table
+  is drawn from the same filters the run renders, so it shows the shape the
+  file will get, and Bypass keeps the bands while leaving the signal alone. A
+  high-pass or low-pass band disables the gain and Q boxes, because the
+  installed engine's first-order filters take neither, and the stage joins
+  SELECT ALL on the Refine tab.
+
 - **The Refinery can shape tone with a parametric EQ.** A run may now stack up
   to eight bands - low shelf, high shelf, peaking, high-pass or low-pass - each
   with its own frequency, gain and Q, where the enhancement presets offer only
@@ -33,7 +43,10 @@ and every bullet belongs to exactly one of them.
   A band at or above the file's Nyquist frequency is refused rather than moved,
   and a bypassed or empty rack leaves the signal bit-identical. High-pass and
   low-pass bands are first-order in the installed engine: they take no gain and
-  no Q, and one that carries either is refused instead of ignored.
+  no Q, and one that carries either is refused instead of ignored. The Setup
+  tab shows the rack as a band table with a live response curve, drawn by
+  measuring the filters the run applies, and a preset stores the toggle and
+  every band with the rest of the settings.
 
 - **Help ▸ Licences shows the texts that ship with the installation.** The
   Master Driver's Help menu gains a `Licences` entry that opens a read-only

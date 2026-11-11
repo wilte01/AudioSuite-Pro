@@ -135,7 +135,31 @@ def _sanitise_target_lufs(raw: float) -> float:
     return _DEFAULT_TARGET_LUFS
 
 
-def _eq_settings_from_dict(data: dict[str, Any]) -> EqSettings:
+def eq_settings_to_dict(settings: EqSettings) -> dict[str, Any]:
+    """Serialise one EQ rack into the settings document's shape.
+
+    Args:
+        settings: The rack to store.
+
+    Returns:
+        A JSON-ready mapping :func:`eq_settings_from_dict` reads back, so the
+        writer and the reader cannot drift.
+    """
+    return {
+        "bands": [
+            {
+                "kind": band.kind,
+                "freq_hz": band.freq_hz,
+                "gain_db": band.gain_db,
+                "q": band.q,
+            }
+            for band in settings.bands
+        ],
+        "bypass": settings.bypass,
+    }
+
+
+def eq_settings_from_dict(data: dict[str, Any]) -> EqSettings:
     """Rebuild the parametric EQ rack from a settings document.
 
     A stored band is validated by :class:`EqBand` itself, so a settings file
@@ -284,7 +308,7 @@ def _from_dict(data: dict[str, Any]) -> StageConfig:
     )
 
     # Parametric EQ rack (F-S1)
-    config.eq_params = _eq_settings_from_dict(data.get("eq_params", {}))
+    config.eq_params = eq_settings_from_dict(data.get("eq_params", {}))
 
     # Normalise params — validate stored LUFS against permitted presets.
     d = data.get("normalise_params", {})
@@ -425,20 +449,9 @@ def _to_dict(config: StageConfig) -> dict[str, Any]:
             "flanger": p.flanger,
             "chorus": p.chorus,
         },
-        "eq_params": {
-            # One object per band, in rack order: the same shape :class:`EqBand`
-            # validates on the way back in.
-            "bands": [
-                {
-                    "kind": band.kind,
-                    "freq_hz": band.freq_hz,
-                    "gain_db": band.gain_db,
-                    "q": band.q,
-                }
-                for band in e.bands
-            ],
-            "bypass": e.bypass,
-        },
+        # One object per band, in rack order: the same shape :class:`EqBand`
+        # validates on the way back in.
+        "eq_params": eq_settings_to_dict(e),
         "normalise_params": {
             "target_lufs": n.target_lufs,
             "tolerance": n.tolerance,

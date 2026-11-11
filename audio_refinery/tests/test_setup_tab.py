@@ -1,3 +1,4 @@
+# Changed in 2.7.0: the EQ panel's table, curve and write-back are locked (F-S1).
 """Tests for audio_refinery.ui.setup_tab.
 Changed in 1.1.0: added EnhancementParams field-parity tests and a
 slider-to-config sync regression test (D24).
@@ -737,3 +738,82 @@ class TestEnhancePanelSync:
         config.normalise = False
         state["normalise_toggle_cb"]()
         assert row.winfo_manager() == "pack"
+
+
+class TestEqPanel:
+    """The EQ table and curve are two views of the rack the run renders (F-S1)."""
+
+    def _build(self, root: tk.Tk, config: Any) -> dict[str, Any]:
+        from audio_refinery.ui import setup_tab
+
+        return setup_tab.build(
+            parent=tk.Frame(root),
+            source_path=tk.StringVar(),
+            output_path=None,
+            config=config,
+            on_browse_src=lambda: None,
+            on_browse_out=lambda: None,
+            on_start=lambda: None,
+            on_reset=lambda: None,
+        )
+
+    def test_the_stage_and_its_refresh_are_registered(self, root: tk.Tk) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        state = self._build(root, StageConfig())
+
+        assert "eq" in state["stage_vars"]
+        assert callable(state["eq_refresh"])
+        assert state["eq_tree"].get_children() == ()
+
+    def test_a_loaded_rack_reaches_the_table_and_the_measured_curve(
+        self, root: tk.Tk
+    ) -> None:
+        from audio_refinery.core.models import StageConfig
+        from audio_suite_shared.dsp_eq import EqBand, EqSettings, response_curve
+
+        config = StageConfig(
+            eq=True,
+            eq_params=EqSettings(bands=(EqBand("peaking", 1000.0, 6.0, 1.0),)),
+        )
+
+        state = self._build(root, config)
+        state["eq_refresh"]()
+
+        assert len(state["eq_tree"].get_children()) == 1
+        freqs, curve = state["eq_curve"]
+        expected = response_curve(config.eq_params, freqs)
+        assert max(abs(a - b) for a, b in zip(curve, expected)) < 1e-9
+        nearest = min(range(len(freqs)), key=lambda i: abs(freqs[i] - 1000.0))
+        assert curve[nearest] == pytest.approx(6.0, abs=0.5)
+
+    def test_adding_a_band_writes_the_run_config(self, root: tk.Tk) -> None:
+        from audio_refinery.core.models import StageConfig
+        from audio_suite_shared.dsp_eq import EqBand
+
+        config = StageConfig(eq=True)
+        state = self._build(root, config)
+        entries = state["eq_entries"]
+        entries["kind"].set("highshelf")
+        entries["freq"].set("8000")
+        entries["gain"].set("-3.5")
+        entries["q"].set("0.8")
+
+        state["eq_add"]()
+
+        assert config.eq_params.bands == (EqBand("highshelf", 8000.0, -3.5, 0.8),)
+        assert len(state["eq_tree"].get_children()) == 1
+
+    def test_an_invalid_band_is_refused_without_touching_the_rack(
+        self, root: tk.Tk
+    ) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig(eq=True)
+        state = self._build(root, config)
+        state["eq_entries"]["freq"].set("90000")
+
+        state["eq_add"]()
+
+        assert config.eq_params.bands == ()
+        assert state["eq_tree"].get_children() == ()

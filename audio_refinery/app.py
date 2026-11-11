@@ -271,12 +271,16 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
     # ── Presets ───────────────────────────────────────────────────────────────
 
     def _collect_settings(self) -> dict[str, Any]:
+        from .utils.settings import eq_settings_to_dict
+
         p = self.config
         return {
             "declick": p.declick,
             "trim": p.trim,
             "enhance": p.enhance,
             "normalise": p.normalise,
+            # Changed in 2.7.0: the EQ stage's toggle and rack ride a preset (F-S1).
+            "eq": p.eq,
             "sensitivity": p.declick_params.sensitivity,
             "max_width_ms": p.declick_params.max_width_ms,
             "threshold": p.trim_params.threshold,
@@ -320,6 +324,7 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             # Changed in 2.6.0: the peak target rides a preset too (F-E2).
             "target_mode": p.normalise_params.target_mode,
             "target_peak_dbtp": p.normalise_params.target_peak_dbtp,
+            "eq_params": eq_settings_to_dict(p.eq_params),
         }
 
     # Preset key -> the config attribute it writes. A preset stores only the
@@ -333,6 +338,8 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         "trim": "trim",
         "enhance": "enhance",
         "normalise": "normalise",
+        # Changed in 2.7.0: the EQ stage's toggle (F-S1).
+        "eq": "eq",
     }
     _DECLICK_PRESET_KEYS = {
         "sensitivity": "sensitivity",
@@ -404,8 +411,15 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         self._apply_preset_keys(
             p.normalise_params, settings, self._NORMALISE_PRESET_KEYS
         )
+        # Changed in 2.7.0: the parametric rack rides a preset as one object
+        # (F-S1), restored through the loader's own validator.
+        if "eq_params" in settings:
+            from .utils.settings import eq_settings_from_dict
+
+            p.eq_params = eq_settings_from_dict(settings["eq_params"])
         self._sync_preset_editor(p)
         self._sync_trim_panel()
+        self._sync_eq_panel()
 
     def _sync_preset_editor(self, p: Any) -> None:
         """Keep the Custom DSP editor in step with the loaded preset."""
@@ -740,6 +754,18 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         widgets["duration"].set("" if p.duration_ms is None else str(p.duration_ms))
         widgets["copy"].set(bool(p.copy_mode))
 
+    def _sync_eq_panel(self) -> None:
+        """Show the applied EQ rack on the Setup panel.
+
+        The panel is built before the CLI arguments are applied and before a
+        preset is loaded, so without this a launch would run one rack while the
+        table and curve showed another.  The refresh re-reads
+        ``config.eq_params`` and redraws through the engine's own response.
+        """
+        refresh = (getattr(self, "_setup_state", None) or {}).get("eq_refresh")
+        if callable(refresh):
+            refresh()
+
     def _apply_cli_args(self) -> None:
         args = parse_cli()
 
@@ -807,6 +833,7 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             self.config.eq_params = EqSettings(
                 bands=tuple(parse_band(text) for text in args.eq_bands)
             )
+            self._sync_eq_panel()
         self.config.normalise_params.target_lufs = args.target_lufs
         self.config.normalise_params.tolerance = args.tolerance
         self.config.normalise_params.true_peak = args.true_peak

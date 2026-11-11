@@ -2,11 +2,13 @@
 ui/setup_tab.py
 Setup tab for Audio Refinery.
 
-Displays four collapsible stage panels in fixed pipeline order:
+Displays six collapsible stage panels in fixed pipeline order:
   1. Pop & Click Remover
   2. Silence Trimmer / Fader
-  3. Audio Enhancer
-  4. Audio Normaliser
+  3. Noise Reduction
+  4. Parametric EQ
+  5. Audio Enhancer
+  6. Audio Normaliser
 
 Each panel has:
   - A checkbox to enable/disable the stage
@@ -33,6 +35,12 @@ Changed in 2.4.1: the enhancer panel's preset combobox values are built
 with ``preset_text(preset)`` - the shared model's single display
 accessor - instead of ``preset.value``, so an enum-base change cannot
 rewrite a label. The rendered strings are unchanged (WP-0).
+
+Changed in 2.7.0: the Parametric EQ panel is a band table plus a response
+curve (F-S1). The curve is drawn by ``dsp_eq.response_curve``, which measures
+the very filters the pipeline renders, so the shape on screen cannot disagree
+with the sound; every table edit writes the rack back into ``config.eq_params``
+and a preset load reaches the same refresh through ``state["eq_refresh"]``.
 """
 
 from __future__ import annotations
@@ -40,7 +48,9 @@ from __future__ import annotations
 import itertools
 import tkinter as tk
 from tkinter import ttk
-from typing import Any, Callable, cast
+from typing import Any, Callable, Literal, cast
+
+import numpy as np
 
 import audio_enhancer.ui.setup_tab as enhancer_ui
 import audio_normalizer.ui.setup_tab as normalise_ui
@@ -48,12 +58,23 @@ import pop_click_remover.ui.setup_tab as declick_ui
 import silence_trimmer.ui.setup_tab as trim_ui
 from audio_refinery.core.models import StageConfig
 from audio_suite_shared import styles, ui_common
+from audio_suite_shared.dsp_eq import (
+    EQ_BAND_KINDS,
+    EQ_DEFAULT_Q,
+    EQ_FIXED_Q_KINDS,
+    MAX_EQ_BANDS,
+    EqBand,
+    EqSettings,
+    parse_band,
+    response_curve,
+)
 from audio_suite_shared.dsp_models import (
     PRESETS,
     EnhancementParams,
     PresetName,
     preset_text,
 )
+from audio_suite_shared.exceptions import AudioConfigValueError
 from audio_suite_shared.ui_driver_controls import DriverControlsPanel
 
 _MODE_VAR_IDS = itertools.count()
@@ -130,7 +151,7 @@ def build(
         tk.Label(
             frame,
             text="Single-pass pipeline: Declick  →  Trim  →  Noise Reduction  "
-            "→  Enhance  →  Normalise",
+            "→  EQ  →  Enhance  →  Normalise",
             font=styles.FONT_CAPTION,
             bg=styles.BG_WHITE,
             fg=styles.FG_SUB,
@@ -243,6 +264,7 @@ def build(
         stages_frame, config, embedded, stage_vars
     )
     _build_noise_reduction_panel(stages_frame, config, embedded, stage_vars)
+    _build_eq_panel(stages_frame, config, _state, stage_vars)
     _build_enhance_panel(stages_frame, config, _state, stage_vars)
     _build_normalise_panel(stages_frame, config, _state, embedded, stage_vars)
 
@@ -790,6 +812,324 @@ def _build_enhance_panel(
 
     _stage_panel(
         parent, "Audio Enhancer", config, "enhance", [], _extra, stage_vars=stage_vars
+    )
+
+
+# ── Parametric EQ panel (F-S1) ───────────────────────────────────────────────
+
+
+class _EqEditor:
+    """Band table, entry row and response curve for one EQ rack.
+
+    The editor owns the rack as a list of bands and writes it back to
+    ``config.eq_params`` - the object the pipeline renders - after every edit.
+    The curve comes from :func:`audio_suite_shared.dsp_eq.response_curve`, which
+    measures the very filters the render applies, so a widget cannot show a
+    shape the audio does not have.
+    """
+
+    def __init__(self, config: StageConfig, state: dict[str, Any]) -> None:
+        self.config = config
+        self.state = state
+        self.rows: list[EqBand] = list(config.eq_params.bands)
+        self.bypass_var = tk.BooleanVar(value=config.eq_params.bypass)
+        self.kind_var = tk.StringVar(value="peaking")
+        self.freq_var = tk.StringVar(value="1000")
+        self.gain_var = tk.StringVar(value="0")
+        self.q_var = tk.StringVar(value=f"{EQ_DEFAULT_Q:g}")
+        self.status_var = tk.StringVar(value="")
+        self.tree: ttk.Treeview | None = None
+        self.gain_entry: tk.Entry | None = None
+        self.q_entry: tk.Entry | None = None
+        self._figure: Any = None
+        self._axes: Any = None
+        self._canvas: Any = None
+
+    # ── construction ──────────────────────────────────────────────────────
+
+    def build(self, body: tk.Frame) -> None:
+        """Build every control into *body* and show the current rack."""
+        self._build_controls(body)
+        self._build_table(body)
+        self._build_curve(body)
+        self.state["eq_refresh"] = self.refresh
+        self.state["eq_tree"] = self.tree
+        self.state["eq_entries"] = {
+            "kind": self.kind_var,
+            "freq": self.freq_var,
+            "gain": self.gain_var,
+            "q": self.q_var,
+        }
+        self.state["eq_add"] = self.add_band
+        self.state["eq_remove"] = self.remove_band
+        self.refresh()
+
+    def _build_controls(self, body: tk.Frame) -> None:
+        bypass_row = tk.Frame(body, bg=styles.BG_WHITE)
+        bypass_row.pack(fill="x", pady=(2, 4))
+        tk.Checkbutton(
+            bypass_row,
+            text="Bypass (keep the bands, leave the signal unchanged)",
+            variable=self.bypass_var,
+            command=self.on_bypass,
+            bg=styles.BG_WHITE,
+            fg=styles.FG_MAIN,
+            activebackground=styles.BG_WHITE,
+            activeforeground=styles.FG_MAIN,
+            selectcolor=styles.BG_WHITE,
+            font=styles.FONT_CAPTION,
+            anchor="w",
+        ).pack(side=tk.LEFT, padx=5)
+
+        entry_row = tk.Frame(body, bg=styles.BG_WHITE)
+        entry_row.pack(fill="x", pady=(2, 0))
+        kind_combo = ttk.Combobox(
+            entry_row,
+            textvariable=self.kind_var,
+            values=list(EQ_BAND_KINDS),
+            state="readonly",
+            width=10,
+            font=styles.FONT_CAPTION,
+        )
+        kind_combo.pack(side=tk.LEFT, padx=(5, 4))
+        kind_combo.bind("<<ComboboxSelected>>", self.on_kind_change)
+        self._entry(entry_row, "Hz", self.freq_var, 8)
+        self.gain_entry = self._entry(entry_row, "dB", self.gain_var, 6)
+        self.q_entry = self._entry(entry_row, "Q", self.q_var, 5)
+
+        tk.Button(
+            entry_row,
+            text="Add / Update",
+            command=self.add_band,
+            bg=styles.get_main(),
+            fg="white",
+            font=styles.FONT_CAPTION,
+            padx=8,
+        ).pack(side=tk.LEFT, padx=(6, 3))
+        tk.Button(
+            entry_row,
+            text="Remove",
+            command=self.remove_band,
+            bg=styles.BG_LIGHT,
+            fg=styles.FG_MAIN,
+            font=styles.FONT_CAPTION,
+            padx=8,
+        ).pack(side=tk.LEFT)
+
+        tk.Label(
+            body,
+            textvariable=self.status_var,
+            font=styles.FONT_CAPTION,
+            fg=styles.FG_SUB,
+            bg=styles.BG_WHITE,
+            anchor="w",
+            justify="left",
+        ).pack(fill="x", padx=5, pady=(2, 0))
+
+    def _entry(
+        self, parent: tk.Frame, label: str, var: tk.StringVar, width: int
+    ) -> tk.Entry:
+        tk.Label(
+            parent,
+            text=label,
+            font=styles.FONT_CAPTION,
+            fg=styles.FG_SUB,
+            bg=styles.BG_WHITE,
+        ).pack(side=tk.LEFT, padx=(4, 1))
+        entry = tk.Entry(
+            parent, textvariable=var, width=width, font=styles.FONT_CAPTION
+        )
+        entry.pack(side=tk.LEFT)
+        return entry
+
+    def _build_table(self, body: tk.Frame) -> None:
+        self.tree = ttk.Treeview(
+            body,
+            columns=("band", "kind", "freq", "gain", "q"),
+            show="headings",
+            height=5,
+        )
+        for column, heading, width in (
+            ("band", "#", 34),
+            ("kind", "Kind", 92),
+            ("freq", "Freq (Hz)", 80),
+            ("gain", "Gain (dB)", 78),
+            ("q", "Q", 50),
+        ):
+            self.tree.heading(column, text=heading)
+            self.tree.column(column, width=width, anchor="center", stretch=False)
+        self.tree.pack(fill="x", pady=(4, 2))
+        self.tree.bind("<<TreeviewSelect>>", self.load_selected)
+
+    def _build_curve(self, body: tk.Frame) -> None:
+        frame = tk.Frame(body, bg=styles.BG_WHITE)
+        frame.pack(fill="x", pady=(4, 0))
+        try:
+            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+            from matplotlib.figure import Figure
+        except ImportError:  # pragma: no cover - matplotlib is a dependency
+            tk.Label(
+                frame,
+                text="matplotlib is not installed, so the response curve is "
+                "unavailable.",
+                font=styles.FONT_CAPTION,
+                fg=styles.FG_SUB,
+                bg=styles.BG_WHITE,
+                anchor="w",
+            ).pack(fill="x", padx=5)
+            return
+        self._figure = Figure(figsize=(5.4, 1.9), dpi=100)
+        self._axes = self._figure.add_subplot(111)
+        self._canvas = FigureCanvasTkAgg(self._figure, master=frame)
+        self._canvas.get_tk_widget().pack(fill="x")
+
+    # ── the rack ──────────────────────────────────────────────────────────
+
+    def refresh(self) -> None:
+        """Show ``config.eq_params`` again - the preset loader's entry point."""
+        self.rows = list(self.config.eq_params.bands)
+        self.bypass_var.set(self.config.eq_params.bypass)
+        self._render_rows()
+        self._draw_curve()
+
+    def load_selected(self, _event: Any = None) -> None:
+        """Load the selected row into the entry widgets for editing."""
+        selected = self.tree.selection() if self.tree is not None else ()
+        if not selected:
+            return
+        band = self.rows[int(selected[0]) - 1]
+        self.kind_var.set(band.kind)
+        self.freq_var.set(f"{band.freq_hz:g}")
+        self.gain_var.set(f"{band.gain_db:g}")
+        self.q_var.set(f"{band.q:g}")
+        self._apply_fixed_kind_state()
+
+    def on_kind_change(self, _event: Any = None) -> None:
+        """Keep the entries honest for a kind that carries no gain or Q."""
+        self._apply_fixed_kind_state()
+
+    def _apply_fixed_kind_state(self) -> None:
+        fixed = self.kind_var.get() in EQ_FIXED_Q_KINDS
+        if fixed:
+            self.gain_var.set("0")
+            self.q_var.set(f"{EQ_DEFAULT_Q:g}")
+        entry_state: Literal["normal", "disabled"] = "disabled" if fixed else "normal"
+        if self.gain_entry is not None:
+            self.gain_entry.configure(state=entry_state)
+        if self.q_entry is not None:
+            self.q_entry.configure(state=entry_state)
+
+    def add_band(self) -> None:
+        """Append the typed band, or replace the selected one."""
+        band = self._band_from_entries()
+        if band is None:
+            return
+        selected = self.tree.selection() if self.tree is not None else ()
+        if selected:
+            self.rows[int(selected[0]) - 1] = band
+        elif len(self.rows) >= MAX_EQ_BANDS:
+            self.status_var.set(f"A rack holds at most {MAX_EQ_BANDS} bands.")
+            return
+        else:
+            self.rows.append(band)
+        self.status_var.set("")
+        self._commit()
+
+    def remove_band(self) -> None:
+        """Remove the selected band."""
+        selected = self.tree.selection() if self.tree is not None else ()
+        if not selected:
+            self.status_var.set("Select a band to remove.")
+            return
+        del self.rows[int(selected[0]) - 1]
+        self.status_var.set("")
+        self._commit()
+
+    def on_bypass(self) -> None:
+        """Write the bypass flag through, keeping the bands."""
+        self.config.eq_params = EqSettings(
+            bands=tuple(self.rows), bypass=self.bypass_var.get()
+        )
+        self._draw_curve()
+
+    def _band_from_entries(self) -> EqBand | None:
+        text = ",".join(
+            [
+                self.kind_var.get(),
+                self.freq_var.get(),
+                self.gain_var.get(),
+                self.q_var.get(),
+            ]
+        )
+        try:
+            return parse_band(text)
+        except AudioConfigValueError as exc:
+            self.status_var.set(exc.message)
+            return None
+
+    def _commit(self) -> None:
+        self.config.eq_params = EqSettings(
+            bands=tuple(self.rows), bypass=self.bypass_var.get()
+        )
+        self._render_rows()
+        self._draw_curve()
+
+    def _render_rows(self) -> None:
+        if self.tree is None:
+            return
+        self.tree.delete(*self.tree.get_children())
+        for index, band in enumerate(self.rows, start=1):
+            self.tree.insert(
+                "",
+                "end",
+                iid=str(index),
+                values=(
+                    index,
+                    band.kind,
+                    f"{band.freq_hz:g}",
+                    f"{band.gain_db:g}",
+                    f"{band.q:g}",
+                ),
+            )
+
+    def _draw_curve(self) -> None:
+        settings = EqSettings(bands=tuple(self.rows), bypass=self.bypass_var.get())
+        freqs = np.geomspace(20.0, 20_000.0, 240)
+        curve = response_curve(settings, freqs)
+        self.state["eq_curve"] = (freqs, curve)
+        if self._axes is None or self._canvas is None:
+            return
+        self._axes.clear()
+        self._axes.semilogx(freqs, curve, color=styles.get_main(), linewidth=1.2)
+        self._axes.axhline(0.0, color=styles.FG_SUB, linewidth=0.6)
+        self._axes.set_xlim(20.0, 20_000.0)
+        self._axes.set_ylim(-24.0, 24.0)
+        self._axes.set_yticks([-24, -12, 0, 12, 24])
+        self._axes.set_xlabel("Hz", fontsize=7)
+        self._axes.set_ylabel("dB", fontsize=7)
+        self._axes.tick_params(labelsize=6)
+        self._axes.grid(True, which="major", alpha=0.25, linewidth=0.4)
+        self._figure.tight_layout()
+        self._canvas.draw_idle()
+
+
+def _build_eq_panel(
+    parent: tk.Frame,
+    config: StageConfig,
+    state: dict[str, Any],
+    stage_vars: dict[str, Any] | None = None,
+) -> None:
+    """Build the parametric EQ stage panel (F-S1)."""
+    editor = _EqEditor(config, state)
+    state["eq_editor"] = editor
+    _stage_panel(
+        parent,
+        "Parametric EQ",
+        config,
+        "eq",
+        [],
+        editor.build,
+        stage_vars=stage_vars,
     )
 
 
