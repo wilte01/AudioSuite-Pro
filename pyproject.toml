@@ -113,6 +113,13 @@ dev = [
     # Dev-only: the schema-conformance gate validates the committed artifact the
     # way an external consumer does.  No shipped path imports it.
     "jsonschema>=4.23.0",
+    # Dev-only: the wheel and package-data locks in tests/test_py_typed.py
+    # import setuptools to build a wheel and prove what actually ships. It was
+    # never declared, so it reached a developer's venv only incidentally
+    # through the ml extra's torch chain: CI installs dev + analysis +
+    # cd-ripping and no ml, so all six locks skipped on the 2.6.0 floor leg
+    # (run 43001489559) and a green CI never certified the wheel's contents.
+    "setuptools>=77",
     "python-docx>=1.1.0",
     "python-pptx>=1.0.0",
     "types-requests>=2.28.0",

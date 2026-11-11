@@ -16,7 +16,17 @@ and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **`setuptools` is a declared dev dependency, so the wheel locks run in CI.**
+  `tests/test_py_typed.py` imports `setuptools` to build a wheel and check that
+  the package data, the `py.typed` marker and the CLI schema actually ship, and
+  it guards itself with `pytest.importorskip`. CI installs `dev`, `analysis`
+  and `cd-ripping` and no `ml` extra, so `setuptools` - which reached a
+  developer's venv only incidentally, through torch - was absent on every
+  runner: all six locks skipped on the 2.6.0 floor leg (run 43001489559), and
+  a green CI never certified the wheel's contents. The `dev` extra now declares
+  it, so the same run proves them.
 
 ## [2.6.0] - 2026-11-11
 
