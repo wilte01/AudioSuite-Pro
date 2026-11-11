@@ -20,6 +20,10 @@ and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.6.0] - 2026-11-11
+
 ### Added
 
 - **Embedded artwork, extracted to a sidecar or reported missing.** A new

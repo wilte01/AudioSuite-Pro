@@ -16,6 +16,10 @@ and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.6.0] - 2026-11-11
+
 ### Added
 
 - **The library cache carries artwork coverage, so an incremental scan can
