@@ -87,10 +87,13 @@ class ChannelToolsApp(SuiteApp):
         source_channel: str = "",
         invert_target: str = "",
         dry_run: bool = False,
+        auto_start: bool = False,
     ) -> None:
         self.folder_path = tk.StringVar(value=suite_config.load_last_directory())
         self.run_mode = tk.StringVar(value=LIVE_MODE)
-        self.auto_start_var = tk.BooleanVar(value=False)
+        # The driver's Auto Start decides whether this launch runs by itself;
+        # the panel shows the inherited state rather than its own default.
+        self.auto_start_var = tk.BooleanVar(value=auto_start)
         self.auto_end_var = tk.BooleanVar(value=False)
         self.clear_logs_var = tk.BooleanVar(value=False)
         self.parallel_var = tk.BooleanVar(value=False)
@@ -104,6 +107,7 @@ class ChannelToolsApp(SuiteApp):
 
         self.controls_panel: DriverControlsPanel | None = None
         self._launched_from_driver = was_launched_from_driver()
+        self._auto_start = auto_start
         self._events: queue.SimpleQueue[tuple[str, Any]] = queue.SimpleQueue()
         self._thread: threading.Thread | None = None
         self._poll_id: str = ""
@@ -120,8 +124,27 @@ class ChannelToolsApp(SuiteApp):
         super().__init__(root)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._refresh_rule()
-        if self.folder_path.get() and self._launched_from_driver:
+        if self._should_auto_run():
             self.root.after(500, self._start_channels)
+
+    def _should_auto_run(self) -> bool:
+        """Whether this launch starts the batch by itself.
+
+        A Master Driver launch supplies the folder and the run mode, so it is
+        not a reason to run: only a launch whose Auto Start was ticked (the
+        ``--start`` handshake flag) runs on its own. Without this, a driver
+        launch with Auto Start off applied the channels immediately instead of
+        loading and waiting on Setup.
+
+        Returns:
+            True only when a folder is set, the process came from the driver
+            and the handshake asked for Auto Start.
+        """
+        return bool(
+            self.folder_path.get().strip()
+            and self._launched_from_driver
+            and self._auto_start
+        )
 
     def _apply_cli_args(
         self,
@@ -502,5 +525,8 @@ def main() -> None:
         source_channel=args.source_channel,
         invert_target=args.invert_target,
         dry_run=getattr(args, "live_mode", True) is False,
+        # Changed in 2.7.0: the launch runs only when --start says so,
+        # instead of any driver launch applying the folder (F-E6 follow-up).
+        auto_start=getattr(args, "auto_start", False),
     )
     root.mainloop()

@@ -67,6 +67,14 @@ and every bullet belongs to exactly one of them.
   an installation ships. The exit status distinguishes a build that carries no
   texts (0) from one whose texts cannot be read (1).
 
+### Fixed
+
+- **Channel Tools waits when the Master Driver's Auto Start is off.** A launch
+  that supplied a folder applied the channel rule immediately, rewriting the
+  files, even though Auto Start had not been ticked. Auto Start now decides:
+  with it off the window opens with the folder and rule ready and waits for
+  Apply Channels, and with it on the batch starts as before.
+
 ## [2.6.0] - 2026-11-11
 
 ### Added

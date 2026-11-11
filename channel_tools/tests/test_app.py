@@ -1,3 +1,4 @@
+# Changed in 2.7.0: a driver launch runs only when Auto Start asked (F-E6).
 """The window's non-display half: settings, and the three callback seams.
 
 The app is built with ``object.__new__`` and mock variables, so no real display
@@ -154,3 +155,86 @@ class TestOperationTable:
     def test_every_operation_has_one_label(self) -> None:
         assert set(OPERATION_LABELS.values()) == set(channel_ops.OPERATION_IDS)
         assert len(OPERATION_LABELS) == len(channel_ops.OPERATIONS)
+
+
+class TestAutoStartHandshake:
+    """A driver launch runs only when its Auto Start asked it to (F-E6)."""
+
+    def test_parse_reads_the_start_flags(self, tmp_path: Path) -> None:
+        from channel_tools.utils.cli_args import parse
+
+        folder = str(tmp_path)
+        assert parse(["prog", folder, "--no-start"]).auto_start is False
+        assert parse(["prog", folder, "--start"]).auto_start is True
+
+    def _app(
+        self, folder: str, *, from_driver: bool, auto_start: bool
+    ) -> ChannelToolsApp:
+        app = object.__new__(ChannelToolsApp)
+        setattr(app, "folder_path", MagicMock())
+        app.folder_path.get.return_value = folder
+        app._launched_from_driver = from_driver
+        app._auto_start = auto_start
+        return app
+
+    def test_a_driver_launch_without_auto_start_waits(self) -> None:
+        app = self._app("D:/music", from_driver=True, auto_start=False)
+
+        assert app._should_auto_run() is False
+
+    def test_a_driver_launch_with_auto_start_runs(self) -> None:
+        app = self._app("D:/music", from_driver=True, auto_start=True)
+
+        assert app._should_auto_run() is True
+
+    def test_a_standalone_launch_never_runs_by_itself(self) -> None:
+        app = self._app("D:/music", from_driver=False, auto_start=True)
+
+        assert app._should_auto_run() is False
+
+    def test_an_empty_folder_never_runs(self) -> None:
+        app = self._app("", from_driver=True, auto_start=True)
+
+        assert app._should_auto_run() is False
+
+    def _main_kwargs(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        flag: str,
+    ) -> dict[str, Any]:
+        import audio_suite_shared.styles as styles_module
+        import channel_tools.app as module
+
+        folder = str(tmp_path)
+        captured: dict[str, Any] = {}
+
+        class _FakeApp:
+            def __init__(self, root: object, **kwargs: Any) -> None:
+                captured.update(kwargs)
+
+        monkeypatch.setattr(module, "ChannelToolsApp", _FakeApp)
+        monkeypatch.setattr(
+            module,
+            "parse_cli_args",
+            lambda parse: parse(["prog", folder, flag]),
+        )
+        monkeypatch.setattr(module.tk, "Tk", lambda: MagicMock())
+        monkeypatch.setattr(styles_module, "bootstrap_theme", lambda: None)
+
+        module.main()
+        return captured
+
+    def test_main_forwards_no_start(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        kwargs = self._main_kwargs(monkeypatch, tmp_path, "--no-start")
+
+        assert kwargs["auto_start"] is False
+
+    def test_main_forwards_start(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        kwargs = self._main_kwargs(monkeypatch, tmp_path, "--start")
+
+        assert kwargs["auto_start"] is True
