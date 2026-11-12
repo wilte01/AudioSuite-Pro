@@ -36,6 +36,10 @@ from audio_suite_shared.cli_dataclasses import validate_target_lufs
 from audio_suite_shared.cli_helpers import (
     was_launched_from_driver as was_launched_from_driver,
 )
+from audio_suite_shared.dsp_dynamics import (
+    CompressorSettings,
+    LimiterSettings,
+)
 from audio_suite_shared.dsp_eq import EqSettings, parse_band
 from audio_suite_shared.exceptions import AudioConfigValueError
 
@@ -94,6 +98,18 @@ class RefineryArgs:
 
     # EQ (F-S1): the band strings as typed, validated when the run is built.
     eq_bands: tuple[str, ...] = ()
+
+    # Dynamics (F-S2). ``dynamics`` records that a dynamics flag was given,
+    # so the stage can be implied without guessing from default values.
+    dynamics: bool = False
+    comp_threshold: float = -18.0
+    comp_ratio: float = 4.0
+    comp_attack: float = 10.0
+    comp_release: float = 100.0
+    comp_makeup: float = 0.0
+    limiter_ceiling: float = -1.0
+    limiter_lookahead: float = 5.0
+    limiter_release: float = 100.0
 
     # Normalise
     target_lufs: float = -14.0
@@ -185,6 +201,67 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
             "Parametric EQ band 'kind,freq,gain,q' (repeatable, up to 8); "
             "implies the eq stage."
         ),
+    )
+
+    # Dynamics (F-S2). Every flag defaults to None so the stage can be
+    # implied by the presence of a flag rather than by a value that might
+    # equal the default. Each value is validated by the engine below.
+    parser.add_argument(
+        "--comp-threshold",
+        type=float,
+        default=None,
+        metavar="DB",
+        help="Compressor threshold in dBFS, -60 to 0 (default -18); "
+        "implies the dynamics stage.",
+    )
+    parser.add_argument(
+        "--comp-ratio",
+        type=float,
+        default=None,
+        metavar="RATIO",
+        help="Compressor ratio, 1 to 20 (default 4).",
+    )
+    parser.add_argument(
+        "--comp-attack",
+        type=float,
+        default=None,
+        metavar="MS",
+        help="Compressor attack in ms, 0.1 to 200 (default 10).",
+    )
+    parser.add_argument(
+        "--comp-release",
+        type=float,
+        default=None,
+        metavar="MS",
+        help="Compressor release in ms, 1 to 2000 (default 100).",
+    )
+    parser.add_argument(
+        "--comp-makeup",
+        type=float,
+        default=None,
+        metavar="DB",
+        help="Makeup gain after compression, -24 to 24 dB (default 0).",
+    )
+    parser.add_argument(
+        "--limiter-ceiling",
+        type=float,
+        default=None,
+        metavar="DBTP",
+        help="True-peak ceiling in dBTP, -24 to 0 (default -1.0).",
+    )
+    parser.add_argument(
+        "--limiter-lookahead",
+        type=float,
+        default=None,
+        metavar="MS",
+        help="Limiter lookahead in ms, 0 to 20 (default 5).",
+    )
+    parser.add_argument(
+        "--limiter-release",
+        type=float,
+        default=None,
+        metavar="MS",
+        help="Limiter release in ms, 1 to 2000 (default 100).",
     )
 
     # Declick params
@@ -496,6 +573,69 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         if args.trim_end is None and args.trim_duration is None:
             parser.error("--trim-mode exact needs --trim-end or --trim-duration")
 
+    dynamics_given = any(
+        value is not None
+        for value in (
+            args.comp_threshold,
+            args.comp_ratio,
+            args.comp_attack,
+            args.comp_release,
+            args.comp_makeup,
+            args.limiter_ceiling,
+            args.limiter_lookahead,
+            args.limiter_release,
+        )
+    )
+    compressor_defaults = CompressorSettings()
+    limiter_defaults = LimiterSettings()
+    try:
+        compressor = CompressorSettings(
+            threshold_db=(
+                compressor_defaults.threshold_db
+                if args.comp_threshold is None
+                else args.comp_threshold
+            ),
+            ratio=(
+                compressor_defaults.ratio
+                if args.comp_ratio is None
+                else args.comp_ratio
+            ),
+            attack_ms=(
+                compressor_defaults.attack_ms
+                if args.comp_attack is None
+                else args.comp_attack
+            ),
+            release_ms=(
+                compressor_defaults.release_ms
+                if args.comp_release is None
+                else args.comp_release
+            ),
+            makeup_db=(
+                compressor_defaults.makeup_db
+                if args.comp_makeup is None
+                else args.comp_makeup
+            ),
+        )
+        limiter = LimiterSettings(
+            ceiling_dbtp=(
+                limiter_defaults.ceiling_dbtp
+                if args.limiter_ceiling is None
+                else args.limiter_ceiling
+            ),
+            lookahead_ms=(
+                limiter_defaults.lookahead_ms
+                if args.limiter_lookahead is None
+                else args.limiter_lookahead
+            ),
+            release_ms=(
+                limiter_defaults.release_ms
+                if args.limiter_release is None
+                else args.limiter_release
+            ),
+        )
+    except AudioConfigValueError as exc:
+        parser.error(exc.message)
+
     eq_bands = tuple(args.eq_bands or ())
     try:
         EqSettings(bands=tuple(parse_band(text) for text in eq_bands))
@@ -530,6 +670,15 @@ def parse(argv: list[str] | None = None) -> RefineryArgs:
         gate_threshold_db=args.gate_threshold_db,
         preset=args.preset,
         eq_bands=eq_bands,
+        dynamics=dynamics_given,
+        comp_threshold=compressor.threshold_db,
+        comp_ratio=compressor.ratio,
+        comp_attack=compressor.attack_ms,
+        comp_release=compressor.release_ms,
+        comp_makeup=compressor.makeup_db,
+        limiter_ceiling=limiter.ceiling_dbtp,
+        limiter_lookahead=limiter.lookahead_ms,
+        limiter_release=limiter.release_ms,
         target_lufs=args.target_lufs,
         tolerance=args.tolerance,
         true_peak=args.true_peak,

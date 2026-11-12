@@ -40,6 +40,10 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
+from audio_suite_shared.dsp_dynamics import (
+    CompressorSettings,
+    LimiterSettings,
+)
 from audio_suite_shared.dsp_eq import EqSettings
 from noise_reduction.core.models import NoiseReductionParams
 
@@ -172,6 +176,9 @@ class StageConfig:
     # Changed in 2.7.0: the parametric EQ rack is its own stage (F-S1); it is
     # off by default so every existing preset and run is unchanged.
     eq: bool = False
+    # Changed in 2.7.0: the dynamics stage (F-S2), off by default for the
+    # same reason.
+    dynamics: bool = False
     dry_run: bool = False
 
     declick_params: DeclickParams = field(default_factory=DeclickParams)
@@ -182,6 +189,8 @@ class StageConfig:
         default_factory=NoiseReductionParams
     )
     eq_params: EqSettings = field(default_factory=EqSettings)
+    compressor_params: CompressorSettings = field(default_factory=CompressorSettings)
+    limiter_params: LimiterSettings = field(default_factory=LimiterSettings)
 
 
 #: (``StageConfig`` field, ``--stages`` name) pairs for the pipeline's toggles.
@@ -198,6 +207,7 @@ REFINERY_STAGES: tuple[tuple[str, str], ...] = (
     ("normalise", "normalise"),
     ("reduce_noise", "reduce_noise"),
     ("eq", "eq"),
+    ("dynamics", "dynamics"),
 )
 
 

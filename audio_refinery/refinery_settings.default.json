@@ -56,6 +56,22 @@
     "bands": [],
     "bypass": false
   },
+  "dynamics": false,
+  "compressor_params": {
+    "threshold_db": -18.0,
+    "ratio": 4.0,
+    "attack_ms": 10.0,
+    "release_ms": 100.0,
+    "makeup_db": 0.0,
+    "knee_db": 0.0,
+    "bypass": false
+  },
+  "limiter_params": {
+    "ceiling_dbtp": -1.0,
+    "lookahead_ms": 5.0,
+    "release_ms": 100.0,
+    "bypass": false
+  },
   "normalise_params": {
     "target_lufs": -14.0,
     "tolerance": 0.5,

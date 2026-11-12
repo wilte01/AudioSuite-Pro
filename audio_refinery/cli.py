@@ -106,6 +106,7 @@ def _validate_trim_range(
 
 
 @cli.command()
+@click.pass_context
 @_opt_dir
 @click.option(
     "--output",
@@ -129,6 +130,54 @@ def _validate_trim_range(
         "Parametric EQ band 'kind,freq,gain,q' (repeatable, up to 8); "
         "implies the eq stage."
     ),
+)
+@click.option(
+    "--comp-threshold",
+    default=-18.0,
+    type=float,
+    help="Compressor threshold in dBFS, -60 to 0; implies the dynamics stage.",
+)
+@click.option(
+    "--comp-ratio",
+    default=4.0,
+    type=float,
+    help="Compressor ratio, 1 to 20.",
+)
+@click.option(
+    "--comp-attack",
+    default=10.0,
+    type=float,
+    help="Compressor attack in ms, 0.1 to 200.",
+)
+@click.option(
+    "--comp-release",
+    default=100.0,
+    type=float,
+    help="Compressor release in ms, 1 to 2000.",
+)
+@click.option(
+    "--comp-makeup",
+    default=0.0,
+    type=float,
+    help="Makeup gain after compression, -24 to 24 dB.",
+)
+@click.option(
+    "--limiter-ceiling",
+    default=-1.0,
+    type=float,
+    help="True-peak ceiling in dBTP, -24 to 0.",
+)
+@click.option(
+    "--limiter-lookahead",
+    default=5.0,
+    type=float,
+    help="Limiter lookahead in ms, 0 to 20.",
+)
+@click.option(
+    "--limiter-release",
+    default=100.0,
+    type=float,
+    help="Limiter release in ms, 1 to 2000.",
 )
 @click.option(
     "--sensitivity",
@@ -291,12 +340,21 @@ def _validate_trim_range(
     help="True-peak target in dBTP for --target-mode peak (default -1.0).",
 )
 def refine(
+    ctx: click.Context,
     directory: str,
     output: str | None,
     dry_run: bool,
     json: bool,
     stages: str,
     eq_bands: tuple[str, ...],
+    comp_threshold: float,
+    comp_ratio: float,
+    comp_attack: float,
+    comp_release: float,
+    comp_makeup: float,
+    limiter_ceiling: float,
+    limiter_lookahead: float,
+    limiter_release: float,
     sensitivity: float,
     width: int,
     threshold: int,
@@ -369,6 +427,45 @@ def refine(
     except AudioConfigurationError as exc:
         raise click.BadParameter(exc.message, param_hint="--eq-band") from exc
 
+    from click.core import ParameterSource
+
+    from audio_suite_shared.dsp_dynamics import (
+        CompressorSettings,
+        LimiterSettings,
+    )
+
+    # Changed in 2.7.0: every dynamics flag carries its engine default, so a
+    # documented default stays click's real one, and the stage is selected by
+    # whether the operator typed a flag rather than by a None sentinel (F-S2).
+    dynamics_given = any(
+        ctx.get_parameter_source(name) is ParameterSource.COMMANDLINE
+        for name in (
+            "comp_threshold",
+            "comp_ratio",
+            "comp_attack",
+            "comp_release",
+            "comp_makeup",
+            "limiter_ceiling",
+            "limiter_lookahead",
+            "limiter_release",
+        )
+    )
+    try:
+        compressor = CompressorSettings(
+            threshold_db=comp_threshold,
+            ratio=comp_ratio,
+            attack_ms=comp_attack,
+            release_ms=comp_release,
+            makeup_db=comp_makeup,
+        )
+        limiter = LimiterSettings(
+            ceiling_dbtp=limiter_ceiling,
+            lookahead_ms=limiter_lookahead,
+            release_ms=limiter_release,
+        )
+    except AudioConfigurationError as exc:
+        raise click.BadParameter(exc.message, param_hint="--dynamics") from exc
+
     config = StageConfig(
         declick="declick" in active,
         trim="trim" in active,
@@ -376,6 +473,7 @@ def refine(
         normalise="normalise" in active,
         reduce_noise="reduce_noise" in active,
         eq="eq" in active or bool(eq_bands),
+        dynamics="dynamics" in active or dynamics_given,
         declick_params=DeclickParams(sensitivity=sensitivity, max_width_ms=width),
         trim_params=TrimParams(
             threshold=threshold,
@@ -418,6 +516,8 @@ def refine(
             gate_threshold_db=gate_threshold,
         ),
         eq_params=eq_settings,
+        compressor_params=compressor,
+        limiter_params=limiter,
     )
 
     registry = CompletionRegistry(source_dir)

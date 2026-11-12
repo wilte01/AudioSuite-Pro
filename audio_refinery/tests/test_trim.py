@@ -276,6 +276,17 @@ class TestCopyExtensions:
 
 
 class TestCheckCopyMode:
+    def test_the_dynamics_stage_is_refused_too(self) -> None:
+        """F-S2: a stream copy would quietly drop the compressor and limiter."""
+        config = StageConfig(declick=False, trim=True, enhance=False, normalise=False)
+        config.dynamics = True
+        config.trim_params = _params(end_ms=1000, copy_mode=True)
+
+        with pytest.raises(AudioConfigValueError) as raised:
+            check_copy_mode(config)
+
+        assert "Dynamics" in raised.value.message
+
     def test_trim_only_is_allowed(self) -> None:
         config = StageConfig(
             declick=False, trim=True, enhance=False, normalise=False, reduce_noise=False

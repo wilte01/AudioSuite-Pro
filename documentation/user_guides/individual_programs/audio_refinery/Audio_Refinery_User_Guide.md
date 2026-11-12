@@ -59,7 +59,7 @@ Optional. Blank means in-place replacement; a selected existing directory receiv
 
 The six collapsible stage panels sit below the paths, in the order the pipeline applies them. Each panel has a checkbox that enables the stage for the run, and a **Settings** expander that reveals that stage's controls. Tick a stage and open its Settings to change anything; the values you see are the values the run uses.
 
-At least one stage must be enabled. The window opens with Pop & Click Remover, Silence Trimmer / Fader, Audio Enhancer and Audio Normaliser enabled, and Noise Reduction and Parametric EQ disabled; enable the two optional stages when a file needs them.
+At least one stage must be enabled. The window opens with Pop & Click Remover, Silence Trimmer / Fader, Audio Enhancer and Audio Normaliser enabled, and Noise Reduction, Dynamics and Parametric EQ disabled; enable an optional stage when a file needs it. Dynamics has no panel in this window yet: a preset, the command line or a Master Driver launch configures it (see Dynamics below), and SELECT ALL covers the six stages it can show.
 
 #### Pop & Click Remover
 
@@ -94,6 +94,21 @@ High-pass and low-pass bands are first-order in the installed engine, so their g
 
 A preset stores the EQ stage's toggle and every band, and loading one restores the table and the curve. The stage runs after Noise Reduction and before Audio Enhancement, so the preset's compressor and limiter act on the shaped signal, and it cannot run beside Stream copy, which writes the source's own frames without decoding them.
 
+#### Dynamics
+
+Off by default. The Setup tab has no panel for this stage yet, so enable it from the command line (`--stages dynamics`, or any dynamics flag), a saved preset, or a Master Driver launch. It is a controllable compressor followed by a true-peak limiter, and the run reports what it measured rather than what you asked for:
+
+- **Compressor threshold: **Default -18 dBFS; the level above which gain reduction starts.
+- **Compressor ratio: **Default 4.0, as in 4:1.
+- **Attack and Release: **Defaults 10 ms and 100 ms; how quickly gain reduction engages and recovers.
+- **Makeup: **Default 0 dB; applied after compression, so it adds level without being counted as reduction.
+- **Limiter ceiling: **Default -1.0 dBTP; the true-peak ceiling the limiter holds.
+- **Lookahead and limiter release: **Defaults 5 ms and 100 ms; how far ahead the limiter sees a peak and how quickly it recovers after one.
+
+The stage reports its largest and mean gain reduction and the output's integrated loudness and true peak in the run log. Those figures are measured from the rendered audio, so they describe the file that was written. A pair of bypassed settings leaves the signal untouched. The installed compressor has a fixed soft knee and the limiter always uses oversampled true-peak detection, so no knee or detector switch is offered.
+
+Dynamics runs after Parametric EQ and before Audio Enhancement, so the preset's own compressor and limiter act on the compressed signal, and it cannot run beside Stream copy, which writes the source's own frames without decoding them.
+
 #### Audio Enhancer
 
 - **Preset: **Mild, Moderate, Aggressive, or Custom. Selecting Custom shows a Configure Custom DSP button that opens the stage's own non-modal editor, so the stage itself stays compact and every control is reachable; changes apply to the run as you make them. When Audio Normaliser is active, the refinery suppresses enhancement output gain so final loudness is controlled by the normalizer, and the Output Gain control is hidden because it has no effect.
@@ -123,6 +138,7 @@ When enabled, stages run in this implementation order:
 1. Silence Trimming / Fading: removes silence using a dBFS threshold and can apply fade-in and fade-out. In Exact range mode it keeps the millisecond range you enter instead of detecting silence; with Stream copy on, the range is cut with one stream copy and no re-encode.
 1. Noise Reduction: optionally removes mains hum and/or broadband noise using its noise profile and gate settings.
 1. Parametric EQ: applies the band rack - up to eight low-shelf, high-shelf, peaking, high-pass or low-pass bands - to shape tone before any dynamics processing. A bypassed stage, or one with no bands, leaves the signal untouched.
+1. Dynamics: applies the compressor and holds the true-peak limiter ceiling; a bypassed pair leaves the signal untouched.
 1. Audio Enhancement: applies the Mild, Moderate, Aggressive, or Custom DSP preset; Custom adds per-effect toggles (reverse, karaoke, phaser, flanger, chorus).
 1. Export: writes the processed audio once using format-appropriate encoding settings - only when a stage changed the audio.
 1. Normalise: optionally measures loudness and applies the configured target and tolerance - either the LUFS playlist target, or a true-peak target in dBTP. When no earlier stage changed the audio, FFmpeg normalises the source directly in one pass. In album mode the whole folder is measured once, before any file is processed, and every track moves by that single gain.
@@ -130,7 +146,7 @@ When enabled, stages run in this implementation order:
 
 ## Dry Run and Output Safety
 
-In Dry Run, each valid file is loaded and the enabled stages run their detection on the decoded audio without writing anything: the click, silence, noise, EQ, and enhancement stages report what they found, and Normalise measures the source and reports the loudness it would apply. No output is written, no temp file is left behind, and no completion record is created. Results include a DryRun stage with RMS, duration, and channel information, plus one entry per stage detection.
+In Dry Run, each valid file is loaded and the enabled stages run their detection on the decoded audio without writing anything: the click, silence, noise, EQ, dynamics, and enhancement stages report what they found, and Normalise measures the source and reports the loudness it would apply. No output is written, no temp file is left behind, and no completion record is created. Results include a DryRun stage with RMS, duration, and channel information, plus one entry per stage detection.
 
 A live run that changes nothing is reported SKIPPED and leaves the file byte-identical: no re-encode, tag rewrite, undo snapshot, or replace. A lossy source is therefore not re-encoded just because a stage was enabled. A file that does change is written to a temporary file in the output directory, tagged, and only then atomically moved into the final output path. If a stage or export fails, the temporary file is removed and the original remains intact.
 
@@ -166,10 +182,11 @@ python -m audio_suite_shared.cli_app refine <folder> --stages declick,enhance --
 python -m audio_suite_shared.cli_app refine <folder> --reduce-hum --hum-frequency 60 --json\
 python -m audio_suite_shared.cli_app refine <folder> --stages trim --trim-mode exact --trim-start 12000 --trim-end 30000\
 python -m audio_suite_shared.cli_app refine <folder> --stages eq --eq-band "peaking,1000,2.5,1.0" --eq-band "highpass,40"
+python -m audio_suite_shared.cli_app refine <folder> --stages dynamics,normalise --comp-threshold -20 --comp-ratio 4 --limiter-ceiling -1
 
-CLI options cover output directory, dry run, stages, declick sensitivity and width, trim threshold and fades, the exact trim range (--trim-mode, --trim-start, --trim-end, --trim-duration, --trim-copy/--no-trim-copy), hum and broadband reduction, enhancement preset, the parametric EQ rack (--eq-band, one "kind,freq,gain,q" band per flag, up to eight; giving one implies the eq stage), the enhancement effect flags (--reverse, --karaoke/--no-karaoke, --karaoke-strength, --phaser, --flanger, --chorus), target LUFS, tolerance, true peak, LRA, the normalise strategy (--normalise-mode), the normalise target (--target-mode lufs|peak with --target-peak in dBTP), album mode (--album-mode/--no-album-mode), and JSON output. If --output is omitted, results are written in place.
+CLI options cover output directory, dry run, stages, declick sensitivity and width, trim threshold and fades, the exact trim range (--trim-mode, --trim-start, --trim-end, --trim-duration, --trim-copy/--no-trim-copy), hum and broadband reduction, enhancement preset, the parametric EQ rack (--eq-band, one "kind,freq,gain,q" band per flag, up to eight; giving one implies the eq stage), the dynamics pair (--comp-threshold, --comp-ratio, --comp-attack, --comp-release, --comp-makeup, --limiter-ceiling, --limiter-lookahead, --limiter-release; giving any of them implies the dynamics stage), the enhancement effect flags (--reverse, --karaoke/--no-karaoke, --karaoke-strength, --phaser, --flanger, --chorus), target LUFS, tolerance, true peak, LRA, the normalise strategy (--normalise-mode), the normalise target (--target-mode lufs|peak with --target-peak in dBTP), album mode (--album-mode/--no-album-mode), and JSON output. If --output is omitted, results are written in place.
 
-The eq stage runs after noise reduction and before enhancement, so the preset's compressor and limiter act on the shaped tone. Its band kinds are lowshelf, highshelf, peaking, highpass and lowpass; a highpass or lowpass band is first-order, so it takes no gain and no Q. A band at or above the file's Nyquist frequency is refused rather than moved, and a rack with no bands or with bypass on leaves the signal untouched.
+The eq stage runs after noise reduction and before dynamics and enhancement, so the preset's compressor and limiter act on the shaped, compressed signal. The dynamics stage is a compressor followed by a true-peak limiter; a bypassed pair leaves the signal untouched, and an out-of-range value is refused before any file is opened. Its band kinds are lowshelf, highshelf, peaking, highpass and lowpass; a highpass or lowpass band is first-order, so it takes no gain and no Q. A band at or above the file's Nyquist frequency is refused rather than moved, and a rack with no bands or with bypass on leaves the signal untouched.
 
 ## Master Driver Use
 

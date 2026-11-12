@@ -87,6 +87,7 @@ from audio_suite_shared.dsp_chain import (
     compute_rms_db,
     post_chain_clip_check,
 )
+from audio_suite_shared.dsp_dynamics import apply_dynamics
 from audio_suite_shared.dsp_eq import apply_eq
 from audio_suite_shared.error_recovery import RetryConfig, retry_with_backoff
 from audio_suite_shared.exceptions import (
@@ -796,6 +797,69 @@ def _run_eq_stage(
         ) from exc
 
 
+def _run_dynamics_stage(
+    audio: AudioSegment,
+    config: StageConfig,
+    emit: Callable[..., Any],
+) -> tuple[AudioSegment, str, bool]:
+    """Compress and limit the signal, returning ``(audio, message, modified)``.
+
+    The stage renders through the shared dynamics engine and comes back through
+    the same lossless conversion the EQ stage uses.  A pair of bypassed settings
+    (or a render that changed no sample) leaves the file byte-identical, so
+    ``modified`` is false and the run can skip the rewrite (U-02).
+
+    Raises:
+        AudioConfigurationError: A setting the renderer refuses.  Re-raised
+            untouched so the run names the setting rather than reporting a
+            generic stage failure.
+        AudioProcessingError: If the stage fails for any other reason.
+    """
+    compressor = config.compressor_params
+    limiter = config.limiter_params
+    if compressor.bypass and limiter.bypass:
+        msg = "Dynamics bypassed - signal unchanged"
+        emit("Dynamics", msg)
+        return audio, msg, False
+
+    emit("Dynamics", "Compressing and limiting…")
+    try:
+        audio_np, sample_rate = segment_to_numpy(audio)
+        processed, report = apply_dynamics(audio_np, compressor, limiter, sample_rate)
+        if processed.tobytes() == audio_np.tobytes():
+            msg = (
+                "No reduction - signal unchanged "
+                f"({report.output_lufs:.1f} LUFS / "
+                f"{report.output_true_peak_dbtp:.1f} dBTP)"
+            )
+            emit("Dynamics", msg)
+            return audio, msg, False
+        processed_audio = numpy_to_segment(
+            processed,
+            sample_rate=sample_rate,
+            sample_width=audio.sample_width,
+            num_channels=audio.channels,
+        )
+        msg = (
+            f"Max {report.max_reduction_db:.1f} dB reduction"
+            f" (mean {report.mean_reduction_db:.1f} dB), "
+            f"{report.output_lufs:.1f} LUFS / "
+            f"{report.output_true_peak_dbtp:.1f} dBTP"
+        )
+        emit("Dynamics", msg)
+        return processed_audio, msg, True
+    except AudioConfigurationError:
+        raise
+    except Exception as exc:
+        mapped = map_to_audio_error(exc)
+        logger.error("[%s] %s", type(mapped).__name__, mapped, exc_info=True)
+        raise AudioProcessingError(
+            f"Dynamics stage failed: {exc}",
+            context={"stage": "dynamics"},
+            original=exc,
+        ) from exc
+
+
 def _run_enhance_stage(
     audio: AudioSegment,
     config: StageConfig,
@@ -844,12 +908,13 @@ def _run_tone_stages(
     result: FileResult,
     emit: Callable[..., Any],
 ) -> tuple[AudioSegment, bool]:
-    """Run the EQ and Enhance stages in pipeline order and record each.
+    """Run the EQ, Dynamics and Enhance stages in order and record each.
 
-    Tone shaping precedes compression: the Enhance stage's compressor and
-    limiter then act on the shaped signal, which is the rack's point.  Both
-    stages are reported separately, so a run's log names the rack it applied
-    rather than folding it into the preset line.
+    Tone shaping precedes dynamics: the rack runs first, then the
+    controllable compressor/limiter (F-S2), then the preset's own
+    enhancement chain acts on the result.  Every stage is reported
+    separately, so a run's log names what was applied rather than folding
+    it into the preset line.
 
     Returns:
         ``(audio, modified)``.  An enabled Enhance stage always counts as a
@@ -861,6 +926,10 @@ def _run_tone_stages(
         audio, msg, changed = _run_eq_stage(audio, config, emit)
         modified = modified or changed
         result.add_stage("EQ", FileStatus.DONE, msg)
+    if config.dynamics:
+        audio, msg, changed = _run_dynamics_stage(audio, config, emit)
+        modified = modified or changed
+        result.add_stage("Dynamics", FileStatus.DONE, msg)
     if config.enhance:
         audio, msg, metrics = _run_enhance_stage(audio, config, emit)
         modified = True

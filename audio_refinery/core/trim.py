@@ -192,6 +192,8 @@ def check_copy_mode(config: StageConfig) -> None:
             # Changed in 2.7.0: the EQ stage renders decoded samples too, so a
             # stream copy beside it would silently drop the rack (F-S1).
             ("EQ", config.eq),
+            # Changed in 2.7.0: the dynamics stage decodes too (F-S2).
+            ("Dynamics", config.dynamics),
             ("Enhance", config.enhance),
             ("Normalise", config.normalise),
         )

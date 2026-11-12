@@ -66,6 +66,10 @@ from audio_suite_shared.cli_dataclasses import (
     VALID_TARGET_LUFS_VALUES,
     validate_target_lufs,
 )
+from audio_suite_shared.dsp_dynamics import (
+    CompressorSettings,
+    LimiterSettings,
+)
 from audio_suite_shared.dsp_eq import (
     MAX_EQ_BANDS,
     EqBand,
@@ -201,6 +205,93 @@ def eq_settings_from_dict(data: dict[str, Any]) -> EqSettings:
     return EqSettings(bands=tuple(bands), bypass=bool(data.get("bypass", False)))
 
 
+def compressor_settings_to_dict(settings: CompressorSettings) -> dict[str, Any]:
+    """Serialise the dynamics stage's compressor.
+
+    Args:
+        settings: The compressor to store.
+
+    Returns:
+        A JSON-ready mapping :func:`compressor_settings_from_dict` reads back.
+    """
+    return {
+        "threshold_db": settings.threshold_db,
+        "ratio": settings.ratio,
+        "attack_ms": settings.attack_ms,
+        "release_ms": settings.release_ms,
+        "makeup_db": settings.makeup_db,
+        "knee_db": settings.knee_db,
+        "bypass": settings.bypass,
+    }
+
+
+def compressor_settings_from_dict(data: dict[str, Any]) -> CompressorSettings:
+    """Rebuild the compressor from a settings document.
+
+    A stored value is validated by :class:`CompressorSettings` itself, so a
+    settings file cannot inject a setting the renderer refuses at run time.  An
+    invalid object is logged and replaced by the engine defaults: losing the
+    dynamics settings must not cost the user the rest of the pipeline.
+
+    Args:
+        data: The ``compressor_params`` object (or an empty mapping).
+
+    Returns:
+        The compressor the file describes, or the defaults when unusable.
+    """
+    try:
+        return CompressorSettings(
+            threshold_db=float(data.get("threshold_db", -18.0)),
+            ratio=float(data.get("ratio", 4.0)),
+            attack_ms=float(data.get("attack_ms", 10.0)),
+            release_ms=float(data.get("release_ms", 100.0)),
+            makeup_db=float(data.get("makeup_db", 0.0)),
+            knee_db=float(data.get("knee_db", 0.0)),
+            bypass=bool(data.get("bypass", False)),
+        )
+    except (TypeError, ValueError, AudioConfigValueError) as exc:
+        logger.warning("Ignoring an invalid stored compressor: %s", exc)
+        return CompressorSettings()
+
+
+def limiter_settings_to_dict(settings: LimiterSettings) -> dict[str, Any]:
+    """Serialise the dynamics stage's limiter.
+
+    Args:
+        settings: The limiter to store.
+
+    Returns:
+        A JSON-ready mapping :func:`limiter_settings_from_dict` reads back.
+    """
+    return {
+        "ceiling_dbtp": settings.ceiling_dbtp,
+        "lookahead_ms": settings.lookahead_ms,
+        "release_ms": settings.release_ms,
+        "bypass": settings.bypass,
+    }
+
+
+def limiter_settings_from_dict(data: dict[str, Any]) -> LimiterSettings:
+    """Rebuild the limiter from a settings document.
+
+    Args:
+        data: The ``limiter_params`` object (or an empty mapping).
+
+    Returns:
+        The limiter the file describes, or the defaults when unusable.
+    """
+    try:
+        return LimiterSettings(
+            ceiling_dbtp=float(data.get("ceiling_dbtp", -1.0)),
+            lookahead_ms=float(data.get("lookahead_ms", 5.0)),
+            release_ms=float(data.get("release_ms", 100.0)),
+            bypass=bool(data.get("bypass", False)),
+        )
+    except (TypeError, ValueError, AudioConfigValueError) as exc:
+        logger.warning("Ignoring an invalid stored limiter: %s", exc)
+        return LimiterSettings()
+
+
 def _read_json(path: Path) -> dict[str, Any] | None:
     """Read *path* as a JSON object, or return ``None`` with a warning.
 
@@ -309,6 +400,13 @@ def _from_dict(data: dict[str, Any]) -> StageConfig:
 
     # Parametric EQ rack (F-S1)
     config.eq_params = eq_settings_from_dict(data.get("eq_params", {}))
+
+    # Dynamics stage (F-S2)
+    config.dynamics = bool(data.get("dynamics", False))
+    config.compressor_params = compressor_settings_from_dict(
+        data.get("compressor_params", {})
+    )
+    config.limiter_params = limiter_settings_from_dict(data.get("limiter_params", {}))
 
     # Normalise params — validate stored LUFS against permitted presets.
     d = data.get("normalise_params", {})
@@ -452,6 +550,10 @@ def _to_dict(config: StageConfig) -> dict[str, Any]:
         # One object per band, in rack order: the same shape :class:`EqBand`
         # validates on the way back in.
         "eq_params": eq_settings_to_dict(e),
+        # Changed in 2.7.0: the dynamics stage and its pair (F-S2).
+        "dynamics": config.dynamics,
+        "compressor_params": compressor_settings_to_dict(config.compressor_params),
+        "limiter_params": limiter_settings_to_dict(config.limiter_params),
         "normalise_params": {
             "target_lufs": n.target_lufs,
             "tolerance": n.tolerance,

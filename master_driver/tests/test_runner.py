@@ -1068,6 +1068,7 @@ class TestBuildRefineryArgs:
         config.declick = config.trim = config.enhance = config.normalise = False
         config.reduce_noise = False
         config.eq = False
+        config.dynamics = False
         _, _, args = build_refinery_args(state, config)[0]
         stage_idx = args.index("--stages")
         assert args[stage_idx + 1] == ""
@@ -1094,6 +1095,7 @@ class TestBuildRefineryArgs:
             "normalise",
             "reduce_noise",
             "eq",
+            "dynamics",
         }
 
     def test_refinery_clear_logs_flag_follows_refine_tab_var(self):
@@ -2163,3 +2165,41 @@ def test_arg_builder_reads_the_model_stage_list() -> None:
     from master_driver.runner.arg_builder import REFINERY_STAGES
 
     assert REFINERY_STAGES is models.REFINERY_STAGES
+
+
+# Changed in 2.7.0: the dynamics settings reach the child (F-S2).
+class TestDynamicsEmission:
+    def test_dynamics_settings_reach_the_child_when_the_stage_is_on(self):
+        from audio_suite_shared.dsp_dynamics import (
+            CompressorSettings,
+            LimiterSettings,
+        )
+
+        state = _make_state()
+        config = _make_refinery_config()
+        config.dynamics = True
+        config.compressor_params = CompressorSettings(
+            threshold_db=-24.0, ratio=6.0, makeup_db=1.5
+        )
+        config.limiter_params = LimiterSettings(ceiling_dbtp=-2.0, lookahead_ms=3.0)
+
+        _, _, args = build_refinery_args(state, config)[0]
+
+        stages = args[args.index("--stages") + 1].split(",")
+        assert "dynamics" in stages
+        assert args[args.index("--comp-threshold") + 1] == "-24.0"
+        assert args[args.index("--comp-ratio") + 1] == "6.0"
+        assert args[args.index("--comp-makeup") + 1] == "1.5"
+        assert args[args.index("--limiter-ceiling") + 1] == "-2.0"
+        assert args[args.index("--limiter-lookahead") + 1] == "3.0"
+
+    def test_a_stage_off_config_sends_no_dynamics_flags(self):
+        from audio_refinery.core.models import StageConfig
+
+        state = _make_state()
+
+        _, _, args = build_refinery_args(state, StageConfig())[0]
+
+        assert "--comp-threshold" not in args
+        assert "--limiter-ceiling" not in args
+        assert "dynamics" not in args[args.index("--stages") + 1].split(",")

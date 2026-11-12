@@ -619,5 +619,7 @@ def test_select_all_reads_the_model_stage_list(root: tk.Tk) -> None:
     _parent, _state, result = _build(root)
     stage_vars = result[2]["stage_vars"]
 
-    assert set(stage_vars) == {name for _field, name in REFINERY_STAGES}
+    # Dynamics has no Setup panel yet (F-S2), so SELECT ALL covers the six the
+    # tab shows; a stage with a panel can never be missing from this set again.
+    assert set(stage_vars) == {name for _field, name in REFINERY_STAGES} - {"dynamics"}
     assert not hasattr(refinery_tab, "_REFINERY_STAGES")

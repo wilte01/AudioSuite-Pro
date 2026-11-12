@@ -346,6 +346,14 @@ audiosuite refine <directory> [--stages LIST] [OPTIONS]
 - `--flanger` — Apply a flanger effect (default: off)
 - `--chorus` — Apply a chorus effect (default: off)
 - `--eq-band BAND` — A parametric EQ band as `kind,freq,gain,q`, where `kind` is `lowshelf`, `highshelf`, `peaking`, `highpass` or `lowpass` and the Q is optional (for example `peaking,1000,3.0,1.0`); repeat it for up to eight bands, and giving one implies the `eq` stage
+- `--comp-threshold DB` — Compressor threshold in dBFS, -60 to 0; giving any dynamics flag implies the `dynamics` stage (default: -18.0)
+- `--comp-ratio RATIO` — Compressor ratio, 1–20 (default: 4.0)
+- `--comp-attack MS` — Compressor attack in ms, 0.1–200 (default: 10.0)
+- `--comp-release MS` — Compressor release in ms, 1–2000 (default: 100.0)
+- `--comp-makeup DB` — Makeup gain after compression, -24 to 24 dB (default: 0.0)
+- `--limiter-ceiling DBTP` — True-peak ceiling the limiter holds, -24 to 0 dBTP (default: -1.0)
+- `--limiter-lookahead MS` — Limiter lookahead in ms, 0–20 (default: 5.0)
+- `--limiter-release MS` — Limiter release in ms, 1–2000 (default: 100.0)
 - `--target-lufs LUFS` — Normalisation target, one of `-12`, `-14`, `-16`, `-18`, `-23` (default: -14.0)
 - `--tolerance DB` — Normalisation tolerance (default: 0.5)
 - `--true-peak DBTP` — True-peak ceiling for the normalise stage, -9 to 0 (default: -1.5)
@@ -364,6 +372,7 @@ audiosuite refine "D:\Music" --stages trim,normalise --fade --fade-in 250
 audiosuite refine "D:\Music" --stages trim --trim-mode exact --trim-start 12000 --trim-end 30000
 audiosuite refine "D:\Music" --stages trim --trim-mode exact --trim-end 45000 --trim-copy
 audiosuite refine "D:\Music" --stages eq,enhance --eq-band "peaking,1000,2.5,1.0" --eq-band "highpass,40"
+audiosuite refine "D:\Music" --stages dynamics,normalise --comp-threshold -20 --limiter-ceiling -1
 ```
 
 ## UTIL commands

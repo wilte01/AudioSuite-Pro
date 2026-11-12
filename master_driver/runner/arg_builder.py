@@ -595,6 +595,30 @@ def build_refinery_args(
     if config.eq and not config.eq_params.bypass:
         for band in config.eq_params.bands:
             args.extend(["--eq-band", band.describe()])
+    # Changed in 2.7.0: the dynamics stage's settings reach the child (F-S2).
+    if config.dynamics:
+        comp = config.compressor_params
+        lim = config.limiter_params
+        args.extend(
+            [
+                "--comp-threshold",
+                str(comp.threshold_db),
+                "--comp-ratio",
+                str(comp.ratio),
+                "--comp-attack",
+                str(comp.attack_ms),
+                "--comp-release",
+                str(comp.release_ms),
+                "--comp-makeup",
+                str(comp.makeup_db),
+                "--limiter-ceiling",
+                str(lim.ceiling_dbtp),
+                "--limiter-lookahead",
+                str(lim.lookahead_ms),
+                "--limiter-release",
+                str(lim.release_ms),
+            ]
+        )
     if output:
         args.extend(["--output", output])
     if state.global_mode.get() == "Dry Run":

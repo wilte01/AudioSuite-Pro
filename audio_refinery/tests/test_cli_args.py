@@ -274,3 +274,54 @@ class TestEqBands:
             argv.extend(["--eq-band", "peaking,1000,1,1"])
         with pytest.raises(SystemExit):
             parse(argv)
+
+
+# Changed in 2.7.0: the dynamics flags and the stage they imply (F-S2).
+class TestDynamicsFlags:
+    """A dynamics flag both configures the stage and selects it."""
+
+    def test_defaults_leave_the_stage_off(self) -> None:
+        args = parse(["prog"])
+
+        assert args.dynamics is False
+        assert args.comp_threshold == pytest.approx(-18.0)
+        assert args.comp_ratio == pytest.approx(4.0)
+        assert args.limiter_ceiling == pytest.approx(-1.0)
+
+    def test_a_single_flag_implies_the_stage(self) -> None:
+        args = parse(["prog", "--comp-threshold", "-24"])
+
+        assert args.dynamics is True
+        assert args.comp_threshold == pytest.approx(-24.0)
+
+    def test_the_limiter_flags_round_trip(self) -> None:
+        args = parse(
+            [
+                "prog",
+                "--limiter-ceiling",
+                "-2.5",
+                "--limiter-lookahead",
+                "3",
+                "--limiter-release",
+                "250",
+            ]
+        )
+
+        assert args.dynamics is True
+        assert args.limiter_ceiling == pytest.approx(-2.5)
+        assert args.limiter_lookahead == pytest.approx(3.0)
+        assert args.limiter_release == pytest.approx(250.0)
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--comp-ratio", "0.5"],
+            ["--comp-threshold", "3"],
+            ["--comp-attack", "0"],
+            ["--limiter-ceiling", "2"],
+            ["--limiter-lookahead", "-1"],
+        ],
+    )
+    def test_an_unrenderable_value_is_refused(self, argv: list[str]) -> None:
+        with pytest.raises(SystemExit):
+            parse(["prog", *argv])

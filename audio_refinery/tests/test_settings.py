@@ -356,3 +356,56 @@ class TestEqRack:
             loaded = refinery_settings.load()
 
         assert [band.freq_hz for band in loaded.eq_params.bands] == [1000.0]
+
+
+# Changed in 2.7.0: the dynamics stage and its pair round-trip (F-S2).
+class TestDynamicsPersistence:
+    def test_the_stage_and_its_pair_round_trip(self, settings_file: Path) -> None:
+        from audio_suite_shared.dsp_dynamics import (
+            CompressorSettings,
+            LimiterSettings,
+        )
+
+        config = StageConfig(dynamics=True)
+        config.compressor_params = CompressorSettings(
+            threshold_db=-30.0, ratio=8.0, makeup_db=2.0
+        )
+        config.limiter_params = LimiterSettings(
+            ceiling_dbtp=-2.0, lookahead_ms=3.0, release_ms=250.0
+        )
+
+        refinery_settings.save(config)
+        loaded = refinery_settings.load()
+
+        assert loaded.dynamics is True
+        assert loaded.compressor_params == config.compressor_params
+        assert loaded.limiter_params == config.limiter_params
+
+    def test_a_default_config_leaves_dynamics_off(self, settings_file: Path) -> None:
+        from audio_suite_shared.dsp_dynamics import (
+            CompressorSettings,
+            LimiterSettings,
+        )
+
+        refinery_settings.save(StageConfig())
+
+        loaded = refinery_settings.load()
+
+        assert loaded.dynamics is False
+        assert loaded.compressor_params == CompressorSettings()
+        assert loaded.limiter_params == LimiterSettings()
+
+    def test_an_invalid_stored_compressor_falls_back_to_defaults(
+        self, settings_file: Path
+    ) -> None:
+        from audio_suite_shared.dsp_dynamics import CompressorSettings
+
+        settings_file.write_text(
+            '{"dynamics": true, "compressor_params": {"ratio": 0.5}}',
+            encoding="utf-8",
+        )
+
+        loaded = refinery_settings.load()
+
+        assert loaded.dynamics is True
+        assert loaded.compressor_params == CompressorSettings()

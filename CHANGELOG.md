@@ -22,6 +22,19 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **The Audio Refinery has a Dynamics stage.** A controllable compressor and a
+  true-peak brickwall limiter run after Parametric EQ and before Audio
+  Enhancement, reachable with `refine --stages dynamics` and configured by
+  `--comp-threshold`, `--comp-ratio`, `--comp-attack`, `--comp-release`,
+  `--comp-makeup`, `--limiter-ceiling`, `--limiter-lookahead` and
+  `--limiter-release` (any one of them selects the stage). The run log reports
+  the measured maximum and mean gain reduction plus the output's integrated
+  loudness and true peak. An out-of-range setting is refused before any file is
+  opened, a bypassed pair leaves the file byte-identical, and copy mode refuses
+  the stage because a stream copy cannot decode the audio. The Setup tab has no
+  panel for it yet: a preset, the command line or a Master Driver launch
+  configures it.
+
 - **The Refinery's EQ has its own panel and a live response curve.** The
   Parametric EQ stage opens to a band table: pick a kind, type the frequency,
   gain and Q, and Add / Update writes the band into the run; selecting a row

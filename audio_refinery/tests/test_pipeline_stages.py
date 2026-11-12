@@ -36,6 +36,7 @@ import pytest
 from pydub import AudioSegment
 
 from audio_refinery.core.integrity import IntegrityResult, IntegrityStatus
+from audio_refinery.core.models import StageConfig
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1745,3 +1746,73 @@ class TestTheEqStageRendersTheRack:
         assert processed is audio
         assert modified is False
         assert "bypassed" in message
+
+
+# Changed in 2.7.0: the dynamics stage renders and reports (F-S2).
+class TestDynamicsStage:
+    """The stage renders through the engine and reports what it measured."""
+
+    @staticmethod
+    def _config(**kwargs: object) -> StageConfig:
+        return StageConfig(
+            declick=False,
+            trim=False,
+            enhance=False,
+            normalise=False,
+            dynamics=True,
+            **kwargs,
+        )
+
+    def test_a_loud_tone_is_reduced_and_reported(self) -> None:
+        from audio_refinery.core.pipeline import _run_dynamics_stage
+        from audio_suite_shared.dsp_dynamics import CompressorSettings
+
+        audio = _sine(freq=1000, duration_ms=500, amplitude=0.5)
+        config = self._config(
+            compressor_params=CompressorSettings(threshold_db=-20.0, ratio=4.0)
+        )
+
+        processed, message, modified = _run_dynamics_stage(audio, config, _noop_emit)
+
+        assert modified is True
+        assert "dB reduction" in message
+        assert _rms_dbfs(processed) < _rms_dbfs(audio) - 1.0
+        assert len(processed) == len(audio)
+        assert processed.channels == audio.channels
+
+    def test_a_bypassed_pair_returns_the_same_signal(self) -> None:
+        from audio_refinery.core.pipeline import _run_dynamics_stage
+        from audio_suite_shared.dsp_dynamics import (
+            CompressorSettings,
+            LimiterSettings,
+        )
+
+        audio = _sine(freq=1000, duration_ms=200, amplitude=0.5)
+        config = self._config(
+            compressor_params=CompressorSettings(bypass=True),
+            limiter_params=LimiterSettings(bypass=True),
+        )
+
+        processed, message, modified = _run_dynamics_stage(audio, config, _noop_emit)
+
+        assert processed is audio
+        assert modified is False
+        assert "bypassed" in message
+
+    def test_the_limiter_ceiling_holds_on_the_staged_audio(self) -> None:
+        from audio_refinery.core.pipeline import _run_dynamics_stage
+        from audio_suite_shared.dsp_dynamics import (
+            CompressorSettings,
+            LimiterSettings,
+        )
+
+        audio = _sine(freq=1000, duration_ms=500, amplitude=0.9)
+        config = self._config(
+            compressor_params=CompressorSettings(bypass=True),
+            limiter_params=LimiterSettings(ceiling_dbtp=-6.0),
+        )
+
+        processed, _message, modified = _run_dynamics_stage(audio, config, _noop_emit)
+
+        assert modified is True
+        assert processed.max_dBFS <= -6.0 + 0.2

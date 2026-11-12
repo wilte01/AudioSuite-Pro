@@ -272,7 +272,11 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
     # ── Presets ───────────────────────────────────────────────────────────────
 
     def _collect_settings(self) -> dict[str, Any]:
-        from .utils.settings import eq_settings_to_dict
+        from .utils.settings import (
+            compressor_settings_to_dict,
+            eq_settings_to_dict,
+            limiter_settings_to_dict,
+        )
 
         p = self.config
         return {
@@ -326,6 +330,10 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             "target_mode": p.normalise_params.target_mode,
             "target_peak_dbtp": p.normalise_params.target_peak_dbtp,
             "eq_params": eq_settings_to_dict(p.eq_params),
+            # Changed in 2.7.0: the dynamics pair rides a preset too (F-S2).
+            "dynamics": p.dynamics,
+            "compressor_params": compressor_settings_to_dict(p.compressor_params),
+            "limiter_params": limiter_settings_to_dict(p.limiter_params),
         }
 
     # Preset key -> the config attribute it writes. A preset stores only the
@@ -341,6 +349,8 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         "normalise": "normalise",
         # Changed in 2.7.0: the EQ stage's toggle (F-S1).
         "eq": "eq",
+        # Changed in 2.7.0: the dynamics stage's toggle (F-S2).
+        "dynamics": "dynamics",
     }
     _DECLICK_PRESET_KEYS = {
         "sensitivity": "sensitivity",
@@ -418,6 +428,18 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             from .utils.settings import eq_settings_from_dict
 
             p.eq_params = eq_settings_from_dict(settings["eq_params"])
+        # Changed in 2.7.0: the dynamics pair comes back through its own
+        # validators, so a stored preset cannot inject a refused setting.
+        if "compressor_params" in settings:
+            from .utils.settings import compressor_settings_from_dict
+
+            p.compressor_params = compressor_settings_from_dict(
+                settings["compressor_params"]
+            )
+        if "limiter_params" in settings:
+            from .utils.settings import limiter_settings_from_dict
+
+            p.limiter_params = limiter_settings_from_dict(settings["limiter_params"])
         self._sync_preset_editor(p)
         self._sync_trim_panel()
         self._sync_eq_panel()
@@ -828,6 +850,25 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
                 bands=tuple(parse_band(text) for text in args.eq_bands)
             )
             self._sync_eq_panel()
+        # Changed in 2.7.0: the dynamics stage and its pair reach the run (F-S2).
+        from audio_suite_shared.dsp_dynamics import (
+            CompressorSettings,
+            LimiterSettings,
+        )
+
+        self.config.dynamics = "dynamics" in active or bool(args.dynamics)
+        self.config.compressor_params = CompressorSettings(
+            threshold_db=args.comp_threshold,
+            ratio=args.comp_ratio,
+            attack_ms=args.comp_attack,
+            release_ms=args.comp_release,
+            makeup_db=args.comp_makeup,
+        )
+        self.config.limiter_params = LimiterSettings(
+            ceiling_dbtp=args.limiter_ceiling,
+            lookahead_ms=args.limiter_lookahead,
+            release_ms=args.limiter_release,
+        )
         self.config.normalise_params.target_lufs = args.target_lufs
         self.config.normalise_params.tolerance = args.tolerance
         self.config.normalise_params.true_peak = args.true_peak
