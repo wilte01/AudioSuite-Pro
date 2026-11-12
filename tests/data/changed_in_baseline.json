@@ -1,6 +1,6 @@
 {
   "_comment": "Note lines per version for utilities/changed_in_budget.py - do not edit by hand; run `python utilities/changed_in_budget.py --record` after deciding the new notes are wanted.",
-  "_recorded": "2026-11-11",
+  "_recorded": "2026-11-12",
   "versions": {
     "1.0.0": 1,
     "1.0.1": 91,
@@ -30,7 +30,7 @@
     "2.4.4": 2,
     "2.5.0": 232,
     "2.6.0": 202,
-    "2.7.0": 76
+    "2.7.0": 78
   },
-  "total": 1938
+  "total": 1940
 }

@@ -1,4 +1,5 @@
 # Changed in 2.7.0: the Refine tab's select-all includes the EQ stage (F-S1).
+# Changed in 2.7.0: select-all reads the model's stage list (F-S1 follow-up).
 """
 ui/refinery_tab.py
 Refinery tab for the Master Driver.
@@ -22,7 +23,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from typing import TYPE_CHECKING, Any, Callable
 
-from audio_refinery.core.models import StageConfig
+from audio_refinery.core.models import REFINERY_STAGES, StageConfig
 
 if TYPE_CHECKING:
     from master_driver.state.app_state import AppState
@@ -30,15 +31,6 @@ from audio_refinery.ui import setup_tab as _setup_tab
 from audio_refinery.utils.settings import load as _load_settings
 from audio_refinery.utils.settings import save as _save_settings
 from audio_suite_shared.security.input_validator import InputValidator
-
-_REFINERY_STAGES = (
-    "declick",
-    "trim",
-    "reduce_noise",
-    "eq",
-    "enhance",
-    "normalise",
-)
 
 
 def build(
@@ -168,11 +160,11 @@ def _inject_select_all(
     def _toggle_all() -> None:
         target = select_var.get()
         stage_vars = setup_state.get("stage_vars", {})
-        for stage_name in _REFINERY_STAGES:
-            var = stage_vars.get(stage_name)
+        for field, _name in REFINERY_STAGES:
+            var = stage_vars.get(field)
             if var is not None and var.get() != target:
                 var.set(target)
-            setattr(config, stage_name, target)
+            setattr(config, field, target)
 
     # Make room at the front of the strip so SELECT ALL leads, matching the
     # Master Driver's shared control-strip ordering.
@@ -218,11 +210,11 @@ def _apply_startup_select_state(
     """
     target = select_var.get()
     stage_vars = setup_state.get("stage_vars", {})
-    for stage_name in _REFINERY_STAGES:
-        var = stage_vars.get(stage_name)
+    for field, _name in REFINERY_STAGES:
+        var = stage_vars.get(field)
         if var is not None and var.get() != target:
             var.set(target)
-        setattr(config, stage_name, target)
+        setattr(config, field, target)
 
 
 def _activate_driver_run_controls(

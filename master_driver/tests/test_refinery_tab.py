@@ -1,3 +1,4 @@
+# Changed in 2.7.0: select-all reads the model's stage list.
 """Tests for master_driver.ui.refinery_tab (REFINE tab single-strip layout).
 
 The REFINE tab must show exactly one control bar: the shared
@@ -609,3 +610,14 @@ class TestSaveSettings:
         )
         refinery_tab.save_settings(config)
         assert saved == [config]
+
+
+def test_select_all_reads_the_model_stage_list(root: tk.Tk) -> None:
+    """F-S1 follow-up: select-all iterates the model's one stage list."""
+    from audio_refinery.core.models import REFINERY_STAGES
+
+    _parent, _state, result = _build(root)
+    stage_vars = result[2]["stage_vars"]
+
+    assert set(stage_vars) == {name for _field, name in REFINERY_STAGES}
+    assert not hasattr(refinery_tab, "_REFINERY_STAGES")

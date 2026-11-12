@@ -16,7 +16,26 @@ and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
+### Changed
+
+- **The Refine tab's SELECT ALL reads the model's `REFINERY_STAGES`.**
+  `master_driver/ui/refinery_tab.py` carried its own six-name tuple beside the
+  one in `audio_refinery/core/models.py` and the args builder, so a seventh
+  stage would have had to be added to the tab as well. The tuple is gone and
+  both the toggle callback and the startup sync iterate the model's list.
+
 ### Added
+
+- **The EQ panel is one editor over one rack.** `_EqEditor` owns the band list,
+  writes `config.eq_params` on every edit, and draws its curve through
+  `dsp_eq.response_curve`; the `state["eq_refresh"]` hook lets a preset load or
+  a `--eq-band` launch repaint the table and curve instead of rebuilding the
+  widgets, and `_sync_eq_panel` is the one repaint entry point. A table edit
+  parses through `dsp_eq.parse_band`, the same validator the flag uses, so a
+  refused band names its reason in the panel rather than disappearing.
+  `settings.eq_settings_to_dict` / `eq_settings_from_dict` are the one
+  serialiser pair, shared by the settings file and a Refinery preset, and the
+  Refine tab's select-all now iterates the stage.
 
 - **The EQ stage's rack reaches the Refinery through one validated model.**
   `StageConfig` carries `eq` and an `EqSettings` rack, `refine --eq-band`
