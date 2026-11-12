@@ -50,7 +50,7 @@ def licences_command(json: bool) -> None:
     folder = licences.licence_directory()
 
     entries: list[dict[str, Any]] = []
-    rendered: list[tuple[str, str]] = []
+    rendered: list[tuple[licences.LicenceDocument, str]] = []
     read_errors = 0
     for document in documents:
         try:
@@ -66,7 +66,7 @@ def licences_command(json: bool) -> None:
         entries.append(
             {"title": document.title, "file": document.path.name, "chars": len(text)}
         )
-        rendered.append((document.title, text))
+        rendered.append((document, text))
 
     payload = build_payload(
         "licences",
@@ -88,11 +88,29 @@ def licences_command(json: bool) -> None:
         # should say what is absent rather than print nothing at all.
         click.echo(f"  {licences.missing_message()}")
     else:
-        click.echo(f"  {len(rendered)} licence text(s) in {folder}")
-        for title, text in rendered:
+        # The header names where each text came from. Two of them (LICENSE and
+        # THIRD_PARTY_NOTICES.md) live at the suite root, not in the third-party
+        # folder, so "in <folder>" over all five described a folder that holds
+        # only three of them.
+        with_suite = sum(
+            1
+            for document, _text in rendered
+            if folder is None or document.path.parent != folder
+        )
+        third_party = len(rendered) - with_suite
+        if third_party and with_suite:
+            click.echo(
+                f"  {len(rendered)} licence text(s): {third_party} third-party in "
+                f"{folder}, {with_suite} with the suite"
+            )
+        elif third_party:
+            click.echo(f"  {len(rendered)} licence text(s) in {folder}")
+        else:
+            click.echo(f"  {len(rendered)} licence text(s) shipped with the suite")
+        for document, text in rendered:
             click.echo()
             click.echo(f"  {_RULE}")
-            click.echo(f"  {title}")
+            click.echo(f"  {document.title}")
             click.echo(f"  {_RULE}")
             click.echo()
             click.echo(text.rstrip("\n"))

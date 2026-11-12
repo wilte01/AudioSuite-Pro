@@ -157,3 +157,54 @@ class TestViewer:
             assert texts and texts[0].cget("state") == "disabled"
         finally:
             window.destroy()
+
+
+class TestTextModeHeader:
+    """The header says where each text came from, not one folder for all five.
+
+    Two of the documents (the suite licence and the third-party notices) live at
+    the suite root, so a header reading "N licence text(s) in <folder>" named a
+    folder that holds only some of them - a claim a reader can check and
+    disbelieve.
+    """
+
+    @staticmethod
+    def _ship_third_party(root: Path) -> Path:
+        directory = root / "packaging" / "licenses"
+        for name in ("LGPL-2.1.md", "Chromaprint-LICENSE.md", "PROVENANCE.md"):
+            _write(directory / name)
+        return directory
+
+    @staticmethod
+    def _header() -> str:
+        from click.testing import CliRunner
+
+        from audio_suite_shared.cli_app import cli
+
+        result = CliRunner().invoke(cli, ["licences"])
+        assert result.exit_code == 0, result.output
+        lines = result.output.splitlines()
+        assert lines, "text mode printed nothing"
+        return lines[0]
+
+    def test_a_mixed_copy_names_both_places(self, fake_root: Path) -> None:
+        directory = self._ship_third_party(fake_root)
+        _write(fake_root / "LICENSE")
+        _write(fake_root / "THIRD_PARTY_NOTICES.md")
+
+        header = self._header()
+
+        assert "5 licence text(s)" in header, header
+        assert f"3 third-party in {directory}" in header, header
+        assert "2 with the suite" in header, header
+
+    def test_third_party_texts_only_keep_the_folder(self, fake_root: Path) -> None:
+        directory = self._ship_third_party(fake_root)
+
+        assert self._header().strip() == f"3 licence text(s) in {directory}"
+
+    def test_suite_texts_only_say_where_they_are(self, fake_root: Path) -> None:
+        _write(fake_root / "LICENSE")
+        _write(fake_root / "THIRD_PARTY_NOTICES.md")
+
+        assert self._header().strip() == "2 licence text(s) shipped with the suite"
