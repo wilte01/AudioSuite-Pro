@@ -96,7 +96,9 @@ and every bullet belongs to exactly one of them.
   explains the fixed order, why EQ runs before Dynamics and Dynamics before the
   enhancer and normaliser, and walks an over-bright CD rip through the whole
   chain. Both panels are pictured opened to Settings, with the guide's example
-  rack and a starting-point compressor and limiter.
+  rack and a starting-point compressor and limiter, and the chain's complete Dry
+  Run report is reproduced line by line so a reader knows what each stage will
+  say before running anything.
 
 ### Fixed
 

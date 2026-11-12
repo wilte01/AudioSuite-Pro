@@ -34,6 +34,12 @@ widened suite format set, so a guide stating the count is still checked. The
 Metadata Scrubber's 'fourteen containers' became a reasoned exemption: the
 scrubber discovers from its own loader table, which has no ASF or ADTS path, so
 its count is a deliberate subset of the suite's rather than drift.
+
+Changed in 2.7.0: the Audio Refinery guide quotes a whole run report, whose
+stage lines carry a prefix built from the stage name (``f"[{stage}]"`` in
+``file_processor.run_pipeline``).  That prefix is printed, but no literal
+``[EQ]`` exists in the code, so :data:`DYNAMIC_STAGE_PREFIXES` exempts it; the
+report line itself is held by ``audio_refinery/tests/test_app.py``.
 """
 
 from __future__ import annotations
@@ -114,6 +120,13 @@ SUBSET_FORMAT_CLAIMS: dict[str, dict[str, str]] = {
 #: Bracket tokens that are CLI usage placeholders, not status markers the tool
 #: prints.
 NOT_STATUS_TOKENS = {"[OPTIONS]"}
+
+#: Stage prefixes a run report builds from the stage name (``f"[{stage}]"`` in
+#: ``audio_refinery.core.file_processor.run_pipeline``), so the guide can quote a
+#: real report line whose literal never appears in the code.  Each entry names a
+#: stage the pipeline actually emits: renaming one leaves the guide's excerpt
+#: unverifiable, which the refinery's own report test catches.
+DYNAMIC_STAGE_PREFIXES = {"[EQ]"}
 
 #: guide file name -> artifact name -> reason the code does not name it.
 NOT_IN_CODE_ARTIFACTS: dict[str, dict[str, str]] = {}
@@ -215,11 +228,15 @@ def test_documented_flags_exist_in_the_code() -> None:
 
 def test_quoted_status_tokens_exist_in_the_code() -> None:
     """Status markers a guide quotes are the ones the tools actually print."""
-    found = {
-        token
-        for _guide, _number, line in guide_lines()
-        for token in STATUS.findall(line)
-    } - NOT_STATUS_TOKENS
+    found = (
+        {
+            token
+            for _guide, _number, line in guide_lines()
+            for token in STATUS.findall(line)
+        }
+        - NOT_STATUS_TOKENS
+        - DYNAMIC_STAGE_PREFIXES
+    )
     assert len(found) >= 5, f"only {len(found)} status tokens found - scan is broken"
 
     missing = sorted(token for token in found if token not in CODE)

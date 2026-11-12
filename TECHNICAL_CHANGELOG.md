@@ -49,6 +49,13 @@ and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **The guide-claim lock knows the run report's stage prefixes are built from
+  the stage name.** A quoted report line carries `[EQ]`, which
+  `file_processor.run_pipeline` prints through `f"[{stage}]"`, so the token
+  sweep finds no literal to match. `DYNAMIC_STAGE_PREFIXES` exempts it with that
+  reason; the report's own shape is still held by
+  `audio_refinery/tests/test_app.py`.
+
 - **A capture figure no longer photographs the previous operator's panel
   state.** The refinery's Setup tab restores its six stage switches from the
   saved settings file, so the 2.7.0 figure shipped with Parametric EQ as the

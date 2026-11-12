@@ -288,13 +288,25 @@ The track is harsh around 3 kHz, has rumble below 30 Hz, and jumps in level comp
 - **Audio Enhancer:** Mild, or off: the Dynamics stage already controls the level, and a second compressor would flatten the result.
 - **Audio Normaliser:** on, Playlist loudness, -14 LUFS, True peak -1.0 dBTP.
 
-A Dry Run runs every enabled stage on the decoded audio and reports what each one found, without writing. A live run writes the same information into its log as it goes. The EQ stage reports the rack it applied, naming the bands in the order they were added ("Applied 4 band(s): highpass, peaking, peaking, highshelf"), and the Dynamics stage reports what it measured (the figures are measured per file, so yours will differ):
+A Dry Run runs every enabled stage on the decoded audio and reports what each one found, without writing. A live run writes the same information into its log as it goes. Here is the complete report of that chain, run on the suite's own 20-second mono reference track rather than an album, so the figures belong to that file - your own track's will differ:
 
 ```
-    [Dynamics] Max 5.1 dB reduction (mean 1.6 dB), -16.9 LUFS / -1.9 dBTP
+Audio Refinery - Processing Log
+==================================================
+[DONE] blues_shuffle_152.ogg
+    [DryRun] Loaded OK (RMS: -15.1 dBFS, 20000ms, 1ch)
+    [Declick] No clicks found - audio already clean
+    [Trim] No silence detected - original length maintained
+    [EQ] Applied 4 band(s): highpass, peaking, peaking, highshelf
+    [Dynamics] Max 8.9 dB reduction (mean 4.1 dB), -20.6 LUFS / -7.4 dBTP
+    [Normalise] Would adjust loudness from -15.9 to -14.0 LUFS
+==================================================
+Total: 1  Processed: 1  Succeeded: 1  Skipped: 0  Errors: 0  Time: 1.0s
 ```
 
-The Dynamics line is the measured report described under Dynamics above. If the mean reduction comes back at 4 or 5 dB on a track you wanted to keep open, raise the threshold or lower the ratio before running the album. If it comes back near 0.0 dB, the compressor never engaged, so either lower the threshold or leave the stage off.
+Read it in the order the stages ran: the load line records what was decoded, Declick and Trim say there was nothing for them to change, EQ names the four bands it applied, Dynamics reports what it measured, and Normalise says what it would do. Nothing in the folder changed - the Dry Run reports the plan, and the source file is still the only file there.
+
+The EQ line names the rack in the order the bands were added, and the Dynamics line is the measured report described under Dynamics above. On this reference track the mean reduction came back at 4.1 dB, the top of the control range: the settings above are a starting point, not a setting to copy, and that figure is the signal to raise the threshold. If the mean comes back near 0.0 dB, the compressor never engaged, so either lower the threshold or leave the stage off.
 
 ## Pipeline Stages
 
