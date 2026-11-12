@@ -18,6 +18,13 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **The Audio Refinery's Setup figure is captured from the seven-panel
+  window.** The capture plan pinned 675 px and its setup override filled six
+  stage switches, so the committed figure predated the Dynamics panel while the
+  guide described it. The window is now 725 px tall, the override fills all
+  seven switches, and the tool's own pipeline subtitle names Dynamics between EQ
+  and Enhance; a lock keeps that subtitle in step with the panel order.
+
 - **The dynamics engine: a compressor and a true brickwall limiter.**
   `audio_suite_shared/dsp_dynamics.py` is the one controllable-dynamics
   implementation (F-S2): `CompressorSettings`, `LimiterSettings`,

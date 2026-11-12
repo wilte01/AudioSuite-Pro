@@ -37,7 +37,7 @@ This tool requires ffmpeg and ffprobe to be installed and on PATH. ffmpeg decode
 
 ## The Setup Tab
 
-![The Setup tab with the six stage panels, in the order the pipeline runs them](images/setup.png)
+![The Setup tab with the seven stage panels, in the order the pipeline runs them](images/setup.png)
 
 The Setup tab holds everything a run needs, in the order you work through it.
 

@@ -1,10 +1,10 @@
 {
   "captured_by": "utilities/capture_guide_shots.py",
   "dpi": 120,
-  "height": 675,
+  "height": 725,
   "palette": "Purple",
-  "png_bytes": 36716,
-  "png_sha256": "f96b7ddf6d3879874b60df902c2e92cd1b3b44dc1ee94ffa676051f45ae3b6ac",
+  "png_bytes": 36726,
+  "png_sha256": "7384eacc8885df0f740a48293e1530292115053821b40f8f0db36b7a8a074694",
   "shot": "results",
   "tab": "results",
   "theme": "Light",

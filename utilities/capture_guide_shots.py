@@ -965,7 +965,8 @@ def _populate_run_setup(app: Any) -> None:
 def _populate_refinery_setup(app: Any) -> None:
     """Show the stage selection a first launch starts with.
 
-    The six stage switches are restored from the pipeline's saved settings, so a
+    The seven stage switches are restored from the pipeline's saved settings, so
+    a
     capture would otherwise photograph whichever stages the person running it
     last left enabled: the figure committed for 2.7.0 showed Parametric EQ as the
     only active stage, while the guide described the four defaults.  The panel's
@@ -980,6 +981,7 @@ def _populate_refinery_setup(app: Any) -> None:
         "trim": True,
         "reduce_noise": False,
         "eq": False,
+        "dynamics": False,
         "enhance": True,
         "normalise": True,
     }
@@ -1263,7 +1265,9 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
         "audio_refinery",
         "audio_refinery.app",
         "AudioRefineryApp",
-        window=(900, 675),
+        # 675 tall framed six stage panels; the Dynamics panel (F-S2) needs the
+        # extra height, or the seventh switch and the start button collide.
+        window=(900, 725),
         populate=GENERIC_POPULATE,
     ),
     ToolPlan(

@@ -819,6 +819,16 @@ class TestEqPanel:
         assert state["eq_tree"].get_children() == ()
 
 
+def _walk_labels(widget: Any) -> list[tk.Label]:
+    """Return every Label under *widget*, depth first."""
+    found: list[tk.Label] = []
+    for child in widget.winfo_children():
+        if isinstance(child, tk.Label):
+            found.append(child)
+        found.extend(_walk_labels(child))
+    return found
+
+
 class TestDynamicsPanel:
     """The eight controls write the settings object the stage renders (F-S2)."""
 
@@ -863,6 +873,22 @@ class TestDynamicsPanel:
         assert (
             entries["ceiling_dbtp"].get() == f"{config.limiter_params.ceiling_dbtp:g}"
         )
+
+    def test_the_pipeline_line_names_the_stage_in_its_place(self, root: tk.Tk) -> None:
+        """The window's own subtitle must name every stage it now shows."""
+        from audio_refinery.core.models import StageConfig
+
+        self._build(root, StageConfig())
+        state_label = next(
+            label
+            for label in _walk_labels(root)
+            if str(label.cget("text")).startswith("Single-pass pipeline")
+        )
+        line = str(state_label.cget("text"))
+
+        assert line.index("EQ") < line.index("Dynamics") < line.index("Enhance")
+        for stage in ("Declick", "Trim", "Noise Reduction", "Normalise"):
+            assert stage in line
 
     def test_an_edit_writes_the_pair_the_pipeline_renders(self, root: tk.Tk) -> None:
         from audio_refinery.core.models import StageConfig
