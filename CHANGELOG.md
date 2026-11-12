@@ -95,7 +95,8 @@ and every bullet belongs to exactly one of them.
   and what the stage cannot do. A new section, How the Stages Work Together,
   explains the fixed order, why EQ runs before Dynamics and Dynamics before the
   enhancer and normaliser, and walks an over-bright CD rip through the whole
-  chain.
+  chain. Both panels are pictured opened to Settings, with the guide's example
+  rack and a starting-point compressor and limiter.
 
 ### Fixed
 

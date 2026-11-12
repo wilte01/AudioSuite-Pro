@@ -111,6 +111,13 @@ it describes.  Its sample run is in the shared in-place workflow's own
 ``[STATUS] name -> rule`` shape (the line ``process_audio_file_inplace``
 publishes, with the rule sentence ``channel_ops.apply_operation`` returns), and
 its Setup figure is filled in the Dry Run mode those ``[FOUND]`` lines report.
+
+Changed in 2.7.0: a plan can declare panel close-ups (``panel_shots``).  The
+Audio Refinery's Setup tab stacks seven stage panels, and opening one to its
+settings squeezes the rest, so its Parametric EQ and Dynamics panels are each
+photographed alone, opened through their own Settings button and filled through
+the panel's own entries - the worked rack and the "control a spiky mix"
+starting point the guide describes.
 """
 
 from __future__ import annotations
@@ -560,6 +567,28 @@ SAMPLE_RUNS: Mapping[str, SampleRun] = {
 
 
 @dataclass(frozen=True)
+class PanelShot:
+    """One close-up of a single stage panel, opened to its settings.
+
+    A tool whose Setup tab stacks every stage in one column cannot be read at
+    tab size: seven panels share the window, and opening one to its settings
+    squeezes the others until the panel being described is a strip of its own
+    labels.  A shot photographs one panel on its own, at the same palette,
+    theme and DPI as the tab figures.
+
+    Attributes:
+        tab: The tab's figure name (``setup``), not its label: figures are
+            named that way everywhere else, so a numbered tab title matches.
+        title: The panel's title label, e.g. ``Parametric EQ``.
+        prepare: Filler that enters the example values the figure shows.
+    """
+
+    tab: str
+    title: str
+    prepare: Callable[[Any], None] | None = None
+
+
+@dataclass(frozen=True)
 class ToolPlan:
     """How one tool's figures are produced.
 
@@ -591,6 +620,8 @@ class ToolPlan:
     #: results shows empty panels and an empty chart on a fresh window, which is
     #: a picture of nothing.  The guide describes those tabs in prose instead.
     skip_tabs: frozenset[str] = frozenset()
+    #: Close-ups of one stage panel each, captured after the tab figures.
+    panel_shots: tuple[PanelShot, ...] = ()
 
     def build(self, root: tk.Tk) -> Any:
         """Construct the real application class on *root*.
@@ -991,6 +1022,59 @@ def _populate_refinery_setup(app: Any) -> None:
         setattr(app.config, name, enabled)
 
 
+#: The rack the EQ panel figure shows, band by band, in the ``kind, Hz, dB, Q``
+#: the panel's entries take: the over-bright 1980s rip the guide works through.
+REFINERY_EQ_EXAMPLE = (
+    ("highpass", "30", "0", "0.707"),
+    ("peaking", "300", "-2", "1.0"),
+    ("peaking", "3500", "-2.5", "1.5"),
+    ("highshelf", "10000", "2", "0.707"),
+)
+
+#: The compressor and limiter the Dynamics panel figure shows: the guide's
+#: "control a spiky mix" starting point with the limiter's own defaults.
+REFINERY_DYNAMICS_EXAMPLE = {
+    "threshold_db": "-20",
+    "ratio": "3",
+    "attack_ms": "10",
+    "release_ms": "120",
+    "makeup_db": "1",
+    "ceiling_dbtp": "-1.5",
+    "lookahead_ms": "5",
+    "limiter_release_ms": "100",
+}
+
+
+def _refinery_eq_example(app: Any) -> None:
+    """Enter the guide's worked rack into the EQ panel's own entries.
+
+    The bands go through :meth:`add_band`, the same path a click takes, so the
+    figure shows the table, the curve and the configuration a user would get.
+    """
+    editor = app._setup_state["eq_editor"]
+    for kind, freq, gain, q in REFINERY_EQ_EXAMPLE:
+        editor.kind_var.set(kind)
+        editor.freq_var.set(freq)
+        editor.gain_var.set(gain)
+        editor.q_var.set(q)
+        editor.add_band()
+    if len(editor.rows) != len(REFINERY_EQ_EXAMPLE):  # pragma: no cover - guard
+        raise RuntimeError(
+            f"the EQ panel holds {len(editor.rows)} bands after the example rack "
+            f"was entered, not {len(REFINERY_EQ_EXAMPLE)}: it refused a band"
+        )
+
+
+def _refinery_dynamics_example(app: Any) -> None:
+    """Enter the guide's starting-point dynamics values into the panel."""
+    entries = app._setup_state["dynamics_entries"]
+    for name, value in REFINERY_DYNAMICS_EXAMPLE.items():
+        entries[name].set(value)
+    refused = app._setup_state["dynamics_status"].get()
+    if refused:  # pragma: no cover - guard
+        raise RuntimeError(f"the dynamics panel refused the example values: {refused}")
+
+
 def _populate_run_processing(app: Any, run: SampleRun, tool_id: str) -> None:
     """Show *run* part-way through on the tool's Processing tab.
 
@@ -1269,6 +1353,10 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
         # extra height, or the seventh switch and the start button collide.
         window=(900, 725),
         populate=GENERIC_POPULATE,
+        panel_shots=(
+            PanelShot("setup", "Parametric EQ", _refinery_eq_example),
+            PanelShot("setup", "Dynamics", _refinery_dynamics_example),
+        ),
     ),
     ToolPlan(
         "bpm_analyzer",
@@ -1880,14 +1968,20 @@ def _grab(
     figure: str,
     *,
     dpi: int,
+    bounds: tuple[int, int, int, int] | None = None,
+    tab: str | None = None,
 ) -> list[str]:
-    """Raise the window, grab the calibrated rectangle, write PNG and sidecar.
+    """Raise the window, grab the rectangle, write PNG and sidecar.
 
     Args:
         root: The root window carrying the application.
         plan: The tool plan being captured.
         figure: The figure's file stem, e.g. ``setup``.
         dpi: The display's pixels per inch, recorded in the sidecar.
+        bounds: Screen rectangle to grab instead of the calibrated window, for
+            a panel close-up.  ``None`` grabs the whole window.
+        tab: The tab the figure shows, recorded in the sidecar.  ``None`` uses
+            *figure*, which is the same thing for a tab figure.
 
     Returns:
         Human-readable problems; empty when the figure was written.
@@ -1898,7 +1992,9 @@ def _grab(
     # itself 191 px down, which runs a 1007 px window off a 1152 px screen).
     root.lift()
     root.attributes("-topmost", True)
-    if plan.window is not None:
+    if bounds is not None:
+        left, top, width, height = bounds
+    elif plan.window is not None:
         window = _capture_geometry(plan.window[0], plan.window[1], dpi)
         left, top, width, height = _fit_window(root, *window)
     else:
@@ -1960,7 +2056,7 @@ def _grab(
             {
                 "tool": plan.tool_id,
                 "shot": figure,
-                "tab": figure,
+                "tab": tab or figure,
                 "width": frame.size[0],
                 "height": frame.size[1],
                 "dpi": dpi,
@@ -1978,6 +2074,163 @@ def _grab(
     )
     print(f"[OK] {label} ({frame.size[0]}x{frame.size[1]}, {distinct} colours)")
     return []
+
+
+def _walk_widgets(widget: Any) -> Iterable[Any]:
+    """Yield *widget* and every descendant, depth first."""
+    yield widget
+    for child in widget.winfo_children():
+        yield from _walk_widgets(child)
+
+
+def _button_label(button: tk.Button) -> str:
+    """Return a button's visible text, following a textvariable."""
+    name = str(button.cget("textvariable"))
+    if name:
+        try:
+            return str(button.getvar(name))
+        except tk.TclError:  # a variable the tool has since deleted
+            return ""
+    return str(button.cget("text"))
+
+
+def _panel_by_title(window: Any, title: str) -> tk.Frame | None:
+    """Return the stage panel whose header carries *title*."""
+    for widget in _walk_widgets(window):
+        if isinstance(widget, tk.Label) and str(widget.cget("text")) == title:
+            header = getattr(widget, "master", None)
+            outer = getattr(header, "master", None)
+            if isinstance(outer, tk.Frame):
+                return outer
+    return None
+
+
+def _settings_button(panel: tk.Frame) -> tk.Button | None:
+    """Return the panel's Settings toggle, if it has one."""
+    for widget in _walk_widgets(panel):
+        if isinstance(widget, tk.Button) and "Settings" in _button_label(widget):
+            return widget
+    return None
+
+
+def _panel_is_open(button: tk.Button) -> bool:
+    """Return whether the toggle reads as open (the downward chevron)."""
+    return _button_label(button).lstrip().startswith("\u25bc")
+
+
+def _isolate_panel(panel: tk.Frame) -> list[tuple[tk.Widget, dict[str, Any]]]:
+    """Pack *panel* alone on its tab, returning what was hidden to do it.
+
+    Hiding the panel's neighbours all the way up to the notebook page is what
+    gives it the window's height: a panel packed below the run controls of a
+    seven-panel column is clipped to whatever space is left, however tall its
+    contents ask to be.
+    """
+    hidden: list[tuple[tk.Widget, dict[str, Any]]] = []
+    node: Any = panel
+    while not isinstance(node.master, ttk.Notebook):
+        parent = node.master
+        for child in parent.winfo_children():
+            if child is not node and child.winfo_manager() == "pack":
+                info = child.pack_info()
+                child.pack_forget()
+                hidden.append((child, info))
+        node = parent
+    return hidden
+
+
+def _restore_panels(hidden: list[tuple[tk.Widget, dict[str, Any]]]) -> None:
+    """Re-pack what :func:`_isolate_panel` hid, with their own options."""
+    for widget, info in reversed(hidden):
+        widget.pack(**info)
+
+
+def _capture_panel(
+    root: tk.Tk,
+    app: Any,
+    plan: ToolPlan,
+    shot: PanelShot,
+    *,
+    dpi: int,
+    tabs: Sequence[str],
+    client: tuple[int, int, int, int],
+) -> list[str]:
+    """Photograph one stage panel alone, opened to its settings.
+
+    Args:
+        root: The root window carrying the application.
+        app: The live application, so the tab can be selected and filled.
+        plan: The tool plan being captured.
+        shot: The panel close-up to produce.
+        dpi: The display's pixels per inch, recorded in the sidecar.
+        tabs: The tool's tab labels, in order.
+        client: The window's client area on screen, as ``(left, top, w, h)``.
+
+    Returns:
+        Human-readable problems; empty when the figure was written.
+    """
+    figure = _figure_name(shot.title)
+    label = f"{plan.tool_id}/{figure}"
+    index = next(
+        (i for i, title in enumerate(tabs) if _figure_name(title) == shot.tab), None
+    )
+    if index is None:
+        return [
+            f"{label}: no tab named {shot.tab!r} to photograph the panel on; the "
+            "tabs are " + ", ".join(_figure_name(title) for title in tabs)
+        ]
+    try:
+        _select_tab(app, index)
+        if shot.prepare is not None:
+            shot.prepare(app)
+        _select_tab(app, index)
+        root.update_idletasks()
+        root.update()
+    except Exception as exc:  # noqa: BLE001 - report, do not abort the tool
+        return [f"{label}: could not prepare the panel - {type(exc).__name__}: {exc}"]
+
+    panel = _panel_by_title(root, shot.title)
+    if panel is None:
+        return [f"{label}: no panel titled {shot.title!r} is built on that tab"]
+    button = _settings_button(panel)
+    if button is None:
+        return [f"{label}: the {shot.title} panel has no Settings button to open"]
+
+    # Isolate before opening the settings: a panel opened while it sits below six
+    # others is squeezed into the space left at the window's bottom, and a curve
+    # canvas mapped at 13 px tall is resized by matplotlib to match, so the panel
+    # never grows back to its own height when the neighbours are hidden.
+    hidden = _isolate_panel(panel)
+    try:
+        root.update_idletasks()
+        root.update()
+        if not _panel_is_open(button):
+            button.invoke()
+            root.update_idletasks()
+            root.update()
+        bounds = (
+            panel.winfo_rootx(),
+            panel.winfo_rooty(),
+            panel.winfo_width(),
+            panel.winfo_height(),
+        )
+        left, top, width, height = client
+        if (
+            bounds[0] < left
+            or bounds[1] < top
+            or bounds[0] + bounds[2] > left + width
+            or bounds[1] + bounds[3] > top + height
+        ):
+            return [
+                f"{label}: the open panel is {bounds[2]}x{bounds[3]} at "
+                f"{bounds[0]},{bounds[1]}, outside the window ({width}x{height} "
+                f"at {left},{top}); it would be grabbed from whatever is behind it"
+            ]
+        return _grab(root, plan, figure, dpi=dpi, bounds=bounds, tab=shot.tab)
+    finally:
+        _restore_panels(hidden)
+        root.update_idletasks()
+        root.update()
 
 
 def capture_tool(plan: ToolPlan, *, force_dpi: bool) -> list[str]:
@@ -2060,6 +2313,10 @@ def capture_tool(plan: ToolPlan, *, force_dpi: bool) -> list[str]:
                 )
                 continue
             problems.extend(_grab(root, plan, figure, dpi=dpi))
+        for shot in plan.panel_shots:
+            problems.extend(
+                _capture_panel(root, app, plan, shot, dpi=dpi, tabs=tabs, client=rect)
+            )
     except Exception as exc:  # noqa: BLE001 - one tool must not abort the rest
         problems.append(f"{plan.tool_id}: capture failed - {type(exc).__name__}: {exc}")
     finally:

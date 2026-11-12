@@ -18,6 +18,17 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **A guide figure can be a close-up of one panel.** `ToolPlan.panel_shots`
+  photographs a single collapsible stage panel on its own: the panel is opened
+  through its own Settings button, filled through the entries the panel already
+  publishes in its state, and grabbed by its bounds with the same DPI scaling,
+  colour census and sidecar as a tab figure. The panel is isolated up to the
+  notebook page first, because the Refinery's seven-panel column squeezes a panel
+  opened in place until the EQ curve canvas maps 13 px tall and matplotlib
+  resizes the figure to match, after which the panel never grows back; the
+  siblings' own pack options are restored after the grab. The Refinery's
+  Parametric EQ and Dynamics panels are captured this way.
+
 - **The Audio Refinery's Setup figure is captured from the seven-panel
   window.** The capture plan pinned 675 px and its setup override filled six
   stage switches, so the committed figure predated the Dynamics panel while the

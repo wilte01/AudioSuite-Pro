@@ -119,6 +119,8 @@ High-pass and low-pass are first-order filters, so their gain and Q boxes are di
 
 Tick **Parametric EQ** and open its **Settings**:
 
+![The Parametric EQ panel opened to Settings, with the guide's four-band example rack and its response curve](images/parametric_eq.png)
+
 - **Kind, Hz, dB and Q:** type the values and press **Add / Update**.
 - **Editing a band:** selecting a row loads it back into those fields, so Add / Update replaces that band rather than adding a second copy of it, and **Remove** deletes the selected one.
 - **The curve:** drawn under the table from the same filters the run applies, by measuring their impulse response, so it shows the shape the file will have. The panel writes each edit straight into the run's configuration, which is why the curve and the audio cannot disagree.
@@ -154,6 +156,8 @@ A band outside 20 Hz to 20 kHz, a gain past +/-24 dB, a Q outside 0.1 to 18, or 
 #### Dynamics
 
 Off by default. Tick the stage and open its Settings to set the compressor and limiter, or enable it from the command line (--stages dynamics, or any dynamics flag), a saved preset, or a Master Driver launch. It is a compressor followed by a true-peak limiter, and the run reports what it measured rather than what you asked for. Dynamics does not set the final loudness: the Audio Normaliser does that later when it is enabled.
+
+![The Dynamics panel opened to Settings, with the compressor and limiter set to the control-a-spiky-mix starting point](images/dynamics.png)
 
 **The compressor**
 
