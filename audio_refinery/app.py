@@ -443,6 +443,7 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         self._sync_preset_editor(p)
         self._sync_trim_panel()
         self._sync_eq_panel()
+        self._sync_dynamics_panel()
 
     def _sync_preset_editor(self, p: Any) -> None:
         """Keep the Custom DSP editor in step with the loaded preset."""
@@ -782,6 +783,32 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
         if callable(refresh):
             refresh()
 
+    def _sync_dynamics_panel(self) -> None:
+        """Show the dynamics pair the run will actually use (F-S2).
+
+        A preset or a Driver launch assigns the settings objects directly, so
+        without this the panel would keep showing the previous compressor and
+        limiter while the run used the restored pair.
+        """
+        entries = (getattr(self, "_setup_state", None) or {}).get("dynamics_entries")
+        if not entries:
+            return
+        p = self.config
+        values = {
+            "threshold_db": p.compressor_params.threshold_db,
+            "ratio": p.compressor_params.ratio,
+            "attack_ms": p.compressor_params.attack_ms,
+            "release_ms": p.compressor_params.release_ms,
+            "makeup_db": p.compressor_params.makeup_db,
+            "ceiling_dbtp": p.limiter_params.ceiling_dbtp,
+            "lookahead_ms": p.limiter_params.lookahead_ms,
+            "limiter_release_ms": p.limiter_params.release_ms,
+        }
+        for name, value in values.items():
+            var = entries.get(name)
+            if var is not None:
+                var.set(f"{value:g}")
+
     def _apply_cli_args(self) -> None:
         args = parse_cli()
 
@@ -869,6 +896,7 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             lookahead_ms=args.limiter_lookahead,
             release_ms=args.limiter_release,
         )
+        self._sync_dynamics_panel()
         self.config.normalise_params.target_lufs = args.target_lufs
         self.config.normalise_params.tolerance = args.tolerance
         self.config.normalise_params.true_peak = args.true_peak

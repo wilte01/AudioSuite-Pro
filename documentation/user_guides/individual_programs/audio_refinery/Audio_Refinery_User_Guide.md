@@ -57,9 +57,9 @@ Optional. Blank means in-place replacement; a selected existing directory receiv
 
 ### Stage Controls
 
-The six collapsible stage panels sit below the paths, in the order the pipeline applies them. Each panel has a checkbox that enables the stage for the run, and a **Settings** expander that reveals that stage's controls. Tick a stage and open its Settings to change anything; the values you see are the values the run uses.
+The seven collapsible stage panels sit below the paths, in the order the pipeline applies them. Each panel has a checkbox that enables the stage for the run, and a **Settings** expander that reveals that stage's controls. Tick a stage and open its Settings to change anything; the values you see are the values the run uses.
 
-At least one stage must be enabled. The window opens with Pop & Click Remover, Silence Trimmer / Fader, Audio Enhancer and Audio Normaliser enabled, and Noise Reduction, Dynamics and Parametric EQ disabled; enable an optional stage when a file needs it. Dynamics has no panel in this window yet: a preset, the command line or a Master Driver launch configures it (see Dynamics below), and SELECT ALL covers the six stages it can show.
+At least one stage must be enabled. The window opens with Pop & Click Remover, Silence Trimmer / Fader, Audio Enhancer and Audio Normaliser enabled, and Noise Reduction, Dynamics and Parametric EQ disabled; enable an optional stage when a file needs it. SELECT ALL follows whichever stages have a panel, so it covers every one of them.
 
 #### Pop & Click Remover
 
@@ -96,7 +96,7 @@ A preset stores the EQ stage's toggle and every band, and loading one restores t
 
 #### Dynamics
 
-Off by default. The Setup tab has no panel for this stage yet, so enable it from the command line (`--stages dynamics`, or any dynamics flag), a saved preset, or a Master Driver launch. It is a controllable compressor followed by a true-peak limiter, and the run reports what it measured rather than what you asked for:
+Off by default. Tick the stage and open its Settings to set the compressor and limiter, or enable it from the command line (`--stages dynamics`, or any dynamics flag), a saved preset, or a Master Driver launch. It is a controllable compressor followed by a true-peak limiter, and the run reports what it measured rather than what you asked for:
 
 - **Compressor threshold: **Default -18 dBFS; the level above which gain reduction starts.
 - **Compressor ratio: **Default 4.0, as in 4:1.
@@ -105,7 +105,7 @@ Off by default. The Setup tab has no panel for this stage yet, so enable it from
 - **Limiter ceiling: **Default -1.0 dBTP; the true-peak ceiling the limiter holds.
 - **Lookahead and limiter release: **Defaults 5 ms and 100 ms; how far ahead the limiter sees a peak and how quickly it recovers after one.
 
-The stage reports its largest and mean gain reduction and the output's integrated loudness and true peak in the run log. Those figures are measured from the rendered audio, so they describe the file that was written. A pair of bypassed settings leaves the signal untouched. The installed compressor has a fixed soft knee and the limiter always uses oversampled true-peak detection, so no knee or detector switch is offered.
+Every control has a stated range beside it; a value outside that range is reported in the panel and never reaches the run, so the settings you see are the settings the pipeline renders. The stage reports its largest and mean gain reduction and the output's integrated loudness and true peak in the run log. Those figures are measured from the rendered audio, so they describe the file that was written. A pair of bypassed settings leaves the signal untouched. The installed compressor has a fixed soft knee and the limiter always uses oversampled true-peak detection, so no knee or detector switch is offered.
 
 Dynamics runs after Parametric EQ and before Audio Enhancement, so the preset's own compressor and limiter act on the compressed signal, and it cannot run beside Stream copy, which writes the source's own frames without decoding them.
 

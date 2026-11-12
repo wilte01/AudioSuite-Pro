@@ -22,6 +22,13 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **The Audio Refinery's Dynamics stage has a Setup panel.** Tick the stage,
+  open Settings and set the compressor's threshold, ratio, attack, release and
+  makeup gain, and the limiter's true-peak ceiling, lookahead and release. A
+  value outside the range printed beside a control is reported in the panel and
+  kept out of the run, and loading a preset or launching from the Master Driver
+  shows the pair the run will use. SELECT ALL covers the stage.
+
 - **The Audio Refinery has a Dynamics stage.** A controllable compressor and a
   true-peak brickwall limiter run after Parametric EQ and before Audio
   Enhancement, reachable with `refine --stages dynamics` and configured by

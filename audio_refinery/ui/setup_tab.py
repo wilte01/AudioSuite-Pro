@@ -2,13 +2,14 @@
 ui/setup_tab.py
 Setup tab for Audio Refinery.
 
-Displays six collapsible stage panels in fixed pipeline order:
+Displays seven collapsible stage panels in fixed pipeline order:
   1. Pop & Click Remover
   2. Silence Trimmer / Fader
   3. Noise Reduction
   4. Parametric EQ
-  5. Audio Enhancer
-  6. Audio Normaliser
+  5. Dynamics
+  6. Audio Enhancer
+  7. Audio Normaliser
 
 Each panel has:
   - A checkbox to enable/disable the stage
@@ -36,6 +37,12 @@ with ``preset_text(preset)`` - the shared model's single display
 accessor - instead of ``preset.value``, so an enum-base change cannot
 rewrite a label. The rendered strings are unchanged (WP-0).
 
+Changed in 2.7.0: the Dynamics panel exposes the compressor and limiter the
+stage runs (F-S2). Its eight controls write the frozen settings objects the
+pipeline renders, a refused value stays out of the config and is reported in
+the panel, and ``state["dynamics_entries"]`` lets a preset or CLI launch show
+the pair it restored.
+
 Changed in 2.7.0: the Parametric EQ panel is a band table plus a response
 curve (F-S1). The curve is drawn by ``dsp_eq.response_curve``, which measures
 the very filters the pipeline renders, so the shape on screen cannot disagree
@@ -58,6 +65,7 @@ import pop_click_remover.ui.setup_tab as declick_ui
 import silence_trimmer.ui.setup_tab as trim_ui
 from audio_refinery.core.models import StageConfig
 from audio_suite_shared import styles, ui_common
+from audio_suite_shared.dsp_dynamics import CompressorSettings, LimiterSettings
 from audio_suite_shared.dsp_eq import (
     EQ_BAND_KINDS,
     EQ_DEFAULT_Q,
@@ -265,6 +273,7 @@ def build(
     )
     _build_noise_reduction_panel(stages_frame, config, embedded, stage_vars)
     _build_eq_panel(stages_frame, config, _state, stage_vars)
+    _build_dynamics_panel(stages_frame, config, _state, stage_vars)
     _build_enhance_panel(stages_frame, config, _state, stage_vars)
     _build_normalise_panel(stages_frame, config, _state, embedded, stage_vars)
 
@@ -1133,6 +1142,140 @@ def _build_eq_panel(
     )
 
 
+def _build_dynamics_panel(
+    parent: tk.Frame,
+    config: StageConfig,
+    state: dict[str, Any],
+    stage_vars: dict[str, Any] | None = None,
+) -> None:
+    """Build the Dynamics stage panel (F-S2)."""
+    comp = config.compressor_params
+    limit = config.limiter_params
+    # StringVars rather than DoubleVars: an entry mid-edit ("-1.") is a
+    # legitimate keystroke, and a DoubleVar would raise while the user types.
+    entries: dict[str, tk.StringVar] = {
+        "threshold_db": tk.StringVar(value=f"{comp.threshold_db:g}"),
+        "ratio": tk.StringVar(value=f"{comp.ratio:g}"),
+        "attack_ms": tk.StringVar(value=f"{comp.attack_ms:g}"),
+        "release_ms": tk.StringVar(value=f"{comp.release_ms:g}"),
+        "makeup_db": tk.StringVar(value=f"{comp.makeup_db:g}"),
+        "ceiling_dbtp": tk.StringVar(value=f"{limit.ceiling_dbtp:g}"),
+        "lookahead_ms": tk.StringVar(value=f"{limit.lookahead_ms:g}"),
+        "limiter_release_ms": tk.StringVar(value=f"{limit.release_ms:g}"),
+    }
+    status_var = tk.StringVar(value="")
+    state["dynamics_entries"] = entries
+    state["dynamics_status"] = status_var
+
+    def _write_back(*_trace: Any) -> None:
+        try:
+            values = {name: float(var.get()) for name, var in entries.items()}
+        except ValueError:
+            status_var.set("Enter a number in every dynamics control.")
+            return
+        try:
+            config.compressor_params = CompressorSettings(
+                threshold_db=values["threshold_db"],
+                ratio=values["ratio"],
+                attack_ms=values["attack_ms"],
+                release_ms=values["release_ms"],
+                makeup_db=values["makeup_db"],
+            )
+            config.limiter_params = LimiterSettings(
+                ceiling_dbtp=values["ceiling_dbtp"],
+                lookahead_ms=values["lookahead_ms"],
+                release_ms=values["limiter_release_ms"],
+            )
+        except AudioConfigValueError as exc:
+            status_var.set(exc.message)
+            return
+        status_var.set("")
+
+    for var in entries.values():
+        var.trace_add("write", _write_back)
+
+    def _extra(body: tk.Frame) -> None:
+        def _heading(text: str) -> None:
+            tk.Label(
+                body,
+                text=text,
+                font=styles.FONT_CAPTION,
+                bg=styles.BG_WHITE,
+                fg=styles.FG_MAIN,
+                anchor="w",
+            ).pack(fill="x", pady=(6, 0))
+
+        def _row(field: str, label: str, limits: str) -> None:
+            row = tk.Frame(body, bg=styles.BG_WHITE)
+            row.pack(fill="x", pady=2)
+            tk.Label(
+                row,
+                text=label,
+                font=styles.FONT_CAPTION,
+                bg=styles.BG_WHITE,
+                fg=styles.FG_SUB,
+                width=26,
+                anchor="w",
+            ).pack(side=tk.LEFT)
+            tk.Entry(
+                row,
+                textvariable=entries[field],
+                width=10,
+                font=styles.FONT_CAPTION,
+            ).pack(side=tk.LEFT, padx=6)
+            tk.Label(
+                row,
+                text=limits,
+                font=styles.FONT_CAPTION,
+                bg=styles.BG_WHITE,
+                fg=styles.FG_SUB,
+                anchor="w",
+            ).pack(side=tk.LEFT)
+
+        _heading("Compressor")
+        _row("threshold_db", "Threshold (dBFS):", "-60 to 0")
+        _row("ratio", "Ratio:", "1 to 20")
+        _row("attack_ms", "Attack (ms):", "0.1 to 200")
+        _row("release_ms", "Release (ms):", "1 to 2000")
+        _row("makeup_db", "Makeup gain (dB):", "-24 to 24")
+        _heading("Limiter")
+        _row("ceiling_dbtp", "True-peak ceiling (dBTP):", "-24 to 0")
+        _row("lookahead_ms", "Lookahead (ms):", "0 to 20")
+        _row("limiter_release_ms", "Release (ms):", "1 to 2000")
+        tk.Label(
+            body,
+            text=(
+                "The run log reports the reduction it measured, not the "
+                "reduction these settings ask for, and an out-of-range value "
+                "is refused here before any file is touched."
+            ),
+            font=styles.FONT_CAPTION,
+            fg=styles.FG_SUB,
+            bg=styles.BG_WHITE,
+            wraplength=520,
+            justify="left",
+        ).pack(anchor="w", padx=5, pady=(6, 0))
+        tk.Label(
+            body,
+            textvariable=status_var,
+            font=styles.FONT_CAPTION,
+            fg=styles.FG_SUB,
+            bg=styles.BG_WHITE,
+            wraplength=520,
+            justify="left",
+        ).pack(anchor="w", padx=5)
+
+    _stage_panel(
+        parent,
+        "Dynamics",
+        config,
+        "dynamics",
+        [],
+        _extra,
+        stage_vars=stage_vars,
+    )
+
+
 def _build_normalise_panel(
     parent: tk.Frame,
     config: StageConfig,
@@ -1349,7 +1492,7 @@ def _stage_panel(
     parent: tk.Frame,
     title: str,
     config: StageConfig,
-    attr: str,  # 'declick' | 'trim' | 'enhance' | 'normalise'
+    attr: str,  # 'declick' | 'trim' | 'eq' | 'dynamics' | 'enhance' | 'normalise'
     slider_rows: list[Any],
     extra_builder: Callable[..., Any] | None,
     on_check_change: Callable[..., Any] | None = None,

@@ -336,6 +336,42 @@ class TestRealAppConstructionD3:
         assert call.args[2] == "Busy"
         assert t_var.get() == "IDLE"  # not applied until the main loop runs it
 
+    def test_a_preset_carries_the_dynamics_pair_onto_the_panel(
+        self, real_app: Any
+    ) -> None:
+        """A restored pair must also be what the panel shows (F-S2).
+
+        The stage is the run's, but the panel is the only place a user can see
+        which compressor and limiter that run will use, so a preset load that
+        left the previous values on screen would hide the restored pair.
+        """
+        app = real_app
+        app._apply_preset(
+            {
+                "dynamics": True,
+                "compressor_params": {
+                    "threshold_db": -30.0,
+                    "ratio": 3.0,
+                    "attack_ms": 8.0,
+                    "release_ms": 150.0,
+                    "makeup_db": 1.5,
+                },
+                "limiter_params": {
+                    "ceiling_dbtp": -2.0,
+                    "lookahead_ms": 4.0,
+                    "release_ms": 120.0,
+                },
+            }
+        )
+
+        assert app.config.dynamics is True
+        assert app.config.compressor_params.threshold_db == -30.0
+        assert app.config.limiter_params.ceiling_dbtp == -2.0
+        entries = app._setup_state["dynamics_entries"]
+        assert entries["threshold_db"].get() == "-30"
+        assert entries["ratio"].get() == "3"
+        assert entries["ceiling_dbtp"].get() == "-2"
+
     def test_preset_collect_and_apply_roundtrip(self, real_app: Any) -> None:
         app = real_app
         app._apply_preset(

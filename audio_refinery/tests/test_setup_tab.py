@@ -817,3 +817,102 @@ class TestEqPanel:
 
         assert config.eq_params.bands == ()
         assert state["eq_tree"].get_children() == ()
+
+
+class TestDynamicsPanel:
+    """The eight controls write the settings object the stage renders (F-S2)."""
+
+    def _build(self, root: tk.Tk, config: Any) -> dict[str, Any]:
+        from audio_refinery.ui import setup_tab
+
+        return setup_tab.build(
+            parent=tk.Frame(root),
+            source_path=tk.StringVar(),
+            output_path=None,
+            config=config,
+            on_browse_src=lambda: None,
+            on_browse_out=lambda: None,
+            on_start=lambda: None,
+            on_reset=lambda: None,
+        )
+
+    def test_the_stage_joins_select_all_with_all_eight_controls(
+        self, root: tk.Tk
+    ) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig()
+        state = self._build(root, config)
+        entries = state["dynamics_entries"]
+
+        assert state["stage_vars"]["dynamics"] is not None
+        assert set(entries) == {
+            "threshold_db",
+            "ratio",
+            "attack_ms",
+            "release_ms",
+            "makeup_db",
+            "ceiling_dbtp",
+            "lookahead_ms",
+            "limiter_release_ms",
+        }
+        assert (
+            entries["threshold_db"].get()
+            == f"{config.compressor_params.threshold_db:g}"
+        )
+        assert (
+            entries["ceiling_dbtp"].get() == f"{config.limiter_params.ceiling_dbtp:g}"
+        )
+
+    def test_an_edit_writes_the_pair_the_pipeline_renders(self, root: tk.Tk) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig(dynamics=True)
+        state = self._build(root, config)
+        entries = state["dynamics_entries"]
+        entries["threshold_db"].set("-24")
+        entries["ratio"].set("6")
+        entries["attack_ms"].set("5")
+        entries["release_ms"].set("200")
+        entries["makeup_db"].set("3")
+        entries["ceiling_dbtp"].set("-2")
+        entries["lookahead_ms"].set("10")
+        entries["limiter_release_ms"].set("300")
+
+        assert config.compressor_params.threshold_db == -24.0
+        assert config.compressor_params.ratio == 6.0
+        assert config.compressor_params.attack_ms == 5.0
+        assert config.compressor_params.release_ms == 200.0
+        assert config.compressor_params.makeup_db == 3.0
+        assert config.limiter_params.ceiling_dbtp == -2.0
+        assert config.limiter_params.lookahead_ms == 10.0
+        assert config.limiter_params.release_ms == 300.0
+        assert state["dynamics_status"].get() == ""
+
+    def test_a_refused_value_is_reported_and_left_out_of_the_run(
+        self, root: tk.Tk
+    ) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig(dynamics=True)
+        state = self._build(root, config)
+        before = config.limiter_params
+
+        state["dynamics_entries"]["ceiling_dbtp"].set("5")
+
+        assert config.limiter_params == before
+        assert "outside" in state["dynamics_status"].get()
+
+    def test_a_non_number_is_refused_without_touching_the_pair(
+        self, root: tk.Tk
+    ) -> None:
+        from audio_refinery.core.models import StageConfig
+
+        config = StageConfig(dynamics=True)
+        state = self._build(root, config)
+        before = config.compressor_params
+
+        state["dynamics_entries"]["ratio"].set("4x")
+
+        assert config.compressor_params == before
+        assert "number" in state["dynamics_status"].get()
