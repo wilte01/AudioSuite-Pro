@@ -38,9 +38,7 @@ and every bullet belongs to exactly one of them.
   the measured maximum and mean gain reduction plus the output's integrated
   loudness and true peak. An out-of-range setting is refused before any file is
   opened, a bypassed pair leaves the file byte-identical, and copy mode refuses
-  the stage because a stream copy cannot decode the audio. The Setup tab has no
-  panel for it yet: a preset, the command line or a Master Driver launch
-  configures it.
+  the stage because a stream copy cannot decode the audio.
 
 - **The Refinery's EQ has its own panel and a live response curve.** The
   Parametric EQ stage opens to a band table: pick a kind, type the frequency,
@@ -86,6 +84,18 @@ and every bullet belongs to exactly one of them.
   read one resolver, so the CLI and Help ▸ Licences cannot disagree about what
   an installation ships. The exit status distinguishes a build that carries no
   texts (0) from one whose texts cannot be read (1).
+
+### Changed
+
+- **The Audio Refinery guide explains tone and dynamics in depth.** The guide
+  now covers every Parametric EQ band kind, with measured Q width and shelf
+  behaviour, a table of fixes by frequency, and command-line examples; and every
+  Dynamics control, with measured reduction figures, how to read the run's
+  max/mean reduction and output levels, starting points for four kinds of job,
+  and what the stage cannot do. A new section, How the Stages Work Together,
+  explains the fixed order, why EQ runs before Dynamics and Dynamics before the
+  enhancer and normaliser, and walks an over-bright CD rip through the whole
+  chain.
 
 ### Fixed
 
