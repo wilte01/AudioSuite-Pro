@@ -75,5 +75,12 @@ logs/
 !.env.example
 .junie/
 
+# Changed in 2.7.0: the pre-sale diligence pack is ignored. It holds a buyer
+# presentation, valuation report, metrics sheet, outreach notes and demo script -
+# commercial material that must never enter the repository or a published build,
+# and it lives on the author's machine only, so a bulk `git add -A` cannot sweep
+# it in.
+sale/
+
 # Agent harness state (a per-checkout project id, not project content).
 .freebuff/
