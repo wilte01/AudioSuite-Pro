@@ -475,6 +475,49 @@ class TestStartGuardsD3:
 
         dialogs.showerror.assert_called_once()
 
+    def test_the_dry_run_mode_reaches_the_config_the_pipeline_runs(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A window in Dry Run must hand the pipeline a dry-run config.
+
+        The mode only reached ``_run_was_dry_run``, so every standalone Dry Run
+        rewrote the files it promised to preview (a Master Driver launch is the
+        same defect through the CLI).
+        """
+        from audio_refinery.core.models import StageConfig
+        from audio_refinery.core.registry import CompletionRegistry
+
+        fake_threading = MagicMock()
+        monkeypatch.setattr("audio_refinery.app.threading", fake_threading)
+        monkeypatch.setattr("audio_refinery.app.messagebox", MagicMock())
+        monkeypatch.setattr(
+            "audio_refinery.app.suite_config.save_last_directory", MagicMock()
+        )
+        monkeypatch.setattr("audio_refinery.app.save_settings", MagicMock())
+        monkeypatch.setattr(
+            "audio_refinery.app.audio_playback.peek_first_audio", lambda *_a: None
+        )
+        monkeypatch.setattr("audio_refinery.app.run_pipeline", MagicMock())
+        app = self._shell()
+        app.clear_audition = MagicMock()
+        app.prepare_in_place_audition = MagicMock()
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        (tmp_path / "a.wav").write_bytes(b"\x00" * 8)
+        app.source_path.get.return_value = str(tmp_path)
+        app.output_path.get.return_value = str(out_dir)
+        app.run_mode.get.return_value = "Dry Run"
+        app.config = StageConfig(
+            declick=True, trim=False, enhance=False, normalise=False, dry_run=False
+        )
+        app._registry = CompletionRegistry(tmp_path)
+
+        app.start_processing()
+
+        assert app._run_was_dry_run is True
+        assert app.config.dry_run is True
+        assert fake_threading.Thread.call_args.kwargs["target"] == app._run
+
     def test_nonexistent_source_shows_error(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

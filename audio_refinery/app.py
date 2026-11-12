@@ -574,7 +574,12 @@ class AudioRefineryApp(UIHelperMixin, AuditionMixin):
             # When writing to a separate output folder the result path is that
             # folder, so point Play Result there explicitly.
             self._in_place = output_dir.resolve() == source_dir.resolve()
+            # Changed in 2.7.0: the mode reaches the pipeline through the
+            # config it reads. It used to stop at _run_was_dry_run, so the
+            # window wrote every file a Dry Run promised to preview (F-S2
+            # follow-up).
             self._run_was_dry_run = self.run_mode.get() == "Dry Run"
+            self.config.dry_run = self._run_was_dry_run
             if self._in_place:
                 self.prepare_in_place_audition(source_dir, SUPPORTED_EXTENSIONS)
             else:

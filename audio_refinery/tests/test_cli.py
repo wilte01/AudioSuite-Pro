@@ -10,6 +10,10 @@ with no validation error.
 
 Changed in 1.1.0: added TestEffectFlagsReachConfig for the six
 Sprint 1 refine effect flags.
+
+Changed in 2.7.0: TestDryRunReachesTheRun locks ``--dry`` to the run config and
+to an unchanged file on disk, after a Master Driver Dry Run rewrote its files
+(F-S2 follow-up, plan D-17).
 """
 
 from __future__ import annotations
@@ -55,6 +59,66 @@ class TestTargetLufsValidation:
         result = runner.invoke(refine, [str(tmp_path)])
         assert result.exit_code == 0, result.output
         assert "Target LUFS must be one of" not in result.output
+
+
+class TestDryRunReachesTheRun:
+    """``--dry`` must reach ``StageConfig``, not only the JSON payload.
+
+    A Master Driver Dry Run launches this command, so a config that never
+    learns about the flag writes the files the operator asked to preview.
+    """
+
+    @staticmethod
+    def _config(runner: CliRunner, tmp_path: Path, *extra: str) -> object:
+        from audio_refinery.core import file_processor
+
+        with patch.object(file_processor, "run_pipeline") as mock_run:
+            result = runner.invoke(refine, [str(tmp_path), *extra])
+        assert mock_run.call_count == 1, (
+            f"run_pipeline was called {mock_run.call_count} times: {result.output}"
+        )
+        return mock_run.call_args.kwargs["config"]
+
+    def test_the_dry_flag_reaches_the_run_config(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        config = self._config(runner, tmp_path, "--stages", "dynamics", "--dry")
+
+        assert config.dry_run is True
+
+    def test_a_run_without_the_flag_stays_live(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        config = self._config(runner, tmp_path, "--stages", "dynamics")
+
+        assert config.dry_run is False
+
+    def test_a_dynamics_dry_run_leaves_the_file_byte_identical(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """The reported defect: the log said Dry Run and the file was rewritten."""
+        import hashlib
+
+        import numpy as np
+        from pydub import AudioSegment
+
+        rate = 44_100
+        time_axis = np.linspace(0.0, 2.0, rate * 2, endpoint=False)
+        signal = 0.5 * np.sin(2 * np.pi * 220 * time_axis)
+        signal[::4000] = 0.99
+        pcm = (np.clip(signal, -1.0, 1.0) * 32767).astype("<i2")
+        track = tmp_path / "track.wav"
+        AudioSegment(pcm.tobytes(), frame_rate=rate, sample_width=2, channels=1).export(
+            str(track), format="wav"
+        )
+        digest = hashlib.sha256(track.read_bytes()).hexdigest()
+        mtime = track.stat().st_mtime_ns
+
+        result = runner.invoke(refine, [str(tmp_path), "--stages", "dynamics", "--dry"])
+
+        assert result.exit_code == 0, result.output
+        assert hashlib.sha256(track.read_bytes()).hexdigest() == digest
+        assert track.stat().st_mtime_ns == mtime
 
 
 class TestEffectFlagsReachConfig:

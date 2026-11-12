@@ -467,6 +467,10 @@ def refine(
         raise click.BadParameter(exc.message, param_hint="--dynamics") from exc
 
     config = StageConfig(
+        # Changed in 2.7.0: --dry is a run mode, and the pipeline reads it from
+        # the config; passing it to the JSON payload alone ran a live rewrite
+        # that reported "dry_run": true (F-S2 follow-up).
+        dry_run=dry_run,
         declick="declick" in active,
         trim="trim" in active,
         enhance="enhance" in active,

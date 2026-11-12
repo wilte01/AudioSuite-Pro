@@ -89,6 +89,14 @@ and every bullet belongs to exactly one of them.
 
 ### Fixed
 
+- **Dry Run no longer rewrites files in the Audio Refinery.** The window's
+  mode only reached its own display flag and the command line only reached the
+  JSON summary, so a Dry Run processed and overwrote every file while reporting
+  itself as a dry run — including a run launched from the Master Driver with Dry
+  Run ticked. The mode now reaches the configuration the pipeline reads: a Dry
+  Run decodes, measures and reports what each enabled stage would do, and leaves
+  every file byte-identical.
+
 - **Channel Tools waits when the Master Driver's Auto Start is off.** A launch
   that supplied a folder applied the channel rule immediately, rewriting the
   files, even though Auto Start had not been ticked. Auto Start now decides:
