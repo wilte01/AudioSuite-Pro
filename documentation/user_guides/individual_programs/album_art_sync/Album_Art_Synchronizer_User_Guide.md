@@ -66,6 +66,10 @@ Processing shows the current search or embedding status, a progress bar, a live 
 
 Results reports completion, cancellation, no artwork found, or partial success. View Log opens art_sync_log.txt in the source directory. Open Folder opens the source directory because synchronization modifies files in place.
 
+## Logs and Recovery
+
+The GUI writes art_sync_log.txt in the source directory after a non-cancelled run. Logs include the lookup identity, queried sources, candidate audit, selected source, purge activity, embedding progress, warnings, and final status. Use the suite's Undo Tag Edits workflow for available tag snapshots, and maintain an independent backup for reliable recovery.
+
 ## Interactive Artwork Picker
 
 When the GUI receives candidates, it opens a modal picker on the main UI thread. The picker shows a preview, source, candidate title, dimensions, and position in the ranked list. Use < and > to browse. ACCEPT returns the displayed image to the synchronizer; REJECT or closing the picker returns no image and prevents an artwork update.
@@ -117,7 +121,3 @@ From the Master Driver, open ENRICH and select Album Art Sync. The driver passes
 - **Fanart.tv is unavailable: **The resolver falls through to Deezer and then iTunes. Check encrypted Fanart configuration and network access if the fallback sources are insufficient.
 - **Partial success: **Review art_sync_log.txt for per-file embedding warnings and check whether files are writable.
 - **Purge removed an image: **Disable Purge Hidden System Art when existing folder.jpg, cover.jpg, albumartsmall.jpg, or albumart_ files must be retained.
-
-## Logs and Recovery
-
-The GUI writes art_sync_log.txt in the source directory after a non-cancelled run. Logs include the lookup identity, queried sources, candidate audit, selected source, purge activity, embedding progress, warnings, and final status. Use the suite's Undo Tag Edits workflow for available tag snapshots, and maintain an independent backup for reliable recovery.

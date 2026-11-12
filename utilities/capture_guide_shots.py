@@ -40,8 +40,14 @@ developers photograph different windows:
 * ``AUDIOSUITE_WHATS_NEW=0`` keeps the release-notes panel out of frame;
 * ``sys.argv`` is neutralised, because a tool that believes the Master Driver
   launched it locks its controls and lays itself out differently;
+* a tool's own saved panel state is replaced through its declared setup
+  override, so a figure shows the defaults rather than one person's last run;
 * ``AUDIOSUITE_LOG_DIR`` points at a temporary directory, so a capture run does
   not append to the shipped diagnostic logs.
+
+Changed in 2.7.0: a tool's setup panel is filled from a declared override table,
+so a regenerated figure shows the defaults the guide documents instead of the
+capturing machine's last saved run.
 
 An occluded window is the failure mode that matters: ``ImageGrab`` copies the
 screen, so the window is raised and made topmost before each grab, and every
@@ -940,7 +946,13 @@ def _populate_run_setup(app: Any) -> None:
     Args:
         app: The live application.
     """
-    for attribute in ("folder_path", "source_folder", "input_folder", "directory"):
+    for attribute in (
+        "folder_path",
+        "source_folder",
+        "input_folder",
+        "source_path",
+        "directory",
+    ):
         variable = getattr(app, attribute, None)
         if variable is not None and hasattr(variable, "set"):
             variable.set(SAMPLE_FOLDER)
@@ -948,6 +960,33 @@ def _populate_run_setup(app: Any) -> None:
     mode = getattr(app, "run_mode", None)
     if isinstance(mode, tk.StringVar):
         mode.set("Dry Run")
+
+
+def _populate_refinery_setup(app: Any) -> None:
+    """Show the stage selection a first launch starts with.
+
+    The six stage switches are restored from the pipeline's saved settings, so a
+    capture would otherwise photograph whichever stages the person running it
+    last left enabled: the figure committed for 2.7.0 showed Parametric EQ as the
+    only active stage, while the guide described the four defaults.  The panel's
+    own BooleanVars are set and ``app.config`` with them, so the figure and the
+    configuration it depicts agree - nothing here changes what a click writes.
+
+    Args:
+        app: The live Audio Refinery application.
+    """
+    toggles = {
+        "declick": True,
+        "trim": True,
+        "reduce_noise": False,
+        "eq": False,
+        "enhance": True,
+        "normalise": True,
+    }
+    stage_vars = app._setup_state["stage_vars"]
+    for name, enabled in toggles.items():
+        stage_vars[name].set(enabled)
+        setattr(app.config, name, enabled)
 
 
 def _populate_run_processing(app: Any, run: SampleRun, tool_id: str) -> None:
@@ -1102,6 +1141,13 @@ _PROCESSING_OVERRIDES: Mapping[str, Callable[[Any], None]] = {
     "asx_extractor": _populate_asx_processing,
 }
 
+#: Tools whose Setup tab opens with more state than a folder and a run mode.
+#: The refinery's stage selection is a saved preference, so without this its
+#: figure shows the last person to run the capture's stages, not the defaults.
+_SETUP_OVERRIDES: Mapping[str, Callable[[Any], None]] = {
+    "audio_refinery": _populate_refinery_setup,
+}
+
 
 def _fillers(tool_id: str) -> Mapping[str, Callable[[Any], None]]:
     """Return the figure fillers for one tool.
@@ -1125,8 +1171,11 @@ def _fillers(tool_id: str) -> Mapping[str, Callable[[Any], None]]:
         )
 
     def setup(app: Any) -> None:
-        """Fill the Setup tab with the sample folder."""
+        """Fill the Setup tab with the sample folder and the tool's own state."""
         _populate_run_setup(app)
+        override = _SETUP_OVERRIDES.get(tool_id)
+        if override is not None:
+            override(app)
 
     def processing(app: Any) -> None:
         """Fill the Processing tab with this tool's run part-way through."""

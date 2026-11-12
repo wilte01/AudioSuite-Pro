@@ -55,6 +55,35 @@ segments, a `Segments: done/total | Errors: n` counter, and one line per
 segment read, naming the file and its measured length. A long join therefore
 shows that it is working through the order, and where in the order it is.
 
+## Results Tab
+
+![The Results tab: the completion heading, the time and the join summary](images/results.png)
+
+The Results tab shows the completion heading, the total time, and the summary:
+
+- **Segments:** how many files were joined.
+- **Length:** the planned length of the joined file, in `MM:SS.mmm`.
+- **Writer:** stream copy or re-encode.
+- **Errors:** how many segments could not be read.
+
+View Log opens this run's report, and Open Folder opens the folder the join was
+written to.
+
+## The Run Report
+
+Every run writes its report beside the segments it joined:
+
+- `audio_joiner_sync_log.txt` for a live run.
+- `audio_joiner_dry_run_log.txt` for a dry run.
+
+The report opens with `AUDIO JOINER REPORT` and the mode, then the folder, the
+output file, the segment count, the gap and crossfade settings and the
+compatibility decision, one line per segment with its measured length, and a
+`SUMMARY:` block with the planned length, how many files were written, the
+writer, whether the tags were copied, the error count and the elapsed time. A
+dry run and a live run write different files, so the report you open is always
+the run you started.
+
 ## Segment Order
 
 The order is the join order, and it is the one thing a joiner must get right.
@@ -100,35 +129,6 @@ artist, date, genre, track and disc numbers, and comment. That is the one policy
 that never invents a value: the join is the first segment's recording extended
 by the rest. WAV and AIFF carry no writable tag block, so the report says the
 tags were not written rather than claiming they were.
-
-## Results Tab
-
-![The Results tab: the completion heading, the time and the join summary](images/results.png)
-
-The Results tab shows the completion heading, the total time, and the summary:
-
-- **Segments:** how many files were joined.
-- **Length:** the planned length of the joined file, in `MM:SS.mmm`.
-- **Writer:** stream copy or re-encode.
-- **Errors:** how many segments could not be read.
-
-View Log opens this run's report, and Open Folder opens the folder the join was
-written to.
-
-## The Run Report
-
-Every run writes its report beside the segments it joined:
-
-- `audio_joiner_sync_log.txt` for a live run.
-- `audio_joiner_dry_run_log.txt` for a dry run.
-
-The report opens with `AUDIO JOINER REPORT` and the mode, then the folder, the
-output file, the segment count, the gap and crossfade settings and the
-compatibility decision, one line per segment with its measured length, and a
-`SUMMARY:` block with the planned length, how many files were written, the
-writer, whether the tags were copied, the error count and the elapsed time. A
-dry run and a live run write different files, so the report you open is always
-the run you started.
 
 ## Command Line
 

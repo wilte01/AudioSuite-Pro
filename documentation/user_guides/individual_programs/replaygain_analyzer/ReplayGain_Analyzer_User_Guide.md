@@ -24,23 +24,27 @@ This tool requires ffmpeg and ffprobe to be installed and on PATH. ffmpeg decode
 ## Quick Start
 
 1. Open ReplayGain_Analyzer.pyw.
-1. Select a music directory.
-1. Choose a valid target LUFS value.
-1. Leave Dry Run selected for the first pass.
-1. Enable Apply Lossless Gain only when you explicitly want MP3 audio gain adjusted.
-1. Click the analysis start button and review the folder/file results.
-1. Run again in Live Update when the calculated values are acceptable.
+1. Set **Source Music Directory** to the music folder.
+1. Choose a **Target LUFS Level** with the slider (the window opens on -16.0 LUFS).
+1. Leave **Mode** on Dry Run for the first pass.
+1. Tick **Apply track gain losslessly to MP3 files (MP3Gain-style)** only when you explicitly want MP3 audio gain adjusted.
+1. Click **BEGIN REPLAYGAIN ANALYSIS** and review the folder/file results.
+1. Run again with **Mode** set to Live Update when the calculated values are acceptable.
 
 ## Setup
 
 ![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
 
-Setup contains the directory picker, target LUFS, run mode, optional MP3 lossless gain, presets, and shared run controls. The application validates the directory and target before starting. Target LUFS uses the suite's permitted target values.
+The tab is headed **ReplayGain Analyzer & Tagger** and reads top to bottom in the order a run needs it: the Run Controls strip, the Presets row, the loudness target, the optional MP3 gain switch, then BEGIN REPLAYGAIN ANALYSIS. The application validates the directory and target before starting.
 
-- **Target LUFS: **Desired integrated loudness target. Track gain is target LUFS minus measured LUFS; album gain uses the integrated loudness of the folder's tracks measured as one continuous signal, which is the standard ReplayGain album definition.
-- **Dry Run / Live Update: **Dry Run measures and previews values without tag writes. Live Update writes ReplayGain tags.
-- **Apply Lossless Gain: **After tagging, bakes track gain into MP3 files losslessly. It applies only to MP3 files and is not a re-encode.
-- **Presets: **Save and restore target LUFS and run mode through shared suite presets.
+- **Source Music Directory: **The folder to scan, in the Run Controls strip; **Browse** opens the folder dialog.
+- **Mode: **Dry Run measures and previews values without tag writes; Live Update writes ReplayGain tags.
+- **Auto Start / Auto End: **Honoured when the Master Driver passes them. **Auto Start** is greyed out in a standalone launch because only the driver can request an automatic start; **Auto End** stays editable there, but only a driver launch acts on it.
+- **Clear Logs / Parallel: **Marked **"(driver only)"** and greyed out; they mirror the driver's orchestration state and do nothing in a standalone run.
+- **Presets: **The combobox lists saved presets, **Save** stores the current settings under a name, and **Delete** removes the selected one. A preset stores the target LUFS and the run mode.
+- **Target LUFS Level: **A slider with five stops: -12, -14, -16, -18 and -23 LUFS; the window opens on -16.0. The caption under it reads **"(-23.0 LUFS = broadcast standard, -14.0 LUFS = streaming loudness)"**. Track gain is target LUFS minus measured LUFS. Album gain uses the integrated loudness of the folder's tracks measured as one continuous signal, which is the standard ReplayGain album definition.
+- **Apply track gain losslessly to MP3 files (MP3Gain-style): **Off by default. After tagging, bakes track gain into MP3 files losslessly; it applies only to MP3 files and is not a re-encode.
+- **BEGIN REPLAYGAIN ANALYSIS: **Starts the run with the target and options currently shown.
 
 ## Two-Phase Processing
 
@@ -74,7 +78,7 @@ The shared tag writer stores REPLAYGAIN_TRACK_GAIN, REPLAYGAIN_ALBUM_GAIN, REPLA
 
 ![The Results tab after a finished run](images/results.png)
 
-Processing shows one worker slot per logical CPU (at most eight) and a progress count. Folder completion updates the file tree with file name, measured LUFS, track gain, album gain, and status. Results reports total files, successfully processed files, errors, and elapsed time.
+Processing shows the overall status line, the progress bar, the **Processed:** and **Errors:** counter, and the **Active Workers** panel with one **W1…Wn** slot per worker (one per logical CPU, at most eight). Each finished folder adds rows to the results tree, whose columns are **File**, **Track LUFS**, **Track Gain**, **Album Gain** and **Status**. Results shows **ReplayGain Analysis Complete!**, the elapsed time, the summary counters, and the **View Log** and **Open Folder** buttons.
 
 ## Logs
 
@@ -102,7 +106,7 @@ From the Master Driver, open ENRICH and select ReplayGain Analyzer. The driver p
 - **No audio files found: **Select a directory containing supported audio files or check that the files are accessible.
 - **A folder's album gain looks unexpected: **Album gain is calculated per folder from the loudness of the folder's tracks measured as one continuous signal, using only the files that measured successfully. If that combined measurement cannot be read, the app falls back to weighting each file's energy by its duration, and the folder's log header says which route was used. A file whose duration cannot be read is reported as an error rather than counted as zero, so check the folder's error count before judging the album value.
 - **Tags did not change: **Confirm Live Update was selected. Dry Run never writes ReplayGain metadata.
-- **MP3 loudness changed unexpectedly: **Apply Lossless Gain explicitly changes MP3 frame gain after tagging; disable it to write tags only.
+- **MP3 loudness changed unexpectedly: **Apply track gain losslessly to MP3 files (MP3Gain-style) is the switch that changes MP3 frame gain after tagging; untick it to write tags only.
 - **A file errors: **Review the per-file status and replaygain log for FFmpeg measurement, tag-writing, or gain-application details.
 - **Target rejected: **Use one of the suite's permitted target LUFS values.
 

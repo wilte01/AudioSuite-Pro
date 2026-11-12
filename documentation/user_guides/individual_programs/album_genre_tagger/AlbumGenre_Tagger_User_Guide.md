@@ -65,6 +65,10 @@ The Processing tab shows Phase 1 progress with processed count, files that conta
 
 Results shows elapsed time, total files, files with TITLEGENRE and their coverage percentage, unique genres found, files updated or would be updated, and read or write errors. It also displays the consolidated album genre string. View Log opens AlbumGenre_Tagger_Log.txt, and Open Folder opens the source directory because tags are changed in place.
 
+## Logs and Recovery
+
+The GUI writes AlbumGenre_Tagger_Log.txt in the selected directory. The log contains the mode, directory, coverage requirement, Phase 1 results, coverage decision, unique genre counts, consolidated tags, Phase 2 statuses, and summary. Use the suite's Undo Tag Edits workflow for available snapshots, and retain an independent backup before live metadata changes.
+
 ## Coverage Gate
 
 The gate compares the actual coverage percentage with Minimum Coverage. The comparison requires coverage to be at least the configured value. For example, with 10 audio files and 5 readable TITLEGENRE values, coverage is 50.0 percent: a 50 percent requirement passes, while a 60 percent requirement fails.
@@ -100,7 +104,3 @@ From the Master Driver, open ENRICH and select Album Genre Tagger. The driver pa
 - **The result contains several genres: **That is expected when multiple unique TITLEGENRE values exist; the tool sorts them and joins them in one ALBUMGENRE string.
 - **Write errors occurred: **Check file permissions, locks, and the per-file messages in AlbumGenre_Tagger_Log.txt.
 - **Nothing changed: **Confirm that the run was Live Update rather than Dry Run and that the coverage gate passed.
-
-## Logs and Recovery
-
-The GUI writes AlbumGenre_Tagger_Log.txt in the selected directory. The log contains the mode, directory, coverage requirement, Phase 1 results, coverage decision, unique genre counts, consolidated tags, Phase 2 statuses, and summary. Use the suite's Undo Tag Edits workflow for available snapshots, and retain an independent backup before live metadata changes.

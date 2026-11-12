@@ -19,7 +19,7 @@ The GUI also checks for folder.jpg directly inside the selected directory. When 
 
 1. Open Album_Art_Normalizer.pyw from the AudioSuite-Pro folder.
 1. On Setup, select the directory containing the music files.
-1. Choose 600 x 600, 800 x 800, 1000 x 1000, or 1200 x 1200.
+1. Choose 600×600, 800×800, 1000×1000, or 1200×1200 from **Embedded Image Resolution:**.
 1. Leave Dry Run selected for the first pass.
 1. Click BEGIN ARTWORK NORMALIZATION.
 1. Review Processing and Results, then use Live Update when ready.
@@ -30,7 +30,7 @@ The GUI also checks for folder.jpg directly inside the selected directory. When 
 
 ![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
 
-Setup contains the folder picker, embedded resolution selector, run mode, and shared controls. The folder must exist and be a directory. The default embedded target is 800 x 800. The last-used directory can be restored from the shared suite configuration.
+Setup contains the folder picker, the **Embedded Image Resolution:** selector, run mode, and shared controls. The folder must exist and be a directory, and a caption says "Select the folder containing .mp3 or .flac files whose embedded artwork you want to resize to a consistent standard." The selector offers 600×600, 800×800, 1000×1000 and 1200×1200, and opens at 800×800. Its caption reads "Artwork that does not match the chosen size will be centre-cropped and resized. folder.jpg (if present) is always normalised to 1000×1000." The last-used directory can be restored from the shared suite configuration.
 
 - **Dry Run: **Use for a preview pass before writing artwork changes.
 - **Live Update: **Permits resized embedded artwork to be saved to audio files.

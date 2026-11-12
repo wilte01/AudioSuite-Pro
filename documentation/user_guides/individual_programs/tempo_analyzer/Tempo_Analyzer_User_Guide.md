@@ -36,6 +36,111 @@ Tempo markings are musical terms that describe the speed and character of a piec
 | CPU | Multi-core recommended (up to 8 workers for full parallel performance) |
 | RAM | Minimal - only tag metadata in memory |
 
+## Getting Started
+
+### Launching the Program
+
+Double-click Tempo_Analyzer.pyw to launch the graphical interface. The .pyw extension runs the program without showing a console window.
+
+## Interface Overview
+
+The window has three tabs, in the order a run happens: **1. Setup**, **2. Processing**, **3. Results**. Each tab below is named as the window labels it.
+
+### 1. Setup
+
+![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
+
+Configure all parameters before starting.
+
+#### Run Controls Panel (Master Driver Options)
+
+The top of the Setup tab contains a Run Controls panel that mirrors the Master Driver source bar and control strip. It shows exactly the source directory and control options the Master Driver passes to this program:
+
+- Source Music Directory - the folder containing music files with BPM tags, with a Browse button
+- Mode - Dry Run or Live Update
+- Auto Start - begin the tempo analysis automatically on launch
+- Auto End - close the window automatically once processing finishes
+- Clear Logs / Parallel - Master Driver orchestration options shown here for reference; they mirror the driver's settings but stay greyed out because only the driver executes them
+
+When the program is launched via the Master Driver, every inherited value is displayed but locked (greyed out), because those settings are owned by the driver. When the program is launched standalone, the Source directory, Mode, and Auto End remain editable, while Auto Start stays greyed out because an automatic start-up can only be requested by the Master Driver.
+
+#### Music Directory
+
+- Choose the folder via the Source Music Directory field in the Run Controls panel above
+- The program processes all supported audio files (MP3, FLAC, OGG, M4A, MP4, Opus, WAV, AIFF, and AIF) in the directory
+- Does not recurse into subdirectories
+
+#### Tempo Naming Scheme
+
+- Choose your preferred scheme in the dropdown: Italian, English, Descriptive, Numeric, Simplified, Dance, Running
+- The BPM bands for every scheme, and what each is best for, are listed in **Tempo Naming Schemes** below
+- Your selection is saved to the shared suite configuration and restored automatically on the next launch
+
+#### Tempo Marking Reference
+
+- A scrollable reference table showing all BPM ranges and their markings for the currently selected scheme
+- Updates automatically when you change schemes - useful for reviewing ranges before processing
+
+#### Select Mode
+
+Choose the mode from the Mode dropdown on the Run Controls panel at the top of the tab:
+
+| Mode | Behaviour |
+| --- | --- |
+| Dry Run | Reads BPM tags and shows what tempo marking would be assigned to each file, without writing anything. Always use this first. |
+| Live Update | Writes a TEMPO tag to your music files (format-specific - see Tag Format in Technical Details). Only use after verifying Dry Run results. |
+
+#### Tool Configuration Presets
+
+Each tool supports saving and loading named configuration presets. This lets you quickly switch between different setups - for example, "Archive Quality" for final storage and "Quick Draft" for rough cuts.
+
+- **Saving a Preset**
+- Configure all settings in the **1. Setup** tab as desired.
+- Click **Save** on the Presets row; the Save Preset dialog asks for a name.
+- Type the name and confirm to store the current settings under it.
+- The preset is saved per-tool and persists across sessions.
+- **Loading a Preset**
+- Choose a preset name in the dropdown to instantly restore all saved settings.
+- **Deleting a Preset**
+- Choose the preset name in the dropdown.
+- Click Delete and confirm the deletion.
+- The preset is removed permanently.
+
+Presets are stored in the shared suite configuration file and are independent of the tool's last-used settings.
+
+### 2. Processing
+
+![The Processing tab part-way through a run](images/processing.png)
+
+Becomes active when you click BEGIN TEMPO ANALYSIS.
+
+Displays:
+
+- Overall status showing the current operation phase
+- Progress bar with completion percentage
+- Running statistics: Processed, Skipped, Errors
+- Worker status panel showing up to 8 parallel workers and the file each is currently processing
+- Real-time file list showing the assigned tempo marking and BPM value for each file
+
+```text
+[DRY RUN] Track01.mp3 -> Allegro (128 BPM)
+[TAGGED]  Track02.mp3 -> Andante (84 BPM)
+[TAGGED]  Track03.mp3 -> House (122 BPM)
+[SKIP]    Track04.mp3 (No BPM tag)
+[SKIP]    Track05.mp3 (No tags found)
+[ERROR]   Track06.mp3
+```
+
+### 3. Results
+
+![The Results tab after a finished run](images/results.png)
+
+Displays the final summary after processing completes:
+
+- Summary statistics - total files, tagged, skipped, errors, and processing time
+- View Log - opens the detailed log file with all tempo assignments
+- Open Folder - opens the source music directory in your file explorer
+
 ## Tempo Naming Schemes
 
 Choose the scheme that best fits your collection and use case. Your selection is saved to the shared suite configuration and restored automatically on the next run. The default is Italian.
@@ -139,110 +244,6 @@ Each scheme below uses its own BPM ranges. The ranges are not aligned across sch
 
 > Note on the Allegro range
 > In the Italian scheme, Allegro spans a wide range (121-168 BPM), covering light, moderate, and brisk fast tempos. This reflects traditional musical practice where Allegro is a broad category rather than a precise marking. Vivace and Presto distinguish the upper reaches.
-
-## Getting Started
-
-### Launching the Program
-
-Double-click Tempo_Analyzer.pyw to launch the graphical interface. The .pyw extension runs the program without showing a console window.
-
-## Interface Overview
-
-The program uses a three-tab interface to guide you through configuration, tagging, and review.
-
-### Tab 1 - Setup
-
-![The Setup tab, filled in for a Dry Run with the sample folder](images/setup.png)
-
-Configure all parameters before starting.
-
-#### Run Controls Panel (Master Driver Options)
-
-The top of the Setup tab contains a Run Controls panel that mirrors the Master Driver source bar and control strip. It shows exactly the source directory and control options the Master Driver passes to this program:
-
-- Source Music Directory - the folder containing music files with BPM tags, with a Browse button
-- Mode - Dry Run or Live Update
-- Auto Start - begin the tempo analysis automatically on launch
-- Auto End - close the window automatically once processing finishes
-- Clear Logs / Parallel - Master Driver orchestration options shown here for reference; they mirror the driver's settings but stay greyed out because only the driver executes them
-
-When the program is launched via the Master Driver, every inherited value is displayed but locked (greyed out), because those settings are owned by the driver. When the program is launched standalone, the Source directory, Mode, and Auto End remain editable, while Auto Start stays greyed out because an automatic start-up can only be requested by the Master Driver.
-
-#### Music Directory
-
-- Choose the folder via the Source Music Directory field in the Run Controls panel above
-- The program processes all supported audio files (MP3, FLAC, OGG, M4A, MP4, Opus, WAV, AIFF, and AIF) in the directory
-- Does not recurse into subdirectories
-
-#### Tempo Naming Scheme
-
-- Choose your preferred scheme in the dropdown: Italian, English, Descriptive, Numeric, Simplified, Dance, Running
-- Your selection is saved to the shared suite configuration and restored automatically on the next launch
-
-#### Tempo Marking Reference
-
-- A scrollable reference table showing all BPM ranges and their markings for the currently selected scheme
-- Updates automatically when you change schemes - useful for reviewing ranges before processing
-
-#### Select Mode
-
-Choose the mode from the Mode dropdown on the Run Controls panel at the top of the tab:
-
-| Mode | Behaviour |
-| --- | --- |
-| Dry Run | Reads BPM tags and shows what tempo marking would be assigned to each file, without writing anything. Always use this first. |
-| Live Update | Writes a TEMPO tag to your music files (format-specific - see Tag Format in Technical Details). Only use after verifying Dry Run results. |
-
-#### Tool Configuration Presets
-
-Each tool supports saving and loading named configuration presets. This lets you quickly switch between different setups - for example, "Archive Quality" for final storage and "Quick Draft" for rough cuts.
-
-- **Saving a Preset**
-- Configure all settings in the Setup tab as desired.
-- Type a name in the Presets field (or choose a name from the dropdown).
-- Click Save to store the current settings under that name.
-- The preset is saved per-tool and persists across sessions.
-- **Loading a Preset**
-- Choose a preset name in the dropdown to instantly restore all saved settings.
-- **Deleting a Preset**
-- Choose the preset name in the dropdown.
-- Click Delete and confirm the deletion.
-- The preset is removed permanently.
-
-Presets are stored in the shared suite configuration file and are independent of the tool's last-used settings.
-
-### Tab 2 - Processing
-
-![The Processing tab part-way through a run](images/processing.png)
-
-Becomes active when you click BEGIN TEMPO ANALYSIS.
-
-Displays:
-
-- Overall status showing the current operation phase
-- Progress bar with completion percentage
-- Running statistics: Processed, Skipped, Errors
-- Worker status panel showing up to 8 parallel workers and the file each is currently processing
-- Real-time file list showing the assigned tempo marking and BPM value for each file
-
-```text
-[DRY RUN] Track01.mp3 -> Allegro (128 BPM)
-[TAGGED]  Track02.mp3 -> Andante (84 BPM)
-[TAGGED]  Track03.mp3 -> House (122 BPM)
-[SKIP]    Track04.mp3 (No BPM tag)
-[SKIP]    Track05.mp3 (No tags found)
-[ERROR]   Track06.mp3
-```
-
-### Tab 3 - Results
-
-![The Results tab after a finished run](images/results.png)
-
-Displays the final summary after processing completes:
-
-- Summary statistics - total files, tagged, skipped, errors, and processing time
-- View Log - opens the detailed log file with all tempo assignments
-- Open Folder - opens the source music directory in your file explorer
 
 ## Step-by-Step Guide
 

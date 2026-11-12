@@ -88,7 +88,7 @@ When CUE output is enabled, the generated sheet is named from the sanitized albu
 
 ![The Rip tab](images/rip.png)
 
-The Rip tab displays every selected track with an individual progress bar and status. START RIPPING begins the session; Cancel requests cancellation of the current extraction or encoding task. The track grid reports extraction and FFmpeg encoding progress. Split CUE Image opens a CUE sheet and uses the selected output directory to split a single-file image into tracks.
+The Rip tab is headed **CD Ripper — Ripping Progress** and displays every selected track in a grid of **#**, **Title**, **Progress** and **Status** columns, with an individual progress bar per track. A track's status begins at **Waiting**, becomes **Ripping…** while its extraction and encoding run, and ends as a tick with **Done** or with the failure reason. START RIPPING begins the session; Cancel requests cancellation of the current extraction or encoding task and changes the status line to **Cancelling…**. Below the grid, the **Overall:** bar counts `0 / N tracks (verification: twice)` and reads **Complete!** once the session ends. Split CUE Image opens a CUE sheet and uses the selected output directory to split a single-file image into tracks.
 
 For each track, the session extracts to a temporary WAV, verifies that the extraction is non-empty, encodes to the selected format, removes the temporary WAV, and reports success or the specific failure. The drive is spun down after the session on a best-effort basis.
 

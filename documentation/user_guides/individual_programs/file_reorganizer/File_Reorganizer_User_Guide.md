@@ -92,11 +92,11 @@ A pattern that resolves to a `.` or `..` path component, a drive-qualified value
 - **Undo: **Live copy and move operations are recorded in the suite file-reorganization undo context.
 - **Conflict behavior: **A copy or move whose destination path already exists is skipped and reported in the Skipped counter; the existing file is never overwritten. Review the planned paths and resolve conflicts before Execute.
 
-## Progress and Statistics
+## Processing Tab
 
 ![The Processing tab part-way through a run](images/processing.png)
 
-The Processing tab reports the current file in its status line, a progress bar that fills as scanned files are processed, and four counters: Scanned, Processed, Skipped, and Errors. Each resolved destination path, skip notice or pattern error is appended to the path list below the counters, and the same lines make up the body of the run report. Skips include files with no usable album/title tags, files whose pattern resolves to an empty path, and files whose destination path already exists. Pattern parsing failures and operating-system/value errors increment Errors.
+The Processing tab reports the current file in its status line, `Current File: <name>`, a progress bar that fills as scanned files are processed, and the counter line `Scanned: 0 | Processed: 0 | Skipped: 0 | Errors: 0`, which fills in as the run proceeds. Each resolved destination path, skip notice or pattern error is appended to the path list below the counters, and the same lines make up the body of the run report. Skips include files with no usable album/title tags, files whose pattern resolves to an empty path, and files whose destination path already exists. Pattern parsing failures and operating-system/value errors increment Errors.
 
 ## Results
 

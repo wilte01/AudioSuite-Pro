@@ -1151,6 +1151,7 @@ here, and each tool's own section above documents its flags.
 | `fingerprint` | Audio Fingerprinter | Enrich |
 | `genre-sync` | Genre Sync | Enrich |
 | `key` | Key Detector | Enrich |
+| `licences` | Third-party licences | Suite |
 | `lyrics` | Lyrics Manager | Enrich |
 | `mood-analysis-batch` | Mood Analysis Batch Tagger | Util |
 | `mood-analyzer` | Mood Analyzer | Enrich |

@@ -18,6 +18,14 @@ and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **A capture figure no longer photographs the previous operator's panel
+  state.** The refinery's Setup tab restores its six stage switches from the
+  saved settings file, so the 2.7.0 figure shipped with Parametric EQ as the
+  only active stage while the guide described the four defaults. The capture
+  harness now takes a per-tool setup override (`_SETUP_OVERRIDES`) and fills the
+  refinery's switches with the pipeline defaults, and the shared setup filler
+  also fills `source_path`, so a Setup figure is the window a first launch shows
+  rather than one person's last run.
 - **The Refine tab's SELECT ALL reads the model's `REFINERY_STAGES`.**
   `master_driver/ui/refinery_tab.py` carried its own six-name tuple beside the
   one in `audio_refinery/core/models.py` and the args builder, so a seventh

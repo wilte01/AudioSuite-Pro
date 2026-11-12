@@ -47,7 +47,7 @@ Setup contains the target directory, action mode, shared run controls, presets, 
 
 ![The Processing tab part-way through a run](images/processing.png)
 
-The Processing tab presents six stages: scanning for ASX files, parsing ASX contents, verifying source audio and paths, copying audio, removing or trashing original ASX files, and finalizing the priority error log. Active stages show an arrow; completed stages show a check.
+The Processing tab is headed **Process Status** and lists six stages: scanning for ASX files, parsing ASX contents, verifying source audio and paths, copying audio, removing or trashing original ASX files, and finalizing the priority error log. The stage being worked on shows an arrow and the stages already finished show a check.
 
 Each playlist is classified as a success or failure during parsing and verification. Permanent extraction may reclassify a parsed success as a failure if copying or ASX removal fails.
 

@@ -31,7 +31,6 @@ Setup contains the directory picker, mode, BPM range, analysis duration, optiona
 
 - **BPM Range: **The GUI requires minimum BPM from 40 through 300 and maximum BPM from 60 through 400, with minimum less than maximum. Defaults are 75 to 175.
 - **Analysis Duration: **Defaults to 30 seconds in the GUI, the Master Driver and the command line, because 30 seconds is the window the beat-detection floor was calibrated on. Values from 10 to 300 are accepted. A longer window analyses more of a track but lowers the periodicity score on music that changes feel, and can refuse a track that has a real beat.
-- **Analysis Duration: **The GUI accepts 10 to 300 seconds. The default is 90 seconds. Shorter analysis is faster but may be less accurate.
 - **Parallel Processing: **When enabled, CPU-bound detection uses ProcessPoolExecutor to bypass the GIL. When disabled, the shared thread-based processing path is used.
 - **Workers: **Controls the maximum worker count and must be at least 1. The default is one worker per logical CPU, capped at 8.
 - **Presets: **Save and load BPM range, duration, parallel mode, worker count, and run mode settings through shared configuration.
