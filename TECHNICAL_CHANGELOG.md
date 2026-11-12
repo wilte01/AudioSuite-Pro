@@ -16,6 +16,19 @@ and every bullet belongs to exactly one of them.
 
 ## [Unreleased]
 
+### Added
+
+- **The dynamics engine: a compressor and a true brickwall limiter.**
+  `audio_suite_shared/dsp_dynamics.py` is the one controllable-dynamics
+  implementation (F-S2): `CompressorSettings`, `LimiterSettings`,
+  `apply_dynamics()` and a `GainReductionReport` measured from the rendered
+  audio — block level difference for the reduction, and the shared probe reading
+  the rendered WAV for loudness and true peak. The limiter is Pedalboard's
+  `BrickwallLimiter` rather than `Limiter`, because the latter applies automatic
+  makeup gain and hard-clips at 0 dBFS instead of enforcing a ceiling;
+  `knee_db` is refused rather than accepted-and-ignored because the installed
+  compressor's knee is fixed.
+
 ### Changed
 
 - **A capture figure no longer photographs the previous operator's panel

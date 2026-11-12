@@ -229,6 +229,10 @@ claim is proven from where a consumer actually stands.
 :members:
 ```
 
+```{automodule} audio_suite_shared.dsp_dynamics
+:members:
+```
+
 ```{automodule} audio_suite_shared.dsp_eq
 :members:
 ```
