@@ -1,0 +1,21 @@
+# AudioSuite-Pro .mailmap — one canonical identity for the whole history.
+# Changed in 2.7.0: added as the pre-sale diligence record that reconciles the
+# two author identities below; see TECHNICAL_CHANGELOG.md.
+#
+# Added 2026-11-11 as part of the pre-sale diligence pack. The history contains
+# two identities for the same author: the GitHub noreply address used from one
+# machine (`33846991+wilte01@users.noreply.github.com`, 313 commits) and the
+# account email (`wilte01@gmail.com`, 181 commits). Left alone, a two-name git
+# log reads to a buyer's counsel as two copyright owners, and the IP warranty
+# becomes a question instead of a statement.
+#
+# This file reconciles the two for every git command that honours mailmap
+# (git shortlog, git log --use-mailmap, git blame --use-mailmap, git
+# format-patch). It does not rewrite history, deliberately: rewriting would
+# invalidate every commit hash cited by the PLAN_*.md and AUDIT_*.md records
+# that document why each change was made.
+#
+# Canonical identity — confirmed by the repository owner:
+#   Terrence Williams <wilte01@gmail.com>
+#
+Terrence Williams <wilte01@gmail.com> <33846991+wilte01@users.noreply.github.com>
