@@ -103,6 +103,14 @@ claim is proven from where a consumer actually stands.
 :members:
 ```
 
+```{automodule} audio_suite_shared.licences
+:members:
+```
+
+```{automodule} audio_suite_shared.licences_cli
+:members:
+```
+
 ```{automodule} audio_suite_shared.native_library
 :members:
 ```

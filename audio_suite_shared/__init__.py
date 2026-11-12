@@ -14,6 +14,8 @@ dsp_models       — DSP parameter models and presets.
 error_logger     — Backward-compatible ErrorLogger wrapper.
 error_recovery   — Retry/backoff/recovery-action logic.
 exceptions       — AudioSuiteError hierarchy and error-mapping utilities.
+licences         — Licence texts this installation ships, and how to read them.
+licences_cli     — ``audiosuite licences``: prints those texts headlessly.
 platform_utils   — Cross-platform file/folder/help openers.
 resource_manager — Thread and temp-file resource tracking.
 secure_subprocess— Secure subprocess execution with allowlisting.
@@ -26,6 +28,8 @@ tag_helper_reader— Tag read functions (BPM, key, genre, etc.).
 tag_helper_writer— Tag write functions.
 ui_common        — Shared Results, Processing, and input-row tab builders.
 ui_helpers       — UIHelperMixin with folder/help/log dialog helpers.
+
+Changed in 2.7.0: the module index lists :mod:`licences` (Help > Licences).
 """
 
 from __future__ import annotations

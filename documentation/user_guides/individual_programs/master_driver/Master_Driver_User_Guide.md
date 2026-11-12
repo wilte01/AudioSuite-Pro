@@ -56,6 +56,18 @@ Five audio-processing utilities are no longer shipped as separate tools: Pop & C
 
 SETTINGS contains the Colour Palette, Theme Mode, and Typography controls. Use Save to persist the choices. The interface reports that saved changes take effect when each tool is next opened. The Windows Accent palette can refresh while the application is running when Windows accent information is available.
 
+## Help Menu
+
+The Help menu opens the documents and notices that ship with the installation:
+
+- **User Guide: **Opens this guide.
+- **What's New: **Shows the changes recorded for the installed version.
+- **Full Changelog: **Shows every released version's changes, and reports when the installation carries no changelog to read.
+- **Licences: **Opens a read-only window listing the licence texts this copy ships, so you can read them without browsing the install folder.
+- **About: **Shows the suite's version information.
+
+Licences shows the suite's own GPL-3.0 licence and its third-party notices, plus the GNU LGPL 2.1 text, Chromaprint's notice and the provenance record for the two bundled binaries that the LGPL text covers, fpcalc.exe and discid.dll. The list is what the copy actually carries: an installed build reads its licenses folder, and a source checkout reads the same files from the packaging folder, so the entry works before an installer exists. A text that is present but cannot be opened is reported rather than silently skipped, and a build that carries no texts says so instead of opening an empty window. The window itself is read-only. Open in default app hands the selected file to your usual viewer if you want to keep or print it, and the command line can print the same texts with audiosuite licences.
+
 ## Shared Run Controls
 
 - **Folder: **The shared directory used by ENRICH and directory-based UTIL tools. Use Browse Folder or enter a path, then confirm that it exists.

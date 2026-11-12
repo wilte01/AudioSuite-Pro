@@ -8,16 +8,22 @@ Provides standardized implementations for common UI operations:
 - Output folder opening
 
 This reduces code duplication across all 19 Audio Suite applications.
+
+Changed in 2.7.0: adds :func:`open_licence_viewer` and
+``UIHelperMixin._open_licences_standard``, so the licence texts the installer
+stages can be read from the app (Help > Licences) instead of by browsing the
+install folder.
 """
 
 import logging
 import os
+import tkinter as tk
 from tkinter import filedialog, messagebox
 from typing import Any, Optional
 
 from audio_suite_shared.exceptions import map_to_audio_error, user_message_for
 
-from . import platform_utils, suite_config
+from . import licences, platform_utils, suite_config
 
 logger = logging.getLogger(f"audio_suite.{__name__}")
 
@@ -152,6 +158,109 @@ def open_folder_path(folder_path: str) -> None:
         )
 
 
+#: Cap on how much of one licence the viewer renders. The LGPL text is about
+#: 27 kB and the provenance record a few kB, so this only bounds a pathological
+#: file; it is not a pagination scheme.
+_MAX_LICENCE_CHARS = 400_000
+
+
+def open_licence_viewer(parent: Any) -> tk.Toplevel:
+    """Show this installation's licence texts in a read-only window.
+
+    The window lists what the copy actually ships and renders the selected
+    document, so a user can read the licence of anything the product bundles
+    without knowing the install layout or a filename. Nothing is editable, and
+    the text is read on selection rather than up front, so a large licence
+    cannot slow the window's construction.
+
+    Args:
+        parent: The window that owns the new one. A standalone window is opened
+            when it is ``None``, which keeps the helper usable from a test or a
+            future CLI-driven launch.
+
+    Returns:
+        The ``tk.Toplevel`` that was created, so a caller can raise or close it.
+    """
+    documents = licences.licence_documents()
+
+    window = tk.Toplevel(parent) if parent is not None else tk.Toplevel()
+    window.title("Licences")
+    window.geometry("860x560")
+    window.minsize(620, 400)
+    if parent is not None:
+        window.transient(parent)
+
+    body = tk.Frame(window, padx=10, pady=10)
+    body.pack(fill="both", expand=True)
+
+    listing = tk.Frame(body)
+    listing.pack(side="left", fill="y")
+    listbox = tk.Listbox(listing, width=28, exportselection=False)
+    listbox.pack(fill="y", expand=True)
+    for document in documents:
+        listbox.insert("end", document.title)
+
+    text_frame = tk.Frame(body)
+    text_frame.pack(side="left", fill="both", expand=True, padx=(10, 0))
+    scrollbar = tk.Scrollbar(text_frame)
+    scrollbar.pack(side="right", fill="y")
+    viewer = tk.Text(
+        text_frame,
+        wrap="word",
+        state="disabled",
+        padx=8,
+        pady=8,
+        yscrollcommand=scrollbar.set,
+    )
+    viewer.pack(side="left", fill="both", expand=True)
+    scrollbar.config(command=viewer.yview)
+
+    def _render(index: int) -> None:
+        text = licences.read_licence(documents[index], limit=_MAX_LICENCE_CHARS)
+        viewer.config(state="normal")
+        viewer.delete("1.0", "end")
+        viewer.insert("1.0", text)
+        viewer.config(state="disabled")
+
+    def _on_select(_event: object) -> None:
+        selected = listbox.curselection()
+        if selected:
+            _render(selected[0])
+
+    listbox.bind("<<ListboxSelect>>", _on_select)
+
+    if documents:
+        listbox.selection_set(0)
+        _render(0)
+    else:
+        viewer.config(state="normal")
+        viewer.insert("1.0", licences.missing_message())
+        viewer.config(state="disabled")
+
+    buttons = tk.Frame(window, padx=10)
+    buttons.pack(fill="x", pady=(0, 10))
+
+    def _open_externally() -> None:
+        selected = listbox.curselection()
+        if not selected:
+            return
+        try:
+            platform_utils.open_path(str(documents[selected[0]].path))
+        except OSError as exc:
+            show_error_from_exception(exc, "Licences")
+
+    tk.Button(
+        buttons,
+        text="Open in default app",
+        command=_open_externally,
+        state="normal" if documents else "disabled",
+    ).pack(side="left")
+    tk.Button(buttons, text="Close", command=window.destroy).pack(side="right")
+
+    window.lift()
+    return window
+
+
 class UIHelperMixin:
     """
     Mixin class that provides common UI helper methods for Audio Suite applications.
@@ -192,3 +301,7 @@ class UIHelperMixin:
         """Standard folder opening."""
         folder_path = getattr(self, "_out_dir", "")
         open_folder_path(folder_path)
+
+    def _open_licences_standard(self) -> None:
+        """Show this installation's licence texts (Help > Licences)."""
+        open_licence_viewer(getattr(self, "root", None))

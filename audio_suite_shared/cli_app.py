@@ -76,6 +76,7 @@ Usage::
     audiosuite plugins list [--json]
     audiosuite plugins enable PLUGIN_ID [--json]
     audiosuite plugins disable PLUGIN_ID [--json]
+    audiosuite licences [--json]
 
 The ``--dry/--live`` pair is the shared run-mode option: ``--dry`` analyses and
 reports without writing, ``--live`` writes.  ``--json/--text`` selects the
@@ -136,6 +137,9 @@ Changed in 2.3.0: registers the ``duplicates`` and ``declip`` commands (F-02, F-
 Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: registers the Track Splitter's `split` command (F-E4).
+Changed in 2.7.0: registers and documents `licences`. It joins `doctor` and
+`plugins` as a command imported before the tool list, because it reads the
+installation itself and must stay usable when a tool package is missing.
 """
 
 from __future__ import annotations
@@ -153,6 +157,7 @@ if TYPE_CHECKING:
 # attempted rather than listed in it.  ``plugins`` joins it for the same reason:
 # the command that manages third-party code must not depend on any of it.
 from audio_suite_shared import doctor_cli as _doctor_cli  # noqa: F401
+from audio_suite_shared import licences_cli as _licences_cli  # noqa: F401
 from audio_suite_shared import plugins_cli as _plugins_cli  # noqa: F401
 
 # Re-export shared infrastructure for backward compatibility.  Imported before

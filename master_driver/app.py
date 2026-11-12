@@ -20,6 +20,8 @@ failed dependency, or the dependency that never ran), so the panel says why a
 step did not run instead of only that it did not (plan C4).
 Changed in 2.1.5: the Help menu gains a Full Changelog entry, so the complete
 release history opens without going through the What's New panel first.
+Changed in 2.7.0: Help gains a Licences entry that opens the shared licence
+viewer, so the texts the installer stages are readable from the app.
 Changed in 2.1.6: the menubar is built with ``tearoff=0``. ``tk.Menu`` defaults
 to a tear-off entry, which Tk 8.6 renders as a dashed row above Help (Tk 9
 defaults to no tear-off, so only the older interpreter legs showed it), and
@@ -503,6 +505,7 @@ class AudioSuiteDriver(UIHelperMixin):
         help_menu.add_command(label="User Guide", command=self._open_help)
         help_menu.add_command(label="What's New", command=self._show_whats_new)
         help_menu.add_command(label="Full Changelog", command=self._show_full_changelog)
+        help_menu.add_command(label="Licences", command=self._open_licences)
         help_menu.add_separator()
         help_menu.add_command(label="About", command=self._show_about)
 
@@ -541,6 +544,10 @@ class AudioSuiteDriver(UIHelperMixin):
                 "Changelog Unavailable",
                 "No released versions were found in this installation's CHANGELOG.md.",
             )
+
+    def _open_licences(self) -> None:
+        """Open the licence texts this installation ships (Help > Licences)."""
+        self._open_licences_standard()
 
     # Changed in 2.5.0: both launcher paths ask the shared
     # installation-root resolver instead of counting directories up

@@ -17,6 +17,8 @@ Changed in 2.1.4: covers a skipped step's line naming the dependency that
 blocked it (plan C4), alongside the existing completed-step caveat case.
 Changed in 2.1.5: covers the Help menu's Full Changelog entry, the archive it
 opens, and the notice it shows when the installation has no changelog.
+Changed in 2.7.0: locks the Help > Licences entry (menu label and delegation to
+the shared viewer).
 Changed in 2.1.6: the Help-menu helper resolves Help's position in the menubar
 instead of reusing its position among the cascade labels, which pointed at a
 different entry on the Tk 8.6 legs (their menubar carried a tear-off entry).
@@ -914,6 +916,29 @@ class TestHelpMenuConstruction:
 
         assert entries, "the menubar has no entries - the check is vacuous"
         assert "tearoff" not in entries
+
+
+class TestLicencesEntry:
+    """Help > Licences reaches the shared viewer and owns no path logic (2.7.0)."""
+
+    def test_help_menu_lists_licences(self, driver_app) -> None:
+        assert "Licences" in _help_menu_labels(driver_app)
+
+    def test_the_entry_reaches_the_shared_viewer(self, driver_app, monkeypatch) -> None:
+        """The menu must delegate: a handler that opened a path itself would
+        bypass the resolver that knows about installed and checkout layouts."""
+        from audio_suite_shared import ui_helpers
+
+        seen: list[object] = []
+        monkeypatch.setattr(
+            ui_helpers,
+            "open_licence_viewer",
+            lambda parent: seen.append(parent),
+        )
+
+        driver_app._open_licences()
+
+        assert seen == [driver_app.root]
 
 
 class TestWhatsNew:

@@ -104,6 +104,10 @@ Changed in 2.5.0: ``doctor`` also publishes ``suite_root``,
 answered the installation root and whether each suite-owned file was found
 there instead of re-deriving both.
 
+Changed in 2.7.0: ``licences`` joins the contract with ``licence_dir`` and a
+``documents`` inventory, so a packaging script can ask what licence texts this
+build carries without a display or a hard-coded install layout.
+
 One document per run, deliberately
 ----------------------------------
 
@@ -182,6 +186,10 @@ TOOL_IDS: Final[Mapping[str, str]] = {
     "genre-sync": "genre_sync",
     "join": "audio_joiner",
     "key": "key",
+    # Changed in 2.7.0: the licence inventory command. Like ``doctor`` and
+    # ``cue`` it is a suite command rather than a tool, so it has no manifest
+    # entry; it is declared here because it publishes a payload.
+    "licences": "licences",
     "lyrics": "lyrics_manager",
     "mood-analysis-batch": "mood_analysis_batch",
     "mood-analyzer": "mood_analyzer",
@@ -271,6 +279,14 @@ EXTRA_TYPES: Final[Mapping[str, Mapping[str, Any]]] = {
         "counts": dict,
         "results": list,
         "isrc_submission": dict,
+    },
+    "licences": {
+        # The folder this copy reads from (``None`` when it ships no texts), and
+        # one entry per document: title, file name and character count. The
+        # text itself stays out of the payload so a recorded example is an
+        # inventory rather than 27 kB of licence prose.
+        "licence_dir": (str, type(None)),
+        "documents": list,
     },
     "mood-analysis-batch": {
         "directory": str,

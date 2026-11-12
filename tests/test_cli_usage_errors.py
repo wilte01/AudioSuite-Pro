@@ -44,6 +44,8 @@ Changed in 2.3.1: carries this window's change for its module (see
 CHANGELOG.md and TECHNICAL_CHANGELOG.md).
 Changed in 2.5.0: the usage-error table gains `split` (F-E4) and `channels`
 (F-E6).
+Changed in 2.7.0: the usage-error table gains `licences`, which takes no input
+and so declares the two invocation-shape errors `doctor` does.
 """
 
 from __future__ import annotations
@@ -108,6 +110,9 @@ _USAGE_CASES: dict[str, dict[str, list[str]]] = {
     "fingerprint": {"missing": [], "invalid": [LIBRARY, "--mb-auth", "bogus"]},
     "genre-sync": {"missing": [], "invalid": [MISSING_PATH]},
     "key": {"missing": [], "invalid": [MISSING_PATH]},
+    # ``licences`` reads the installation and takes no input, so its two
+    # reachable usage errors are the invocation itself, as ``doctor``'s are.
+    "licences": {"missing": ["--no-such-option"], "invalid": ["stray-argument"]},
     "lyrics": {"missing": [], "invalid": [MISSING_PATH]},
     "mood-analysis-batch": {"missing": [], "invalid": [MISSING_PATH]},
     "mood-analyzer": {"missing": [], "invalid": [MISSING_PATH]},

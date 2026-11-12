@@ -29,6 +29,9 @@ wording, so a re-recording refreshes it rather than pinning it
 Changed in 2.6.0: drives ``artwork extract`` and ``artwork report`` (F-E10)
 against the fixture WAV, which carries no cover - the no-art and missing-art
 shapes are what those commands publish on a clean library.
+Changed in 2.7.0: drives ``licences`` with no argument and records its failure
+document from an unknown option, because the command has no input path to point
+at a missing one.
 """
 
 from __future__ import annotations
@@ -61,11 +64,13 @@ BUILDER_RECORDED: frozenset[str] = frozenset({"cd-rip"})
 #: payload shape is proved on an empty directory instead of in a network call.
 EMPTY_LIBRARY: frozenset[str] = frozenset({"album-art", "lyrics"})
 
-#: Commands with no validated input path to point at a missing one: ``doctor``
-#: and ``plugins list`` take no arguments, and ``cd-rip``'s DRIVE is a device
-#: rather than a path.  Their failure document is recorded from an unknown
-#: option instead.
-NO_INPUT_PATH: frozenset[str] = frozenset({"cd-rip", "doctor", "plugins list"})
+#: Commands with no validated input path to point at a missing one: ``doctor``,
+#: ``licences`` and ``plugins list`` take no arguments, and ``cd-rip``'s DRIVE is
+#: a device rather than a path.  Their failure document is recorded from an
+#: unknown option instead.
+NO_INPUT_PATH: frozenset[str] = frozenset(
+    {"cd-rip", "doctor", "licences", "plugins list"}
+)
 
 #: The bundled example plugin, the only id guaranteed to be discoverable on
 #: every checkout: the enable/disable recordings name it.  Derived from the
@@ -133,6 +138,10 @@ def argv_for(command: str, work: Path) -> list[str]:
     # ``doctor`` inspects the install, not a library: it takes no arguments,
     # and its payload is valid whether this checkout is healthy or not.
     if command == "doctor":
+        return []
+
+    # ``licences`` reads the installation too, and likewise takes no argument.
+    if command == "licences":
         return []
 
     # The plugin commands act on suite configuration, not on audio, so their
