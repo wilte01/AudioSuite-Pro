@@ -84,6 +84,15 @@ $script:ExcludeFiles = @(
 #: silent runtime failure on the user's machine.
 $script:RequiredBinaries = @('fpcalc.exe', 'discid.dll')
 
+# Changed in 2.7.0: the two bundled binaries are LGPL, so their licence texts
+# now ship in the payload.  This is a payload requirement, not a documentation
+# nicety: packaging\licenses\ is copied into the staged app and asserted below.
+# The texts are verbatim upstream files - never edit one in place, or the
+# digests recorded in licenses\PROVENANCE.md stop describing what ships.
+$script:RequiredLicenceFiles = @(
+    'Chromaprint-LICENSE.md', 'LGPL-2.1.md', 'PROVENANCE.md'
+)
+
 
 function Write-Step {
     param([string]$Message)
@@ -328,6 +337,44 @@ function Assert-BundledBinaries {
     }
 }
 
+function Copy-LicenceTexts {
+    param(
+        [Parameter(Mandatory = $true)][string]$AppDir,
+        [string]$SourceDir
+    )
+    # LGPL-2.1 requires the licence to travel with the binary it covers, so a
+    # missing text fails the build rather than warning: an installer without it
+    # would redistribute fpcalc.exe and discid.dll without their licence.
+    if (-not $SourceDir) {
+        $SourceDir = Join-Path $PSScriptRoot 'licenses'
+    }
+    $missingSource = @(
+        foreach ($name in $script:RequiredLicenceFiles) {
+            if (-not (Test-Path -LiteralPath (Join-Path $SourceDir $name))) {
+                $name
+            }
+        }
+    )
+    if ($missingSource.Count -gt 0) {
+        throw "Licence texts are missing from ${SourceDir}: $($missingSource -join ', ')"
+    }
+    $dest = Join-Path $AppDir 'licenses'
+    New-Item -ItemType Directory -Force -Path $dest | Out-Null
+    $notStaged = @(
+        foreach ($name in $script:RequiredLicenceFiles) {
+            Copy-Item -LiteralPath (Join-Path $SourceDir $name) -Destination $dest -Force
+            $staged = Join-Path $dest $name
+            if (-not (Test-Path -LiteralPath $staged) -or
+                (Get-Item -LiteralPath $staged).Length -eq 0) {
+                $name
+            }
+        }
+    )
+    if ($notStaged.Count -gt 0) {
+        throw "Licence texts did not reach the staged payload: $($notStaged -join ', ')"
+    }
+}
+
 function Resolve-IscC {
     param([string]$Explicit)
     if ($Explicit) {
@@ -394,6 +441,10 @@ function Main {
     Write-Step 'Staging the suite tree'
     Copy-SuiteTree -Destination $script:AppDir
     Write-Ok "Suite staged at $($script:AppDir)"
+
+    Write-Step 'Staging third-party licence texts'
+    Copy-LicenceTexts -AppDir $script:AppDir
+    Write-Ok 'Licence texts staged in licenses'
 
     if (-not $SkipRuntime) {
         Write-Step 'Resolving a relocatable Python runtime'

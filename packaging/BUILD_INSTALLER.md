@@ -85,13 +85,16 @@ ISCC.exe /DAppVersion=1.0.0 /DStagingDir="packaging\build\app" /DOutputDir="pack
 5. **CLI shim** — writes `packaging\build\app\bin\audiosuite.cmd`, a
    relocatable batch file that resolves the runtime relative to itself
    (`%~dp0..\runtime\python.exe -m audio_suite_shared.cli_app`).
-6. **Binary assertion** — verifies `fpcalc.exe` and `discid.dll` survived
+6. **Licence texts** — copies `packaging\licenses\` into the payload as
+   `licenses\`, and refuses the build if one is missing. The two bundled
+   binaries are LGPL, so their texts must travel with them.
+7. **Binary assertion** — verifies `fpcalc.exe` and `discid.dll` survived
    staging (both are committed at the repository root).
-7. **Shortcut generation** — enumerates every `*.pyw` in the staged payload
+8. **Shortcut generation** — enumerates every `*.pyw` in the staged payload
    (except `Master_Driver.pyw`, which is defined explicitly in the Inno
    script) and writes `packaging\build\shortcuts.iss` with Start Menu
    entries.
-8. **Inno Setup compile** — drives `ISCC.exe` with `/D` defines for version,
+9. **Inno Setup compile** — drives `ISCC.exe` with `/D` defines for version,
    staging directory, output directory and shortcut include path.
 
 ## What the installer does
@@ -108,6 +111,9 @@ The installer is a standard Inno Setup wizard:
   environment variable (HKCU, `REG_EXPAND_SZ`).
 * **Post-install launch** — offers to open the Master Driver after install.
 * **License** — displays the GPL-3.0 `LICENSE` file from the staged payload.
+* **Third-party licences** — the Chromaprint and libdiscid texts are installed
+  to `licenses\`, with `PROVENANCE.md` recording each one's upstream archive and
+  digests (`packaging\licenses\PROVENANCE.md`).
 
 ### Installed layout
 
@@ -123,6 +129,7 @@ The installer is a standard Inno Setup wizard:
   audio_suite_shared\          shared library
   fpcalc.exe                   Chromaprint runtime
   discid.dll                   CD Ripper disc identification
+  licenses\                    Chromaprint + LGPL-2.1 texts, with PROVENANCE.md
   LICENSE                      GPL-3.0
 ```
 

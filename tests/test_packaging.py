@@ -25,10 +25,16 @@ no ``timeout`` means a script waiting on something - a prompt, a locked file -
 hangs the suite until GitHub's six-hour cap, and the first 3.14 CI leg was
 cancelled at 6% in exactly this stretch of the collection order. A timeout
 fails the test with the captured output instead.
+
+Changed in 2.7.0: the two bundled binaries are LGPL, so their licence texts and
+the provenance record are staged into the payload and locked here. An installer
+that ships ``fpcalc.exe`` without the text that licenses it is the defect this
+module now prevents.
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import subprocess
@@ -63,6 +69,12 @@ SECRET_FILES = (
 
 #: Binaries the suite needs out of the box (Chromaprint runtime + CD Ripper).
 REQUIRED_BINARIES = ("fpcalc.exe", "discid.dll")
+
+#: Licence texts that must accompany those binaries (both LGPL-2.1). The build
+#: script copies this folder into the payload's ``licenses`` folder and refuses
+#: a build whose texts are missing, so PROVENANCE.md's digests stay honest.
+REQUIRED_LICENCE_FILES = ("Chromaprint-LICENSE.md", "LGPL-2.1.md", "PROVENANCE.md")
+LICENCES = PACKAGING / "licenses"
 
 MASTER_DRIVER = "Master_Driver.pyw"
 
@@ -169,6 +181,47 @@ class TestStagingExclusions:
         for name in REQUIRED_BINARIES:
             assert f"'{name}'" in text, f"{name} is not asserted after staging"
         assert "Assert-BundledBinaries" in text
+
+
+class TestBundledLicencePayload:
+    """The LGPL texts must travel with the binaries they cover."""
+
+    def test_every_licence_text_is_committed_and_non_empty(self) -> None:
+        for name in REQUIRED_LICENCE_FILES:
+            path = LICENCES / name
+            assert path.is_file(), f"{name} is missing from packaging/licenses"
+            assert path.stat().st_size > 0, f"{name} is empty"
+
+    def test_the_build_stages_and_names_every_licence_text(self) -> None:
+        text = _read(BUILD_PS1)
+        assert "Copy-LicenceTexts" in text
+        assert "'licenses'" in text
+        for name in REQUIRED_LICENCE_FILES:
+            assert f"'{name}'" in text, f"{name} is not staged by the build script"
+
+    def test_the_shipped_lgpl_text_is_the_licence_it_claims_to_be(self) -> None:
+        text = _read(LICENCES / "LGPL-2.1.md")
+        assert "GNU LESSER GENERAL PUBLIC LICENSE" in text
+        assert "Version 2.1" in text
+
+    def test_the_recorded_digests_are_the_committed_files_digests(self) -> None:
+        """A drifted record is worse than none: it is believed."""
+        text = _read(LICENCES / "PROVENANCE.md")
+        for name in REQUIRED_BINARIES:
+            digest = hashlib.sha256((REPO_ROOT / name).read_bytes()).hexdigest()
+            assert digest in text, (
+                f"{name}'s SHA-256 has drifted from PROVENANCE.md; update the "
+                "record in the change that replaces the binary"
+            )
+
+    def test_the_record_names_the_archives_it_was_verified_against(self) -> None:
+        text = _read(LICENCES / "PROVENANCE.md")
+        for archive in (
+            "chromaprint-fpcalc-1.6.1-windows-x86_64.zip",
+            "libdiscid-0.6.5-win.zip",
+        ):
+            assert archive in text
+        assert "x64" in text, "the 32/64-bit distinction is part of the record"
 
 
 class TestCliShimContract:
@@ -384,6 +437,41 @@ class TestPowerShellFunctions:
         assert "discid.dll" in clean
         assert "missing" in clean.lower()
 
+    def test_licence_texts_are_staged_into_the_payload(self, tmp_path: Path) -> None:
+        app_dir = tmp_path / "app"
+        app_dir.mkdir()
+        src = tmp_path / "src_licenses"
+        src.mkdir()
+        for name in REQUIRED_LICENCE_FILES:
+            (src / name).write_text(name + "\n", encoding="utf-8")
+        body = (
+            f"Copy-LicenceTexts -AppDir '{app_dir.as_posix()}' "
+            f"-SourceDir '{src.as_posix()}'\n"
+            'Write-Output "LICENCES-COPIED"'
+        )
+        result = _run_harness(tmp_path, body)
+        assert result.returncode == 0, result.stderr
+        assert "LICENCES-COPIED" in result.stdout
+        for name in REQUIRED_LICENCE_FILES:
+            staged = app_dir / "licenses" / name
+            assert staged.read_text(encoding="utf-8").strip() == name
+
+    def test_a_missing_licence_text_refuses_the_build(self, tmp_path: Path) -> None:
+        app_dir = tmp_path / "app"
+        app_dir.mkdir()
+        src = tmp_path / "src_licenses"
+        src.mkdir()
+        (src / "LGPL-2.1.md").write_text("text\n", encoding="utf-8")
+        body = (
+            f"Copy-LicenceTexts -AppDir '{app_dir.as_posix()}' "
+            f"-SourceDir '{src.as_posix()}'"
+        )
+        result = _run_harness(tmp_path, body)
+        assert result.returncode != 0
+        clean = _strip_ansi(result.stderr)
+        assert "Chromaprint-LICENSE.md" in clean
+        assert "missing" in clean.lower()
+
     def test_resolve_runtime_source_rejects_a_venv(self, tmp_path: Path) -> None:
         venv = tmp_path / "venv"
         venv.mkdir()
@@ -479,6 +567,11 @@ class TestFullStaging:
         assert (app / "LICENSE").is_file()
         for name in REQUIRED_BINARIES:
             assert (app / name).is_file(), f"{name} missing from the staged payload"
+
+        for name in REQUIRED_LICENCE_FILES:
+            staged = app / "licenses" / name
+            assert staged.is_file(), f"{name} missing from the licenses folder"
+            assert staged.stat().st_size > 0, f"{name} was staged empty"
 
         assert (app / "runtime" / "python.exe").is_file()
         assert (app / "runtime" / "pythonw.exe").is_file()

@@ -61,6 +61,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "addtopath"; Description: "Add the audiosuite command to my PATH"; GroupDescription: "Command line:"
 
 [Files]
+; Changed in 2.7.0: recursesubdirs carries the staged licenses\ folder - the
+; Chromaprint and libdiscid licence texts - to {app}\licenses\ unchanged.
+; LGPL-2.1 requires those texts to travel with the binaries they cover; see
+; packaging\licenses\PROVENANCE.md for what each file is and where it came from.
 Source: "{#StagingDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
