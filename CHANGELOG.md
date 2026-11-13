@@ -98,7 +98,8 @@ and every bullet belongs to exactly one of them.
   chain. Both panels are pictured opened to Settings, with the guide's example
   rack and a starting-point compressor and limiter, and the chain's complete Dry
   Run report is reproduced line by line so a reader knows what each stage will
-  say before running anything.
+  say before running anything, beside the report the same chain writes when run
+  for real.
 
 ### Fixed
 

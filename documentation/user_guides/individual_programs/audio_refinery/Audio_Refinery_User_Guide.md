@@ -308,6 +308,25 @@ Read it in the order the stages ran: the load line records what was decoded, Dec
 
 The EQ line names the rack in the order the bands were added, and the Dynamics line is the measured report described under Dynamics above. On this reference track the mean reduction came back at 4.1 dB, the top of the control range: the settings above are a starting point, not a setting to copy, and that figure is the signal to raise the threshold. If the mean comes back near 0.0 dB, the compressor never engaged, so either lower the threshold or leave the stage off.
 
+**The same chain run for real**
+
+Switch Mode to Live Update and the same chain writes refinery_log.txt into the output folder, with the processed file beside the source and the counters unchanged (one processed, none skipped). The report has the same shape; what changes is the stage lines that describe what happened rather than what was found, and there is no load line in a live run:
+
+```
+Audio Refinery - Processing Log
+==================================================
+[DONE] blues_shuffle_152.ogg
+    [Declick] No clicks found - audio already clean
+    [Trim] No silence detected - original length maintained
+    [EQ] Applied 4 band(s): highpass, peaking, peaking, highshelf
+    [Dynamics] Max 8.9 dB reduction (mean 4.1 dB), -20.6 LUFS / -7.4 dBTP
+    [Normalise] Adjusted loudness from -20.8 to -14.0 LUFS for playlist consistency
+==================================================
+Total: 1  Processed: 1  Succeeded: 1  Skipped: 0  Errors: 0  Time: 3.7s
+```
+
+Compare the two Normalise lines and they disagree on where the gain started: -15.9 LUFS in the Dry Run, -20.8 LUFS here. The Dry Run measures the source file for that preview, while a live run measures the audio the earlier stages produced, which is the level the normaliser actually acts on. With EQ and Dynamics in front of it those two figures are different, and the live line is the one the file ended up at; the settings that matter in a Dry Run are the EQ and Dynamics lines, which are measured on the processed audio.
+
 ## Pipeline Stages
 
 When enabled, stages run in this implementation order:
