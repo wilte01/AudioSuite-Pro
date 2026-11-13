@@ -249,6 +249,22 @@ It can only reduce what is there. A master that was already compressed hard has 
 - **Strategy: **Normalise (the default) re-encodes through FFmpeg loudnorm. Lossless rewrites an MP3's global gain and re-encodes nothing; other formats fall back to the loudnorm re-encode.
 - **Album loudness: **Off by default. When on, the folder is measured once as one album, and every track moves by that single gain, so the album's relative levels survive instead of each track being pushed to the target. A track whose peak plus that gain would exceed the True Peak ceiling is limited on its own: only that track's gain is reduced, and the run log names it. An album already within tolerance plans no gain at all and every file is left byte-identical. A Dry Run reports the planned gain per file and writes nothing. Album mode writes through the same encoders as per-file normalisation (MP3, FLAC, OGG, M4A, Opus, WavPack, Speex, WAV and AIFF), so a container with no normalise encoder is refused with the same message a per-file run gives. A lossless WAV or AIFF source keeps its own bit depth, so a 24-bit master is not reduced to 16 bits by the rewrite. Tracks already recorded in the completion registry are not rewritten, so their level will not match a freshly normalised album: use Reset Progress for a whole-album run.
 
+**A Dry Run in Peak target mode**
+
+Peak target takes no loudness measurement. The stage reads the true peak of the audio the earlier stages produced and works out the one static gain that would reach the target, plus whether the limiter has to hold the sample peak at full scale. A Dry Run reports that plan and applies nothing:
+
+```
+    [Normalise] Would apply +6.4 dB to reach -1.0 dBTP (ceiling 0.0 dBFS)
+```
+
+Run for real, the same chain applies the gain and reports what the written file measured, which is the figure to check against the target:
+
+```
+    [Normalise] Peak-normalised from -7.5 to -1.0 dBTP (+6.50 dB); measured -0.8 dBTP true peak, -0.8 dBFS sample peak
+```
+
+The two lines agree on the plan to within a tenth of a decibel (+6.4 against +6.50 dB), because the Dry Run measures the processed audio exported as a WAV while the live run measures the encoded file it is about to write, and encoding can move a true peak slightly. The written peak, -0.8 dBTP in this run, can land a fraction above the target for the same kind of reason: the live line prints what it measured, not what was asked for. "Peak already within tolerance" in either line means no gain was planned and the file was left byte-identical.
+
 ### Reset Progress and BEGIN REFINERY
 
 - **Reset Progress: **Clears the source folder's completion registry so every file can be processed again.

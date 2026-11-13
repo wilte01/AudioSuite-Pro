@@ -99,7 +99,7 @@ and every bullet belongs to exactly one of them.
   rack and a starting-point compressor and limiter, and the chain's complete Dry
   Run report is reproduced line by line so a reader knows what each stage will
   say before running anything, beside the report the same chain writes when run
-  for real.
+  for real, and it explains what a Dry Run reports in Peak target mode.
 
 ### Fixed
 
