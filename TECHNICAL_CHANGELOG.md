@@ -18,14 +18,18 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
-- **A dry run's Normalise preview is locked to measuring the source file.**
-  The guide's two report excerpts (D-22) explain that a Dry Run quotes the
-  source's loudness while a live run quotes the audio the earlier stages
-  produced, and the existing preview tests patch the measurement's return value,
-  so a switch to measuring the processed audio would have kept them green. The
-  new test drives `_run_dry_run` with a +12 dB highshelf ahead of Normalise,
-  records the path `audio_normalizer.core.loudness.measure` is called with, and
-  fails unless there is exactly one call and it names the source file.
+- **A dry run's Normalise preview measures the processed audio.** It used to
+  measure the source file, which with any stage ahead of Normalise quoted a
+  level the live run never used (`-15.9` against `-20.8` LUFS on the guide's
+  reference track). `_preview_normalise` now receives the in-memory segment,
+  exports it to a system-temp WAV through `_processed_audio_file`, measures that
+  and unlinks it, so the preview matches the staged copy a live run measures
+  while the dry run still writes nothing into the run's folders. The peak-target
+  preview takes the same path. `source_path` is still what the skip decision and
+  the lossless MP3 path refer to, because those are properties of the file being
+  written. The D-23 lock was rewritten with it: it now records the measured path
+  and asserts it is a `.wav` that is not the source, existed at call time, is
+  gone afterwards, and that the source folder holds nothing else.
 
 - **A guide figure can be a close-up of one panel.** `ToolPlan.panel_shots`
   photographs a single collapsible stage panel on its own: the panel is opened

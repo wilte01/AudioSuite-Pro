@@ -103,6 +103,14 @@ and every bullet belongs to exactly one of them.
 
 ### Fixed
 
+- **A Dry Run's Normalise line quotes the audio the run will normalise.** The
+  preview measured the source file, so with EQ or Dynamics enabled it named a
+  starting level and a planned gain the live run would never use: the same
+  reference track read -15.9 LUFS in a Dry Run and -20.8 LUFS in the run that
+  wrote it. The preview now measures the audio the stages produced, through a
+  temporary file it removes before returning, so a Dry Run's Normalise figure
+  matches the live report's and the dry run still leaves every file untouched.
+
 - **Dry Run no longer rewrites files in the Audio Refinery.** The window's
   mode only reached its own display flag and the command line only reached the
   JSON summary, so a Dry Run processed and overwrote every file while reporting

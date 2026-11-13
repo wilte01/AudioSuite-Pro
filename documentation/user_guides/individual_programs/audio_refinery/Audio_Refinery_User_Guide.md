@@ -299,9 +299,9 @@ Audio Refinery - Processing Log
     [Trim] No silence detected - original length maintained
     [EQ] Applied 4 band(s): highpass, peaking, peaking, highshelf
     [Dynamics] Max 8.9 dB reduction (mean 4.1 dB), -20.6 LUFS / -7.4 dBTP
-    [Normalise] Would adjust loudness from -15.9 to -14.0 LUFS
+    [Normalise] Would adjust loudness from -20.8 to -14.0 LUFS
 ==================================================
-Total: 1  Processed: 1  Succeeded: 1  Skipped: 0  Errors: 0  Time: 1.0s
+Total: 1  Processed: 1  Succeeded: 1  Skipped: 0  Errors: 0  Time: 1.1s
 ```
 
 Read it in the order the stages ran: the load line records what was decoded, Declick and Trim say there was nothing for them to change, EQ names the four bands it applied, Dynamics reports what it measured, and Normalise says what it would do. Nothing in the folder changed - the Dry Run reports the plan, and the source file is still the only file there.
@@ -325,7 +325,7 @@ Audio Refinery - Processing Log
 Total: 1  Processed: 1  Succeeded: 1  Skipped: 0  Errors: 0  Time: 3.7s
 ```
 
-Compare the two Normalise lines and they disagree on where the gain started: -15.9 LUFS in the Dry Run, -20.8 LUFS here. The Dry Run measures the source file for that preview, while a live run measures the audio the earlier stages produced, which is the level the normaliser actually acts on. With EQ and Dynamics in front of it those two figures are different, and the live line is the one the file ended up at; the settings that matter in a Dry Run are the EQ and Dynamics lines, which are measured on the processed audio.
+The Normalise line reads the same in both reports, and that is the point of a Dry Run: -20.8 LUFS is the level the EQ and Dynamics left behind, which is what normalisation acts on. The preview measures that processed audio, not the source, so the figure it quotes is the figure the live run uses. The source on its own measures -15.9 LUFS, several dB away from where the chain ends up, which is why a preview taken from the file would misstate both the starting level and the gain needed.
 
 ## Pipeline Stages
 

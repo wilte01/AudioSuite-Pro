@@ -3,6 +3,10 @@ tests/test_refinery_pipeline.py
 
 Unit and integration tests for audio_refinery.core.pipeline.
 
+Changed in 2.7.0: the preview helpers take the in-memory segment, because a Dry
+Run's Normalise figure must describe the audio the stages produced rather than
+the source file (D-24).
+
 Changed in 2.3.1 (U-02): the tag-contract test enables Enhance, because the
 refinery now writes nothing for a run that changed nothing; the test is about
 the read-once/write-once tag path, which only exists when there is a write.
@@ -721,12 +725,14 @@ class TestPipelineShape:
                 "album_key",
             ],
             "_preview_normalise": [
+                "audio",
                 "source_path",
                 "config",
                 "emit",
                 "album",
                 "album_key",
             ],
+            "_preview_peak_normalise": ["audio", "config", "emit"],
         }
         for name, params in expected.items():
             fn = getattr(pipeline, name, None)

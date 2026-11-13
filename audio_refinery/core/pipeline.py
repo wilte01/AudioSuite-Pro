@@ -66,9 +66,10 @@ import logging
 import os
 import shutil
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional
 
 # ── Third-party imports ─────────────────────────────────────────────────────
 from pydub import AudioSegment
@@ -1129,14 +1130,40 @@ def _run_peak_normalise(
     return _apply_peak_plan(path, plan, config, emit, record_snapshot=record_snapshot)
 
 
+@contextmanager
+def _processed_audio_file(audio: AudioSegment) -> Iterator[Path]:
+    """Yield a temporary WAV of *audio*, removed when the block exits.
+
+    A Dry Run's Normalise preview measures the audio the earlier stages
+    produced, exactly as a live run measures the staged copy, so the level it
+    quotes is the level normalisation will act on.  A dry run still leaves
+    nothing behind: the file lives in the system temp directory and is unlinked
+    as soon as the preview has read it.
+    """
+    fd, name = tempfile.mkstemp(prefix="refinery_dry_", suffix=".wav")
+    os.close(fd)
+    path = Path(name)
+    try:
+        audio.export(str(path), format="wav")
+        yield path
+    finally:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.debug(
+                "Dry-run measurement file could not be removed: %s", exc, exc_info=True
+            )
+
+
 def _preview_peak_normalise(
-    source_path: Path, config: StageConfig, emit: Callable[..., Any]
+    audio: AudioSegment, config: StageConfig, emit: Callable[..., Any]
 ) -> str:
     """Report the gain and the ceiling a peak-target run would apply."""
     n = config.normalise_params
     emit("Normalise", f"Measuring peak (target {n.target_peak_dbtp:.1f} dBTP)…")
     try:
-        plan = plan_peak_gain(source_path, config)
+        with _processed_audio_file(audio) as measured:
+            plan = plan_peak_gain(measured, config)
     except Exception as exc:  # preview must not abort the dry run
         logger.error("Dry-run peak measurement failed: %s", exc, exc_info=True)
         message = "Peak measurement failed - peak normalisation would be skipped"
@@ -1477,6 +1504,7 @@ def _run_normalise_in_place(
 
 
 def _preview_normalise(
+    audio: AudioSegment,
     source_path: Path,
     config: StageConfig,
     emit: Callable[..., Any],
@@ -1486,8 +1514,11 @@ def _preview_normalise(
 ) -> str:
     """Report what the Normalise stage would do, without writing anything.
 
-    Measures the source (never a staging copy) and names the projected
-    outcome, matching the preview the standalone normalizer gives.
+    Measures *audio* - the signal the earlier stages produced - written to a
+    temporary file for FFmpeg and removed again, so the level quoted is the
+    level a live run would normalise rather than the source's.  ``source_path``
+    still decides whether the stage can run at all and whether the lossless MP3
+    path applies, because those are properties of the file being written.
     """
     reason = _normalise_skip_reason(source_path, config)
     if reason is not None:
@@ -1495,7 +1526,7 @@ def _preview_normalise(
         return reason
 
     if config.normalise_params.target_mode == "peak":
-        return _preview_peak_normalise(source_path, config, emit)
+        return _preview_peak_normalise(audio, config, emit)
 
     if album is not None:
         gain = _album_gain(album, album_key)
@@ -1520,7 +1551,8 @@ def _preview_normalise(
         from audio_normalizer.core.loudness import measure
 
         n = config.normalise_params
-        loudness_data = measure(str(source_path), target, n.true_peak, n.lra)
+        with _processed_audio_file(audio) as measured:
+            loudness_data = measure(str(measured), target, n.true_peak, n.lra)
     except Exception as exc:  # preview must not abort the dry run
         logger.error("Dry-run loudness measurement failed: %s", exc, exc_info=True)
         loudness_data = None
@@ -1553,8 +1585,10 @@ def _run_dry_run(
 ) -> None:
     """Run the enabled stages' detection and record what they found.
 
-    Nothing is written: the stages work on the decoded audio in memory, the
-    normalise stage measures the source, and the temp file is never created.
+    Nothing is written to the run's folders: the stages work on the decoded
+    audio in memory, and the normalise preview measures that audio through a
+    temporary file which is removed before this returns, so its figures are the
+    ones a live run would act on.
     """
     rms_before = compute_rms_db(segment_to_numpy(audio)[0])
     result.add_stage(
@@ -1576,7 +1610,7 @@ def _run_dry_run(
     audio, _tone_changed = _run_tone_stages(audio, config, result, emit)
     if config.normalise:
         msg = _preview_normalise(
-            source_path, config, emit, album=album, album_key=album_key
+            audio, source_path, config, emit, album=album, album_key=album_key
         )
         result.add_stage("Normalise", FileStatus.DONE, msg)
 

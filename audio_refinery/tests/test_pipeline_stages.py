@@ -1,6 +1,7 @@
 # Changed in 2.7.0: the EQ rack, flags and driver emission are locked (F-S1),
-# and the Dry Run's Normalise preview is locked to measuring the source file,
-# which is what the Audio Refinery guide's report excerpt relies on (D-22).
+# and the Dry Run's Normalise preview is locked to measuring the processed
+# audio, which is what the Audio Refinery guide's report excerpt relies on
+# (D-24).
 """
 tests/test_pipeline_stages.py
 
@@ -1488,24 +1489,24 @@ class TestNormaliseDelivery:
             return_value={"input_i": -24.0},
         ):
             msg = _preview_normalise(
-                source, config, lambda s, m: messages.append((s, m))
+                _sine(), source, config, lambda s, m: messages.append((s, m))
             )
 
         assert "lossless MP3 gain" in msg
         assert "Would adjust loudness from -24.0 to -14.0" in msg
 
-    def test_a_dry_run_preview_measures_the_source_file_not_the_processed_audio(
+    def test_a_dry_run_preview_measures_the_processed_audio(
         self, tmp_path: Path
     ) -> None:
-        """The preview's level comes from the file, even with tone stages ahead.
+        """The preview measures what the stages produced, not the file on disk.
 
-        The guide tells a reader that a Dry Run's Normalise line measures the
-        source, while a live run measures the audio EQ and Dynamics produced,
-        so the two can quote different starting levels for the same chain
-        (D-22).  That explanation is only true while the preview measures the
-        file: a dry run has no staged copy to measure, and one that started
-        measuring the processed audio would have to write one first.  This
-        holds the measured path and the call count, not the pipeline's flags.
+        A live run normalises the staged copy, so a preview that measured the
+        source quotes a level the run never acts on - with a tone stage ahead of
+        it, a level several dB away from the one the file ends up at (D-24).
+        The measurement therefore gets a temporary WAV of the processed audio:
+        one call, a path that is not the source, written before the call and
+        gone when the dry run returns.  The guide's report excerpt relies on
+        that, so this holds the measured path rather than the message alone.
         """
         from audio_refinery.core.models import FileResult
         from audio_refinery.core.pipeline import _run_dry_run
@@ -1520,9 +1521,11 @@ class TestNormaliseDelivery:
         )
         result = FileResult(path=source)
         measured: list[str] = []
+        written: list[bool] = []
 
         def _measure(path: str, *_args: Any) -> dict[str, float]:
             measured.append(path)
+            written.append(Path(path).is_file())
             return {"input_i": -21.5}
 
         with patch("audio_normalizer.core.loudness.measure", side_effect=_measure):
@@ -1530,10 +1533,15 @@ class TestNormaliseDelivery:
 
         messages = {stage.stage: stage.message for stage in result.stages}
         assert messages["EQ"] == "Applied 1 band(s): highshelf"
-        assert measured == [str(source)]
         assert messages["Normalise"] == (
             "Would adjust loudness from -21.5 to -14.0 LUFS"
         )
+        assert len(measured) == 1
+        assert Path(measured[0]) != source
+        assert Path(measured[0]).suffix == ".wav"
+        assert written == [True]
+        assert not Path(measured[0]).exists()
+        assert sorted(path.name for path in tmp_path.iterdir()) == [source.name]
 
 
 # ═════════════════════════════════════════════════════════════════════════════
