@@ -28,7 +28,7 @@ Genre Sync uses the shared Audio Suite supported-extension list, including MP3, 
 
 Setup contains the directory picker, mode, shared run controls, presets, a summary of the resolution rules, and the start button. The last-used directory is restored from shared suite configuration.
 
-- **Dry Run: **Analyze and report the selected genre without writing metadata.
+- **Dry Run: **Analyse and report the selected genre without writing metadata.
 - **Live Update: **Write the standard Genre field and the derived marker when a usable source is resolved.
 - **Presets: **Save, load, and delete the run mode through shared suite preset storage.
 - **Auto Start / Auto End: **A Master Driver launch can start automatically and close the window after completion when configured.

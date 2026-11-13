@@ -100,7 +100,7 @@ Options include --preserve-lyrics/--no-preserve-lyrics, --preserve-album-artist/
 
 ## Master Driver Use
 
-From the Master Driver, open ENRICH and select Metadata Scrubber. The driver passes the directory, mode, start/end behavior, preservation flags, and orchestration state through the launch handshake. A driven launch can auto-start and locks inherited run controls.
+From the Master Driver, open ENRICH and select Metadata Scrubber. The driver passes the directory, mode, start/end behaviour, preservation flags, and orchestration state through the launch handshake. A driven launch can auto-start and locks inherited run controls.
 
 ## Troubleshooting
 

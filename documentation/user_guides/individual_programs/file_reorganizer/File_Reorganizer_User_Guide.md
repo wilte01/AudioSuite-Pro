@@ -80,7 +80,7 @@ Patterns use a foobar2000-like syntax:
 
 ## Path Safety
 
-After evaluation, the engine removes control characters, replaces path-illegal characters such as < > : " | ? * with underscores, normalizes separators, strips leading/trailing separators, trims components, and drops empty components. If the resolved path has no extension, the source file's extension is appended.
+After evaluation, the engine removes control characters, replaces path-illegal characters such as < > : " | ? * with underscores, normalises separators, strips leading/trailing separators, trims components, and drops empty components. If the resolved path has no extension, the source file's extension is appended.
 
 A pattern that resolves to a `.` or `..` path component, a drive-qualified value such as `C:\Music`, or a UNC value such as `\\server\share` is refused, not silently rewritten: the file is counted in Errors, reported as a pattern error, and nothing is written. The same refusal applies if a destination would resolve outside the chosen destination directory, so a tag value can never place a file outside the tree you selected. An absolute-looking tag value such as `/etc/passwd` is re-rooted inside the destination instead.
 
@@ -90,7 +90,7 @@ A pattern that resolves to a `.` or `..` path component, a drive-qualified value
 - **Copy: **Creates destination directories as needed and copies the source file with metadata preservation.
 - **Move: **Creates destination directories as needed and moves the source file.
 - **Undo: **Live copy and move operations are recorded in the suite file-reorganization undo context.
-- **Conflict behavior: **A copy or move whose destination path already exists is skipped and reported in the Skipped counter; the existing file is never overwritten. Review the planned paths and resolve conflicts before Execute.
+- **Conflict behaviour: **A copy or move whose destination path already exists is skipped and reported in the Skipped counter; the existing file is never overwritten. Review the planned paths and resolve conflicts before Execute.
 
 ## Processing Tab
 

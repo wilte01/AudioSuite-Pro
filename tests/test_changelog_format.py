@@ -35,10 +35,14 @@ audience.
 
 Changed in 2.7.0: adds ``TestChangelogSpelling``.  ``AGENTS.md`` requires British
 spelling in both change-history files, but no gate read them for it - the
-2026-11-13 wording pass found stray ``artifact``, ``analyzer``, ``normalized``
-and ``materializes`` in the technical file alone.  A product name, a shipped
-option, a file name and a quoted message keep their spelling, so each allowance
-carries a reason and must still match a real line.
+2026-11-13 wording pass found stray American forms in the technical file alone.
+A product name, a shipped option, a file name and a quoted message keep their
+spelling, so each allowance carries a reason and must still match a real line.
+
+Changed in 2.7.0: the table, the allowances and ``spelling_offences`` moved to
+``tests/spelling.py``, because the shipped guides are now held to the same rule
+and one implementation serves both locks (D-27).  This module re-exports the
+allowances under the name its tests use.
 """
 
 from __future__ import annotations
@@ -47,6 +51,17 @@ import re
 from pathlib import Path
 
 import pytest
+
+from tests.spelling import (
+    AMERICAN_SPELLINGS,
+    CHANGELOG_ALLOWANCES,
+    MIN_ALLOWANCES,
+    MIN_SPELLING_LINES,
+    MIN_SPELLING_PATTERNS,
+)
+from tests.spelling import (
+    spelling_offences as _changelog_offences,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 USER_CHANGELOG = REPO_ROOT / "CHANGELOG.md"
@@ -475,95 +490,14 @@ class TestChangelogCategoryLockCanFail:
         assert _bullets_under_no_category(["### Fixed", "", "- **A fix.** Ok."]) == []
 
 
-#: American spellings the changelogs must not use, with the British form to use.
-#: ``licensed`` is deliberately absent: it is the British verb, while the noun is
-#: ``licence``.  A word that already ends in ``-ise`` never matches these.
-AMERICAN_SPELLINGS: tuple[tuple[str, str], ...] = (
-    (r"\bbehavior(s|al)?\b", "behaviour"),
-    (r"\bcolors?\b", "colour"),
-    (r"\bcolored\b", "coloured"),
-    (r"\bcenters?\b", "centre"),
-    (r"\bcentered\b", "centred"),
-    (r"\bgray(ed)?\b", "grey"),
-    (r"\bdefense\b", "defence"),
-    (r"\bfulfill\w*\b", "fulfil"),
-    (r"\benroll\w*\b", "enrol"),
-    (r"\bcanceled\b", "cancelled"),
-    (r"\btraveled\b", "travelled"),
-    (r"\bmodeled\b", "modelled"),
-    (r"\blabeled\b", "labelled"),
-    (r"\bfavors?\b", "favour"),
-    (r"\bfavored\b", "favoured"),
-    (r"\bhonors?\b", "honour"),
-    (r"\bhonored\b", "honoured"),
-    (r"\bskeptic\w*\b", "sceptic"),
-    (r"\bjudgment\b", "judgement"),
-    (r"\backnowledgment\b", "acknowledgement"),
-    (r"\baluminum\b", "aluminium"),
-    (r"\bmaneuver\w*\b", "manoeuvre"),
-    (r"\bpracticing\b", "practising"),
-    (r"\banalyz(e|ed|es|ing)\b", "analyse"),
-    (r"\banalyzers?\b", "analyser"),
-    (r"\bnormaliz(e|ed|es|ing|ation)\b", "normalise"),
-    (r"\bnormalizers?\b", "normaliser"),
-    (r"\borganiz(e|ed|es|ing|ation)\b", "organise"),
-    (r"\borganizers?\b", "organiser"),
-    (r"\brecogniz\w*\b", "recognise"),
-    (r"\bserializ\w*\b", "serialise"),
-    (r"\bsynchroniz\w*\b", "synchronise"),
-    (r"\binitializ\w*\b", "initialise"),
-    (r"\bcustomiz\w*\b", "customise"),
-    (r"\bcategoriz\w*\b", "categorise"),
-    (r"\bprioritiz\w*\b", "prioritise"),
-    (r"\bsummariz\w*\b", "summarise"),
-    (r"\butiliz\w*\b", "utilise"),
-    (r"\bmaterializ\w*\b", "materialise"),
-    (r"\bartifact(s)?\b", "artefact"),
-    (r"\bcatalog\b", "catalogue"),
-    (r"\blicense\b", "licence (the noun)"),
-    (r"\blicenses\b", "licences (the noun)"),
-)
-
-#: ``(snippet, reason)`` pairs that legitimately carry an American form.  A match
-#: is allowed only when it lies *inside* one of these snippets, so a line that
-#: names a tool cannot hide a real American spelling beside it, and every entry
-#: must still match a line in one of the files or it is dead weight.
-ALLOWED_SPELLINGS: tuple[tuple[str, str], ...] = (
-    ("File Reorganizer", "the tool's shipped name"),
-    ("Audio Normalizer", "the tool's shipped name"),
-    ("Album Art Normalizer", "the tool's shipped name"),
-    ("BPM Analyzer", "the tool's shipped name"),
-    ("Mood Analyzer", "the tool's shipped name"),
-    ("Tempo Analyzer", "the tool's shipped name"),
-    ("ReplayGain Analyzer", "the tool's shipped name"),
-    ("Analyzer:", "the batch-verdict example wraps 'BPM Analyzer' over a line"),
-    ("Error initializing the muxer", "a quoted FFmpeg error message"),
-    ("LICENSE", "the licence file's name"),
-    ("licenses\\", "the installed licences folder's name"),
-    ("packaging/licenses", "the source-checkout licences folder's name"),
-    ("--normalize-mp3", "the shipped command-line option"),
-    ("partially initialized module", "a quoted interpreter error message"),
-)
-
-#: Floors the spelling scan must clear, so a broken table cannot pass quietly.
-MIN_SPELLING_PATTERNS = 25
-MIN_ALLOWANCES = 8
-MIN_SPELLING_LINES = 1000
-
-
-def _allowed_spelling(line: str, match: re.Match[str]) -> bool:
-    """Whether *match* sits inside an allowlisted snippet on *line*."""
-    for snippet, _reason in ALLOWED_SPELLINGS:
-        start = line.find(snippet)
-        while start != -1:
-            if start <= match.start() and match.end() <= start + len(snippet):
-                return True
-            start = line.find(snippet, start + 1)
-    return False
+#: The spelling table and the changelog allowances live in
+#: ``tests/spelling.py``, because the shipped guides are held to the same rule and
+#: must not carry a second copy of it.  This name is what the tests below use.
+ALLOWED_SPELLINGS = CHANGELOG_ALLOWANCES
 
 
 def spelling_offences(text: str) -> list[str]:
-    """Return every American spelling in *text* that no allowance covers.
+    """Return every American spelling in a change-history file.
 
     Args:
         text: A changelog's full source.
@@ -571,17 +505,7 @@ def spelling_offences(text: str) -> list[str]:
     Returns:
         One ``line: word - use 'british'`` report per offending word.
     """
-    offences: list[str] = []
-    for number, line in enumerate(text.splitlines(), start=1):
-        for pattern, british in AMERICAN_SPELLINGS:
-            for match in re.finditer(pattern, line, re.IGNORECASE):
-                if _allowed_spelling(line, match):
-                    continue
-                offences.append(
-                    f"{number}: {match.group(0)!r} should be {british!r} - "
-                    f"{line.strip()[:60]}"
-                )
-    return offences
+    return _changelog_offences(text, ALLOWED_SPELLINGS)
 
 
 class TestChangelogSpelling:

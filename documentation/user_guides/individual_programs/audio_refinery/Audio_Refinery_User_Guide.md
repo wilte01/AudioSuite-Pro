@@ -5,7 +5,7 @@ subtitle: Based on the current Audio Refinery implementation
 
 ## Overview
 
-Audio Refinery is a single-pass audio processing pipeline. It loads each source file once, runs the selected stages in memory, exports the result, restores the original tags, and optionally applies loudness normalization. The final file is placed in a separate output folder or atomically replaces the source when running in place.
+Audio Refinery is a single-pass audio processing pipeline. It loads each source file once, runs the selected stages in memory, exports the result, restores the original tags, and optionally applies loudness normalisation. The final file is placed in a separate output folder or atomically replaces the source when running in place.
 
 The window has three tabs in the order a run happens: **1. Setup**, **2. Processing**, **3. Results**. Inside Setup the controls read top to bottom: Presets, the run controls, the output folder, then the seven stage panels in the order the pipeline runs them - Pop & Click Remover, Silence Trimmer / Fader, Noise Reduction, Parametric EQ, Dynamics, Audio Enhancer, Audio Normaliser - and finally Reset Progress and BEGIN REFINERY. The subtitle under the window title names that same order: **Declick -> Trim -> Noise Reduction -> EQ -> Dynamics -> Enhance -> Normalise**. This guide follows the window in that order.
 
@@ -237,14 +237,14 @@ It can only reduce what is there. A master that was already compressed hard has 
 
 #### Audio Enhancer
 
-- **Preset: **Mild, Moderate, Aggressive, or Custom. Selecting Custom shows a Configure Custom DSP button that opens the stage's own non-modal editor, so the stage itself stays compact and every control is reachable; changes apply to the run as you make them. When Audio Normaliser is active, the refinery suppresses enhancement output gain so final loudness is controlled by the normalizer, and the Output Gain control is hidden because it has no effect.
+- **Preset: **Mild, Moderate, Aggressive, or Custom. Selecting Custom shows a Configure Custom DSP button that opens the stage's own non-modal editor, so the stage itself stays compact and every control is reachable; changes apply to the run as you make them. When Audio Normaliser is active, the refinery suppresses enhancement output gain so final loudness is controlled by the normaliser, and the Output Gain control is hidden because it has no effect.
 - **Enhancement effects: **Relevant to the Custom preset: Reverse audio, Karaoke (centre-vocal removal with a 0.0-1.0 strength), Phaser, Flanger, and Chorus. Each is off by default, and the built-in Mild, Moderate, and Aggressive presets leave them off.
 
 #### Audio Normaliser
 
 - **Target: **Playlist loudness (the default) targets integrated loudness in LUFS. Peak targets the file's true peak in dBTP instead, with one static gain, so the track keeps its own dynamics and only its level moves. Peak mode and Album loudness cannot be combined: choosing one clears the other, and the command line refuses the pair.
 - **Target LUFS: **Permitted targets are -12, -14, -16, -18, and -23 LUFS; default -14.0.
-- **Tolerance: **Default 0.5 LUFS; used by the normalization stage to avoid unnecessary adjustment when loudness is already close to target.
+- **Tolerance: **Default 0.5 LUFS; used by the normalisation stage to avoid unnecessary adjustment when loudness is already close to target.
 - **True peak target: **Default -1.0 dBTP; used by the Peak target. A gain that would push the sample peak past full scale is held by the limiter instead of being clamped, and the stage reports the sample peak and the true peak it measured after the write. A file already within the tolerance is left byte-identical.
 - **Strategy: **Normalise (the default) re-encodes through FFmpeg loudnorm. Lossless rewrites an MP3's global gain and re-encodes nothing; other formats fall back to the loudnorm re-encode.
 - **Album loudness: **Off by default. When on, the folder is measured once as one album, and every track moves by that single gain, so the album's relative levels survive instead of each track being pushed to the target. A track whose peak plus that gain would exceed the True Peak ceiling is limited on its own: only that track's gain is reduced, and the run log names it. An album already within tolerance plans no gain at all and every file is left byte-identical. A Dry Run reports the planned gain per file and writes nothing. Album mode writes through the same encoders as per-file normalisation (MP3, FLAC, OGG, M4A, Opus, WavPack, Speex, WAV and AIFF), so a container with no normalise encoder is refused with the same message a per-file run gives. A lossless WAV or AIFF source keeps its own bit depth, so a 24-bit master is not reduced to 16 bits by the rewrite. Tracks already recorded in the completion registry are not rewritten, so their level will not match a freshly normalised album: use Reset Progress for a whole-album run.
@@ -423,7 +423,7 @@ Audio Refinery is the Master Driver's REFINE pipeline. The driver embeds the Ref
 - **The exact trim refused the run: **Stream copy cannot share a run with a stage that decodes the audio (declick, noise reduction, eq, enhance, normalise). Turn Stream copy off to trim with a re-encode, or disable those stages. A range flag without Exact range mode is refused at the command line rather than silently ignored.
 - **The stream copy is a few milliseconds longer or shorter: **That is the frame boundary, not a defect: a copy keeps whole frames, and the run log reports the measured length with the offset. Turn Stream copy off when the exact millisecond matters.
 - **Output directory error: **The selected output directory must already exist and be a directory; leave it blank for in-place mode.
-- **Normalization behaves unexpectedly: **Remember that the normalizer controls final level when active, and enhancement output gain is suppressed in that case.
+- **Normalisation behaves unexpectedly: **Remember that the normaliser controls final level when active, and enhancement output gain is suppressed in that case.
 - **A stage fails: **Review refinery_log.txt for the stage-specific error. The original source is protected if the final replacement is not reached.
 
 ## Safety Recommendations

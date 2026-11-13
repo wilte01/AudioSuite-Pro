@@ -5,9 +5,9 @@ subtitle: Based on the current Album Art Normalizer implementation
 
 ## Overview
 
-Album Art Normalizer standardizes embedded artwork in every supported audio format. It reads the first embedded image, center-crops non-square artwork, resizes it to a selected square resolution, encodes it as an optimized JPEG, and writes the updated artwork while preserving the other audio metadata.
+Album Art Normalizer standardizes embedded artwork in every supported audio format. It reads the first embedded image, centre-crops non-square artwork, resizes it to a selected square resolution, encodes it as an optimized JPEG, and writes the updated artwork while preserving the other audio metadata.
 
-The GUI also checks for folder.jpg directly inside the selected directory. When present, it is independently normalized to exactly 1000 x 1000 pixels.
+The GUI also checks for folder.jpg directly inside the selected directory. When present, it is independently normalised to exactly 1000 x 1000 pixels.
 
 ## Supported Input
 
@@ -42,7 +42,7 @@ Setup contains the folder picker, the **Embedded Image Resolution:** selector, r
 
 ![The Processing tab part-way through a run](images/processing.png)
 
-Processing shows a progress bar, live file outcomes, and counts for files examined, images updated, and errors. Work runs in background workers; the normalizer uses one worker per logical CPU by default (at most eight).
+Processing shows a progress bar, live file outcomes, and counts for files examined, images updated, and errors. Work runs in background workers; the normaliser uses one worker per logical CPU by default (at most eight).
 
 ### Results
 
@@ -52,7 +52,7 @@ Results shows total time, files examined, images updated, skipped files, and err
 
 ## Image Processing Rules
 
-Artwork is converted to RGB, center-cropped to the largest possible square, resized with Lanczos resampling, and encoded as an optimized JPEG using the suite JPEG quality setting. The crop avoids stretching but removes pixels from the longer dimension of a non-square image.
+Artwork is converted to RGB, centre-cropped to the largest possible square, resized with Lanczos resampling, and encoded as an optimized JPEG using the suite JPEG quality setting. The crop avoids stretching but removes pixels from the longer dimension of a non-square image.
 
 - **Already at target size: **Skipped without rewriting.
 - **No embedded artwork: **Skipped because there is no artwork to update.
@@ -60,7 +60,7 @@ Artwork is converted to RGB, center-cropped to the largest possible square, resi
 
 ## folder.jpg
 
-The GUI checks only the selected directory itself for folder.jpg. If found, it is read as RGB, center-cropped if needed, resized to 1000 x 1000, and saved in place as an optimized JPEG. A missing or already-correct folder.jpg is skipped. The CLI does not run this GUI-only step.
+The GUI checks only the selected directory itself for folder.jpg. If found, it is read as RGB, centre-cropped if needed, resized to 1000 x 1000, and saved in place as an optimized JPEG. A missing or already-correct folder.jpg is skipped. The CLI does not run this GUI-only step.
 
 ## Command Line
 
@@ -74,7 +74,7 @@ The --size option is an integer square dimension and defaults to 800. The --json
 
 ## Master Driver
 
-In the Master Driver, open UTIL and select Album Art Normalizer. The card uses the shared directory and run controls and launches the tool with the selected path. The standalone GUI exposes all four resolution choices. A driver launch can inherit control values and auto-start behavior.
+In the Master Driver, open UTIL and select Album Art Normalizer. The card uses the shared directory and run controls and launches the tool with the selected path. The standalone GUI exposes all four resolution choices. A driver launch can inherit control values and auto-start behaviour.
 
 ## Safety and Recovery
 
@@ -84,7 +84,7 @@ Use Dry Run before a live run and keep backups of important audio files. Artwork
 
 - **The run will not start: **Choose an existing directory and a valid resolution.
 - **Everything is skipped: **Files may already match the target or have no embedded artwork.
-- **The image is cropped: **Center-cropping is intentional for square output without distortion.
+- **The image is cropped: **Centre-cropping is intentional for square output without distortion.
 - **A file errors: **Check whether its tags, artwork bytes, or file permissions allow reading and writing.
 - **folder.jpg is unchanged: **It may be missing, outside the selected directory, or already 1000 x 1000.
 - **The CLI rejects the folder: **Correct the path; CLI argument validation requires an existing directory.

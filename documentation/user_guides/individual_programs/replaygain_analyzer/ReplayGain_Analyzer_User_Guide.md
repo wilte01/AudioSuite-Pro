@@ -11,7 +11,7 @@ The tool can optionally apply the measured track gain losslessly to MP3 files af
 
 ## Supported Files
 
-The analyzer uses the shared Audio Suite supported formats, including MP3, FLAC, OGG, M4A, MP4, Opus, WAV, and AIFF variants. The selected directory is scanned recursively and folders are processed independently.
+The analyser uses the shared Audio Suite supported formats, including MP3, FLAC, OGG, M4A, MP4, Opus, WAV, and AIFF variants. The selected directory is scanned recursively and folders are processed independently.
 
 ## System Requirements
 
@@ -99,7 +99,7 @@ The CLI accepts --target-lufs, --apply-gain/--no-apply-gain, the shared dry-run/
 
 ## Master Driver Use
 
-From the Master Driver, open ENRICH and select ReplayGain Analyzer. The driver passes the directory, target LUFS, run mode, start/end behavior, and inherited orchestration controls.
+From the Master Driver, open ENRICH and select ReplayGain Analyzer. The driver passes the directory, target LUFS, run mode, start/end behaviour, and inherited orchestration controls.
 
 ## Troubleshooting
 

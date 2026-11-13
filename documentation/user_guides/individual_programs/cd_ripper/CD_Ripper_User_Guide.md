@@ -58,7 +58,7 @@ Lookup failure is non-fatal: the track list can remain available, and you can fi
 
 ## C2 Reliability Diagnostic
 
-Test C2 Reliability reads a small region twice and compares the results. The diagnostic can report weak positive evidence that the drive populates C2 error flags, an all-zero C2 field that is inconclusive, or differing audio data that makes the test location invalid or indicates a possible read problem. The full detail is written to the CD ripper log. Treat C2 results as diagnostic evidence, not a guarantee of drive behavior.
+Test C2 Reliability reads a small region twice and compares the results. The diagnostic can report weak positive evidence that the drive populates C2 error flags, an all-zero C2 field that is inconclusive, or differing audio data that makes the test location invalid or indicates a possible read problem. The full detail is written to the CD ripper log. Treat C2 results as diagnostic evidence, not a guarantee of drive behaviour.
 
 ## Output Formats and Quality
 

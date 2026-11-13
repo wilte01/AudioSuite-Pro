@@ -5,7 +5,7 @@ subtitle: Based on the current Mood Analysis Batch Tagger implementation
 
 ## Overview
 
-Mood Analysis Batch Tagger recursively scans a root music directory and all of its subfolders, analyzes mood from the audio signal, and can write mood, confidence, and energy tags. It uses the same signal mood engine as the standalone Mood Analyzer, so the same track produces the same values in both tools.
+Mood Analysis Batch Tagger recursively scans a root music directory and all of its subfolders, analyses mood from the audio signal, and can write mood, confidence, and energy tags. It uses the same signal mood engine as the standalone Mood Analyzer, so the same track produces the same values in both tools.
 
 ## Supported Files
 
@@ -31,11 +31,11 @@ Setup contains the root folder, mode, duration, worker settings, presets, and sh
 - **Parallel Processing: **When enabled, CPU-bound mood analysis uses ProcessPoolExecutor to bypass the GIL. When disabled, a thread pool is used.
 - **Workers: **Sets the maximum worker count; the default is one worker per logical CPU, capped at 8.
 - **Presets: **Save and restore root directory, mode, duration, parallel mode, and worker count.
-- **Dry Run / Live Update: **Dry Run analyzes without writing. Live Update writes the mood tags.
+- **Dry Run / Live Update: **Dry Run analyses without writing. Live Update writes the mood tags.
 
 ## Mood Analysis
 
-The shared signal analyzer derives two axes from the audio: arousal, representing energy or calmness, and valence, representing positive or dark character. Features include tempo, spectral flux, zero-crossing rate, RMS energy, musical mode, spectral brightness, and low-frequency energy. The axes are mapped to three mood words, a confidence score from 0 to 1, and an energy band from 1 to 6.
+The shared signal analyser derives two axes from the audio: arousal, representing energy or calmness, and valence, representing positive or dark character. Features include tempo, spectral flux, zero-crossing rate, RMS energy, musical mode, spectral brightness, and low-frequency energy. The axes are mapped to three mood words, a confidence score from 0 to 1, and an energy band from 1 to 6.
 
 - **Mood value: **Stored as three semicolon-separated words such as Energetic;Bright;Confident.
 - **Confidence: **Stored as a decimal such as 0.87 indicating how strongly the analysis matched.
@@ -45,7 +45,7 @@ The shared signal analyzer derives two axes from the audio: arousal, representin
 
 1. Walk the root directory recursively and sort folders and filenames.
 1. Enter each folder in the Processing display and count its supported files.
-1. Load and analyze each file through the shared Mood Analyzer engine.
+1. Load and analyse each file through the shared Mood Analyzer engine.
 1. In Dry Run, report the values without writing tags.
 1. In Live Update, record a tag snapshot and write mood, confidence, and energy fields.
 1. Write mood_analysis_batch_log.txt in the root directory and report final counts.
@@ -53,8 +53,8 @@ The shared signal analyzer derives two axes from the audio: arousal, representin
 ## Dry Run and Live Update
 
 - **Dry Run: **Reports the mood that would be written and leaves source files unchanged.
-- **Live Update: **Writes the three mood-related metadata values to each successfully analyzed file.
-- **Skipped files: **Files that cannot be decoded or analyzed, including unsupported/corrupt/silent audio, are counted as skipped when the failure is a known analysis or codec issue.
+- **Live Update: **Writes the three mood-related metadata values to each successfully analysed file.
+- **Skipped files: **Files that cannot be decoded or analysed, including unsupported/corrupt/silent audio, are counted as skipped when the failure is a known analysis or codec issue.
 - **Errors: **Unexpected failures are counted separately as errors and recorded in the log.
 - **Undo: **Live writes use the suite tag-edit batch and can be reverted through Undo Tag Edits when snapshots are available.
 
@@ -68,7 +68,7 @@ The shared signal analyzer derives two axes from the audio: arousal, representin
 
 Processing shows folders as they are entered, four active worker slots, file progress, and tagged/skipped/error counts. A successful file appears as OK in Live Update or a dry-run entry describing the values that would be written.
 
-Results reports folders scanned, files analyzed, files tagged, skipped files, and errors. Open Folder opens the root directory and View Log opens the generated batch report.
+Results reports folders scanned, files analysed, files tagged, skipped files, and errors. Open Folder opens the root directory and View Log opens the generated batch report.
 
 ## Log File
 
@@ -87,13 +87,13 @@ Options include --duration, --parallel/--no-parallel, --workers, the shared dry-
 
 ## Master Driver Use
 
-From the Master Driver, open UTIL and select Mood Analysis Batch Tagger. The driver passes the root directory, mode, duration, worker settings, start/end behavior, and orchestration flags through the launch handshake. A driven launch can auto-start and displays inherited controls.
+From the Master Driver, open UTIL and select Mood Analysis Batch Tagger. The driver passes the root directory, mode, duration, worker settings, start/end behaviour, and orchestration flags through the launch handshake. A driven launch can auto-start and displays inherited controls.
 
 ## Troubleshooting
 
 - **A folder was not scanned: **Confirm it is below the selected root and contains supported audio extensions.
 - **A file is skipped: **The file may be corrupt, unsupported by its decoder, or effectively silent. The log contains the reason when available.
-- **The mood seems subjective: **The result is signal-derived from measurable audio features, not lyrics, genre labels, or personal listening judgment.
+- **The mood seems subjective: **The result is signal-derived from measurable audio features, not lyrics, genre labels, or personal listening judgement.
 - **Parallel processing fails: **Disable parallel mode or reduce workers if process startup or system resources are constrained.
 - **Tags did not change: **Confirm Live Update was selected. Dry Run never writes files.
 - **No log is available: **A run must reach completion and be able to write to the selected root directory.

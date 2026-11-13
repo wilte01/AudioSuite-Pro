@@ -7,7 +7,7 @@ subtitle: Based on the current Album Art Sync implementation
 
 Album Art Sync finds album artwork online from the album and artist metadata already present in a music directory, lets you review or automatically select a candidate, and embeds the selected image into every supported audio file in that directory. In Live Update mode it also writes a folder.jpg copy.
 
-The tool is designed for album-level synchronization: it reads artist, album, and Album Artist metadata from the first supported file and uses that lookup identity for the directory. Make sure the first file has accurate tags before starting a search.
+The tool is designed for album-level synchronisation: it reads artist, album, and Album Artist metadata from the first supported file and uses that lookup identity for the directory. Make sure the first file has accurate tags before starting a search.
 
 ## Source Lookup Order
 
@@ -64,7 +64,7 @@ Processing shows the current search or embedding status, a progress bar, a live 
 
 ![The Results tab after a finished run](images/results.png)
 
-Results reports completion, cancellation, no artwork found, or partial success. View Log opens art_sync_log.txt in the source directory. Open Folder opens the source directory because synchronization modifies files in place.
+Results reports completion, cancellation, no artwork found, or partial success. View Log opens art_sync_log.txt in the source directory. Open Folder opens the source directory because synchronisation modifies files in place.
 
 ## Logs and Recovery
 
@@ -72,7 +72,7 @@ The GUI writes art_sync_log.txt in the source directory after a non-cancelled ru
 
 ## Interactive Artwork Picker
 
-When the GUI receives candidates, it opens a modal picker on the main UI thread. The picker shows a preview, source, candidate title, dimensions, and position in the ranked list. Use < and > to browse. ACCEPT returns the displayed image to the synchronizer; REJECT or closing the picker returns no image and prevents an artwork update.
+When the GUI receives candidates, it opens a modal picker on the main UI thread. The picker shows a preview, source, candidate title, dimensions, and position in the ranked list. Use < and > to browse. ACCEPT returns the displayed image to the synchroniser; REJECT or closing the picker returns no image and prevents an artwork update.
 
 ## Dry Run and Live Update
 
@@ -111,7 +111,7 @@ CLI options include --embed-size, --purge/--no-purge, --min-dimension, --match-t
 
 ## Master Driver Use
 
-From the Master Driver, open ENRICH and select Album Art Sync. The driver passes the shared directory, mode, start and end behavior, embedded size, purge choice, minimum dimension, and match threshold through the launch handshake. A driven launch can auto-start, and the child window shows inherited orchestration values.
+From the Master Driver, open ENRICH and select Album Art Sync. The driver passes the shared directory, mode, start and end behaviour, embedded size, purge choice, minimum dimension, and match threshold through the launch handshake. A driven launch can auto-start, and the child window shows inherited orchestration values.
 
 ## Troubleshooting
 

@@ -128,7 +128,7 @@ Options include --lookup/--no-lookup, --write-tags/--no-write-tags, --write-mbid
 
 ## Master Driver Use
 
-From the Master Driver, open ENRICH and select Audio Fingerprinter. The driver passes the directory, mode, start/end behavior, and fingerprint options through the launch handshake. A driven launch can auto-start and displays inherited controls.
+From the Master Driver, open ENRICH and select Audio Fingerprinter. The driver passes the directory, mode, start/end behaviour, and fingerprint options through the launch handshake. A driven launch can auto-start and displays inherited controls.
 
 ## Troubleshooting
 

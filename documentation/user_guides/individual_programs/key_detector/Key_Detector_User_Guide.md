@@ -7,7 +7,7 @@ subtitle: Based on the current Key Detector implementation
 
 Key Detector estimates the musical key of audio files from their signal using librosa chroma analysis and Krumhansl-Schmuckler key profiles. It can report the detected key without changing files or write the result to the standard musical key metadata field.
 
-The tool scans supported audio files in a selected directory, analyzes a configurable leading duration, and processes files with configurable worker parallelism.
+The tool scans supported audio files in a selected directory, analyses a configurable leading duration, and processes files with configurable worker parallelism.
 
 ## Supported Audio
 
@@ -45,11 +45,11 @@ Setup contains the directory picker, run mode, analysis duration, parallel worke
 
 Major keys are displayed without a suffix, while minor keys end in m. Common flat spellings are used for Eb, Ab, Bb, and their supported minor equivalents; C# and F# remain sharp-spelled in the display conventions.
 
-## Silent and Existing-Key Behavior
+## Silent and Existing-Key Behaviour
 
 - **Silent audio: **Zero-energy audio cannot produce a meaningful chromagram correlation and is reported as an error.
-- **Dry Run with existing key: **A file that already has a key tag is skipped rather than re-analyzed in Dry Run.
-- **Live Update with existing key: **The file is analyzed and the tag is rewritten; the status includes the previous key when it differs.
+- **Dry Run with existing key: **A file that already has a key tag is skipped rather than re-analysed in Dry Run.
+- **Live Update with existing key: **The file is analysed and the tag is rewritten; the status includes the previous key when it differs.
 - **Detection failure: **The file is reported as an error or recoverable skip while other files continue.
 - **Material with no defensible key: **When the winning correlation does not lead the runner-up by a decisive margin -- broadband noise, percussive material, atonal music -- the file is reported as DETECTED (not tagged) and no key is written, even in Live Update. A file that already has a key tag keeps it. This is deliberate: Key Detector never writes the literal value "Unknown" into your library, because that reads as a musical fact it cannot support and would block a better result on a later run.
 
@@ -67,7 +67,7 @@ Major keys are displayed without a suffix, while minor keys end in m. Common fla
 
 
 
-Processing shows a worker-slot status per logical CPU (at most eight), a progress bar, processed/skipped/error counts, and per-file messages. Results reports total files, analyzed files, skipped files, errors, and elapsed time. The completion label distinguishes Analysis Complete from Key Tagging Complete.
+Processing shows a worker-slot status per logical CPU (at most eight), a progress bar, processed/skipped/error counts, and per-file messages. Results reports total files, analysed files, skipped files, errors, and elapsed time. The completion label distinguishes Analysis Complete from Key Tagging Complete.
 
 ## Logs
 
@@ -88,7 +88,7 @@ The CLI analyses 90 seconds by default, the same window as the GUI and the Maste
 
 ## Master Driver Use
 
-From the Master Driver, open ENRICH and select Key Detector. The driver passes the directory, run mode, duration, worker settings, start/end behavior, and orchestration flags through the launch handshake. A driven launch can auto-start and displays inherited controls.
+From the Master Driver, open ENRICH and select Key Detector. The driver passes the directory, run mode, duration, worker settings, start/end behaviour, and orchestration flags through the launch handshake. A driven launch can auto-start and displays inherited controls.
 
 ## Troubleshooting
 

@@ -93,6 +93,13 @@ and every bullet belongs to exactly one of them.
 
 ### Changed
 
+- **The guides spell English the same way throughout.** Every guide's prose now
+  uses British spelling - normalised, analyser, behaviour, centre - instead of
+  the mix of two that had built up, including in two section headings. The words
+  the suite itself ships keep their own spelling: a button caption, an
+  operation name, a command name and a folder name are quoted as they appear on
+  screen and in a terminal. No instruction, measured figure or setting changed.
+
 - **What's New now reads in plain English.** Every entry in this file says what
   you can do or will see, instead of naming the function, test or module behind
   it, and a term such as LUFS, true peak or dry run is explained the first time

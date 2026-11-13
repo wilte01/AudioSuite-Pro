@@ -120,6 +120,9 @@ jobs:
 
   docs-locks:
     name: Docs locks (freshness & formats)
+    # Changed in 2.7.0: the command also runs tests/test_guide_spelling.py, the
+    # guide half of the British-spelling rule (D-27). The classification lock in
+    # test_docs_formats.py fails if a new test_guide* module is left unlisted.
     # Changed in 2.1.0: added this job (PLAN_docs_consolidation D22). The
     # document locks fail on a stale guide artefact, a binary nobody
     # classified, a reintroduced prose format or a generated table that no
@@ -181,6 +184,7 @@ jobs:
             tests/test_docs_index.py \
             tests/test_guide_claims.py \
             tests/test_guide_resolution.py \
+            tests/test_guide_spelling.py \
             tests/test_api_reference.py \
             tests/test_readme.py \
             tests/test_changelog_format.py \

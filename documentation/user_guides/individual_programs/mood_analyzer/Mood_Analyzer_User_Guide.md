@@ -5,13 +5,13 @@ subtitle: Based on the current Mood Analyzer implementation
 
 ## Overview
 
-Mood Analyzer estimates musical mood directly from the audio signal. It analyzes a selected directory, derives arousal and valence features, maps them to three mood words, and can write mood, confidence, and energy metadata. It does not rely on pre-existing mood tags.
+Mood Analyzer estimates musical mood directly from the audio signal. It analyses a selected directory, derives arousal and valence features, maps them to three mood words, and can write mood, confidence, and energy metadata. It does not rely on pre-existing mood tags.
 
 The standalone tool processes one directory. For recursive whole-library processing, use Mood Analysis Batch Tagger. Both tools use the same underlying mood analysis engine.
 
 ## Supported Files
 
-The analyzer uses the shared Audio Suite supported audio extensions, including MP3, FLAC, OGG, M4A, MP4, Opus, WAV, and AIFF variants. Subfolders are not descended into by this standalone tool.
+The analyser uses the shared Audio Suite supported audio extensions, including MP3, FLAC, OGG, M4A, MP4, Opus, WAV, and AIFF variants. Subfolders are not descended into by this standalone tool.
 
 ## Quick Start
 
@@ -43,20 +43,20 @@ The signal mood engine scores two axes. Arousal represents energy versus calm an
 - **Confidence: **A decimal from 0 to 1 describing how strongly the analysis matched.
 - **Energy: **An integer band from 1, calm, through 6, very energetic.
 
-## Processing Behavior
+## Processing Behaviour
 
 ![The Processing tab part-way through a run](images/processing.png)
 
 1. Discover supported audio files directly inside the selected directory.
 1. Load each file for the configured analysis duration, resampled to 22.05 kHz so the same music gives the same mood whatever sample rate its file is stored at.
-1. Analyze the signal and derive mood, confidence, and energy.
+1. Analyse the signal and derive mood, confidence, and energy.
 1. In Dry Run, report the values without writing metadata.
 1. In Live Update, write the mood, confidence, and energy tags.
 1. Write the mode-specific report and show the final summary.
 
 ## Dry Run and Live Update
 
-- **Dry Run: **Analyzes and reports each file without changing it.
+- **Dry Run: **Analyses and reports each file without changing it.
 - **Live Update: **Writes the three mood-related values through the shared tag helpers.
 - **Undecodable or silent files: **They are skipped and not written; analysis failures are reflected in the summary and log.
 - **Errors: **Unexpected failures are counted separately from ordinary skipped analysis files.
@@ -66,7 +66,7 @@ The signal mood engine scores two axes. Arousal represents energy versus calm an
 
 ![The Results tab after a finished run](images/results.png)
 
-Processing shows one worker slot per logical CPU (at most eight), progress, processed/skipped/error counts, and per-file status messages. Results reports total files, analyzed/tagged files, skipped files, errors, and elapsed time. The tool can open the source folder and the generated log.
+Processing shows one worker slot per logical CPU (at most eight), progress, processed/skipped/error counts, and per-file status messages. Results reports total files, analysed/tagged files, skipped files, errors, and elapsed time. The tool can open the source folder and the generated log.
 
 ## Logs
 
@@ -87,14 +87,14 @@ The CLI accepts --duration, --parallel/--no-parallel, --workers, the shared dry-
 
 ## Master Driver Use
 
-From the Master Driver, open ENRICH and select Mood Analyzer. The driver passes the directory, mode, duration, worker settings, start/end behavior, and orchestration flags through the launch handshake. A driven launch can auto-start and displays inherited controls.
+From the Master Driver, open ENRICH and select Mood Analyzer. The driver passes the directory, mode, duration, worker settings, start/end behaviour, and orchestration flags through the launch handshake. A driven launch can auto-start and displays inherited controls.
 
 ## Troubleshooting
 
 - **No supported files found: **Select a directory containing supported audio files directly in that folder.
 - **A file is skipped: **It may be undecodable, unsupported by the active decoder, or effectively silent.
-- **The mood seems subjective: **The result is signal-derived from measurable audio features, not lyrics, genre tags, or personal judgment.
-- **Results differ after changing duration: **The analyzer samples a different portion of the track; longer durations can provide more context but take longer.
+- **The mood seems subjective: **The result is signal-derived from measurable audio features, not lyrics, genre tags, or personal judgement.
+- **Results differ after changing duration: **The analyser samples a different portion of the track; longer durations can provide more context but take longer.
 - **Parallel processing fails: **Disable parallel mode or reduce worker count if process startup or resources are constrained.
 - **Tags did not change: **Confirm Live Update was selected. Dry Run never writes metadata.
 

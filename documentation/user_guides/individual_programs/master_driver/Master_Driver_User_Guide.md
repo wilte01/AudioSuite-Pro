@@ -106,7 +106,7 @@ The cards are grouped under six captions, in workflow order: Convert & Import, T
 
 ### Tags & Artwork
 
-- **Album Art Normalizer: **Resizes and normalizes embedded artwork with a selectable target size and supports folder.jpg normalization.
+- **Album Art Normalizer: **Resizes and normalises embedded artwork with a selectable target size and supports folder.jpg normalisation.
 - **Tag Editor: **Edits common tags in an interactive grid. The driver passes its directory, mode, auto-start and auto-end settings to the window, so a batch cannot be rewritten mid-run.
 - **Tag Field Updater: **Scans and updates tag fields.
 - **Undo Tag Edits: **Restores tags from snapshots recorded before batch edits.

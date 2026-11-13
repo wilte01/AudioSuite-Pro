@@ -37,7 +37,7 @@ The tool has two front ends over one implementation: this window, and the headle
 | Max frequency | 0 | Highest displayed frequency in Hz; 0 keeps the full Nyquist range. |
 | Colour range | 80 | Floor in dB below the peak. |
 | FFT size | 2048 | Samples per FFT window: larger resolves pitch better, smaller resolves time better. 256-16384. |
-| Colour map | magma | magma, inferno, viridis, plasma or gray. |
+| Colour map | magma | magma, inferno, viridis, plasma or `gray`. |
 
 ## Zoom and Pan
 

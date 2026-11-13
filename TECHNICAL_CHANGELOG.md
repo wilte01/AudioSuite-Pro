@@ -18,6 +18,24 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **The shipped guides are checked for British spelling too.** `AGENTS.md`
+  applies the rule to guide prose as well as the change-history files, and only
+  the latter were read. The table, the allowances and the scanner moved to
+  `tests/spelling.py` so the new `TestGuideSpelling` and the existing
+  `TestChangelogSpelling` share one implementation; the guide lock walks
+  `documentation/user_guides/**/*.md`, drops fenced blocks and blanks inline
+  code spans, and checks what remains, so the MP3 flag and a colormap value
+  keep the spelling the program accepts. Its allowances cover only shipped text
+  (seven tool names, a button caption, a bulk-operation caption, the registered
+  command name, the installed licences folder and the MP3 flag), each is
+  asserted to still match a line, and the lock fails on a short file walk or
+  a collapsed prose count. It joins the docs-locks job, whose classification
+  walk would otherwise leave a new ``test_guide*`` module unclassified (and
+  therefore unrunnable at that point in CI). The first run found 77 American
+  forms across 18 of
+  the 35 guides, including two section headings; they are corrected and every
+  affected word file re-rendered.
+
 - **Both change-history files are checked for British spelling.**
   `TestChangelogSpelling` scans `CHANGELOG.md` and `TECHNICAL_CHANGELOG.md`
   against a table of American forms with the British replacement for each, and

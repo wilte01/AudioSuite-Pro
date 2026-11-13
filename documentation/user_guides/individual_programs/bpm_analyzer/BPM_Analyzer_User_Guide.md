@@ -5,13 +5,13 @@ subtitle: Based on the current BPM Analyzer implementation
 
 ## Overview
 
-BPM Analyzer estimates the tempo of audio files with librosa beat tracking and can write the detected BPM into the file's metadata. It scans a selected directory, analyzes a configurable leading portion of each file, constrains the estimate to a chosen BPM range, and reports each result in the Processing tab and log.
+BPM Analyzer estimates the tempo of audio files with librosa beat tracking and can write the detected BPM into the file's metadata. It scans a selected directory, analyses a configurable leading portion of each file, constrains the estimate to a chosen BPM range, and reports each result in the Processing tab and log.
 
 Dry Run is analysis-only. Live Update writes the BPM tag and participates in the suite's tag-edit undo batch.
 
 ## Supported Audio
 
-The analyzer uses the shared Audio Suite supported-format list, including MP3, FLAC, OGG, M4A, Opus, WAV, and AIFF variants. The selected directory must contain at least one supported audio file.
+The analyser uses the shared Audio Suite supported-format list, including MP3, FLAC, OGG, M4A, Opus, WAV, and AIFF variants. The selected directory must contain at least one supported audio file.
 
 ## Quick Start
 
@@ -35,9 +35,9 @@ Setup contains the directory picker, mode, BPM range, analysis duration, optiona
 - **Workers: **Controls the maximum worker count and must be at least 1. The default is one worker per logical CPU, capped at 8.
 - **Presets: **Save and load BPM range, duration, parallel mode, worker count, and run mode settings through shared configuration.
 
-## Detection Behavior
+## Detection Behaviour
 
-For each file, librosa loads mono audio for the configured maximum duration using its beat tracker. The signal is upcast to float64 for the tool's internal processing. Audio is resampled to 22.05 kHz for analysis, so the same music gives the same result whatever sample rate its file is stored at. The raw tempo estimate is then normalized to a scalar, octave-corrected by doubling or halving only when the folded level carries a pulse of its own, and rounded to an integer.
+For each file, librosa loads mono audio for the configured maximum duration using its beat tracker. The signal is upcast to float64 for the tool's internal processing. Audio is resampled to 22.05 kHz for analysis, so the same music gives the same result whatever sample rate its file is stored at. The raw tempo estimate is then normalised to a scalar, octave-corrected by doubling or halving only when the folded level carries a pulse of its own, and rounded to an integer.
 
 - **Outside-range tempo: **A measured tempo outside the configured range is tagged as measured, and its line says so, for example BPM 60 (outside 75-175). The range chooses between octave-equivalent readings of the same pulse; it never moves a value to a boundary or to an octave the audio does not support.
 - **No detectable beat or silence: **A file with no discernible beat, or one that is effectively silent, is reported as [SKIP] and left untagged.
@@ -56,7 +56,7 @@ Processing shows a worker-slot label per logical CPU (at most eight), a progress
 
 ![The Processing tab during a Dry Run: worker slots, the progress bar, the processed/skipped/error counts and one status line per finished file](images/processing.png)
 
-Results reports total files, analyzed or tagged files, skipped files, errors, and elapsed time. The completion label distinguishes Analysis Complete from BPM Tagging Complete.
+Results reports total files, analysed or tagged files, skipped files, errors, and elapsed time. The completion label distinguishes Analysis Complete from BPM Tagging Complete.
 
 BPM Analyzer does not treat an out-of-range detection as a skip: the value is tagged as measured and its line names the configured range. Skips are reserved for files with no discernible beat, and errors for files that could not be read.
 

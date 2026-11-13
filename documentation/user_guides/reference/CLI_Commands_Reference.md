@@ -12,13 +12,13 @@ audiosuite <command> <directory> [options]
 ## ENRICH commands
 
 The eleven tagging and analysis tools. Run them in this order for complete
-results: **Metadata Scrubber**, **Audio Fingerprinter**, **ReplayGain
-Analyzer**, **Album Genre Tagger**, **Genre Sync**, **BPM Analyzer**, **Tempo
-Analyzer**, **Key Detector**, **Mood Analyzer**, **Album Art Sync**, **Lyrics
-Manager**. The order matters in two places only: Tempo Analyzer reads the BPM
-tag that BPM Analyzer writes, and Album Genre Tagger writes the album-level
-genre (`ALBUMGENRE`) before Genre Sync derives each file's `Genre` from that
-hierarchy.
+results: **Metadata Scrubber**, **Audio Fingerprinter**,
+**ReplayGain Analyzer**, **Album Genre Tagger**, **Genre Sync**,
+**BPM Analyzer**, **Tempo Analyzer**, **Key Detector**, **Mood Analyzer**,
+**Album Art Sync**, **Lyrics Manager**. The order matters in two places only:
+Tempo Analyzer reads the BPM tag that BPM Analyzer writes, and Album Genre
+Tagger writes the album-level genre (`ALBUMGENRE`) before Genre Sync derives
+each file's `Genre` from that hierarchy.
 
 Every command that changes a file accepts `--dry` / `--live` (analyse only, or
 write) and `--json` / `--text` (one JSON document on stdout, or the report);
@@ -1341,9 +1341,9 @@ GUI and CLI differ only in what starts them:
 
 ### Undo Batch
 
-List, inspect, and revert the undo batches written by batch tools (BPM
-Analyzer, Tempo Analyzer, Mood Analysis Batch Tagger, Tag Field Updater, File
-Reorganizer). A batch collects every file a single run touched; `undo`
+List, inspect, and revert the undo batches written by batch tools
+(BPM Analyzer, Tempo Analyzer, Mood Analysis Batch Tagger, Tag Field Updater,
+File Reorganizer). A batch collects every file a single run touched; `undo`
 restores the pre-run tags or reverses file copies/moves.
 
 ```bash

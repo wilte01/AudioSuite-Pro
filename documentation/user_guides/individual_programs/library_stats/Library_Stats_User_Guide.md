@@ -5,7 +5,7 @@ subtitle: Based on the current Library Statistics implementation
 
 ## Overview
 
-Library Statistics Dashboard scans a music library and aggregates metadata that is already present in audio tags. It is read-only: it does not analyze audio, detect new values, or write tags. The dashboard shows summary counts, charts, missing-data lists, and tag completeness results.
+Library Statistics Dashboard scans a music library and aggregates metadata that is already present in audio tags. It is read-only: it does not analyse audio, detect new values, or write tags. The dashboard shows summary counts, charts, missing-data lists, and tag completeness results.
 
 The window has eight tabs: Setup holds the folder, the scan mode and the actions; Processing shows the scan's progress and status; Results appears when a scan finishes, with the counters, the run report and the scanned folder; and Summary, Charts, Missing Data, Completeness and Artwork Gaps hold the dashboard itself.
 
@@ -103,14 +103,14 @@ A finished pass updates the album list and the Artwork Coverage figure by itself
 ## Statistics and Binning
 
 - **BPM: **Grouped into <60, 60-79, 80-99, 100-119, 120-139, 140-159, 160-179, and 180+ bins.
-- **Keys: **Aggregated by exact key text and classified into major/minor where the notation is recognized.
+- **Keys: **Aggregated by exact key text and classified into major/minor where the notation is recognised.
 - **Moods: **Semicolon-separated mood values are counted as individual mood labels.
 - **Years: **Parsed years are grouped into decade labels; missing or unparseable years are Unknown.
 - **Albums: **Distinct artist/album pairs are counted as albums.
 
 ## Exports
 
-After a scan, Export lets the GUI save the same scan in four shapes, chosen by the file extension you give the dialog. The CSV is intended for spreadsheet use; JSON contains the serialized StatsReport, including distributions, missing-data counts, top lists, and scan details. Completeness has separate CSV and JSON export buttons.
+After a scan, Export lets the GUI save the same scan in four shapes, chosen by the file extension you give the dialog. The CSV is intended for spreadsheet use; JSON contains the serialised StatsReport, including distributions, missing-data counts, top lists, and scan details. Completeness has separate CSV and JSON export buttons.
 
 | Format | What it is |
 | --- | --- |
@@ -136,7 +136,7 @@ Files are written in playlist order — album artist, then album, then track num
 
 ### The Camelot Wheel
 
-The Camelot code is a pure mapping from the key the Key Detector already wrote, so nothing extra is analyzed:
+The Camelot code is a pure mapping from the key the Key Detector already wrote, so nothing extra is analysed:
 
 | Key | Camelot | Key | Camelot |
 | --- | --- | --- | --- |
@@ -174,7 +174,7 @@ Options include --incremental, --refresh, --export-csv, --export-json, --export 
 - **No files found: **Select the correct folder and confirm it contains supported audio files in the directory tree.
 - **Charts are unavailable: **Install matplotlib in the active environment; Summary, Missing Data, and Completeness do not depend on charts.
 - **Counts look stale: **Click Refresh to clear the selected directory's cache and rebuild it from current files.
-- **A tag appears missing: **The dashboard only reports existing readable tags; run the relevant analyzer or tagger first if the field has not been created.
+- **A tag appears missing: **The dashboard only reports existing readable tags; run the relevant analyser or tagger first if the field has not been created.
 - **Export is disabled: **Complete a scan before exporting. Empty reports cannot be exported from the GUI.
 - **A playlist is in the wrong order: **Order is album artist, album, track number, then filename. A file with a missing or non-numeric track number sorts after its numbered siblings; tagging the track numbers fixes the order.
 - **A Camelot column is empty: **The file has no key tag, or the Key Detector found none worth tagging. Run the Key Detector first.
