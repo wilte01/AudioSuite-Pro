@@ -32,6 +32,13 @@ copies the ``[Unreleased]`` body verbatim and nothing required a category - so
 the six Keep a Changelog headings are restored across 70 bullets and now
 enforced, with the bold lead-in deciding the category exactly as it decides the
 audience.
+
+Changed in 2.7.0: adds ``TestChangelogSpelling``.  ``AGENTS.md`` requires British
+spelling in both change-history files, but no gate read them for it - the
+2026-11-13 wording pass found stray ``artifact``, ``analyzer``, ``normalized``
+and ``materializes`` in the technical file alone.  A product name, a shipped
+option, a file name and a quoted message keep their spelling, so each allowance
+carries a reason and must still match a real line.
 """
 
 from __future__ import annotations
@@ -466,3 +473,180 @@ class TestChangelogCategoryLockCanFail:
     def test_it_accepts_a_bullet_under_a_category(self) -> None:
         """The positive control: the checker is not simply always angry."""
         assert _bullets_under_no_category(["### Fixed", "", "- **A fix.** Ok."]) == []
+
+
+#: American spellings the changelogs must not use, with the British form to use.
+#: ``licensed`` is deliberately absent: it is the British verb, while the noun is
+#: ``licence``.  A word that already ends in ``-ise`` never matches these.
+AMERICAN_SPELLINGS: tuple[tuple[str, str], ...] = (
+    (r"\bbehavior(s|al)?\b", "behaviour"),
+    (r"\bcolors?\b", "colour"),
+    (r"\bcolored\b", "coloured"),
+    (r"\bcenters?\b", "centre"),
+    (r"\bcentered\b", "centred"),
+    (r"\bgray(ed)?\b", "grey"),
+    (r"\bdefense\b", "defence"),
+    (r"\bfulfill\w*\b", "fulfil"),
+    (r"\benroll\w*\b", "enrol"),
+    (r"\bcanceled\b", "cancelled"),
+    (r"\btraveled\b", "travelled"),
+    (r"\bmodeled\b", "modelled"),
+    (r"\blabeled\b", "labelled"),
+    (r"\bfavors?\b", "favour"),
+    (r"\bfavored\b", "favoured"),
+    (r"\bhonors?\b", "honour"),
+    (r"\bhonored\b", "honoured"),
+    (r"\bskeptic\w*\b", "sceptic"),
+    (r"\bjudgment\b", "judgement"),
+    (r"\backnowledgment\b", "acknowledgement"),
+    (r"\baluminum\b", "aluminium"),
+    (r"\bmaneuver\w*\b", "manoeuvre"),
+    (r"\bpracticing\b", "practising"),
+    (r"\banalyz(e|ed|es|ing)\b", "analyse"),
+    (r"\banalyzers?\b", "analyser"),
+    (r"\bnormaliz(e|ed|es|ing|ation)\b", "normalise"),
+    (r"\bnormalizers?\b", "normaliser"),
+    (r"\borganiz(e|ed|es|ing|ation)\b", "organise"),
+    (r"\borganizers?\b", "organiser"),
+    (r"\brecogniz\w*\b", "recognise"),
+    (r"\bserializ\w*\b", "serialise"),
+    (r"\bsynchroniz\w*\b", "synchronise"),
+    (r"\binitializ\w*\b", "initialise"),
+    (r"\bcustomiz\w*\b", "customise"),
+    (r"\bcategoriz\w*\b", "categorise"),
+    (r"\bprioritiz\w*\b", "prioritise"),
+    (r"\bsummariz\w*\b", "summarise"),
+    (r"\butiliz\w*\b", "utilise"),
+    (r"\bmaterializ\w*\b", "materialise"),
+    (r"\bartifact(s)?\b", "artefact"),
+    (r"\bcatalog\b", "catalogue"),
+    (r"\blicense\b", "licence (the noun)"),
+    (r"\blicenses\b", "licences (the noun)"),
+)
+
+#: ``(snippet, reason)`` pairs that legitimately carry an American form.  A match
+#: is allowed only when it lies *inside* one of these snippets, so a line that
+#: names a tool cannot hide a real American spelling beside it, and every entry
+#: must still match a line in one of the files or it is dead weight.
+ALLOWED_SPELLINGS: tuple[tuple[str, str], ...] = (
+    ("File Reorganizer", "the tool's shipped name"),
+    ("Audio Normalizer", "the tool's shipped name"),
+    ("Album Art Normalizer", "the tool's shipped name"),
+    ("BPM Analyzer", "the tool's shipped name"),
+    ("Mood Analyzer", "the tool's shipped name"),
+    ("Tempo Analyzer", "the tool's shipped name"),
+    ("ReplayGain Analyzer", "the tool's shipped name"),
+    ("Analyzer:", "the batch-verdict example wraps 'BPM Analyzer' over a line"),
+    ("Error initializing the muxer", "a quoted FFmpeg error message"),
+    ("LICENSE", "the licence file's name"),
+    ("licenses\\", "the installed licences folder's name"),
+    ("packaging/licenses", "the source-checkout licences folder's name"),
+    ("--normalize-mp3", "the shipped command-line option"),
+    ("partially initialized module", "a quoted interpreter error message"),
+)
+
+#: Floors the spelling scan must clear, so a broken table cannot pass quietly.
+MIN_SPELLING_PATTERNS = 25
+MIN_ALLOWANCES = 8
+MIN_SPELLING_LINES = 1000
+
+
+def _allowed_spelling(line: str, match: re.Match[str]) -> bool:
+    """Whether *match* sits inside an allowlisted snippet on *line*."""
+    for snippet, _reason in ALLOWED_SPELLINGS:
+        start = line.find(snippet)
+        while start != -1:
+            if start <= match.start() and match.end() <= start + len(snippet):
+                return True
+            start = line.find(snippet, start + 1)
+    return False
+
+
+def spelling_offences(text: str) -> list[str]:
+    """Return every American spelling in *text* that no allowance covers.
+
+    Args:
+        text: A changelog's full source.
+
+    Returns:
+        One ``line: word - use 'british'`` report per offending word.
+    """
+    offences: list[str] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        for pattern, british in AMERICAN_SPELLINGS:
+            for match in re.finditer(pattern, line, re.IGNORECASE):
+                if _allowed_spelling(line, match):
+                    continue
+                offences.append(
+                    f"{number}: {match.group(0)!r} should be {british!r} - "
+                    f"{line.strip()[:60]}"
+                )
+    return offences
+
+
+class TestChangelogSpelling:
+    """Both change-history files are written in British English.
+
+    The rule is in ``AGENTS.md`` (*Change History Follows Its Audience*), and
+    nothing read the two files for it: they are prose, so no compiler, linter or
+    formatter sees them, and the 2026-11-13 wording pass found stray
+    ``artifact``, ``analyzer``, ``normalized`` and ``materializes`` in the
+    technical file alone.  A product name, a shipped option, a file name and a
+    quoted message keep their spelling, so each is allowlisted with its reason.
+    """
+
+    def test_the_scan_sees_the_words(self) -> None:
+        """A collapsed table must fail rather than report every file clean."""
+        assert len(AMERICAN_SPELLINGS) >= MIN_SPELLING_PATTERNS
+        assert len(ALLOWED_SPELLINGS) >= MIN_ALLOWANCES
+        for path in CHANGELOGS:
+            lines = _lines(path)
+            assert len(lines) >= MIN_SPELLING_LINES, (
+                f"{path.name} spelling scan collapsed: {len(lines)} lines"
+            )
+
+    @pytest.mark.parametrize("path", CHANGELOGS, ids=lambda path: path.name)
+    def test_no_american_spelling_survives(self, path: Path) -> None:
+        """Every word the table names is British, or inside an allowance."""
+        offences = spelling_offences(path.read_text(encoding="utf-8"))
+        assert not offences, (
+            f"{path.name} uses American spellings - use the British form, or add "
+            "an allowlist entry with a reason when the word is a name or a "
+            "quotation:\n  " + "\n  ".join(offences)
+        )
+
+    def test_every_allowance_is_load_bearing(self) -> None:
+        """A stale allowance would pre-approve the next American spelling."""
+        text = "\n".join(path.read_text(encoding="utf-8") for path in CHANGELOGS)
+        stale = [
+            f"{snippet!r} ({reason})"
+            for snippet, reason in ALLOWED_SPELLINGS
+            if snippet not in text
+        ]
+        assert not stale, (
+            "these spelling allowances match no changelog line, so they are dead "
+            "weight that would let a real offence through:\n  " + "\n  ".join(stale)
+        )
+
+    def test_the_check_rejects_the_spellings_it_was_added_for(self) -> None:
+        """The proof it can fail, kept as a test rather than a one-off run."""
+        for line in (
+            "The artifact is gone.",
+            "The analyzer reported no tempo.",
+            "A normalized-float path.",
+            "The runner materializes a fixture.",
+            "The behavior is unchanged.",
+            "The license is checked.",
+        ):
+            assert spelling_offences(line), line
+
+    def test_the_check_accepts_british_prose_and_allowlisted_names(self) -> None:
+        """The positive control: the checker is not simply always angry."""
+        accepted = (
+            "The artefact is gone; the analyser reported no tempo.",
+            "Normalise the behaviour before the materialised fixture.",
+            "BPM Analyzer writes the tag Tempo Analyzer reads.",
+            "The suite reads the `licenses\\` folder and the `LICENSE` file.",
+        )
+        for line in accepted:
+            assert spelling_offences(line) == [], line

@@ -18,6 +18,19 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **Both change-history files are checked for British spelling.**
+  `TestChangelogSpelling` scans `CHANGELOG.md` and `TECHNICAL_CHANGELOG.md`
+  against a table of American forms with the British replacement for each, and
+  prints every offence with its line number. A product name, a shipped option, a
+  file name or a quoted message keeps its spelling, so those are
+  `(snippet, reason)` allowances; the lock fails when one matches no line, which
+  keeps an allowance from pre-approving the next real offence, and it asserts a
+  floor on the table, the allowances and the scanned lines so a collapsed scan
+  cannot report both files clean. The 2026-11-13 wording pass rewrote
+  `CHANGELOG.md` in plain English and brought this file's artefact, analyse and
+  normalise spellings into line; `AGENTS.md` gained the audience rule and the
+  spelling rule, the first of which no gate can decide.
+
 - **A dry run's Normalise preview measures the processed audio.** It used to
   measure the source file, which with any stage ahead of Normalise quoted a
   level the live run never used (`-15.9` against `-20.8` LUFS on the guide's
@@ -460,8 +473,8 @@ and every bullet belongs to exactly one of them.
   an argv[0], `find_ffmpeg()`/`find_ffprobe()` answering None so a caller that
   can degrade asks a question instead of parsing the bare-name sentinel, and
   `require_ffmpeg()`/`require_ffprobe()` raising `AudioMissingDependencyError`
-  with a `dependency` context. The resolver moved out of the Audio
-  Normalizer's package, which three tools imported from, and replaced the
+  with a `dependency` context. The resolver moved out of the
+  Audio Normalizer's package, which three tools imported from, and replaced the
   four hand-rolled lookups in the Audio Enhancer, Audio Refinery, shared
   analysis loader and the refiner's test helper - including the one that
   resolved a path and then handed the wrapper the literal `"ffmpeg"`. The
@@ -586,14 +599,14 @@ and every bullet belongs to exactly one of them.
   `fpcalc.exe`) is unchanged, but a one-file build now finds the copy
   unpacked into `sys._MEIPASS` rather than the one beside the checkout.
   FFmpeg's own `C:\ffmpeg\bin` became a parameter, so it can never answer for
-  a binary that is not FFmpeg. The ReplayGain analyzer's
+  a binary that is not FFmpeg. The ReplayGain Analyzer's
   `get_resource_path` — a bundle-aware helper whose last caller converged on
   D-39 — is gone, with the test that asserted it returned a string, and the
   reuse lock now fails on any shipped module outside the resolver that reads
   `sys._MEIPASS`.
 
 - **The reuse lock sees the second way a module can pick FFmpeg.** It only
-  recognised `shutil.which("ffmpeg")`, so the ReplayGain analyzer's
+  recognised `shutil.which("ffmpeg")`, so the ReplayGain Analyzer's
   `get_resource_path("ffmpeg.exe")` plus `os.path.exists` passed the sweep that
   found every other copy. `_joins_a_binary_path` now flags a spelled-out
   binary name handed to a path builder - `os.path.join`, `Path`, a
@@ -603,7 +616,7 @@ and every bullet belongs to exactly one of them.
   self-check drives the exact shape that slipped through, so the lock cannot
   pass by only knowing the form it already caught.
 
-- **The ReplayGain analyzer runs the shared FFmpeg.** Its
+- **The ReplayGain Analyzer runs the shared FFmpeg.** Its
   `core/ffmpeg_metrics.py` had the last hand-rolled lookup in the tree: a
   Windows-only `ffmpeg.exe` beside `core/`, the bare name everywhere else. It
   now returns `FFMPEG_PATH`, and the frozen-bundle directory that branch was
@@ -1209,9 +1222,9 @@ and every bullet belongs to exactly one of them.
 - **Two test modules regained the imports their surviving helpers use.** The
   standalone batch processor's removal (U-04) took `MagicMock` and `Queue`
   (and, in the silence trimmer's suite, `threading`) with it while helpers
-  stayed behind, which left `ruff check` red on the working tree. The
-  normalizer suite imports them again; the trimmer's suite drops the orphaned
-  `_make_slot_deps` helper instead, so no dead scaffold remains.
+  stayed behind, which left `ruff check` red on the working tree.
+  The Audio Normalizer's suite imports them again; the trimmer's suite drops
+  the orphaned `_make_slot_deps` helper instead, so no dead scaffold remains.
 
 ## [2.3.0] - 2026-10-31
 
@@ -1571,15 +1584,15 @@ and every bullet belongs to exactly one of them.
   31 guides now has a `.md` source beside its `.docx`, rendered by
   `utilities/build_user_guides.py`, so the prose is reviewable as text and the
   Word file cannot drift from it. `--check` compares zip-entry data to prove
-  every artifact is what the renderer produces today.
+  every artefact is what the renderer produces today.
 - **The reference is one Sphinx site built from Markdown pages.** `docs/` now
   holds the front door, the API reference generated from `audio_suite_shared`'s
   docstrings, the plugin guide, the resilience and user pages, all Markdown
   rendered by MyST from the configuration the build gate reads. A shared module
   the API page does not render fails the suite.
-- **The documentation artifact no longer ships `AGENTS.md`.** The copy existed
+- **The documentation artefact no longer ships `AGENTS.md`.** The copy existed
   only because `docs/index.md` linked the repository's instruction file, and
-  that link is gone: the artifact now carries what its pages reference and
+  that link is gone: the artefact now carries what its pages reference and
   nothing else. The file is guidance for people working in the checkout, not an
   end-user document, and the zip is handed to whoever opens it. A lock fails if
   it returns to the staging list or the publish root.
@@ -1717,13 +1730,13 @@ and every bullet belongs to exactly one of them.
   under `tests/data/external/` (one JSON per external file) now capture what the
   repository asserts about such a file — its path template, its twin, the
   provenance of the recorded bytes, and the headings and markers the claims
-  rest on — and `tests/external_records.py` materializes a baseline fixture from
+  rest on — and `tests/external_records.py` materialises a baseline fixture from
   the record, so the live-file checks (headings, verdict markers, the
   hardlinked twin) run on every host instead of skipping for a missing file.
   The record is the contract: a heading or marker that disappears without a
   deliberate re-record is drift, and a change to the record belongs in review.
   CI runs those locks against an empty home directory and fails if any of them
-  skips, so the runner proves the materialized-fixture path itself rather than
+  skips, so the runner proves the materialised-fixture path itself rather than
   inheriting a developer host's real file. The count of locks each module
   collects is generated from a passing run into `tests/data/lock_counts.json`
   by `python -m tests.lock_counts --write` rather than typed into the workflow,
@@ -1842,12 +1855,12 @@ files.
 ### Changed
 
 - **All DSP converts at the boundary through one clipping-protected
-  normalized-float path** (`audio_suite_shared/audio_conversion.py`), with
+  normalised-float path** (`audio_suite_shared/audio_conversion.py`), with
   clip-event warnings logged and a post-chain peak warning in the Refinery
   Enhance stage.
 - **Suite-wide engineering gates established:** `mypy --strict` clean,
   coverage with `fail_under = 75` enforced, measured golden-vector tests for
-  the Key/BPM/Tempo/Mood analyzers, and contract locks on CLI/launcher/
+  the Key, BPM, Tempo and Mood tools, and contract locks on CLI/launcher/
   guide/card registration.
 
 ### Removed

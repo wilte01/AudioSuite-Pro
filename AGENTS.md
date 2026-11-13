@@ -1121,6 +1121,32 @@ sits in — not its wording and not its size:
   `workflow`, `ruff`, `mypy`, `coverage`, `benchmark`, `lint`), and every
   allowlist entry records its reason. A bullet that mixes the two is **split**:
   the user-observable statement stays, its evidence moves.
+- **A user-facing bullet is written for the person who uses the suite.** The
+  file is rendered by the in-app *What's New* panel, so its reader may not know
+  what a callback, a muxer or a resolution is. Lead with what the user can now
+  do or will now see; explain a technical term the first time it appears (LUFS,
+  true peak, dry run, container); keep a number only where it changes the
+  decision to upgrade; and leave module paths, class names and helper names out
+  - they tell the reader nothing they can act on, and they are what
+  `TECHNICAL_CHANGELOG.md` exists for. Evidence: the 2026-11-13 user report that
+  the file was "often not understandable by a non-technical user", which led to
+  the whole file being rewritten in plain English.
+- **User-facing prose uses British English.** Verbs take `-ise` (normalise,
+  organise, recognise, analyse, serialise, prioritise), nouns take `-our`
+  (behaviour, colour, favour) and `-re` (centre, metre), and the spellings are
+  `licence` as a noun with `license` as a verb, `catalogue`, `grey`, `artefact`,
+  `judgement`, `cancelled`, `labelled`, `modelled`, `fulfil`, `enrol`,
+  `defence`, `sceptical`. Three cases are not spelling choices: a product name
+  keeps its shipped spelling (`File Reorganizer`, `Audio Normalizer`, `Album Art
+  Normalizer`), so does a command-line option (`--normalize-mp3`), and so does a
+  file name or a quoted message (`LICENSE`, the `licenses/` folder, an FFmpeg
+  error text) - renaming any of them is a product change, not a correction.
+  The rule governs both change-history files and new or edited guide prose.
+  `tests/test_changelog_format.py::TestChangelogSpelling` enforces it on the
+  two change-history files: it scans them against a table of American forms,
+  and every allowance carries a reason and must still match a real line. A
+  guide is prose a reviewer reads, so its spelling is checked in review, not
+  by a gate.
 - **Every released section is grouped under the six Keep a Changelog
   categories**, in this order: `### Added`, `### Changed`, `### Deprecated`,
   `### Removed`, `### Fixed`, `### Security`. The vocabulary is closed - a
