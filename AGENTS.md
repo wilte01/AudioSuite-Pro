@@ -1141,10 +1141,12 @@ sits in — not its wording and not its size:
   Normalizer`), so does a command-line option (`--normalize-mp3`), and so does a
   file name or a quoted message (`LICENSE`, the `licenses/` folder, an FFmpeg
   error text) - renaming any of them is a product change, not a correction.
-  The rule governs both change-history files and new or edited guide prose,
-  and both are enforced: one table in `tests/spelling.py` serves
-  `test_changelog_format.py::TestChangelogSpelling` for the two change-history
-  files and `test_guide_spelling.py::TestGuideSpelling` for the guides' prose.
+  The rule governs both change-history files, the guides and the Sphinx pages
+  under `documentation/docs`, and every corpus is enforced: one table in
+  `tests/spelling.py` serves `test_changelog_format.py::TestChangelogSpelling`
+  for the two change-history files, `test_guide_spelling.py::TestGuideSpelling`
+  for the guides' prose and `test_docs_spelling.py::TestDocsSpelling` for the
+  Sphinx pages.
   Every allowance carries a reason and must still match a real line. A fenced
   block and an inline code span are code rather than prose, so a command or a
   value keeps the spelling the program accepts - `--normalize-mp3` and the

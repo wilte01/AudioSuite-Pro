@@ -1,10 +1,10 @@
-"""The suite's one British-spelling checker, shared by its two prose locks.
+"""The suite's one British-spelling checker, shared by its three prose locks.
 
 ``AGENTS.md`` (*Change History Follows Its Audience*) requires British spelling in
-the change-history files and in the shipped guides. Prose is invisible to every
-other gate - no compiler, linter or formatter reads it - so this module holds the
-table once and both locks import it, and a word added here is added everywhere
-instead of in two drifting copies.
+the change-history files and in the shipped prose - the guides and the Sphinx
+pages. Prose is invisible to every other gate - no compiler, linter or formatter
+reads it - so this module holds the table once and every lock imports it, and a
+word added here is added everywhere instead of in three drifting copies.
 
 The exception this module exists to make mechanical: a product name, a shipped
 label, a command name and a file or folder name keep their spelling, because
@@ -14,8 +14,13 @@ an allowance, and each lock asserts its own allowances still match a real line s
 a stale entry cannot pre-approve the next offence.
 
 Changed in 2.7.0: the table, the allowances and ``spelling_offences`` moved here
-from ``tests/test_changelog_format.py`` so the new guide lock
+from ``tests/test_changelog_format.py`` so the guide lock
 (``tests/test_guide_spelling.py``) reads the same implementation (D-27).
+
+Changed in 2.7.0: the prose extraction is named for prose rather than for guides,
+because the Sphinx pages under ``documentation/docs`` are checked by the same
+walk and the same allowances (D-28). They were clean on the first run, which is
+the point of locking them: nothing else reads that prose either.
 """
 
 from __future__ import annotations
@@ -74,8 +79,8 @@ AMERICAN_SPELLINGS: tuple[tuple[str, str], ...] = (
 )
 
 #: The tool names that ship with an American spelling.  Their labels are part of
-#: the product, so the guides and both change-history files quote them as they
-#: are; changing one would be a rename, not a correction.
+#: the product, so the prose quotes them as they are; changing one would be a
+#: rename, not a correction.
 SHIPPED_NAMES: tuple[tuple[str, str], ...] = (
     ("File Reorganizer", "the tool's shipped name"),
     ("Audio Normalizer", "the tool's shipped name"),
@@ -101,10 +106,12 @@ CHANGELOG_ALLOWANCES: tuple[tuple[str, str], ...] = SHIPPED_NAMES + (
     ("partially initialized module", "a quoted interpreter error message"),
 )
 
-#: The same idea for the shipped guides, plus the labels and names that only
-#: appear there: a button caption, a bulk-operation caption, the registered
-#: command name and the installed folder's name.
-GUIDE_ALLOWANCES: tuple[tuple[str, str], ...] = SHIPPED_NAMES + (
+#: The same idea for shipped prose - the user guides and the Sphinx pages: a
+#: button caption, a bulk-operation caption, the registered command name, the
+#: shipped flag and the installed folder's name.  The guides use every entry, so
+#: ``TestGuideSpelling`` proves each one still matches a line; the docs pages
+#: quote the same shipped text and add no allowance of their own.
+PROSE_ALLOWANCES: tuple[tuple[str, str], ...] = SHIPPED_NAMES + (
     ("BEGIN ARTWORK NORMALIZATION", "the button caption the tool ships"),
     ("Normalize Slashes", "the bulk-operation caption the Tag Editor ships"),
     ("mood-analyzer", "the registered command name"),
@@ -118,9 +125,12 @@ MIN_ALLOWANCES = 8
 MIN_SPELLING_LINES = 1000
 MIN_GUIDES = 30
 MIN_GUIDE_PROSE_LINES = 1000
+MIN_DOCS_PAGES = 6
+MIN_DOCS_PROSE_LINES = 600
 
-#: Where the shipped guides live, relative to the repository root.
+#: The two prose corpora, relative to the repository root.
 GUIDE_ROOT = Path("documentation/user_guides")
+DOCS_ROOT = Path("documentation/docs")
 
 #: A fenced code block, and an inline code span, are code rather than prose: a
 #: command or a value keeps the spelling the program accepts.
@@ -176,15 +186,15 @@ def spelling_offences(
     return offences
 
 
-def guide_prose(text: str) -> list[tuple[int, str]]:
-    """Return ``(line number, prose)`` for a guide, with its code removed.
+def prose_lines(text: str) -> list[tuple[int, str]]:
+    """Return ``(line number, prose)`` for a page, with its code removed.
 
     A fenced block is dropped whole, and an inline span is blanked in place, so a
     command such as ``--normalize-mp3`` or a value such as ``gray`` is not prose
     and cannot be spelled wrong.
 
     Args:
-        text: A guide's full Markdown source.
+        text: A page's full Markdown source.
 
     Returns:
         Every remaining line with its original line number.
@@ -204,22 +214,23 @@ def guide_prose(text: str) -> list[tuple[int, str]]:
     return out
 
 
-def guide_prose_offences(text: str) -> list[str]:
-    """Return every American spelling in a guide's prose.
+def prose_offences(
+    text: str, allowances: Iterable[tuple[str, str]] = PROSE_ALLOWANCES
+) -> list[str]:
+    """Return every American spelling in a page's prose.
 
     Args:
-        text: A guide's full Markdown source.
+        text: A page's full Markdown source.
+        allowances: The ``(snippet, reason)`` pairs excused in shipped prose.
 
     Returns:
         One ``line: word - use 'british'`` report per offending word.
     """
     offences: list[str] = []
-    for number, prose in guide_prose(text):
+    for number, prose in prose_lines(text):
         for pattern, british in AMERICAN_SPELLINGS:
             for match in re.finditer(pattern, prose, re.IGNORECASE):
-                if allowed_spelling(
-                    match.string, match.start(), match.end(), GUIDE_ALLOWANCES
-                ):
+                if allowed_spelling(prose, match.start(), match.end(), allowances):
                     continue
                 offences.append(
                     f"{number}: {match.group(0)!r} should be {british!r} - "

@@ -18,6 +18,19 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **The Sphinx pages are checked for British spelling as well.** The pages
+  under `documentation/docs` are prose too, and they were the one corpus no
+  lock read: `TestDocsSpelling` now walks the eight pages, drops fenced blocks
+  and blanks inline code spans exactly as the guide lock does, and fails on a
+  short walk or a page left with almost no prose. It reuses `tests/spelling.py`,
+  so the table and the shipped-text allowances are the ones
+  `TestGuideSpelling` already asserts load-bearing, and it is registered in the
+  docs-locks job - whose classification walk would otherwise leave a new
+  `test_docs*` module unclassified and therefore unrunnable at that point in CI.
+  The first run measured 965 prose lines across the eight pages and no offence,
+  so this adds no wording change: it is the gate that keeps the next one from
+  landing.
+
 - **The shipped guides are checked for British spelling too.** `AGENTS.md`
   applies the rule to guide prose as well as the change-history files, and only
   the latter were read. The table, the allowances and the scanner moved to

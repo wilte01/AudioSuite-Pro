@@ -25,13 +25,13 @@ import pytest
 
 from tests.spelling import (
     AMERICAN_SPELLINGS,
-    GUIDE_ALLOWANCES,
     GUIDE_ROOT,
     MIN_GUIDE_PROSE_LINES,
     MIN_GUIDES,
     MIN_SPELLING_PATTERNS,
-    guide_prose,
-    guide_prose_offences,
+    PROSE_ALLOWANCES,
+    prose_lines,
+    prose_offences,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -47,19 +47,19 @@ class TestGuideSpelling:
             f"the guide walk found {len(GUIDES)} files, expected at least "
             f"{MIN_GUIDES} under {GUIDE_ROOT}"
         )
-        prose_lines = sum(
-            len(guide_prose(guide.read_text(encoding="utf-8"))) for guide in GUIDES
+        total_prose = sum(
+            len(prose_lines(guide.read_text(encoding="utf-8"))) for guide in GUIDES
         )
-        assert prose_lines >= MIN_GUIDE_PROSE_LINES, (
-            f"only {prose_lines} prose lines survived the code fence filter"
+        assert total_prose >= MIN_GUIDE_PROSE_LINES, (
+            f"only {total_prose} prose lines survived the code fence filter"
         )
         assert len(AMERICAN_SPELLINGS) >= MIN_SPELLING_PATTERNS
-        assert len(GUIDE_ALLOWANCES) >= 8
+        assert len(PROSE_ALLOWANCES) >= 8
 
     @pytest.mark.parametrize("guide", GUIDES, ids=lambda path: path.stem)
     def test_no_american_spelling_survives(self, guide: Path) -> None:
         """Every word the table names is British, or inside an allowance."""
-        offences = guide_prose_offences(guide.read_text(encoding="utf-8"))
+        offences = prose_offences(guide.read_text(encoding="utf-8"))
         assert not offences, (
             f"{guide.name} uses American spellings - use the British form, or add a "
             "guide allowance with a reason when the word is a shipped name, label "
@@ -71,7 +71,7 @@ class TestGuideSpelling:
         text = "\n".join(guide.read_text(encoding="utf-8") for guide in GUIDES)
         stale = [
             f"{snippet!r} ({reason})"
-            for snippet, reason in GUIDE_ALLOWANCES
+            for snippet, reason in PROSE_ALLOWANCES
             if snippet not in text
         ]
         assert not stale, (
@@ -82,12 +82,12 @@ class TestGuideSpelling:
     def test_an_inline_code_span_is_not_prose(self) -> None:
         """A value keeps the spelling the program accepts."""
         text = "- Run `normalise --normalize-mp3` and set the map to `gray`.\n"
-        assert guide_prose_offences(text) == []
+        assert prose_offences(text) == []
 
     def test_a_fenced_block_is_not_prose(self) -> None:
         """A command in a fence is code, including a flag the tool really has."""
         text = "Run this:\n\n```bash\nnormalise --normalize-mp3 in.mp3\n```\n"
-        assert guide_prose_offences(text) == []
+        assert prose_offences(text) == []
 
     def test_it_rejects_the_prose_it_was_added_for(self) -> None:
         """The proof it can fail, kept as a test rather than a one-off run."""
@@ -99,7 +99,7 @@ class TestGuideSpelling:
             "The engine normalizes separators.",
             "The notation is recognized.",
         ):
-            assert guide_prose_offences(line), line
+            assert prose_offences(line), line
 
     def test_it_accepts_a_shipped_caption_and_command(self) -> None:
         """The positive control: a product's own wording is not a typo."""
@@ -111,9 +111,9 @@ class TestGuideSpelling:
             "Open Album Art Normalizer from UTIL.",
         )
         for line in accepted:
-            assert guide_prose_offences(line) == [], line
+            assert prose_offences(line) == [], line
 
     def test_it_reports_the_line_number(self) -> None:
         """A failure has to point the reader at the line to fix."""
-        offences = guide_prose_offences("Fine.\nAlso fine.\nThe analyzer ran.\n")
+        offences = prose_offences("Fine.\nAlso fine.\nThe analyzer ran.\n")
         assert offences and offences[0].startswith("3:"), offences

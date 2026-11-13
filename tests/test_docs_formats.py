@@ -33,8 +33,9 @@ suite matrix - and so the job cannot quietly lose a lock.
 
 Changed in 2.1.0: new file - the authored-format whitelist and the
 machine-specific path scan (PLAN_docs_consolidation P4.2, P4.3).
-Changed in 2.7.0: the docs-locks job also runs ``tests/test_guide_spelling.py``,
-the guide half of the British-spelling rule (D-27).
+Changed in 2.7.0: the docs-locks job also runs ``tests/test_guide_spelling.py``
+and ``tests/test_docs_spelling.py``, the guide and Sphinx-page halves of the
+British-spelling rule (D-27, D-28).
 Changed in 2.1.0: adds ``TestDocsLocksRunOnTheirOwn``, the lock behind the
 dedicated CI job (PLAN_docs_consolidation D22).
 Changed in 2.1.5: the job also runs ``tests/test_suite_docs_tool_coverage.py``,
@@ -107,6 +108,7 @@ DOCS_LOCKS: tuple[str, ...] = (
     "tests/test_user_guide_hygiene.py",
     "tests/test_docs_formats.py",
     "tests/test_docs_index.py",
+    "tests/test_docs_spelling.py",
     "tests/test_guide_claims.py",
     "tests/test_guide_resolution.py",
     "tests/test_guide_spelling.py",
