@@ -1,4 +1,6 @@
-# Changed in 2.7.0: the EQ rack, flags and driver emission are locked (F-S1).
+# Changed in 2.7.0: the EQ rack, flags and driver emission are locked (F-S1),
+# and the Dry Run's Normalise preview is locked to measuring the source file,
+# which is what the Audio Refinery guide's report excerpt relies on (D-22).
 """
 tests/test_pipeline_stages.py
 
@@ -1491,6 +1493,47 @@ class TestNormaliseDelivery:
 
         assert "lossless MP3 gain" in msg
         assert "Would adjust loudness from -24.0 to -14.0" in msg
+
+    def test_a_dry_run_preview_measures_the_source_file_not_the_processed_audio(
+        self, tmp_path: Path
+    ) -> None:
+        """The preview's level comes from the file, even with tone stages ahead.
+
+        The guide tells a reader that a Dry Run's Normalise line measures the
+        source, while a live run measures the audio EQ and Dynamics produced,
+        so the two can quote different starting levels for the same chain
+        (D-22).  That explanation is only true while the preview measures the
+        file: a dry run has no staged copy to measure, and one that started
+        measuring the processed audio would have to write one first.  This
+        holds the measured path and the call count, not the pipeline's flags.
+        """
+        from audio_refinery.core.models import FileResult
+        from audio_refinery.core.pipeline import _run_dry_run
+        from audio_suite_shared.dsp_eq import EqBand, EqSettings
+
+        source = tmp_path / "track.flac"
+        source.write_bytes(b"ORIGINAL-AUDIO-BYTES")
+        config = _normalise_config()
+        config.eq = True
+        config.eq_params = EqSettings(
+            bands=(EqBand(kind="highshelf", freq_hz=8000.0, gain_db=12.0, q=0.707),)
+        )
+        result = FileResult(path=source)
+        measured: list[str] = []
+
+        def _measure(path: str, *_args: Any) -> dict[str, float]:
+            measured.append(path)
+            return {"input_i": -21.5}
+
+        with patch("audio_normalizer.core.loudness.measure", side_effect=_measure):
+            _run_dry_run(_sine(1000), source, config, result, _noop_emit)
+
+        messages = {stage.stage: stage.message for stage in result.stages}
+        assert messages["EQ"] == "Applied 1 band(s): highshelf"
+        assert measured == [str(source)]
+        assert messages["Normalise"] == (
+            "Would adjust loudness from -21.5 to -14.0 LUFS"
+        )
 
 
 # ═════════════════════════════════════════════════════════════════════════════

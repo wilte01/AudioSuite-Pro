@@ -18,6 +18,15 @@ and every bullet belongs to exactly one of them.
 
 ### Added
 
+- **A dry run's Normalise preview is locked to measuring the source file.**
+  The guide's two report excerpts (D-22) explain that a Dry Run quotes the
+  source's loudness while a live run quotes the audio the earlier stages
+  produced, and the existing preview tests patch the measurement's return value,
+  so a switch to measuring the processed audio would have kept them green. The
+  new test drives `_run_dry_run` with a +12 dB highshelf ahead of Normalise,
+  records the path `audio_normalizer.core.loudness.measure` is called with, and
+  fails unless there is exactly one call and it names the source file.
+
 - **A guide figure can be a close-up of one panel.** `ToolPlan.panel_shots`
   photographs a single collapsible stage panel on its own: the panel is opened
   through its own Settings button, filled through the entries the panel already
