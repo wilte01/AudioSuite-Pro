@@ -493,6 +493,13 @@ SAMPLE_RUNS: Mapping[str, SampleRun] = {
         ),
         slots=_busy_slots("Converting"),
     ),
+    "pitch_time": SampleRun(
+        # The tool publishes the bare file name as each file's display line (its
+        # per-file report carries the seconds and the output name), so the
+        # sample run's lines are its own names rather than a bracketed token.
+        status="Processing files...",
+        lines=_FINISHED,
+    ),
     "replaygain_analyzer": SampleRun(
         # A measured file publishes an empty display line, so the list stays
         # empty during a healthy run; the slot grid and counters carry the
@@ -1489,6 +1496,21 @@ TOOL_PLANS: tuple[ToolPlan, ...] = (
         # the real window.
         window=(900, 1040),
         populate=GENERIC_POPULATE,
+    ),
+    ToolPlan(
+        "pitch_time",
+        "pitch_time.app",
+        "PitchTimeApp",
+        # Measured on the real window: the Setup tab stacks a label column, the
+        # two value fields, the setting line and a four-line caption, and the
+        # figure stops above the caption's last line when the window is shorter.
+        window=(1083, 1132),
+        populate=GENERIC_POPULATE,
+        # Changed in 2.7.0: Processing and Results are empty until a run
+        # finishes, the state skip_tabs exists for.  The Setup figure is the one
+        # the guide needs: it shows the Change row, the two value fields and the
+        # setting line, which is the whole of what the window asks for.
+        skip_tabs=frozenset({"processing", "results"}),
     ),
     ToolPlan(
         "replaygain_analyzer",

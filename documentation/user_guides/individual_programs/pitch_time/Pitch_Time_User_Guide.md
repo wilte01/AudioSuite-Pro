@@ -36,6 +36,8 @@ before a long run.
 
 ## Setup Tab
 
+![The Setup tab: the Change row chooses Tempo or Pitch, the two value fields, the setting line and the Process Files button](images/setup.png)
+
 - **Source folder:** The folder holding the files. Every supported audio file directly inside it is processed; subfolders are not searched.
 - **Change:** Tempo changes the length at the same pitch; Pitch changes the pitch at the same length. The mode and the value together are the setting, and a run uses exactly one of them.
 - **Tempo rate (factor):** How many times faster the result plays. `1.25` plays a `1.000 s` file in `0.800 s`; `0.8` plays it in `1.250 s`. The accepted range is `0.25` to `4.0`.
